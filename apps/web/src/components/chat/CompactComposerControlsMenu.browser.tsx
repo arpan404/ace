@@ -1,4 +1,5 @@
-import { DEFAULT_MODEL_BY_PROVIDER, ModelSelection, RuntimeMode, ThreadId } from "@ace/contracts";
+/* eslint-disable react-doctor/async-parallel -- Browser interaction tests require sequential event ordering. */
+import { DEFAULT_MODEL_BY_PROVIDER, ModelSelection, ThreadId } from "@ace/contracts";
 import { buildProviderModelSelection } from "@ace/shared/model";
 import "../../index.css";
 
@@ -13,9 +14,7 @@ import { useComposerDraftStore } from "../../composerDraftStore";
 async function mountMenu(props?: {
   modelSelection?: ModelSelection;
   prompt?: string;
-  runtimeMode?: RuntimeMode;
   interactionModeShortcutLabel?: string | null;
-  onRuntimeModeChange?: (mode: RuntimeMode) => void;
 }) {
   const threadId = ThreadId.makeUnsafe("thread-compact-menu");
   const provider = props?.modelSelection?.provider ?? "claudeAgent";
@@ -122,7 +121,6 @@ async function mountMenu(props?: {
   const screen = await render(
     <CompactComposerControlsMenu
       interactionMode="default"
-      runtimeMode={props?.runtimeMode ?? "approval-required"}
       interactionModeShortcutLabel={props?.interactionModeShortcutLabel ?? null}
       traitsMenuContent={
         <TraitsMenuContent
@@ -136,7 +134,6 @@ async function mountMenu(props?: {
         />
       }
       onToggleInteractionMode={vi.fn()}
-      onRuntimeModeChange={props?.onRuntimeModeChange ?? vi.fn()}
     />,
     { container: host },
   );
@@ -265,23 +262,16 @@ describe("CompactComposerControlsMenu", () => {
     });
   });
 
-  it("shows access options and toggles runtime mode", async () => {
-    const onRuntimeModeChange = vi.fn();
-    await using _ = await mountMenu({
-      runtimeMode: "approval-required",
-      onRuntimeModeChange,
-    });
+  it("does not duplicate access controls in the overflow menu", async () => {
+    await using _ = await mountMenu();
 
     await page.getByLabelText("More composer controls").click();
 
     await vi.waitFor(() => {
       const text = document.body.textContent ?? "";
-      expect(text).toContain("Supervised");
-      expect(text).toContain("Full access");
-      expect(text).toContain("Andy");
+      expect(text).not.toContain("Access");
+      expect(text).not.toContain("Supervised");
+      expect(text).not.toContain("Full access");
     });
-
-    await page.getByRole("menuitemradio", { name: "Full access" }).click();
-    expect(onRuntimeModeChange).toHaveBeenCalledWith("full-access");
   });
 });

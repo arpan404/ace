@@ -23,9 +23,15 @@ import { resetThreadRightSidePanelState } from "../lib/rightSidePanelState";
 
 export function useHandleNewThread() {
   const projectIds = useStore(
-    useShallow((store) =>
-      store.projects.filter((project) => project.archivedAt === null).map((project) => project.id),
-    ),
+    useShallow((store) => {
+      const activeProjectIds: ProjectId[] = [];
+      for (const project of store.projects) {
+        if (project.archivedAt === null) {
+          activeProjectIds.push(project.id);
+        }
+      }
+      return activeProjectIds;
+    }),
   );
   const projectOrder = useUiStateStore((store) => store.projectOrder);
   const navigate = useNavigate();

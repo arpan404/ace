@@ -40,14 +40,13 @@ import {
 } from "lexical";
 import {
   createContext,
-  forwardRef,
   useCallback,
-  useContext,
   useEffect,
   useImperativeHandle,
   useLayoutEffect,
   useMemo,
   useRef,
+  use,
   type ClipboardEventHandler,
   type ReactElement,
   type Ref,
@@ -957,7 +956,7 @@ interface ComposerPromptEditorProps {
 }
 
 interface ComposerPromptEditorInnerProps extends ComposerPromptEditorProps {
-  editorRef: Ref<ComposerPromptEditorHandle>;
+  editorRef: Ref<ComposerPromptEditorHandle> | undefined;
 }
 
 function ComposerCommandKeyPlugin(props: {
@@ -1118,7 +1117,7 @@ function ComposerInlineTokenSelectionNormalizePlugin() {
 
 function ComposerInlineTokenBackspacePlugin() {
   const [editor] = useLexicalComposerContext();
-  const { onRemoveTerminalContext } = useContext(ComposerTerminalContextActionsContext);
+  const { onRemoveTerminalContext } = use(ComposerTerminalContextActionsContext);
 
   useEffect(() => {
     return editor.registerCommand(
@@ -1401,12 +1400,21 @@ function ComposerPromptEditorInner({
       );
       const terminalContextIds = collectTerminalContextIds($getRoot());
       const previousSnapshot = snapshotRef.current;
+      let hasSameTerminalContextIds =
+        previousSnapshot.terminalContextIds.length === terminalContextIds.length;
+      if (hasSameTerminalContextIds) {
+        for (const [index, id] of previousSnapshot.terminalContextIds.entries()) {
+          if (id !== terminalContextIds[index]) {
+            hasSameTerminalContextIds = false;
+            break;
+          }
+        }
+      }
       if (
         previousSnapshot.value === nextValue &&
         previousSnapshot.cursor === nextCursor &&
         previousSnapshot.expandedCursor === nextExpandedCursor &&
-        previousSnapshot.terminalContextIds.length === terminalContextIds.length &&
-        previousSnapshot.terminalContextIds.every((id, index) => id === terminalContextIds[index])
+        hasSameTerminalContextIds
       ) {
         return;
       }
@@ -1467,25 +1475,22 @@ function ComposerPromptEditorInner({
   );
 }
 
-export const ComposerPromptEditor = forwardRef<
-  ComposerPromptEditorHandle,
-  ComposerPromptEditorProps
->(function ComposerPromptEditor(
-  {
-    value,
-    cursor,
-    terminalContexts,
-    disabled,
-    placeholder,
-    className,
-    onRemoveTerminalContext,
-    onChange,
-    onCommandKeyDown,
-    onIssueTokenClick,
-    onPaste,
-  },
+export function ComposerPromptEditor({
+  value,
+  cursor,
+  terminalContexts,
+  disabled,
+  placeholder,
+  className,
+  onRemoveTerminalContext,
+  onChange,
+  onCommandKeyDown,
+  onIssueTokenClick,
+  onPaste,
   ref,
-) {
+}: ComposerPromptEditorProps & {
+  ref?: Ref<ComposerPromptEditorHandle>;
+}) {
   const initialValueRef = useRef(value);
   const initialTerminalContextsRef = useRef(terminalContexts);
   const initialConfig = useMemo<InitialConfigType>(
@@ -1526,4 +1531,4 @@ export const ComposerPromptEditor = forwardRef<
       />
     </LexicalComposer>
   );
-});
+}

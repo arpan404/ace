@@ -1,9 +1,11 @@
 import { ChevronLeftIcon, ChevronRightIcon, XIcon } from "lucide-react";
-import { AnimatePresence, motion } from "motion/react";
-import { memo, type ComponentProps } from "react";
+import { AnimatePresence, LazyMotion, domAnimation, m } from "motion/react";
+import { memo, useEffect, useRef, useState, type ComponentProps } from "react";
+import { createPortal } from "react-dom";
 
 import { InAppBrowser, type InAppBrowserMode } from "../InAppBrowser";
 import { Button } from "../ui/button";
+import { MODAL_LAYER_CLASS_NAME } from "../ui/layers";
 import type { ExpandedImagePreview } from "./ExpandedImagePreview";
 import { MIN_CHAT_SPLIT_WIDTH } from "~/lib/chat/browserSplit";
 
@@ -41,12 +43,39 @@ function ExpandedImageOverlay({
   expandedImageItem,
   navigateExpandedImage,
 }: ExpandedImageOverlayProps) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const [imageLoadFailed, setImageLoadFailed] = useState(false);
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) {
+      return;
+    }
+    if (!dialog.open) {
+      dialog.showModal();
+    }
+    return () => {
+      if (dialog.open) {
+        dialog.close();
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    setImageLoadFailed(false);
+  }, [expandedImageItem.src]);
+
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 px-4 py-6 [-webkit-app-region:no-drag]"
-      role="dialog"
-      aria-modal="true"
+    <dialog
+      ref={dialogRef}
+      className={`${MODAL_LAYER_CLASS_NAME} fixed inset-0 m-0 flex h-screen max-h-none w-screen max-w-none items-center justify-center border-0 bg-black/75 px-4 py-6 text-inherit [-webkit-app-region:no-drag] backdrop:bg-transparent`}
       aria-label="Expanded image preview"
+      onCancel={closeExpandedImage}
+      onClick={(event) => {
+        if (event.target === event.currentTarget) {
+          closeExpandedImage();
+        }
+      }}
     >
       <button
         type="button"
@@ -54,6 +83,16 @@ function ExpandedImageOverlay({
         aria-label="Close image preview"
         onClick={closeExpandedImage}
       />
+      <Button
+        type="button"
+        size="icon"
+        variant="ghost"
+        className="absolute right-3 top-3 z-30 bg-black/25 text-white/90 hover:bg-white/10 hover:text-white sm:right-5 sm:top-5"
+        onClick={closeExpandedImage}
+        aria-label="Close image preview"
+      >
+        <XIcon className="size-5" />
+      </Button>
       {expandedImage.images.length > 1 && (
         <Button
           type="button"
@@ -69,22 +108,21 @@ function ExpandedImageOverlay({
         </Button>
       )}
       <div className="relative isolate z-10 max-h-[92vh] max-w-[92vw]">
-        <Button
-          type="button"
-          size="icon-xs"
-          variant="ghost"
-          className="absolute right-2 top-2"
-          onClick={closeExpandedImage}
-          aria-label="Close image preview"
-        >
-          <XIcon />
-        </Button>
-        <img
-          src={expandedImageItem.src}
-          alt={expandedImageItem.name}
-          className="max-h-[86vh] max-w-[92vw] select-none rounded-lg border border-border bg-background object-contain"
-          draggable={false}
-        />
+        {imageLoadFailed ? (
+          <div className="flex min-h-32 min-w-64 max-w-[92vw] items-center justify-center rounded-lg border border-white/15 bg-background px-6 py-5 text-center text-sm text-muted-foreground shadow-2xl">
+            Image preview unavailable.
+          </div>
+        ) : (
+          <img
+            src={expandedImageItem.src}
+            alt={expandedImageItem.name}
+            className="max-h-[86vh] max-w-[92vw] select-none rounded-lg border border-border bg-background object-contain shadow-2xl"
+            draggable={false}
+            onError={() => {
+              setImageLoadFailed(true);
+            }}
+          />
+        )}
         <p className="mt-2 max-w-[92vw] truncate text-center text-xs text-muted-foreground">
           {expandedImageItem.name}
           {expandedImage.images.length > 1
@@ -106,7 +144,7 @@ function ExpandedImageOverlay({
           <ChevronRightIcon className="size-5" />
         </Button>
       )}
-    </div>
+    </dialog>
   );
 }
 
@@ -117,61 +155,67 @@ export const ChatViewPanels = memo(function ChatViewPanels({
   browserPanel: BrowserPanelProps | null;
   expandedImageOverlay: ExpandedImageOverlayProps | null;
 }) {
+  const expandedImageOverlayElement = expandedImageOverlay ? (
+    <ExpandedImageOverlay {...expandedImageOverlay} />
+  ) : null;
+
   return (
     <>
-      <AnimatePresence initial={false}>
-        {browserPanel ? (
-          browserPanel.mode === "split" ? (
-            <motion.div
-              key="browser-split-panel"
-              className="flex h-full min-h-0 shrink-0 overflow-hidden"
-              initial={{ width: 0, opacity: 0, x: 18 }}
-              animate={{ width: "auto", opacity: 1, x: 0 }}
-              exit={{ width: 0, opacity: 0, x: 18 }}
-              transition={BROWSER_PANEL_TRANSITION}
-            >
-              <div
-                role="separator"
-                aria-orientation="vertical"
-                aria-label="Resize browser panel"
-                aria-valuenow={browserPanel.splitWidth}
-                tabIndex={0}
-                className="group relative z-20 w-3 shrink-0 cursor-col-resize touch-none select-none"
-                onKeyDown={browserPanel.onResizeKeyDown}
-                onPointerDown={browserPanel.onResizePointerDown}
+      <LazyMotion features={domAnimation}>
+        <AnimatePresence initial={false}>
+          {browserPanel ? (
+            browserPanel.mode === "split" ? (
+              <m.div
+                key="browser-split-panel"
+                className="flex h-full min-h-0 shrink-0 overflow-hidden"
+                data-chat-view-browser-split-panel
+                initial={{ width: 0, opacity: 0, x: 18 }}
+                animate={{ width: "auto", opacity: 1, x: 0 }}
+                exit={{ width: 0, opacity: 0, x: 18 }}
+                transition={BROWSER_PANEL_TRANSITION}
               >
-                <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border transition-colors group-hover:bg-primary/55" />
-                <div className="absolute inset-y-0 left-1/2 w-2 -translate-x-1/2 rounded-full bg-transparent group-hover:bg-primary/10" />
-              </div>
-              <div
-                className="relative z-0 min-h-0 shrink-0 overflow-hidden"
-                style={{
-                  width: constrainedBrowserPanelWidth(browserPanel.splitWidth),
-                  minWidth: constrainedBrowserPanelWidth(browserPanel.splitWidth),
-                }}
+                <hr
+                  aria-orientation="vertical"
+                  aria-label="Resize browser panel"
+                  aria-valuenow={browserPanel.splitWidth}
+                  tabIndex={0}
+                  className="group relative z-20 h-auto w-3 shrink-0 cursor-col-resize touch-none select-none border-0 bg-transparent before:absolute before:inset-y-0 before:left-1/2 before:w-px before:-translate-x-1/2 before:bg-border before:transition-colors before:content-[''] after:absolute after:inset-y-0 after:left-1/2 after:w-2 after:-translate-x-1/2 after:rounded-full after:bg-transparent after:content-[''] hover:before:bg-primary/55 hover:after:bg-primary/10"
+                  onKeyDown={browserPanel.onResizeKeyDown}
+                  onPointerDown={browserPanel.onResizePointerDown}
+                />
+                <div
+                  className="relative z-0 min-h-0 shrink-0 overflow-hidden"
+                  data-chat-view-browser-split-content
+                  style={{
+                    width: constrainedBrowserPanelWidth(browserPanel.splitWidth),
+                    minWidth: constrainedBrowserPanelWidth(browserPanel.splitWidth),
+                  }}
+                >
+                  {browserPanel.instances.map((instance) => (
+                    <InAppBrowser key={instance.key} {...instance.inAppBrowserProps} />
+                  ))}
+                </div>
+              </m.div>
+            ) : (
+              <m.div
+                key="browser-full-panel"
+                className="absolute inset-0 z-30 min-h-0 min-w-0"
+                initial={{ opacity: 0, scale: 0.99 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.99 }}
+                transition={BROWSER_PANEL_TRANSITION}
               >
                 {browserPanel.instances.map((instance) => (
                   <InAppBrowser key={instance.key} {...instance.inAppBrowserProps} />
                 ))}
-              </div>
-            </motion.div>
-          ) : (
-            <motion.div
-              key="browser-full-panel"
-              className="absolute inset-0 z-30 min-h-0 min-w-0"
-              initial={{ opacity: 0, scale: 0.99 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.99 }}
-              transition={BROWSER_PANEL_TRANSITION}
-            >
-              {browserPanel.instances.map((instance) => (
-                <InAppBrowser key={instance.key} {...instance.inAppBrowserProps} />
-              ))}
-            </motion.div>
-          )
-        ) : null}
-      </AnimatePresence>
-      {expandedImageOverlay ? <ExpandedImageOverlay {...expandedImageOverlay} /> : null}
+              </m.div>
+            )
+          ) : null}
+        </AnimatePresence>
+      </LazyMotion>
+      {expandedImageOverlayElement && typeof document !== "undefined"
+        ? createPortal(expandedImageOverlayElement, document.body)
+        : expandedImageOverlayElement}
     </>
   );
 });

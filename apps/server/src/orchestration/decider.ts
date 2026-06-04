@@ -1,8 +1,9 @@
-import type {
-  OrchestrationCommand,
-  OrchestrationEvent,
-  OrchestrationReadModel,
-  OrchestrationThread,
+import {
+  EventId,
+  type OrchestrationCommand,
+  type OrchestrationEvent,
+  type OrchestrationReadModel,
+  type OrchestrationThread,
 } from "@ace/contracts";
 import { Effect } from "effect";
 
@@ -50,6 +51,13 @@ function withEventBase(
 
 function resolveHandoffSourceProvider(thread: OrchestrationThread) {
   return thread.handoff?.toProvider ?? thread.modelSelection.provider;
+}
+
+function forkProviderChangeDetail(
+  currentProvider: OrchestrationThread["modelSelection"]["provider"],
+  nextProvider: OrchestrationThread["modelSelection"]["provider"],
+) {
+  return `Forked thread provider cannot change from '${currentProvider}' to '${nextProvider}'.`;
 }
 
 export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand")(function* ({
@@ -162,6 +170,19 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             threadId: command.handoff.sourceThreadId,
           })
         : null;
+      const forkSourceThread = command.fork
+        ? yield* requireThread({
+            readModel,
+            command,
+            threadId: command.fork.sourceThreadId,
+          })
+        : null;
+      if (command.handoff && command.fork) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "Thread create cannot be both a handoff and a fork.",
+        });
+      }
       if (command.handoff && handoffSourceThread) {
         if (command.handoff.sourceThreadId === command.threadId) {
           return yield* new OrchestrationCommandInvariantError({
@@ -189,6 +210,27 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           });
         }
       }
+      if (command.fork && forkSourceThread) {
+        if (command.fork.sourceThreadId === command.threadId) {
+          return yield* new OrchestrationCommandInvariantError({
+            commandType: command.type,
+            detail: "Fork source thread cannot match the destination thread.",
+          });
+        }
+        if (forkSourceThread.projectId !== command.projectId) {
+          return yield* new OrchestrationCommandInvariantError({
+            commandType: command.type,
+            detail: `Fork source thread '${command.fork.sourceThreadId}' belongs to a different project.`,
+          });
+        }
+        const expectedForkProvider = resolveHandoffSourceProvider(forkSourceThread);
+        if (expectedForkProvider !== command.modelSelection.provider) {
+          return yield* new OrchestrationCommandInvariantError({
+            commandType: command.type,
+            detail: `Fork provider '${command.modelSelection.provider}' does not match source thread provider '${expectedForkProvider}'.`,
+          });
+        }
+      }
       return {
         ...withEventBase({
           aggregateKind: "thread",
@@ -207,6 +249,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           branch: command.branch,
           worktreePath: command.worktreePath,
           ...(command.handoff !== undefined ? { handoff: command.handoff } : {}),
+          ...(command.fork !== undefined ? { fork: command.fork } : {}),
           createdAt: command.createdAt,
           updatedAt: command.createdAt,
         },
@@ -281,11 +324,24 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.meta.update": {
-      yield* requireThread({
+      const thread = yield* requireThread({
         readModel,
         command,
         threadId: command.threadId,
       });
+      if (
+        thread.fork &&
+        command.modelSelection &&
+        command.modelSelection.provider !== thread.modelSelection.provider
+      ) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: forkProviderChangeDetail(
+            thread.modelSelection.provider,
+            command.modelSelection.provider,
+          ),
+        });
+      }
       const occurredAt = nowIso();
       return {
         ...withEventBase({
@@ -669,6 +725,19 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           detail: `Proposed plan '${sourceProposedPlan?.planId}' belongs to thread '${sourceThread.id}' in a different project.`,
         });
       }
+      if (
+        targetThread.fork &&
+        command.modelSelection &&
+        command.modelSelection.provider !== targetThread.modelSelection.provider
+      ) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: forkProviderChangeDetail(
+            targetThread.modelSelection.provider,
+            command.modelSelection.provider,
+          ),
+        });
+      }
       const userMessageEvent: Omit<OrchestrationEvent, "sequence"> = {
         ...withEventBase({
           aggregateKind: "thread",
@@ -712,6 +781,70 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         },
       };
       return [userMessageEvent, turnStartRequestedEvent];
+    }
+
+    case "thread.subagent.turn.start": {
+      yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      const subagentMessageEvent: Omit<OrchestrationEvent, "sequence"> = {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.activity-appended",
+        payload: {
+          threadId: command.threadId,
+          activity: {
+            id: EventId.makeUnsafe(crypto.randomUUID()),
+            tone: "info",
+            kind: "subagent.message.sent",
+            summary: "User message",
+            payload: {
+              detail: command.message.text,
+              itemType: "subagent_message",
+              attachments: command.message.attachments,
+              modelSelection: command.modelSelection,
+              runtimeMode: command.runtimeMode,
+              interactionMode: command.interactionMode,
+              childProviderThreadId: command.subagentThreadId,
+              subagent: {
+                id: command.subagentThreadId,
+                type: "codex subagent",
+              },
+              messageId: command.message.messageId,
+            },
+            turnId: null,
+            createdAt: command.createdAt,
+          },
+        },
+      };
+      const turnStartRequestedEvent: Omit<OrchestrationEvent, "sequence"> = {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        causationEventId: subagentMessageEvent.eventId,
+        type: "thread.subagent-turn-start-requested",
+        payload: {
+          threadId: command.threadId,
+          subagentThreadId: command.subagentThreadId,
+          messageId: command.message.messageId,
+          text: command.message.text,
+          attachments: command.message.attachments,
+          modelSelection: command.modelSelection,
+          runtimeMode: command.runtimeMode,
+          interactionMode: command.interactionMode,
+          createdAt: command.createdAt,
+        },
+      };
+      return [subagentMessageEvent, turnStartRequestedEvent];
     }
 
     case "thread.turn.interrupt": {

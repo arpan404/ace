@@ -1,77 +1,268 @@
-import { type RuntimeMode, type ThreadId } from "@ace/contracts";
-import { FolderIcon, GitForkIcon, LockIcon, LockOpenIcon } from "lucide-react";
-import { useCallback } from "react";
+import { type ThreadId } from "@ace/contracts";
+import {
+  CheckIcon,
+  ChevronDownIcon,
+  FolderIcon,
+  FolderGit2Icon,
+  GitBranchPlusIcon,
+  GitForkIcon,
+  LaptopIcon,
+  MonitorIcon,
+} from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { runAsyncTask } from "../lib/async";
-import { newCommandId } from "../lib/utils";
+import { cn, newCommandId } from "../lib/utils";
 import { readNativeApi } from "../nativeApi";
 import { useComposerDraftStore } from "../composerDraftStore";
 import { useStore } from "../store";
 import { useProjectById, useThreadById } from "../storeSelectors";
+import { toastManager } from "./ui/toast";
 import {
   EnvMode,
   resolveDraftEnvModeAfterBranchChange,
   resolveEffectiveEnvMode,
 } from "../lib/git/branchToolbar";
+import {
+  CONNECTED_REMOTE_HOST_IDS_CHANGED_EVENT,
+  loadConnectedRemoteHostIds,
+  loadRemoteHostInstances,
+  REMOTE_HOSTS_CHANGED_EVENT,
+  resolveHostConnectionWsUrl,
+  resolveLocalDeviceWsUrl,
+  type RemoteHostInstance,
+} from "../lib/remoteHosts";
+import { normalizeWsUrl } from "@ace/shared/hostConnections";
+import type { ReactNode } from "react";
 import { BranchToolbarBranchSelector } from "./BranchToolbarBranchSelector";
 import { ProjectGlyphIcon } from "./ProjectAvatar";
-import { Button } from "./ui/button";
+import { Menu, MenuGroup, MenuItem, MenuPopup, MenuTrigger } from "./ui/menu";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "./ui/select";
-import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import type { Project } from "../types";
 
-function nextAccessMode(mode: RuntimeMode): RuntimeMode {
-  switch (mode) {
-    case "approval-required":
-      return "full-access";
-    case "full-access":
-    default:
-      return "approval-required";
-  }
+function EnvironmentMenuRowContent({
+  icon,
+  label,
+  meta,
+}: {
+  icon: ReactNode;
+  label: string;
+  meta?: ReactNode;
+}) {
+  return (
+    <>
+      <span className="shrink-0 text-muted-foreground">{icon}</span>
+      <span className="min-w-0 flex-1 truncate text-[13px] leading-5 text-foreground">{label}</span>
+      {meta ? <span className="shrink-0 self-center text-muted-foreground">{meta}</span> : null}
+    </>
+  );
 }
-
-const ACCESS_MODE_META: Record<
-  RuntimeMode,
-  { label: string; title: string; textClassName: string; iconClassName: string }
-> = {
-  "approval-required": {
-    label: "Supervised",
-    title: "Supervised — click to switch to Full access",
-    textClassName:
-      "text-emerald-600 hover:text-emerald-600 dark:text-emerald-400 dark:hover:text-emerald-300",
-    iconClassName: "text-emerald-600 dark:text-emerald-400",
-  },
-  "full-access": {
-    label: "Full access",
-    title: "Full access — click to switch to Supervised",
-    textClassName:
-      "text-amber-600 hover:text-amber-600 dark:text-amber-400 dark:hover:text-amber-300",
-    iconClassName: "text-amber-600 dark:text-amber-400",
-  },
-};
 
 interface BranchToolbarProps {
   threadId: ThreadId;
+  currentBranchName: string | null;
+  connectionUrl?: string | null;
   onEnvModeChange: (mode: EnvMode) => void;
+  envModeOverride?: EnvMode | null;
   envLocked: boolean;
+  presentation?: "footer" | "environment";
   localEnvironmentLabel?: string;
   localEnvironmentIcon?: Project["icon"];
-  runtimeMode?: RuntimeMode;
-  onRuntimeModeChange?: (mode: RuntimeMode) => void;
   onCheckoutPullRequestRequest?: (reference: string) => void;
   onComposerFocusRequest?: () => void;
+  onNewWorktreeRequest?: () => void;
+}
+
+type ConnectedRemoteEnvironment = {
+  readonly host: RemoteHostInstance;
+  readonly connectionUrl: string;
+};
+
+const LOCAL_ENVIRONMENT_LABEL = "Locally";
+
+function loadConnectedRemoteEnvironments(): ConnectedRemoteEnvironment[] {
+  const localConnectionUrl = normalizeWsUrl(resolveLocalDeviceWsUrl());
+  const connectedHostIds = new Set(loadConnectedRemoteHostIds());
+  return loadRemoteHostInstances()
+    .filter((host) => connectedHostIds.has(host.id))
+    .map((host) => ({ host, connectionUrl: resolveHostConnectionWsUrl(host) }))
+    .filter((environment) => normalizeWsUrl(environment.connectionUrl) !== localConnectionUrl)
+    .toSorted((left, right) => left.host.name.localeCompare(right.host.name));
+}
+
+function useConnectedRemoteEnvironments() {
+  const [environments, setEnvironments] = useState<ConnectedRemoteEnvironment[]>(() =>
+    loadConnectedRemoteEnvironments(),
+  );
+
+  useEffect(() => {
+    const refresh = () => setEnvironments(loadConnectedRemoteEnvironments());
+    window.addEventListener(REMOTE_HOSTS_CHANGED_EVENT, refresh);
+    window.addEventListener(CONNECTED_REMOTE_HOST_IDS_CHANGED_EVENT, refresh);
+    return () => {
+      window.removeEventListener(REMOTE_HOSTS_CHANGED_EVENT, refresh);
+      window.removeEventListener(CONNECTED_REMOTE_HOST_IDS_CHANGED_EVENT, refresh);
+    };
+  }, []);
+
+  return environments;
+}
+
+function EnvironmentModeMenu(props: {
+  activeWorktreePath: string | null;
+  activeConnectionUrl: string | null;
+  canCreateNewWorktree: boolean;
+  connectedRemoteEnvironments: readonly ConnectedRemoteEnvironment[];
+  effectiveEnvMode: EnvMode;
+  envLocked: boolean;
+  localEnvironmentIcon: Project["icon"];
+  localEnvironmentLabel: string;
+  onEnvModeSelect: (mode: EnvMode) => void;
+  onNewWorktreeRequest?: () => void;
+  rowClassName: string;
+}) {
+  const isExistingWorktree = props.activeWorktreePath !== null;
+  const isPendingNewWorktree = props.effectiveEnvMode === "worktree" && !isExistingWorktree;
+  const isLocal = props.effectiveEnvMode === "local" && !isExistingWorktree;
+  const activeConnectionUrl = props.activeConnectionUrl
+    ? normalizeWsUrl(props.activeConnectionUrl)
+    : null;
+  const isRemote = activeConnectionUrl !== null;
+  const label = isExistingWorktree
+    ? isRemote
+      ? "Remote worktree"
+      : "Worktree"
+    : props.effectiveEnvMode === "worktree"
+      ? "New worktree"
+      : LOCAL_ENVIRONMENT_LABEL;
+  const icon = isLocal ? (
+    props.localEnvironmentIcon ? (
+      <ProjectGlyphIcon icon={props.localEnvironmentIcon} className="size-3.5 opacity-80" />
+    ) : (
+      <LaptopIcon className="size-3.5 text-muted-foreground" />
+    )
+  ) : (
+    <FolderGit2Icon className="size-3.5 text-muted-foreground" />
+  );
+
+  if (props.envLocked) {
+    return (
+      <div className={props.rowClassName}>
+        {icon}
+        <span className="min-w-0 flex-1 truncate">{label}</span>
+      </div>
+    );
+  }
+
+  return (
+    <Menu>
+      <MenuTrigger
+        className={`${props.rowClassName} data-popup-open:bg-accent data-popup-open:text-accent-foreground`}
+      >
+        {icon}
+        <span className="min-w-0 flex-1 truncate">{label}</span>
+        <ChevronDownIcon className="size-3.5 text-muted-foreground" />
+      </MenuTrigger>
+      <MenuPopup
+        align="start"
+        side="bottom"
+        className="w-56 rounded-2xl shadow-2xl shadow-black/25"
+        listClassName="p-1.5"
+        sideOffset={6}
+      >
+        <MenuGroup>
+          <MenuItem
+            className="min-h-9 items-center gap-2 rounded-xl px-2 py-1 text-[13px]"
+            onClick={() => props.onEnvModeSelect("local")}
+          >
+            <EnvironmentMenuRowContent
+              icon={<LaptopIcon className="size-3.5" />}
+              label={LOCAL_ENVIRONMENT_LABEL}
+              meta={
+                isLocal && activeConnectionUrl === null ? <CheckIcon className="size-3.5" /> : null
+              }
+            />
+          </MenuItem>
+          {isExistingWorktree ? (
+            <MenuItem
+              className="min-h-9 items-center gap-2 rounded-xl px-2 py-1 text-[13px]"
+              disabled
+            >
+              <EnvironmentMenuRowContent
+                icon={<FolderGit2Icon className="size-3.5" />}
+                label={isRemote ? "Remote worktree" : "Worktree"}
+                meta={<CheckIcon className="size-3.5" />}
+              />
+            </MenuItem>
+          ) : null}
+          {props.connectedRemoteEnvironments.map((environment) => {
+            const normalizedConnectionUrl = normalizeWsUrl(environment.connectionUrl);
+            const isActiveRemote = activeConnectionUrl === normalizedConnectionUrl;
+            return (
+              <MenuItem
+                key={environment.host.id}
+                className={cn(
+                  "min-h-9 items-center gap-2 rounded-xl px-2 py-1 text-[13px]",
+                  !isActiveRemote && "text-muted-foreground",
+                )}
+                onClick={() => {
+                  if (isActiveRemote) {
+                    return;
+                  }
+                  toastManager.add({
+                    type: "info",
+                    title: "Open a remote project first",
+                    description:
+                      "Select a project or thread from that device in the sidebar, then create a worktree from here.",
+                  });
+                }}
+              >
+                <EnvironmentMenuRowContent
+                  icon={<MonitorIcon className="size-3.5" />}
+                  label={isActiveRemote ? "Remote worktree" : environment.host.name}
+                  meta={isActiveRemote ? <CheckIcon className="size-3.5" /> : null}
+                />
+              </MenuItem>
+            );
+          })}
+        </MenuGroup>
+        <MenuGroup>
+          <MenuItem
+            className="min-h-9 items-center gap-2 rounded-xl px-2 py-1 text-[13px]"
+            disabled={!props.canCreateNewWorktree && !props.onNewWorktreeRequest}
+            onClick={() => {
+              if (props.canCreateNewWorktree && !isExistingWorktree) {
+                props.onEnvModeSelect("worktree");
+                return;
+              }
+              props.onNewWorktreeRequest?.();
+            }}
+          >
+            <EnvironmentMenuRowContent
+              icon={<GitBranchPlusIcon className="size-3.5" />}
+              label="New worktree"
+              meta={isPendingNewWorktree ? <CheckIcon className="size-3.5" /> : null}
+            />
+          </MenuItem>
+        </MenuGroup>
+      </MenuPopup>
+    </Menu>
+  );
 }
 
 export default function BranchToolbar({
   threadId,
+  currentBranchName,
+  connectionUrl = null,
   onEnvModeChange,
+  envModeOverride = null,
   envLocked,
-  localEnvironmentLabel = "Local",
+  presentation = "footer",
+  localEnvironmentLabel = LOCAL_ENVIRONMENT_LABEL,
   localEnvironmentIcon = null,
-  runtimeMode,
-  onRuntimeModeChange,
   onCheckoutPullRequestRequest,
   onComposerFocusRequest,
+  onNewWorktreeRequest,
 }: BranchToolbarProps) {
   const setThreadBranchAction = useStore((store) => store.setThreadBranch);
   const draftThread = useComposerDraftStore((store) => store.getDraftThread(threadId));
@@ -84,11 +275,24 @@ export default function BranchToolbar({
   const activeWorktreePath = serverThread?.worktreePath ?? draftThread?.worktreePath ?? null;
   const branchCwd = activeWorktreePath ?? activeProject?.cwd ?? null;
   const hasServerThread = serverThread !== undefined;
-  const effectiveEnvMode = resolveEffectiveEnvMode({
-    activeWorktreePath,
-    hasServerThread,
-    draftThreadEnvMode: draftThread?.envMode,
-  });
+  const effectiveEnvMode =
+    envModeOverride ??
+    resolveEffectiveEnvMode({
+      activeWorktreePath,
+      hasServerThread,
+      draftThreadEnvMode: draftThread?.envMode,
+    });
+  const canCreateNewWorktree =
+    !activeWorktreePath && (!serverThread || serverThread.messages.length === 0);
+  const connectedRemoteEnvironments = useConnectedRemoteEnvironments();
+  const normalizedConnectionUrl = useMemo(() => {
+    if (!connectionUrl) {
+      return null;
+    }
+    const localConnectionUrl = normalizeWsUrl(resolveLocalDeviceWsUrl());
+    const nextConnectionUrl = normalizeWsUrl(connectionUrl);
+    return nextConnectionUrl === localConnectionUrl ? null : nextConnectionUrl;
+  }, [connectionUrl]);
 
   const setThreadBranch = useCallback(
     (branch: string | null, worktreePath: string | null) => {
@@ -142,9 +346,18 @@ export default function BranchToolbar({
       effectiveEnvMode,
     ],
   );
+  const handleEnvModeSelect = useCallback(
+    (mode: EnvMode) => {
+      if (mode === "worktree" && !activeWorktreePath && !activeThreadBranch && currentBranchName) {
+        setThreadBranch(currentBranchName, null);
+      }
+      onEnvModeChange(mode);
+    },
+    [activeThreadBranch, activeWorktreePath, currentBranchName, onEnvModeChange, setThreadBranch],
+  );
 
   if (!activeThreadId || !activeProject) return null;
-  const runtimeModeMeta = runtimeMode ? ACCESS_MODE_META[runtimeMode] : null;
+  const isEnvironmentPresentation = presentation === "environment";
   const envModeItems = [
     { value: "local", label: localEnvironmentLabel },
     { value: "worktree", label: "New worktree" },
@@ -154,6 +367,41 @@ export default function BranchToolbar({
   ) : (
     <FolderIcon className="size-3 opacity-60" />
   );
+  const environmentModeRowClassName =
+    "flex min-h-8 w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-[13px] font-normal text-foreground transition-colors hover:bg-accent hover:text-accent-foreground";
+  if (isEnvironmentPresentation) {
+    return (
+      <div className="space-y-1">
+        <EnvironmentModeMenu
+          activeWorktreePath={activeWorktreePath}
+          activeConnectionUrl={normalizedConnectionUrl}
+          canCreateNewWorktree={canCreateNewWorktree}
+          connectedRemoteEnvironments={connectedRemoteEnvironments}
+          effectiveEnvMode={activeWorktreePath ? "worktree" : effectiveEnvMode}
+          envLocked={envLocked}
+          localEnvironmentIcon={localEnvironmentIcon}
+          localEnvironmentLabel={localEnvironmentLabel}
+          rowClassName={environmentModeRowClassName}
+          onEnvModeSelect={handleEnvModeSelect}
+          {...(onNewWorktreeRequest ? { onNewWorktreeRequest } : {})}
+        />
+
+        <BranchToolbarBranchSelector
+          activeProjectCwd={activeProject.cwd}
+          activeThreadBranch={activeThreadBranch}
+          activeWorktreePath={activeWorktreePath}
+          branchCwd={branchCwd}
+          connectionUrl={normalizedConnectionUrl}
+          effectiveEnvMode={effectiveEnvMode}
+          envLocked={envLocked}
+          presentation="environment"
+          onSetThreadBranch={setThreadBranch}
+          {...(onCheckoutPullRequestRequest ? { onCheckoutPullRequestRequest } : {})}
+          {...(onComposerFocusRequest ? { onComposerFocusRequest } : {})}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto flex w-full max-w-3xl items-center justify-between px-5 pb-2 pt-0.5">
@@ -175,7 +423,7 @@ export default function BranchToolbar({
         ) : (
           <Select
             value={effectiveEnvMode}
-            onValueChange={(value) => onEnvModeChange(value as EnvMode)}
+            onValueChange={(value) => handleEnvModeSelect(value as EnvMode)}
             items={envModeItems}
           >
             <SelectTrigger
@@ -210,39 +458,6 @@ export default function BranchToolbar({
             </SelectPopup>
           </Select>
         )}
-        {runtimeMode && onRuntimeModeChange ? (
-          <>
-            <span className="mx-0.5 h-3 w-px bg-border/50" />
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    variant="ghost"
-                    size="xs"
-                    className={`gap-1.5 rounded-md text-[11px] font-medium tracking-wide uppercase transition-colors duration-150 ${runtimeModeMeta?.textClassName ?? "text-muted-foreground hover:text-foreground"}`}
-                    onClick={() => onRuntimeModeChange(nextAccessMode(runtimeMode))}
-                    aria-label={runtimeModeMeta?.title}
-                    data-chat-branch-runtime-mode={runtimeMode}
-                  />
-                }
-              >
-                {runtimeMode === "full-access" ? (
-                  <LockOpenIcon
-                    className={`size-3 opacity-80 ${runtimeModeMeta?.iconClassName ?? ""}`}
-                  />
-                ) : (
-                  <LockIcon
-                    className={`size-3 opacity-80 ${runtimeModeMeta?.iconClassName ?? ""}`}
-                  />
-                )}
-                {runtimeModeMeta?.label ?? "Access"}
-              </TooltipTrigger>
-              {runtimeModeMeta?.title ? (
-                <TooltipPopup side="top">{runtimeModeMeta.title}</TooltipPopup>
-              ) : null}
-            </Tooltip>
-          </>
-        ) : null}
       </div>
 
       <BranchToolbarBranchSelector
@@ -250,6 +465,7 @@ export default function BranchToolbar({
         activeThreadBranch={activeThreadBranch}
         activeWorktreePath={activeWorktreePath}
         branchCwd={branchCwd}
+        connectionUrl={normalizedConnectionUrl}
         effectiveEnvMode={effectiveEnvMode}
         envLocked={envLocked}
         onSetThreadBranch={setThreadBranch}

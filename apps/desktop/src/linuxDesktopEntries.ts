@@ -33,15 +33,12 @@ function buildDesktopEntry(input: DesktopEntryInput): string {
     "Type=Application",
     "Version=1.0",
     `Name=${appName}`,
+    ...(input.comment ? [`Comment=${sanitizeDesktopEntryValue(input.comment)}`] : []),
     `Exec=${execCommand}`,
     `Terminal=${input.terminal === true ? "true" : "false"}`,
     `NoDisplay=${input.noDisplay === true ? "true" : "false"}`,
     `StartupNotify=${input.startupNotify === false ? "false" : "true"}`,
   ];
-
-  if (input.comment) {
-    lines.push(`Comment=${sanitizeDesktopEntryValue(input.comment)}`);
-  }
   if (input.desktopFileId) {
     lines.push(`DesktopFileName=${sanitizeDesktopEntryValue(input.desktopFileId)}`);
   }

@@ -257,6 +257,7 @@ interface ComposerDraftStoreState {
     nextProviderOptions: ProviderModelOptions[ProviderKind] | null | undefined,
     options?: {
       persistSticky?: boolean;
+      baseModelSelection?: ModelSelection | null | undefined;
     },
   ) => void;
   setRuntimeMode: (threadId: ThreadId, runtimeMode: RuntimeMode | null | undefined) => void;
@@ -518,12 +519,13 @@ function removeProjectDraftMapping(
       ([projectKey]) => !removedProjectKeys.has(projectKey),
     ),
   ) as Record<ProjectId, ThreadId>;
+  const remainingMappedThreadIds = new Set(Object.values(restProjectMappings));
   const nextDraftThreadsByThreadId: Record<ThreadId, DraftThreadState> = {
     ...state.draftThreadsByThreadId,
   };
   let nextDraftsByThreadId = state.draftsByThreadId;
   for (const threadId of removedThreadIds) {
-    if (Object.values(restProjectMappings).includes(threadId)) {
+    if (remainingMappedThreadIds.has(threadId)) {
       continue;
     }
     delete nextDraftThreadsByThreadId[threadId];
@@ -1415,12 +1417,18 @@ function verifyPersistedAttachments(
       return state;
     }
     const imageIdSet = new Set(current.images.map((image) => image.id));
-    const persistedAttachments = attachments.filter(
-      (attachment) => imageIdSet.has(attachment.id) && persistedIdSet.has(attachment.id),
-    );
-    const nonPersistedImageIds = current.images
-      .map((image) => image.id)
-      .filter((imageId) => !persistedIdSet.has(imageId));
+    const persistedAttachments: PersistedComposerImageAttachment[] = [];
+    for (const attachment of attachments) {
+      if (imageIdSet.has(attachment.id) && persistedIdSet.has(attachment.id)) {
+        persistedAttachments.push(attachment);
+      }
+    }
+    const nonPersistedImageIds: string[] = [];
+    for (const image of current.images) {
+      if (!persistedIdSet.has(image.id)) {
+        nonPersistedImageIds.push(image.id);
+      }
+    }
     const nextDraft: ComposerThreadDraftState = {
       ...current,
       persistedAttachments,
@@ -1587,6 +1595,9 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
             ...state.projectDraftThreadIdByProjectId,
             [projectId]: threadId,
           };
+          const nextProjectDraftThreadIds = new Set(
+            Object.values(nextProjectDraftThreadIdByProjectId),
+          );
           const nextDraftThreadsByThreadId: Record<ThreadId, DraftThreadState> = {
             ...state.draftThreadsByThreadId,
             [threadId]: nextDraftThread,
@@ -1595,7 +1606,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
           if (
             previousThreadIdForProject &&
             previousThreadIdForProject !== threadId &&
-            !Object.values(nextProjectDraftThreadIdByProjectId).includes(previousThreadIdForProject)
+            !nextProjectDraftThreadIds.has(previousThreadIdForProject)
           ) {
             delete nextDraftThreadsByThreadId[previousThreadIdForProject];
             if (state.draftsByThreadId[previousThreadIdForProject] !== undefined) {
@@ -1699,9 +1710,9 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
         }
         set((state) => {
           const hasDraftThread = state.draftThreadsByThreadId[threadId] !== undefined;
-          const hasProjectMapping = Object.values(state.projectDraftThreadIdByProjectId).includes(
-            threadId,
-          );
+          const hasProjectMapping = new Set(
+            Object.values(state.projectDraftThreadIdByProjectId),
+          ).has(threadId);
           const hasComposerDraft = state.draftsByThreadId[threadId] !== undefined;
           if (!hasDraftThread && !hasProjectMapping && !hasComposerDraft) {
             return state;
@@ -1916,6 +1927,9 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
         if (normalizedProvider === null) {
           return;
         }
+        const normalizedBaseSelection = normalizeModelSelection(options?.baseModelSelection);
+        const baseSelectionForProvider =
+          normalizedBaseSelection?.provider === normalizedProvider ? normalizedBaseSelection : null;
         // Normalize just this provider's options
         const normalizedOpts = normalizeProviderModelOptions(
           { [normalizedProvider]: nextProviderOptions },
@@ -1929,7 +1943,12 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
 
           // Update the map entry for this provider
           const nextMap = { ...base.modelSelectionByProvider };
-          const currentForProvider = nextMap[normalizedProvider];
+          const currentForProvider =
+            (baseSelectionForProvider
+              ? nextMap[modelSelectionEntryKeyFromSelection(baseSelectionForProvider)]
+              : undefined) ??
+            nextMap[normalizedProvider] ??
+            baseSelectionForProvider;
           let nextSelectionForProvider: ModelSelection | null = null;
           if (providerOpts) {
             nextSelectionForProvider = buildProviderModelSelection(
@@ -1956,6 +1975,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
             const stickyBase =
               nextStickyMap[normalizedProvider] ??
               base.modelSelectionByProvider[normalizedProvider] ??
+              baseSelectionForProvider ??
               buildProviderModelSelection(
                 normalizedProvider,
                 DEFAULT_MODEL_BY_PROVIDER[normalizedProvider],

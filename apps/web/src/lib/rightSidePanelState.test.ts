@@ -3,6 +3,7 @@ import * as Schema from "effect/Schema";
 import { describe, expect, it } from "vitest";
 
 import {
+  resolveRequestedRightSidePanelMode,
   resolveRightSidePanelModeAfterDiffClose,
   resolveThreadRightSidePanelStorageKeys,
   resetThreadRightSidePanelState,
@@ -26,14 +27,17 @@ describe("rightSidePanelState", () => {
     setLocalStorageItem(
       keys.lastNonDiffMode,
       "browser",
-      Schema.Literals(["browser", "editor", "summary"]),
+      Schema.Literals(["browser", "editor", "subagent", "summary", "terminal"]),
     );
     setLocalStorageItem(
       keys.mode,
       "diff",
-      Schema.NullOr(Schema.Literals(["browser", "diff", "editor", "summary"])),
+      Schema.NullOr(
+        Schema.Literals(["browser", "diff", "editor", "subagent", "summary", "terminal"]),
+      ),
     );
     setLocalStorageItem(keys.reviewOpen, true, Schema.Boolean);
+    setLocalStorageItem(keys.terminalOpen, true, Schema.Boolean);
     setLocalStorageItem(keys.visible, false, Schema.Boolean);
 
     resetThreadRightSidePanelState(threadId);
@@ -45,15 +49,21 @@ describe("rightSidePanelState", () => {
     expect(getLocalStorageItem(keys.editorOpen, Schema.Boolean)).toBe(null);
     expect(getLocalStorageItem(keys.fullscreen, Schema.Boolean)).toBe(null);
     expect(
-      getLocalStorageItem(keys.lastNonDiffMode, Schema.Literals(["browser", "editor", "summary"])),
+      getLocalStorageItem(
+        keys.lastNonDiffMode,
+        Schema.Literals(["browser", "editor", "subagent", "summary", "terminal"]),
+      ),
     ).toBe(null);
     expect(
       getLocalStorageItem(
         keys.mode,
-        Schema.NullOr(Schema.Literals(["browser", "diff", "editor", "summary"])),
+        Schema.NullOr(
+          Schema.Literals(["browser", "diff", "editor", "subagent", "summary", "terminal"]),
+        ),
       ),
     ).toBe(null);
     expect(getLocalStorageItem(keys.reviewOpen, Schema.Boolean)).toBe(null);
+    expect(getLocalStorageItem(keys.terminalOpen, Schema.Boolean)).toBe(null);
     expect(getLocalStorageItem(keys.visible, Schema.Boolean)).toBe(null);
 
     removeLocalStorageItem(keys.browserMode);
@@ -63,6 +73,7 @@ describe("rightSidePanelState", () => {
     removeLocalStorageItem(keys.lastNonDiffMode);
     removeLocalStorageItem(keys.mode);
     removeLocalStorageItem(keys.reviewOpen);
+    removeLocalStorageItem(keys.terminalOpen);
     removeLocalStorageItem(keys.visible);
   });
 
@@ -85,6 +96,40 @@ describe("rightSidePanelState", () => {
         lastNonDiffMode: null,
       }),
     ).toBe("summary");
+  });
+
+  it("keeps the selected right panel tab active while review remains open", () => {
+    expect(
+      resolveRequestedRightSidePanelMode({
+        rightSidePanelOpen: true,
+        reviewOpen: true,
+        selectedMode: "browser",
+      }),
+    ).toBe("browser");
+    expect(
+      resolveRequestedRightSidePanelMode({
+        rightSidePanelOpen: true,
+        reviewOpen: true,
+        selectedMode: "editor",
+      }),
+    ).toBe("editor");
+    expect(
+      resolveRequestedRightSidePanelMode({
+        rightSidePanelOpen: true,
+        reviewOpen: true,
+        selectedMode: null,
+      }),
+    ).toBe("diff");
+  });
+
+  it("resolves no active right panel mode when the panel is closed", () => {
+    expect(
+      resolveRequestedRightSidePanelMode({
+        rightSidePanelOpen: false,
+        reviewOpen: true,
+        selectedMode: "diff",
+      }),
+    ).toBe(null);
   });
 
   it("applies browser viewport resize only to the visible owning thread", () => {

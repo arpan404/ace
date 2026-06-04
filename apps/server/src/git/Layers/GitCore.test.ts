@@ -3,10 +3,10 @@ import path from "node:path";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it } from "@effect/vitest";
-import { Effect, FileSystem, Layer, PlatformError, Scope } from "effect";
+import { Effect, FileSystem, Layer, Path, PlatformError, Scope } from "effect";
 import { describe, expect, vi } from "vitest";
 
-import { GitCoreLive, makeGitCore } from "./GitCore.ts";
+import { GitCoreLive, makeGitCore, resolveProjectGitSshKeyPassphrase } from "./GitCore.ts";
 import { GitCore, type GitCoreShape } from "../Services/GitCore.ts";
 import { GitCommandError } from "@ace/contracts";
 import { type ProcessRunResult, runProcess } from "../../processRunner.ts";
@@ -231,6 +231,24 @@ it.layer(TestLayer)("git integration", (it) => {
         expect(askPassLog).toContain("first=correct horse battery staple");
         expect(askPassLog).toContain("first_code=0");
         expect(askPassLog).toContain("second_code=1");
+      }),
+    );
+
+    it.effect("prefers a project SSH key passphrase override over the global passphrase", () =>
+      Effect.gen(function* () {
+        const tmp = yield* makeTmpDir();
+        const pathService = yield* Path.Path;
+
+        expect(
+          resolveProjectGitSshKeyPassphrase(
+            {
+              globalPassphrase: "global passphrase",
+              projectPassphraseByRoot: new Map([[pathService.resolve(tmp), "project passphrase"]]),
+            },
+            pathService,
+            tmp,
+          ),
+        ).toBe("project passphrase");
       }),
     );
   });
@@ -1571,6 +1589,82 @@ it.layer(TestLayer)("git integration", (it) => {
       }),
     );
 
+    it.effect("scopes status details to the requested workspace directory", () =>
+      Effect.gen(function* () {
+        const tmp = yield* makeTmpDir();
+        yield* initRepoWithCommit(tmp);
+        const fileSystem = yield* FileSystem.FileSystem;
+        const core = yield* GitCore;
+
+        yield* fileSystem.makeDirectory(path.join(tmp, "apps", "server"), { recursive: true });
+        yield* fileSystem.makeDirectory(path.join(tmp, "apps", "web"), { recursive: true });
+        yield* writeTextFile(path.join(tmp, "apps", "server", "server.ts"), "server\n");
+        yield* writeTextFile(path.join(tmp, "apps", "web", "web.ts"), "web\n");
+        yield* git(tmp, ["add", "."]);
+        yield* git(tmp, ["commit", "-m", "add apps"]);
+
+        yield* writeTextFile(path.join(tmp, "apps", "web", "web.ts"), "web updated\n");
+
+        const serverDetails = yield* core.statusDetails(path.join(tmp, "apps", "server"));
+        expect(serverDetails.hasWorkingTreeChanges).toBe(false);
+        expect(serverDetails.workingTree.files).toEqual([]);
+
+        const rootDetails = yield* core.statusDetails(tmp);
+        expect(rootDetails.hasWorkingTreeChanges).toBe(true);
+        expect(rootDetails.workingTree.files.map((file) => file.path)).toEqual(["apps/web/web.ts"]);
+      }),
+    );
+
+    it.effect("reads a file-scoped working tree diff", () =>
+      Effect.gen(function* () {
+        const tmp = yield* makeTmpDir();
+        yield* initRepoWithCommit(tmp);
+        const core = yield* GitCore;
+
+        yield* writeTextFile(path.join(tmp, "a.ts"), "a v1\n");
+        yield* writeTextFile(path.join(tmp, "b.ts"), "b v1\n");
+        yield* git(tmp, ["add", "."]);
+        yield* git(tmp, ["commit", "-m", "add files"]);
+
+        yield* writeTextFile(path.join(tmp, "a.ts"), "a v2\n");
+        yield* writeTextFile(path.join(tmp, "b.ts"), "b v2\n");
+
+        const scoped = yield* core.readWorkingTreeDiff({ cwd: tmp, relativePath: "a.ts" });
+        expect(scoped.diff).toContain("diff --git a/a.ts b/a.ts");
+        expect(scoped.diff).not.toContain("diff --git a/b.ts b/b.ts");
+
+        const full = yield* core.readWorkingTreeDiff({ cwd: tmp });
+        expect(full.diff).toContain("diff --git a/a.ts b/a.ts");
+        expect(full.diff).toContain("diff --git a/b.ts b/b.ts");
+      }),
+    );
+
+    it.effect("emits subdirectory working tree diffs relative to the requested workspace", () =>
+      Effect.gen(function* () {
+        const tmp = yield* makeTmpDir();
+        yield* initRepoWithCommit(tmp);
+        const fileSystem = yield* FileSystem.FileSystem;
+        const core = yield* GitCore;
+
+        yield* fileSystem.makeDirectory(path.join(tmp, "apps", "server"), { recursive: true });
+        yield* fileSystem.makeDirectory(path.join(tmp, "apps", "web"), { recursive: true });
+        yield* writeTextFile(path.join(tmp, "apps", "server", "server.ts"), "server v1\n");
+        yield* writeTextFile(path.join(tmp, "apps", "web", "web.ts"), "web v1\n");
+        yield* git(tmp, ["add", "."]);
+        yield* git(tmp, ["commit", "-m", "add workspaces"]);
+
+        yield* writeTextFile(path.join(tmp, "apps", "server", "server.ts"), "server v2\n");
+        yield* writeTextFile(path.join(tmp, "apps", "web", "web.ts"), "web v2\n");
+
+        const serverDiff = yield* core.readWorkingTreeDiff({
+          cwd: path.join(tmp, "apps", "server"),
+          relativePath: "server.ts",
+        });
+        expect(serverDiff.diff).toContain("diff --git a/server.ts b/server.ts");
+        expect(serverDiff.diff).not.toContain("apps/web/web.ts");
+      }),
+    );
+
     it.effect("computes ahead count against base branch when no upstream is configured", () =>
       Effect.gen(function* () {
         const tmp = yield* makeTmpDir();
@@ -1906,6 +2000,32 @@ it.layer(TestLayer)("git integration", (it) => {
         expect(message).toContain("git worktree remove");
         expect(message).toContain(`cwd: ${tmp}`);
         expect(message).toContain(missingWorktreePath);
+      }),
+    );
+
+    it.effect("removes a worktree when the caller cwd no longer exists", () =>
+      Effect.gen(function* () {
+        const tmp = yield* makeTmpDir();
+        yield* initRepoWithCommit(tmp);
+        const core = yield* GitCore;
+        const defaultBranch = (yield* core.listBranches({ cwd: tmp })).branches.find(
+          (branch) => branch.current,
+        )!.name;
+        const worktreePath = path.join(tmp, "stale-cwd-worktree");
+        yield* core.createWorktree({
+          cwd: tmp,
+          branch: defaultBranch,
+          newBranch: "stale-cwd-worktree",
+          path: worktreePath,
+        });
+
+        yield* core.removeWorktree({
+          cwd: path.join(tmp, "missing-cwd"),
+          force: true,
+          path: worktreePath,
+        });
+
+        expect(existsSync(worktreePath)).toBe(false);
       }),
     );
 

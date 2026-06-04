@@ -6,6 +6,7 @@
  *
  * @module CodexAdapterLive
  */
+import { randomUUID } from "node:crypto";
 import {
   type CanonicalItemType,
   type CanonicalRequestType,
@@ -17,6 +18,7 @@ import {
   RuntimeItemId,
   RuntimeRequestId,
   RuntimeTaskId,
+  EventId,
   ProviderApprovalDecision,
   ProviderItemId,
   ThreadId,
@@ -53,9 +55,10 @@ import {
 import { resolveProviderSettings } from "@ace/shared/providerInstances";
 import { CodexAdapter, type CodexAdapterShape } from "../Services/CodexAdapter.ts";
 import { discoverCodexExtensionSlashCommands } from "../providerExtensionSlashCommands.ts";
-import { CODEX_GOAL_SLASH_COMMAND, isCodexGoalsFeatureEnabled } from "../codexGoalFeature.ts";
+import { CODEX_GOAL_SLASH_COMMAND } from "../codexGoalFeature.ts";
 import {
   CodexAppServerManager,
+  type CodexGoalStatus,
   type CodexAppServerStartSessionInput,
 } from "../../codexAppServerManager.ts";
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
@@ -71,12 +74,7 @@ export interface CodexAdapterLiveOptions {
   readonly makeManager?: (services?: ServiceMap.ServiceMap<never>) => CodexAppServerManager;
   readonly nativeEventLogPath?: string;
   readonly nativeEventLogger?: EventNdjsonLogger;
-  readonly resolveGoalsFeatureEnabled?: (input: {
-    readonly binaryPath: string;
-    readonly cwd: string;
-    readonly homePath?: string;
-    readonly launchEnv?: Readonly<Record<string, string>>;
-  }) => boolean;
+  readonly resolveGoalsFeatureEnabled?: () => boolean;
 }
 
 interface CodexReplayBootstrapState {
@@ -179,6 +177,49 @@ function mergeSessionConfiguredCommandEntries(
     return providerCommands;
   }
   return [...providerCommands, ...extensionCommands];
+}
+
+interface ParsedCodexGoalCommand {
+  readonly action: "get" | "set" | "clear" | "pause" | "resume";
+  readonly objective?: string;
+  readonly tokenBudget?: number;
+}
+
+const COMPOSER_PROVIDER_COMMAND_MARKER = "\u2064";
+const CODEX_GOAL_MAX_OBJECTIVE_CHARS = 4_000;
+
+function stripProviderCommandMarkers(text: string): string {
+  return text.replaceAll(COMPOSER_PROVIDER_COMMAND_MARKER, "");
+}
+
+function parseCodexGoalCommand(input: string | undefined): ParsedCodexGoalCommand | null {
+  const text = stripProviderCommandMarkers(input ?? "").trim();
+  const match = /^\/goal(?:\s+([\s\S]*))?$/iu.exec(text);
+  if (!match) {
+    return null;
+  }
+  const body = (match[1] ?? "").trim();
+  if (!body) {
+    return { action: "get" };
+  }
+  const normalized = body.toLowerCase();
+  if (normalized === "clear") {
+    return { action: "clear" };
+  }
+  if (normalized === "pause") {
+    return { action: "pause" };
+  }
+  if (normalized === "resume") {
+    return { action: "resume" };
+  }
+  const budgetMatch = /\s+--token-budget\s+(\d+)\s*$/iu.exec(body);
+  const tokenBudget = budgetMatch?.[1] ? Number.parseInt(budgetMatch[1], 10) : undefined;
+  const objective = (budgetMatch ? body.slice(0, budgetMatch.index) : body).trim();
+  return objective ? { action: "set", objective, ...(tokenBudget ? { tokenBudget } : {}) } : null;
+}
+
+function goalStatusForCommand(action: ParsedCodexGoalCommand["action"]): CodexGoalStatus {
+  return action === "pause" ? "paused" : "active";
 }
 
 function normalizeCodexTokenUsage(value: unknown): ThreadTokenUsageSnapshot | undefined {
@@ -377,6 +418,61 @@ function itemDetail(
     return trimmed;
   }
   return undefined;
+}
+
+function codexLifecycleOutput(source: Record<string, unknown>): string | undefined {
+  const result = asObject(source.result);
+  return (
+    asString(source.output) ??
+    asString(source.aggregatedOutput) ??
+    asString(source.stdout) ??
+    asString(source.stderr) ??
+    asString(result?.output) ??
+    asString(result?.aggregatedOutput) ??
+    asString(result?.stdout) ??
+    asString(result?.stderr)
+  );
+}
+
+function codexLifecycleCwd(
+  source: Record<string, unknown>,
+  payload: Record<string, unknown>,
+): string | undefined {
+  const input = asObject(source.input) ?? asObject(source.arguments);
+  return (
+    asString(source.cwd) ??
+    asString(payload.cwd) ??
+    asString(input?.cwd) ??
+    asString(input?.workingDirectory)
+  );
+}
+
+function normalizeCodexLifecycleData(
+  payload: Record<string, unknown>,
+  source: Record<string, unknown>,
+): Record<string, unknown> {
+  const input = asObject(source.input) ?? asObject(source.arguments);
+  const command =
+    asString(source.command) ??
+    asString(payload.command) ??
+    asString(input?.command) ??
+    asString(input?.cmd);
+  const cwd = codexLifecycleCwd(source, payload);
+  const output = codexLifecycleOutput(source);
+  return {
+    ...payload,
+    ...(input ? { input, arguments: input } : {}),
+    ...(command ? { command } : {}),
+    ...(cwd ? { cwd } : {}),
+    ...(output ? { output, aggregatedOutput: output } : {}),
+    item: {
+      ...source,
+      ...(input ? { input, arguments: input } : {}),
+      ...(command ? { command } : {}),
+      ...(cwd ? { cwd } : {}),
+      ...(output ? { output, aggregatedOutput: output } : {}),
+    },
+  };
 }
 
 function toRequestTypeFromMethod(method: string): CanonicalRequestType {
@@ -694,7 +790,7 @@ function mapItemLifecycle(
       ...(status ? { status } : {}),
       ...(title ? { title } : {}),
       ...(detail ? { detail } : {}),
-      ...(event.payload !== undefined ? { data: event.payload } : {}),
+      ...(payload ? { data: normalizeCodexLifecycleData(payload, source) } : {}),
     },
   };
 }
@@ -963,6 +1059,55 @@ function mapToRuntimeEvents(
     ];
   }
 
+  if (event.method === "thread/goal/updated") {
+    const goal = asObject(payload?.goal);
+    const threadId = asString(goal?.threadId) ?? asString(payload?.threadId);
+    const objective = asString(goal?.objective);
+    if (!threadId || !objective) {
+      return [];
+    }
+    const status = asString(goal?.status);
+    return [
+      {
+        type: "thread.goal.updated",
+        ...runtimeEventBase(event, canonicalThreadId),
+        payload: {
+          goal: {
+            threadId,
+            objective,
+            status:
+              status === "paused" ||
+              status === "completed" ||
+              status === "blocked" ||
+              status === "cleared"
+                ? status
+                : "active",
+            ...(asNumber(goal?.tokenBudget) !== undefined
+              ? { tokenBudget: asNumber(goal?.tokenBudget) }
+              : {}),
+            ...(asNumber(goal?.tokensUsed) !== undefined
+              ? { tokensUsed: asNumber(goal?.tokensUsed) }
+              : {}),
+            ...(asNumber(goal?.timeUsedSeconds) !== undefined
+              ? { timeUsedSeconds: asNumber(goal?.timeUsedSeconds) }
+              : {}),
+          },
+        },
+      },
+    ];
+  }
+
+  if (event.method === "thread/goal/cleared") {
+    const providerThreadId = asString(payload?.threadId);
+    return [
+      {
+        type: "thread.goal.cleared",
+        ...runtimeEventBase(event, canonicalThreadId),
+        payload: providerThreadId ? { providerThreadId } : {},
+      },
+    ];
+  }
+
   if (event.method === "thread/tokenUsage/updated") {
     const tokenUsage = asObject(payload?.tokenUsage);
     const normalizedUsage = normalizeCodexTokenUsage(tokenUsage ?? event.payload);
@@ -1205,6 +1350,7 @@ function mapToRuntimeEvents(
         payload: {
           streamKind: contentStreamKindFromMethod(event.method),
           delta,
+          ...(payload ? { data: payload } : {}),
           ...(typeof payload?.contentIndex === "number"
             ? { contentIndex: payload.contentIndex }
             : {}),
@@ -1659,27 +1805,13 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
       );
       const binaryPath = codexSettings.binaryPath;
       const homePath = codexSettings.homePath;
-      const cwd = input.cwd ?? process.cwd();
       const discoveredCommands = discoverCodexExtensionSlashCommands({
         cwd: input.cwd,
         codexHome: homePath,
       });
-      const goalsFeatureEnabled = (
-        options?.resolveGoalsFeatureEnabled ?? isCodexGoalsFeatureEnabled
-      )({
-        binaryPath,
-        cwd,
-        ...(homePath ? { homePath } : {}),
-        ...(Object.keys(codexSettings.launchEnv).length > 0
-          ? { launchEnv: codexSettings.launchEnv }
-          : {}),
-      });
       extensionCommandsByThreadId.set(
         input.threadId,
-        mergeProviderSlashCommands(
-          discoveredCommands,
-          goalsFeatureEnabled ? [CODEX_GOAL_SLASH_COMMAND] : [],
-        ),
+        mergeProviderSlashCommands(discoveredCommands, [CODEX_GOAL_SLASH_COMMAND]),
       );
       const managerInput: CodexAppServerStartSessionInput = {
         threadId: input.threadId,
@@ -1701,24 +1833,47 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
           : {}),
       };
 
-      const session = yield* Effect.tryPromise({
-        try: () => manager.startSession(managerInput),
-        catch: (cause) =>
-          new ProviderAdapterProcessError({
-            provider: PROVIDER,
-            threadId: input.threadId,
-            detail: toMessage(cause, "Failed to start Codex adapter session."),
-            cause,
-          }),
-      }).pipe(
+      const startManagerSession = (startInput: CodexAppServerStartSessionInput) =>
+        Effect.tryPromise({
+          try: () => manager.startSession(startInput),
+          catch: (cause) =>
+            new ProviderAdapterProcessError({
+              provider: PROVIDER,
+              threadId: input.threadId,
+              detail: toMessage(cause, "Failed to start Codex adapter session."),
+              cause,
+            }),
+        });
+      let nativeForkSucceeded = false;
+      const session = yield* (
+        input.forkSource?.resumeCursor !== undefined
+          ? startManagerSession({
+              ...managerInput,
+              forkSource: input.forkSource,
+            }).pipe(
+              Effect.tap(() =>
+                Effect.sync(() => {
+                  nativeForkSucceeded = true;
+                }),
+              ),
+              Effect.catch((error) =>
+                Effect.logWarning("codex native fork failed; falling back to transcript replay", {
+                  threadId: input.threadId,
+                  sourceThreadId: input.forkSource?.threadId,
+                  detail: error.message,
+                }).pipe(Effect.flatMap(() => startManagerSession(managerInput))),
+              ),
+            )
+          : startManagerSession(managerInput)
+      ).pipe(
         Effect.tapError(() =>
           Effect.sync(() => extensionCommandsByThreadId.delete(input.threadId)),
         ),
       );
       const replayTurns = cloneReplayTurns(input.replayTurns);
       replayBootstrapByThreadId.set(input.threadId, {
-        replayTurns,
-        pendingBootstrapReset: replayTurns.length > 0,
+        replayTurns: nativeForkSucceeded ? [] : replayTurns,
+        pendingBootstrapReset: !nativeForkSucceeded && replayTurns.length > 0,
       });
       return {
         ...session,
@@ -1775,11 +1930,59 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
             ROLLBACK_BOOTSTRAP_MAX_CHARS,
           ).text
         : input.input;
+    const goalCommand =
+      codexAttachments.length === 0 && replayBootstrap?.pendingBootstrapReset !== true
+        ? parseCodexGoalCommand(promptText)
+        : null;
+
+    if (goalCommand) {
+      return yield* Effect.tryPromise({
+        try: async () => {
+          if (goalCommand.action === "clear") {
+            await manager.clearThreadGoal(input.threadId);
+          } else if (goalCommand.action === "get") {
+            const goal = await manager.getThreadGoal(input.threadId);
+            manager.emit("event", {
+              id: EventId.makeUnsafe(randomUUID()),
+              kind: "notification",
+              provider: "codex",
+              threadId: input.threadId,
+              createdAt: new Date().toISOString(),
+              method: goal ? "thread/goal/updated" : "thread/goal/cleared",
+              payload: goal ? { threadId: goal.threadId, goal } : {},
+            } satisfies ProviderEvent);
+          } else {
+            if (
+              goalCommand.objective !== undefined &&
+              goalCommand.objective.length > CODEX_GOAL_MAX_OBJECTIVE_CHARS
+            ) {
+              throw new Error("Goal objective must be at most 4000 characters.");
+            }
+            await manager.setThreadGoal({
+              threadId: input.threadId,
+              ...(goalCommand.objective !== undefined ? { objective: goalCommand.objective } : {}),
+              status: goalStatusForCommand(goalCommand.action),
+              ...(goalCommand.tokenBudget !== undefined
+                ? { tokenBudget: goalCommand.tokenBudget }
+                : {}),
+            });
+          }
+          return {
+            threadId: input.threadId,
+            turnId: TurnId.makeUnsafe(`goal:${Date.now()}`),
+          };
+        },
+        catch: (cause) => toRequestError(input.threadId, "thread/goal", cause),
+      });
+    }
 
     return yield* Effect.tryPromise({
       try: () => {
         const managerInput = {
           threadId: input.threadId,
+          ...(input.providerThreadId !== undefined
+            ? { providerThreadId: input.providerThreadId }
+            : {}),
           ...(promptText !== undefined ? { input: promptText } : {}),
           ...(input.modelSelection?.provider === "codex"
             ? { model: input.modelSelection.model }

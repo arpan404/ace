@@ -177,7 +177,7 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
           </span>
         )}
       </div>
-      <div className="px-3 py-3">
+      <div className="p-3">
         <p className="text-[13px] leading-6 text-foreground/88">{activeQuestion.question}</p>
         <p className="mt-1 text-[11px] text-muted-foreground/56">
           {activeQuestion.multiSelect

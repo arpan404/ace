@@ -20,6 +20,8 @@ import type {
   GitResolvePullRequestResult,
   GitStatusInput,
   GitStatusResult,
+  GitWorktreeStatsInput,
+  GitWorktreeStatsResult,
   GitWorkingTreeDiffInput,
   GitWorkingTreeDiffResult,
 } from "./git";
@@ -31,6 +33,7 @@ import type {
   ProjectCreateEntryResult,
   ProjectDeleteEntryInput,
   ProjectDeleteEntryResult,
+  ProjectFileEvent,
   ProjectReadFileInput,
   ProjectReadFileResult,
   ProjectRenameEntryInput,
@@ -47,6 +50,8 @@ import type {
   WorkspaceEditorCompleteResult,
   WorkspaceEditorDefinitionInput,
   WorkspaceEditorDefinitionResult,
+  WorkspaceEditorHoverInput,
+  WorkspaceEditorHoverResult,
   WorkspaceEditorReferencesInput,
   WorkspaceEditorReferencesResult,
   WorkspaceEditorSyncBufferInput,
@@ -61,6 +66,7 @@ import type {
   ServerLspToolsStatus,
   ServerSearchOpenCodeModelsInput,
   ServerSearchOpenCodeModelsResult,
+  ServerRefreshProvidersInput,
   ServerProviderUpdatedPayload,
   ServerUninstallLspToolInput,
   ServerUpgradeProviderCliInput,
@@ -137,6 +143,7 @@ export type BrowserShortcutAction =
   | "designer-area-comment"
   | "designer-element-comment"
   | "duplicate-tab"
+  | "find-in-page"
   | "focus-address-bar"
   | "forward"
   | "move-tab-left"
@@ -159,6 +166,7 @@ export type BrowserShortcutAction =
   | "select-tab-9";
 
 export const DESKTOP_MENU_ACTIONS = [
+  "new-window",
   "new-thread",
   "new-local-thread",
   "toggle-plan-mode",
@@ -172,6 +180,7 @@ export const DESKTOP_MENU_ACTIONS = [
   "open-settings-chat",
   "open-settings-editor",
   "open-settings-browser",
+  "open-settings-devices",
   "open-settings-models",
   "open-settings-providers",
   "open-settings-advanced",
@@ -275,6 +284,95 @@ export interface DesktopDetachedBrowserOpenInput {
 export interface DesktopDetachedEditorOpenInput {
   threadId: string;
   connectionUrl?: string;
+  editorStateInstanceId?: string;
+  placement?: "bottom" | "right" | "workspace";
+  workspaceMode?: "editor" | "split";
+}
+
+export type DesktopDetachedWindowReturnRequest =
+  | {
+      kind: "browser";
+      scopeId?: string;
+    }
+  | {
+      kind: "editor";
+      connectionUrl?: string;
+      editorStateInstanceId?: string;
+      placement?: "bottom" | "right" | "workspace";
+      threadId: string;
+      workspaceMode?: "editor" | "split";
+    };
+
+export type DesktopBrowserPermission =
+  | "camera"
+  | "microphone"
+  | "media"
+  | "clipboard"
+  | "displayCapture"
+  | "fileSystem"
+  | "fullscreen"
+  | "geolocation"
+  | "hid"
+  | "idleDetection"
+  | "keyboardLock"
+  | "midi"
+  | "notifications"
+  | "openExternal"
+  | "pointerLock"
+  | "serial"
+  | "speakerSelection"
+  | "storageAccess"
+  | "topLevelStorageAccess"
+  | "usb"
+  | "windowManagement";
+export type DesktopBrowserPermissionSetting = "allow" | "ask" | "block";
+
+export interface DesktopBrowserSitePermission {
+  permission: DesktopBrowserPermission;
+  setting: DesktopBrowserPermissionSetting;
+  updatedAt: string | null;
+}
+
+export type DesktopBrowserDownloadState = "cancelled" | "completed" | "interrupted" | "progressing";
+
+export interface DesktopBrowserDownload {
+  canResume: boolean;
+  endedAt: string | null;
+  filename: string;
+  id: string;
+  mimeType: string | null;
+  paused: boolean;
+  percentComplete: number;
+  receivedBytes: number;
+  savePath: string | null;
+  speedBytesPerSecond: number;
+  startedAt: string | null;
+  state: DesktopBrowserDownloadState;
+  totalBytes: number;
+  url: string;
+}
+
+export interface DesktopBrowserDownloadEvent {
+  download: DesktopBrowserDownload;
+  type: "done" | "updated";
+}
+
+export interface DesktopBrowserOpenUrlEvent {
+  sourceWebContentsId?: number;
+  url: string;
+}
+
+export type DesktopBrowserDownloadAction = "cancel" | "open" | "pause" | "resume" | "reveal";
+
+export interface DesktopBrowserSiteInfo {
+  activeDownloads: number;
+  cookieCount: number;
+  downloads: ReadonlyArray<DesktopBrowserDownload>;
+  origin: string;
+  permissions: ReadonlyArray<DesktopBrowserSitePermission>;
+  storageOrigin: string | null;
+  url: string;
+  userAgent: string;
 }
 
 export interface DesktopBridge {
@@ -289,6 +387,19 @@ export interface DesktopBridge {
   pickFolder: (options?: PickFolderOptions) => Promise<string | null>;
   confirm: (message: string) => Promise<boolean>;
   repairBrowserStorage: () => Promise<boolean>;
+  getBrowserSiteInfo?: (url: string) => Promise<DesktopBrowserSiteInfo | null>;
+  setBrowserSitePermission?: (input: {
+    permission: DesktopBrowserPermission;
+    setting: DesktopBrowserPermissionSetting;
+    url: string;
+  }) => Promise<boolean>;
+  resetBrowserSitePermissions?: (url: string) => Promise<boolean>;
+  clearBrowserSiteData?: (url: string) => Promise<boolean>;
+  getBrowserDownloads?: () => Promise<ReadonlyArray<DesktopBrowserDownload>>;
+  controlBrowserDownload?: (input: {
+    action: DesktopBrowserDownloadAction;
+    id: string;
+  }) => Promise<boolean>;
   setTheme: (theme: DesktopTheme) => Promise<void>;
   showContextMenu: <T extends string>(
     items: readonly ContextMenuItem<T>[],
@@ -298,8 +409,11 @@ export interface DesktopBridge {
   showNotification: (input: DesktopNotificationInput) => Promise<boolean>;
   closeNotification: (id: string) => Promise<boolean>;
   applyAppZoom?: (action: DesktopZoomAction) => Promise<void>;
+  openNewWindow?: () => Promise<boolean>;
   openDetachedBrowser?: (input?: DesktopDetachedBrowserOpenInput) => Promise<boolean>;
   openDetachedEditor?: (input: DesktopDetachedEditorOpenInput) => Promise<boolean>;
+  returnDetachedWindow?: (input: DesktopDetachedWindowReturnRequest) => Promise<boolean>;
+  openBrowserAuthWindow?: (url: string) => Promise<boolean>;
   onNotificationClick: (listener: (event: DesktopNotificationClickEvent) => void) => () => void;
   onNotificationReply: (listener: (event: DesktopNotificationReplyEvent) => void) => () => void;
   onMenuAction: (listener: (action: DesktopMenuAction) => void) => () => void;
@@ -312,9 +426,13 @@ export interface DesktopBridge {
   installUpdate: () => Promise<DesktopUpdateActionResult>;
   onUpdateState: (listener: (state: DesktopUpdateState) => void) => () => void;
   onPairingUrl?: (listener: (url: string) => void) => () => void;
-  onBrowserOpenUrl?: (listener: (url: string) => void) => () => void;
+  onDetachedWindowReturn?: (
+    listener: (request: DesktopDetachedWindowReturnRequest) => void,
+  ) => () => void;
+  onBrowserOpenUrl?: (listener: (event: DesktopBrowserOpenUrlEvent) => void) => () => void;
   onBrowserContextMenuShown?: (listener: () => void) => () => void;
   onBrowserShortcutAction?: (listener: (action: BrowserShortcutAction) => void) => () => void;
+  onBrowserDownloadEvent?: (listener: (event: DesktopBrowserDownloadEvent) => void) => () => void;
   sendOrchestrationEvent?: (event: unknown) => void;
   sendServerConfigEvent?: (event: unknown) => void;
 }
@@ -325,8 +443,23 @@ export interface NativeApi {
     confirm: (message: string) => Promise<boolean>;
   };
   browser: {
+    clearSiteData: (url: string) => Promise<boolean>;
+    controlDownload: (input: {
+      action: DesktopBrowserDownloadAction;
+      id: string;
+    }) => Promise<boolean>;
+    getDownloads: () => Promise<ReadonlyArray<DesktopBrowserDownload>>;
+    getSiteInfo: (url: string) => Promise<DesktopBrowserSiteInfo | null>;
+    onDownloadEvent: (callback: (event: DesktopBrowserDownloadEvent) => void) => () => void;
+    openAuthWindow: (url: string) => Promise<boolean>;
     repairStorage: () => Promise<boolean>;
+    resetSitePermissions: (url: string) => Promise<boolean>;
     resolveBridgeRequest: (input: BrowserBridgeResolveInput) => Promise<BrowserBridgeResolveResult>;
+    setSitePermission: (input: {
+      permission: DesktopBrowserPermission;
+      setting: DesktopBrowserPermissionSetting;
+      url: string;
+    }) => Promise<boolean>;
     onBridgeRequest: (callback: (request: BrowserBridgeRequest) => void) => () => void;
   };
   terminal: {
@@ -350,6 +483,10 @@ export interface NativeApi {
     readFile: (input: ProjectReadFileInput) => Promise<ProjectReadFileResult>;
     renameEntry: (input: ProjectRenameEntryInput) => Promise<ProjectRenameEntryResult>;
     writeFile: (input: ProjectWriteFileInput) => Promise<ProjectWriteFileResult>;
+    onFileEvents: (
+      input: ProjectListTreeInput,
+      callback: (event: ProjectFileEvent) => void,
+    ) => () => void;
   };
   filesystem: {
     browse: (input: FilesystemBrowseInput) => Promise<FilesystemBrowseResult>;
@@ -361,6 +498,7 @@ export interface NativeApi {
     ) => Promise<WorkspaceEditorCloseBufferResult>;
     complete: (input: WorkspaceEditorCompleteInput) => Promise<WorkspaceEditorCompleteResult>;
     definition: (input: WorkspaceEditorDefinitionInput) => Promise<WorkspaceEditorDefinitionResult>;
+    hover: (input: WorkspaceEditorHoverInput) => Promise<WorkspaceEditorHoverResult>;
     references: (input: WorkspaceEditorReferencesInput) => Promise<WorkspaceEditorReferencesResult>;
   };
   shell: {
@@ -382,6 +520,7 @@ export interface NativeApi {
   git: {
     // Existing branch/worktree API
     listBranches: (input: GitListBranchesInput) => Promise<GitListBranchesResult>;
+    getWorktreeStats: (input: GitWorktreeStatsInput) => Promise<GitWorktreeStatsResult>;
     listGitHubIssues: (input: GitListGitHubIssuesInput) => Promise<GitListGitHubIssuesResult>;
     getGitHubIssueThread: (
       input: GitGetGitHubIssueThreadInput,
@@ -408,7 +547,9 @@ export interface NativeApi {
   };
   server: {
     getConfig: () => Promise<ServerConfig>;
-    refreshProviders: () => Promise<ServerProviderUpdatedPayload>;
+    refreshProviders: (
+      input?: ServerRefreshProvidersInput,
+    ) => Promise<ServerProviderUpdatedPayload>;
     upgradeProviderCli: (
       input: ServerUpgradeProviderCliInput,
     ) => Promise<ServerProviderUpdatedPayload>;

@@ -4,6 +4,27 @@ import { Schema } from "effect";
 export const EnvMode = Schema.Literals(["local", "worktree"]);
 export type EnvMode = typeof EnvMode.Type;
 
+export function formatWorktreeDisplayName(worktreePath: string | null): string | null {
+  if (!worktreePath) {
+    return null;
+  }
+  const normalizedPath = worktreePath.replaceAll("\\", "/").replace(/\/+$/, "");
+  const segments = normalizedPath.split("/").filter(Boolean);
+  return segments.at(-1) ?? worktreePath;
+}
+
+export function resolveEnvironmentModeLabel(input: {
+  activeWorktreePath: string | null;
+  effectiveEnvMode: EnvMode;
+  localEnvironmentLabel: string;
+}): string {
+  const worktreeDisplayName = formatWorktreeDisplayName(input.activeWorktreePath);
+  if (worktreeDisplayName) {
+    return worktreeDisplayName;
+  }
+  return input.effectiveEnvMode === "worktree" ? "New worktree" : input.localEnvironmentLabel;
+}
+
 export function resolveEffectiveEnvMode(input: {
   activeWorktreePath: string | null;
   hasServerThread: boolean;
@@ -74,9 +95,12 @@ function deriveLocalBranchNameCandidatesFromRemoteRef(
 export function dedupeRemoteBranchesWithLocalMatches(
   branches: ReadonlyArray<GitBranch>,
 ): ReadonlyArray<GitBranch> {
-  const localBranchNames = new Set(
-    branches.filter((branch) => !branch.isRemote).map((branch) => branch.name),
-  );
+  const localBranchNames = new Set<string>();
+  for (const branch of branches) {
+    if (!branch.isRemote) {
+      localBranchNames.add(branch.name);
+    }
+  }
 
   return branches.filter((branch) => {
     if (!branch.isRemote) {

@@ -10,9 +10,9 @@ interface NavigatorResourceHints extends Navigator {
   readonly deviceMemory?: number;
 }
 
-export type ClientMemoryClass = "unknown" | "constrained" | "moderate" | "standard";
+type ClientMemoryClass = "unknown" | "constrained" | "moderate" | "standard";
 
-export interface ClientResourceProfile {
+interface ClientResourceProfile {
   readonly memoryClass: ClientMemoryClass;
   readonly deviceMemoryGb: number | null;
   readonly saveData: boolean;
@@ -29,7 +29,7 @@ function readNavigatorResourceHints(): NavigatorResourceHints | null {
   return navigator as NavigatorResourceHints;
 }
 
-export function getClientResourceProfile(): ClientResourceProfile {
+function getClientResourceProfile(): ClientResourceProfile {
   const resourceHints = readNavigatorResourceHints();
   const rawDeviceMemory = resourceHints?.deviceMemory;
   const deviceMemoryGb =

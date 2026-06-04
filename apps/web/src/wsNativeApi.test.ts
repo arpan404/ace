@@ -35,6 +35,7 @@ const orchestrationEventListeners = new Set<(event: OrchestrationEvent) => void>
 const rpcClientMock = {
   dispose: vi.fn(),
   subscribeConnectionState: vi.fn(() => () => undefined),
+  queueProbeNow: vi.fn(),
   terminal: {
     open: vi.fn(),
     write: vi.fn(),
@@ -64,6 +65,7 @@ const rpcClientMock = {
     syncBuffer: vi.fn(),
     closeBuffer: vi.fn(),
     complete: vi.fn(),
+    hover: vi.fn(),
   },
   shell: {
     openInEditor: vi.fn(),
@@ -76,6 +78,7 @@ const rpcClientMock = {
     readWorkingTreeDiff: vi.fn(),
     runStackedAction: vi.fn(),
     listBranches: vi.fn(),
+    getWorktreeStats: vi.fn(),
     listGitHubIssues: vi.fn(),
     getGitHubIssueThread: vi.fn(),
     createWorktree: vi.fn(),
@@ -750,6 +753,19 @@ describe("wsNativeApi", { timeout: 15_000 }, () => {
 
     await expect(api.browser.repairStorage()).resolves.toBe(true);
     expect(repairBrowserStorage).toHaveBeenCalledWith();
+  });
+
+  it("forwards browser auth window requests to the desktop bridge", async () => {
+    const openBrowserAuthWindow = vi.fn().mockResolvedValue(true);
+    getWindowForTest().desktopBridge = makeDesktopBridge({ openBrowserAuthWindow });
+
+    const { createWsNativeApi } = await import("./wsNativeApi");
+    const api = createWsNativeApi();
+
+    await expect(api.browser.openAuthWindow("https://accounts.example.com/login")).resolves.toBe(
+      true,
+    );
+    expect(openBrowserAuthWindow).toHaveBeenCalledWith("https://accounts.example.com/login");
   });
 
   it("falls back to the browser context menu helper when the desktop bridge is missing", async () => {

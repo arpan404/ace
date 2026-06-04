@@ -362,9 +362,9 @@ export default function App() {
     async (nextHosts: HostInstance[], nextActiveHostId: string | null) => {
       setHosts(nextHosts);
       setActiveHostId(nextActiveHostId);
-      await AsyncStorage.multiSet([
-        [HOSTS_STORAGE_KEY, JSON.stringify(nextHosts)],
-        [ACTIVE_HOST_STORAGE_KEY, nextActiveHostId ?? ""],
+      await Promise.all([
+        AsyncStorage.setItem(HOSTS_STORAGE_KEY, JSON.stringify(nextHosts)),
+        AsyncStorage.setItem(ACTIVE_HOST_STORAGE_KEY, nextActiveHostId ?? ""),
       ]);
     },
     [],
@@ -1029,13 +1029,14 @@ export default function App() {
 
   useEffect(() => {
     let mounted = true;
-    void AsyncStorage.multiGet([HOSTS_STORAGE_KEY, ACTIVE_HOST_STORAGE_KEY])
-      .then(([hostsEntry, activeHostEntry]) => {
+    void Promise.all([
+      AsyncStorage.getItem(HOSTS_STORAGE_KEY),
+      AsyncStorage.getItem(ACTIVE_HOST_STORAGE_KEY),
+    ])
+      .then(([rawHosts, rawActiveHostId]) => {
         if (!mounted) {
           return;
         }
-        const rawHosts = hostsEntry?.[1] ?? null;
-        const rawActiveHostId = activeHostEntry?.[1] ?? null;
         let parsedHosts: HostInstance[] = [];
         if (rawHosts) {
           try {
@@ -1107,7 +1108,7 @@ export default function App() {
         setBrowserCurrentUrl(browserBase);
         setHostsLoaded(true);
       })
-      .catch((error) => {
+      .catch((error: unknown) => {
         if (!mounted) {
           return;
         }
@@ -1991,10 +1992,10 @@ export default function App() {
     if (!hostsLoaded) {
       return;
     }
-    void AsyncStorage.multiSet([
-      [HOSTS_STORAGE_KEY, JSON.stringify(hosts)],
-      [ACTIVE_HOST_STORAGE_KEY, activeHostId ?? ""],
-    ]).catch((error) => {
+    void Promise.all([
+      AsyncStorage.setItem(HOSTS_STORAGE_KEY, JSON.stringify(hosts)),
+      AsyncStorage.setItem(ACTIVE_HOST_STORAGE_KEY, activeHostId ?? ""),
+    ]).catch((error: unknown) => {
       setStatusMessage(`Failed to persist host state: ${formatError(error)}`);
     });
   }, [activeHostId, hosts, hostsLoaded]);

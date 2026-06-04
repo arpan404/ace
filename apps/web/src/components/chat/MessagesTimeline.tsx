@@ -47,10 +47,15 @@ import {
   CircleAlertIcon,
   ChevronDownIcon,
   ChevronRightIcon,
+  ChevronsDownUpIcon,
+  ChevronsUpDownIcon,
   Clock3Icon,
   EyeIcon,
+  FileDiffIcon,
   GlobeIcon,
   HammerIcon,
+  PinIcon,
+  SplitIcon,
   type LucideIcon,
   PlugIcon,
   SquarePenIcon,
@@ -64,11 +69,23 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { buildExpandedImagePreview, ExpandedImagePreview } from "./ExpandedImagePreview";
 import { ProposedPlanCard } from "./ProposedPlanCard";
 import { ChangedFilesTree } from "./ChangedFilesTree";
-import { DiffStatLabel, hasNonZeroStat } from "./DiffStatLabel";
+import { DiffStatLabel } from "./DiffStatLabel";
+import { hasNonZeroStat } from "./diffStat";
 import { MessageCopyButton } from "./MessageCopyButton";
+import {
+  EMPTY_PINNED_MESSAGES,
+  getPinnedMessageId,
+  PINNED_MESSAGES_STORAGE_KEY,
+  PinnedMessagesSchema,
+  removePinnedMessage,
+  upsertPinnedMessage,
+  upsertPinnedSelectionMessage,
+  type PinnedMessages,
+} from "./pinnedMessagesStore";
 import { normalizeCompactToolLabel } from "~/lib/chat/messagesTimeline";
 import { TerminalContextInlineChip } from "./TerminalContextInlineChip";
 import { VscodeEntryIcon } from "./VscodeEntryIcon";
+import { useLocalStorage } from "~/hooks/useLocalStorage";
 import {
   deriveDisplayedUserMessageState,
   type ParsedTerminalContextEntry,
@@ -81,6 +98,7 @@ import { basenameOfPath, inferEntryKindFromPath } from "../../vscode-icons";
 import {
   buildInlineTerminalContextText,
   formatInlineTerminalContextLabel,
+  findTextIndexOf,
   textContainsInlineTerminalContextLabels,
 } from "~/lib/chat/userMessageTerminalContexts";
 import {
@@ -90,13 +108,17 @@ import {
   shouldWorkerizeTimelineRows,
   type AssistantTimelineMessage,
   type BuildTimelineRowsInput,
+  type TimelineCompletedWorkDiagnosticRow,
   type SystemTimelineMessage,
   type TimelineCompletedWorkDetailRow,
+  type TimelineMetaTone,
   type TimelineMetaGroupEntry,
   type TimelineMessage,
   type TimelineProposedPlan,
   type TimelineRow,
   type TimelineWorkEntry,
+  type TimelineWorkGroupIconKey,
+  type TimelineWorkGroupSummaryProjection,
   type TimelineWorkLogRow,
   type UserTimelineMessage,
 } from "~/lib/chat/timelineRows";
@@ -106,17 +128,21 @@ import {
   readCachedTimelineRows,
   writeCachedTimelineRows,
 } from "~/lib/chat/timelineRowsClient";
+import type { StuckTurnSnapshot } from "~/lib/reliability/stuckTurn";
 
 const ALWAYS_UNVIRTUALIZED_TAIL_ROWS = 8;
 const TIMELINE_VIRTUALIZER_OVERSCAN = 12;
 const MAX_TIMELINE_ROW_HEIGHT_CACHE_ENTRIES = 4_096;
 const IMMEDIATE_ASSISTANT_MARKDOWN_TAIL_MESSAGES = 12;
 const ASSISTANT_MARKDOWN_IDLE_BATCH_SIZE = 2;
+const DEFAULT_TURN_DIFF_DIRECTORIES_EXPANDED = false;
 const ASSISTANT_MARKDOWN_IDLE_TIMEOUT_MS = 600;
 const ASSISTANT_MARKDOWN_FALLBACK_DELAY_MS = 80;
 const TIMELINE_WIDTH_RESIZE_DEBOUNCE_MS = 96;
 const TIMELINE_INITIAL_VIEWPORT_HEIGHT_PX = 720;
+const TIMELINE_FALLBACK_VIRTUAL_RANGE_MIN_ROWS = TIMELINE_VIRTUALIZER_OVERSCAN * 2 + 8;
 const EMPTY_TIMELINE_ROWS: ReadonlyArray<TimelineRow> = [];
+const EMPTY_PROVIDER_COMMANDS: ReadonlyArray<ProviderSlashCommand> = [];
 const ASSISTANT_IMAGE_GENERATION_MESSAGE_ID_REGEX =
   /^assistant:image:(?<width>\d{2,5})x(?<height>\d{2,5}):/u;
 const IMAGE_GENERATION_FRAME_MAX_WIDTH_REM = 42;
@@ -124,6 +150,215 @@ const IMAGE_GENERATION_LANDSCAPE_FRAME_MAX_HEIGHT_VH = 54;
 const IMAGE_GENERATION_SQUARE_FRAME_MAX_HEIGHT_VH = 46;
 const EMPTY_MESSAGE_TURN_COUNT_MAP = new Map<MessageId, number>();
 const IMAGE_GENERATION_PORTRAIT_FRAME_MAX_HEIGHT_VH = 42;
+const SELECTION_PIN_BUTTON_WIDTH_PX = 92;
+const SELECTION_PIN_BUTTON_HEIGHT_PX = 32;
+const ASSISTANT_MESSAGE_ROW_SELECTOR = '[data-message-role="assistant"][data-message-id]';
+const PINNED_SELECTION_TEXT_BLOCK_SELECTOR =
+  "blockquote,div,h1,h2,h3,h4,h5,h6,li,ol,p,pre,section,table,tbody,td,tfoot,th,thead,tr,ul";
+
+type AssistantSelectionPinTarget = {
+  left: number;
+  messageId: string;
+  text: string;
+  top: number;
+};
+
+type TargetMessageNavigation = {
+  messageId: string;
+  requestId: number;
+  targetKind: "message" | "selection";
+  selectedText?: string;
+};
+
+function normalizePinnedSelectionText(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function elementFromNode(node: Node): Element | null {
+  return node.nodeType === Node.ELEMENT_NODE
+    ? (node as Element)
+    : node.parentNode instanceof Element
+      ? node.parentNode
+      : null;
+}
+
+function assistantMessageRowFromNode(node: Node): HTMLElement | null {
+  return elementFromNode(node)?.closest<HTMLElement>(ASSISTANT_MESSAGE_ROW_SELECTOR) ?? null;
+}
+
+function readCurrentAssistantSelectionPinTarget(): {
+  messageId: string;
+  range: Range;
+  text: string;
+} | null {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return null;
+  const text = normalizePinnedSelectionText(selection.toString());
+  if (!text) return null;
+
+  const range = selection.getRangeAt(0);
+  const startMessageRow = assistantMessageRowFromNode(range.startContainer);
+  const endMessageRow = assistantMessageRowFromNode(range.endContainer);
+  if (!startMessageRow || !endMessageRow || startMessageRow !== endMessageRow) return null;
+
+  const messageRow = startMessageRow;
+  const messageId = messageRow?.dataset.messageId;
+  return messageId ? { messageId, range, text } : null;
+}
+
+function resolvePinnedSelectionNeedle(selectedText: string): string {
+  const normalized = normalizePinnedSelectionText(selectedText);
+  if (!normalized.endsWith("…")) return normalized;
+  return normalized.slice(0, -1).trimEnd();
+}
+
+function closestPinnedSelectionTextBlock(node: Text): Element | null {
+  return node.parentElement?.closest(PINNED_SELECTION_TEXT_BLOCK_SELECTOR) ?? null;
+}
+
+function shouldSeparatePinnedSelectionTextNodes(previousNode: Text | null, node: Text): boolean {
+  if (!previousNode) return false;
+  const previousBlock = closestPinnedSelectionTextBlock(previousNode);
+  const nextBlock = closestPinnedSelectionTextBlock(node);
+  return Boolean(previousBlock && nextBlock && previousBlock !== nextBlock);
+}
+
+function findPinnedSelectionRange(root: HTMLElement, selectedText: string): Range | null {
+  const needle = resolvePinnedSelectionNeedle(selectedText);
+  if (!needle) return null;
+
+  const searchRoot = root.querySelector<HTMLElement>("[data-assistant-message-content]") ?? root;
+  const textNodes: Text[] = [];
+  const walker = document.createTreeWalker(searchRoot, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      const parentElement = node.parentElement;
+      if (
+        parentElement?.closest(
+          "button,textarea,input,select,script,style,[data-assistant-turn-actions]",
+        )
+      ) {
+        return NodeFilter.FILTER_REJECT;
+      }
+      return NodeFilter.FILTER_ACCEPT;
+    },
+  });
+  let nextNode = walker.nextNode();
+  while (nextNode) {
+    textNodes.push(nextNode as Text);
+    nextNode = walker.nextNode();
+  }
+
+  const positions: Array<{ node: Text; offset: number }> = [];
+  let haystack = "";
+  let previousWasWhitespace = true;
+  let previousNode: Text | null = null;
+  for (const node of textNodes) {
+    const text = node.data;
+    if (
+      shouldSeparatePinnedSelectionTextNodes(previousNode, node) &&
+      !previousWasWhitespace &&
+      !/^\s/u.test(text)
+    ) {
+      haystack += " ";
+      positions.push({ node, offset: 0 });
+      previousWasWhitespace = true;
+    }
+
+    for (let offset = 0; offset < text.length; offset += 1) {
+      const character = text[offset] ?? "";
+      if (/\s/u.test(character)) {
+        if (!previousWasWhitespace) {
+          haystack += " ";
+          positions.push({ node, offset });
+          previousWasWhitespace = true;
+        }
+        continue;
+      }
+      haystack += character;
+      positions.push({ node, offset });
+      previousWasWhitespace = false;
+    }
+    previousNode = node;
+  }
+
+  const startIndex = haystack.indexOf(needle);
+  if (startIndex < 0) return null;
+  const endIndex = startIndex + needle.length - 1;
+  const startPosition = positions[startIndex];
+  const endPosition = positions[endIndex];
+  if (!startPosition || !endPosition) return null;
+
+  const range = document.createRange();
+  range.setStart(startPosition.node, startPosition.offset);
+  range.setEnd(endPosition.node, endPosition.offset + 1);
+  return range;
+}
+
+function highlightPinnedSelectionText(
+  root: HTMLElement,
+  selectedText: string,
+  scrollContainer: HTMLElement,
+): (() => void) | null {
+  const range = findPinnedSelectionRange(root, selectedText);
+  if (!range) return null;
+
+  const firstRect = range.getBoundingClientRect();
+  if (firstRect.width <= 0 || firstRect.height <= 0) return null;
+
+  const initialContainerRect = scrollContainer.getBoundingClientRect();
+  scrollContainer.scrollTop = Math.max(
+    0,
+    scrollContainer.scrollTop +
+      firstRect.top -
+      initialContainerRect.top -
+      scrollContainer.clientHeight / 2 +
+      firstRect.height / 2,
+  );
+
+  const containerRect = scrollContainer.getBoundingClientRect();
+  const rangeRects = [...range.getClientRects()].filter(
+    (rect) =>
+      rect.width > 0 &&
+      rect.height > 0 &&
+      rect.bottom >= containerRect.top &&
+      rect.top <= containerRect.bottom,
+  );
+  if (rangeRects.length === 0) return null;
+
+  const previousPosition = scrollContainer.style.position;
+  const shouldRestorePosition = window.getComputedStyle(scrollContainer).position === "static";
+  if (shouldRestorePosition) {
+    scrollContainer.style.position = "relative";
+  }
+
+  const overlay = document.createElement("div");
+  overlay.dataset.pinnedSelectionHighlight = "true";
+  overlay.style.pointerEvents = "none";
+  overlay.style.position = "absolute";
+  overlay.style.inset = "0";
+  overlay.style.zIndex = "20";
+  scrollContainer.appendChild(overlay);
+
+  for (const rect of rangeRects) {
+    const highlight = document.createElement("div");
+    highlight.style.position = "absolute";
+    highlight.style.left = `${rect.left - containerRect.left + scrollContainer.scrollLeft - 2}px`;
+    highlight.style.top = `${rect.top - containerRect.top + scrollContainer.scrollTop - 2}px`;
+    highlight.style.width = `${rect.width + 4}px`;
+    highlight.style.height = `${rect.height + 4}px`;
+    highlight.style.borderRadius = "0.25rem";
+    highlight.style.background = "hsl(var(--primary) / 0.22)";
+    highlight.style.boxShadow = "0 0 0 1px hsl(var(--primary) / 0.36)";
+    overlay.appendChild(highlight);
+  }
+
+  return () => {
+    overlay.remove();
+    if (shouldRestorePosition) {
+      scrollContainer.style.position = previousPosition;
+    }
+  };
+}
 
 interface AssistantImageGenerationPlaceholder {
   readonly width: number;
@@ -137,6 +372,12 @@ function InlineTooltip(props: {
   align?: "start" | "center" | "end";
   className?: string;
 }) {
+  if (
+    typeof props.content === "string" &&
+    (props.content.length > 240 || props.content.split("\n").length > 4)
+  ) {
+    return <span className={props.className}>{props.children}</span>;
+  }
   return (
     <Tooltip>
       <TooltipTrigger render={<span className={props.className} />}>
@@ -156,6 +397,80 @@ function canResolveTimelineRowsInWorker(): boolean {
     typeof Worker !== "undefined" &&
     typeof document.createElement === "function"
   );
+}
+
+export function shouldRenderTimelineVirtualizedBuffer(input: {
+  readonly virtualizedRowCount: number;
+}): boolean {
+  return input.virtualizedRowCount > 0;
+}
+
+export function deriveFallbackTimelineVirtualItems(input: {
+  readonly rowCount: number;
+  readonly estimateSize: (index: number) => number;
+  readonly getItemKey: (index: number) => VirtualItem["key"];
+  readonly overscan: number;
+  readonly scrollTop: number;
+  readonly viewportHeight: number;
+}): VirtualItem[] {
+  if (input.rowCount <= 0) {
+    return [];
+  }
+
+  const viewportHeight = Math.max(1, input.viewportHeight);
+  const starts: number[] = [];
+  const sizes: number[] = [];
+  let totalSize = 0;
+  for (let index = 0; index < input.rowCount; index += 1) {
+    const rawSize = input.estimateSize(index);
+    const size = Number.isFinite(rawSize) && rawSize > 0 ? rawSize : 96;
+    starts.push(totalSize);
+    sizes.push(size);
+    totalSize += size;
+  }
+
+  const maxScrollTop = Math.max(totalSize - viewportHeight, 0);
+  const scrollTop = Math.min(Math.max(input.scrollTop, 0), maxScrollTop);
+  const visibleStart = Math.max(scrollTop - viewportHeight, 0);
+  const visibleEnd = Math.min(scrollTop + viewportHeight * 2, totalSize);
+
+  let startIndex = 0;
+  while (
+    startIndex < input.rowCount - 1 &&
+    (starts[startIndex] ?? 0) + (sizes[startIndex] ?? 0) < visibleStart
+  ) {
+    startIndex += 1;
+  }
+
+  let endIndex = startIndex;
+  while (endIndex < input.rowCount - 1 && (starts[endIndex] ?? 0) <= visibleEnd) {
+    endIndex += 1;
+  }
+
+  startIndex = Math.max(0, startIndex - input.overscan);
+  endIndex = Math.min(input.rowCount - 1, endIndex + input.overscan);
+
+  if (endIndex - startIndex + 1 < TIMELINE_FALLBACK_VIRTUAL_RANGE_MIN_ROWS) {
+    const missingRows = TIMELINE_FALLBACK_VIRTUAL_RANGE_MIN_ROWS - (endIndex - startIndex + 1);
+    const prependRows = Math.min(startIndex, Math.floor(missingRows / 2));
+    startIndex -= prependRows;
+    endIndex = Math.min(input.rowCount - 1, endIndex + missingRows - prependRows);
+  }
+
+  const items: VirtualItem[] = [];
+  for (let index = startIndex; index <= endIndex; index += 1) {
+    const start = starts[index] ?? 0;
+    const size = sizes[index] ?? 96;
+    items.push({
+      key: input.getItemKey(index),
+      index,
+      start,
+      end: start + size,
+      size,
+      lane: 0,
+    });
+  }
+  return items;
 }
 
 function assistantImageGenerationDimensionsFromMessageId(
@@ -197,7 +512,7 @@ function imageGenerationFrameStyle(dimensions: AssistantImageGenerationPlacehold
 
 const timelineRowHeightCache = new Map<string, number>();
 type TimelineIcon = ComponentType<{ className?: string }>;
-interface AssistantMarkdownAnalysisPrewarmJob {
+export interface AssistantMarkdownAnalysisPrewarmJob {
   readonly cacheKey: string;
   readonly input: MarkdownRenderAnalysisInput;
 }
@@ -279,6 +594,7 @@ function toTimelineWidthCacheKey(timelineWidthPx: number | null): string {
 }
 
 interface MessagesTimelineProps {
+  activeThreadId?: string;
   hasMessages: boolean;
   isWorking: boolean;
   onStartConversationFromMessage?: (() => void) | null;
@@ -287,6 +603,9 @@ interface MessagesTimelineProps {
   continueWithGitHubIssuesDisabledReason?: string;
   activeTurnInProgress: boolean;
   activeTurnStartedAt: string | null;
+  stuckTurnSnapshot?: StuckTurnSnapshot;
+  onStopStuckTurn?: (() => void) | null;
+  onOpenStuckTurnDiagnostics?: (() => void) | null;
   backgroundMarkdownPrewarm?: boolean;
   getScrollContainer: () => HTMLDivElement | null;
   hideCompletedWorkMessages?: boolean;
@@ -310,13 +629,19 @@ interface MessagesTimelineProps {
   onOpenFilePath?: ((path: string) => void) | null;
   enableLocalFileLinks?: boolean;
   providerCommands?: ReadonlyArray<ProviderSlashCommand>;
+  onForkConversation?: (() => void) | null;
+  isPinned?: boolean;
+  onTogglePinnedMessage?: (() => void) | null;
+  isForkConversationDisabled?: boolean;
   enableGoalWorkingState?: boolean;
   resolvedTheme: "light" | "dark";
   timestampFormat: TimestampFormat;
   workspaceRoot: string | undefined;
+  targetMessageNavigation?: TargetMessageNavigation | null;
 }
 
 export const MessagesTimeline = memo(function MessagesTimeline({
+  activeThreadId,
   hasMessages,
   isWorking,
   onStartConversationFromMessage = null,
@@ -325,6 +650,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   continueWithGitHubIssuesDisabledReason,
   activeTurnInProgress,
   activeTurnStartedAt,
+  stuckTurnSnapshot,
+  onStopStuckTurn = null,
+  onOpenStuckTurnDiagnostics = null,
   backgroundMarkdownPrewarm = true,
   getScrollContainer,
   hideCompletedWorkMessages = false,
@@ -347,16 +675,93 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   onOpenBrowserUrl = null,
   onOpenFilePath = null,
   enableLocalFileLinks = true,
-  providerCommands = [],
+  providerCommands = EMPTY_PROVIDER_COMMANDS,
+  onForkConversation = null,
+  isForkConversationDisabled = false,
   enableGoalWorkingState = false,
   resolvedTheme,
   timestampFormat,
   workspaceRoot,
+  targetMessageNavigation = null,
 }: MessagesTimelineProps) {
   const userMessageProviderCommandLookup = useMemo(
     () => buildUserMessageProviderCommandLookup(providerCommands),
     [providerCommands],
   );
+  const supportsForkConversation = Boolean(onForkConversation);
+  const [pinnedMessages, setPinnedMessages] = useLocalStorage<PinnedMessages, PinnedMessages>(
+    PINNED_MESSAGES_STORAGE_KEY,
+    EMPTY_PINNED_MESSAGES,
+    PinnedMessagesSchema,
+  );
+  const pinnedMessageIdSet = useMemo(
+    () => new Set(pinnedMessages.map((message) => message.id)),
+    [pinnedMessages],
+  );
+  const [selectionPinTarget, setSelectionPinTarget] = useState<AssistantSelectionPinTarget | null>(
+    null,
+  );
+  const updateSelectionPinTarget = useCallback(() => {
+    if (!activeThreadId) {
+      setSelectionPinTarget(null);
+      return;
+    }
+    const currentSelectionPinTarget = readCurrentAssistantSelectionPinTarget();
+    if (!currentSelectionPinTarget) {
+      setSelectionPinTarget(null);
+      return;
+    }
+
+    const selectionRects = [...currentSelectionPinTarget.range.getClientRects()].filter(
+      (rect) => rect.width > 0 && rect.height > 0,
+    );
+    const anchorRect =
+      selectionRects.at(-1) ?? currentSelectionPinTarget.range.getBoundingClientRect();
+    if (anchorRect.width <= 0 || anchorRect.height <= 0) {
+      setSelectionPinTarget(null);
+      return;
+    }
+
+    const preferredTop = anchorRect.top - SELECTION_PIN_BUTTON_HEIGHT_PX - 8;
+    const top =
+      preferredTop >= 8
+        ? preferredTop
+        : Math.min(window.innerHeight - SELECTION_PIN_BUTTON_HEIGHT_PX - 8, anchorRect.bottom + 8);
+    setSelectionPinTarget({
+      left: Math.min(
+        window.innerWidth - SELECTION_PIN_BUTTON_WIDTH_PX - 8,
+        Math.max(8, anchorRect.right - SELECTION_PIN_BUTTON_WIDTH_PX),
+      ),
+      messageId: currentSelectionPinTarget.messageId,
+      text: currentSelectionPinTarget.text,
+      top,
+    });
+  }, [activeThreadId]);
+  const pinSelectedAssistantText = useCallback(() => {
+    if (!activeThreadId || !selectionPinTarget) return;
+    setPinnedMessages((current) =>
+      upsertPinnedSelectionMessage(current, {
+        threadId: activeThreadId,
+        messageId: selectionPinTarget.messageId,
+        text: selectionPinTarget.text,
+      }),
+    );
+    window.getSelection()?.removeAllRanges();
+    setSelectionPinTarget(null);
+  }, [activeThreadId, selectionPinTarget, setPinnedMessages]);
+  useEffect(() => {
+    const updateAfterSelectionSettles = () => {
+      window.requestAnimationFrame(updateSelectionPinTarget);
+    };
+    document.addEventListener("selectionchange", updateAfterSelectionSettles);
+    document.addEventListener("mouseup", updateAfterSelectionSettles);
+    document.addEventListener("keyup", updateAfterSelectionSettles);
+    return () => {
+      document.removeEventListener("selectionchange", updateAfterSelectionSettles);
+      document.removeEventListener("mouseup", updateAfterSelectionSettles);
+      document.removeEventListener("keyup", updateAfterSelectionSettles);
+    };
+  }, [updateSelectionPinTarget]);
   const timelineRowsInput = useMemo<BuildTimelineRowsInput>(
     () => ({
       timelineEntries,
@@ -394,10 +799,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     }
     return measureRenderWork("chat.buildTimelineRows", () => buildTimelineRows(timelineRowsInput));
   }, [cachedTimelineRows, timelineRowsInput]);
-  const rows = useMemo(
-    () => (syncTimelineRows.length > 0 ? syncTimelineRows : EMPTY_TIMELINE_ROWS),
-    [syncTimelineRows],
-  );
+  const rows = syncTimelineRows.length > 0 ? syncTimelineRows : EMPTY_TIMELINE_ROWS;
 
   useEffect(() => {
     if (cachedTimelineRows) {
@@ -418,6 +820,142 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     timelineRowsInput,
   ]);
 
+  const latestForkableAssistantMessageId = useMemo(() => {
+    for (let index = rows.length - 1; index >= 0; index -= 1) {
+      const row = rows[index];
+      if (row?.kind !== "message") {
+        continue;
+      }
+      if (isUserTimelineMessage(row.message)) {
+        return null;
+      }
+      if (!isAssistantTimelineMessage(row.message)) continue;
+      const renderedText = getChatMessageRenderableText(row.message);
+      if (renderedText.trim().length > 0) {
+        return String(row.message.id);
+      }
+    }
+    return null;
+  }, [rows]);
+  const assistantFooterByPlacementRowId = useMemo(() => {
+    const footerByRowId = new Map<string, AssistantTurnFooterModel>();
+    for (let index = 0; index < rows.length; index += 1) {
+      const row = rows[index];
+      if (
+        row?.kind !== "message" ||
+        !isAssistantTimelineMessage(row.message) ||
+        !(row.isAssistantTurnTerminal ?? false)
+      ) {
+        continue;
+      }
+
+      const timing = resolveAssistantTurnTiming({
+        completedAt: row.message.completedAt ?? null,
+        durationStart: row.durationStart,
+        isAssistantTurnTerminal: row.isAssistantTurnTerminal ?? false,
+        showCompletedTiming: row.showAssistantTiming ?? false,
+        timestampFormat,
+      });
+      const shouldShowAssistantTurnActions =
+        timing !== null &&
+        !row.message.streaming &&
+        row.message.completedAt !== undefined &&
+        row.message.completedAt !== null;
+      const assistantTurnPinTarget = shouldShowAssistantTurnActions
+        ? collectVisibleAssistantTurnPinTarget(rows, index)
+        : null;
+      const copyText = assistantTurnPinTarget?.text ?? null;
+      const onForkConversationForRow =
+        shouldShowAssistantTurnActions &&
+        supportsForkConversation &&
+        String(row.message.id) === latestForkableAssistantMessageId
+          ? onForkConversation
+          : null;
+      const pinMessageId =
+        shouldShowAssistantTurnActions && assistantTurnPinTarget && activeThreadId
+          ? assistantTurnPinTarget.messageId
+          : null;
+      const pinnedMessageId =
+        pinMessageId && activeThreadId
+          ? getPinnedMessageId({ threadId: activeThreadId, messageId: pinMessageId })
+          : null;
+      const isPinned = pinnedMessageId ? pinnedMessageIdSet.has(pinnedMessageId) : false;
+      const onTogglePinnedMessage =
+        pinMessageId && activeThreadId && assistantTurnPinTarget
+          ? () => {
+              const selectedPinTarget =
+                readCurrentAssistantSelectionPinTarget() ?? selectionPinTarget;
+              if (selectedPinTarget) {
+                setPinnedMessages((current) =>
+                  upsertPinnedSelectionMessage(current, {
+                    threadId: activeThreadId,
+                    messageId: selectedPinTarget.messageId,
+                    text: selectedPinTarget.text,
+                  }),
+                );
+                window.getSelection()?.removeAllRanges();
+                setSelectionPinTarget(null);
+                return;
+              }
+
+              setPinnedMessages((current) =>
+                isPinned
+                  ? removePinnedMessage(current, {
+                      threadId: activeThreadId,
+                      messageId: pinMessageId,
+                    })
+                  : upsertPinnedMessage(current, {
+                      threadId: activeThreadId,
+                      messageId: pinMessageId,
+                      text: assistantTurnPinTarget.text,
+                    }),
+              );
+            }
+          : null;
+      if (!copyText && !timing && !onForkConversationForRow && !onTogglePinnedMessage) {
+        continue;
+      }
+
+      let placementIndex = index;
+      for (let nextIndex = index + 1; nextIndex < rows.length; nextIndex += 1) {
+        const nextRow = rows[nextIndex];
+        if (
+          nextRow?.kind !== "work" &&
+          nextRow?.kind !== "work-group" &&
+          nextRow?.kind !== "intent"
+        ) {
+          break;
+        }
+        placementIndex = nextIndex;
+      }
+
+      const placementRow = rows[placementIndex];
+      if (!placementRow) {
+        continue;
+      }
+      footerByRowId.set(placementRow.id, {
+        copyText,
+        isPinned,
+        isForkConversationDisabled,
+        onForkConversation: onForkConversationForRow,
+        onTogglePinnedMessage,
+        timing,
+      });
+    }
+    return footerByRowId;
+  }, [
+    isForkConversationDisabled,
+    activeThreadId,
+    latestForkableAssistantMessageId,
+    onForkConversation,
+    pinnedMessageIdSet,
+    rows,
+    selectionPinTarget,
+    setPinnedMessages,
+    supportsForkConversation,
+    timestampFormat,
+  ]);
+
   const activeTurnStartedAtMs =
     activeTurnInProgress && activeTurnStartedAt ? Date.parse(activeTurnStartedAt) : Number.NaN;
   const [allDirectoriesExpandedByTurnId, setAllDirectoriesExpandedByTurnId] = useState<
@@ -431,7 +969,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const onToggleAllDirectories = useCallback((turnId: TurnId) => {
     setAllDirectoriesExpandedByTurnId((current) => ({
       ...current,
-      [turnId]: !(current[turnId] ?? false),
+      [turnId]: !(current[turnId] ?? DEFAULT_TURN_DIFF_DIRECTORIES_EXPANDED),
     }));
   }, []);
 
@@ -529,13 +1067,126 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     overscan: TIMELINE_VIRTUALIZER_OVERSCAN,
     useAnimationFrameWithResizeObserver: true,
   });
-  const shouldUseVirtualizedBuffer = virtualizedRows.length > 0 && !activeTurnInProgress;
+
+  const shouldUseVirtualizedBuffer = virtualizedRows.length > 0;
   const shouldPrioritizeAssistantMarkdown = shouldUseVirtualizedBuffer;
   const shouldPrewarmAssistantMarkdown =
     shouldPrioritizeAssistantMarkdown && backgroundMarkdownPrewarm;
   const virtualItems = shouldUseVirtualizedBuffer ? rowVirtualizer.getVirtualItems() : [];
+  const fallbackVirtualItems = useMemo(() => {
+    if (!shouldUseVirtualizedBuffer || virtualItems.length > 0) {
+      return [];
+    }
+    const scrollContainer = getScrollContainer();
+    return deriveFallbackTimelineVirtualItems({
+      rowCount: virtualizedRows.length,
+      estimateSize: estimateVirtualizedRowSize,
+      getItemKey: getVirtualRowKey,
+      overscan: TIMELINE_VIRTUALIZER_OVERSCAN,
+      scrollTop: scrollContainer?.scrollTop ?? Number.POSITIVE_INFINITY,
+      viewportHeight: scrollContainer?.clientHeight ?? TIMELINE_INITIAL_VIEWPORT_HEIGHT_PX,
+    });
+  }, [
+    estimateVirtualizedRowSize,
+    getScrollContainer,
+    getVirtualRowKey,
+    shouldUseVirtualizedBuffer,
+    virtualItems.length,
+    virtualizedRows.length,
+  ]);
+  const renderedVirtualItems = virtualItems.length > 0 ? virtualItems : fallbackVirtualItems;
+  const shouldRenderVirtualizedBuffer = shouldRenderTimelineVirtualizedBuffer({
+    virtualizedRowCount: virtualizedRows.length,
+  });
+  useEffect(() => {
+    if (!targetMessageNavigation) return;
+    const targetMessageId = targetMessageNavigation.messageId;
+    const rowIndex = rows.findIndex(
+      (row) => row.kind === "message" && String(row.message.id) === targetMessageId,
+    );
+    if (rowIndex < 0) return;
+
+    const scrollContainer = getScrollContainer();
+    if (!scrollContainer) return;
+
+    const escapedMessageId =
+      typeof CSS !== "undefined" && typeof CSS.escape === "function"
+        ? CSS.escape(targetMessageId)
+        : targetMessageId.replace(/["\\]/gu, "\\$&");
+    const selector = `[data-message-id="${escapedMessageId}"]`;
+    let clearHighlightTimeoutId: number | null = null;
+    let cleanupTextHighlight: (() => void) | null = null;
+    const highlightMountedRow = () => {
+      const row = scrollContainer.querySelector<HTMLElement>(selector);
+      if (!row) return;
+      const isSelectionTarget = targetMessageNavigation.targetKind === "selection";
+      const selectedText = targetMessageNavigation.selectedText;
+      const cleanupSelectedTextHighlight =
+        isSelectionTarget && selectedText
+          ? highlightPinnedSelectionText(row, selectedText, scrollContainer)
+          : null;
+      if (isSelectionTarget) {
+        if (!cleanupSelectedTextHighlight) {
+          row.scrollIntoView({ behavior: "smooth", block: "center" });
+          return;
+        }
+
+        cleanupTextHighlight = cleanupSelectedTextHighlight;
+        clearHighlightTimeoutId = window.setTimeout(() => {
+          cleanupTextHighlight?.();
+          cleanupTextHighlight = null;
+        }, 2200);
+        return;
+      }
+
+      row.scrollIntoView({ behavior: "smooth", block: "center" });
+      row.dataset.pinnedMessageTarget = "true";
+      clearHighlightTimeoutId = window.setTimeout(() => {
+        if (row.dataset.pinnedMessageTarget === "true") {
+          delete row.dataset.pinnedMessageTarget;
+        }
+      }, 1200);
+    };
+
+    if (rowIndex < virtualizedRows.length && shouldRenderVirtualizedBuffer) {
+      let secondFrameId: number | null = null;
+      rowVirtualizer.scrollToIndex(rowIndex, { align: "center" });
+      const firstFrameId = window.requestAnimationFrame(() => {
+        secondFrameId = window.requestAnimationFrame(highlightMountedRow);
+      });
+      return () => {
+        window.cancelAnimationFrame(firstFrameId);
+        if (secondFrameId !== null) {
+          window.cancelAnimationFrame(secondFrameId);
+        }
+        if (clearHighlightTimeoutId !== null) {
+          window.clearTimeout(clearHighlightTimeoutId);
+        }
+        cleanupTextHighlight?.();
+      };
+    }
+
+    highlightMountedRow();
+    return () => {
+      if (clearHighlightTimeoutId !== null) {
+        window.clearTimeout(clearHighlightTimeoutId);
+      }
+      cleanupTextHighlight?.();
+    };
+  }, [
+    getScrollContainer,
+    rowVirtualizer,
+    rows,
+    shouldRenderVirtualizedBuffer,
+    targetMessageNavigation,
+    virtualizedRows.length,
+  ]);
+  const virtualizedBufferHeight =
+    renderedVirtualItems.length > 0
+      ? Math.max(rowVirtualizer.getTotalSize(), renderedVirtualItems.at(-1)?.end ?? 0)
+      : rowVirtualizer.getTotalSize();
   const mountedVirtualizedAssistantMarkdownMessageIds = shouldPrioritizeAssistantMarkdown
-    ? deriveMountedVirtualizedAssistantMarkdownMessageIds(virtualItems, virtualizedRows)
+    ? deriveMountedVirtualizedAssistantMarkdownMessageIds(renderedVirtualItems, virtualizedRows)
     : [];
   const mountedVirtualizedAssistantMarkdownMessageIdKey =
     mountedVirtualizedAssistantMarkdownMessageIds.join("\0");
@@ -559,10 +1210,15 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     () => new Set(immediateAssistantMarkdownMessageIds),
     [immediateAssistantMarkdownMessageIds],
   );
-  const allAssistantMarkdownMessageIds = useMemo(
-    () => rows.filter(isCompletedAssistantMessageRow).map((row) => String(row.message.id)),
-    [rows],
-  );
+  const allAssistantMarkdownMessageIds = useMemo(() => {
+    const messageIds: string[] = [];
+    for (const row of rows) {
+      if (isCompletedAssistantMessageRow(row)) {
+        messageIds.push(String(row.message.id));
+      }
+    }
+    return messageIds;
+  }, [rows]);
   const pendingAssistantMarkdownMessageIds = useMemo(
     () =>
       shouldPrewarmAssistantMarkdown
@@ -586,58 +1242,11 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     if (!shouldPrewarmAssistantMarkdown) {
       return [];
     }
-
-    const jobsByMessageId = new Map<string, AssistantMarkdownAnalysisPrewarmJob>();
-    for (const row of rows) {
-      if (!isCompletedAssistantMessageRow(row)) {
-        continue;
-      }
-      const messageText = getChatMessageRenderableText(row.message);
-      const input: MarkdownRenderAnalysisInput = {
-        text: messageText,
-        isStreaming: Boolean(row.message.streaming),
-        renderPlainText: false,
-        ...(row.message.streamingTextState
-          ? {
-              streamingTextState: {
-                totalLineCount: row.message.streamingTextState.totalLineCount,
-                truncatedCharCount: row.message.streamingTextState.truncatedCharCount,
-                truncatedLineCount: row.message.streamingTextState.truncatedLineCount,
-              },
-            }
-          : {}),
-      };
-      if (!shouldWorkerizeMarkdownRenderAnalysis(input)) {
-        continue;
-      }
-      jobsByMessageId.set(String(row.message.id), {
-        cacheKey: buildMarkdownRenderAnalysisCacheKey(
-          input,
-          buildAssistantMarkdownAnalysisStableKey(row.message, messageText),
-        ),
-        input,
-      });
-    }
-
-    const jobs: AssistantMarkdownAnalysisPrewarmJob[] = [];
-    const seenCacheKeys = new Set<string>();
-    for (const messageId of immediateAssistantMarkdownMessageIds) {
-      const job = jobsByMessageId.get(messageId);
-      if (!job || seenCacheKeys.has(job.cacheKey)) {
-        continue;
-      }
-      seenCacheKeys.add(job.cacheKey);
-      jobs.push(job);
-    }
-    for (const messageId of pendingAssistantMarkdownMessageIds) {
-      const job = jobsByMessageId.get(messageId);
-      if (!job || seenCacheKeys.has(job.cacheKey)) {
-        continue;
-      }
-      seenCacheKeys.add(job.cacheKey);
-      jobs.push(job);
-    }
-    return jobs;
+    return buildAssistantMarkdownAnalysisPrewarmJobs({
+      rows,
+      immediateMessageIds: immediateAssistantMarkdownMessageIds,
+      pendingMessageIds: pendingAssistantMarkdownMessageIds,
+    });
   }, [
     immediateAssistantMarkdownMessageIds,
     pendingAssistantMarkdownMessageIds,
@@ -917,10 +1526,11 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     };
   }, []);
 
-  const renderRowContent = (row: TimelineRow, _rowIndex: number) => {
+  const buildRowContent = (row: TimelineRow, _rowIndex: number) => {
+    const detachedAssistantFooter = assistantFooterByPlacementRowId.get(row.id) ?? null;
     return (
       <div
-        className="group/timeline relative pb-3"
+        className="group/timeline relative pb-3 transition-colors data-[pinned-message-target=true]:rounded-xl data-[pinned-message-target=true]:bg-accent/20 data-[pinned-message-target=true]:ring-1 data-[pinned-message-target=true]:ring-primary/35"
         data-timeline-row-kind={row.kind}
         data-message-id={row.kind === "message" ? row.message.id : undefined}
         data-message-role={row.kind === "message" ? row.message.role : undefined}
@@ -989,26 +1599,29 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             return (
               <div className="min-w-0">
                 <AssistantMessageTimelineRow
-                  completionSummary={row.completionSummary}
                   durationStart={row.durationStart}
                   isAssistantTurnTerminal={row.isAssistantTurnTerminal ?? false}
                   liveTimers={liveTimers}
                   showCompletedTiming={row.showAssistantTiming ?? false}
-                  showAssistantSummaryByDefault={row.showAssistantSummaryByDefault ?? false}
+                  suppressFooter
                   markdownCwd={markdownCwd}
                   message={row.message}
                   onImageExpand={onImageExpand}
                   onOpenBrowserUrl={onOpenBrowserUrl}
                   onOpenFilePath={onOpenFilePath}
                   enableLocalFileLinks={enableLocalFileLinks}
+                  onForkConversation={null}
+                  isForkConversationDisabled={isForkConversationDisabled}
                   renderMarkdown={shouldRenderAssistantMarkdown}
+                  showCopyAction={false}
                   timestampFormat={timestampFormat}
                 />
                 {shouldShowTurnSummary && (
-                  <div className="mt-2.5 border-l border-border/35 py-1 pl-3">
+                  <div className="mt-2.5 max-w-3xl">
                     <AssistantMessageTurnDiffSummary
                       allDirectoriesExpanded={
-                        allDirectoriesExpandedByTurnId[turnSummary.turnId] ?? false
+                        allDirectoriesExpandedByTurnId[turnSummary.turnId] ??
+                        DEFAULT_TURN_DIFF_DIRECTORIES_EXPANDED
                       }
                       onOpenTurnDiff={onOpenTurnDiff}
                       canRevert={canRevertTurnDiffSummary}
@@ -1043,28 +1656,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
 
         {row.kind === "working" && (
           <div className="min-w-0 py-1">
-            <div className="flex items-center gap-2.5 text-[12px] text-muted-foreground/72">
-              <span className="inline-flex items-center gap-1">
-                <span
-                  className={cn(
-                    "h-1.5 w-1.5 rounded-full bg-muted-foreground/28",
-                    liveTimers ? "animate-pulse" : null,
-                  )}
-                />
-                <span
-                  className={cn(
-                    "h-1.5 w-1.5 rounded-full bg-muted-foreground/24",
-                    liveTimers ? "animate-pulse [animation-delay:200ms]" : null,
-                  )}
-                />
-                <span
-                  className={cn(
-                    "h-1.5 w-1.5 rounded-full bg-muted-foreground/20",
-                    liveTimers ? "animate-pulse [animation-delay:400ms]" : null,
-                  )}
-                />
-              </span>
-              <span>
+            <div className="flex items-center gap-2 text-[12px] text-muted-foreground/72">
+              <span className="inline-flex min-w-0 items-center gap-2">
+                <WorkingActivityIndicator />
                 {row.createdAt ? (
                   <WorkingTimer
                     createdAt={row.createdAt}
@@ -1077,27 +1671,27 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                   "Working..."
                 )}
               </span>
-              {row.activity === "goal" && (
-                <span
-                  className="inline-flex items-center gap-1.5 text-emerald-600/80 dark:text-emerald-400/80"
-                  data-goal-working-timer="true"
-                >
-                  <span className="text-muted-foreground/38">·</span>
-                  {row.goalStartedAt ? (
-                    <WorkingTimer
-                      createdAt={row.goalStartedAt}
-                      label="Pursuing goal for"
-                      live={liveTimers}
-                    />
-                  ) : (
-                    "Pursuing goal..."
-                  )}
-                </span>
-              )}
             </div>
+            {row.activity === "goal" && (
+              <div
+                className="mt-1 flex items-center gap-2 pl-6 text-[11px] leading-5 text-emerald-600/72 dark:text-emerald-400/72"
+                data-goal-working-timer="true"
+              >
+                <TargetIcon className="size-3 shrink-0 text-emerald-600/58 dark:text-emerald-400/58" />
+                {row.goalStartedAt ? (
+                  <WorkingTimer
+                    createdAt={row.goalStartedAt}
+                    label="Pursuing goal for"
+                    live={liveTimers}
+                  />
+                ) : (
+                  "Pursuing goal..."
+                )}
+              </div>
+            )}
             {row.intentText && (
               <p
-                className="mt-1 pl-5 text-[11px] leading-5 text-muted-foreground/66"
+                className="mt-1 pl-6 text-[11px] leading-5 text-muted-foreground/66"
                 data-inline-intent="true"
               >
                 <span className="mr-1 text-[9px] uppercase tracking-[0.14em] text-muted-foreground/38">
@@ -1106,7 +1700,43 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                 <span className="text-foreground/72">{row.intentText}</span>
               </p>
             )}
+            {stuckTurnSnapshot?.isLikelyStuck ? (
+              <div
+                className="mt-2 ml-6 flex max-w-xl flex-wrap items-center gap-2 rounded-md border border-warning/35 bg-warning/6 px-2.5 py-1.5 text-[11px] text-warning"
+                data-stuck-turn-hint="true"
+              >
+                <span className="min-w-0 flex-1">
+                  Still running for{" "}
+                  {formatElapsedSeconds(Math.floor(stuckTurnSnapshot.runningForMs / 1000))}
+                </span>
+                {onStopStuckTurn ? (
+                  <Button type="button" variant="outline" size="xs" onClick={onStopStuckTurn}>
+                    Stop
+                  </Button>
+                ) : null}
+                {onOpenStuckTurnDiagnostics ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="xs"
+                    onClick={onOpenStuckTurnDiagnostics}
+                  >
+                    Details
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
           </div>
+        )}
+        {detachedAssistantFooter && (
+          <AssistantTurnFooter
+            copyText={detachedAssistantFooter.copyText}
+            isPinned={detachedAssistantFooter.isPinned}
+            onForkConversation={detachedAssistantFooter.onForkConversation}
+            isForkConversationDisabled={detachedAssistantFooter.isForkConversationDisabled}
+            onTogglePinnedMessage={detachedAssistantFooter.onTogglePinnedMessage}
+            timing={detachedAssistantFooter.timing}
+          />
         )}
       </div>
     );
@@ -1167,14 +1797,29 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       ref={setTimelineRootElement}
       data-timeline-root="true"
       className="mx-auto w-full min-w-0 max-w-3xl overflow-x-hidden"
+      onKeyUp={updateSelectionPinTarget}
+      onMouseUp={updateSelectionPinTarget}
     >
-      {shouldUseVirtualizedBuffer ? (
+      {selectionPinTarget ? (
+        <button
+          type="button"
+          className="fixed z-[120] inline-flex h-7 items-center gap-1.5 rounded-full border border-border/70 bg-popover px-2.5 text-[11px] font-medium text-popover-foreground shadow-lg transition-colors hover:bg-accent hover:text-accent-foreground"
+          style={{ left: selectionPinTarget.left, top: selectionPinTarget.top }}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={pinSelectedAssistantText}
+          aria-label="Pin selected assistant text"
+        >
+          <PinIcon className="size-3" />
+          Pin
+        </button>
+      ) : null}
+      {shouldRenderVirtualizedBuffer ? (
         <div
           data-virtualizer-buffer="true"
           className="relative"
-          style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
+          style={{ height: `${virtualizedBufferHeight}px` }}
         >
-          {virtualItems.map((virtualRow) => {
+          {renderedVirtualItems.map((virtualRow) => {
             const row = virtualizedRows[virtualRow.index];
             if (!row) {
               return null;
@@ -1189,18 +1834,18 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                 className="absolute top-0 left-0 w-full"
                 style={{ transform: `translateY(${virtualRow.start}px)` }}
               >
-                {renderRowContent(row, virtualRow.index)}
+                {buildRowContent(row, virtualRow.index)}
               </div>
             );
           })}
         </div>
       ) : (
         virtualizedRows.map((row, index) => (
-          <div key={`row:${row.id}`}>{renderRowContent(row, index)}</div>
+          <div key={`row:${row.id}`}>{buildRowContent(row, index)}</div>
         ))
       )}
       {trailingRows.map((row, index) => (
-        <div key={`row:${row.id}`}>{renderRowContent(row, virtualizedRows.length + index)}</div>
+        <div key={`row:${row.id}`}>{buildRowContent(row, virtualizedRows.length + index)}</div>
       ))}
     </div>
   );
@@ -1226,6 +1871,79 @@ function buildAssistantMarkdownAnalysisStableKey(
   messageText: string,
 ): string {
   return `${message.id}:${message.streaming ? "streaming" : (message.completedAt ?? "complete")}:${messageText.length}`;
+}
+
+export function buildAssistantMarkdownAnalysisPrewarmJobs(input: {
+  rows: ReadonlyArray<TimelineRow>;
+  immediateMessageIds: ReadonlyArray<string>;
+  pendingMessageIds: ReadonlyArray<string>;
+}): AssistantMarkdownAnalysisPrewarmJob[] {
+  const requestedMessageIds = [...input.immediateMessageIds, ...input.pendingMessageIds];
+  if (requestedMessageIds.length === 0) {
+    return [];
+  }
+
+  const requestedMessageIdSet = new Set(requestedMessageIds);
+  const rowsByMessageId = new Map<string, AssistantTimelineMessage>();
+  for (const row of input.rows) {
+    if (!isCompletedAssistantMessageRow(row)) {
+      continue;
+    }
+    const messageId = String(row.message.id);
+    if (!requestedMessageIdSet.has(messageId)) {
+      continue;
+    }
+    rowsByMessageId.set(messageId, row.message);
+  }
+
+  const jobs: AssistantMarkdownAnalysisPrewarmJob[] = [];
+  const seenMessageIds = new Set<string>();
+  const seenCacheKeys = new Set<string>();
+  for (const messageId of requestedMessageIds) {
+    if (seenMessageIds.has(messageId)) {
+      continue;
+    }
+    seenMessageIds.add(messageId);
+
+    const message = rowsByMessageId.get(messageId);
+    if (!message) {
+      continue;
+    }
+
+    const messageText = getChatMessageRenderableText(message);
+    const jobInput: MarkdownRenderAnalysisInput = {
+      text: messageText,
+      isStreaming: Boolean(message.streaming),
+      renderPlainText: false,
+      ...(message.streamingTextState
+        ? {
+            streamingTextState: {
+              totalLineCount: message.streamingTextState.totalLineCount,
+              truncatedCharCount: message.streamingTextState.truncatedCharCount,
+              truncatedLineCount: message.streamingTextState.truncatedLineCount,
+            },
+          }
+        : {}),
+    };
+    if (!shouldWorkerizeMarkdownRenderAnalysis(jobInput)) {
+      continue;
+    }
+
+    const cacheKey = buildMarkdownRenderAnalysisCacheKey(
+      jobInput,
+      buildAssistantMarkdownAnalysisStableKey(message, messageText),
+    );
+    if (seenCacheKeys.has(cacheKey)) {
+      continue;
+    }
+    seenCacheKeys.add(cacheKey);
+    jobs.push({
+      cacheKey,
+      input: jobInput,
+    });
+  }
+
+  return jobs;
 }
 
 function deriveImmediateAssistantMarkdownMessageIds(
@@ -1343,6 +2061,27 @@ function formatElapsedSeconds(elapsedSeconds: number): string {
   return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
 }
 
+const WorkingActivityIndicator = memo(function WorkingActivityIndicator({
+  tone = "default",
+}: {
+  tone?: "default" | "goal";
+}) {
+  return (
+    <span
+      aria-hidden="true"
+      className={cn(
+        "working-activity-indicator",
+        tone === "goal" && "working-activity-indicator-goal",
+      )}
+      data-working-activity-indicator="true"
+    >
+      <span className="working-activity-indicator-dot" />
+      <span className="working-activity-indicator-dot" />
+      <span className="working-activity-indicator-dot" />
+    </span>
+  );
+});
+
 const WorkingTimer = memo(function WorkingTimer({
   createdAt,
   label,
@@ -1404,6 +2143,13 @@ function getUserMessageTextForHeightEstimate(userPromptText: string): string {
   return userPromptText;
 }
 
+function estimateWorkEntryRowHeight(workEntry: TimelineWorkEntry): number {
+  if (workEntry.requestKind === "command" || workEntry.command) {
+    return workEntry.terminalOutput || workEntry.detail ? 96 : 42;
+  }
+  return workEntry.detail || workEntry.terminalOutput ? 82 : 42;
+}
+
 function estimateTimelineRowHeight(
   row: TimelineRow | undefined,
   input: {
@@ -1424,7 +2170,7 @@ function estimateTimelineRowHeight(
   let height: number;
   switch (row.kind) {
     case "completed-work-summary":
-      height = 42 + estimateVisibleCompletedWorkDiagnosticRowsHeight(row.detailRows);
+      height = 42 + estimateVisibleCompletedWorkDiagnosticRowsHeight(row.visibleDiagnosticRows);
       break;
     case "message": {
       const message = row.message;
@@ -1476,12 +2222,19 @@ function estimateTimelineRowHeight(
       break;
     }
     case "work":
-      height = row.workEntry.detail || row.workEntry.command ? 84 : 52;
+      height = estimateWorkEntryRowHeight(row.workEntry);
       break;
     case "work-group": {
-      const collapsedHeight = 64;
+      const collapsedHeight = 52;
       const isExpanded = input.expandedWorkGroups[workGroupId(row.id)] ?? false;
-      height = isExpanded ? collapsedHeight + row.entries.length * 52 : collapsedHeight;
+      height = isExpanded
+        ? collapsedHeight +
+          row.entries.reduce(
+            (total, entry) =>
+              total + (entry.kind === "work" ? estimateWorkEntryRowHeight(entry.workEntry) : 58),
+            0,
+          )
+        : collapsedHeight;
       break;
     }
     case "intent":
@@ -1512,7 +2265,7 @@ function getTimelineRowHeightCacheKey(
   const widthCacheKey = toTimelineWidthCacheKey(input.timelineWidthPx);
   switch (row.kind) {
     case "completed-work-summary":
-      return `completed-work-summary:${row.id}:${row.startedAt}:${row.endedAt}:${row.detailRows.length}:${row.toolCallCount}:${row.hiddenMessageCount}:${completedWorkVisibleDiagnosticsCacheKey(row.detailRows)}`;
+      return `completed-work-summary:${row.id}:${row.startedAt}:${row.endedAt}:${row.detailRows.length}:${row.toolCallCount}:${row.hiddenThinkingCount}:${row.hiddenMessageCount}:${row.visibleDiagnosticCacheKey}`;
     case "message": {
       const assistantRenderHint =
         row.message.role === "assistant"
@@ -1538,7 +2291,7 @@ function getTimelineRowHeightCacheKey(
       ].join(":");
     }
     case "work":
-      return `work:${row.id}:${row.workEntry.detail ? 1 : 0}:${row.workEntry.command ? 1 : 0}`;
+      return `work:${row.id}:${row.workEntry.detail ? 1 : 0}:${row.workEntry.command ? 1 : 0}:${row.workEntry.terminalOutput?.length ?? 0}:${row.workEntry.terminalOutputTruncated ? 1 : 0}:${row.workEntry.status ?? ""}:${row.workEntry.exitCode ?? ""}:${row.workEntry.durationMs ?? ""}:${row.workEntry.changedFileStats?.length ?? 0}`;
     case "work-group":
       return `work-group:${row.id}:${input.expandedWorkGroups[workGroupId(row.id)] ? 1 : 0}:${row.entries.length}`;
     case "intent":
@@ -1550,36 +2303,12 @@ function getTimelineRowHeightCacheKey(
   }
 }
 
-type TimelineMetaTone = "neutral" | "intent" | "thinking" | "tool" | "error" | "success";
-
 function resolveWorkEntryTone(tone: TimelineWorkEntry["tone"]): TimelineMetaTone {
   if (tone === "thinking") return "thinking";
   if (tone === "tool") return "tool";
   if (tone === "error") return "error";
   if (tone === "info") return "success";
   return "neutral";
-}
-
-function resolveMetaGroupTone(entries: ReadonlyArray<TimelineMetaGroupEntry>): TimelineMetaTone {
-  const hasThinking = entries.some(
-    (entry) => entry.kind === "work" && entry.workEntry.tone === "thinking",
-  );
-  const hasTool = entries.some((entry) => entry.kind === "work" && entry.workEntry.tone === "tool");
-  const hasIntent = entries.some((entry) => entry.kind === "intent");
-
-  if (entries.some((entry) => entry.kind === "work" && entry.workEntry.tone === "error")) {
-    return "error";
-  }
-  if (hasThinking && !hasTool) {
-    return "thinking";
-  }
-  if (hasTool) {
-    return "tool";
-  }
-  if (hasIntent) {
-    return "intent";
-  }
-  return "success";
 }
 
 function metaToneTextClass(tone: TimelineMetaTone): string {
@@ -1592,15 +2321,10 @@ function metaToneTextClass(tone: TimelineMetaTone): string {
 }
 
 function summarizeWorkGroupElapsedLabel(
-  entries: ReadonlyArray<TimelineMetaGroupEntry>,
+  createdAt: string,
   summaryEndAt: string | null,
 ): string | null {
-  const firstEntry = entries[0];
-  const duration =
-    firstEntry && summaryEndAt
-      ? formatCompletedWorkTimer(firstEntry.createdAt, summaryEndAt)
-      : null;
-  return duration;
+  return summaryEndAt ? formatCompletedWorkTimer(createdAt, summaryEndAt) : null;
 }
 
 function formatCompletedWorkTimer(startIso: string, endIso: string): string | null {
@@ -1626,162 +2350,167 @@ function formatCompletedWorkTimer(startIso: string, endIso: string): string | nu
   return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
 }
 
+function formatSecondsAsWords(seconds: number): string {
+  const roundedSeconds = Math.max(1, Math.ceil(seconds));
+  return `${roundedSeconds} ${roundedSeconds === 1 ? "second" : "seconds"}`;
+}
+
 function summarizeCount(count: number, singular: string, plural = `${singular}s`): string {
   return `${count} ${count === 1 ? singular : plural}`;
 }
 
-function classifyToolSummaryEntry(
-  workEntry: TimelineWorkEntry,
-): "command" | "file-read" | "file-change" | "web-search" | "image-view" | "generic-tool" {
-  const textHint = `${workEntry.toolTitle ?? ""} ${workEntry.label}`.trim().toLowerCase();
-  if (
-    workEntry.requestKind === "command" ||
-    workEntry.itemType === "command_execution" ||
-    textHint.includes("run command") ||
-    textHint.includes("execute command")
-  ) {
-    return "command";
+function summarizeMultiplier(count: number, label: string): string {
+  return count === 1 ? label : `${label} x${count}`;
+}
+
+function compactDisplayText(value: string, maxLength = 72): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxLength) {
+    return normalized;
   }
-  if (
-    workEntry.requestKind === "file-read" ||
-    textHint.includes("read file") ||
-    textHint.includes("open file") ||
-    textHint.includes("inspect file")
-  ) {
-    return "file-read";
-  }
-  if (workEntry.itemType === "web_search" || /\b(find|search|grep|ripgrep|glob)\b/.test(textHint)) {
-    return "web-search";
-  }
-  if (
-    workEntry.requestKind === "file-change" ||
-    workEntry.itemType === "file_change" ||
-    (workEntry.changedFiles?.length ?? 0) > 0 ||
-    textHint.includes("edit file") ||
-    textHint.includes("write file") ||
-    textHint.includes("apply patch")
-  ) {
-    return "file-change";
-  }
-  if (workEntry.itemType === "image_view") {
-    return "image-view";
-  }
-  return "generic-tool";
+  return `${normalized.slice(0, Math.max(0, maxLength - 3))}...`;
 }
 
 function summarizeWorkGroupBreakdownParts(
-  entries: ReadonlyArray<TimelineMetaGroupEntry>,
-): Array<{ text: string; title: string }> {
-  const intentCount = entries.filter((entry) => entry.kind === "intent").length;
-  const toolEntries = entries.filter(
-    (entry): entry is Extract<TimelineMetaGroupEntry, { kind: "work" }> =>
-      entry.kind === "work" && entry.workEntry.tone === "tool",
-  );
-  const toolCount = toolEntries.length;
-  const toolSummaryCounts = {
-    command: 0,
-    fileRead: 0,
-    fileChange: 0,
-    webSearch: 0,
-    imageView: 0,
-    genericTool: 0,
-  };
-  for (const entry of toolEntries) {
-    switch (classifyToolSummaryEntry(entry.workEntry)) {
-      case "command":
-        toolSummaryCounts.command += 1;
-        break;
-      case "file-read":
-        toolSummaryCounts.fileRead += 1;
-        break;
-      case "file-change":
-        toolSummaryCounts.fileChange += Math.max(1, entry.workEntry.changedFiles?.length ?? 0);
-        break;
-      case "web-search":
-        toolSummaryCounts.webSearch += 1;
-        break;
-      case "image-view":
-        toolSummaryCounts.imageView += 1;
-        break;
-      case "generic-tool":
-        toolSummaryCounts.genericTool += 1;
-        break;
-    }
-  }
-  const thinkingCount = entries.filter(
-    (entry) => entry.kind === "work" && entry.workEntry.tone === "thinking",
-  ).length;
-  const errorCount = entries.filter(
-    (entry) => entry.kind === "work" && entry.workEntry.tone === "error",
-  ).length;
-  const infoCount = entries.filter(
-    (entry) => entry.kind === "work" && entry.workEntry.tone === "info",
-  ).length;
+  summary: TimelineWorkGroupSummaryProjection,
+  elapsedLabel: string | null,
+  thinkingOnlyDurationSeconds: number | null,
+): Array<{ key: string; text: string; title: string }> {
+  const {
+    entryCount,
+    intentCount,
+    toolCount,
+    thinkingCount,
+    errorCount,
+    infoCount,
+    toolSummaryCounts,
+  } = summary;
   const eventCount = infoCount;
-  const parts: Array<{ text: string; title: string }> = [];
-  const activityParts: string[] = [];
+  const parts: Array<{ key: string; text: string; title: string }> = [];
+  const isThinkingOnly = thinkingCount > 0 && entryCount === thinkingCount;
 
-  if (toolSummaryCounts.fileChange > 0) {
-    activityParts.push(`edited ${summarizeCount(toolSummaryCounts.fileChange, "file")}`);
-  }
-  if (toolSummaryCounts.fileRead > 0) {
-    activityParts.push(`explored ${summarizeCount(toolSummaryCounts.fileRead, "file")}`);
-  }
-  if (toolSummaryCounts.webSearch > 0) {
-    activityParts.push(summarizeCount(toolSummaryCounts.webSearch, "search", "searches"));
-  }
-  if (toolSummaryCounts.command > 0) {
-    activityParts.push(`ran ${summarizeCount(toolSummaryCounts.command, "command")}`);
-  }
-  if (toolSummaryCounts.imageView > 0) {
-    activityParts.push(`viewed ${summarizeCount(toolSummaryCounts.imageView, "image")}`);
-  }
-  if (toolSummaryCounts.genericTool > 0) {
-    const genericToolLabel = summarizeCount(toolSummaryCounts.genericTool, "tool");
-    activityParts.push(
-      activityParts.length > 0
-        ? `used ${toolSummaryCounts.genericTool} other ${
-            toolSummaryCounts.genericTool === 1 ? "tool" : "tools"
-          }`
-        : `used ${genericToolLabel}`,
-    );
+  if (isThinkingOnly && thinkingOnlyDurationSeconds !== null) {
+    const steps = summarizeCount(thinkingCount, "reasoning step");
+    const times = summarizeCount(thinkingCount, "time");
+    return [
+      {
+        key: "thinking",
+        text: `Thought ${times} for ${formatSecondsAsWords(thinkingOnlyDurationSeconds)}`,
+        title: steps,
+      },
+    ];
+  } else if (isThinkingOnly && elapsedLabel) {
+    const steps = summarizeCount(thinkingCount, "reasoning step");
+    const times = summarizeCount(thinkingCount, "time");
+    return [
+      {
+        key: "thinking",
+        text: `Thought ${times} for ${elapsedLabel}`,
+        title: steps,
+      },
+    ];
   }
 
   if (intentCount > 0) {
     parts.push({
-      text: intentCount === 1 ? "Worked through plan" : `Worked through ${intentCount} plans`,
+      key: "intent",
+      text: summarizeMultiplier(intentCount, "Plan"),
       title: summarizeCount(intentCount, "intent"),
     });
   }
   if (toolCount > 0) {
+    const toolParts: string[] = [];
+    if (toolSummaryCounts.command > 0) {
+      toolParts.push(`Ran ${summarizeCount(toolSummaryCounts.command, "command")}`);
+    }
+    if (toolSummaryCounts.fileRead > 0) {
+      toolParts.push(`Read ${summarizeCount(toolSummaryCounts.fileRead, "file")}`);
+    }
+    if (toolSummaryCounts.fileChange > 0) {
+      toolParts.push(`Edited ${summarizeCount(toolSummaryCounts.fileChange, "file")}`);
+    }
+    if (toolSummaryCounts.webSearch > 0) {
+      toolParts.push(
+        toolSummaryCounts.webSearch === 1
+          ? "Searched once"
+          : `Searched ${toolSummaryCounts.webSearch} times`,
+      );
+    }
+    if (toolSummaryCounts.imageView > 0) {
+      toolParts.push(`Viewed ${summarizeCount(toolSummaryCounts.imageView, "image")}`);
+    }
+    if (toolSummaryCounts.genericTool > 0) {
+      toolParts.push(`Used ${summarizeCount(toolSummaryCounts.genericTool, "tool")}`);
+    }
     const summaryText =
-      activityParts.length > 0
-        ? capitalizePhrase(activityParts.join(", "))
-        : `Used ${summarizeCount(toolCount, "tool")}`;
-    parts.push({ text: summaryText, title: summaryText });
+      toolParts.length > 0 ? toolParts.join(" · ") : `Used ${summarizeCount(toolCount, "tool")}`;
+    parts.push({ key: "tools", text: summaryText, title: summaryText });
   }
   if (thinkingCount > 0) {
     const steps = summarizeCount(thinkingCount, "reasoning step");
     parts.push({
-      text: `Reasoned through ${thinkingCount === 1 ? "1 step" : `${thinkingCount} steps`}`,
+      key: "thinking",
+      text: summarizeMultiplier(thinkingCount, "Thinking"),
       title: steps,
     });
   }
   if (errorCount > 0) {
     const issues = summarizeCount(errorCount, "issue", "issues");
-    parts.push({ text: `Hit ${issues}`, title: issues });
+    parts.push({ key: "errors", text: `Hit ${issues}`, title: issues });
   }
-  if (eventCount > 0) {
+  if (eventCount > 0 && parts.length === 0) {
     const events = summarizeCount(eventCount, "event");
-    parts.push({ text: `Logged ${events}`, title: events });
+    parts.push({ key: "events", text: capitalizePhrase(events), title: events });
   }
 
   if (parts.length > 0) {
     return parts;
   }
 
-  const entriesLabel = summarizeCount(entries.length, "log entry", "log entries");
-  return [{ text: `Logged ${entriesLabel}`, title: entriesLabel }];
+  const entriesLabel = summarizeCount(entryCount, "log entry", "log entries");
+  return [{ key: "fallback", text: `Logged ${entriesLabel}`, title: entriesLabel }];
+}
+
+function summarizeThinkingOnlyDurationSeconds(
+  entries: ReadonlyArray<TimelineMetaGroupEntry>,
+  summaryEndAt: string | null,
+): number | null {
+  const thinkingEntries = entries.filter(
+    (entry): entry is Extract<TimelineMetaGroupEntry, { kind: "work" }> =>
+      entry.kind === "work" && entry.workEntry.tone === "thinking",
+  );
+  if (thinkingEntries.length === 0 || thinkingEntries.length !== entries.length) {
+    return null;
+  }
+
+  let totalSeconds = 0;
+  for (let index = 0; index < thinkingEntries.length; index += 1) {
+    const current = thinkingEntries[index];
+    if (!current) {
+      continue;
+    }
+    const startMs = Date.parse(current.createdAt);
+    const nextCreatedAt = thinkingEntries[index + 1]?.createdAt ?? summaryEndAt;
+    const endMs = nextCreatedAt ? Date.parse(nextCreatedAt) : Number.NaN;
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
+      continue;
+    }
+    totalSeconds += Math.ceil((endMs - startMs) / 1_000);
+  }
+
+  return Math.max(1, totalSeconds);
+}
+
+function workGroupIcon(iconKey: TimelineWorkGroupIconKey): TimelineIcon {
+  if (iconKey === "target") return TargetIcon;
+  if (iconKey === "alert") return CircleAlertIcon;
+  if (iconKey === "terminal") return IconTerminal;
+  if (iconKey === "file-change") return SquarePenIcon;
+  if (iconKey === "eye") return EyeIcon;
+  if (iconKey === "web-search") return GlobeIcon;
+  if (iconKey === "brain") return BrainIcon;
+  if (iconKey === "check") return CheckIcon;
+  return WrenchIcon;
 }
 
 function isUserTimelineMessage(message: TimelineMessage): message is UserTimelineMessage {
@@ -1883,7 +2612,7 @@ function splitTrailingMentionPunctuation(token: string): {
   };
 }
 
-function renderUserMessageInlineText(
+function buildUserMessageInlineText(
   text: string,
   keyPrefix: string,
   providerCommandLookup: UserMessageProviderCommandLookup,
@@ -2004,14 +2733,14 @@ const UserMessageBody = memo(function UserMessageBody(props: {
 
       for (const context of props.terminalContexts) {
         const label = formatInlineTerminalContextLabel(context.header);
-        const matchIndex = props.text.indexOf(label, cursor);
+        const matchIndex = findTextIndexOf(props.text, label, cursor);
         if (matchIndex === -1) {
           inlineNodes.length = 0;
           break;
         }
         if (matchIndex > cursor) {
           inlineNodes.push(
-            ...renderUserMessageInlineText(
+            ...buildUserMessageInlineText(
               props.text.slice(cursor, matchIndex),
               `user-terminal-context-inline-before:${context.header}:${cursor}`,
               props.providerCommandLookup,
@@ -2031,7 +2760,7 @@ const UserMessageBody = memo(function UserMessageBody(props: {
       if (inlineNodes.length > 0) {
         if (cursor < props.text.length) {
           inlineNodes.push(
-            ...renderUserMessageInlineText(
+            ...buildUserMessageInlineText(
               props.text.slice(cursor),
               `user-message-terminal-context-inline-rest:${cursor}`,
               props.providerCommandLookup,
@@ -2041,7 +2770,7 @@ const UserMessageBody = memo(function UserMessageBody(props: {
         }
 
         return (
-          <div className="m-0 wrap-break-word whitespace-pre-wrap font-mono text-sm leading-relaxed text-foreground/90">
+          <div className="m-0 wrap-break-word whitespace-pre-wrap font-mono text-[13px] leading-[1.55] text-foreground/90">
             {inlineNodes}
           </div>
         );
@@ -2064,7 +2793,7 @@ const UserMessageBody = memo(function UserMessageBody(props: {
 
     if (props.text.length > 0) {
       inlineNodes.push(
-        ...renderUserMessageInlineText(
+        ...buildUserMessageInlineText(
           props.text,
           "user-message-terminal-context-inline-text",
           props.providerCommandLookup,
@@ -2076,7 +2805,7 @@ const UserMessageBody = memo(function UserMessageBody(props: {
     }
 
     return (
-      <div className="m-0 wrap-break-word whitespace-pre-wrap font-mono text-sm leading-relaxed text-foreground/90">
+      <div className="m-0 wrap-break-word whitespace-pre-wrap font-mono text-[13px] leading-[1.55] text-foreground/90">
         {inlineNodes}
       </div>
     );
@@ -2087,8 +2816,8 @@ const UserMessageBody = memo(function UserMessageBody(props: {
   }
 
   return (
-    <div className="m-0 whitespace-pre-wrap wrap-break-word font-mono text-sm leading-relaxed text-foreground/90">
-      {renderUserMessageInlineText(
+    <div className="m-0 whitespace-pre-wrap wrap-break-word font-mono text-[13px] leading-[1.55] text-foreground/90">
+      {buildUserMessageInlineText(
         props.text,
         "user-message-provider-command",
         props.providerCommandLookup,
@@ -2144,81 +2873,68 @@ const WorkLogTimelineRow = memo(function WorkLogTimelineRow(props: {
   const groupId = workGroupId(props.row.id);
   const isExpanded = props.expandedWorkGroups[groupId] ?? false;
   const ChevronIcon = isExpanded ? ChevronDownIcon : ChevronRightIcon;
-  const breakdownParts = summarizeWorkGroupBreakdownParts(props.row.entries);
-  const hasThinkingEntries = props.row.entries.some(
-    (entry) => entry.kind === "work" && entry.workEntry.tone === "thinking",
+  const { summary } = props.row;
+  const elapsedLabel = summarizeWorkGroupElapsedLabel(props.row.createdAt, props.row.summaryEndAt);
+  const thinkingOnlyDurationSeconds = summarizeThinkingOnlyDurationSeconds(
+    props.row.entries,
+    props.row.summaryEndAt,
   );
-  const hasToolEntries = props.row.entries.some(
-    (entry) => entry.kind === "work" && entry.workEntry.tone === "tool",
+  const breakdownParts = summarizeWorkGroupBreakdownParts(
+    summary,
+    elapsedLabel,
+    thinkingOnlyDurationSeconds,
   );
-  const hasIntentEntries = props.row.entries.some((entry) => entry.kind === "intent");
-  const surfaceTone = resolveMetaGroupTone(props.row.entries);
-  const elapsedLabel = summarizeWorkGroupElapsedLabel(props.row.entries, props.row.summaryEndAt);
-  const threadGroupTone = hasToolEntries
-    ? hasThinkingEntries
-      ? "mixed"
-      : "tool"
-    : hasThinkingEntries
-      ? "thinking"
-      : hasIntentEntries
-        ? "intent"
-        : surfaceTone === "error"
-          ? "error"
-          : "info";
+  const GroupIcon = workGroupIcon(summary.iconKey);
 
   return (
-    <div className="min-w-0 py-0.5" data-thread-group={threadGroupTone}>
+    <div className="min-w-0 py-0.5" data-thread-group={summary.threadGroupTone}>
       <button
         type="button"
-        className="group/disclosure flex w-full items-center rounded-md border-0 bg-transparent px-0 py-1 text-left outline-none transition-colors duration-100 hover:bg-transparent focus-visible:bg-transparent focus-visible:outline-none focus-visible:ring-0"
+        className="group/disclosure flex max-w-full items-center gap-3 rounded-md bg-transparent px-0 py-1 text-left outline-none focus-visible:outline-none focus-visible:ring-0"
         onClick={() => props.onToggleWorkGroup(groupId)}
+        aria-expanded={isExpanded}
         data-meta-disclosure="true"
         data-meta-disclosure-open={String(isExpanded)}
-        data-thinking-disclosure={hasThinkingEntries ? "true" : undefined}
-        data-thinking-disclosure-open={hasThinkingEntries ? String(isExpanded) : undefined}
-        data-tool-disclosure={hasToolEntries ? "true" : undefined}
-        data-tool-disclosure-open={hasToolEntries ? String(isExpanded) : undefined}
+        data-thinking-disclosure={summary.hasThinkingEntries ? "true" : undefined}
+        data-thinking-disclosure-open={summary.hasThinkingEntries ? String(isExpanded) : undefined}
+        data-tool-disclosure={summary.hasToolEntries ? "true" : undefined}
+        data-tool-disclosure-open={summary.hasToolEntries ? String(isExpanded) : undefined}
       >
-        <div className="flex min-w-0 flex-1 items-center gap-2.5 text-foreground/60 transition-[color,opacity] duration-100 group-hover/disclosure:text-foreground/88 group-focus-visible/disclosure:text-foreground/88">
+        <GroupIcon
+          className={cn("mt-0.5 size-3.5 shrink-0", metaToneTextClass(summary.surfaceTone))}
+        />
+        <div className="flex min-w-0 items-center gap-1.5 overflow-hidden text-[13px] leading-5 text-muted-foreground/70">
+          {breakdownParts.map((part, index) => (
+            <Fragment key={`${props.row.id}:summary:${part.key}`}>
+              {index > 0 && <span className="shrink-0 text-muted-foreground/45">·</span>}
+              <InlineTooltip
+                content={part.title}
+                className={cn(
+                  "min-w-0 truncate transition-colors duration-100 group-hover/disclosure:text-foreground/92 group-focus-visible/disclosure:text-foreground/92",
+                  isExpanded ? "text-foreground/92" : "text-muted-foreground/70",
+                )}
+              >
+                {part.text}
+              </InlineTooltip>
+            </Fragment>
+          ))}
           <ChevronIcon
-            strokeWidth={2.5}
-            className={cn(
-              "size-3.5 shrink-0 text-muted-foreground/48 transition-[transform,color,opacity] duration-150 group-hover/disclosure:text-muted-foreground/78 group-hover/disclosure:opacity-100",
-              metaToneTextClass(surfaceTone),
-            )}
+            className="size-3.5 shrink-0 text-muted-foreground/60 transition-colors duration-100 group-hover/disclosure:text-foreground/90 group-focus-visible/disclosure:text-foreground/90"
+            strokeWidth={2.2}
           />
-          <div className="min-w-0 flex-1 overflow-hidden">
-            <div className="flex min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap text-[12px] leading-5 text-foreground/62">
-              {breakdownParts.map((part, index) => (
-                <Fragment key={`${props.row.id}:summary:${part.text}:${index}`}>
-                  {index > 0 && (
-                    <span className="shrink-0 text-muted-foreground/46 group-hover/disclosure:text-muted-foreground/68">
-                      ·
-                    </span>
-                  )}
-                  <InlineTooltip
-                    content={part.title}
-                    className="min-w-0 truncate font-medium text-muted-foreground/74 transition-colors duration-100 group-hover/disclosure:text-foreground/86 group-focus-visible/disclosure:text-foreground/86"
-                  >
-                    {part.text}
-                  </InlineTooltip>
-                </Fragment>
-              ))}
-            </div>
-          </div>
           {elapsedLabel && (
-            <div
-              className="ml-auto flex shrink-0 items-center gap-1.5 text-[10px] font-medium text-muted-foreground/46 opacity-0 transition-[color,opacity] duration-100 group-hover/disclosure:text-muted-foreground/72 group-hover/disclosure:opacity-100 group-focus-visible/disclosure:opacity-100"
+            <span
+              className="sr-only"
               data-meta-disclosure-elapsed={elapsedLabel}
-            >
-              <Clock3Icon className="size-3.5 shrink-0" strokeWidth={2.4} />
-              <span>{elapsedLabel}</span>
-            </div>
+            >{`Elapsed ${elapsedLabel}`}</span>
           )}
         </div>
       </button>
       {isExpanded && (
-        <div className="mt-2 space-y-2 border-border/35 border-l pl-4">
+        <div
+          className="mt-2 space-y-2 border-l border-border/45 pl-5"
+          data-meta-disclosure-body="true"
+        >
           {props.row.entries.map((entry) =>
             entry.kind === "work" ? (
               <SimpleWorkEntryRow
@@ -2270,12 +2986,10 @@ const CompletedWorkDetailTimelineRow = memo(function CompletedWorkDetailTimeline
   return (
     <div className="min-w-0 py-0.5" data-completed-work-hidden-assistant-message="true">
       <AssistantMessageTimelineRow
-        completionSummary={props.row.completionSummary}
         durationStart={props.row.durationStart}
         isAssistantTurnTerminal={props.row.isAssistantTurnTerminal ?? false}
         liveTimers={props.liveTimers}
         showCompletedTiming={props.row.showAssistantTiming ?? false}
-        showAssistantSummaryByDefault={props.row.showAssistantSummaryByDefault ?? false}
         markdownCwd={props.markdownCwd}
         message={props.row.message}
         onImageExpand={props.onImageExpand}
@@ -2283,109 +2997,26 @@ const CompletedWorkDetailTimelineRow = memo(function CompletedWorkDetailTimeline
         onOpenFilePath={props.onOpenFilePath ?? null}
         enableLocalFileLinks={props.enableLocalFileLinks ?? true}
         renderMarkdown
+        showCopyAction={false}
         timestampFormat={props.timestampFormat}
       />
     </div>
   );
 });
 
-function isVisibleCompletedWorkDiagnosticEntry(
-  entry: TimelineMetaGroupEntry,
-): entry is Extract<TimelineMetaGroupEntry, { kind: "work" }> {
-  return (
-    entry.kind === "work" &&
-    (entry.workEntry.tone === "error" || entry.workEntry.diagnosticKind !== undefined)
-  );
-}
-
-function collectVisibleCompletedWorkDiagnosticRows(
-  detailRows: ReadonlyArray<TimelineCompletedWorkDetailRow>,
-): TimelineWorkLogRow[] {
-  const diagnosticRows: TimelineWorkLogRow[] = [];
-  for (const detailRow of detailRows) {
-    if (detailRow.kind === "work") {
-      if (
-        detailRow.workEntry.tone === "error" ||
-        detailRow.workEntry.diagnosticKind !== undefined
-      ) {
-        diagnosticRows.push(detailRow);
-      }
-      continue;
-    }
-
-    if (detailRow.kind !== "work-group") {
-      continue;
-    }
-
-    for (const entry of detailRow.entries) {
-      if (!isVisibleCompletedWorkDiagnosticEntry(entry)) {
-        continue;
-      }
-      diagnosticRows.push({
-        kind: "work",
-        id: entry.id,
-        createdAt: entry.createdAt,
-        workEntry: entry.workEntry,
-      });
-    }
-  }
-  return diagnosticRows;
-}
-
 function estimateVisibleCompletedWorkDiagnosticRowsHeight(
-  detailRows: ReadonlyArray<TimelineCompletedWorkDetailRow>,
+  diagnosticRows: ReadonlyArray<TimelineCompletedWorkDiagnosticRow>,
 ): number {
   let height = 0;
-  for (const detailRow of detailRows) {
-    if (detailRow.kind === "work") {
-      if (
-        detailRow.workEntry.tone === "error" ||
-        detailRow.workEntry.diagnosticKind !== undefined
-      ) {
-        height += detailRow.workEntry.detail || detailRow.workEntry.command ? 84 : 52;
-      }
-      continue;
-    }
-
-    if (detailRow.kind !== "work-group") {
-      continue;
-    }
-
-    for (const entry of detailRow.entries) {
-      if (isVisibleCompletedWorkDiagnosticEntry(entry)) {
-        height += entry.workEntry.detail || entry.workEntry.command ? 84 : 52;
-      }
-    }
+  for (const diagnosticRow of diagnosticRows) {
+    height +=
+      diagnosticRow.workEntry.detail ||
+      diagnosticRow.workEntry.command ||
+      diagnosticRow.workEntry.terminalOutput
+        ? 104
+        : 52;
   }
   return height;
-}
-
-function completedWorkVisibleDiagnosticsCacheKey(
-  detailRows: ReadonlyArray<TimelineCompletedWorkDetailRow>,
-): string {
-  const parts: string[] = [];
-  for (const detailRow of detailRows) {
-    if (detailRow.kind === "work") {
-      if (
-        detailRow.workEntry.tone === "error" ||
-        detailRow.workEntry.diagnosticKind !== undefined
-      ) {
-        parts.push(`${detailRow.id}:${detailRow.workEntry.detail?.length ?? 0}`);
-      }
-      continue;
-    }
-
-    if (detailRow.kind !== "work-group") {
-      continue;
-    }
-
-    for (const entry of detailRow.entries) {
-      if (isVisibleCompletedWorkDiagnosticEntry(entry)) {
-        parts.push(`${entry.id}:${entry.workEntry.detail?.length ?? 0}`);
-      }
-    }
-  }
-  return parts.length === 0 ? "none" : parts.join(",");
 }
 
 const CompletedWorkSummaryTimelineRow = memo(function CompletedWorkSummaryTimelineRow(props: {
@@ -2401,10 +3032,7 @@ const CompletedWorkSummaryTimelineRow = memo(function CompletedWorkSummaryTimeli
   timestampFormat: TimestampFormat;
 }) {
   const [isOpen, setIsOpen] = useState(false);
-  const visibleDiagnosticRows = useMemo(
-    () => collectVisibleCompletedWorkDiagnosticRows(props.row.detailRows),
-    [props.row.detailRows],
-  );
+  const visibleDiagnosticRows = props.row.visibleDiagnosticRows;
   const elapsedLabel = formatCompletedWorkTimer(props.row.startedAt, props.row.endedAt);
   if (!elapsedLabel) {
     return null;
@@ -2436,6 +3064,7 @@ const CompletedWorkSummaryTimelineRow = memo(function CompletedWorkSummaryTimeli
           className="group/completed-work flex min-w-0 items-start gap-2.5 border-0 bg-transparent p-0 text-left outline-none transition-colors focus-visible:text-foreground/86"
           data-completed-work-summary-elapsed={elapsedLabel}
           data-completed-work-summary-tool-calls={props.row.toolCallCount}
+          data-completed-work-summary-thinking={props.row.hiddenThinkingCount}
           data-completed-work-summary-hidden-messages={props.row.hiddenMessageCount}
           data-completed-work-summary-open={String(isOpen)}
           aria-expanded={isOpen}
@@ -2449,6 +3078,7 @@ const CompletedWorkSummaryTimelineRow = memo(function CompletedWorkSummaryTimeli
           className="group/completed-work flex min-w-0 items-start gap-2.5"
           data-completed-work-summary-elapsed={elapsedLabel}
           data-completed-work-summary-tool-calls={props.row.toolCallCount}
+          data-completed-work-summary-thinking={props.row.hiddenThinkingCount}
           data-completed-work-summary-hidden-messages={props.row.hiddenMessageCount}
         >
           {summaryContent}
@@ -2514,10 +3144,10 @@ const UserMessageTimelineRow = memo(function UserMessageTimelineRow(props: {
   return (
     <div className="flex justify-end">
       <div
-        className="group relative max-w-[82%] px-0 py-0 sm:max-w-[72%]"
+        className="group relative max-w-[82%] p-0 sm:max-w-[72%]"
         data-user-message-bubble="true"
       >
-        <div className="relative rounded-2xl rounded-br-lg border border-border/65 bg-chat-bubble px-3.5 py-2.5 ">
+        <div className="relative rounded-2xl rounded-br-lg border border-border/40 bg-chat-bubble px-4 py-3 ">
           {userImages.length > 0 && (
             <div className="mb-2.5 grid max-w-105 grid-cols-2 gap-1.5">
               {userImages.map((image: NonNullable<TimelineMessage["attachments"]>[number]) => (
@@ -2602,7 +3232,7 @@ const UserMessageTimelineRow = memo(function UserMessageTimelineRow(props: {
 const AssistantMarkdownPendingPlaceholder = memo(function AssistantMarkdownPendingPlaceholder() {
   return (
     <div
-      className="space-y-2 py-1 text-sm text-muted-foreground/58"
+      className="space-y-2 py-1 text-[13px] text-muted-foreground/58"
       data-assistant-markdown-pending="true"
     >
       <div className="h-3.5 w-2/3 rounded bg-muted-foreground/9" />
@@ -2670,19 +3300,23 @@ const AssistantImageAttachmentFrame = memo(function AssistantImageAttachmentFram
 });
 
 const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(props: {
-  completionSummary: string | null;
   durationStart: string;
   isAssistantTurnTerminal?: boolean;
   liveTimers: boolean;
   showCompletedTiming?: boolean;
-  showAssistantSummaryByDefault?: boolean;
+  suppressFooter?: boolean;
   markdownCwd: string | undefined;
   message: AssistantTimelineMessage;
   onImageExpand: (preview: ExpandedImagePreview) => void;
   onOpenBrowserUrl?: ((url: string) => void) | null;
   onOpenFilePath?: ((path: string) => void) | null;
   enableLocalFileLinks?: boolean;
+  onForkConversation?: (() => void) | null;
+  isPinned?: boolean;
+  onTogglePinnedMessage?: (() => void) | null;
+  isForkConversationDisabled?: boolean;
   renderMarkdown: boolean;
+  showCopyAction: boolean;
   timestampFormat: TimestampFormat;
 }) {
   const onOpenBrowserUrl = props.onOpenBrowserUrl ?? null;
@@ -2693,6 +3327,8 @@ const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(pr
     props.message,
   );
   const renderedMessageText = getChatMessageRenderableText(props.message);
+  const copyText =
+    props.showCopyAction && renderedMessageText.trim().length > 0 ? renderedMessageText : null;
   const messageText =
     renderedMessageText.trim().length > 0
       ? renderedMessageText
@@ -2701,17 +3337,13 @@ const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(pr
         : assistantImages.length > 0
           ? ""
           : "(empty response)";
-  const completedAt = props.message.completedAt ?? null;
-  const elapsedLabel =
-    props.showCompletedTiming && props.isAssistantTurnTerminal && completedAt
-      ? formatCompletedWorkTimer(props.durationStart, completedAt)
-      : null;
-  const completedAtLabel =
-    props.showCompletedTiming && props.isAssistantTurnTerminal && completedAt
-      ? formatTimestamp(completedAt, props.timestampFormat)
-      : null;
-  const persistVisible = Boolean(props.completionSummary || props.showAssistantSummaryByDefault);
-
+  const timing = resolveAssistantTurnTiming({
+    completedAt: props.message.completedAt ?? null,
+    durationStart: props.durationStart,
+    isAssistantTurnTerminal: props.isAssistantTurnTerminal ?? false,
+    showCompletedTiming: props.showCompletedTiming ?? false,
+    timestampFormat: props.timestampFormat,
+  });
   return (
     <div className="min-w-0">
       {imageGenerationPlaceholder && (
@@ -2735,60 +3367,254 @@ const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(pr
           ))}
         </div>
       )}
-      {messageText.length === 0 ? null : props.renderMarkdown ? (
-        <ChatMarkdown
-          key={`${props.message.id}:${props.message.streaming ? "streaming" : (props.message.completedAt ?? "complete")}:${messageText.length}`}
-          analysisCacheKey={buildMarkdownRenderAnalysisCacheKey(
-            {
-              text: messageText,
-              isStreaming: Boolean(props.message.streaming),
-              renderPlainText: false,
-              ...(props.message.streamingTextState
-                ? {
-                    streamingTextState: {
-                      totalLineCount: props.message.streamingTextState.totalLineCount,
-                      truncatedCharCount: props.message.streamingTextState.truncatedCharCount,
-                      truncatedLineCount: props.message.streamingTextState.truncatedLineCount,
-                    },
-                  }
-                : {}),
-            },
-            buildAssistantMarkdownAnalysisStableKey(props.message, messageText),
+      {messageText.length === 0 ? null : (
+        <div className="min-w-0" data-assistant-message-content="true">
+          {props.renderMarkdown ? (
+            <ChatMarkdown
+              key={`${props.message.id}:${props.message.streaming ? "streaming" : (props.message.completedAt ?? "complete")}:${messageText.length}`}
+              analysisCacheKey={buildMarkdownRenderAnalysisCacheKey(
+                {
+                  text: messageText,
+                  isStreaming: Boolean(props.message.streaming),
+                  renderPlainText: false,
+                  ...(props.message.streamingTextState
+                    ? {
+                        streamingTextState: {
+                          totalLineCount: props.message.streamingTextState.totalLineCount,
+                          truncatedCharCount: props.message.streamingTextState.truncatedCharCount,
+                          truncatedLineCount: props.message.streamingTextState.truncatedLineCount,
+                        },
+                      }
+                    : {}),
+                },
+                buildAssistantMarkdownAnalysisStableKey(props.message, messageText),
+              )}
+              text={messageText}
+              cwd={props.markdownCwd}
+              isStreaming={Boolean(props.message.streaming)}
+              onOpenBrowserUrl={onOpenBrowserUrl}
+              onOpenFilePath={onOpenFilePath}
+              enableLocalFileLinks={props.enableLocalFileLinks ?? true}
+              {...(props.message.streamingTextState
+                ? { streamingTextState: props.message.streamingTextState }
+                : {})}
+            />
+          ) : (
+            <AssistantMarkdownPendingPlaceholder />
           )}
-          text={messageText}
-          cwd={props.markdownCwd}
-          isStreaming={Boolean(props.message.streaming)}
-          onOpenBrowserUrl={onOpenBrowserUrl}
-          onOpenFilePath={onOpenFilePath}
-          enableLocalFileLinks={props.enableLocalFileLinks ?? true}
-          {...(props.message.streamingTextState
-            ? { streamingTextState: props.message.streamingTextState }
-            : {})}
-        />
-      ) : (
-        <AssistantMarkdownPendingPlaceholder />
+        </div>
       )}
-      {completedAtLabel && elapsedLabel && (
-        <div className="mt-2 flex min-h-4 flex-wrap items-center gap-x-2 gap-y-1">
-          <span
-            className={cn(
-              "inline-flex items-center gap-1.5 text-[10px] text-muted-foreground/52 transition-opacity duration-150",
-              persistVisible
-                ? "opacity-100"
-                : "opacity-0 group-hover/timeline:opacity-100 group-focus-within/timeline:opacity-100",
-            )}
-            data-response-summary="true"
-            data-response-summary-time={completedAtLabel}
-            data-response-summary-elapsed={elapsedLabel}
-          >
-            <Clock3Icon className="size-3 shrink-0" />
-            <span>{completedAtLabel}</span>
-            <span className="text-muted-foreground/34">·</span>
-            <span>{elapsedLabel}</span>
-          </span>
+      {!props.suppressFooter && (
+        <AssistantTurnFooter
+          copyText={copyText}
+          isPinned={props.isPinned ?? false}
+          onForkConversation={props.onForkConversation ?? null}
+          isForkConversationDisabled={props.isForkConversationDisabled ?? false}
+          onTogglePinnedMessage={props.onTogglePinnedMessage ?? null}
+          timing={timing}
+        />
+      )}
+    </div>
+  );
+});
+
+function resolveAssistantTurnTiming(input: {
+  completedAt: string | null;
+  durationStart: string;
+  isAssistantTurnTerminal: boolean;
+  showCompletedTiming: boolean;
+  timestampFormat: TimestampFormat;
+}): { completedAtLabel: string; elapsedLabel: string } | null {
+  if (!input.showCompletedTiming || !input.isAssistantTurnTerminal || !input.completedAt) {
+    return null;
+  }
+
+  const elapsedLabel = formatCompletedWorkTimer(input.durationStart, input.completedAt);
+  if (!elapsedLabel) {
+    return null;
+  }
+
+  return {
+    completedAtLabel: formatTimestamp(input.completedAt, input.timestampFormat),
+    elapsedLabel,
+  };
+}
+
+type AssistantTurnFooterModel = {
+  copyText: string | null;
+  isPinned: boolean;
+  onForkConversation: (() => void) | null;
+  onTogglePinnedMessage: (() => void) | null;
+  isForkConversationDisabled: boolean;
+  timing: { completedAtLabel: string; elapsedLabel: string } | null;
+};
+
+function collectVisibleAssistantTurnPinTarget(
+  rows: ReadonlyArray<TimelineRow>,
+  terminalRowIndex: number,
+): { messageId: string; text: string } | null {
+  const terminalRow = rows[terminalRowIndex];
+  if (
+    terminalRow?.kind !== "message" ||
+    !isAssistantTimelineMessage(terminalRow.message) ||
+    !(terminalRow.isAssistantTurnTerminal ?? false)
+  ) {
+    return null;
+  }
+
+  const turnId = terminalRow.message.turnId ?? null;
+  const visibleAssistantTexts: string[] = [];
+  let firstAssistantMessageId: string | null = null;
+  for (let index = 0; index <= terminalRowIndex; index += 1) {
+    const row = rows[index];
+    if (row?.kind !== "message" || !isAssistantTimelineMessage(row.message)) {
+      continue;
+    }
+    if (turnId !== null && row.message.turnId !== turnId) {
+      continue;
+    }
+    if (turnId === null && row.id !== terminalRow.id) {
+      continue;
+    }
+
+    const renderedText = getChatMessageRenderableText(row.message).trim();
+    if (renderedText.length > 0) {
+      firstAssistantMessageId ??= String(row.message.id);
+      visibleAssistantTexts.push(renderedText);
+    }
+  }
+
+  return visibleAssistantTexts.length > 0 && firstAssistantMessageId
+    ? {
+        messageId: firstAssistantMessageId,
+        text: visibleAssistantTexts.join("\n\n"),
+      }
+    : null;
+}
+
+const AssistantTurnFooter = memo(function AssistantTurnFooter(props: {
+  copyText: string | null;
+  isPinned?: boolean;
+  onForkConversation?: (() => void) | null;
+  onTogglePinnedMessage?: (() => void) | null;
+  isForkConversationDisabled?: boolean;
+  timing: { completedAtLabel: string; elapsedLabel: string } | null;
+}) {
+  const hasActions = Boolean(
+    props.copyText || props.onTogglePinnedMessage || props.onForkConversation,
+  );
+  if (!props.timing && !hasActions) {
+    return null;
+  }
+
+  const hoverOnlyClass =
+    "opacity-0 transition-opacity duration-150 group-hover/timeline:opacity-100 group-focus-within/timeline:opacity-100";
+
+  return (
+    <div
+      className="mt-2 flex min-h-5 flex-wrap items-center gap-x-2 gap-y-1"
+      data-assistant-turn-footer="true"
+    >
+      {props.copyText && (
+        <div className="flex items-center" data-assistant-turn-copy-action="true">
+          <MessageCopyButton
+            text={props.copyText}
+            size="icon-xs"
+            variant="ghost"
+            className="text-muted-foreground/68 hover:bg-muted/45 hover:text-foreground"
+          />
+        </div>
+      )}
+      {props.timing && (
+        <span
+          className="inline-flex items-center gap-1.5 text-[10px] text-muted-foreground/52"
+          data-response-summary="true"
+          data-response-summary-time={props.timing.completedAtLabel}
+          data-response-summary-elapsed={props.timing.elapsedLabel}
+        >
+          <Clock3Icon className="size-3 shrink-0" />
+          <span>{props.timing.completedAtLabel}</span>
+          <span className="text-muted-foreground/34">·</span>
+          <span>{props.timing.elapsedLabel}</span>
+        </span>
+      )}
+      {(props.onTogglePinnedMessage || props.onForkConversation) && (
+        <div
+          className={cn(
+            "flex items-center gap-1",
+            hoverOnlyClass,
+            !props.timing && !props.copyText && "ml-auto",
+          )}
+          data-assistant-turn-actions="true"
+        >
+          {props.onTogglePinnedMessage ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    type="button"
+                    size="icon-xs"
+                    variant="ghost"
+                    className={cn(
+                      "text-muted-foreground/68 transition-all duration-200 hover:bg-muted/45 hover:text-foreground",
+                      props.isPinned && "text-foreground",
+                    )}
+                    onMouseDown={(event) => {
+                      event.preventDefault();
+                    }}
+                    onClick={props.onTogglePinnedMessage}
+                    aria-label={
+                      props.isPinned ? "Unpin assistant message" : "Pin assistant message"
+                    }
+                  />
+                }
+              >
+                <PinIcon className={cn("size-3", props.isPinned && "fill-current")} />
+              </TooltipTrigger>
+              <TooltipPopup side="top">
+                {props.isPinned ? "Unpin message" : "Pin message"}
+              </TooltipPopup>
+            </Tooltip>
+          ) : null}
+          {props.onForkConversation ? (
+            <AssistantForkButton
+              disabled={props.isForkConversationDisabled ?? false}
+              onClick={props.onForkConversation}
+            />
+          ) : null}
         </div>
       )}
     </div>
+  );
+});
+
+const AssistantForkButton = memo(function AssistantForkButton(props: {
+  disabled: boolean;
+  onClick: () => void;
+}) {
+  const tooltipLabel = props.disabled
+    ? "Finish the current turn before forking"
+    : "Fork conversation";
+
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            type="button"
+            size="icon-xs"
+            variant="ghost"
+            className="text-muted-foreground/68 transition-all duration-200 hover:bg-muted/45 hover:text-foreground"
+            disabled={props.disabled}
+            onClick={props.onClick}
+            aria-label="Fork conversation"
+          />
+        }
+      >
+        <SplitIcon className="size-3 rotate-90" />
+      </TooltipTrigger>
+      <TooltipPopup side="top">{tooltipLabel}</TooltipPopup>
+    </Tooltip>
   );
 });
 
@@ -2806,7 +3632,6 @@ const AssistantMessageTurnDiffSummary = memo(function AssistantMessageTurnDiffSu
 }) {
   const checkpointFiles = props.turnSummary.files;
   const summaryStat = summarizeTurnDiffStats(checkpointFiles);
-  const changedFileCountLabel = String(checkpointFiles.length);
   const hasExpandableDirectories = checkpointFiles.some(
     (file) =>
       file.path
@@ -2817,31 +3642,34 @@ const AssistantMessageTurnDiffSummary = memo(function AssistantMessageTurnDiffSu
   const hasRightActions = (props.canRevert && props.onRevert) || hasExpandableDirectories;
 
   return (
-    <div className="min-w-0" data-turn-diff-summary="true">
-      <div className="mb-1 flex min-w-0 items-center gap-2">
-        <div className="flex min-w-0 items-center gap-1.5">
-          <p className="flex min-w-0 items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground/58">
-            <span>Changed files ({changedFileCountLabel})</span>
-            {hasNonZeroStat(summaryStat) && (
-              <>
-                <span className="text-muted-foreground/28">•</span>
-                <DiffStatLabel
-                  additions={summaryStat.additions}
-                  deletions={summaryStat.deletions}
-                />
-              </>
-            )}
-          </p>
-          <Button
-            type="button"
-            size="xs"
-            variant="ghost"
-            className="h-5 rounded-md px-1.5 text-[10px] text-muted-foreground/72 hover:bg-muted/35 hover:text-foreground"
-            onClick={() => props.onOpenTurnDiff(props.turnSummary.turnId, checkpointFiles[0]?.path)}
-          >
-            View diff
-          </Button>
-        </div>
+    <div
+      className="min-w-0 overflow-hidden border-border/20 border-y"
+      data-turn-diff-summary="true"
+    >
+      <div className="flex min-w-0 items-center gap-2 border-border/15 border-b px-2 py-1.5">
+        <span className="min-w-0 truncate font-mono text-[10px] leading-4 font-medium tracking-[0.16em] text-muted-foreground/72 uppercase">
+          Changed files ({checkpointFiles.length})
+        </span>
+        {hasNonZeroStat(summaryStat) && (
+          <>
+            <span aria-hidden="true" className="text-[11px] text-muted-foreground/34">
+              •
+            </span>
+            <span className="shrink-0 font-mono text-[12px] leading-4 tabular-nums">
+              <DiffStatLabel additions={summaryStat.additions} deletions={summaryStat.deletions} />
+            </span>
+          </>
+        )}
+        <Button
+          type="button"
+          size="xs"
+          variant="ghost"
+          className="h-5 rounded-sm px-1.5 text-[11px] font-normal text-muted-foreground/62 hover:bg-foreground/[0.045] hover:text-foreground"
+          onClick={() => props.onOpenTurnDiff(props.turnSummary.turnId, checkpointFiles[0]?.path)}
+        >
+          <FileDiffIcon aria-hidden="true" className="mr-1 size-3.5" />
+          View diff
+        </Button>
         {hasRightActions && (
           <div className="ml-auto flex shrink-0 items-center gap-0.5">
             {props.canRevert && props.onRevert && (
@@ -2852,14 +3680,14 @@ const AssistantMessageTurnDiffSummary = memo(function AssistantMessageTurnDiffSu
                       type="button"
                       size="icon-xs"
                       variant="ghost"
-                      className="rounded-md text-muted-foreground hover:bg-muted/45 hover:text-foreground"
+                      className="size-5 rounded-sm border-0 bg-transparent text-muted-foreground/66 shadow-none hover:bg-foreground/[0.055] hover:text-foreground"
                       disabled={props.isRevertingCheckpoint || props.isWorking}
                       onClick={props.onRevert}
                       aria-label={props.revertActionTitle}
                     />
                   }
                 >
-                  <Undo2Icon aria-hidden="true" className="size-2.5" />
+                  <Undo2Icon aria-hidden="true" className="size-3" />
                 </TooltipTrigger>
                 <TooltipPopup side="top" align="end">
                   {props.revertActionTitle}
@@ -2875,19 +3703,17 @@ const AssistantMessageTurnDiffSummary = memo(function AssistantMessageTurnDiffSu
                       size="icon-xs"
                       variant="ghost"
                       data-scroll-anchor-ignore
-                      className="rounded-md text-muted-foreground hover:bg-muted/45 hover:text-foreground"
+                      className="size-5 rounded-sm border-0 bg-transparent text-muted-foreground/66 shadow-none hover:bg-foreground/[0.055] hover:text-foreground"
                       onClick={() => props.onToggleAllDirectories(props.turnSummary.turnId)}
                       aria-label={props.allDirectoriesExpanded ? "Collapse all" : "Expand all"}
                     />
                   }
                 >
-                  <ChevronDownIcon
-                    aria-hidden="true"
-                    className={cn(
-                      "size-2.5 transition-transform",
-                      !props.allDirectoriesExpanded && "-rotate-90",
-                    )}
-                  />
+                  {props.allDirectoriesExpanded ? (
+                    <ChevronsDownUpIcon aria-hidden="true" className="size-3" />
+                  ) : (
+                    <ChevronsUpDownIcon aria-hidden="true" className="size-3" />
+                  )}
                 </TooltipTrigger>
                 <TooltipPopup side="top" align="end">
                   {props.allDirectoriesExpanded ? "Collapse all" : "Expand all"}
@@ -2897,14 +3723,15 @@ const AssistantMessageTurnDiffSummary = memo(function AssistantMessageTurnDiffSu
           </div>
         )}
       </div>
-      <ChangedFilesTree
-        key={`changed-files-tree:${props.turnSummary.turnId}`}
-        turnId={props.turnSummary.turnId}
-        files={checkpointFiles}
-        allDirectoriesExpanded={props.allDirectoriesExpanded}
-        resolvedTheme={props.resolvedTheme}
-        onOpenTurnDiff={props.onOpenTurnDiff}
-      />
+      <div className="px-1.5 py-1">
+        <ChangedFilesTree
+          key={`changed-files-tree:${props.turnSummary.turnId}`}
+          turnId={props.turnSummary.turnId}
+          files={checkpointFiles}
+          allDirectoriesExpanded={props.allDirectoriesExpanded}
+          onOpenTurnDiff={props.onOpenTurnDiff}
+        />
+      </div>
     </div>
   );
 });
@@ -2920,7 +3747,7 @@ const ProposedPlanTimelineRow = memo(function ProposedPlanTimelineRow(props: {
   const onOpenBrowserUrl = props.onOpenBrowserUrl ?? null;
   const onOpenFilePath = props.onOpenFilePath ?? null;
   return (
-    <div className="rounded-xl border border-border/45 bg-background/35 px-4 py-3">
+    <div className="max-w-3xl">
       <ProposedPlanCard
         planMarkdown={props.proposedPlan.planMarkdown}
         cwd={props.cwd}
@@ -2986,6 +3813,237 @@ function normalizeWorkCommandText(command: string | undefined): string | null {
     return null;
   }
   return normalized;
+}
+
+function normalizeTerminalOutputText(output: string | undefined): string | null {
+  if (!output) {
+    return null;
+  }
+  const normalized = output.replace(/\r\n?/g, "\n").trimEnd();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function formatToolDuration(durationMs: number | undefined): string | null {
+  if (durationMs === undefined || !Number.isFinite(durationMs) || durationMs < 0) {
+    return null;
+  }
+  if (durationMs < 1_000) {
+    return `${Math.max(1, Math.round(durationMs))}ms`;
+  }
+  if (durationMs < 10_000) {
+    return `${(durationMs / 1_000).toFixed(1)}s`;
+  }
+  return `${Math.round(durationMs / 1_000)}s`;
+}
+
+function commandTextFromWorkEntry(workEntry: TimelineWorkEntry): string | null {
+  const explicitCommand = normalizeWorkCommandText(workEntry.command);
+  if (explicitCommand) {
+    return explicitCommand;
+  }
+  if (!isCommandWorkEntry(workEntry)) {
+    return null;
+  }
+  const detail = normalizeWorkCommandText(workEntry.detail);
+  if (!detail) {
+    return null;
+  }
+  const stripped = detail.replace(/^(?:bash|shell|run command)\s*:\s*/iu, "").trim();
+  return stripped.length > 0 ? stripped : detail;
+}
+
+function compactCommandText(command: string | null): string | null {
+  if (!command) {
+    return null;
+  }
+  return command.length > 72 ? `${command.slice(0, 69)}...` : command;
+}
+
+function commandDetailIsDuplicate(
+  command: string | undefined,
+  detail: string | undefined,
+): boolean {
+  const normalizedCommand = normalizeWorkCommandText(command);
+  const normalizedDetail = detail?.trim() || null;
+  if (!normalizedCommand || !normalizedDetail) {
+    return false;
+  }
+  const lowerDetail = normalizedDetail.toLowerCase();
+  return (
+    normalizedDetail === normalizedCommand ||
+    lowerDetail === `bash: ${normalizedCommand}`.toLowerCase() ||
+    lowerDetail === `shell: ${normalizedCommand}`.toLowerCase() ||
+    lowerDetail === `run command: ${normalizedCommand}`.toLowerCase()
+  );
+}
+
+function isCommandWorkEntry(workEntry: TimelineWorkEntry): boolean {
+  const textHint = `${workEntry.toolTitle ?? ""} ${workEntry.label}`.toLowerCase();
+  return (
+    workEntry.requestKind === "command" ||
+    workEntry.itemType === "command_execution" ||
+    textHint.includes("run command") ||
+    textHint.includes("ran command") ||
+    textHint.includes("execute command")
+  );
+}
+
+function isFileEditWorkEntry(workEntry: TimelineWorkEntry): boolean {
+  return (
+    workEntry.requestKind === "file-change" &&
+    !isCommandWorkEntry(workEntry) &&
+    (workEntry.changedFiles?.length ?? 0) > 0
+  );
+}
+
+function isFileReadWorkEntry(workEntry: TimelineWorkEntry): boolean {
+  const textHint = `${workEntry.toolTitle ?? ""} ${workEntry.label}`.toLowerCase();
+  return (
+    workEntry.requestKind === "file-read" ||
+    textHint.includes("read file") ||
+    textHint.includes("open file") ||
+    textHint.includes("inspect file")
+  );
+}
+
+function isSearchWorkEntry(workEntry: TimelineWorkEntry): boolean {
+  const textHint = `${workEntry.toolTitle ?? ""} ${workEntry.label}`.toLowerCase();
+  return (
+    workEntry.itemType === "web_search" || /\b(find|search|grep|ripgrep|glob)\b/.test(textHint)
+  );
+}
+
+function cleanProviderPayloadText(value: string | undefined): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return null;
+  }
+  return trimmed
+    .replace(/<\/?(?:path|type|content|task_result|task)[^>]*>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isRawProviderPayloadText(value: string | null): boolean {
+  if (!value) {
+    return false;
+  }
+  return /<\/?[a-z_][^>]*>/iu.test(value) || /^\s*[{[]/u.test(value);
+}
+
+function extractReadablePath(workEntry: TimelineWorkEntry): string | null {
+  const changedPath = workEntry.changedFiles?.[0];
+  if (changedPath) {
+    return changedPath;
+  }
+  const raw = workEntry.detail ?? workEntry.label;
+  const pathMatch =
+    raw.match(/<path>(?<path>[^<]+)<\/path>/u) ??
+    raw.match(/(?:^|\s)(?<path>(?:~|\/|\.{1,2}\/)[^\s<>"']+)/u);
+  const pathValue = pathMatch?.groups?.path?.trim();
+  if (pathValue && pathValue.length > 0) {
+    return pathValue;
+  }
+  const cleaned = cleanProviderPayloadText(workEntry.detail);
+  if (cleaned && !/\s/u.test(cleaned) && cleaned.length <= 160) {
+    return cleaned;
+  }
+  return null;
+}
+
+function extractSearchQuery(workEntry: TimelineWorkEntry): string | null {
+  const raw = cleanProviderPayloadText(workEntry.detail) ?? workEntry.toolTitle ?? workEntry.label;
+  const quoted = raw.match(/["'`](?<query>[^"'`]{2,})["'`]/u)?.groups?.query?.trim();
+  if (quoted) {
+    return quoted;
+  }
+  const query = raw
+    .replace(/\b(?:find|search|grep|ripgrep|glob|rg)\b/giu, "")
+    .replace(/--?[a-z][\w-]*(?:=\S+)?/giu, "")
+    .trim();
+  return query.length > 0 ? compactDisplayText(query, 56) : null;
+}
+
+function formatSubagentLabel(value: string | undefined): string | null {
+  const normalized = value?.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
+  if (!normalized) {
+    return null;
+  }
+  return normalized
+    .split(" ")
+    .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
+    .join(" ");
+}
+
+function nonCommandWorkEntryHeading(workEntry: TimelineWorkEntry): string {
+  if (workEntry.tone === "error") {
+    if (workEntry.diagnosticKind === "runtime-error") {
+      return "Runtime error";
+    }
+    return "Error";
+  }
+  if (workEntry.tone === "thinking") {
+    return "Thinking";
+  }
+  if (workEntry.itemType === "collab_agent_tool_call") {
+    const label =
+      formatSubagentLabel(workEntry.subagentName) ?? formatSubagentLabel(workEntry.subagentType);
+    return label ? `Subagent ${label}` : "Subagent task";
+  }
+  if (workEntry.itemType === "image_view") {
+    const path = extractReadablePath(workEntry);
+    return path ? `Viewed ${basenameOfPath(path) || path}` : "Viewed image";
+  }
+  if (isFileReadWorkEntry(workEntry)) {
+    const path = extractReadablePath(workEntry);
+    return path ? `Read ${basenameOfPath(path) || path}` : "Read file";
+  }
+  if (isSearchWorkEntry(workEntry)) {
+    const query = extractSearchQuery(workEntry);
+    return query ? `Searched "${query}"` : "Searched";
+  }
+  return toolWorkEntryHeading(workEntry);
+}
+
+function commandStatusLabel(workEntry: TimelineWorkEntry): {
+  text: string;
+  className: string;
+  icon: TimelineIcon;
+} {
+  if (workEntry.exitCode !== undefined && workEntry.exitCode !== 0) {
+    return {
+      text: `Exit code ${workEntry.exitCode}`,
+      className: "text-red-300/80",
+      icon: CircleAlertIcon,
+    };
+  }
+  if (workEntry.status === "failed") {
+    return {
+      text: "Failed",
+      className: "text-red-300/80",
+      icon: CircleAlertIcon,
+    };
+  }
+  if (workEntry.status === "completed" || workEntry.exitCode === 0) {
+    return {
+      text: "Success",
+      className: "text-emerald-300/80",
+      icon: CheckIcon,
+    };
+  }
+  return {
+    text: "Running",
+    className: "text-muted-foreground/76",
+    icon: Clock3Icon,
+  };
+}
+
+function commandWorkEntryPlainText(workEntry: TimelineWorkEntry): string {
+  const command = compactCommandText(commandTextFromWorkEntry(workEntry));
+  if (workEntry.status === "inProgress") {
+    return command ? `Running ${command}` : "Running command";
+  }
+  return command ? `Ran ${command}` : "Ran command";
 }
 
 function workEntryIcon(workEntry: TimelineWorkEntry): TimelineIcon {
@@ -3055,45 +4113,97 @@ const SimpleIntentEntryRow = memo(function SimpleIntentEntryRow(props: {
   );
 });
 
-const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
+export const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
   workEntry: TimelineWorkEntry;
   inlineIntentText?: string | null;
   variant?: "nested" | "standalone";
 }) {
   const { workEntry } = props;
+  if (workEntry.tone === "tool" && isCommandWorkEntry(workEntry)) {
+    return <CommandWorkEntryRow {...props} />;
+  }
+  if (workEntry.tone === "tool" && isFileEditWorkEntry(workEntry)) {
+    return <FileEditWorkEntryRow {...props} />;
+  }
+
   const iconConfig = workToneIcon(workEntry.tone);
   const EntryIcon = workEntryIcon(workEntry);
-  const heading = toolWorkEntryHeading(workEntry);
-  const detailText = workEntryDetailText(workEntry);
+  const heading = nonCommandWorkEntryHeading(workEntry);
+  const commandIsAlreadyInHeading =
+    workEntry.command !== undefined && heading.includes(workEntry.command);
+  const detailText =
+    commandIsAlreadyInHeading && !workEntry.detail ? null : workEntryDetailText(workEntry);
+  const terminalOutputText = normalizeTerminalOutputText(workEntry.terminalOutput);
   const displayText = detailText ? `${heading} - ${detailText}` : heading;
   const hasChangedFiles = (workEntry.changedFiles?.length ?? 0) > 0;
   const previewIsChangedFiles = hasChangedFiles && !workEntry.command && !workEntry.detail;
   const inlineIntentText = props.inlineIntentText?.trim() || null;
   const variant = props.variant ?? "standalone";
+  const isNested = variant === "nested";
   const tone = resolveWorkEntryTone(workEntry.tone);
+  const showDetailInline =
+    workEntry.tone !== "thinking" &&
+    workEntry.tone !== "error" &&
+    !isFileReadWorkEntry(workEntry) &&
+    !isSearchWorkEntry(workEntry) &&
+    workEntry.itemType !== "image_view" &&
+    Boolean(detailText) &&
+    !terminalOutputText &&
+    !isRawProviderPayloadText(detailText);
+  const hasExpandableDetail =
+    workEntry.tone !== "thinking" &&
+    !showDetailInline &&
+    Boolean(detailText || terminalOutputText || hasChangedFiles);
+  const [isDetailOpen, setIsDetailOpen] = useState(
+    workEntry.tone === "error" || workEntry.diagnosticKind !== undefined,
+  );
+  const DetailChevronIcon = isDetailOpen ? ChevronDownIcon : ChevronRightIcon;
 
   return (
     <div
-      className={cn("min-w-0", variant === "nested" && "pl-2")}
+      className={cn("min-w-0", isNested && "pl-3")}
       data-work-entry-id={workEntry.id}
       data-work-entry-tone={workEntry.tone}
+      data-work-entry-nested={isNested ? "true" : undefined}
     >
-      <div className="flex items-start gap-3 transition-[opacity,translate] duration-200">
+      <div
+        className={cn(
+          "flex items-start transition-[opacity,translate] duration-200",
+          isNested ? "gap-2.5" : "gap-3",
+        )}
+      >
         <EntryIcon
-          className={cn("mt-1 size-3 shrink-0", iconConfig.className, metaToneTextClass(tone))}
+          className={cn("mt-1 shrink-0", "size-3.5", iconConfig.className, metaToneTextClass(tone))}
         />
         <div className="min-w-0 flex-1 overflow-hidden">
           <div className="mb-0.5 flex min-w-0 items-center gap-2">
-            <p
+            <button
+              type="button"
               className={cn(
-                "min-w-0 flex-1 truncate text-[12px] leading-5 text-muted-foreground/78",
+                "group/work-detail flex min-w-0 max-w-full items-center gap-1.5 rounded-sm bg-transparent p-0 text-left leading-5 text-muted-foreground/70 outline-none transition-colors duration-100 hover:text-foreground/90 focus-visible:text-foreground/90 focus-visible:outline-none focus-visible:ring-0",
+                isNested ? "text-[12px]" : "text-[12.5px]",
                 workEntry.tone === "thinking" && "tracking-[0.01em]",
+                !hasExpandableDetail && "cursor-default hover:text-muted-foreground/70",
               )}
+              onClick={() => {
+                if (hasExpandableDetail) {
+                  setIsDetailOpen((current) => !current);
+                }
+              }}
+              aria-expanded={hasExpandableDetail ? isDetailOpen : undefined}
+              data-work-detail-disclosure={hasExpandableDetail ? "true" : undefined}
+              data-work-detail-open={hasExpandableDetail ? String(isDetailOpen) : undefined}
             >
               <InlineTooltip content={displayText} className="min-w-0 truncate">
                 {heading}
               </InlineTooltip>
-            </p>
+              {hasExpandableDetail && (
+                <DetailChevronIcon
+                  className="size-3.5 shrink-0 text-muted-foreground/55 transition-colors duration-100 group-hover/work-detail:text-foreground/82 group-focus-visible/work-detail:text-foreground/82"
+                  strokeWidth={2.2}
+                />
+              )}
+            </button>
           </div>
           {inlineIntentText && (
             <p
@@ -3106,22 +4216,86 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
               <span className="text-foreground/72">{inlineIntentText}</span>
             </p>
           )}
-          {detailText && (
+          {detailText && workEntry.tone === "thinking" && (
             <InlineTooltip
               content={detailText}
               className={cn(
                 "wrap-break-word block whitespace-pre-wrap",
-                workEntry.tone === "thinking"
-                  ? "text-[11px] leading-5 text-foreground/72"
+                workEntry.tone === "thinking" && isNested
+                  ? "mt-0.5 text-[11px] leading-5 text-foreground/76"
+                  : workEntry.tone === "thinking"
+                    ? "text-[11px] leading-5 text-foreground/72"
+                    : isNested
+                      ? "font-mono text-[11px] leading-5 text-muted-foreground/62"
+                      : "font-mono text-[10px] leading-5 text-muted-foreground/65",
+              )}
+            >
+              {detailText}
+            </InlineTooltip>
+          )}
+          {showDetailInline && detailText && (
+            <InlineTooltip
+              content={detailText}
+              className={cn(
+                "wrap-break-word block whitespace-pre-wrap",
+                isNested
+                  ? "font-mono text-[11px] leading-5 text-muted-foreground/62"
                   : "font-mono text-[10px] leading-5 text-muted-foreground/65",
               )}
             >
               {detailText}
             </InlineTooltip>
           )}
+          {isDetailOpen && hasExpandableDetail && (
+            <div
+              className="mt-1.5 max-w-full rounded-md bg-muted/35 px-3 py-2"
+              data-work-detail-panel="true"
+            >
+              {detailText && (
+                <InlineTooltip
+                  content={detailText}
+                  className={cn(
+                    "wrap-break-word block whitespace-pre-wrap",
+                    workEntry.tone === "error"
+                      ? "text-[12px] leading-5 text-red-200/88"
+                      : "font-mono text-[11px] leading-5 text-muted-foreground/72",
+                  )}
+                >
+                  {detailText}
+                </InlineTooltip>
+              )}
+              {terminalOutputText && (
+                <InlineTooltip
+                  content={terminalOutputText}
+                  className="mt-1 block whitespace-pre-wrap border-l border-border/55 pl-2 font-mono text-[11px] leading-4 text-muted-foreground/72"
+                >
+                  {terminalOutputText}
+                  {workEntry.terminalOutputTruncated ? "\n... output truncated" : ""}
+                </InlineTooltip>
+              )}
+              {hasChangedFiles && (
+                <div className="mt-1 flex flex-wrap gap-x-2 gap-y-1">
+                  {workEntry.changedFiles?.slice(0, 6).map((filePath) => (
+                    <InlineTooltip
+                      key={`${workEntry.id}:${filePath}`}
+                      content={filePath}
+                      className="font-mono text-[10px] text-muted-foreground/75"
+                    >
+                      {filePath}
+                    </InlineTooltip>
+                  ))}
+                  {(workEntry.changedFiles?.length ?? 0) > 6 && (
+                    <span className="px-1 text-[10px] text-muted-foreground/55">
+                      +{(workEntry.changedFiles?.length ?? 0) - 6}
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
-      {hasChangedFiles && !previewIsChangedFiles && (
+      {hasChangedFiles && !previewIsChangedFiles && !hasExpandableDetail && (
         <div className="mt-1 flex flex-wrap gap-x-2 gap-y-1 pl-5.5">
           {workEntry.changedFiles?.slice(0, 4).map((filePath) => (
             <InlineTooltip
@@ -3139,6 +4313,189 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
           )}
         </div>
       )}
+    </div>
+  );
+});
+
+const CommandWorkEntryRow = memo(function CommandWorkEntryRow(props: {
+  workEntry: TimelineWorkEntry;
+  inlineIntentText?: string | null;
+  variant?: "nested" | "standalone";
+}) {
+  const { workEntry } = props;
+  const command = commandTextFromWorkEntry(workEntry);
+  const outputText = normalizeTerminalOutputText(workEntry.terminalOutput);
+  const detailText = commandDetailIsDuplicate(workEntry.command, workEntry.detail)
+    ? null
+    : command && workEntry.detail?.trim() === command
+      ? null
+      : workEntry.detail?.trim() || null;
+  const status = commandStatusLabel(workEntry);
+  const durationText = formatToolDuration(workEntry.durationMs);
+  const heading = commandWorkEntryPlainText(workEntry);
+  const detailOutput = outputText ?? detailText;
+  const variant = props.variant ?? "standalone";
+  const isNested = variant === "nested";
+  const inlineIntentText = props.inlineIntentText?.trim() || null;
+  const hasExpandableOutput = Boolean(command || detailOutput);
+  const [isOutputOpen, setIsOutputOpen] = useState(false);
+  const OutputChevronIcon = isOutputOpen ? ChevronDownIcon : ChevronRightIcon;
+
+  return (
+    <div
+      className={cn("min-w-0", isNested && "pl-3")}
+      data-work-entry-id={workEntry.id}
+      data-work-entry-tone={workEntry.tone}
+      data-work-entry-kind="command"
+      data-work-entry-nested={isNested ? "true" : undefined}
+    >
+      <div className={cn("flex items-start", isNested ? "gap-2.5" : "gap-3")}>
+        <IconTerminal className="mt-1 size-3.5 shrink-0 text-muted-foreground/62" />
+        <div className="min-w-0 flex-1">
+          <button
+            type="button"
+            className={cn(
+              "group/command flex max-w-full items-center gap-1.5 rounded-sm bg-transparent p-0 text-left leading-5 text-muted-foreground/70 outline-none transition-colors duration-100 hover:text-foreground/90 focus-visible:text-foreground/90 focus-visible:outline-none focus-visible:ring-0",
+              isNested ? "text-[12px]" : "text-[12.5px]",
+              !hasExpandableOutput && "cursor-default hover:text-muted-foreground/70",
+            )}
+            onClick={() => {
+              if (hasExpandableOutput) {
+                setIsOutputOpen((current) => !current);
+              }
+            }}
+            aria-expanded={hasExpandableOutput ? isOutputOpen : undefined}
+            data-command-output-disclosure={hasExpandableOutput ? "true" : undefined}
+            data-command-output-open={hasExpandableOutput ? String(isOutputOpen) : undefined}
+          >
+            <InlineTooltip
+              content={[
+                command ?? heading,
+                durationText ? `Finished in ${durationText}` : null,
+                status.text !== "Running" ? status.text : null,
+              ]
+                .filter(Boolean)
+                .join("\n")}
+              className="min-w-0 truncate"
+            >
+              {heading}
+            </InlineTooltip>
+            {hasExpandableOutput && (
+              <OutputChevronIcon
+                className="size-3.5 shrink-0 text-muted-foreground/55 transition-colors duration-100 group-hover/command:text-foreground/82 group-focus-visible/command:text-foreground/82"
+                strokeWidth={2.2}
+              />
+            )}
+          </button>
+          {inlineIntentText && (
+            <p
+              className="mt-1 text-[11px] leading-5 text-muted-foreground/68"
+              data-inline-intent="true"
+            >
+              <span className="mr-1 text-[9px] uppercase tracking-[0.14em] text-muted-foreground/38">
+                Intent
+              </span>
+              <span className="text-foreground/72">{inlineIntentText}</span>
+            </p>
+          )}
+          {isOutputOpen && hasExpandableOutput && (
+            <div
+              className={cn(
+                "mt-2 max-w-full rounded-md bg-muted/45 px-3 py-2.5",
+                isNested && "-ml-6",
+              )}
+              data-command-output-panel="true"
+            >
+              <div className="mb-2 text-[11px] leading-none text-muted-foreground/72">Shell</div>
+              {command && (
+                <pre className="mb-2 overflow-x-auto whitespace-pre-wrap font-mono text-[11px] leading-5 text-foreground/92">
+                  {`$ ${command}`}
+                </pre>
+              )}
+              {detailOutput && (
+                <InlineTooltip
+                  content={detailOutput}
+                  className="block whitespace-pre-wrap font-mono text-[11px] leading-5 text-muted-foreground/82"
+                >
+                  {detailOutput}
+                  {workEntry.terminalOutputTruncated ? "\n... output truncated" : ""}
+                </InlineTooltip>
+              )}
+              {status.text !== "Running" && (
+                <div className={cn("mt-2 text-right text-[12px] leading-5", status.className)}>
+                  {status.text}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+});
+
+const FileEditWorkEntryRow = memo(function FileEditWorkEntryRow(props: {
+  workEntry: TimelineWorkEntry;
+  inlineIntentText?: string | null;
+  variant?: "nested" | "standalone";
+}) {
+  const { workEntry } = props;
+  const variant = props.variant ?? "standalone";
+  const isNested = variant === "nested";
+  const firstPath = workEntry.changedFiles?.[0] ?? workEntry.detail ?? "file";
+  const visibleName = basenameOfPath(firstPath) || firstPath;
+  const stat =
+    workEntry.changedFileStats?.find((entry) => entry.path === firstPath) ??
+    workEntry.changedFileStats?.[0];
+  const extraCount = Math.max(0, (workEntry.changedFiles?.length ?? 0) - 1);
+  const inlineIntentText = props.inlineIntentText?.trim() || null;
+
+  return (
+    <div
+      className={cn("min-w-0", isNested && "pl-3")}
+      data-work-entry-id={workEntry.id}
+      data-work-entry-tone={workEntry.tone}
+      data-work-entry-kind="file-edit"
+      data-work-entry-nested={isNested ? "true" : undefined}
+    >
+      <div className={cn("flex items-start", isNested ? "gap-2.5" : "gap-3")}>
+        <SquarePenIcon
+          className={cn("mt-1 shrink-0 text-muted-foreground/62", isNested ? "size-3.5" : "size-4")}
+        />
+        <div className="min-w-0 flex-1">
+          <p
+            className={cn(
+              "min-w-0 leading-5 text-muted-foreground/82",
+              isNested ? "text-[12px]" : "text-[13px]",
+            )}
+          >
+            <span>Editing </span>
+            <InlineTooltip content={firstPath} className="font-medium text-sky-300/90">
+              {visibleName}
+            </InlineTooltip>
+            {extraCount > 0 && (
+              <span className="ml-1 text-muted-foreground/54">+{extraCount} more</span>
+            )}
+            {stat?.additions !== undefined && stat.additions > 0 && (
+              <span className="ml-2 font-mono text-emerald-300/90">+{stat.additions}</span>
+            )}
+            {stat?.deletions !== undefined && stat.deletions > 0 && (
+              <span className="ml-1 font-mono text-red-300/90">-{stat.deletions}</span>
+            )}
+          </p>
+          {inlineIntentText && (
+            <p
+              className="mt-1 text-[11px] leading-5 text-muted-foreground/68"
+              data-inline-intent="true"
+            >
+              <span className="mr-1 text-[9px] uppercase tracking-[0.14em] text-muted-foreground/38">
+                Intent
+              </span>
+              <span className="text-foreground/72">{inlineIntentText}</span>
+            </p>
+          )}
+        </div>
+      </div>
     </div>
   );
 });

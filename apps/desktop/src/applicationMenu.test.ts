@@ -4,7 +4,7 @@ import type { MenuItemConstructorOptions } from "electron";
 import { buildApplicationMenuTemplate } from "./applicationMenu";
 
 describe("buildApplicationMenuTemplate", () => {
-  it("replaces the generic File menu with app-specific thread and workspace menus", () => {
+  it("replaces the generic File menu with app-specific product menus", () => {
     const onCheckForUpdates = vi.fn();
     const onMenuAction = vi.fn();
     const template = buildApplicationMenuTemplate({
@@ -16,34 +16,68 @@ describe("buildApplicationMenuTemplate", () => {
 
     expect(template.map((item) => item.label ?? item.role)).toEqual([
       "ace",
-      "Thread",
-      "Workspace",
+      "Chat",
+      "Agents",
+      "Projects",
+      "Connections",
       "editMenu",
+      "Tools",
       "View",
       "windowMenu",
       "help",
     ]);
     expect(template.some((item) => item.label === "File")).toBe(false);
 
-    const threadMenu = template.find((item) => item.label === "Thread");
-    expect(threadMenu?.submenu).toMatchObject([
+    const appMenu = template.find((item) => item.label === "ace");
+    expect(appMenu?.submenu).toMatchObject([
+      { role: "about" },
+      { label: "Check for Updates..." },
+      { type: "separator" },
+      { label: "New Window", accelerator: "CmdOrCtrl+Shift+N" },
+    ]);
+
+    const chatMenu = template.find((item) => item.label === "Chat");
+    expect(chatMenu?.submenu).toMatchObject([
       { label: "New Thread" },
       { label: "New Local Thread" },
       { type: "separator" },
       { label: "Toggle Plan Mode" },
+      { type: "separator" },
+      { label: "Chat Settings" },
+      { label: "Archived Threads" },
     ]);
 
-    const workspaceMenu = template.find((item) => item.label === "Workspace");
-    expect(workspaceMenu?.submenu).toMatchObject([
-      { label: "General Settings" },
-      { label: "Chat Settings" },
-      { label: "Editor Settings" },
-      { label: "Browser Settings" },
-      { type: "separator" },
+    const agentsMenu = template.find((item) => item.label === "Agents");
+    expect(agentsMenu?.submenu).toMatchObject([
+      { label: "Providers & Auth" },
       { label: "Models" },
-      { label: "Providers" },
-      { label: "Advanced" },
+      { label: "Agent Behavior" },
+      { label: "Advanced Agent Settings" },
+    ]);
+
+    const projectsMenu = template.find((item) => item.label === "Projects");
+    expect(projectsMenu?.submenu).toMatchObject([
+      { label: "General Settings" },
+      { label: "Editor & Diff Settings" },
       { label: "Archived Projects & Threads" },
+    ]);
+
+    const connectionsMenu = template.find((item) => item.label === "Connections");
+    expect(connectionsMenu?.submenu).toMatchObject([
+      { label: "Devices & Remote Hosts" },
+      { label: "Browser Settings" },
+      { label: "Diagnostics & Version" },
+      { type: "separator" },
+      { label: "Check for Updates..." },
+    ]);
+
+    const toolsMenu = template.find((item) => item.label === "Tools");
+    expect(toolsMenu?.submenu).toMatchObject([
+      { label: "Toggle Terminal" },
+      { label: "Open Browser Tab" },
+      { label: "Open Review Tab" },
+      { type: "separator" },
+      { label: "Advanced Settings" },
     ]);
   });
 
@@ -57,10 +91,19 @@ describe("buildApplicationMenuTemplate", () => {
       onMenuAction,
     });
 
-    const threadMenu = template.find((item) => item.label === "Thread");
-    const threadItems = threadMenu?.submenu as MenuItemConstructorOptions[];
-    threadItems[0]?.click?.(undefined as never, undefined as never, undefined as never);
-    threadItems[1]?.click?.(undefined as never, undefined as never, undefined as never);
+    const chatMenu = template.find((item) => item.label === "Chat");
+    const chatItems = chatMenu?.submenu as MenuItemConstructorOptions[];
+    chatItems[0]?.click?.(undefined as never, undefined as never, undefined as never);
+    chatItems[1]?.click?.(undefined as never, undefined as never, undefined as never);
+
+    const appMenu = template.find((item) => item.label === "ace");
+    const appItems = appMenu?.submenu as MenuItemConstructorOptions[];
+    appItems[0]?.click?.(undefined as never, undefined as never, undefined as never);
+
+    const connectionsMenu = template.find((item) => item.label === "Connections");
+    const connectionItems = connectionsMenu?.submenu as MenuItemConstructorOptions[];
+    connectionItems[0]?.click?.(undefined as never, undefined as never, undefined as never);
+    connectionItems[4]?.click?.(undefined as never, undefined as never, undefined as never);
 
     const helpMenu = template.find((item) => item.role === "help");
     const helpItems = helpMenu?.submenu as MenuItemConstructorOptions[];
@@ -69,8 +112,10 @@ describe("buildApplicationMenuTemplate", () => {
 
     expect(onMenuAction).toHaveBeenNthCalledWith(1, "new-thread");
     expect(onMenuAction).toHaveBeenNthCalledWith(2, "new-local-thread");
-    expect(onMenuAction).toHaveBeenNthCalledWith(3, "open-settings-about");
-    expect(onCheckForUpdates).toHaveBeenCalledOnce();
+    expect(onMenuAction).toHaveBeenNthCalledWith(3, "new-window");
+    expect(onMenuAction).toHaveBeenNthCalledWith(4, "open-settings-devices");
+    expect(onMenuAction).toHaveBeenNthCalledWith(5, "open-settings-about");
+    expect(onCheckForUpdates).toHaveBeenCalledTimes(2);
   });
 
   it("routes zoom shortcuts through app-owned actions instead of Electron global zoom roles", () => {

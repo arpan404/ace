@@ -122,7 +122,7 @@ export function buildTimelineRowsCacheKey(input: BuildTimelineRowsInput): string
   const summary = input.completionSummary ?? "";
   const summaryHash = summary.length > 0 ? fnv1a32(summary).toString(36) : "0";
   return [
-    "timeline-rows:v5",
+    "timeline-rows:v6",
     getTimelineEntryToken(input.timelineEntries),
     input.activeTurnInProgress ? "1" : "0",
     input.activeTurnStartedAt ?? "none",
@@ -150,7 +150,7 @@ export function writeCachedTimelineRows(
   return rows;
 }
 
-export function requestTimelineRows(
+function requestTimelineRows(
   cacheKey: string,
   input: BuildTimelineRowsInput,
 ): Promise<ReadonlyArray<TimelineRow>> {

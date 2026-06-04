@@ -129,7 +129,7 @@ export function readCachedMarkdownRenderAnalysis(
   return markdownRenderAnalysisCache.get(cacheKey);
 }
 
-export function requestMarkdownRenderAnalysis(
+function requestMarkdownRenderAnalysis(
   cacheKey: string,
   input: MarkdownRenderAnalysisInput,
 ): Promise<MarkdownRenderAnalysisResult> {

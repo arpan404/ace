@@ -27,6 +27,44 @@ import { useUiStateStore } from "../../uiStateStore";
 import { cn } from "../../lib/utils";
 
 type BoardDragProps = NonNullable<SidebarThreadRowProps["boardDrag"]>;
+const EMPTY_THREAD_LAST_VISITED_AT_BY_ID: Record<string, string> = {};
+
+function createThreadLastVisitedAtByIdsSelector(threadIds: readonly ThreadId[]) {
+  let previousResult: Record<string, string> = EMPTY_THREAD_LAST_VISITED_AT_BY_ID;
+  const threadIdSet = new Set<ThreadId>(threadIds);
+
+  return (state: ReturnType<typeof useUiStateStore.getState>): Record<string, string> => {
+    const nextResult: Record<string, string> = {};
+    let changed = false;
+
+    for (const threadId of threadIds) {
+      const visitedAt = state.threadLastVisitedAtById[threadId];
+      if (visitedAt !== undefined) {
+        nextResult[threadId] = visitedAt;
+      }
+      if (previousResult[threadId] !== visitedAt) {
+        changed = true;
+      }
+    }
+
+    if (!changed) {
+      for (const threadId of Object.keys(previousResult)) {
+        if (!threadIdSet.has(threadId as ThreadId)) {
+          changed = true;
+          break;
+        }
+      }
+    }
+
+    if (!changed) {
+      return previousResult;
+    }
+
+    previousResult =
+      Object.keys(nextResult).length === 0 ? EMPTY_THREAD_LAST_VISITED_AT_BY_ID : nextResult;
+    return previousResult;
+  };
+}
 
 export interface SidebarLocalProjectSectionProps {
   readonly activeRouteConnectionUrl: string;
@@ -96,12 +134,20 @@ export const SidebarLocalProjectSection = memo(function SidebarLocalProjectSecti
   const projectExpanded = useUiStateStore(
     (state) => state.projectExpandedById[props.projectId] ?? true,
   );
-  const threadLastVisitedAtById = useUiStateStore((state) => state.threadLastVisitedAtById);
 
   const visibleProjectThreads = useMemo(
     () => allProjectThreads.filter((thread) => thread.archivedAt === null),
     [allProjectThreads],
   );
+  const visibleProjectThreadIds = useMemo(
+    () => visibleProjectThreads.map((thread) => thread.id),
+    [visibleProjectThreads],
+  );
+  const threadLastVisitedAtSelector = useMemo(
+    () => createThreadLastVisitedAtByIdsSelector(visibleProjectThreadIds),
+    [visibleProjectThreadIds],
+  );
+  const threadLastVisitedAtById = useUiStateStore(threadLastVisitedAtSelector);
   const projectListThreads = useMemo(
     () => visibleProjectThreads.filter((thread) => !props.pinnedThreadIdSet.has(thread.id)),
     [props.pinnedThreadIdSet, visibleProjectThreads],

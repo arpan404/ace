@@ -25,6 +25,7 @@ import { ServerSettingsService } from "../../serverSettings";
 import { ServerSettingsError } from "@ace/contracts";
 
 const PROVIDER = "cursor" as const;
+const CURSOR_AUTH_TIMEOUT_MS = 10_000;
 const ANSI_ESCAPE_PATTERN = new RegExp(String.raw`\u001b\[[0-9;]*m`, "g");
 const EMPTY_CURSOR_CAPABILITIES: ModelCapabilities = {
   reasoningEffortLevels: [],
@@ -117,12 +118,76 @@ function parseCursorVersion(result: {
   );
 }
 
-function parseCursorAuthStatus(output: string): {
+function recordFromJsonOutput(output: string): Record<string, unknown> | null {
+  const stripped = stripAnsi(output).trim();
+  const startIndex = stripped.indexOf("{");
+  const endIndex = stripped.lastIndexOf("}");
+  if (startIndex < 0 || endIndex <= startIndex) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(stripped.slice(startIndex, endIndex + 1));
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function readCursorStatusEmail(record: Record<string, unknown>): string | undefined {
+  const userInfo = record.userInfo;
+  if (userInfo && typeof userInfo === "object" && !Array.isArray(userInfo)) {
+    const email = (userInfo as Record<string, unknown>).email;
+    if (typeof email === "string") {
+      return nonEmptyTrimmed(email);
+    }
+  }
+
+  const email = record.email;
+  return typeof email === "string" ? nonEmptyTrimmed(email) : undefined;
+}
+
+export function parseCursorAuthStatus(output: string): {
   readonly status: "ready" | "error" | "warning";
   readonly auth: ServerProvider["auth"];
   readonly message?: string;
 } {
-  const normalized = output.toLowerCase();
+  const jsonStatus = recordFromJsonOutput(output);
+  if (jsonStatus) {
+    const status =
+      typeof jsonStatus.status === "string" ? jsonStatus.status.trim().toLowerCase() : "";
+    const isAuthenticated =
+      typeof jsonStatus.isAuthenticated === "boolean" ? jsonStatus.isAuthenticated : undefined;
+
+    if (status === "authenticated" || isAuthenticated === true) {
+      const email = readCursorStatusEmail(jsonStatus);
+      return {
+        status: "ready",
+        auth: {
+          status: "authenticated",
+          ...(email ? { label: email } : {}),
+        },
+      };
+    }
+
+    if (
+      status === "unauthenticated" ||
+      status === "not_authenticated" ||
+      status === "logged_out" ||
+      isAuthenticated === false
+    ) {
+      return {
+        status: "error",
+        auth: { status: "unauthenticated" },
+        message: "Cursor Agent is not authenticated. Run `cursor-agent login` and try again.",
+      };
+    }
+  }
+
+  const stripped = stripAnsi(output);
+  const normalized = stripped.toLowerCase();
   if (normalized.includes("user email") && normalized.includes("not logged in")) {
     return {
       status: "error",
@@ -131,8 +196,22 @@ function parseCursorAuthStatus(output: string): {
     };
   }
 
-  const emailMatch = output.match(/User Email\s+(.+)/i);
-  const email = emailMatch?.[1]?.trim();
+  if (
+    normalized.includes("not authenticated") ||
+    normalized.includes("login required") ||
+    normalized.includes("run `cursor-agent login`") ||
+    normalized.includes("run cursor-agent login")
+  ) {
+    return {
+      status: "error",
+      auth: { status: "unauthenticated" },
+      message: "Cursor Agent is not authenticated. Run `cursor-agent login` and try again.",
+    };
+  }
+
+  const statusEmailMatch = stripped.match(/logged in as\s+([^\s]+)/i);
+  const aboutEmailMatch = stripped.match(/User Email\s+(.+)/i);
+  const email = nonEmptyTrimmed(statusEmailMatch?.[1]) ?? nonEmptyTrimmed(aboutEmailMatch?.[1]);
   if (email && !/^not logged in$/i.test(email)) {
     return {
       status: "ready",
@@ -144,6 +223,25 @@ function parseCursorAuthStatus(output: string): {
     status: "warning",
     auth: { status: "unknown" },
     message: "Could not determine Cursor Agent authentication status.",
+  };
+}
+
+function inferCursorAuthFromModels(discoveredModels: ReadonlyArray<ServerProviderModel>): {
+  readonly status: "ready" | "warning";
+  readonly auth: ServerProvider["auth"];
+  readonly message?: string;
+} {
+  if (discoveredModels.length === 0) {
+    return {
+      status: "warning",
+      auth: { status: "unknown" },
+      message: "Could not determine Cursor Agent authentication status.",
+    };
+  }
+
+  return {
+    status: "ready",
+    auth: { status: "authenticated" },
   };
 }
 
@@ -470,11 +568,13 @@ export const checkCursorProviderStatus = Effect.fn("checkCursorProviderStatus")(
       Effect.timeoutOption(DEFAULT_TIMEOUT_MS),
       Effect.result,
     );
-    const discoveredModels =
+    const modelsCommandResult =
       Result.isSuccess(modelsResult) && Option.isSome(modelsResult.success)
-        ? parseCursorModelsOutput(
-            `${modelsResult.success.value.stdout}\n${modelsResult.success.value.stderr}`,
-          )
+        ? modelsResult.success.value
+        : null;
+    const discoveredModels =
+      modelsCommandResult && modelsCommandResult.code === 0
+        ? parseCursorModelsOutput(`${modelsCommandResult.stdout}\n${modelsCommandResult.stderr}`)
         : [];
     const models = providerModelsFromSettings(
       discoveredModels.length > 0 ? discoveredModels : FALLBACK_MODELS,
@@ -482,11 +582,18 @@ export const checkCursorProviderStatus = Effect.fn("checkCursorProviderStatus")(
       cursorSettings.customModels,
     );
 
-    const aboutResult = yield* runCursorCommand(["about"]).pipe(
-      Effect.timeoutOption(DEFAULT_TIMEOUT_MS),
+    const authResult = yield* runCursorCommand(["status", "--format", "json"]).pipe(
+      Effect.timeoutOption(CURSOR_AUTH_TIMEOUT_MS),
       Effect.result,
     );
-    if (Result.isFailure(aboutResult)) {
+    if (Result.isFailure(authResult)) {
+      const inferredAuth = inferCursorAuthFromModels(discoveredModels);
+      const authFailureMessage =
+        inferredAuth.message === undefined
+          ? undefined
+          : authResult.failure instanceof Error
+            ? `Could not verify Cursor Agent authentication status: ${authResult.failure.message}.`
+            : inferredAuth.message;
       return buildServerProvider({
         provider: PROVIDER,
         enabled: true,
@@ -495,16 +602,14 @@ export const checkCursorProviderStatus = Effect.fn("checkCursorProviderStatus")(
         probe: {
           installed: true,
           version: parseCursorVersion(version),
-          status: "warning",
-          auth: { status: "unknown" },
-          message:
-            aboutResult.failure instanceof Error
-              ? aboutResult.failure.message
-              : "Failed to inspect Cursor Agent status.",
+          status: inferredAuth.status,
+          auth: inferredAuth.auth,
+          ...(authFailureMessage ? { message: authFailureMessage } : {}),
         },
       });
     }
-    if (Option.isNone(aboutResult.success)) {
+    if (Option.isNone(authResult.success)) {
+      const inferredAuth = inferCursorAuthFromModels(discoveredModels);
       return buildServerProvider({
         provider: PROVIDER,
         enabled: true,
@@ -513,17 +618,23 @@ export const checkCursorProviderStatus = Effect.fn("checkCursorProviderStatus")(
         probe: {
           installed: true,
           version: parseCursorVersion(version),
-          status: "warning",
-          auth: { status: "unknown" },
-          message:
-            "Could not determine Cursor Agent authentication status. Timed out while running command.",
+          status: inferredAuth.status,
+          auth: inferredAuth.auth,
+          ...(inferredAuth.message
+            ? {
+                message:
+                  "Could not determine Cursor Agent authentication status. Timed out while running command.",
+              }
+            : {}),
         },
       });
     }
 
     const auth = parseCursorAuthStatus(
-      `${aboutResult.success.value.stdout}\n${aboutResult.success.value.stderr}`,
+      `${authResult.success.value.stdout}\n${authResult.success.value.stderr}`,
     );
+    const resolvedAuth =
+      auth.status === "warning" ? inferCursorAuthFromModels(discoveredModels) : auth;
 
     return buildServerProvider({
       provider: PROVIDER,
@@ -533,9 +644,9 @@ export const checkCursorProviderStatus = Effect.fn("checkCursorProviderStatus")(
       probe: {
         installed: true,
         version: parseCursorVersion(version),
-        status: auth.status,
-        auth: auth.auth,
-        ...(auth.message ? { message: auth.message } : {}),
+        status: resolvedAuth.status,
+        auth: resolvedAuth.auth,
+        ...(resolvedAuth.message ? { message: resolvedAuth.message } : {}),
       },
     });
   },

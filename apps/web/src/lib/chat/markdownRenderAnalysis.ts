@@ -8,8 +8,8 @@ const BLOCK_MARKDOWN_SIGNAL_REGEX =
   /(^|\n)\s{0,3}(?:#{1,6}\s|[-*+]\s+|\d+[.)]\s+|>\s+|```|~~~|\|.+\|)/;
 const ASYNC_MARKDOWN_LAYOUT_SIGNAL_REGEX = /```|~~~|!\[|<img|<video|<iframe|<details|<table/i;
 const MARKDOWN_ANALYSIS_CACHE_SNIPPET_CHARS = 256;
-export const MIN_WORKER_MARKDOWN_ANALYSIS_CHARS = 8_192;
-export const MIN_WORKER_MARKDOWN_ANALYSIS_LINES = 256;
+const MIN_WORKER_MARKDOWN_ANALYSIS_CHARS = 8_192;
+const MIN_WORKER_MARKDOWN_ANALYSIS_LINES = 256;
 
 export interface MarkdownRenderAnalysisInput {
   readonly text: string;
@@ -36,7 +36,7 @@ export function shouldUsePlainTextMarkdownFastPath(text: string): boolean {
   return !INLINE_MARKDOWN_SIGNAL_REGEX.test(text) && !BLOCK_MARKDOWN_SIGNAL_REGEX.test(text);
 }
 
-export function shouldObserveMarkdownLayout(input: {
+function shouldObserveMarkdownLayout(input: {
   readonly text: string;
   readonly isStreaming: boolean;
   readonly renderPlainText: boolean;

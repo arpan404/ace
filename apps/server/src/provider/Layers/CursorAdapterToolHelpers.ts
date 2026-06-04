@@ -275,6 +275,40 @@ export function extractCursorToolPath(
   return undefined;
 }
 
+function extractCursorToolCwd(record: Record<string, unknown> | undefined): string | undefined {
+  if (!record) {
+    return undefined;
+  }
+  const rawInput = asObject(record.rawInput) ?? asObject(record.input);
+  const rawOutput = asObject(record.rawOutput) ?? asObject(record.output);
+  return (
+    asString(record.cwd) ??
+    asString(record.workingDirectory) ??
+    asString(rawInput?.cwd) ??
+    asString(rawInput?.workingDirectory) ??
+    asString(rawOutput?.cwd) ??
+    asString(rawOutput?.workingDirectory)
+  );
+}
+
+function extractCursorToolOutput(record: Record<string, unknown> | undefined): string | undefined {
+  if (!record) {
+    return undefined;
+  }
+  const rawOutput = asObject(record.rawOutput) ?? asObject(record.output);
+  return (
+    asString(record.aggregatedOutput) ??
+    asString(record.outputText) ??
+    asString(record.stdout) ??
+    asString(record.stderr) ??
+    asString(rawOutput?.aggregatedOutput) ??
+    asString(rawOutput?.output) ??
+    asString(rawOutput?.stdout) ??
+    asString(rawOutput?.stderr) ??
+    extractCursorToolContentText(rawOutput)
+  );
+}
+
 export function resolveCursorToolTitle(
   itemType: CanonicalItemType,
   rawTitle: string | undefined,
@@ -295,11 +329,15 @@ export function buildCursorToolData(
   const rawOutput = asObject(record.rawOutput) ?? asObject(record.output);
   const command = extractCursorToolCommand(record);
   const path = extractCursorToolPath(record);
+  const cwd = extractCursorToolCwd(record);
+  const output = extractCursorToolOutput(record);
   const previousItem = asObject(existingData?.item);
   return {
     ...existingData,
     ...(command ? { command } : {}),
     ...(path ? { path } : {}),
+    ...(cwd ? { cwd } : {}),
+    ...(output ? { output, aggregatedOutput: output } : {}),
     ...(rawInput ? { input: rawInput } : {}),
     ...(rawOutput ? { result: rawOutput } : {}),
     item: {
@@ -312,6 +350,8 @@ export function buildCursorToolData(
       ...(asString(record.toolCallId) ? { toolCallId: asString(record.toolCallId) } : {}),
       ...(command ? { command } : {}),
       ...(path ? { path } : {}),
+      ...(cwd ? { cwd } : {}),
+      ...(output ? { output, aggregatedOutput: output } : {}),
       ...(rawInput ? { input: rawInput } : {}),
       ...(rawOutput ? { result: rawOutput } : {}),
     },

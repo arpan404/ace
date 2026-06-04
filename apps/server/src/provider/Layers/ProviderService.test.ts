@@ -14,6 +14,7 @@ import {
   EventId,
   MessageId,
   type ProviderKind,
+  RuntimeItemId,
   ProviderSessionStartInput,
   ThreadId,
   TurnId,
@@ -53,6 +54,7 @@ const defaultServerSettingsLayer = ServerSettingsService.layerTest();
 
 const asRequestId = (value: string): ApprovalRequestId => ApprovalRequestId.makeUnsafe(value);
 const asEventId = (value: string): EventId => EventId.makeUnsafe(value);
+const asItemId = (value: string): RuntimeItemId => RuntimeItemId.makeUnsafe(value);
 const asMessageId = (value: string): MessageId => MessageId.makeUnsafe(value);
 const asThreadId = (value: string): ThreadId => ThreadId.makeUnsafe(value);
 const asTurnId = (value: string): TurnId => TurnId.makeUnsafe(value);
@@ -1680,6 +1682,68 @@ fanout.layer("ProviderServiceLive fanout", (it) => {
       assert.deepEqual(
         received.map((event) => event.eventId),
         [asEventId("evt-seq-1"), asEventId("evt-seq-2"), asEventId("evt-seq-3")],
+      );
+    }),
+  );
+
+  it.effect("normalizes adapter tool events before fanout", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService;
+      const session = yield* provider.startSession(asThreadId("thread-normalized"), {
+        provider: "cursor",
+        threadId: asThreadId("thread-normalized"),
+        runtimeMode: "full-access",
+      });
+
+      const receivedRef = yield* Ref.make<Array<ProviderRuntimeEvent>>([]);
+      const consumer = yield* Stream.take(provider.streamEvents, 1).pipe(
+        Stream.runForEach((event) => Ref.update(receivedRef, (current) => [...current, event])),
+        Effect.forkChild,
+      );
+      yield* sleep(50);
+
+      fanout.cursor.emit({
+        type: "item.completed",
+        eventId: asEventId("evt-normalized-1"),
+        provider: "cursor",
+        createdAt: new Date().toISOString(),
+        threadId: session.threadId,
+        turnId: asTurnId("turn-1"),
+        itemId: asItemId("item-1"),
+        payload: {
+          itemType: "dynamic_tool_call",
+          title: "Bash",
+          detail: "$ bun run check",
+          status: "completed",
+          data: {
+            toolName: "Bash",
+            input: {
+              command: "bun run check",
+              cwd: "/repo",
+            },
+            result: {
+              stdout: "checked 578 files\n",
+              exit_code: 0,
+            },
+          },
+        },
+      });
+
+      yield* Fiber.join(consumer);
+      const received = yield* Ref.get(receivedRef);
+      const event = received[0];
+
+      assert.equal(event?.type, "item.completed");
+      if (event?.type !== "item.completed") {
+        return;
+      }
+      assert.equal(event.payload.itemType, "command_execution");
+      assert.equal(event.payload.title, "Run command");
+      assert.equal((event.payload.data as Record<string, unknown>).command, "bun run check");
+      assert.equal((event.payload.data as Record<string, unknown>).cwd, "/repo");
+      assert.equal(
+        ((event.payload.data as Record<string, unknown>).ace as Record<string, unknown>).normalized,
+        true,
       );
     }),
   );

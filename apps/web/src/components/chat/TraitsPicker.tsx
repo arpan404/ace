@@ -24,7 +24,8 @@ import {
 import { memo, type ReactElement, useCallback, useState } from "react";
 import type { VariantProps } from "class-variance-authority";
 import { ChevronDownIcon, ZapIcon } from "lucide-react";
-import { Button, buttonVariants } from "../ui/button";
+import { Button } from "../ui/button";
+import { buttonVariants } from "../ui/buttonVariants";
 import {
   Menu,
   MenuGroup,
@@ -553,6 +554,7 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
   ...persistence
 }: TraitsMenuContentProps & TraitsPersistence) {
   const setProviderModelOptions = useComposerDraftStore((store) => store.setProviderModelOptions);
+  const baseModelSelection = model ? buildProviderModelSelection(provider, model) : null;
   const updateModelOptions = useCallback(
     (nextOptions: ProviderOptions | undefined) => {
       if ("onModelOptionsChange" in persistence) {
@@ -561,34 +563,13 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
       }
       setProviderModelOptions(persistence.threadId, provider, nextOptions, {
         persistSticky: true,
+        baseModelSelection,
       });
     },
-    [persistence, provider, setProviderModelOptions],
+    [baseModelSelection, persistence, provider, setProviderModelOptions],
   );
   const piThoughtOption =
     provider === "pi" ? findPiThoughtConfigOption(sessionConfigOptions) : undefined;
-  if (provider === "pi" && piThoughtOption && piThoughtOption.options.length > 0) {
-    const selectedThoughtLevel =
-      getRawEffort(provider, modelOptions) ?? piThoughtOption.currentValue;
-    return (
-      <MenuGroup>
-        <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">Thinking Level</div>
-        <MenuRadioGroup
-          value={selectedThoughtLevel}
-          onValueChange={(value) => {
-            updateModelOptions(buildPiOptionsFromThoughtLevel(modelOptions, value));
-          }}
-        >
-          {piThoughtOption.options.map((option) => (
-            <MenuRadioItem key={option.value} value={option.value}>
-              {option.name}
-              {option.value === piThoughtOption.currentValue ? " (current)" : ""}
-            </MenuRadioItem>
-          ))}
-        </MenuRadioGroup>
-      </MenuGroup>
-    );
-  }
   const {
     caps,
     effort,
@@ -644,6 +625,28 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
       provider,
     ],
   );
+  if (provider === "pi" && piThoughtOption && piThoughtOption.options.length > 0) {
+    const selectedThoughtLevel =
+      getRawEffort(provider, modelOptions) ?? piThoughtOption.currentValue;
+    return (
+      <MenuGroup>
+        <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">Thinking Level</div>
+        <MenuRadioGroup
+          value={selectedThoughtLevel}
+          onValueChange={(value) => {
+            updateModelOptions(buildPiOptionsFromThoughtLevel(modelOptions, value));
+          }}
+        >
+          {piThoughtOption.options.map((option) => (
+            <MenuRadioItem key={option.value} value={option.value}>
+              {option.name}
+              {option.value === piThoughtOption.currentValue ? " (current)" : ""}
+            </MenuRadioItem>
+          ))}
+        </MenuRadioGroup>
+      </MenuGroup>
+    );
+  }
 
   if (
     !hasVisibleTraits({

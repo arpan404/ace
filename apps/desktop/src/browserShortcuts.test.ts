@@ -121,4 +121,13 @@ describe("resolveBrowserShortcutAction", () => {
   it("ignores unmodified keys", () => {
     expect(resolveBrowserShortcutAction(input({ key: "r" }), "darwin")).toBeNull();
   });
+
+  it("forwards find-in-page shortcuts to the browser shell", () => {
+    expect(resolveBrowserShortcutAction(input({ key: "f", meta: true }), "darwin")).toBe(
+      "find-in-page",
+    );
+    expect(resolveBrowserShortcutAction(input({ key: "f", control: true }), "win32")).toBe(
+      "find-in-page",
+    );
+  });
 });

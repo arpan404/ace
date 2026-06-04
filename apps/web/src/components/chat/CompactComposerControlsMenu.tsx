@@ -1,4 +1,4 @@
-import { ProviderInteractionMode, RuntimeMode } from "@ace/contracts";
+import { ProviderInteractionMode } from "@ace/contracts";
 import { memo, type ReactNode } from "react";
 import { EllipsisIcon } from "lucide-react";
 import { Button } from "../ui/button";
@@ -14,12 +14,10 @@ import {
 
 export const CompactComposerControlsMenu = memo(function CompactComposerControlsMenu(props: {
   interactionMode: ProviderInteractionMode;
-  runtimeMode: RuntimeMode;
   interactionModeShortcutLabel: string | null;
   interactionModeDisabledReason?: string | null;
   traitsMenuContent?: ReactNode;
   onToggleInteractionMode: () => void;
-  onRuntimeModeChange: (mode: RuntimeMode) => void;
 }) {
   return (
     <Menu>

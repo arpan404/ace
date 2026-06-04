@@ -8,6 +8,7 @@ import { removeLocalStorageItem } from "~/hooks/useLocalStorage";
 import { useInAppBrowserState, type InAppBrowserMode } from "~/hooks/useInAppBrowserState";
 import { BROWSER_HISTORY_STORAGE_KEY } from "~/lib/browser/history";
 import {
+  BROWSER_NEW_TAB_URL,
   BROWSER_SESSION_STORAGE_KEY,
   resolveBrowserSessionStorageKey,
 } from "~/lib/browser/session";
@@ -50,6 +51,15 @@ function BrowserFocusHarnessPanel(props: { mode: InAppBrowserMode }) {
       <button type="button" onClick={state.openNewTab}>
         Open new tab
       </button>
+      <button type="button" onClick={() => state.openUrl("https://openai.com", { newTab: true })}>
+        Open URL in new tab
+      </button>
+      <div aria-label="Tab count">{state.browserSession.tabs.length}</div>
+      <div aria-label="First tab URL">{state.browserSession.tabs[0]?.url ?? ""}</div>
+      <div aria-label="Active tab URL">
+        {state.browserSession.tabs.find((tab) => tab.id === state.browserSession.activeTabId)
+          ?.url ?? ""}
+      </div>
     </div>
   );
 }
@@ -116,6 +126,25 @@ describe("InAppBrowser address bar focus", () => {
       expect(input).toBeTruthy();
       expect(document.activeElement).toBe(input);
     });
+  });
+
+  it("opens page-requested URLs in a new tab without replacing the current tab", async () => {
+    const screen = await render(<BrowserFocusHarnessPanel mode="full" />);
+
+    await expect.element(screen.getByLabelText("Tab count")).toHaveTextContent("1");
+    await expect
+      .element(screen.getByLabelText("First tab URL"))
+      .toHaveTextContent(BROWSER_NEW_TAB_URL);
+
+    await screen.getByText("Open URL in new tab").click();
+
+    await expect.element(screen.getByLabelText("Tab count")).toHaveTextContent("2");
+    await expect
+      .element(screen.getByLabelText("First tab URL"))
+      .toHaveTextContent(BROWSER_NEW_TAB_URL);
+    await expect
+      .element(screen.getByLabelText("Active tab URL"))
+      .toHaveTextContent("https://openai.com/");
   });
 });
 

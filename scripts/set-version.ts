@@ -11,6 +11,31 @@ interface SetAppVersionsOptions {
   readonly rootDir?: string;
 }
 
+function collectWorkspacePackagePaths(
+  rootDir: string,
+  workspaceDirNames: readonly string[],
+): string[] {
+  const packagePaths: string[] = [];
+
+  for (const workspaceDirName of workspaceDirNames) {
+    const workspaceDir = resolve(rootDir, workspaceDirName);
+    if (!existsSync(workspaceDir)) {
+      continue;
+    }
+
+    const packageEntries = readdirSync(workspaceDir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+      .filter((packageName) => existsSync(resolve(workspaceDir, packageName, "package.json")));
+
+    for (const packageName of packageEntries) {
+      packagePaths.push(`${workspaceDirName}/${packageName}/package.json`);
+    }
+  }
+
+  return packagePaths.toSorted((left, right) => left.localeCompare(right));
+}
+
 export function setAppVersions(
   version: string,
   options: SetAppVersionsOptions = {},
@@ -20,17 +45,11 @@ export function setAppVersions(
   }
 
   const rootDir = resolve(options.rootDir ?? process.cwd());
-  const appsDir = resolve(rootDir, "apps");
-  const appEntries = readdirSync(appsDir, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => entry.name)
-    .filter((appName) => existsSync(resolve(appsDir, appName, "package.json")))
-    .toSorted((left, right) => left.localeCompare(right));
+  const packagePaths = collectWorkspacePackagePaths(rootDir, ["apps", "packages"]);
 
   const changedFiles: string[] = [];
 
-  for (const appName of appEntries) {
-    const relativePath = `apps/${appName}/package.json`;
+  for (const relativePath of packagePaths) {
     const filePath = resolve(rootDir, relativePath);
     const packageJson = JSON.parse(readFileSync(filePath, "utf8")) as MutablePackageJson;
 
@@ -90,9 +109,9 @@ if (isMain) {
   const { changedFiles } = setAppVersions(version, rootDir === undefined ? {} : { rootDir });
 
   if (changedFiles.length === 0) {
-    console.log(`All app package versions are already set to ${version}.`);
+    console.log(`All workspace package versions are already set to ${version}.`);
   } else {
-    console.log(`Updated ${changedFiles.length} app package version(s) to ${version}.`);
+    console.log(`Updated ${changedFiles.length} package version(s) to ${version}.`);
     for (const changedFile of changedFiles) {
       console.log(`- ${changedFile}`);
     }

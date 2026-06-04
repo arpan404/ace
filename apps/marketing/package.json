@@ -1,16 +1,16 @@
 {
   "name": "@ace/marketing",
-  "version": "0.2.0",
+  "version": "0.4.2",
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "astro dev",
-    "build": "astro build",
-    "preview": "astro preview",
-    "typecheck": "astro check"
+    "dev": "node node_modules/.bin/astro dev",
+    "build": "node node_modules/.bin/astro build",
+    "preview": "node node_modules/.bin/astro preview",
+    "typecheck": "node node_modules/.bin/astro check"
   },
   "dependencies": {
-    "astro": "^6.2.1",
+    "astro": "^6.4.2",
     "gsap": "^3.15.0"
   },
   "devDependencies": {

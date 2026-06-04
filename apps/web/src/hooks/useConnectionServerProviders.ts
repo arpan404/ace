@@ -137,25 +137,25 @@ export function useConnectionServerConfig(
   return remoteConfig;
 }
 
-export function useConnectionServerProviders(
+function useConnectionServerProviders(
   connectionUrl: string | null | undefined,
 ): ReadonlyArray<ServerProvider> {
   const connectionServerConfig = useConnectionServerConfig(connectionUrl);
   return connectionServerConfig?.providers ?? EMPTY_SERVER_PROVIDERS;
 }
 
-export function useConnectionServerProviderSettings(
+function useConnectionServerProviderSettings(
   connectionUrl: string | null | undefined,
 ): ServerSettings["providers"] {
   const connectionServerConfig = useConnectionServerConfig(connectionUrl);
   return connectionServerConfig?.settings.providers ?? DEFAULT_SERVER_SETTINGS.providers;
 }
 
-export function clearRemoteConnectionServerConfigCache(): void {
+function clearRemoteConnectionServerConfigCache(): void {
   remoteServerConfigByConnectionUrl.clear();
 }
 
-export function getCachedRemoteConnectionServerConfig(connectionUrl: string): ServerConfig | null {
+function getCachedRemoteConnectionServerConfig(connectionUrl: string): ServerConfig | null {
   const normalizedConnectionUrl = normalizeConnectionUrl(connectionUrl);
   if (!normalizedConnectionUrl) {
     return null;

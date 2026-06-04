@@ -36,6 +36,74 @@ describe("timelineRows", () => {
     expect(rows.at(-1)).toMatchObject({ kind: "working" });
   });
 
+  it("precomputes collapsed work group summary projections", () => {
+    const rows = buildTimelineRows({
+      timelineEntries: [
+        {
+          id: "intent-command",
+          kind: "intent",
+          createdAt: "2025-01-01T00:00:00.000Z",
+          text: "Running checks",
+        },
+        {
+          id: "command-1",
+          kind: "work",
+          createdAt: "2025-01-01T00:00:01.000Z",
+          entry: {
+            id: "command-1",
+            createdAt: "2025-01-01T00:00:01.000Z",
+            label: "Run command",
+            requestKind: "command",
+            tone: "tool",
+          },
+        },
+        {
+          id: "thinking-1",
+          kind: "work",
+          createdAt: "2025-01-01T00:00:02.000Z",
+          entry: {
+            id: "thinking-1",
+            createdAt: "2025-01-01T00:00:02.000Z",
+            label: "Reasoning",
+            tone: "thinking",
+          },
+        },
+      ],
+      activeTurnInProgress: false,
+      activeTurnStartedAt: null,
+      completionDividerBeforeEntryId: null,
+      completionSummary: null,
+      isWorking: false,
+    });
+
+    const groupRow = rows.find((row) => row.kind === "work-group");
+    expect(groupRow?.kind).toBe("work-group");
+    if (groupRow?.kind !== "work-group") {
+      throw new Error("Expected a work group row.");
+    }
+
+    expect(groupRow.summary).toMatchObject({
+      entryCount: 3,
+      intentCount: 1,
+      toolCount: 1,
+      thinkingCount: 1,
+      hasIntentEntries: true,
+      hasToolEntries: true,
+      hasThinkingEntries: true,
+      surfaceTone: "tool",
+      threadGroupTone: "mixed",
+      iconKey: "terminal",
+      toolSummaryCounts: {
+        command: 1,
+        fileRead: 0,
+        fileChange: 0,
+        webSearch: 0,
+        imageView: 0,
+        genericTool: 0,
+      },
+    });
+  });
+
   it("marks active /goal turns with goal working activity when enabled", () => {
     const rows = buildTimelineRows({
       timelineEntries: [
@@ -525,6 +593,109 @@ describe("timelineRows", () => {
     );
     expect(rows.some((row) => row.id === "active-tool")).toBe(true);
     expect(rows.some(isCompletedAssistantMessageRow)).toBe(true);
+  });
+
+  it("precomputes hidden completed work counts and diagnostic projections", () => {
+    const rows = buildTimelineRows({
+      timelineEntries: [
+        {
+          id: "user-before-hidden-work",
+          kind: "message",
+          createdAt: "2025-01-01T00:00:00.000Z",
+          message: {
+            id: MessageId.makeUnsafe("user-before-hidden-work"),
+            role: "user",
+            text: "run checks",
+            createdAt: "2025-01-01T00:00:00.000Z",
+            streaming: false,
+          },
+        },
+        {
+          id: "hidden-command",
+          kind: "work",
+          createdAt: "2025-01-01T00:00:01.000Z",
+          entry: {
+            id: "hidden-command",
+            createdAt: "2025-01-01T00:00:01.000Z",
+            label: "Run command",
+            requestKind: "command",
+            tone: "tool",
+          },
+        },
+        {
+          id: "hidden-thinking",
+          kind: "work",
+          createdAt: "2025-01-01T00:00:02.000Z",
+          entry: {
+            id: "hidden-thinking",
+            createdAt: "2025-01-01T00:00:02.000Z",
+            label: "Reasoning",
+            tone: "thinking",
+          },
+        },
+        {
+          id: "hidden-warning",
+          kind: "work",
+          createdAt: "2025-01-01T00:00:03.000Z",
+          entry: {
+            id: "hidden-warning",
+            createdAt: "2025-01-01T00:00:03.000Z",
+            label: "Runtime warning",
+            detail: "Retry scheduled",
+            tone: "info",
+            diagnosticKind: "runtime-warning",
+          },
+        },
+        {
+          id: "assistant-final",
+          kind: "message",
+          createdAt: "2025-01-01T00:00:04.000Z",
+          message: {
+            id: MessageId.makeUnsafe("assistant-final"),
+            role: "assistant",
+            text: "Done.",
+            createdAt: "2025-01-01T00:00:04.000Z",
+            completedAt: "2025-01-01T00:00:05.000Z",
+            streaming: false,
+          },
+        },
+      ],
+      activeTurnInProgress: false,
+      activeTurnStartedAt: null,
+      completionDividerBeforeEntryId: null,
+      completionSummary: null,
+      hideCompletedWorkMessages: true,
+      isWorking: false,
+    });
+
+    const summaryRow = rows.find((row) => row.kind === "completed-work-summary");
+    expect(summaryRow?.kind).toBe("completed-work-summary");
+    if (summaryRow?.kind !== "completed-work-summary") {
+      throw new Error("Expected a completed work summary row.");
+    }
+
+    expect(summaryRow).toMatchObject({
+      toolCallCount: 1,
+      hiddenThinkingCount: 1,
+      hiddenMessageCount: 0,
+      visibleDiagnosticCacheKey: "hidden-warning:15:0",
+      visibleDiagnosticRows: [
+        expect.objectContaining({
+          kind: "work",
+          id: "hidden-warning",
+        }),
+      ],
+    });
+    expect(summaryRow.detailRows).toContainEqual(
+      expect.objectContaining({
+        kind: "work-group",
+        summary: expect.objectContaining({
+          toolCount: 1,
+          thinkingCount: 1,
+          infoCount: 1,
+        }),
+      }),
+    );
   });
 
   it("does not let hidden work before a user message inflate the next worked-for summary", () => {

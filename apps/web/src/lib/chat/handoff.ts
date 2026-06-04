@@ -20,6 +20,12 @@ export type HandoffLineageResult = {
   readonly hasCycle: boolean;
 };
 
+export function resolveThreadLineageSourceThreadId(
+  thread: Pick<Thread, "fork" | "handoff">,
+): ThreadId | null {
+  return thread.handoff?.sourceThreadId ?? thread.fork?.sourceThreadId ?? null;
+}
+
 export function resolveHandoffLineage(input: {
   readonly sourceThreadId: ThreadId;
   readonly threads: ReadonlyArray<Thread>;
@@ -47,7 +53,7 @@ export function resolveHandoffLineage(input: {
     }
     visited.add(thread.id);
     lineageNewestFirst.push(thread);
-    currentThreadId = thread.handoff?.sourceThreadId ?? null;
+    currentThreadId = resolveThreadLineageSourceThreadId(thread);
   }
 
   return {
@@ -63,9 +69,12 @@ function formatProviderLabel(provider: ProviderKind): string {
   return PROVIDER_DISPLAY_NAMES[provider] ?? provider;
 }
 
-export function formatHandoffMarkerText(handoff: ThreadHandoff): string {
+function formatHandoffMarkerText(handoff: ThreadHandoff): string {
   const fromLabel = formatProviderLabel(handoff.fromProvider);
   const toLabel = formatProviderLabel(handoff.toProvider);
+  if (handoff.mode === "fork") {
+    return `Forked from ${fromLabel}`;
+  }
   return `Handoff from ${fromLabel} to ${toLabel}`;
 }
 
@@ -82,6 +91,9 @@ function formatHandoffMarkerTextForTimeline(input: {
   }
   const fromLabel = formatProviderLabel(resolveThreadHandoffProvider(input.sourceThread));
   const toLabel = formatProviderLabel(input.handoff.toProvider);
+  if (input.handoff.mode === "fork") {
+    return `Forked from ${fromLabel}`;
+  }
   return `Handoff from ${fromLabel} to ${toLabel}`;
 }
 
@@ -89,12 +101,12 @@ export function resolveHandoffSourceProvider(thread: Pick<Thread, "handoff" | "m
   return resolveThreadHandoffProvider(thread);
 }
 
-export function buildHandoffMarkerMessage(
+function buildHandoffMarkerMessage(
   handoff: ThreadHandoff,
   sourceThread?: Pick<Thread, "handoff" | "modelSelection"> | null | undefined,
 ): ChatMessage {
   const messageId = MessageId.makeUnsafe(
-    `${HANDOFF_MESSAGE_PREFIX}:${handoff.createdAt}:${handoff.sourceThreadId}:${handoff.toProvider}`,
+    `${HANDOFF_MESSAGE_PREFIX}:${handoff.mode}:${handoff.createdAt}:${handoff.sourceThreadId}:${handoff.toProvider}`,
   );
   return {
     id: messageId,

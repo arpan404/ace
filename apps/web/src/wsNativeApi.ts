@@ -65,14 +65,26 @@ export function createWsNativeApi(): NativeApi {
       },
     },
     browser: {
+      clearSiteData: async (url) => window.desktopBridge?.clearBrowserSiteData?.(url) ?? false,
+      controlDownload: async (input) =>
+        window.desktopBridge?.controlBrowserDownload?.(input) ?? false,
+      getDownloads: async () => window.desktopBridge?.getBrowserDownloads?.() ?? [],
+      getSiteInfo: async (url) => window.desktopBridge?.getBrowserSiteInfo?.(url) ?? null,
+      onDownloadEvent: (callback) =>
+        window.desktopBridge?.onBrowserDownloadEvent?.(callback) ?? (() => {}),
+      openAuthWindow: async (url) => window.desktopBridge?.openBrowserAuthWindow?.(url) ?? false,
       repairStorage: async () => {
         if (!window.desktopBridge) {
           return false;
         }
         return window.desktopBridge.repairBrowserStorage();
       },
+      resetSitePermissions: async (url) =>
+        window.desktopBridge?.resetBrowserSitePermissions?.(url) ?? false,
       resolveBridgeRequest: (input) =>
         resolveRpcClientForActiveRoute().browserBridge.resolve(input),
+      setSitePermission: async (input) =>
+        window.desktopBridge?.setBrowserSitePermission?.(input) ?? false,
       onBridgeRequest: (callback) =>
         resolveRpcClientForActiveRoute().browserBridge.onRequest(callback),
     },
@@ -102,6 +114,11 @@ export function createWsNativeApi(): NativeApi {
         resolveRpcClientForInput(input).projects.renameEntry(stripRpcRouteConnection(input)),
       writeFile: (input) =>
         resolveRpcClientForInput(input).projects.writeFile(stripRpcRouteConnection(input)),
+      onFileEvents: (input, callback) =>
+        resolveRpcClientForInput(input).projects.onFileEvents(
+          stripRpcRouteConnection(input),
+          callback,
+        ),
     },
     filesystem: {
       browse: (input) =>
@@ -116,6 +133,8 @@ export function createWsNativeApi(): NativeApi {
         resolveRpcClientForInput(input).workspaceEditor.complete(stripRpcRouteConnection(input)),
       definition: (input) =>
         resolveRpcClientForInput(input).workspaceEditor.definition(stripRpcRouteConnection(input)),
+      hover: (input) =>
+        resolveRpcClientForInput(input).workspaceEditor.hover(stripRpcRouteConnection(input)),
       references: (input) =>
         resolveRpcClientForInput(input).workspaceEditor.references(stripRpcRouteConnection(input)),
     },
@@ -144,6 +163,8 @@ export function createWsNativeApi(): NativeApi {
         resolveRpcClientForInput(input).git.readWorkingTreeDiff(stripRpcRouteConnection(input)),
       listBranches: (input) =>
         resolveRpcClientForInput(input).git.listBranches(stripRpcRouteConnection(input)),
+      getWorktreeStats: (input) =>
+        resolveRpcClientForInput(input).git.getWorktreeStats(stripRpcRouteConnection(input)),
       listGitHubIssues: (input) =>
         resolveRpcClientForInput(input).git.listGitHubIssues(stripRpcRouteConnection(input)),
       getGitHubIssueThread: (input) =>

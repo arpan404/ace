@@ -34,6 +34,7 @@ import {
   ProjectScript,
   SourceProposedPlanReference,
   ThreadHandoff,
+  ThreadFork,
 } from "./readModel";
 import { CheckpointRef } from "../baseSchemas";
 
@@ -80,6 +81,7 @@ export const ThreadCreateCommand = Schema.Struct({
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
   handoff: Schema.optional(ThreadHandoff),
+  fork: Schema.optional(ThreadFork),
   createdAt: IsoDateTime,
 });
 
@@ -205,6 +207,25 @@ export const ThreadTurnStartCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
+export const ThreadSubagentTurnStartCommand = Schema.Struct({
+  type: Schema.Literal("thread.subagent.turn.start"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  subagentThreadId: TrimmedNonEmptyString,
+  message: Schema.Struct({
+    messageId: MessageId,
+    role: Schema.Literal("user"),
+    text: Schema.String,
+    attachments: Schema.Array(UploadChatAttachment).pipe(Schema.withDecodingDefault(() => [])),
+  }),
+  modelSelection: Schema.optional(ModelSelection),
+  runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(() => DEFAULT_RUNTIME_MODE)),
+  interactionMode: ProviderInteractionMode.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_PROVIDER_INTERACTION_MODE),
+  ),
+  createdAt: IsoDateTime,
+});
+
 export const ClientThreadTurnStartCommand = Schema.Struct({
   type: Schema.Literal("thread.turn.start"),
   commandId: CommandId,
@@ -291,6 +312,7 @@ export const DispatchableClientOrchestrationCommand = Schema.Union([
   ThreadRuntimeModeSetCommand,
   ThreadInteractionModeSetCommand,
   ThreadTurnStartCommand,
+  ThreadSubagentTurnStartCommand,
   ThreadTurnInterruptCommand,
   ThreadApprovalRespondCommand,
   ThreadUserInputRespondCommand,
@@ -321,6 +343,7 @@ export const ClientOrchestrationCommand = Schema.Union([
   ThreadRuntimeModeSetCommand,
   ThreadInteractionModeSetCommand,
   ClientThreadTurnStartCommand,
+  ThreadSubagentTurnStartCommand,
   ThreadTurnInterruptCommand,
   ThreadApprovalRespondCommand,
   ThreadUserInputRespondCommand,

@@ -50,7 +50,7 @@ export function normalizeBrowserHttpUrl(rawValue: string): string | null {
   }
 }
 
-export function isBrowserRelayTargetUrl(rawUrl: string): boolean {
+function isBrowserRelayTargetUrl(rawUrl: string): boolean {
   return normalizeBrowserHttpUrl(rawUrl) !== null;
 }
 

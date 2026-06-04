@@ -12,8 +12,10 @@ const LARGE_MARKDOWN_PREVIEW_TAIL_MAX_LINES = 180;
 const LARGE_MARKDOWN_PREVIEW_SEPARATOR =
   "\n\n[... large response collapsed for faster rendering ...]\n\n";
 const MARKDOWN_ESCAPE_BACKSLASH_REGEX = /\\([\\`*_[\]{}()#+\-.!>|])/g;
+const ACE_PROPOSED_PLAN_MARKER_LINE_REGEX =
+  /^\s*<!--\s*ACE_PROPOSED_PLAN(?:_(?:START|END))?(?:\s*--\s*>?)?\s*$/gim;
 
-export const COLLAPSED_ASSISTANT_PREVIEW_MAX_HEIGHT_PX = 384;
+const COLLAPSED_ASSISTANT_PREVIEW_MAX_HEIGHT_PX = 384;
 
 export type AssistantMessageRenderHint = "full-text" | "streaming-preview" | "large-preview";
 
@@ -27,7 +29,7 @@ function countLineBreaks(text: string): number {
   return lineBreaks;
 }
 
-export function countTextLines(text: string): number {
+function countTextLines(text: string): number {
   if (text.length === 0) {
     return 0;
   }
@@ -177,13 +179,15 @@ export function appendChatMessageStreamingTextState(
 export function getChatMessageRenderableText(
   message: Pick<ChatMessage, "text" | "streaming" | "streamingTextState">,
 ): string {
+  const stripPlanMarkers = (text: string) =>
+    text.replace(ACE_PROPOSED_PLAN_MARKER_LINE_REGEX, "").trimEnd();
   if (message.streaming && message.streamingTextState) {
-    return message.streamingTextState.previewText;
+    return stripPlanMarkers(message.streamingTextState.previewText);
   }
-  return message.text;
+  return stripPlanMarkers(message.text);
 }
 
-export function getChatMessageTextLength(
+function getChatMessageTextLength(
   message: Pick<ChatMessage, "text" | "streamingTextState">,
 ): number {
   return message.streamingTextState?.totalLength ?? message.text.length;

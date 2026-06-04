@@ -38,6 +38,8 @@ export const ProjectionThread = Schema.Struct({
   handoffToProvider: Schema.NullOr(ProviderKind),
   handoffMode: Schema.NullOr(ThreadHandoffMode),
   handoffCreatedAt: Schema.NullOr(IsoDateTime),
+  forkSourceThreadId: Schema.NullOr(ThreadId),
+  forkCreatedAt: Schema.NullOr(IsoDateTime),
   queuedComposerMessages: Schema.Array(QueuedComposerMessage),
   queuedSteerRequest: Schema.NullOr(QueuedSteerRequest),
   latestTurnId: Schema.NullOr(TurnId),

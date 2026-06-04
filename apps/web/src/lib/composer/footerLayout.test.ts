@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import {
   COMPOSER_FOOTER_COMPACT_BREAKPOINT_PX,
   COMPOSER_FOOTER_WIDE_ACTIONS_COMPACT_BREAKPOINT_PX,
-  COMPOSER_PRIMARY_ACTIONS_COMPACT_BREAKPOINT_PX,
   measureComposerFooterOverflowPx,
   resolveComposerFooterContentWidth,
   shouldForceCompactComposerFooterForFit,
@@ -41,16 +40,19 @@ describe("shouldUseCompactComposerFooter", () => {
 
 describe("shouldUseCompactComposerPrimaryActions", () => {
   it("matches the wide footer breakpoint", () => {
-    expect(COMPOSER_PRIMARY_ACTIONS_COMPACT_BREAKPOINT_PX).toBe(
+    expect(COMPOSER_FOOTER_WIDE_ACTIONS_COMPACT_BREAKPOINT_PX).toBe(
       COMPOSER_FOOTER_WIDE_ACTIONS_COMPACT_BREAKPOINT_PX,
     );
     expect(
-      shouldUseCompactComposerPrimaryActions(COMPOSER_PRIMARY_ACTIONS_COMPACT_BREAKPOINT_PX - 1, {
-        hasWideActions: true,
-      }),
+      shouldUseCompactComposerPrimaryActions(
+        COMPOSER_FOOTER_WIDE_ACTIONS_COMPACT_BREAKPOINT_PX - 1,
+        {
+          hasWideActions: true,
+        },
+      ),
     ).toBe(true);
     expect(
-      shouldUseCompactComposerPrimaryActions(COMPOSER_PRIMARY_ACTIONS_COMPACT_BREAKPOINT_PX, {
+      shouldUseCompactComposerPrimaryActions(COMPOSER_FOOTER_WIDE_ACTIONS_COMPACT_BREAKPOINT_PX, {
         hasWideActions: true,
       }),
     ).toBe(false);

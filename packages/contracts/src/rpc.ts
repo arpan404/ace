@@ -34,6 +34,8 @@ import {
   GitRunStackedActionInput,
   GitStatusInput,
   GitStatusResult,
+  GitWorktreeStatsInput,
+  GitWorktreeStatsResult,
   GitWorkingTreeDiffInput,
   GitWorkingTreeDiffResult,
 } from "./git";
@@ -62,6 +64,9 @@ import {
   ProjectDeleteEntryError,
   ProjectDeleteEntryInput,
   ProjectDeleteEntryResult,
+  ProjectFileEvent,
+  ProjectFileEventsError,
+  ProjectFileEventsInput,
   ProjectListTreeError,
   ProjectListTreeInput,
   ProjectListTreeResult,
@@ -88,6 +93,9 @@ import {
   WorkspaceEditorDefinitionError,
   WorkspaceEditorDefinitionInput,
   WorkspaceEditorDefinitionResult,
+  WorkspaceEditorHoverError,
+  WorkspaceEditorHoverInput,
+  WorkspaceEditorHoverResult,
   WorkspaceEditorReferencesError,
   WorkspaceEditorReferencesInput,
   WorkspaceEditorReferencesResult,
@@ -121,6 +129,7 @@ import {
   ServerSearchOpenCodeModelsInput,
   ServerSearchOpenCodeModelsResult,
   ServerLifecycleStreamEvent,
+  ServerRefreshProvidersInput,
   ServerProviderUpdatedPayload,
   ServerProviderCliUpgradeError,
   ServerRuntimeProfile,
@@ -149,10 +158,12 @@ export const WS_METHODS = {
   projectsReadFile: "projects.readFile",
   projectsRenameEntry: "projects.renameEntry",
   projectsWriteFile: "projects.writeFile",
+  projectsFileEvents: "projects.fileEvents",
   workspaceEditorSyncBuffer: "workspaceEditor.syncBuffer",
   workspaceEditorCloseBuffer: "workspaceEditor.closeBuffer",
   workspaceEditorComplete: "workspaceEditor.complete",
   workspaceEditorDefinition: "workspaceEditor.definition",
+  workspaceEditorHover: "workspaceEditor.hover",
   workspaceEditorReferences: "workspaceEditor.references",
 
   // Shell methods
@@ -169,6 +180,7 @@ export const WS_METHODS = {
   gitReadWorkingTreeDiff: "git.readWorkingTreeDiff",
   gitRunStackedAction: "git.runStackedAction",
   gitListBranches: "git.listBranches",
+  gitGetWorktreeStats: "git.getWorktreeStats",
   gitListGitHubIssues: "git.listGitHubIssues",
   gitGetGitHubIssueThread: "git.getGitHubIssueThread",
   gitCreateWorktree: "git.createWorktree",
@@ -244,7 +256,7 @@ export const WsServerPickFolderRpc = Rpc.make(WS_METHODS.serverPickFolder, {
 });
 
 export const WsServerRefreshProvidersRpc = Rpc.make(WS_METHODS.serverRefreshProviders, {
-  payload: Schema.Struct({}),
+  payload: ServerRefreshProvidersInput,
   success: ServerProviderUpdatedPayload,
 });
 
@@ -358,6 +370,13 @@ export const WsProjectsWriteFileRpc = Rpc.make(WS_METHODS.projectsWriteFile, {
   error: ProjectWriteFileError,
 });
 
+export const WsProjectsFileEventsRpc = Rpc.make(WS_METHODS.projectsFileEvents, {
+  payload: ProjectFileEventsInput,
+  success: ProjectFileEvent,
+  error: ProjectFileEventsError,
+  stream: true,
+});
+
 export const WsWorkspaceEditorSyncBufferRpc = Rpc.make(WS_METHODS.workspaceEditorSyncBuffer, {
   payload: WorkspaceEditorSyncBufferInput,
   success: WorkspaceEditorSyncBufferResult,
@@ -380,6 +399,12 @@ export const WsWorkspaceEditorDefinitionRpc = Rpc.make(WS_METHODS.workspaceEdito
   payload: WorkspaceEditorDefinitionInput,
   success: WorkspaceEditorDefinitionResult,
   error: WorkspaceEditorDefinitionError,
+});
+
+export const WsWorkspaceEditorHoverRpc = Rpc.make(WS_METHODS.workspaceEditorHover, {
+  payload: WorkspaceEditorHoverInput,
+  success: WorkspaceEditorHoverResult,
+  error: WorkspaceEditorHoverError,
 });
 
 export const WsWorkspaceEditorReferencesRpc = Rpc.make(WS_METHODS.workspaceEditorReferences, {
@@ -450,6 +475,11 @@ export const WsGitListBranchesRpc = Rpc.make(WS_METHODS.gitListBranches, {
   payload: GitListBranchesInput,
   success: GitListBranchesResult,
   error: GitCommandError,
+});
+
+export const WsGitGetWorktreeStatsRpc = Rpc.make(WS_METHODS.gitGetWorktreeStats, {
+  payload: GitWorktreeStatsInput,
+  success: GitWorktreeStatsResult,
 });
 
 export const WsGitListGitHubIssuesRpc = Rpc.make(WS_METHODS.gitListGitHubIssues, {
@@ -637,10 +667,12 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectsReadFileRpc,
   WsProjectsRenameEntryRpc,
   WsProjectsWriteFileRpc,
+  WsProjectsFileEventsRpc,
   WsWorkspaceEditorSyncBufferRpc,
   WsWorkspaceEditorCloseBufferRpc,
   WsWorkspaceEditorCompleteRpc,
   WsWorkspaceEditorDefinitionRpc,
+  WsWorkspaceEditorHoverRpc,
   WsWorkspaceEditorReferencesRpc,
   WsShellOpenInEditorRpc,
   WsShellRevealInFileManagerRpc,
@@ -653,6 +685,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsGitResolvePullRequestRpc,
   WsGitPreparePullRequestThreadRpc,
   WsGitListBranchesRpc,
+  WsGitGetWorktreeStatsRpc,
   WsGitListGitHubIssuesRpc,
   WsGitGetGitHubIssueThreadRpc,
   WsGitCreateWorktreeRpc,

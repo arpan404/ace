@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   commandForProjectScript,
+  formatProjectScriptEnvFile,
+  formatProjectScriptEnv,
   nextProjectScriptId,
+  normalizeProjectScriptEnvFilePath,
+  parseProjectScriptEnv,
   primaryProjectScript,
   projectScriptCwd,
   projectScriptRuntimeEnv,
@@ -70,6 +74,31 @@ describe("projectScripts helpers", () => {
     expect(env.ACE_PROJECT_ROOT).toBe("/custom-root");
     expect(env.CUSTOM_FLAG).toBe("1");
     expect(env.ACE_WORKTREE_PATH).toBeUndefined();
+  });
+
+  it("parses and formats project script env lines", () => {
+    const env = parseProjectScriptEnv("B=two\n# comment\nA=one=still-value\n");
+
+    expect(env).toEqual({
+      A: "one=still-value",
+      B: "two",
+    });
+    expect(formatProjectScriptEnv(env)).toBe("A=one=still-value\nB=two");
+    expect(formatProjectScriptEnvFile(env)).toBe("A=one=still-value\nB=two\n");
+  });
+
+  it("rejects invalid project script env keys", () => {
+    expect(() => parseProjectScriptEnv("1BAD=value")).toThrow(/must start/);
+  });
+
+  it("normalizes relative env file paths", () => {
+    expect(normalizeProjectScriptEnvFilePath(" ./.env.local ")).toBe(".env.local");
+    expect(normalizeProjectScriptEnvFilePath("config\\dev.env")).toBe("config/dev.env");
+  });
+
+  it("rejects unsafe env file paths", () => {
+    expect(() => normalizeProjectScriptEnvFilePath("/tmp/.env")).toThrow(/relative/);
+    expect(() => normalizeProjectScriptEnvFilePath("../.env")).toThrow(/escape/);
   });
 
   it("prefers the worktree path for script cwd resolution", () => {

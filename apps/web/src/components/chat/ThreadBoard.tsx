@@ -2,6 +2,7 @@ import { type ThreadId } from "@ace/contracts";
 import {
   Fragment,
   memo,
+  type ReactNode,
   startTransition,
   useCallback,
   useEffect,
@@ -14,7 +15,7 @@ import {
 } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { GripVerticalIcon, XIcon } from "lucide-react";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { AnimatePresence, LazyMotion, domAnimation, m, useReducedMotion } from "motion/react";
 
 import {
   orderBoardPanes,
@@ -28,6 +29,7 @@ import ChatView from "../ChatView";
 import { normalizePaneRatios, resizePaneRatios } from "../../lib/paneRatios";
 import { THREAD_BOARD_LAYOUT_ACTIVE_CLASS_NAME } from "../../lib/desktopChrome";
 import { buildSingleThreadRouteSearch } from "../../lib/chatThreadBoardRouteSearch";
+import { useEffectEvent } from "../../hooks/useEffectEvent";
 import {
   createThreadBoardDragThread,
   encodeThreadBoardDragThread,
@@ -75,6 +77,94 @@ type ThreadBoardPaneDragStartHandler = (
   event: ReactDragEvent<HTMLButtonElement>,
 ) => void;
 
+const NO_OP_THREAD_BOARD_CLOSE_PANE = (_pane: ChatThreadBoardPaneState) => {};
+const NO_OP_THREAD_BOARD_SET_ACTIVE_PANE = (_paneId: string) => {};
+
+type ThreadBoardLayoutNodeRendererProps = {
+  node: ChatThreadBoardLayoutNode | null;
+  renderPaneNode: (paneId: string) => ReactNode;
+  branchRefs: { current: Map<string, HTMLDivElement> };
+  handleBranchResizeStart: (
+    branchId: string,
+    axis: ChatThreadBoardLayoutAxis,
+    index: number,
+  ) => (event: ReactPointerEvent<HTMLDivElement>) => void;
+  handleBranchResizeMove: (event: ReactPointerEvent<HTMLDivElement>) => void;
+  handleBranchResizeEnd: (event: ReactPointerEvent<HTMLDivElement>) => void;
+};
+
+const ThreadBoardLayoutNode = memo(function ThreadBoardLayoutNode({
+  node,
+  renderPaneNode,
+  branchRefs,
+  handleBranchResizeStart,
+  handleBranchResizeMove,
+  handleBranchResizeEnd,
+}: ThreadBoardLayoutNodeRendererProps): ReactNode {
+  if (!node) {
+    return null;
+  }
+  if (node.kind === "pane") {
+    return renderPaneNode(node.paneId);
+  }
+  const ratios = normalizePaneRatios(node.ratios, node.children.length);
+  return (
+    <div
+      ref={(element) => {
+        if (element) {
+          branchRefs.current.set(node.id, element);
+        } else {
+          branchRefs.current.delete(node.id);
+        }
+      }}
+      className={cn(
+        "flex min-h-0 min-w-0 flex-1 overflow-hidden",
+        node.axis === "horizontal" ? "flex-row" : "flex-col",
+      )}
+    >
+      {node.children.map((child, index) => (
+        <Fragment key={child.id}>
+          <div
+            className="flex min-h-0 min-w-0 overflow-hidden"
+            data-thread-board-branch-child="true"
+            style={{
+              flexBasis: 0,
+              flexGrow: ratios[index] ?? 1,
+              minHeight: node.axis === "vertical" ? `${BOARD_MIN_ROW_HEIGHT_PX}px` : undefined,
+              minWidth: node.axis === "horizontal" ? `${BOARD_MIN_COLUMN_WIDTH_PX}px` : undefined,
+            }}
+          >
+            <ThreadBoardLayoutNode
+              node={child}
+              renderPaneNode={renderPaneNode}
+              branchRefs={branchRefs}
+              handleBranchResizeStart={handleBranchResizeStart}
+              handleBranchResizeMove={handleBranchResizeMove}
+              handleBranchResizeEnd={handleBranchResizeEnd}
+            />
+          </div>
+          {index < node.children.length - 1 ? (
+            <hr
+              aria-label={node.axis === "horizontal" ? "Resize thread panes" : "Resize thread rows"}
+              aria-orientation={node.axis === "horizontal" ? "vertical" : "horizontal"}
+              className={cn(
+                "group relative z-10 shrink-0 touch-none select-none border-0 bg-transparent outline-none transition-[background-color] duration-150 before:absolute before:rounded-full before:bg-primary/0 before:transition-[background-color,transform,opacity] before:duration-150 before:ease-out before:content-[''] after:absolute after:bg-border/55 after:transition-colors after:duration-150 after:content-[''] hover:before:bg-primary/10 hover:after:bg-primary/45 focus-visible:before:bg-primary/10 focus-visible:after:bg-primary/45 active:before:bg-primary/15 active:after:bg-primary/60",
+                node.axis === "horizontal"
+                  ? "-mx-px h-auto w-2 cursor-col-resize before:inset-y-2 before:left-1/2 before:w-1 before:-translate-x-1/2 hover:before:scale-x-125 after:inset-y-0 after:left-1/2 after:w-px after:-translate-x-1/2"
+                  : "-my-px h-2 cursor-row-resize before:inset-x-2 before:top-1/2 before:h-1 before:-translate-y-1/2 hover:before:scale-y-125 after:inset-x-0 after:top-1/2 after:h-px after:-translate-y-1/2",
+              )}
+              onPointerDown={handleBranchResizeStart(node.id, node.axis, index)}
+              onPointerMove={handleBranchResizeMove}
+              onPointerUp={handleBranchResizeEnd}
+              onPointerCancel={handleBranchResizeEnd}
+            />
+          ) : null}
+        </Fragment>
+      ))}
+    </div>
+  );
+});
+
 function resolveThreadBoardDropDirection(
   event: Pick<ReactDragEvent<HTMLElement>, "clientX" | "clientY">,
   rect: DOMRect,
@@ -119,7 +209,7 @@ function ThreadBoardDropPreview(props: { direction: ThreadBoardDropDirection }) 
           : "top-1/2 h-1/2";
 
   return (
-    <motion.div
+    <m.div
       className="pointer-events-none absolute inset-0 z-30 rounded-[inherit]"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
@@ -128,7 +218,7 @@ function ThreadBoardDropPreview(props: { direction: ThreadBoardDropDirection }) 
       aria-hidden="true"
     >
       <div className="absolute inset-0 rounded-[inherit] border border-primary/28 bg-primary/[0.04]" />
-      <motion.div
+      <m.div
         className={cn(
           "absolute z-[31] rounded-[inherit] border border-primary/40 bg-primary/[0.12] shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.06)]",
           props.direction === "left" || props.direction === "right"
@@ -141,7 +231,7 @@ function ThreadBoardDropPreview(props: { direction: ThreadBoardDropDirection }) 
         exit={{ opacity: 0, scale: 0.99 }}
         transition={transition}
       />
-    </motion.div>
+    </m.div>
   );
 }
 
@@ -149,7 +239,7 @@ function ThreadBoardDropHint(props: { isSinglePane: boolean }) {
   const reducedMotion = useReducedMotion();
   const transition = reducedMotion ? BOARD_REDUCED_MOTION_TRANSITION : BOARD_DROP_TRANSITION;
   return (
-    <motion.div
+    <m.div
       className="pointer-events-none absolute inset-0 z-20 rounded-[inherit]"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
@@ -158,7 +248,7 @@ function ThreadBoardDropHint(props: { isSinglePane: boolean }) {
       aria-hidden="true"
     >
       <div className="absolute inset-0 rounded-[inherit] border border-dashed border-primary/28 bg-primary/[0.03]" />
-      <motion.div
+      <m.div
         className="absolute inset-x-3 top-3 z-[32] flex justify-center"
         initial={{ opacity: 0, y: -4 }}
         animate={{ opacity: 1, y: 0 }}
@@ -168,8 +258,8 @@ function ThreadBoardDropHint(props: { isSinglePane: boolean }) {
         <div className="rounded-full border border-primary/25 bg-background/92 px-2.5 py-1 text-[10px] font-medium tracking-[0.12em] text-primary/80 uppercase backdrop-blur">
           {props.isSinglePane ? "Drop to create split" : "Drop to add pane"}
         </div>
-      </motion.div>
-    </motion.div>
+      </m.div>
+    </m.div>
   );
 }
 
@@ -226,7 +316,7 @@ const ThreadBoardPaneContent = memo(function ThreadBoardPaneContent(props: {
                 size="icon-xs"
                 variant="ghost"
                 draggable
-                className="no-drag-region h-7 w-7 cursor-pointer text-muted-foreground/55 opacity-80 transition-[background-color,color,opacity,transform] duration-150 hover:-translate-y-px hover:text-foreground hover:opacity-100 active:cursor-grabbing active:translate-y-0"
+                className="no-drag-region size-7 cursor-pointer text-muted-foreground/55 opacity-80 transition-[background-color,color,opacity,transform] duration-150 hover:-translate-y-px hover:text-foreground hover:opacity-100 active:cursor-grabbing active:translate-y-0"
                 onClick={(event) => {
                   event.stopPropagation();
                 }}
@@ -245,7 +335,7 @@ const ThreadBoardPaneContent = memo(function ThreadBoardPaneContent(props: {
                 type="button"
                 size="icon-xs"
                 variant="ghost"
-                className="no-drag-region h-7 w-7 text-muted-foreground/55 opacity-80 transition-[background-color,color,opacity,transform] duration-150 hover:-translate-y-px hover:text-foreground hover:opacity-100 active:translate-y-0"
+                className="no-drag-region size-7 text-muted-foreground/55 opacity-80 transition-[background-color,color,opacity,transform] duration-150 hover:-translate-y-px hover:text-foreground hover:opacity-100 active:translate-y-0"
                 onClick={(event) => {
                   event.stopPropagation();
                   props.onClosePane(pane);
@@ -444,7 +534,7 @@ const ThreadBoardPane = memo(function ThreadBoardPane(props: {
   );
 });
 
-export function ThreadBoard(props: { connectionUrl?: string | null; threadId: ThreadId }) {
+function useThreadBoardComponent(props: { connectionUrl?: string | null; threadId: ThreadId }) {
   const navigate = useNavigate();
   const branchRefs = useRef(new Map<string, HTMLDivElement>());
   const activePaneId = useChatThreadBoardStore((state) => state.activePaneId);
@@ -828,6 +918,19 @@ export function ThreadBoard(props: { connectionUrl?: string | null; threadId: Th
     },
     [],
   );
+  const resetBranchResizeInteractions = useEffectEvent(() => {
+    const resizeState = branchResizeStateRef.current;
+    if (resizeState?.rafId !== null && resizeState?.rafId !== undefined) {
+      window.cancelAnimationFrame(resizeState.rafId);
+    }
+    if (resizeState) {
+      applyBranchResizePreview(resizeState.previewChildren, resizeState.pendingRatios);
+      setBranchRatios(resizeState.branchId, resizeState.pendingRatios);
+      branchResizeStateRef.current = null;
+    }
+    document.body.style.removeProperty("cursor");
+    document.body.style.removeProperty("user-select");
+  });
 
   const handleBranchResizeStart = useCallback(
     (branchId: string, axis: ChatThreadBoardLayoutAxis, dividerIndex: number) =>
@@ -877,8 +980,10 @@ export function ThreadBoard(props: { connectionUrl?: string | null; threadId: Th
           startSize,
         };
         event.currentTarget.setPointerCapture(event.pointerId);
-        document.body.style.cursor = axis === "horizontal" ? "col-resize" : "row-resize";
-        document.body.style.userSelect = "none";
+        Object.assign(document.body.style, {
+          cursor: axis === "horizontal" ? "col-resize" : "row-resize",
+          userSelect: "none",
+        });
       },
     [layoutRoot],
   );
@@ -954,33 +1059,20 @@ export function ThreadBoard(props: { connectionUrl?: string | null; threadId: Th
   }, [clearDropTarget]);
 
   useEffect(() => {
-    const resetResizeInteractions = () => {
-      const resizeState = branchResizeStateRef.current;
-      if (resizeState?.rafId !== null && resizeState?.rafId !== undefined) {
-        window.cancelAnimationFrame(resizeState.rafId);
-      }
-      if (resizeState) {
-        applyBranchResizePreview(resizeState.previewChildren, resizeState.pendingRatios);
-        setBranchRatios(resizeState.branchId, resizeState.pendingRatios);
-        branchResizeStateRef.current = null;
-      }
-      document.body.style.removeProperty("cursor");
-      document.body.style.removeProperty("user-select");
-    };
     const handleVisibilityChange = () => {
       if (document.visibilityState === "hidden") {
-        resetResizeInteractions();
+        resetBranchResizeInteractions();
       }
     };
-    window.addEventListener("blur", resetResizeInteractions);
+    window.addEventListener("blur", resetBranchResizeInteractions);
     document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => {
-      window.removeEventListener("blur", resetResizeInteractions);
+      window.removeEventListener("blur", resetBranchResizeInteractions);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [applyBranchResizePreview, setBranchRatios]);
+  }, [setBranchRatios]);
 
-  const renderLeaf = useCallback(
+  const renderPaneNode = useCallback(
     (paneId: string) => {
       const pane = paneById.get(paneId);
       if (!pane || !primaryPane) {
@@ -1027,88 +1119,6 @@ export function ThreadBoard(props: { connectionUrl?: string | null; threadId: Th
     ],
   );
 
-  const renderLayoutNode = useCallback(
-    (node: ChatThreadBoardLayoutNode | null): React.ReactNode => {
-      if (!node) {
-        return null;
-      }
-      if (node.kind === "pane") {
-        return renderLeaf(node.paneId);
-      }
-      const ratios = normalizePaneRatios(node.ratios, node.children.length);
-      return (
-        <div
-          ref={(element) => {
-            if (element) {
-              branchRefs.current.set(node.id, element);
-            } else {
-              branchRefs.current.delete(node.id);
-            }
-          }}
-          className={cn(
-            "flex min-h-0 min-w-0 flex-1 overflow-hidden",
-            node.axis === "horizontal" ? "flex-row" : "flex-col",
-          )}
-        >
-          {node.children.map((child, index) => (
-            <Fragment key={child.id}>
-              <div
-                className="flex min-h-0 min-w-0 overflow-hidden"
-                data-thread-board-branch-child="true"
-                style={{
-                  flexBasis: 0,
-                  flexGrow: ratios[index] ?? 1,
-                  minHeight: node.axis === "vertical" ? `${BOARD_MIN_ROW_HEIGHT_PX}px` : undefined,
-                  minWidth:
-                    node.axis === "horizontal" ? `${BOARD_MIN_COLUMN_WIDTH_PX}px` : undefined,
-                }}
-              >
-                {renderLayoutNode(child)}
-              </div>
-              {index < node.children.length - 1 ? (
-                <div
-                  role="separator"
-                  aria-label={
-                    node.axis === "horizontal" ? "Resize thread panes" : "Resize thread rows"
-                  }
-                  aria-orientation={node.axis === "horizontal" ? "vertical" : "horizontal"}
-                  className={cn(
-                    "group relative z-10 shrink-0 touch-none select-none outline-none transition-[background-color] duration-150",
-                    node.axis === "horizontal"
-                      ? "-mx-px flex w-2 cursor-col-resize items-center justify-center"
-                      : "-my-px flex h-2 cursor-row-resize items-center justify-center",
-                  )}
-                  onPointerDown={handleBranchResizeStart(node.id, node.axis, index)}
-                  onPointerMove={handleBranchResizeMove}
-                  onPointerUp={handleBranchResizeEnd}
-                  onPointerCancel={handleBranchResizeEnd}
-                >
-                  <div
-                    className={cn(
-                      "absolute rounded-full bg-primary/0 transition-[background-color,transform,opacity] duration-150 ease-out group-hover:bg-primary/10 group-focus-visible:bg-primary/10 group-active:bg-primary/15",
-                      node.axis === "horizontal"
-                        ? "inset-y-2 left-1/2 w-1 -translate-x-1/2 group-hover:scale-x-125"
-                        : "inset-x-2 top-1/2 h-1 -translate-y-1/2 group-hover:scale-y-125",
-                    )}
-                  />
-                  <div
-                    className={cn(
-                      "absolute bg-border/55 transition-colors duration-150 group-hover:bg-primary/45 group-focus-visible:bg-primary/45 group-active:bg-primary/60",
-                      node.axis === "horizontal"
-                        ? "inset-y-0 left-1/2 w-px -translate-x-1/2"
-                        : "inset-x-0 top-1/2 h-px -translate-y-1/2",
-                    )}
-                  />
-                </div>
-              ) : null}
-            </Fragment>
-          ))}
-        </div>
-      );
-    },
-    [handleBranchResizeEnd, handleBranchResizeMove, handleBranchResizeStart, renderLeaf],
-  );
-
   if (!boardVisible || !primaryPane) {
     const singlePane: ChatThreadBoardPaneState = {
       connectionUrl: activeRouteThread.connectionUrl,
@@ -1117,6 +1127,40 @@ export function ThreadBoard(props: { connectionUrl?: string | null; threadId: Th
       title: activeRouteThread.title ?? "Untitled thread",
     };
     return (
+      <LazyMotion features={domAnimation}>
+        <div
+          className={boardRootClassName}
+          onDragEnter={handleBoardDragEnter}
+          onDragLeave={handleBoardDragLeave}
+          onDragOverCapture={handleBoardDragOverCapture}
+          onDropCapture={handleBoardDropCapture}
+        >
+          <ThreadBoardPane
+            deferContent={false}
+            dropPreviewDirection={
+              dropTarget?.paneId === singlePane.id ? dropTarget.direction : null
+            }
+            isFocusedPane
+            isSinglePane
+            pane={singlePane}
+            shortcutsEnabled
+            showSidebarTrigger
+            showDropHint={dropTarget?.paneId !== singlePane.id}
+            splitPane={false}
+            onClosePane={NO_OP_THREAD_BOARD_CLOSE_PANE}
+            onPaneDragEnter={handlePaneDragEnter}
+            onPaneDragLeave={handlePaneDragLeave}
+            onPaneDragOver={handlePaneDragOver}
+            onPaneDrop={handlePaneDrop}
+            setActivePane={NO_OP_THREAD_BOARD_SET_ACTIVE_PANE}
+          />
+        </div>
+      </LazyMotion>
+    );
+  }
+
+  return (
+    <LazyMotion features={domAnimation}>
       <div
         className={boardRootClassName}
         onDragEnter={handleBoardDragEnter}
@@ -1124,36 +1168,19 @@ export function ThreadBoard(props: { connectionUrl?: string | null; threadId: Th
         onDragOverCapture={handleBoardDragOverCapture}
         onDropCapture={handleBoardDropCapture}
       >
-        <ThreadBoardPane
-          deferContent={false}
-          dropPreviewDirection={dropTarget?.paneId === singlePane.id ? dropTarget.direction : null}
-          isFocusedPane
-          isSinglePane
-          pane={singlePane}
-          shortcutsEnabled
-          showSidebarTrigger
-          showDropHint={dropTarget?.paneId !== singlePane.id}
-          splitPane={false}
-          onClosePane={() => {}}
-          onPaneDragEnter={handlePaneDragEnter}
-          onPaneDragLeave={handlePaneDragLeave}
-          onPaneDragOver={handlePaneDragOver}
-          onPaneDrop={handlePaneDrop}
-          setActivePane={() => {}}
+        <ThreadBoardLayoutNode
+          node={layoutRoot}
+          renderPaneNode={renderPaneNode}
+          branchRefs={branchRefs}
+          handleBranchResizeStart={handleBranchResizeStart}
+          handleBranchResizeMove={handleBranchResizeMove}
+          handleBranchResizeEnd={handleBranchResizeEnd}
         />
       </div>
-    );
-  }
-
-  return (
-    <div
-      className={boardRootClassName}
-      onDragEnter={handleBoardDragEnter}
-      onDragLeave={handleBoardDragLeave}
-      onDragOverCapture={handleBoardDragOverCapture}
-      onDropCapture={handleBoardDropCapture}
-    >
-      {renderLayoutNode(layoutRoot)}
-    </div>
+    </LazyMotion>
   );
+}
+
+export function ThreadBoard(props: { connectionUrl?: string | null; threadId: ThreadId }) {
+  return useThreadBoardComponent(props);
 }

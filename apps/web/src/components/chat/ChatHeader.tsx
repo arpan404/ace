@@ -1,177 +1,60 @@
-import {
-  type ProjectId,
-  type ProjectScript,
-  type ResolvedKeybindingsConfig,
-  type ThreadId,
-} from "@ace/contracts";
-import { IconLayoutSidebarRight, IconTerminal } from "@tabler/icons-react";
+import { type ProjectId } from "@ace/contracts";
+import { IconLayoutSidebarRight, IconLayoutSidebarRightFilled } from "@tabler/icons-react";
+import { Settings2Icon } from "lucide-react";
 import { memo, type ReactNode } from "react";
-import GitActionsControl from "../GitActionsControl";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
-import { Spinner } from "../ui/spinner";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import ProjectScriptsControl, { type NewProjectScriptInput } from "../ProjectScriptsControl";
 import { ProjectContextSwitcher } from "./ProjectContextSwitcher";
-import type { ActivePlanProgressState } from "../../session-logic";
-import type { ThreadWorkspaceMode } from "~/threadWorkspaceMode";
 import { DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME } from "~/lib/desktopChrome";
 import { cn } from "~/lib/utils";
 
 interface ChatHeaderProps {
-  activeThreadId: ThreadId;
   activeThreadTitle: string;
   activeProjectId: ProjectId | null;
   activeProjectName: string | undefined;
   isGitRepo: boolean;
-  activeProjectScripts: ProjectScript[] | undefined;
-  preferredScriptId: string | null;
-  keybindings: ResolvedKeybindingsConfig;
   terminalAvailable: boolean;
   terminalOpen: boolean;
   terminalToggleShortcutLabel: string | null;
+  environmentPanelOpen: boolean;
   rightSidePanelToggleShortcutLabel: string | null;
-  gitCwd: string | null;
-  activePlanProgress: ActivePlanProgressState | null;
-  isAgentWorking: boolean;
-  workspaceChangeStat: { additions: number; deletions: number } | null;
   rightSidePanelOpen: boolean;
-  workspaceMode: ThreadWorkspaceMode;
-  onRunProjectScript: (script: ProjectScript) => void;
-  onAddProjectScript: (input: NewProjectScriptInput) => Promise<void>;
-  onUpdateProjectScript: (scriptId: string, input: NewProjectScriptInput) => Promise<void>;
-  onDeleteProjectScript: (scriptId: string) => Promise<void>;
   onActiveProjectChange?: ((projectId: ProjectId) => void) | null;
+  onToggleEnvironmentPanel: () => void;
   onToggleTerminal: () => void;
   onToggleRightSidePanel: () => void;
-  onWorkspaceModeChange: (mode: ThreadWorkspaceMode) => void;
-}
-
-const diffCountFormatter = new Intl.NumberFormat();
-
-function formatDiffCount(value: number) {
-  return diffCountFormatter.format(value);
-}
-
-function hasWorkspaceChangeStat(
-  stat: { additions: number; deletions: number } | null,
-): stat is { additions: number; deletions: number } {
-  return stat !== null && (stat.additions > 0 || stat.deletions > 0);
-}
-
-function WorkspaceChangeStatText(props: { stat: { additions: number; deletions: number } }) {
-  return (
-    <span className="inline-flex min-w-0 max-w-25 shrink items-center gap-1.5 overflow-hidden text-[13px] leading-none font-semibold tabular-nums">
-      {props.stat.additions > 0 ? (
-        <span className="inline-block max-w-12 truncate text-success">
-          +{formatDiffCount(props.stat.additions)}
-        </span>
-      ) : null}
-      {props.stat.deletions > 0 ? (
-        <span className="inline-block max-w-12 truncate text-destructive">
-          -{formatDiffCount(props.stat.deletions)}
-        </span>
-      ) : null}
-    </span>
-  );
-}
-
-function formatPlanProgressValue(value: number, width: number): string {
-  return String(value).padStart(width, "0");
-}
-
-function PlanProgressText(props: { progress: ActivePlanProgressState & { currentIndex: number } }) {
-  const width = Math.max(2, String(props.progress.total).length);
-  return (
-    <span className="inline-flex min-w-0 shrink items-center gap-1.5 overflow-hidden text-[13px] leading-none font-semibold tabular-nums text-foreground">
-      <Spinner className="size-3.5 text-blue-400" />
-      <span>
-        {formatPlanProgressValue(props.progress.currentIndex, width)}/
-        {formatPlanProgressValue(props.progress.total, width)}
-      </span>
-    </span>
-  );
+  reliabilitySlot?: ReactNode;
 }
 
 export const ChatHeader = memo(function ChatHeader({
-  activeThreadId,
   activeThreadTitle,
   activeProjectId,
   activeProjectName,
   isGitRepo,
-  activeProjectScripts,
-  preferredScriptId,
-  keybindings,
   terminalAvailable,
   terminalOpen,
   terminalToggleShortcutLabel,
+  environmentPanelOpen,
   rightSidePanelToggleShortcutLabel,
   rightSidePanelOpen,
-  gitCwd,
-  activePlanProgress,
-  isAgentWorking,
-  workspaceChangeStat,
-  workspaceMode,
-  onRunProjectScript,
-  onAddProjectScript,
-  onUpdateProjectScript,
-  onDeleteProjectScript,
   onActiveProjectChange,
+  onToggleEnvironmentPanel,
   onToggleTerminal,
   onToggleRightSidePanel,
-  onWorkspaceModeChange,
+  reliabilitySlot,
 }: ChatHeaderProps) {
-  const workspaceActionItems: ReactNode[] = [
-    activeProjectScripts ? (
-      <ProjectScriptsControl
-        key="scripts"
-        scripts={activeProjectScripts}
-        keybindings={keybindings}
-        preferredScriptId={preferredScriptId}
-        onRunScript={onRunProjectScript}
-        onAddScript={onAddProjectScript}
-        onUpdateScript={onUpdateProjectScript}
-        onDeleteScript={onDeleteProjectScript}
-      />
-    ) : null,
-    activeProjectName ? (
-      <GitActionsControl
-        key="git"
-        gitCwd={gitCwd}
-        activeThreadId={activeThreadId}
-        workspaceMode={workspaceMode}
-        onWorkspaceModeChange={onWorkspaceModeChange}
-      />
-    ) : null,
-  ];
-  const workspaceActionNodes = workspaceActionItems.filter(
-    (item): item is NonNullable<ReactNode> => item !== null,
-  );
-  const terminalTooltipLabel = !terminalAvailable
-    ? "Terminal is unavailable until this thread has an active project."
+  const bottomPanelTooltipLabel = !terminalAvailable
+    ? "Bottom panel is unavailable until this thread has an active project."
     : terminalToggleShortcutLabel
-      ? `Toggle terminal (${terminalToggleShortcutLabel})`
-      : "Toggle terminal";
+      ? `Toggle bottom panel (${terminalToggleShortcutLabel})`
+      : "Toggle bottom panel";
   const rightSidePanelTooltipLabel = `${rightSidePanelOpen ? "Close" : "Open"} panel${
     rightSidePanelToggleShortcutLabel ? ` (${rightSidePanelToggleShortcutLabel})` : ""
   }`;
-  const hasWorkspaceChanges = hasWorkspaceChangeStat(workspaceChangeStat);
-  const actionablePlanProgress: (ActivePlanProgressState & { currentIndex: number }) | null =
-    isAgentWorking && activePlanProgress && activePlanProgress.currentIndex !== null
-      ? { ...activePlanProgress, currentIndex: activePlanProgress.currentIndex }
-      : null;
-  const rightSidePanelButtonLabel = actionablePlanProgress
-    ? `Toggle panel. Active todo ${actionablePlanProgress.currentIndex} of ${actionablePlanProgress.total}${
-        actionablePlanProgress.currentStep ? `: ${actionablePlanProgress.currentStep}` : ""
-      }`
-    : hasWorkspaceChanges
-      ? `Toggle panel. Workspace changes: ${workspaceChangeStat.additions} additions, ${workspaceChangeStat.deletions} deletions`
-      : rightSidePanelToggleShortcutLabel
-        ? `Toggle panel (${rightSidePanelToggleShortcutLabel})`
-        : "Toggle panel";
-  const rightSidePanelTooltipCopy = actionablePlanProgress
-    ? `${rightSidePanelTooltipLabel} - todo ${actionablePlanProgress.currentIndex}/${actionablePlanProgress.total}`
-    : rightSidePanelTooltipLabel;
+  const rightSidePanelButtonLabel = rightSidePanelToggleShortcutLabel
+    ? `Toggle panel (${rightSidePanelToggleShortcutLabel})`
+    : "Toggle panel";
 
   return (
     <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2">
@@ -201,7 +84,7 @@ export const ChatHeader = memo(function ChatHeader({
                 <Badge
                   variant="outline"
                   size="sm"
-                  className="min-w-0 max-w-40 shrink overflow-hidden border-pill-border/70 bg-pill/88 text-pill-foreground/65 sm:max-w-48"
+                  className="min-w-0 max-w-40 shrink overflow-hidden border-pill-border/40 bg-pill/80 text-pill-foreground/65 sm:max-w-48"
                 >
                   <span className="min-w-0 truncate">{activeProjectName}</span>
                 </Badge>
@@ -217,15 +100,8 @@ export const ChatHeader = memo(function ChatHeader({
       </div>
 
       <div className="flex shrink-0 items-center overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        {workspaceActionNodes.length > 0 ? (
-          <>
-            <div className="flex min-w-0 items-center gap-0.75 sm:gap-1">
-              {workspaceActionNodes}
-            </div>
-            <div className="mx-3 h-4 w-0.5 shrink-0 rounded-full bg-border/80" aria-hidden="true" />
-          </>
-        ) : null}
         <div className="flex shrink-0 items-center gap-1.5">
+          {reliabilitySlot}
           <Tooltip>
             <TooltipTrigger
               render={
@@ -235,56 +111,75 @@ export const ChatHeader = memo(function ChatHeader({
                   size="icon-lg"
                   className={cn(
                     DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME,
-                    terminalOpen && "!bg-accent text-foreground hover:text-foreground",
+                    environmentPanelOpen && "!bg-accent text-foreground hover:text-foreground",
                   )}
-                  onClick={onToggleTerminal}
-                  disabled={!terminalAvailable}
-                  aria-pressed={terminalOpen}
-                  aria-label={
-                    terminalToggleShortcutLabel
-                      ? `Toggle terminal drawer (${terminalToggleShortcutLabel})`
-                      : "Toggle terminal drawer"
-                  }
+                  onClick={onToggleEnvironmentPanel}
+                  aria-pressed={environmentPanelOpen}
+                  aria-label="Toggle environment panel"
                 />
               }
             >
-              <IconTerminal className="size-[18px]" />
+              <Settings2Icon className="size-[18px]" strokeWidth={2} />
             </TooltipTrigger>
             <TooltipPopup side="bottom" align="end">
-              {terminalTooltipLabel}
+              Environment
             </TooltipPopup>
           </Tooltip>
           {!rightSidePanelOpen ? (
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-lg"
-                    className={cn(
-                      DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME,
-                      (hasWorkspaceChanges || actionablePlanProgress) &&
-                        "w-auto max-w-40 gap-1.5 px-1.5",
-                    )}
-                    onClick={onToggleRightSidePanel}
-                    aria-pressed={false}
-                    aria-label={rightSidePanelButtonLabel}
-                  />
-                }
-              >
-                {actionablePlanProgress ? (
-                  <PlanProgressText progress={actionablePlanProgress} />
-                ) : null}
-                {!actionablePlanProgress && hasWorkspaceChanges ? (
-                  <WorkspaceChangeStatText stat={workspaceChangeStat} />
-                ) : null}
-                <IconLayoutSidebarRight className="size-[18px]" strokeWidth={2} />
-              </TooltipTrigger>
-              <TooltipPopup side="bottom" align="end">
-                {rightSidePanelTooltipCopy}
-              </TooltipPopup>
-            </Tooltip>
+            <>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-lg"
+                      className={cn(
+                        DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME,
+                        terminalOpen && "!bg-accent text-foreground hover:text-foreground",
+                      )}
+                      onClick={onToggleTerminal}
+                      disabled={!terminalAvailable}
+                      aria-pressed={terminalOpen}
+                      aria-label={
+                        terminalToggleShortcutLabel
+                          ? `Toggle bottom panel (${terminalToggleShortcutLabel})`
+                          : "Toggle bottom panel"
+                      }
+                    />
+                  }
+                >
+                  {terminalOpen ? (
+                    <IconLayoutSidebarRightFilled className="size-[18px] rotate-90" />
+                  ) : (
+                    <IconLayoutSidebarRight className="size-[18px] rotate-90" strokeWidth={2} />
+                  )}
+                </TooltipTrigger>
+                <TooltipPopup side="bottom" align="end">
+                  {bottomPanelTooltipLabel}
+                </TooltipPopup>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-lg"
+                      className={DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME}
+                      onClick={onToggleRightSidePanel}
+                      aria-pressed={false}
+                      aria-label={rightSidePanelButtonLabel}
+                    />
+                  }
+                >
+                  <IconLayoutSidebarRight className="size-[18px]" strokeWidth={2} />
+                </TooltipTrigger>
+                <TooltipPopup side="bottom" align="end">
+                  {rightSidePanelTooltipLabel}
+                </TooltipPopup>
+              </Tooltip>
+            </>
           ) : null}
         </div>
       </div>

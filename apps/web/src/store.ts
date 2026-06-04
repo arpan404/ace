@@ -73,6 +73,7 @@ const MAX_THREAD_CHECKPOINTS = 500;
 const MAX_THREAD_PROPOSED_PLANS = 200;
 const EMPTY_THREAD_IDS: ThreadId[] = [];
 const EMPTY_SIDEBAR_THREAD_SUMMARIES: SidebarThreadSummary[] = [];
+const SIDEBAR_SUMMARY_TIMESTAMP_GRANULARITY_MS = 1_000;
 const threadLookupCache = new WeakMap<ReadonlyArray<Thread>, Map<ThreadId, Thread>>();
 const LEAN_THREAD_ACTIVITY_KINDS = new Set<Thread["activities"][number]["kind"]>([
   "approval.requested",
@@ -109,7 +110,7 @@ export function getThreadById(
   return getThreadLookup(threads).get(threadId);
 }
 
-export function getThreadsByIds(
+function getThreadsByIds(
   threads: ReadonlyArray<Thread>,
   threadIds: readonly ThreadId[],
 ): Array<Thread | undefined> {
@@ -202,7 +203,7 @@ function normalizeModelSelection<T extends { provider: ProviderKind; model: stri
 }
 
 function mapProjectScripts(scripts: ReadonlyArray<Project["scripts"][number]>): Project["scripts"] {
-  return scripts.map((script) => ({ ...script }));
+  return scripts.map((script) => ({ ...script, env: { ...(script.env ?? {}) } }));
 }
 
 function mapSession(session: OrchestrationSession): Thread["session"] {
@@ -479,6 +480,16 @@ function handoffsEqual(left: Thread["handoff"], right: Thread["handoff"]): boole
   );
 }
 
+function forksEqual(left: Thread["fork"], right: Thread["fork"]): boolean {
+  if (left === right) {
+    return true;
+  }
+  if (!left || !right) {
+    return false;
+  }
+  return left.sourceThreadId === right.sourceThreadId && left.createdAt === right.createdAt;
+}
+
 function queuedSteerRequestsEqual(
   left: Thread["queuedSteerRequest"],
   right: Thread["queuedSteerRequest"],
@@ -587,6 +598,7 @@ function threadsRenderEquivalent(left: Thread, right: Thread): boolean {
     left.branch === right.branch &&
     left.worktreePath === right.worktreePath &&
     handoffsEqual(left.handoff, right.handoff) &&
+    forksEqual(left.fork, right.fork) &&
     left.historyLoaded === right.historyLoaded &&
     queuedComposerMessagesEqual(left.queuedComposerMessages, right.queuedComposerMessages) &&
     queuedSteerRequestsEqual(left.queuedSteerRequest, right.queuedSteerRequest) &&
@@ -630,6 +642,7 @@ function mapThread(thread: OrchestrationThread, options?: SnapshotSyncOptions): 
     branch: thread.branch,
     worktreePath: thread.worktreePath,
     ...(thread.handoff !== undefined ? { handoff: thread.handoff } : {}),
+    ...(thread.fork !== undefined ? { fork: thread.fork } : {}),
     historyLoaded: resolveThreadHistoryLoaded(thread.id, options),
     queuedComposerMessages: thread.queuedComposerMessages.map(mapQueuedComposerMessage),
     queuedSteerRequest: thread.queuedSteerRequest ? { ...thread.queuedSteerRequest } : null,
@@ -664,6 +677,18 @@ function projectIconsEqual(left: Project["icon"], right: Project["icon"]): boole
   return left.glyph === right.glyph && left.color === right.color;
 }
 
+function recordsEqual(
+  left: Readonly<Record<string, string>>,
+  right: Readonly<Record<string, string>>,
+): boolean {
+  const leftEntries = Object.entries(left);
+  const rightEntries = Object.entries(right);
+  return (
+    leftEntries.length === rightEntries.length &&
+    leftEntries.every(([key, value]) => right[key] === value)
+  );
+}
+
 function projectScriptsEqual(
   left: ReadonlyArray<Project["scripts"][number]>,
   right: ReadonlyArray<Project["scripts"][number]>,
@@ -678,7 +703,9 @@ function projectScriptsEqual(
         leftScript.name === rightScript.name &&
         leftScript.command === rightScript.command &&
         leftScript.icon === rightScript.icon &&
-        leftScript.runOnWorktreeCreate === rightScript.runOnWorktreeCreate
+        leftScript.runOnWorktreeCreate === rightScript.runOnWorktreeCreate &&
+        leftScript.envFilePath === rightScript.envFilePath &&
+        recordsEqual(leftScript.env ?? {}, rightScript.env ?? {})
       );
     })
   );
@@ -757,6 +784,7 @@ function buildSidebarThreadSummary(
     branch: thread.branch,
     worktreePath: thread.worktreePath,
     ...(thread.handoff !== undefined ? { handoff: thread.handoff } : {}),
+    ...(thread.fork !== undefined ? { fork: thread.fork } : {}),
     latestUserMessageAt: getLatestUserMessageAt(thread.messages),
     hasPendingApprovals: derivePendingApprovals(thread.activities).length > 0,
     hasPendingUserInput: derivePendingUserInputs(thread.activities).length > 0,
@@ -778,11 +806,11 @@ function sidebarThreadSummariesEqual(
     left.projectId === right.projectId &&
     left.title === right.title &&
     left.interactionMode === right.interactionMode &&
-    left.session === right.session &&
+    sessionsEqual(left.session, right.session) &&
     left.createdAt === right.createdAt &&
     left.archivedAt === right.archivedAt &&
-    left.updatedAt === right.updatedAt &&
-    left.latestTurn === right.latestTurn &&
+    sidebarSummaryTimestampsEqual(left.updatedAt, right.updatedAt) &&
+    latestTurnsEqual(left.latestTurn, right.latestTurn) &&
     left.branch === right.branch &&
     left.worktreePath === right.worktreePath &&
     left.handoff?.sourceThreadId === right.handoff?.sourceThreadId &&
@@ -790,11 +818,34 @@ function sidebarThreadSummariesEqual(
     left.handoff?.toProvider === right.handoff?.toProvider &&
     left.handoff?.mode === right.handoff?.mode &&
     left.handoff?.createdAt === right.handoff?.createdAt &&
+    left.fork?.sourceThreadId === right.fork?.sourceThreadId &&
+    left.fork?.createdAt === right.fork?.createdAt &&
+    handoffsEqual(left.handoff, right.handoff) &&
     left.latestUserMessageAt === right.latestUserMessageAt &&
     left.hasPendingApprovals === right.hasPendingApprovals &&
     left.hasPendingUserInput === right.hasPendingUserInput &&
     left.isErrorDismissed === right.isErrorDismissed &&
     left.hasActionableProposedPlan === right.hasActionableProposedPlan
+  );
+}
+
+function sidebarSummaryTimestampsEqual(left: string | undefined, right: string | undefined) {
+  if (left === right) {
+    return true;
+  }
+  if (!left || !right) {
+    return false;
+  }
+
+  const leftMs = Date.parse(left);
+  const rightMs = Date.parse(right);
+  if (!Number.isFinite(leftMs) || !Number.isFinite(rightMs)) {
+    return false;
+  }
+
+  return (
+    Math.floor(leftMs / SIDEBAR_SUMMARY_TIMESTAMP_GRANULARITY_MS) ===
+    Math.floor(rightMs / SIDEBAR_SUMMARY_TIMESTAMP_GRANULARITY_MS)
   );
 }
 
@@ -1277,6 +1328,40 @@ function updateThreadState(
   };
 }
 
+function appendThreadActivities(
+  thread: Thread,
+  activities: ReadonlyArray<Thread["activities"][number]>,
+): Thread["activities"] {
+  let nextActivities = thread.activities;
+  for (const activity of activities) {
+    const shouldRetainActivity =
+      thread.historyLoaded !== false || shouldRetainLeanThreadActivity(activity);
+    if (!shouldRetainActivity) {
+      continue;
+    }
+    nextActivities = appendCompactedThreadActivity(nextActivities, activity, {
+      maxEntries: DEFAULT_MAX_THREAD_ACTIVITIES,
+    });
+  }
+  return nextActivities;
+}
+
+function applyThreadActivityBatch(
+  state: AppState,
+  threadId: ThreadId,
+  activities: ReadonlyArray<Thread["activities"][number]>,
+  updatedAt: string,
+): AppState {
+  if (activities.length === 0) {
+    return state;
+  }
+  return updateThreadState(state, threadId, (thread) => ({
+    ...thread,
+    activities: appendThreadActivities(thread, activities),
+    updatedAt,
+  }));
+}
+
 function applyProjectEvent(state: AppState, event: OrchestrationEvent): AppState | null {
   switch (event.type) {
     case "project.created": {
@@ -1351,6 +1436,7 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
         branch: event.payload.branch,
         worktreePath: event.payload.worktreePath,
         ...(event.payload.handoff !== undefined ? { handoff: event.payload.handoff } : {}),
+        ...(event.payload.fork !== undefined ? { fork: event.payload.fork } : {}),
         queuedComposerMessages: [],
         queuedSteerRequest: null,
         latestTurn: null,
@@ -1806,20 +1892,12 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
     }
 
     case "thread.activity-appended": {
-      return updateThreadState(state, event.payload.threadId, (thread) => {
-        const shouldRetainActivity =
-          thread.historyLoaded !== false || shouldRetainLeanThreadActivity(event.payload.activity);
-        const activities = !shouldRetainActivity
-          ? thread.activities
-          : appendCompactedThreadActivity(thread.activities, event.payload.activity, {
-              maxEntries: DEFAULT_MAX_THREAD_ACTIVITIES,
-            });
-        return {
-          ...thread,
-          activities,
-          updatedAt: event.occurredAt,
-        };
-      });
+      return applyThreadActivityBatch(
+        state,
+        event.payload.threadId,
+        [event.payload.activity],
+        event.occurredAt,
+      );
     }
 
     case "thread.approval-response-requested":
@@ -1842,28 +1920,31 @@ export function syncServerReadModel(
   const existingProjectsById = new Map(
     state.projects.map((project) => [project.id, project] as const),
   );
-  const projects = preserveProjectArrayIdentity(
-    state.projects,
-    readModel.projects
-      .filter((project) => project.deletedAt === null)
-      .map((project) =>
+  const nextProjects: Project[] = [];
+  for (const project of readModel.projects) {
+    if (project.deletedAt === null) {
+      nextProjects.push(
         mergeProjectPreservingIdentity(existingProjectsById.get(project.id), mapProject(project)),
-      ),
-  );
-  const threads = readModel.threads
-    .filter((thread) => thread.deletedAt === null)
-    .map((thread) => {
-      const mappedThread = mapThread(thread, options);
-      const nextThread = mergeThreadPreservingHydratedHistory(
-        existingThreadsById.get(thread.id),
-        mappedThread,
-        options === undefined || mappedThread.historyLoaded,
       );
-      if (options !== undefined && nextThread.historyLoaded !== false) {
-        primeHydratedThreadCache(thread);
-      }
-      return suppressDismissedThreadError(nextThread, state.dismissedThreadErrorKeysById);
-    });
+    }
+  }
+  const projects = preserveProjectArrayIdentity(state.projects, nextProjects);
+  const threads: AppState["threads"] = [];
+  for (const thread of readModel.threads) {
+    if (thread.deletedAt !== null) {
+      continue;
+    }
+    const mappedThread = mapThread(thread, options);
+    const nextThread = mergeThreadPreservingHydratedHistory(
+      existingThreadsById.get(thread.id),
+      mappedThread,
+      options === undefined || mappedThread.historyLoaded,
+    );
+    if (options !== undefined && nextThread.historyLoaded !== false) {
+      primeHydratedThreadCache(thread);
+    }
+    threads.push(suppressDismissedThreadError(nextThread, state.dismissedThreadErrorKeysById));
+  }
   const sidebarThreadsById = buildSidebarThreadsByIdPreserving(
     threads,
     state.dismissedThreadErrorKeysById,
@@ -1889,21 +1970,26 @@ export function mergeServerReadModel(
   readModel: OrchestrationReadModel,
   options?: SnapshotSyncOptions,
 ): AppState {
-  const incomingProjects = readModel.projects
-    .filter((project) => project.deletedAt === null)
-    .map((project) => mapProject(project));
-  const incomingThreads = readModel.threads
-    .filter((thread) => thread.deletedAt === null)
-    .map((thread) => {
-      const nextThread = suppressDismissedThreadError(
-        mapThread(thread, options),
-        state.dismissedThreadErrorKeysById,
-      );
-      if (options !== undefined && nextThread.historyLoaded !== false) {
-        primeHydratedThreadCache(thread);
-      }
-      return nextThread;
-    });
+  const incomingProjects: Project[] = [];
+  for (const project of readModel.projects) {
+    if (project.deletedAt === null) {
+      incomingProjects.push(mapProject(project));
+    }
+  }
+  const incomingThreads: AppState["threads"] = [];
+  for (const thread of readModel.threads) {
+    if (thread.deletedAt !== null) {
+      continue;
+    }
+    const nextThread = suppressDismissedThreadError(
+      mapThread(thread, options),
+      state.dismissedThreadErrorKeysById,
+    );
+    if (options !== undefined && nextThread.historyLoaded !== false) {
+      primeHydratedThreadCache(thread);
+    }
+    incomingThreads.push(nextThread);
+  }
 
   const projectsById = new Map(state.projects.map((project) => [project.id, project] as const));
   for (const project of incomingProjects) {
@@ -1938,7 +2024,7 @@ export function mergeServerReadModel(
   };
 }
 
-export function removeReadModelEntities(
+function removeReadModelEntities(
   state: AppState,
   input: {
     readonly projectIds: ReadonlyArray<ProjectId>;
@@ -2032,7 +2118,39 @@ export function applyOrchestrationEvents(
   if (events.length === 0) {
     return state;
   }
-  return events.reduce((nextState, event) => applyOrchestrationEvent(nextState, event), state);
+
+  let nextState = state;
+  for (let index = 0; index < events.length; index += 1) {
+    const event = events[index];
+    if (!event) {
+      continue;
+    }
+    if (event.type !== "thread.activity-appended") {
+      nextState = applyOrchestrationEvent(nextState, event);
+      continue;
+    }
+
+    const threadId = event.payload.threadId;
+    const activities = [event.payload.activity];
+    let updatedAt = event.occurredAt;
+    let nextIndex = index + 1;
+    while (nextIndex < events.length) {
+      const nextEvent = events[nextIndex];
+      if (
+        nextEvent?.type !== "thread.activity-appended" ||
+        nextEvent.payload.threadId !== threadId
+      ) {
+        break;
+      }
+      activities.push(nextEvent.payload.activity);
+      updatedAt = nextEvent.occurredAt;
+      nextIndex += 1;
+    }
+
+    nextState = applyThreadActivityBatch(nextState, threadId, activities, updatedAt);
+    index = nextIndex - 1;
+  }
+  return nextState;
 }
 
 export const selectProjectById =
@@ -2059,9 +2177,6 @@ export const selectSidebarThreadSummariesByProjectId = (
   projectId: ProjectId | null | undefined,
 ) => {
   let previousThreadIds: readonly ThreadId[] = EMPTY_THREAD_IDS;
-  let previousSidebarThreadsById: Readonly<
-    Record<string, SidebarThreadSummary | undefined>
-  > | null = null;
   let previousResult: readonly SidebarThreadSummary[] = EMPTY_SIDEBAR_THREAD_SUMMARIES;
 
   return (state: AppState): readonly SidebarThreadSummary[] => {
@@ -2070,8 +2185,18 @@ export const selectSidebarThreadSummariesByProjectId = (
     }
     const threadIds = state.threadIdsByProjectId[projectId] ?? EMPTY_THREAD_IDS;
     const sidebarThreadsById = state.sidebarThreadsById;
-    if (threadIds === previousThreadIds && sidebarThreadsById === previousSidebarThreadsById) {
-      return previousResult;
+    if (threadIds === previousThreadIds && threadIds.length === previousResult.length) {
+      let projectThreadsUnchanged = true;
+      for (let index = 0; index < threadIds.length; index += 1) {
+        const threadId = threadIds[index];
+        if (threadId === undefined || sidebarThreadsById[threadId] !== previousResult[index]) {
+          projectThreadsUnchanged = false;
+          break;
+        }
+      }
+      if (projectThreadsUnchanged) {
+        return previousResult;
+      }
     }
 
     let changed = threadIds.length !== previousResult.length;
@@ -2090,7 +2215,6 @@ export const selectSidebarThreadSummariesByProjectId = (
     }
 
     previousThreadIds = threadIds;
-    previousSidebarThreadsById = sidebarThreadsById;
     if (!changed && nextResult.length === previousResult.length) {
       return previousResult;
     }
@@ -2099,7 +2223,7 @@ export const selectSidebarThreadSummariesByProjectId = (
   };
 };
 
-export function setError(state: AppState, threadId: ThreadId, error: string | null): AppState {
+function setError(state: AppState, threadId: ThreadId, error: string | null): AppState {
   return updateThreadState(state, threadId, (t) => {
     if (t.error === error) return t;
     return { ...t, error };
@@ -2134,7 +2258,7 @@ export function dismissThreadError(state: AppState, threadId: ThreadId): AppStat
   return setError(nextState, threadId, null);
 }
 
-export function setThreadBranch(
+function setThreadBranch(
   state: AppState,
   threadId: ThreadId,
   branch: string | null,

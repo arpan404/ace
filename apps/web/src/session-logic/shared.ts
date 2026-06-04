@@ -50,9 +50,16 @@ export function asTrimmedString(value: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+const EMBEDDED_WORK_LOG_PATTERNS = (["intent", "goal", "explanation", "summary"] as const).map(
+  (key) => ({
+    key,
+    pattern: new RegExp(`["']${key}["']\\s*:\\s*["']([^"']+)["']`, "i"),
+  }),
+);
+
 function extractEmbeddedWorkLogText(value: string): string | null {
-  for (const key of ["intent", "goal", "explanation", "summary"] as const) {
-    const match = new RegExp(`["']${key}["']\\s*:\\s*["']([^"']+)["']`, "i").exec(value);
+  for (const { pattern } of EMBEDDED_WORK_LOG_PATTERNS) {
+    const match = pattern.exec(value);
     const extracted = asTrimmedString(match?.[1]);
     if (extracted) {
       return extracted;
@@ -86,6 +93,9 @@ function isGenericToolLabel(value: string | null): boolean {
   }
   const normalized = value.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
   return (
+    normalized === "." ||
+    normalized === "…" ||
+    normalized === "..." ||
     normalized === "tool" ||
     normalized === "tool call" ||
     normalized === "dynamic tool call" ||
@@ -176,7 +186,7 @@ function recognizedToolActionLabel(value: string | null): string | null {
   if (!value || looksLikePath(value)) {
     return null;
   }
-  if (/[{}\[\]:]/u.test(value)) {
+  if (/[{}[\]:]/u.test(value)) {
     return null;
   }
   const normalized = normalizeToolNameLabel(value);
@@ -242,9 +252,13 @@ function normalizeCommandValue(value: unknown): string | null {
   if (!Array.isArray(value)) {
     return null;
   }
-  const parts = value
-    .map((entry) => asTrimmedString(entry))
-    .filter((entry): entry is string => entry !== null);
+  const parts: string[] = [];
+  for (const entry of value) {
+    const normalized = asTrimmedString(entry);
+    if (normalized !== null) {
+      parts.push(normalized);
+    }
+  }
   return parts.length > 0 ? parts.join(" ") : null;
 }
 
@@ -257,6 +271,7 @@ export function extractToolCommand(payload: Record<string, unknown> | null): str
   const args = asRecord(data?.arguments);
   const rawInput = asRecord(data?.rawInput);
   const candidates = [
+    normalizeCommandValue(payload?.command),
     normalizeCommandValue(item?.command),
     normalizeCommandValue(itemInput?.command),
     normalizeCommandValue(itemResult?.command),
@@ -269,14 +284,30 @@ export function extractToolCommand(payload: Record<string, unknown> | null): str
     normalizeCommandValue(args?.cmd),
     normalizeCommandValue(rawInput?.command),
     normalizeCommandValue(rawInput?.cmd),
+    extractCommandFromToolDetail(asTrimmedString(payload?.detail)),
   ];
   return candidates.find((candidate) => candidate !== null) ?? null;
+}
+
+function extractCommandFromToolDetail(value: string | null): string | null {
+  if (!value) {
+    return null;
+  }
+  const match =
+    /^(?:bash|shell|exec|execute|run command|run shell command)\s*:\s*(?<command>.+)$/is.exec(
+      value.trim(),
+    );
+  return asTrimmedString(match?.groups?.command) ?? null;
 }
 
 export function extractToolTitle(payload: Record<string, unknown> | null): string | null {
   const data = asRecord(payload?.data);
   const rawTitle = typeof payload?.title === "string" ? sanitizeWorkLogText(payload.title) : null;
   const dataToolName = extractToolNameFromData(data);
+  const rawTitleActionLabel = recognizedToolActionLabel(rawTitle);
+  if (rawTitleActionLabel) {
+    return rawTitleActionLabel;
+  }
   if ((isGenericToolLabel(rawTitle) || looksLikePath(rawTitle)) && dataToolName) {
     return normalizeToolNameLabel(dataToolName);
   }
@@ -323,6 +354,7 @@ function collectToolSubjects(value: unknown, target: string[], seen: Set<string>
     "path",
     "filePath",
     "file_path",
+    "filepath",
     "filename",
     "relativePath",
     "absolutePath",
@@ -356,7 +388,7 @@ function collectToolSubjects(value: unknown, target: string[], seen: Set<string>
 }
 
 function parsePrefixedJsonToolDetail(value: string): string | null {
-  const match = /^(?<prefix>[A-Za-z][A-Za-z0-9 _.-]{0,80}):\s*(?<json>[\[{][\s\S]*[\]}])$/u.exec(
+  const match = /^(?<prefix>[A-Za-z][A-Za-z0-9 _.-]{0,80}):\s*(?<json>[[{][\s\S]*[\]}])$/u.exec(
     value.trim(),
   );
   if (!match?.groups) {
@@ -375,12 +407,48 @@ function parsePrefixedJsonToolDetail(value: string): string | null {
   return null;
 }
 
+function parseTaggedXmlToolDetail(value: string): string | null {
+  if (!/<[A-Za-z][A-Za-z0-9_-]*>/u.test(value)) {
+    return null;
+  }
+  const subjects: string[] = [];
+  const seen = new Set<string>();
+  for (const tag of [
+    "path",
+    "filePath",
+    "file_path",
+    "filename",
+    "relativePath",
+    "absolutePath",
+    "query",
+    "pattern",
+    "glob",
+    "url",
+    "uri",
+    "command",
+  ] as const) {
+    const escapedTag = tag.replaceAll("_", "[_-]?");
+    const pattern = new RegExp(`<${escapedTag}>\\s*([\\s\\S]*?)\\s*</${escapedTag}>`, "giu");
+    for (const match of value.matchAll(pattern)) {
+      pushToolSubject(subjects, seen, match[1]);
+      if (subjects.length >= 6) {
+        return `${subjects[0]} +${subjects.length - 1} more`;
+      }
+    }
+  }
+  if (subjects.length === 0) {
+    return null;
+  }
+  return subjects.length === 1 ? subjects[0]! : `${subjects[0]} +${subjects.length - 1} more`;
+}
+
 export function extractToolDetail(payload: Record<string, unknown> | null): string | null {
   const rawDetail = typeof payload?.detail === "string" ? payload.detail : null;
   if (rawDetail) {
     const sanitized = sanitizeWorkLogText(rawDetail);
     const parsedDetail = parsePrefixedJsonToolDetail(sanitized);
-    return parsedDetail ?? sanitized;
+    const taggedDetail = parseTaggedXmlToolDetail(sanitized);
+    return parsedDetail ?? taggedDetail ?? sanitized;
   }
 
   const subjects: string[] = [];

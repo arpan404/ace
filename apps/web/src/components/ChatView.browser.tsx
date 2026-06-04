@@ -1,3 +1,4 @@
+/* eslint-disable react-doctor/async-parallel -- Browser timing assertions are intentionally ordered for stable UI tests. */
 // Production CSS is part of the behavior under test because row height depends on it.
 import "../index.css";
 
@@ -1028,14 +1029,16 @@ async function waitForButtonContainingText(text: string): Promise<HTMLButtonElem
 }
 
 async function expectComposerActionsContained(): Promise<void> {
-  const footer = await waitForElement(
-    () => document.querySelector<HTMLElement>('[data-chat-composer-footer="true"]'),
-    "Unable to find composer footer.",
-  );
-  const actions = await waitForElement(
-    () => document.querySelector<HTMLElement>('[data-chat-composer-actions="right"]'),
-    "Unable to find composer actions container.",
-  );
+  const [footer, actions] = await Promise.all([
+    waitForElement(
+      () => document.querySelector<HTMLElement>('[data-chat-composer-footer="true"]'),
+      "Unable to find composer footer.",
+    ),
+    waitForElement(
+      () => document.querySelector<HTMLElement>('[data-chat-composer-actions="right"]'),
+      "Unable to find composer actions container.",
+    ),
+  ]);
 
   await vi.waitFor(
     () => {
@@ -1107,22 +1110,38 @@ function dispatchWorkspaceModeToggleShortcut(): void {
   );
 }
 
+function dispatchProjectScriptShortcut(key: string): void {
+  const useMetaForMod = isMacPlatform(navigator.platform);
+  window.dispatchEvent(
+    new KeyboardEvent("keydown", {
+      key,
+      metaKey: useMetaForMod,
+      ctrlKey: !useMetaForMod,
+      bubbles: true,
+      cancelable: true,
+    }),
+  );
+}
+
 async function triggerChatNewShortcutUntilPath(
   router: ReturnType<typeof getRouter>,
   predicate: (pathname: string) => boolean,
   errorMessage: string,
 ): Promise<string> {
-  let pathname = router.state.location.pathname;
   const deadline = Date.now() + 8_000;
-  while (Date.now() < deadline) {
-    dispatchChatNewShortcut();
-    await waitForLayout();
-    pathname = router.state.location.pathname;
+  const poll = async (): Promise<string> => {
+    const pathname = router.state.location.pathname;
     if (predicate(pathname)) {
       return pathname;
     }
-  }
-  throw new Error(`${errorMessage} Last path: ${pathname}`);
+    if (Date.now() >= deadline) {
+      throw new Error(`${errorMessage} Last path: ${pathname}`);
+    }
+    dispatchChatNewShortcut();
+    await waitForLayout();
+    return poll();
+  };
+  return poll();
 }
 
 async function waitForNewThreadShortcutLabel(): Promise<void> {
@@ -1243,13 +1262,15 @@ async function mountChatView(options: {
   await waitForProductionStyles();
 
   const host = document.createElement("div");
-  host.style.position = "fixed";
-  host.style.top = "0";
-  host.style.left = "0";
-  host.style.width = "100vw";
-  host.style.height = "100vh";
-  host.style.display = "grid";
-  host.style.overflow = "hidden";
+  Object.assign(host.style, {
+    position: "fixed",
+    top: "0",
+    left: "0",
+    width: "100vw",
+    height: "100vh",
+    display: "grid",
+    overflow: "hidden",
+  });
   document.body.append(host);
 
   const router = getRouter(
@@ -1279,8 +1300,10 @@ async function mountChatView(options: {
       await waitForProductionStyles();
     },
     setContainerSize: async (viewport) => {
-      host.style.width = `${viewport.width}px`;
-      host.style.height = `${viewport.height}px`;
+      Object.assign(host.style, {
+        width: `${viewport.width}px`,
+        height: `${viewport.height}px`,
+      });
       await waitForLayout();
     },
     router,
@@ -1430,7 +1453,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
         }
       > = [];
 
-      for (const viewport of TEXT_VIEWPORT_MATRIX) {
+      const measureViewportAtIndex = async (index: number): Promise<void> => {
+        if (index >= TEXT_VIEWPORT_MATRIX.length) {
+          return;
+        }
+        const viewport = TEXT_VIEWPORT_MATRIX[index]!;
         await mounted.setViewport(viewport);
         const measurement = await mounted.measureUserRow(targetMessageId);
         const estimatedHeightPx = estimateTimelineMessageHeight(
@@ -1443,7 +1470,9 @@ describe("ChatView timeline estimator parity (full app)", () => {
           viewport.textTolerancePx,
         );
         measurements.push({ ...measurement, viewport, estimatedHeightPx });
-      }
+        await measureViewportAtIndex(index + 1);
+      };
+      await measureViewportAtIndex(0);
 
       expect(
         new Set(measurements.map((measurement) => Math.round(measurement.timelineWidthMeasuredPx)))
@@ -1470,16 +1499,18 @@ describe("ChatView timeline estimator parity (full app)", () => {
       targetMessageId,
       targetText: userText,
     });
-    const desktopMeasurement = await measureUserRowAtViewport({
-      viewport: TEXT_VIEWPORT_MATRIX[0],
-      snapshot,
-      targetMessageId,
-    });
-    const mobileMeasurement = await measureUserRowAtViewport({
-      viewport: TEXT_VIEWPORT_MATRIX[2],
-      snapshot,
-      targetMessageId,
-    });
+    const [desktopMeasurement, mobileMeasurement] = await Promise.all([
+      measureUserRowAtViewport({
+        viewport: TEXT_VIEWPORT_MATRIX[0],
+        snapshot,
+        targetMessageId,
+      }),
+      measureUserRowAtViewport({
+        viewport: TEXT_VIEWPORT_MATRIX[2],
+        snapshot,
+        targetMessageId,
+      }),
+    ]);
 
     const estimatedDesktopPx = estimateTimelineMessageHeight(
       { role: "user", text: userText, attachments: [] },
@@ -2110,7 +2141,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
   });
 
   it("falls back to the first installed editor when the stored favorite is unavailable", async () => {
-    localStorage.setItem("ace:last-editor", JSON.stringify("vscodium"));
+    localStorage.setItem("ace:last-editor:v1", JSON.stringify("vscodium"));
     setDraftThreadWithoutWorktree();
 
     const mounted = await mountChatView({
@@ -2209,6 +2240,95 @@ describe("ChatView timeline estimator parity (full app)", () => {
             env: {
               ACE_PROJECT_ROOT: "/repo/project",
             },
+          });
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      await vi.waitFor(
+        () => {
+          const writeRequest = wsRequests.find(
+            (request) => request._tag === WS_METHODS.terminalWrite,
+          );
+          expect(writeRequest).toMatchObject({
+            _tag: WS_METHODS.terminalWrite,
+            threadId: THREAD_ID,
+            data: "bun run lint\r",
+          });
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("runs project scripts from dynamic action shortcuts", async () => {
+    useComposerDraftStore.setState({
+      draftThreadsByThreadId: {
+        [THREAD_ID]: {
+          projectId: PROJECT_ID,
+          createdAt: NOW_ISO,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: null,
+          envMode: "local",
+        },
+      },
+      projectDraftThreadIdByProjectId: {
+        [PROJECT_ID]: THREAD_ID,
+      },
+    });
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: withProjectScripts(createDraftOnlySnapshot(), [
+        {
+          id: "lint",
+          name: "Lint",
+          command: "bun run lint",
+          icon: "lint",
+          runOnWorktreeCreate: false,
+        },
+      ]),
+      configureFixture: (nextFixture) => {
+        nextFixture.serverConfig = {
+          ...nextFixture.serverConfig,
+          keybindings: [
+            {
+              command: "script.lint.run",
+              shortcut: {
+                key: "r",
+                metaKey: false,
+                ctrlKey: false,
+                shiftKey: false,
+                altKey: false,
+                modKey: true,
+              },
+              whenAst: {
+                type: "not",
+                node: { type: "identifier", name: "terminalFocus" },
+              },
+            },
+          ],
+        };
+      },
+    });
+
+    try {
+      await waitForServerConfigToApply();
+      dispatchProjectScriptShortcut("r");
+
+      await vi.waitFor(
+        () => {
+          const openRequest = wsRequests.find(
+            (request) => request._tag === WS_METHODS.terminalOpen,
+          );
+          expect(openRequest).toMatchObject({
+            _tag: WS_METHODS.terminalOpen,
+            threadId: THREAD_ID,
+            cwd: "/repo/project",
           });
         },
         { timeout: 8_000, interval: 16 },
@@ -3989,7 +4109,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("shows the runtime access mode beside Local in the bottom toolbar", async () => {
+  it("shows the runtime access mode in the composer input", async () => {
     const snapshot = createSnapshotForTargetUser({
       targetMessageId: "msg-user-runtime-mode-target" as MessageId,
       targetText: "runtime mode label target",
@@ -4014,8 +4134,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
     try {
       await waitForElement(
-        () => document.querySelector('[data-chat-branch-runtime-mode="approval-required"]'),
-        "Unable to find runtime mode control in branch toolbar.",
+        () => document.querySelector('[data-chat-composer-runtime-mode="approval-required"]'),
+        "Unable to find runtime mode control in composer input.",
       );
       const bodyText = document.body.textContent ?? "";
       expect(bodyText).toContain("Supervised");

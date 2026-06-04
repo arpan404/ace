@@ -59,31 +59,3 @@ export function useOrchestrationSnapshot(connection: ManagedConnection | null) {
 
   return { snapshot, loading, error, refresh };
 }
-
-/**
- * Hook to execute an orchestration command with loading state
- */
-export function useOrchestrationCommand(connection: ManagedConnection | null) {
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const execute = async (fn: () => Promise<void>) => {
-    if (!connection || connection.status.kind !== "connected") {
-      setError("Not connected");
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
-    try {
-      await fn();
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      setError(msg);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return { execute, loading, error };
-}

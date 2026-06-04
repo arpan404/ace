@@ -1,12 +1,12 @@
 "use client";
 
-import type { GitHubIssue } from "@ace/contracts";
 import { useQuery } from "@tanstack/react-query";
 import { CircleDotIcon, CircleXIcon, ExternalLinkIcon, XIcon } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 
 import { gitGitHubIssueThreadQueryOptions, gitGitHubIssuesQueryOptions } from "~/lib/gitReactQuery";
-import { IssueMarkdown, formatIssueRelativeTime } from "./IssueMarkdown";
+import { IssueMarkdown } from "./IssueMarkdown";
+import { formatIssueRelativeTime } from "./issueTime";
 import {
   GitHubIssuePreviewHeaderSkeleton,
   GitHubIssueThreadSkeleton,
@@ -29,8 +29,6 @@ export function GitHubIssuePreviewDialog({
   cwd,
   onOpenChange,
 }: GitHubIssuePreviewDialogProps) {
-  const [resolvedIssue, setResolvedIssue] = useState<GitHubIssue | null>(null);
-
   const issuesQuery = useQuery(
     gitGitHubIssuesQueryOptions({
       cwd,
@@ -45,10 +43,6 @@ export function GitHubIssuePreviewDialog({
     return issuesQuery.data?.issues?.find((i) => i.number === issueNumber) ?? null;
   }, [issuesQuery.data?.issues, issueNumber]);
 
-  useEffect(() => {
-    if (issueMetadata) setResolvedIssue(issueMetadata);
-  }, [issueMetadata]);
-
   const threadQuery = useQuery(
     gitGitHubIssueThreadQueryOptions({
       cwd,
@@ -57,7 +51,7 @@ export function GitHubIssuePreviewDialog({
     }),
   );
   const thread = threadQuery.data?.issue;
-  const displayIssue = resolvedIssue;
+  const displayIssue = issueMetadata;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

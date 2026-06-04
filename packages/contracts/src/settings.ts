@@ -101,10 +101,10 @@ export const ClientSettingsSchema = Schema.Struct({
   ),
   diffWordWrap: Schema.Boolean.pipe(Schema.withDecodingDefault(() => false)),
   hideCompletedWorkMessages: Schema.Boolean.pipe(Schema.withDecodingDefault(() => false)),
+  reliabilityUxEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(() => false)),
   editorLineNumbers: EditorLineNumbers.pipe(
     Schema.withDecodingDefault(() => DEFAULT_EDITOR_LINE_NUMBERS),
   ),
-  editorMinimap: Schema.Boolean.pipe(Schema.withDecodingDefault(() => false)),
   editorNeovimMode: Schema.Boolean.pipe(Schema.withDecodingDefault(() => false)),
   editorRenderWhitespace: Schema.Boolean.pipe(Schema.withDecodingDefault(() => false)),
   editorStickyScroll: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
@@ -171,6 +171,10 @@ const ProviderLaunchEnvValue = Schema.String.check(Schema.isMaxLength(8_192));
 const ProviderLaunchEnv = Schema.Record(ProviderLaunchEnvKey, ProviderLaunchEnvValue).check(
   Schema.isMaxProperties(128),
 );
+const GitSshKeyPassphraseByProjectRoot = Schema.Record(
+  TrimmedNonEmptyString.check(Schema.isMaxLength(4_096)),
+  TrimmedString.check(Schema.isMaxLength(8_192)),
+).check(Schema.isMaxProperties(512));
 
 const ProviderInstanceBaseSettings = Schema.Struct({
   id: ProviderInstanceId,
@@ -312,6 +316,9 @@ export const ServerSettings = Schema.Struct({
   enableToolStreaming: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
   enableThinkingStreaming: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
   gitSshKeyPassphrase: TrimmedString.pipe(Schema.withDecodingDefault(() => "")),
+  gitSshKeyPassphraseByProjectRoot: GitSshKeyPassphraseByProjectRoot.pipe(
+    Schema.withDecodingDefault(() => ({})),
+  ),
   notifyOnAgentCompletion: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
   notifyOnApprovalRequired: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
   notifyOnUserInputRequired: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
@@ -597,6 +604,7 @@ export const ServerSettingsPatch = Schema.Struct({
   enableToolStreaming: Schema.optionalKey(Schema.Boolean),
   enableThinkingStreaming: Schema.optionalKey(Schema.Boolean),
   gitSshKeyPassphrase: Schema.optionalKey(TrimmedString),
+  gitSshKeyPassphraseByProjectRoot: Schema.optionalKey(GitSshKeyPassphraseByProjectRoot),
   notifyOnAgentCompletion: Schema.optionalKey(Schema.Boolean),
   notifyOnApprovalRequired: Schema.optionalKey(Schema.Boolean),
   notifyOnUserInputRequired: Schema.optionalKey(Schema.Boolean),

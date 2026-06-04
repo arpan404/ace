@@ -1,4 +1,5 @@
 import {
+  DownloadIcon,
   InfoIcon,
   LoaderIcon,
   PlusIcon,
@@ -7,14 +8,14 @@ import {
   Undo2Icon,
   XIcon,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useReducer } from "react";
+import { ScrollArea } from "~/components/ui/scroll-area";
 import type { Dispatch, MutableRefObject, ReactNode, SetStateAction } from "react";
-import {
-  PROVIDER_DISPLAY_NAMES,
-  type ProviderKind,
-  type ServerProvider,
-  type ServerProviderModel,
-  type ServerProviderRuntime,
+import type {
+  ProviderKind,
+  ServerProvider,
+  ServerProviderModel,
+  ServerProviderRuntime,
 } from "@ace/contracts";
 import { type UnifiedSettings, DEFAULT_UNIFIED_SETTINGS } from "@ace/contracts/settings";
 import { formatProviderModelDisplayName, normalizeModelSlug } from "@ace/shared/model";
@@ -25,10 +26,12 @@ import { MAX_CUSTOM_MODEL_LENGTH } from "../../modelSelection";
 import {
   PROVIDER_INSTANCE_BADGE_COLORS,
   PROVIDER_INSTANCE_BADGE_ICONS,
-  ProviderInstanceBadge,
-  ProviderInstanceBadgeIconGlyph,
   normalizeProviderInstanceBadgeColor,
   normalizeProviderInstanceBadgeIcon,
+} from "../../providerInstanceBadgeOptions";
+import {
+  ProviderInstanceBadge,
+  ProviderInstanceBadgeIconGlyph,
 } from "../../providerInstanceBadges";
 import { Button } from "../ui/button";
 import {
@@ -58,6 +61,7 @@ import {
   ProviderLastChecked,
   SettingsSection,
   SettingResetButton,
+  getProviderVersionLabel,
 } from "./SettingsPanelPrimitives";
 
 interface ProviderStatusStyle {
@@ -90,6 +94,16 @@ const PROVIDER_LOGO_BY_PROVIDER: Record<ProviderKind, Icon> = {
   opencode: OpenCodeIcon,
 };
 
+const PROVIDER_DISPLAY_NAMES: Record<ProviderKind, string> = {
+  codex: "Codex",
+  claudeAgent: "Claude",
+  githubCopilot: "Copilot",
+  cursor: "Cursor",
+  pi: "Pi",
+  gemini: "Gemini",
+  opencode: "OpenCode",
+};
+
 export interface ProviderCard {
   provider: ProviderKind;
   title: string;
@@ -106,6 +120,8 @@ export interface ProviderCard {
   runtimes?: ReadonlyArray<ServerProviderRuntime> | undefined;
   statusStyle: ProviderStatusStyle;
   summary: ProviderSummary;
+  latestVersionLabel: string | null;
+  updateStatus: ServerProvider["updateStatus"];
   versionLabel: string | null;
 }
 
@@ -123,6 +139,22 @@ interface AddProviderDraft {
   provider: ProviderKind;
 }
 
+type ProviderSettingsSectionState = {
+  draftProviders: UnifiedSettings["providers"];
+  selectedEntryKey: string;
+  addProviderOpen: boolean;
+  addProviderStep: AddProviderStep;
+  addProviderDraft: AddProviderDraft;
+};
+
+type ProviderSettingsSectionAction =
+  | { type: "set-draft-providers"; draftProviders: UnifiedSettings["providers"] }
+  | { type: "set-selected-entry-key"; selectedEntryKey: string }
+  | { type: "set-add-provider-open"; addProviderOpen: boolean }
+  | { type: "set-add-provider-step"; addProviderStep: AddProviderStep }
+  | { type: "set-add-provider-draft"; addProviderDraft: AddProviderDraft }
+  | { type: "update-add-provider-draft"; updater: (draft: AddProviderDraft) => AddProviderDraft };
+
 const ADD_PROVIDER_STEPS: ReadonlyArray<{
   id: AddProviderStep;
   label: string;
@@ -131,6 +163,40 @@ const ADD_PROVIDER_STEPS: ReadonlyArray<{
   { id: "setup", label: "Setup" },
   { id: "review", label: "Review" },
 ];
+
+function providerSettingsSectionStateReducer(
+  state: ProviderSettingsSectionState,
+  action: ProviderSettingsSectionAction,
+): ProviderSettingsSectionState {
+  switch (action.type) {
+    case "set-draft-providers":
+      return state.draftProviders === action.draftProviders
+        ? state
+        : { ...state, draftProviders: action.draftProviders };
+    case "set-selected-entry-key":
+      return state.selectedEntryKey === action.selectedEntryKey
+        ? state
+        : { ...state, selectedEntryKey: action.selectedEntryKey };
+    case "set-add-provider-open":
+      return state.addProviderOpen === action.addProviderOpen
+        ? state
+        : { ...state, addProviderOpen: action.addProviderOpen };
+    case "set-add-provider-step":
+      return state.addProviderStep === action.addProviderStep
+        ? state
+        : { ...state, addProviderStep: action.addProviderStep };
+    case "set-add-provider-draft":
+      return state.addProviderDraft === action.addProviderDraft
+        ? state
+        : { ...state, addProviderDraft: action.addProviderDraft };
+    case "update-add-provider-draft": {
+      const nextDraft = action.updater(state.addProviderDraft);
+      return nextDraft === state.addProviderDraft
+        ? state
+        : { ...state, addProviderDraft: nextDraft };
+    }
+  }
+}
 
 function resolveCustomModelPlaceholder(provider: ProviderKind): string {
   switch (provider) {
@@ -158,11 +224,11 @@ function parseLaunchEnv(value: string): Record<string, string> {
   for (const rawLine of value.split("\n")) {
     const line = rawLine.trim();
     if (!line || line.startsWith("#")) continue;
-    const separatorIndex = line.indexOf("=");
-    if (separatorIndex <= 0) continue;
-    const key = line.slice(0, separatorIndex).trim();
+    const [keyPart, ...valueParts] = line.split("=");
+    if (!keyPart || valueParts.length === 0) continue;
+    const key = keyPart.trim();
     if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) continue;
-    env[key] = line.slice(separatorIndex + 1);
+    env[key] = valueParts.join("=");
   }
   return env;
 }
@@ -324,7 +390,20 @@ function resolveProviderCardSnapshot(
   );
 }
 
-export function ProviderSettingsSection({
+function getCliUpdateStatusLabel(
+  updateStatus: ServerProvider["updateStatus"],
+  latestVersionLabel: string | null,
+): string | null {
+  if (updateStatus === "up-to-date") {
+    return "Up to date";
+  }
+  if (updateStatus === "update-available") {
+    return latestVersionLabel ? `Version ${latestVersionLabel} available` : "Update available";
+  }
+  return null;
+}
+
+function useProviderSettingsSectionComponent({
   customModelErrorByProvider,
   customModelInputByProvider,
   isRefreshingProviders,
@@ -359,17 +438,24 @@ export function ProviderSettingsSection({
   upgradeProviderCli: (provider: ProviderKind, runtimeId: string) => void;
   updateSettings: (patch: Partial<UnifiedSettings>) => void;
 }) {
-  const [draftProviders, setDraftProviders] = useState(() => settings.providers);
-  const [selectedEntryKey, setSelectedEntryKey] = useState(() =>
-    providerEntryKey(providerCards[0]?.provider ?? "codex"),
+  const [sectionState, dispatchSectionState] = useReducer(
+    providerSettingsSectionStateReducer,
+    undefined,
+    (): ProviderSettingsSectionState => ({
+      draftProviders: settings.providers,
+      selectedEntryKey: providerEntryKey(providerCards[0]?.provider ?? "codex"),
+      addProviderOpen: false,
+      addProviderStep: "provider",
+      addProviderDraft: createAddProviderDraft(
+        providerCards[0]?.provider ?? "codex",
+        settings.providers,
+      ),
+    }),
   );
-  const [addProviderOpen, setAddProviderOpen] = useState(false);
-  const [addProviderStep, setAddProviderStep] = useState<AddProviderStep>("provider");
-  const [addProviderDraft, setAddProviderDraft] = useState(() =>
-    createAddProviderDraft(providerCards[0]?.provider ?? "codex", settings.providers),
-  );
+  const { addProviderDraft, addProviderOpen, addProviderStep, draftProviders, selectedEntryKey } =
+    sectionState;
   useEffect(() => {
-    setDraftProviders(settings.providers);
+    dispatchSectionState({ type: "set-draft-providers", draftProviders: settings.providers });
   }, [settings.providers]);
   const providerEntries = useMemo(
     () => buildProviderSettingsEntries(providerCards, draftProviders),
@@ -381,7 +467,7 @@ export function ProviderSettingsSection({
     }
     const firstEntry = providerEntries[0];
     if (firstEntry) {
-      setSelectedEntryKey(firstEntry.key);
+      dispatchSectionState({ type: "set-selected-entry-key", selectedEntryKey: firstEntry.key });
     }
   }, [providerEntries, selectedEntryKey]);
 
@@ -393,10 +479,13 @@ export function ProviderSettingsSection({
     provider: TProvider,
     config: UnifiedSettings["providers"][TProvider],
   ) => {
-    setDraftProviders((existing) => ({
-      ...existing,
-      [provider]: config,
-    }));
+    dispatchSectionState({
+      type: "set-draft-providers",
+      draftProviders: {
+        ...draftProviders,
+        [provider]: config,
+      },
+    });
   };
 
   const saveProviderDraft = () => {
@@ -414,7 +503,7 @@ export function ProviderSettingsSection({
   };
 
   const revertProviderDraft = () => {
-    setDraftProviders(settings.providers);
+    dispatchSectionState({ type: "set-draft-providers", draftProviders: settings.providers });
   };
 
   const addProviderInstance = (draft: AddProviderDraft) => {
@@ -451,8 +540,11 @@ export function ProviderSettingsSection({
       ...providerConfig,
       instances: [...providerConfig.instances, nextInstance],
     } as UnifiedSettings["providers"][typeof provider]);
-    setSelectedEntryKey(providerEntryKey(provider, instanceId));
-    setAddProviderOpen(false);
+    dispatchSectionState({
+      type: "set-selected-entry-key",
+      selectedEntryKey: providerEntryKey(provider, instanceId),
+    });
+    dispatchSectionState({ type: "set-add-provider-open", addProviderOpen: false });
   };
 
   const updateProviderInstance = (
@@ -487,6 +579,7 @@ export function ProviderSettingsSection({
       ? providerConfig.instances.find((instance) => instance.id === providerInstanceId)
       : undefined;
     const customModels = providerInstance?.customModels ?? providerConfig.customModels;
+    const customModelSet = new Set(customModels);
     const normalized = normalizeModelSlug(customModelInput, provider);
     if (!normalized) {
       setCustomModelErrorByProvider((existing) => ({
@@ -509,7 +602,7 @@ export function ProviderSettingsSection({
       }));
       return;
     }
-    if (customModels.includes(normalized)) {
+    if (customModelSet.has(normalized)) {
       setCustomModelErrorByProvider((existing) => ({
         ...existing,
         [provider]: "That custom model is already added.",
@@ -618,6 +711,17 @@ export function ProviderSettingsSection({
     providerCard,
     selectedProviderEntry.instanceId,
   );
+  const selectedVersionLabel =
+    getProviderVersionLabel(selectedSnapshot?.version) ?? providerCard.versionLabel;
+  const selectedLatestVersionLabel =
+    getProviderVersionLabel(selectedSnapshot?.latestVersion) ?? providerCard.latestVersionLabel;
+  const selectedUpdateStatus = selectedSnapshot?.updateStatus ?? providerCard.updateStatus;
+  const selectedUpdateStatusLabel = getCliUpdateStatusLabel(
+    selectedUpdateStatus,
+    selectedLatestVersionLabel,
+  );
+  const canUpdateSelectedCli =
+    providerCard.canUpgradeCli && selectedUpdateStatus === "update-available";
   const selectedCustomModels = selectedInstance?.customModels ?? draftConfig.customModels;
   const selectedEntryConfig = (selectedInstance ?? draftConfig) as Record<string, unknown>;
   const selectedPathLabel = instancePathLabel(providerCard.provider);
@@ -648,8 +752,9 @@ export function ProviderSettingsSection({
     } as UnifiedSettings["providers"][typeof providerCard.provider]);
   };
   const baseModels = selectedSnapshot?.models ?? providerCard.models;
+  const selectedCustomModelSet = new Set(selectedCustomModels);
   const displayedModels = baseModels.filter(
-    (model) => !model.isCustom || selectedCustomModels.includes(model.slug),
+    (model) => !model.isCustom || selectedCustomModelSet.has(model.slug),
   );
   for (const slug of selectedCustomModels) {
     if (displayedModels.some((model) => model.slug === slug)) continue;
@@ -678,30 +783,36 @@ export function ProviderSettingsSection({
   );
   const canCreateProviderDraft = addProviderDraft.label.trim().length > 0;
   const resetAddProviderDialog = (provider: ProviderKind) => {
-    setAddProviderDraft(createAddProviderDraft(provider, draftProviders));
-    setAddProviderStep("provider");
+    dispatchSectionState({
+      type: "set-add-provider-draft",
+      addProviderDraft: createAddProviderDraft(provider, draftProviders),
+    });
+    dispatchSectionState({ type: "set-add-provider-step", addProviderStep: "provider" });
   };
   const openAddProviderDialog = () => {
     resetAddProviderDialog(selectedProviderEntry.provider);
-    setAddProviderOpen(true);
+    dispatchSectionState({ type: "set-add-provider-open", addProviderOpen: true });
   };
   const closeAddProviderDialog = () => {
-    setAddProviderOpen(false);
+    dispatchSectionState({ type: "set-add-provider-open", addProviderOpen: false });
   };
   const selectAddProvider = (provider: ProviderKind) => {
-    setAddProviderDraft(createAddProviderDraft(provider, draftProviders));
+    dispatchSectionState({
+      type: "set-add-provider-draft",
+      addProviderDraft: createAddProviderDraft(provider, draftProviders),
+    });
   };
   const goToPreviousAddProviderStep = () => {
     const previousStep = ADD_PROVIDER_STEPS[Math.max(0, addProviderCurrentStepIndex - 1)];
     if (previousStep) {
-      setAddProviderStep(previousStep.id);
+      dispatchSectionState({ type: "set-add-provider-step", addProviderStep: previousStep.id });
     }
   };
   const goToNextAddProviderStep = () => {
     const nextStep =
       ADD_PROVIDER_STEPS[Math.min(ADD_PROVIDER_STEPS.length - 1, addProviderCurrentStepIndex + 1)];
     if (nextStep) {
-      setAddProviderStep(nextStep.id);
+      dispatchSectionState({ type: "set-add-provider-step", addProviderStep: nextStep.id });
     }
   };
 
@@ -764,7 +875,7 @@ export function ProviderSettingsSection({
                   className="size-7 rounded-[var(--control-radius)] text-muted-foreground/70 hover:text-foreground disabled:text-muted-foreground/35"
                   disabled={isRefreshingProviders}
                   onClick={() => void refreshProviders()}
-                  aria-label="Refresh provider status"
+                  aria-label="Check CLI status"
                 >
                   {isRefreshingProviders ? (
                     <LoaderIcon className="size-3.5 animate-spin" />
@@ -774,13 +885,40 @@ export function ProviderSettingsSection({
                 </Button>
               }
             />
-            <TooltipPopup side="top">Refresh provider status</TooltipPopup>
+            <TooltipPopup side="top">Check CLI status</TooltipPopup>
           </Tooltip>
+          {canUpdateSelectedCli ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="size-7 rounded-[var(--control-radius)] text-muted-foreground/70 hover:text-foreground disabled:text-muted-foreground/35"
+                    disabled={isUpgrading || isRefreshingProviders}
+                    onClick={() => upgradeProviderCli(providerCard.provider, providerCard.provider)}
+                    aria-label={`Update ${providerDisplayName} CLI`}
+                  >
+                    {isUpgrading ? (
+                      <LoaderIcon className="size-3.5 animate-spin" />
+                    ) : (
+                      <DownloadIcon className="size-3.5" />
+                    )}
+                  </Button>
+                }
+              />
+              <TooltipPopup side="top">
+                {isUpgrading
+                  ? `Updating ${providerDisplayName} CLI`
+                  : `Update ${providerDisplayName} CLI`}
+              </TooltipPopup>
+            </Tooltip>
+          ) : null}
         </div>
       }
     >
-      <div className="grid min-h-[34rem] overflow-hidden md:grid-cols-[13.5rem_minmax(0,1fr)]">
-        <div className="border-b border-border/35 bg-muted/[0.08] p-2 md:border-r md:border-b-0">
+      <div className="grid min-h-[34rem] gap-4 md:grid-cols-[13.5rem_minmax(0,1fr)]">
+        <div className="py-2 md:pr-2">
           <Button
             size="sm"
             variant="outline"
@@ -793,7 +931,7 @@ export function ProviderSettingsSection({
             Add provider
           </Button>
 
-          <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3 md:grid-cols-1">
+          <div className="grid grid-cols-2 gap-1 sm:grid-cols-3 md:grid-cols-1">
             {providerEntries.map((entry) => {
               const railProviderCard =
                 providerCards.find((candidate) => candidate.provider === entry.provider) ??
@@ -807,19 +945,24 @@ export function ProviderSettingsSection({
                   key={entry.key}
                   type="button"
                   className={cn(
-                    "group flex min-w-0 items-center gap-2 rounded-[var(--control-radius)] border px-2 py-2 text-left transition-colors",
+                    "group flex min-w-0 items-center gap-2 px-1.5 py-2 text-left transition-colors",
                     isSelected
-                      ? "border-border/50 bg-background/72 text-foreground"
-                      : "border-transparent bg-transparent text-muted-foreground hover:bg-background/45 hover:text-foreground/90",
+                      ? "text-foreground"
+                      : "text-muted-foreground hover:bg-foreground/[0.012] hover:text-foreground/90",
                   )}
-                  onClick={() => setSelectedEntryKey(entry.key)}
+                  onClick={() =>
+                    dispatchSectionState({
+                      type: "set-selected-entry-key",
+                      selectedEntryKey: entry.key,
+                    })
+                  }
                 >
                   <span
                     className={cn(
-                      "relative flex size-7 shrink-0 items-center justify-center rounded-[var(--control-radius)] border transition-colors",
+                      "relative flex size-7 shrink-0 items-center justify-center rounded-[var(--control-radius)] transition-colors",
                       isSelected
-                        ? "border-border/55 bg-background text-foreground"
-                        : "border-border/35 bg-background/45 text-muted-foreground",
+                        ? "bg-foreground/[0.08] text-foreground"
+                        : "bg-transparent text-muted-foreground",
                     )}
                   >
                     <RailLogo className="size-3.5" />
@@ -852,10 +995,10 @@ export function ProviderSettingsSection({
         </div>
 
         <div className="min-w-0">
-          <div className="border-b border-border/35 bg-muted/[0.08] px-3 py-3 sm:px-4">
+          <div className="px-0 py-3 md:pl-3">
             <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
               <div className="flex min-w-0 gap-3">
-                <div className="flex size-10 shrink-0 items-center justify-center rounded-[var(--control-radius)] border border-border/45 bg-background/60">
+                <div className="flex size-10 shrink-0 items-center justify-center rounded-[var(--control-radius)] bg-foreground/[0.06]">
                   <ProviderLogo className="size-5 text-foreground" />
                 </div>
                 <div className="min-w-0 space-y-1">
@@ -864,14 +1007,26 @@ export function ProviderSettingsSection({
                       {providerDisplayName}
                     </h3>
                     {selectedProviderEntry.accountLabel ? (
-                      <span className="rounded-full border border-border/45 bg-background/55 px-2 py-0.5 text-[11px] text-muted-foreground">
+                      <span className="rounded-full bg-foreground/[0.06] px-2 py-0.5 text-[11px] text-muted-foreground">
                         {selectedProviderEntry.accountLabel}
                       </span>
                     ) : null}
-                    {providerCard.versionLabel ? (
-                      <code className="rounded border border-border/40 bg-background/60 px-1.5 py-0.5 text-[11px] text-muted-foreground">
-                        {providerCard.versionLabel}
+                    {selectedVersionLabel ? (
+                      <code className="rounded bg-foreground/[0.06] px-1.5 py-0.5 text-[11px] text-muted-foreground">
+                        {selectedVersionLabel}
                       </code>
+                    ) : null}
+                    {selectedUpdateStatusLabel ? (
+                      <span
+                        className={cn(
+                          "rounded border px-1.5 py-0.5 text-[11px] font-medium",
+                          selectedUpdateStatus === "update-available"
+                            ? "border-warning/35 bg-warning/10 text-warning-foreground"
+                            : "border-border/30 bg-transparent text-muted-foreground",
+                        )}
+                      >
+                        {selectedUpdateStatusLabel}
+                      </span>
                     ) : null}
                     {isDraftDefaultDirty ? (
                       <SettingResetButton
@@ -906,27 +1061,14 @@ export function ProviderSettingsSection({
                     className="size-8 rounded-[var(--control-radius)] text-muted-foreground/60 hover:text-foreground"
                     onClick={() => {
                       removeProviderInstance(providerCard, selectedInstance.id);
-                      setSelectedEntryKey(providerEntryKey(providerCard.provider));
+                      dispatchSectionState({
+                        type: "set-selected-entry-key",
+                        selectedEntryKey: providerEntryKey(providerCard.provider),
+                      });
                     }}
                     aria-label={`Remove ${selectedInstance.label}`}
                   >
                     <XIcon className="size-3.5" />
-                  </Button>
-                ) : null}
-                {providerCard.canUpgradeCli ? (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-8 rounded-[var(--control-radius)] gap-1.5 px-2 text-xs"
-                    disabled={isUpgrading}
-                    onClick={() => upgradeProviderCli(providerCard.provider, providerCard.provider)}
-                  >
-                    {isUpgrading ? (
-                      <LoaderIcon className="size-3 animate-spin" />
-                    ) : (
-                      <RefreshCwIcon className="size-3" />
-                    )}
-                    {isUpgrading ? "Upgrading" : "Upgrade CLI"}
                   </Button>
                 ) : null}
                 <Switch
@@ -940,16 +1082,20 @@ export function ProviderSettingsSection({
             </div>
           </div>
 
-          <div className="space-y-3 p-3">
+          <div className="space-y-0 md:pl-3">
             {selectedInstance ? (
-              <section className="rounded-[var(--control-radius)] border border-border/45 bg-background/45">
-                <div className="border-b border-border/35 px-3 py-2">
+              <section>
+                <div className="px-0 py-3">
                   <div className="text-xs font-semibold text-foreground/90">Identity</div>
                 </div>
-                <div className="grid gap-3 p-3 lg:grid-cols-[minmax(0,16rem)_minmax(0,1fr)]">
-                  <label className="block">
+                <div className="grid gap-3 pb-4 lg:grid-cols-[minmax(0,16rem)_minmax(0,1fr)]">
+                  <label
+                    htmlFor={`provider-instance-${providerCard.provider}-name`}
+                    className="block"
+                  >
                     <span className="text-[11px] font-medium text-foreground/75">Name</span>
                     <Input
+                      id={`provider-instance-${providerCard.provider}-name`}
                       className="mt-1"
                       value={selectedInstance.label}
                       onChange={(event) =>
@@ -964,7 +1110,7 @@ export function ProviderSettingsSection({
                   <div className="grid gap-2 sm:grid-cols-2">
                     <div>
                       <div className="mb-1 text-[11px] font-medium text-foreground/75">Icon</div>
-                      <div className="flex flex-wrap items-center gap-1 rounded-[var(--control-radius)] border border-border/35 bg-background/40 p-1">
+                      <div className="flex flex-wrap items-center gap-1 py-1">
                         {PROVIDER_INSTANCE_BADGE_ICONS.map((badgeIcon) => {
                           const selectedIcon =
                             normalizeProviderInstanceBadgeIcon(selectedInstance.badgeIcon) ===
@@ -1002,7 +1148,7 @@ export function ProviderSettingsSection({
 
                     <div>
                       <div className="mb-1 text-[11px] font-medium text-foreground/75">Color</div>
-                      <div className="flex flex-wrap items-center gap-1 rounded-[var(--control-radius)] border border-border/35 bg-background/40 p-1">
+                      <div className="flex flex-wrap items-center gap-1 py-1">
                         {PROVIDER_INSTANCE_BADGE_COLORS.map((badgeColor) => {
                           const selectedColor =
                             normalizeProviderInstanceBadgeColor(selectedInstance.badgeColor) ===
@@ -1043,12 +1189,15 @@ export function ProviderSettingsSection({
               </section>
             ) : null}
 
-            <section className="rounded-[var(--control-radius)] border border-border/45 bg-background/45">
-              <div className="border-b border-border/35 px-3 py-2">
+            <section>
+              <div className="px-0 py-3">
                 <div className="text-xs font-semibold text-foreground/90">Launch</div>
               </div>
-              <div className="grid gap-3 p-3 md:grid-cols-2">
-                <label className="block">
+              <div className="grid gap-3 pb-4 md:grid-cols-2">
+                <label
+                  htmlFor={`provider-install-${providerCard.provider}-binary-path`}
+                  className="block"
+                >
                   <span className="text-[11px] font-medium text-foreground/75">Binary path</span>
                   <Input
                     id={`provider-install-${providerCard.provider}-binary-path`}
@@ -1068,11 +1217,15 @@ export function ProviderSettingsSection({
                 </label>
 
                 {providerCard.provider === "githubCopilot" ? (
-                  <label className="block">
+                  <label
+                    htmlFor={`provider-install-${providerCard.provider}-cli-url`}
+                    className="block"
+                  >
                     <span className="text-[11px] font-medium text-foreground/75">
                       CLI server URL
                     </span>
                     <Input
+                      id={`provider-install-${providerCard.provider}-cli-url`}
                       className="mt-1"
                       value={selectedCliUrlValue}
                       onChange={(event) =>
@@ -1092,11 +1245,15 @@ export function ProviderSettingsSection({
                 ) : null}
 
                 {selectedPathLabel ? (
-                  <label className="block">
+                  <label
+                    htmlFor={`provider-install-${providerCard.provider}-path`}
+                    className="block"
+                  >
                     <span className="text-[11px] font-medium text-foreground/75">
                       {selectedPathLabel}
                     </span>
                     <Input
+                      id={`provider-install-${providerCard.provider}-path`}
                       className="mt-1"
                       value={selectedPathValue}
                       onChange={(event) => {
@@ -1120,9 +1277,13 @@ export function ProviderSettingsSection({
                   </label>
                 ) : null}
 
-                <label className="block md:col-span-2">
+                <label
+                  htmlFor={`provider-install-${providerCard.provider}-launch-env`}
+                  className="block md:col-span-2"
+                >
                   <span className="text-[11px] font-medium text-foreground/75">Launch env</span>
                   <Textarea
+                    id={`provider-install-${providerCard.provider}-launch-env`}
                     className="mt-1"
                     size="sm"
                     value={formatLaunchEnv(selectedLaunchEnv)}
@@ -1140,7 +1301,7 @@ export function ProviderSettingsSection({
               </div>
 
               {providerCard.runtimes && providerCard.runtimes.length > 0 ? (
-                <div className="border-t border-border/35 px-3 py-3">
+                <div className="py-3">
                   <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/55">
                     Runtimes
                   </div>
@@ -1150,10 +1311,19 @@ export function ProviderSettingsSection({
                         providerCard.provider,
                         runtime.id,
                       );
+                      const runtimeLatestVersionLabel = getProviderVersionLabel(
+                        runtime.latestVersion,
+                      );
+                      const runtimeUpdateStatusLabel = getCliUpdateStatusLabel(
+                        runtime.updateStatus,
+                        runtimeLatestVersionLabel,
+                      );
+                      const canUpdateRuntime =
+                        runtime.upgradeable && runtime.updateStatus === "update-available";
                       return (
                         <div
                           key={`${providerCard.provider}:${runtime.id}`}
-                          className="flex items-center justify-between gap-3 rounded-[var(--control-radius)] border border-border/35 bg-muted/20 px-3 py-2"
+                          className="flex items-center justify-between gap-3 px-0.5 py-2 transition-colors hover:bg-foreground/[0.012]"
                         >
                           <div className="min-w-0">
                             <div className="flex items-center gap-2">
@@ -1165,26 +1335,47 @@ export function ProviderSettingsSection({
                                   {runtime.version}
                                 </code>
                               ) : null}
+                              {runtimeUpdateStatusLabel ? (
+                                <span
+                                  className={cn(
+                                    "text-[11px] font-medium",
+                                    runtime.updateStatus === "update-available"
+                                      ? "text-warning-foreground"
+                                      : "text-muted-foreground/60",
+                                  )}
+                                >
+                                  {runtimeUpdateStatusLabel}
+                                </span>
+                              ) : null}
                             </div>
                             <div className="truncate text-[11px] text-muted-foreground/60">
                               {runtime.binaryPath}
                             </div>
                           </div>
-                          {runtime.upgradeable ? (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-7 rounded-[var(--control-radius)] gap-1.5 px-2 text-xs"
-                              disabled={upgradingRuntime}
-                              onClick={() => upgradeProviderCli(providerCard.provider, runtime.id)}
-                            >
-                              {upgradingRuntime ? (
-                                <LoaderIcon className="size-3 animate-spin" />
-                              ) : (
-                                <RefreshCwIcon className="size-3" />
-                              )}
-                              Upgrade
-                            </Button>
+                          {canUpdateRuntime ? (
+                            <Tooltip>
+                              <TooltipTrigger
+                                render={
+                                  <Button
+                                    size="icon"
+                                    variant="outline"
+                                    className="size-7 rounded-[var(--control-radius)] text-muted-foreground/70 hover:text-foreground"
+                                    disabled={upgradingRuntime}
+                                    onClick={() =>
+                                      upgradeProviderCli(providerCard.provider, runtime.id)
+                                    }
+                                    aria-label={`Update ${runtime.label}`}
+                                  >
+                                    {upgradingRuntime ? (
+                                      <LoaderIcon className="size-3 animate-spin" />
+                                    ) : (
+                                      <DownloadIcon className="size-3" />
+                                    )}
+                                  </Button>
+                                }
+                              />
+                              <TooltipPopup side="top">Update {runtime.label}</TooltipPopup>
+                            </Tooltip>
                           ) : null}
                         </div>
                       );
@@ -1194,8 +1385,8 @@ export function ProviderSettingsSection({
               ) : null}
             </section>
 
-            <section className="rounded-[var(--control-radius)] border border-border/45 bg-background/45">
-              <div className="flex items-center justify-between gap-3 border-b border-border/35 px-3 py-2">
+            <section>
+              <div className="flex items-center justify-between gap-3 px-0 py-3">
                 <div>
                   <div className="text-xs font-semibold text-foreground/90">Models</div>
                   <div className="text-[11px] text-muted-foreground/55">
@@ -1203,12 +1394,12 @@ export function ProviderSettingsSection({
                   </div>
                 </div>
               </div>
-              <div className="grid gap-3 p-3 lg:grid-cols-[minmax(0,1fr)_16rem]">
-                <div
+              <div className="grid gap-3 pb-4 lg:grid-cols-[minmax(0,1fr)_16rem]">
+                <ScrollArea
                   ref={(element) => {
                     modelListRefs.current[providerCard.provider] = element;
                   }}
-                  className="max-h-56 overflow-y-auto rounded-[var(--control-radius)] border border-border/35 bg-muted/10"
+                  className="max-h-56"
                 >
                   {displayedModels.map((model) => {
                     const caps = model.capabilities;
@@ -1223,7 +1414,7 @@ export function ProviderSettingsSection({
                     return (
                       <div
                         key={`${providerCard.provider}:${model.slug}`}
-                        className="flex min-h-9 items-center gap-2 border-t border-border/25 px-3 py-1.5 first:border-t-0"
+                        className="flex min-h-9 items-center gap-2 px-0.5 py-1.5 transition-colors hover:bg-foreground/[0.012]"
                       >
                         <span className="min-w-0 flex-1 truncate text-xs text-foreground/90">
                           {model.name}
@@ -1275,9 +1466,9 @@ export function ProviderSettingsSection({
                       </div>
                     );
                   })}
-                </div>
+                </ScrollArea>
 
-                <div className="rounded-[var(--control-radius)] border border-border/35 bg-muted/10 p-3">
+                <div className="py-3">
                   <div className="text-xs font-medium text-foreground/85">Add custom model</div>
                   <div className="mt-1 text-[11px] leading-relaxed text-muted-foreground/55">
                     Custom model slugs are saved with this provider after Save.
@@ -1328,17 +1519,17 @@ export function ProviderSettingsSection({
       </div>
       <Dialog
         onOpenChange={(open) => {
-          setAddProviderOpen(open);
+          dispatchSectionState({ type: "set-add-provider-open", addProviderOpen: open });
           if (!open) {
-            setAddProviderStep("provider");
+            dispatchSectionState({ type: "set-add-provider-step", addProviderStep: "provider" });
           }
         }}
         open={addProviderOpen}
       >
         <DialogPopup className="max-w-2xl" data-provider-settings-add-provider-modal="true">
-          <DialogHeader className="gap-2 border-b border-border/45 px-4 py-3 sm:px-5 sm:py-4">
+          <DialogHeader className="gap-2 px-4 py-3 sm:px-5 sm:py-4">
             <div className="flex items-center gap-2">
-              <span className="relative flex size-8 shrink-0 items-center justify-center rounded-[var(--control-radius)] border border-border/45 bg-background/55">
+              <span className="relative flex size-8 shrink-0 items-center justify-center rounded-[var(--control-radius)] bg-foreground/[0.06]">
                 <AddProviderLogo className="size-4" />
                 {addProviderStep !== "provider" ? (
                   <ProviderInstanceBadge
@@ -1359,7 +1550,7 @@ export function ProviderSettingsSection({
                 </DialogDescription>
               </div>
             </div>
-            <div className="grid grid-cols-3 gap-1 rounded-[var(--control-radius)] border border-border/35 bg-background/45 p-1">
+            <div className="grid grid-cols-3 gap-1 py-1">
               {ADD_PROVIDER_STEPS.map((step, index) => {
                 const isActive = step.id === addProviderStep;
                 const isComplete = index < addProviderCurrentStepIndex;
@@ -1377,7 +1568,10 @@ export function ProviderSettingsSection({
                     )}
                     onClick={() => {
                       if (index <= addProviderCurrentStepIndex) {
-                        setAddProviderStep(step.id);
+                        dispatchSectionState({
+                          type: "set-add-provider-step",
+                          addProviderStep: step.id,
+                        });
                       }
                     }}
                     disabled={index > addProviderCurrentStepIndex}
@@ -1402,14 +1596,14 @@ export function ProviderSettingsSection({
                       key={`provider-setup:${candidate.provider}`}
                       type="button"
                       className={cn(
-                        "flex min-w-0 items-center gap-3 rounded-[var(--control-radius)] border px-3 py-2.5 text-left transition-colors",
+                        "flex min-w-0 items-center gap-3 rounded-[var(--control-radius)] px-3 py-2.5 text-left transition-colors",
                         isSelected
-                          ? "border-primary/55 bg-primary/10 text-foreground"
-                          : "border-border/40 bg-background/40 text-muted-foreground",
+                          ? "bg-foreground/[0.07] text-foreground"
+                          : "bg-transparent text-muted-foreground hover:bg-foreground/[0.012]",
                       )}
                       onClick={() => selectAddProvider(candidate.provider)}
                     >
-                      <span className="flex size-9 shrink-0 items-center justify-center rounded-[var(--control-radius)] border border-border/45 bg-background/60">
+                      <span className="flex size-9 shrink-0 items-center justify-center rounded-[var(--control-radius)] bg-foreground/[0.06]">
                         <CandidateLogo className="size-4.5" />
                       </span>
                       <span className="min-w-0 flex-1">
@@ -1429,40 +1623,47 @@ export function ProviderSettingsSection({
             {addProviderStep === "setup" ? (
               <div className="space-y-4" data-provider-setup-step="setup">
                 <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
-                  <label className="block">
+                  <label htmlFor="add-provider-name" className="block">
                     <span className="text-[11px] font-medium text-foreground/75">Name</span>
                     <Input
+                      id="add-provider-name"
                       className="mt-1"
                       value={addProviderDraft.label}
                       onChange={(event) =>
-                        setAddProviderDraft((draft) => ({
-                          ...draft,
-                          label: event.target.value,
-                        }))
+                        dispatchSectionState({
+                          type: "update-add-provider-draft",
+                          updater: (draft) => ({
+                            ...draft,
+                            label: event.target.value,
+                          }),
+                        })
                       }
                       placeholder="Personal"
-                      autoFocus
                     />
                   </label>
-                  <label className="flex items-end justify-between gap-3 rounded-[var(--control-radius)] border border-border/35 bg-background/45 px-3 py-2">
+                  <div className="flex items-end justify-between gap-3 py-2">
                     <span className="text-xs font-medium text-foreground/80">Enabled</span>
                     <Switch
+                      id="add-provider-enabled"
                       checked={addProviderDraft.enabled}
                       onCheckedChange={(checked) =>
-                        setAddProviderDraft((draft) => ({
-                          ...draft,
-                          enabled: Boolean(checked),
-                        }))
+                        dispatchSectionState({
+                          type: "update-add-provider-draft",
+                          updater: (draft) => ({
+                            ...draft,
+                            enabled: Boolean(checked),
+                          }),
+                        })
                       }
                       aria-label="Enable new provider account"
                     />
-                  </label>
+                  </div>
                 </div>
 
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div>
                     <div className="mb-1 text-[11px] font-medium text-foreground/75">Badge</div>
-                    <div className="flex flex-wrap items-center gap-1 rounded-[var(--control-radius)] border border-border/35 bg-background/40 p-1">
+                    <div className="flex flex-wrap items-center gap-1 py-1">
                       {PROVIDER_INSTANCE_BADGE_ICONS.map((badgeIcon) => {
                         const selectedIcon =
                           normalizeProviderInstanceBadgeIcon(addProviderDraft.badgeIcon) ===
@@ -1478,10 +1679,13 @@ export function ProviderSettingsSection({
                                     selectedIcon && "bg-foreground/[0.08] text-foreground",
                                   )}
                                   onClick={() =>
-                                    setAddProviderDraft((draft) => ({
-                                      ...draft,
-                                      badgeIcon: badgeIcon.value,
-                                    }))
+                                    dispatchSectionState({
+                                      type: "update-add-provider-draft",
+                                      updater: (draft) => ({
+                                        ...draft,
+                                        badgeIcon: badgeIcon.value,
+                                      }),
+                                    })
                                   }
                                   aria-label={`Use ${badgeIcon.label} badge icon`}
                                 >
@@ -1501,7 +1705,7 @@ export function ProviderSettingsSection({
 
                   <div>
                     <div className="mb-1 text-[11px] font-medium text-foreground/75">Color</div>
-                    <div className="flex flex-wrap items-center gap-1 rounded-[var(--control-radius)] border border-border/35 bg-background/40 p-1">
+                    <div className="flex flex-wrap items-center gap-1 py-1">
                       {PROVIDER_INSTANCE_BADGE_COLORS.map((badgeColor) => {
                         const selectedColor =
                           normalizeProviderInstanceBadgeColor(addProviderDraft.badgeColor) ===
@@ -1517,10 +1721,13 @@ export function ProviderSettingsSection({
                                     selectedColor && "border-foreground/75",
                                   )}
                                   onClick={() =>
-                                    setAddProviderDraft((draft) => ({
-                                      ...draft,
-                                      badgeColor: badgeColor.value,
-                                    }))
+                                    dispatchSectionState({
+                                      type: "update-add-provider-draft",
+                                      updater: (draft) => ({
+                                        ...draft,
+                                        badgeColor: badgeColor.value,
+                                      }),
+                                    })
                                   }
                                   aria-label={`Use ${badgeColor.label} badge color`}
                                 >
@@ -1541,16 +1748,20 @@ export function ProviderSettingsSection({
                 </div>
 
                 <div className="grid gap-3 sm:grid-cols-2">
-                  <label className="block">
+                  <label htmlFor="add-provider-binary-path" className="block">
                     <span className="text-[11px] font-medium text-foreground/75">Binary path</span>
                     <Input
+                      id="add-provider-binary-path"
                       className="mt-1"
                       value={addProviderDraft.binaryPath}
                       onChange={(event) =>
-                        setAddProviderDraft((draft) => ({
-                          ...draft,
-                          binaryPath: event.target.value,
-                        }))
+                        dispatchSectionState({
+                          type: "update-add-provider-draft",
+                          updater: (draft) => ({
+                            ...draft,
+                            binaryPath: event.target.value,
+                          }),
+                        })
                       }
                       placeholder={addProviderCard?.binaryPlaceholder}
                       spellCheck={false}
@@ -1558,18 +1769,22 @@ export function ProviderSettingsSection({
                   </label>
 
                   {addProviderPathLabel ? (
-                    <label className="block">
+                    <label htmlFor="add-provider-path" className="block">
                       <span className="text-[11px] font-medium text-foreground/75">
                         {addProviderPathLabel}
                       </span>
                       <Input
+                        id="add-provider-path"
                         className="mt-1"
                         value={addProviderDraft.pathValue}
                         onChange={(event) =>
-                          setAddProviderDraft((draft) => ({
-                            ...draft,
-                            pathValue: event.target.value,
-                          }))
+                          dispatchSectionState({
+                            type: "update-add-provider-draft",
+                            updater: (draft) => ({
+                              ...draft,
+                              pathValue: event.target.value,
+                            }),
+                          })
                         }
                         placeholder={addProviderCard?.homePlaceholder}
                         spellCheck={false}
@@ -1578,18 +1793,22 @@ export function ProviderSettingsSection({
                   ) : null}
 
                   {addProviderDraft.provider === "githubCopilot" ? (
-                    <label className="block">
+                    <label htmlFor="add-provider-cli-url" className="block">
                       <span className="text-[11px] font-medium text-foreground/75">
                         CLI server URL
                       </span>
                       <Input
+                        id="add-provider-cli-url"
                         className="mt-1"
                         value={addProviderDraft.cliUrl}
                         onChange={(event) =>
-                          setAddProviderDraft((draft) => ({
-                            ...draft,
-                            cliUrl: event.target.value,
-                          }))
+                          dispatchSectionState({
+                            type: "update-add-provider-draft",
+                            updater: (draft) => ({
+                              ...draft,
+                              cliUrl: event.target.value,
+                            }),
+                          })
                         }
                         placeholder={addProviderCard?.cliUrlPlaceholder}
                         spellCheck={false}
@@ -1598,17 +1817,21 @@ export function ProviderSettingsSection({
                   ) : null}
                 </div>
 
-                <label className="block">
+                <label htmlFor="add-provider-launch-env" className="block">
                   <span className="text-[11px] font-medium text-foreground/75">Launch env</span>
                   <Textarea
+                    id="add-provider-launch-env"
                     className="mt-1"
                     size="sm"
                     value={addProviderDraft.launchEnvText}
                     onChange={(event) =>
-                      setAddProviderDraft((draft) => ({
-                        ...draft,
-                        launchEnvText: event.target.value,
-                      }))
+                      dispatchSectionState({
+                        type: "update-add-provider-draft",
+                        updater: (draft) => ({
+                          ...draft,
+                          launchEnvText: event.target.value,
+                        }),
+                      })
                     }
                     placeholder={
                       addProviderDraft.provider === "gemini" ? "GEMINI_API_KEY=..." : "KEY=value"
@@ -1621,8 +1844,8 @@ export function ProviderSettingsSection({
 
             {addProviderStep === "review" ? (
               <div className="space-y-3" data-provider-setup-step="review">
-                <div className="flex items-center gap-3 rounded-[var(--control-radius)] border border-border/45 bg-background/45 px-3 py-3">
-                  <span className="relative flex size-10 shrink-0 items-center justify-center rounded-[var(--control-radius)] border border-border/45 bg-background/60">
+                <div className="flex items-center gap-3 py-3">
+                  <span className="relative flex size-10 shrink-0 items-center justify-center rounded-[var(--control-radius)] bg-foreground/[0.06]">
                     <AddProviderLogo className="size-5" />
                     <ProviderInstanceBadge
                       color={addProviderDraft.badgeColor}
@@ -1640,14 +1863,14 @@ export function ProviderSettingsSection({
                   </div>
                 </div>
 
-                <div className="grid overflow-hidden rounded-[var(--control-radius)] border border-border/40 bg-background/35 text-xs sm:grid-cols-2">
-                  <div className="border-b border-border/30 px-3 py-2 sm:border-r sm:border-b-0">
+                <div className="grid gap-1 text-xs sm:grid-cols-2">
+                  <div className="rounded-[var(--control-radius)] bg-foreground/[0.025] px-3 py-2">
                     <div className="text-muted-foreground/60">Binary</div>
                     <div className="mt-0.5 truncate text-foreground/90">
                       {addProviderDraft.binaryPath.trim() || addProviderCard?.binaryPlaceholder}
                     </div>
                   </div>
-                  <div className="border-b border-border/30 px-3 py-2 sm:border-b-0">
+                  <div className="rounded-[var(--control-radius)] bg-foreground/[0.025] px-3 py-2">
                     <div className="text-muted-foreground/60">State path</div>
                     <div className="mt-0.5 truncate text-foreground/90">
                       {addProviderPathLabel
@@ -1655,7 +1878,7 @@ export function ProviderSettingsSection({
                         : "Provider default"}
                     </div>
                   </div>
-                  <div className="border-b border-border/30 px-3 py-2 sm:border-r sm:border-b-0">
+                  <div className="rounded-[var(--control-radius)] bg-foreground/[0.025] px-3 py-2">
                     <div className="text-muted-foreground/60">Env</div>
                     <div className="mt-0.5 truncate text-foreground/90">
                       {addProviderLaunchEnvCount === 0
@@ -1665,7 +1888,7 @@ export function ProviderSettingsSection({
                           }`}
                     </div>
                   </div>
-                  <div className="px-3 py-2">
+                  <div className="rounded-[var(--control-radius)] bg-foreground/[0.025] px-3 py-2">
                     <div className="text-muted-foreground/60">Status</div>
                     <div className="mt-0.5 truncate text-foreground/90">
                       {addProviderDraft.enabled ? "Enabled" : "Off"}
@@ -1680,7 +1903,7 @@ export function ProviderSettingsSection({
             ) : null}
           </DialogPanel>
 
-          <DialogFooter className="border-t border-border/45 bg-muted/18 px-4 py-3 sm:px-5">
+          <DialogFooter className="bg-muted/18 px-4 py-3 sm:px-5">
             <Button type="button" variant="ghost" onClick={closeAddProviderDialog}>
               Cancel
             </Button>
@@ -1708,4 +1931,10 @@ export function ProviderSettingsSection({
       </Dialog>
     </SettingsSection>
   );
+}
+
+export function ProviderSettingsSection(
+  props: Parameters<typeof useProviderSettingsSectionComponent>[0],
+) {
+  return useProviderSettingsSectionComponent(props);
 }

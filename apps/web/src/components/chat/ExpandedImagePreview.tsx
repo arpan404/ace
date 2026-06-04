@@ -1,4 +1,4 @@
-export interface ExpandedImageItem {
+interface ExpandedImageItem {
   src: string;
   name: string;
 }
@@ -6,6 +6,15 @@ export interface ExpandedImageItem {
 export interface ExpandedImagePreview {
   images: ExpandedImageItem[];
   index: number;
+}
+
+export function resolveExpandedImageItem(
+  preview: ExpandedImagePreview | null,
+): ExpandedImageItem | null {
+  if (!preview || preview.images.length === 0) {
+    return null;
+  }
+  return preview.images[preview.index] ?? null;
 }
 
 export function buildExpandedImagePreview(

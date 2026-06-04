@@ -12,6 +12,8 @@ import type {
   WorkspaceEditorDiagnostic,
   WorkspaceEditorCompletionItem,
   WorkspaceEditorDefinitionResult,
+  WorkspaceEditorHoverContent,
+  WorkspaceEditorHoverResult,
   WorkspaceEditorLocation,
   WorkspaceEditorReferencesResult,
   WorkspaceEditorSyncBufferResult,
@@ -24,7 +26,7 @@ import {
 } from "../Services/WorkspaceEditor";
 import { WorkspacePaths } from "../Services/WorkspacePaths";
 import { ServerConfig } from "../../config";
-import { getLspServerRegistry } from "../../lspTools";
+import { getLspServerRegistry, type RuntimeLspServerDefinition } from "../../lspTools";
 
 type LspServerId = string;
 
@@ -55,8 +57,10 @@ interface LspDiagnosticsWaiter {
 interface LspSession {
   readonly cwd: string;
   readonly diagnosticsByUri: Map<string, readonly WorkspaceEditorDiagnostic[]>;
+  readonly diagnosticsDocumentVersionByUri: Map<string, number>;
   readonly diagnosticsRevisionByUri: Map<string, number>;
   readonly diagnosticsWaitersByUri: Map<string, Set<LspDiagnosticsWaiter>>;
+  readonly documentContentsByUri: Map<string, string>;
   readonly documentVersions: Map<string, number>;
   readonly key: string;
   readonly languageServer: LspServerDefinition;
@@ -73,6 +77,7 @@ interface LspSession {
 const LSP_REQUEST_TIMEOUT_MS = 5_000;
 const LSP_SHUTDOWN_TIMEOUT_MS = 750;
 const LSP_SYNC_DIAGNOSTICS_TIMEOUT_MS = 550;
+const LSP_SERVER_REGISTRY_CACHE_TTL_MS = 5_000;
 const SESSION_RETRY_COOLDOWN_MS = 5_000;
 const STDERR_TAIL_MAX_CHARS = 4_000;
 const HEADER_BODY_SEPARATOR = Buffer.from("\r\n\r\n");
@@ -111,13 +116,12 @@ function toWorkspaceDiagnosticSeverity(severity: unknown): WorkspaceEditorDiagno
   return "error";
 }
 
-async function resolveServerForPath(
-  stateDir: string,
+function resolveServerForPath(
+  servers: readonly RuntimeLspServerDefinition[],
   relativePath: string,
-): Promise<{ readonly languageId: string; readonly server: LspServerDefinition } | null> {
+): { readonly languageId: string; readonly server: LspServerDefinition } | null {
   const extension = extname(relativePath).toLowerCase();
   const fileName = basename(relativePath).toLowerCase();
-  const servers = await getLspServerRegistry(stateDir);
   for (const server of servers) {
     const matchesExtension = extension.length > 0 && server.fileExtensions.has(extension);
     const matchesFileName = server.fileNames.has(fileName);
@@ -363,6 +367,67 @@ function parseLspRange(payload: unknown): Omit<WorkspaceEditorLocation, "relativ
     startColumn: Math.max(0, Math.trunc(startColumn)),
     endLine: Math.max(Math.trunc(endLine), Math.trunc(startLine)),
     endColumn: Math.max(Math.trunc(endColumn), Math.trunc(startColumn) + 1),
+  };
+}
+
+function normalizeHoverContentValue(value: string): string | null {
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function parseLspHoverContent(payload: unknown): readonly WorkspaceEditorHoverContent[] {
+  if (typeof payload === "string") {
+    const value = normalizeHoverContentValue(payload);
+    return value ? [{ kind: "plaintext", value }] : [];
+  }
+  if (Array.isArray(payload)) {
+    return payload.flatMap((item) => parseLspHoverContent(item));
+  }
+  if (typeof payload !== "object" || payload === null) {
+    return [];
+  }
+
+  const language = Reflect.get(payload, "language");
+  const value = Reflect.get(payload, "value");
+  if (typeof value !== "string") {
+    return [];
+  }
+  const normalizedValue = normalizeHoverContentValue(value);
+  if (!normalizedValue) {
+    return [];
+  }
+
+  if (typeof language === "string" && language.trim().length > 0) {
+    return [
+      {
+        kind: "code",
+        language: language.trim(),
+        value: normalizedValue,
+      },
+    ];
+  }
+
+  const kind = Reflect.get(payload, "kind");
+  return [
+    {
+      kind: kind === "markdown" ? "markdown" : "plaintext",
+      value: normalizedValue,
+    },
+  ];
+}
+
+function parseLspHover(
+  payload: unknown,
+  relativePath: string,
+): Omit<WorkspaceEditorHoverResult, "relativePath"> {
+  if (typeof payload !== "object" || payload === null) {
+    return { contents: [] };
+  }
+  const contents = parseLspHoverContent(Reflect.get(payload, "contents"));
+  const range = parseLspRange(Reflect.get(payload, "range"));
+  return {
+    contents,
+    ...(range ? { location: { relativePath, ...range } } : {}),
   };
 }
 
@@ -766,13 +831,25 @@ async function syncSessionDocument(
   uri: string,
   languageId: string,
   contents: string,
+  options: { readonly waitForDiagnostics?: boolean } = {},
 ): Promise<readonly WorkspaceEditorDiagnostic[]> {
-  const diagnosticsPromise = waitForDiagnosticsUpdate(
-    session,
-    uri,
-    LSP_SYNC_DIAGNOSTICS_TIMEOUT_MS,
-  );
-  const nextVersion = (session.documentVersions.get(uri) ?? 0) + 1;
+  const waitForDiagnostics = options.waitForDiagnostics !== false;
+  const currentVersion = session.documentVersions.get(uri) ?? 0;
+  if (session.openedUris.has(uri) && session.documentContentsByUri.get(uri) === contents) {
+    if (!waitForDiagnostics) {
+      return session.diagnosticsByUri.get(uri) ?? [];
+    }
+    const diagnosticsVersion = session.diagnosticsDocumentVersionByUri.get(uri) ?? 0;
+    if (diagnosticsVersion >= currentVersion) {
+      return session.diagnosticsByUri.get(uri) ?? [];
+    }
+    return waitForDiagnosticsUpdate(session, uri, LSP_SYNC_DIAGNOSTICS_TIMEOUT_MS);
+  }
+
+  const diagnosticsPromise = waitForDiagnostics
+    ? waitForDiagnosticsUpdate(session, uri, LSP_SYNC_DIAGNOSTICS_TIMEOUT_MS)
+    : Promise.resolve(session.diagnosticsByUri.get(uri) ?? []);
+  const nextVersion = currentVersion + 1;
   if (session.openedUris.has(uri)) {
     await sendLspNotification(session, "textDocument/didChange", {
       textDocument: { uri, version: nextVersion },
@@ -790,6 +867,7 @@ async function syncSessionDocument(
     session.openedUris.add(uri);
   }
   session.documentVersions.set(uri, nextVersion);
+  session.documentContentsByUri.set(uri, contents);
   return diagnosticsPromise;
 }
 
@@ -906,8 +984,14 @@ function handleServerMessage(session: LspSession, message: unknown): void {
     return;
   }
   const diagnostics = parseLspDiagnostics(params, DIAGNOSTIC_SOURCE_FALLBACK);
+  const rawVersion = Reflect.get(params, "version");
+  const diagnosticsVersion =
+    typeof rawVersion === "number" && Number.isFinite(rawVersion)
+      ? Math.max(0, Math.trunc(rawVersion))
+      : (session.documentVersions.get(uri) ?? 0);
   const nextRevision = (session.diagnosticsRevisionByUri.get(uri) ?? 0) + 1;
   session.diagnosticsByUri.set(uri, diagnostics);
+  session.diagnosticsDocumentVersionByUri.set(uri, diagnosticsVersion);
   session.diagnosticsRevisionByUri.set(uri, nextRevision);
   resolveDiagnosticsWaiters(session, uri, diagnostics);
 }
@@ -948,6 +1032,10 @@ export const makeWorkspaceEditor = Effect.gen(function* () {
   const serverConfig = yield* ServerConfig;
   const sessionsRef = yield* Ref.make(new Map<string, LspSession>());
   const sessionRetryAtRef = yield* Ref.make(new Map<string, number>());
+  const serverRegistryRef = yield* Ref.make<{
+    readonly loadedAt: number;
+    readonly servers: readonly RuntimeLspServerDefinition[];
+  } | null>(null);
 
   yield* Effect.addFinalizer(() =>
     Ref.get(sessionsRef).pipe(
@@ -1001,8 +1089,10 @@ export const makeWorkspaceEditor = Effect.gen(function* () {
       cwd,
       dead: false,
       diagnosticsByUri: new Map(),
+      diagnosticsDocumentVersionByUri: new Map(),
       diagnosticsRevisionByUri: new Map(),
       diagnosticsWaitersByUri: new Map(),
+      documentContentsByUri: new Map(),
       documentVersions: new Map(),
       key: createSessionKey(cwd, languageServer.id),
       languageServer,
@@ -1044,7 +1134,24 @@ export const makeWorkspaceEditor = Effect.gen(function* () {
           {
             capabilities: {
               textDocument: {
+                completion: {
+                  completionItem: {
+                    documentationFormat: ["markdown", "plaintext"],
+                  },
+                  dynamicRegistration: false,
+                },
+                definition: {
+                  dynamicRegistration: false,
+                  linkSupport: true,
+                },
+                hover: {
+                  contentFormat: ["markdown", "plaintext"],
+                  dynamicRegistration: false,
+                },
                 publishDiagnostics: {},
+                references: {
+                  dynamicRegistration: false,
+                },
                 synchronization: {
                   didClose: true,
                   didSave: false,
@@ -1106,6 +1213,53 @@ export const makeWorkspaceEditor = Effect.gen(function* () {
     return session;
   });
 
+  const getCachedServerRegistry = Effect.fn("WorkspaceEditor.getCachedServerRegistry")(
+    function* (): Effect.fn.Return<readonly RuntimeLspServerDefinition[], WorkspaceEditorError> {
+      const cached = yield* Ref.get(serverRegistryRef);
+      const now = Date.now();
+      if (cached && now - cached.loadedAt <= LSP_SERVER_REGISTRY_CACHE_TTL_MS) {
+        return cached.servers;
+      }
+
+      const servers = yield* Effect.tryPromise({
+        try: () => getLspServerRegistry(serverConfig.stateDir),
+        catch: (cause) =>
+          new WorkspaceEditorError({
+            cause,
+            cwd: serverConfig.cwd,
+            detail: "Failed to load workspace language server registry.",
+            operation: "workspaceEditor.getLspServerRegistry",
+          }),
+      });
+      yield* Ref.set(serverRegistryRef, { loadedAt: now, servers });
+      return servers;
+    },
+  );
+
+  const resolveServerForWorkspacePath = Effect.fn("WorkspaceEditor.resolveServerForWorkspacePath")(
+    function* (
+      cwd: string,
+      relativePath: string,
+      operation: string,
+    ): Effect.fn.Return<
+      { readonly languageId: string; readonly server: LspServerDefinition } | null,
+      WorkspaceEditorError
+    > {
+      const servers = yield* getCachedServerRegistry();
+      return yield* Effect.try({
+        try: () => resolveServerForPath(servers, relativePath),
+        catch: (cause) =>
+          new WorkspaceEditorError({
+            cause,
+            cwd,
+            detail: "Failed to resolve language server for workspace buffer.",
+            operation,
+            relativePath,
+          }),
+      });
+    },
+  );
+
   const getOrCreateSession = Effect.fn("WorkspaceEditor.getOrCreateSession")(function* (
     cwd: string,
     languageServer: LspServerDefinition,
@@ -1166,17 +1320,11 @@ export const makeWorkspaceEditor = Effect.gen(function* () {
         workspaceRoot: normalizedWorkspaceRoot,
         relativePath: input.relativePath,
       });
-      const resolved = yield* Effect.tryPromise({
-        try: () => resolveServerForPath(serverConfig.stateDir, target.relativePath),
-        catch: (cause) =>
-          new WorkspaceEditorError({
-            cause,
-            cwd: normalizedWorkspaceRoot,
-            detail: "Failed to resolve language server for workspace buffer.",
-            operation: "workspaceEditor.syncBuffer",
-            relativePath: target.relativePath,
-          }),
-      });
+      const resolved = yield* resolveServerForWorkspacePath(
+        normalizedWorkspaceRoot,
+        target.relativePath,
+        "workspaceEditor.syncBuffer",
+      );
       if (!resolved) {
         yield* Effect.logDebug(`[WorkspaceEditor] No languageId for ${target.relativePath}`);
         return {
@@ -1220,17 +1368,11 @@ export const makeWorkspaceEditor = Effect.gen(function* () {
         workspaceRoot: normalizedWorkspaceRoot,
         relativePath: input.relativePath,
       });
-      const resolved = yield* Effect.tryPromise({
-        try: () => resolveServerForPath(serverConfig.stateDir, target.relativePath),
-        catch: (cause) =>
-          new WorkspaceEditorError({
-            cause,
-            cwd: normalizedWorkspaceRoot,
-            detail: "Failed to resolve language server for workspace buffer.",
-            operation: "workspaceEditor.closeBuffer",
-            relativePath: target.relativePath,
-          }),
-      });
+      const resolved = yield* resolveServerForWorkspacePath(
+        normalizedWorkspaceRoot,
+        target.relativePath,
+        "workspaceEditor.closeBuffer",
+      );
       if (!resolved) {
         return {
           relativePath: target.relativePath,
@@ -1250,8 +1392,10 @@ export const makeWorkspaceEditor = Effect.gen(function* () {
         Effect.tryPromise({
           try: async () => {
             if (!existing.openedUris.has(uri)) {
+              existing.documentContentsByUri.delete(uri);
               existing.documentVersions.delete(uri);
               existing.diagnosticsByUri.delete(uri);
+              existing.diagnosticsDocumentVersionByUri.delete(uri);
               existing.diagnosticsRevisionByUri.delete(uri);
               return;
             }
@@ -1259,8 +1403,10 @@ export const makeWorkspaceEditor = Effect.gen(function* () {
               textDocument: { uri },
             });
             existing.openedUris.delete(uri);
+            existing.documentContentsByUri.delete(uri);
             existing.documentVersions.delete(uri);
             existing.diagnosticsByUri.delete(uri);
+            existing.diagnosticsDocumentVersionByUri.delete(uri);
             existing.diagnosticsRevisionByUri.delete(uri);
           },
           catch: (cause) =>
@@ -1287,17 +1433,11 @@ export const makeWorkspaceEditor = Effect.gen(function* () {
         workspaceRoot: normalizedWorkspaceRoot,
         relativePath: input.relativePath,
       });
-      const resolved = yield* Effect.tryPromise({
-        try: () => resolveServerForPath(serverConfig.stateDir, target.relativePath),
-        catch: (cause) =>
-          new WorkspaceEditorError({
-            cause,
-            cwd: normalizedWorkspaceRoot,
-            detail: "Failed to resolve language server for completions.",
-            operation: "workspaceEditor.complete",
-            relativePath: target.relativePath,
-          }),
-      });
+      const resolved = yield* resolveServerForWorkspacePath(
+        normalizedWorkspaceRoot,
+        target.relativePath,
+        "workspaceEditor.complete",
+      );
       if (!resolved) {
         return {
           relativePath: target.relativePath,
@@ -1310,7 +1450,9 @@ export const makeWorkspaceEditor = Effect.gen(function* () {
       const items = yield* session.mutex.withPermits(1)(
         Effect.tryPromise({
           try: async () => {
-            await syncSessionDocument(session, uri, languageId, input.contents);
+            await syncSessionDocument(session, uri, languageId, input.contents, {
+              waitForDiagnostics: false,
+            });
             const result = await sendLspRequest(
               session,
               "textDocument/completion",
@@ -1346,17 +1488,11 @@ export const makeWorkspaceEditor = Effect.gen(function* () {
         workspaceRoot: normalizedWorkspaceRoot,
         relativePath: input.relativePath,
       });
-      const resolved = yield* Effect.tryPromise({
-        try: () => resolveServerForPath(serverConfig.stateDir, target.relativePath),
-        catch: (cause) =>
-          new WorkspaceEditorError({
-            cause,
-            cwd: normalizedWorkspaceRoot,
-            detail: "Failed to resolve language server for definition lookup.",
-            operation: "workspaceEditor.definition",
-            relativePath: target.relativePath,
-          }),
-      });
+      const resolved = yield* resolveServerForWorkspacePath(
+        normalizedWorkspaceRoot,
+        target.relativePath,
+        "workspaceEditor.definition",
+      );
       if (!resolved) {
         return {
           relativePath: target.relativePath,
@@ -1369,7 +1505,9 @@ export const makeWorkspaceEditor = Effect.gen(function* () {
       const locations = yield* session.mutex.withPermits(1)(
         Effect.tryPromise({
           try: async () => {
-            await syncSessionDocument(session, uri, languageId, input.contents);
+            await syncSessionDocument(session, uri, languageId, input.contents, {
+              waitForDiagnostics: false,
+            });
             const result = await sendLspRequest(
               session,
               "textDocument/definition",
@@ -1398,6 +1536,61 @@ export const makeWorkspaceEditor = Effect.gen(function* () {
     },
   );
 
+  const hover: WorkspaceEditorShape["hover"] = Effect.fn("WorkspaceEditor.hover")(
+    function* (input) {
+      const normalizedWorkspaceRoot = yield* workspacePaths.normalizeWorkspaceRoot(input.cwd);
+      const target = yield* workspacePaths.resolveRelativePathWithinRoot({
+        workspaceRoot: normalizedWorkspaceRoot,
+        relativePath: input.relativePath,
+      });
+      const resolved = yield* resolveServerForWorkspacePath(
+        normalizedWorkspaceRoot,
+        target.relativePath,
+        "workspaceEditor.hover",
+      );
+      if (!resolved) {
+        return {
+          relativePath: target.relativePath,
+          contents: [],
+        } satisfies WorkspaceEditorHoverResult;
+      }
+      const { languageId, server: languageServer } = resolved;
+      const session = yield* getOrCreateSession(normalizedWorkspaceRoot, languageServer);
+      const uri = pathToFileURL(target.absolutePath).toString();
+      const hoverResult = yield* session.mutex.withPermits(1)(
+        Effect.tryPromise({
+          try: async () => {
+            await syncSessionDocument(session, uri, languageId, input.contents, {
+              waitForDiagnostics: false,
+            });
+            const result = await sendLspRequest(
+              session,
+              "textDocument/hover",
+              {
+                textDocument: { uri },
+                position: { line: input.line, character: input.column },
+              },
+              LSP_REQUEST_TIMEOUT_MS,
+            );
+            return parseLspHover(result, target.relativePath);
+          },
+          catch: (cause) =>
+            new WorkspaceEditorError({
+              cause,
+              cwd: normalizedWorkspaceRoot,
+              detail: `Workspace hover backend unavailable.${session.stderrTail.trim().length > 0 ? ` ${session.stderrTail.trim()}` : ""}`,
+              operation: "workspaceEditor.hover",
+              relativePath: target.relativePath,
+            }),
+        }),
+      );
+      return {
+        relativePath: target.relativePath,
+        ...hoverResult,
+      } satisfies WorkspaceEditorHoverResult;
+    },
+  );
+
   const references: WorkspaceEditorShape["references"] = Effect.fn("WorkspaceEditor.references")(
     function* (input) {
       const normalizedWorkspaceRoot = yield* workspacePaths.normalizeWorkspaceRoot(input.cwd);
@@ -1405,17 +1598,11 @@ export const makeWorkspaceEditor = Effect.gen(function* () {
         workspaceRoot: normalizedWorkspaceRoot,
         relativePath: input.relativePath,
       });
-      const resolved = yield* Effect.tryPromise({
-        try: () => resolveServerForPath(serverConfig.stateDir, target.relativePath),
-        catch: (cause) =>
-          new WorkspaceEditorError({
-            cause,
-            cwd: normalizedWorkspaceRoot,
-            detail: "Failed to resolve language server for references lookup.",
-            operation: "workspaceEditor.references",
-            relativePath: target.relativePath,
-          }),
-      });
+      const resolved = yield* resolveServerForWorkspacePath(
+        normalizedWorkspaceRoot,
+        target.relativePath,
+        "workspaceEditor.references",
+      );
       if (!resolved) {
         return {
           relativePath: target.relativePath,
@@ -1428,7 +1615,9 @@ export const makeWorkspaceEditor = Effect.gen(function* () {
       const locations = yield* session.mutex.withPermits(1)(
         Effect.tryPromise({
           try: async () => {
-            await syncSessionDocument(session, uri, languageId, input.contents);
+            await syncSessionDocument(session, uri, languageId, input.contents, {
+              waitForDiagnostics: false,
+            });
             const result = await sendLspRequest(
               session,
               "textDocument/references",
@@ -1462,6 +1651,7 @@ export const makeWorkspaceEditor = Effect.gen(function* () {
     closeBuffer,
     complete,
     definition,
+    hover,
     references,
     syncBuffer,
   } satisfies WorkspaceEditorShape;

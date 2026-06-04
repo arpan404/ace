@@ -12,7 +12,15 @@ import {
 import { DEFAULT_MANAGED_RELAY_URL } from "@ace/contracts";
 import { describeHostConnection } from "@ace/shared/hostConnections";
 import QRCode from "qrcode";
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from "react";
 import { validateRelayWebSocketUrl } from "@ace/shared/relay";
 
 import { isElectron } from "../../env";
@@ -55,11 +63,8 @@ import { formatRelativeTimeLabel } from "../../timestampFormat";
 import { useHostConnectionStore } from "../../hostConnectionStore";
 import { useServerConfig } from "../../rpc/serverState";
 import { useStore } from "../../store";
-import {
-  PROJECT_ICON_COLOR_OPTIONS,
-  PROJECT_ICON_OPTIONS,
-  ProjectGlyphIcon,
-} from "../ProjectAvatar";
+import { PROJECT_ICON_COLOR_OPTIONS, PROJECT_ICON_OPTIONS } from "../projectAvatarOptions";
+import { ProjectGlyphIcon } from "../ProjectAvatar";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -68,18 +73,18 @@ import { Switch } from "../ui/switch";
 import { toastManager } from "../ui/toast";
 import { SettingsPageContainer } from "./SettingsPanelPrimitives";
 
-const SETTINGS_INLINE_PANEL_CLASS_NAME =
-  "rounded-[var(--control-radius)] border border-border/45 bg-background/58 shadow-none";
-const SETTINGS_INLINE_PANEL_MUTED_CLASS_NAME =
-  "rounded-[var(--control-radius)] border border-border/35 bg-muted/[0.10] shadow-none";
+const SETTINGS_INLINE_PANEL_CLASS_NAME = "bg-transparent shadow-none";
+const SETTINGS_INLINE_PANEL_MUTED_CLASS_NAME = "bg-transparent shadow-none";
 const SETTINGS_POPOVER_TRIGGER_CLASS_NAME =
   "inline-flex h-7 items-center gap-1 rounded-[var(--control-radius)] border border-border/45 bg-background/58 px-2 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-foreground/[0.04] hover:text-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30";
 const SETTINGS_NATIVE_SELECT_CLASS_NAME =
   "h-7 rounded-[var(--control-radius)] border border-border/45 bg-background/58 px-2 text-[12px] text-foreground outline-none transition-[border-color,background-color,box-shadow] focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30";
-const DEVICE_SECTION_CLASS_NAME =
-  "overflow-hidden rounded-[var(--panel-radius)] border border-border/50 bg-background/72 text-card-foreground shadow-none supports-[backdrop-filter]:bg-background/66 supports-[backdrop-filter]:backdrop-blur-md";
+const SETTINGS_NEUTRAL_ACTION_BUTTON_CLASS_NAME =
+  "border-border/50 bg-foreground/[0.08] text-foreground hover:bg-foreground/[0.12] active:bg-foreground/[0.16]";
+const SETTINGS_NEUTRAL_SWITCH_CLASS_NAME =
+  "data-checked:border-border/45 data-checked:bg-foreground/55";
 const DEVICE_SUBPANEL_CLASS_NAME =
-  "rounded-[var(--control-radius)] border border-border/40 bg-background/45";
+  "px-0 py-3 transition-colors duration-150 hover:bg-foreground/[0.012]";
 const DEVICE_ACTION_GROUP_CLASS_NAME = "flex flex-wrap items-center gap-2";
 const DEVICE_META_TEXT_CLASS_NAME = "text-[11px] leading-relaxed text-muted-foreground/62";
 
@@ -104,6 +109,184 @@ const EMPTY_HOST_DRAFT: HostDraftState = {
   iconColor: "slate",
 };
 
+type DevicesPanelState = {
+  hostDraft: HostDraftState;
+  editingHostId: string | null;
+  importingHost: boolean;
+  advertisedLocalWsUrl: string | null;
+  refreshingLocalEndpoint: boolean;
+  pairingLabel: string;
+  relayUrlDraft: string;
+  checkingHostId: string | null;
+  connectingHostId: string | "local" | null;
+};
+
+type DevicesPanelAction =
+  | { type: "set-host-draft"; hostDraft: HostDraftState }
+  | { type: "update-host-draft"; hostDraft: Partial<HostDraftState> }
+  | { type: "set-editing-host-id"; editingHostId: string | null }
+  | { type: "clear-host-draft" }
+  | { type: "set-importing-host"; importingHost: boolean }
+  | { type: "set-advertised-local-ws-url"; advertisedLocalWsUrl: string | null }
+  | { type: "set-refreshing-local-endpoint"; refreshingLocalEndpoint: boolean }
+  | { type: "set-pairing-label"; pairingLabel: string }
+  | { type: "set-relay-url-draft"; relayUrlDraft: string }
+  | { type: "set-checking-host-id"; checkingHostId: string | null }
+  | { type: "set-connecting-host-id"; connectingHostId: string | "local" | null };
+
+function devicesPanelStateReducer(
+  state: DevicesPanelState,
+  action: DevicesPanelAction,
+): DevicesPanelState {
+  switch (action.type) {
+    case "set-host-draft":
+      return state.hostDraft === action.hostDraft
+        ? state
+        : { ...state, hostDraft: action.hostDraft };
+    case "update-host-draft":
+      return { ...state, hostDraft: { ...state.hostDraft, ...action.hostDraft } };
+    case "set-editing-host-id":
+      return state.editingHostId === action.editingHostId
+        ? state
+        : { ...state, editingHostId: action.editingHostId };
+    case "clear-host-draft":
+      return state.hostDraft === EMPTY_HOST_DRAFT && state.editingHostId === null
+        ? state
+        : { ...state, hostDraft: EMPTY_HOST_DRAFT, editingHostId: null };
+    case "set-importing-host":
+      return state.importingHost === action.importingHost
+        ? state
+        : { ...state, importingHost: action.importingHost };
+    case "set-advertised-local-ws-url":
+      return state.advertisedLocalWsUrl === action.advertisedLocalWsUrl
+        ? state
+        : { ...state, advertisedLocalWsUrl: action.advertisedLocalWsUrl };
+    case "set-refreshing-local-endpoint":
+      return state.refreshingLocalEndpoint === action.refreshingLocalEndpoint
+        ? state
+        : { ...state, refreshingLocalEndpoint: action.refreshingLocalEndpoint };
+    case "set-pairing-label":
+      return state.pairingLabel === action.pairingLabel
+        ? state
+        : { ...state, pairingLabel: action.pairingLabel };
+    case "set-relay-url-draft":
+      return state.relayUrlDraft === action.relayUrlDraft
+        ? state
+        : { ...state, relayUrlDraft: action.relayUrlDraft };
+    case "set-checking-host-id":
+      return state.checkingHostId === action.checkingHostId
+        ? state
+        : { ...state, checkingHostId: action.checkingHostId };
+    case "set-connecting-host-id":
+      return state.connectingHostId === action.connectingHostId
+        ? state
+        : { ...state, connectingHostId: action.connectingHostId };
+  }
+}
+
+interface PairingUiState {
+  readonly pairingLink: PairingLinkState | null;
+  readonly pairingSessionStatus: HostPairingSessionStatus | null;
+  readonly creatingPairingLink: boolean;
+  readonly revokingPairingLink: boolean;
+}
+
+type HostAvailabilityState = {
+  status: "checking" | "available" | "unavailable" | "unauthenticated";
+  requestId: number;
+};
+
+type DevicesSessionState = {
+  pairedSessions: ReadonlyArray<HostPairingSessionSummary>;
+  refreshingPairedSessions: boolean;
+  revokingPairedSessionIds: Record<string, boolean>;
+  hostAvailability: Record<string, HostAvailabilityState>;
+};
+
+type DevicesSessionAction =
+  | { type: "set-paired-sessions"; pairedSessions: ReadonlyArray<HostPairingSessionSummary> }
+  | { type: "set-refreshing-paired-sessions"; refreshingPairedSessions: boolean }
+  | { type: "set-revoking-paired-session"; sessionId: string; revoking: boolean }
+  | { type: "set-host-availability"; hostId: string; availability: HostAvailabilityState };
+
+function devicesSessionStateReducer(
+  state: DevicesSessionState,
+  action: DevicesSessionAction,
+): DevicesSessionState {
+  switch (action.type) {
+    case "set-paired-sessions":
+      return state.pairedSessions === action.pairedSessions
+        ? state
+        : { ...state, pairedSessions: action.pairedSessions };
+    case "set-refreshing-paired-sessions":
+      return state.refreshingPairedSessions === action.refreshingPairedSessions
+        ? state
+        : { ...state, refreshingPairedSessions: action.refreshingPairedSessions };
+    case "set-revoking-paired-session": {
+      if (action.revoking) {
+        if (state.revokingPairedSessionIds[action.sessionId]) {
+          return state;
+        }
+        return {
+          ...state,
+          revokingPairedSessionIds: {
+            ...state.revokingPairedSessionIds,
+            [action.sessionId]: true,
+          },
+        };
+      }
+      if (!(action.sessionId in state.revokingPairedSessionIds)) {
+        return state;
+      }
+      const next = { ...state.revokingPairedSessionIds };
+      delete next[action.sessionId];
+      return { ...state, revokingPairedSessionIds: next };
+    }
+    case "set-host-availability":
+      return {
+        ...state,
+        hostAvailability: {
+          ...state.hostAvailability,
+          [action.hostId]: action.availability,
+        },
+      };
+  }
+}
+
+type PairingUiAction =
+  | { type: "set-pairing-link"; pairingLink: PairingLinkState | null }
+  | { type: "set-session-status"; pairingSessionStatus: HostPairingSessionStatus | null }
+  | { type: "set-creating"; creatingPairingLink: boolean }
+  | { type: "set-revoking"; revokingPairingLink: boolean };
+
+const EMPTY_PAIRING_UI_STATE: PairingUiState = {
+  pairingLink: null,
+  pairingSessionStatus: null,
+  creatingPairingLink: false,
+  revokingPairingLink: false,
+};
+
+function pairingUiStateReducer(state: PairingUiState, action: PairingUiAction): PairingUiState {
+  switch (action.type) {
+    case "set-pairing-link":
+      return state.pairingLink === action.pairingLink
+        ? state
+        : { ...state, pairingLink: action.pairingLink };
+    case "set-session-status":
+      return state.pairingSessionStatus === action.pairingSessionStatus
+        ? state
+        : { ...state, pairingSessionStatus: action.pairingSessionStatus };
+    case "set-creating":
+      return state.creatingPairingLink === action.creatingPairingLink
+        ? state
+        : { ...state, creatingPairingLink: action.creatingPairingLink };
+    case "set-revoking":
+      return state.revokingPairingLink === action.revokingPairingLink
+        ? state
+        : { ...state, revokingPairingLink: action.revokingPairingLink };
+  }
+}
+
 const URL_MODE_MAX_HOSTS = 1;
 
 function DeviceSection({
@@ -121,23 +304,21 @@ function DeviceSection({
 }) {
   return (
     <section className="min-w-0">
-      <div className={DEVICE_SECTION_CLASS_NAME}>
-        <div className="flex min-w-0 flex-col gap-2 border-b border-border/35 bg-muted/[0.10] px-3 py-2.5 sm:flex-row sm:items-start sm:justify-between sm:px-3.5">
-          <div className="min-w-0 space-y-0.5">
-            <h2 className="flex min-w-0 items-center gap-1.5 text-[12px] leading-snug font-semibold text-foreground/90">
-              <span className="shrink-0 text-muted-foreground/65">{icon}</span>
-              <span className="min-w-0 truncate">{title}</span>
-            </h2>
-            {description ? (
-              <p className="max-w-3xl text-[11px] leading-relaxed text-muted-foreground/55">
-                {description}
-              </p>
-            ) : null}
-          </div>
-          {actions ? <div className={DEVICE_ACTION_GROUP_CLASS_NAME}>{actions}</div> : null}
+      <div className="flex min-w-0 flex-col gap-2.5 px-1 pb-4 sm:flex-row sm:items-end sm:justify-between sm:px-0">
+        <div className="min-w-0 space-y-1.5">
+          <h2 className="flex min-w-0 items-center gap-2 text-[18px] leading-6 font-semibold tracking-normal text-foreground">
+            <span className="shrink-0 text-muted-foreground/65">{icon}</span>
+            <span className="min-w-0 truncate">{title}</span>
+          </h2>
+          {description ? (
+            <p className="max-w-3xl text-[12px] leading-relaxed text-muted-foreground/60">
+              {description}
+            </p>
+          ) : null}
         </div>
-        {children}
+        {actions ? <div className={DEVICE_ACTION_GROUP_CLASS_NAME}>{actions}</div> : null}
       </div>
+      <div className="-mx-2 space-y-1 text-card-foreground sm:-mx-3">{children}</div>
     </section>
   );
 }
@@ -157,14 +338,16 @@ function DeviceSubPanel({
 }) {
   return (
     <div className={cn(DEVICE_SUBPANEL_CLASS_NAME, className)}>
-      <div className="flex min-w-0 flex-col gap-2 border-b border-border/35 bg-muted/[0.08] px-3 py-2.5 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0 space-y-0.5">
-          <h3 className="text-[13px] leading-snug font-medium text-foreground/88">{title}</h3>
+      <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0 space-y-1">
+          <h3 className="text-[13.5px] leading-snug font-semibold tracking-normal text-foreground/92">
+            {title}
+          </h3>
           {description ? <p className={DEVICE_META_TEXT_CLASS_NAME}>{description}</p> : null}
         </div>
         {actions ? <div className={DEVICE_ACTION_GROUP_CLASS_NAME}>{actions}</div> : null}
       </div>
-      <div className="min-w-0 p-3">{children}</div>
+      <div className="min-w-0 pt-3">{children}</div>
     </div>
   );
 }
@@ -181,7 +364,7 @@ function DeviceStatusBadge({
       className={cn(
         "inline-flex h-5 w-fit max-w-full shrink-0 items-center gap-1 self-start rounded-[var(--control-radius)] border px-1.5 text-[10px] font-medium",
         tone === "neutral" && "border-border/40 bg-background/42 text-muted-foreground",
-        tone === "info" && "border-primary/30 bg-primary/10 text-info-foreground",
+        tone === "info" && "border-border/45 bg-foreground/[0.08] text-foreground/82",
         tone === "success" && "border-success/30 bg-success/10 text-success-foreground",
         tone === "warning" && "border-warning/35 bg-warning/10 text-warning-foreground",
         tone === "danger" && "border-destructive/35 bg-destructive/10 text-destructive-foreground",
@@ -210,7 +393,7 @@ function resolveAvailabilityPollDelayMs(): number {
   return Math.floor(4_990 + Math.random() * 5_010);
 }
 
-export function DevicesSettingsPanel() {
+function useDevicesSettingsPanelComponent() {
   const desktopMode = isElectron;
   const remoteRelaySettings = useSettings((settings) => settings.remoteRelay);
   const serverConfig = useServerConfig();
@@ -221,39 +404,54 @@ export function DevicesSettingsPanel() {
   const [connectedHostIds, setConnectedHostIds] = useState<string[]>(() =>
     loadConnectedRemoteHostIds(),
   );
-  const [hostDraft, setHostDraft] = useState<HostDraftState>(EMPTY_HOST_DRAFT);
-  const [editingHostId, setEditingHostId] = useState<string | null>(null);
-  const [importingHost, setImportingHost] = useState(false);
-  const [advertisedLocalWsUrl, setAdvertisedLocalWsUrl] = useState<string | null>(null);
-  const [refreshingLocalEndpoint, setRefreshingLocalEndpoint] = useState(false);
-  const [pairingLabel, setPairingLabel] = useState("");
-  const [relayUrlDraft, setRelayUrlDraft] = useState(remoteRelaySettings.defaultUrl);
-  const [pairingLink, setPairingLink] = useState<PairingLinkState | null>(null);
-  const [creatingPairingLink, setCreatingPairingLink] = useState(false);
-  const [revokingPairingLink, setRevokingPairingLink] = useState(false);
-  const [pairingSessionStatus, setPairingSessionStatus] = useState<HostPairingSessionStatus | null>(
-    null,
+  const [panelState, dispatchPanelState] = useReducer(devicesPanelStateReducer, {
+    hostDraft: EMPTY_HOST_DRAFT,
+    editingHostId: null,
+    importingHost: false,
+    advertisedLocalWsUrl: null,
+    refreshingLocalEndpoint: false,
+    pairingLabel: "",
+    relayUrlDraft: remoteRelaySettings.defaultUrl,
+    checkingHostId: null,
+    connectingHostId: null,
+  });
+  const {
+    hostDraft,
+    editingHostId,
+    importingHost,
+    advertisedLocalWsUrl,
+    refreshingLocalEndpoint,
+    pairingLabel,
+    relayUrlDraft,
+    checkingHostId,
+    connectingHostId,
+  } = panelState;
+  const [pairingUiState, dispatchPairingUi] = useReducer(
+    pairingUiStateReducer,
+    EMPTY_PAIRING_UI_STATE,
   );
-  const [pendingDesktopPairingSignal, setPendingDesktopPairingSignal] = useState(0);
-  const [pairedSessions, setPairedSessions] = useState<ReadonlyArray<HostPairingSessionSummary>>(
-    [],
-  );
-  const [refreshingPairedSessions, setRefreshingPairedSessions] = useState(false);
-  const [revokingPairedSessionIds, setRevokingPairedSessionIds] = useState<Record<string, boolean>>(
-    {},
-  );
-  const [hostAvailability, setHostAvailability] = useState<
-    Record<
-      string,
-      { status: "checking" | "available" | "unavailable" | "unauthenticated"; requestId: number }
-    >
-  >({});
-  const [checkingHostId, setCheckingHostId] = useState<string | null>(null);
-  const [connectingHostId, setConnectingHostId] = useState<string | "local" | null>(null);
+  const { pairingLink, pairingSessionStatus, creatingPairingLink, revokingPairingLink } =
+    pairingUiState;
+  const [sessionState, dispatchSessionState] = useReducer(devicesSessionStateReducer, {
+    pairedSessions: [],
+    refreshingPairedSessions: false,
+    revokingPairedSessionIds: {},
+    hostAvailability: {},
+  });
+  const { pairedSessions, refreshingPairedSessions, revokingPairedSessionIds, hostAvailability } =
+    sessionState;
   const registeredRouteConnectionUrlsRef = useRef<Set<string>>(new Set());
+  const importingHostRef = useRef(importingHost);
+  const pendingDesktopPairingCleanupRef = useRef<(() => void) | null>(null);
   const localDeviceConnection = useMemo(() => splitWsUrlAuthToken(resolveLocalDeviceWsUrl()), []);
   useEffect(() => {
-    setRelayUrlDraft(remoteRelaySettings.defaultUrl);
+    importingHostRef.current = importingHost;
+  }, [importingHost]);
+  useEffect(() => {
+    dispatchPanelState({
+      type: "set-relay-url-draft",
+      relayUrlDraft: remoteRelaySettings.defaultUrl,
+    });
   }, [remoteRelaySettings.defaultUrl]);
   const localControlConnectionUrl = useMemo(
     () =>
@@ -304,8 +502,7 @@ export function DevicesSettingsPanel() {
   }, []);
 
   const clearHostDraft = useCallback(() => {
-    setHostDraft(EMPTY_HOST_DRAFT);
-    setEditingHostId(null);
+    dispatchPanelState({ type: "clear-host-draft" });
   }, []);
 
   const sortedHosts = useMemo(() => {
@@ -326,7 +523,10 @@ export function DevicesSettingsPanel() {
   }, [hosts, connectedHostIds]);
 
   const pinnedRelayUrls = useMemo(
-    () => Array.from(new Set(pairedSessions.map((session) => session.relayUrl).filter(Boolean))),
+    () =>
+      Array.from(
+        new Set(pairedSessions.flatMap((session) => (session.relayUrl ? [session.relayUrl] : []))),
+      ),
     [pairedSessions],
   );
   const relayRegistrations = serverConfig?.relay?.registrations ?? [];
@@ -343,11 +543,14 @@ export function DevicesSettingsPanel() {
   }, [hosts, connectedHostIds, saveConnectedHostIds]);
 
   useEffect(() => {
-    const nextConnectionUrls = new Set(
-      hosts
-        .filter((host) => connectedHostIds.includes(host.id))
-        .map((host) => resolveHostConnectionWsUrl(host)),
-    );
+    const connectedHostIdSet = new Set(connectedHostIds);
+    const nextConnectionUrls = new Set<string>();
+    for (const host of hosts) {
+      if (!connectedHostIdSet.has(host.id)) {
+        continue;
+      }
+      nextConnectionUrls.add(resolveHostConnectionWsUrl(host));
+    }
     const previousConnectionUrls = registeredRouteConnectionUrlsRef.current;
 
     for (const connectionUrl of nextConnectionUrls) {
@@ -377,17 +580,23 @@ export function DevicesSettingsPanel() {
   );
 
   const refreshLocalEndpoint = useCallback(async () => {
-    setRefreshingLocalEndpoint(true);
+    dispatchPanelState({ type: "set-refreshing-local-endpoint", refreshingLocalEndpoint: true });
     try {
       const endpoint = await readHostPairingAdvertisedEndpoint({
         wsUrl: localDeviceConnection.wsUrl,
         ...(localDeviceConnection.authToken ? { authToken: localDeviceConnection.authToken } : {}),
       });
-      setAdvertisedLocalWsUrl(endpoint.wsUrl);
+      dispatchPanelState({
+        type: "set-advertised-local-ws-url",
+        advertisedLocalWsUrl: endpoint.wsUrl,
+      });
     } catch {
-      setAdvertisedLocalWsUrl(null);
+      dispatchPanelState({ type: "set-advertised-local-ws-url", advertisedLocalWsUrl: null });
     } finally {
-      setRefreshingLocalEndpoint(false);
+      dispatchPanelState({
+        type: "set-refreshing-local-endpoint",
+        refreshingLocalEndpoint: false,
+      });
     }
   }, [localDeviceConnection.authToken, localDeviceConnection.wsUrl]);
 
@@ -403,7 +612,7 @@ export function DevicesSettingsPanel() {
           allowInsecureLocalUrls: remoteRelaySettings.allowInsecureLocalUrls,
         },
       });
-      setRelayUrlDraft(normalized);
+      dispatchPanelState({ type: "set-relay-url-draft", relayUrlDraft: normalized });
       toastManager.add({
         type: "success",
         title: "Default relay updated.",
@@ -463,19 +672,6 @@ export function DevicesSettingsPanel() {
   useEffect(() => {
     void refreshLocalEndpoint();
   }, [refreshLocalEndpoint]);
-
-  useEffect(() => {
-    if (!desktopMode) {
-      return;
-    }
-
-    const handlePendingPairingLink = () => {
-      setPendingDesktopPairingSignal((current) => current + 1);
-    };
-
-    handlePendingPairingLink();
-    return subscribeToDesktopPairingLinks(handlePendingPairingLink);
-  }, [desktopMode]);
 
   const upsertHost = useCallback(
     (
@@ -595,15 +791,17 @@ export function DevicesSettingsPanel() {
         await verifyWsHostConnection(resolveHostConnectionWsUrl(upsertedHost), {
           timeoutMs: 2_500,
         });
-        setHostAvailability((current) => ({
-          ...current,
-          [upsertedHost.id]: { status: "available", requestId: Date.now() },
-        }));
+        dispatchSessionState({
+          type: "set-host-availability",
+          hostId: upsertedHost.id,
+          availability: { status: "available", requestId: Date.now() },
+        });
       } catch (error) {
-        setHostAvailability((current) => ({
-          ...current,
-          [upsertedHost.id]: { status: "unavailable", requestId: Date.now() },
-        }));
+        dispatchSessionState({
+          type: "set-host-availability",
+          hostId: upsertedHost.id,
+          availability: { status: "unavailable", requestId: Date.now() },
+        });
         toastManager.add({
           type: "warning",
           title: "Host saved but currently unavailable.",
@@ -617,55 +815,17 @@ export function DevicesSettingsPanel() {
     [desktopMode, upsertHost],
   );
 
-  const addRemoteHost = useCallback(async () => {
-    setImportingHost(true);
-    try {
-      const editingHost = editingHostId
-        ? hosts.find((host) => host.id === editingHostId)
-        : undefined;
-      await importRemoteHostConnection(hostDraft.connection, {
-        overrideName: hostDraft.name,
-        ...(editingHost?.id ? { existingHostId: editingHost.id } : {}),
-        ...(hostDraft.iconGlyph ? { iconGlyph: hostDraft.iconGlyph } : {}),
-        ...(hostDraft.iconColor ? { iconColor: hostDraft.iconColor } : {}),
-      });
-      clearHostDraft();
-      toastManager.add({
-        type: "success",
-        title: editingHost ? "Remote host updated." : "Remote host added.",
-      });
-    } catch (error) {
-      toastManager.add({
-        type: "error",
-        title: "Could not add remote host.",
-        description: error instanceof Error ? error.message : "Remote host setup failed.",
-      });
-    } finally {
-      setImportingHost(false);
-    }
-  }, [
-    clearHostDraft,
-    editingHostId,
-    hostDraft.connection,
-    hostDraft.iconColor,
-    hostDraft.iconGlyph,
-    hostDraft.name,
-    hosts,
-    importRemoteHostConnection,
-  ]);
-
-  useEffect(() => {
-    if (!desktopMode || importingHost) {
+  const consumePendingDesktopPairingLink = useCallback(() => {
+    if (!desktopMode || importingHostRef.current) {
       return;
     }
-
     const pendingPairingLink = takePendingDesktopPairingLink();
     if (!pendingPairingLink) {
       return;
     }
-
     let active = true;
-    setImportingHost(true);
+    importingHostRef.current = true;
+    dispatchPanelState({ type: "set-importing-host", importingHost: true });
     void importRemoteHostConnection(pendingPairingLink, {
       requesterName: "ace desktop",
     })
@@ -689,23 +849,82 @@ export function DevicesSettingsPanel() {
         });
       })
       .finally(() => {
+        pendingDesktopPairingCleanupRef.current = null;
         if (active) {
-          setImportingHost(false);
+          importingHostRef.current = false;
+          dispatchPanelState({ type: "set-importing-host", importingHost: false });
         }
       });
-
     return () => {
       active = false;
     };
-  }, [desktopMode, importRemoteHostConnection, importingHost, pendingDesktopPairingSignal]);
+  }, [desktopMode, importRemoteHostConnection]);
+
+  useEffect(() => {
+    if (!desktopMode) {
+      return;
+    }
+    pendingDesktopPairingCleanupRef.current = consumePendingDesktopPairingLink() ?? null;
+    const unsubscribe = subscribeToDesktopPairingLinks(() => {
+      if (pendingDesktopPairingCleanupRef.current !== null) {
+        return;
+      }
+      pendingDesktopPairingCleanupRef.current = consumePendingDesktopPairingLink() ?? null;
+    });
+    return () => {
+      pendingDesktopPairingCleanupRef.current?.();
+      pendingDesktopPairingCleanupRef.current = null;
+      unsubscribe();
+    };
+  }, [consumePendingDesktopPairingLink, desktopMode]);
+
+  const addRemoteHost = useCallback(async () => {
+    dispatchPanelState({ type: "set-importing-host", importingHost: true });
+    try {
+      const editingHost = editingHostId
+        ? hosts.find((host) => host.id === editingHostId)
+        : undefined;
+      await importRemoteHostConnection(hostDraft.connection, {
+        overrideName: hostDraft.name,
+        ...(editingHost?.id ? { existingHostId: editingHost.id } : {}),
+        ...(hostDraft.iconGlyph ? { iconGlyph: hostDraft.iconGlyph } : {}),
+        ...(hostDraft.iconColor ? { iconColor: hostDraft.iconColor } : {}),
+      });
+      clearHostDraft();
+      toastManager.add({
+        type: "success",
+        title: editingHost ? "Remote host updated." : "Remote host added.",
+      });
+    } catch (error) {
+      toastManager.add({
+        type: "error",
+        title: "Could not add remote host.",
+        description: error instanceof Error ? error.message : "Remote host setup failed.",
+      });
+    } finally {
+      dispatchPanelState({ type: "set-importing-host", importingHost: false });
+    }
+  }, [
+    clearHostDraft,
+    editingHostId,
+    hostDraft.connection,
+    hostDraft.iconColor,
+    hostDraft.iconGlyph,
+    hostDraft.name,
+    hosts,
+    importRemoteHostConnection,
+  ]);
 
   const startEditingHost = useCallback((host: RemoteHostInstance) => {
-    setEditingHostId(host.id);
-    setHostDraft({
-      name: host.name,
-      connection: resolveHostConnectionWsUrl(host),
-      iconGlyph: host.iconGlyph ?? "folder",
-      iconColor: host.iconColor ?? "slate",
+    dispatchPanelState({ type: "set-editing-host-id", editingHostId: host.id });
+    dispatchPanelState({
+      type: "set-host-draft",
+      hostDraft: {
+        name: host.name,
+        connection: resolveHostConnectionWsUrl(host),
+        iconGlyph: host.iconGlyph ?? "folder",
+        iconColor: host.iconColor ?? "slate",
+      },
     });
   }, []);
 
@@ -741,20 +960,22 @@ export function DevicesSettingsPanel() {
       if (checkingHostId !== null) {
         return;
       }
-      setCheckingHostId(host.id);
+      dispatchPanelState({ type: "set-checking-host-id", checkingHostId: host.id });
       try {
         await verifyWsHostConnection(resolveHostConnectionWsUrl(host), {
           timeoutMs: 2_500,
         });
-        setHostAvailability((current) => ({
-          ...current,
-          [host.id]: { status: "available", requestId: Date.now() },
-        }));
+        dispatchSessionState({
+          type: "set-host-availability",
+          hostId: host.id,
+          availability: { status: "available", requestId: Date.now() },
+        });
       } catch (error) {
-        setHostAvailability((current) => ({
-          ...current,
-          [host.id]: { status: "unavailable", requestId: Date.now() },
-        }));
+        dispatchSessionState({
+          type: "set-host-availability",
+          hostId: host.id,
+          availability: { status: "unavailable", requestId: Date.now() },
+        });
         toastManager.add({
           type: "error",
           title: "Host is unavailable.",
@@ -762,7 +983,7 @@ export function DevicesSettingsPanel() {
             error instanceof Error ? error.message : "Host connection check did not complete.",
         });
       } finally {
-        setCheckingHostId(null);
+        dispatchPanelState({ type: "set-checking-host-id", checkingHostId: null });
       }
     },
     [checkingHostId],
@@ -774,15 +995,16 @@ export function DevicesSettingsPanel() {
         return;
       }
       const connectionString = resolveHostConnectionWsUrl(host);
-      setConnectingHostId(host.id);
+      dispatchPanelState({ type: "set-connecting-host-id", connectingHostId: host.id });
       try {
         await verifyWsHostConnection(connectionString, {
           timeoutMs: 2_500,
         });
-        setHostAvailability((current) => ({
-          ...current,
-          [host.id]: { status: "available", requestId: Date.now() },
-        }));
+        dispatchSessionState({
+          type: "set-host-availability",
+          hostId: host.id,
+          availability: { status: "available", requestId: Date.now() },
+        });
         markHostLastConnected(host.id);
         registerRemoteRoute(connectionString);
         await probeRemoteRouteAvailability(connectionString, {
@@ -796,10 +1018,11 @@ export function DevicesSettingsPanel() {
           description: "Local host remains the primary server.",
         });
       } catch (error) {
-        setHostAvailability((current) => ({
-          ...current,
-          [host.id]: { status: "unavailable", requestId: Date.now() },
-        }));
+        dispatchSessionState({
+          type: "set-host-availability",
+          hostId: host.id,
+          availability: { status: "unavailable", requestId: Date.now() },
+        });
         toastManager.add({
           type: "error",
           title: "Could not connect to remote host.",
@@ -807,7 +1030,7 @@ export function DevicesSettingsPanel() {
             error instanceof Error ? error.message : "Host connection check did not complete.",
         });
       } finally {
-        setConnectingHostId(null);
+        dispatchPanelState({ type: "set-connecting-host-id", connectingHostId: null });
       }
     },
     [connectedHostIds, connectingHostId, markHostLastConnected, saveConnectedHostIds],
@@ -818,7 +1041,7 @@ export function DevicesSettingsPanel() {
       if (connectingHostId !== null || !connectedHostIds.includes(host.id)) {
         return;
       }
-      setConnectingHostId(host.id);
+      dispatchPanelState({ type: "set-connecting-host-id", connectingHostId: host.id });
       try {
         saveConnectedHostIds(
           connectedHostIds.filter((candidateHostId) => candidateHostId !== host.id),
@@ -838,7 +1061,7 @@ export function DevicesSettingsPanel() {
             error instanceof Error ? error.message : "Remote route cleanup did not complete.",
         });
       } finally {
-        setConnectingHostId(null);
+        dispatchPanelState({ type: "set-connecting-host-id", connectingHostId: null });
       }
     },
     [connectedHostIds, connectingHostId, saveConnectedHostIds],
@@ -848,7 +1071,7 @@ export function DevicesSettingsPanel() {
     if (connectingHostId !== null) {
       return;
     }
-    setConnectingHostId("local");
+    dispatchPanelState({ type: "set-connecting-host-id", connectingHostId: "local" });
     try {
       await verifyWsHostConnection(localControlConnectionUrl, { timeoutMs: 2_500 });
     } catch (error) {
@@ -859,7 +1082,7 @@ export function DevicesSettingsPanel() {
           error instanceof Error ? error.message : "Local host connection check did not complete.",
       });
     } finally {
-      setConnectingHostId(null);
+      dispatchPanelState({ type: "set-connecting-host-id", connectingHostId: null });
     }
   }, [connectingHostId, localControlConnectionUrl]);
 
@@ -881,7 +1104,7 @@ export function DevicesSettingsPanel() {
       });
       return;
     }
-    setCreatingPairingLink(true);
+    dispatchPairingUi({ type: "set-creating", creatingPairingLink: true });
     try {
       const created = await createHostPairingSession({
         wsUrl: localAdvertisedWsUrl,
@@ -905,13 +1128,16 @@ export function DevicesSettingsPanel() {
         margin: 1,
         width: 220,
       });
-      setPairingLink({
-        sessionId: created.sessionId,
-        connectionString,
-        expiresAt: created.expiresAt,
-        qrDataUrl,
+      dispatchPairingUi({
+        type: "set-pairing-link",
+        pairingLink: {
+          sessionId: created.sessionId,
+          connectionString,
+          expiresAt: created.expiresAt,
+          qrDataUrl,
+        },
       });
-      setPairingSessionStatus(created);
+      dispatchPairingUi({ type: "set-session-status", pairingSessionStatus: created });
       toastManager.add({
         type: "success",
         title: "Pairing link created.",
@@ -923,7 +1149,7 @@ export function DevicesSettingsPanel() {
         description: error instanceof Error ? error.message : "Pairing link creation failed.",
       });
     } finally {
-      setCreatingPairingLink(false);
+      dispatchPairingUi({ type: "set-creating", creatingPairingLink: false });
     }
   }, [
     localAdvertisedWsUrl,
@@ -936,14 +1162,14 @@ export function DevicesSettingsPanel() {
     if (!pairingLink) {
       return;
     }
-    setRevokingPairingLink(true);
+    dispatchPairingUi({ type: "set-revoking", revokingPairingLink: true });
     try {
       const revoked = await revokeHostPairingSession({
         wsUrl: localAdvertisedWsUrl,
         ...(localDeviceConnection.authToken ? { authToken: localDeviceConnection.authToken } : {}),
         sessionId: pairingLink.sessionId,
       });
-      setPairingSessionStatus(revoked);
+      dispatchPairingUi({ type: "set-session-status", pairingSessionStatus: revoked });
       toastManager.add({
         type: "success",
         title: "Pairing link revoked.",
@@ -955,13 +1181,13 @@ export function DevicesSettingsPanel() {
         description: error instanceof Error ? error.message : "Pairing link revoke failed.",
       });
     } finally {
-      setRevokingPairingLink(false);
+      dispatchPairingUi({ type: "set-revoking", revokingPairingLink: false });
     }
   }, [localAdvertisedWsUrl, localDeviceConnection.authToken, pairingLink]);
 
   useEffect(() => {
     if (!pairingLink) {
-      setPairingSessionStatus(null);
+      dispatchPairingUi({ type: "set-session-status", pairingSessionStatus: null });
       return;
     }
     let cancelled = false;
@@ -976,11 +1202,11 @@ export function DevicesSettingsPanel() {
           sessionId: pairingLink.sessionId,
         });
         if (!cancelled) {
-          setPairingSessionStatus(status);
+          dispatchPairingUi({ type: "set-session-status", pairingSessionStatus: status });
         }
       } catch {
         if (!cancelled) {
-          setPairingSessionStatus(null);
+          dispatchPairingUi({ type: "set-session-status", pairingSessionStatus: null });
         }
       }
     };
@@ -998,7 +1224,10 @@ export function DevicesSettingsPanel() {
   const refreshPairedSessions = useCallback(
     async (options?: { readonly quiet?: boolean }) => {
       if (!options?.quiet) {
-        setRefreshingPairedSessions(true);
+        dispatchSessionState({
+          type: "set-refreshing-paired-sessions",
+          refreshingPairedSessions: true,
+        });
       }
       try {
         const sessions = await listHostPairingSessions({
@@ -1007,7 +1236,7 @@ export function DevicesSettingsPanel() {
             ? { authToken: localDeviceConnection.authToken }
             : {}),
         });
-        setPairedSessions(sessions);
+        dispatchSessionState({ type: "set-paired-sessions", pairedSessions: sessions });
       } catch (error) {
         if (!options?.quiet) {
           toastManager.add({
@@ -1018,7 +1247,10 @@ export function DevicesSettingsPanel() {
         }
       } finally {
         if (!options?.quiet) {
-          setRefreshingPairedSessions(false);
+          dispatchSessionState({
+            type: "set-refreshing-paired-sessions",
+            refreshingPairedSessions: false,
+          });
         }
       }
     },
@@ -1033,7 +1265,11 @@ export function DevicesSettingsPanel() {
       if (!confirmed) {
         return;
       }
-      setRevokingPairedSessionIds((current) => ({ ...current, [session.sessionId]: true }));
+      dispatchSessionState({
+        type: "set-revoking-paired-session",
+        sessionId: session.sessionId,
+        revoking: true,
+      });
       try {
         const revoked = await revokeHostPairingSession({
           wsUrl: localAdvertisedWsUrl,
@@ -1042,8 +1278,9 @@ export function DevicesSettingsPanel() {
             : {}),
           sessionId: session.sessionId,
         });
-        setPairedSessions((current) =>
-          current.map((entry) =>
+        dispatchSessionState({
+          type: "set-paired-sessions",
+          pairedSessions: pairedSessions.map((entry) =>
             entry.sessionId === session.sessionId
               ? {
                   ...entry,
@@ -1054,7 +1291,7 @@ export function DevicesSettingsPanel() {
                 }
               : entry,
           ),
-        );
+        });
         toastManager.add({
           type: "success",
           title: "Device access revoked.",
@@ -1067,14 +1304,14 @@ export function DevicesSettingsPanel() {
           description: error instanceof Error ? error.message : "Pairing session revoke failed.",
         });
       } finally {
-        setRevokingPairedSessionIds((current) => {
-          const next = { ...current };
-          delete next[session.sessionId];
-          return next;
+        dispatchSessionState({
+          type: "set-revoking-paired-session",
+          sessionId: session.sessionId,
+          revoking: false,
         });
       }
     },
-    [localAdvertisedWsUrl, localDeviceConnection.authToken, refreshPairedSessions],
+    [localAdvertisedWsUrl, localDeviceConnection.authToken, pairedSessions, refreshPairedSessions],
   );
 
   useEffect(() => {
@@ -1094,15 +1331,17 @@ export function DevicesSettingsPanel() {
     const requestId = Date.now();
     await Promise.all(
       hosts.map(async (host) => {
-        setHostAvailability((current) => ({
-          ...current,
-          [host.id]: { status: "checking", requestId },
-        }));
+        dispatchSessionState({
+          type: "set-host-availability",
+          hostId: host.id,
+          availability: { status: "checking", requestId },
+        });
         try {
           await verifyWsHostConnection(resolveHostConnectionWsUrl(host), { timeoutMs: 3_500 });
-          setHostAvailability((current) => {
-            if (current[host.id]?.requestId !== requestId) return current;
-            return { ...current, [host.id]: { status: "available", requestId } };
+          dispatchSessionState({
+            type: "set-host-availability",
+            hostId: host.id,
+            availability: { status: "available", requestId },
           });
         } catch (error) {
           const message = error instanceof Error ? error.message.toLowerCase() : "";
@@ -1110,12 +1349,13 @@ export function DevicesSettingsPanel() {
             message.includes("invalid") ||
             message.includes("unauthorized") ||
             message.includes("401");
-          setHostAvailability((current) => {
-            if (current[host.id]?.requestId !== requestId) return current;
-            return {
-              ...current,
-              [host.id]: { status: unauthenticated ? "unauthenticated" : "unavailable", requestId },
-            };
+          dispatchSessionState({
+            type: "set-host-availability",
+            hostId: host.id,
+            availability: {
+              status: unauthenticated ? "unauthenticated" : "unavailable",
+              requestId,
+            },
           });
         }
       }),
@@ -1251,6 +1491,7 @@ export function DevicesSettingsPanel() {
                 ) : null}
                 <Button
                   size="xs"
+                  className={SETTINGS_NEUTRAL_ACTION_BUTTON_CLASS_NAME}
                   onClick={() => void createPairingLink()}
                   disabled={creatingPairingLink || !remoteRelaySettings.enabled}
                 >
@@ -1263,7 +1504,10 @@ export function DevicesSettingsPanel() {
               <Input
                 value={pairingLabel}
                 onChange={(event) => {
-                  setPairingLabel(event.currentTarget.value);
+                  dispatchPanelState({
+                    type: "set-pairing-label",
+                    pairingLabel: event.currentTarget.value,
+                  });
                 }}
                 placeholder="Device label (for example: Office Mac mini)"
               />
@@ -1348,7 +1592,11 @@ export function DevicesSettingsPanel() {
                 >
                   Reset
                 </Button>
-                <Button size="xs" onClick={saveRelaySettings}>
+                <Button
+                  size="xs"
+                  className={SETTINGS_NEUTRAL_ACTION_BUTTON_CLASS_NAME}
+                  onClick={saveRelaySettings}
+                >
                   Save relay
                 </Button>
               </>
@@ -1356,9 +1604,12 @@ export function DevicesSettingsPanel() {
           >
             <div className="space-y-3">
               <label
+                htmlFor="remote-relay-enabled"
                 className={`${SETTINGS_INLINE_PANEL_CLASS_NAME} flex h-9 items-center gap-2 px-3 text-[12px] text-muted-foreground`}
               >
                 <Switch
+                  id="remote-relay-enabled"
+                  className={SETTINGS_NEUTRAL_SWITCH_CLASS_NAME}
                   checked={remoteRelaySettings.enabled}
                   onCheckedChange={toggleRemoteRelayEnabled}
                 />
@@ -1367,13 +1618,21 @@ export function DevicesSettingsPanel() {
               <div className="grid gap-2">
                 <Input
                   value={relayUrlDraft}
-                  onChange={(event) => setRelayUrlDraft(event.currentTarget.value)}
+                  onChange={(event) =>
+                    dispatchPanelState({
+                      type: "set-relay-url-draft",
+                      relayUrlDraft: event.currentTarget.value,
+                    })
+                  }
                   placeholder={DEFAULT_MANAGED_RELAY_URL}
                 />
                 <label
+                  htmlFor="remote-relay-allow-local-ws"
                   className={`${SETTINGS_INLINE_PANEL_CLASS_NAME} flex h-9 w-fit items-center gap-2 px-2.5 text-[12px] text-muted-foreground`}
                 >
                   <Switch
+                    id="remote-relay-allow-local-ws"
+                    className={SETTINGS_NEUTRAL_SWITCH_CLASS_NAME}
                     checked={remoteRelaySettings.allowInsecureLocalUrls}
                     onCheckedChange={toggleInsecureRelayUrls}
                   />
@@ -1538,7 +1797,12 @@ export function DevicesSettingsPanel() {
                     Cancel
                   </Button>
                 ) : null}
-                <Button size="xs" onClick={() => void addRemoteHost()} disabled={importingHost}>
+                <Button
+                  size="xs"
+                  className={SETTINGS_NEUTRAL_ACTION_BUTTON_CLASS_NAME}
+                  onClick={() => void addRemoteHost()}
+                  disabled={importingHost}
+                >
                   {importingHost ? "Saving..." : editingHostId ? "Save host" : "Add host"}
                 </Button>
               </>
@@ -1549,7 +1813,7 @@ export function DevicesSettingsPanel() {
                 value={hostDraft.name}
                 onChange={(event) => {
                   const value = event.currentTarget.value;
-                  setHostDraft((previous) => ({ ...previous, name: value }));
+                  dispatchPanelState({ type: "update-host-draft", hostDraft: { name: value } });
                 }}
                 placeholder="Device name"
               />
@@ -1557,7 +1821,10 @@ export function DevicesSettingsPanel() {
                 value={hostDraft.connection}
                 onChange={(event) => {
                   const value = event.currentTarget.value;
-                  setHostDraft((previous) => ({ ...previous, connection: value }));
+                  dispatchPanelState({
+                    type: "update-host-draft",
+                    hostDraft: { connection: value },
+                  });
                 }}
                 placeholder="ace://pair?... or ws://host:3773/ws?token=..."
               />
@@ -1571,7 +1838,10 @@ export function DevicesSettingsPanel() {
                     value={hostDraft.iconGlyph ?? "folder"}
                     onChange={(event) => {
                       const value = event.currentTarget.value as RemoteHostInstance["iconGlyph"];
-                      setHostDraft((previous) => ({ ...previous, iconGlyph: value }));
+                      dispatchPanelState({
+                        type: "update-host-draft",
+                        hostDraft: { iconGlyph: value },
+                      });
                     }}
                   >
                     {PROJECT_ICON_OPTIONS.map((option) => (
@@ -1590,7 +1860,10 @@ export function DevicesSettingsPanel() {
                     value={hostDraft.iconColor ?? "slate"}
                     onChange={(event) => {
                       const value = event.currentTarget.value as RemoteHostInstance["iconColor"];
-                      setHostDraft((previous) => ({ ...previous, iconColor: value }));
+                      dispatchPanelState({
+                        type: "update-host-draft",
+                        hostDraft: { iconColor: value },
+                      });
                     }}
                   >
                     {PROJECT_ICON_COLOR_OPTIONS.map((option) => (
@@ -1696,6 +1969,9 @@ export function DevicesSettingsPanel() {
                       <Button
                         size="xs"
                         variant={isConnected ? "outline" : "default"}
+                        className={
+                          !isConnected ? SETTINGS_NEUTRAL_ACTION_BUTTON_CLASS_NAME : undefined
+                        }
                         onClick={() =>
                           isConnected ? void disconnectHost(host) : void connectHost(host)
                         }
@@ -1748,4 +2024,8 @@ export function DevicesSettingsPanel() {
       </DeviceSection>
     </SettingsPageContainer>
   );
+}
+
+export function DevicesSettingsPanel() {
+  return useDevicesSettingsPanelComponent();
 }

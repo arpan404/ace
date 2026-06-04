@@ -1,18 +1,25 @@
+import { IconArrowsDiagonalMinimize2 } from "@tabler/icons-react";
 import {
   ArrowLeftIcon,
+  ArrowDownIcon,
   ArrowRightIcon,
+  ArrowUpIcon,
   BoxSelectIcon,
   ChevronDownIcon,
   ExternalLinkIcon,
+  KeyRoundIcon,
   LockIcon,
   LockOpenIcon,
   type LucideIcon,
   LoaderCircleIcon,
   MousePointerSquareDashedIcon,
   RefreshCwIcon,
+  SearchIcon,
+  SlidersHorizontalIcon,
+  SquareArrowOutUpRightIcon,
+  XIcon,
 } from "lucide-react";
 import {
-  type FormEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
   Profiler,
@@ -24,7 +31,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { motion, type MotionStyle } from "motion/react";
+import { LazyMotion, domAnimation, m, type MotionStyle } from "motion/react";
 import { isElectron } from "~/env";
 import {
   useInAppBrowserState,
@@ -35,8 +42,9 @@ import {
   type InAppBrowserMode,
 } from "~/hooks/useInAppBrowserState";
 import { useThreadJumpHintVisibility } from "~/lib/sidebar";
-import { cn } from "~/lib/utils";
+import { cn, randomUUID } from "~/lib/utils";
 import type { BrowserSessionStorage } from "~/lib/browser/session";
+import { resolveBrowserWebviewPartition } from "~/lib/browser/storage";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import {
@@ -49,9 +57,10 @@ import {
 } from "./ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { BrowserNewTabPanel, BrowserSuggestionList } from "./browser/BrowserChrome";
+import { BrowserSiteDiagnosticsDialog } from "./browser/BrowserSiteDiagnosticsDialog";
 import { BrowserTabWebview } from "./browser/BrowserWebviewSurface";
 import { isBrowserInternalTabUrl } from "~/lib/browser/session";
-import type { BrowserDesignRequestSubmission } from "~/lib/browser/types";
+import type { BrowserDesignRequestSubmission, BrowserFindResult } from "~/lib/browser/types";
 import type { BrowserDesignerTool } from "~/lib/browser/designer";
 import { isRenderProfilingEnabled, recordReactRenderProfile } from "~/lib/renderProfiling";
 import { toastManager } from "./ui/toast";
@@ -72,6 +81,8 @@ interface InAppBrowserProps {
   scopeId?: string;
   visible?: boolean;
   onClose: () => void;
+  onDetached?: () => void;
+  onReturnToMainWindow?: () => void;
   onBrowserSessionChange?: (session: BrowserSessionStorage) => void;
   onControllerChange?: (controller: InAppBrowserController | null) => void;
   onActiveRuntimeStateChange?: (state: ActiveBrowserRuntimeState) => void;
@@ -143,10 +154,37 @@ function resolveAddressFieldPresentation(currentUrl: string | null): {
   }
 }
 
+export function isLikelyBrowserAuthenticationUrl(input: {
+  title?: string | null;
+  url: string | null;
+}): boolean {
+  if (!input.url) {
+    return false;
+  }
+  try {
+    const parsedUrl = new URL(input.url);
+    const host = parsedUrl.hostname.toLowerCase();
+    if (
+      /(\.|^)secure\d*\.store\.apple\.com$/u.test(host) ||
+      /(\.|^)idmsa\.apple\.com$/u.test(host)
+    ) {
+      return true;
+    }
+    const haystack =
+      `${host} ${parsedUrl.pathname} ${parsedUrl.search} ${input.title ?? ""}`.toLowerCase();
+    return /\b(auth|authorize|login|log-in|signin|sign-in|saml|sso|oauth|oidc|password|passkey|webauthn|account|checkout)\b/u.test(
+      haystack,
+    );
+  } catch {
+    return false;
+  }
+}
+
 const BROWSER_SHELL_TRANSITION = {
   duration: 0.18,
   ease: [0.16, 1, 0.3, 1],
 } as const;
+const AUTH_LOADING_RECOVERY_DELAY_MS = 12_000;
 
 export function resolveMountedBrowserTabs(input: {
   activeTabId: string | null | undefined;
@@ -228,7 +266,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     activeInstance = true,
     connectionUrl,
     mode,
-    scopeId,
+    scopeId: providedScopeId,
     visible = activeInstance,
     onClose,
     onBrowserSessionChange,
@@ -240,8 +278,27 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     designerElementCommentShortcutLabel,
     forwardShortcutLabel,
     reloadShortcutLabel,
+    detachEnabled = true,
     onQueueDesignRequest,
   } = props;
+  const fallbackScopeIdRef = useRef<string | null>(null);
+  if (fallbackScopeIdRef.current === null) {
+    fallbackScopeIdRef.current = `unscoped:${randomUUID()}`;
+  }
+  const scopeId = providedScopeId?.trim() || fallbackScopeIdRef.current;
+  const browserPartition = useMemo(() => resolveBrowserWebviewPartition(scopeId), [scopeId]);
+  const findInputRef = useRef<HTMLInputElement | null>(null);
+  const [findOpen, setFindOpen] = useState(false);
+  const [findQuery, setFindQuery] = useState("");
+  const [findResultByTabId, setFindResultByTabId] = useState<Record<string, BrowserFindResult>>({});
+  const [showAuthRecovery, setShowAuthRecovery] = useState(false);
+  const openFindBar = useCallback(() => {
+    setFindOpen(true);
+    window.requestAnimationFrame(() => {
+      findInputRef.current?.focus();
+      findInputRef.current?.select();
+    });
+  }, []);
   const {
     activeRuntime,
     activeTab,
@@ -256,13 +313,16 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     browserShellStyle,
     designerState,
     draftUrl,
+    findInPage,
     goBack,
     goForward,
     handleAddressBarKeyDown,
     handleBrowserKeyDownCapture,
     handleTabSnapshotChange,
     handleWebviewContextMenuFallbackRequest,
+    hasWebContentsId,
     openActiveTabExternally,
+    openActiveTabInAuthWindow,
     openUrl,
     registerWebviewHandle,
     reload,
@@ -274,6 +334,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     setSelectedSuggestionIndex,
     showAddressBarSuggestionOverlay,
     showAddressBarSuggestions,
+    stopFindInPage,
     zoomIn,
     zoomOut,
     zoomReset,
@@ -283,6 +344,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     mode,
     open,
     onClose,
+    onFindInPageShortcut: openFindBar,
     ...(scopeId ? { scopeId } : {}),
     ...(onActiveRuntimeStateChange ? { onActiveRuntimeStateChange } : {}),
     ...(onControllerChange ? { onControllerChange } : {}),
@@ -294,6 +356,28 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
       ? { onToggleRightPanelFullscreen: props.onToggleRightPanelFullscreen }
       : {}),
   });
+  const onDetached = props.onDetached;
+  const onReturnToMainWindow = props.onReturnToMainWindow;
+  const canDetachBrowser = detachEnabled && Boolean(window.desktopBridge?.openDetachedBrowser);
+  const detachBrowser = useCallback(async () => {
+    const openDetachedBrowser = window.desktopBridge?.openDetachedBrowser;
+    if (!openDetachedBrowser) {
+      return;
+    }
+    const detached = await openDetachedBrowser({
+      ...(scopeId ? { scopeId } : {}),
+      ...(activeTab?.url && !activeTabIsInternal ? { initialUrl: activeTab.url } : {}),
+    });
+    if (detached) {
+      onDetached?.() ?? onClose();
+      return;
+    }
+    toastManager.add({
+      title: "Could not open browser window",
+      description: "The desktop app did not open a detached browser window.",
+      type: "error",
+    });
+  }, [activeTab?.url, activeTabIsInternal, onClose, onDetached, scopeId]);
   const latestBrowserSessionChangeHandlerRef = useRef(onBrowserSessionChange);
   const pendingBrowserSessionRef = useRef<BrowserSessionStorage | null>(null);
   const browserSessionPublishFrameRef = useRef<number | null>(null);
@@ -321,13 +405,18 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     if (!activeInstance || !isElectron) {
       return;
     }
-    return window.desktopBridge?.onBrowserOpenUrl?.((url) => {
+    return window.desktopBridge?.onBrowserOpenUrl?.((event) => {
+      const { url } = event;
+      const sourceWebContentsId = event.sourceWebContentsId ?? null;
       if (typeof url !== "string") {
+        return;
+      }
+      if (typeof sourceWebContentsId === "number" && !hasWebContentsId(sourceWebContentsId)) {
         return;
       }
       openUrlInNewTabFromPage(url);
     });
-  }, [activeInstance, openUrlInNewTabFromPage]);
+  }, [activeInstance, hasWebContentsId, openUrlInNewTabFromPage]);
 
   useEffect(() => {
     latestBrowserSessionChangeHandlerRef.current = onBrowserSessionChange;
@@ -381,6 +470,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
   const designerToolButtonRefs = useRef(new Map<BrowserDesignerTool, HTMLButtonElement>());
   const [addressFieldExpanded, setAddressFieldExpanded] = useState(false);
   const [designerToolsCollapsed, setDesignerToolsCollapsed] = useState(false);
+  const [sitePanelOpen, setSitePanelOpen] = useState(false);
   const {
     showThreadJumpHints: showDesignerToolShortcutHints,
     updateThreadJumpHintsVisibility: updateDesignerToolShortcutHintsVisibility,
@@ -424,16 +514,89 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     [designerState.tool],
   );
   const collapsedDesignerSelectorActive = designerState.active;
+  const activeTabUrl = activeTab && !activeTabIsInternal ? activeTab.url : null;
+  const signInWindowAvailable =
+    isElectron &&
+    activeTabUrl !== null &&
+    isLikelyBrowserAuthenticationUrl({
+      title: activeTab?.title ?? null,
+      url: activeTabUrl,
+    });
+  const activeFindResult = activeTab ? (findResultByTabId[activeTab.id] ?? null) : null;
+  const closeFindBar = useCallback(() => {
+    stopFindInPage();
+    setFindOpen(false);
+    setFindQuery("");
+  }, [stopFindInPage]);
+  const runFind = useCallback(
+    (direction: "next" | "previous") => {
+      if (!findQuery.trim() || activeTabIsInternal) {
+        return;
+      }
+      findInPage(findQuery, {
+        findNext: true,
+        forward: direction === "next",
+      });
+    },
+    [activeTabIsInternal, findInPage, findQuery],
+  );
+  const handleFindResultChange = useCallback((tabId: string, result: BrowserFindResult | null) => {
+    setFindResultByTabId((current) => {
+      if (!result) {
+        if (!(tabId in current)) {
+          return current;
+        }
+        const next = { ...current };
+        delete next[tabId];
+        return next;
+      }
+      const previous = current[tabId];
+      if (
+        previous?.activeMatchOrdinal === result.activeMatchOrdinal &&
+        previous?.finalUpdate === result.finalUpdate &&
+        previous?.matches === result.matches
+      ) {
+        return current;
+      }
+      return {
+        ...current,
+        [tabId]: result,
+      };
+    });
+  }, []);
 
   useEffect(() => {
     if (!open) {
       setDesignerModeActive(false);
       setAddressFieldExpanded(false);
+      closeFindBar();
     }
-  }, [open, setDesignerModeActive]);
+  }, [closeFindBar, open, setDesignerModeActive]);
   useEffect(() => {
     setAddressFieldExpanded(false);
-  }, [activeTab?.id]);
+    if (findOpen && findQuery.trim()) {
+      findInputRef.current?.focus();
+    }
+  }, [activeTab?.id, findOpen, findQuery]);
+  useEffect(() => {
+    if (!findOpen || activeTabIsInternal || !findQuery.trim()) {
+      stopFindInPage();
+      return;
+    }
+    findInPage(findQuery, { forward: true });
+  }, [activeTab?.id, activeTabIsInternal, findInPage, findOpen, findQuery, stopFindInPage]);
+  useEffect(() => {
+    setShowAuthRecovery(false);
+    if (!signInWindowAvailable || !activeRuntime.loading) {
+      return;
+    }
+    const timeout = window.setTimeout(() => {
+      setShowAuthRecovery(true);
+    }, AUTH_LOADING_RECOVERY_DELAY_MS);
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [activeRuntime.loading, activeTab?.id, activeTab?.url, signInWindowAvailable]);
   const mountedBrowserTabs = useMemo(
     () =>
       resolveMountedBrowserTabs({
@@ -486,6 +649,30 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     }
     setDesignerModeActive(!designerState.active);
   }, [designerModeAvailable, designerState.active, setDesignerModeActive]);
+  useEffect(() => {
+    if (!visible || !designerState.active) {
+      return;
+    }
+
+    const onWindowKeyDown = (event: KeyboardEvent) => {
+      if (
+        event.defaultPrevented ||
+        event.key !== "Escape" ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.altKey ||
+        event.shiftKey
+      ) {
+        return;
+      }
+      setDesignerModeActive(false);
+    };
+
+    window.addEventListener("keydown", onWindowKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onWindowKeyDown);
+    };
+  }, [designerState.active, setDesignerModeActive, visible]);
   useEffect(() => {
     if (!visible || !designerModeAvailable) {
       updateDesignerToolShortcutHintsVisibility(false);
@@ -688,187 +875,277 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
   }
 
   const browserContent = (
-    <motion.div
-      aria-hidden={!visible}
-      initial={browserShellInitial}
-      animate={browserShellAnimate}
-      exit={browserShellExit}
-      transition={BROWSER_SHELL_TRANSITION}
-      className={cn(
-        mode === "split"
-          ? visible
-            ? "relative flex h-full min-h-0 min-w-0"
-            : "pointer-events-none invisible absolute inset-0 z-0 min-h-0 min-w-0"
-          : cn(
-              "absolute inset-0 min-h-0 min-w-0",
-              visible ? "z-30" : "pointer-events-none invisible z-0",
-            ),
-      )}
-      {...(browserShellStyle ? { style: browserShellStyle as MotionStyle } : {})}
-    >
-      <section
-        ref={browserShellRef}
-        data-in-app-browser-shell="true"
-        onKeyDownCapture={handleBrowserSectionKeyDownCapture}
+    <LazyMotion features={domAnimation}>
+      <m.div
+        aria-hidden={!visible}
+        initial={browserShellInitial}
+        animate={browserShellAnimate}
+        exit={browserShellExit}
+        transition={BROWSER_SHELL_TRANSITION}
         className={cn(
-          "flex size-full min-h-0 flex-col overflow-hidden border border-border bg-background text-foreground [-webkit-app-region:no-drag]",
-          mode === "full"
-            ? "rounded-none shadow-none"
-            : "rounded-none border-y-0 border-r-0 border-l-0 shadow-none",
+          "browser-render-island",
+          mode === "split"
+            ? visible
+              ? "relative flex h-full min-h-0 min-w-0"
+              : "pointer-events-none invisible absolute inset-0 z-0 min-h-0 min-w-0"
+            : cn(
+                "absolute inset-0 min-h-0 min-w-0",
+                visible ? "z-30" : "pointer-events-none invisible z-0",
+              ),
         )}
+        {...(browserShellStyle ? { style: browserShellStyle as MotionStyle } : {})}
       >
-        <>
-          <div
-            ref={browserToolbarRef}
-            className="flex h-12 items-center gap-2.5 border-b border-border bg-card px-3 sm:px-4"
-          >
-            <div className="flex shrink-0 items-center gap-0.5">
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      className="text-muted-foreground hover:bg-transparent hover:text-foreground disabled:opacity-35"
-                      onClick={goBack}
-                      disabled={activeTabIsInternal || !activeRuntime.canGoBack}
-                      aria-label="Go back"
-                    >
-                      <ArrowLeftIcon className="size-4" />
-                    </Button>
-                  }
-                />
-                <TooltipPopup side="bottom">
-                  {backShortcutLabel ? `Back (${backShortcutLabel})` : "Back"}
-                </TooltipPopup>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      className="text-muted-foreground hover:bg-transparent hover:text-foreground disabled:opacity-35"
-                      onClick={goForward}
-                      disabled={activeTabIsInternal || !activeRuntime.canGoForward}
-                      aria-label="Go forward"
-                    >
-                      <ArrowRightIcon className="size-4" />
-                    </Button>
-                  }
-                />
-                <TooltipPopup side="bottom">
-                  {forwardShortcutLabel ? `Forward (${forwardShortcutLabel})` : "Forward"}
-                </TooltipPopup>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      className="text-muted-foreground hover:bg-transparent hover:text-foreground disabled:opacity-35"
-                      onClick={reload}
-                      disabled={activeTabIsInternal}
-                      aria-label={activeRuntime.loading ? "Stop loading" : "Reload page"}
-                    >
-                      {activeRuntime.loading ? (
-                        <LoaderCircleIcon className="size-4 animate-spin" />
-                      ) : (
-                        <RefreshCwIcon className="size-4" />
-                      )}
-                    </Button>
-                  }
-                />
-                <TooltipPopup side="bottom">
-                  {reloadShortcutLabel
-                    ? `${activeRuntime.loading ? "Stop or reload" : "Reload"} (${reloadShortcutLabel})`
-                    : activeRuntime.loading
-                      ? "Stop or reload"
-                      : "Reload"}
-                </TooltipPopup>
-              </Tooltip>
-            </div>
-            <form
-              className="relative mx-auto flex min-w-0 max-w-[56rem] flex-[1_1_42rem] items-center gap-2"
-              onSubmit={(event: FormEvent<HTMLFormElement>) => {
-                event.preventDefault();
-                openUrl(draftUrl);
-              }}
+        <section
+          ref={browserShellRef}
+          data-in-app-browser-shell="true"
+          onKeyDownCapture={handleBrowserSectionKeyDownCapture}
+          className={cn(
+            "flex size-full min-h-0 flex-col overflow-hidden border border-border bg-background text-foreground [-webkit-app-region:no-drag]",
+            mode === "full"
+              ? "rounded-none shadow-none"
+              : "rounded-none border-y-0 border-r-0 border-l-0 shadow-none",
+          )}
+        >
+          <>
+            <div
+              ref={browserToolbarRef}
+              className="flex h-12 min-w-0 items-center gap-2.5 border-b border-border bg-card px-3 sm:px-4"
             >
-              <div
-                className={cn(
-                  "group/address flex h-8 min-w-0 flex-1 items-center gap-1.5 rounded-lg px-2.5 transition-colors duration-150",
-                  shouldShowExpandedAddressField
-                    ? "border border-border bg-background focus-within:border-primary focus-within:bg-background"
-                    : "border border-transparent bg-transparent hover:border-border/70 hover:bg-background/55",
-                )}
-              >
-                {SecurityIcon ? (
-                  <SecurityIcon
-                    className="size-3.5 shrink-0 text-muted-foreground"
-                    aria-label={addressPresentation.securityLabel ?? undefined}
+              <div className="flex shrink-0 items-center gap-0.5">
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        className="text-muted-foreground hover:bg-transparent hover:text-foreground disabled:opacity-35"
+                        onClick={goBack}
+                        disabled={activeTabIsInternal || !activeRuntime.canGoBack}
+                        aria-label="Go back"
+                      >
+                        <ArrowLeftIcon className="size-4" />
+                      </Button>
+                    }
                   />
-                ) : null}
-                {shouldShowExpandedAddressField ? (
-                  <Input
-                    ref={addressInputRef}
-                    className="min-w-0 w-full flex-1 border-0 bg-transparent text-sm font-medium text-foreground shadow-none placeholder:text-muted-foreground/70"
-                    unstyled
-                    value={draftUrl}
-                    onChange={(event) => {
-                      showAddressBarSuggestionOverlay();
-                      setDraftUrl(event.target.value);
-                    }}
-                    onFocus={(event) => event.currentTarget.select()}
-                    onBlur={() => {
-                      if (!forceExpandedAddressField) {
-                        setAddressFieldExpanded(false);
-                      }
-                      window.setTimeout(() => {
-                        setIsAddressBarFocused(false);
-                      }, 100);
-                    }}
-                    onFocusCapture={() => {
-                      if (!forceExpandedAddressField) {
-                        setAddressFieldExpanded(true);
-                      }
-                      showAddressBarSuggestionOverlay();
-                      setIsAddressBarFocused(true);
-                    }}
-                    onKeyDown={handleAddressBarKeyDown}
-                    placeholder="Enter a URL or search the web"
-                    aria-label="Browser address bar"
-                    autoCapitalize="off"
-                    autoCorrect="off"
-                    spellCheck={false}
+                  <TooltipPopup side="bottom">
+                    {backShortcutLabel ? `Back (${backShortcutLabel})` : "Back"}
+                  </TooltipPopup>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        className="text-muted-foreground hover:bg-transparent hover:text-foreground disabled:opacity-35"
+                        onClick={goForward}
+                        disabled={activeTabIsInternal || !activeRuntime.canGoForward}
+                        aria-label="Go forward"
+                      >
+                        <ArrowRightIcon className="size-4" />
+                      </Button>
+                    }
                   />
-                ) : (
+                  <TooltipPopup side="bottom">
+                    {forwardShortcutLabel ? `Forward (${forwardShortcutLabel})` : "Forward"}
+                  </TooltipPopup>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        className="text-muted-foreground hover:bg-transparent hover:text-foreground disabled:opacity-35"
+                        onClick={reload}
+                        disabled={activeTabIsInternal}
+                        aria-label={activeRuntime.loading ? "Stop loading" : "Reload page"}
+                      >
+                        {activeRuntime.loading ? (
+                          <LoaderCircleIcon className="size-4 animate-spin" />
+                        ) : (
+                          <RefreshCwIcon className="size-4" />
+                        )}
+                      </Button>
+                    }
+                  />
+                  <TooltipPopup side="bottom">
+                    {reloadShortcutLabel
+                      ? `${activeRuntime.loading ? "Stop or reload" : "Reload"} (${reloadShortcutLabel})`
+                      : activeRuntime.loading
+                        ? "Stop or reload"
+                        : "Reload"}
+                  </TooltipPopup>
+                </Tooltip>
+              </div>
+              <search className="relative flex min-w-0 flex-1 items-center gap-2">
+                <div
+                  className={cn(
+                    "group/address flex h-8 min-w-0 flex-1 items-center gap-1.5 rounded-lg px-2.5 transition-colors duration-150",
+                    shouldShowExpandedAddressField
+                      ? "border border-border bg-background focus-within:border-primary focus-within:bg-background"
+                      : "border border-transparent bg-transparent hover:border-border/70 hover:bg-background/55",
+                  )}
+                >
+                  {SecurityIcon ? (
+                    <SecurityIcon
+                      className="size-3.5 shrink-0 text-muted-foreground"
+                      aria-label={addressPresentation.securityLabel ?? undefined}
+                    />
+                  ) : null}
+                  {shouldShowExpandedAddressField ? (
+                    <Input
+                      ref={addressInputRef}
+                      className="min-w-0 w-full flex-1 border-0 bg-transparent text-sm font-medium text-foreground shadow-none placeholder:text-muted-foreground/70"
+                      unstyled
+                      value={draftUrl}
+                      onChange={(event) => {
+                        showAddressBarSuggestionOverlay();
+                        setDraftUrl(event.target.value);
+                      }}
+                      onFocus={(event) => event.currentTarget.select()}
+                      onBlur={() => {
+                        if (!forceExpandedAddressField) {
+                          setAddressFieldExpanded(false);
+                        }
+                        window.setTimeout(() => {
+                          setIsAddressBarFocused(false);
+                        }, 100);
+                      }}
+                      onFocusCapture={() => {
+                        if (!forceExpandedAddressField) {
+                          setAddressFieldExpanded(true);
+                        }
+                        showAddressBarSuggestionOverlay();
+                        setIsAddressBarFocused(true);
+                      }}
+                      onKeyDown={handleAddressBarKeyDown}
+                      placeholder="Enter a URL or search the web"
+                      aria-label="Browser address bar"
+                      autoCapitalize="off"
+                      autoCorrect="off"
+                      spellCheck={false}
+                    />
+                  ) : (
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <button
+                            type="button"
+                            className="min-w-0 w-full flex-1 truncate text-left text-sm font-medium text-foreground"
+                            onClick={() => {
+                              setAddressFieldExpanded(true);
+                              setIsAddressBarFocused(true);
+                              window.requestAnimationFrame(() => {
+                                addressInputRef.current?.focus();
+                                addressInputRef.current?.select();
+                              });
+                            }}
+                            aria-label="Expand address bar"
+                          />
+                        }
+                      >
+                        {addressPresentation.hostOnlyLabel || "Enter a URL or search the web"}
+                      </TooltipTrigger>
+                      <TooltipPopup side="bottom" className="max-w-96 whitespace-pre-wrap">
+                        {activeTab?.url ?? draftUrl}
+                      </TooltipPopup>
+                    </Tooltip>
+                  )}
+                  {signInWindowAvailable ? (
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            type="button"
+                            className={cn(
+                              "size-6 shrink-0 rounded-md text-muted-foreground hover:bg-transparent hover:text-foreground disabled:opacity-35",
+                              "pointer-events-none opacity-0 transition-opacity duration-150",
+                              "group-hover/address:pointer-events-auto group-hover/address:opacity-100",
+                              "group-focus-within/address:pointer-events-auto group-focus-within/address:opacity-100",
+                              forceExpandedAddressField &&
+                                "pointer-events-auto opacity-100 group-hover/address:opacity-100",
+                            )}
+                            onClick={() => {
+                              openActiveTabInAuthWindow();
+                            }}
+                            disabled={!activeTab || activeTabIsInternal}
+                            aria-label="Open sign-in window"
+                          >
+                            <KeyRoundIcon className="size-3.5" />
+                          </Button>
+                        }
+                      />
+                      <TooltipPopup side="bottom">Open sign-in window</TooltipPopup>
+                    </Tooltip>
+                  ) : null}
                   <Tooltip>
                     <TooltipTrigger
                       render={
-                        <button
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
                           type="button"
-                          className="min-w-0 w-full flex-1 truncate text-left text-sm font-medium text-foreground"
+                          className={cn(
+                            "size-6 shrink-0 rounded-md text-muted-foreground hover:bg-transparent hover:text-foreground disabled:opacity-35",
+                            "pointer-events-none opacity-0 transition-opacity duration-150",
+                            "group-hover/address:pointer-events-auto group-hover/address:opacity-100",
+                            "group-focus-within/address:pointer-events-auto group-focus-within/address:opacity-100",
+                            forceExpandedAddressField &&
+                              "pointer-events-auto opacity-100 group-hover/address:opacity-100",
+                          )}
                           onClick={() => {
-                            setAddressFieldExpanded(true);
-                            setIsAddressBarFocused(true);
-                            window.requestAnimationFrame(() => {
-                              addressInputRef.current?.focus();
-                              addressInputRef.current?.select();
-                            });
+                            setSitePanelOpen(true);
                           }}
-                          aria-label="Expand address bar"
-                        />
+                          disabled={!activeTab || activeTabIsInternal}
+                          aria-label="Open browser site panel"
+                        >
+                          <SlidersHorizontalIcon className="size-3.5" />
+                        </Button>
                       }
-                    >
-                      {addressPresentation.hostOnlyLabel || "Enter a URL or search the web"}
-                    </TooltipTrigger>
-                    <TooltipPopup side="bottom" className="max-w-96 whitespace-pre-wrap">
-                      {activeTab?.url ?? draftUrl}
-                    </TooltipPopup>
+                    />
+                    <TooltipPopup side="bottom">Site panel</TooltipPopup>
                   </Tooltip>
-                )}
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          type="button"
+                          className={cn(
+                            "size-6 shrink-0 rounded-md text-muted-foreground hover:bg-transparent hover:text-foreground disabled:opacity-35",
+                            "pointer-events-none opacity-0 transition-opacity duration-150",
+                            "group-hover/address:pointer-events-auto group-hover/address:opacity-100",
+                            "group-focus-within/address:pointer-events-auto group-focus-within/address:opacity-100",
+                            forceExpandedAddressField &&
+                              "pointer-events-auto opacity-100 group-hover/address:opacity-100",
+                          )}
+                          onClick={() => {
+                            openActiveTabExternally();
+                          }}
+                          disabled={!activeTab || activeTabIsInternal}
+                          aria-label="Open current page externally"
+                        >
+                          <ExternalLinkIcon className="size-3.5" />
+                        </Button>
+                      }
+                    />
+                    <TooltipPopup side="bottom">Open externally</TooltipPopup>
+                  </Tooltip>
+                </div>
+                {showAddressBarSuggestions ? (
+                  <BrowserSuggestionList
+                    activeIndex={selectedSuggestionIndex}
+                    onHighlight={setSelectedSuggestionIndex}
+                    suggestions={addressBarSuggestions}
+                    onSelect={applySuggestion}
+                  />
+                ) : null}
+              </search>
+              {canDetachBrowser ? (
                 <Tooltip>
                   <TooltipTrigger
                     render={
@@ -876,273 +1153,410 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                         variant="ghost"
                         size="icon-sm"
                         type="button"
-                        className={cn(
-                          "size-6 shrink-0 rounded-md text-muted-foreground hover:bg-transparent hover:text-foreground disabled:opacity-35",
-                          "pointer-events-none opacity-0 transition-opacity duration-150",
-                          "group-hover/address:pointer-events-auto group-hover/address:opacity-100",
-                          "group-focus-within/address:pointer-events-auto group-focus-within/address:opacity-100",
-                          forceExpandedAddressField &&
-                            "pointer-events-auto opacity-100 group-hover/address:opacity-100",
-                        )}
+                        className="size-8 shrink-0 rounded-lg text-muted-foreground hover:bg-accent/55 hover:text-foreground"
                         onClick={() => {
-                          openActiveTabExternally();
+                          void detachBrowser();
                         }}
-                        disabled={!activeTab || activeTabIsInternal}
-                        aria-label="Open current page externally"
+                        aria-label="Open browser in new window"
                       >
-                        <ExternalLinkIcon className="size-3.5" />
+                        <SquareArrowOutUpRightIcon className="size-4" strokeWidth={1.9} />
                       </Button>
                     }
                   />
-                  <TooltipPopup side="bottom">Open externally</TooltipPopup>
+                  <TooltipPopup side="bottom">Open browser in new window</TooltipPopup>
                 </Tooltip>
-              </div>
-              {showAddressBarSuggestions ? (
-                <BrowserSuggestionList
-                  activeIndex={selectedSuggestionIndex}
-                  onHighlight={setSelectedSuggestionIndex}
-                  suggestions={addressBarSuggestions}
-                  onSelect={applySuggestion}
-                />
               ) : null}
-            </form>
-            {designerModeAvailable ? (
-              <div
-                ref={designerToolSlotRef}
-                className="relative flex shrink-0 items-center justify-end"
-              >
+              {onReturnToMainWindow ? (
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        type="button"
+                        className="size-8 shrink-0 rounded-lg text-muted-foreground hover:bg-accent/55 hover:text-foreground"
+                        onClick={onReturnToMainWindow}
+                        aria-label="Move browser back to Ace"
+                      >
+                        <IconArrowsDiagonalMinimize2 className="size-4" stroke={1.8} />
+                      </Button>
+                    }
+                  />
+                  <TooltipPopup side="bottom">Move browser back to Ace</TooltipPopup>
+                </Tooltip>
+              ) : null}
+              {designerModeAvailable ? (
                 <div
-                  ref={designerToolMeasureRef}
-                  aria-hidden="true"
-                  className="pointer-events-none invisible absolute right-0 top-0 flex items-center gap-1 opacity-0"
+                  ref={designerToolSlotRef}
+                  className="relative flex shrink-0 items-center justify-end"
                 >
-                  {DESIGNER_TOOL_BUTTONS.map(({ Icon, tool }) => (
-                    <span
-                      key={`measure:${tool}`}
-                      className="inline-flex size-7 shrink-0 items-center justify-center rounded-md border border-border/60"
-                    >
-                      <Icon className="size-3.5" />
-                    </span>
-                  ))}
-                </div>
-                {designerToolsCollapsed ? (
-                  <Menu>
-                    <Tooltip>
-                      <TooltipTrigger
-                        render={
-                          <MenuTrigger
-                            className={cn(
-                              "group inline-flex size-9 shrink-0 items-center justify-center rounded-xl border text-left transition-[border-color,background-color,color,box-shadow] duration-150",
-                              "bg-[linear-gradient(180deg,color-mix(in_srgb,var(--card)_94%,transparent),color-mix(in_srgb,var(--background)_88%,transparent))] ",
-                              collapsedDesignerSelectorActive
-                                ? "border-primary/32 text-foreground hover:border-primary/45 hover:bg-primary/[0.08] data-[popup-open]:border-primary/48 data-[popup-open]:bg-primary/[0.1]"
-                                : "border-border/60 text-muted-foreground hover:border-border hover:bg-accent/40 hover:text-foreground data-[popup-open]:border-border/90 data-[popup-open]:bg-accent/55 data-[popup-open]:text-foreground",
-                            )}
-                          >
-                            <span
+                  <div
+                    ref={designerToolMeasureRef}
+                    aria-hidden="true"
+                    className="pointer-events-none invisible absolute right-0 top-0 flex items-center gap-1 opacity-0"
+                  >
+                    {DESIGNER_TOOL_BUTTONS.map(({ Icon, tool }) => (
+                      <span
+                        key={`measure:${tool}`}
+                        className="inline-flex size-7 shrink-0 items-center justify-center rounded-md border border-border/60"
+                      >
+                        <Icon className="size-3.5" />
+                      </span>
+                    ))}
+                  </div>
+                  {designerToolsCollapsed ? (
+                    <Menu>
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={
+                            <MenuTrigger
                               className={cn(
-                                "relative inline-flex size-6 shrink-0 items-center justify-center overflow-hidden rounded-lg border transition-colors duration-150",
+                                "group inline-flex size-9 shrink-0 items-center justify-center rounded-xl border text-left transition-[border-color,background-color,color,box-shadow] duration-150",
+                                "bg-[linear-gradient(180deg,color-mix(in_srgb,var(--card)_94%,transparent),color-mix(in_srgb,var(--background)_88%,transparent))] ",
                                 collapsedDesignerSelectorActive
-                                  ? "border-primary/28 bg-primary/[0.12] text-primary"
-                                  : "border-border/60 bg-background/80 text-muted-foreground group-hover:text-foreground",
+                                  ? "border-primary/32 text-foreground hover:border-primary/45 hover:bg-primary/[0.08] data-[popup-open]:border-primary/48 data-[popup-open]:bg-primary/[0.1]"
+                                  : "border-border/60 text-muted-foreground hover:border-border hover:bg-accent/40 hover:text-foreground data-[popup-open]:border-border/90 data-[popup-open]:bg-accent/55 data-[popup-open]:text-foreground",
                               )}
                             >
                               <span
                                 className={cn(
-                                  "absolute inset-0 bg-linear-to-br opacity-100",
-                                  activeDesignerToolButton.accent,
+                                  "relative inline-flex size-6 shrink-0 items-center justify-center overflow-hidden rounded-lg border transition-colors duration-150",
+                                  collapsedDesignerSelectorActive
+                                    ? "border-primary/28 bg-primary/[0.12] text-primary"
+                                    : "border-border/60 bg-background/80 text-muted-foreground group-hover:text-foreground",
                                 )}
-                              />
-                              <activeDesignerToolButton.Icon className="relative size-3.5" />
-                            </span>
-                            <ChevronDownIcon className="absolute right-0.5 bottom-0.5 size-2.5 shrink-0 rounded-full bg-background/90 opacity-72 transition-transform duration-150 group-data-[popup-open]:rotate-180" />
-                          </MenuTrigger>
-                        }
-                      />
-                      <TooltipPopup side="bottom">{activeDesignerToolButton.label}</TooltipPopup>
-                    </Tooltip>
-                    <MenuPopup
-                      align="end"
-                      side="bottom"
-                      sideOffset={8}
-                      className="min-w-[18.5rem] border-border/70 bg-popover/96  supports-[backdrop-filter]:bg-popover/92"
-                    >
-                      <div className="px-1.5 pb-1 pt-0.5">
-                        <div className="flex items-center justify-between gap-3 rounded-xl border border-border/60 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--card)_96%,transparent),color-mix(in_srgb,var(--background)_90%,transparent))] px-3 py-2.5">
-                          <div className="min-w-0">
-                            <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground/62">
-                              Annotation mode
-                            </p>
-                            <p className="mt-1 truncate text-sm font-medium text-foreground/92">
-                              {activeDesignerToolButton.label}
-                            </p>
-                          </div>
-                          <span
-                            className={cn(
-                              "shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em]",
-                              collapsedDesignerSelectorActive
-                                ? "border-primary/26 bg-primary/[0.09] text-primary"
-                                : "border-border/60 bg-background/70 text-muted-foreground/82",
-                            )}
-                          >
-                            {collapsedDesignerSelectorActive ? "Annotating" : "Off"}
-                          </span>
-                        </div>
-                      </div>
-                      <MenuRadioGroup
-                        value={designerState.tool}
-                        onValueChange={(value) => {
-                          toggleOrSelectDesignerTool(value as BrowserDesignerTool);
-                        }}
-                      >
-                        {DESIGNER_TOOL_BUTTONS.map(
-                          ({ Icon, accent, collapsedLabel, description, label, tool }) => (
-                            <MenuRadioItem
-                              key={tool}
-                              value={tool}
-                              onClick={() => {
-                                toggleOrSelectDesignerTool(tool);
-                              }}
-                              className="min-h-[3.6rem] items-start rounded-xl py-2 ps-2.5 pe-2.5 data-highlighted:bg-accent/75"
-                            >
-                              <div className="flex min-w-0 items-start gap-3">
+                              >
                                 <span
                                   className={cn(
-                                    "relative mt-0.5 inline-flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border/60 bg-background/85 text-foreground/88 ",
+                                    "absolute inset-0 bg-linear-to-br opacity-100",
+                                    activeDesignerToolButton.accent,
                                   )}
-                                >
-                                  <span
-                                    className={cn(
-                                      "absolute inset-0 bg-linear-to-br opacity-100",
-                                      accent,
-                                    )}
-                                  />
-                                  <Icon className="relative size-[18px] stroke-[2.25]" />
-                                </span>
-                                <span className="min-w-0 flex-1">
-                                  <span className="flex items-center gap-2">
-                                    <span className="truncate text-sm font-medium text-foreground/92">
-                                      {label}
-                                    </span>
-                                    <span className="rounded-full border border-border/55 bg-background/70 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-[0.14em] text-muted-foreground/74">
-                                      {collapsedLabel}
-                                    </span>
-                                  </span>
-                                  <span className="mt-1 block text-[11px] leading-4 text-muted-foreground/74">
-                                    {description}
-                                  </span>
-                                </span>
-                                {designerShortcutLabelByTool[tool] ? (
-                                  <MenuShortcut className="mt-0.5 shrink-0 rounded-md border border-border/55 bg-background/70 px-1.5 py-0.5 font-mono text-[10px] tracking-normal text-muted-foreground/86">
-                                    {designerShortcutLabelByTool[tool]}
-                                  </MenuShortcut>
-                                ) : null}
-                              </div>
-                            </MenuRadioItem>
-                          ),
-                        )}
-                      </MenuRadioGroup>
-                      <div className="px-3 pb-1.5 pt-1 text-[10px] text-muted-foreground/48">
-                        Select what to comment on in the embedded browser.
-                      </div>
-                    </MenuPopup>
-                  </Menu>
-                ) : (
-                  <div className="relative flex shrink-0 items-center gap-1">
-                    {DESIGNER_TOOL_BUTTONS.map(({ Icon, label, tool }) => (
-                      <Tooltip key={tool}>
-                        <TooltipTrigger
-                          render={
-                            <button
-                              ref={(node) => {
-                                setDesignerToolButtonRef(tool, node);
-                              }}
-                              type="button"
-                              className={cn(
-                                "relative z-10 inline-flex size-7 items-center justify-center rounded-md border transition-[border-color,color,background-color,box-shadow] duration-150",
-                                designerState.tool === tool && designerState.active
-                                  ? "border-primary/30 bg-primary/[0.12] text-primary shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--primary)_18%,transparent)]"
-                                  : "border-transparent bg-transparent text-muted-foreground hover:border-border/55 hover:bg-accent/28 hover:text-foreground",
-                              )}
-                              onPointerDown={(event) => {
-                                handleDesignerToolPointerDown(event, tool);
-                              }}
-                              onKeyDown={(event) => {
-                                handleDesignerToolKeyDown(event, tool);
-                              }}
-                              aria-label={label}
-                            >
-                              <Icon className="size-4 stroke-[2.25]" />
-                              {showDesignerToolShortcutHints &&
-                              designerShortcutLabelByTool[tool] ? (
-                                <span className="pointer-events-none absolute -top-1 -right-1 inline-flex min-w-3.5 items-center justify-center rounded-full border border-border/70 bg-background px-0.5 font-mono text-[8px] font-medium leading-none text-foreground ">
-                                  {resolveDesignerShortcutHintLabel(
-                                    designerShortcutLabelByTool[tool] ?? "",
-                                  )}
-                                </span>
-                              ) : null}
-                            </button>
+                                />
+                                <activeDesignerToolButton.Icon className="relative size-3.5" />
+                              </span>
+                              <ChevronDownIcon className="absolute right-0.5 bottom-0.5 size-2.5 shrink-0 rounded-full bg-background/90 opacity-72 transition-transform duration-150 group-data-[popup-open]:rotate-180" />
+                            </MenuTrigger>
                           }
                         />
-                        <TooltipPopup side="bottom">
-                          {designerShortcutLabelByTool[tool]
-                            ? `${label} (${designerShortcutLabelByTool[tool]})`
-                            : label}
-                        </TooltipPopup>
+                        <TooltipPopup side="bottom">{activeDesignerToolButton.label}</TooltipPopup>
                       </Tooltip>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ) : null}
-          </div>
-        </>
+                      <MenuPopup
+                        align="end"
+                        side="bottom"
+                        sideOffset={8}
+                        className="min-w-[18.5rem] border-border/70 bg-popover/96  supports-[backdrop-filter]:bg-popover/92"
+                      >
+                        <div className="px-1.5 pb-1 pt-0.5">
+                          <div className="flex items-center justify-between gap-3 rounded-xl border border-border/60 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--card)_96%,transparent),color-mix(in_srgb,var(--background)_90%,transparent))] px-3 py-2.5">
+                            <div className="min-w-0">
+                              <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground/62">
+                                Annotation mode
+                              </p>
+                              <p className="mt-1 truncate text-sm font-medium text-foreground/92">
+                                {activeDesignerToolButton.label}
+                              </p>
+                            </div>
+                            <span
+                              className={cn(
+                                "shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em]",
+                                collapsedDesignerSelectorActive
+                                  ? "border-primary/26 bg-primary/[0.09] text-primary"
+                                  : "border-border/60 bg-background/70 text-muted-foreground/82",
+                              )}
+                            >
+                              {collapsedDesignerSelectorActive ? "Annotating" : "Off"}
+                            </span>
+                          </div>
+                        </div>
+                        <MenuRadioGroup
+                          value={designerState.tool}
+                          onValueChange={(value) => {
+                            toggleOrSelectDesignerTool(value as BrowserDesignerTool);
+                          }}
+                        >
+                          {DESIGNER_TOOL_BUTTONS.map(
+                            ({ Icon, accent, collapsedLabel, description, label, tool }) => (
+                              <MenuRadioItem
+                                key={tool}
+                                value={tool}
+                                onClick={() => {
+                                  toggleOrSelectDesignerTool(tool);
+                                }}
+                                className="min-h-[3.6rem] items-start rounded-xl py-2 ps-2.5 pe-2.5 data-highlighted:bg-accent/75"
+                              >
+                                <div className="flex min-w-0 items-start gap-3">
+                                  <span
+                                    className={cn(
+                                      "relative mt-0.5 inline-flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border/60 bg-background/85 text-foreground/88 ",
+                                    )}
+                                  >
+                                    <span
+                                      className={cn(
+                                        "absolute inset-0 bg-linear-to-br opacity-100",
+                                        accent,
+                                      )}
+                                    />
+                                    <Icon className="relative size-[18px] stroke-[2.25]" />
+                                  </span>
+                                  <span className="min-w-0 flex-1">
+                                    <span className="flex items-center gap-2">
+                                      <span className="truncate text-sm font-medium text-foreground/92">
+                                        {label}
+                                      </span>
+                                      <span className="rounded-full border border-border/55 bg-background/70 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-[0.14em] text-muted-foreground/74">
+                                        {collapsedLabel}
+                                      </span>
+                                    </span>
+                                    <span className="mt-1 block text-[11px] leading-4 text-muted-foreground/74">
+                                      {description}
+                                    </span>
+                                  </span>
+                                  {designerShortcutLabelByTool[tool] ? (
+                                    <MenuShortcut className="mt-0.5 shrink-0 rounded-md border border-border/55 bg-background/70 px-1.5 py-0.5 font-mono text-[10px] tracking-normal text-muted-foreground/86">
+                                      {designerShortcutLabelByTool[tool]}
+                                    </MenuShortcut>
+                                  ) : null}
+                                </div>
+                              </MenuRadioItem>
+                            ),
+                          )}
+                        </MenuRadioGroup>
+                        <div className="px-3 pb-1.5 pt-1 text-[10px] text-muted-foreground/48">
+                          Select what to comment on in the embedded browser.
+                        </div>
+                      </MenuPopup>
+                    </Menu>
+                  ) : (
+                    <div className="relative flex shrink-0 items-center gap-1">
+                      {DESIGNER_TOOL_BUTTONS.map(({ Icon, label, tool }) => (
+                        <Tooltip key={tool}>
+                          <TooltipTrigger
+                            render={
+                              <button
+                                ref={(node) => {
+                                  setDesignerToolButtonRef(tool, node);
+                                }}
+                                type="button"
+                                className={cn(
+                                  "relative z-10 inline-flex size-7 items-center justify-center rounded-md border transition-[border-color,color,background-color,box-shadow] duration-150",
+                                  designerState.tool === tool && designerState.active
+                                    ? "border-primary/30 bg-primary/[0.12] text-primary shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--primary)_18%,transparent)]"
+                                    : "border-transparent bg-transparent text-muted-foreground hover:border-border/55 hover:bg-accent/28 hover:text-foreground",
+                                )}
+                                onPointerDown={(event) => {
+                                  handleDesignerToolPointerDown(event, tool);
+                                }}
+                                onKeyDown={(event) => {
+                                  handleDesignerToolKeyDown(event, tool);
+                                }}
+                                aria-label={label}
+                              >
+                                <Icon className="size-4 stroke-[2.25]" />
+                                {showDesignerToolShortcutHints &&
+                                designerShortcutLabelByTool[tool] ? (
+                                  <span className="pointer-events-none absolute -top-1 -right-1 inline-flex min-w-3.5 items-center justify-center rounded-full border border-border/70 bg-background px-0.5 font-mono text-[8px] font-medium leading-none text-foreground ">
+                                    {resolveDesignerShortcutHintLabel(
+                                      designerShortcutLabelByTool[tool] ?? "",
+                                    )}
+                                  </span>
+                                ) : null}
+                              </button>
+                            }
+                          />
+                          <TooltipPopup side="bottom">
+                            {designerShortcutLabelByTool[tool]
+                              ? `${label} (${designerShortcutLabelByTool[tool]})`
+                              : label}
+                          </TooltipPopup>
+                        </Tooltip>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : null}
+            </div>
+          </>
 
-        <div ref={browserViewportRef} className="relative min-h-0 flex-1 bg-background">
-          {activeTabIsNewTab ? (
-            <BrowserNewTabPanel browserSearchEngine={browserSearchEngine} onSubmitQuery={openUrl} />
-          ) : null}
-          {mountedBrowserTabs.map((tab) => (
-            <BrowserTabWebview
-              key={`${browserResetKey}:${tab.id}`}
-              active={visible && !activeTabIsInternal && activeTab?.id === tab.id}
-              connectionUrl={connectionUrl}
-              designerModeActive={
-                visible && designerState.active && !activeTabIsInternal && activeTab?.id === tab.id
-              }
-              designerTool={designerState.tool}
-              onBrowserLoadError={(message) => {
-                toastManager.add({
-                  type: "error",
-                  title: "Browser load failed.",
-                  description: message,
-                });
-              }}
-              onDesignCaptureCancel={() => {
-                return;
-              }}
-              onDesignCaptureError={(message) => {
-                toastManager.add({
-                  type: "error",
-                  title: "Comment failed.",
-                  description: message,
-                });
-              }}
-              {...(onQueueDesignRequest
-                ? {
-                    onDesignCaptureSubmit: queueDesignRequest,
+          {findOpen && !activeTabIsInternal ? (
+            <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border bg-background/96 px-3">
+              <div className="flex min-w-0 flex-1 items-center gap-2 rounded-md border border-border/70 bg-muted/[0.18] px-2">
+                <SearchIcon className="size-3.5 shrink-0 text-muted-foreground" />
+                <input
+                  ref={findInputRef}
+                  value={findQuery}
+                  onChange={(event) => {
+                    setFindQuery(event.target.value);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") {
+                      event.preventDefault();
+                      closeFindBar();
+                      return;
+                    }
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      runFind(event.shiftKey ? "previous" : "next");
+                    }
+                  }}
+                  placeholder="Find in page"
+                  className="h-8 min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+                  autoCapitalize="off"
+                  autoCorrect="off"
+                  spellCheck={false}
+                />
+                <span className="min-w-16 shrink-0 text-right font-mono text-[11px] text-muted-foreground">
+                  {findQuery.trim()
+                    ? activeFindResult?.matches
+                      ? `${String(activeFindResult.activeMatchOrdinal)}/${String(activeFindResult.matches)}`
+                      : "0/0"
+                    : ""}
+                </span>
+              </div>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={() => {
+                        runFind("previous");
+                      }}
+                      disabled={!findQuery.trim()}
+                      aria-label="Previous match"
+                    >
+                      <ArrowUpIcon className="size-4" />
+                    </Button>
                   }
-                : {})}
-              onContextMenuFallbackRequest={handleWebviewContextMenuFallbackRequest}
-              onOpenUrlInNewTab={openUrlInNewTabFromPage}
-              tab={tab}
-              onHandleChange={registerWebviewHandle}
-              onSnapshotChange={handleTabSnapshotChange}
-            />
-          ))}
-        </div>
-      </section>
-    </motion.div>
+                />
+                <TooltipPopup side="bottom">Previous match</TooltipPopup>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={() => {
+                        runFind("next");
+                      }}
+                      disabled={!findQuery.trim()}
+                      aria-label="Next match"
+                    >
+                      <ArrowDownIcon className="size-4" />
+                    </Button>
+                  }
+                />
+                <TooltipPopup side="bottom">Next match</TooltipPopup>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={closeFindBar}
+                      aria-label="Close find in page"
+                    >
+                      <XIcon className="size-4" />
+                    </Button>
+                  }
+                />
+                <TooltipPopup side="bottom">Close</TooltipPopup>
+              </Tooltip>
+            </div>
+          ) : null}
+
+          {showAuthRecovery && signInWindowAvailable ? (
+            <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border bg-muted/[0.18] px-3 text-sm">
+              <LoaderCircleIcon className="size-3.5 shrink-0 animate-spin text-muted-foreground" />
+              <span className="min-w-0 flex-1 truncate text-muted-foreground">
+                Sign-in is still waiting on this page.
+              </span>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  openActiveTabInAuthWindow();
+                }}
+              >
+                <KeyRoundIcon className="size-3.5" />
+                Sign-in window
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={reload}
+                disabled={!activeRuntime.loading}
+              >
+                Stop
+              </Button>
+            </div>
+          ) : null}
+
+          <div ref={browserViewportRef} className="relative min-h-0 flex-1 bg-background">
+            {activeTabIsNewTab ? (
+              <BrowserNewTabPanel
+                browserSearchEngine={browserSearchEngine}
+                onSubmitQuery={openUrl}
+              />
+            ) : null}
+            {mountedBrowserTabs.map((tab) => (
+              <BrowserTabWebview
+                key={`${browserResetKey}:${tab.id}`}
+                active={visible && !activeTabIsInternal && activeTab?.id === tab.id}
+                connectionUrl={connectionUrl}
+                designerModeActive={
+                  visible &&
+                  designerState.active &&
+                  !activeTabIsInternal &&
+                  activeTab?.id === tab.id
+                }
+                designerTool={designerState.tool}
+                onBrowserLoadError={(message) => {
+                  toastManager.add({
+                    type: "error",
+                    title: "Browser load failed.",
+                    description: message,
+                  });
+                }}
+                onDesignCaptureCancel={() => {
+                  return;
+                }}
+                onDesignCaptureError={(message) => {
+                  toastManager.add({
+                    type: "error",
+                    title: "Comment failed.",
+                    description: message,
+                  });
+                }}
+                {...(onQueueDesignRequest
+                  ? {
+                      onDesignCaptureSubmit: queueDesignRequest,
+                    }
+                  : {})}
+                onContextMenuFallbackRequest={handleWebviewContextMenuFallbackRequest}
+                onFindResultChange={handleFindResultChange}
+                onOpenUrlInNewTab={openUrlInNewTabFromPage}
+                browserPartition={browserPartition}
+                tab={tab}
+                onHandleChange={registerWebviewHandle}
+                onSnapshotChange={handleTabSnapshotChange}
+              />
+            ))}
+          </div>
+        </section>
+        <BrowserSiteDiagnosticsDialog
+          open={sitePanelOpen}
+          url={activeTabUrl}
+          onOpenChange={setSitePanelOpen}
+        />
+      </m.div>
+    </LazyMotion>
   );
 
   const browserProfileName = scopeId ? `in-app-browser:${scopeId}` : "in-app-browser";

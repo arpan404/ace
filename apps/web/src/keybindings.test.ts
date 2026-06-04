@@ -100,6 +100,11 @@ const DEFAULT_BINDINGS = compile([
     whenAst: whenIdentifier("terminalFocus"),
   },
   {
+    shortcut: modShortcut("j", { shiftKey: true }),
+    command: "terminal.tab.new",
+    whenAst: whenNot(whenIdentifier("terminalFocus")),
+  },
+  {
     shortcut: modShortcut("w"),
     command: "terminal.close",
     whenAst: whenIdentifier("terminalFocus"),
@@ -977,6 +982,22 @@ describe("chat/editor shortcuts", () => {
       resolveShortcutCommand(event({ key: "\\", ctrlKey: true }), DEFAULT_BINDINGS, {
         platform: "Linux",
         context: { editorFocus: false },
+      }),
+    );
+  });
+
+  it("resolves the global terminal tab shortcut outside terminal focus", () => {
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "j", ctrlKey: true, shiftKey: true }), DEFAULT_BINDINGS, {
+        platform: "Linux",
+        context: { terminalFocus: false },
+      }),
+      "terminal.tab.new",
+    );
+    assert.isNull(
+      resolveShortcutCommand(event({ key: "j", ctrlKey: true, shiftKey: true }), DEFAULT_BINDINGS, {
+        platform: "Linux",
+        context: { terminalFocus: true },
       }),
     );
   });

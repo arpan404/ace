@@ -44,6 +44,7 @@ type ProviderIntentEvent = Extract<
     type:
       | "thread.runtime-mode-set"
       | "thread.turn-start-requested"
+      | "thread.subagent-turn-start-requested"
       | "thread.turn-interrupt-requested"
       | "thread.approval-response-requested"
       | "thread.user-input-response-requested"
@@ -171,6 +172,10 @@ function resolveThreadProvider(thread: OrchestrationThread): ProviderKind {
     return sessionProvider;
   }
   return thread.modelSelection.provider;
+}
+
+function resolveThreadLineageSourceThreadId(thread: OrchestrationThread): ThreadId | null {
+  return thread.handoff?.sourceThreadId ?? thread.fork?.sourceThreadId ?? null;
 }
 
 function threadCanDispatchQueuedMessage(
@@ -339,7 +344,7 @@ function resolveHandoffLineage(input: {
     }
     visited.add(thread.id);
     lineageNewestFirst.push(thread);
-    currentThreadId = thread.handoff?.sourceThreadId ?? null;
+    currentThreadId = resolveThreadLineageSourceThreadId(thread);
   }
 
   return {
@@ -349,7 +354,48 @@ function resolveHandoffLineage(input: {
   };
 }
 
-function collectHandoffReplayMessages(
+function resolveForkLineage(input: {
+  readonly sourceThreadId: ThreadId;
+  readonly threads: ReadonlyArray<OrchestrationThread>;
+}): {
+  readonly threads: ReadonlyArray<OrchestrationThread>;
+  readonly missingThreadId: ThreadId | null;
+  readonly hasCycle: boolean;
+} {
+  const threadsById = new Map(input.threads.map((thread) => [thread.id, thread] as const));
+  const lineageNewestFirst: OrchestrationThread[] = [];
+  const visited = new Set<string>();
+  let currentThreadId: ThreadId | null = input.sourceThreadId;
+
+  while (currentThreadId !== null) {
+    const thread = threadsById.get(currentThreadId);
+    if (!thread) {
+      return {
+        threads: lineageNewestFirst.toReversed(),
+        missingThreadId: currentThreadId,
+        hasCycle: false,
+      };
+    }
+    if (visited.has(thread.id)) {
+      return {
+        threads: lineageNewestFirst.toReversed(),
+        missingThreadId: null,
+        hasCycle: true,
+      };
+    }
+    visited.add(thread.id);
+    lineageNewestFirst.push(thread);
+    currentThreadId = resolveThreadLineageSourceThreadId(thread);
+  }
+
+  return {
+    threads: lineageNewestFirst.toReversed(),
+    missingThreadId: null,
+    hasCycle: false,
+  };
+}
+
+function collectThreadReplayMessages(
   sourceThreads: ReadonlyArray<OrchestrationThread>,
 ): ReadonlyArray<{
   readonly role: "user" | "assistant" | "system";
@@ -994,6 +1040,7 @@ const make = Effect.gen(function* () {
     options?: {
       readonly modelSelection?: ModelSelection;
       readonly preferFreshSession?: boolean;
+      readonly forkSourceThreadId?: ThreadId;
       readonly replayTurns?: ReadonlyArray<ProviderReplayTurn>;
     },
   ) {
@@ -1038,6 +1085,7 @@ const make = Effect.gen(function* () {
     const startProviderSession = (input?: {
       readonly resumeCursor?: unknown;
       readonly provider?: ProviderKind;
+      readonly forkSourceThreadId?: ThreadId;
       readonly replayTurns?: ReadonlyArray<ProviderReplayTurn>;
     }) =>
       providerService.startSession(threadId, {
@@ -1047,6 +1095,9 @@ const make = Effect.gen(function* () {
         ...(threadTitle ? { threadTitle } : {}),
         modelSelection: desiredModelSelection,
         ...(input?.resumeCursor !== undefined ? { resumeCursor: input.resumeCursor } : {}),
+        ...(input?.forkSourceThreadId !== undefined
+          ? { forkSource: { threadId: input.forkSourceThreadId } }
+          : {}),
         ...(input?.replayTurns !== undefined ? { replayTurns: input.replayTurns } : {}),
         runtimeMode: desiredRuntimeMode,
         interactionMode: desiredInteractionMode,
@@ -1154,7 +1205,14 @@ const make = Effect.gen(function* () {
     }
 
     const startedSession = yield* startProviderSession(
-      options?.replayTurns !== undefined ? { replayTurns: options.replayTurns } : undefined,
+      options?.replayTurns !== undefined || options?.forkSourceThreadId !== undefined
+        ? {
+            ...(options.forkSourceThreadId !== undefined
+              ? { forkSourceThreadId: options.forkSourceThreadId }
+              : {}),
+            ...(options.replayTurns !== undefined ? { replayTurns: options.replayTurns } : {}),
+          }
+        : undefined,
     );
     yield* bindSessionToThread(startedSession);
     return startedSession.threadId;
@@ -1162,10 +1220,12 @@ const make = Effect.gen(function* () {
 
   const sendTurnForThread = Effect.fnUntraced(function* (input: {
     readonly threadId: ThreadId;
+    readonly providerThreadId?: string;
     readonly messageText: string;
     readonly attachments?: ReadonlyArray<ChatAttachment>;
     readonly modelSelection?: ModelSelection;
     readonly interactionMode?: "default" | "plan";
+    readonly forkSourceThreadId?: ThreadId;
     readonly replayTurns?: ReadonlyArray<ProviderReplayTurn>;
     readonly createdAt: string;
   }) {
@@ -1175,6 +1235,9 @@ const make = Effect.gen(function* () {
     }
     yield* ensureSessionForThread(input.threadId, input.createdAt, {
       ...(input.modelSelection !== undefined ? { modelSelection: input.modelSelection } : {}),
+      ...(input.forkSourceThreadId !== undefined
+        ? { forkSourceThreadId: input.forkSourceThreadId }
+        : {}),
       ...(input.replayTurns !== undefined ? { replayTurns: input.replayTurns } : {}),
     });
     if (input.modelSelection !== undefined) {
@@ -1212,6 +1275,7 @@ const make = Effect.gen(function* () {
 
     yield* providerService.sendTurn({
       threadId: input.threadId,
+      ...(input.providerThreadId !== undefined ? { providerThreadId: input.providerThreadId } : {}),
       ...(normalizedInput ? { input: normalizedInput } : {}),
       ...(normalizedAttachments.length > 0 ? { attachments: normalizedAttachments } : {}),
       ...(modelForTurn !== undefined ? { modelSelection: modelForTurn } : {}),
@@ -1427,13 +1491,47 @@ const make = Effect.gen(function* () {
         });
         return;
       }
-      const handoffReplayMessages = collectHandoffReplayMessages(lineage.threads);
+      const handoffReplayMessages = collectThreadReplayMessages(lineage.threads);
       const handoffReplayTurns = sourceMessagesToHandoffReplayTurns(
         handoffReplayMessages,
         thread.handoff.mode,
       );
       replayTurns = [...handoffReplayTurns, ...threadReplayTurns];
     }
+    if (thread.fork) {
+      const readModel = yield* orchestrationEngine.getReadModel();
+      const lineage = resolveForkLineage({
+        sourceThreadId: thread.fork.sourceThreadId,
+        threads: readModel.threads,
+      });
+      if (lineage.hasCycle) {
+        yield* appendProviderFailureActivity({
+          threadId: event.payload.threadId,
+          kind: "provider.turn.start.failed",
+          summary: "Provider turn start failed",
+          detail: "Detected a cycle in fork lineage. The fork chain cannot be replayed.",
+          turnId: null,
+          createdAt: event.payload.createdAt,
+        });
+        return;
+      }
+      if (lineage.missingThreadId !== null) {
+        yield* appendProviderFailureActivity({
+          threadId: event.payload.threadId,
+          kind: "provider.turn.start.failed",
+          summary: "Provider turn start failed",
+          detail: `Fork source thread '${lineage.missingThreadId}' is unavailable, so fork context could not be replayed.`,
+          turnId: null,
+          createdAt: event.payload.createdAt,
+        });
+        return;
+      }
+      const forkReplayTurns = sourceMessagesToReplayTurns(
+        collectThreadReplayMessages(lineage.threads),
+      );
+      replayTurns = [...forkReplayTurns, ...replayTurns];
+    }
+    const forkSourceThreadId = thread.fork?.sourceThreadId;
 
     yield* sendTurnForThread({
       threadId: event.payload.threadId,
@@ -1443,6 +1541,7 @@ const make = Effect.gen(function* () {
         ? { modelSelection: event.payload.modelSelection }
         : {}),
       interactionMode: event.payload.interactionMode,
+      ...(forkSourceThreadId !== undefined ? { forkSourceThreadId } : {}),
       replayTurns,
       createdAt: event.payload.createdAt,
     }).pipe(
@@ -1461,6 +1560,62 @@ const make = Effect.gen(function* () {
             }),
           ),
         ),
+      ),
+    );
+  });
+
+  const processSubagentTurnStartRequested = Effect.fnUntraced(function* (
+    event: Extract<ProviderIntentEvent, { type: "thread.subagent-turn-start-requested" }>,
+  ) {
+    const key = turnStartKeyForEvent(event);
+    if (yield* hasHandledTurnStartRecently(key)) {
+      return;
+    }
+
+    const thread = yield* resolveThread(event.payload.threadId);
+    if (!thread) {
+      return;
+    }
+    const provider = resolveThreadProvider(thread);
+    if (provider !== "codex") {
+      yield* appendProviderFailureActivity({
+        threadId: event.payload.threadId,
+        kind: "provider.turn.start.failed",
+        summary: "Subagent message failed",
+        detail: `Subagent conversations are only supported for Codex threads. Current provider: '${provider}'.`,
+        turnId: null,
+        createdAt: event.payload.createdAt,
+      });
+      return;
+    }
+
+    const attachments = yield* normalizeUploadChatAttachments({
+      threadId: event.payload.threadId,
+      attachments: event.payload.attachments,
+    });
+
+    yield* sendTurnForThread({
+      threadId: event.payload.threadId,
+      providerThreadId: event.payload.subagentThreadId,
+      messageText: event.payload.text,
+      attachments,
+      ...(event.payload.modelSelection !== undefined
+        ? { modelSelection: event.payload.modelSelection }
+        : {}),
+      ...(event.payload.interactionMode !== undefined
+        ? { interactionMode: event.payload.interactionMode }
+        : {}),
+      createdAt: event.payload.createdAt,
+    }).pipe(
+      Effect.catchCause((cause) =>
+        appendProviderFailureActivity({
+          threadId: event.payload.threadId,
+          kind: "provider.turn.start.failed",
+          summary: "Subagent message failed",
+          detail: providerFailureDetailFromCause(cause),
+          turnId: null,
+          createdAt: event.payload.createdAt,
+        }),
       ),
     );
   });
@@ -1667,6 +1822,9 @@ const make = Effect.gen(function* () {
       case "thread.turn-start-requested":
         yield* processTurnStartRequested(event);
         return;
+      case "thread.subagent-turn-start-requested":
+        yield* processSubagentTurnStartRequested(event);
+        return;
       case "thread.turn-interrupt-requested":
         yield* processTurnInterruptRequested(event);
         return;
@@ -1715,6 +1873,7 @@ const make = Effect.gen(function* () {
       if (
         event.type === "thread.runtime-mode-set" ||
         event.type === "thread.turn-start-requested" ||
+        event.type === "thread.subagent-turn-start-requested" ||
         event.type === "thread.turn-interrupt-requested" ||
         event.type === "thread.approval-response-requested" ||
         event.type === "thread.user-input-response-requested" ||

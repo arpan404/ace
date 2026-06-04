@@ -3,6 +3,8 @@ import {
   type GitRunStackedActionInput,
   type GitRunStackedActionResult,
   type NativeApi,
+  type ProjectFileEventsInput,
+  type ProjectFileEvent,
   ORCHESTRATION_WS_METHODS,
   type ServerSettingsPatch,
   WS_METHODS,
@@ -41,6 +43,7 @@ interface RpcTransportLike {
   readonly onConnectionStateChange: (
     listener: (state: WsTransportConnectionState) => void,
   ) => () => void;
+  readonly queueProbeNow?: (reason?: string) => void;
   readonly request: <TSuccess>(
     execute: (client: WsRpcProtocolClient) => Effect.Effect<TSuccess, Error, never>,
   ) => Promise<TSuccess>;
@@ -59,6 +62,7 @@ export interface WsRpcClient {
   readonly subscribeConnectionState: (
     listener: (state: WsTransportConnectionState) => void,
   ) => () => void;
+  readonly queueProbeNow: (reason?: string) => void;
   readonly terminal: {
     readonly open: RpcUnaryMethod<typeof WS_METHODS.terminalOpen>;
     readonly write: RpcUnaryMethod<typeof WS_METHODS.terminalWrite>;
@@ -82,12 +86,17 @@ export interface WsRpcClient {
     readonly readFile: RpcUnaryMethod<typeof WS_METHODS.projectsReadFile>;
     readonly renameEntry: RpcUnaryMethod<typeof WS_METHODS.projectsRenameEntry>;
     readonly writeFile: RpcUnaryMethod<typeof WS_METHODS.projectsWriteFile>;
+    readonly onFileEvents: (
+      input: Pick<ProjectFileEventsInput, "cwd">,
+      listener: (event: ProjectFileEvent) => void,
+    ) => () => void;
   };
   readonly workspaceEditor: {
     readonly syncBuffer: RpcUnaryMethod<typeof WS_METHODS.workspaceEditorSyncBuffer>;
     readonly closeBuffer: RpcUnaryMethod<typeof WS_METHODS.workspaceEditorCloseBuffer>;
     readonly complete: RpcUnaryMethod<typeof WS_METHODS.workspaceEditorComplete>;
     readonly definition: RpcUnaryMethod<typeof WS_METHODS.workspaceEditorDefinition>;
+    readonly hover: RpcUnaryMethod<typeof WS_METHODS.workspaceEditorHover>;
     readonly references: RpcUnaryMethod<typeof WS_METHODS.workspaceEditorReferences>;
   };
   readonly shell: {
@@ -116,6 +125,7 @@ export interface WsRpcClient {
       options?: GitRunStackedActionOptions,
     ) => Promise<GitRunStackedActionResult>;
     readonly listBranches: RpcUnaryMethod<typeof WS_METHODS.gitListBranches>;
+    readonly getWorktreeStats: RpcUnaryMethod<typeof WS_METHODS.gitGetWorktreeStats>;
     readonly createWorktree: RpcUnaryMethod<typeof WS_METHODS.gitCreateWorktree>;
     readonly removeWorktree: RpcUnaryMethod<typeof WS_METHODS.gitRemoveWorktree>;
     readonly createBranch: RpcUnaryMethod<typeof WS_METHODS.gitCreateBranch>;
@@ -129,7 +139,9 @@ export interface WsRpcClient {
   readonly server: {
     readonly getConfig: RpcUnaryNoArgMethod<typeof WS_METHODS.serverGetConfig>;
     readonly pickFolder: RpcUnaryMethod<typeof WS_METHODS.serverPickFolder>;
-    readonly refreshProviders: RpcUnaryNoArgMethod<typeof WS_METHODS.serverRefreshProviders>;
+    readonly refreshProviders: (
+      input?: RpcInput<typeof WS_METHODS.serverRefreshProviders>,
+    ) => ReturnType<RpcUnaryMethod<typeof WS_METHODS.serverRefreshProviders>>;
     readonly upgradeProviderCli: RpcUnaryMethod<typeof WS_METHODS.serverUpgradeProviderCli>;
     readonly getLspToolsStatus: RpcUnaryNoArgMethod<typeof WS_METHODS.serverGetLspToolsStatus>;
     readonly installLspTools: RpcUnaryMethod<typeof WS_METHODS.serverInstallLspTools>;
@@ -183,6 +195,7 @@ export function createWsRpcClient(transport: RpcTransportLike = new WsTransport(
   return {
     dispose: () => transport.dispose(),
     subscribeConnectionState: (listener) => transport.onConnectionStateChange(listener),
+    queueProbeNow: (reason) => transport.queueProbeNow?.(reason),
     terminal: {
       open: (input) => transport.request((client) => client[WS_METHODS.terminalOpen](input)),
       write: (input) => transport.request((client) => client[WS_METHODS.terminalWrite](input)),
@@ -223,6 +236,15 @@ export function createWsRpcClient(transport: RpcTransportLike = new WsTransport(
         transport.request((client) => client[WS_METHODS.projectsRenameEntry](input)),
       writeFile: (input) =>
         transport.request((client) => client[WS_METHODS.projectsWriteFile](input)),
+      onFileEvents: (input, listener) =>
+        transport.subscribe(
+          (client) =>
+            client[WS_METHODS.projectsFileEvents]({
+              ...streamIdentity,
+              ...input,
+            }),
+          listener,
+        ),
     },
     workspaceEditor: {
       syncBuffer: (input) =>
@@ -233,6 +255,8 @@ export function createWsRpcClient(transport: RpcTransportLike = new WsTransport(
         transport.request((client) => client[WS_METHODS.workspaceEditorComplete](input)),
       definition: (input) =>
         transport.request((client) => client[WS_METHODS.workspaceEditorDefinition](input)),
+      hover: (input) =>
+        transport.request((client) => client[WS_METHODS.workspaceEditorHover](input)),
       references: (input) =>
         transport.request((client) => client[WS_METHODS.workspaceEditorReferences](input)),
     },
@@ -277,6 +301,8 @@ export function createWsRpcClient(transport: RpcTransportLike = new WsTransport(
       },
       listBranches: (input) =>
         transport.request((client) => client[WS_METHODS.gitListBranches](input)),
+      getWorktreeStats: (input) =>
+        transport.request((client) => client[WS_METHODS.gitGetWorktreeStats](input)),
       createWorktree: (input) =>
         transport.request((client) => client[WS_METHODS.gitCreateWorktree](input)),
       removeWorktree: (input) =>
@@ -294,8 +320,8 @@ export function createWsRpcClient(transport: RpcTransportLike = new WsTransport(
       getConfig: () => transport.request((client) => client[WS_METHODS.serverGetConfig]({})),
       pickFolder: (input) =>
         transport.request((client) => client[WS_METHODS.serverPickFolder](input)),
-      refreshProviders: () =>
-        transport.request((client) => client[WS_METHODS.serverRefreshProviders]({})),
+      refreshProviders: (input = {}) =>
+        transport.request((client) => client[WS_METHODS.serverRefreshProviders](input)),
       upgradeProviderCli: (input) =>
         transport.request((client) => client[WS_METHODS.serverUpgradeProviderCli](input)),
       getLspToolsStatus: () =>

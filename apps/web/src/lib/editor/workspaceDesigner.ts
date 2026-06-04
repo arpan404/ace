@@ -1,26 +1,26 @@
 import type { WorkspaceEditorDiagnostic, WorkspaceEditorLocation } from "@ace/contracts";
 import * as Schema from "effect/Schema";
 
-export const WorkspaceDesignerToolSchema = Schema.Literals([
+const WorkspaceDesignerToolSchema = Schema.Literals([
   "code-comment",
   "range-review",
   "diagnostic-fix",
   "symbol-explain",
 ]);
-export type WorkspaceDesignerTool = typeof WorkspaceDesignerToolSchema.Type;
+type WorkspaceDesignerTool = typeof WorkspaceDesignerToolSchema.Type;
 
-export const WorkspaceDesignerPillPositionSchema = Schema.Struct({
+const WorkspaceDesignerPillPositionSchema = Schema.Struct({
   x: Schema.Number,
   y: Schema.Number,
 });
-export type WorkspaceDesignerPillPosition = typeof WorkspaceDesignerPillPositionSchema.Type;
+type WorkspaceDesignerPillPosition = typeof WorkspaceDesignerPillPositionSchema.Type;
 
-export const WorkspaceDesignerStateSchema = Schema.Struct({
+const WorkspaceDesignerStateSchema = Schema.Struct({
   active: Schema.Boolean,
   pillPosition: Schema.NullOr(WorkspaceDesignerPillPositionSchema),
   tool: WorkspaceDesignerToolSchema,
 });
-export type WorkspaceDesignerState = typeof WorkspaceDesignerStateSchema.Type;
+type WorkspaceDesignerState = typeof WorkspaceDesignerStateSchema.Type;
 
 export type WorkspaceCodeCommentStatus = "open" | "queued" | "resolved";
 export type WorkspaceCodeCommentSource = "user" | "agent";
@@ -53,7 +53,7 @@ interface WorkspaceCodePromptContext {
   readonly range: WorkspaceEditorLocation;
 }
 
-export function createWorkspaceDesignerState(): WorkspaceDesignerState {
+function createWorkspaceDesignerState(): WorkspaceDesignerState {
   return {
     active: false,
     pillPosition: null,
@@ -160,7 +160,7 @@ export function buildWorkspaceCodeCommentPrompt(comment: WorkspaceCodeComment): 
   });
 }
 
-export function buildWorkspaceCodeContextBlock(context: WorkspaceCodePromptContext): string {
+function buildWorkspaceCodeContextBlock(context: WorkspaceCodePromptContext): string {
   const compactContext = {
     cwd: context.cwd,
     relativePath: context.range.relativePath,

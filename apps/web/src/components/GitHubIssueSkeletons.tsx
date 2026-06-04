@@ -4,6 +4,16 @@ import { cn } from "~/lib/utils";
 import { Skeleton } from "./ui/skeleton";
 import { Spinner } from "./ui/spinner";
 
+const ISSUE_MARKDOWN_SKELETON_WIDTHS = [
+  "w-[92%]",
+  "w-[78%]",
+  "w-[88%]",
+  "w-[72%]",
+  "w-[84%]",
+  "w-[66%]",
+  "w-[76%]",
+] as const;
+
 export function GitHubIssueListSkeleton({
   count = 8,
   className,
@@ -13,46 +23,51 @@ export function GitHubIssueListSkeleton({
 }) {
   return (
     <div className={cn("flex flex-col gap-0.5 py-1", className)}>
-      {Array.from({ length: count }, (_, index) => (
-        <div
-          key={`issue-list-skeleton-${index}`}
-          className="flex items-start gap-2 rounded-md border border-border/20 px-2 py-2"
-        >
-          <Skeleton className="mt-0.5 size-3.5 rounded-sm" />
-          <div className="min-w-0 flex-1 space-y-1.5">
-            <div className="flex items-center gap-1.5">
-              <Skeleton className="size-3 rounded-full" />
-              <Skeleton className="h-3 w-[78%] rounded-full" />
-            </div>
-            <div className="flex items-center gap-1.5 ps-[1.125rem]">
-              <Skeleton className="h-2.5 w-10 rounded-full" />
-              <Skeleton className="h-2.5 w-12 rounded-full" />
-            </div>
-            <div className="flex gap-1 ps-[1.125rem]">
-              <Skeleton className="h-2.5 w-14 rounded-full" />
-              <Skeleton className="h-2.5 w-10 rounded-full" />
+      {Array.from({ length: count }, (_, index) => {
+        const rowKey = `issue-list-skeleton-row-${Math.round(((index + 1) / Math.max(count, 1)) * 1000)}`;
+        return (
+          <div
+            key={rowKey}
+            className="flex items-start gap-2 rounded-md border border-border/20 p-2"
+          >
+            <Skeleton className="mt-0.5 size-3.5 rounded-sm" />
+            <div className="min-w-0 flex-1 space-y-1.5">
+              <div className="flex items-center gap-1.5">
+                <Skeleton className="size-3 rounded-full" />
+                <Skeleton className="h-3 w-[78%] rounded-full" />
+              </div>
+              <div className="flex items-center gap-1.5 ps-[1.125rem]">
+                <Skeleton className="h-2.5 w-10 rounded-full" />
+                <Skeleton className="h-2.5 w-12 rounded-full" />
+              </div>
+              <div className="flex gap-1 ps-[1.125rem]">
+                <Skeleton className="h-2.5 w-14 rounded-full" />
+                <Skeleton className="h-2.5 w-10 rounded-full" />
+              </div>
             </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
 
-export function IssueMarkdownSkeleton({
+function IssueMarkdownSkeleton({
   lineCount = 7,
   className,
 }: {
   lineCount?: number;
   className?: string;
 }) {
-  const widths = ["w-[92%]", "w-[78%]", "w-[88%]", "w-[72%]", "w-[84%]", "w-[66%]", "w-[76%]"];
   return (
     <div className={cn("space-y-2", className)}>
       {Array.from({ length: lineCount }, (_, index) => (
         <Skeleton
-          key={`issue-markdown-skeleton-${index}`}
-          className={cn("h-3 rounded-full", widths[index % widths.length])}
+          key={`issue-markdown-skeleton-${ISSUE_MARKDOWN_SKELETON_WIDTHS[index % ISSUE_MARKDOWN_SKELETON_WIDTHS.length]}-${Math.round(((index + 1) / Math.max(lineCount, 1)) * 1000)}`}
+          className={cn(
+            "h-3 rounded-full",
+            ISSUE_MARKDOWN_SKELETON_WIDTHS[index % ISSUE_MARKDOWN_SKELETON_WIDTHS.length],
+          )}
         />
       ))}
     </div>
@@ -76,7 +91,7 @@ export function GitHubIssueThreadSkeleton({
         <Skeleton className="h-3 w-24 rounded-full" />
         {Array.from({ length: commentCount }, (_, index) => (
           <div
-            key={`issue-comment-skeleton-${index}`}
+            key={`issue-comment-skeleton-row-${Math.round(((index + 1) / Math.max(commentCount, 1)) * 1000)}`}
             className="rounded-lg border border-border/35 bg-background/50 px-4 py-3 dark:bg-background/20"
           >
             <div className="mb-3 flex items-center gap-2">
@@ -118,7 +133,7 @@ export function ThreadHistoryLoadingNotice() {
     <div className="sticky top-0 z-10 mb-3 flex justify-center">
       <div className="inline-flex items-center gap-2 rounded-full border border-border/50 bg-card/95 px-3 py-1.5 text-[11px] text-muted-foreground  backdrop-blur-sm">
         <Spinner className="size-3 text-primary" />
-        <span>Restoring conversation...</span>
+        <span>Restoring conversation…</span>
         <span className="hidden text-muted-foreground/70 sm:inline">syncing missing messages</span>
       </div>
     </div>

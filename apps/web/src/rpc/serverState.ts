@@ -60,16 +60,13 @@ const selectEmptyProviders = (): ReadonlyArray<ServerProvider> => EMPTY_SERVER_P
 const selectSettings = (config: ServerConfig | null): ServerSettings =>
   config?.settings ?? DEFAULT_SERVER_SETTINGS;
 
-export const welcomeAtom = makeStateAtom<ServerLifecycleWelcomePayload | null>(
-  "server-welcome",
-  null,
-);
-export const serverConfigAtom = makeStateAtom<ServerConfig | null>("server-config", null);
-export const serverConfigUpdatedAtom = makeStateAtom<ServerConfigUpdatedNotification | null>(
+const welcomeAtom = makeStateAtom<ServerLifecycleWelcomePayload | null>("server-welcome", null);
+const serverConfigAtom = makeStateAtom<ServerConfig | null>("server-config", null);
+const serverConfigUpdatedAtom = makeStateAtom<ServerConfigUpdatedNotification | null>(
   "server-config-updated",
   null,
 );
-export const providersUpdatedAtom = makeStateAtom<ServerProviderUpdatedPayload | null>(
+const providersUpdatedAtom = makeStateAtom<ServerProviderUpdatedPayload | null>(
   "server-providers-updated",
   null,
 );
@@ -78,13 +75,13 @@ export function getServerConfig(): ServerConfig | null {
   return appAtomRegistry.get(serverConfigAtom);
 }
 
-export function setServerConfigSnapshot(config: ServerConfig): void {
+function setServerConfigSnapshot(config: ServerConfig): void {
   resolveServerConfig(config);
   emitProvidersUpdated({ providers: config.providers });
   emitServerConfigUpdated(toServerConfigUpdatedPayload(config), "snapshot");
 }
 
-export function applyServerConfigEvent(event: ServerConfigStreamEvent): void {
+function applyServerConfigEvent(event: ServerConfigStreamEvent): void {
   switch (event.type) {
     case "snapshot": {
       setServerConfigSnapshot(event.config);
@@ -148,7 +145,7 @@ export function applySettingsUpdated(settings: ServerSettings): void {
   emitServerConfigUpdated(toServerConfigUpdatedPayload(nextConfig), "settingsUpdated");
 }
 
-export function applyRelayUpdated(relay: NonNullable<ServerConfig["relay"]>): void {
+function applyRelayUpdated(relay: NonNullable<ServerConfig["relay"]>): void {
   const latestServerConfig = getServerConfig();
   if (!latestServerConfig) {
     return;
@@ -179,7 +176,7 @@ export function applyKeybindingsUpdated(
   emitServerConfigUpdated(toServerConfigUpdatedPayload(nextConfig), "keybindingsUpdated");
 }
 
-export function emitWelcome(payload: ServerLifecycleWelcomePayload): void {
+function emitWelcome(payload: ServerLifecycleWelcomePayload): void {
   appAtomRegistry.set(welcomeAtom, payload);
 }
 
@@ -325,7 +322,7 @@ export function useServerConfig(): ServerConfig | null {
   return useAtomValue(serverConfigAtom);
 }
 
-export function useServerSettings(): ServerSettings {
+function useServerSettings(): ServerSettings {
   return useAtomValue(serverConfigAtom, selectSettings);
 }
 
@@ -356,7 +353,7 @@ export function useServerAvailableEditors(options?: {
   );
 }
 
-export function useServerKeybindingsConfigPath(): string | null {
+function useServerKeybindingsConfigPath(): string | null {
   return useAtomValue(serverConfigAtom, selectKeybindingsConfigPath);
 }
 

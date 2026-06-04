@@ -16,7 +16,6 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Config, Data, Effect, FileSystem, Layer, Logger, Option, Path, Schema } from "effect";
 import { Command, Flag } from "effect/unstable/cli";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
-
 const BuildPlatform = Schema.Literals(["mac", "linux", "win"]);
 const BuildArch = Schema.Literals(["arm64", "x64", "universal"]);
 
@@ -457,7 +456,16 @@ function resolveDesktopRuntimeDependencies(
   return resolveCatalogDependencies(runtimeDependencies, catalog, "apps/desktop");
 }
 
+const DESKTOP_APP_ID = "com.ace.ace";
 const DEFAULT_DESKTOP_UPDATE_REPOSITORY = "arpan404/ace";
+const MAC_SIGN_IGNORE_RESOURCE_PATTERNS = [
+  "\\.asar$",
+  "\\.bin$",
+  "\\.dat$",
+  "\\.icns$",
+  "\\.nib$",
+  "\\.pak$",
+];
 
 function resolveGitHubPublishConfig():
   | {
@@ -493,7 +501,7 @@ const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   mockUpdateServerPort: string | undefined,
 ) {
   const buildConfig: Record<string, unknown> = {
-    appId: "com.ace.ace",
+    appId: DESKTOP_APP_ID,
     productName,
     artifactName: "ace-${version}-${arch}.${ext}",
     npmRebuild: platform !== "win",
@@ -526,10 +534,15 @@ const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   }
 
   if (platform === "mac") {
+    const timestamp = process.env.ACE_DESKTOP_MAC_TIMESTAMP?.trim();
+    const notarize = process.env.ACE_DESKTOP_MAC_NOTARIZE?.trim();
     buildConfig.mac = {
       target: target === "dmg" ? [target, "zip"] : [target],
       icon: "icon.icns",
       category: "public.app-category.developer-tools",
+      signIgnore: MAC_SIGN_IGNORE_RESOURCE_PATTERNS,
+      ...(timestamp ? { timestamp } : {}),
+      ...(notarize === "false" ? { notarize: false } : {}),
     };
   }
 

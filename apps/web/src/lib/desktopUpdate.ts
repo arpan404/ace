@@ -99,9 +99,9 @@ export function getDesktopUpdateInstallConfirmationMessage(
   const version = state.downloadedVersion ?? state.availableVersion;
   const runningAgentWarning =
     runningAgentCount > 0
-      ? `\n\n${runningAgentCount === 1 ? "1 agent is" : `${String(runningAgentCount)} agents are`} running in the background. Continuing will stop ${runningAgentCount === 1 ? "that agent" : "those agents"} before the update installs.`
+      ? `\n\n${runningAgentCount === 1 ? "1 background agent will stop." : `${String(runningAgentCount)} background agents will stop.`}`
       : "";
-  return `Install update${version ? ` ${version}` : ""} and restart ace?\n\nThis will update the desktop app, bundled web UI, server daemon runtime, and \`ace\` CLI command.${runningAgentWarning}\n\nAny running tasks will be interrupted. Make sure you're ready before continuing.`;
+  return `Update ace${version ? ` to ${version}` : ""} and restart?${runningAgentWarning}\n\nRunning tasks will be interrupted.`;
 }
 
 export function getDesktopUpdateActionError(result: DesktopUpdateActionResult): string | null {
@@ -118,7 +118,7 @@ export function shouldToastDesktopUpdateActionResult(result: DesktopUpdateAction
   return getDesktopUpdateActionError(result) !== null;
 }
 
-export function shouldHighlightDesktopUpdateError(state: DesktopUpdateState | null): boolean {
+function shouldHighlightDesktopUpdateError(state: DesktopUpdateState | null): boolean {
   if (!state || state.status !== "error") return false;
   return state.errorContext === "download" || state.errorContext === "install";
 }

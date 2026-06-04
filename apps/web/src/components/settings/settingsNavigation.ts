@@ -1,9 +1,10 @@
-export type SettingsNavGroup = "workspace" | "ai" | "system" | "data";
+export type SettingsNavGroup = "experience" | "workspace" | "system";
 export type SettingsSectionPath =
   | "/settings/general"
   | "/settings/browser"
   | "/settings/chat"
   | "/settings/editor"
+  | "/settings/environment"
   | "/settings/providers"
   | "/settings/devices"
   | "/settings/advanced"
@@ -18,10 +19,9 @@ type SettingsNavItem = {
 };
 
 export const SETTINGS_NAV_GROUPS = [
+  { id: "experience", label: "Experience" },
   { id: "workspace", label: "Workspace" },
-  { id: "ai", label: "AI" },
   { id: "system", label: "System" },
-  { id: "data", label: "Data" },
 ] as const satisfies ReadonlyArray<{
   id: SettingsNavGroup;
   label: string;
@@ -29,31 +29,37 @@ export const SETTINGS_NAV_GROUPS = [
 
 export const SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
   {
-    group: "workspace",
+    group: "experience",
     label: "General",
     description: "Appearance, time, and thread defaults",
     to: "/settings/general",
   },
   {
-    group: "workspace",
+    group: "experience",
     label: "Browser",
     description: "Search engine and mounted browser limits",
     to: "/settings/browser",
   },
   {
-    group: "workspace",
+    group: "experience",
     label: "Chat",
     description: "Streaming, notifications, and confirmation behavior",
     to: "/settings/chat",
   },
   {
-    group: "workspace",
+    group: "experience",
     label: "Editor",
-    description: "Workspace editor, diffs, and language servers",
+    description: "Workspace editor and language servers",
     to: "/settings/editor",
   },
   {
-    group: "ai",
+    group: "workspace",
+    label: "Environment",
+    description: "Worktrees, linked chats, and cleanup",
+    to: "/settings/environment",
+  },
+  {
+    group: "workspace",
     label: "Providers",
     description: "Models, provider CLI status, installs, and custom configurations",
     to: "/settings/providers",
@@ -77,7 +83,7 @@ export const SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
     to: "/settings/about",
   },
   {
-    group: "data",
+    group: "system",
     label: "Archived",
     description: "Recover archived projects and threads",
     to: "/settings/archived",
@@ -86,6 +92,18 @@ export const SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
 
 const DEFAULT_SETTINGS_NAV_ITEM = SETTINGS_NAV_ITEMS[0] as SettingsNavItem;
 
+export function isSettingsNavItemActive(pathname: string, item: SettingsNavItem) {
+  if (pathname === item.to || pathname.startsWith(`${item.to}/`)) {
+    return true;
+  }
+  return (
+    item.to === "/settings/environment" && pathname.startsWith("/settings/project-environment/")
+  );
+}
+
 export function getSettingsNavItem(pathname: string) {
-  return SETTINGS_NAV_ITEMS.find((item) => item.to === pathname) ?? DEFAULT_SETTINGS_NAV_ITEM;
+  return (
+    SETTINGS_NAV_ITEMS.find((item) => isSettingsNavItemActive(pathname, item)) ??
+    DEFAULT_SETTINGS_NAV_ITEM
+  );
 }

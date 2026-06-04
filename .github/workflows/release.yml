@@ -107,11 +107,21 @@ jobs:
             platform: linux
             target: AppImage
             arch: x64
+          - label: Linux arm64
+            runner: ubuntu-24.04
+            platform: linux
+            target: AppImage
+            arch: arm64
           - label: Windows x64
             runner: windows-2022
             platform: win
             target: nsis
             arch: x64
+          - label: Windows arm64
+            runner: windows-2022
+            platform: win
+            target: nsis
+            arch: arm64
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -130,7 +140,7 @@ jobs:
           node-version-file: package.json
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: bun install --ignore-scripts --frozen-lockfile
 
       - name: Align package versions to release version
         run: node scripts/update-release-package-versions.ts "${{ needs.preflight.outputs.version }}"
@@ -143,6 +153,7 @@ jobs:
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
           AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
@@ -225,6 +236,18 @@ jobs:
             fi
           fi
 
+          if [[ "${{ matrix.platform }}" == "linux" && "${{ matrix.arch }}" != "x64" ]]; then
+            if [[ -f release-publish/latest-linux.yml ]]; then
+              mv release-publish/latest-linux.yml "release-publish/latest-linux-${{ matrix.arch }}.yml"
+            fi
+          fi
+
+          if [[ "${{ matrix.platform }}" == "win" && "${{ matrix.arch }}" != "x64" ]]; then
+            if [[ -f release-publish/latest.yml ]]; then
+              mv release-publish/latest.yml "release-publish/latest-${{ matrix.arch }}.yml"
+            fi
+          fi
+
       - name: Upload build artifacts
         uses: actions/upload-artifact@v7
         with:
@@ -235,6 +258,7 @@ jobs:
   publish_cli:
     name: Publish ace CLI to npm
     needs: [preflight, build]
+    continue-on-error: true
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
@@ -254,7 +278,7 @@ jobs:
           registry-url: https://registry.npmjs.org
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: bun install --ignore-scripts --frozen-lockfile
 
       - name: Align package versions to release version
         run: node scripts/update-release-package-versions.ts "${{ needs.preflight.outputs.version }}"
@@ -267,7 +291,7 @@ jobs:
 
   release:
     name: Publish GitHub release
-    needs: [preflight, build, publish_cli]
+    needs: [preflight, build]
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
@@ -294,8 +318,15 @@ jobs:
             release-assets/latest-mac-x64.yml
           rm -f release-assets/latest-mac-x64.yml
 
+      - name: Merge Windows updater manifests
+        run: |
+          node scripts/merge-windows-update-manifests.ts \
+            release-assets/latest.yml \
+            release-assets/latest-arm64.yml
+          rm -f release-assets/latest-arm64.yml
+
       - name: Publish ace release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.preflight.outputs.tag }}
           target_commitish: ${{ needs.preflight.outputs.ref }}
@@ -319,7 +350,7 @@ jobs:
     steps:
       - id: app_token
         name: Mint release app token
-        uses: actions/create-github-app-token@v2
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ secrets.RELEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}

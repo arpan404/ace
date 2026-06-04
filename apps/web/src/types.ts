@@ -19,6 +19,7 @@ import type {
   ProviderInteractionMode,
   RuntimeMode,
   ThreadHandoff,
+  ThreadFork,
 } from "@ace/contracts";
 
 export type SessionPhase = "disconnected" | "connecting" | "ready" | "running";
@@ -27,8 +28,8 @@ export const DEFAULT_RUNTIME_MODE: RuntimeMode = "full-access";
 export const DEFAULT_INTERACTION_MODE: ProviderInteractionMode = "default";
 export const DEFAULT_THREAD_TERMINAL_HEIGHT = 280;
 export const DEFAULT_THREAD_TERMINAL_ID = "default";
-export const MAX_TERMINALS_PER_GROUP = 4;
-export type ProjectScript = ContractProjectScript;
+export const MAX_TERMINALS_PER_GROUP = Number.MAX_SAFE_INTEGER;
+type ProjectScript = ContractProjectScript;
 export type ProjectIcon = ContractProjectIcon;
 
 export interface ThreadTerminalGroup {
@@ -45,7 +46,7 @@ export interface ChatImageAttachment {
   previewUrl?: string;
 }
 
-export type ChatAttachment = ChatImageAttachment;
+type ChatAttachment = ChatImageAttachment;
 
 export interface QueuedComposerImageAttachment extends ChatImageAttachment {
   dataUrl: string;
@@ -53,7 +54,7 @@ export interface QueuedComposerImageAttachment extends ChatImageAttachment {
   file?: File;
 }
 
-export interface QueuedTerminalContext {
+interface QueuedTerminalContext {
   id: string;
   createdAt: string;
   terminalId: string;
@@ -73,7 +74,7 @@ export interface QueuedComposerMessage {
   interactionMode: ProviderInteractionMode;
 }
 
-export interface QueuedSteerRequest {
+interface QueuedSteerRequest {
   messageId: MessageId;
   baselineWorkLogEntryCount: number;
   interruptRequested: boolean;
@@ -112,7 +113,7 @@ export interface ProposedPlan {
   updatedAt: string;
 }
 
-export type ProposedPlanSummary = OrchestrationProposedPlanSummary;
+type ProposedPlanSummary = OrchestrationProposedPlanSummary;
 
 export interface TurnDiffFileChange {
   path: string;
@@ -165,6 +166,7 @@ export interface Thread {
   branch: string | null;
   worktreePath: string | null;
   handoff?: ThreadHandoff;
+  fork?: ThreadFork;
   historyLoaded?: boolean;
   latestProposedPlanSummary: ProposedPlanSummary | null;
   queuedComposerMessages: QueuedComposerMessage[];
@@ -186,6 +188,7 @@ export interface SidebarThreadSummary {
   branch: string | null;
   worktreePath: string | null;
   handoff?: ThreadHandoff;
+  fork?: ThreadFork;
   latestUserMessageAt: string | null;
   hasPendingApprovals: boolean;
   hasPendingUserInput: boolean;

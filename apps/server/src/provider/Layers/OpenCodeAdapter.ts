@@ -767,6 +767,62 @@ function buildOpenCodeToolDetail(state: OpenCodeSdkToolPart["state"]): string | 
   }
 }
 
+function buildOpenCodeToolData(
+  part: OpenCodeSdkToolPart,
+  itemType: OpenCodeToolItemType,
+): Record<string, unknown> {
+  const metadata = asRecord(part.metadata);
+  const stateRecord = asRecord(part.state);
+  const input = asRecord(metadata?.input) ?? metadata;
+  const command =
+    nonEmptyString(metadata?.command) ??
+    nonEmptyString(metadata?.cmd) ??
+    nonEmptyString(input?.command) ??
+    nonEmptyString(input?.cmd) ??
+    (itemType === "command_execution" ? nonEmptyString(stateRecord?.title) : undefined);
+  const cwd =
+    nonEmptyString(metadata?.cwd) ??
+    nonEmptyString(metadata?.workingDirectory) ??
+    nonEmptyString(input?.cwd) ??
+    nonEmptyString(input?.workingDirectory);
+  const output =
+    part.state.status === "completed"
+      ? nonEmptyString(part.state.output)
+      : part.state.status === "error"
+        ? nonEmptyString(part.state.error)
+        : undefined;
+  return {
+    partId: part.id,
+    tool: part.tool,
+    toolName: part.tool,
+    messageId: part.messageID,
+    callId: part.callID,
+    state: part.state,
+    ...(part.metadata !== undefined ? { metadata: part.metadata } : {}),
+    ...(input ? { input } : {}),
+    ...(command ? { command } : {}),
+    ...(cwd ? { cwd } : {}),
+    ...(output ? { output, aggregatedOutput: output } : {}),
+    ...(part.state.status === "completed" || part.state.status === "error"
+      ? { result: stateRecord ?? part.state }
+      : {}),
+    item: {
+      id: part.id,
+      toolCallId: part.callID,
+      name: part.tool,
+      toolName: part.tool,
+      status: part.state.status,
+      ...(input ? { input } : {}),
+      ...(command ? { command } : {}),
+      ...(cwd ? { cwd } : {}),
+      ...(output ? { output, aggregatedOutput: output } : {}),
+      ...(part.state.status === "completed" || part.state.status === "error"
+        ? { result: stateRecord ?? part.state }
+        : {}),
+    },
+  };
+}
+
 function openCodeToolStateCreatedAt(state: OpenCodeSdkToolPart["state"]): string | undefined {
   switch (state.status) {
     case "running":
@@ -1391,14 +1447,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
     const stateRank = rankOpenCodeToolStateStatus(stateStatus);
     const itemType = classifyOpenCodeToolItemType(toolName);
     const detail = buildOpenCodeToolDetail(state);
-    const data = {
-      partId,
-      tool: toolName,
-      messageId: part.messageID,
-      callId: part.callID,
-      ...(state ? { state } : {}),
-      ...(part.metadata !== undefined ? { metadata: part.metadata } : {}),
-    };
+    const data = buildOpenCodeToolData(part, itemType);
 
     let toolItem = turn.toolItems.get(partId);
     if (!toolItem) {
@@ -1920,7 +1969,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
               detail: toMessage(listed.error, "Failed to list OpenCode providers"),
             });
           }
-          const body = listed.data as OpenCodeConfigProvidersResponse | undefined;
+          const body = listed.data as unknown as OpenCodeConfigProvidersResponse | undefined;
           if (!body || !Array.isArray(body.providers)) {
             throw new ProviderAdapterRequestError({
               provider: PROVIDER,
@@ -1953,9 +2002,26 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
           };
 
           const resumeSessionId = readOpenCodeResumeSessionId(input.resumeCursor);
+          const forkSourceSessionId = readOpenCodeResumeSessionId(input.forkSource?.resumeCursor);
           let opencodeSessionId: string;
           let resumedExistingSession = false;
-          if (resumeSessionId) {
+          let nativeForkSucceeded = false;
+          if (forkSourceSessionId) {
+            try {
+              const forked = await client.session.fork({
+                sessionID: forkSourceSessionId,
+                directory: cwd,
+              });
+              if (forked.error || !forked.data) {
+                opencodeSessionId = await createSession();
+              } else {
+                opencodeSessionId = forked.data.id;
+                nativeForkSucceeded = true;
+              }
+            } catch {
+              opencodeSessionId = await createSession();
+            }
+          } else if (resumeSessionId) {
             const resumed = await client.session.get({
               sessionID: resumeSessionId,
               directory: cwd,
@@ -2029,7 +2095,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
             defaultModels,
             modelCatalog: body,
             turns: [],
-            replayTurns: cloneReplayTurns(input.replayTurns),
+            replayTurns: nativeForkSucceeded ? [] : cloneReplayTurns(input.replayTurns),
             totalProcessedTokens: 0,
             sequenceTieBreakersByTimestampMs: new Map(),
             nextFallbackSessionSequence: 0,
@@ -2044,7 +2110,10 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
             sseAbort: null,
             idleStopTimer: null,
             lastActivityAtMs: Date.now(),
-            pendingBootstrapReset: (input.replayTurns?.length ?? 0) > 0 && !resumedExistingSession,
+            pendingBootstrapReset:
+              (input.replayTurns?.length ?? 0) > 0 &&
+              !resumedExistingSession &&
+              !nativeForkSucceeded,
             stopped: false,
           };
           sessions.set(input.threadId, ctx);

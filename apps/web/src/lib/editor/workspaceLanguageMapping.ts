@@ -1,5 +1,5 @@
-export const MONACO_DOTENV_LANGUAGE_ID = "dotenv";
-export const MONACO_PRISMA_LANGUAGE_ID = "prisma";
+export const WORKSPACE_DOTENV_LANGUAGE_ID = "dotenv";
+export const WORKSPACE_PRISMA_LANGUAGE_ID = "prisma";
 
 const BASENAME_LANGUAGE_MAP = new Map<string, string>([
   [".editorconfig", "ini"],
@@ -60,7 +60,7 @@ const LANGUAGE_SUFFIX_GROUPS: ReadonlyArray<LanguageSuffixGroup> = [
   ["objective-c", [".m", ".mm"]],
   ["bat", [".bat", ".cmd"]],
   ["solidity", [".sol"]],
-  [MONACO_PRISMA_LANGUAGE_ID, [".prisma"]],
+  [WORKSPACE_PRISMA_LANGUAGE_ID, [".prisma"]],
 ];
 
 function resolveLanguageBySuffix(normalizedPath: string): string | undefined {
@@ -72,7 +72,7 @@ function resolveLanguageBySuffix(normalizedPath: string): string | undefined {
   return undefined;
 }
 
-export function resolveMonacoLanguageFromFilePath(filePath: string | null): string | undefined {
+export function resolveWorkspaceLanguageFromFilePath(filePath: string | null): string | undefined {
   if (!filePath) {
     return undefined;
   }
@@ -81,7 +81,7 @@ export function resolveMonacoLanguageFromFilePath(filePath: string | null): stri
   const basename = normalizedPath.split(/[\\/]/).pop() ?? normalizedPath;
 
   if (basename.startsWith(".env")) {
-    return MONACO_DOTENV_LANGUAGE_ID;
+    return WORKSPACE_DOTENV_LANGUAGE_ID;
   }
   if (basename === "dockerfile" || basename.startsWith("dockerfile.")) {
     return "dockerfile";

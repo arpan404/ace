@@ -489,6 +489,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           handoff_to_provider AS "handoffToProvider",
           handoff_mode AS "handoffMode",
           handoff_created_at AS "handoffCreatedAt",
+          fork_source_thread_id AS "forkSourceThreadId",
+          fork_created_at AS "forkCreatedAt",
           queued_composer_messages_json AS "queuedComposerMessages",
           queued_steer_request_json AS "queuedSteerRequest",
           latest_turn_id AS "latestTurnId",
@@ -520,6 +522,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           handoff_to_provider AS "handoffToProvider",
           handoff_mode AS "handoffMode",
           handoff_created_at AS "handoffCreatedAt",
+          fork_source_thread_id AS "forkSourceThreadId",
+          fork_created_at AS "forkCreatedAt",
           queued_composer_messages_json AS "queuedComposerMessages",
           queued_steer_request_json AS "queuedSteerRequest",
           latest_turn_id AS "latestTurnId",
@@ -1352,24 +1356,37 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               checkpoints: historyLoaded ? (checkpointsByThread.get(row.threadId) ?? []) : [],
               session: reconciledThreadState.session,
             };
-            if (
+            const threadWithHandoff =
               row.handoffSourceThreadId !== null &&
               row.handoffFromProvider !== null &&
               row.handoffToProvider !== null &&
               row.handoffMode !== null &&
-              row.handoffCreatedAt !== null
-            ) {
-              return Object.assign({}, threadBase, {
-                handoff: {
-                  sourceThreadId: row.handoffSourceThreadId,
-                  fromProvider: row.handoffFromProvider,
-                  toProvider: row.handoffToProvider,
-                  mode: row.handoffMode,
-                  createdAt: row.handoffCreatedAt,
+              row.handoffCreatedAt !== null &&
+              row.handoffMode !== "fork"
+                ? Object.assign({}, threadBase, {
+                    handoff: {
+                      sourceThreadId: row.handoffSourceThreadId,
+                      fromProvider: row.handoffFromProvider,
+                      toProvider: row.handoffToProvider,
+                      mode: row.handoffMode,
+                      createdAt: row.handoffCreatedAt,
+                    },
+                  })
+                : threadBase;
+            const forkSourceThreadId =
+              row.forkSourceThreadId ??
+              (row.handoffMode === "fork" ? row.handoffSourceThreadId : null);
+            const forkCreatedAt =
+              row.forkCreatedAt ?? (row.handoffMode === "fork" ? row.handoffCreatedAt : null);
+            if (forkSourceThreadId !== null && forkCreatedAt !== null) {
+              return Object.assign({}, threadWithHandoff, {
+                fork: {
+                  sourceThreadId: forkSourceThreadId,
+                  createdAt: forkCreatedAt,
                 },
               });
             }
-            return threadBase;
+            return threadWithHandoff;
           });
 
           const snapshot = {
@@ -1378,7 +1395,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             threads,
             updatedAt: updatedAt ?? new Date(0).toISOString(),
           };
-
           return yield* decodeReadModel(snapshot).pipe(
             Effect.mapError(
               toPersistenceDecodeError("ProjectionSnapshotQuery.getSnapshot:decodeReadModel"),
@@ -1486,6 +1502,12 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               : null,
             runtimeRow: Option.getOrUndefined(providerRuntimeRow),
           });
+          const forkSourceThreadId =
+            threadRow.value.forkSourceThreadId ??
+            (threadRow.value.handoffMode === "fork" ? threadRow.value.handoffSourceThreadId : null);
+          const forkCreatedAt =
+            threadRow.value.forkCreatedAt ??
+            (threadRow.value.handoffMode === "fork" ? threadRow.value.handoffCreatedAt : null);
           const thread = {
             id: threadRow.value.threadId,
             projectId: threadRow.value.projectId,
@@ -1499,7 +1521,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             threadRow.value.handoffFromProvider !== null &&
             threadRow.value.handoffToProvider !== null &&
             threadRow.value.handoffMode !== null &&
-            threadRow.value.handoffCreatedAt !== null
+            threadRow.value.handoffCreatedAt !== null &&
+            threadRow.value.handoffMode !== "fork"
               ? {
                   handoff: {
                     sourceThreadId: threadRow.value.handoffSourceThreadId,
@@ -1507,6 +1530,14 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                     toProvider: threadRow.value.handoffToProvider,
                     mode: threadRow.value.handoffMode,
                     createdAt: threadRow.value.handoffCreatedAt,
+                  },
+                }
+              : {}),
+            ...(forkSourceThreadId !== null && forkCreatedAt !== null
+              ? {
+                  fork: {
+                    sourceThreadId: forkSourceThreadId,
+                    createdAt: forkCreatedAt,
                   },
                 }
               : {}),

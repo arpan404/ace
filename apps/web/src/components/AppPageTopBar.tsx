@@ -35,7 +35,7 @@ export function AppPageTopBar({
   return (
     <header
       className={cn(
-        "relative z-30 w-full shrink-0 bg-sidebar",
+        "relative z-30 w-full shrink-0 border-b border-border/20 bg-sidebar",
         isElectron
           ? cn(
               desktopDragRegion ? "drag-region" : "[-webkit-app-region:no-drag]",

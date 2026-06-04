@@ -13,3 +13,12 @@ export function resolveScopedBrowserStorageKey(
   const normalizedScopeId = normalizeBrowserStorageScopeId(scopeId);
   return normalizedScopeId ? `${baseKey}:${encodeURIComponent(normalizedScopeId)}` : baseKey;
 }
+
+export const IN_APP_BROWSER_PARTITION = "persist:ace-browser";
+
+export function resolveBrowserWebviewPartition(scopeId: string | null | undefined): string {
+  const normalizedScopeId = normalizeBrowserStorageScopeId(scopeId);
+  return normalizedScopeId
+    ? `${IN_APP_BROWSER_PARTITION}:${encodeURIComponent(normalizedScopeId)}`
+    : IN_APP_BROWSER_PARTITION;
+}

@@ -1,22 +1,22 @@
 import * as Schema from "effect/Schema";
 
-import { getLocalStorageItem } from "~/hooks/useLocalStorage";
+import { getLocalStorageItem, removeLocalStorageItem } from "~/hooks/useLocalStorage";
 import { randomUUID } from "~/lib/utils";
 import { DEFAULT_BROWSER_HOME_URL, normalizeBrowserHttpUrl } from "~/lib/browser/url";
 import { normalizeBrowserStorageScopeId, resolveScopedBrowserStorageKey } from "./storage";
 
 export const BROWSER_SESSION_STORAGE_KEY = "ace:browser:session:v1";
-export const BROWSER_SCOPED_SESSION_STORAGE_KEY = "ace:browser:session:v2";
-export const LEGACY_BROWSER_LAST_URL_STORAGE_KEY = "ace:browser:last-url";
+const BROWSER_SCOPED_SESSION_STORAGE_KEY = "ace:browser:session:v2";
+const LEGACY_BROWSER_LAST_URL_STORAGE_KEY = "ace:browser:last-url";
 export const BROWSER_NEW_TAB_URL = "ace://browser/new-tab";
 export const BROWSER_NEW_TAB_TITLE = "New tab";
 export const DEFAULT_BROWSER_PANEL_HEIGHT = 360;
-export const MIN_BROWSER_PANEL_HEIGHT = 288;
+const MIN_BROWSER_PANEL_HEIGHT = 288;
 
 const BROWSER_PANEL_HEIGHT_MAX_RATIO = 0.72;
 const BROWSER_PANEL_HEIGHT_VIEWPORT_OFFSET = 220;
 
-export const BrowserTabStateSchema = Schema.Struct({
+const BrowserTabStateSchema = Schema.Struct({
   id: Schema.String,
   url: Schema.String,
   title: Schema.String,
@@ -34,6 +34,10 @@ export function resolveBrowserSessionStorageKey(scopeId: string | null | undefin
   return normalizeBrowserStorageScopeId(scopeId)
     ? resolveScopedBrowserStorageKey(BROWSER_SCOPED_SESSION_STORAGE_KEY, scopeId)
     : BROWSER_SESSION_STORAGE_KEY;
+}
+
+export function clearBrowserSessionStorage(scopeId: string | null | undefined): void {
+  removeLocalStorageItem(resolveBrowserSessionStorageKey(scopeId));
 }
 
 export function isBrowserNewTabUrl(url: string): boolean {
@@ -127,7 +131,7 @@ export function createBrowserSessionState(initialUrl = BROWSER_NEW_TAB_URL): Bro
   };
 }
 
-export function resolveLegacyBrowserUrl(): string {
+function resolveLegacyBrowserUrl(): string {
   return (
     getLocalStorageItem(LEGACY_BROWSER_LAST_URL_STORAGE_KEY, Schema.String) ??
     DEFAULT_BROWSER_HOME_URL

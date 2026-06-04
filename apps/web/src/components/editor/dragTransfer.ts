@@ -1,7 +1,7 @@
 import type { ProjectEntry } from "@ace/contracts";
 
 export const EDITOR_TAB_TRANSFER_TYPE = "application/x-ace-editor-tab";
-export const EXPLORER_ENTRY_TRANSFER_TYPE = "application/x-ace-explorer-entry";
+const EXPLORER_ENTRY_TRANSFER_TYPE = "application/x-ace-explorer-entry";
 
 export interface ExplorerEntryTransferData {
   kind: ProjectEntry["kind"];

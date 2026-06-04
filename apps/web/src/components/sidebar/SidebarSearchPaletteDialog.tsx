@@ -46,18 +46,20 @@ const SearchPaletteFooterHints = memo(function SearchPaletteFooterHints() {
   );
 });
 
-function renderActionIcon(item: SearchPaletteItem) {
-  if (item.type === "action.new-thread") {
+const SearchPaletteActionIcon = memo(function SearchPaletteActionIcon(props: {
+  readonly type: SearchPaletteItem["type"];
+}) {
+  if (props.type === "action.new-thread") {
     return <SquarePenIcon className="size-4 shrink-0" strokeWidth={2} />;
   }
-  if (item.type === "action.new-project") {
+  if (props.type === "action.new-project") {
     return <FolderIcon className="size-4 shrink-0" strokeWidth={2} />;
   }
-  if (item.type === "action.open-terminals") {
+  if (props.type === "action.open-terminals") {
     return <TerminalIcon className="size-4 shrink-0" strokeWidth={2} />;
   }
   return <SettingsIcon className="size-4 shrink-0" strokeWidth={2} />;
-}
+});
 
 export const SidebarSearchPaletteDialog = memo(function SidebarSearchPaletteDialog(props: {
   readonly open: boolean;
@@ -107,7 +109,6 @@ export const SidebarSearchPaletteDialog = memo(function SidebarSearchPaletteDial
             value={props.query}
             onChange={(event) => props.onQueryChange(event.target.value)}
             onKeyDown={props.onInputKeyDown}
-            autoFocus
           />
         </div>
 
@@ -143,7 +144,7 @@ export const SidebarSearchPaletteDialog = memo(function SidebarSearchPaletteDial
                     onClick={() => props.onSelectItem(item)}
                   >
                     <span className={`text-muted-foreground ${isActive ? "text-primary/70" : ""}`}>
-                      {renderActionIcon(item)}
+                      <SearchPaletteActionIcon type={item.type} />
                     </span>
                     <span className="min-w-0 flex-1 truncate">{item.label}</span>
                   </button>

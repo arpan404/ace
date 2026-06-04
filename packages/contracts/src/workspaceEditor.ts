@@ -129,6 +129,34 @@ export class WorkspaceEditorDefinitionError extends Schema.TaggedErrorClass<Work
   },
 ) {}
 
+export const WorkspaceEditorHoverContentKind = Schema.Literals(["code", "markdown", "plaintext"]);
+export type WorkspaceEditorHoverContentKind = typeof WorkspaceEditorHoverContentKind.Type;
+
+export const WorkspaceEditorHoverContent = Schema.Struct({
+  kind: WorkspaceEditorHoverContentKind,
+  language: Schema.optional(TrimmedNonEmptyString),
+  value: TrimmedNonEmptyString,
+});
+export type WorkspaceEditorHoverContent = typeof WorkspaceEditorHoverContent.Type;
+
+export const WorkspaceEditorHoverInput = Schema.Struct(WorkspaceEditorLspRequestFields);
+export type WorkspaceEditorHoverInput = typeof WorkspaceEditorHoverInput.Type;
+
+export const WorkspaceEditorHoverResult = Schema.Struct({
+  relativePath: ProjectReadFileInput.fields.relativePath,
+  contents: Schema.Array(WorkspaceEditorHoverContent),
+  location: Schema.optional(WorkspaceEditorLocation),
+});
+export type WorkspaceEditorHoverResult = typeof WorkspaceEditorHoverResult.Type;
+
+export class WorkspaceEditorHoverError extends Schema.TaggedErrorClass<WorkspaceEditorHoverError>()(
+  "WorkspaceEditorHoverError",
+  {
+    cause: Schema.optional(Schema.Defect),
+    message: TrimmedNonEmptyString,
+  },
+) {}
+
 export const WorkspaceEditorReferencesInput = Schema.Struct(WorkspaceEditorLspRequestFields);
 export type WorkspaceEditorReferencesInput = typeof WorkspaceEditorReferencesInput.Type;
 

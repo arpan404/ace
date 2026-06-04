@@ -18,6 +18,7 @@ import { Effect, Fiber, Layer, Option, Stream } from "effect";
 
 import {
   CodexAppServerManager,
+  type CodexSetGoalInput,
   type CodexAppServerStartSessionInput,
   type CodexAppServerSendTurnInput,
 } from "../../codexAppServerManager.ts";
@@ -70,6 +71,18 @@ class FakeCodexManager extends CodexAppServerManager {
     turns: [],
   }));
 
+  public getThreadGoalImpl = vi.fn(async (_threadId: ThreadId) => null);
+
+  public setThreadGoalImpl = vi.fn(async (_input: CodexSetGoalInput) => ({
+    threadId: "provider-thread-1",
+    objective: _input.objective ?? "Existing goal",
+    status: _input.status ?? ("active" as const),
+    tokensUsed: 0,
+    timeUsedSeconds: 0,
+  }));
+
+  public clearThreadGoalImpl = vi.fn(async (_threadId: ThreadId) => undefined);
+
   public respondToRequestImpl = vi.fn(
     async (
       _threadId: ThreadId,
@@ -106,6 +119,18 @@ class FakeCodexManager extends CodexAppServerManager {
 
   override rollbackThread(threadId: ThreadId, numTurns: number) {
     return this.rollbackThreadImpl(threadId, numTurns);
+  }
+
+  override getThreadGoal(threadId: ThreadId) {
+    return this.getThreadGoalImpl(threadId);
+  }
+
+  override setThreadGoal(input: CodexSetGoalInput) {
+    return this.setThreadGoalImpl(input);
+  }
+
+  override clearThreadGoal(threadId: ThreadId) {
+    return this.clearThreadGoalImpl(threadId);
   }
 
   override respondToRequest(
@@ -437,6 +462,50 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
       assert.equal(firstEvent.value.itemId, "msg_1");
       assert.equal(firstEvent.value.turnId, "turn-1");
       assert.equal(firstEvent.value.payload.itemType, "assistant_message");
+    }),
+  );
+
+  it.effect("preserves Codex child conversation metadata on assistant deltas", () =>
+    Effect.gen(function* () {
+      const adapter = yield* CodexAdapter;
+      const firstEventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
+
+      const event: ProviderEvent = {
+        id: asEventId("evt-child-agent-delta"),
+        kind: "notification",
+        provider: "codex",
+        createdAt: new Date().toISOString(),
+        method: "item/agentMessage/delta",
+        threadId: asThreadId("thread-1"),
+        turnId: asTurnId("turn-child"),
+        itemId: asItemId("msg_child_1"),
+        textDelta: "child output",
+        payload: {
+          threadId: "child_provider_1",
+          turnId: "turn-child",
+          itemId: "msg_child_1",
+          delta: "child output",
+          ace: {
+            parentTurnId: "turn-parent",
+            childProviderThreadId: "child_provider_1",
+          },
+        },
+      };
+
+      lifecycleManager.emit("event", event);
+      const firstEvent = yield* Fiber.join(firstEventFiber);
+
+      assert.equal(firstEvent._tag, "Some");
+      if (firstEvent._tag !== "Some") {
+        return;
+      }
+      assert.equal(firstEvent.value.type, "content.delta");
+      if (firstEvent.value.type !== "content.delta") {
+        return;
+      }
+      assert.equal(firstEvent.value.payload.streamKind, "assistant_text");
+      assert.equal(firstEvent.value.payload.delta, "child output");
+      assert.deepEqual(firstEvent.value.payload.data, event.payload);
     }),
   );
 

@@ -9,9 +9,9 @@ import { resolveSelectableModel } from "@ace/shared/model";
 import * as Schema from "effect/Schema";
 import { memo, useMemo, useState } from "react";
 import type { VariantProps } from "class-variance-authority";
-import { PROVIDER_OPTIONS } from "../../session-logic";
 import { CheckIcon, ChevronDownIcon, PinIcon, SearchIcon, StarIcon } from "lucide-react";
-import { Button, buttonVariants } from "../ui/button";
+import { Button } from "../ui/button";
+import { buttonVariants } from "../ui/buttonVariants";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { cn } from "~/lib/utils";
@@ -24,18 +24,9 @@ import {
 } from "../../cursorModelSelector";
 import { useLocalStorage } from "../../hooks/useLocalStorage";
 import { HandoffMenuButton } from "./HandoffMenu";
+import { AVAILABLE_PROVIDER_OPTIONS } from "./providerModelPickerOptions";
 import { PROVIDER_ICON_BY_PROVIDER, providerIconClassName } from "./providerIcons";
 import { ProviderInstanceBadge } from "../../providerInstanceBadges";
-
-function isAvailableProviderOption(option: (typeof PROVIDER_OPTIONS)[number]): option is {
-  value: ProviderKind;
-  label: string;
-  available: true;
-} {
-  return option.available;
-}
-
-export const AVAILABLE_PROVIDER_OPTIONS = PROVIDER_OPTIONS.filter(isAvailableProviderOption);
 const MODEL_MENU_MAX_HEIGHT = "18rem";
 const PROVIDER_PICKER_PREFS_STORAGE_KEY = "ace:provider-model-picker-prefs:v1";
 const ProviderModelPickerPrefsSchema = Schema.Struct({
@@ -104,17 +95,22 @@ function toProviderBackedModelGroupLabel(providerId: string): string {
   }
   return providerId
     .split(/[-_]/g)
-    .filter((part) => part.length > 0)
-    .map((part) => {
+    .reduce<string[]>((parts, part) => {
+      if (part.length === 0) {
+        return parts;
+      }
       const lower = part.toLowerCase();
       if (lower === "ai") {
-        return "AI";
+        parts.push("AI");
+        return parts;
       }
       if (lower.length <= 2) {
-        return lower.toUpperCase();
+        parts.push(lower.toUpperCase());
+        return parts;
       }
-      return lower.charAt(0).toUpperCase() + lower.slice(1);
-    })
+      parts.push(lower.charAt(0).toUpperCase() + lower.slice(1));
+      return parts;
+    }, [])
     .join(" ");
 }
 
@@ -151,7 +147,14 @@ function makeFavoriteModelKey(
 }
 
 function dedupeStrings(values: ReadonlyArray<string>): Array<string> {
-  return [...new Set(values.map((value) => value.trim()).filter((value) => value.length > 0))];
+  const normalizedValues = new Set<string>();
+  for (const value of values) {
+    const normalizedValue = value.trim();
+    if (normalizedValue.length > 0) {
+      normalizedValues.add(normalizedValue);
+    }
+  }
+  return [...normalizedValues];
 }
 
 function toggleString(values: ReadonlyArray<string>, value: string): Array<string> {
@@ -853,7 +856,6 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
                   />
                   <input
                     type="search"
-                    role="searchbox"
                     value={query}
                     onChange={(event) => setQuery(event.target.value)}
                     onKeyDown={(event) => {

@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useCallback, useEffect, useMemo, useState, type ImgHTMLAttributes } from "react";
+import { memo, useCallback, useMemo, useState, type ImgHTMLAttributes } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeRaw from "rehype-raw";
 import remarkBreaks from "remark-breaks";
@@ -22,7 +22,7 @@ const HTML_ATTR_REGEX = /([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*(?:"([^"]*)"|'([^']*
  * Converts GitHub-flavored HTML image tags to standard markdown image syntax.
  * GitHub issue bodies often contain `<img src="..." alt="...">` instead of `![alt](url)`.
  */
-export function normalizeGitHubIssueMarkdown(text: string): string {
+function normalizeGitHubIssueMarkdown(text: string): string {
   return text.replace(HTML_IMG_TAG_REGEX, (tag) => {
     let src: string | null = null;
     let alt = "";
@@ -42,28 +42,6 @@ export function normalizeGitHubIssueMarkdown(text: string): string {
     if (!src) return tag;
     const escapedAlt = alt.replaceAll("[", "\\[").replaceAll("]", "\\]");
     return `![${escapedAlt}](${src})`;
-  });
-}
-
-/**
- * Formats an ISO date string into a concise calendar label.
- */
-export function formatIssueRelativeTime(iso: string): string {
-  const then = new Date(iso);
-  if (Number.isNaN(then.getTime())) return "";
-
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const targetDay = new Date(then.getFullYear(), then.getMonth(), then.getDate());
-  const dayDiff = Math.round((today.getTime() - targetDay.getTime()) / 86_400_000);
-
-  if (dayDiff === 0) return "Today";
-  if (dayDiff === 1) return "Yesterday";
-
-  return then.toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-    ...(then.getFullYear() !== now.getFullYear() ? { year: "numeric" as const } : {}),
   });
 }
 
@@ -108,17 +86,30 @@ function buildIssueImageSource(
 
 function IssueImage(props: ImgHTMLAttributes<HTMLImageElement> & { cwd?: string | null }) {
   const { cwd, ...imgProps } = props;
-  const [status, setStatus] = useState<"loading" | "loaded" | "error">("loading");
   const { primarySrc, fallbackSrc } = useMemo(
     () => buildIssueImageSource(imgProps.src, cwd),
     [cwd, imgProps.src],
   );
-  const [resolvedSrc, setResolvedSrc] = useState(primarySrc);
 
-  useEffect(() => {
-    setResolvedSrc(primarySrc);
-    setStatus("loading");
-  }, [primarySrc]);
+  return (
+    <IssueImageSource
+      key={primarySrc}
+      fallbackSrc={fallbackSrc ?? null}
+      primarySrc={primarySrc ?? ""}
+      {...imgProps}
+    />
+  );
+}
+
+function IssueImageSource(
+  props: ImgHTMLAttributes<HTMLImageElement> & {
+    fallbackSrc: string | null;
+    primarySrc: string;
+  },
+) {
+  const { fallbackSrc, primarySrc, ...imgProps } = props;
+  const [status, setStatus] = useState<"loading" | "loaded" | "error">("loading");
+  const [resolvedSrc, setResolvedSrc] = useState(primarySrc);
 
   const handleError = useCallback(() => {
     if (fallbackSrc && resolvedSrc !== fallbackSrc) {

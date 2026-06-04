@@ -1,4 +1,4 @@
-import { MessageId } from "@ace/contracts";
+import { MessageId, type OrchestrationProposedPlanId } from "@ace/contracts";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
@@ -20,6 +20,26 @@ vi.mock("../ChatMarkdown", () => ({
     >
       {text}
     </div>
+  ),
+}));
+
+vi.mock("./MessageCopyButton", () => ({
+  MessageCopyButton: ({
+    text,
+    size,
+    variant,
+  }: {
+    text: string;
+    size?: string;
+    variant?: string;
+  }) => (
+    <button
+      type="button"
+      aria-label="Copy message"
+      {...(size === "icon-xs" ? { "data-copy-text": text } : {})}
+      data-size={size}
+      data-variant={variant}
+    />
   ),
 }));
 
@@ -310,7 +330,7 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     ).toBe(2);
   });
 
-  it("avoids the virtualized buffer while the active turn is in progress", async () => {
+  it("keeps historical rows virtualized while the active turn is in progress", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const timelineEntries = Array.from({ length: 24 }, (_, index) => ({
       id: `entry-${index + 1}`,
@@ -361,7 +381,7 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
         completionDividerBeforeEntryId={null}
         completionSummary={null}
         turnDiffSummaryByAssistantMessageId={new Map()}
-        expandedWorkGroups={{}}
+        expandedWorkGroups={{ "work-group:command-card": true }}
         onToggleWorkGroup={() => {}}
         onOpenTurnDiff={() => {}}
         revertTurnCountByUserMessageId={new Map()}
@@ -375,8 +395,41 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
       />,
     );
 
-    expect(activeTurnMarkup).not.toContain('data-virtualizer-buffer="true"');
+    expect(activeTurnMarkup).toContain('data-virtualizer-buffer="true"');
     expect(idleTurnMarkup).toContain('data-virtualizer-buffer="true"');
+  });
+
+  it("renders the virtualized buffer whenever historical rows exist", async () => {
+    const { shouldRenderTimelineVirtualizedBuffer } = await import("./MessagesTimeline");
+
+    expect(
+      shouldRenderTimelineVirtualizedBuffer({
+        virtualizedRowCount: 24,
+      }),
+    ).toBe(true);
+    expect(
+      shouldRenderTimelineVirtualizedBuffer({
+        virtualizedRowCount: 0,
+      }),
+    ).toBe(false);
+  });
+
+  it("derives a concrete fallback virtual range when the virtualizer has not mounted items yet", async () => {
+    const { deriveFallbackTimelineVirtualItems } = await import("./MessagesTimeline");
+
+    const items = deriveFallbackTimelineVirtualItems({
+      rowCount: 100,
+      estimateSize: () => 50,
+      getItemKey: (index) => `row-${index}`,
+      overscan: 2,
+      scrollTop: 2_250,
+      viewportHeight: 500,
+    });
+
+    expect(items.length).toBeGreaterThan(0);
+    expect(items[0]?.index).toBeLessThanOrEqual(43);
+    expect(items.at(-1)?.index).toBeGreaterThanOrEqual(55);
+    expect(items.every((item) => item.start >= 0 && item.end > item.start)).toBe(true);
   });
 
   it("renders inline terminal labels with the composer chip UI", async () => {
@@ -1178,7 +1231,7 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     );
 
     const firstAssistantIndex = markup.indexOf("I inspected the workspace.");
-    const firstToolIndex = markup.indexOf("src/session-logic.ts");
+    const firstToolIndex = markup.indexOf("Read session-logic.ts");
     const followUpIndex = markup.indexOf("The timeline needed message segmentation.");
     const thinkingIndex = markup.indexOf("Segment assistant output around tool execution.");
     const secondToolIndex = markup.indexOf("apps/web/src/components/chat/MessagesTimeline.tsx");
@@ -1315,6 +1368,66 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(markup).not.toContain("cat package.json");
   });
 
+  it("renders command work entries as shell cards with status and output", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        hasMessages
+        isWorking={false}
+        activeTurnInProgress={false}
+        activeTurnStartedAt={null}
+        getScrollContainer={() => null}
+        timelineEntries={[
+          {
+            id: "command-card",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:32.000Z",
+            entry: {
+              id: "command-card",
+              createdAt: "2026-03-17T19:12:32.000Z",
+              label: "Ran command bun run check",
+              toolTitle: "Run command",
+              command: "bun run check",
+              terminalOutput: "Format issues found in above 1 files.",
+              status: "failed",
+              exitCode: 1,
+              durationMs: 191,
+              itemType: "command_execution",
+              requestKind: "command",
+              tone: "tool",
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        expandedWorkGroups={{ "work-group:command-card": true }}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        resolvedTheme="light"
+        timestampFormat="locale"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup).toContain("Ran bun run check");
+    expect(markup).toContain('data-work-entry-kind="command"');
+    expect(markup).toContain('data-work-entry-nested="true"');
+    expect(markup).toContain('data-command-output-disclosure="true"');
+    expect(markup).toContain('data-command-output-open="false"');
+    expect(markup).toContain("text-[12px]");
+    expect(markup).toContain("tabler-icon-terminal");
+    expect(markup).toContain("size-3.5");
+    expect(markup).toContain("bun run check");
+    expect(markup).not.toContain('data-command-output-panel="true"');
+    expect(markup).not.toContain("Format issues found");
+  });
+
   it("collapses completed tool-only runs until expanded", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     type ToolFixtureEntry = {
@@ -1404,7 +1517,10 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(markup).toContain('data-tool-disclosure-open="false"');
     expect(markup).toContain('data-meta-disclosure="true"');
     expect(markup).toContain('data-meta-disclosure-elapsed="9s"');
-    expect(markup).toContain("Edited 1 file, explored 2 files, ran 1 command, used 6 other tools");
+    expect(markup).toContain("Ran 1 command");
+    expect(markup).toContain("Read 2 files");
+    expect(markup).toContain("Edited 1 file");
+    expect(markup).toContain("Used 6 tools");
     expect(markup).not.toContain("rounded-xl border border-border/45 bg-background/70");
     expect(markup).not.toContain('data-work-entry-id="work-tool-1"');
     expect(markup).not.toContain('data-work-entry-id="work-tool-10"');
@@ -1513,10 +1629,10 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
       />,
     );
 
-    expect(markup).toContain("Explored 1 file");
+    expect(markup).toContain("Read 1 file");
     expect(markup).not.toContain("README.md");
     expect(markup).toContain("bun lint");
-    expect(markup.indexOf("Explored 1 file")).toBeLessThan(markup.indexOf("bun lint"));
+    expect(markup.indexOf("Read 1 file")).toBeLessThan(markup.indexOf("bun lint"));
   });
 
   it("summarizes mixed tool groups by activity type", async () => {
@@ -1597,10 +1713,12 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
       />,
     );
 
-    expect(markup).toContain("Edited 2 files, explored 1 file, 1 search, ran 1 command");
-    expect(markup).not.toContain("Used 4 tools");
-    expect(markup).toContain("ran 1 command");
+    expect(markup).toContain("Ran 1 command");
+    expect(markup).toContain("Read 1 file");
     expect(markup).toContain("Edited 2 files");
+    expect(markup).toContain("Searched once");
+    expect(markup).not.toContain("Edited 2 files, explored 1 file, 1 search, ran 1 command");
+    expect(markup).not.toContain("ran 1 command");
     expect(markup).not.toContain("searched 1 search");
     expect(markup).not.toContain("4 tool calls");
   });
@@ -1651,7 +1769,7 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     );
     expect(markup).not.toContain("line-clamp-4");
     expect(markup).toContain("whitespace-pre-wrap");
-    expect(markup).toContain("text-[11px] leading-5 text-foreground/72");
+    expect(markup).toContain("text-[11px] leading-5 text-foreground/76");
     expect(markup).not.toContain("font-mono text-[10px] leading-4 text-muted-foreground/65");
   });
 
@@ -1710,6 +1828,9 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(markup).toContain('data-thinking-disclosure="true"');
     expect(markup).toContain('data-thinking-disclosure-open="false"');
     expect(markup).toContain('data-meta-disclosure-elapsed="2s"');
+    expect(markup).toContain("Thought 2 times for 2 seconds");
+    expect(markup).not.toContain("Thought for 2s");
+    expect(markup).not.toContain(">Thinking<");
     expect(markup).not.toContain('data-work-entry-id="thinking-collapsed"');
     expect(markup).not.toContain('data-work-entry-id="thinking-collapsed-2"');
     expect(markup).not.toContain("Inspecting package scripts before patching the renderer.");
@@ -1956,9 +2077,15 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(markup).not.toContain("bg-amber-500/[0.035]");
     expect(markup).not.toContain("rounded-xl border border-border/45 bg-background/70");
     expect(markup).toContain('data-thinking-disclosure="true"');
+    expect(markup).toContain('data-meta-disclosure-body="true"');
     expect(markup).toContain('data-work-entry-tone="thinking"');
+    expect(markup).toContain('data-work-entry-nested="true"');
+    expect(markup).toContain("lucide-brain");
+    expect(markup).toContain("size-3.5");
+    expect(markup).toContain("text-foreground/76");
     expect(markup).toContain("Tracing the ordering boundary before patching the renderer.");
     expect(markup).toContain('data-meta-disclosure-elapsed="1s"');
+    expect(markup).toContain("Thought 1 time for 1 second");
   });
 
   it("keeps assistant follow-ups beneath the preceding work row in order", async () => {
@@ -2207,15 +2334,79 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(markup).toContain("Changed files (2)");
     expect(markup).toContain("Expand all");
     expect(markup).not.toContain("Collapse all");
+    expect(markup).toContain('aria-label="Copy message"');
     expect(markup.indexOf("bun lint")).toBeLessThan(
       markup.indexOf("Updated the timeline rendering."),
     );
     expect(markup.indexOf("Updated the timeline rendering.")).toBeLessThan(
-      markup.indexOf('data-response-summary="true"'),
-    );
-    expect(markup.indexOf('data-response-summary="true"')).toBeLessThan(
       markup.indexOf("Changed files (2)"),
     );
+    expect(markup.indexOf("Changed files (2)")).toBeLessThan(
+      markup.indexOf('data-response-summary="true"'),
+    );
+  });
+
+  it("hides raw proposed-plan markers and renders the plan as a timeline panel", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        hasMessages
+        isWorking={false}
+        activeTurnInProgress={false}
+        activeTurnStartedAt={null}
+        getScrollContainer={() => null}
+        timelineEntries={[
+          {
+            id: "assistant-plan-marker",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:32.000Z",
+            message: {
+              id: MessageId.makeUnsafe("assistant-plan-marker"),
+              role: "assistant",
+              text: "<!--ACE_PROPOSED_PLAN",
+              createdAt: "2026-03-17T19:12:32.000Z",
+              completedAt: "2026-03-17T19:12:33.000Z",
+              streaming: false,
+            },
+          },
+          {
+            id: "plan-rendering",
+            kind: "proposed-plan",
+            createdAt: "2026-03-17T19:12:33.000Z",
+            proposedPlan: {
+              id: "plan-rendering" as OrchestrationProposedPlanId,
+              createdAt: "2026-03-17T19:12:33.000Z",
+              updatedAt: "2026-03-17T19:12:33.000Z",
+              turnId: null,
+              planMarkdown:
+                "<!--ACE_PROPOSED_PLAN_START\n>#Proposed Plan\n\n1.Define SLOs.\n2.Add observability.\n<!--ACE_PROPOSED_PLAN_END",
+              implementedAt: null,
+              implementationThreadId: null,
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        resolvedTheme="light"
+        timestampFormat="locale"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup).toContain('data-proposed-plan-thread="true"');
+    expect(markup).toContain("Proposed Plan");
+    expect(markup).toContain("1. Define SLOs.");
+    expect(markup).not.toContain("ACE_PROPOSED_PLAN");
+    expect(markup).not.toContain('data-message-id="assistant-plan-marker"');
   });
 
   it("shows compact changed-files actions with assistant revert when available", async () => {
@@ -2286,7 +2477,7 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(markup).not.toContain(">Revert</button>");
     expect(markup).toContain("View diff");
     expect(markup).toContain('aria-label="Expand all"');
-    expect(markup).not.toContain("<span>Expand all</span>");
+    expect(markup).not.toContain("<span>Collapse all</span>");
   });
 
   it("hides the changed-files expand action when there are no directories", async () => {
@@ -2757,8 +2948,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(markup).toContain('data-meta-disclosure="true"');
     expect(markup).not.toContain('data-intent-disclosure="true"');
     expect(markup).toContain('data-thinking-disclosure="true"');
-    expect(markup).toContain("Worked through plan");
-    expect(markup).toContain("Reasoned through 1 step");
+    expect(markup).toContain("Plan");
+    expect(markup).toContain("Thinking");
     expect(markup).toContain('data-meta-disclosure-elapsed="1s"');
     expect(markup).not.toContain("Logged 1 event");
     expect(markup).not.toContain("0 tool calls");
@@ -2809,8 +3000,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
       />,
     );
 
-    expect(markup).toContain("Worked through plan");
-    expect(markup).toContain("Logged 1 event");
+    expect(markup).toContain("Plan");
+    expect(markup).not.toContain("Logged 1 event");
   });
 
   it("keeps repeated completed intent bursts with tool calls in chronological order", async () => {
@@ -3036,7 +3227,7 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(markup).not.toContain("•");
   });
 
-  it("keeps previous assistant time metadata hidden until hover after a later user reply", async () => {
+  it("shows previous assistant time metadata after a later user reply", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
@@ -3092,8 +3283,14 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(markup).toContain('data-response-summary="true"');
     expect(markup).toContain('data-response-summary-time="');
     expect(markup).toContain('data-response-summary-elapsed="3s"');
-    expect(markup).toContain("mt-2 flex min-h-4 flex-wrap");
-    expect(markup).toContain("opacity-0 group-hover/timeline:opacity-100");
+    expect(markup).toContain("mt-2 flex min-h-5 flex-wrap");
+    expect(markup).not.toContain("opacity-0 group-hover/timeline:opacity-100");
+    expect(markup).toContain('data-assistant-turn-copy-action="true"');
+    expect(markup).toContain('aria-label="Copy message"');
+    expect(markup.indexOf('data-assistant-turn-copy-action="true"')).toBeLessThan(
+      markup.indexOf('data-response-summary="true"'),
+    );
+    expect(markup).not.toContain('aria-label="Fork conversation"');
   });
 
   it("shows the latest assistant time metadata without hover when no later user reply exists", async () => {
@@ -3139,7 +3336,225 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
 
     expect(markup).toContain('data-response-summary="true"');
     expect(markup).toContain('data-response-summary-elapsed="3s"');
-    expect(markup).toContain("opacity-100");
+    expect(markup).not.toContain("opacity-0 group-hover/timeline:opacity-100");
+    expect(markup).toContain('data-assistant-turn-copy-action="true"');
+    expect(markup).toContain('aria-label="Copy message"');
+    expect(markup.indexOf('data-assistant-turn-copy-action="true"')).toBeLessThan(
+      markup.indexOf('data-response-summary="true"'),
+    );
+    expect(markup).not.toContain('aria-label="Fork conversation"');
+  });
+
+  it("shows a fork action when the provider supports conversation forking", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        hasMessages
+        isWorking={false}
+        activeTurnInProgress={false}
+        activeTurnStartedAt={null}
+        getScrollContainer={() => null}
+        timelineEntries={[
+          {
+            id: "assistant-with-fork-action",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:31.500Z",
+            message: {
+              id: MessageId.makeUnsafe("assistant-with-fork-action"),
+              role: "assistant",
+              text: "Latest assistant response.",
+              createdAt: "2026-03-17T19:12:31.500Z",
+              completedAt: "2026-03-17T19:12:34.000Z",
+              streaming: false,
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        onForkConversation={() => {}}
+        resolvedTheme="light"
+        timestampFormat="24-hour"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup).toContain('aria-label="Fork conversation"');
+    expect(markup).toContain("Fork conversation");
+    expect(markup).toContain("opacity-0 transition-opacity");
+    expect(markup).toContain("group-hover/timeline:opacity-100");
+    expect(markup.indexOf('aria-label="Copy message"')).toBeLessThan(
+      markup.indexOf('data-response-summary="true"'),
+    );
+    expect(markup.indexOf('data-response-summary="true"')).toBeLessThan(
+      markup.indexOf('aria-label="Fork conversation"'),
+    );
+    expect(markup).toContain('data-variant="ghost"');
+  });
+
+  it("hides assistant copy and fork actions while the assistant is working", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const turnId = TurnId.makeUnsafe("turn-working-actions-hidden");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        hasMessages
+        isWorking
+        activeTurnInProgress
+        activeTurnStartedAt="2026-03-17T19:12:30.000Z"
+        getScrollContainer={() => null}
+        timelineEntries={[
+          {
+            id: "assistant-working-actions-hidden",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:31.000Z",
+            message: {
+              id: MessageId.makeUnsafe("assistant-working-actions-hidden"),
+              role: "assistant",
+              turnId,
+              text: "Partial assistant response.",
+              createdAt: "2026-03-17T19:12:31.000Z",
+              streaming: true,
+            },
+          },
+          {
+            id: "work-after-active-assistant",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:32.000Z",
+            entry: {
+              id: "work-after-active-assistant",
+              createdAt: "2026-03-17T19:12:32.000Z",
+              label: "Edit file",
+              toolTitle: "Edit file",
+              tone: "tool",
+              requestKind: "file-change",
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        onForkConversation={() => {}}
+        resolvedTheme="light"
+        timestampFormat="24-hour"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup).toContain("Partial assistant response.");
+    expect(markup).toContain("Edit file");
+    expect(markup).not.toContain('data-assistant-turn-copy-action="true"');
+    expect(markup).not.toContain('aria-label="Copy message"');
+    expect(markup).not.toContain('aria-label="Fork conversation"');
+  });
+
+  it("hides assistant copy and fork actions for completed responses without elapsed timing", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        hasMessages
+        isWorking
+        activeTurnInProgress
+        activeTurnStartedAt="2026-03-17T19:12:30.000Z"
+        getScrollContainer={() => null}
+        timelineEntries={[
+          {
+            id: "assistant-complete-actions-visible",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:31.500Z",
+            message: {
+              id: MessageId.makeUnsafe("assistant-complete-actions-visible"),
+              role: "assistant",
+              text: "Completed assistant response.",
+              createdAt: "2026-03-17T19:12:31.500Z",
+              completedAt: "2026-03-17T19:12:34.000Z",
+              streaming: false,
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        onForkConversation={() => {}}
+        resolvedTheme="light"
+        timestampFormat="24-hour"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup).toContain("Completed assistant response.");
+    expect(markup).not.toContain('data-assistant-turn-copy-action="true"');
+    expect(markup).not.toContain('aria-label="Copy message"');
+    expect(markup).not.toContain('aria-label="Fork conversation"');
+  });
+
+  it("does not require a provider slash command to render the fork action", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        hasMessages
+        isWorking={false}
+        activeTurnInProgress={false}
+        activeTurnStartedAt={null}
+        getScrollContainer={() => null}
+        timelineEntries={[
+          {
+            id: "assistant-with-agnostic-fork-action",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:31.500Z",
+            message: {
+              id: MessageId.makeUnsafe("assistant-with-agnostic-fork-action"),
+              role: "assistant",
+              text: "Latest assistant response.",
+              createdAt: "2026-03-17T19:12:31.500Z",
+              completedAt: "2026-03-17T19:12:34.000Z",
+              streaming: false,
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        providerCommands={[]}
+        onForkConversation={() => {}}
+        resolvedTheme="light"
+        timestampFormat="24-hour"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup).toContain('aria-label="Fork conversation"');
   });
 
   it("shows hover metadata only on the last assistant message within a turn", async () => {
@@ -3213,6 +3628,220 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
 
     expect(markup.match(/data-response-summary="true"/g) ?? []).toHaveLength(1);
     expect(markup).toContain('data-response-summary-elapsed="4s"');
+    expect(markup.match(/data-assistant-turn-copy-action="true"/g) ?? []).toHaveLength(1);
+    expect(markup).toContain('data-copy-text="First response chunk.\n\nFinal response chunk."');
+  });
+
+  it("copies only the visible terminal assistant message when completed work is hidden", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const turnId = TurnId.makeUnsafe("turn-hidden-work-copy");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        hasMessages
+        isWorking={false}
+        activeTurnInProgress={false}
+        activeTurnStartedAt={null}
+        getScrollContainer={() => null}
+        hideCompletedWorkMessages
+        timelineEntries={[
+          {
+            id: "user-hidden-work-copy",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:30.000Z",
+            message: {
+              id: MessageId.makeUnsafe("user-hidden-work-copy"),
+              role: "user",
+              text: "Do the thing.",
+              createdAt: "2026-03-17T19:12:30.000Z",
+              streaming: false,
+            },
+          },
+          {
+            id: "assistant-hidden-work-copy-1",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:31.000Z",
+            message: {
+              id: MessageId.makeUnsafe("assistant-hidden-work-copy-1"),
+              role: "assistant",
+              turnId,
+              text: "Hidden earlier assistant chunk.",
+              createdAt: "2026-03-17T19:12:31.000Z",
+              completedAt: "2026-03-17T19:12:32.000Z",
+              streaming: false,
+            },
+          },
+          {
+            id: "assistant-hidden-work-copy-2",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:33.000Z",
+            message: {
+              id: MessageId.makeUnsafe("assistant-hidden-work-copy-2"),
+              role: "assistant",
+              turnId,
+              text: "Visible final assistant chunk.",
+              createdAt: "2026-03-17T19:12:33.000Z",
+              completedAt: "2026-03-17T19:12:34.000Z",
+              streaming: false,
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        resolvedTheme="light"
+        timestampFormat="24-hour"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup).not.toContain("Hidden earlier assistant chunk.");
+    expect(markup).toContain("Visible final assistant chunk.");
+    expect(markup).toContain('data-copy-text="Visible final assistant chunk."');
+  });
+
+  it("shows fork only on the latest assistant turn while copy remains on each terminal turn", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const firstTurnId = TurnId.makeUnsafe("turn-copy-fork-first");
+    const secondTurnId = TurnId.makeUnsafe("turn-copy-fork-second");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        hasMessages
+        isWorking={false}
+        activeTurnInProgress={false}
+        activeTurnStartedAt={null}
+        getScrollContainer={() => null}
+        timelineEntries={[
+          {
+            id: "assistant-copy-fork-first",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:31.000Z",
+            message: {
+              id: MessageId.makeUnsafe("assistant-copy-fork-first"),
+              role: "assistant",
+              turnId: firstTurnId,
+              text: "First terminal turn.",
+              createdAt: "2026-03-17T19:12:31.000Z",
+              completedAt: "2026-03-17T19:12:32.000Z",
+              streaming: false,
+            },
+          },
+          {
+            id: "assistant-copy-fork-second",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:33.000Z",
+            message: {
+              id: MessageId.makeUnsafe("assistant-copy-fork-second"),
+              role: "assistant",
+              turnId: secondTurnId,
+              text: "Second terminal turn.",
+              createdAt: "2026-03-17T19:12:33.000Z",
+              completedAt: "2026-03-17T19:12:34.000Z",
+              streaming: false,
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        onForkConversation={() => {}}
+        resolvedTheme="light"
+        timestampFormat="24-hour"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup.match(/data-assistant-turn-copy-action="true"/g) ?? []).toHaveLength(2);
+    expect(markup.match(/aria-label="Fork conversation"/g) ?? []).toHaveLength(1);
+    expect(markup.indexOf("Second terminal turn.")).toBeLessThan(
+      markup.indexOf('aria-label="Fork conversation"'),
+    );
+  });
+
+  it("renders assistant footer after trailing work rows for the turn", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const turnId = TurnId.makeUnsafe("turn-footer-after-work");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        hasMessages
+        isWorking={false}
+        activeTurnInProgress={false}
+        activeTurnStartedAt={null}
+        getScrollContainer={() => null}
+        timelineEntries={[
+          {
+            id: "assistant-before-trailing-work",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:31.000Z",
+            message: {
+              id: MessageId.makeUnsafe("assistant-before-trailing-work"),
+              role: "assistant",
+              turnId,
+              text: "Assistant text before work.",
+              createdAt: "2026-03-17T19:12:31.000Z",
+              completedAt: "2026-03-17T19:12:32.000Z",
+              streaming: false,
+            },
+          },
+          {
+            id: "work-after-assistant",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:33.000Z",
+            entry: {
+              id: "work-after-assistant",
+              createdAt: "2026-03-17T19:12:33.000Z",
+              label: "Run command",
+              toolTitle: "Run command",
+              tone: "tool",
+              requestKind: "command",
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        onForkConversation={() => {}}
+        resolvedTheme="light"
+        timestampFormat="24-hour"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup).toContain("Assistant text before work.");
+    expect(markup).toContain("Ran 1 command");
+    expect(markup).toContain('data-assistant-turn-footer="true"');
+    expect(markup.indexOf("Assistant text before work.")).toBeLessThan(
+      markup.indexOf("Ran 1 command"),
+    );
+    expect(markup.indexOf("Ran 1 command")).toBeLessThan(
+      markup.indexOf('data-assistant-turn-footer="true"'),
+    );
+    expect(markup.indexOf('data-response-summary="true"')).toBeLessThan(
+      markup.indexOf('aria-label="Fork conversation"'),
+    );
   });
 
   it("does not render an assistant header for assistant messages", async () => {
@@ -3299,6 +3928,7 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(markup).toContain('data-inline-intent="true"');
     expect(markup).toContain("Inspecting the provider transcript before responding");
     expect(markup).toContain("Getting started for");
+    expect(markup).toContain('data-working-activity-indicator="true"');
     expect(markup).not.toContain("Thought");
   });
 
@@ -3372,6 +4002,7 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
       );
 
       expect(markup).toContain("Working for 1m");
+      expect(markup).toContain('data-working-activity-indicator="true"');
       expect(markup).not.toContain("Working for 30s");
       expect(markup).not.toContain('data-response-summary="true"');
     } finally {
@@ -3439,6 +4070,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
       expect(markup).toContain("Working for 1m");
       expect(markup).toContain("Pursuing goal for 1m");
       expect(markup).toContain('data-goal-working-timer="true"');
+      expect(markup.match(/data-working-activity-indicator="true"/g)?.length).toBe(1);
+      expect(markup).toContain("lucide-target");
       expect(markup).not.toContain("Working for 30s");
     } finally {
       vi.useRealTimers();

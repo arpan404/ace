@@ -34,6 +34,25 @@ describe("buildAccumulatedCommentsPrompt", () => {
     expect(prompt).toContain("Comment: Reduce the spacing around this row.");
     expect(prompt.trim()).toMatch(/<\/browser_design_context>$/);
   });
+
+  it("supports review comments without screenshots", () => {
+    const prompt = buildAccumulatedCommentsPrompt("Follow up on review notes", [
+      {
+        id: "comment-1",
+        source: "review",
+        body: "Check the reconnect path for duplicate events.",
+        targetLabel: "apps/server/src/providerManager.ts",
+        detailLabel: "Turn 4 - 12+ 3-",
+        hiddenContextBlock: "<diff_review_context>\n{}\n</diff_review_context>",
+        createdAt: "2026-05-06T12:00:00.000Z",
+      },
+    ]);
+
+    expect(prompt).toContain("1. Review comment");
+    expect(prompt).toContain("Target: apps/server/src/providerManager.ts");
+    expect(prompt).not.toContain("Screenshot:");
+    expect(prompt.trim()).toMatch(/<\/diff_review_context>$/);
+  });
 });
 
 describe("mergePendingCommentImages", () => {
@@ -56,5 +75,24 @@ describe("mergePendingCommentImages", () => {
     );
 
     expect(merged.map((item) => item.id)).toEqual(["image-1", "image-2"]);
+  });
+
+  it("ignores review comments without images", () => {
+    const merged = mergePendingCommentImages(
+      [image("image-1")],
+      [
+        {
+          id: "comment-1",
+          source: "review",
+          body: "No screenshot here.",
+          targetLabel: "src/app.ts",
+          detailLabel: null,
+          hiddenContextBlock: "<diff_review_context>\n{}\n</diff_review_context>",
+          createdAt: "2026-05-06T12:00:00.000Z",
+        },
+      ],
+    );
+
+    expect(merged.map((item) => item.id)).toEqual(["image-1"]);
   });
 });

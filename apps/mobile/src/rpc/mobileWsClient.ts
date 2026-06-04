@@ -66,9 +66,12 @@ import {
   type TerminalCloseInput,
   type TerminalEvent,
   type TerminalOpenInput,
+  type TerminalProcessListInput,
+  type TerminalProcessSummary,
   type TerminalResizeInput,
   type TerminalRestartInput,
   type TerminalSessionSnapshot,
+  type TerminalTerminateInput,
   type TerminalWriteInput,
   type ThreadId,
   type WorkspaceEditorCloseBufferInput,
@@ -442,6 +445,10 @@ export interface MobileWsClient {
     readonly clear: (input: TerminalClearInput) => Promise<void>;
     readonly restart: (input: TerminalRestartInput) => Promise<TerminalSessionSnapshot>;
     readonly close: (input: TerminalCloseInput) => Promise<void>;
+    readonly list: (
+      input?: TerminalProcessListInput,
+    ) => Promise<ReadonlyArray<TerminalProcessSummary>>;
+    readonly terminate: (input: TerminalTerminateInput) => Promise<TerminalSessionSnapshot>;
     readonly onEvent: (listener: (event: TerminalEvent) => void) => () => void;
   };
   readonly orchestration: {
@@ -623,6 +630,11 @@ export function createMobileWsClient(options: MobileWsTransportOptions): MobileW
           client[WS_METHODS.terminalRestart](withTerminalId<TerminalRestartInput>(input)),
         ),
       close: (input) => transport.request((client) => client[WS_METHODS.terminalClose](input)),
+      list: (input = {}) => transport.request((client) => client[WS_METHODS.terminalList](input)),
+      terminate: (input) =>
+        transport.request((client) =>
+          client[WS_METHODS.terminalTerminate](withTerminalId<TerminalTerminateInput>(input)),
+        ),
       onEvent: (listener) =>
         transport.subscribe(
           (client) => client[WS_METHODS.subscribeTerminalEvents](streamIdentity),

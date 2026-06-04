@@ -58,6 +58,7 @@ import { ServerSettingsLive } from "./serverSettings";
 import { ProjectFaviconResolverLive } from "./project/Layers/ProjectFaviconResolver";
 import { WorkspaceEntriesLive } from "./workspace/Layers/WorkspaceEntries";
 import { WorkspaceEditorLive } from "./workspace/Layers/WorkspaceEditor";
+import { WorkspaceFileEventsLive } from "./workspace/Layers/WorkspaceFileEvents";
 import { WorkspaceFileSystemLive } from "./workspace/Layers/WorkspaceFileSystem";
 import { WorkspacePathsLive } from "./workspace/Layers/WorkspacePaths";
 import { PairingPersistenceRuntimeLive } from "./pairingPersistence";
@@ -156,6 +157,14 @@ const CheckpointingLayerLive = Layer.empty.pipe(
   Layer.provideMerge(CheckpointStoreLive),
 );
 
+const ProviderSessionRuntimeRepositoryLayerLive = ProviderSessionRuntimeRepositoryLive.pipe(
+  Layer.provide(SqlitePersistenceLayerLive),
+);
+
+const ProviderSessionDirectoryLayerLive = ProviderSessionDirectoryLive.pipe(
+  Layer.provide(ProviderSessionRuntimeRepositoryLayerLive),
+);
+
 const ProviderLayerLive = Layer.unwrap(
   withStartupTiming(
     "providers",
@@ -175,9 +184,6 @@ const ProviderLayerLive = Layer.unwrap(
         makeEventNdjsonLogger(providerEventLogPath, {
           stream: "canonical",
         }),
-      );
-      const providerSessionDirectoryLayer = ProviderSessionDirectoryLive.pipe(
-        Layer.provide(ProviderSessionRuntimeRepositoryLive),
       );
       yield* logStartupEvent({
         phase: "providers",
@@ -204,7 +210,7 @@ const ProviderLayerLive = Layer.unwrap(
         Layer.provide(PiAdapterLive),
         Layer.provide(GeminiAdapterLive),
         Layer.provide(OpenCodeAdapterLive),
-        Layer.provideMerge(providerSessionDirectoryLayer),
+        Layer.provideMerge(ProviderSessionDirectoryLayerLive),
       );
       yield* logStartupEvent({
         phase: "providers",
@@ -214,7 +220,7 @@ const ProviderLayerLive = Layer.unwrap(
         canonicalEventLogger ? { canonicalEventLogger } : undefined,
       ).pipe(
         Layer.provide(adapterRegistryLayer),
-        Layer.provide(providerSessionDirectoryLayer),
+        Layer.provide(ProviderSessionDirectoryLayerLive),
         Layer.provide(ProjectionThreadMessageRepositoryLive),
       );
     }),
@@ -239,18 +245,27 @@ const GitLayerLive = Layer.empty.pipe(
 
 const TerminalLayerLive = TerminalManagerLive.pipe(Layer.provide(PtyAdapterLive));
 
+const WorkspaceEntriesLayerLive = WorkspaceEntriesLive.pipe(Layer.provide(WorkspacePathsLive));
+
 const WorkspaceLayerLive = Layer.mergeAll(
   WorkspacePathsLive,
-  WorkspaceEntriesLive.pipe(Layer.provide(WorkspacePathsLive)),
+  WorkspaceEntriesLayerLive,
   WorkspaceEditorLive.pipe(Layer.provide(WorkspacePathsLive)),
+  WorkspaceFileEventsLive.pipe(
+    Layer.provide(WorkspacePathsLive),
+    Layer.provide(WorkspaceEntriesLayerLive),
+  ),
   WorkspaceFileSystemLive.pipe(
     Layer.provide(WorkspacePathsLive),
-    Layer.provide(WorkspaceEntriesLive.pipe(Layer.provide(WorkspacePathsLive))),
+    Layer.provide(WorkspaceEntriesLayerLive),
   ),
 );
 
 const RuntimeServicesLive = Layer.empty.pipe(
-  Layer.provideMerge(ServerRuntimeStartupLive),
+  Layer.provideMerge(ProviderSessionDirectoryLayerLive),
+  Layer.provideMerge(
+    ServerRuntimeStartupLive.pipe(Layer.provide(ProviderSessionDirectoryLayerLive)),
+  ),
   Layer.provideMerge(RelayHostManagerLive),
   Layer.provideMerge(ReactorLayerLive),
 

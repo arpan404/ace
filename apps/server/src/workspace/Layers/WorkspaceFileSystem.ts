@@ -1,6 +1,8 @@
 import { Effect, FileSystem, Layer, Path } from "effect";
 import { createHash } from "node:crypto";
+import { stat as statFile } from "node:fs/promises";
 import { PROJECT_READ_FILE_MAX_BYTES } from "@ace/contracts";
+import type { ProjectReadFileResult } from "@ace/contracts";
 
 import {
   WorkspaceFileSystem,
@@ -11,9 +13,42 @@ import { WorkspaceEntries } from "../Services/WorkspaceEntries.ts";
 import { WorkspacePaths } from "../Services/WorkspacePaths.ts";
 
 const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
+const READ_FILE_CACHE_MAX_ENTRIES = 128;
+const READ_FILE_CACHE_TTL_MS = 60_000;
+
+interface ReadFileCacheEntry {
+  readonly absolutePath: string;
+  readonly fingerprint: string;
+  readonly result: ProjectReadFileResult;
+  readonly storedAt: number;
+}
 
 function computeFileVersion(bytes: Uint8Array): string {
   return createHash("sha256").update(bytes).digest("hex");
+}
+
+function createStatFingerprint(stats: {
+  readonly ctimeNs: bigint;
+  readonly dev: bigint;
+  readonly ino: bigint;
+  readonly mtimeNs: bigint;
+  readonly size: bigint;
+}): string {
+  return [
+    stats.dev.toString(),
+    stats.ino.toString(),
+    stats.size.toString(),
+    stats.mtimeNs.toString(),
+    stats.ctimeNs.toString(),
+  ].join(":");
+}
+
+function isPathAtOrWithinPrefix(absolutePath: string, prefix: string): boolean {
+  return (
+    absolutePath === prefix ||
+    absolutePath.startsWith(`${prefix}/`) ||
+    absolutePath.startsWith(`${prefix}\\`)
+  );
 }
 
 export const makeWorkspaceFileSystem = Effect.gen(function* () {
@@ -21,11 +56,85 @@ export const makeWorkspaceFileSystem = Effect.gen(function* () {
   const path = yield* Path.Path;
   const workspacePaths = yield* WorkspacePaths;
   const workspaceEntries = yield* WorkspaceEntries;
+  const readFileCache = new Map<string, ReadFileCacheEntry>();
 
   const statOrNull = (absolutePath: string) =>
     fileSystem.stat(absolutePath).pipe(Effect.catch(() => Effect.succeed(null)));
 
   const invalidateWorkspaceEntries = (cwd: string) => workspaceEntries.invalidate(cwd);
+
+  const invalidateReadFileCachePath = (absolutePath: string) => {
+    readFileCache.delete(absolutePath);
+  };
+
+  const invalidateReadFileCachePrefix = (absolutePath: string) => {
+    for (const cacheKey of readFileCache.keys()) {
+      if (isPathAtOrWithinPrefix(cacheKey, absolutePath)) {
+        readFileCache.delete(cacheKey);
+      }
+    }
+  };
+
+  const pruneReadFileCache = () => {
+    while (readFileCache.size > READ_FILE_CACHE_MAX_ENTRIES) {
+      const oldestKey = readFileCache.keys().next().value;
+      if (typeof oldestKey !== "string") {
+        return;
+      }
+      readFileCache.delete(oldestKey);
+    }
+  };
+
+  const readFileCacheCandidate = (input: {
+    absolutePath: string;
+    cwd: string;
+    relativePath: string;
+  }): Effect.Effect<
+    { readonly cached: ProjectReadFileResult | null; readonly fingerprint: string },
+    WorkspaceFileSystemError
+  > =>
+    Effect.gen(function* () {
+      const stats = yield* Effect.tryPromise({
+        try: () => statFile(input.absolutePath, { bigint: true }),
+        catch: (cause) =>
+          new WorkspaceFileSystemError({
+            cwd: input.cwd,
+            relativePath: input.relativePath,
+            operation: "workspaceFileSystem.stat",
+            detail: cause instanceof Error ? cause.message : String(cause),
+            cause,
+          }),
+      });
+      if (!stats.isFile()) {
+        return yield* new WorkspaceFileSystemError({
+          cwd: input.cwd,
+          relativePath: input.relativePath,
+          operation: "workspaceFileSystem.readFile",
+          detail: "Only regular text files can be opened in the editor.",
+        });
+      }
+      if (stats.size > BigInt(PROJECT_READ_FILE_MAX_BYTES)) {
+        return yield* new WorkspaceFileSystemError({
+          cwd: input.cwd,
+          relativePath: input.relativePath,
+          operation: "workspaceFileSystem.readFile",
+          detail: `Files larger than ${Math.round(PROJECT_READ_FILE_MAX_BYTES / (1024 * 1024))}MB are not opened in the in-app editor.`,
+        });
+      }
+
+      const fingerprint = createStatFingerprint(stats);
+      const cached = readFileCache.get(input.absolutePath);
+      if (
+        cached &&
+        cached.fingerprint === fingerprint &&
+        Date.now() - cached.storedAt <= READ_FILE_CACHE_TTL_MS
+      ) {
+        readFileCache.delete(input.absolutePath);
+        readFileCache.set(input.absolutePath, cached);
+        return { cached: cached.result, fingerprint };
+      }
+      return { cached: null, fingerprint };
+    });
 
   const failAlreadyExists = (input: { cwd: string; relativePath: string }, operation: string) =>
     new WorkspaceFileSystemError({
@@ -96,6 +205,7 @@ export const makeWorkspaceFileSystem = Effect.gen(function* () {
       );
     }
 
+    invalidateReadFileCachePath(target.absolutePath);
     yield* invalidateWorkspaceEntries(input.cwd);
     return {
       kind: input.kind,
@@ -128,6 +238,7 @@ export const makeWorkspaceFileSystem = Effect.gen(function* () {
       ),
     );
 
+    invalidateReadFileCachePrefix(target.absolutePath);
     yield* invalidateWorkspaceEntries(input.cwd);
     return { relativePath: target.relativePath };
   });
@@ -216,6 +327,7 @@ export const makeWorkspaceFileSystem = Effect.gen(function* () {
           }),
       ),
     );
+    invalidateReadFileCachePath(target.absolutePath);
     yield* workspaceEntries.invalidate(input.cwd);
     return {
       relativePath: target.relativePath,
@@ -230,35 +342,13 @@ export const makeWorkspaceFileSystem = Effect.gen(function* () {
         relativePath: input.relativePath,
       });
 
-      const stats = yield* fileSystem.stat(target.absolutePath).pipe(
-        Effect.mapError(
-          (cause) =>
-            new WorkspaceFileSystemError({
-              cwd: input.cwd,
-              relativePath: input.relativePath,
-              operation: "workspaceFileSystem.stat",
-              detail: cause.message,
-              cause,
-            }),
-        ),
-      );
-
-      if (stats.type !== "File") {
-        return yield* new WorkspaceFileSystemError({
-          cwd: input.cwd,
-          relativePath: input.relativePath,
-          operation: "workspaceFileSystem.readFile",
-          detail: "Only regular text files can be opened in the editor.",
-        });
-      }
-
-      if (stats.size > PROJECT_READ_FILE_MAX_BYTES) {
-        return yield* new WorkspaceFileSystemError({
-          cwd: input.cwd,
-          relativePath: input.relativePath,
-          operation: "workspaceFileSystem.readFile",
-          detail: `Files larger than ${Math.round(PROJECT_READ_FILE_MAX_BYTES / (1024 * 1024))}MB are not opened in the in-app editor.`,
-        });
+      const cacheCandidate = yield* readFileCacheCandidate({
+        absolutePath: target.absolutePath,
+        cwd: input.cwd,
+        relativePath: target.relativePath,
+      });
+      if (cacheCandidate.cached) {
+        return cacheCandidate.cached;
       }
 
       const bytes = yield* fileSystem.readFile(target.absolutePath).pipe(
@@ -294,12 +384,20 @@ export const makeWorkspaceFileSystem = Effect.gen(function* () {
           }),
       });
 
-      return {
-        relativePath: target.relativePath,
+      const result = {
         contents,
+        relativePath: target.relativePath,
         sizeBytes: bytes.byteLength,
         version: computeFileVersion(bytes),
-      };
+      } satisfies ProjectReadFileResult;
+      readFileCache.set(target.absolutePath, {
+        absolutePath: target.absolutePath,
+        fingerprint: cacheCandidate.fingerprint,
+        result,
+        storedAt: Date.now(),
+      });
+      pruneReadFileCache();
+      return result;
     },
   );
 
@@ -363,6 +461,8 @@ export const makeWorkspaceFileSystem = Effect.gen(function* () {
       ),
     );
 
+    invalidateReadFileCachePrefix(source.absolutePath);
+    invalidateReadFileCachePrefix(target.absolutePath);
     yield* invalidateWorkspaceEntries(input.cwd);
     return {
       previousRelativePath: source.relativePath,

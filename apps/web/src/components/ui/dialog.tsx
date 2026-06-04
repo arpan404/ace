@@ -4,6 +4,7 @@ import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { XIcon } from "lucide-react";
 import { cn } from "~/lib/utils";
 import { Button } from "~/components/ui/button";
+import { MODAL_LAYER_CLASS_NAME } from "~/components/ui/layers";
 import { ScrollArea } from "~/components/ui/scroll-area";
 
 const DialogCreateHandle = DialogPrimitive.createHandle;
@@ -24,7 +25,8 @@ function DialogBackdrop({ className, ...props }: DialogPrimitive.Backdrop.Props)
   return (
     <DialogPrimitive.Backdrop
       className={cn(
-        "fixed inset-0 z-50 bg-black/42 backdrop-blur-[3px] transition-all duration-200 data-ending-style:opacity-0 data-starting-style:opacity-0",
+        "fixed inset-0 bg-black/42 backdrop-blur-[3px] transition-all duration-200 data-ending-style:opacity-0 data-starting-style:opacity-0",
+        MODAL_LAYER_CLASS_NAME,
         className,
       )}
       data-slot="dialog-backdrop"
@@ -37,7 +39,8 @@ function DialogViewport({ className, ...props }: DialogPrimitive.Viewport.Props)
   return (
     <DialogPrimitive.Viewport
       className={cn(
-        "fixed inset-0 z-50 grid grid-rows-[1fr_auto_3fr] justify-items-center p-3 sm:p-4",
+        "fixed inset-0 grid grid-rows-[1fr_auto_3fr] justify-items-center p-3 sm:p-4",
+        MODAL_LAYER_CLASS_NAME,
         className,
       )}
       data-slot="dialog-viewport"
@@ -163,19 +166,11 @@ function DialogPanel({
 }
 
 export {
-  DialogCreateHandle,
   Dialog,
-  DialogTrigger,
-  DialogPortal,
-  DialogClose,
-  DialogBackdrop,
-  DialogBackdrop as DialogOverlay,
   DialogPopup,
-  DialogPopup as DialogContent,
   DialogHeader,
   DialogFooter,
   DialogTitle,
   DialogDescription,
   DialogPanel,
-  DialogViewport,
 };

@@ -1,16 +1,23 @@
-import type { Thread } from "./types";
+import type { Thread, SidebarThreadSummary } from "./types";
 
-function normalizeWorktreePath(path: string | null): string | null {
+type WorktreeThread = Pick<Thread | SidebarThreadSummary, "id" | "worktreePath">;
+type WorktreeSessionThread = Pick<Thread, "session">;
+
+export function normalizeWorktreePath(path: string | null): string | null {
   const trimmed = path?.trim();
   if (!trimmed) {
     return null;
   }
-  return trimmed;
+  const normalizedSeparators = trimmed.replace(/\\/g, "/");
+  if (normalizedSeparators === "/" || /^[A-Za-z]:\/$/.test(normalizedSeparators)) {
+    return normalizedSeparators;
+  }
+  return normalizedSeparators.replace(/\/+$/, "");
 }
 
 export function getOrphanedWorktreePathForThread(
-  threads: readonly Thread[],
-  threadId: Thread["id"],
+  threads: readonly WorktreeThread[],
+  threadId: WorktreeThread["id"],
 ): string | null {
   const targetThread = threads.find((thread) => thread.id === threadId);
   if (!targetThread) {
@@ -30,6 +37,29 @@ export function getOrphanedWorktreePathForThread(
   });
 
   return isShared ? null : targetWorktreePath;
+}
+
+export function getWorktreeLinkedThreadIds(
+  threads: readonly WorktreeThread[],
+  worktreePath: string | null,
+): WorktreeThread["id"][] {
+  const normalizedWorktreePath = normalizeWorktreePath(worktreePath);
+  if (!normalizedWorktreePath) {
+    return [];
+  }
+
+  return threads
+    .filter((thread) => normalizeWorktreePath(thread.worktreePath) === normalizedWorktreePath)
+    .map((thread) => thread.id);
+}
+
+export function isWorktreeThreadSessionActive(thread: WorktreeSessionThread): boolean {
+  return (
+    thread.session !== null &&
+    thread.session !== undefined &&
+    thread.session.status !== "closed" &&
+    (thread.session.status === "running" || thread.session.activeTurnId != null)
+  );
 }
 
 export function formatWorktreePathForDisplay(worktreePath: string): string {

@@ -1,5 +1,7 @@
 import { ChevronDownIcon } from "lucide-react";
 import { memo, type ComponentProps, type ReactNode, type Ref } from "react";
+import { Button } from "~/components/ui/button";
+import { ScrollArea } from "~/components/ui/scroll-area";
 
 import { MessagesTimeline } from "./MessagesTimeline";
 
@@ -40,34 +42,40 @@ export const ChatMessagesPane = memo(function ChatMessagesPane({
 }) {
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
-      <div
-        ref={messagesContainerRef}
-        className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-y-contain px-3 py-3 sm:px-5 sm:py-4"
-        onScroll={onMessagesScroll}
-        onClickCapture={onMessagesClickCapture}
-        onWheel={onMessagesWheel}
-        onPointerDown={onMessagesPointerDown}
-        onPointerUp={onMessagesPointerUp}
-        onPointerCancel={onMessagesPointerCancel}
-        onTouchStart={onMessagesTouchStart}
-        onTouchMove={onMessagesTouchMove}
-        onTouchEnd={onMessagesTouchEnd}
-        onTouchCancel={onMessagesTouchEnd}
+      <ScrollArea
+        className="flex-1 px-3 py-3 sm:px-5 sm:py-4"
+        viewportRef={messagesContainerRef}
+        viewportProps={{
+          className: "pe-2.5",
+          onScroll: onMessagesScroll,
+          onClickCapture: onMessagesClickCapture,
+          onWheel: onMessagesWheel,
+          onPointerDown: onMessagesPointerDown,
+          onPointerUp: onMessagesPointerUp,
+          onPointerCancel: onMessagesPointerCancel,
+          onTouchStart: onMessagesTouchStart,
+          onTouchMove: onMessagesTouchMove,
+          onTouchEnd: onMessagesTouchEnd,
+          onTouchCancel: onMessagesTouchEnd,
+        }}
       >
         {loadingNotice}
         <MessagesTimeline key={timelineKey} {...messagesTimelineProps} />
-      </div>
+      </ScrollArea>
 
       {showScrollToBottom && (
         <div className="pointer-events-none absolute bottom-1 left-1/2 z-30 flex -translate-x-1/2 justify-center py-1.5">
-          <button
+          <Button
             type="button"
+            variant="outline"
+            size="sm"
             onClick={() => scrollMessagesToBottom()}
-            className="pointer-events-auto flex cursor-pointer items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-muted-foreground text-xs transition-colors duration-150 hover:bg-accent hover:text-foreground"
+            className="pointer-events-auto rounded-full border-border/30 bg-background/95 text-foreground shadow-sm hover:bg-background hover:text-foreground active:bg-background"
+            aria-label="Scroll to bottom"
           >
             <ChevronDownIcon className="size-3.5" />
             Scroll to bottom
-          </button>
+          </Button>
         </div>
       )}
     </div>

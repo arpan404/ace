@@ -55,6 +55,12 @@ export const ProviderReplayTurn = Schema.Struct({
 });
 export type ProviderReplayTurn = typeof ProviderReplayTurn.Type;
 
+export const ProviderSessionForkSource = Schema.Struct({
+  threadId: ThreadId,
+  resumeCursor: Schema.optional(Schema.Unknown),
+});
+export type ProviderSessionForkSource = typeof ProviderSessionForkSource.Type;
+
 export const ProviderSessionStartInput = Schema.Struct({
   threadId: ThreadId,
   provider: Schema.optional(ProviderKind),
@@ -63,6 +69,7 @@ export const ProviderSessionStartInput = Schema.Struct({
   threadTitle: Schema.optional(TrimmedNonEmptyString),
   modelSelection: Schema.optional(ModelSelection),
   resumeCursor: Schema.optional(Schema.Unknown),
+  forkSource: Schema.optional(ProviderSessionForkSource),
   replayTurns: Schema.optional(Schema.Array(ProviderReplayTurn)),
   approvalPolicy: Schema.optional(ProviderApprovalPolicy),
   sandboxMode: Schema.optional(ProviderSandboxMode),
@@ -73,6 +80,7 @@ export type ProviderSessionStartInput = typeof ProviderSessionStartInput.Type;
 
 export const ProviderSendTurnInput = Schema.Struct({
   threadId: ThreadId,
+  providerThreadId: Schema.optional(TrimmedNonEmptyString),
   input: Schema.optional(
     TrimmedNonEmptyString.check(Schema.isMaxLength(PROVIDER_SEND_TURN_MAX_INPUT_CHARS)),
   ),

@@ -35,7 +35,20 @@ function normalizeSummaryText(value: string): string {
     .replace(/\bworkspace\b/giu, "diff");
 }
 
-export function toGeneratedWorkspaceSummary(
+function normalizeSummaryList(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const normalized: string[] = [];
+  for (const entry of value) {
+    if (typeof entry === "string") {
+      normalized.push(normalizeSummaryText(entry));
+    }
+  }
+  return normalized;
+}
+
+function toGeneratedWorkspaceSummary(
   activity: OrchestrationThreadActivity,
 ): GeneratedWorkspaceSummary | null {
   const payload =
@@ -50,16 +63,8 @@ export function toGeneratedWorkspaceSummary(
     typeof payload.headline === "string" ? normalizeSummaryHeadline(payload.headline.trim()) : "";
   const summary =
     typeof payload.summary === "string" ? normalizeSummaryText(payload.summary.trim()) : "";
-  const keyChanges = Array.isArray(payload.keyChanges)
-    ? payload.keyChanges
-        .filter((entry): entry is string => typeof entry === "string")
-        .map((entry) => normalizeSummaryText(entry))
-    : [];
-  const risks = Array.isArray(payload.risks)
-    ? payload.risks
-        .filter((entry): entry is string => typeof entry === "string")
-        .map((entry) => normalizeSummaryText(entry))
-    : [];
+  const keyChanges = normalizeSummaryList(payload.keyChanges);
+  const risks = normalizeSummaryList(payload.risks);
 
   if (headline.length === 0 || summary.length === 0) {
     return null;

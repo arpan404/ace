@@ -4,7 +4,8 @@ import { RefreshCwIcon, SquareIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type KeyboardEvent } from "react";
 
 import { AppPageTopBar } from "../components/AppPageTopBar";
-import { HEADER_PILL_CONTROL_CLASS_NAME, TopBarCluster } from "../components/thread/TopBarCluster";
+import { TopBarCluster } from "../components/thread/TopBarCluster";
+import { HEADER_PILL_CONTROL_CLASS_NAME } from "../components/thread/topBarClusterStyles";
 import { Button } from "../components/ui/button";
 import { SidebarInset } from "../components/ui/sidebar";
 import { reportBackgroundError } from "../lib/async";
@@ -105,7 +106,7 @@ function TerminalsPage() {
   );
 
   const handleThreadRowKeyDown = useCallback(
-    (event: KeyboardEvent<HTMLDivElement>, threadId: string) => {
+    (event: KeyboardEvent<HTMLButtonElement>, threadId: string) => {
       if (event.target !== event.currentTarget) {
         return;
       }
@@ -223,7 +224,7 @@ function TerminalsPage() {
 
               {loadState === "loading" && sortedProcesses.length === 0 ? (
                 <div className="border-t border-border/35 px-0.5 py-6 text-[13px] text-muted-foreground">
-                  Loading terminals...
+                  Loading terminals…
                 </div>
               ) : null}
 
@@ -242,13 +243,12 @@ function TerminalsPage() {
                     const id = `${process.threadId}:${process.terminalId}`;
                     const stopping = stoppingId === id;
                     return (
-                      <div
+                      <button
                         key={id}
-                        role="button"
-                        tabIndex={0}
+                        type="button"
                         onClick={() => openThread(process.threadId)}
                         onKeyDown={(event) => handleThreadRowKeyDown(event, process.threadId)}
-                        className="group/terminal grid min-w-0 cursor-pointer grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-border/28 px-0.5 py-2.25 transition-colors last:border-b-0 hover:bg-muted/22 focus-visible:bg-muted/24 focus-visible:ring-2 focus-visible:ring-ring/55 focus-visible:outline-none sm:px-1"
+                        className="group/terminal grid w-full min-w-0 cursor-pointer grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-border/28 bg-transparent px-0.5 py-2.25 text-left transition-colors last:border-b-0 hover:bg-muted/22 focus-visible:bg-muted/24 focus-visible:ring-2 focus-visible:ring-ring/55 focus-visible:outline-none sm:px-1"
                       >
                         <div className="flex min-w-0 items-center gap-2.5">
                           <span
@@ -294,7 +294,7 @@ function TerminalsPage() {
                           <SquareIcon className="size-3" aria-hidden="true" />
                           {stopping ? "Stopping" : "Stop"}
                         </Button>
-                      </div>
+                      </button>
                     );
                   })}
                 </div>

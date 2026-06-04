@@ -5,7 +5,13 @@ import type { ServerProvider } from "@ace/contracts";
 import { formatRelativeTime } from "../../timestampFormat";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
+import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+
+export const SETTINGS_NEUTRAL_ACTION_CLASS_NAME =
+  "border-border/45 bg-foreground/[0.07] text-foreground hover:bg-foreground/[0.11] active:bg-foreground/[0.15]";
+export const SETTINGS_FIELD_SURFACE_CLASS_NAME = "border-border/45 bg-background/55 shadow-none";
+export const SETTINGS_INLINE_DIVIDER_CLASS_NAME = "bg-transparent shadow-none";
 
 function maskEmailAddress(value: string): string {
   const [localPart, domainPart] = value.split("@");
@@ -167,32 +173,24 @@ export function SettingsSection({
   children: ReactNode;
 }) {
   return (
-    <section className="min-w-0">
-      <div
-        className={cn(
-          "relative min-w-0 overflow-hidden rounded-[var(--panel-radius)] border border-border/50 bg-background/72 text-card-foreground shadow-none",
-          "supports-[backdrop-filter]:bg-background/66 supports-[backdrop-filter]:backdrop-blur-md",
-          contentClassName,
-        )}
-      >
-        <div className="flex min-w-0 flex-col gap-2 border-b border-border/35 bg-muted/[0.10] px-3 py-2.5 sm:flex-row sm:items-start sm:justify-between sm:px-3.5">
-          <div className="min-w-0 space-y-0.5">
-            <h2 className="flex min-w-0 items-center gap-1.5 text-[12px] leading-snug font-semibold text-foreground/90">
-              {icon ? <span className="shrink-0 text-muted-foreground/65">{icon}</span> : null}
-              <span className="min-w-0 truncate">{title}</span>
-            </h2>
-            {description ? (
-              <p className="max-w-3xl text-[11px] leading-relaxed text-muted-foreground/55">
-                {description}
-              </p>
-            ) : null}
-          </div>
-          {headerAction ? (
-            <div className="flex min-h-6 shrink-0 items-center sm:justify-end">{headerAction}</div>
+    <section className={cn("min-w-0", contentClassName)}>
+      <div className="flex min-w-0 flex-col gap-2 px-0 pb-4 sm:flex-row sm:items-end sm:justify-between">
+        <div className="min-w-0 space-y-1.5">
+          <h2 className="flex min-w-0 items-center gap-2 text-[19px] leading-6 font-semibold tracking-normal text-foreground">
+            {icon ? <span className="shrink-0 text-muted-foreground/50">{icon}</span> : null}
+            <span className="min-w-0 truncate">{title}</span>
+          </h2>
+          {description ? (
+            <p className="max-w-3xl text-[12px] leading-relaxed text-muted-foreground/60">
+              {description}
+            </p>
           ) : null}
         </div>
-        {children}
+        {headerAction ? (
+          <div className="flex min-h-6 shrink-0 items-center sm:justify-end">{headerAction}</div>
+        ) : null}
       </div>
+      <div className={cn("relative min-w-0 space-y-1 text-card-foreground")}>{children}</div>
     </section>
   );
 }
@@ -219,25 +217,28 @@ export function SettingsRow({
   return (
     <div
       className={cn(
-        "border-t border-border/35 px-3 py-2.5 first:border-t-0 sm:px-3.5",
-        tone === "warning" && "bg-warning/[0.04]",
-        tone === "danger" && "bg-destructive/[0.04]",
+        "px-0 py-3.5 transition-colors duration-150 sm:py-4",
+        tone === "default" && "hover:bg-foreground/[0.012]",
+        tone === "warning" && "bg-warning/[0.025] px-2 sm:px-3",
+        tone === "danger" && "bg-destructive/[0.025] px-2 sm:px-3",
       )}
     >
-      <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_auto] md:items-center md:gap-3">
-        <div className="min-w-0 flex-1 space-y-0.5">
+      <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-center md:gap-5">
+        <div className="min-w-0 flex-1 space-y-1">
           <div className="flex min-h-5 min-w-0 items-center gap-1.5">
-            <h3 className="min-w-0 text-[12.5px] leading-snug font-medium text-foreground/92">
+            <h3 className="min-w-0 text-[14px] leading-snug font-semibold tracking-normal text-foreground/94">
               {title}
             </h3>
             {resetAction ? (
-              <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center">
+              <span className="inline-flex size-5 shrink-0 items-center justify-center">
                 {resetAction}
               </span>
             ) : null}
           </div>
           {description ? (
-            <p className="text-[11.5px] leading-relaxed text-muted-foreground/58">{description}</p>
+            <p className="max-w-2xl text-[12px] leading-relaxed text-muted-foreground/58">
+              {description}
+            </p>
           ) : null}
           {status ? (
             <div className="pt-0.5 text-[11px] text-muted-foreground/60">{status}</div>
@@ -256,6 +257,61 @@ export function SettingsRow({
       </div>
       {children}
     </div>
+  );
+}
+
+export function SettingsChoiceGroup<TValue extends string>({
+  label,
+  options,
+  value,
+  onValueChange,
+  className,
+}: {
+  label: string;
+  options: readonly {
+    value: TValue;
+    label: ReactNode;
+    description?: ReactNode;
+  }[];
+  value: TValue;
+  onValueChange: (value: TValue) => void;
+  className?: string;
+}) {
+  const selectedOption = options.find((option) => option.value === value) ?? options[0];
+
+  return (
+    <Select
+      value={value}
+      onValueChange={(nextValue) => {
+        if (nextValue !== null) {
+          onValueChange(nextValue as TValue);
+        }
+      }}
+    >
+      <SelectTrigger
+        size="sm"
+        className={cn("mt-3 w-full max-w-sm text-foreground/90", className)}
+        aria-label={label}
+      >
+        <SelectValue>
+          <span className="min-w-0 truncate">{selectedOption?.label}</span>
+        </SelectValue>
+      </SelectTrigger>
+      <SelectPopup align="start" alignItemWithTrigger={false}>
+        {options.map((option) => (
+          <SelectItem key={option.value} value={option.value}>
+            <span className="min-w-0">
+              <span className="block truncate">{option.label}</span>
+              {option.description ? (
+                <span className="mt-0.5 block max-w-80 truncate text-[11px] font-normal text-muted-foreground/62">
+                  {option.description}
+                </span>
+              ) : null}
+            </span>
+          </SelectItem>
+        ))}
+      </SelectPopup>
+    </Select>
   );
 }
 
@@ -285,9 +341,11 @@ export function SettingResetButton({ label, onClick }: { label: string; onClick:
 
 export function SettingsPageContainer({ children }: { children: ReactNode }) {
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto px-2.5 py-3 sm:px-4 sm:py-4 lg:px-5">
-      <div className="mx-auto flex w-full max-w-[58rem] flex-col gap-3 pb-8 sm:gap-3.5 [&_[data-slot=input-control]]:border-border/55 [&_[data-slot=input-control]]:bg-background/70 [&_[data-slot=input]]:h-7 [&_[data-slot=input]]:px-2.5 [&_[data-slot=input]]:text-[12px] [&_[data-slot=input]]:leading-7 [&_[data-slot=select-button]]:rounded-[var(--control-radius)] [&_[data-slot=select-button]]:border-border/55 [&_[data-slot=select-button]]:bg-background/70 [&_button[data-slot=button]:not([data-size^=icon])]:h-7 [&_button[data-slot=button]:not([data-size^=icon])]:px-2.5 [&_button[data-slot=button]:not([data-size^=icon])]:text-[12px] [&_button[data-slot=button]]:rounded-[var(--control-radius)]">
-        {children}
+    <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-5 sm:py-5 lg:px-8">
+      <div className="mx-auto flex w-full max-w-[64rem] flex-col gap-6 pb-10 sm:gap-7">
+        <div className="flex flex-col gap-8 sm:gap-9 [&>section+section]:border-t [&>section+section]:border-border/24 [&>section+section]:pt-8 sm:[&>section+section]:pt-9 [&_[data-slot=input-control]]:border-border/45 [&_[data-slot=input-control]]:bg-background/55 [&_[data-slot=input-control]]:shadow-none [&_[data-slot=input]]:h-7 [&_[data-slot=input]]:px-2.5 [&_[data-slot=input]]:text-[12px] [&_[data-slot=input]]:leading-7 [&_[data-slot=select-button]]:rounded-[var(--control-radius)] [&_[data-slot=select-button]]:border-border/45 [&_[data-slot=select-button]]:bg-background/55 [&_[data-slot=select-button]]:shadow-none [&_[data-slot=switch][data-checked]]:border-border/45 [&_[data-slot=switch][data-checked]]:bg-foreground/55 [&_button[data-slot=button]:not([data-size^=icon])]:h-7 [&_button[data-slot=button]:not([data-size^=icon])]:px-2.5 [&_button[data-slot=button]:not([data-size^=icon])]:text-[12px] [&_button[data-slot=button][data-variant=default]]:border-border/45 [&_button[data-slot=button][data-variant=default]]:bg-foreground/[0.07] [&_button[data-slot=button][data-variant=default]]:text-foreground [&_button[data-slot=button][data-variant=default]]:hover:bg-foreground/[0.11] [&_button[data-slot=button][data-variant=default]]:active:bg-foreground/[0.15] [&_button[data-slot=button]]:rounded-[var(--control-radius)]">
+          {children}
+        </div>
       </div>
     </div>
   );

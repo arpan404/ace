@@ -3,12 +3,20 @@ import type {
   ProviderInteractionMode,
   ProviderModelOptions,
   ProviderSessionConfigOption,
+  RuntimeMode,
   ServerProvider,
   ServerProviderModel,
   ThreadHandoffMode,
   ThreadId,
 } from "@ace/contracts";
-import { BotIcon, CircleAlertIcon, ListTodoIcon, XIcon } from "lucide-react";
+import {
+  BotIcon,
+  CircleAlertIcon,
+  ListTodoIcon,
+  ShieldAlertIcon,
+  ShieldCheckIcon,
+  XIcon,
+} from "lucide-react";
 import {
   memo,
   useMemo,
@@ -43,6 +51,7 @@ import {
 } from "./composerProviderRegistry";
 import { ContextWindowMeter } from "./ContextWindowMeter";
 import { ProviderModelPicker } from "./ProviderModelPicker";
+import { nextRuntimeMode, RUNTIME_MODE_META } from "./runtimeModeControl";
 
 const EMPTY_TERMINAL_CONTEXTS: ComponentProps<typeof ComposerPromptEditor>["terminalContexts"] = [];
 
@@ -59,6 +68,49 @@ function renderInteractionModeTooltipContent(
         </Kbd>
       ) : null}
     </span>
+  );
+}
+
+function RuntimeModeButton(props: {
+  runtimeMode: RuntimeMode;
+  compact: boolean;
+  onRuntimeModeChange: (mode: RuntimeMode) => void;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            variant="ghost"
+            className={cn(
+              "shrink-0 whitespace-nowrap px-2 transition-colors duration-150 sm:px-2.5",
+              RUNTIME_MODE_META[props.runtimeMode].textClassName,
+            )}
+            size="sm"
+            type="button"
+            onClick={() => props.onRuntimeModeChange(nextRuntimeMode(props.runtimeMode))}
+            aria-label={RUNTIME_MODE_META[props.runtimeMode].title}
+            data-chat-composer-runtime-mode={props.runtimeMode}
+          />
+        }
+      >
+        {props.runtimeMode === "full-access" ? (
+          <ShieldAlertIcon
+            className={cn("size-4", RUNTIME_MODE_META[props.runtimeMode].iconClassName)}
+          />
+        ) : (
+          <ShieldCheckIcon
+            className={cn("size-4", RUNTIME_MODE_META[props.runtimeMode].iconClassName)}
+          />
+        )}
+        <span className={props.compact ? "sr-only" : "sr-only sm:not-sr-only"}>
+          {RUNTIME_MODE_META[props.runtimeMode].label}
+        </span>
+      </TooltipTrigger>
+      <TooltipPopup side="top" sideOffset={4}>
+        {RUNTIME_MODE_META[props.runtimeMode].title}
+      </TooltipPopup>
+    </Tooltip>
   );
 }
 
@@ -114,7 +166,7 @@ interface ChatComposerPanelProps {
   readonly handoffTargetProviders: ReadonlyArray<ProviderKind>;
   readonly handoffDisabled: boolean;
   readonly interactionMode: ComponentProps<typeof CompactComposerControlsMenu>["interactionMode"];
-  readonly runtimeMode: ComponentProps<typeof CompactComposerControlsMenu>["runtimeMode"];
+  readonly runtimeMode: RuntimeMode;
   readonly interactionModeShortcutLabel: string | null;
   readonly activeContextWindow: ComponentProps<typeof ContextWindowMeter>["usage"] | null;
   readonly promptHasText: boolean;
@@ -205,9 +257,7 @@ interface ChatComposerPanelProps {
   ) => void;
   readonly onHandoffToProvider: (provider: ProviderKind, mode: ThreadHandoffMode) => void;
   readonly onToggleInteractionMode: () => void;
-  readonly onRuntimeModeChange: (
-    mode: ComponentProps<typeof CompactComposerControlsMenu>["runtimeMode"],
-  ) => void;
+  readonly onRuntimeModeChange: (mode: RuntimeMode) => void;
   readonly onPreviousPendingQuestion: () => void;
   readonly onInterrupt: () => void;
   readonly onImplementPlanInNewThread: () => void;
@@ -230,7 +280,7 @@ const ComposerImageStrip = memo(function ComposerImageStrip(props: {
       {props.images.map((image) => (
         <div
           key={image.id}
-          className="relative h-16 w-16 overflow-hidden rounded-lg border border-border/80 bg-background"
+          className="relative size-16 overflow-hidden rounded-lg border border-border/80 bg-background"
         >
           {image.previewUrl ? (
             <button
@@ -250,12 +300,11 @@ const ComposerImageStrip = memo(function ComposerImageStrip(props: {
             <Tooltip>
               <TooltipTrigger
                 render={
-                  <span
-                    role="img"
-                    aria-label="Draft attachment may not persist"
-                    className="absolute left-1 top-1 inline-flex items-center justify-center rounded bg-background/85 p-0.5 text-amber-600"
-                  >
-                    <CircleAlertIcon className="size-3" />
+                  <span className="absolute left-1 top-1 inline-flex items-center justify-center rounded bg-background/85 p-0.5 text-amber-600">
+                    <CircleAlertIcon
+                      className="size-3"
+                      aria-label="Draft attachment may not persist"
+                    />
                   </span>
                 }
               />
@@ -388,7 +437,7 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
   return (
     <div
       className={cn(
-        "shrink-0 px-3 pt-1.5 sm:px-5 sm:pt-2",
+        "shrink-0 px-3 pt-0 sm:px-5 sm:pt-0",
         props.isGitRepo ? "pb-1.5" : "pb-3 sm:pb-4",
       )}
     >
@@ -451,8 +500,8 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
             className={cn(
               "rounded-xl",
               isUltrathinkFrame
-                ? "border-0 bg-input transition-all duration-200 focus-within:ring-2 focus-within:ring-ring/55"
-                : "border border-border/40 bg-input transition-[border-color,box-shadow] duration-200 focus-within:border-transparent focus-within:ring-2 focus-within:ring-ring/55",
+                ? "border-0 bg-input transition-all duration-200 focus-within:ring-2 focus-within:ring-ring/40"
+                : "border border-border/25 bg-input transition-[border-color,box-shadow] duration-200 focus-within:border-transparent focus-within:ring-2 focus-within:ring-ring/40 focus-within:shadow-sm",
               props.isDragOverComposer && "bg-primary/8",
               props.composerProviderState.composerSurfaceClassName,
             )}
@@ -475,7 +524,7 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
             <div
               className={cn(
                 "relative px-3 pb-2 sm:px-4",
-                props.hasComposerHeader ? "pt-2.5 sm:pt-3" : "pt-3.5 sm:pt-4",
+                props.hasComposerHeader ? "pt-2 sm:pt-2.5" : "pt-2 sm:pt-2.5",
               )}
             >
               {props.composerMenuOpen && !props.isComposerApprovalState ? (
@@ -595,12 +644,10 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
                   {props.isComposerFooterCompact ? (
                     <CompactComposerControlsMenu
                       interactionMode={props.interactionMode}
-                      runtimeMode={props.runtimeMode}
                       interactionModeShortcutLabel={props.interactionModeShortcutLabel}
                       interactionModeDisabledReason={interactionModeDisabledReason}
                       traitsMenuContent={providerTraitsMenuContent}
                       onToggleInteractionMode={props.onToggleInteractionMode}
-                      onRuntimeModeChange={props.onRuntimeModeChange}
                     />
                   ) : (
                     <>
@@ -666,11 +713,16 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
                   }
                   className="flex shrink-0 flex-nowrap items-center justify-end gap-2"
                 >
+                  <RuntimeModeButton
+                    runtimeMode={props.runtimeMode}
+                    compact={props.isComposerFooterCompact || props.isComposerPrimaryActionsCompact}
+                    onRuntimeModeChange={props.onRuntimeModeChange}
+                  />
                   {props.activeContextWindow ? (
                     <ContextWindowMeter usage={props.activeContextWindow} />
                   ) : null}
                   {props.isPreparingWorktree ? (
-                    <span className="text-muted-foreground/70 text-xs">Preparing worktree...</span>
+                    <span className="text-muted-foreground/70 text-xs">Preparing worktree…</span>
                   ) : null}
                   <ComposerPrimaryActions
                     compact={props.isComposerPrimaryActionsCompact}

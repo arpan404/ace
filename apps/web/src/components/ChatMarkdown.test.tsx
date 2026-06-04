@@ -61,7 +61,7 @@ describe("ChatMarkdown", () => {
     );
 
     expect(markup).toContain('data-mermaid-diagram-state="loading"');
-    expect(markup).toContain("Rendering Mermaid diagram...");
+    expect(markup).toContain("Rendering Mermaid diagram");
     expect(markup).not.toContain("chat-markdown-shiki");
   });
 
@@ -88,6 +88,38 @@ describe("ChatMarkdown", () => {
     );
 
     expect(markup).not.toContain("chat-markdown-link-open-browser");
+  });
+
+  it("renders link-only list items for absolute local file paths", () => {
+    const markup = renderToStaticMarkup(
+      <ChatMarkdown
+        text={
+          "Touched key areas:\n\n- [ProviderRuntimeIngestion.ts](/Users/me/project/apps/server/src/orchestration/Layers/ProviderRuntimeIngestion.ts)\n- [MessagesTimeline.tsx](/Users/me/project/apps/web/src/components/chat/MessagesTimeline.tsx)"
+        }
+        cwd="/Users/me/project"
+      />,
+    );
+
+    expect(markup).toContain("<li>");
+    expect(markup).toContain("ProviderRuntimeIngestion.ts");
+    expect(markup).toContain("MessagesTimeline.tsx");
+    expect(markup).toContain("chat-markdown-link-button");
+    expect(markup).toContain("chat-markdown-local-file-link");
+  });
+
+  it("keeps fallback link text visible inside list items", () => {
+    const markup = renderToStaticMarkup(
+      <ChatMarkdown
+        text={
+          "Files changed:\n\n- [ChatMarkdown.tsx](/Users/me/project/apps/web/src/components/ChatMarkdown.tsx)\n- [MessagesTimeline.tsx](/Users/me/project/apps/web/src/components/chat/MessagesTimeline.tsx)"
+        }
+        cwd={undefined}
+      />,
+    );
+
+    expect(markup).toContain("<li>");
+    expect(markup).toContain("ChatMarkdown.tsx");
+    expect(markup).toContain("MessagesTimeline.tsx");
   });
 
   it("caps very large streaming responses to a preview window", () => {

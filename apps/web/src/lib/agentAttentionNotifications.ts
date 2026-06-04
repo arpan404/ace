@@ -59,18 +59,18 @@ interface AgentAttentionRequestBase {
   deepLink: string;
 }
 
-export interface ApprovalAttentionRequest extends AgentAttentionRequestBase {
+interface ApprovalAttentionRequest extends AgentAttentionRequestBase {
   kind: "approval";
   requestId: ApprovalRequestId;
 }
 
-export interface UserInputAttentionRequest extends AgentAttentionRequestBase {
+interface UserInputAttentionRequest extends AgentAttentionRequestBase {
   kind: "user-input";
   requestId: ApprovalRequestId;
   questions: ReadonlyArray<UserInputQuestion>;
 }
 
-export interface CompletionAttentionRequest extends AgentAttentionRequestBase {
+interface CompletionAttentionRequest extends AgentAttentionRequestBase {
   kind: "completion";
 }
 
@@ -165,10 +165,14 @@ function buildReplyPlaceholder(question: UserInputQuestion): string | undefined 
 }
 
 function splitNotificationReplyValues(response: string): string[] {
-  return response
-    .split(/[,\n;]/)
-    .map((value) => value.trim())
-    .filter((value) => value.length > 0);
+  const values: string[] = [];
+  for (const rawValue of response.split(/[,\n;]/)) {
+    const value = rawValue.trim();
+    if (value.length > 0) {
+      values.push(value);
+    }
+  }
+  return values;
 }
 
 export function resolveAgentAttentionNotificationReply(

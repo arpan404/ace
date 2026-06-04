@@ -2,10 +2,27 @@ import { EDITORS, EditorId, NativeApi } from "@ace/contracts";
 import { getLocalStorageItem, setLocalStorageItem, useLocalStorage } from "./hooks/useLocalStorage";
 import { useMemo } from "react";
 
-const LAST_EDITOR_KEY = "ace:last-editor";
+const LAST_EDITOR_KEY = "ace:last-editor:v1";
+const LEGACY_LAST_EDITOR_KEY = "ace:last-editor";
 
-export function usePreferredEditor(availableEditors: ReadonlyArray<EditorId>) {
-  const [lastEditor, setLastEditor] = useLocalStorage(LAST_EDITOR_KEY, null, EditorId);
+function readStoredPreferredEditor(): EditorId | null {
+  const storedEditor = getLocalStorageItem(LAST_EDITOR_KEY, EditorId);
+  if (storedEditor) {
+    return storedEditor;
+  }
+  const legacyStoredEditor = getLocalStorageItem(LEGACY_LAST_EDITOR_KEY, EditorId);
+  if (legacyStoredEditor) {
+    setLocalStorageItem(LAST_EDITOR_KEY, legacyStoredEditor, EditorId);
+  }
+  return legacyStoredEditor;
+}
+
+function usePreferredEditor(availableEditors: ReadonlyArray<EditorId>) {
+  const [lastEditor, setLastEditor] = useLocalStorage(
+    LAST_EDITOR_KEY,
+    readStoredPreferredEditor(),
+    EditorId,
+  );
 
   const effectiveEditor = useMemo(() => {
     if (lastEditor && availableEditors.includes(lastEditor)) return lastEditor;
@@ -19,7 +36,7 @@ export function resolveAndPersistPreferredEditor(
   availableEditors: readonly EditorId[],
 ): EditorId | null {
   const availableEditorIds = new Set(availableEditors);
-  const stored = getLocalStorageItem(LAST_EDITOR_KEY, EditorId);
+  const stored = readStoredPreferredEditor();
   if (stored && availableEditorIds.has(stored)) return stored;
   const editor = EDITORS.find((editor) => availableEditorIds.has(editor.id))?.id ?? null;
   if (editor) setLocalStorageItem(LAST_EDITOR_KEY, editor, EditorId);

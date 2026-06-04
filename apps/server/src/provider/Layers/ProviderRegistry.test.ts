@@ -1373,6 +1373,17 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
               if (joined === "models") {
                 return { stdout: CURSOR_MODELS_OUTPUT, stderr: "", code: 0 };
               }
+              if (joined === "status --format json") {
+                return {
+                  stdout: JSON.stringify({
+                    status: "authenticated",
+                    isAuthenticated: true,
+                    userInfo: { email: "cursor@example.com" },
+                  }),
+                  stderr: "",
+                  code: 0,
+                };
+              }
               if (joined === "about") {
                 return {
                   stdout: "Cursor Agent\nUser Email cursor@example.com\n",

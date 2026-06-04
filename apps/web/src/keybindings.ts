@@ -468,7 +468,7 @@ export function isChatNewLocalShortcut(
   return matchesCommandShortcut(event, keybindings, "chat.newLocal", options);
 }
 
-export function isChatTogglePlanModeShortcut(
+function isChatTogglePlanModeShortcut(
   event: ShortcutEventLike,
   keybindings: ResolvedKeybindingsConfig,
   options?: ShortcutMatchOptions,

@@ -151,6 +151,7 @@ export type GitStatusInput = typeof GitStatusInput.Type;
 
 export const GitWorkingTreeDiffInput = Schema.Struct({
   cwd: TrimmedNonEmptyStringSchema,
+  relativePath: Schema.optional(TrimmedNonEmptyStringSchema),
 });
 export type GitWorkingTreeDiffInput = typeof GitWorkingTreeDiffInput.Type;
 
@@ -176,6 +177,11 @@ export const GitListBranchesInput = Schema.Struct({
   cwd: TrimmedNonEmptyStringSchema,
 });
 export type GitListBranchesInput = typeof GitListBranchesInput.Type;
+
+export const GitWorktreeStatsInput = Schema.Struct({
+  paths: Schema.Array(TrimmedNonEmptyStringSchema).check(Schema.isMinLength(1)),
+});
+export type GitWorktreeStatsInput = typeof GitWorktreeStatsInput.Type;
 
 export const GitListGitHubIssuesInput = Schema.Struct({
   cwd: TrimmedNonEmptyStringSchema,
@@ -285,6 +291,18 @@ export const GitListBranchesResult = Schema.Struct({
   hasOriginRemote: Schema.Boolean,
 });
 export type GitListBranchesResult = typeof GitListBranchesResult.Type;
+
+export const GitWorktreeStatsResult = Schema.Struct({
+  worktrees: Schema.Array(
+    Schema.Struct({
+      path: TrimmedNonEmptyStringSchema,
+      sizeBytes: NonNegativeInt,
+      exists: Schema.Boolean,
+      lastModifiedAt: Schema.NullOr(IsoDateTime),
+    }),
+  ),
+});
+export type GitWorktreeStatsResult = typeof GitWorktreeStatsResult.Type;
 
 export const GitListGitHubIssuesResult = Schema.Struct({
   issues: Schema.Array(GitHubIssue),

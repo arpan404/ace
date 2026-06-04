@@ -35,12 +35,21 @@ export const ProjectScriptIcon = Schema.Literals([
 ]);
 export type ProjectScriptIcon = typeof ProjectScriptIcon.Type;
 
+const ProjectScriptEnvKey = Schema.String.check(Schema.isPattern(/^[A-Za-z_][A-Za-z0-9_]*$/));
+const ProjectScriptEnvValue = Schema.String.check(Schema.isMaxLength(8_192));
+export const ProjectScriptEnv = Schema.Record(ProjectScriptEnvKey, ProjectScriptEnvValue).check(
+  Schema.isMaxProperties(128),
+);
+export type ProjectScriptEnv = typeof ProjectScriptEnv.Type;
+
 export const ProjectScript = Schema.Struct({
   id: TrimmedNonEmptyString,
   name: TrimmedNonEmptyString,
   command: TrimmedNonEmptyString,
   icon: ProjectScriptIcon,
   runOnWorktreeCreate: Schema.Boolean,
+  env: Schema.optional(ProjectScriptEnv),
+  envFilePath: Schema.optional(TrimmedNonEmptyString),
 });
 export type ProjectScript = typeof ProjectScript.Type;
 
@@ -130,7 +139,7 @@ export const SourceProposedPlanReference = Schema.Struct({
 });
 export type SourceProposedPlanReference = typeof SourceProposedPlanReference.Type;
 
-export const ThreadHandoffMode = Schema.Literals(["best", "transcript", "compact"]);
+export const ThreadHandoffMode = Schema.Literals(["best", "transcript", "compact", "fork"]);
 export type ThreadHandoffMode = typeof ThreadHandoffMode.Type;
 
 export const ThreadHandoff = Schema.Struct({
@@ -141,6 +150,12 @@ export const ThreadHandoff = Schema.Struct({
   createdAt: IsoDateTime,
 });
 export type ThreadHandoff = typeof ThreadHandoff.Type;
+
+export const ThreadFork = Schema.Struct({
+  sourceThreadId: ThreadId,
+  createdAt: IsoDateTime,
+});
+export type ThreadFork = typeof ThreadFork.Type;
 
 export const OrchestrationSessionStatus = Schema.Literals([
   "idle",
@@ -251,6 +266,7 @@ export const OrchestrationThread = Schema.Struct({
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
   handoff: Schema.optional(ThreadHandoff),
+  fork: Schema.optional(ThreadFork),
   latestTurn: Schema.NullOr(OrchestrationLatestTurn),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,

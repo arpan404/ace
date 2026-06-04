@@ -3,16 +3,16 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "prepare": "effect-language-service patch",
+    "prepare": "node node_modules/.bin/effect-language-service patch",
     "claude-fast-mode-probe": "bun run claude-fast-mode-probe.ts",
     "claude-haiku-thinking-probe": "bun run claude-haiku-thinking-probe.ts",
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "typecheck": "node node_modules/.bin/tsc --noEmit",
+    "test": "node node_modules/.bin/vitest run"
   },
   "dependencies": {
     "@ace/contracts": "workspace:*",
     "@ace/shared": "workspace:*",
-    "@anthropic-ai/claude-agent-sdk": "^0.2.126",
+    "@anthropic-ai/claude-agent-sdk": "^0.3.159",
     "@effect/platform-node": "catalog:",
     "effect": "catalog:"
   },

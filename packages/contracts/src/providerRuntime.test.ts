@@ -165,6 +165,37 @@ describe("ProviderRuntimeEvent", () => {
     expect(parsed.payload.usage.usedTokens).toBe(31251);
   });
 
+  it("decodes structured metadata on content deltas", () => {
+    const parsed = decodeRuntimeEvent({
+      type: "content.delta",
+      eventId: "event-content-delta-metadata-1",
+      provider: "codex",
+      createdAt: "2026-02-28T00:00:04.500Z",
+      threadId: "thread-1",
+      turnId: "turn-1",
+      itemId: "item-1",
+      payload: {
+        streamKind: "assistant_text",
+        delta: "child output",
+        data: {
+          ace: {
+            childProviderThreadId: "child-provider-thread-1",
+          },
+        },
+      },
+    });
+
+    expect(parsed.type).toBe("content.delta");
+    if (parsed.type !== "content.delta") {
+      throw new Error("expected content.delta");
+    }
+    expect(parsed.payload.data).toEqual({
+      ace: {
+        childProviderThreadId: "child-provider-thread-1",
+      },
+    });
+  });
+
   it("accepts OpenCode raw event source payloads", () => {
     const parsed = decodeRuntimeEvent({
       type: "runtime.warning",

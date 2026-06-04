@@ -4,10 +4,20 @@ import { contextBridge, ipcRenderer } from "electron";
 const PICK_FOLDER_CHANNEL = "desktop:pick-folder";
 const CONFIRM_CHANNEL = "desktop:confirm";
 const REPAIR_BROWSER_STORAGE_CHANNEL = "desktop:repair-browser-storage";
+const BROWSER_SITE_INFO_CHANNEL = "desktop:browser-site-info";
+const BROWSER_SET_SITE_PERMISSION_CHANNEL = "desktop:browser-set-site-permission";
+const BROWSER_RESET_SITE_PERMISSIONS_CHANNEL = "desktop:browser-reset-site-permissions";
+const BROWSER_CLEAR_SITE_DATA_CHANNEL = "desktop:browser-clear-site-data";
+const BROWSER_DOWNLOADS_GET_CHANNEL = "desktop:browser-downloads-get";
+const BROWSER_DOWNLOAD_CONTROL_CHANNEL = "desktop:browser-download-control";
+const BROWSER_DOWNLOAD_EVENT_CHANNEL = "desktop:browser-download-event";
 const SET_THEME_CHANNEL = "desktop:set-theme";
 const APP_ZOOM_CHANNEL = "desktop:app-zoom";
+const OPEN_NEW_WINDOW_CHANNEL = "desktop:open-new-window";
 const OPEN_DETACHED_BROWSER_CHANNEL = "desktop:open-detached-browser";
 const OPEN_DETACHED_EDITOR_CHANNEL = "desktop:open-detached-editor";
+const RETURN_DETACHED_WINDOW_CHANNEL = "desktop:return-detached-window";
+const OPEN_BROWSER_AUTH_WINDOW_CHANNEL = "desktop:open-browser-auth-window";
 const CONTEXT_MENU_CHANNEL = "desktop:context-menu";
 const OPEN_EXTERNAL_CHANNEL = "desktop:open-external";
 const SHOW_NOTIFICATION_CHANNEL = "desktop:show-notification";
@@ -144,6 +154,14 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   pickFolder: (options) => ipcRenderer.invoke(PICK_FOLDER_CHANNEL, options),
   confirm: (message) => ipcRenderer.invoke(CONFIRM_CHANNEL, message),
   repairBrowserStorage: () => ipcRenderer.invoke(REPAIR_BROWSER_STORAGE_CHANNEL),
+  getBrowserSiteInfo: (url: string) => ipcRenderer.invoke(BROWSER_SITE_INFO_CHANNEL, url),
+  setBrowserSitePermission: (input) =>
+    ipcRenderer.invoke(BROWSER_SET_SITE_PERMISSION_CHANNEL, input),
+  resetBrowserSitePermissions: (url: string) =>
+    ipcRenderer.invoke(BROWSER_RESET_SITE_PERMISSIONS_CHANNEL, url),
+  clearBrowserSiteData: (url: string) => ipcRenderer.invoke(BROWSER_CLEAR_SITE_DATA_CHANNEL, url),
+  getBrowserDownloads: () => ipcRenderer.invoke(BROWSER_DOWNLOADS_GET_CHANNEL),
+  controlBrowserDownload: (input) => ipcRenderer.invoke(BROWSER_DOWNLOAD_CONTROL_CHANNEL, input),
   setTheme: (theme) => ipcRenderer.invoke(SET_THEME_CHANNEL, theme),
   showContextMenu: (items, position) => ipcRenderer.invoke(CONTEXT_MENU_CHANNEL, items, position),
   openExternal: (url: string) => ipcRenderer.invoke(OPEN_EXTERNAL_CHANNEL, url),
@@ -156,12 +174,24 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     return result === true;
   },
   applyAppZoom: (action) => ipcRenderer.invoke(APP_ZOOM_CHANNEL, action),
+  openNewWindow: async () => {
+    const result = await ipcRenderer.invoke(OPEN_NEW_WINDOW_CHANNEL);
+    return result === true;
+  },
   openDetachedBrowser: async (input) => {
     const result = await ipcRenderer.invoke(OPEN_DETACHED_BROWSER_CHANNEL, input);
     return result === true;
   },
   openDetachedEditor: async (input) => {
     const result = await ipcRenderer.invoke(OPEN_DETACHED_EDITOR_CHANNEL, input);
+    return result === true;
+  },
+  returnDetachedWindow: async (input) => {
+    const result = await ipcRenderer.invoke(RETURN_DETACHED_WINDOW_CHANNEL, input);
+    return result === true;
+  },
+  openBrowserAuthWindow: async (url: string) => {
+    const result = await ipcRenderer.invoke(OPEN_BROWSER_AUTH_WINDOW_CHANNEL, url);
     return result === true;
   },
   onNotificationClick: (listener) => {
@@ -254,10 +284,70 @@ contextBridge.exposeInMainWorld("desktopBridge", {
       pairingUrlListeners.delete(listener);
     };
   },
+  onDetachedWindowReturn: (listener) => {
+    const wrappedListener = (_event: Electron.IpcRendererEvent, request: unknown) => {
+      if (typeof request !== "object" || request === null) return;
+      const payload = request as {
+        connectionUrl?: unknown;
+        editorStateInstanceId?: unknown;
+        kind?: unknown;
+        placement?: unknown;
+        scopeId?: unknown;
+        threadId?: unknown;
+        workspaceMode?: unknown;
+      };
+      if (payload.kind === "browser") {
+        listener({
+          kind: "browser",
+          ...(typeof payload.scopeId === "string" && payload.scopeId.length > 0
+            ? { scopeId: payload.scopeId }
+            : {}),
+        });
+        return;
+      }
+      if (payload.kind !== "editor" || typeof payload.threadId !== "string") return;
+      listener({
+        kind: "editor",
+        threadId: payload.threadId,
+        ...(typeof payload.connectionUrl === "string" && payload.connectionUrl.length > 0
+          ? { connectionUrl: payload.connectionUrl }
+          : {}),
+        ...(typeof payload.editorStateInstanceId === "string" &&
+        payload.editorStateInstanceId.length > 0
+          ? { editorStateInstanceId: payload.editorStateInstanceId }
+          : {}),
+        ...(payload.placement === "bottom" ||
+        payload.placement === "right" ||
+        payload.placement === "workspace"
+          ? { placement: payload.placement }
+          : {}),
+        ...(payload.workspaceMode === "editor" || payload.workspaceMode === "split"
+          ? { workspaceMode: payload.workspaceMode }
+          : {}),
+      });
+    };
+
+    ipcRenderer.on(RETURN_DETACHED_WINDOW_CHANNEL, wrappedListener);
+    return () => {
+      ipcRenderer.removeListener(RETURN_DETACHED_WINDOW_CHANNEL, wrappedListener);
+    };
+  },
   onBrowserOpenUrl: (listener) => {
-    const wrappedListener = (_event: Electron.IpcRendererEvent, url: unknown) => {
-      if (typeof url !== "string" || url.length === 0) return;
-      listener(url);
+    const wrappedListener = (_event: Electron.IpcRendererEvent, payload: unknown) => {
+      if (typeof payload === "string") {
+        if (payload.length === 0) return;
+        listener({ url: payload });
+        return;
+      }
+      if (typeof payload !== "object" || payload === null) return;
+      const event = payload as { sourceWebContentsId?: unknown; url?: unknown };
+      if (typeof event.url !== "string" || event.url.length === 0) return;
+      listener({
+        url: event.url,
+        ...(typeof event.sourceWebContentsId === "number"
+          ? { sourceWebContentsId: event.sourceWebContentsId }
+          : {}),
+      });
     };
 
     ipcRenderer.on(BROWSER_OPEN_URL_CHANNEL, wrappedListener);
@@ -284,6 +374,17 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     ipcRenderer.on(BROWSER_SHORTCUT_ACTION_CHANNEL, wrappedListener);
     return () => {
       ipcRenderer.removeListener(BROWSER_SHORTCUT_ACTION_CHANNEL, wrappedListener);
+    };
+  },
+  onBrowserDownloadEvent: (listener) => {
+    const wrappedListener = (_event: Electron.IpcRendererEvent, downloadEvent: unknown) => {
+      if (typeof downloadEvent !== "object" || downloadEvent === null) return;
+      listener(downloadEvent as Parameters<typeof listener>[0]);
+    };
+
+    ipcRenderer.on(BROWSER_DOWNLOAD_EVENT_CHANNEL, wrappedListener);
+    return () => {
+      ipcRenderer.removeListener(BROWSER_DOWNLOAD_EVENT_CHANNEL, wrappedListener);
     };
   },
   sendOrchestrationEvent: (event: unknown) => {

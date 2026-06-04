@@ -40,11 +40,28 @@ export interface WorkLogEntry {
   label: string;
   detail?: string;
   command?: string;
+  terminalOutput?: string;
+  terminalOutputTruncated?: boolean;
   changedFiles?: ReadonlyArray<string>;
+  changedFileStats?: ReadonlyArray<{
+    path: string;
+    additions?: number;
+    deletions?: number;
+  }>;
+  status?: "inProgress" | "completed" | "failed";
+  exitCode?: number;
+  durationMs?: number;
   tone: "thinking" | "tool" | "info" | "error";
   toolTitle?: string;
   itemType?: ToolLifecycleItemType;
   requestKind?: PendingApproval["requestKind"];
+  subagentId?: string;
+  subagentType?: string;
+  subagentName?: string;
+  subagentModel?: string;
+  sideChatMessageId?: string;
+  sideChatMessageRole?: "user" | "assistant";
+  sideChatMessageText?: string;
   intentText?: string;
   diagnosticKind?: "runtime-error" | "runtime-warning";
 }

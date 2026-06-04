@@ -8,6 +8,8 @@ import type {
   WorkspaceEditorCompleteResult,
   WorkspaceEditorDefinitionInput,
   WorkspaceEditorDefinitionResult,
+  WorkspaceEditorHoverInput,
+  WorkspaceEditorHoverResult,
   WorkspaceEditorReferencesInput,
   WorkspaceEditorReferencesResult,
   WorkspaceEditorSyncBufferInput,
@@ -40,6 +42,9 @@ export interface WorkspaceEditorShape {
   readonly definition: (
     input: WorkspaceEditorDefinitionInput,
   ) => Effect.Effect<WorkspaceEditorDefinitionResult, WorkspaceEditorError | WorkspacePathsError>;
+  readonly hover: (
+    input: WorkspaceEditorHoverInput,
+  ) => Effect.Effect<WorkspaceEditorHoverResult, WorkspaceEditorError | WorkspacePathsError>;
   readonly references: (
     input: WorkspaceEditorReferencesInput,
   ) => Effect.Effect<WorkspaceEditorReferencesResult, WorkspaceEditorError | WorkspacePathsError>;

@@ -2,14 +2,14 @@ import type { BrowserSearchEngine } from "@ace/contracts/settings";
 
 import type { BrowserSuggestion } from "~/lib/browser/history";
 
-export const IN_APP_BROWSER_PARTITION = "persist:ace-browser";
-export const PIP_MARGIN_PX = 16;
-export const MIN_PIP_WIDTH_PX = 320;
-export const MIN_PIP_HEIGHT_PX = 216;
-export const DEFAULT_PIP_WIDTH_PX = 440;
-export const DEFAULT_PIP_HEIGHT_PX = 280;
+export { IN_APP_BROWSER_PARTITION } from "./storage";
+const PIP_MARGIN_PX = 16;
+const MIN_PIP_WIDTH_PX = 320;
+const MIN_PIP_HEIGHT_PX = 216;
+const DEFAULT_PIP_WIDTH_PX = 440;
+const DEFAULT_PIP_HEIGHT_PX = 280;
 
-export type BrowserWebviewMouseWheelInputEvent = {
+type BrowserWebviewMouseWheelInputEvent = {
   type: "mouseWheel";
   x: number;
   y: number;
@@ -40,8 +40,10 @@ export type BrowserWebview = HTMLElement & {
   capturePage?: (rect?: BrowserDesignSelectionRect) => Promise<BrowserCapturedImage>;
   closeDevTools: () => void;
   executeJavaScript?: <T = unknown>(code: string, userGesture?: boolean) => Promise<T>;
+  findInPage?: (query: string, options?: BrowserFindOptions) => number;
   getTitle: () => string;
   getURL: () => string;
+  getWebContentsId?: () => number;
   goBack: () => void;
   goForward: () => void;
   isDevToolsOpened: () => boolean;
@@ -54,10 +56,11 @@ export type BrowserWebview = HTMLElement & {
   ) => void;
   getZoomFactor?: () => number;
   setZoomFactor?: (factor: number) => void;
+  stopFindInPage?: (action: "activateSelection" | "clearSelection" | "keepSelection") => void;
   stop: () => void;
 };
 
-export type BrowserCapturedImage = {
+type BrowserCapturedImage = {
   toDataURL: () => string;
 };
 
@@ -118,6 +121,18 @@ export type BrowserTabRuntimeState = {
   loading: boolean;
 };
 
+export type BrowserFindOptions = {
+  findNext?: boolean;
+  forward?: boolean;
+  matchCase?: boolean;
+};
+
+export type BrowserFindResult = {
+  activeMatchOrdinal: number;
+  finalUpdate: boolean;
+  matches: number;
+};
+
 export type BrowserTabSnapshot = BrowserTabRuntimeState & {
   title: string;
   url: string;
@@ -141,7 +156,9 @@ export type BrowserTabHandle = {
   clearAgentPointer: () => void;
   closeDevTools: () => void;
   executeJavaScript: <T = unknown>(code: string) => Promise<T>;
+  findInPage: (query: string, options?: BrowserFindOptions) => void;
   getZoomFactor: () => number;
+  getWebContentsId: () => number | null;
   getSnapshot: () => BrowserTabSnapshot | null;
   goBack: () => void;
   goForward: () => void;
@@ -156,13 +173,14 @@ export type BrowserTabHandle = {
   reload: () => void;
   pressKeys: (keys: ReadonlyArray<string>) => Promise<void>;
   setZoomFactor: (factor: number) => void;
+  stopFindInPage: (action?: "activateSelection" | "clearSelection" | "keepSelection") => void;
   stop: () => void;
   zoomIn: () => void;
   zoomOut: () => void;
   zoomReset: () => void;
 };
 
-export type BrowserWebviewContextMenuAction =
+type BrowserWebviewContextMenuAction =
   | "back"
   | "copy-address"
   | "devtools"
@@ -171,7 +189,7 @@ export type BrowserWebviewContextMenuAction =
   | "open-external"
   | "reload";
 
-export type BrowserTabContextMenuAction =
+type BrowserTabContextMenuAction =
   | "close"
   | "close-others"
   | "close-right"

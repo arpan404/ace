@@ -1,6 +1,6 @@
 import { ThreadId } from "@ace/contracts";
 import { createFileRoute, retainSearchParams, useNavigate } from "@tanstack/react-router";
-import { startTransition, useEffect, useRef, useState } from "react";
+import { startTransition, useCallback, useEffect, useRef } from "react";
 
 import { ThreadBoard } from "../components/chat/ThreadBoard";
 import { useComposerDraftStore } from "../composerDraftStore";
@@ -16,6 +16,18 @@ import { getWsRpcClient } from "../wsRpcClient";
 import { normalizeWsUrl } from "../lib/remoteHosts";
 import { THREAD_ROUTE_CONNECTION_SEARCH_PARAM } from "../lib/connectionRouting";
 import { useHostConnectionStore } from "../hostConnectionStore";
+import { resolveThreadLineageSourceThreadId } from "../lib/chat/handoff";
+
+function clearThreadHydrationRetry(
+  retryTimeoutRef: { current: ReturnType<typeof setTimeout> | null },
+  retryAtRef: { current: number | null },
+): void {
+  if (retryTimeoutRef.current !== null) {
+    clearTimeout(retryTimeoutRef.current);
+    retryTimeoutRef.current = null;
+  }
+  retryAtRef.current = null;
+}
 
 export interface ChatThreadRouteSearch extends DiffRouteSearch {
   readonly connection?: string;
@@ -58,7 +70,8 @@ function ChatThreadRouteView() {
   const threadHydrationInFlightRef = useRef<ThreadId | null>(null);
   const threadHydrationRequestIdRef = useRef(0);
   const threadHydrationFailureCountRef = useRef(0);
-  const [threadHydrationRetryAt, setThreadHydrationRetryAt] = useState<number | null>(null);
+  const threadHydrationRetryAtRef = useRef<number | null>(null);
+  const threadHydrationRetryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cachedHydratedThread =
     serverThread?.historyLoaded === false && serverThread.updatedAt
       ? readCachedHydratedThread(threadId, serverThread.updatedAt)
@@ -74,7 +87,7 @@ function ChatThreadRouteView() {
 
   useEffect(() => {
     threadHydrationFailureCountRef.current = 0;
-    setThreadHydrationRetryAt(null);
+    clearThreadHydrationRetry(threadHydrationRetryTimeoutRef, threadHydrationRetryAtRef);
     threadHydrationInFlightRef.current = null;
     threadHydrationRequestIdRef.current += 1;
   }, [threadId]);
@@ -87,30 +100,6 @@ function ChatThreadRouteView() {
   }, [routeConnectionUrl, threadId]);
 
   useEffect(() => {
-    if (threadHydrationRetryAt === null) {
-      return;
-    }
-    const remainingDelay = Math.max(0, threadHydrationRetryAt - Date.now());
-    const timer = window.setTimeout(() => {
-      setThreadHydrationRetryAt((current) => (current === threadHydrationRetryAt ? null : current));
-    }, remainingDelay);
-    return () => {
-      window.clearTimeout(timer);
-    };
-  }, [threadHydrationRetryAt]);
-
-  useEffect(
-    () =>
-      getWsRpcClient().subscribeConnectionState((state) => {
-        if (state.kind !== "reconnected") {
-          return;
-        }
-        setThreadHydrationRetryAt(null);
-      }),
-    [],
-  );
-
-  useEffect(() => {
     if (!bootstrapComplete) {
       return;
     }
@@ -121,12 +110,12 @@ function ChatThreadRouteView() {
     }
   }, [bootstrapComplete, navigate, routeThreadExists, threadId]);
 
-  useEffect(() => {
+  const runThreadHydration = useCallback(() => {
     if (
       !bootstrapComplete ||
       !serverThread ||
       serverThread.historyLoaded !== false ||
-      threadHydrationRetryAt !== null ||
+      threadHydrationRetryAtRef.current !== null ||
       threadHydrationInFlightRef.current === threadId
     ) {
       return;
@@ -134,7 +123,7 @@ function ChatThreadRouteView() {
 
     if (cachedHydratedThread) {
       threadHydrationFailureCountRef.current = 0;
-      setThreadHydrationRetryAt(null);
+      clearThreadHydrationRetry(threadHydrationRetryTimeoutRef, threadHydrationRetryAtRef);
       startTransition(() => {
         hydrateThreadFromReadModel(cachedHydratedThread);
       });
@@ -154,7 +143,7 @@ function ChatThreadRouteView() {
           return;
         }
         threadHydrationFailureCountRef.current = 0;
-        setThreadHydrationRetryAt(null);
+        clearThreadHydrationRetry(threadHydrationRetryTimeoutRef, threadHydrationRetryAtRef);
         startTransition(() => {
           hydrateThreadFromReadModel(readModelThread);
         });
@@ -163,7 +152,12 @@ function ChatThreadRouteView() {
           const nextFailureCount = threadHydrationFailureCountRef.current + 1;
           threadHydrationFailureCountRef.current = nextFailureCount;
           const delayMs = resolveThreadHydrationRetryDelayMs(nextFailureCount);
-          setThreadHydrationRetryAt(Date.now() + delayMs);
+          clearThreadHydrationRetry(threadHydrationRetryTimeoutRef, threadHydrationRetryAtRef);
+          threadHydrationRetryAtRef.current = Date.now() + delayMs;
+          threadHydrationRetryTimeoutRef.current = setTimeout(() => {
+            clearThreadHydrationRetry(threadHydrationRetryTimeoutRef, threadHydrationRetryAtRef);
+            runThreadHydration();
+          }, delayMs);
         }
       } finally {
         if (
@@ -184,29 +178,47 @@ function ChatThreadRouteView() {
         threadHydrationInFlightRef.current = null;
       }
     };
-  }, [
-    bootstrapComplete,
-    cachedHydratedThread,
-    hydrateThreadFromReadModel,
-    serverThread,
-    threadHydrationRetryAt,
-    threadId,
-  ]);
+  }, [bootstrapComplete, cachedHydratedThread, hydrateThreadFromReadModel, serverThread, threadId]);
 
-  const handoffSourceThreadId = serverThread?.handoff?.sourceThreadId;
-  const handoffSourceThread = useStore((store) =>
-    handoffSourceThreadId ? getThreadById(store.threads, handoffSourceThreadId) : undefined,
+  useEffect(() => {
+    runThreadHydration();
+  }, [runThreadHydration]);
+
+  useEffect(
+    () =>
+      getWsRpcClient().subscribeConnectionState((state) => {
+        if (state.kind !== "reconnected") {
+          return;
+        }
+        clearThreadHydrationRetry(threadHydrationRetryTimeoutRef, threadHydrationRetryAtRef);
+        runThreadHydration();
+      }),
+    [runThreadHydration],
+  );
+
+  useEffect(
+    () => () => {
+      clearThreadHydrationRetry(threadHydrationRetryTimeoutRef, threadHydrationRetryAtRef);
+    },
+    [],
+  );
+
+  const lineageSourceThreadId = serverThread
+    ? resolveThreadLineageSourceThreadId(serverThread)
+    : null;
+  const lineageSourceThread = useStore((store) =>
+    lineageSourceThreadId ? getThreadById(store.threads, lineageSourceThreadId) : undefined,
   );
   useEffect(() => {
-    if (!bootstrapComplete || !handoffSourceThreadId) {
+    if (!bootstrapComplete || !lineageSourceThreadId) {
       return;
     }
-    const sourceThread = handoffSourceThread;
+    const sourceThread = lineageSourceThread;
     if (sourceThread && sourceThread.historyLoaded !== false) {
       return;
     }
     if (sourceThread?.updatedAt) {
-      const cached = readCachedHydratedThread(handoffSourceThreadId, sourceThread.updatedAt);
+      const cached = readCachedHydratedThread(lineageSourceThreadId, sourceThread.updatedAt);
       if (cached) {
         startTransition(() => {
           hydrateThreadFromReadModel(cached);
@@ -217,7 +229,7 @@ function ChatThreadRouteView() {
     let canceled = false;
     void (async () => {
       try {
-        const readModelThread = await hydrateThreadFromCache(handoffSourceThreadId, {
+        const readModelThread = await hydrateThreadFromCache(lineageSourceThreadId, {
           expectedUpdatedAt: sourceThread?.updatedAt ?? null,
         });
         if (canceled) {
@@ -227,13 +239,13 @@ function ChatThreadRouteView() {
           hydrateThreadFromReadModel(readModelThread);
         });
       } catch (error) {
-        console.error("Failed to hydrate handoff source thread", error);
+        console.error("Failed to hydrate conversation source thread", error);
       }
     })();
     return () => {
       canceled = true;
     };
-  }, [bootstrapComplete, handoffSourceThread, handoffSourceThreadId, hydrateThreadFromReadModel]);
+  }, [bootstrapComplete, lineageSourceThread, lineageSourceThreadId, hydrateThreadFromReadModel]);
 
   if (!bootstrapComplete || !routeThreadExists) {
     return null;

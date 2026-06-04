@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  resolveTerminalGroupPaneRatios,
   resolveTerminalTabDropTarget,
   resolveTerminalSelectionActionPosition,
   shouldHandleTerminalSelectionMouseUp,
@@ -24,6 +25,20 @@ describe("resolveTerminalTabDropTarget", () => {
     expect(
       resolveTerminalTabDropTarget([{ id: "group-default", terminalIds: ["default"] }], "missing"),
     ).toBeNull();
+  });
+});
+
+describe("resolveTerminalGroupPaneRatios", () => {
+  it("normalizes valid pane ratios", () => {
+    expect(resolveTerminalGroupPaneRatios([2, 1, 1], 3)).toEqual([0.5, 0.25, 0.25]);
+  });
+
+  it("falls back to equal ratios when stored ratios do not match the group", () => {
+    expect(resolveTerminalGroupPaneRatios([0.7, 0.3], 3)).toEqual([1 / 3, 1 / 3, 1 / 3]);
+  });
+
+  it("falls back to equal ratios when all stored ratios are invalid", () => {
+    expect(resolveTerminalGroupPaneRatios([0, -1], 2)).toEqual([0.5, 0.5]);
   });
 });
 

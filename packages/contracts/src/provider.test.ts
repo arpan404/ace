@@ -114,6 +114,27 @@ describe("ProviderSessionStartInput", () => {
     ]);
   });
 
+  it("accepts a provider-neutral fork source", () => {
+    const parsed = decodeProviderSessionStartInput({
+      threadId: "thread-fork-target",
+      provider: "codex",
+      runtimeMode: "full-access",
+      forkSource: {
+        threadId: "thread-fork-source",
+        resumeCursor: {
+          threadId: "codex-provider-thread",
+        },
+      },
+    });
+
+    expect(parsed.forkSource).toEqual({
+      threadId: "thread-fork-source",
+      resumeCursor: {
+        threadId: "codex-provider-thread",
+      },
+    });
+  });
+
   it("accepts pi thought-level model options", () => {
     const parsed = decodeProviderSessionStartInput({
       threadId: "thread-pi-1",
@@ -182,6 +203,17 @@ describe("ProviderSendTurnInput", () => {
     }
     expect(parsed.modelSelection.options?.reasoningEffort).toBe("xhigh");
     expect(parsed.modelSelection.options?.fastMode).toBe(true);
+  });
+
+  it("accepts a provider thread override for child conversations", () => {
+    const parsed = decodeProviderSendTurnInput({
+      threadId: " thread-parent ",
+      providerThreadId: " provider-child ",
+      input: "continue",
+    });
+
+    expect(parsed.threadId).toBe("thread-parent");
+    expect(parsed.providerThreadId).toBe("provider-child");
   });
 
   it("accepts claude modelSelection including ultrathink", () => {

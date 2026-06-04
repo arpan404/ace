@@ -3,34 +3,36 @@ import { describe, expect, it } from "vitest";
 import { createWorkspaceEditorOptions } from "./workspaceEditorOptions";
 
 describe("createWorkspaceEditorOptions", () => {
-  it("keeps hover and error widgets inside the editor viewport", () => {
+  it("creates a compact workspace editor option snapshot", () => {
     const options = createWorkspaceEditorOptions({
       lineNumbers: "on",
-      minimap: true,
       renderWhitespace: false,
       stickyScroll: true,
-      suggestions: true,
       wordWrap: false,
     });
 
-    expect(options.allowOverflow).toBe(false);
-    expect(options.fixedOverflowWidgets).toBe(false);
+    expect(options).toMatchObject({
+      fontSize: 13,
+      lineHeight: 22,
+      lineNumbers: "on",
+      renderWhitespace: false,
+      suggestions: true,
+      tabSize: 2,
+      wordWrap: false,
+    });
   });
 
-  it("enables visible occurrence and selection highlighting", () => {
+  it("keeps autocomplete enabled for editable workspace panes", () => {
     const options = createWorkspaceEditorOptions({
-      lineNumbers: "on",
-      minimap: false,
-      renderWhitespace: false,
+      lineNumbers: "relative",
+      renderWhitespace: true,
       stickyScroll: false,
-      suggestions: true,
       wordWrap: true,
     });
 
-    expect(options.occurrencesHighlight).toBe("singleFile");
-    expect(options.occurrencesHighlightDelay).toBe(150);
-    expect(options.selectionHighlight).toBe(true);
-    expect(options.selectionHighlightMultiline).toBe(true);
-    expect(options.selectionHighlightMaxLength).toBe(200);
+    expect(options.lineNumbers).toBe("relative");
+    expect(options.renderWhitespace).toBe(true);
+    expect(options.suggestions).toBe(true);
+    expect(options.wordWrap).toBe(true);
   });
 });

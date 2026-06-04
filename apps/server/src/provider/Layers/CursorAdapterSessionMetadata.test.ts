@@ -19,6 +19,7 @@ describe("CursorAdapterSessionMetadata", () => {
       protocolVersion: 1,
       agentCapabilities: {
         loadSession: true,
+        forkSession: false,
         promptCapabilities: {
           image: true,
           audio: false,
@@ -32,6 +33,7 @@ describe("CursorAdapterSessionMetadata", () => {
       protocolVersion: 1,
       agentCapabilities: {
         loadSession: true,
+        forkSession: false,
         promptCapabilities: {
           image: true,
           audio: false,

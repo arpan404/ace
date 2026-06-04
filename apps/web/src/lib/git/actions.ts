@@ -2,7 +2,7 @@ import type { GitRunStackedActionResult, GitStackedAction, GitStatusResult } fro
 
 export type GitActionIconName = "commit" | "push" | "pr";
 
-export type GitDialogAction = "commit" | "push" | "create_pr";
+type GitDialogAction = "commit" | "push" | "create_pr";
 
 export interface GitActionMenuItem {
   id: "commit" | "push" | "pr";
@@ -26,6 +26,8 @@ export interface DefaultBranchActionDialogCopy {
   description: string;
   continueLabel: string;
 }
+
+const COMMIT_PUSH_LABEL = "Commit & Push";
 
 export type DefaultBranchConfirmableAction =
   | "push"
@@ -70,6 +72,7 @@ export function buildMenuItems(
   gitStatus: GitStatusResult | null,
   isBusy: boolean,
   hasOriginRemote = true,
+  isDefaultBranch = false,
 ): GitActionMenuItem[] {
   if (!gitStatus) return [];
 
@@ -86,14 +89,16 @@ export function buildMenuItems(
     !isBehind &&
     gitStatus.aheadCount > 0 &&
     (gitStatus.hasUpstream || canPushWithoutUpstream);
+  const canCreatePrFromPushedBranch = gitStatus.hasUpstream && !isDefaultBranch;
+  const canCreatePrFromLocalCommits =
+    gitStatus.aheadCount > 0 && (gitStatus.hasUpstream || canPushWithoutUpstream);
   const canCreatePr =
     !isBusy &&
     hasBranch &&
     !hasChanges &&
     !hasOpenPr &&
-    gitStatus.aheadCount > 0 &&
     !isBehind &&
-    (gitStatus.hasUpstream || canPushWithoutUpstream);
+    (canCreatePrFromPushedBranch || canCreatePrFromLocalCommits);
   const canOpenPr = !isBusy && hasOpenPr;
 
   return [
@@ -171,15 +176,7 @@ export function resolveQuickAction(
     if (!gitStatus.hasUpstream && !hasOriginRemote) {
       return { label: "Commit", disabled: false, kind: "run_action", action: "commit" };
     }
-    if (hasOpenPr || isDefaultBranch) {
-      return { label: "Commit & push", disabled: false, kind: "run_action", action: "commit_push" };
-    }
-    return {
-      label: "Commit, push & PR",
-      disabled: false,
-      kind: "run_action",
-      action: "commit_push_pr",
-    };
+    return { label: COMMIT_PUSH_LABEL, disabled: false, kind: "run_action", action: "commit_push" };
   }
 
   if (!gitStatus.hasUpstream) {
@@ -207,17 +204,17 @@ export function resolveQuickAction(
     }
     if (hasOpenPr || isDefaultBranch) {
       return {
-        label: "Push",
+        label: COMMIT_PUSH_LABEL,
         disabled: false,
         kind: "run_action",
-        action: isDefaultBranch ? "commit_push" : "push",
+        action: "commit_push",
       };
     }
     return {
-      label: "Push & create PR",
+      label: COMMIT_PUSH_LABEL,
       disabled: false,
       kind: "run_action",
-      action: "create_pr",
+      action: "commit_push",
     };
   }
 
@@ -241,22 +238,31 @@ export function resolveQuickAction(
   if (isAhead) {
     if (hasOpenPr || isDefaultBranch) {
       return {
-        label: "Push",
+        label: COMMIT_PUSH_LABEL,
         disabled: false,
         kind: "run_action",
-        action: isDefaultBranch ? "commit_push" : "push",
+        action: "commit_push",
       };
     }
     return {
-      label: "Push & create PR",
+      label: COMMIT_PUSH_LABEL,
       disabled: false,
       kind: "run_action",
-      action: "create_pr",
+      action: "commit_push",
     };
   }
 
   if (hasOpenPr && gitStatus.hasUpstream) {
     return { label: "View PR", disabled: false, kind: "open_pr" };
+  }
+
+  if (!isDefaultBranch) {
+    return {
+      label: "Create PR",
+      disabled: false,
+      kind: "run_action",
+      action: "create_pr",
+    };
   }
 
   return {

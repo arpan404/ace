@@ -22,7 +22,7 @@ import { resolveExactCursorModelSelection } from "./cursorModelSelector";
 const MAX_CUSTOM_MODEL_COUNT = 32;
 export const MAX_CUSTOM_MODEL_LENGTH = 256;
 
-export type ProviderCustomModelConfig = {
+type ProviderCustomModelConfig = {
   provider: ProviderKind;
   title: string;
   description: string;
@@ -30,7 +30,7 @@ export type ProviderCustomModelConfig = {
   example: string;
 };
 
-export interface AppModelOption {
+interface AppModelOption {
   slug: string;
   name: string;
   isCustom: boolean;
@@ -88,7 +88,7 @@ const PROVIDER_CUSTOM_MODEL_CONFIG: Record<ProviderKind, ProviderCustomModelConf
   },
 };
 
-export const MODEL_PROVIDER_SETTINGS = Object.values(PROVIDER_CUSTOM_MODEL_CONFIG);
+const MODEL_PROVIDER_SETTINGS = Object.values(PROVIDER_CUSTOM_MODEL_CONFIG);
 
 export function normalizeCustomModelSlugs(
   models: Iterable<string | null | undefined>,
@@ -119,7 +119,7 @@ export function normalizeCustomModelSlugs(
   return normalizedModels;
 }
 
-export function getAppModelOptions(
+function getAppModelOptions(
   settings: Pick<UnifiedSettings, "providers">,
   providers: ReadonlyArray<ServerProvider>,
   provider: ProviderKind,
@@ -134,9 +134,12 @@ export function getAppModelOptions(
   }));
   const seen = new Set(options.map((option) => option.slug));
   const trimmedSelectedModel = selectedModel?.trim().toLowerCase();
-  const builtInModelSlugs = new Set(
-    serverModels.filter((model) => !model.isCustom).map((model) => model.slug),
-  );
+  const builtInModelSlugs = new Set<string>();
+  for (const model of serverModels) {
+    if (!model.isCustom) {
+      builtInModelSlugs.add(model.slug);
+    }
+  }
 
   const customModels = settings.providers[provider].customModels;
   for (const slug of normalizeCustomModelSlugs(customModels, builtInModelSlugs, provider)) {

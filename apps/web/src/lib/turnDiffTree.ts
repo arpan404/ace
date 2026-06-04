@@ -5,7 +5,7 @@ export interface TurnDiffStat {
   deletions: number;
 }
 
-export interface TurnDiffTreeDirectoryNode {
+interface TurnDiffTreeDirectoryNode {
   kind: "directory";
   name: string;
   path: string;
@@ -13,7 +13,7 @@ export interface TurnDiffTreeDirectoryNode {
   children: TurnDiffTreeNode[];
 }
 
-export interface TurnDiffTreeFileNode {
+interface TurnDiffTreeFileNode {
   kind: "file";
   name: string;
   path: string;
@@ -78,19 +78,21 @@ function compactDirectoryNode(node: TurnDiffTreeDirectoryNode): TurnDiffTreeDire
 }
 
 function toTreeNodes(directory: MutableDirectoryNode): TurnDiffTreeNode[] {
-  const subdirectories: TurnDiffTreeDirectoryNode[] = Array.from(directory.directories.values())
-    .toSorted(compareByName)
-    .map<TurnDiffTreeDirectoryNode>((subdirectory) => ({
-      kind: "directory",
-      name: subdirectory.name,
-      path: subdirectory.path,
-      stat: {
-        additions: subdirectory.stat.additions,
-        deletions: subdirectory.stat.deletions,
-      },
-      children: toTreeNodes(subdirectory),
-    }))
-    .map((subdirectory) => compactDirectoryNode(subdirectory));
+  const subdirectories: TurnDiffTreeDirectoryNode[] = [];
+  for (const subdirectory of Array.from(directory.directories.values()).toSorted(compareByName)) {
+    subdirectories.push(
+      compactDirectoryNode({
+        kind: "directory",
+        name: subdirectory.name,
+        path: subdirectory.path,
+        stat: {
+          additions: subdirectory.stat.additions,
+          deletions: subdirectory.stat.deletions,
+        },
+        children: toTreeNodes(subdirectory),
+      }),
+    );
+  }
 
   const files = directory.files.toSorted(compareByName);
   return [...subdirectories, ...files];

@@ -15,6 +15,7 @@ import {
   AutocompleteList,
   AutocompleteSeparator,
 } from "~/components/ui/autocomplete";
+import { MODAL_LAYER_CLASS_NAME } from "~/components/ui/layers";
 
 const CommandDialog = CommandDialogPrimitive.Root;
 
@@ -30,7 +31,8 @@ function CommandDialogBackdrop({ className, ...props }: CommandDialogPrimitive.B
   return (
     <CommandDialogPrimitive.Backdrop
       className={cn(
-        "fixed inset-0 z-50 bg-black/36 backdrop-blur-[3px] transition-all duration-200 data-ending-style:opacity-0 data-starting-style:opacity-0",
+        "fixed inset-0 bg-black/36 backdrop-blur-[3px] transition-all duration-200 data-ending-style:opacity-0 data-starting-style:opacity-0",
+        MODAL_LAYER_CLASS_NAME,
         className,
       )}
       data-slot="command-dialog-backdrop"
@@ -43,7 +45,8 @@ function CommandDialogViewport({ className, ...props }: CommandDialogPrimitive.V
   return (
     <CommandDialogPrimitive.Viewport
       className={cn(
-        "fixed inset-0 z-50 flex flex-col items-center px-3 py-[max(--spacing(3),3vh)] sm:px-4 sm:py-[10vh]",
+        "fixed inset-0 flex flex-col items-center px-3 py-[max(--spacing(3),3vh)] sm:px-4 sm:py-[10vh]",
+        MODAL_LAYER_CLASS_NAME,
         className,
       )}
       data-slot="command-dialog-viewport"
@@ -94,9 +97,8 @@ function CommandInput({
   ...props
 }: React.ComponentProps<typeof AutocompleteInput>) {
   return (
-    <div className="border-b border-border/55 bg-background/35 px-3 py-3">
+    <div className="border-b border-border/55 bg-background/35 p-3">
       <AutocompleteInput
-        autoFocus
         className={cn(
           "border-border/60 bg-background/72 shadow-none before:hidden has-focus-visible:border-ring/60 has-focus-visible:ring-2 has-focus-visible:ring-ring/18 dark:bg-card/46",
           className,
@@ -205,20 +207,15 @@ function CommandFooter({ className, ...props }: React.ComponentProps<"div">) {
 }
 
 export {
-  CommandCreateHandle,
   Command,
-  CommandCollection,
   CommandDialog,
   CommandDialogPopup,
-  CommandDialogTrigger,
   CommandEmpty,
-  CommandFooter,
   CommandGroup,
   CommandGroupLabel,
   CommandInput,
   CommandItem,
   CommandList,
   CommandPanel,
-  CommandSeparator,
   CommandShortcut,
 };

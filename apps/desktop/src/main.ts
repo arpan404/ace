@@ -48,6 +48,13 @@ import type { ContextMenuItem } from "@ace/contracts";
 import { NetService } from "@ace/shared/Net";
 import { RotatingFileSink } from "@ace/shared/logging";
 import {
+  MAC_WEBAUTHN_PROMPT_REASON,
+  MAC_WEBAUTHN_RUNTIME_CONFIG_FILE,
+  parseMacWebAuthnRuntimeConfig,
+  resolveMacWebAuthnKeychainAccessGroup,
+  type MacWebAuthnRuntimeConfig,
+} from "@ace/shared/macWebAuthn";
+import {
   createDesktopCliInstallStateFromInspect,
   createDesktopCliInstallStateFromResult,
   createPendingDesktopCliInstallState,
@@ -75,6 +82,15 @@ import { appendDesktopBootstrapWsUrl } from "./rendererBootstrapUrl";
 import { buildWebContentsContextMenuTemplate } from "./webContentsContextMenu";
 import { buildApplicationMenuTemplate } from "./applicationMenu";
 import { resolveBrowserShortcutAction } from "./browserShortcuts";
+import {
+  clearInAppBrowserSiteData,
+  configureInAppBrowserSessionFeatures,
+  controlInAppBrowserDownload,
+  getInAppBrowserDownloads,
+  getInAppBrowserSiteInfo,
+  resetInAppBrowserSitePermissions,
+  setInAppBrowserSitePermission,
+} from "./inAppBrowserSessionFeatures";
 import { hasDesktopUpdateArg, resolveDesktopSecondInstanceAction } from "./desktopUpdateLaunch";
 import {
   buildLinuxDaemonAutostartEntry,
@@ -85,14 +101,26 @@ import {
   startDesktopBackgroundNotificationService,
   type DesktopBackgroundNotificationService,
 } from "./backgroundNotificationService";
+import { resolveBrowserExtensionDirectories } from "./browserExtensionDiscovery";
+import { resolveBrowserSessionUserAgent } from "./browserUserAgent";
 
 const PICK_FOLDER_CHANNEL = "desktop:pick-folder";
 const CONFIRM_CHANNEL = "desktop:confirm";
 const REPAIR_BROWSER_STORAGE_CHANNEL = "desktop:repair-browser-storage";
+const BROWSER_SITE_INFO_CHANNEL = "desktop:browser-site-info";
+const BROWSER_SET_SITE_PERMISSION_CHANNEL = "desktop:browser-set-site-permission";
+const BROWSER_RESET_SITE_PERMISSIONS_CHANNEL = "desktop:browser-reset-site-permissions";
+const BROWSER_CLEAR_SITE_DATA_CHANNEL = "desktop:browser-clear-site-data";
+const BROWSER_DOWNLOADS_GET_CHANNEL = "desktop:browser-downloads-get";
+const BROWSER_DOWNLOAD_CONTROL_CHANNEL = "desktop:browser-download-control";
+const BROWSER_DOWNLOAD_EVENT_CHANNEL = "desktop:browser-download-event";
 const SET_THEME_CHANNEL = "desktop:set-theme";
 const APP_ZOOM_CHANNEL = "desktop:app-zoom";
+const OPEN_NEW_WINDOW_CHANNEL = "desktop:open-new-window";
 const OPEN_DETACHED_BROWSER_CHANNEL = "desktop:open-detached-browser";
 const OPEN_DETACHED_EDITOR_CHANNEL = "desktop:open-detached-editor";
+const RETURN_DETACHED_WINDOW_CHANNEL = "desktop:return-detached-window";
+const OPEN_BROWSER_AUTH_WINDOW_CHANNEL = "desktop:open-browser-auth-window";
 const CONTEXT_MENU_CHANNEL = "desktop:context-menu";
 const OPEN_EXTERNAL_CHANNEL = "desktop:open-external";
 const SHOW_NOTIFICATION_CHANNEL = "desktop:show-notification";
@@ -146,12 +174,13 @@ const useDaemonBackend = !isDevelopmentBuild && process.platform !== "linux";
 const COMMIT_HASH_PATTERN = /^[0-9a-f]{7,40}$/i;
 const COMMIT_HASH_DISPLAY_LENGTH = 12;
 const LOG_DIR = Path.join(STATE_DIR, "logs");
+const BROWSER_PERMISSION_STORE_PATH = Path.join(STATE_DIR, "browser-permissions.json");
 const LOG_FILE_MAX_BYTES = 10 * 1024 * 1024;
 const LOG_FILE_MAX_FILES = 10;
 const DAEMON_LOGIN_ITEM_ARG = "--daemon-login-item";
 const APP_RUN_ID = Crypto.randomBytes(6).toString("hex");
 const AUTO_UPDATE_STARTUP_DELAY_MS = 15_000;
-const AUTO_UPDATE_POLL_INTERVAL_MS = 4 * 60 * 60 * 1000;
+const AUTO_UPDATE_POLL_INTERVAL_MS = 5 * 60 * 1000;
 const AUTO_UPDATE_INSTALL_HANDOFF_TIMEOUT_MS = 15_000;
 const MAIN_WINDOW_SHOW_FALLBACK_DELAY_MS = 4_000;
 const DETACHED_BROWSER_WINDOW_SHOW_FALLBACK_DELAY_MS = 1_500;
@@ -197,8 +226,10 @@ interface DesktopRendererBootstrapPayload {
 }
 
 let mainWindow: BrowserWindow | null = null;
+const primaryWindows = new Set<BrowserWindow>();
 const detachedBrowserWindows = new Map<string, BrowserWindow>();
 const detachedEditorWindows = new Map<string, BrowserWindow>();
+const browserAuthWindows = new Map<string, BrowserWindow>();
 let backendProcess: ChildProcess.ChildProcess | null = null;
 let backendPort = 0;
 let backendAuthToken = "";
@@ -322,6 +353,41 @@ function getSafeExternalUrl(rawUrl: unknown): string | null {
   return parsedUrl.toString();
 }
 
+function isLikelyAuthenticationPopupUrl(url: string): boolean {
+  try {
+    const parsedUrl = new URL(url);
+    const haystack =
+      `${parsedUrl.hostname} ${parsedUrl.pathname} ${parsedUrl.search}`.toLowerCase();
+    return /\b(auth|authorize|login|log-in|signin|sign-in|saml|sso|oauth|oidc|password|passkey|webauthn|account)\b/.test(
+      haystack,
+    );
+  } catch {
+    return false;
+  }
+}
+
+function createAuthenticationPopupOptions(
+  parent: BrowserWindow,
+): Electron.BrowserWindowConstructorOptions {
+  return {
+    parent,
+    width: 540,
+    height: 760,
+    minWidth: 420,
+    minHeight: 520,
+    title: "Authentication",
+    show: true,
+    autoHideMenuBar: true,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: true,
+      partition: IN_APP_BROWSER_PARTITION,
+    },
+    ...getIconOption(),
+  };
+}
+
 function getSafeTheme(rawTheme: unknown): DesktopTheme | null {
   if (rawTheme === "light" || rawTheme === "dark" || rawTheme === "system") {
     return rawTheme;
@@ -363,14 +429,25 @@ function getSafeDesktopNotificationInput(rawInput: unknown): DesktopNotification
   };
 }
 
-function getOrCreatePrimaryWindow(): BrowserWindow {
-  const existingWindow =
-    BrowserWindow.getFocusedWindow() ?? mainWindow ?? BrowserWindow.getAllWindows()[0];
-  const targetWindow = existingWindow ?? createWindow();
-  if (!existingWindow) {
-    mainWindow = targetWindow;
+function getFocusedPrimaryWindow(): BrowserWindow | null {
+  const focusedWindow = BrowserWindow.getFocusedWindow();
+  return focusedWindow && primaryWindows.has(focusedWindow) ? focusedWindow : null;
+}
+
+function getFallbackPrimaryWindow(): BrowserWindow | null {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    return mainWindow;
   }
-  return targetWindow;
+  for (const window of primaryWindows) {
+    if (!window.isDestroyed()) {
+      return window;
+    }
+  }
+  return null;
+}
+
+function getOrCreatePrimaryWindow(): BrowserWindow {
+  return getFocusedPrimaryWindow() ?? getFallbackPrimaryWindow() ?? createWindow();
 }
 
 function focusPrimaryWindow(window: BrowserWindow): void {
@@ -435,8 +512,7 @@ function queueDesktopPairingUrl(input: string): void {
 }
 
 function isDesktopWindowFocusedForNotifications(): boolean {
-  const targetWindow =
-    mainWindow ?? BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
+  const targetWindow = getFocusedPrimaryWindow() ?? getFallbackPrimaryWindow();
   if (!targetWindow || targetWindow.isDestroyed()) {
     return false;
   }
@@ -1389,6 +1465,11 @@ function registerDesktopProtocolClient(): void {
 }
 
 function dispatchMenuAction(action: DesktopMenuAction): void {
+  if (action === "new-window") {
+    focusPrimaryWindow(createWindow());
+    return;
+  }
+
   withReadyPrimaryWindow((window) => {
     window.webContents.send(MENU_ACTION_CHANNEL, action);
   });
@@ -1481,6 +1562,60 @@ function resolveResourcePath(fileName: string): string | null {
   }
 
   return null;
+}
+
+function readMacWebAuthnRuntimeConfig(): MacWebAuthnRuntimeConfig | null {
+  const configPath = resolveResourcePath(MAC_WEBAUTHN_RUNTIME_CONFIG_FILE);
+  if (!configPath) {
+    return null;
+  }
+
+  try {
+    return parseMacWebAuthnRuntimeConfig(FS.readFileSync(configPath, "utf8"));
+  } catch (error) {
+    writeDesktopLogHeader(
+      `mac-webauthn config read failed path=${sanitizeLogValue(configPath)} error=${sanitizeLogValue(formatErrorMessage(error))}`,
+    );
+    return null;
+  }
+}
+
+function configureMacWebAuthn(): void {
+  if (process.platform !== "darwin") {
+    return;
+  }
+
+  const configureWebAuthn = app.configureWebAuthn;
+  if (typeof configureWebAuthn !== "function") {
+    writeDesktopLogHeader("mac-webauthn disabled reason=electron-api-unavailable");
+    return;
+  }
+
+  const keychainAccessGroup = resolveMacWebAuthnKeychainAccessGroup({
+    appBundleId: APP_USER_MODEL_ID,
+    env: process.env,
+    runtimeConfig: readMacWebAuthnRuntimeConfig(),
+  });
+  if (!keychainAccessGroup) {
+    writeDesktopLogHeader("mac-webauthn disabled reason=missing-keychain-access-group");
+    return;
+  }
+
+  try {
+    configureWebAuthn.call(app, {
+      touchID: {
+        keychainAccessGroup,
+        promptReason: MAC_WEBAUTHN_PROMPT_REASON,
+      },
+    });
+    writeDesktopLogHeader(
+      `mac-webauthn enabled keychainAccessGroup=${sanitizeLogValue(keychainAccessGroup)}`,
+    );
+  } catch (error) {
+    writeDesktopLogHeader(
+      `mac-webauthn configure failed error=${sanitizeLogValue(formatErrorMessage(error))}`,
+    );
+  }
 }
 
 function resolveIconPath(ext: "ico" | "icns" | "png"): string | null {
@@ -1718,11 +1853,20 @@ function normalizeDetachedBrowserOpenInput(rawInput: unknown): {
 function normalizeDetachedEditorOpenInput(rawInput: unknown): {
   threadId: string;
   connectionUrl?: string;
+  editorStateInstanceId?: string;
+  placement?: "bottom" | "right" | "workspace";
+  workspaceMode?: "editor" | "split";
 } | null {
   if (typeof rawInput !== "object" || rawInput === null) {
     return null;
   }
-  const input = rawInput as { threadId?: unknown; connectionUrl?: unknown };
+  const input = rawInput as {
+    connectionUrl?: unknown;
+    editorStateInstanceId?: unknown;
+    placement?: unknown;
+    threadId?: unknown;
+    workspaceMode?: unknown;
+  };
   if (typeof input.threadId !== "string" || input.threadId.trim().length === 0) {
     return null;
   }
@@ -1730,9 +1874,89 @@ function normalizeDetachedEditorOpenInput(rawInput: unknown): {
     typeof input.connectionUrl === "string" && input.connectionUrl.trim().length > 0
       ? input.connectionUrl.trim()
       : undefined;
+  const editorStateInstanceId =
+    typeof input.editorStateInstanceId === "string" && input.editorStateInstanceId.trim().length > 0
+      ? input.editorStateInstanceId.trim()
+      : undefined;
   return {
     threadId: input.threadId.trim(),
     ...(connectionUrl ? { connectionUrl } : {}),
+    ...(editorStateInstanceId ? { editorStateInstanceId } : {}),
+    ...(input.placement === "bottom" ||
+    input.placement === "right" ||
+    input.placement === "workspace"
+      ? { placement: input.placement }
+      : {}),
+    ...(input.workspaceMode === "editor" || input.workspaceMode === "split"
+      ? { workspaceMode: input.workspaceMode }
+      : {}),
+  };
+}
+
+function normalizeDetachedWindowReturnRequest(rawInput: unknown):
+  | {
+      kind: "browser";
+      scopeId?: string;
+    }
+  | {
+      kind: "editor";
+      connectionUrl?: string;
+      editorStateInstanceId?: string;
+      placement?: "bottom" | "right" | "workspace";
+      threadId: string;
+      workspaceMode?: "editor" | "split";
+    }
+  | null {
+  if (typeof rawInput !== "object" || rawInput === null) {
+    return null;
+  }
+  const input = rawInput as {
+    connectionUrl?: unknown;
+    editorStateInstanceId?: unknown;
+    kind?: unknown;
+    placement?: unknown;
+    scopeId?: unknown;
+    threadId?: unknown;
+    workspaceMode?: unknown;
+  };
+  if (input.kind === "browser") {
+    const scopeId =
+      typeof input.scopeId === "string" && input.scopeId.trim().length > 0
+        ? input.scopeId.trim()
+        : undefined;
+    return {
+      kind: "browser",
+      ...(scopeId ? { scopeId } : {}),
+    };
+  }
+  if (input.kind !== "editor" || typeof input.threadId !== "string") {
+    return null;
+  }
+  const threadId = input.threadId.trim();
+  if (threadId.length === 0) {
+    return null;
+  }
+  const connectionUrl =
+    typeof input.connectionUrl === "string" && input.connectionUrl.trim().length > 0
+      ? input.connectionUrl.trim()
+      : undefined;
+  const editorStateInstanceId =
+    typeof input.editorStateInstanceId === "string" && input.editorStateInstanceId.trim().length > 0
+      ? input.editorStateInstanceId.trim()
+      : undefined;
+  return {
+    kind: "editor",
+    threadId,
+    ...(connectionUrl ? { connectionUrl } : {}),
+    ...(editorStateInstanceId ? { editorStateInstanceId } : {}),
+    ...(input.placement === "bottom" ||
+    input.placement === "right" ||
+    input.placement === "workspace"
+      ? { placement: input.placement }
+      : {}),
+    ...(input.workspaceMode === "editor" || input.workspaceMode === "split"
+      ? { workspaceMode: input.workspaceMode }
+      : {}),
   };
 }
 
@@ -2239,6 +2463,7 @@ function configureAutoUpdater(): void {
     );
     lastLoggedDownloadMilestone = -1;
     console.info(`[desktop-updater] Update available: ${info.version}`);
+    void downloadAvailableUpdate();
   });
   autoUpdater.on("update-not-available", () => {
     setUpdateState(reduceDesktopUpdateStateOnNoUpdate(updateState, new Date().toISOString()));
@@ -2544,6 +2769,65 @@ function registerIpcHandlers(): void {
     return repairInAppBrowserStorage();
   });
 
+  ipcMain.removeHandler(BROWSER_SITE_INFO_CHANNEL);
+  ipcMain.handle(BROWSER_SITE_INFO_CHANNEL, async (_event, rawUrl: unknown) => {
+    const url = getSafeExternalUrl(rawUrl);
+    if (!url) {
+      return null;
+    }
+    return getInAppBrowserSiteInfo({ partition: IN_APP_BROWSER_PARTITION, url });
+  });
+
+  ipcMain.removeHandler(BROWSER_SET_SITE_PERMISSION_CHANNEL);
+  ipcMain.handle(BROWSER_SET_SITE_PERMISSION_CHANNEL, async (_event, rawInput: unknown) => {
+    if (typeof rawInput !== "object" || rawInput === null) {
+      return false;
+    }
+    const input = rawInput as { permission?: unknown; setting?: unknown; url?: unknown };
+    const url = getSafeExternalUrl(input.url);
+    if (!url || typeof input.permission !== "string" || typeof input.setting !== "string") {
+      return false;
+    }
+    return setInAppBrowserSitePermission({
+      permission: input.permission as never,
+      setting: input.setting as never,
+      url,
+    });
+  });
+
+  ipcMain.removeHandler(BROWSER_RESET_SITE_PERMISSIONS_CHANNEL);
+  ipcMain.handle(BROWSER_RESET_SITE_PERMISSIONS_CHANNEL, async (_event, rawUrl: unknown) => {
+    const url = getSafeExternalUrl(rawUrl);
+    return url ? resetInAppBrowserSitePermissions({ url }) : false;
+  });
+
+  ipcMain.removeHandler(BROWSER_CLEAR_SITE_DATA_CHANNEL);
+  ipcMain.handle(BROWSER_CLEAR_SITE_DATA_CHANNEL, async (_event, rawUrl: unknown) => {
+    const url = getSafeExternalUrl(rawUrl);
+    if (!url) {
+      return false;
+    }
+    return clearInAppBrowserSiteData({ partition: IN_APP_BROWSER_PARTITION, url });
+  });
+
+  ipcMain.removeHandler(BROWSER_DOWNLOADS_GET_CHANNEL);
+  ipcMain.handle(BROWSER_DOWNLOADS_GET_CHANNEL, async () => getInAppBrowserDownloads());
+
+  ipcMain.removeHandler(BROWSER_DOWNLOAD_CONTROL_CHANNEL);
+  ipcMain.handle(BROWSER_DOWNLOAD_CONTROL_CHANNEL, async (_event, rawInput: unknown) => {
+    if (typeof rawInput !== "object" || rawInput === null) {
+      return false;
+    }
+    const input = rawInput as { action?: unknown; id?: unknown };
+    if (typeof input.id !== "string" || typeof input.action !== "string") {
+      return false;
+    }
+    return controlInAppBrowserDownload({
+      id: input.id,
+      action: input.action as never,
+    });
+  });
+
   ipcMain.removeHandler(SET_THEME_CHANNEL);
   ipcMain.handle(SET_THEME_CHANNEL, async (_event, rawTheme: unknown) => {
     const theme = getSafeTheme(rawTheme);
@@ -2566,6 +2850,12 @@ function registerIpcHandlers(): void {
     applyAppZoom(owner, rawAction);
   });
 
+  ipcMain.removeHandler(OPEN_NEW_WINDOW_CHANNEL);
+  ipcMain.handle(OPEN_NEW_WINDOW_CHANNEL, async () => {
+    focusPrimaryWindow(createWindow());
+    return true;
+  });
+
   ipcMain.removeHandler(OPEN_DETACHED_BROWSER_CHANNEL);
   ipcMain.handle(OPEN_DETACHED_BROWSER_CHANNEL, async (_event, rawInput: unknown) => {
     return createDetachedBrowserWindow(normalizeDetachedBrowserOpenInput(rawInput));
@@ -2575,6 +2865,23 @@ function registerIpcHandlers(): void {
   ipcMain.handle(OPEN_DETACHED_EDITOR_CHANNEL, async (_event, rawInput: unknown) => {
     const input = normalizeDetachedEditorOpenInput(rawInput);
     return input ? createDetachedEditorWindow(input) : false;
+  });
+
+  ipcMain.removeHandler(RETURN_DETACHED_WINDOW_CHANNEL);
+  ipcMain.handle(RETURN_DETACHED_WINDOW_CHANNEL, async (_event, rawInput: unknown) => {
+    const request = normalizeDetachedWindowReturnRequest(rawInput);
+    if (!request) {
+      return false;
+    }
+    withReadyPrimaryWindow((window) => {
+      safelySendToWindow(window, RETURN_DETACHED_WINDOW_CHANNEL, request);
+    });
+    return true;
+  });
+
+  ipcMain.removeHandler(OPEN_BROWSER_AUTH_WINDOW_CHANNEL);
+  ipcMain.handle(OPEN_BROWSER_AUTH_WINDOW_CHANNEL, async (_event, rawUrl: unknown) => {
+    return createBrowserAuthWindow(rawUrl);
   });
 
   ipcMain.removeHandler(CONTEXT_MENU_CHANNEL);
@@ -2782,7 +3089,10 @@ function attachWebContentsContextMenu(input: {
           ? {
               onCopyLink: () => clipboard.writeText(linkUrl),
               onOpenLinkInNewTab: () => {
-                safelySendToWindow(input.window, BROWSER_OPEN_URL_CHANNEL, linkUrl);
+                safelySendToWindow(input.window, BROWSER_OPEN_URL_CHANNEL, {
+                  sourceWebContentsId: input.targetContents.id,
+                  url: linkUrl,
+                });
               },
               onOpenLink: () => {
                 void shell.openExternal(linkUrl);
@@ -2884,10 +3194,10 @@ function setupWebViewEventHandlers(window: BrowserWindow): void {
       return;
     }
 
-    delete webPreferences.preload;
     webPreferences.nodeIntegration = false;
     webPreferences.contextIsolation = true;
     webPreferences.sandbox = true;
+    delete webPreferences.preload;
     params.partition = IN_APP_BROWSER_PARTITION;
     params.src = safeInitialUrl;
   });
@@ -2912,8 +3222,18 @@ function setupWebViewEventHandlers(window: BrowserWindow): void {
     });
     guestContents.setWindowOpenHandler(({ url }) => {
       const externalUrl = getSafeExternalUrl(url);
+      if (externalUrl && isLikelyAuthenticationPopupUrl(externalUrl)) {
+        writeDesktopLogHeader(`browser auth popup allowed url=${sanitizeLogValue(externalUrl)}`);
+        return {
+          action: "allow",
+          overrideBrowserWindowOptions: createAuthenticationPopupOptions(window),
+        };
+      }
       if (externalUrl) {
-        safelySendToWindow(window, BROWSER_OPEN_URL_CHANNEL, externalUrl);
+        safelySendToWindow(window, BROWSER_OPEN_URL_CHANNEL, {
+          sourceWebContentsId: guestContents.id,
+          url: externalUrl,
+        });
       }
       return { action: "deny" };
     });
@@ -3015,10 +3335,161 @@ function createDetachedBrowserWindow(input: { scopeId?: string; initialUrl?: str
   return true;
 }
 
-function createDetachedEditorWindow(input: { threadId: string; connectionUrl?: string }): boolean {
-  const windowKey = input.connectionUrl
-    ? `${input.connectionUrl}\0${input.threadId}`
-    : input.threadId;
+function resolveBrowserAuthWindowKey(url: string): string {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return url;
+  }
+}
+
+function configureBrowserAuthWindowWebContents(window: BrowserWindow): void {
+  window.webContents.setWindowOpenHandler(({ url }) => {
+    const externalUrl = getSafeExternalUrl(url);
+    if (!externalUrl) {
+      writeDesktopLogHeader(`browser-auth-window blocked popup url=${sanitizeLogValue(url)}`);
+      return { action: "deny" };
+    }
+
+    if (isLikelyAuthenticationPopupUrl(externalUrl)) {
+      writeDesktopLogHeader(
+        `browser-auth-window auth popup allowed url=${sanitizeLogValue(externalUrl)}`,
+      );
+      return {
+        action: "allow",
+        overrideBrowserWindowOptions: createAuthenticationPopupOptions(window),
+      };
+    }
+
+    void window.webContents.loadURL(externalUrl).catch((error: unknown) => {
+      writeDesktopLogHeader(
+        `browser-auth-window popup navigation failed url=${sanitizeLogValue(externalUrl)} error=${sanitizeLogValue(formatErrorMessage(error))}`,
+      );
+    });
+    return { action: "deny" };
+  });
+
+  window.webContents.on("will-navigate", (event, url) => {
+    if (getSafeExternalUrl(url)) {
+      return;
+    }
+    event.preventDefault();
+    writeDesktopLogHeader(`browser-auth-window blocked navigation url=${sanitizeLogValue(url)}`);
+  });
+
+  window.webContents.on("render-process-gone", (_event, details) => {
+    writeDesktopLogHeader(
+      `browser-auth-window render-process-gone ${formatWebContentsGoneDetails(details)}`,
+    );
+  });
+  window.webContents.on("unresponsive", () => {
+    writeDesktopLogHeader("browser-auth-window unresponsive");
+  });
+  window.webContents.on("responsive", () => {
+    writeDesktopLogHeader("browser-auth-window responsive");
+  });
+
+  attachWebContentsContextMenu({
+    includeDevToolsAction: true,
+    targetContents: window.webContents,
+    window,
+  });
+}
+
+function createBrowserAuthWindow(rawUrl: unknown): boolean {
+  const authUrl = getSafeExternalUrl(rawUrl);
+  if (!authUrl) {
+    return false;
+  }
+
+  const windowKey = resolveBrowserAuthWindowKey(authUrl);
+  const existingWindow = browserAuthWindows.get(windowKey);
+  if (existingWindow && !existingWindow.isDestroyed()) {
+    if (existingWindow.isMinimized()) {
+      existingWindow.restore();
+    }
+    existingWindow.show();
+    existingWindow.focus();
+    void existingWindow.loadURL(authUrl).catch((error: unknown) => {
+      writeDesktopLogHeader(
+        `browser-auth-window reload failed url=${sanitizeLogValue(authUrl)} error=${sanitizeLogValue(formatErrorMessage(error))}`,
+      );
+    });
+    return true;
+  }
+
+  const parent = BrowserWindow.getFocusedWindow() ?? mainWindow;
+  const window = new BrowserWindow({
+    ...(parent && !parent.isDestroyed() ? { parent } : {}),
+    width: 620,
+    height: 800,
+    minWidth: 420,
+    minHeight: 520,
+    backgroundColor: nativeTheme.shouldUseDarkColors ? "#111313" : "#f4f7f6",
+    show: false,
+    autoHideMenuBar: true,
+    ...getIconOption(),
+    title: `${APP_DISPLAY_NAME} Sign In`,
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      partition: IN_APP_BROWSER_PARTITION,
+      sandbox: true,
+    },
+  });
+
+  browserAuthWindows.set(windowKey, window);
+  configureBrowserAuthWindowWebContents(window);
+
+  const revealWindow = () => {
+    if (window.isDestroyed()) {
+      return;
+    }
+    if (!window.isVisible()) {
+      window.show();
+    }
+    window.focus();
+  };
+  const revealFallbackTimer = setTimeout(
+    revealWindow,
+    DETACHED_BROWSER_WINDOW_SHOW_FALLBACK_DELAY_MS,
+  );
+  revealFallbackTimer.unref();
+  window.once("ready-to-show", revealWindow);
+  window.webContents.once("did-finish-load", revealWindow);
+  window.on("page-title-updated", (event) => {
+    event.preventDefault();
+    window.setTitle(`${APP_DISPLAY_NAME} Sign In`);
+  });
+  window.webContents.on("did-finish-load", () => {
+    window.setTitle(`${APP_DISPLAY_NAME} Sign In`);
+  });
+  window.on("closed", () => {
+    clearTimeout(revealFallbackTimer);
+    browserAuthWindows.delete(windowKey);
+  });
+
+  void window.loadURL(authUrl).catch((error: unknown) => {
+    writeDesktopLogHeader(
+      `browser-auth-window load failed url=${sanitizeLogValue(authUrl)} error=${sanitizeLogValue(formatErrorMessage(error))}`,
+    );
+    revealWindow();
+  });
+  return true;
+}
+
+function createDetachedEditorWindow(input: {
+  threadId: string;
+  connectionUrl?: string;
+  editorStateInstanceId?: string;
+  placement?: "bottom" | "right" | "workspace";
+  workspaceMode?: "editor" | "split";
+}): boolean {
+  const windowKey = [
+    input.connectionUrl ?? "",
+    input.threadId,
+    input.editorStateInstanceId ?? "",
+  ].join("\0");
   const existingWindow = detachedEditorWindows.get(windowKey);
   if (existingWindow && !existingWindow.isDestroyed()) {
     if (existingWindow.isMinimized()) {
@@ -3091,6 +3562,9 @@ function createDetachedEditorWindow(input: { threadId: string; connectionUrl?: s
     aceDetachedEditor: "1",
     threadId: input.threadId,
     ...(input.connectionUrl ? { connectionUrl: input.connectionUrl } : {}),
+    ...(input.editorStateInstanceId ? { editorStateInstanceId: input.editorStateInstanceId } : {}),
+    ...(input.placement ? { placement: input.placement } : {}),
+    ...(input.workspaceMode ? { workspaceMode: input.workspaceMode } : {}),
   });
   void window.loadURL(rendererUrl);
   return true;
@@ -3118,6 +3592,8 @@ function createWindow(): BrowserWindow {
     },
   });
 
+  primaryWindows.add(window);
+  mainWindow = window;
   setupWebViewEventHandlers(window);
 
   window.webContents.setWindowOpenHandler(({ url }) => {
@@ -3171,8 +3647,9 @@ function createWindow(): BrowserWindow {
 
   window.on("closed", () => {
     clearTimeout(revealFallbackTimer);
+    primaryWindows.delete(window);
     if (mainWindow === window) {
-      mainWindow = null;
+      mainWindow = getFallbackPrimaryWindow();
     }
   });
 
@@ -3197,12 +3674,15 @@ if (!hasSingleInstanceLock) {
       return;
     }
 
-    const window = getOrCreatePrimaryWindow();
-    focusPrimaryWindow(window);
     const pairingUrl = findDesktopPairingUrlInArgv(argv);
     if (pairingUrl) {
+      const window = getOrCreatePrimaryWindow();
+      focusPrimaryWindow(window);
       queueDesktopPairingUrl(pairingUrl);
+      return;
     }
+
+    focusPrimaryWindow(createWindow());
   });
 }
 
@@ -3266,8 +3746,22 @@ app.on("before-quit", () => {
 
 app
   .whenReady()
-  .then(() => {
+  .then(async () => {
     writeDesktopLogHeader("app ready");
+    configureMacWebAuthn();
+    await configureInAppBrowserSessionFeatures({
+      partition: IN_APP_BROWSER_PARTITION,
+      extensionDirectories: resolveBrowserExtensionDirectories(),
+      getOwnerWindow: () => BrowserWindow.getFocusedWindow() ?? mainWindow,
+      log: writeDesktopLogHeader,
+      permissionStorePath: BROWSER_PERMISSION_STORE_PATH,
+      sendDownloadEvent: (event) => {
+        for (const window of BrowserWindow.getAllWindows()) {
+          safelySendToWindow(window, BROWSER_DOWNLOAD_EVENT_CHANNEL, event);
+        }
+      },
+      userAgent: resolveBrowserSessionUserAgent(app.userAgentFallback),
+    });
     syncShellEnvironment();
     if (process.platform === "linux" && app.isPackaged) {
       ensureLinuxDesktopLauncherEntry();
@@ -3314,14 +3808,14 @@ app
     });
     powerMonitor.on("resume", () => {
       writeDesktopLogHeader("power-monitor resume");
-      if (mainWindow) {
-        emitWindowResume(mainWindow, "resume");
+      for (const window of primaryWindows) {
+        emitWindowResume(window, "resume");
       }
     });
     powerMonitor.on("unlock-screen", () => {
       writeDesktopLogHeader("power-monitor unlock-screen");
-      if (mainWindow) {
-        emitWindowResume(mainWindow, "unlock-screen");
+      for (const window of primaryWindows) {
+        emitWindowResume(window, "unlock-screen");
       }
     });
   })

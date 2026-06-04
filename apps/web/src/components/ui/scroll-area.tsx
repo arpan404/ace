@@ -1,24 +1,34 @@
 "use client";
 
 import { ScrollArea as ScrollAreaPrimitive } from "@base-ui/react/scroll-area";
+import { type Ref } from "react";
 
 import { cn } from "~/lib/utils";
 
 function ScrollArea({
   className,
   children,
+  viewportProps,
+  viewportRef,
   scrollFade = false,
   scrollbarGutter = false,
   hideScrollbars = false,
+  verticalScrollbarSide = "end",
   ...props
 }: ScrollAreaPrimitive.Root.Props & {
+  viewportProps?: ScrollAreaPrimitive.Viewport.Props;
+  viewportRef?: Ref<HTMLDivElement>;
   scrollFade?: boolean;
   scrollbarGutter?: boolean;
   hideScrollbars?: boolean;
+  verticalScrollbarSide?: "start" | "end";
 }) {
+  const { className: viewportClassName, ...rootViewportProps } = viewportProps ?? {};
+
   return (
     <ScrollAreaPrimitive.Root className={cn("size-full min-h-0", className)} {...props}>
       <ScrollAreaPrimitive.Viewport
+        ref={viewportRef}
         className={cn(
           "h-full overscroll-contain rounded-[inherit] outline-none transition-shadows focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background data-has-overflow-x:overscroll-x-contain",
           scrollFade &&
@@ -26,14 +36,23 @@ function ScrollArea({
           scrollbarGutter && "data-has-overflow-y:pe-2.5 data-has-overflow-x:pb-2.5",
           hideScrollbars &&
             "[-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+          viewportClassName,
         )}
         data-slot="scroll-area-viewport"
+        {...rootViewportProps}
       >
         {children}
       </ScrollAreaPrimitive.Viewport>
       {!hideScrollbars && (
         <>
-          <ScrollBar orientation="vertical" />
+          <ScrollBar
+            orientation="vertical"
+            className={
+              verticalScrollbarSide === "start"
+                ? "![inset-inline-end:auto] ![inset-inline-start:0] !right-auto !left-0"
+                : undefined
+            }
+          />
           <ScrollBar orientation="horizontal" />
           <ScrollAreaPrimitive.Corner data-slot="scroll-area-corner" />
         </>
@@ -65,4 +84,4 @@ function ScrollBar({
   );
 }
 
-export { ScrollArea, ScrollBar };
+export { ScrollArea };

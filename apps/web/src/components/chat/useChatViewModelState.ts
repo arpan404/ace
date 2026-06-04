@@ -11,7 +11,7 @@ import {
   getProviderSnapshot,
   resolveSelectableProvider,
 } from "../../providerModels";
-import { AVAILABLE_PROVIDER_OPTIONS } from "./ProviderModelPicker";
+import { AVAILABLE_PROVIDER_OPTIONS } from "./providerModelPickerOptions";
 import { getComposerProviderState } from "./composerProviderRegistry";
 
 type ComposerModelDraftState =
@@ -23,6 +23,7 @@ interface ChatViewProviderSelectionInput {
   readonly draft: ComposerModelDraftState;
   readonly hasThreadStarted: boolean;
   readonly isServerThread: boolean;
+  readonly lockProvider?: boolean | undefined;
   readonly modelSettings: Pick<UnifiedSettings, "providers">;
   readonly projectModelSelection: ModelSelection | null | undefined;
   readonly providers: ReadonlyArray<ServerProvider>;
@@ -59,9 +60,10 @@ export function deriveChatViewProviderSelectionState(
 ): ChatViewProviderSelectionState {
   const threadProvider =
     input.threadModelSelection?.provider ?? input.projectModelSelection?.provider ?? null;
-  const lockedProvider: ProviderKind | null = input.hasThreadStarted
-    ? (input.sessionProvider ?? threadProvider ?? input.draft?.activeProvider ?? null)
-    : null;
+  const lockedProvider: ProviderKind | null =
+    input.hasThreadStarted || input.lockProvider === true
+      ? (input.sessionProvider ?? threadProvider ?? input.draft?.activeProvider ?? null)
+      : null;
   const unlockedSelectedProvider = resolveSelectableProvider(
     input.providers,
     input.draft?.activeProvider ?? threadProvider ?? "codex",
@@ -122,15 +124,21 @@ export function deriveChatViewProviderSelectionState(
     }
 
     const fromProvider = input.threadModelSelection.provider;
-    const enabledProviders = new Set(
-      input.providers
-        .filter((provider) => provider.enabled && provider.status !== "disabled")
-        .map((provider) => provider.provider),
-    );
+    const enabledProviders = new Set<ProviderKind>();
+    for (const provider of input.providers) {
+      if (provider.enabled && provider.status !== "disabled") {
+        enabledProviders.add(provider.provider);
+      }
+    }
 
-    return AVAILABLE_PROVIDER_OPTIONS.map((option) => option.value).filter(
-      (provider) => provider !== fromProvider && enabledProviders.has(provider),
-    );
+    const targetProviders: ProviderKind[] = [];
+    for (const option of AVAILABLE_PROVIDER_OPTIONS) {
+      const provider = option.value;
+      if (provider !== fromProvider && enabledProviders.has(provider)) {
+        targetProviders.push(provider);
+      }
+    }
+    return targetProviders;
   })();
   const activeProviderStatus =
     getProviderSnapshot(input.providers, selectedProvider, selectedProviderInstanceId) ?? null;
@@ -156,6 +164,7 @@ export function useChatViewProviderSelectionState(
     draft,
     hasThreadStarted,
     isServerThread,
+    lockProvider,
     modelSettings,
     projectModelSelection,
     providers,
@@ -169,6 +178,7 @@ export function useChatViewProviderSelectionState(
         draft,
         hasThreadStarted,
         isServerThread,
+        lockProvider,
         modelSettings,
         projectModelSelection,
         providers,
@@ -179,6 +189,7 @@ export function useChatViewProviderSelectionState(
       draft,
       hasThreadStarted,
       isServerThread,
+      lockProvider,
       modelSettings,
       projectModelSelection,
       providers,
@@ -188,9 +199,7 @@ export function useChatViewProviderSelectionState(
   );
 }
 
-export function useChatViewModelState(
-  input: UseChatViewModelStateInput,
-): UseChatViewModelStateResult {
+function useChatViewModelState(input: UseChatViewModelStateInput): UseChatViewModelStateResult {
   const selectionState = useChatViewProviderSelectionState(input);
   const composerProviderState = useMemo(
     () =>

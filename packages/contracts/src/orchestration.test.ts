@@ -15,6 +15,8 @@ import {
   OrchestrationSession,
   ProjectCreateCommand,
   ThreadMetaUpdatedPayload,
+  ThreadSubagentTurnStartCommand,
+  ThreadSubagentTurnStartRequestedPayload,
   ThreadTurnStartCommand,
   ThreadCreatedPayload,
   ThreadTurnDiff,
@@ -27,8 +29,14 @@ const decodeProjectCreateCommand = Schema.decodeUnknownEffect(ProjectCreateComma
 const decodeProjectCreatedPayload = Schema.decodeUnknownEffect(ProjectCreatedPayload);
 const decodeProjectMetaUpdatedPayload = Schema.decodeUnknownEffect(ProjectMetaUpdatedPayload);
 const decodeThreadTurnStartCommand = Schema.decodeUnknownEffect(ThreadTurnStartCommand);
+const decodeThreadSubagentTurnStartCommand = Schema.decodeUnknownEffect(
+  ThreadSubagentTurnStartCommand,
+);
 const decodeThreadTurnStartRequestedPayload = Schema.decodeUnknownEffect(
   ThreadTurnStartRequestedPayload,
+);
+const decodeThreadSubagentTurnStartRequestedPayload = Schema.decodeUnknownEffect(
+  ThreadSubagentTurnStartRequestedPayload,
 );
 const decodeOrchestrationLatestTurn = Schema.decodeUnknownEffect(OrchestrationLatestTurn);
 const decodeOrchestrationProposedPlan = Schema.decodeUnknownEffect(OrchestrationProposedPlan);
@@ -101,6 +109,43 @@ it.effect("trims branded ids and command string fields at decode boundaries", ()
       provider: "codex",
       model: "gpt-5.2",
     });
+  }),
+);
+
+it.effect("decodes subagent turn start command", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decodeThreadSubagentTurnStartCommand({
+      type: "thread.subagent.turn.start",
+      commandId: " cmd-subagent ",
+      threadId: " thread-parent ",
+      subagentThreadId: " provider-child ",
+      message: {
+        messageId: " message-1 ",
+        role: "user",
+        text: "continue the audit",
+      },
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    assert.strictEqual(parsed.commandId, "cmd-subagent");
+    assert.strictEqual(parsed.threadId, "thread-parent");
+    assert.strictEqual(parsed.subagentThreadId, "provider-child");
+    assert.strictEqual(parsed.message.messageId, "message-1");
+  }),
+);
+
+it.effect("decodes subagent turn start requested payload", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decodeThreadSubagentTurnStartRequestedPayload({
+      threadId: "thread-parent",
+      subagentThreadId: "provider-child",
+      messageId: "message-1",
+      text: "continue the audit",
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    assert.strictEqual(parsed.subagentThreadId, "provider-child");
+    assert.strictEqual(parsed.text, "continue the audit");
   }),
 );
 
@@ -260,6 +305,35 @@ it.effect("decodes thread.created handoff metadata when present", () =>
       fromProvider: "codex",
       toProvider: "claudeAgent",
       mode: "best",
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+  }),
+);
+
+it.effect("decodes thread.created chat fork metadata when present", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decodeThreadCreatedPayload({
+      threadId: "thread-2",
+      projectId: "project-1",
+      title: "Thread title",
+      modelSelection: {
+        provider: "codex",
+        model: "gpt-5.3-codex",
+      },
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      branch: null,
+      worktreePath: null,
+      fork: {
+        sourceThreadId: "thread-1",
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    assert.deepStrictEqual(parsed.fork, {
+      sourceThreadId: "thread-1",
       createdAt: "2026-01-01T00:00:00.000Z",
     });
   }),

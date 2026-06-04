@@ -60,4 +60,4 @@ function Input({
   );
 }
 
-export { Input, type InputProps };
+export { Input };

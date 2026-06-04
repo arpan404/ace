@@ -27,7 +27,7 @@ export function ComposerPendingTerminalContextChip({
   return <TerminalContextInlineChip label={label} tooltipText={tooltipText} expired={expired} />;
 }
 
-export function ComposerPendingTerminalContexts(props: ComposerPendingTerminalContextsProps) {
+function ComposerPendingTerminalContexts(props: ComposerPendingTerminalContextsProps) {
   const { contexts, className } = props;
 
   if (contexts.length === 0) {

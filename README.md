@@ -62,21 +62,22 @@ This starts the web app and local server together.
 
 The Electron desktop app lives in `apps/desktop`.
 
-Current desktop release state:
-
-- macOS release artifacts are available.
-- Windows and Linux packaging are part of the release workflow but need more real-device validation before production use.
-- macOS signing/notarization and Windows signing require maintainer-owned signing credentials.
-
-Generated release artifacts should stay out of git. Use ignored release directories such as `release/` or `release-mac-*/`.
-
-From macOS, Linux AppImage artifacts can be built locally in Docker:
+Local all-platform desktop releases are documented in [docs/release.md](./docs/release.md). The short path is:
 
 ```bash
-bun run dist:desktop:linux:docker
+# Build all desktop assets locally without publishing.
+bun run dist:desktop:all -- --tag vX.Y.Z --create-tag
+
+# Build, upload assets, and create/update the GitHub Release with changelog notes.
+bun run release -- --tag vX.Y.Z
 ```
 
-The Docker build intentionally uses a Linux `node_modules` volume so platform-native dependencies are installed inside the container instead of reusing host macOS dependencies. Windows installers should still be built on Windows or in the GitHub Actions release matrix because the desktop app includes native dependencies.
+The local release flow reads `.env.local` automatically. Start from
+[.env.local.example](./.env.local.example) and keep real signing values out of
+git.
+
+Generated release artifacts stay out of git. Use ignored release directories such
+as `release/`, `release-local/`, or `release-*`.
 
 ## Mobile
 
@@ -176,6 +177,15 @@ Use `bun run test` for tests. Do not use `bun test`; the repo scripts route test
 Small reliability, performance, cross-platform, and docs improvements are the easiest contributions to review. Open an issue before large features, provider integrations, or protocol changes.
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md).
+
+Community and maintainer process:
+
+- [Code of Conduct](./CODE_OF_CONDUCT.md)
+- [Security Policy](./SECURITY.md)
+- [Support](./SUPPORT.md)
+- [Governance](./GOVERNANCE.md)
+- [Maintainers](./MAINTAINERS.md)
+- [GitHub triage and protection](./docs/github-triage.md)
 
 ## License And Attribution
 

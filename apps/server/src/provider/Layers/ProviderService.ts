@@ -55,6 +55,7 @@ import { withStartupTiming } from "../../startupDiagnostics.ts";
 import { projectionMessagesToReplayTurns } from "../providerReplayTurns.ts";
 import { resolveProviderIntegrationCapabilities } from "../providerCapabilities.ts";
 import { resolveProviderSettings } from "@ace/shared/providerInstances";
+import { normalizeProviderRuntimeEvent } from "../providerRuntimeEventNormalizer.ts";
 
 export interface ProviderServiceLiveOptions {
   readonly canonicalEventLogPath?: string;
@@ -599,38 +600,35 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       yield* Deferred.succeed(idle, undefined).pipe(Effect.orDie);
     });
 
-  const processRuntimeEvent = (event: ProviderRuntimeEvent): Effect.Effect<void> =>
-    Effect.sync(() => {
+  const processRuntimeEvent = (adapterEvent: ProviderRuntimeEvent): Effect.Effect<void> =>
+    Effect.gen(function* () {
+      const event = normalizeProviderRuntimeEvent(adapterEvent);
       recordRuntimeEventActivity(event);
-    }).pipe(
-      Effect.flatMap(() =>
-        Effect.gen(function* () {
-          if (event.type === "turn.completed") {
-            const completedPayload = event.payload;
-            yield* analytics.record("provider.turn.completed", {
-              provider: event.provider,
-              stopReason: completedPayload.stopReason ?? undefined,
-              totalCostUsd: completedPayload.totalCostUsd,
-              hasErrorMessage:
-                typeof completedPayload.errorMessage === "string" &&
-                completedPayload.errorMessage.length > 0,
-            });
-            return;
-          }
-          if (event.type === "turn.aborted") {
-            yield* analytics.record("provider.turn.failed", {
-              provider: event.provider,
-              failureClass: "aborted",
-              reason: event.payload.reason,
-            });
-          }
-        }),
-      ),
-      Effect.flatMap(() =>
-        isTurnIdleEvent(event) ? completeActiveTurn(event.threadId) : Effect.void,
-      ),
-      Effect.flatMap(() => publishRuntimeEvent(event)),
-    );
+
+      if (event.type === "turn.completed") {
+        const completedPayload = event.payload;
+        yield* analytics.record("provider.turn.completed", {
+          provider: event.provider,
+          stopReason: completedPayload.stopReason ?? undefined,
+          totalCostUsd: completedPayload.totalCostUsd,
+          hasErrorMessage:
+            typeof completedPayload.errorMessage === "string" &&
+            completedPayload.errorMessage.length > 0,
+        });
+      }
+      if (event.type === "turn.aborted") {
+        yield* analytics.record("provider.turn.failed", {
+          provider: event.provider,
+          failureClass: "aborted",
+          reason: event.payload.reason,
+        });
+      }
+
+      if (isTurnIdleEvent(event)) {
+        yield* completeActiveTurn(event.threadId);
+      }
+      yield* publishRuntimeEvent(event);
+    });
 
   const worker = Effect.forever(
     Queue.take(runtimeEventQueue).pipe(Effect.flatMap(processRuntimeEvent)),
@@ -826,6 +824,27 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
         persistedBinding.resumeCursor !== undefined
           ? persistedBinding.resumeCursor
           : undefined;
+      const forkSourceBinding =
+        input.forkSource !== undefined
+          ? Option.getOrUndefined(yield* directory.getBinding(input.forkSource.threadId))
+          : undefined;
+      const forkSourceResumeCursor =
+        input.forkSource !== undefined &&
+        forkSourceBinding?.provider === input.provider &&
+        forkSourceBinding.resumeCursor !== null &&
+        forkSourceBinding.resumeCursor !== undefined
+          ? forkSourceBinding.resumeCursor
+          : input.forkSource?.resumeCursor;
+      const forkSource =
+        input.forkSource !== undefined &&
+        (forkSourceBinding === undefined || forkSourceBinding.provider === input.provider)
+          ? {
+              threadId: input.forkSource.threadId,
+              ...(forkSourceResumeCursor !== undefined
+                ? { resumeCursor: forkSourceResumeCursor }
+                : {}),
+            }
+          : undefined;
       const effectiveResumeCursor = input.resumeCursor ?? persistedResumeCursor;
       const replayTurns =
         explicitReplayTurns ??
@@ -843,6 +862,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       const session = yield* adapter.startSession({
         ...input,
         ...(effectiveResumeCursor !== undefined ? { resumeCursor: effectiveResumeCursor } : {}),
+        ...(forkSource !== undefined ? { forkSource } : {}),
         ...(explicitReplayTurns !== undefined || replayTurns.length > 0 ? { replayTurns } : {}),
       });
 
@@ -889,28 +909,31 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       allowRecovery: true,
     });
     const turn = yield* routed.adapter.sendTurn(input);
-    markTurnStarted(input.threadId, routed.adapter.provider);
-    yield* directory.upsert({
-      threadId: input.threadId,
-      provider: routed.adapter.provider,
-      status: "running",
-      ...(turn.resumeCursor !== undefined ? { resumeCursor: turn.resumeCursor } : {}),
-      runtimePayload: {
-        ...(input.modelSelection !== undefined ? { modelSelection: input.modelSelection } : {}),
-        ...(input.providerInstanceId !== undefined
-          ? { providerInstanceId: input.providerInstanceId }
-          : {}),
-        activeTurnId: turn.turnId,
-        lastRuntimeEvent: "provider.sendTurn",
-        lastRuntimeEventAt: new Date().toISOString(),
-      },
-    });
+    if (input.providerThreadId === undefined) {
+      markTurnStarted(input.threadId, routed.adapter.provider);
+      yield* directory.upsert({
+        threadId: input.threadId,
+        provider: routed.adapter.provider,
+        status: "running",
+        ...(turn.resumeCursor !== undefined ? { resumeCursor: turn.resumeCursor } : {}),
+        runtimePayload: {
+          ...(input.modelSelection !== undefined ? { modelSelection: input.modelSelection } : {}),
+          ...(input.providerInstanceId !== undefined
+            ? { providerInstanceId: input.providerInstanceId }
+            : {}),
+          activeTurnId: turn.turnId,
+          lastRuntimeEvent: "provider.sendTurn",
+          lastRuntimeEventAt: new Date().toISOString(),
+        },
+      });
+    }
     yield* analytics.record("provider.turn.sent", {
       provider: routed.adapter.provider,
       model: input.modelSelection?.model,
       interactionMode: input.interactionMode,
       attachmentCount: input.attachments?.length ?? 0,
       hasInput: typeof input.input === "string" && input.input.trim().length > 0,
+      providerThreadOverride: input.providerThreadId !== undefined,
     });
     return { provider: routed.adapter.provider, turn } as const;
   });

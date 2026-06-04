@@ -16,9 +16,14 @@ import {
   Semaphore,
   Stream,
 } from "effect";
+import { execFileSync } from "node:child_process";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
-import { GitCommandError, type GitWorkingTreeFileStatus } from "@ace/contracts";
+import {
+  GitCommandError,
+  type GitRemoveWorktreeInput,
+  type GitWorkingTreeFileStatus,
+} from "@ace/contracts";
 import {
   GitCore,
   type ExecuteGitProgress,
@@ -387,6 +392,11 @@ interface SshAskPassConfig {
   readonly env: NodeJS.ProcessEnv;
 }
 
+interface GitSshPassphraseSettings {
+  readonly globalPassphrase: string | null;
+  readonly projectPassphraseByRoot: ReadonlyMap<string, string>;
+}
+
 interface TraceTailReader {
   readonly readTraceDelta: Effect.Effect<void, never>;
   readonly finalizeTrace2Monitor: Effect.Effect<void, never>;
@@ -697,6 +707,72 @@ const createSshAskPassConfig = Effect.fn("createSshAskPassConfig")(function* (
   };
 });
 
+function normalizeProjectRootPath(pathService: Path.Path, value: string): string {
+  return pathService.resolve(value.trim());
+}
+
+function isPathInsideRoot(pathService: Path.Path, cwd: string, root: string): boolean {
+  const relative = pathService.relative(root, cwd);
+  return relative === "" || (!relative.startsWith("..") && !pathService.isAbsolute(relative));
+}
+
+function parseWorktreeListMainPath(stdout: string): string | null {
+  for (const line of stdout.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("worktree ")) {
+      continue;
+    }
+    const worktreePath = trimmed.slice("worktree ".length).trim();
+    return worktreePath.length > 0 ? worktreePath : null;
+  }
+  return null;
+}
+
+function resolveGitMainWorktree(cwd: string): string | null {
+  try {
+    const stdout = execFileSync("git", ["-C", cwd, "worktree", "list", "--porcelain"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 5_000,
+    });
+    return parseWorktreeListMainPath(stdout);
+  } catch {
+    return null;
+  }
+}
+
+export function resolveProjectGitSshKeyPassphrase(
+  settings: GitSshPassphraseSettings,
+  pathService: Path.Path,
+  cwd: string,
+): string | null {
+  const normalizedCwd = normalizeProjectRootPath(pathService, cwd);
+  const candidateRoots = [normalizedCwd];
+  const mainWorktree = resolveGitMainWorktree(normalizedCwd);
+  if (mainWorktree) {
+    candidateRoots.push(normalizeProjectRootPath(pathService, mainWorktree));
+  }
+
+  for (const candidateRoot of candidateRoots) {
+    const exactPassphrase = settings.projectPassphraseByRoot.get(candidateRoot);
+    if (exactPassphrase) {
+      return exactPassphrase;
+    }
+  }
+
+  let bestMatch: { root: string; passphrase: string } | null = null;
+  for (const [root, passphrase] of settings.projectPassphraseByRoot) {
+    if (!isPathInsideRoot(pathService, normalizedCwd, root)) {
+      continue;
+    }
+    if (!bestMatch || root.length > bestMatch.root.length) {
+      bestMatch = { root, passphrase };
+    }
+  }
+
+  return bestMatch?.passphrase ?? settings.globalPassphrase;
+}
+
 const collectOutput = Effect.fn("collectOutput")(function* <E>(
   input: Pick<ExecuteGitInput, "operation" | "cwd" | "args">,
   stream: Stream.Stream<Uint8Array, E>,
@@ -773,13 +849,15 @@ const collectOutput = Effect.fn("collectOutput")(function* <E>(
 
 export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
   executeOverride?: GitCoreShape["execute"];
-  readGitSshKeyPassphrase?: () => Effect.Effect<string | null>;
+  readGitSshKeyPassphrase?: (cwd: string) => Effect.Effect<string | null>;
 }) {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const { settingsPath, worktreesDir } = yield* ServerConfig;
 
-  const readPersistedGitSshKeyPassphrase = Effect.fn("readGitSshKeyPassphrase")(function* () {
+  const readPersistedGitSshKeyPassphrase = Effect.fn("readGitSshKeyPassphrase")(function* (
+    cwd: string,
+  ) {
     return yield* fileSystem.readFileString(settingsPath).pipe(
       Effect.flatMap((raw) =>
         Effect.try({
@@ -788,11 +866,39 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
         }),
       ),
       Effect.map((settings) => {
-        const passphrase =
+        const globalPassphrase =
           settings && typeof settings.gitSshKeyPassphrase === "string"
             ? settings.gitSshKeyPassphrase.trim()
             : "";
-        return passphrase.length > 0 ? passphrase : null;
+        const projectPassphraseByRoot = new Map<string, string>();
+        const rawProjectPassphrases =
+          settings &&
+          settings.gitSshKeyPassphraseByProjectRoot &&
+          typeof settings.gitSshKeyPassphraseByProjectRoot === "object" &&
+          !Array.isArray(settings.gitSshKeyPassphraseByProjectRoot)
+            ? (settings.gitSshKeyPassphraseByProjectRoot as Record<string, unknown>)
+            : {};
+
+        for (const [projectRoot, passphrase] of Object.entries(rawProjectPassphrases)) {
+          const normalizedProjectRoot = projectRoot.trim();
+          const normalizedPassphrase = typeof passphrase === "string" ? passphrase.trim() : "";
+          if (normalizedProjectRoot.length === 0 || normalizedPassphrase.length === 0) {
+            continue;
+          }
+          projectPassphraseByRoot.set(
+            normalizeProjectRootPath(path, normalizedProjectRoot),
+            normalizedPassphrase,
+          );
+        }
+
+        return resolveProjectGitSshKeyPassphrase(
+          {
+            globalPassphrase: globalPassphrase.length > 0 ? globalPassphrase : null,
+            projectPassphraseByRoot,
+          },
+          path,
+          cwd,
+        );
       }),
       Effect.catch(() => Effect.succeed(null)),
     );
@@ -822,7 +928,7 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
           Effect.mapError(toGitCommandError(commandInput, "failed to create trace2 monitor.")),
         );
         const sshAskPassConfig = yield* createSshAskPassConfig(
-          yield* readGitSshKeyPassphrase(),
+          yield* readGitSshKeyPassphrase(commandInput.cwd),
         ).pipe(
           Effect.provideService(Path.Path, path),
           Effect.provideService(FileSystem.FileSystem, fileSystem),
@@ -956,6 +1062,12 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
           ),
         );
       }),
+    );
+
+  const pathExists = (entryPath: string): Effect.Effect<boolean, never> =>
+    fileSystem.stat(entryPath).pipe(
+      Effect.map(() => true),
+      Effect.catch(() => Effect.succeed(false)),
     );
 
   const runGit = (
@@ -1338,9 +1450,28 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
 
     const [statusStdout, unstagedNumstatStdout, stagedNumstatStdout] = yield* Effect.all(
       [
-        runGitStdout("GitCore.statusDetails.status", cwd, ["status", "--porcelain=2", "--branch"]),
-        runGitStdout("GitCore.statusDetails.unstagedNumstat", cwd, ["diff", "--numstat"]),
-        runGitStdout("GitCore.statusDetails.stagedNumstat", cwd, ["diff", "--cached", "--numstat"]),
+        runGitStdout("GitCore.statusDetails.status", cwd, [
+          "status",
+          "--porcelain=2",
+          "--branch",
+          "--",
+          ".",
+        ]),
+        runGitStdout("GitCore.statusDetails.unstagedNumstat", cwd, [
+          "diff",
+          "--relative",
+          "--numstat",
+          "--",
+          ".",
+        ]),
+        runGitStdout("GitCore.statusDetails.stagedNumstat", cwd, [
+          "diff",
+          "--cached",
+          "--relative",
+          "--numstat",
+          "--",
+          ".",
+        ]),
       ],
       { concurrency: "unbounded" },
     );
@@ -1475,7 +1606,8 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
 
   const readWorkingTreeDiff: GitCoreShape["readWorkingTreeDiff"] = Effect.fn("readWorkingTreeDiff")(
     function* (input) {
-      const args = ["diff", "--no-ext-diff", "--submodule=diff"] as const;
+      const args = ["diff", "--relative", "--no-ext-diff", "--submodule=diff"] as const;
+      const pathspecArgs = input.relativePath ? ["--", input.relativePath] : ["--"];
       const readDiff = (commandArgs: readonly string[]) =>
         runGitStdoutWithOptions("GitCore.readWorkingTreeDiff", input.cwd, commandArgs, {
           maxOutputBytes: RANGE_DIFF_PATCH_MAX_OUTPUT_BYTES,
@@ -1483,8 +1615,11 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
         });
 
       const diff = (yield* hasHeadCommit(input.cwd))
-        ? yield* readDiff([...args, "HEAD", "--"])
-        : [yield* readDiff([...args, "--cached", "--root", "--"]), yield* readDiff([...args, "--"])]
+        ? yield* readDiff([...args, "HEAD", ...pathspecArgs])
+        : [
+            yield* readDiff([...args, "--cached", "--root", ...pathspecArgs]),
+            yield* readDiff([...args, ...pathspecArgs]),
+          ]
             .filter((patch) => patch.trim().length > 0)
             .join("\n");
 
@@ -1844,6 +1979,11 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
     });
 
   const listBranches: GitCoreShape["listBranches"] = Effect.fn("listBranches")(function* (input) {
+    const cwdExists = yield* pathExists(input.cwd);
+    if (!cwdExists) {
+      return { branches: [], isRepo: false, hasOriginRemote: false };
+    }
+
     const branchRecencyPromise = readBranchRecency(input.cwd).pipe(
       Effect.catch(() => Effect.succeed(new Map<string, number>())),
     );
@@ -2102,6 +2242,56 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
       input.branch,
     ]);
 
+  const resolveWorktreeGitDir = Effect.fn("resolveWorktreeGitDir")(function* (
+    worktreePath: string,
+  ) {
+    const gitEntryPath = path.join(worktreePath, ".git");
+    const gitEntry = yield* fileSystem.readFileString(gitEntryPath).pipe(
+      Effect.map((contents) => contents.trim()),
+      Effect.catch(() => Effect.succeed(null)),
+    );
+
+    if (gitEntry === null) {
+      const gitDirectoryExists = yield* pathExists(gitEntryPath);
+      return gitDirectoryExists ? gitEntryPath : null;
+    }
+
+    const gitdirPrefix = "gitdir:";
+    if (!gitEntry.toLowerCase().startsWith(gitdirPrefix)) {
+      return null;
+    }
+
+    const rawGitDir = gitEntry.slice(gitdirPrefix.length).trim();
+    if (rawGitDir.length === 0) {
+      return null;
+    }
+    return path.isAbsolute(rawGitDir) ? rawGitDir : path.resolve(worktreePath, rawGitDir);
+  });
+
+  const resolveWorktreeRemoveCommand = Effect.fn("resolveWorktreeRemoveCommand")(function* (
+    input: GitRemoveWorktreeInput,
+    args: readonly string[],
+  ) {
+    if (yield* pathExists(input.cwd)) {
+      return { cwd: input.cwd, args };
+    }
+
+    const targetGitDir = yield* resolveWorktreeGitDir(input.path);
+    if (targetGitDir === null) {
+      return { cwd: input.cwd, args };
+    }
+
+    const targetGitParent = path.dirname(targetGitDir);
+    const commonGitDir =
+      path.basename(targetGitParent) === "worktrees" ? path.dirname(targetGitParent) : targetGitDir;
+    const candidateCwd = path.basename(commonGitDir) === ".git" ? path.dirname(commonGitDir) : ".";
+    const cwd = (yield* pathExists(candidateCwd)) ? candidateCwd : ".";
+    return {
+      cwd,
+      args: ["--git-dir", commonGitDir, ...args],
+    };
+  });
+
   const removeWorktree: GitCoreShape["removeWorktree"] = Effect.fn("removeWorktree")(
     function* (input) {
       const args = ["worktree", "remove"];
@@ -2109,16 +2299,17 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
         args.push("--force");
       }
       args.push(input.path);
-      yield* executeGit("GitCore.removeWorktree", input.cwd, args, {
+      const command = yield* resolveWorktreeRemoveCommand(input, args);
+      yield* executeGit("GitCore.removeWorktree", command.cwd, command.args, {
         timeoutMs: 15_000,
         fallbackErrorMessage: "git worktree remove failed",
       }).pipe(
         Effect.mapError((error) =>
           createGitCommandError(
             "GitCore.removeWorktree",
-            input.cwd,
-            args,
-            `${commandLabel(args)} failed (cwd: ${input.cwd}): ${error instanceof Error ? error.message : String(error)}`,
+            command.cwd,
+            command.args,
+            `${commandLabel(command.args)} failed (cwd: ${command.cwd}): ${error instanceof Error ? error.message : String(error)}`,
             error,
           ),
         ),

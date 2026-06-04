@@ -3,6 +3,7 @@ import { AlertDialog as AlertDialogPrimitive } from "@base-ui/react/alert-dialog
 
 import { cn } from "~/lib/utils";
 import { Button } from "~/components/ui/button";
+import { MODAL_LAYER_CLASS_NAME } from "~/components/ui/layers";
 
 function AlertDialog({ ...props }: AlertDialogPrimitive.Root.Props) {
   return <AlertDialogPrimitive.Root data-slot="alert-dialog" {...props} />;
@@ -18,13 +19,19 @@ function AlertDialogPortal({ ...props }: AlertDialogPrimitive.Portal.Props) {
 
 function AlertDialogOverlay({ className, ...props }: AlertDialogPrimitive.Backdrop.Props) {
   return (
-    <AlertDialogPrimitive.Backdrop
-      data-slot="alert-dialog-overlay"
-      className={cn(
-        "fixed inset-0 isolate z-50 bg-black/42 duration-100 backdrop-blur-[3px] data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",
-        className,
-      )}
-      {...props}
+    <AlertDialogPrimitive.Close
+      nativeButton={false}
+      render={
+        <AlertDialogPrimitive.Backdrop
+          data-slot="alert-dialog-overlay"
+          className={cn(
+            "fixed inset-0 isolate bg-black/42 duration-100 backdrop-blur-[3px] data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",
+            MODAL_LAYER_CLASS_NAME,
+            className,
+          )}
+          {...props}
+        />
+      }
     />
   );
 }
@@ -43,7 +50,8 @@ function AlertDialogContent({
         data-slot="alert-dialog-content"
         data-size={size}
         className={cn(
-          "group/alert-dialog-content fixed top-1/2 left-1/2 z-50 grid w-full -translate-x-1/2 -translate-y-1/2 gap-3 rounded-[var(--panel-radius)] border border-border/72 bg-popover/96 p-5 text-popover-foreground ring-1 ring-foreground/6  supports-[backdrop-filter]:bg-popover/88 supports-[backdrop-filter]:backdrop-blur-xl duration-100 outline-none data-[size=default]:max-w-xs data-[size=sm]:max-w-64 data-[size=default]:sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+          "group/alert-dialog-content fixed top-1/2 left-1/2 grid w-full -translate-x-1/2 -translate-y-1/2 gap-3 rounded-[var(--panel-radius)] border border-border/72 bg-popover/96 p-5 text-popover-foreground ring-1 ring-foreground/6  supports-[backdrop-filter]:bg-popover/88 supports-[backdrop-filter]:backdrop-blur-xl duration-100 outline-none data-[size=default]:max-w-xs data-[size=sm]:max-w-64 data-[size=default]:sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+          MODAL_LAYER_CLASS_NAME,
           className,
         )}
         {...props}
@@ -146,15 +154,11 @@ function AlertDialogCancel({
 
 export {
   AlertDialog,
-  AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogMedia,
-  AlertDialogOverlay,
-  AlertDialogPortal,
   AlertDialogTitle,
-  AlertDialogTrigger,
 };

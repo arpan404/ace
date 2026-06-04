@@ -19,8 +19,7 @@ export function showContextMenuFallback<T extends string>(
 
     const x = position?.x ?? 0;
     const y = position?.y ?? 0;
-    menu.style.top = `${y}px`;
-    menu.style.left = `${x}px`;
+    menu.style.cssText = `${menu.style.cssText}; top: ${y}px; left: ${x}px`;
 
     function cleanup(result: T | null) {
       document.removeEventListener("keydown", onKeyDown);

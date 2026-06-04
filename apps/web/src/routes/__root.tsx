@@ -9,18 +9,30 @@ import {
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { QueryClient, useQueryClient } from "@tanstack/react-query";
 import { Throttler } from "@tanstack/react-pacer";
+import { CheckIcon, ChevronDownIcon, CopyIcon, RefreshCwIcon, RotateCcwIcon } from "lucide-react";
 
 import { resolveAppStartupMessage, resolveAppStartupState } from "../appStartup";
 import { LEAN_SNAPSHOT_RECOVERY_INPUT, resolveWelcomeBootstrapPlan } from "../bootstrapRecovery";
-import { APP_DISPLAY_NAME } from "../branding";
+import { APP_BASE_NAME } from "../branding";
 import { AppSidebarLayout } from "../components/AppSidebarLayout";
 import { AgentAttentionNotificationBridge } from "../components/AgentAttentionNotificationBridge";
 import { AppStartupScreen } from "../components/AppStartupScreen";
 import { InAppBrowser, type InAppBrowserController } from "../components/InAppBrowser";
-import { LoadDiagnosticsConsole } from "../components/LoadDiagnosticsConsole";
 import { RemoteAutoConnectBootstrap } from "../components/RemoteAutoConnectBootstrap";
 import { Button } from "../components/ui/button";
 import { AnchoredToastProvider, ToastProvider, toastManager } from "../components/ui/toast";
+import {
+  resolveEditorInstanceStateScopeId,
+  resolveEditorWindowStateInstanceId,
+  useEditorStateStore,
+} from "../editorStateStore";
+import { clearBrowserSessionStorage } from "../lib/browser/session";
+import { resolveBrowserThreadIdFromScopeId } from "../lib/browser/scope";
+import type { BrowserDesignRequestSubmission } from "../lib/browser/types";
+import {
+  applyTransportConnectionHealthState,
+  setConnectionHealthToastsEnabled,
+} from "../lib/reliability/connectionHealth";
 import { resolveAndPersistPreferredEditor } from "../editorPreferences";
 import { runAsyncTask } from "../lib/async";
 import { beginLoadPhase, logLoadDiagnostic } from "../loadDiagnostics";
@@ -44,7 +56,7 @@ import { useStore } from "../store";
 import { useUiStateStore } from "../uiStateStore";
 import { useTerminalStateStore } from "../terminalStateStore";
 import { terminalRunningSubprocessFromEvent } from "../terminalActivity";
-import { migrateLocalSettingsToServer } from "../hooks/useSettings";
+import { migrateLocalSettingsToServer, useSetting } from "../hooks/useSettings";
 import { UiTypographyBridge } from "../components/UiTypographyBridge";
 import { providerQueryKeys } from "../lib/providerReactQuery";
 import { projectQueryKeys } from "../lib/projectReactQuery";
@@ -63,6 +75,13 @@ import { parseHostConnectionQrPayload, resolveLocalDeviceWsUrl } from "../lib/re
 import { useHostConnectionStore } from "../hostConnectionStore";
 import { queueDesktopPairingLink } from "../lib/desktopPairingLinks";
 import { parseRelayConnectionUrl } from "@ace/shared/relay";
+import { shouldForwardDesktopNotificationOrchestrationEvent } from "@ace/shared/notifications";
+import { appendBrowserDesignContextToPrompt } from "../lib/terminalContext";
+import { newCommandId, newMessageId, randomUUID } from "../lib/utils";
+import {
+  dispatchDetachedWindowReturnRequest,
+  resolveDetachedWindowReturnThreadId,
+} from "../lib/detachedWindowReturn";
 
 const DetachedThreadWorkspaceEditor = lazy(
   () => import("../components/editor/ThreadWorkspaceEditor"),
@@ -74,7 +93,7 @@ export const Route = createRootRouteWithContext<{
   component: RootRouteView,
   errorComponent: RootRouteErrorView,
   head: () => ({
-    meta: [{ name: "title", content: APP_DISPLAY_NAME }],
+    meta: [{ name: "title", content: APP_BASE_NAME }],
   }),
 });
 
@@ -93,12 +112,16 @@ function RootRouteView() {
         return {
           kind: "editor" as const,
           connectionUrl: searchParams.get("connectionUrl"),
+          editorStateInstanceId: searchParams.get("editorStateInstanceId"),
+          placement: searchParams.get("placement"),
           threadId: searchParams.get("threadId"),
+          workspaceMode: searchParams.get("workspaceMode"),
         };
       }
       return null;
     },
   });
+
   if (detachedWindowSearch?.kind === "browser") {
     return <DetachedBrowserWindow search={detachedWindowSearch} />;
   }
@@ -111,10 +134,15 @@ function RootRouteView() {
 
 function MainRootRouteView() {
   const bootstrapComplete = useStore((store) => store.bootstrapComplete);
+  const reliabilityUxEnabled = useSetting("reliabilityUxEnabled");
   const [remoteBootstrapSettled, setRemoteBootstrapSettled] = useState(
     import.meta.env.MODE === "test",
   );
   const [wsHostEpoch, setWsHostEpoch] = useState(0);
+  const navigate = useNavigate();
+  useEffect(() => {
+    setConnectionHealthToastsEnabled(reliabilityUxEnabled);
+  }, [reliabilityUxEnabled]);
   const handleRemoteBootstrapSettled = useCallback(() => {
     setRemoteBootstrapSettled(true);
   }, []);
@@ -134,6 +162,32 @@ function MainRootRouteView() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!isElectron) {
+      return;
+    }
+    return window.desktopBridge?.onDetachedWindowReturn?.((request) => {
+      const returnThreadId = resolveDetachedWindowReturnThreadId(request);
+      const dispatchRequest = () => dispatchDetachedWindowReturnRequest(request);
+      if (!returnThreadId) {
+        dispatchRequest();
+        return;
+      }
+      runAsyncTask(
+        Promise.resolve()
+          .then(() =>
+            navigate({
+              to: "/$threadId",
+              params: { threadId: returnThreadId },
+              search: (previous) => previous,
+            }),
+          )
+          .finally(dispatchRequest),
+        "Detached window return navigation failed.",
+      );
+    });
+  }, [navigate]);
+
   const startupState = resolveAppStartupState({
     bootstrapComplete,
     hasNativeApi: readNativeApi() !== undefined,
@@ -146,11 +200,10 @@ function MainRootRouteView() {
         key={`remote-bootstrap-${String(wsHostEpoch)}`}
         onSettled={handleRemoteBootstrapSettled}
       />
-      <LoadDiagnosticsConsole />
       {!remoteBootstrapSettled || startupState === "connecting" ? (
         <AppStartupScreen
           state={startupStateForDisplay}
-          message={resolveAppStartupMessage(startupStateForDisplay, APP_DISPLAY_NAME)}
+          message={resolveAppStartupMessage(startupStateForDisplay, APP_BASE_NAME)}
         />
       ) : (
         <>
@@ -173,7 +226,7 @@ function MainRootRouteView() {
               ) : (
                 <AppStartupScreen
                   state={startupState}
-                  message={resolveAppStartupMessage(startupState, APP_DISPLAY_NAME)}
+                  message={resolveAppStartupMessage(startupState, APP_BASE_NAME)}
                 />
               )}
             </AnchoredToastProvider>
@@ -188,7 +241,130 @@ function DetachedBrowserWindow(props: {
   search: { kind: "browser"; scopeId: string | null; initialUrl: string | null };
 }) {
   const openedInitialUrlRef = useRef(false);
+  const returningToMainWindowRef = useRef(false);
   const [controller, setController] = useState<InAppBrowserController | null>(null);
+  const threadId = useMemo(
+    () => resolveThreadIdFromBrowserScope(props.search.scopeId),
+    [props.search.scopeId],
+  );
+  const thread = useStore((store) =>
+    threadId
+      ? (store.threadsById?.[threadId] ??
+        store.threads.find((candidate) => candidate.id === threadId) ??
+        null)
+      : null,
+  );
+  const queueDetachedBrowserDesignRequest = useCallback(
+    async (submission: BrowserDesignRequestSubmission) => {
+      if (!threadId || !thread) {
+        toastManager.add({
+          type: "error",
+          title: "Could not queue design note",
+          description: "This browser window is not linked to a chat thread.",
+        });
+        return;
+      }
+      const api = readNativeApi();
+      if (!api) {
+        toastManager.add({
+          type: "error",
+          title: "Could not queue design note",
+          description: "The desktop API is unavailable.",
+        });
+        return;
+      }
+      const trimmedInstructions = submission.instructions.trim();
+      const normalizedMimeType =
+        submission.imageMimeType.trim().length > 0 ? submission.imageMimeType : "image/png";
+      const fileExtension = /^image\/([a-z0-9.+-]+)$/i.exec(normalizedMimeType)?.[1] ?? "png";
+      const prompt = appendBrowserDesignContextToPrompt(
+        trimmedInstructions || "Review this browser screenshot.",
+        {
+          requestId: submission.requestId,
+          pageUrl: submission.pageUrl,
+          pagePath: submission.pagePath,
+          selection: submission.selection,
+          targetElement: submission.targetElement,
+          mainContainer: submission.mainContainer,
+        },
+      );
+      try {
+        await api.orchestration.dispatchCommand({
+          type: "thread.queue.append",
+          commandId: newCommandId(),
+          threadId,
+          position: "back",
+          message: {
+            id: newMessageId(),
+            prompt,
+            images: [
+              {
+                type: "image",
+                id: randomUUID(),
+                name: `designer-comment.${fileExtension}`,
+                mimeType: normalizedMimeType,
+                sizeBytes: submission.imageSizeBytes,
+                dataUrl: submission.imageDataUrl,
+              },
+            ],
+            terminalContexts: [],
+            modelSelection: thread.modelSelection,
+            runtimeMode: thread.runtimeMode,
+            interactionMode: thread.interactionMode,
+          },
+        });
+        toastManager.add({
+          type: "success",
+          title: "Design note queued",
+          description: "It was added to the linked chat.",
+        });
+      } catch (error) {
+        toastManager.add({
+          type: "error",
+          title: "Could not queue design note",
+          description: error instanceof Error ? error.message : "Please try again.",
+        });
+      }
+    },
+    [thread, threadId],
+  );
+  const moveBrowserBackToAce = useCallback(async () => {
+    const returnDetachedWindow = window.desktopBridge?.returnDetachedWindow;
+    if (!returnDetachedWindow) {
+      return;
+    }
+    const returned = await returnDetachedWindow({
+      kind: "browser",
+      ...(props.search.scopeId ? { scopeId: props.search.scopeId } : {}),
+    });
+    if (returned) {
+      returningToMainWindowRef.current = true;
+      window.close();
+      return;
+    }
+    toastManager.add({
+      type: "error",
+      title: "Could not move browser back",
+      description: "The desktop app did not restore the browser panel.",
+    });
+  }, [props.search.scopeId]);
+
+  useEffect(() => {
+    const clearDetachedBrowserState = () => {
+      if (returningToMainWindowRef.current) {
+        return;
+      }
+      if (props.search.scopeId) {
+        clearBrowserSessionStorage(props.search.scopeId);
+      }
+    };
+    window.addEventListener("pagehide", clearDetachedBrowserState);
+    window.addEventListener("beforeunload", clearDetachedBrowserState);
+    return () => {
+      window.removeEventListener("pagehide", clearDetachedBrowserState);
+      window.removeEventListener("beforeunload", clearDetachedBrowserState);
+    };
+  }, [props.search.scopeId]);
 
   useEffect(() => {
     if (openedInitialUrlRef.current || !controller || !props.search.initialUrl) {
@@ -202,6 +378,9 @@ function DetachedBrowserWindow(props: {
     <ToastProvider>
       <AnchoredToastProvider>
         <UiTypographyBridge />
+        {threadId ? (
+          <DetachedThreadSnapshotBootstrap connectionUrl={null} threadId={threadId} />
+        ) : null}
         <div className="relative h-dvh min-h-0 overflow-hidden bg-background text-foreground">
           <InAppBrowser
             open
@@ -213,7 +392,11 @@ function DetachedBrowserWindow(props: {
             onClose={() => {
               window.close();
             }}
+            onReturnToMainWindow={() => {
+              void moveBrowserBackToAce();
+            }}
             onControllerChange={setController}
+            {...(thread ? { onQueueDesignRequest: queueDetachedBrowserDesignRequest } : {})}
           />
         </div>
       </AnchoredToastProvider>
@@ -221,28 +404,43 @@ function DetachedBrowserWindow(props: {
   );
 }
 
+function resolveThreadIdFromBrowserScope(scopeId: string | null): ThreadId | null {
+  const threadId = resolveBrowserThreadIdFromScopeId(scopeId);
+  return threadId ? ThreadId.makeUnsafe(threadId) : null;
+}
+
 function DetachedEditorWindow(props: {
-  search: { kind: "editor"; threadId: string | null; connectionUrl: string | null };
+  search: {
+    kind: "editor";
+    threadId: string | null;
+    connectionUrl: string | null;
+    editorStateInstanceId: string | null;
+    placement: string | null;
+    workspaceMode: string | null;
+  };
 }) {
   return (
     <ToastProvider>
       <AnchoredToastProvider>
         <UiTypographyBridge />
         <ServerStateBootstrap />
-        <DetachedEditorSnapshotBootstrap
+        <DetachedThreadSnapshotBootstrap
           connectionUrl={props.search.connectionUrl}
           threadId={props.search.threadId}
         />
         <DetachedEditorWindowContent
           connectionUrl={props.search.connectionUrl}
+          editorStateInstanceId={props.search.editorStateInstanceId}
+          placement={props.search.placement}
           threadId={props.search.threadId}
+          workspaceMode={props.search.workspaceMode}
         />
       </AnchoredToastProvider>
     </ToastProvider>
   );
 }
 
-function DetachedEditorSnapshotBootstrap(props: {
+function DetachedThreadSnapshotBootstrap(props: {
   threadId: string | null;
   connectionUrl: string | null;
 }) {
@@ -285,6 +483,9 @@ function DetachedEditorSnapshotBootstrap(props: {
 function DetachedEditorWindowContent(props: {
   threadId: string | null;
   connectionUrl: string | null;
+  editorStateInstanceId: string | null;
+  placement: string | null;
+  workspaceMode: string | null;
 }) {
   const threadId = useMemo(
     () => (props.threadId ? ThreadId.makeUnsafe(props.threadId) : null),
@@ -302,6 +503,83 @@ function DetachedEditorWindowContent(props: {
   );
   const keybindings = useServerKeybindings();
   const availableEditors = useServerAvailableEditors();
+  const clearEditorThreadState = useEditorStateStore((state) => state.clearThreadState);
+  const returningToMainWindowRef = useRef(false);
+  const fallbackEditorStateInstanceId = useMemo(
+    () => `detached-${resolveEditorWindowStateInstanceId()}`,
+    [],
+  );
+  const inputEditorStateInstanceId =
+    typeof props.editorStateInstanceId === "string"
+      ? props.editorStateInstanceId.trim() || undefined
+      : undefined;
+  const editorStateInstanceId = inputEditorStateInstanceId ?? fallbackEditorStateInstanceId;
+  const editorStateScopeId = useMemo(() => {
+    if (!threadId || !thread || !project) {
+      return null;
+    }
+    return resolveEditorInstanceStateScopeId({
+      gitCwd: thread.worktreePath ?? project.cwd,
+      instanceId: editorStateInstanceId,
+      threadId,
+    });
+  }, [editorStateInstanceId, project, thread, threadId]);
+  const moveEditorBackToAce = useCallback(async () => {
+    const returnDetachedWindow = window.desktopBridge?.returnDetachedWindow;
+    if (!returnDetachedWindow || !props.threadId) {
+      return;
+    }
+    const placement =
+      props.placement === "bottom" || props.placement === "right" || props.placement === "workspace"
+        ? props.placement
+        : undefined;
+    const workspaceMode =
+      props.workspaceMode === "editor" || props.workspaceMode === "split"
+        ? props.workspaceMode
+        : undefined;
+    const returned = await returnDetachedWindow({
+      kind: "editor",
+      threadId: props.threadId,
+      ...(props.connectionUrl ? { connectionUrl: props.connectionUrl } : {}),
+      ...(editorStateInstanceId ? { editorStateInstanceId } : {}),
+      ...(placement ? { placement } : {}),
+      ...(workspaceMode ? { workspaceMode } : {}),
+    });
+    if (returned) {
+      returningToMainWindowRef.current = true;
+      window.close();
+      return;
+    }
+    toastManager.add({
+      type: "error",
+      title: "Could not move editor back",
+      description: "The desktop app did not restore the editor panel.",
+    });
+  }, [
+    props.connectionUrl,
+    editorStateInstanceId,
+    props.placement,
+    props.threadId,
+    props.workspaceMode,
+  ]);
+
+  useEffect(() => {
+    if (!editorStateScopeId) {
+      return;
+    }
+    const clearDetachedEditorState = () => {
+      if (returningToMainWindowRef.current) {
+        return;
+      }
+      clearEditorThreadState(editorStateScopeId);
+    };
+    window.addEventListener("pagehide", clearDetachedEditorState);
+    window.addEventListener("beforeunload", clearDetachedEditorState);
+    return () => {
+      window.removeEventListener("pagehide", clearDetachedEditorState);
+      window.removeEventListener("beforeunload", clearDetachedEditorState);
+    };
+  }, [clearEditorThreadState, editorStateScopeId]);
 
   if (!threadId) {
     return <DetachedWindowMessage title="Editor unavailable" description="Missing thread id." />;
@@ -316,7 +594,7 @@ function DetachedEditorWindowContent(props: {
   return (
     <div className="relative h-dvh min-h-0 overflow-hidden bg-background text-foreground">
       <Suspense
-        fallback={<DetachedWindowMessage title="Loading editor" description="Starting Monaco..." />}
+        fallback={<DetachedWindowMessage title="Loading editor" description="Starting editor..." />}
       >
         <DetachedThreadWorkspaceEditor
           availableEditors={availableEditors}
@@ -329,8 +607,12 @@ function DetachedEditorWindowContent(props: {
           terminalOpen={false}
           threadId={threadId}
           worktreePath={thread.worktreePath}
+          editorStateInstanceId={editorStateInstanceId}
           workspaceMode="editor"
           detachEnabled={false}
+          onReturnToMainWindow={() => {
+            void moveEditorBackToAce();
+          }}
         />
       </Suspense>
     </div>
@@ -401,37 +683,95 @@ function DesktopCliInstallToastBridge() {
 function RootRouteErrorView({ error, reset }: ErrorComponentProps) {
   const message = errorMessage(error);
   const details = errorDetails(error);
+  const [copiedDetails, setCopiedDetails] = useState(false);
+
+  const copyDetails = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(details);
+      setCopiedDetails(true);
+      window.setTimeout(() => setCopiedDetails(false), 1600);
+    } catch {
+      setCopiedDetails(false);
+    }
+  }, [details]);
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background px-4 py-10 text-foreground sm:px-6">
-      <section className="relative w-full max-w-xl rounded-xl border border-border bg-card p-6 sm:p-8">
-        <p className="text-[11px] font-semibold tracking-[0.18em] text-muted-foreground uppercase">
-          {APP_DISPLAY_NAME}
-        </p>
-        <h1 className="mt-3 text-2xl font-semibold tracking-tight sm:text-3xl">
-          Something went wrong.
-        </h1>
-        <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{message}</p>
+    <div className="flex min-h-screen flex-col bg-background text-foreground">
+      <main className="min-h-0 flex-1 overflow-y-auto">
+        <section className="mx-auto flex min-h-screen w-full max-w-3xl flex-col justify-center px-5 py-10 sm:px-6">
+          <div className="min-w-0 rounded-[var(--panel-radius)] border border-border/55 bg-card/38 px-5 py-5 shadow-[0_1px_0_hsl(var(--foreground)/0.04)] sm:px-6 sm:py-6">
+            <div className="min-w-0 border-b border-border/30 pb-7">
+              <div className="flex items-center gap-2.5 text-foreground">
+                <span className="text-[15px] leading-none font-semibold tracking-tight">
+                  {APP_BASE_NAME}
+                </span>
+              </div>
+              <h1 className="mt-5 text-[24px] leading-8 font-semibold tracking-tight text-foreground sm:text-[28px] sm:leading-9">
+                Something went wrong
+              </h1>
+              <p className="mt-2 max-w-xl text-[13px] leading-5 text-muted-foreground">
+                Try again or reload.
+              </p>
+            </div>
 
-        <div className="mt-5 flex flex-wrap gap-2">
-          <Button size="sm" onClick={() => reset()}>
-            Try again
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => window.location.reload()}>
-            Reload app
-          </Button>
-        </div>
+            <div className="flex min-w-0 flex-col gap-4 border-b border-border/30 py-5 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex shrink-0 flex-wrap items-center gap-1">
+                <Button
+                  size="default"
+                  variant="ghost"
+                  onClick={() => reset()}
+                  className="h-8 gap-1.5 px-2.5 text-[12px]/none font-medium text-foreground/86 shadow-none hover:bg-foreground/[0.06] hover:text-foreground active:bg-foreground/[0.08]"
+                >
+                  <RotateCcwIcon className="size-3.5" />
+                  Try again
+                </Button>
+                <Button
+                  size="default"
+                  variant="ghost"
+                  onClick={() => window.location.reload()}
+                  className="h-8 gap-1.5 px-2.5 text-[12px]/none font-medium text-muted-foreground/78 shadow-none hover:bg-foreground/[0.06] hover:text-foreground active:bg-foreground/[0.08]"
+                >
+                  <RefreshCwIcon className="size-3.5" />
+                  Reload
+                </Button>
+              </div>
+            </div>
 
-        <details className="group mt-5 overflow-hidden rounded-lg border border-border bg-background">
-          <summary className="cursor-pointer list-none px-3 py-2 text-xs font-medium text-muted-foreground">
-            <span className="group-open:hidden">Show error details</span>
-            <span className="hidden group-open:inline">Hide error details</span>
-          </summary>
-          <pre className="max-h-56 overflow-auto border-t border-border bg-muted/60 px-3 py-2 text-xs text-foreground">
-            {details}
-          </pre>
-        </details>
-      </section>
+            <div className="border-b border-border/30">
+              <div className="grid gap-4 py-5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
+                <div className="min-w-0">
+                  <p className="mt-1 max-w-2xl text-[12px] leading-5 break-words text-muted-foreground">
+                    {message}
+                  </p>
+                </div>
+                <Button
+                  size="default"
+                  variant="ghost"
+                  onClick={() => void copyDetails()}
+                  className="h-8 justify-self-start gap-1.5 px-2.5 text-[12px]/none font-medium text-muted-foreground/78 shadow-none hover:bg-foreground/[0.06] hover:text-foreground active:bg-foreground/[0.08] sm:justify-self-end"
+                >
+                  {copiedDetails ? (
+                    <CheckIcon className="size-3.5" />
+                  ) : (
+                    <CopyIcon className="size-3.5" />
+                  )}
+                  {copiedDetails ? "Copied" : "Copy"}
+                </Button>
+              </div>
+            </div>
+
+            <details className="group mt-5">
+              <summary className="flex h-8 cursor-pointer list-none items-center justify-between gap-3 text-left text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground">
+                <span>Details</span>
+                <ChevronDownIcon className="size-3.5 transition-transform group-open:rotate-180" />
+              </summary>
+              <pre className="max-h-72 overflow-auto border-t border-border/25 py-3 font-mono text-[11px] leading-5 whitespace-pre-wrap text-muted-foreground">
+                {details}
+              </pre>
+            </details>
+          </div>
+        </section>
+      </main>
     </div>
   );
 }
@@ -531,7 +871,7 @@ function RemoteRelayConnectionToastBridge() {
   return null;
 }
 
-function EventRouter() {
+function useEventRouterLifecycle() {
   const applyOrchestrationEvents = useStore((store) => store.applyOrchestrationEvents);
   const bootstrapComplete = useStore((store) => store.bootstrapComplete);
   const mergeServerReadModel = useStore((store) => store.mergeServerReadModel);
@@ -693,7 +1033,6 @@ function EventRouter() {
     let pendingDomainEventMicrotaskVersion = 0;
     let pendingDomainEventFlushHandle:
       | { kind: "animation-frame"; handle: number }
-      | { kind: "timeout"; handle: ReturnType<typeof setTimeout> }
       | { kind: "microtask"; handle: number }
       | null = null;
     let reconnectRecoveryRequested = false;
@@ -809,8 +1148,6 @@ function EventRouter() {
       }
       if (pendingDomainEventFlushHandle.kind === "animation-frame") {
         cancelAnimationFrame(pendingDomainEventFlushHandle.handle);
-      } else if (pendingDomainEventFlushHandle.kind === "timeout") {
-        clearTimeout(pendingDomainEventFlushHandle.handle);
       }
       pendingDomainEventFlushHandle = null;
       flushPendingDomainEventsScheduled = false;
@@ -860,12 +1197,22 @@ function EventRouter() {
         };
         return;
       }
+      const handle = pendingDomainEventMicrotaskVersion + 1;
+      pendingDomainEventMicrotaskVersion = handle;
       pendingDomainEventFlushHandle = {
-        kind: "timeout",
-        handle: setTimeout(() => {
-          flushPendingDomainEvents();
-        }, 16),
+        kind: "microtask",
+        handle,
       };
+      queueMicrotask(() => {
+        if (
+          !flushPendingDomainEventsScheduled ||
+          pendingDomainEventFlushHandle?.kind !== "microtask" ||
+          pendingDomainEventFlushHandle.handle !== handle
+        ) {
+          return;
+        }
+        flushPendingDomainEvents();
+      });
     };
 
     const recoverFromReplay = async (
@@ -958,6 +1305,7 @@ function EventRouter() {
         message: `Connection state changed: ${state.kind}`,
         detail: state.error,
       });
+      applyTransportConnectionHealthState(state);
       if (state.kind === "disconnected") {
         reconnectRecoveryRequested = true;
         cancelPendingDomainEventFlush();
@@ -972,7 +1320,11 @@ function EventRouter() {
       void recoverFromReplay("transport-reconnected");
     });
     const unsubDomainEvent = localRpcClient.orchestration.onDomainEvent((event) => {
-      if (typeof window !== "undefined" && window.desktopBridge?.sendOrchestrationEvent) {
+      if (
+        typeof window !== "undefined" &&
+        window.desktopBridge?.sendOrchestrationEvent &&
+        shouldForwardDesktopNotificationOrchestrationEvent(event)
+      ) {
         window.desktopBridge.sendOrchestrationEvent(event);
       }
       const action = recovery.classifyDomainEvent(event.sequence);
@@ -1038,6 +1390,11 @@ function EventRouter() {
   useServerWelcomeSubscription(handleWelcome);
   useServerConfigUpdatedSubscription(handleServerConfigUpdated);
 
+  return null;
+}
+
+function EventRouter() {
+  useEventRouterLifecycle();
   return null;
 }
 

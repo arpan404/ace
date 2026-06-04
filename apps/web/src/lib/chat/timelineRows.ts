@@ -1,4 +1,5 @@
 import { computeMessageDurationStart } from "./messagesTimeline";
+import { getChatMessageRenderableText } from "./messageText";
 import { stripProviderCommandMarkers } from "../../composer-editor-mentions";
 import type { TimelineEntry } from "../../session-logic/types";
 
@@ -26,74 +27,142 @@ export type TimelineMetaGroupEntry =
       workEntry: TimelineWorkEntry;
     };
 
+export type TimelineMetaTone = "neutral" | "intent" | "thinking" | "tool" | "error" | "success";
+
+export type TimelineToolSummaryKind =
+  | "command"
+  | "file-read"
+  | "file-change"
+  | "web-search"
+  | "image-view"
+  | "generic-tool";
+
+export type TimelineWorkGroupIconKey =
+  | "target"
+  | "alert"
+  | "terminal"
+  | "file-change"
+  | "eye"
+  | "web-search"
+  | "wrench"
+  | "brain"
+  | "check";
+
+export type TimelineWorkGroupThreadTone =
+  | "mixed"
+  | "tool"
+  | "thinking"
+  | "intent"
+  | "error"
+  | "info";
+
+export interface TimelineToolSummaryCounts {
+  readonly command: number;
+  readonly fileRead: number;
+  readonly fileChange: number;
+  readonly webSearch: number;
+  readonly imageView: number;
+  readonly genericTool: number;
+}
+
+export interface TimelineWorkGroupSummaryProjection {
+  readonly entryCount: number;
+  readonly workEntryCount: number;
+  readonly intentCount: number;
+  readonly toolCount: number;
+  readonly thinkingCount: number;
+  readonly errorCount: number;
+  readonly infoCount: number;
+  readonly toolSummaryCounts: TimelineToolSummaryCounts;
+  readonly hasIntentEntries: boolean;
+  readonly hasToolEntries: boolean;
+  readonly hasThinkingEntries: boolean;
+  readonly surfaceTone: TimelineMetaTone;
+  readonly threadGroupTone: TimelineWorkGroupThreadTone;
+  readonly iconKey: TimelineWorkGroupIconKey;
+}
+
+export type TimelineWorkRow = {
+  kind: "work";
+  id: string;
+  createdAt: string;
+  workEntry: TimelineWorkEntry;
+};
+
+export type TimelineWorkGroupRow = {
+  kind: "work-group";
+  id: string;
+  createdAt: string;
+  entries: TimelineMetaGroupEntry[];
+  summaryEndAt: string | null;
+  summary: TimelineWorkGroupSummaryProjection;
+};
+
+export type TimelineIntentRow = {
+  kind: "intent";
+  id: string;
+  createdAt: string;
+  text: string;
+};
+
+export type TimelineMessageRow = {
+  kind: "message";
+  id: string;
+  createdAt: string;
+  message: TimelineMessage;
+  durationStart: string;
+  completionSummary: string | null;
+  isAssistantTurnTerminal?: boolean;
+  showAssistantTiming?: boolean;
+  showAssistantSummaryByDefault?: boolean;
+};
+
+export type TimelineProposedPlanRow = {
+  kind: "proposed-plan";
+  id: string;
+  createdAt: string;
+  proposedPlan: TimelineProposedPlan;
+};
+
+export type TimelineWorkingRow = {
+  kind: "working";
+  id: string;
+  createdAt: string | null;
+  mode: "live" | "silent-thinking";
+  activity: "default" | "goal";
+  goalStartedAt: string | null;
+  intentText: string | null;
+};
+
+export type TimelineWorkLogRow = TimelineWorkRow | TimelineWorkGroupRow | TimelineIntentRow;
+
+export type TimelineCompletedWorkDetailRow = TimelineWorkLogRow | TimelineMessageRow;
+
+export type TimelineCompletedWorkDiagnosticRow = TimelineWorkRow;
+
+export type TimelineCompletedWorkSummaryRow = {
+  kind: "completed-work-summary";
+  id: string;
+  createdAt: string;
+  startedAt: string;
+  endedAt: string;
+  entries: TimelineMetaGroupEntry[];
+  detailRows: TimelineCompletedWorkDetailRow[];
+  visibleDiagnosticRows: TimelineCompletedWorkDiagnosticRow[];
+  visibleDiagnosticCacheKey: string;
+  hiddenMessageCount: number;
+  hiddenThinkingCount: number;
+  toolCallCount: number;
+};
+
 export type TimelineRow =
-  | {
-      kind: "completed-work-summary";
-      id: string;
-      createdAt: string;
-      startedAt: string;
-      endedAt: string;
-      entries: TimelineMetaGroupEntry[];
-      detailRows: TimelineCompletedWorkDetailRow[];
-      hiddenMessageCount: number;
-      toolCallCount: number;
-    }
-  | {
-      kind: "work";
-      id: string;
-      createdAt: string;
-      workEntry: TimelineWorkEntry;
-    }
-  | {
-      kind: "work-group";
-      id: string;
-      createdAt: string;
-      entries: TimelineMetaGroupEntry[];
-      summaryEndAt: string | null;
-    }
-  | {
-      kind: "intent";
-      id: string;
-      createdAt: string;
-      text: string;
-    }
-  | {
-      kind: "message";
-      id: string;
-      createdAt: string;
-      message: TimelineMessage;
-      durationStart: string;
-      completionSummary: string | null;
-      isAssistantTurnTerminal?: boolean;
-      showAssistantTiming?: boolean;
-      showAssistantSummaryByDefault?: boolean;
-    }
-  | {
-      kind: "proposed-plan";
-      id: string;
-      createdAt: string;
-      proposedPlan: TimelineProposedPlan;
-    }
-  | {
-      kind: "working";
-      id: string;
-      createdAt: string | null;
-      mode: "live" | "silent-thinking";
-      activity: "default" | "goal";
-      goalStartedAt: string | null;
-      intentText: string | null;
-    };
-
-export type TimelineWorkLogRow =
-  | Extract<TimelineRow, { kind: "work" }>
-  | Extract<TimelineRow, { kind: "work-group" }>
-  | Extract<TimelineRow, { kind: "intent" }>;
-
-export type TimelineCompletedWorkDetailRow =
+  | TimelineCompletedWorkSummaryRow
   | TimelineWorkLogRow
-  | Extract<TimelineRow, { kind: "message" }>;
+  | TimelineMessageRow
+  | TimelineProposedPlanRow
+  | TimelineWorkingRow;
 
-export type AssistantTimelineMessageRow = Extract<TimelineRow, { kind: "message" }> & {
+export type AssistantTimelineMessageRow = TimelineMessageRow & {
   message: AssistantTimelineMessage;
 };
 
@@ -138,6 +207,209 @@ function shouldCollapseMetaEntries(entries: ReadonlyArray<TimelineMetaGroupEntry
   );
 }
 
+export function classifyTimelineToolSummaryEntry(
+  workEntry: TimelineWorkEntry,
+): TimelineToolSummaryKind {
+  const textHint = `${workEntry.toolTitle ?? ""} ${workEntry.label}`.trim().toLowerCase();
+  if (
+    workEntry.requestKind === "command" ||
+    workEntry.itemType === "command_execution" ||
+    textHint.includes("run command") ||
+    textHint.includes("execute command")
+  ) {
+    return "command";
+  }
+  if (
+    workEntry.requestKind === "file-read" ||
+    textHint.includes("read file") ||
+    textHint.includes("open file") ||
+    textHint.includes("inspect file")
+  ) {
+    return "file-read";
+  }
+  if (workEntry.itemType === "web_search" || /\b(find|search|grep|ripgrep|glob)\b/.test(textHint)) {
+    return "web-search";
+  }
+  if (
+    workEntry.requestKind === "file-change" ||
+    workEntry.itemType === "file_change" ||
+    (workEntry.changedFiles?.length ?? 0) > 0 ||
+    textHint.includes("edit file") ||
+    textHint.includes("write file") ||
+    textHint.includes("apply patch")
+  ) {
+    return "file-change";
+  }
+  if (workEntry.itemType === "image_view") {
+    return "image-view";
+  }
+  return "generic-tool";
+}
+
+function resolveTimelineWorkGroupSurfaceTone(input: {
+  intentCount: number;
+  toolCount: number;
+  thinkingCount: number;
+  errorCount: number;
+}): TimelineMetaTone {
+  if (input.errorCount > 0) {
+    return "error";
+  }
+  if (input.thinkingCount > 0 && input.toolCount === 0) {
+    return "thinking";
+  }
+  if (input.toolCount > 0) {
+    return "tool";
+  }
+  if (input.intentCount > 0) {
+    return "intent";
+  }
+  return "success";
+}
+
+function resolveTimelineWorkGroupThreadTone(input: {
+  intentCount: number;
+  toolCount: number;
+  thinkingCount: number;
+  errorCount: number;
+  surfaceTone: TimelineMetaTone;
+}): TimelineWorkGroupThreadTone {
+  if (input.toolCount > 0) {
+    return input.thinkingCount > 0 ? "mixed" : "tool";
+  }
+  if (input.thinkingCount > 0) {
+    return "thinking";
+  }
+  if (input.intentCount > 0) {
+    return "intent";
+  }
+  return input.surfaceTone === "error" || input.errorCount > 0 ? "error" : "info";
+}
+
+function iconKeyForToolSummaryKind(
+  classification: TimelineToolSummaryKind | null,
+): TimelineWorkGroupIconKey {
+  if (classification === "command") return "terminal";
+  if (classification === "file-change") return "file-change";
+  if (classification === "file-read" || classification === "image-view") return "eye";
+  if (classification === "web-search") return "web-search";
+  return "wrench";
+}
+
+export function buildTimelineWorkGroupSummaryProjection(
+  entries: ReadonlyArray<TimelineMetaGroupEntry>,
+): TimelineWorkGroupSummaryProjection {
+  const toolSummaryCounts = {
+    command: 0,
+    fileRead: 0,
+    fileChange: 0,
+    webSearch: 0,
+    imageView: 0,
+    genericTool: 0,
+  };
+  let workEntryCount = 0;
+  let intentCount = 0;
+  let toolCount = 0;
+  let thinkingCount = 0;
+  let errorCount = 0;
+  let infoCount = 0;
+  let firstToolClassification: TimelineToolSummaryKind | null = null;
+  let hasMixedToolClassifications = false;
+
+  for (const entry of entries) {
+    if (entry.kind === "intent") {
+      intentCount += 1;
+      continue;
+    }
+
+    workEntryCount += 1;
+    switch (entry.workEntry.tone) {
+      case "tool": {
+        toolCount += 1;
+        const classification = classifyTimelineToolSummaryEntry(entry.workEntry);
+        if (firstToolClassification === null) {
+          firstToolClassification = classification;
+        } else if (firstToolClassification !== classification) {
+          hasMixedToolClassifications = true;
+        }
+        switch (classification) {
+          case "command":
+            toolSummaryCounts.command += 1;
+            break;
+          case "file-read":
+            toolSummaryCounts.fileRead += 1;
+            break;
+          case "file-change":
+            toolSummaryCounts.fileChange += Math.max(1, entry.workEntry.changedFiles?.length ?? 0);
+            break;
+          case "web-search":
+            toolSummaryCounts.webSearch += 1;
+            break;
+          case "image-view":
+            toolSummaryCounts.imageView += 1;
+            break;
+          case "generic-tool":
+            toolSummaryCounts.genericTool += 1;
+            break;
+        }
+        break;
+      }
+      case "thinking":
+        thinkingCount += 1;
+        break;
+      case "error":
+        errorCount += 1;
+        break;
+      case "info":
+        infoCount += 1;
+        break;
+      default:
+        break;
+    }
+  }
+
+  const surfaceTone = resolveTimelineWorkGroupSurfaceTone({
+    intentCount,
+    toolCount,
+    thinkingCount,
+    errorCount,
+  });
+  const threadGroupTone = resolveTimelineWorkGroupThreadTone({
+    intentCount,
+    toolCount,
+    thinkingCount,
+    errorCount,
+    surfaceTone,
+  });
+  const iconKey =
+    workEntryCount === 0
+      ? "target"
+      : errorCount > 0
+        ? "alert"
+        : toolCount > 0
+          ? iconKeyForToolSummaryKind(hasMixedToolClassifications ? null : firstToolClassification)
+          : thinkingCount > 0
+            ? "brain"
+            : "check";
+
+  return {
+    entryCount: entries.length,
+    workEntryCount,
+    intentCount,
+    toolCount,
+    thinkingCount,
+    errorCount,
+    infoCount,
+    toolSummaryCounts,
+    hasIntentEntries: intentCount > 0,
+    hasToolEntries: toolCount > 0,
+    hasThinkingEntries: thinkingCount > 0,
+    surfaceTone,
+    threadGroupTone,
+    iconKey,
+  };
+}
+
 function resolveWorkGroupSummaryEndAt(
   entries: ReadonlyArray<TimelineMetaGroupEntry>,
   nextEventCreatedAt: string | null,
@@ -167,6 +439,7 @@ function buildMetaTimelineRows(input: {
   entries: ReadonlyArray<TimelineMetaGroupEntry>;
   nextEventCreatedAt: string | null;
   hideElapsed?: boolean;
+  summary?: TimelineWorkGroupSummaryProjection;
 }): TimelineWorkLogRow[] {
   if (shouldCollapseMetaEntries(input.entries)) {
     return [
@@ -178,6 +451,7 @@ function buildMetaTimelineRows(input: {
         summaryEndAt: input.hideElapsed
           ? null
           : resolveWorkGroupSummaryEndAt(input.entries, input.nextEventCreatedAt),
+        summary: input.summary ?? buildTimelineWorkGroupSummaryProjection(input.entries),
       },
     ];
   }
@@ -230,7 +504,68 @@ function shouldSkipAssistantMessageRow(message: TimelineMessage): boolean {
   if (message.role !== "assistant" || message.streaming) {
     return false;
   }
-  return message.text.trim().length === 0 && (message.attachments?.length ?? 0) === 0;
+  return (
+    getChatMessageRenderableText(message).trim().length === 0 &&
+    (message.attachments?.length ?? 0) === 0
+  );
+}
+
+function isVisibleCompletedWorkDiagnosticEntry(
+  entry: TimelineMetaGroupEntry,
+): entry is Extract<TimelineMetaGroupEntry, { kind: "work" }> {
+  return (
+    entry.kind === "work" &&
+    (entry.workEntry.tone === "error" || entry.workEntry.diagnosticKind !== undefined)
+  );
+}
+
+function workRowFromMetaEntry(
+  entry: Extract<TimelineMetaGroupEntry, { kind: "work" }>,
+): TimelineCompletedWorkDiagnosticRow {
+  return {
+    kind: "work",
+    id: entry.id,
+    createdAt: entry.createdAt,
+    workEntry: entry.workEntry,
+  };
+}
+
+function collectVisibleCompletedWorkDiagnosticRows(
+  detailRows: ReadonlyArray<TimelineCompletedWorkDetailRow>,
+): TimelineCompletedWorkDiagnosticRow[] {
+  const diagnosticRows: TimelineCompletedWorkDiagnosticRow[] = [];
+  for (const detailRow of detailRows) {
+    if (detailRow.kind === "work") {
+      if (
+        detailRow.workEntry.tone === "error" ||
+        detailRow.workEntry.diagnosticKind !== undefined
+      ) {
+        diagnosticRows.push(detailRow);
+      }
+      continue;
+    }
+
+    if (detailRow.kind !== "work-group") {
+      continue;
+    }
+
+    for (const entry of detailRow.entries) {
+      if (isVisibleCompletedWorkDiagnosticEntry(entry)) {
+        diagnosticRows.push(workRowFromMetaEntry(entry));
+      }
+    }
+  }
+  return diagnosticRows;
+}
+
+function completedWorkDiagnosticCacheKeyPart(row: TimelineCompletedWorkDiagnosticRow): string {
+  return `${row.id}:${row.workEntry.detail?.length ?? 0}:${row.workEntry.terminalOutput?.length ?? 0}`;
+}
+
+function completedWorkDiagnosticsCacheKey(
+  rows: ReadonlyArray<TimelineCompletedWorkDiagnosticRow>,
+): string {
+  return rows.length === 0 ? "none" : rows.map(completedWorkDiagnosticCacheKeyPart).join(",");
 }
 
 type HiddenCompletedWorkAccumulator = {
@@ -240,7 +575,10 @@ type HiddenCompletedWorkAccumulator = {
   endedAt: string;
   entries: TimelineMetaGroupEntry[];
   detailRows: TimelineCompletedWorkDetailRow[];
+  visibleDiagnosticRows: TimelineCompletedWorkDiagnosticRow[];
+  visibleDiagnosticCacheKeyParts: string[];
   hiddenMessageCount: number;
+  hiddenThinkingCount: number;
   toolCallCount: number;
 };
 
@@ -417,6 +755,7 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
     startedAt: string;
     endedAt: string;
     hiddenMessageCount: number;
+    hiddenThinkingCount: number;
     toolCallCount: number;
   }) => {
     if (!hiddenCompletedWork) {
@@ -427,7 +766,10 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
         endedAt: input.endedAt,
         entries: [],
         detailRows: [],
+        visibleDiagnosticRows: [],
+        visibleDiagnosticCacheKeyParts: [],
         hiddenMessageCount: input.hiddenMessageCount,
+        hiddenThinkingCount: input.hiddenThinkingCount,
         toolCallCount: input.toolCallCount,
       };
       return;
@@ -437,6 +779,7 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
       ...hiddenCompletedWork,
       endedAt: latestIso(hiddenCompletedWork.endedAt, input.endedAt),
       hiddenMessageCount: hiddenCompletedWork.hiddenMessageCount + input.hiddenMessageCount,
+      hiddenThinkingCount: hiddenCompletedWork.hiddenThinkingCount + input.hiddenThinkingCount,
       toolCallCount: hiddenCompletedWork.toolCallCount + input.toolCallCount,
     };
   };
@@ -451,30 +794,37 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
     }
     const fallbackEndAt = entries.at(-1)?.createdAt ?? firstEntry.createdAt;
     const endedAt = nextEventCreatedAt ?? fallbackEndAt;
-    const toolCallCount = entries.filter(
-      (entry) => entry.kind === "work" && entry.workEntry.tone === "tool",
-    ).length;
+    const summary = buildTimelineWorkGroupSummaryProjection(entries);
+    const detailRows = buildMetaTimelineRows({
+      rowId: firstEntry.id,
+      createdAt: firstEntry.createdAt,
+      entries,
+      nextEventCreatedAt,
+      summary,
+    });
+    const visibleDiagnosticRows = collectVisibleCompletedWorkDiagnosticRows(detailRows);
     const previousEntries = hiddenCompletedWork?.entries ?? [];
     const previousDetailRows = hiddenCompletedWork?.detailRows ?? [];
+    const previousVisibleDiagnosticRows = hiddenCompletedWork?.visibleDiagnosticRows ?? [];
+    const previousVisibleDiagnosticCacheKeyParts =
+      hiddenCompletedWork?.visibleDiagnosticCacheKeyParts ?? [];
     recordHiddenCompletedWork({
       id: firstEntry.id,
       startedAt: firstEntry.createdAt,
       endedAt,
       hiddenMessageCount: 0,
-      toolCallCount,
+      hiddenThinkingCount: summary.thinkingCount,
+      toolCallCount: summary.toolCount,
     });
     if (hiddenCompletedWork) {
       hiddenCompletedWork = {
         ...hiddenCompletedWork,
         entries: [...previousEntries, ...entries],
-        detailRows: [
-          ...previousDetailRows,
-          ...buildMetaTimelineRows({
-            rowId: firstEntry.id,
-            createdAt: firstEntry.createdAt,
-            entries,
-            nextEventCreatedAt,
-          }),
+        detailRows: [...previousDetailRows, ...detailRows],
+        visibleDiagnosticRows: [...previousVisibleDiagnosticRows, ...visibleDiagnosticRows],
+        visibleDiagnosticCacheKeyParts: [
+          ...previousVisibleDiagnosticCacheKeyParts,
+          ...visibleDiagnosticRows.map(completedWorkDiagnosticCacheKeyPart),
         ],
       };
     }
@@ -487,6 +837,7 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
       startedAt: message.createdAt,
       endedAt: message.completedAt ?? message.createdAt,
       hiddenMessageCount: 1,
+      hiddenThinkingCount: 0,
       toolCallCount: 0,
     });
     if (hiddenCompletedWork) {
@@ -529,7 +880,13 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
       endedAt: input.endedAt ?? hiddenCompletedWork.endedAt,
       entries: hiddenCompletedWork.entries,
       detailRows: hiddenCompletedWork.detailRows,
+      visibleDiagnosticRows: hiddenCompletedWork.visibleDiagnosticRows,
+      visibleDiagnosticCacheKey:
+        hiddenCompletedWork.visibleDiagnosticCacheKeyParts.length === 0
+          ? completedWorkDiagnosticsCacheKey(hiddenCompletedWork.visibleDiagnosticRows)
+          : hiddenCompletedWork.visibleDiagnosticCacheKeyParts.join(","),
       hiddenMessageCount: hiddenCompletedWork.hiddenMessageCount,
+      hiddenThinkingCount: hiddenCompletedWork.hiddenThinkingCount,
       toolCallCount: hiddenCompletedWork.toolCallCount,
     });
     hiddenCompletedWork = null;
@@ -651,10 +1008,9 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
       continue;
     }
 
-    if (
-      timelineEntry.message.role === "assistant" &&
-      shouldSkipAssistantMessageRow(timelineEntry.message)
-    ) {
+    const { message } = timelineEntry;
+
+    if (message.role === "assistant" && shouldSkipAssistantMessageRow(message)) {
       continue;
     }
 
@@ -666,48 +1022,47 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
       hasRenderableCurrentTurnOutput = true;
     }
 
-    const durationStart =
-      messageDurationStartById.get(timelineEntry.message.id) ?? timelineEntry.message.createdAt;
-    if (timelineEntry.message.role === "user") {
+    const durationStart = messageDurationStartById.get(message.id) ?? message.createdAt;
+    if (message.role === "user") {
       hiddenCompletedWork = null;
-      lastMessageBoundaryAt = timelineEntry.message.createdAt;
+      lastMessageBoundaryAt = message.createdAt;
       if (
         Number.isNaN(activeTurnStartedAtMs) ||
         isEventInActiveTurn(timelineEntry.createdAt, activeTurnStartedAtMs)
       ) {
         if (activeTurnPrimaryUserMessageCreatedAt === null) {
-          activeTurnPrimaryUserMessageCreatedAt = timelineEntry.message.createdAt;
-          activeTurnPrimaryUserMessageIsGoalCommand = isGoalCommandMessageText(
-            timelineEntry.message.text,
-          );
+          activeTurnPrimaryUserMessageCreatedAt = message.createdAt;
+          activeTurnPrimaryUserMessageIsGoalCommand = isGoalCommandMessageText(message.text);
         }
       }
     }
 
+    const messageCompletedAt = message.completedAt;
+
     if (
       input.hideCompletedWorkMessages === true &&
-      timelineEntry.message.role === "assistant" &&
-      !timelineEntry.message.streaming &&
+      message.role === "assistant" &&
+      !message.streaming &&
       !terminalAssistantMessageIds.has(timelineEntry.id) &&
       !(input.activeTurnInProgress && messageIsInActiveTurn)
     ) {
-      recordHiddenAssistantMessage(timelineEntry.message, durationStart);
-      if (timelineEntry.message.completedAt) {
-        lastMessageBoundaryAt = timelineEntry.message.completedAt;
+      recordHiddenAssistantMessage(message, durationStart);
+      if (message.completedAt) {
+        lastMessageBoundaryAt = message.completedAt;
       }
       continue;
     }
 
     if (
       input.hideCompletedWorkMessages === true &&
-      timelineEntry.message.role === "assistant" &&
-      !timelineEntry.message.streaming &&
+      message.role === "assistant" &&
+      !message.streaming &&
       terminalAssistantMessageIds.has(timelineEntry.id) &&
       !(input.activeTurnInProgress && messageIsInActiveTurn)
     ) {
       flushHiddenCompletedWorkSummary({
         startedAtFloor: durationStart,
-        endedAt: timelineEntry.message.completedAt ?? timelineEntry.createdAt,
+        endedAt: messageCompletedAt ?? timelineEntry.createdAt,
       });
     }
 
@@ -715,18 +1070,16 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
       kind: "message",
       id: timelineEntry.id,
       createdAt: timelineEntry.createdAt,
-      message: timelineEntry.message,
+      message,
       durationStart,
       completionSummary:
-        timelineEntry.message.role === "assistant" &&
-        input.completionDividerBeforeEntryId === timelineEntry.id
+        message.role === "assistant" && input.completionDividerBeforeEntryId === timelineEntry.id
           ? input.completionSummary
           : null,
       isAssistantTurnTerminal:
-        timelineEntry.message.role === "assistant" &&
-        terminalAssistantMessageIds.has(timelineEntry.id),
+        message.role === "assistant" && terminalAssistantMessageIds.has(timelineEntry.id),
       showAssistantTiming:
-        timelineEntry.message.role === "assistant" &&
+        message.role === "assistant" &&
         terminalAssistantMessageIds.has(timelineEntry.id) &&
         !(
           input.activeTurnInProgress &&
@@ -813,7 +1166,7 @@ export function estimateTimelineRowsCacheSize(
   input: BuildTimelineRowsInput,
   rows: ReadonlyArray<TimelineRow>,
 ): number {
-  let size = rows.length * 192;
+  let size = rows.length * 256;
   for (const entry of input.timelineEntries) {
     if (!entry) {
       continue;

@@ -7,7 +7,8 @@ import * as React from "react";
 
 import { cn } from "~/lib/utils";
 import { Separator } from "~/components/ui/separator";
-import { Toggle as ToggleComponent, type toggleVariants } from "~/components/ui/toggle";
+import { Toggle as ToggleComponent } from "~/components/ui/toggle";
+import type { toggleVariants } from "~/components/ui/toggleVariants";
 
 const ToggleGroupContext = React.createContext<VariantProps<typeof toggleVariants>>({
   size: "default",
@@ -55,7 +56,7 @@ function Toggle({
   size,
   ...props
 }: TogglePrimitive.Props & VariantProps<typeof toggleVariants>) {
-  const context = React.useContext(ToggleGroupContext);
+  const context = React.use(ToggleGroupContext);
 
   const resolvedVariant = variant ?? context.variant;
   const resolvedSize = size ?? context.size;
@@ -93,4 +94,4 @@ function ToggleGroupSeparator({
   );
 }
 
-export { ToggleGroup, Toggle, Toggle as ToggleGroupItem, ToggleGroupSeparator };
+export { ToggleGroup, Toggle };

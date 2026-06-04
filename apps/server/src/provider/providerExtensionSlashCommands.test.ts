@@ -136,7 +136,7 @@ describe("providerExtensionSlashCommands", () => {
             },
           },
         },
-        resolveCodexGoalsFeatureEnabled: () => true,
+        resolveCodexGoalsFeatureEnabled: () => false,
       })[0]?.commands;
 
       expect(providerCommands).toEqual(
@@ -172,46 +172,6 @@ describe("providerExtensionSlashCommands", () => {
       );
       expect(findCommand(providerCommands ?? [], "goal")?.description).toBe(
         "Set or inspect the active long-running goal",
-      );
-      expect(
-        withProviderExtensionSlashCommands({
-          providers: [
-            {
-              provider: "codex",
-              enabled: true,
-              installed: true,
-              version: "1.0.0",
-              minimumVersion: null,
-              versionStatus: "ok",
-              status: "ready",
-              auth: { status: "authenticated" },
-              checkedAt: "2026-01-01T00:00:00.000Z",
-              models: [],
-            },
-          ],
-          cwd,
-          settings: {
-            ...DEFAULT_SERVER_SETTINGS,
-            providers: {
-              ...DEFAULT_SERVER_SETTINGS.providers,
-              codex: {
-                enabled: true,
-                binaryPath: "codex",
-                homePath: codexHome,
-                launchEnv: {},
-                customModels: [],
-                instances: [],
-              },
-            },
-          },
-          resolveCodexGoalsFeatureEnabled: () => false,
-        })[0]?.commands,
-      ).not.toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            name: "goal",
-          }),
-        ]),
       );
       expect(
         withProviderExtensionSlashCommands({

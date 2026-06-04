@@ -1261,6 +1261,69 @@ describe("ProviderRuntimeIngestion", () => {
     expect(message?.streaming).toBe(false);
   });
 
+  it("keeps Codex child conversation assistant text out of the main transcript", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-child-message-delta"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-child"),
+      itemId: asItemId("child-message"),
+      payload: {
+        streamKind: "assistant_text",
+        delta: "child agent result",
+        data: {
+          ace: {
+            parentTurnId: "turn-parent",
+            childProviderThreadId: "child_provider_1",
+          },
+        },
+      },
+    });
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-child-message-completed"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-child"),
+      itemId: asItemId("child-message"),
+      payload: {
+        itemType: "assistant_message",
+        status: "completed",
+        detail: "child agent result",
+        data: {
+          ace: {
+            parentTurnId: "turn-parent",
+            childProviderThreadId: "child_provider_1",
+          },
+        },
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) =>
+          activity.kind === "task.progress" &&
+          activity.summary === "Subagent message" &&
+          activity.payload &&
+          typeof activity.payload === "object" &&
+          "detail" in activity.payload &&
+          activity.payload.detail === "child agent result",
+      ),
+    );
+
+    expect(
+      thread.messages.some((message: ProviderRuntimeTestMessage) =>
+        message.text.includes("child agent result"),
+      ),
+    ).toBe(false);
+  });
+
   it("splits assistant messages when tool activity interrupts the same assistant item", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
@@ -1420,6 +1483,88 @@ describe("ProviderRuntimeIngestion", () => {
       (activity: ProviderRuntimeTestActivity) => activity.id === "evt-tool-disabled-started",
     );
     expect(toolActivity?.kind).toBe("tool.started");
+  });
+
+  it("normalizes command lifecycle details and preserves streamed terminal output", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "item.started",
+      eventId: asEventId("evt-command-normalized-start"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-command-normalized"),
+      itemId: asItemId("cmd-normalized"),
+      payload: {
+        itemType: "command_execution",
+        status: "inProgress",
+        title: "Command execution",
+        detail: "ls -la",
+        data: {
+          item: {
+            command: "ls -la",
+            cwd: "/tmp/project",
+          },
+        },
+      },
+    });
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-command-normalized-output-1"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-command-normalized"),
+      itemId: asItemId("cmd-normalized"),
+      payload: {
+        streamKind: "command_output",
+        delta: "total 8\n",
+      },
+    });
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-command-normalized-output-2"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-command-normalized"),
+      itemId: asItemId("cmd-normalized"),
+      payload: {
+        streamKind: "command_output",
+        delta: "drwxr-xr-x .\n",
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) =>
+          activity.id === "evt-command-normalized-output-2",
+      ),
+    );
+    const started = thread.activities.find(
+      (activity: ProviderRuntimeTestActivity) => activity.id === "evt-command-normalized-start",
+    );
+    expect(started?.summary).toBe("Ran command ls -la");
+    expect(started?.payload).toMatchObject({
+      itemType: "command_execution",
+      itemId: "cmd-normalized",
+      title: "Ran command ls -la",
+      command: "ls -la",
+      cwd: "/tmp/project",
+    });
+
+    const output = thread.activities.find(
+      (activity: ProviderRuntimeTestActivity) => activity.id === "evt-command-normalized-output-2",
+    );
+    expect(output?.kind).toBe("tool.updated");
+    expect(output?.payload).toMatchObject({
+      itemType: "command_execution",
+      itemId: "cmd-normalized",
+      terminalOutput: "drwxr-xr-x .\n",
+      streamKind: "command_output",
+    });
   });
 
   it("splits assistant messages when reasoning activity interrupts the same assistant item", async () => {
@@ -4206,6 +4351,16 @@ describe("ProviderRuntimeIngestion", () => {
   it("projects Codex task lifecycle chunks into thread activities", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
+    const longCompletedSummary = [
+      "<task_result>",
+      "Here is a summary of each of the three apps found in `/Users/arpanbhandari/.ace/worktrees/t3code/ace-e825ddd9`.",
+      "",
+      "## Package 0",
+      "The server package owns provider sessions, event ingestion, persistence, and orchestration projection.",
+      "The web package owns the chat transcript, event rendering, and reconnect behavior.",
+      "The shared packages keep contracts and runtime utilities separate so provider adapters do not leak UI-specific details.",
+      "</task_result>",
+    ].join("\n");
 
     harness.emit({
       type: "task.started",
@@ -4217,6 +4372,8 @@ describe("ProviderRuntimeIngestion", () => {
       payload: {
         taskId: "turn-task-1",
         taskType: "plan",
+        description:
+          "This task description is intentionally long enough that the old projection truncation would have hidden the end of the text from the expanded Task row in the timeline.",
       },
     });
 
@@ -4244,7 +4401,7 @@ describe("ProviderRuntimeIngestion", () => {
       payload: {
         taskId: "turn-task-1",
         status: "completed",
-        summary: "<proposed_plan>\n# Plan title\n</proposed_plan>",
+        summary: longCompletedSummary,
       },
     });
     harness.emit({
@@ -4292,13 +4449,18 @@ describe("ProviderRuntimeIngestion", () => {
 
     expect(started?.kind).toBe("task.started");
     expect(started?.summary).toBe("Plan task started");
+    expect((started?.payload as { detail?: string } | undefined)?.detail).toContain(
+      "hidden the end of the text",
+    );
     expect(progress?.kind).toBe("task.progress");
     expect(progressPayload?.detail).toBe("Code reviewer is validating the desktop rollout chunks.");
     expect(progressPayload?.summary).toBe(
       "Code reviewer is validating the desktop rollout chunks.",
     );
     expect(completed?.kind).toBe("task.completed");
-    expect(completedPayload?.detail).toBe("<proposed_plan>\n# Plan title\n</proposed_plan>");
+    expect(completedPayload?.detail).toBe(longCompletedSummary);
+    expect(completedPayload?.detail).toContain("The shared packages keep contracts");
+    expect(completedPayload?.detail).not.toContain("...");
     expect(
       thread.proposedPlans.find(
         (entry: ProviderRuntimeTestProposedPlan) => entry.id === "plan:thread-1:turn:turn-task-1",

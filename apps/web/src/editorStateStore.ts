@@ -3,6 +3,7 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { normalizePaneRatios } from "./lib/paneRatios";
 import { resolveStorage } from "./lib/storage";
+import { randomUUID } from "./lib/utils";
 import type {
   WorkspaceCodeComment,
   WorkspaceCodeCommentStatus,
@@ -75,6 +76,7 @@ interface PersistedEditorStoreSnapshot {
 
 interface EditorStoreState {
   addCodeComment: (threadId: EditorStateScopeId, comment: WorkspaceCodeComment) => void;
+  clearThreadState: (threadId: EditorStateScopeId) => void;
   closeFile: (threadId: EditorStateScopeId, filePath: string, paneId?: string) => void;
   closeFilesToRight: (threadId: EditorStateScopeId, filePath: string, paneId?: string) => void;
   closeOtherFiles: (threadId: EditorStateScopeId, filePath: string, paneId?: string) => void;
@@ -137,12 +139,54 @@ const MIN_TREE_WIDTH = 220;
 const MAX_TREE_WIDTH = 420;
 const DEFAULT_THREAD_EDITOR_PANE_ID = "pane-1";
 const DEFAULT_THREAD_EDITOR_ROW_ID = "row-1";
-export const MAX_THREAD_EDITOR_PANES = 4;
+export const MAX_THREAD_EDITOR_PANES = Number.MAX_SAFE_INTEGER;
 const MAX_RECENTLY_CLOSED_EDITOR_ENTRIES = 32;
+const EDITOR_WINDOW_INSTANCE_STORAGE_KEY = "ace:editor-window-instance-id:v1";
+const EDITOR_WINDOW_INSTANCE_NAME_PREFIX = `${EDITOR_WINDOW_INSTANCE_STORAGE_KEY}:`;
 const PROJECT_EDITOR_SCOPE_PREFIX = "project:";
 const DEFAULT_THREAD_EDITOR_STATE = createDefaultThreadEditorState();
 const DEFAULT_RUNTIME_THREAD_EDITOR_STATE = createDefaultRuntimeThreadEditorState();
 const threadEditorStateCache = new Map<EditorStateScopeId, ThreadEditorStateCacheEntry>();
+
+function readEditorWindowNameInstanceId(): string | null {
+  try {
+    const windowName = window.name.trim();
+    if (!windowName.startsWith(EDITOR_WINDOW_INSTANCE_NAME_PREFIX)) {
+      return null;
+    }
+    const instanceId = windowName.slice(EDITOR_WINDOW_INSTANCE_NAME_PREFIX.length).trim();
+    return instanceId.length > 0 ? instanceId : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeEditorWindowInstanceId(instanceId: string): void {
+  try {
+    window.name = `${EDITOR_WINDOW_INSTANCE_NAME_PREFIX}${instanceId}`;
+  } catch {
+    // Ignore inaccessible window names; session storage remains a best-effort mirror.
+  }
+  try {
+    window.sessionStorage.setItem(EDITOR_WINDOW_INSTANCE_STORAGE_KEY, instanceId);
+  } catch {
+    // Ignore unavailable session storage.
+  }
+}
+
+export function resolveEditorWindowStateInstanceId(): string {
+  const fallbackId = `window-${randomUUID()}`;
+  if (typeof window === "undefined") {
+    return fallbackId;
+  }
+  const windowNameInstanceId = readEditorWindowNameInstanceId();
+  if (windowNameInstanceId) {
+    writeEditorWindowInstanceId(windowNameInstanceId);
+    return windowNameInstanceId;
+  }
+  writeEditorWindowInstanceId(fallbackId);
+  return fallbackId;
+}
 
 export function resolveEditorStateScopeId(input: {
   gitCwd: string | null | undefined;
@@ -150,18 +194,33 @@ export function resolveEditorStateScopeId(input: {
 }): EditorStateScopeId {
   const normalizedGitCwd = input.gitCwd?.trim();
   if (normalizedGitCwd) {
-    return `${PROJECT_EDITOR_SCOPE_PREFIX}${normalizedGitCwd}`;
+    return `${PROJECT_EDITOR_SCOPE_PREFIX}${normalizedGitCwd}:thread:${input.threadId}`;
   }
   return input.threadId;
 }
 
+export function resolveEditorInstanceStateScopeId(input: {
+  gitCwd: string | null | undefined;
+  instanceId: string | null | undefined;
+  threadId: ThreadId;
+}): EditorStateScopeId {
+  const baseScopeId = resolveEditorStateScopeId({
+    gitCwd: input.gitCwd,
+    threadId: input.threadId,
+  });
+  const normalizedInstanceId = input.instanceId?.trim();
+  return normalizedInstanceId ? `${baseScopeId}:instance:${normalizedInstanceId}` : baseScopeId;
+}
+
 function normalizePathList(paths: readonly string[]): string[] {
   const unique: string[] = [];
+  const seen = new Set<string>();
   for (const path of paths) {
     const normalized = path.trim();
-    if (normalized.length === 0 || unique.includes(normalized)) {
+    if (normalized.length === 0 || seen.has(normalized)) {
       continue;
     }
+    seen.add(normalized);
     unique.push(normalized);
   }
   return unique;
@@ -340,22 +399,20 @@ function appendRecentlyClosedEntries(
     return [...existingEntries];
   }
 
-  const combined = [...existingEntries];
+  const combinedEntriesByKey = new Map<string, RecentlyClosedEditorEntry>(
+    existingEntries.map((entry) => [`${entry.filePath}\u0000${entry.paneId}`, entry] as const),
+  );
   for (const nextEntry of nextEntries) {
-    const duplicateIndex = combined.findIndex(
-      (entry) => entry.filePath === nextEntry.filePath && entry.paneId === nextEntry.paneId,
-    );
-    if (duplicateIndex >= 0) {
-      combined.splice(duplicateIndex, 1);
-    }
-    combined.push({
+    const entryKey = `${nextEntry.filePath}\u0000${nextEntry.paneId}`;
+    combinedEntriesByKey.delete(entryKey);
+    combinedEntriesByKey.set(entryKey, {
       filePath: nextEntry.filePath,
       paneId: nextEntry.paneId,
       targetIndex: Math.max(0, Math.trunc(nextEntry.targetIndex)),
     });
   }
 
-  return combined.slice(-MAX_RECENTLY_CLOSED_EDITOR_ENTRIES);
+  return Array.from(combinedEntriesByKey.values()).slice(-MAX_RECENTLY_CLOSED_EDITOR_ENTRIES);
 }
 
 function createEditorStateStorage() {
@@ -440,9 +497,12 @@ function normalizeThreadEditorRows(
     ];
   });
 
-  const unassignedPaneIds = panes
-    .map((pane) => pane.id)
-    .filter((paneId) => !assignedPaneIds.has(paneId));
+  const unassignedPaneIds: string[] = [];
+  for (const pane of panes) {
+    if (!assignedPaneIds.has(pane.id)) {
+      unassignedPaneIds.push(pane.id);
+    }
+  }
 
   if (normalizedRows.length === 0) {
     return createDefaultRowsFromPanes(panes, legacyPaneRatios);
@@ -687,6 +747,25 @@ export const useEditorStateStore = create<EditorStoreState>()(
             },
           };
         }),
+      clearThreadState: (threadId) =>
+        set((state) => {
+          threadEditorStateCache.delete(threadId);
+          if (
+            state.threadStateByThreadId[threadId] === undefined &&
+            state.runtimeStateByThreadId[threadId] === undefined
+          ) {
+            return state;
+          }
+          const nextThreadStateByThreadId = { ...state.threadStateByThreadId };
+          const nextRuntimeStateByThreadId = { ...state.runtimeStateByThreadId };
+          delete nextThreadStateByThreadId[threadId];
+          delete nextRuntimeStateByThreadId[threadId];
+          return {
+            ...state,
+            runtimeStateByThreadId: nextRuntimeStateByThreadId,
+            threadStateByThreadId: nextThreadStateByThreadId,
+          };
+        }),
       closeFile: (threadId, filePath, paneId) =>
         set((state) => {
           const normalizedPath = filePath.trim();
@@ -766,12 +845,16 @@ export const useEditorStateStore = create<EditorStoreState>()(
               openFilePaths: pane.openFilePaths.slice(0, targetIndex + 1),
             }),
           };
+          const closedEntries: RecentlyClosedEditorEntry[] = [];
+          for (const closedFilePath of closedFilePaths.toReversed()) {
+            const entry = buildRecentlyClosedEntry(pane, closedFilePath);
+            if (entry !== null) {
+              closedEntries.push(entry);
+            }
+          }
           const recentlyClosedEntries = appendRecentlyClosedEntries(
             runtime.recentlyClosedEntries,
-            closedFilePaths
-              .toReversed()
-              .map((closedFilePath) => buildRecentlyClosedEntry(pane, closedFilePath))
-              .filter((entry): entry is RecentlyClosedEditorEntry => entry !== null),
+            closedEntries,
           );
 
           return {
@@ -816,11 +899,16 @@ export const useEditorStateStore = create<EditorStoreState>()(
               openFilePaths: [normalizedPath],
             }),
           };
+          const closedEntries: RecentlyClosedEditorEntry[] = [];
+          for (const closedFilePath of [...leftClosed, ...rightClosed.toReversed()]) {
+            const entry = buildRecentlyClosedEntry(pane, closedFilePath);
+            if (entry !== null) {
+              closedEntries.push(entry);
+            }
+          }
           const recentlyClosedEntries = appendRecentlyClosedEntries(
             runtime.recentlyClosedEntries,
-            [...leftClosed, ...rightClosed.toReversed()]
-              .map((closedFilePath) => buildRecentlyClosedEntry(pane, closedFilePath))
-              .filter((entry): entry is RecentlyClosedEditorEntry => entry !== null),
+            closedEntries,
           );
 
           return {

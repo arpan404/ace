@@ -113,9 +113,13 @@ export function selectPendingUserInputOption(
       selectedOptionLabels.add(normalizedOptionLabel);
     }
 
-    const orderedOptionLabels = question.options
-      .map((option) => normalizeDraftAnswer(option.label))
-      .filter((label): label is string => label !== null);
+    const orderedOptionLabels: string[] = [];
+    for (const option of question.options) {
+      const normalizedLabel = normalizeDraftAnswer(option.label);
+      if (normalizedLabel !== null) {
+        orderedOptionLabels.push(normalizedLabel);
+      }
+    }
 
     return {
       customAnswer: "",

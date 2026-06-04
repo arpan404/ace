@@ -970,6 +970,106 @@ describe("deriveWorkLogEntries", () => {
     expect(entries.map((entry) => entry.id)).toEqual(["t1-done", "t2-done"]);
   });
 
+  it("derives Codex child conversation ids as subagent metadata", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "child-reasoning",
+        turnId: "turn-child",
+        kind: "reasoning.completed",
+        summary: "Thought",
+        payload: {
+          itemType: "reasoning",
+          detail: "Checking build and test health.",
+          data: {
+            ace: {
+              parentTurnId: "turn-parent",
+              childProviderThreadId: "child_provider_1",
+            },
+          },
+        },
+      }),
+      makeActivity({
+        id: "collab-call",
+        turnId: "turn-parent",
+        kind: "tool.completed",
+        summary: "Subagent",
+        payload: {
+          itemType: "collab_agent_tool_call",
+          title: "Subagent",
+          data: {
+            item: {
+              type: "collabAgentToolCall",
+              receiverThreadIds: ["child_provider_2"],
+            },
+          },
+        },
+      }),
+    ];
+
+    const entries = deriveWorkLogEntries(activities, undefined);
+
+    expect(entries).toHaveLength(2);
+    expect(entries[0]).toMatchObject({
+      subagentId: "child_provider_1",
+      subagentType: "codex subagent",
+    });
+    expect(entries[1]).toMatchObject({
+      itemType: "collab_agent_tool_call",
+      subagentId: "child_provider_2",
+      subagentType: "codex subagent",
+    });
+  });
+
+  it("marks Codex side-chat activity as timeline messages", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "side-user-activity",
+        kind: "subagent.message.sent",
+        summary: "User message",
+        payload: {
+          detail: "Please keep checking the build.",
+          messageId: "side-user-message",
+          subagent: {
+            id: "child_provider_1",
+            type: "codex subagent",
+          },
+        },
+      }),
+      makeActivity({
+        id: "side-assistant-activity",
+        kind: "task.progress",
+        summary: "Subagent message",
+        payload: {
+          itemType: "assistant_message",
+          detail: "I am checking the build now.",
+          data: {
+            ace: {
+              childProviderThreadId: "child_provider_1",
+            },
+          },
+        },
+      }),
+    ];
+
+    const entries = deriveWorkLogEntries(activities);
+    const userMessage = entries.find((entry) => entry.sideChatMessageRole === "user");
+    const assistantMessage = entries.find((entry) => entry.sideChatMessageRole === "assistant");
+
+    expect(entries).toHaveLength(2);
+    expect(userMessage).toMatchObject({
+      sideChatMessageId: "side-user-message",
+      sideChatMessageRole: "user",
+      sideChatMessageText: "Please keep checking the build.",
+      subagentId: "child_provider_1",
+    });
+    expect(assistantMessage).toMatchObject({
+      sideChatMessageId: "side-assistant-activity",
+      sideChatMessageRole: "assistant",
+      sideChatMessageText: "I am checking the build now.",
+      subagentId: "child_provider_1",
+    });
+  });
+
   it("omits checkpoint captured info entries", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({
@@ -1127,7 +1227,7 @@ describe("deriveWorkLogEntries", () => {
       command: "bun run dev",
       detail: '{ "dev": "vite dev --port 3000" }',
       itemType: "command_execution",
-      toolTitle: "bash",
+      toolTitle: "Run command",
     });
   });
 
@@ -1435,7 +1535,7 @@ describe("deriveWorkLogEntries", () => {
     });
     expect(readDetail?.changedFiles).toBeUndefined();
     expect(searchTitle).toMatchObject({
-      toolTitle: "Find",
+      toolTitle: "Search",
       detail: "apps/web/src",
     });
     expect(searchTitle?.requestKind).toBeUndefined();
@@ -1505,6 +1605,59 @@ describe("deriveWorkLogEntries", () => {
 
     expect(entry).toMatchObject({
       detail: "/tmp/app.ts",
+    });
+  });
+
+  it("normalizes rough provider read and command payloads into Codex-style metadata", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "rough-read",
+        kind: "tool.completed",
+        summary: "Read",
+        payload: {
+          itemType: "dynamic_tool_call",
+          title: "Read",
+          detail:
+            "<path>/Users/me/project/AGENTS.md</path>\n<type>file</type>\n<content>\n# AGENTS.md\n</content>",
+          data: {
+            toolName: "Read",
+          },
+        },
+      }),
+      makeActivity({
+        id: "rough-command",
+        kind: "tool.completed",
+        summary: "Bash",
+        payload: {
+          itemType: "command_execution",
+          title: "Bash",
+          status: "failed",
+          command: "bun run check",
+          terminalOutput: "Format issues found in 1 file.\n",
+          exitCode: 1,
+          durationMs: 191,
+        },
+      }),
+    ];
+
+    const entries = deriveWorkLogEntries(activities, undefined);
+
+    const readEntry = entries.find((entry) => entry.id === "rough-read");
+    const commandEntry = entries.find((entry) => entry.id === "rough-command");
+
+    expect(readEntry).toMatchObject({
+      toolTitle: "Read file",
+      requestKind: "file-read",
+      detail: "/Users/me/project/AGENTS.md",
+    });
+    expect(commandEntry).toMatchObject({
+      toolTitle: "Run command",
+      requestKind: "command",
+      command: "bun run check",
+      terminalOutput: "Format issues found in 1 file.\n",
+      status: "failed",
+      exitCode: 1,
+      durationMs: 191,
     });
   });
 
@@ -1690,6 +1843,109 @@ describe("deriveWorkLogEntries", () => {
       "2026-02-23T00:00:03.000Z",
     ]);
     expect(entries.map((entry) => entry.detail)).toEqual(["README.md", "package.json"]);
+  });
+
+  it("collapses normalized command output deltas into the command row", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "command-start",
+        turnId: "turn-command-output",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "tool.started",
+        summary: "Ran command ls -la",
+        payload: {
+          itemType: "command_execution",
+          itemId: "cmd-1",
+          title: "Ran command ls -la",
+          command: "ls -la",
+        },
+      }),
+      makeActivity({
+        id: "command-output-1",
+        turnId: "turn-command-output",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        kind: "tool.updated",
+        summary: "Command output",
+        payload: {
+          itemType: "command_execution",
+          itemId: "cmd-1",
+          terminalOutput: "total 8\n",
+        },
+      }),
+      makeActivity({
+        id: "command-output-2",
+        turnId: "turn-command-output",
+        createdAt: "2026-02-23T00:00:03.000Z",
+        kind: "tool.updated",
+        summary: "Command output",
+        payload: {
+          itemType: "command_execution",
+          itemId: "cmd-1",
+          terminalOutput: "drwxr-xr-x .\n",
+        },
+      }),
+    ];
+
+    const entries = deriveWorkLogEntries(activities, undefined);
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      label: "Ran command ls -la",
+      toolTitle: "Ran command ls -la",
+      command: "ls -la",
+      terminalOutput: "total 8\ndrwxr-xr-x .\n",
+      requestKind: "command",
+    });
+  });
+
+  it("caps collapsed command output so large live logs do not dominate rendering", () => {
+    const largeChunk = "x".repeat(20_000);
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "command-start",
+        turnId: "turn-command-output",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "tool.started",
+        summary: "Ran command build",
+        payload: {
+          itemType: "command_execution",
+          itemId: "cmd-1",
+          title: "Ran command build",
+          command: "build",
+        },
+      }),
+      makeActivity({
+        id: "command-output-1",
+        turnId: "turn-command-output",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        kind: "tool.updated",
+        summary: "Command output",
+        payload: {
+          itemType: "command_execution",
+          itemId: "cmd-1",
+          terminalOutput: largeChunk,
+        },
+      }),
+      makeActivity({
+        id: "command-output-2",
+        turnId: "turn-command-output",
+        createdAt: "2026-02-23T00:00:03.000Z",
+        kind: "tool.updated",
+        summary: "Command output",
+        payload: {
+          itemType: "command_execution",
+          itemId: "cmd-1",
+          terminalOutput: "after-cap",
+        },
+      }),
+    ];
+
+    const entries = deriveWorkLogEntries(activities, undefined);
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.terminalOutput).toHaveLength(16_000);
+    expect(entries[0]?.terminalOutput?.endsWith("...")).toBe(true);
+    expect(entries[0]?.terminalOutputTruncated).toBe(true);
   });
 
   it("keeps separate tool entries when an identical call starts after the prior one completed", () => {

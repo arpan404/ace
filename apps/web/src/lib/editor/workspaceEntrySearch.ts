@@ -2,7 +2,11 @@ import type { ProjectEntry } from "@ace/contracts";
 
 import { basenameOfPath } from "~/vscode-icons";
 
-export const MIN_WORKSPACE_REMOTE_SEARCH_QUERY_LENGTH = 2;
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+const MIN_WORKSPACE_REMOTE_SEARCH_QUERY_LENGTH = 2;
 
 function scoreSubsequenceMatch(value: string, query: string): number | null {
   if (!query) return 0;
@@ -59,11 +63,20 @@ export function shouldRunWorkspaceRemoteSearch(query: string): boolean {
 export function searchWorkspaceEntriesLocally(
   entries: readonly ProjectEntry[],
   query: string,
+  options?: {
+    readonly limit?: number;
+  },
 ): readonly ProjectEntry[] {
   const trimmed = query.trim();
   if (trimmed.length === 0) {
-    return entries;
+    return options?.limit === undefined ? entries : entries.slice(0, options.limit);
   }
+
+  const limit = options?.limit ?? Number.POSITIVE_INFINITY;
+  if (limit <= 0) {
+    return [];
+  }
+  const bounded = Number.isFinite(limit);
 
   const lowerTrimmed = trimmed.toLowerCase();
   if (lowerTrimmed.startsWith("re:")) {
@@ -71,46 +84,92 @@ export function searchWorkspaceEntriesLocally(
     if (!regex) {
       return [];
     }
-    return entries.filter((entry) => regex.test(entry.path));
+    const matches: ProjectEntry[] = [];
+    for (const entry of entries) {
+      if (!regex.test(entry.path)) {
+        continue;
+      }
+      matches.push(entry);
+      if (matches.length >= limit) {
+        break;
+      }
+    }
+    return matches;
   }
 
   const normalizedQuery = lowerTrimmed.replace(/^[@./]+/, "");
   if (normalizedQuery.length === 0) {
-    return entries;
+    return entries.slice(0, limit);
   }
 
-  return entries
-    .map((entry) => {
-      const normalizedPath = entry.path.toLowerCase();
-      const normalizedName = basenameOfPath(entry.path).toLowerCase();
-      let score: number | null = null;
+  const pathSegmentMatcher = new RegExp(escapeRegExp(`/${normalizedQuery}`));
+  const queryMatcher = new RegExp(escapeRegExp(normalizedQuery));
 
-      if (normalizedName === normalizedQuery) score = 0;
-      else if (normalizedPath === normalizedQuery) score = 1;
-      else if (normalizedName.startsWith(normalizedQuery)) score = 2;
-      else if (normalizedPath.startsWith(normalizedQuery)) score = 3;
-      else if (normalizedPath.includes(`/${normalizedQuery}`)) score = 4;
-      else if (normalizedName.includes(normalizedQuery)) score = 5;
-      else if (normalizedPath.includes(normalizedQuery)) score = 6;
-      else {
-        const fuzzyNameScore = scoreSubsequenceMatch(normalizedName, normalizedQuery);
-        if (fuzzyNameScore !== null) {
-          score = 100 + fuzzyNameScore;
-        } else {
-          const fuzzyPathScore = scoreSubsequenceMatch(normalizedPath, normalizedQuery);
-          if (fuzzyPathScore !== null) {
-            score = 200 + fuzzyPathScore;
-          }
+  const scoredEntries: Array<{ entry: ProjectEntry; score: number }> = [];
+  for (const entry of entries) {
+    const normalizedPath = entry.path.toLowerCase();
+    const normalizedName = basenameOfPath(entry.path).toLowerCase();
+    let score: number | null = null;
+
+    if (normalizedName === normalizedQuery) score = 0;
+    else if (normalizedPath === normalizedQuery) score = 1;
+    else if (normalizedName.startsWith(normalizedQuery)) score = 2;
+    else if (normalizedPath.startsWith(normalizedQuery)) score = 3;
+    else if (pathSegmentMatcher.test(normalizedPath)) score = 4;
+    else if (queryMatcher.test(normalizedName)) score = 5;
+    else if (queryMatcher.test(normalizedPath)) score = 6;
+    else {
+      const fuzzyNameScore = scoreSubsequenceMatch(normalizedName, normalizedQuery);
+      if (fuzzyNameScore !== null) {
+        score = 100 + fuzzyNameScore;
+      } else {
+        const fuzzyPathScore = scoreSubsequenceMatch(normalizedPath, normalizedQuery);
+        if (fuzzyPathScore !== null) {
+          score = 200 + fuzzyPathScore;
         }
       }
+    }
 
-      return score === null ? null : { entry, score };
-    })
-    .filter((value): value is { entry: ProjectEntry; score: number } => value !== null)
-    .toSorted(
-      (left, right) => left.score - right.score || left.entry.path.localeCompare(right.entry.path),
-    )
-    .map((value) => value.entry);
+    if (score !== null) {
+      if (!bounded) {
+        scoredEntries.push({ entry, score });
+        continue;
+      }
+
+      const candidate = { entry, score };
+      if (scoredEntries.length < limit) {
+        scoredEntries.push(candidate);
+        scoredEntries.sort(
+          (left, right) =>
+            left.score - right.score || left.entry.path.localeCompare(right.entry.path),
+        );
+        continue;
+      }
+
+      const worst = scoredEntries.at(-1);
+      if (
+        worst &&
+        (candidate.score < worst.score ||
+          (candidate.score === worst.score &&
+            candidate.entry.path.localeCompare(worst.entry.path) < 0))
+      ) {
+        scoredEntries.pop();
+        scoredEntries.push(candidate);
+        scoredEntries.sort(
+          (left, right) =>
+            left.score - right.score || left.entry.path.localeCompare(right.entry.path),
+        );
+      }
+    }
+  }
+  return (
+    bounded
+      ? scoredEntries
+      : scoredEntries.toSorted(
+          (left, right) =>
+            left.score - right.score || left.entry.path.localeCompare(right.entry.path),
+        )
+  ).map((value) => value.entry);
 }
 
 export function mergeWorkspaceSearchEntries(

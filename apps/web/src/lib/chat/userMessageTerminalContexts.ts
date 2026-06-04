@@ -2,16 +2,35 @@ import { formatInlineTerminalContextLabel as formatInlineTerminalContextSelectio
 
 const TERMINAL_CONTEXT_HEADER_PATTERN = /^(.*?)\s+line(?:s)?\s+(\d+)(?:-(\d+))?$/i;
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+export function findTextIndexOf(text: string, needle: string, startIndex: number): number {
+  if (!needle) {
+    return startIndex;
+  }
+
+  const escapedNeedle = escapeRegExp(needle);
+  const regex = new RegExp(escapedNeedle);
+  const matchIndex = text.slice(startIndex).search(regex);
+
+  return matchIndex === -1 ? -1 : startIndex + matchIndex;
+}
+
 export function buildInlineTerminalContextText(
   contexts: ReadonlyArray<{
     header: string;
   }>,
 ): string {
-  return contexts
-    .map((context) => context.header.trim())
-    .filter((header) => header.length > 0)
-    .map(formatInlineTerminalContextLabel)
-    .join(" ");
+  const labels: string[] = [];
+  for (const context of contexts) {
+    const header = context.header.trim();
+    if (header.length > 0) {
+      labels.push(formatInlineTerminalContextLabel(header));
+    }
+  }
+  return labels.join(" ");
 }
 
 export function formatInlineTerminalContextLabel(header: string): string {
@@ -44,7 +63,7 @@ export function textContainsInlineTerminalContextLabels(
 
   for (const context of contexts) {
     const label = formatInlineTerminalContextLabel(context.header);
-    const matchIndex = text.indexOf(label, searchStartIndex);
+    const matchIndex = findTextIndexOf(text, label, searchStartIndex);
     if (matchIndex === -1) {
       return false;
     }

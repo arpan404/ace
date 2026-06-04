@@ -75,12 +75,7 @@ export function DiffPanelHeaderSkeleton() {
 export function DiffPanelLoadingState(props: { label: string }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col px-4 py-3">
-      <div
-        className="flex min-h-0 flex-1 flex-col"
-        role="status"
-        aria-live="polite"
-        aria-label={props.label}
-      >
+      <output className="flex min-h-0 flex-1 flex-col" aria-live="polite" aria-label={props.label}>
         <div className="flex items-center gap-2.5 border-b border-border/60 pb-3">
           <Skeleton className="h-4 w-28 rounded-full" />
           <Skeleton className="ml-auto h-4 w-16 rounded-full" />
@@ -95,7 +90,7 @@ export function DiffPanelLoadingState(props: { label: string }) {
           </div>
           <span className="sr-only">{props.label}</span>
         </div>
-      </div>
+      </output>
     </div>
   );
 }

@@ -1,4 +1,7 @@
 import { Effect, Layer, Option, Queue, Ref, Schema, Stream } from "effect";
+import { execFile } from "node:child_process";
+import { lstat } from "node:fs/promises";
+import { promisify } from "node:util";
 import {
   type GitActionProgressEvent,
   type GitManagerServiceError,
@@ -17,6 +20,7 @@ import {
   FilesystemBrowseError,
   ProjectCreateEntryError,
   ProjectDeleteEntryError,
+  ProjectFileEventsError,
   ProjectSearchEntriesError,
   ProjectListTreeError,
   ProjectReadFileError,
@@ -30,6 +34,7 @@ import {
   WorkspaceEditorCloseBufferError,
   WorkspaceEditorCompleteError,
   WorkspaceEditorDefinitionError,
+  WorkspaceEditorHoverError,
   WorkspaceEditorReferencesError,
   WorkspaceEditorSyncBufferError,
   WS_METHODS,
@@ -59,7 +64,7 @@ import { ProviderRegistry } from "./provider/Services/ProviderRegistry";
 import { ProviderService } from "./provider/Services/ProviderService";
 import { startOpenCodeServer } from "./provider/opencodeRuntime";
 import { OPENCODE_PROVIDER_SEARCH_PAGE_LIMIT, searchOpenCodeModels } from "./provider/opencodeSdk";
-import { upgradeProviderCli } from "./provider/providerCliUpgrade";
+import { upgradeProviderCli, withProviderCliUpdateStatuses } from "./provider/providerCliUpgrade";
 import { withProviderExtensionSlashCommands } from "./provider/providerExtensionSlashCommands";
 import { ServerLifecycleEvents } from "./serverLifecycleEvents";
 import { ServerRuntimeStartup } from "./serverRuntimeStartup";
@@ -76,6 +81,7 @@ import { collectRuntimeProfileSnapshot } from "./runtimeProfile";
 import { TerminalManager } from "./terminal/Services/Manager";
 import { WorkspaceEntries } from "./workspace/Services/WorkspaceEntries";
 import { WorkspaceEditor } from "./workspace/Services/WorkspaceEditor";
+import { WorkspaceFileEvents } from "./workspace/Services/WorkspaceFileEvents";
 import {
   WorkspaceFileSystem,
   WorkspaceFileSystemError,
@@ -98,10 +104,59 @@ const PROVIDER_AUTO_REFRESH_TICK_MS = 60_000;
 const PROVIDER_AUTO_REFRESH_READY_TTL_MS = 2 * 60 * 60_000;
 const PROVIDER_AUTO_REFRESH_WARNING_TTL_MS = 45 * 60_000;
 const PROVIDER_AUTO_REFRESH_ERROR_TTL_MS = 15 * 60_000;
+const WORKTREE_SIZE_CACHE_TTL_MS = 5 * 60_000;
+const WORKTREE_SIZE_CACHE_MAX_ENTRIES = 512;
+const WORKTREE_SIZE_DU_TIMEOUT_MS = 20_000;
+const WORKTREE_SIZE_STATS_CONCURRENCY = 4;
 const ORCHESTRATION_EVENT_REORDER_MAX_PENDING = Math.max(
   128,
   Number.parseInt(process.env.ACE_ORCHESTRATION_EVENT_REORDER_MAX_PENDING ?? "1024", 10) || 1024,
 );
+
+type WorktreeSizeStats = {
+  readonly exists: boolean;
+  readonly lastModifiedAt: string | null;
+  readonly sizeBytes: number;
+};
+
+type WorktreeSizeCacheEntry = {
+  readonly expiresAt: number;
+  readonly promise: Promise<WorktreeSizeStats> | null;
+  readonly value: WorktreeSizeStats | null;
+};
+
+const worktreeSizeCache = new Map<string, WorktreeSizeCacheEntry>();
+const execFileAsync = promisify(execFile);
+
+async function getDirectorySizeBytesFromPlatform(path: string): Promise<number | null> {
+  if (process.platform === "win32") {
+    const script = [
+      "$ErrorActionPreference = 'SilentlyContinue'",
+      "$total = 0",
+      "Get-ChildItem -LiteralPath $args[0] -Recurse -Force -File | ForEach-Object { $total += $_.Length }",
+      "[Console]::WriteLine($total)",
+    ].join("; ");
+    const { stdout } = await execFileAsync(
+      "powershell.exe",
+      ["-NoProfile", "-NonInteractive", "-Command", script, path],
+      {
+        encoding: "utf8",
+        maxBuffer: 1024 * 1024,
+        timeout: WORKTREE_SIZE_DU_TIMEOUT_MS,
+      },
+    );
+    const sizeBytes = Number.parseInt(String(stdout).trim(), 10);
+    return Number.isFinite(sizeBytes) && sizeBytes >= 0 ? sizeBytes : null;
+  }
+
+  const { stdout } = await execFileAsync("du", ["-sk", path], {
+    encoding: "utf8",
+    maxBuffer: 1024 * 1024,
+    timeout: WORKTREE_SIZE_DU_TIMEOUT_MS,
+  });
+  const sizeKiB = Number.parseInt(String(stdout).trim().split(/\s+/)[0] ?? "", 10);
+  return Number.isFinite(sizeKiB) && sizeKiB >= 0 ? sizeKiB * 1024 : null;
+}
 
 function normalizeStreamIdentity(input: {
   readonly clientSessionId?: string | undefined;
@@ -240,6 +295,139 @@ function replaceSnapshotThread(
   };
 }
 
+async function getDirectorySizeBytes(path: string): Promise<WorktreeSizeStats> {
+  let entryStat;
+  try {
+    entryStat = await lstat(path);
+  } catch {
+    return { exists: false, lastModifiedAt: null, sizeBytes: 0 };
+  }
+
+  if (!entryStat.isDirectory()) {
+    return {
+      exists: true,
+      lastModifiedAt: new Date(entryStat.mtimeMs).toISOString(),
+      sizeBytes: entryStat.size,
+    };
+  }
+
+  try {
+    const sizeBytes = await getDirectorySizeBytesFromPlatform(path);
+    if (sizeBytes !== null) {
+      return {
+        exists: true,
+        lastModifiedAt: new Date(entryStat.mtimeMs).toISOString(),
+        sizeBytes,
+      };
+    }
+  } catch {
+    // Fall back to the directory entry stat instead of leaving storage pending forever.
+  }
+
+  return {
+    exists: true,
+    lastModifiedAt: new Date(entryStat.mtimeMs).toISOString(),
+    sizeBytes: entryStat.size,
+  };
+}
+
+async function mapWithConcurrency<TInput, TOutput>(
+  inputs: readonly TInput[],
+  concurrency: number,
+  mapper: (input: TInput) => Promise<TOutput>,
+): Promise<TOutput[]> {
+  const results = Array.from({ length: inputs.length }) as TOutput[];
+  let nextIndex = 0;
+  const workerCount = Math.min(Math.max(1, concurrency), inputs.length);
+
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (nextIndex < inputs.length) {
+        const currentIndex = nextIndex;
+        nextIndex += 1;
+        results[currentIndex] = await mapper(inputs[currentIndex]!);
+      }
+    }),
+  );
+
+  return results;
+}
+
+function pruneWorktreeSizeCache(now: number) {
+  for (const [path, entry] of worktreeSizeCache) {
+    if (entry.expiresAt <= now && entry.promise === null && entry.value === null) {
+      worktreeSizeCache.delete(path);
+    }
+  }
+
+  while (worktreeSizeCache.size > WORKTREE_SIZE_CACHE_MAX_ENTRIES) {
+    const oldestPath = worktreeSizeCache.keys().next().value;
+    if (typeof oldestPath !== "string") {
+      break;
+    }
+    worktreeSizeCache.delete(oldestPath);
+  }
+}
+
+function refreshCachedWorktreeSizeStats(
+  path: string,
+  now: number,
+  cached: WorktreeSizeCacheEntry | undefined,
+): Promise<WorktreeSizeStats> {
+  const promise = getDirectorySizeBytes(path)
+    .then((value) => {
+      if (!value.exists) {
+        worktreeSizeCache.delete(path);
+        return value;
+      }
+      worktreeSizeCache.set(path, {
+        expiresAt: Date.now() + WORKTREE_SIZE_CACHE_TTL_MS,
+        promise: null,
+        value,
+      });
+      return value;
+    })
+    .catch((error: unknown) => {
+      if (cached?.value) {
+        worktreeSizeCache.set(path, {
+          expiresAt: Date.now() + Math.min(WORKTREE_SIZE_CACHE_TTL_MS, 60_000),
+          promise: null,
+          value: cached.value,
+        });
+      } else {
+        worktreeSizeCache.delete(path);
+      }
+      throw error;
+    });
+
+  worktreeSizeCache.set(path, {
+    expiresAt: now + WORKTREE_SIZE_CACHE_TTL_MS,
+    promise,
+    value: cached?.value ?? null,
+  });
+  return promise;
+}
+
+async function getCachedWorktreeSizeStats(path: string): Promise<WorktreeSizeStats> {
+  const now = Date.now();
+  const cached = worktreeSizeCache.get(path);
+  if (cached?.value && cached.expiresAt > now) {
+    return cached.value;
+  }
+  if (cached?.promise) {
+    return cached.promise;
+  }
+  if (cached?.value) {
+    void refreshCachedWorktreeSizeStats(path, now, cached).catch(() => {
+      // The stale value remains available until the next successful refresh or removal.
+    });
+    return cached.value;
+  }
+
+  pruneWorktreeSizeCache(now);
+  return refreshCachedWorktreeSizeStats(path, now, cached);
+}
+
 const WsRpcLayer = WsRpcGroup.toLayer(
   Effect.gen(function* () {
     const orchestrationEngine = yield* OrchestrationEngineService;
@@ -259,6 +447,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
     const startup = yield* ServerRuntimeStartup;
     const workspaceEntries = yield* WorkspaceEntries;
     const workspaceEditor = yield* WorkspaceEditor;
+    const workspaceFileEventsOption = yield* Effect.serviceOption(WorkspaceFileEvents);
     const workspaceFileSystem = yield* WorkspaceFileSystem;
     const snapshotViewCache = createReadModelSnapshotViewCache();
 
@@ -338,37 +527,29 @@ const WsRpcLayer = WsRpcGroup.toLayer(
     const getProviderBinaryPath = (provider: ProviderKind, runtimeId: string) =>
       serverSettings.getSettings.pipe(
         Effect.flatMap((settings) => {
+          if (runtimeId !== provider) {
+            return Effect.fail(
+              new ServerProviderCliUpgradeError({
+                message: `Unknown ${provider} runtime '${runtimeId}'.`,
+              }),
+            );
+          }
+
           switch (provider) {
             case "codex":
-              return runtimeId === "codex"
-                ? Effect.succeed(settings.providers.codex.binaryPath)
-                : Effect.fail(
-                    new ServerProviderCliUpgradeError({
-                      message: `Unknown ${provider} runtime '${runtimeId}'.`,
-                    }),
-                  );
+              return Effect.succeed(settings.providers.codex.binaryPath);
+            case "claudeAgent":
+              return Effect.succeed(settings.providers.claudeAgent.binaryPath);
+            case "githubCopilot":
+              return Effect.succeed(settings.providers.githubCopilot.binaryPath);
+            case "cursor":
+              return Effect.succeed(settings.providers.cursor.binaryPath);
             case "pi":
-              return runtimeId === "pi"
-                ? Effect.succeed(settings.providers.pi.binaryPath)
-                : Effect.fail(
-                    new ServerProviderCliUpgradeError({
-                      message: `Unknown ${provider} runtime '${runtimeId}'.`,
-                    }),
-                  );
+              return Effect.succeed(settings.providers.pi.binaryPath);
             case "gemini":
-              return runtimeId === "gemini"
-                ? Effect.succeed(settings.providers.gemini.binaryPath)
-                : Effect.fail(
-                    new ServerProviderCliUpgradeError({
-                      message: `Unknown ${provider} runtime '${runtimeId}'.`,
-                    }),
-                  );
-            default:
-              return Effect.fail(
-                new ServerProviderCliUpgradeError({
-                  message: "One-click upgrade is not supported for this provider.",
-                }),
-              );
+              return Effect.succeed(settings.providers.gemini.binaryPath);
+            case "opencode":
+              return Effect.succeed(settings.providers.opencode.binaryPath);
           }
         }),
         Effect.mapError(
@@ -580,9 +761,14 @@ const WsRpcLayer = WsRpcGroup.toLayer(
         ),
       [WS_METHODS.serverGetConfig]: (_input) => loadServerConfig,
       [WS_METHODS.serverPickFolder]: (input) => open.pickFolder(input),
-      [WS_METHODS.serverRefreshProviders]: (_input) =>
+      [WS_METHODS.serverRefreshProviders]: (input) =>
         providerRegistry.refresh().pipe(
           Effect.flatMap(withCurrentProviderCommands),
+          Effect.flatMap((providers) =>
+            input.checkCliUpdates === true
+              ? withProviderCliUpdateStatuses(providers)
+              : Effect.succeed(providers),
+          ),
           Effect.map((providers) => ({ providers })),
         ),
       [WS_METHODS.serverUpgradeProviderCli]: (input) =>
@@ -595,7 +781,10 @@ const WsRpcLayer = WsRpcGroup.toLayer(
           });
           const providers = yield* providerRegistry
             .refresh(input.provider)
-            .pipe(Effect.flatMap(withCurrentProviderCommands));
+            .pipe(
+              Effect.flatMap(withCurrentProviderCommands),
+              Effect.flatMap(withProviderCliUpdateStatuses),
+            );
           return { providers };
         }),
       [WS_METHODS.serverGetRuntimeProfile]: (_input) => loadRuntimeProfile,
@@ -783,6 +972,27 @@ const WsRpcLayer = WsRpcGroup.toLayer(
             });
           }),
         ),
+      [WS_METHODS.projectsFileEvents]: (input) =>
+        filterCurrentClientStream(
+          normalizeStreamIdentity(input),
+          Option.isSome(workspaceFileEventsOption)
+            ? workspaceFileEventsOption.value.watch(input.cwd).pipe(
+                Stream.mapError(
+                  (cause) =>
+                    new ProjectFileEventsError({
+                      message:
+                        Schema.is(WorkspaceRootNotExistsError)(cause) ||
+                        Schema.is(WorkspaceRootNotDirectoryError)(cause)
+                          ? cause.message
+                          : Schema.is(WorkspacePathOutsideRootError)(cause)
+                            ? "Workspace file path must stay within the project root."
+                            : "Workspace file watching is unavailable.",
+                      cause,
+                    }),
+                ),
+              )
+            : Stream.empty,
+        ),
       [WS_METHODS.workspaceEditorSyncBuffer]: (input) =>
         workspaceEditor.syncBuffer(input).pipe(
           Effect.mapError((cause) => {
@@ -843,6 +1053,21 @@ const WsRpcLayer = WsRpcGroup.toLayer(
             });
           }),
         ),
+      [WS_METHODS.workspaceEditorHover]: (input) =>
+        workspaceEditor.hover(input).pipe(
+          Effect.mapError((cause) => {
+            const message = Schema.is(WorkspacePathOutsideRootError)(cause)
+              ? "Workspace file path must stay within the project root."
+              : Schema.is(WorkspaceRootNotExistsError)(cause) ||
+                  Schema.is(WorkspaceRootNotDirectoryError)(cause)
+                ? cause.message
+                : "Failed to resolve workspace hover.";
+            return new WorkspaceEditorHoverError({
+              message,
+              cause,
+            });
+          }),
+        ),
       [WS_METHODS.workspaceEditorReferences]: (input) =>
         workspaceEditor.references(input).pipe(
           Effect.mapError((cause) => {
@@ -894,6 +1119,25 @@ const WsRpcLayer = WsRpcGroup.toLayer(
       [WS_METHODS.gitPreparePullRequestThread]: (input) =>
         gitManager.preparePullRequestThread(input),
       [WS_METHODS.gitListBranches]: (input) => git.listBranches(input),
+      [WS_METHODS.gitGetWorktreeStats]: (input) =>
+        Effect.promise(async () => {
+          const uniquePaths = Array.from(new Set(input.paths));
+          return {
+            worktrees: await mapWithConcurrency(
+              uniquePaths,
+              WORKTREE_SIZE_STATS_CONCURRENCY,
+              async (path) => {
+                const stats = await getCachedWorktreeSizeStats(path);
+                return {
+                  path,
+                  sizeBytes: stats.sizeBytes,
+                  exists: stats.exists,
+                  lastModifiedAt: stats.lastModifiedAt,
+                };
+              },
+            ),
+          };
+        }),
       [WS_METHODS.gitListGitHubIssues]: (input) => gitManager.listGitHubIssues(input),
       [WS_METHODS.gitGetGitHubIssueThread]: (input) => gitManager.getGitHubIssueThread(input),
       [WS_METHODS.gitCreateWorktree]: (input) => git.createWorktree(input),

@@ -255,7 +255,7 @@ export function resolveCursorSelectorFamily(
   return findFamilyByModel(buildCursorSelectorFamilies(models), model);
 }
 
-export function modelMatchesCursorFacet(
+function modelMatchesCursorFacet(
   model: ServerProviderModel,
   family: CursorSelectorFamily,
   selections: DesiredCursorTraits,

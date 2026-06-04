@@ -99,6 +99,21 @@ const KEYBINDING_DEFINITION_BY_COMMAND: Record<StaticKeybindingCommand, Keybindi
       when: "terminalFocus",
       context: TERMINAL_FOCUS_CONTEXT,
     },
+    "terminal.tab.new": {
+      category: "Terminal",
+      label: "New terminal tab",
+      description: "Create a new terminal tab in the focused panel.",
+      defaultShortcut: {
+        key: "j",
+        modKey: true,
+        ctrlKey: false,
+        metaKey: false,
+        altKey: false,
+        shiftKey: true,
+      },
+      when: "!terminalFocus",
+      context: CHAT_CONTEXT,
+    },
     "terminal.close": {
       category: "Terminal",
       label: "Close terminal",
@@ -148,6 +163,13 @@ const KEYBINDING_DEFINITION_BY_COMMAND: Record<StaticKeybindingCommand, Keybindi
         altKey: false,
         shiftKey: false,
       },
+      when: "!terminalFocus",
+      context: CHAT_CONTEXT,
+    },
+    "rightPanel.terminal.open": {
+      category: "Right Panel",
+      label: "Open Terminal tab",
+      description: "Open and focus the Terminal tab in the right side panel.",
       when: "!terminalFocus",
       context: CHAT_CONTEXT,
     },
@@ -520,12 +542,17 @@ const KEYBINDING_DEFINITION_BY_COMMAND: Record<StaticKeybindingCommand, Keybindi
 
 const HIDDEN_KEYBINDING_COMMANDS = new Set<StaticKeybindingCommand>(["terminal.split"]);
 
-export const KEYBINDING_COMMAND_DEFINITIONS: readonly KeybindingCommandDefinition[] =
-  STATIC_KEYBINDING_COMMANDS.filter((command) => !HIDDEN_KEYBINDING_COMMANDS.has(command)).map(
-    (command) => Object.assign({ command }, KEYBINDING_DEFINITION_BY_COMMAND[command]),
-  );
+export const KEYBINDING_COMMAND_DEFINITIONS: readonly KeybindingCommandDefinition[] = (() => {
+  const definitions: KeybindingCommandDefinition[] = [];
+  for (const command of STATIC_KEYBINDING_COMMANDS) {
+    if (!HIDDEN_KEYBINDING_COMMANDS.has(command)) {
+      definitions.push(Object.assign({ command }, KEYBINDING_DEFINITION_BY_COMMAND[command]));
+    }
+  }
+  return definitions;
+})();
 
-export function defaultShortcutLabelForCommand(
+function defaultShortcutLabelForCommand(
   command: StaticKeybindingCommand,
   platform?: string,
 ): string | null {

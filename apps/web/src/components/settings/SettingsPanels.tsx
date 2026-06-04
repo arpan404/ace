@@ -1,22 +1,32 @@
 import {
   ArchiveIcon,
   ArchiveX,
+  ArrowLeftIcon,
+  ArrowRightIcon,
   ChevronDownIcon,
+  ClockIcon,
   DownloadIcon,
+  FolderGit2Icon,
+  GitForkIcon,
+  HardDriveIcon,
   RefreshCwIcon,
   SearchIcon,
+  Trash2Icon,
   WrenchIcon,
 } from "lucide-react";
 import { IconArrowsDiagonal, IconArrowsDiagonalMinimize2 } from "@tabler/icons-react";
-import { useQueryClient } from "@tanstack/react-query";
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  type DesktopCliInstallState,
-  type ProviderKind,
-  type ServerInstallLspToolInput,
-  type ServerLspToolInstaller,
-  type ServerLspToolStatus,
-  type ServerLspToolsStatus,
+import { useNavigate } from "@tanstack/react-router";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import type {
+  DesktopCliInstallState,
+  ProviderKind,
+  ProjectId,
+  ProjectScript,
+  ServerInstallLspToolInput,
+  ServerLspToolInstaller,
+  ServerLspToolStatus,
+  ServerLspToolsStatus,
   ThreadId,
 } from "@ace/contracts";
 import {
@@ -32,7 +42,7 @@ import {
   type UiMonoFontFamily,
 } from "@ace/contracts/settings";
 import { buildProviderModelSelection, formatProviderModelDisplayName } from "@ace/shared/model";
-import { Equal } from "effect";
+import * as Equal from "effect/Equal";
 import { APP_VERSION } from "../../branding";
 import {
   DESKTOP_UPDATE_FALLBACK_DOWNLOAD_URL,
@@ -45,7 +55,7 @@ import {
 import { ProviderModelPicker } from "../chat/ProviderModelPicker";
 import { TraitsPicker } from "../chat/TraitsPicker";
 import { isElectron } from "../../env";
-import { resetThemePresetToDefault, useAppearancePrefs } from "../../appearancePrefs";
+import { useAppearancePrefs } from "../../appearancePrefs";
 import { DEFAULT_THEME_PRESET } from "../../themePresets";
 import { ThemePresetPicker } from "./ThemePresetPicker";
 import { useTheme } from "../../hooks/useTheme";
@@ -59,6 +69,15 @@ import {
   setDesktopCliInstallStateQueryData,
   useDesktopCliInstallState,
 } from "../../lib/desktopCliInstallReactQuery";
+import { gitBranchesQueryOptions, gitWorktreeStatsQueryOptions } from "../../lib/gitReactQuery";
+import {
+  DEFAULT_PROJECT_SCRIPT_ENV_FILE_PATH,
+  formatProjectScriptEnv,
+  nextProjectScriptId,
+  normalizeProjectScriptEnvFilePath,
+  parseProjectScriptEnv,
+  setupProjectScript,
+} from "../../projectScripts";
 import {
   getCustomModelOptionsByProvider,
   resolveAppModelSelectionState,
@@ -66,8 +85,15 @@ import {
 import { ensureNativeApi, readNativeApi } from "../../nativeApi";
 import { useStore } from "../../store";
 import { formatRelativeTimeLabel } from "../../timestampFormat";
+import {
+  formatWorktreePathForDisplay,
+  getWorktreeLinkedThreadIds,
+  isWorktreeThreadSessionActive,
+  normalizeWorktreePath,
+} from "../../worktreeCleanup";
 import { BROWSER_SEARCH_ENGINE_OPTIONS } from "../../lib/browser/types";
 import { cn, newCommandId } from "../../lib/utils";
+import { resolveConnectionForProjectId } from "../../lib/connectionRouting";
 import {
   readAgentAttentionNotificationPermission,
   requestAgentAttentionNotificationPermission,
@@ -82,18 +108,23 @@ import {
 import { showBrowserNotification } from "../../lib/browserNotifications";
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
+import { Checkbox } from "../ui/checkbox";
 import { Collapsible, CollapsibleContent } from "../ui/collapsible";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../ui/empty";
 import { Input } from "../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
+import { Spinner } from "../ui/spinner";
 import { Switch } from "../ui/switch";
+import { Textarea } from "../ui/textarea";
 import { toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { ProjectAvatar } from "../ProjectAvatar";
 import type { Project, Thread } from "../../types";
 import { ProviderSettingsSection, type ProviderCard } from "./ProviderSettingsSection";
+import { PROVIDER_SETTINGS } from "./settingsProviderConfig";
 import { KeybindingsSettingsEditor } from "./KeybindingsSettingsEditor";
 import {
+  SettingsChoiceGroup,
   SettingsPageContainer,
   SettingsRow,
   SettingsSection,
@@ -170,14 +201,14 @@ const UI_FONT_SIZE_VALUE_SET = new Set(UI_FONT_SIZE_OPTIONS.map((o) => o.value))
 const UI_LETTER_SPACING_VALUE_SET = new Set(UI_LETTER_SPACING_OPTIONS.map((o) => o.value));
 
 function parseDelimitedValues(input: string): string[] {
-  return Array.from(
-    new Set(
-      input
-        .split(",")
-        .map((value) => value.trim())
-        .filter((value) => value.length > 0),
-    ),
-  );
+  const values = new Set<string>();
+  for (const value of input.split(",")) {
+    const normalizedValue = value.trim();
+    if (normalizedValue.length > 0) {
+      values.add(normalizedValue);
+    }
+  }
+  return Array.from(values);
 }
 
 const LSP_CATEGORY_LABELS: Record<ServerLspToolStatus["category"], string> = {
@@ -199,6 +230,111 @@ const LSP_INSTALLER_LABELS: Record<ServerLspToolInstaller, string> = {
 };
 
 const EMPTY_LSP_TOOL_LIST: readonly ServerLspToolStatus[] = [];
+const EMPTY_LSP_CUSTOM_FORM = {
+  installer: "npm" as ServerLspToolInstaller,
+  packageName: "",
+  command: "",
+  label: "",
+  args: "",
+  languageIds: "",
+  fileExtensions: "",
+  fileNames: "",
+};
+
+type SettingsNotificationState = {
+  notificationPermission: AgentAttentionNotificationPermission;
+  isUpdatingNotificationPermission: boolean;
+};
+
+type SettingsNotificationAction =
+  | { type: "set-permission"; notificationPermission: AgentAttentionNotificationPermission }
+  | { type: "set-updating"; isUpdatingNotificationPermission: boolean };
+
+function settingsNotificationStateReducer(
+  state: SettingsNotificationState,
+  action: SettingsNotificationAction,
+): SettingsNotificationState {
+  switch (action.type) {
+    case "set-permission":
+      return state.notificationPermission === action.notificationPermission
+        ? state
+        : { ...state, notificationPermission: action.notificationPermission };
+    case "set-updating":
+      return state.isUpdatingNotificationPermission === action.isUpdatingNotificationPermission
+        ? state
+        : { ...state, isUpdatingNotificationPermission: action.isUpdatingNotificationPermission };
+  }
+}
+
+type SettingsLspState = {
+  lspToolsStatus: ServerLspToolsStatus | null;
+  lspToolsError: string | null;
+  isInstallingLspTools: boolean;
+  lspCatalogQuery: string;
+  lspCatalogCategory: "all" | ServerLspToolStatus["category"];
+  isInstallingCustomLsp: boolean;
+  lspInstallTargetId: string | null;
+  isLspCustomFormOpen: boolean;
+  lspCustomForm: typeof EMPTY_LSP_CUSTOM_FORM;
+};
+
+type SettingsLspAction =
+  | { type: "set-tools-status"; lspToolsStatus: ServerLspToolsStatus | null }
+  | { type: "set-tools-error"; lspToolsError: string | null }
+  | { type: "set-installing-tools"; isInstallingLspTools: boolean }
+  | { type: "set-catalog-query"; lspCatalogQuery: string }
+  | { type: "set-catalog-category"; lspCatalogCategory: "all" | ServerLspToolStatus["category"] }
+  | { type: "set-installing-custom"; isInstallingCustomLsp: boolean }
+  | { type: "set-install-target-id"; lspInstallTargetId: string | null }
+  | { type: "set-custom-form-open"; isLspCustomFormOpen: boolean }
+  | { type: "set-custom-form"; lspCustomForm: typeof EMPTY_LSP_CUSTOM_FORM }
+  | { type: "update-custom-form"; lspCustomForm: Partial<typeof EMPTY_LSP_CUSTOM_FORM> };
+
+function settingsLspStateReducer(
+  state: SettingsLspState,
+  action: SettingsLspAction,
+): SettingsLspState {
+  switch (action.type) {
+    case "set-tools-status":
+      return state.lspToolsStatus === action.lspToolsStatus
+        ? state
+        : { ...state, lspToolsStatus: action.lspToolsStatus };
+    case "set-tools-error":
+      return state.lspToolsError === action.lspToolsError
+        ? state
+        : { ...state, lspToolsError: action.lspToolsError };
+    case "set-installing-tools":
+      return state.isInstallingLspTools === action.isInstallingLspTools
+        ? state
+        : { ...state, isInstallingLspTools: action.isInstallingLspTools };
+    case "set-catalog-query":
+      return state.lspCatalogQuery === action.lspCatalogQuery
+        ? state
+        : { ...state, lspCatalogQuery: action.lspCatalogQuery };
+    case "set-catalog-category":
+      return state.lspCatalogCategory === action.lspCatalogCategory
+        ? state
+        : { ...state, lspCatalogCategory: action.lspCatalogCategory };
+    case "set-installing-custom":
+      return state.isInstallingCustomLsp === action.isInstallingCustomLsp
+        ? state
+        : { ...state, isInstallingCustomLsp: action.isInstallingCustomLsp };
+    case "set-install-target-id":
+      return state.lspInstallTargetId === action.lspInstallTargetId
+        ? state
+        : { ...state, lspInstallTargetId: action.lspInstallTargetId };
+    case "set-custom-form-open":
+      return state.isLspCustomFormOpen === action.isLspCustomFormOpen
+        ? state
+        : { ...state, isLspCustomFormOpen: action.isLspCustomFormOpen };
+    case "set-custom-form":
+      return state.lspCustomForm === action.lspCustomForm
+        ? state
+        : { ...state, lspCustomForm: action.lspCustomForm };
+    case "update-custom-form":
+      return { ...state, lspCustomForm: { ...state.lspCustomForm, ...action.lspCustomForm } };
+  }
+}
 
 function getLspToolSearchText(tool: ServerLspToolStatus): string {
   return [
@@ -319,69 +455,6 @@ async function requestSettingsNotificationPermission(): Promise<AgentAttentionNo
   }
 }
 
-type InstallProviderSettings = {
-  provider: ProviderKind;
-  title: string;
-  binaryPlaceholder: string;
-  binaryDescription: ReactNode;
-  cliUrlPlaceholder?: string;
-  cliUrlDescription?: ReactNode;
-  homePathKey?: "codexHomePath";
-  homePlaceholder?: string;
-  homeDescription?: ReactNode;
-};
-
-const PROVIDER_SETTINGS: readonly InstallProviderSettings[] = [
-  {
-    provider: "codex",
-    title: "Codex",
-    binaryPlaceholder: "Codex binary path",
-    binaryDescription: "Path to the Codex binary",
-    homePathKey: "codexHomePath",
-    homePlaceholder: "CODEX_HOME",
-    homeDescription: "Optional custom Codex home and config directory.",
-  },
-  {
-    provider: "claudeAgent",
-    title: "Claude",
-    binaryPlaceholder: "Claude binary path",
-    binaryDescription: "Path to the Claude binary",
-  },
-  {
-    provider: "githubCopilot",
-    title: "Copilot",
-    binaryPlaceholder: "Copilot binary path",
-    binaryDescription: "Path to the Copilot CLI binary",
-    cliUrlPlaceholder: "localhost:4321",
-    cliUrlDescription:
-      "Optional: connect to an external headless Copilot CLI server instead of spawning per session.",
-  },
-  {
-    provider: "cursor",
-    title: "Cursor",
-    binaryPlaceholder: "Cursor binary path",
-    binaryDescription: "Path to the Cursor Agent binary",
-  },
-  {
-    provider: "pi",
-    title: "Pi",
-    binaryPlaceholder: "Pi binary path",
-    binaryDescription: "Path to the Pi binary",
-  },
-  {
-    provider: "gemini",
-    title: "Gemini",
-    binaryPlaceholder: "Gemini binary path",
-    binaryDescription: "Path to the Gemini CLI binary",
-  },
-  {
-    provider: "opencode",
-    title: "OpenCode",
-    binaryPlaceholder: "OpenCode binary path",
-    binaryDescription: "Path to the OpenCode binary",
-  },
-] as const;
-
 function getErrorMessage(error: unknown, fallback: string): string {
   if (error instanceof Error && error.message.trim().length > 0) {
     return error.message;
@@ -413,7 +486,15 @@ const PROVIDER_STATUS_STYLES = {
   },
 } as const;
 
-const ONE_CLICK_UPGRADE_PROVIDERS = new Set<ProviderKind>(["codex", "gemini"]);
+const ONE_CLICK_UPGRADE_PROVIDERS = new Set<ProviderKind>([
+  "codex",
+  "claudeAgent",
+  "githubCopilot",
+  "cursor",
+  "pi",
+  "gemini",
+  "opencode",
+]);
 
 function AboutVersionTitle() {
   return (
@@ -716,179 +797,6 @@ function AboutCliInstallSection() {
   );
 }
 
-export function useSettingsRestore(onRestored?: () => void) {
-  const { theme, setTheme } = useTheme();
-  const { themePreset } = useAppearancePrefs();
-  const settings = useSettings();
-  const { resetSettings } = useUpdateSettings();
-
-  const isGitWritingModelDirty = !Equal.equals(
-    settings.textGenerationModelSelection ?? null,
-    DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection ?? null,
-  );
-  const areProviderSettingsDirty = PROVIDER_SETTINGS.some((providerSettings) => {
-    const currentSettings = settings.providers[providerSettings.provider];
-    const defaultSettings = DEFAULT_UNIFIED_SETTINGS.providers[providerSettings.provider];
-    return !Equal.equals(currentSettings, defaultSettings);
-  });
-
-  const changedSettingLabels = useMemo(
-    () => [
-      ...(theme !== "system" ? ["Theme"] : []),
-      ...(themePreset !== DEFAULT_THEME_PRESET ? ["Theme preset"] : []),
-      ...(settings.uiFontFamily !== DEFAULT_UNIFIED_SETTINGS.uiFontFamily ? ["UI font"] : []),
-      ...(settings.uiMonoFontFamily !== DEFAULT_UNIFIED_SETTINGS.uiMonoFontFamily
-        ? ["Monospace font"]
-        : []),
-      ...(settings.uiFontSizeScale !== DEFAULT_UNIFIED_SETTINGS.uiFontSizeScale
-        ? ["Text size"]
-        : []),
-      ...(settings.uiLetterSpacing !== DEFAULT_UNIFIED_SETTINGS.uiLetterSpacing
-        ? ["Letter spacing"]
-        : []),
-      ...(settings.browserSearchEngine !== DEFAULT_UNIFIED_SETTINGS.browserSearchEngine
-        ? ["Browser search engine"]
-        : []),
-      ...(settings.browserMaxMountedInstances !==
-      DEFAULT_UNIFIED_SETTINGS.browserMaxMountedInstances
-        ? ["Max mounted browsers"]
-        : []),
-      ...(settings.timestampFormat !== DEFAULT_UNIFIED_SETTINGS.timestampFormat
-        ? ["Time format"]
-        : []),
-      ...(settings.workspaceEditorOpenMode !== DEFAULT_UNIFIED_SETTINGS.workspaceEditorOpenMode
-        ? ["Workspace editor open mode"]
-        : []),
-      ...(settings.diffWordWrap !== DEFAULT_UNIFIED_SETTINGS.diffWordWrap
-        ? ["Diff line wrapping"]
-        : []),
-      ...(settings.editorLineNumbers !== DEFAULT_UNIFIED_SETTINGS.editorLineNumbers
-        ? ["Editor line numbers"]
-        : []),
-      ...(settings.editorMinimap !== DEFAULT_UNIFIED_SETTINGS.editorMinimap
-        ? ["Editor minimap"]
-        : []),
-      ...(settings.editorRenderWhitespace !== DEFAULT_UNIFIED_SETTINGS.editorRenderWhitespace
-        ? ["Editor whitespace"]
-        : []),
-      ...(settings.editorStickyScroll !== DEFAULT_UNIFIED_SETTINGS.editorStickyScroll
-        ? ["Editor sticky scroll"]
-        : []),
-      ...(settings.editorSuggestions !== DEFAULT_UNIFIED_SETTINGS.editorSuggestions
-        ? ["Editor suggestions"]
-        : []),
-      ...(settings.editorWordWrap !== DEFAULT_UNIFIED_SETTINGS.editorWordWrap
-        ? ["Editor line wrapping"]
-        : []),
-      ...(settings.enableAssistantStreaming !== DEFAULT_UNIFIED_SETTINGS.enableAssistantStreaming
-        ? ["Assistant output"]
-        : []),
-      ...(settings.enableToolStreaming !== DEFAULT_UNIFIED_SETTINGS.enableToolStreaming
-        ? ["Tool activity"]
-        : []),
-      ...(settings.enableThinkingStreaming !== DEFAULT_UNIFIED_SETTINGS.enableThinkingStreaming
-        ? ["Thinking activity"]
-        : []),
-      ...(settings.hideCompletedWorkMessages !== DEFAULT_UNIFIED_SETTINGS.hideCompletedWorkMessages
-        ? ["Completed work details"]
-        : []),
-      ...(settings.notifyOnAgentCompletion !== DEFAULT_UNIFIED_SETTINGS.notifyOnAgentCompletion
-        ? ["Completion notifications"]
-        : []),
-      ...(settings.notifyOnApprovalRequired !== DEFAULT_UNIFIED_SETTINGS.notifyOnApprovalRequired
-        ? ["Approval notifications"]
-        : []),
-      ...(settings.notifyOnUserInputRequired !== DEFAULT_UNIFIED_SETTINGS.notifyOnUserInputRequired
-        ? ["Input notifications"]
-        : []),
-      ...(settings.defaultThreadEnvMode !== DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode
-        ? ["New thread mode"]
-        : []),
-      ...(settings.gitSshKeyPassphrase !== DEFAULT_UNIFIED_SETTINGS.gitSshKeyPassphrase
-        ? ["Git SSH key passphrase"]
-        : []),
-      ...(settings.addProjectBaseDirectory !== DEFAULT_UNIFIED_SETTINGS.addProjectBaseDirectory
-        ? ["Add project base directory"]
-        : []),
-      ...(settings.providerCliMaxOpen !== DEFAULT_UNIFIED_SETTINGS.providerCliMaxOpen
-        ? ["Provider CLI max open"]
-        : []),
-      ...(settings.providerCliIdleTtlSeconds !== DEFAULT_UNIFIED_SETTINGS.providerCliIdleTtlSeconds
-        ? ["Provider CLI idle timeout"]
-        : []),
-      ...(settings.confirmThreadArchive !== DEFAULT_UNIFIED_SETTINGS.confirmThreadArchive
-        ? ["Archive confirmation"]
-        : []),
-      ...(settings.confirmThreadDelete !== DEFAULT_UNIFIED_SETTINGS.confirmThreadDelete
-        ? ["Delete confirmation"]
-        : []),
-      ...(settings.threadHydrationCacheMemoryMb !==
-      DEFAULT_UNIFIED_SETTINGS.threadHydrationCacheMemoryMb
-        ? ["Thread cache budget"]
-        : []),
-      ...(isGitWritingModelDirty ? ["Git writing model"] : []),
-      ...(areProviderSettingsDirty ? ["Providers"] : []),
-    ],
-    [
-      areProviderSettingsDirty,
-      settings.browserMaxMountedInstances,
-      settings.browserSearchEngine,
-      isGitWritingModelDirty,
-      settings.confirmThreadArchive,
-      settings.confirmThreadDelete,
-      settings.defaultThreadEnvMode,
-      settings.gitSshKeyPassphrase,
-      settings.addProjectBaseDirectory,
-      settings.providerCliIdleTtlSeconds,
-      settings.providerCliMaxOpen,
-      settings.diffWordWrap,
-      settings.editorLineNumbers,
-      settings.editorMinimap,
-      settings.editorRenderWhitespace,
-      settings.editorStickyScroll,
-      settings.editorSuggestions,
-      settings.editorWordWrap,
-      settings.enableAssistantStreaming,
-      settings.notifyOnAgentCompletion,
-      settings.notifyOnApprovalRequired,
-      settings.notifyOnUserInputRequired,
-      settings.enableThinkingStreaming,
-      settings.enableToolStreaming,
-      settings.hideCompletedWorkMessages,
-      settings.threadHydrationCacheMemoryMb,
-      settings.timestampFormat,
-      settings.uiFontFamily,
-      settings.uiFontSizeScale,
-      settings.uiLetterSpacing,
-      settings.uiMonoFontFamily,
-      settings.workspaceEditorOpenMode,
-      theme,
-      themePreset,
-    ],
-  );
-
-  const restoreDefaults = useCallback(async () => {
-    if (changedSettingLabels.length === 0) return;
-    const api = readNativeApi();
-    const confirmed = await (api ?? ensureNativeApi()).dialogs.confirm(
-      ["Restore default settings?", `This will reset: ${changedSettingLabels.join(", ")}.`].join(
-        "\n",
-      ),
-    );
-    if (!confirmed) return;
-
-    setTheme("system");
-    resetThemePresetToDefault();
-    resetSettings();
-    onRestored?.();
-  }, [changedSettingLabels, onRestored, resetSettings, setTheme]);
-
-  return {
-    changedSettingLabels,
-    restoreDefaults,
-  };
-}
-
 type SettingsPanelPage =
   | "general"
   | "browser"
@@ -898,16 +806,20 @@ type SettingsPanelPage =
   | "advanced"
   | "about";
 
-function SettingsPanel({ page }: { page: SettingsPanelPage }) {
+function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
   const { theme, setTheme } = useTheme();
   const { themePreset, setThemePreset } = useAppearancePrefs();
   const settings = useSettings();
   const { updateSettings } = useUpdateSettings();
-  const [notificationPermission, setNotificationPermission] =
-    useState<AgentAttentionNotificationPermission>(() =>
-      isElectron ? "default" : readAgentAttentionNotificationPermission(),
-    );
-  const [isUpdatingNotificationPermission, setIsUpdatingNotificationPermission] = useState(false);
+  const [notificationState, dispatchNotificationState] = useReducer(
+    settingsNotificationStateReducer,
+    undefined,
+    (): SettingsNotificationState => ({
+      notificationPermission: isElectron ? "default" : readAgentAttentionNotificationPermission(),
+      isUpdatingNotificationPermission: false,
+    }),
+  );
+  const { notificationPermission, isUpdatingNotificationPermission } = notificationState;
   const [customModelInputByProvider, setCustomModelInputByProvider] = useState<
     Record<ProviderKind, string>
   >({
@@ -924,35 +836,28 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
   >({});
   const [isRefreshingProviders, setIsRefreshingProviders] = useState(false);
   const [upgradingRuntimeKey, setUpgradingRuntimeKey] = useState<string | null>(null);
-  const [lspToolsStatus, setLspToolsStatus] = useState<ServerLspToolsStatus | null>(null);
-  const [lspToolsError, setLspToolsError] = useState<string | null>(null);
-  const [isInstallingLspTools, setIsInstallingLspTools] = useState(false);
-  const [lspCatalogQuery, setLspCatalogQuery] = useState("");
-  const [lspCatalogCategory, setLspCatalogCategory] = useState<
-    "all" | ServerLspToolStatus["category"]
-  >("all");
-  const [isInstallingCustomLsp, setIsInstallingCustomLsp] = useState(false);
-  const [lspInstallTargetId, setLspInstallTargetId] = useState<string | null>(null);
-  const [isLspCustomFormOpen, setIsLspCustomFormOpen] = useState(false);
-  const [lspCustomForm, setLspCustomForm] = useState<{
-    installer: ServerLspToolInstaller;
-    packageName: string;
-    command: string;
-    label: string;
-    args: string;
-    languageIds: string;
-    fileExtensions: string;
-    fileNames: string;
-  }>({
-    installer: "npm",
-    packageName: "",
-    command: "",
-    label: "",
-    args: "",
-    languageIds: "",
-    fileExtensions: "",
-    fileNames: "",
+  const [lspState, dispatchLspState] = useReducer(settingsLspStateReducer, {
+    lspToolsStatus: null,
+    lspToolsError: null,
+    isInstallingLspTools: false,
+    lspCatalogQuery: "",
+    lspCatalogCategory: "all",
+    isInstallingCustomLsp: false,
+    lspInstallTargetId: null,
+    isLspCustomFormOpen: false,
+    lspCustomForm: EMPTY_LSP_CUSTOM_FORM,
   });
+  const {
+    lspToolsStatus,
+    lspToolsError,
+    isInstallingLspTools,
+    lspCatalogQuery,
+    lspCatalogCategory,
+    isInstallingCustomLsp,
+    lspInstallTargetId,
+    isLspCustomFormOpen,
+    lspCustomForm,
+  } = lspState;
   const refreshingRef = useRef(false);
   const modelListRefs = useRef<Partial<Record<ProviderKind, HTMLDivElement | null>>>({});
   const refreshProviders = useCallback(() => {
@@ -960,7 +865,8 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
     refreshingRef.current = true;
     setIsRefreshingProviders(true);
     void ensureNativeApi()
-      .server.refreshProviders()
+      .server.refreshProviders({ checkCliUpdates: true })
+      .then(applyProvidersUpdated)
       .catch((error: unknown) => {
         console.warn("Failed to refresh providers", error);
       })
@@ -978,8 +884,8 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
         PROVIDER_SETTINGS.find((entry) => entry.provider === provider)?.title ?? provider;
       const toastId = toastManager.add({
         type: "loading",
-        title: `Upgrading ${providerLabel}`,
-        description: "Installing the latest CLI version.",
+        title: `Updating ${providerLabel}`,
+        description: "Updating to the latest CLI version.",
       });
       void ensureNativeApi()
         .server.upgradeProviderCli({ provider, runtimeId })
@@ -987,15 +893,15 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
           applyProvidersUpdated(payload);
           toastManager.update(toastId, {
             type: "success",
-            title: `${providerLabel} upgraded`,
+            title: `${providerLabel} updated`,
             description: "Provider status was refreshed.",
           });
         })
         .catch((error: unknown) => {
           toastManager.update(toastId, {
             type: "error",
-            title: `Unable to upgrade ${providerLabel}`,
-            description: getErrorMessage(error, "CLI upgrade failed."),
+            title: `Unable to update ${providerLabel}`,
+            description: getErrorMessage(error, "CLI update failed."),
           });
         })
         .finally(() => {
@@ -1050,7 +956,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
       return Promise.resolve<AgentAttentionNotificationPermission>("unsupported");
     }
     return readSettingsNotificationPermission().then((permission) => {
-      setNotificationPermission(permission);
+      dispatchNotificationState({ type: "set-permission", notificationPermission: permission });
       return permission;
     });
   }, []);
@@ -1062,10 +968,13 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
     const syncPermission = () => {
       void readSettingsNotificationPermission()
         .then((permission) => {
-          setNotificationPermission(permission);
+          dispatchNotificationState({ type: "set-permission", notificationPermission: permission });
         })
         .catch(() => {
-          setNotificationPermission("unsupported");
+          dispatchNotificationState({
+            type: "set-permission",
+            notificationPermission: "unsupported",
+          });
         });
     };
     syncPermission();
@@ -1094,7 +1003,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
   }, []);
 
   const handleSendNotificationTest = useCallback(() => {
-    setIsUpdatingNotificationPermission(true);
+    dispatchNotificationState({ type: "set-updating", isUpdatingNotificationPermission: true });
     void refreshNotificationPermission()
       .then(async (permission) => {
         if (permission !== "granted") {
@@ -1134,17 +1043,20 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
       })
       .finally(() => {
         void refreshNotificationPermission();
-        setIsUpdatingNotificationPermission(false);
+        dispatchNotificationState({
+          type: "set-updating",
+          isUpdatingNotificationPermission: false,
+        });
       });
   }, [refreshNotificationPermission, sendNotificationProbe]);
 
   const enableNotifications = useCallback(
     (enabledKeys?: readonly AgentAttentionNotificationSettingKey[]) => {
-      setIsUpdatingNotificationPermission(true);
+      dispatchNotificationState({ type: "set-updating", isUpdatingNotificationPermission: true });
 
       void requestSettingsNotificationPermission()
         .then(async (permission) => {
-          setNotificationPermission(permission);
+          dispatchNotificationState({ type: "set-permission", notificationPermission: permission });
           if (permission === "granted") {
             await sendNotificationProbe();
             if (enabledKeys && enabledKeys.length > 0) {
@@ -1191,7 +1103,10 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
         })
         .finally(() => {
           void refreshNotificationPermission();
-          setIsUpdatingNotificationPermission(false);
+          dispatchNotificationState({
+            type: "set-updating",
+            isUpdatingNotificationPermission: false,
+          });
         });
     },
     [
@@ -1219,7 +1134,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
       });
       return;
     }
-    setIsUpdatingNotificationPermission(true);
+    dispatchNotificationState({ type: "set-updating", isUpdatingNotificationPermission: true });
     void (window.desktopBridge?.openExternal(targetUrl) ?? Promise.resolve(false))
       .then((opened) => {
         if (!opened) {
@@ -1232,7 +1147,10 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
         void refreshNotificationPermission();
       })
       .finally(() => {
-        setIsUpdatingNotificationPermission(false);
+        dispatchNotificationState({
+          type: "set-updating",
+          isUpdatingNotificationPermission: false,
+        });
       });
   }, [refreshNotificationPermission]);
 
@@ -1292,9 +1210,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
       title: providerSettings.title,
       binaryPlaceholder: providerSettings.binaryPlaceholder,
       binaryDescription: providerSettings.binaryDescription,
-      canUpgradeCli:
-        liveProvider?.versionStatus === "upgrade-required" &&
-        ONE_CLICK_UPGRADE_PROVIDERS.has(providerSettings.provider),
+      canUpgradeCli: ONE_CLICK_UPGRADE_PROVIDERS.has(providerSettings.provider),
       homePathKey: providerSettings.homePathKey,
       homePlaceholder: providerSettings.homePlaceholder,
       homeDescription: providerSettings.homeDescription,
@@ -1305,6 +1221,8 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
       runtimes: liveProvider?.runtimes,
       statusStyle: PROVIDER_STATUS_STYLES[statusKey],
       summary,
+      latestVersionLabel: getProviderVersionLabel(liveProvider?.latestVersion),
+      updateStatus: liveProvider?.updateStatus,
       versionLabel: getProviderVersionLabel(liveProvider?.version),
     };
   });
@@ -1348,15 +1266,15 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
       return getLspToolSearchText(tool).includes(normalizedQuery);
     });
   }, [lspCatalogCategory, lspCatalogQuery, lspCatalogTools]);
-  const lspCatalogCategories = useMemo(
-    () =>
-      Array.from(
-        new Set(
-          lspCatalogTools.map((tool) => tool.category).filter((category) => category !== "custom"),
-        ),
-      ),
-    [lspCatalogTools],
-  );
+  const lspCatalogCategories = useMemo(() => {
+    const categories = new Set<ServerLspToolStatus["category"]>();
+    for (const tool of lspCatalogTools) {
+      if (tool.category !== "custom") {
+        categories.add(tool.category);
+      }
+    }
+    return Array.from(categories);
+  }, [lspCatalogTools]);
   const lspCatalogCategoryLabel =
     lspCatalogCategory === "all" ? "All categories" : LSP_CATEGORY_LABELS[lspCatalogCategory];
 
@@ -1364,52 +1282,63 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
     void ensureNativeApi()
       .server.getLspToolsStatus()
       .then((status) => {
-        setLspToolsStatus(status);
-        setLspToolsError(null);
+        dispatchLspState({ type: "set-tools-status", lspToolsStatus: status });
+        dispatchLspState({ type: "set-tools-error", lspToolsError: null });
       })
       .catch((error: unknown) => {
-        setLspToolsError(getErrorMessage(error, "Unable to load LSP tool status."));
+        dispatchLspState({
+          type: "set-tools-error",
+          lspToolsError: getErrorMessage(error, "Unable to load LSP tool status."),
+        });
       });
   }, []);
 
   const installLspToolsFromSettings = useCallback((reinstall: boolean) => {
-    setIsInstallingLspTools(true);
-    setLspToolsError(null);
+    dispatchLspState({ type: "set-installing-tools", isInstallingLspTools: true });
+    dispatchLspState({ type: "set-tools-error", lspToolsError: null });
     void ensureNativeApi()
       .server.installLspTools({ reinstall })
       .then((status) => {
-        setLspToolsStatus(status);
+        dispatchLspState({ type: "set-tools-status", lspToolsStatus: status });
         toastManager.add({
           type: "success",
           title: "Language server tools are ready.",
         });
       })
       .catch((error: unknown) => {
-        setLspToolsError(getErrorMessage(error, "Unable to install LSP tools."));
+        dispatchLspState({
+          type: "set-tools-error",
+          lspToolsError: getErrorMessage(error, "Unable to install LSP tools."),
+        });
       })
-      .finally(() => setIsInstallingLspTools(false));
+      .finally(() =>
+        dispatchLspState({ type: "set-installing-tools", isInstallingLspTools: false }),
+      );
   }, []);
 
   const installCustomLspTool = useCallback(
     (input: ServerInstallLspToolInput, installTargetId: string | null = null) => {
-      setIsInstallingCustomLsp(true);
-      setLspInstallTargetId(installTargetId);
-      setLspToolsError(null);
+      dispatchLspState({ type: "set-installing-custom", isInstallingCustomLsp: true });
+      dispatchLspState({ type: "set-install-target-id", lspInstallTargetId: installTargetId });
+      dispatchLspState({ type: "set-tools-error", lspToolsError: null });
       void ensureNativeApi()
         .server.installLspTool(input)
         .then((status) => {
-          setLspToolsStatus(status);
+          dispatchLspState({ type: "set-tools-status", lspToolsStatus: status });
           toastManager.add({
             type: "success",
             title: `Installed ${input.label}.`,
           });
         })
         .catch((error: unknown) => {
-          setLspToolsError(getErrorMessage(error, "Unable to install custom language server."));
+          dispatchLspState({
+            type: "set-tools-error",
+            lspToolsError: getErrorMessage(error, "Unable to install custom language server."),
+          });
         })
         .finally(() => {
-          setIsInstallingCustomLsp(false);
-          setLspInstallTargetId(null);
+          dispatchLspState({ type: "set-installing-custom", isInstallingCustomLsp: false });
+          dispatchLspState({ type: "set-install-target-id", lspInstallTargetId: null });
         });
     },
     [],
@@ -1438,41 +1367,47 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
   );
 
   const uninstallCatalogTool = useCallback((tool: ServerLspToolStatus) => {
-    setIsInstallingCustomLsp(true);
-    setLspInstallTargetId(tool.id);
-    setLspToolsError(null);
+    dispatchLspState({ type: "set-installing-custom", isInstallingCustomLsp: true });
+    dispatchLspState({ type: "set-install-target-id", lspInstallTargetId: tool.id });
+    dispatchLspState({ type: "set-tools-error", lspToolsError: null });
     void ensureNativeApi()
       .server.uninstallLspTool({ id: tool.id })
       .then((status) => {
-        setLspToolsStatus(status);
+        dispatchLspState({ type: "set-tools-status", lspToolsStatus: status });
         toastManager.add({
           type: "success",
           title: `Uninstalled ${tool.label}.`,
         });
       })
       .catch((error: unknown) => {
-        setLspToolsError(getErrorMessage(error, "Unable to uninstall language server."));
+        dispatchLspState({
+          type: "set-tools-error",
+          lspToolsError: getErrorMessage(error, "Unable to uninstall language server."),
+        });
       })
       .finally(() => {
-        setIsInstallingCustomLsp(false);
-        setLspInstallTargetId(null);
+        dispatchLspState({ type: "set-installing-custom", isInstallingCustomLsp: false });
+        dispatchLspState({ type: "set-install-target-id", lspInstallTargetId: null });
       });
   }, []);
 
   const seedCustomLspForm = useCallback((tool?: ServerLspToolStatus) => {
     if (tool) {
-      setLspCustomForm({
-        installer: tool.installer,
-        packageName: tool.packageName,
-        command: tool.command,
-        label: tool.label,
-        args: tool.args.join(", "),
-        languageIds: tool.languageIds.join(", "),
-        fileExtensions: tool.fileExtensions.join(", "),
-        fileNames: tool.fileNames.join(", "),
+      dispatchLspState({
+        type: "set-custom-form",
+        lspCustomForm: {
+          installer: tool.installer,
+          packageName: tool.packageName,
+          command: tool.command,
+          label: tool.label,
+          args: tool.args.join(", "),
+          languageIds: tool.languageIds.join(", "),
+          fileExtensions: tool.fileExtensions.join(", "),
+          fileNames: tool.fileNames.join(", "),
+        },
       });
     }
-    setIsLspCustomFormOpen(true);
+    dispatchLspState({ type: "set-custom-form-open", isLspCustomFormOpen: true });
   }, []);
 
   const submitCustomLspInstall = useCallback(() => {
@@ -1493,9 +1428,11 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
       languageIds.length === 0 ||
       (fileExtensions.length === 0 && fileNames.length === 0)
     ) {
-      setLspToolsError(
-        "Package, command, label, language IDs, and at least one file extension or file name are required.",
-      );
+      dispatchLspState({
+        type: "set-tools-error",
+        lspToolsError:
+          "Package, command, label, language IDs, and at least one file extension or file name are required.",
+      });
       return;
     }
     installCustomLspTool(
@@ -2004,6 +1941,34 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
             />
           </SettingsSection>
 
+          <SettingsSection title="Reliability">
+            <SettingsRow
+              title="Recovery UX"
+              description="Show connection health, diagnostics actions, stuck-turn hints, and connection recovery toasts."
+              resetAction={
+                settings.reliabilityUxEnabled !== DEFAULT_UNIFIED_SETTINGS.reliabilityUxEnabled ? (
+                  <SettingResetButton
+                    label="reliability recovery UX"
+                    onClick={() =>
+                      updateSettings({
+                        reliabilityUxEnabled: DEFAULT_UNIFIED_SETTINGS.reliabilityUxEnabled,
+                      })
+                    }
+                  />
+                ) : null
+              }
+              control={
+                <Switch
+                  checked={settings.reliabilityUxEnabled}
+                  onCheckedChange={(checked) =>
+                    updateSettings({ reliabilityUxEnabled: Boolean(checked) })
+                  }
+                  aria-label="Enable reliability recovery UX"
+                />
+              }
+            />
+          </SettingsSection>
+
           <SettingsSection title="Comments">
             <SettingsRow
               title="Accumulate comments"
@@ -2258,59 +2223,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
 
       {isEditorPage ? (
         <>
-          <SettingsSection title="Diffs">
-            <SettingsRow
-              title="Diff line wrapping"
-              description="Set the default wrap state when the diff panel opens."
-              resetAction={
-                settings.diffWordWrap !== DEFAULT_UNIFIED_SETTINGS.diffWordWrap ? (
-                  <SettingResetButton
-                    label="diff line wrapping"
-                    onClick={() =>
-                      updateSettings({
-                        diffWordWrap: DEFAULT_UNIFIED_SETTINGS.diffWordWrap,
-                      })
-                    }
-                  />
-                ) : null
-              }
-              control={
-                <Switch
-                  checked={settings.diffWordWrap}
-                  onCheckedChange={(checked) => updateSettings({ diffWordWrap: Boolean(checked) })}
-                  aria-label="Wrap diff lines by default"
-                />
-              }
-            />
-          </SettingsSection>
-
           <SettingsSection title="Workspace editor">
-            <SettingsRow
-              title="Editor suggestions"
-              description="Keep Monaco completion helpers off by default to reduce noisy or unwanted code insertions."
-              resetAction={
-                settings.editorSuggestions !== DEFAULT_UNIFIED_SETTINGS.editorSuggestions ? (
-                  <SettingResetButton
-                    label="editor suggestions"
-                    onClick={() =>
-                      updateSettings({
-                        editorSuggestions: DEFAULT_UNIFIED_SETTINGS.editorSuggestions,
-                      })
-                    }
-                  />
-                ) : null
-              }
-              control={
-                <Switch
-                  checked={settings.editorSuggestions}
-                  onCheckedChange={(checked) =>
-                    updateSettings({ editorSuggestions: Boolean(checked) })
-                  }
-                  aria-label="Enable workspace editor suggestions"
-                />
-              }
-            />
-
             <SettingsRow
               title="Editor line wrapping"
               description="Wrap long lines in the workspace editor."
@@ -2359,30 +2272,6 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                     updateSettings({ editorStickyScroll: Boolean(checked) })
                   }
                   aria-label="Enable editor sticky scroll"
-                />
-              }
-            />
-
-            <SettingsRow
-              title="Editor minimap"
-              description="Show a code minimap in the workspace editor."
-              resetAction={
-                settings.editorMinimap !== DEFAULT_UNIFIED_SETTINGS.editorMinimap ? (
-                  <SettingResetButton
-                    label="editor minimap"
-                    onClick={() =>
-                      updateSettings({
-                        editorMinimap: DEFAULT_UNIFIED_SETTINGS.editorMinimap,
-                      })
-                    }
-                  />
-                ) : null
-              }
-              control={
-                <Switch
-                  checked={settings.editorMinimap}
-                  onCheckedChange={(checked) => updateSettings({ editorMinimap: Boolean(checked) })}
-                  aria-label="Show editor minimap"
                 />
               }
             />
@@ -2490,14 +2379,19 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
               }
             >
               <div className="mt-3 space-y-3">
-                <div className="rounded-[var(--control-radius)] border border-border/45 bg-background/35 p-2.5">
+                <div className="py-2">
                   <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
                     <div className="relative min-w-0">
                       <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground/55" />
                       <Input
                         className="pl-8"
                         value={lspCatalogQuery}
-                        onChange={(event) => setLspCatalogQuery(event.target.value)}
+                        onChange={(event) =>
+                          dispatchLspState({
+                            type: "set-catalog-query",
+                            lspCatalogQuery: event.target.value,
+                          })
+                        }
                         placeholder="Search language, package, command, or file type"
                       />
                     </div>
@@ -2508,11 +2402,17 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                           return;
                         }
                         if (value === "all") {
-                          setLspCatalogCategory(value);
+                          dispatchLspState({
+                            type: "set-catalog-category",
+                            lspCatalogCategory: value,
+                          });
                           return;
                         }
                         if (value !== "custom" && lspCatalogCategories.includes(value)) {
-                          setLspCatalogCategory(value);
+                          dispatchLspState({
+                            type: "set-catalog-category",
+                            lspCatalogCategory: value,
+                          });
                         }
                       }}
                     >
@@ -2537,20 +2437,20 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                   </div>
                 </div>
 
-                <div className="overflow-hidden rounded-[var(--control-radius)] border border-border/45 bg-background/35">
+                <div>
                   {filteredLspCatalogTools.length === 0 ? (
                     <div className="px-4 py-8 text-center text-[12px] text-muted-foreground/62">
                       No language servers match this filter.
                     </div>
                   ) : (
-                    <div className="divide-y divide-border/32">
+                    <div className="space-y-1">
                       {filteredLspCatalogTools.map((tool) => {
                         const isWorking = isInstallingCustomLsp && lspInstallTargetId === tool.id;
                         const versionLabel = resolveLspToolVersionLabel(tool);
                         return (
                           <div
                             key={tool.id}
-                            className="grid gap-2 px-3 py-2.5 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center"
+                            className="grid gap-2 px-0.5 py-2.5 transition-colors hover:bg-foreground/[0.012] sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center"
                           >
                             <div className="min-w-0 truncate text-[13px] font-medium text-foreground/92">
                               {tool.label}
@@ -2585,8 +2485,8 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                 </div>
 
                 {lspCustomTools.length > 0 ? (
-                  <div className="overflow-hidden rounded-[var(--control-radius)] border border-border/45 bg-background/35">
-                    <div className="border-b border-border/35 px-3 py-2">
+                  <div>
+                    <div className="py-2">
                       <div className="text-[12px] font-medium text-foreground/90">
                         Custom servers
                       </div>
@@ -2594,11 +2494,11 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                         Saved package definitions outside the curated catalog.
                       </div>
                     </div>
-                    <div className="divide-y divide-border/32">
+                    <div className="space-y-1">
                       {lspCustomTools.map((tool) => (
                         <div
                           key={tool.id}
-                          className="grid gap-3 px-3 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
+                          className="grid gap-3 px-0.5 py-3 transition-colors hover:bg-foreground/[0.012] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
                         >
                           <div className="min-w-0 space-y-1">
                             <div className="flex min-w-0 flex-wrap items-center gap-1.5">
@@ -2629,8 +2529,8 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                   </div>
                 ) : null}
 
-                <div className="overflow-hidden rounded-[var(--control-radius)] border border-border/45 bg-background/35">
-                  <div className="flex flex-col gap-2 border-b border-border/35 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <div className="flex flex-col gap-2 py-2.5 sm:flex-row sm:items-center sm:justify-between">
                     <div className="min-w-0">
                       <div className="text-[12px] font-medium text-foreground/90">
                         Register custom server
@@ -2642,7 +2542,12 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={() => setIsLspCustomFormOpen((open) => !open)}
+                      onClick={() =>
+                        dispatchLspState({
+                          type: "set-custom-form-open",
+                          isLspCustomFormOpen: !isLspCustomFormOpen,
+                        })
+                      }
                     >
                       <WrenchIcon className="size-3.5" />
                       {isLspCustomFormOpen ? "Hide form" : "Install custom"}
@@ -2650,18 +2555,18 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                   </div>
 
                   {isLspCustomFormOpen ? (
-                    <div className="space-y-3 px-3 py-3">
-                      <div className="flex max-w-full gap-1 overflow-x-auto rounded-[var(--control-radius)] border border-border/35 bg-background/45 p-1">
+                    <div className="space-y-3 py-3">
+                      <div className="flex max-w-full gap-1 overflow-x-auto py-1">
                         {(["npm", "uv-tool", "go-install", "rustup"] as const).map((installer) => (
                           <Button
                             key={installer}
                             size="sm"
                             variant={lspCustomForm.installer === installer ? "default" : "ghost"}
                             onClick={() =>
-                              setLspCustomForm((current) => ({
-                                ...current,
-                                installer,
-                              }))
+                              dispatchLspState({
+                                type: "update-custom-form",
+                                lspCustomForm: { installer },
+                              })
                             }
                             className="shrink-0"
                           >
@@ -2670,15 +2575,19 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                         ))}
                       </div>
                       <div className="grid gap-2 sm:grid-cols-2">
-                        <label className="grid gap-1 text-[11px] font-medium text-muted-foreground/72">
+                        <label
+                          htmlFor="lsp-custom-package"
+                          className="grid gap-1 text-[11px] font-medium text-muted-foreground/72"
+                        >
                           Package
                           <Input
+                            id="lsp-custom-package"
                             value={lspCustomForm.packageName}
                             onChange={(event) =>
-                              setLspCustomForm((current) => ({
-                                ...current,
-                                packageName: event.target.value,
-                              }))
+                              dispatchLspState({
+                                type: "update-custom-form",
+                                lspCustomForm: { packageName: event.target.value },
+                              })
                             }
                             placeholder={
                               lspCustomForm.installer === "uv-tool"
@@ -2691,80 +2600,104 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                             }
                           />
                         </label>
-                        <label className="grid gap-1 text-[11px] font-medium text-muted-foreground/72">
+                        <label
+                          htmlFor="lsp-custom-command"
+                          className="grid gap-1 text-[11px] font-medium text-muted-foreground/72"
+                        >
                           Command
                           <Input
+                            id="lsp-custom-command"
                             value={lspCustomForm.command}
                             onChange={(event) =>
-                              setLspCustomForm((current) => ({
-                                ...current,
-                                command: event.target.value,
-                              }))
+                              dispatchLspState({
+                                type: "update-custom-form",
+                                lspCustomForm: { command: event.target.value },
+                              })
                             }
                             placeholder="language-server-command"
                           />
                         </label>
-                        <label className="grid gap-1 text-[11px] font-medium text-muted-foreground/72">
+                        <label
+                          htmlFor="lsp-custom-label"
+                          className="grid gap-1 text-[11px] font-medium text-muted-foreground/72"
+                        >
                           Display label
                           <Input
+                            id="lsp-custom-label"
                             value={lspCustomForm.label}
                             onChange={(event) =>
-                              setLspCustomForm((current) => ({
-                                ...current,
-                                label: event.target.value,
-                              }))
+                              dispatchLspState({
+                                type: "update-custom-form",
+                                lspCustomForm: { label: event.target.value },
+                              })
                             }
                             placeholder="Tailwind CSS"
                           />
                         </label>
-                        <label className="grid gap-1 text-[11px] font-medium text-muted-foreground/72">
+                        <label
+                          htmlFor="lsp-custom-args"
+                          className="grid gap-1 text-[11px] font-medium text-muted-foreground/72"
+                        >
                           Args
                           <Input
+                            id="lsp-custom-args"
                             value={lspCustomForm.args}
                             onChange={(event) =>
-                              setLspCustomForm((current) => ({
-                                ...current,
-                                args: event.target.value,
-                              }))
+                              dispatchLspState({
+                                type: "update-custom-form",
+                                lspCustomForm: { args: event.target.value },
+                              })
                             }
                             placeholder="comma-separated, optional"
                           />
                         </label>
-                        <label className="grid gap-1 text-[11px] font-medium text-muted-foreground/72">
+                        <label
+                          htmlFor="lsp-custom-language-ids"
+                          className="grid gap-1 text-[11px] font-medium text-muted-foreground/72"
+                        >
                           Language IDs
                           <Input
+                            id="lsp-custom-language-ids"
                             value={lspCustomForm.languageIds}
                             onChange={(event) =>
-                              setLspCustomForm((current) => ({
-                                ...current,
-                                languageIds: event.target.value,
-                              }))
+                              dispatchLspState({
+                                type: "update-custom-form",
+                                lspCustomForm: { languageIds: event.target.value },
+                              })
                             }
                             placeholder="typescript, javascript"
                           />
                         </label>
-                        <label className="grid gap-1 text-[11px] font-medium text-muted-foreground/72">
+                        <label
+                          htmlFor="lsp-custom-file-extensions"
+                          className="grid gap-1 text-[11px] font-medium text-muted-foreground/72"
+                        >
                           File extensions
                           <Input
+                            id="lsp-custom-file-extensions"
                             value={lspCustomForm.fileExtensions}
                             onChange={(event) =>
-                              setLspCustomForm((current) => ({
-                                ...current,
-                                fileExtensions: event.target.value,
-                              }))
+                              dispatchLspState({
+                                type: "update-custom-form",
+                                lspCustomForm: { fileExtensions: event.target.value },
+                              })
                             }
                             placeholder=".ts, .tsx"
                           />
                         </label>
-                        <label className="grid gap-1 text-[11px] font-medium text-muted-foreground/72 sm:col-span-2">
+                        <label
+                          htmlFor="lsp-custom-file-names"
+                          className="grid gap-1 text-[11px] font-medium text-muted-foreground/72 sm:col-span-2"
+                        >
                           File names
                           <Input
+                            id="lsp-custom-file-names"
                             value={lspCustomForm.fileNames}
                             onChange={(event) =>
-                              setLspCustomForm((current) => ({
-                                ...current,
-                                fileNames: event.target.value,
-                              }))
+                              dispatchLspState({
+                                type: "update-custom-form",
+                                lspCustomForm: { fileNames: event.target.value },
+                              })
                             }
                             placeholder="comma-separated, optional"
                           />
@@ -2809,18 +2742,13 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
               ) : null
             }
           >
-            <div className="mt-3 flex flex-wrap gap-2">
-              {BROWSER_SEARCH_ENGINE_OPTIONS.map((engine) => (
-                <Button
-                  key={engine.value}
-                  size="sm"
-                  variant={settings.browserSearchEngine === engine.value ? "default" : "outline"}
-                  onClick={() => updateSettings({ browserSearchEngine: engine.value })}
-                >
-                  {engine.label}
-                </Button>
-              ))}
-            </div>
+            <SettingsChoiceGroup
+              label="Search engine"
+              className="max-w-xs"
+              options={BROWSER_SEARCH_ENGINE_OPTIONS}
+              value={settings.browserSearchEngine}
+              onValueChange={(browserSearchEngine) => updateSettings({ browserSearchEngine })}
+            />
           </SettingsRow>
           <SettingsRow
             title="Max mounted browsers"
@@ -2908,7 +2836,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                     opencode: settings.providers.opencode.instances,
                   }}
                   triggerVariant="outline"
-                  triggerClassName="min-w-0 max-w-none shrink-0 text-foreground/90 hover:text-foreground"
+                  triggerClassName="h-8 min-w-0 max-w-none shrink-0 px-3 text-[13px] text-foreground/90 hover:text-foreground"
                   onProviderModelChange={(provider, model, providerInstanceId) => {
                     updateSettings({
                       textGenerationModelSelection: resolveAppModelSelectionState(
@@ -2939,7 +2867,7 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
                   modelOptions={textGenModelOptions}
                   allowPromptInjectedEffort={false}
                   triggerVariant="outline"
-                  triggerClassName="min-w-0 max-w-none shrink-0 text-foreground/90 hover:text-foreground"
+                  triggerClassName="h-8 min-w-0 max-w-none shrink-0 px-3 text-[13px] text-foreground/90 hover:text-foreground"
                   onModelOptionsChange={(nextOptions) => {
                     updateSettings({
                       textGenerationModelSelection: resolveAppModelSelectionState(
@@ -2979,34 +2907,15 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
               ) : null
             }
           >
-            <div className="mt-3 flex flex-wrap gap-2">
-              {WORKSPACE_SUMMARY_GENERATION_MODE_OPTIONS.map((option) => (
-                <Tooltip key={option.value}>
-                  <TooltipTrigger
-                    render={
-                      <Button
-                        size="sm"
-                        variant={
-                          settings.workspaceSummaryGenerationMode === option.value
-                            ? "default"
-                            : "outline"
-                        }
-                        onClick={() =>
-                          updateSettings({
-                            workspaceSummaryGenerationMode: option.value,
-                          })
-                        }
-                      >
-                        {option.label}
-                      </Button>
-                    }
-                  />
-                  <TooltipPopup side="top" className="max-w-80 whitespace-pre-wrap">
-                    {option.description}
-                  </TooltipPopup>
-                </Tooltip>
-              ))}
-            </div>
+            <SettingsChoiceGroup
+              label="Summary generation"
+              className="max-w-sm"
+              options={WORKSPACE_SUMMARY_GENERATION_MODE_OPTIONS}
+              value={settings.workspaceSummaryGenerationMode}
+              onValueChange={(workspaceSummaryGenerationMode) =>
+                updateSettings({ workspaceSummaryGenerationMode })
+              }
+            />
           </SettingsRow>
         </SettingsSection>
       ) : null}
@@ -3225,6 +3134,10 @@ function SettingsPanel({ page }: { page: SettingsPanelPage }) {
   );
 }
 
+function SettingsPanel(props: { page: SettingsPanelPage }) {
+  return useSettingsPanelComponent(props);
+}
+
 export function GeneralSettingsPanel() {
   return <SettingsPanel page="general" />;
 }
@@ -3251,6 +3164,1461 @@ export function AdvancedSettingsPanel() {
 
 export function AboutSettingsPanel() {
   return <SettingsPanel page="about" />;
+}
+
+type EnvironmentWorktreeEntry = {
+  readonly path: string;
+  readonly displayName: string;
+  readonly branchNames: readonly string[];
+  readonly relatedThreads: readonly Thread[];
+  readonly activeThread: Thread | null;
+};
+
+type EnvironmentWorktreeStats = {
+  readonly exists: boolean;
+  readonly lastModifiedAt: string | null;
+  readonly sizeBytes: number;
+};
+
+type EnvironmentProjectFilter = "all" | "with-worktrees" | "inactive" | "setup";
+type EnvironmentProjectSort = "name" | "inactive" | "worktrees" | "storage";
+type EnvironmentWorktreeFilter = "all" | "inactive" | "active" | "linked";
+type EnvironmentWorktreeSort = "recent" | "oldest" | "name" | "storage";
+type EnvironmentWorktreeCleanupAge = "all" | "7d" | "30d" | "90d";
+
+type EnvironmentProjectMetrics = {
+  readonly hasSetup: boolean;
+  readonly storageBytes: number;
+  readonly worktreeCount: number;
+};
+
+const ENVIRONMENT_PROJECT_FILTER_LABELS = {
+  all: "All projects",
+  inactive: "Inactive",
+  setup: "Setup saved",
+  "with-worktrees": "Has worktrees",
+} satisfies Record<EnvironmentProjectFilter, string>;
+
+const ENVIRONMENT_PROJECT_SORT_LABELS = {
+  inactive: "Inactive first",
+  name: "Name",
+  storage: "Storage",
+  worktrees: "Worktrees",
+} satisfies Record<EnvironmentProjectSort, string>;
+
+const ENVIRONMENT_WORKTREE_FILTER_LABELS = {
+  active: "Active",
+  all: "All",
+  inactive: "Inactive",
+  linked: "Has chats",
+} satisfies Record<EnvironmentWorktreeFilter, string>;
+
+const ENVIRONMENT_WORKTREE_SORT_LABELS = {
+  name: "Name",
+  oldest: "Oldest",
+  recent: "Recent",
+  storage: "Storage",
+} satisfies Record<EnvironmentWorktreeSort, string>;
+
+const ENVIRONMENT_WORKTREE_CLEANUP_AGE_LABELS = {
+  "30d": "Older than 30 days",
+  "7d": "Older than 7 days",
+  "90d": "Older than 90 days",
+  all: "All inactive",
+} satisfies Record<EnvironmentWorktreeCleanupAge, string>;
+
+const ENVIRONMENT_WORKTREE_CLEANUP_AGE_DAYS = {
+  "30d": 30,
+  "7d": 7,
+  "90d": 90,
+  all: null,
+} satisfies Record<EnvironmentWorktreeCleanupAge, number | null>;
+
+function getProjectWorktreePaths({
+  branches,
+  project,
+}: {
+  readonly branches: readonly { readonly worktreePath: string | null }[];
+  readonly project: Project;
+}): string[] {
+  const projectCwd = normalizeWorktreePath(project.cwd);
+  const paths = new Set<string>();
+
+  for (const branch of branches) {
+    const worktreePath = normalizeWorktreePath(branch.worktreePath);
+    if (!worktreePath || worktreePath === projectCwd) {
+      continue;
+    }
+    paths.add(worktreePath);
+  }
+
+  return Array.from(paths).toSorted((left, right) => left.localeCompare(right));
+}
+
+function formatStorageBytes(sizeBytes: number): string {
+  if (!Number.isFinite(sizeBytes) || sizeBytes <= 0) {
+    return "0 B";
+  }
+
+  const units = ["B", "KB", "MB", "GB", "TB"] as const;
+  let value = sizeBytes;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+
+  const digits = value >= 10 || unitIndex === 0 ? 0 : 1;
+  return `${value.toFixed(digits)} ${units[unitIndex]}`;
+}
+
+function getWorktreeActivityTimeMs(
+  worktree: EnvironmentWorktreeEntry,
+  stats: EnvironmentWorktreeStats | undefined,
+): number {
+  const statTime = stats?.lastModifiedAt ? Date.parse(stats.lastModifiedAt) : Number.NaN;
+  if (Number.isFinite(statTime)) {
+    return statTime;
+  }
+  const threadTimes = worktree.relatedThreads
+    .flatMap((thread) => (thread.updatedAt ? [Date.parse(thread.updatedAt)] : []))
+    .filter(Number.isFinite);
+  return threadTimes.length > 0 ? Math.max(...threadTimes) : 0;
+}
+
+function formatWorktreeActivityLabel(
+  worktree: EnvironmentWorktreeEntry,
+  stats: EnvironmentWorktreeStats | undefined,
+): string {
+  const activityTimeMs = getWorktreeActivityTimeMs(worktree, stats);
+  if (activityTimeMs <= 0) {
+    return "No activity";
+  }
+  return formatRelativeTimeLabel(new Date(activityTimeMs).toISOString());
+}
+
+function isWorktreeOlderThan(
+  worktree: EnvironmentWorktreeEntry,
+  stats: EnvironmentWorktreeStats | undefined,
+  age: EnvironmentWorktreeCleanupAge,
+  now: number,
+): boolean {
+  const days = ENVIRONMENT_WORKTREE_CLEANUP_AGE_DAYS[age];
+  if (days === null) {
+    return true;
+  }
+  const activityTimeMs = getWorktreeActivityTimeMs(worktree, stats);
+  return activityTimeMs > 0 && activityTimeMs <= now - days * 24 * 60 * 60_000;
+}
+
+function getEnvironmentWorktreeEntries({
+  branches,
+  project,
+  threads,
+}: {
+  readonly branches: readonly { readonly name: string; readonly worktreePath: string | null }[];
+  readonly project: Project;
+  readonly threads: readonly Thread[];
+}): EnvironmentWorktreeEntry[] {
+  const projectCwd = normalizeWorktreePath(project.cwd);
+  const branchNamesByPath = new Map<string, Set<string>>();
+
+  for (const branch of branches) {
+    const worktreePath = normalizeWorktreePath(branch.worktreePath);
+    if (!worktreePath || worktreePath === projectCwd) {
+      continue;
+    }
+    let branchNames = branchNamesByPath.get(worktreePath);
+    if (!branchNames) {
+      branchNames = new Set<string>();
+      branchNamesByPath.set(worktreePath, branchNames);
+    }
+    branchNames.add(branch.name);
+  }
+
+  return Array.from(branchNamesByPath.entries())
+    .map(([path, branchNames]) => {
+      const relatedThreadIds = new Set(getWorktreeLinkedThreadIds(threads, path));
+      const relatedThreads = threads.filter((thread) => relatedThreadIds.has(thread.id));
+      return {
+        path,
+        displayName: formatWorktreePathForDisplay(path),
+        branchNames: Array.from(branchNames).toSorted((left, right) => left.localeCompare(right)),
+        relatedThreads,
+        activeThread: relatedThreads.find(isWorktreeThreadSessionActive) ?? null,
+      };
+    })
+    .toSorted(
+      (left, right) =>
+        left.displayName.localeCompare(right.displayName) || left.path.localeCompare(right.path),
+    );
+}
+
+function ProjectWorktreeSetupEditor({ project }: { readonly project: Project }) {
+  const setupScript = useMemo(() => setupProjectScript(project.scripts), [project.scripts]);
+  const [command, setCommand] = useState(() => setupScript?.command ?? "");
+  const [envText, setEnvText] = useState(() => formatProjectScriptEnv(setupScript?.env));
+  const [envFilePath, setEnvFilePath] = useState(
+    () => setupScript?.envFilePath ?? DEFAULT_PROJECT_SCRIPT_ENV_FILE_PATH,
+  );
+  const [validationError, setValidationError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setCommand(setupScript?.command ?? "");
+    setEnvText(formatProjectScriptEnv(setupScript?.env));
+    setEnvFilePath(setupScript?.envFilePath ?? DEFAULT_PROJECT_SCRIPT_ENV_FILE_PATH);
+    setValidationError(null);
+  }, [setupScript?.command, setupScript?.env, setupScript?.envFilePath]);
+
+  const saveSetup = useCallback(async () => {
+    const api = readNativeApi();
+    if (!api) {
+      return;
+    }
+    const trimmedCommand = command.trim();
+    if (!trimmedCommand) {
+      setValidationError("Setup command is required.");
+      return;
+    }
+
+    let parsedEnv: Record<string, string>;
+    try {
+      parsedEnv = parseProjectScriptEnv(envText);
+    } catch (error) {
+      setValidationError(error instanceof Error ? error.message : "Invalid environment variables.");
+      return;
+    }
+    let normalizedEnvFilePath: string;
+    try {
+      normalizedEnvFilePath = normalizeProjectScriptEnvFilePath(envFilePath);
+    } catch (error) {
+      setValidationError(error instanceof Error ? error.message : "Invalid environment file path.");
+      return;
+    }
+
+    setSaving(true);
+    setValidationError(null);
+    try {
+      const setupScriptId =
+        setupScript?.id ??
+        nextProjectScriptId(
+          "Worktree setup",
+          project.scripts.map((script) => script.id),
+        );
+      const nextSetupScript: ProjectScript = {
+        id: setupScriptId,
+        name: setupScript?.name ?? "Worktree setup",
+        command: trimmedCommand,
+        icon: setupScript?.icon ?? "configure",
+        runOnWorktreeCreate: true,
+        env: parsedEnv,
+        envFilePath: normalizedEnvFilePath,
+      };
+      const nextScripts = setupScript
+        ? project.scripts.map((script) =>
+            script.id === setupScript.id
+              ? nextSetupScript
+              : script.runOnWorktreeCreate
+                ? { ...script, runOnWorktreeCreate: false }
+                : script,
+          )
+        : [
+            ...project.scripts.map((script) =>
+              script.runOnWorktreeCreate ? { ...script, runOnWorktreeCreate: false } : script,
+            ),
+            nextSetupScript,
+          ];
+
+      await api.orchestration.dispatchCommand({
+        type: "project.meta.update",
+        commandId: newCommandId(),
+        projectId: project.id,
+        scripts: nextScripts,
+      });
+      toastManager.add({
+        type: "success",
+        title: "Saved worktree setup.",
+      });
+    } catch (error) {
+      setValidationError(error instanceof Error ? error.message : "Failed to save setup command.");
+    } finally {
+      setSaving(false);
+    }
+  }, [command, envFilePath, envText, project.id, project.scripts, setupScript]);
+
+  const disableSetup = useCallback(async () => {
+    if (!setupScript) return;
+    const api = readNativeApi();
+    if (!api) {
+      return;
+    }
+    setSaving(true);
+    setValidationError(null);
+    try {
+      await api.orchestration.dispatchCommand({
+        type: "project.meta.update",
+        commandId: newCommandId(),
+        projectId: project.id,
+        scripts: project.scripts.map((script) =>
+          script.id === setupScript.id ? { ...script, runOnWorktreeCreate: false } : script,
+        ),
+      });
+    } catch (error) {
+      setValidationError(error instanceof Error ? error.message : "Failed to disable setup.");
+    } finally {
+      setSaving(false);
+    }
+  }, [project.id, project.scripts, setupScript]);
+
+  const hasEnv = Object.keys(setupScript?.env ?? {}).length > 0;
+  const savedCommand = setupScript?.command ?? "";
+  const savedEnvText = formatProjectScriptEnv(setupScript?.env);
+  const savedEnvFilePath = setupScript?.envFilePath ?? DEFAULT_PROJECT_SCRIPT_ENV_FILE_PATH;
+  const setupHasUnsavedChanges =
+    command !== savedCommand || envText !== savedEnvText || envFilePath !== savedEnvFilePath;
+  const setupStatus = saving
+    ? { label: "Saving", variant: "info" as const }
+    : setupScript
+      ? setupHasUnsavedChanges
+        ? { label: "Unsaved changes", variant: "warning" as const }
+        : { label: "Saved", variant: "success" as const }
+      : { label: "Not saved", variant: "outline" as const };
+
+  return (
+    <div className="py-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 text-[12px] font-medium text-foreground/85">
+            <WrenchIcon className="size-3.5 text-muted-foreground" />
+            Worktree setup
+            {setupScript ? (
+              <Badge variant="outline" size="sm" className="text-[10px]">
+                automatic
+              </Badge>
+            ) : null}
+            {hasEnv ? (
+              <Badge variant="outline" size="sm" className="text-[10px]">
+                {formatCountLabel(Object.keys(setupScript?.env ?? {}).length, "env var")}
+              </Badge>
+            ) : null}
+            <Badge variant={setupStatus.variant} size="sm" className="text-[10px]">
+              {setupStatus.label}
+            </Badge>
+          </div>
+          <p className="mt-1 text-[11px] text-muted-foreground/60">
+            Runs after a new worktree is created. Use it for install, bootstrap, or generated files.
+          </p>
+        </div>
+        <div className="flex shrink-0 gap-2">
+          {setupScript ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="xs"
+              disabled={saving}
+              onClick={disableSetup}
+            >
+              Disable
+            </Button>
+          ) : null}
+          <Button
+            type="button"
+            variant={setupHasUnsavedChanges || !setupScript ? "outline" : "ghost"}
+            size="xs"
+            disabled={saving || (Boolean(setupScript) && !setupHasUnsavedChanges)}
+            onClick={saveSetup}
+          >
+            {saving ? "Saving" : setupScript && !setupHasUnsavedChanges ? "Saved" : "Save setup"}
+          </Button>
+        </div>
+      </div>
+      <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
+        <div className="space-y-1.5">
+          <label className="text-[11px] font-medium text-muted-foreground">Command</label>
+          <Textarea
+            value={command}
+            placeholder="bun install"
+            size="sm"
+            className="font-mono text-[12px]"
+            onChange={(event) => setCommand(event.target.value)}
+          />
+        </div>
+        <div className="grid gap-3">
+          <div className="space-y-1.5">
+            <label className="text-[11px] font-medium text-muted-foreground">Env file</label>
+            <Input
+              value={envFilePath}
+              placeholder=".env"
+              className="font-mono text-[12px]"
+              onChange={(event) => setEnvFilePath(event.target.value)}
+            />
+            <p className="text-[10px] text-muted-foreground/60">
+              Copied from the project root into each new worktree before setup runs.
+            </p>
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-[11px] font-medium text-muted-foreground">Environment</label>
+            <Textarea
+              value={envText}
+              placeholder={"NODE_ENV=development\nAPI_BASE_URL=http://localhost:3000"}
+              size="sm"
+              className="font-mono text-[12px]"
+              onChange={(event) => setEnvText(event.target.value)}
+            />
+            <p className="text-[10px] text-muted-foreground/60">
+              Passed to the setup command and used if the source env file is missing.
+            </p>
+          </div>
+        </div>
+      </div>
+      {validationError ? (
+        <div className="mt-2 text-[11px] text-destructive">{validationError}</div>
+      ) : null}
+    </div>
+  );
+}
+
+function ProjectEnvironmentWorktrees({
+  project,
+  threads,
+}: {
+  readonly project: Project;
+  readonly threads: readonly Thread[];
+}) {
+  const projectConnectionUrl = resolveConnectionForProjectId(project.id) ?? null;
+  const branchesQuery = useQuery(gitBranchesQueryOptions(project.cwd, projectConnectionUrl));
+  const navigate = useNavigate();
+  const settings = useSettings();
+  const { updateSettings } = useUpdateSettings();
+  const [worktreeSearch, setWorktreeSearch] = useState("");
+  const [worktreeFilter, setWorktreeFilter] = useState<EnvironmentWorktreeFilter>("inactive");
+  const [worktreeSort, setWorktreeSort] = useState<EnvironmentWorktreeSort>("oldest");
+  const [cleanupAge, setCleanupAge] = useState<EnvironmentWorktreeCleanupAge>("30d");
+  const [isCleaningWorktrees, setIsCleaningWorktrees] = useState(false);
+  const [isDeletingSelectedWorktrees, setIsDeletingSelectedWorktrees] = useState(false);
+  const [selectedWorktreePaths, setSelectedWorktreePaths] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const { deleteWorktreeAndRelatedData } = useThreadActions();
+  const projectSshKeyPassphrase =
+    settings.gitSshKeyPassphraseByProjectRoot[project.cwd] ??
+    DEFAULT_UNIFIED_SETTINGS.gitSshKeyPassphrase;
+  const hasProjectSshKeyPassphrase = projectSshKeyPassphrase.trim().length > 0;
+  const updateProjectSshKeyPassphrase = useCallback(
+    (passphrase: string) => {
+      const nextPassphrases = { ...settings.gitSshKeyPassphraseByProjectRoot };
+      if (passphrase.trim().length > 0) {
+        nextPassphrases[project.cwd] = passphrase;
+      } else {
+        delete nextPassphrases[project.cwd];
+      }
+      updateSettings({ gitSshKeyPassphraseByProjectRoot: nextPassphrases });
+    },
+    [project.cwd, settings.gitSshKeyPassphraseByProjectRoot, updateSettings],
+  );
+  const projectThreads = useMemo(
+    () => threads.filter((thread) => thread.projectId === project.id),
+    [project.id, threads],
+  );
+  const worktrees = useMemo(
+    () =>
+      getEnvironmentWorktreeEntries({
+        branches: branchesQuery.data?.branches ?? [],
+        project,
+        threads: projectThreads,
+      }),
+    [branchesQuery.data?.branches, project, projectThreads],
+  );
+  const worktreePaths = useMemo(() => worktrees.map((worktree) => worktree.path), [worktrees]);
+  const statsQuery = useQuery(
+    gitWorktreeStatsQueryOptions({ connectionUrl: projectConnectionUrl, paths: worktreePaths }),
+  );
+  const statsByPath = useMemo(() => {
+    const stats = new Map<string, EnvironmentWorktreeStats>();
+    for (const worktreeStats of statsQuery.data?.worktrees ?? []) {
+      stats.set(worktreeStats.path, worktreeStats);
+    }
+    return stats;
+  }, [statsQuery.data?.worktrees]);
+  const visibleWorktrees = useMemo(() => {
+    const query = worktreeSearch.trim().toLowerCase();
+    return worktrees
+      .filter((worktree) => {
+        if (worktreeFilter === "active") {
+          return worktree.activeThread !== null;
+        }
+        if (worktreeFilter === "inactive") {
+          return worktree.activeThread === null;
+        }
+        if (worktreeFilter === "linked") {
+          return worktree.relatedThreads.length > 0;
+        }
+        return true;
+      })
+      .filter((worktree) => {
+        if (query.length === 0) {
+          return true;
+        }
+        const haystack = [
+          worktree.displayName,
+          worktree.path,
+          ...worktree.branchNames,
+          ...worktree.path.split("/"),
+        ]
+          .join("\n")
+          .toLowerCase();
+        return haystack.includes(query);
+      })
+      .toSorted((left, right) => {
+        if (worktreeSort === "storage") {
+          const storageDiff =
+            (statsByPath.get(right.path)?.sizeBytes ?? -1) -
+            (statsByPath.get(left.path)?.sizeBytes ?? -1);
+          if (storageDiff !== 0) return storageDiff;
+        } else if (worktreeSort === "recent") {
+          const activityDiff =
+            getWorktreeActivityTimeMs(right, statsByPath.get(right.path)) -
+            getWorktreeActivityTimeMs(left, statsByPath.get(left.path));
+          if (activityDiff !== 0) return activityDiff;
+        } else if (worktreeSort === "oldest") {
+          const activityDiff =
+            getWorktreeActivityTimeMs(left, statsByPath.get(left.path)) -
+            getWorktreeActivityTimeMs(right, statsByPath.get(right.path));
+          if (activityDiff !== 0) return activityDiff;
+        }
+        return (
+          left.displayName.localeCompare(right.displayName) || left.path.localeCompare(right.path)
+        );
+      });
+  }, [statsByPath, worktreeFilter, worktreeSearch, worktreeSort, worktrees]);
+  useEffect(() => {
+    const availablePaths = new Set(worktrees.map((worktree) => worktree.path));
+    setSelectedWorktreePaths((current) => {
+      const next = new Set(Array.from(current).filter((path) => availablePaths.has(path)));
+      return next.size === current.size ? current : next;
+    });
+  }, [worktrees]);
+  const visibleSelectableWorktrees = useMemo(
+    () => visibleWorktrees.filter((worktree) => worktree.activeThread === null),
+    [visibleWorktrees],
+  );
+  const selectedWorktrees = useMemo(
+    () =>
+      worktrees.filter(
+        (worktree) => worktree.activeThread === null && selectedWorktreePaths.has(worktree.path),
+      ),
+    [selectedWorktreePaths, worktrees],
+  );
+  const selectedStorageBytes = useMemo(
+    () =>
+      selectedWorktrees.reduce(
+        (total, worktree) => total + (statsByPath.get(worktree.path)?.sizeBytes ?? 0),
+        0,
+      ),
+    [selectedWorktrees, statsByPath],
+  );
+  const selectedLinkedChatCount = useMemo(
+    () => selectedWorktrees.reduce((total, worktree) => total + worktree.relatedThreads.length, 0),
+    [selectedWorktrees],
+  );
+  const allVisibleSelectableSelected =
+    visibleSelectableWorktrees.length > 0 &&
+    visibleSelectableWorktrees.every((worktree) => selectedWorktreePaths.has(worktree.path));
+  const toggleWorktreeSelected = useCallback((path: string, selected: boolean) => {
+    setSelectedWorktreePaths((current) => {
+      const next = new Set(current);
+      if (selected) {
+        next.add(path);
+      } else {
+        next.delete(path);
+      }
+      return next;
+    });
+  }, []);
+  const setVisibleWorktreesSelected = useCallback(
+    (selected: boolean) => {
+      setSelectedWorktreePaths((current) => {
+        const next = new Set(current);
+        for (const worktree of visibleSelectableWorktrees) {
+          if (selected) {
+            next.add(worktree.path);
+          } else {
+            next.delete(worktree.path);
+          }
+        }
+        return next;
+      });
+    },
+    [visibleSelectableWorktrees],
+  );
+  const clearSelectedWorktrees = useCallback(() => {
+    setSelectedWorktreePaths(new Set());
+  }, []);
+  const cleanupCandidates = useMemo(() => {
+    const now = Date.now();
+    return worktrees
+      .filter((worktree) => worktree.activeThread === null)
+      .filter((worktree) =>
+        isWorktreeOlderThan(worktree, statsByPath.get(worktree.path), cleanupAge, now),
+      )
+      .toSorted(
+        (left, right) =>
+          getWorktreeActivityTimeMs(left, statsByPath.get(left.path)) -
+            getWorktreeActivityTimeMs(right, statsByPath.get(right.path)) ||
+          left.displayName.localeCompare(right.displayName) ||
+          left.path.localeCompare(right.path),
+      );
+  }, [cleanupAge, statsByPath, worktrees]);
+  const cleanupStorageBytes = useMemo(
+    () =>
+      cleanupCandidates.reduce(
+        (total, worktree) => total + (statsByPath.get(worktree.path)?.sizeBytes ?? 0),
+        0,
+      ),
+    [cleanupCandidates, statsByPath],
+  );
+  const cleanupLinkedChatCount = useMemo(
+    () => cleanupCandidates.reduce((total, worktree) => total + worktree.relatedThreads.length, 0),
+    [cleanupCandidates],
+  );
+  const handleCleanupCandidates = useCallback(async () => {
+    const api = readNativeApi();
+    if (!api || cleanupCandidates.length === 0 || isCleaningWorktrees) {
+      return;
+    }
+    const confirmed = await api.dialogs.confirm(
+      [
+        `Delete ${formatCountLabel(cleanupCandidates.length, "inactive worktree")}?`,
+        `This can free about ${formatStorageBytes(cleanupStorageBytes)} and will also delete ${formatCountLabel(
+          cleanupLinkedChatCount,
+          "linked chat",
+        )}.`,
+        "",
+        "Active agent worktrees are not included.",
+      ].join("\n"),
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setIsCleaningWorktrees(true);
+    let deletedCount = 0;
+    try {
+      for (const worktree of cleanupCandidates) {
+        await deleteWorktreeAndRelatedData({
+          connectionUrl: projectConnectionUrl,
+          projectId: project.id,
+          projectCwd: project.cwd,
+          skipConfirmation: true,
+          suppressSuccessToast: true,
+          worktreePath: worktree.path,
+        });
+        deletedCount += 1;
+      }
+      toastManager.add({
+        type: "success",
+        title: "Worktrees cleaned up",
+        description: `Removed ${formatCountLabel(deletedCount, "worktree")} and freed up to ${formatStorageBytes(
+          cleanupStorageBytes,
+        )}.`,
+      });
+      void branchesQuery.refetch();
+    } finally {
+      setIsCleaningWorktrees(false);
+    }
+  }, [
+    branchesQuery,
+    cleanupCandidates,
+    cleanupLinkedChatCount,
+    cleanupStorageBytes,
+    deleteWorktreeAndRelatedData,
+    isCleaningWorktrees,
+    project.cwd,
+    project.id,
+    projectConnectionUrl,
+  ]);
+  const handleDeleteSelectedWorktrees = useCallback(async () => {
+    const api = readNativeApi();
+    if (!api || selectedWorktrees.length === 0 || isDeletingSelectedWorktrees) {
+      return;
+    }
+    const confirmed = await api.dialogs.confirm(
+      [
+        `Delete ${formatCountLabel(selectedWorktrees.length, "selected worktree")}?`,
+        `This can free about ${formatStorageBytes(selectedStorageBytes)} and will also delete ${formatCountLabel(
+          selectedLinkedChatCount,
+          "linked chat",
+        )}.`,
+        "",
+        "Active agent worktrees are not included.",
+      ].join("\n"),
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setIsDeletingSelectedWorktrees(true);
+    let deletedCount = 0;
+    try {
+      for (const worktree of selectedWorktrees) {
+        await deleteWorktreeAndRelatedData({
+          connectionUrl: projectConnectionUrl,
+          projectId: project.id,
+          projectCwd: project.cwd,
+          skipConfirmation: true,
+          suppressSuccessToast: true,
+          worktreePath: worktree.path,
+        });
+        deletedCount += 1;
+      }
+      setSelectedWorktreePaths(new Set());
+      toastManager.add({
+        type: "success",
+        title: "Selected worktrees deleted",
+        description: `Removed ${formatCountLabel(deletedCount, "worktree")} and freed up to ${formatStorageBytes(
+          selectedStorageBytes,
+        )}.`,
+      });
+      void branchesQuery.refetch();
+    } finally {
+      setIsDeletingSelectedWorktrees(false);
+    }
+  }, [
+    branchesQuery,
+    deleteWorktreeAndRelatedData,
+    isDeletingSelectedWorktrees,
+    project.cwd,
+    project.id,
+    projectConnectionUrl,
+    selectedLinkedChatCount,
+    selectedStorageBytes,
+    selectedWorktrees,
+  ]);
+
+  return (
+    <div id={`project-environment-${project.id}`} className="min-w-0">
+      <div className="flex min-w-0 flex-wrap items-end justify-between gap-3 px-1 pb-2 sm:px-0">
+        <div className="min-w-0 space-y-1.5">
+          <h2 className="flex min-w-0 items-center gap-2 text-[18px] leading-6 font-semibold tracking-normal text-foreground">
+            <Button
+              type="button"
+              size="icon-xs"
+              variant="ghost"
+              className="size-5 shrink-0 text-muted-foreground/70 hover:text-foreground"
+              onClick={() => void navigate({ to: "/settings/environment" })}
+              aria-label="Back to projects"
+            >
+              <ArrowLeftIcon className="size-3.5" />
+            </Button>
+            <span className="min-w-0 truncate">{project.name}</span>
+          </h2>
+          <p className="max-w-3xl text-[12px] leading-relaxed text-muted-foreground/60">
+            Configure this project's worktree setup command, environment variables, and cleanup.
+          </p>
+        </div>
+        <Button
+          type="button"
+          size="icon-sm"
+          variant="outline"
+          disabled={branchesQuery.isFetching}
+          onClick={() => void branchesQuery.refetch()}
+          aria-label="Refresh worktrees"
+        >
+          <RefreshCwIcon className={cn("size-3.5", branchesQuery.isFetching && "animate-spin")} />
+        </Button>
+      </div>
+      <ProjectWorktreeSetupEditor project={project} />
+
+      <div className="py-3">
+        <SettingsRow
+          title="SSH key passphrase"
+          description="Overrides the global Git SSH key passphrase for this project and its worktrees."
+          resetAction={
+            hasProjectSshKeyPassphrase ? (
+              <SettingResetButton
+                label="project Git SSH key passphrase"
+                onClick={() =>
+                  updateProjectSshKeyPassphrase(DEFAULT_UNIFIED_SETTINGS.gitSshKeyPassphrase)
+                }
+              />
+            ) : null
+          }
+          status={hasProjectSshKeyPassphrase ? "Configured" : "Using global"}
+          control={
+            <Input
+              type="password"
+              className="w-full sm:w-72"
+              value={projectSshKeyPassphrase}
+              onChange={(event) => updateProjectSshKeyPassphrase(event.target.value)}
+              placeholder={
+                settings.gitSshKeyPassphrase.trim().length > 0
+                  ? "Using global passphrase"
+                  : "Optional private key passphrase"
+              }
+              aria-label="Project Git SSH key passphrase"
+              autoComplete="off"
+            />
+          }
+        />
+      </div>
+
+      <div className="py-3">
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(22rem,32rem)] lg:items-start">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 text-[13px] font-semibold text-foreground/92">
+              <FolderGit2Icon className="size-3.5 text-muted-foreground" />
+              Manage worktrees
+            </div>
+            <p className="mt-1 text-[11px] text-muted-foreground/60">
+              Delete unused local worktrees and their linked chats. Active agent worktrees stay
+              locked.
+            </p>
+          </div>
+          <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_8.5rem_8.5rem]">
+            <label className="min-w-0 space-y-1">
+              <span className="block text-[10px] font-medium text-muted-foreground/58">Search</span>
+              <span className="relative block">
+                <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground/55" />
+                <Input
+                  value={worktreeSearch}
+                  placeholder="Name, path, branch"
+                  className="h-8 pl-8"
+                  onChange={(event) => setWorktreeSearch(event.target.value)}
+                />
+              </span>
+            </label>
+            <label className="min-w-0 space-y-1">
+              <span className="block text-[10px] font-medium text-muted-foreground/58">Filter</span>
+              <Select
+                value={worktreeFilter}
+                onValueChange={(value) => setWorktreeFilter(value as EnvironmentWorktreeFilter)}
+              >
+                <SelectTrigger size="sm" className="w-full">
+                  <SelectValue>{ENVIRONMENT_WORKTREE_FILTER_LABELS[worktreeFilter]}</SelectValue>
+                </SelectTrigger>
+                <SelectPopup align="end" alignItemWithTrigger={false}>
+                  {(["inactive", "all", "linked", "active"] as const).map((filter) => (
+                    <SelectItem key={filter} value={filter}>
+                      {ENVIRONMENT_WORKTREE_FILTER_LABELS[filter]}
+                    </SelectItem>
+                  ))}
+                </SelectPopup>
+              </Select>
+            </label>
+            <label className="min-w-0 space-y-1">
+              <span className="block text-[10px] font-medium text-muted-foreground/58">Sort</span>
+              <Select
+                value={worktreeSort}
+                onValueChange={(value) => setWorktreeSort(value as EnvironmentWorktreeSort)}
+              >
+                <SelectTrigger size="sm" className="w-full">
+                  <SelectValue>{ENVIRONMENT_WORKTREE_SORT_LABELS[worktreeSort]}</SelectValue>
+                </SelectTrigger>
+                <SelectPopup align="end" alignItemWithTrigger={false}>
+                  {(["oldest", "recent", "storage", "name"] as const).map((sort) => (
+                    <SelectItem key={sort} value={sort}>
+                      {ENVIRONMENT_WORKTREE_SORT_LABELS[sort]}
+                    </SelectItem>
+                  ))}
+                </SelectPopup>
+              </Select>
+            </label>
+          </div>
+        </div>
+
+        {branchesQuery.isError ? (
+          <div className="mt-3 text-[11px] text-destructive">
+            {branchesQuery.error instanceof Error
+              ? branchesQuery.error.message
+              : "Unable to load worktrees for this project."}
+          </div>
+        ) : null}
+
+        {branchesQuery.isLoading ? (
+          <div className="mt-3 inline-flex items-center gap-2 text-[11px] text-muted-foreground/60">
+            <Spinner className="size-3" />
+            Loading worktree inventory
+          </div>
+        ) : worktrees.length === 0 ? (
+          <div className="mt-3 text-[11px] text-muted-foreground/60">
+            No additional worktrees detected.
+          </div>
+        ) : visibleWorktrees.length === 0 ? (
+          <div className="mt-3 text-[11px] text-muted-foreground/60">
+            No worktrees match the current search and filter.
+          </div>
+        ) : (
+          <>
+            <div className="mt-3 flex min-w-0 flex-wrap items-center justify-between gap-2 border-y border-border/20 py-2">
+              <label className="inline-flex min-w-0 items-center gap-2 text-[11px] text-muted-foreground/70">
+                <Checkbox
+                  checked={allVisibleSelectableSelected}
+                  disabled={visibleSelectableWorktrees.length === 0}
+                  className="data-checked:border-border/55 data-checked:bg-foreground/65"
+                  onCheckedChange={(checked) => setVisibleWorktreesSelected(Boolean(checked))}
+                />
+                <span>
+                  Select visible
+                  {visibleSelectableWorktrees.length > 0
+                    ? ` (${visibleSelectableWorktrees.length})`
+                    : ""}
+                </span>
+              </label>
+              <div className="flex min-w-0 flex-wrap items-center gap-2 text-[11px] text-muted-foreground/62">
+                <span>{formatCountLabel(selectedWorktrees.length, "selected")}</span>
+                {selectedWorktrees.length > 0 ? (
+                  <>
+                    <span>{formatStorageBytes(selectedStorageBytes)}</span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="xs"
+                      onClick={clearSelectedWorktrees}
+                    >
+                      Clear
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="xs"
+                      className="text-destructive/86 hover:bg-destructive/10 hover:text-destructive"
+                      disabled={isDeletingSelectedWorktrees}
+                      onClick={() => void handleDeleteSelectedWorktrees()}
+                    >
+                      {isDeletingSelectedWorktrees ? (
+                        <Spinner className="size-3" />
+                      ) : (
+                        <Trash2Icon className="size-3.5" />
+                      )}
+                      Delete selected
+                    </Button>
+                  </>
+                ) : null}
+              </div>
+            </div>
+            <div className="divide-y divide-border/18">
+              {visibleWorktrees.map((worktree) => {
+                const relatedChatCount = worktree.relatedThreads.length;
+                const isActive = worktree.activeThread !== null;
+                const isSelected = selectedWorktreePaths.has(worktree.path);
+                const stats = statsByPath.get(worktree.path);
+                const isStorageRefreshing = statsQuery.isFetching && worktreePaths.length > 0;
+                return (
+                  <div
+                    key={worktree.path}
+                    className={cn(
+                      "grid gap-3 px-0.5 py-3 transition-colors hover:bg-foreground/[0.012] lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center",
+                      isSelected && "bg-foreground/[0.018]",
+                    )}
+                  >
+                    <div className="flex min-w-0 items-start gap-2.5">
+                      <Checkbox
+                        checked={isSelected}
+                        disabled={isActive}
+                        aria-label={`Select ${worktree.displayName}`}
+                        className="mt-0.5 data-checked:border-border/55 data-checked:bg-foreground/65"
+                        onCheckedChange={(checked) =>
+                          toggleWorktreeSelected(worktree.path, Boolean(checked))
+                        }
+                      />
+                      <FolderGit2Icon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground/55" />
+                      <div className="min-w-0 space-y-1">
+                        <div className="flex min-w-0 flex-wrap items-center gap-2">
+                          <span className="truncate text-[12px] font-medium text-foreground/90">
+                            {worktree.displayName}
+                          </span>
+                          {isActive ? (
+                            <Badge variant="outline" size="sm" className="text-[10px]">
+                              In use
+                            </Badge>
+                          ) : null}
+                        </div>
+                        <div className="truncate font-mono text-[11px] text-muted-foreground/50">
+                          {worktree.path}
+                        </div>
+                        <div className="flex min-w-0 flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground/60">
+                          <span>{formatCountLabel(worktree.branchNames.length, "branch")}</span>
+                          <span>{formatCountLabel(relatedChatCount, "linked chat")}</span>
+                          <span className="inline-flex items-center gap-1">
+                            <ClockIcon className="size-3" />
+                            {formatWorktreeActivityLabel(worktree, stats)}
+                          </span>
+                          {worktree.branchNames.length > 0 ? (
+                            <span className="min-w-0 truncate">
+                              {worktree.branchNames.slice(0, 3).join(", ")}
+                              {worktree.branchNames.length > 3 ? "..." : ""}
+                            </span>
+                          ) : null}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex min-w-0 items-center gap-3 justify-self-start text-[11px] text-muted-foreground/62 lg:justify-self-end">
+                      <span className="inline-flex min-w-18 items-center justify-end gap-1 tabular-nums">
+                        <HardDriveIcon className="size-3" />
+                        {stats ? formatStorageBytes(stats.sizeBytes) : "Storage"}
+                        {isStorageRefreshing ? <Spinner className="size-3" /> : null}
+                      </span>
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={
+                            <Button
+                              type="button"
+                              size="icon-xs"
+                              variant="ghost"
+                              className="text-destructive/82 hover:bg-destructive/10 hover:text-destructive"
+                              disabled={isActive}
+                              onClick={() =>
+                                void deleteWorktreeAndRelatedData({
+                                  connectionUrl: projectConnectionUrl,
+                                  projectId: project.id,
+                                  projectCwd: project.cwd,
+                                  worktreePath: worktree.path,
+                                })
+                              }
+                              aria-label={`Delete ${worktree.displayName}`}
+                            >
+                              <Trash2Icon className="size-3.5" />
+                            </Button>
+                          }
+                        />
+                        {isActive ? (
+                          <TooltipPopup side="top">
+                            Stop the active agent in "{worktree.activeThread?.title}" first.
+                          </TooltipPopup>
+                        ) : (
+                          <TooltipPopup side="top">
+                            Delete this worktree and its linked chats.
+                          </TooltipPopup>
+                        )}
+                      </Tooltip>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
+
+        {worktrees.length > 0 ? (
+          <div className="mt-5 border-t border-border/24 pt-4">
+            <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 text-[13px] font-semibold text-foreground/92">
+                  <Trash2Icon className="size-3.5 text-muted-foreground" />
+                  Cleanup
+                </div>
+                <p className="mt-1 text-[11px] text-muted-foreground/60">
+                  Remove inactive worktrees by age. Active agent worktrees are excluded.
+                </p>
+                <div className="mt-2 flex min-w-0 flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground/62">
+                  <span>{formatCountLabel(cleanupCandidates.length, "candidate")}</span>
+                  <span>{formatStorageBytes(cleanupStorageBytes)}</span>
+                  <span>{formatCountLabel(cleanupLinkedChatCount, "linked chat")}</span>
+                  {statsQuery.isFetching ? (
+                    <span className="inline-flex items-center gap-1">
+                      <Spinner className="size-3" />
+                      Updating storage
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+              <div className="flex min-w-0 flex-wrap items-end gap-2">
+                <label className="min-w-44 space-y-1">
+                  <span className="block text-[10px] font-medium text-muted-foreground/58">
+                    Cleanup range
+                  </span>
+                  <Select
+                    value={cleanupAge}
+                    onValueChange={(value) => setCleanupAge(value as EnvironmentWorktreeCleanupAge)}
+                  >
+                    <SelectTrigger size="sm" className="w-full">
+                      <SelectValue>
+                        {ENVIRONMENT_WORKTREE_CLEANUP_AGE_LABELS[cleanupAge]}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectPopup align="end" alignItemWithTrigger={false}>
+                      {(["30d", "90d", "7d", "all"] as const).map((age) => (
+                        <SelectItem key={age} value={age}>
+                          {ENVIRONMENT_WORKTREE_CLEANUP_AGE_LABELS[age]}
+                        </SelectItem>
+                      ))}
+                    </SelectPopup>
+                  </Select>
+                </label>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="text-destructive/86 hover:bg-destructive/10 hover:text-destructive"
+                  disabled={cleanupCandidates.length === 0 || isCleaningWorktrees}
+                  onClick={() => void handleCleanupCandidates()}
+                >
+                  {isCleaningWorktrees ? (
+                    <Spinner className="size-3" />
+                  ) : (
+                    <Trash2Icon className="size-3.5" />
+                  )}
+                  Delete candidates
+                </Button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+export function EnvironmentSettingsPanel() {
+  const projects = useStore((store) => store.projects);
+  const [projectSearch, setProjectSearch] = useState("");
+  const [projectFilter, setProjectFilter] = useState<EnvironmentProjectFilter>("all");
+  const [projectSort, setProjectSort] = useState<EnvironmentProjectSort>("inactive");
+  const [projectMetricsById, setProjectMetricsById] = useState<
+    Partial<Record<ProjectId, EnvironmentProjectMetrics>>
+  >({});
+  const activeLocalProjects = useMemo(
+    () =>
+      projects
+        .filter((project) => project.archivedAt === null)
+        .toSorted(
+          (left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id),
+        ),
+    [projects],
+  );
+  const updateProjectMetrics = useCallback(
+    (projectId: ProjectId, metrics: EnvironmentProjectMetrics) => {
+      setProjectMetricsById((current) => {
+        const previous = current[projectId];
+        if (
+          previous &&
+          previous.hasSetup === metrics.hasSetup &&
+          previous.storageBytes === metrics.storageBytes &&
+          previous.worktreeCount === metrics.worktreeCount
+        ) {
+          return current;
+        }
+        return { ...current, [projectId]: metrics };
+      });
+    },
+    [],
+  );
+  const filteredProjects = useMemo(() => {
+    const query = projectSearch.trim().toLowerCase();
+    const searchedProjects =
+      query.length === 0
+        ? activeLocalProjects
+        : activeLocalProjects.filter((project) => {
+            const haystack = `${project.name}\n${project.cwd}`.toLowerCase();
+            return haystack.includes(query);
+          });
+    const filteredByStatus = searchedProjects.filter((project) => {
+      const metrics = projectMetricsById[project.id];
+      if (projectFilter === "with-worktrees") {
+        return metrics ? metrics.worktreeCount > 0 : true;
+      }
+      if (projectFilter === "inactive") {
+        return metrics ? metrics.worktreeCount === 0 : true;
+      }
+      if (projectFilter === "setup") {
+        return metrics?.hasSetup ?? setupProjectScript(project.scripts) !== null;
+      }
+      return true;
+    });
+
+    return filteredByStatus.toSorted((left, right) => {
+      const leftMetrics = projectMetricsById[left.id];
+      const rightMetrics = projectMetricsById[right.id];
+      if (projectSort === "inactive") {
+        const leftInactive = leftMetrics ? leftMetrics.worktreeCount === 0 : false;
+        const rightInactive = rightMetrics ? rightMetrics.worktreeCount === 0 : false;
+        if (leftInactive !== rightInactive) {
+          return leftInactive ? -1 : 1;
+        }
+      } else if (projectSort === "worktrees") {
+        const byWorktrees =
+          (rightMetrics?.worktreeCount ?? -1) - (leftMetrics?.worktreeCount ?? -1);
+        if (byWorktrees !== 0) {
+          return byWorktrees;
+        }
+      } else if (projectSort === "storage") {
+        const byStorage = (rightMetrics?.storageBytes ?? -1) - (leftMetrics?.storageBytes ?? -1);
+        if (byStorage !== 0) {
+          return byStorage;
+        }
+      }
+      return left.name.localeCompare(right.name) || left.id.localeCompare(right.id);
+    });
+  }, [activeLocalProjects, projectFilter, projectMetricsById, projectSearch, projectSort]);
+  const hasActiveFilter = projectFilter !== "all" || projectSort !== "name" || projectSearch.trim();
+
+  const clearProjectControls = useCallback(() => {
+    setProjectSearch("");
+    setProjectFilter("all");
+    setProjectSort("name");
+  }, []);
+
+  return (
+    <SettingsPageContainer>
+      <SettingsSection
+        title="Environment"
+        description="Choose a project to configure worktree setup commands, environment variables, and cleanup."
+      >
+        {activeLocalProjects.length === 0 ? (
+          <Empty className="py-10">
+            <EmptyHeader>
+              <EmptyMedia>
+                <GitForkIcon className="size-5" />
+              </EmptyMedia>
+              <EmptyTitle>No local projects</EmptyTitle>
+              <EmptyDescription>
+                Add a local project to configure worktree setup and cleanup.
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+        ) : (
+          <div>
+            <div className="flex flex-col gap-2 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+              <div className="relative w-full sm:max-w-md">
+                <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground/55" />
+                <Input
+                  value={projectSearch}
+                  placeholder="Search projects"
+                  className="h-8 pl-8"
+                  onChange={(event) => setProjectSearch(event.target.value)}
+                />
+              </div>
+              <div className="flex min-w-0 flex-wrap items-center gap-3 text-[11px] text-muted-foreground/60 sm:justify-end">
+                <Select
+                  value={projectFilter}
+                  onValueChange={(value) => setProjectFilter(value as EnvironmentProjectFilter)}
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-medium text-muted-foreground/55">Filter</span>
+                    <SelectTrigger
+                      aria-label="Filter projects"
+                      className="w-36"
+                      size="sm"
+                      variant="ghost"
+                    >
+                      <SelectValue>{ENVIRONMENT_PROJECT_FILTER_LABELS[projectFilter]}</SelectValue>
+                    </SelectTrigger>
+                  </div>
+                  <SelectPopup>
+                    {(
+                      [
+                        "all",
+                        "inactive",
+                        "with-worktrees",
+                        "setup",
+                      ] as const satisfies readonly EnvironmentProjectFilter[]
+                    ).map((value) => (
+                      <SelectItem hideIndicator key={value} value={value}>
+                        {ENVIRONMENT_PROJECT_FILTER_LABELS[value]}
+                      </SelectItem>
+                    ))}
+                  </SelectPopup>
+                </Select>
+                <Select
+                  value={projectSort}
+                  onValueChange={(value) => setProjectSort(value as EnvironmentProjectSort)}
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-medium text-muted-foreground/55">Sort</span>
+                    <SelectTrigger
+                      aria-label="Sort projects"
+                      className="w-40"
+                      size="sm"
+                      variant="ghost"
+                    >
+                      <SelectValue>{ENVIRONMENT_PROJECT_SORT_LABELS[projectSort]}</SelectValue>
+                    </SelectTrigger>
+                  </div>
+                  <SelectPopup>
+                    {(
+                      [
+                        "inactive",
+                        "name",
+                        "worktrees",
+                        "storage",
+                      ] as const satisfies readonly EnvironmentProjectSort[]
+                    ).map((value) => (
+                      <SelectItem hideIndicator key={value} value={value}>
+                        {ENVIRONMENT_PROJECT_SORT_LABELS[value]}
+                      </SelectItem>
+                    ))}
+                  </SelectPopup>
+                </Select>
+                {hasActiveFilter ? (
+                  <Button type="button" size="xs" variant="ghost" onClick={clearProjectControls}>
+                    Reset
+                  </Button>
+                ) : null}
+              </div>
+            </div>
+            {filteredProjects.length === 0 ? (
+              <Empty className="py-10">
+                <EmptyHeader>
+                  <EmptyMedia>
+                    <SearchIcon className="size-5" />
+                  </EmptyMedia>
+                  <EmptyTitle>No matching projects</EmptyTitle>
+                  <EmptyDescription>Try a different project name or path.</EmptyDescription>
+                </EmptyHeader>
+              </Empty>
+            ) : (
+              <div className="space-y-1.5">
+                {filteredProjects.map((project) => {
+                  return (
+                    <EnvironmentProjectRow
+                      key={project.id}
+                      project={project}
+                      onMetricsChange={updateProjectMetrics}
+                    />
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+      </SettingsSection>
+    </SettingsPageContainer>
+  );
+}
+
+function EnvironmentProjectRow({
+  onMetricsChange,
+  project,
+}: {
+  readonly onMetricsChange: (projectId: ProjectId, metrics: EnvironmentProjectMetrics) => void;
+  readonly project: Project;
+}) {
+  const navigate = useNavigate();
+  const projectConnectionUrl = resolveConnectionForProjectId(project.id) ?? null;
+  const branchesQuery = useQuery(gitBranchesQueryOptions(project.cwd, projectConnectionUrl));
+  const worktreePaths = useMemo(
+    () =>
+      getProjectWorktreePaths({
+        branches: branchesQuery.data?.branches ?? [],
+        project,
+      }),
+    [branchesQuery.data?.branches, project],
+  );
+  const statsQuery = useQuery(
+    gitWorktreeStatsQueryOptions({ connectionUrl: projectConnectionUrl, paths: worktreePaths }),
+  );
+  const setupScript = setupProjectScript(project.scripts);
+  const environmentCount = Object.keys(setupScript?.env ?? {}).length;
+  const totalStorageBytes =
+    statsQuery.data?.worktrees.reduce((total, worktree) => total + worktree.sizeBytes, 0) ?? 0;
+  useEffect(() => {
+    onMetricsChange(project.id, {
+      hasSetup: setupScript !== null,
+      storageBytes: totalStorageBytes,
+      worktreeCount: worktreePaths.length,
+    });
+  }, [onMetricsChange, project.id, setupScript, totalStorageBytes, worktreePaths.length]);
+  const worktreeCountLabel = branchesQuery.isError
+    ? "Worktrees unavailable"
+    : formatCountLabel(worktreePaths.length, "worktree");
+  const isLoadingWorktrees = branchesQuery.isLoading;
+  const storageLabel =
+    worktreePaths.length === 0
+      ? "0 B"
+      : !statsQuery.data
+        ? "Calculating storage"
+        : formatStorageBytes(totalStorageBytes);
+  const isRefreshingStorage = worktreePaths.length > 0 && statsQuery.isFetching;
+
+  return (
+    <button
+      type="button"
+      className="group grid w-full gap-3 px-1 py-3 text-left transition-colors hover:bg-foreground/[0.018] sm:grid-cols-[auto_minmax(0,1fr)_auto_auto] sm:items-center"
+      onClick={() =>
+        void navigate({
+          to: "/settings/project-environment/$projectId",
+          params: { projectId: project.id },
+        })
+      }
+    >
+      <ProjectAvatar project={project} />
+      <div className="min-w-0">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <span className="truncate text-[13px] font-medium text-foreground/90">
+            {project.name}
+          </span>
+          {setupScript ? <span className="text-[11px] text-muted-foreground/60">setup</span> : null}
+          {environmentCount > 0 ? (
+            <span className="text-[11px] text-muted-foreground/60">{environmentCount} env</span>
+          ) : null}
+        </div>
+        <div className="mt-0.5 truncate text-[11px] text-muted-foreground/55">{project.cwd}</div>
+      </div>
+      <div className="col-start-2 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-[11px] font-medium text-muted-foreground/65 sm:col-start-auto sm:justify-self-end">
+        <span className="inline-flex items-center gap-1.5">
+          <span>{worktreeCountLabel}</span>
+          {isLoadingWorktrees ? <Spinner className="size-3 text-muted-foreground/60" /> : null}
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span>{storageLabel}</span>
+          {isRefreshingStorage ? <Spinner className="size-3 text-muted-foreground/60" /> : null}
+        </span>
+      </div>
+      <ArrowRightIcon className="col-start-2 size-3.5 text-muted-foreground/45 transition-colors group-hover:text-muted-foreground/75 sm:col-start-auto sm:justify-self-end" />
+    </button>
+  );
+}
+
+export function ProjectEnvironmentSettingsPanel({ projectId }: { readonly projectId: ProjectId }) {
+  const navigate = useNavigate();
+  const project = useStore((store) =>
+    store.projects.find((candidate) => candidate.id === projectId),
+  );
+  const threads = useStore((store) => store.threads);
+
+  if (!project || project.archivedAt !== null) {
+    return (
+      <SettingsPageContainer>
+        <SettingsSection
+          title="Project environment"
+          description="This project is no longer available."
+          icon={<GitForkIcon className="size-3.5" />}
+          headerAction={
+            <Button
+              type="button"
+              size="xs"
+              variant="outline"
+              onClick={() => void navigate({ to: "/settings/environment" })}
+            >
+              <ArrowLeftIcon className="size-3.5" />
+              Projects
+            </Button>
+          }
+        >
+          <Empty className="py-10">
+            <EmptyHeader>
+              <EmptyMedia>
+                <GitForkIcon className="size-5" />
+              </EmptyMedia>
+              <EmptyTitle>Project not found</EmptyTitle>
+              <EmptyDescription>
+                Choose another project to configure worktree setup and cleanup.
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+        </SettingsSection>
+      </SettingsPageContainer>
+    );
+  }
+
+  return (
+    <SettingsPageContainer>
+      <div className="min-w-0">
+        <ProjectEnvironmentWorktrees project={project} threads={threads} />
+      </div>
+    </SettingsPageContainer>
+  );
 }
 
 type ArchivedProjectGroup = {
@@ -3283,30 +4651,31 @@ export function ArchivedThreadsPanel() {
   }, [threads]);
   const archivedGroups = useMemo(() => {
     const projectById = new Map(projects.map((project) => [project.id, project] as const));
-    return [...projectById.values()]
-      .map<ArchivedProjectGroup>((project) => {
-        const archivedThreads = threads
-          .filter((thread) => thread.projectId === project.id && thread.archivedAt !== null)
-          .toSorted((left, right) => {
-            const leftKey = left.archivedAt ?? left.updatedAt ?? left.createdAt;
-            const rightKey = right.archivedAt ?? right.updatedAt ?? right.createdAt;
-            return rightKey.localeCompare(leftKey) || right.id.localeCompare(left.id);
-          });
-
-        return {
-          project,
-          threads: archivedThreads,
-          totalThreadCount: threadCountByProjectId.get(project.id) ?? 0,
-          sortKey: getArchiveSortKey(project, archivedThreads),
-        };
-      })
-      .filter((group) => group.project.archivedAt !== null || group.threads.length > 0)
-      .toSorted(
-        (left, right) =>
-          right.sortKey.localeCompare(left.sortKey) ||
-          left.project.name.localeCompare(right.project.name) ||
-          right.project.id.localeCompare(left.project.id),
-      );
+    const nextGroups: ArchivedProjectGroup[] = [];
+    for (const project of projectById.values()) {
+      const archivedThreads = threads
+        .filter((thread) => thread.projectId === project.id && thread.archivedAt !== null)
+        .toSorted((left, right) => {
+          const leftKey = left.archivedAt ?? left.updatedAt ?? left.createdAt;
+          const rightKey = right.archivedAt ?? right.updatedAt ?? right.createdAt;
+          return rightKey.localeCompare(leftKey) || right.id.localeCompare(left.id);
+        });
+      if (project.archivedAt === null && archivedThreads.length === 0) {
+        continue;
+      }
+      nextGroups.push({
+        project,
+        threads: archivedThreads,
+        totalThreadCount: threadCountByProjectId.get(project.id) ?? 0,
+        sortKey: getArchiveSortKey(project, archivedThreads),
+      });
+    }
+    return nextGroups.toSorted(
+      (left, right) =>
+        right.sortKey.localeCompare(left.sortKey) ||
+        left.project.name.localeCompare(right.project.name) ||
+        right.project.id.localeCompare(left.project.id),
+    );
   }, [projects, threadCountByProjectId, threads]);
   const [openGroupIds, setOpenGroupIds] = useState<Record<string, boolean>>({});
   useEffect(() => {
@@ -3395,9 +4764,9 @@ export function ArchivedThreadsPanel() {
           </Empty>
         </SettingsSection>
       ) : (
-        <section className="min-w-0 space-y-1.5">
-          <div className="flex h-6 min-w-0 items-center justify-between gap-3 pl-2 pr-1.5">
-            <h2 className="min-w-0 truncate text-xs font-medium tracking-wider text-muted-foreground uppercase">
+        <section className="min-w-0">
+          <div className="flex min-w-0 items-center justify-between gap-3 px-0 pb-2">
+            <h2 className="min-w-0 truncate text-[18px] leading-6 font-semibold tracking-normal text-foreground">
               <span className="min-w-0 truncate">Archived</span>
             </h2>
             {archivedGroups.length > 1 ? (
@@ -3426,7 +4795,7 @@ export function ArchivedThreadsPanel() {
               </Tooltip>
             ) : null}
           </div>
-          <div className="min-w-0 divide-y divide-border/35">
+          <div className="min-w-0 space-y-1.5">
             {archivedGroups.map((group) => {
               const project = group.project;
               const isOpen = openGroupIds[project.id] !== false;

@@ -1118,6 +1118,61 @@ describe("incremental orchestration updates", () => {
     expect(next.sidebarThreadsById[threadId]?.handoff).toEqual(handoff);
   });
 
+  it("retains chat fork metadata from thread.created events", () => {
+    const projectId = ProjectId.makeUnsafe("project-1");
+    const threadId = ThreadId.makeUnsafe("thread-fork");
+    const sourceThreadId = ThreadId.makeUnsafe("thread-source");
+    const state: AppState = {
+      projects: [
+        {
+          id: projectId,
+          name: "Project 1",
+          cwd: "/tmp/project-1",
+          icon: null,
+          defaultModelSelection: {
+            provider: "codex",
+            model: DEFAULT_MODEL_BY_PROVIDER.codex,
+          },
+          archivedAt: null,
+          scripts: [],
+        },
+      ],
+      threads: [],
+      sidebarThreadsById: {},
+      threadIdsByProjectId: {},
+      dismissedThreadErrorKeysById: {},
+      bootstrapComplete: true,
+    };
+
+    const fork = {
+      sourceThreadId,
+      createdAt: "2026-02-27T00:00:01.000Z",
+    };
+
+    const next = applyOrchestrationEvent(
+      state,
+      makeEvent("thread.created", {
+        threadId,
+        projectId,
+        title: "Forked thread",
+        modelSelection: {
+          provider: "codex",
+          model: DEFAULT_MODEL_BY_PROVIDER.codex,
+        },
+        runtimeMode: DEFAULT_RUNTIME_MODE,
+        interactionMode: DEFAULT_INTERACTION_MODE,
+        branch: null,
+        worktreePath: null,
+        fork,
+        createdAt: "2026-02-27T00:00:01.000Z",
+        updatedAt: "2026-02-27T00:00:01.000Z",
+      }),
+    );
+
+    expect(next.threads[0]?.fork).toEqual(fork);
+    expect(next.sidebarThreadsById[threadId]?.fork).toEqual(fork);
+  });
+
   it("updates only the affected thread for message events", () => {
     const thread1 = makeThread({
       id: ThreadId.makeUnsafe("thread-1"),
@@ -1158,6 +1213,142 @@ describe("incremental orchestration updates", () => {
     );
     expect(next.threads[0]?.latestTurn?.state).toBe("running");
     expect(next.threads[1]).toBe(thread2);
+  });
+
+  it("does not replace sidebar summaries for sub-second streaming churn", () => {
+    const threadId = ThreadId.makeUnsafe("thread-streaming-sidebar");
+    const messageId = MessageId.makeUnsafe("message-streaming-sidebar");
+    const turnId = TurnId.makeUnsafe("turn-streaming-sidebar");
+    const state = makeState(makeThread({ id: threadId }));
+
+    const first = applyOrchestrationEvent(
+      state,
+      makeEvent(
+        "thread.message-sent",
+        {
+          threadId,
+          messageId,
+          role: "assistant",
+          text: "hel",
+          turnId,
+          streaming: true,
+          createdAt: "2026-02-27T00:00:00.100Z",
+          updatedAt: "2026-02-27T00:00:00.100Z",
+        },
+        {
+          occurredAt: "2026-02-27T00:00:00.100Z",
+        },
+      ),
+    );
+    const sidebarAfterFirstChunk = first.sidebarThreadsById;
+
+    const second = applyOrchestrationEvent(
+      first,
+      makeEvent(
+        "thread.message-sent",
+        {
+          threadId,
+          messageId,
+          role: "assistant",
+          text: "lo",
+          turnId,
+          streaming: true,
+          createdAt: "2026-02-27T00:00:00.500Z",
+          updatedAt: "2026-02-27T00:00:00.500Z",
+        },
+        {
+          occurredAt: "2026-02-27T00:00:00.500Z",
+        },
+      ),
+    );
+
+    expect(second.threads[0]?.updatedAt).toBe("2026-02-27T00:00:00.500Z");
+    expect(second.sidebarThreadsById).toBe(sidebarAfterFirstChunk);
+
+    const completed = applyOrchestrationEvent(
+      second,
+      makeEvent(
+        "thread.message-sent",
+        {
+          threadId,
+          messageId,
+          role: "assistant",
+          text: "hello",
+          turnId,
+          streaming: false,
+          createdAt: "2026-02-27T00:00:00.700Z",
+          updatedAt: "2026-02-27T00:00:00.700Z",
+        },
+        {
+          occurredAt: "2026-02-27T00:00:00.700Z",
+        },
+      ),
+    );
+
+    expect(completed.sidebarThreadsById).not.toBe(sidebarAfterFirstChunk);
+    expect(completed.sidebarThreadsById[threadId]?.latestTurn?.state).toBe("completed");
+  });
+
+  it("does not replace sidebar summaries for sub-second tool activity churn", () => {
+    const threadId = ThreadId.makeUnsafe("thread-activity-sidebar");
+    const turnId = TurnId.makeUnsafe("turn-activity-sidebar");
+    const state = makeState(makeThread({ id: threadId }));
+
+    const first = applyOrchestrationEvent(
+      state,
+      makeEvent(
+        "thread.activity-appended",
+        {
+          threadId,
+          activity: {
+            id: EventId.makeUnsafe("activity-output-1"),
+            tone: "tool",
+            kind: "tool.updated",
+            summary: "Command output",
+            payload: {
+              itemId: "command-1",
+              streamKind: "command_output",
+              terminalOutput: "hello",
+            },
+            turnId,
+            createdAt: "2026-02-27T00:00:00.100Z",
+          },
+        },
+        {
+          occurredAt: "2026-02-27T00:00:00.100Z",
+        },
+      ),
+    );
+    const sidebarAfterFirstActivity = first.sidebarThreadsById;
+
+    const second = applyOrchestrationEvent(
+      first,
+      makeEvent(
+        "thread.activity-appended",
+        {
+          threadId,
+          activity: {
+            id: EventId.makeUnsafe("activity-output-2"),
+            tone: "tool",
+            kind: "tool.updated",
+            summary: "Command output",
+            payload: {
+              itemId: "command-1",
+              streamKind: "command_output",
+              terminalOutput: " world",
+            },
+            turnId,
+            createdAt: "2026-02-27T00:00:00.500Z",
+          },
+        },
+        {
+          occurredAt: "2026-02-27T00:00:00.500Z",
+        },
+      ),
+    );
+
+    expect(second.threads[0]?.updatedAt).toBe("2026-02-27T00:00:00.500Z");
+    expect(second.sidebarThreadsById).toBe(sidebarAfterFirstActivity);
   });
 
   it("preserves streamed assistant content when completion carries only trailing text", () => {
@@ -1392,6 +1583,66 @@ describe("incremental orchestration updates", () => {
       "sequenced-activity",
       "legacy-activity",
     ]);
+  });
+
+  it("preserves activity semantics when consecutive same-thread activity events are batched", () => {
+    const thread = makeThread();
+    const state = makeState(thread);
+    const events = [
+      makeEvent(
+        "thread.activity-appended",
+        {
+          threadId: thread.id,
+          activity: {
+            id: EventId.makeUnsafe("tool-started"),
+            tone: "tool",
+            kind: "tool.started",
+            summary: "Ran command",
+            payload: { itemId: "command-1" },
+            turnId: TurnId.makeUnsafe("turn-1"),
+            sequence: 10,
+            createdAt: "2026-02-27T00:00:01.000Z",
+          },
+        },
+        {
+          sequence: 10,
+          occurredAt: "2026-02-27T00:00:01.000Z",
+        },
+      ),
+      makeEvent(
+        "thread.activity-appended",
+        {
+          threadId: thread.id,
+          activity: {
+            id: EventId.makeUnsafe("tool-output"),
+            tone: "tool",
+            kind: "tool.updated",
+            summary: "Command output",
+            payload: {
+              itemId: "command-1",
+              terminalOutput: "done\n",
+              streamKind: "command_output",
+            },
+            turnId: TurnId.makeUnsafe("turn-1"),
+            sequence: 11,
+            createdAt: "2026-02-27T00:00:02.000Z",
+          },
+        },
+        {
+          sequence: 11,
+          occurredAt: "2026-02-27T00:00:02.000Z",
+        },
+      ),
+    ];
+
+    const batched = applyOrchestrationEvents(state, events);
+    const sequential = events.reduce(
+      (nextState, event) => applyOrchestrationEvent(nextState, event),
+      state,
+    );
+
+    expect(batched.threads[0]?.activities).toEqual(sequential.threads[0]?.activities);
+    expect(batched.threads[0]?.updatedAt).toBe("2026-02-27T00:00:02.000Z");
   });
 
   it("applies replay batches in sequence and updates session state", () => {

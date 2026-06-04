@@ -12,7 +12,7 @@ import {
   FilterIcon,
   SearchIcon,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
 
 import type { ComposerImageAttachment } from "~/composerDraftStore";
 import { buildGitHubIssueSelectionPayload } from "~/lib/chat/githubIssueSelection";
@@ -23,7 +23,8 @@ import {
 } from "~/lib/gitReactQuery";
 import { cn } from "~/lib/utils";
 import { GitHubIcon } from "./Icons";
-import { IssueMarkdown, formatIssueRelativeTime } from "./IssueMarkdown";
+import { IssueMarkdown } from "./IssueMarkdown";
+import { formatIssueRelativeTime } from "./issueTime";
 import { GitHubIssueListSkeleton, GitHubIssueThreadSkeleton } from "./GitHubIssueSkeletons";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
@@ -47,6 +48,7 @@ const ISSUE_SKELETON_KEYS = [
 ] as const;
 const ISSUE_STATE_FILTERS: ReadonlyArray<GitHubIssueListStateFilter> = ["open", "all"];
 const ISSUE_LIMIT_OPTIONS = [40, 80, 120] as const;
+const EMPTY_INITIAL_SELECTED_ISSUE_NUMBERS: readonly number[] = [];
 
 function toggleListValue(values: ReadonlyArray<number>, next: number): number[] {
   return values.includes(next) ? values.filter((value) => value !== next) : [...values, next];
@@ -78,42 +80,134 @@ export interface GitHubIssueDialogProps {
   onFixIssuesInParallelWorktrees: (issueNumbers: ReadonlyArray<number>) => void | Promise<void>;
 }
 
-export function GitHubIssueDialog({
+type GitHubIssueDialogState = {
+  search: string;
+  solveAction: "current-thread" | "parallel-worktrees" | null;
+  focusedIssueNumber: number | null;
+  selectedIssueNumbers: number[];
+  stateFilter: GitHubIssueListStateFilter;
+  issueLimit: (typeof ISSUE_LIMIT_OPTIONS)[number];
+  labelFilters: string[];
+};
+
+type GitHubIssueDialogAction =
+  | {
+      type: "reset";
+      initialIssueNumber: number | null;
+      initialSelectedIssueNumbers: ReadonlyArray<number>;
+    }
+  | { type: "set-search"; value: string }
+  | { type: "set-solve-action"; value: GitHubIssueDialogState["solveAction"] }
+  | { type: "set-focused-issue-number"; value: number | null }
+  | { type: "set-selected-issue-numbers"; value: number[] }
+  | { type: "toggle-issue-selection"; value: number }
+  | { type: "set-state-filter"; value: GitHubIssueListStateFilter }
+  | { type: "set-issue-limit"; value: (typeof ISSUE_LIMIT_OPTIONS)[number] }
+  | { type: "toggle-label-filter"; value: string }
+  | { type: "set-label-filters"; value: string[] };
+
+function createGitHubIssueDialogState(input: {
+  initialIssueNumber: number | null;
+  initialSelectedIssueNumbers: ReadonlyArray<number>;
+}): GitHubIssueDialogState {
+  return {
+    search: input.initialIssueNumber !== null ? `#${input.initialIssueNumber}` : "",
+    solveAction: null,
+    focusedIssueNumber: input.initialIssueNumber,
+    selectedIssueNumbers: normalizeIssueNumbers(input.initialSelectedIssueNumbers),
+    stateFilter: input.initialIssueNumber !== null ? "all" : "open",
+    issueLimit: 40,
+    labelFilters: [],
+  };
+}
+
+function gitHubIssueDialogReducer(
+  state: GitHubIssueDialogState,
+  action: GitHubIssueDialogAction,
+): GitHubIssueDialogState {
+  switch (action.type) {
+    case "reset":
+      return createGitHubIssueDialogState({
+        initialIssueNumber: action.initialIssueNumber,
+        initialSelectedIssueNumbers: action.initialSelectedIssueNumbers,
+      });
+    case "set-search":
+      return { ...state, search: action.value };
+    case "set-solve-action":
+      return { ...state, solveAction: action.value };
+    case "set-focused-issue-number":
+      return { ...state, focusedIssueNumber: action.value };
+    case "set-selected-issue-numbers":
+      return { ...state, selectedIssueNumbers: action.value };
+    case "toggle-issue-selection":
+      return {
+        ...state,
+        selectedIssueNumbers: toggleListValue(state.selectedIssueNumbers, action.value),
+      };
+    case "set-state-filter":
+      return { ...state, stateFilter: action.value };
+    case "set-issue-limit":
+      return { ...state, issueLimit: action.value };
+    case "toggle-label-filter":
+      return {
+        ...state,
+        labelFilters: state.labelFilters.includes(action.value)
+          ? state.labelFilters.filter((value) => value !== action.value)
+          : [...state.labelFilters, action.value],
+      };
+    case "set-label-filters":
+      return { ...state, labelFilters: action.value };
+    default:
+      return state;
+  }
+}
+
+function useGitHubIssueDialogComponent({
   open,
   cwd,
   initialIssueNumber = null,
-  initialSelectedIssueNumbers = [],
+  initialSelectedIssueNumbers = EMPTY_INITIAL_SELECTED_ISSUE_NUMBERS,
   onOpenChange,
   onFixIssue,
   onFixIssuesInParallelWorktrees,
 }: GitHubIssueDialogProps) {
   const queryClient = useQueryClient();
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const [search, setSearch] = useState("");
-  const [debouncedSearch, searchDebouncer] = useDebouncedValue(search, { wait: 320 }, (state) => ({
-    isPending: state.isPending,
-  }));
-  const [solveAction, setSolveAction] = useState<"current-thread" | "parallel-worktrees" | null>(
-    null,
+  const [state, dispatch] = useReducer(
+    gitHubIssueDialogReducer,
+    {
+      initialIssueNumber,
+      initialSelectedIssueNumbers,
+    },
+    createGitHubIssueDialogState,
   );
-  const [focusedIssueNumber, setFocusedIssueNumber] = useState<number | null>(null);
-  const [selectedIssueNumbers, setSelectedIssueNumbers] = useState<number[]>([]);
-  const [stateFilter, setStateFilter] = useState<GitHubIssueListStateFilter>("open");
-  const [issueLimit, setIssueLimit] = useState<(typeof ISSUE_LIMIT_OPTIONS)[number]>(40);
-  const [labelFilters, setLabelFilters] = useState<string[]>([]);
+  const [debouncedSearch, searchDebouncer] = useDebouncedValue(
+    state.search,
+    { wait: 320 },
+    (debounceState) => ({
+      isPending: debounceState.isPending,
+    }),
+  );
+  const {
+    focusedIssueNumber,
+    issueLimit,
+    labelFilters,
+    search,
+    selectedIssueNumbers,
+    solveAction,
+    stateFilter,
+  } = state;
   const isSolving = solveAction !== null;
 
   useEffect(() => {
     if (!open) {
       return;
     }
-    setSearch(initialIssueNumber !== null ? `#${initialIssueNumber}` : "");
-    setSolveAction(null);
-    setStateFilter(initialIssueNumber !== null ? "all" : "open");
-    setIssueLimit(40);
-    setLabelFilters([]);
-    setFocusedIssueNumber(initialIssueNumber);
-    setSelectedIssueNumbers(normalizeIssueNumbers(initialSelectedIssueNumbers));
+    dispatch({
+      type: "reset",
+      initialIssueNumber,
+      initialSelectedIssueNumbers,
+    });
   }, [initialIssueNumber, initialSelectedIssueNumbers, open]);
 
   useEffect(() => {
@@ -169,17 +263,12 @@ export function GitHubIssueDialog({
   }, [issues]);
 
   const focusedIssue = useMemo(() => {
-    if (focusedIssueNumber !== null) {
-      return issueByNumber.get(focusedIssueNumber) ?? issues[0] ?? null;
+    const effectiveFocusedIssueNumber = focusedIssueNumber ?? issues[0]?.number ?? null;
+    if (effectiveFocusedIssueNumber !== null) {
+      return issueByNumber.get(effectiveFocusedIssueNumber) ?? issues[0] ?? null;
     }
     return issues[0] ?? null;
   }, [focusedIssueNumber, issueByNumber, issues]);
-
-  useEffect(() => {
-    if (focusedIssue && focusedIssueNumber === null) {
-      setFocusedIssueNumber(focusedIssue.number);
-    }
-  }, [focusedIssue, focusedIssueNumber]);
 
   const threadQuery = useQuery(
     gitGitHubIssueThreadQueryOptions({
@@ -197,13 +286,11 @@ export function GitHubIssueDialog({
   }, [focusedIssue, selectedIssueNumberSet]);
 
   const handleToggleIssueSelection = useCallback((issueNumber: number) => {
-    setSelectedIssueNumbers((existing) => toggleListValue(existing, issueNumber));
+    dispatch({ type: "toggle-issue-selection", value: issueNumber });
   }, []);
 
   const handleToggleLabelFilter = useCallback((label: string) => {
-    setLabelFilters((existing) =>
-      existing.includes(label) ? existing.filter((value) => value !== label) : [...existing, label],
-    );
+    dispatch({ type: "toggle-label-filter", value: label });
   }, []);
 
   const handleSolveSelectedIssues = useCallback(
@@ -211,7 +298,7 @@ export function GitHubIssueDialog({
       if (isSolving || selectedIssueNumbersForSolve.length === 0) {
         return;
       }
-      setSolveAction(action);
+      dispatch({ type: "set-solve-action", value: action });
       try {
         if (action === "parallel-worktrees") {
           await onFixIssuesInParallelWorktrees(selectedIssueNumbersForSolve);
@@ -227,7 +314,7 @@ export function GitHubIssueDialog({
         });
         await onFixIssue({ prompt: payload.prompt, images: payload.images });
       } finally {
-        setSolveAction(null);
+        dispatch({ type: "set-solve-action", value: null });
       }
     },
     [
@@ -284,16 +371,17 @@ export function GitHubIssueDialog({
 
             <div className="flex min-h-0 flex-1 flex-col gap-2 px-3 pb-2.5 pt-2.5 sm:px-3.5">
               {/* Search */}
-              <label className="relative block shrink-0">
+              <label htmlFor="github-issue-search" className="relative block shrink-0">
                 <SearchIcon
                   aria-hidden
                   className="pointer-events-none absolute start-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground/60"
                 />
                 <Input
+                  id="github-issue-search"
                   ref={searchInputRef}
                   placeholder="Search issues…"
                   value={search}
-                  onChange={(event) => setSearch(event.target.value)}
+                  onChange={(event) => dispatch({ type: "set-search", value: event.target.value })}
                   className={cn(
                     "h-8 rounded-[var(--control-radius)] border-border/60 bg-[color-mix(in_srgb,var(--card)_74%,transparent)] ps-8 text-xs shadow-none",
                     "placeholder:text-muted-foreground/50",
@@ -309,67 +397,75 @@ export function GitHubIssueDialog({
               <div className="flex shrink-0 flex-wrap items-center gap-1">
                 <div className="inline-flex items-center overflow-hidden rounded-[var(--control-radius)] border border-border/50 bg-background/60">
                   {ISSUE_STATE_FILTERS.map((value) => (
-                    <button
+                    <Button
                       key={value}
                       type="button"
+                      variant="ghost"
                       className={cn(
-                        "px-2 py-0.5 text-[10px] font-medium capitalize transition-colors",
+                        "h-auto rounded-none px-2 py-0.5 text-[10px] font-medium capitalize hover:bg-transparent",
                         stateFilter === value
                           ? "bg-primary/10 text-foreground"
                           : "text-muted-foreground hover:text-foreground",
                       )}
-                      onClick={() => setStateFilter(value)}
+                      onClick={() => dispatch({ type: "set-state-filter", value })}
                     >
                       {value}
-                    </button>
+                    </Button>
                   ))}
                 </div>
                 <div className="inline-flex items-center overflow-hidden rounded-[var(--control-radius)] border border-border/50 bg-background/60">
                   {ISSUE_LIMIT_OPTIONS.map((limit) => (
-                    <button
+                    <Button
                       key={limit}
                       type="button"
+                      variant="ghost"
                       className={cn(
-                        "px-1.5 py-0.5 text-[10px] font-medium tabular-nums transition-colors",
+                        "px-1.5 py-0.5 text-[10px] font-medium tabular-nums transition-colors h-auto rounded-none hover:bg-transparent",
                         issueLimit === limit
                           ? "bg-primary/10 text-foreground"
                           : "text-muted-foreground hover:text-foreground",
                       )}
-                      onClick={() => setIssueLimit(limit)}
+                      onClick={() => dispatch({ type: "set-issue-limit", value: limit })}
                       aria-label={`Show ${limit} issues`}
                     >
                       {limit}
-                    </button>
+                    </Button>
                   ))}
                 </div>
                 <div className="ms-auto flex items-center gap-0.5">
-                  <button
+                  <Button
                     type="button"
-                    className="rounded-[var(--chip-radius)] px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-foreground/[0.04] hover:text-foreground"
+                    variant="ghost"
+                    className="h-auto rounded-[var(--chip-radius)] px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground"
                     onClick={() => {
                       if (allVisibleSelected) {
-                        setSelectedIssueNumbers((existing) =>
-                          existing.filter((n) => !issueByNumber.has(n)),
-                        );
+                        dispatch({
+                          type: "set-selected-issue-numbers",
+                          value: selectedIssueNumbers.filter((n) => !issueByNumber.has(n)),
+                        });
                       } else {
-                        setSelectedIssueNumbers((existing) => {
-                          const next = new Set(existing);
-                          for (const issue of issues) next.add(issue.number);
-                          return Array.from(next);
+                        const next = new Set(selectedIssueNumbers);
+                        for (const issue of issues) {
+                          next.add(issue.number);
+                        }
+                        dispatch({
+                          type: "set-selected-issue-numbers",
+                          value: Array.from(next),
                         });
                       }
                     }}
                   >
                     {allVisibleSelected ? "Deselect" : "Select all"}
-                  </button>
+                  </Button>
                   {selectedIssueNumberSet.size > 0 ? (
-                    <button
+                    <Button
                       type="button"
-                      className="rounded-[var(--chip-radius)] px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-foreground/[0.04] hover:text-foreground"
-                      onClick={() => setSelectedIssueNumbers([])}
+                      variant="ghost"
+                      className="h-auto rounded-[var(--chip-radius)] px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground"
+                      onClick={() => dispatch({ type: "set-selected-issue-numbers", value: [] })}
                     >
                       Clear
-                    </button>
+                    </Button>
                   ) : null}
                 </div>
               </div>
@@ -401,24 +497,31 @@ export function GitHubIssueDialog({
               {/* Label filters */}
               {availableLabels.length > 0 ? (
                 <div className="shrink-0">
-                  <button
+                  <Button
                     type="button"
-                    className="mb-1 flex items-center gap-1 text-[10px] text-muted-foreground/80"
-                    onClick={() => setLabelFilters((f) => (f.length > 0 ? [] : f))}
+                    variant="ghost"
+                    className="mb-1 flex h-auto items-center gap-1 p-0 text-[10px] text-muted-foreground/80 hover:bg-transparent"
+                    onClick={() =>
+                      dispatch({
+                        type: "set-label-filters",
+                        value: labelFilters.length > 0 ? [] : labelFilters,
+                      })
+                    }
                   >
                     <FilterIcon className="size-3 opacity-60" />
                     Labels
-                  </button>
+                  </Button>
                   <div className="max-h-12 overflow-y-auto">
                     <div className="flex flex-wrap gap-0.5">
                       {availableLabels.map(({ label, count }) => {
                         const active = labelFilters.includes(label);
                         return (
-                          <button
+                          <Button
                             key={label}
                             type="button"
+                            variant="ghost"
                             className={cn(
-                              "rounded-[var(--chip-radius)] border px-1.5 py-px text-[9px] font-medium transition-colors",
+                              "h-auto rounded-[var(--chip-radius)] border px-1.5 py-px text-[9px] font-medium hover:bg-transparent",
                               active
                                 ? "border-primary/30 bg-primary/10 text-foreground"
                                 : "border-border/40 bg-background/50 text-muted-foreground hover:text-foreground",
@@ -427,7 +530,7 @@ export function GitHubIssueDialog({
                           >
                             {label}
                             <span className="ml-0.5 opacity-50">{count}</span>
-                          </button>
+                          </Button>
                         );
                       })}
                     </div>
@@ -443,7 +546,7 @@ export function GitHubIssueDialog({
 
               {/* Issue list */}
               <ScrollArea className="min-h-0 flex-1" scrollbarGutter scrollFade>
-                <div role="listbox" aria-label="Issues" className="pb-1">
+                <div aria-label="Issues" className="pb-1">
                   {issuesQuery.isPending && issues.length === 0 ? (
                     <GitHubIssueListSkeleton count={ISSUE_SKELETON_KEYS.length} />
                   ) : issues.length === 0 ? (
@@ -460,7 +563,6 @@ export function GitHubIssueDialog({
                         return (
                           <div
                             key={issue.number}
-                            role="option"
                             aria-selected={active}
                             className={cn(
                               "group flex items-start gap-2 rounded-[calc(var(--control-radius)+1px)] border border-transparent px-2 py-2.5 transition-colors",
@@ -475,10 +577,16 @@ export function GitHubIssueDialog({
                               onClick={(event) => event.stopPropagation()}
                               onCheckedChange={() => handleToggleIssueSelection(issue.number)}
                             />
-                            <button
+                            <Button
                               type="button"
-                              className="min-w-0 flex-1 text-start"
-                              onClick={() => setFocusedIssueNumber(issue.number)}
+                              variant="ghost"
+                              className="block h-auto min-w-0 flex-1 p-0 text-start font-normal hover:bg-transparent"
+                              onClick={() =>
+                                dispatch({
+                                  type: "set-focused-issue-number",
+                                  value: issue.number,
+                                })
+                              }
                             >
                               <div className="flex min-w-0 items-center gap-1.5">
                                 {issue.state === "open" ? (
@@ -515,7 +623,7 @@ export function GitHubIssueDialog({
                                   ) : null}
                                 </div>
                               ) : null}
-                            </button>
+                            </Button>
                           </div>
                         );
                       })}
@@ -724,4 +832,8 @@ export function GitHubIssueDialog({
       </DialogPopup>
     </Dialog>
   );
+}
+
+export function GitHubIssueDialog(props: GitHubIssueDialogProps) {
+  return useGitHubIssueDialogComponent(props);
 }

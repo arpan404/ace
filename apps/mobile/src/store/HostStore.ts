@@ -79,6 +79,17 @@ async function transformPersistedHosts(
   if (!Array.isArray(state.hosts)) {
     return value;
   }
+  if (
+    !state.hosts.some(
+      (host) =>
+        typeof host === "object" &&
+        host !== null &&
+        typeof (host as Record<string, unknown>).wsUrl === "string",
+    )
+  ) {
+    return value;
+  }
+
   let changed = false;
   const nextHosts = await Promise.all(
     state.hosts.map(async (host) => {
@@ -118,14 +129,17 @@ const relayAwareHostStoreStorage = {
     if (!value) {
       return null;
     }
+    const hostUrls = extractPersistedHostUrls(value);
+    if (hostUrls.length === 0) {
+      return value;
+    }
     return transformPersistedHosts(value, resolveMobileSecureRelayConnectionUrl);
   },
   setItem: async (name: string, value: string) => {
-    const previousValue = await AsyncStorage.getItem(name);
-    const persistedValue = await transformPersistedHosts(
-      value,
-      persistMobileRelayConnectionSecrets,
-    );
+    const [previousValue, persistedValue] = await Promise.all([
+      AsyncStorage.getItem(name),
+      transformPersistedHosts(value, persistMobileRelayConnectionSecrets),
+    ]);
     const previousIdentities = new Map(
       extractPersistedHostUrls(previousValue).map((wsUrl) => [persistedHostIdentity(wsUrl), wsUrl]),
     );
@@ -133,9 +147,11 @@ const relayAwareHostStoreStorage = {
       extractPersistedHostUrls(persistedValue).map((wsUrl) => persistedHostIdentity(wsUrl)),
     );
     await Promise.all(
-      [...previousIdentities.entries()]
-        .filter(([identity]) => !nextIdentities.has(identity))
-        .map(([, wsUrl]) => deleteMobileRelayConnectionSecrets(wsUrl)),
+      Array.from(previousIdentities, ([identity, wsUrl]) =>
+        nextIdentities.has(identity)
+          ? Promise.resolve()
+          : deleteMobileRelayConnectionSecrets(wsUrl),
+      ),
     );
     return AsyncStorage.setItem(name, persistedValue);
   },
@@ -217,7 +233,5 @@ export const useHostStore = create<HostState>()(
 // Initialize connections on startup
 export async function initializeConnections() {
   const state = useHostStore.getState();
-  for (const host of state.hosts) {
-    await connectionManager.connect(host);
-  }
+  await Promise.all(state.hosts.map((host) => connectionManager.connect(host)));
 }

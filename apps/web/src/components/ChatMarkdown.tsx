@@ -12,6 +12,7 @@ import React, {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   useTransition,
   type ComponentPropsWithoutRef,
   type ReactNode,
@@ -100,6 +101,21 @@ const highlighterPromiseCache = new Map<string, Promise<DiffsHighlighter>>();
 const MARKDOWN_REMARK_PLUGINS = [remarkGfm, remarkBreaks];
 const MARKDOWN_DATA_IMAGE_URL_REGEX = /^data:image\/(?:png|jpe?g|gif|webp);base64,/iu;
 const localFilePathExistsCache = new Map<string, boolean>();
+const localFilePathExistsCacheListeners = new Set<() => void>();
+
+function writeLocalFilePathExistsCache(targetPath: string, exists: boolean): void {
+  localFilePathExistsCache.set(targetPath, exists);
+  for (const listener of localFilePathExistsCacheListeners) {
+    listener();
+  }
+}
+
+function subscribeLocalFilePathExistsCache(listener: () => void): () => void {
+  localFilePathExistsCacheListeners.add(listener);
+  return () => {
+    localFilePathExistsCacheListeners.delete(listener);
+  };
+}
 const onMarkdownProfilerRender = (
   _id: string,
   phase: "mount" | "update" | "nested-update",
@@ -113,6 +129,11 @@ function markdownUrlTransform(value: string, key: string): string {
     return value;
   }
   return defaultUrlTransform(value);
+}
+
+function joinClassNames(...values: ReadonlyArray<string | undefined>): string | undefined {
+  const className = values.filter((value): value is string => Boolean(value)).join(" ");
+  return className.length > 0 ? className : undefined;
 }
 
 registerMemoryPressureHandler({
@@ -214,44 +235,37 @@ function InlineCodeLocalFileLink(props: {
     () => (props.enabled ? resolveMarkdownFileLinkTarget(props.code, props.cwd) : null),
     [props.code, props.cwd, props.enabled],
   );
-  const cachedExists = targetPath ? localFilePathExistsCache.get(targetPath) : undefined;
-  const [pathExists, setPathExists] = useState(cachedExists === true);
+  const cachedExists = useSyncExternalStore(
+    subscribeLocalFilePathExistsCache,
+    () => (props.enabled && targetPath ? localFilePathExistsCache.get(targetPath) : undefined),
+    () => undefined,
+  );
+  const pathExists = !props.enabled || !targetPath ? false : cachedExists === true;
 
   useEffect(() => {
-    if (!props.enabled || !targetPath) {
-      setPathExists(false);
-      return;
-    }
-    const cached = localFilePathExistsCache.get(targetPath);
-    if (cached !== undefined) {
-      setPathExists(cached);
+    if (!props.enabled || !targetPath || cachedExists !== undefined) {
       return;
     }
     const api = readNativeApi();
     if (!api) {
-      setPathExists(false);
       return;
     }
     let cancelled = false;
-    void api.shell
-      .pathExists(targetPath)
-      .then((exists) => {
-        localFilePathExistsCache.set(targetPath, exists);
-        if (!cancelled) {
-          setPathExists(exists);
-        }
-      })
-      .catch((error) => {
-        localFilePathExistsCache.set(targetPath, false);
-        if (!cancelled) {
-          setPathExists(false);
-        }
+    void (async () => {
+      let exists = false;
+      try {
+        exists = await api.shell.pathExists(targetPath);
+      } catch (error) {
         console.warn("Failed to check local file path.", error);
-      });
+      }
+      if (!cancelled) {
+        writeLocalFilePathExistsCache(targetPath, exists);
+      }
+    })();
     return () => {
       cancelled = true;
     };
-  }, [props.enabled, targetPath]);
+  }, [cachedExists, props.enabled, targetPath]);
 
   const codeElement = <code {...props.codeProps}>{props.children}</code>;
   if (!targetPath || !pathExists) {
@@ -262,11 +276,10 @@ function InlineCodeLocalFileLink(props: {
     <Tooltip>
       <TooltipTrigger
         render={
-          <a
-            href={targetPath}
+          <button
+            type="button"
             className="chat-markdown-local-file-link"
             onClick={(event) => {
-              event.preventDefault();
               event.stopPropagation();
               openLocalFilePath({
                 targetPath,
@@ -383,7 +396,7 @@ function MermaidDiagramLoading({ className }: { className?: string }) {
         .join(" ")}
       data-mermaid-diagram-state="loading"
     >
-      Rendering Mermaid diagram...
+      Rendering Mermaid diagram…
     </div>
   );
 }
@@ -406,14 +419,43 @@ function SuspenseShikiCodeBlock({
   const cachedHighlightedHtml = !isStreaming ? highlightedCodeCache.get(cacheKey) : null;
 
   if (cachedHighlightedHtml != null) {
-    return (
-      <div
-        className="chat-markdown-shiki"
-        dangerouslySetInnerHTML={{ __html: cachedHighlightedHtml }}
-      />
-    );
+    return <CachedShikiCodeBlock highlightedHtml={cachedHighlightedHtml} />;
   }
 
+  return (
+    <UncachedSuspenseShikiCodeBlock
+      cacheKey={cacheKey}
+      code={code}
+      language={language}
+      themeName={themeName}
+      isStreaming={isStreaming}
+    />
+  );
+}
+
+function CachedShikiCodeBlock({ highlightedHtml }: { highlightedHtml: string }) {
+  return (
+    <div
+      className="chat-markdown-shiki"
+      // eslint-disable-next-line react/no-danger
+      dangerouslySetInnerHTML={{ __html: highlightedHtml }}
+    />
+  );
+}
+
+function UncachedSuspenseShikiCodeBlock({
+  cacheKey,
+  code,
+  language,
+  themeName,
+  isStreaming,
+}: {
+  cacheKey: string;
+  code: string;
+  language: string;
+  themeName: DiffThemeName;
+  isStreaming: boolean;
+}) {
   const highlighter = use(getHighlighterPromise(language));
   const highlightedHtml = useMemo(() => {
     try {
@@ -440,14 +482,18 @@ function SuspenseShikiCodeBlock({
   }, [cacheKey, code, highlightedHtml, isStreaming]);
 
   return (
-    <div className="chat-markdown-shiki" dangerouslySetInnerHTML={{ __html: highlightedHtml }} />
+    <div
+      className="chat-markdown-shiki"
+      // eslint-disable-next-line react/no-danger
+      dangerouslySetInnerHTML={{ __html: highlightedHtml }}
+    />
   );
 }
 
 function StreamingMarkdownText({ text }: { text: string }) {
   return (
     <div
-      className="chat-markdown-streaming wrap-break-word whitespace-pre-wrap text-sm leading-relaxed text-foreground/80"
+      className="chat-markdown-streaming wrap-break-word whitespace-pre-wrap text-[13px] leading-[1.55] text-foreground/80"
       data-streaming-markdown="true"
     >
       {text}
@@ -457,7 +503,7 @@ function StreamingMarkdownText({ text }: { text: string }) {
 
 const PlainMarkdownText = memo(function PlainMarkdownText({ text }: { text: string }) {
   return (
-    <div className="chat-markdown w-full min-w-0 wrap-break-word whitespace-pre-wrap text-sm leading-relaxed text-foreground/80">
+    <div className="chat-markdown w-full min-w-0 wrap-break-word whitespace-pre-wrap text-[13px] leading-[1.55] text-foreground/80">
       {text}
     </div>
   );
@@ -484,7 +530,7 @@ const MarkdownBody = memo(function MarkdownBody({
 
   return (
     <div
-      className="chat-markdown w-full min-w-0 text-sm leading-relaxed text-foreground/80"
+      className="chat-markdown w-full min-w-0 text-[13px] leading-[1.55] text-foreground/80"
       data-streaming-markdown={isStreaming ? "true" : undefined}
     >
       {isRenderProfilingEnabled() ? (
@@ -507,10 +553,10 @@ function PreviewTextPanel({
 }) {
   return (
     <div
-      className="max-h-96 overflow-auto px-0 py-0"
+      className="max-h-96 overflow-auto p-0"
       {...(dataAttribute ? { [dataAttribute]: "true" } : {})}
     >
-      <div className="chat-markdown-streaming wrap-break-word whitespace-pre-wrap text-sm leading-relaxed text-foreground/80">
+      <div className="chat-markdown-streaming wrap-break-word whitespace-pre-wrap text-[13px] leading-[1.55] text-foreground/80">
         {text}
       </div>
     </div>
@@ -588,6 +634,63 @@ function LargeMarkdownPreview({
   );
 }
 
+function useChatMarkdownRenderState(input: {
+  analysisCacheKey: string | undefined;
+  isStreaming: boolean;
+  renderPlainText: boolean;
+  renderPreference: "auto" | "markdown";
+  streamingTextState: ChatMarkdownProps["streamingTextState"];
+  text: string;
+}) {
+  const markdownRenderAnalysisInput = useMemo(
+    () => ({
+      text: input.text,
+      isStreaming: input.isStreaming,
+      renderPlainText: input.renderPlainText,
+      ...(input.streamingTextState
+        ? {
+            streamingTextState: {
+              totalLineCount: input.streamingTextState.totalLineCount,
+              truncatedCharCount: input.streamingTextState.truncatedCharCount,
+              truncatedLineCount: input.streamingTextState.truncatedLineCount,
+            },
+          }
+        : {}),
+    }),
+    [input.isStreaming, input.renderPlainText, input.streamingTextState, input.text],
+  );
+  const resolvedAnalysisCacheKey = useMemo(
+    () => buildMarkdownRenderAnalysisCacheKey(markdownRenderAnalysisInput, input.analysisCacheKey),
+    [input.analysisCacheKey, markdownRenderAnalysisInput],
+  );
+  const cachedMarkdownRenderAnalysis = useMemo(
+    () => readCachedMarkdownRenderAnalysis(resolvedAnalysisCacheKey),
+    [resolvedAnalysisCacheKey],
+  );
+  const markdownRenderAnalysis = useMemo(
+    () => cachedMarkdownRenderAnalysis ?? analyzeMarkdownRender(markdownRenderAnalysisInput),
+    [cachedMarkdownRenderAnalysis, markdownRenderAnalysisInput],
+  );
+  const effectiveRenderPreference = input.isStreaming ? "auto" : input.renderPreference;
+  const useLargePreview =
+    effectiveRenderPreference !== "markdown" && markdownRenderAnalysis.useLargePreview;
+  const shouldFastPathPlainText = markdownRenderAnalysis.shouldFastPathPlainText;
+  const shouldObserveLayout = markdownRenderAnalysis.shouldObserveLayout;
+
+  useEffect(() => {
+    if (!shouldWorkerizeMarkdownRenderAnalysis(markdownRenderAnalysisInput)) return;
+    if (cachedMarkdownRenderAnalysis) return;
+    prewarmMarkdownRenderAnalysis(resolvedAnalysisCacheKey, markdownRenderAnalysisInput);
+  }, [cachedMarkdownRenderAnalysis, markdownRenderAnalysisInput, resolvedAnalysisCacheKey]);
+
+  return {
+    markdownRenderAnalysis,
+    shouldFastPathPlainText,
+    shouldObserveLayout,
+    useLargePreview,
+  };
+}
+
 function ChatMarkdown({
   text,
   cwd,
@@ -605,50 +708,21 @@ function ChatMarkdown({
   const [renderPreference, setRenderPreference] = useState<"auto" | "markdown">("auto");
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [isMarkdownTransitionPending, startMarkdownTransition] = useTransition();
-  const markdownRenderAnalysisInput = useMemo(
-    () => ({
-      text,
-      isStreaming,
-      renderPlainText,
-      ...(streamingTextState
-        ? {
-            streamingTextState: {
-              totalLineCount: streamingTextState.totalLineCount,
-              truncatedCharCount: streamingTextState.truncatedCharCount,
-              truncatedLineCount: streamingTextState.truncatedLineCount,
-            },
-          }
-        : {}),
-    }),
-    [isStreaming, renderPlainText, streamingTextState, text],
-  );
-  const resolvedAnalysisCacheKey = useMemo(
-    () => buildMarkdownRenderAnalysisCacheKey(markdownRenderAnalysisInput, analysisCacheKey),
-    [analysisCacheKey, markdownRenderAnalysisInput],
-  );
-  const cachedMarkdownRenderAnalysis = useMemo(
-    () => readCachedMarkdownRenderAnalysis(resolvedAnalysisCacheKey),
-    [resolvedAnalysisCacheKey],
-  );
-  const markdownRenderAnalysis = useMemo(
-    () => cachedMarkdownRenderAnalysis ?? analyzeMarkdownRender(markdownRenderAnalysisInput),
-    [cachedMarkdownRenderAnalysis, markdownRenderAnalysisInput],
-  );
-  const useLargePreview = renderPreference !== "markdown" && markdownRenderAnalysis.useLargePreview;
-  const shouldFastPathPlainText = markdownRenderAnalysis.shouldFastPathPlainText;
-  const shouldObserveLayout =
-    onLayoutChange !== undefined && markdownRenderAnalysis.shouldObserveLayout;
+  const {
+    markdownRenderAnalysis,
+    shouldFastPathPlainText,
+    shouldObserveLayout: shouldObserveLayoutFromAnalysis,
+    useLargePreview,
+  } = useChatMarkdownRenderState({
+    analysisCacheKey,
+    isStreaming,
+    renderPlainText,
+    renderPreference,
+    streamingTextState,
+    text,
+  });
+  const shouldObserveLayout = onLayoutChange !== undefined && shouldObserveLayoutFromAnalysis;
   const canOpenLocalFiles = enableLocalFileLinks && !isStreaming;
-
-  useEffect(() => {
-    if (!shouldWorkerizeMarkdownRenderAnalysis(markdownRenderAnalysisInput)) {
-      return;
-    }
-    if (cachedMarkdownRenderAnalysis) {
-      return;
-    }
-    prewarmMarkdownRenderAnalysis(resolvedAnalysisCacheKey, markdownRenderAnalysisInput);
-  }, [cachedMarkdownRenderAnalysis, markdownRenderAnalysisInput, resolvedAnalysisCacheKey]);
 
   const openLinkExternally = useCallback((href: string) => {
     const api = readNativeApi();
@@ -663,21 +737,25 @@ function ChatMarkdown({
 
   const markdownComponents = useMemo<Components>(
     () => ({
-      a({ node: _node, href, ...props }) {
+      a({ node: _node, href, children, className, title, ...props }) {
         const targetPath = canOpenLocalFiles ? resolveMarkdownFileLinkTarget(href, cwd) : null;
         if (!targetPath) {
           const browserUrl = href ? normalizeBrowserHttpUrl(href) : null;
           if (!browserUrl || !onOpenBrowserUrl) {
-            return <a {...props} href={href} target="_blank" rel="noopener noreferrer" />;
+            return (
+              <a {...props} href={href} target="_blank" rel="noopener noreferrer">
+                {children}
+              </a>
+            );
           }
 
           return (
             <span className="chat-markdown-link-shell">
-              <a
-                {...props}
-                href={href}
+              <button
+                type="button"
+                className={joinClassNames("chat-markdown-link-button", className)}
+                title={title}
                 onClick={(event) => {
-                  event.preventDefault();
                   event.stopPropagation();
                   if (event.metaKey || event.ctrlKey) {
                     openLinkExternally(href ?? browserUrl);
@@ -685,7 +763,9 @@ function ChatMarkdown({
                   }
                   onOpenBrowserUrl(browserUrl);
                 }}
-              />
+              >
+                {children}
+              </button>
               <Tooltip>
                 <TooltipTrigger
                   render={
@@ -694,7 +774,6 @@ function ChatMarkdown({
                       className="chat-markdown-link-open-browser"
                       aria-label="Open link in the in-app browser"
                       onClick={(event) => {
-                        event.preventDefault();
                         event.stopPropagation();
                         onOpenBrowserUrl(browserUrl);
                       }}
@@ -710,11 +789,15 @@ function ChatMarkdown({
         }
 
         return (
-          <a
-            {...props}
-            href={href}
+          <button
+            type="button"
+            className={joinClassNames(
+              "chat-markdown-link-button",
+              "chat-markdown-local-file-link",
+              className,
+            )}
+            title={title}
             onClick={(event) => {
-              event.preventDefault();
               event.stopPropagation();
               openLocalFilePath({
                 targetPath,
@@ -722,7 +805,9 @@ function ChatMarkdown({
                 preferExternalEditor: event.metaKey || event.ctrlKey,
               });
             }}
-          />
+          >
+            {children}
+          </button>
         );
       },
       code({ node, className, children, ...props }) {
@@ -812,16 +897,6 @@ function ChatMarkdown({
       resolvedTheme,
     ],
   );
-  useEffect(() => {
-    if (isStreaming) {
-      setRenderPreference("auto");
-    }
-  }, [isStreaming]);
-
-  useEffect(() => {
-    onLayoutChange?.();
-  }, [isStreaming, onLayoutChange, renderPreference, text, useLargePreview]);
-
   useEffect(() => {
     if (!onLayoutChange || !shouldObserveLayout || typeof ResizeObserver === "undefined") {
       return;

@@ -12,16 +12,8 @@ import {
   buildCompletionNotificationBody,
   buildUserInputNotificationBody,
   normalizeThreadNotificationTitle,
+  shouldRefreshAgentAttentionForOrchestrationEvent,
 } from "@ace/shared/notifications";
-
-const ATTENTION_ACTIVITY_KINDS = new Set([
-  "approval.requested",
-  "approval.resolved",
-  "provider.approval.respond.failed",
-  "user-input.requested",
-  "user-input.resolved",
-  "provider.user-input.respond.failed",
-]);
 
 export interface BackgroundNotificationSettings {
   readonly notifyOnAgentCompletion: boolean;
@@ -87,19 +79,7 @@ export interface DesktopBackgroundNotificationService {
 }
 
 export function shouldRefreshThreadAttentionForEvent(event: OrchestrationEvent): boolean {
-  switch (event.type) {
-    case "thread.activity-appended":
-      return ATTENTION_ACTIVITY_KINDS.has(event.payload.activity.kind);
-    case "thread.turn-start-requested":
-    case "thread.turn-interrupt-requested":
-    case "thread.session-stop-requested":
-    case "thread.session-set":
-    case "thread.turn-diff-completed":
-    case "thread.reverted":
-      return true;
-    default:
-      return false;
-  }
+  return shouldRefreshAgentAttentionForOrchestrationEvent(event);
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

@@ -229,6 +229,7 @@ type GeminiToolCallLike = {
 type GeminiSessionMetadata = {
   readonly authMethods: ReadonlyArray<GeminiAuthMethod>;
   readonly loadSession: boolean;
+  readonly forkSession: boolean;
   availableCommands: ReadonlyArray<GeminiAvailableCommand>;
   availableModes: ReadonlyArray<GeminiMode>;
   currentModeId?: string;
@@ -809,6 +810,7 @@ function normalizeInitializeResponse(value: unknown): GeminiSessionMetadata {
   return {
     authMethods,
     loadSession: agentCapabilities?.loadSession === true,
+    forkSession: asObject(asObject(agentCapabilities?.sessionCapabilities)?.fork) !== undefined,
     availableCommands: normalizeAvailableCommands(record?.availableCommands),
     availableModes: [],
     availableModels: [],
@@ -1173,6 +1175,84 @@ function extractToolDetail(
   return undefined;
 }
 
+function extractGeminiToolCommand(toolCall: GeminiToolCallLike): string | undefined {
+  const rawInput = asObject(toolCall.rawInput);
+  return (
+    asString(rawInput?.command) ??
+    asString(rawInput?.cmd) ??
+    asString(rawInput?.shellCommand) ??
+    (toolCall.kind === "execute" ? asString(rawInput?.text) : undefined)
+  );
+}
+
+function extractGeminiToolCwd(toolCall: GeminiToolCallLike): string | undefined {
+  const rawInput = asObject(toolCall.rawInput);
+  const rawOutput = asObject(toolCall.rawOutput);
+  return (
+    asString(rawInput?.cwd) ??
+    asString(rawInput?.workingDirectory) ??
+    asString(rawOutput?.cwd) ??
+    asString(rawOutput?.workingDirectory)
+  );
+}
+
+function extractGeminiToolOutput(toolCall: GeminiToolCallLike): string | undefined {
+  if (typeof toolCall.rawOutput === "string" && toolCall.rawOutput.length > 0) {
+    return toolCall.rawOutput;
+  }
+  const rawOutput = asObject(toolCall.rawOutput);
+  const direct =
+    asString(rawOutput?.output) ??
+    asString(rawOutput?.aggregatedOutput) ??
+    asString(rawOutput?.stdout) ??
+    asString(rawOutput?.stderr) ??
+    asString(rawOutput?.content) ??
+    asString(rawOutput?.text);
+  if (direct) {
+    return direct;
+  }
+  return toolCall.status === "completed" || toolCall.status === "failed"
+    ? extractToolDetail(toolCall.content)
+    : undefined;
+}
+
+function buildGeminiToolData(toolCall: GeminiToolCallLike): Record<string, unknown> {
+  const command = extractGeminiToolCommand(toolCall);
+  const cwd = extractGeminiToolCwd(toolCall);
+  const output = extractGeminiToolOutput(toolCall);
+  return {
+    toolCallId: toolCall.toolCallId,
+    ...(toolCall.kind ? { kind: toolCall.kind } : {}),
+    ...(toolCall.rawInput !== undefined
+      ? { input: toolCall.rawInput, rawInput: toolCall.rawInput }
+      : {}),
+    ...(toolCall.rawOutput !== undefined
+      ? { result: toolCall.rawOutput, rawOutput: toolCall.rawOutput }
+      : {}),
+    ...(command ? { command } : {}),
+    ...(cwd ? { cwd } : {}),
+    ...(output ? { output, aggregatedOutput: output } : {}),
+    ...(toolCall.content ? { content: toolCall.content } : {}),
+    ...(toolCall.locations ? { locations: toolCall.locations } : {}),
+    item: {
+      id: toolCall.toolCallId,
+      toolCallId: toolCall.toolCallId,
+      ...(toolCall.kind ? { kind: toolCall.kind } : {}),
+      ...(asString(toolCall.title) ? { title: asString(toolCall.title) } : {}),
+      ...(toolCall.status ? { status: toolCall.status } : {}),
+      ...(toolCall.rawInput !== undefined
+        ? { input: toolCall.rawInput, rawInput: toolCall.rawInput }
+        : {}),
+      ...(toolCall.rawOutput !== undefined
+        ? { result: toolCall.rawOutput, rawOutput: toolCall.rawOutput }
+        : {}),
+      ...(command ? { command } : {}),
+      ...(cwd ? { cwd } : {}),
+      ...(output ? { output, aggregatedOutput: output } : {}),
+    },
+  };
+}
+
 export function buildGeminiPromptText(input: ProviderSendTurnInput): string {
   const text = input.input ?? "";
   if (input.interactionMode !== "plan") {
@@ -1418,14 +1498,7 @@ const makeGeminiAdapter = Effect.gen(function* () {
           ...(extractToolDetail(toolCall.content)
             ? { detail: extractToolDetail(toolCall.content) }
             : {}),
-          data: {
-            toolCallId: toolCall.toolCallId,
-            ...(toolCall.kind ? { kind: toolCall.kind } : {}),
-            ...(toolCall.content ? { content: toolCall.content } : {}),
-            ...(toolCall.locations ? { locations: toolCall.locations } : {}),
-            ...(toolCall.rawInput !== undefined ? { rawInput: toolCall.rawInput } : {}),
-            ...(toolCall.rawOutput !== undefined ? { rawOutput: toolCall.rawOutput } : {}),
-          },
+          data: buildGeminiToolData(toolCall),
         },
       }),
     );
@@ -1453,14 +1526,7 @@ const makeGeminiAdapter = Effect.gen(function* () {
       ...(extractToolDetail(toolCall.content)
         ? { detail: extractToolDetail(toolCall.content) }
         : {}),
-      data: {
-        toolCallId: toolCall.toolCallId,
-        ...(toolCall.kind ? { kind: toolCall.kind } : {}),
-        ...(toolCall.content ? { content: toolCall.content } : {}),
-        ...(toolCall.locations ? { locations: toolCall.locations } : {}),
-        ...(toolCall.rawInput !== undefined ? { rawInput: toolCall.rawInput } : {}),
-        ...(toolCall.rawOutput !== undefined ? { rawOutput: toolCall.rawOutput } : {}),
-      },
+      data: buildGeminiToolData(toolCall),
     } as const;
 
     if (toolCall.status === "completed" || toolCall.status === "failed") {
@@ -2273,9 +2339,11 @@ const makeGeminiAdapter = Effect.gen(function* () {
   ): Promise<{
     readonly sessionId: string;
     readonly metadata: GeminiSessionMetadata;
-    readonly method: "session/load" | "session/new";
+    readonly method: "session/fork" | "session/load" | "session/new";
   }> => {
     const resumeSessionId = readGeminiResumeCursor(input.resumeCursor);
+    const forkSourceSessionId = readGeminiResumeCursor(input.forkSource?.resumeCursor);
+    const canForkSession = forkSourceSessionId !== undefined && metadata.forkSession;
     const canLoadSession = resumeSessionId !== undefined && metadata.loadSession;
     const newSessionParams = {
       cwd,
@@ -2283,7 +2351,7 @@ const makeGeminiAdapter = Effect.gen(function* () {
     };
 
     const execute = async (
-      method: "session/load" | "session/new",
+      method: "session/fork" | "session/load" | "session/new",
       params: {
         readonly cwd: string;
         readonly mcpServers: ReadonlyArray<never>;
@@ -2294,7 +2362,9 @@ const makeGeminiAdapter = Effect.gen(function* () {
         timeoutMs: ACP_CONTROL_TIMEOUT_MS,
       });
       const resultRecord = asObject(result);
-      const sessionId = asString(resultRecord?.sessionId) ?? resumeSessionId;
+      const sessionId =
+        asString(resultRecord?.sessionId) ??
+        (method === "session/load" ? resumeSessionId : undefined);
       if (!sessionId) {
         throw new ProviderAdapterRequestError({
           provider: PROVIDER,
@@ -2310,7 +2380,7 @@ const makeGeminiAdapter = Effect.gen(function* () {
     };
 
     const executeWithAuthRetry = async (
-      method: "session/load" | "session/new",
+      method: "session/fork" | "session/load" | "session/new",
       params: {
         readonly cwd: string;
         readonly mcpServers: ReadonlyArray<never>;
@@ -2327,6 +2397,20 @@ const makeGeminiAdapter = Effect.gen(function* () {
         return await execute(method, params);
       }
     };
+
+    if (canForkSession) {
+      try {
+        return await executeWithAuthRetry("session/fork", {
+          ...newSessionParams,
+          sessionId: forkSourceSessionId,
+        });
+      } catch (cause) {
+        if (!isMissingGeminiSessionError(cause)) {
+          throw cause;
+        }
+        return await executeWithAuthRetry("session/new", newSessionParams);
+      }
+    }
 
     if (canLoadSession) {
       try {

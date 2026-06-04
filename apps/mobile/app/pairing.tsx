@@ -193,7 +193,7 @@ export default function PairingScreen() {
       {/* Camera always mounted behind so switching tabs is instant */}
       {permission.granted && (
         <CameraView
-          style={StyleSheet.absoluteFillObject}
+          style={StyleSheet.absoluteFill}
           facing="back"
           onBarcodeScanned={
             scanPaused || activeTab !== "scan"
@@ -536,7 +536,11 @@ const styles = StyleSheet.create({
 
   // Loading overlay
   loadingOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
     backgroundColor: "rgba(0,0,0,0.55)",
     justifyContent: "center",
     alignItems: "center",

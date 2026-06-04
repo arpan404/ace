@@ -78,11 +78,11 @@ export function decodeClientSettingsPatch(rawPatch: Record<string, unknown>): Cl
       case "hideCompletedWorkMessages":
         patch.hideCompletedWorkMessages = Schema.decodeUnknownSync(Schema.Boolean)(value);
         break;
+      case "reliabilityUxEnabled":
+        patch.reliabilityUxEnabled = Schema.decodeUnknownSync(Schema.Boolean)(value);
+        break;
       case "editorLineNumbers":
         patch.editorLineNumbers = Schema.decodeUnknownSync(EditorLineNumbers)(value);
-        break;
-      case "editorMinimap":
-        patch.editorMinimap = Schema.decodeUnknownSync(Schema.Boolean)(value);
         break;
       case "editorNeovimMode":
         patch.editorNeovimMode = Schema.decodeUnknownSync(Schema.Boolean)(value);
@@ -265,11 +265,11 @@ function useClientSettingsValue<T>(selector: (settings: ClientSettings) => T): T
   );
 }
 
-export function useClientSetting<K extends keyof ClientSettings>(key: K): ClientSettings[K] {
+function useClientSetting<K extends keyof ClientSettings>(key: K): ClientSettings[K] {
   return useClientSettingsValue((settings) => settings[key]);
 }
 
-export function useScopedSetting<K extends keyof UnifiedSettings>(key: K): UnifiedSettings[K] {
+function useScopedSetting<K extends keyof UnifiedSettings>(key: K): UnifiedSettings[K] {
   const clientValue = useClientSettingsValue(
     (settings) => settings[key as keyof ClientSettings] as UnifiedSettings[K] | undefined,
   );
@@ -332,7 +332,7 @@ export function useUpdateSettings() {
 
 // ── One-time migration from localStorage ─────────────────────────────
 
-export function buildLegacyServerSettingsMigrationPatch(legacySettings: Record<string, unknown>) {
+function buildLegacyServerSettingsMigrationPatch(legacySettings: Record<string, unknown>) {
   const patch: DeepMutable<ServerSettingsPatch> = {};
 
   if (Predicate.isBoolean(legacySettings.enableAssistantStreaming)) {
@@ -429,12 +429,12 @@ export function buildLegacyClientSettingsMigrationPatch(
     patch.diffWordWrap = legacySettings.diffWordWrap;
   }
 
-  if (Schema.is(EditorLineNumbers)(legacySettings.editorLineNumbers)) {
-    patch.editorLineNumbers = legacySettings.editorLineNumbers;
+  if (Predicate.isBoolean(legacySettings.reliabilityUxEnabled)) {
+    patch.reliabilityUxEnabled = legacySettings.reliabilityUxEnabled;
   }
 
-  if (Predicate.isBoolean(legacySettings.editorMinimap)) {
-    patch.editorMinimap = legacySettings.editorMinimap;
+  if (Schema.is(EditorLineNumbers)(legacySettings.editorLineNumbers)) {
+    patch.editorLineNumbers = legacySettings.editorLineNumbers;
   }
 
   if (Predicate.isBoolean(legacySettings.editorNeovimMode)) {
