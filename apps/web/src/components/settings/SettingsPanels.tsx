@@ -3900,9 +3900,10 @@ function EnvironmentProjectRow({ project }: { readonly project: Project }) {
   const storageLabel =
     worktreePaths.length === 0
       ? "0 B"
-      : statsQuery.isLoading
+      : !statsQuery.data
         ? "Calculating storage"
         : formatStorageBytes(totalStorageBytes);
+  const isRefreshingStorage = worktreePaths.length > 0 && statsQuery.isFetching;
 
   return (
     <button
@@ -3932,7 +3933,12 @@ function EnvironmentProjectRow({ project }: { readonly project: Project }) {
           <span>{storageLabel}</span>
         </div>
       </div>
-      <ArrowRightIcon className="size-3.5 text-muted-foreground/60 sm:justify-self-end" />
+      <div className="flex items-center gap-2 text-muted-foreground/60 sm:justify-self-end">
+        {isRefreshingStorage ? (
+          <RefreshCwIcon className="size-3.5 animate-spin" aria-label="Refreshing storage" />
+        ) : null}
+        <ArrowRightIcon className="size-3.5" />
+      </div>
     </button>
   );
 }

@@ -258,9 +258,7 @@ function replaceSnapshotThread(
   };
 }
 
-async function getDirectorySizeBytes(
-  path: string,
-): Promise<{ exists: boolean; sizeBytes: number }> {
+async function getDirectorySizeBytes(path: string): Promise<WorktreeSizeStats> {
   let entryStat;
   try {
     entryStat = await lstat(path);
@@ -298,6 +296,41 @@ async function getDirectorySizeBytes(
     }
   }
   return { exists: true, sizeBytes: total };
+}
+
+function pruneWorktreeSizeCache(now: number) {
+  for (const [path, entry] of worktreeSizeCache) {
+    if (entry.expiresAt <= now) {
+      worktreeSizeCache.delete(path);
+    }
+  }
+
+  while (worktreeSizeCache.size > WORKTREE_SIZE_CACHE_MAX_ENTRIES) {
+    const oldestPath = worktreeSizeCache.keys().next().value;
+    if (typeof oldestPath !== "string") {
+      break;
+    }
+    worktreeSizeCache.delete(oldestPath);
+  }
+}
+
+function getCachedWorktreeSizeStats(path: string): Promise<WorktreeSizeStats> {
+  const now = Date.now();
+  const cached = worktreeSizeCache.get(path);
+  if (cached && cached.expiresAt > now) {
+    return cached.promise;
+  }
+
+  pruneWorktreeSizeCache(now);
+  const promise = getDirectorySizeBytes(path).catch((error: unknown) => {
+    worktreeSizeCache.delete(path);
+    throw error;
+  });
+  worktreeSizeCache.set(path, {
+    expiresAt: now + WORKTREE_SIZE_CACHE_TTL_MS,
+    promise,
+  });
+  return promise;
 }
 
 const WsRpcLayer = WsRpcGroup.toLayer(
@@ -982,7 +1015,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
           return {
             worktrees: await Promise.all(
               uniquePaths.map(async (path) => {
-                const stats = await getDirectorySizeBytes(path);
+                const stats = await getCachedWorktreeSizeStats(path);
                 return {
                   path,
                   sizeBytes: stats.sizeBytes,
