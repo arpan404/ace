@@ -34,6 +34,8 @@ import {
   GitRunStackedActionInput,
   GitStatusInput,
   GitStatusResult,
+  GitWorktreeStatsInput,
+  GitWorktreeStatsResult,
   GitWorkingTreeDiffInput,
   GitWorkingTreeDiffResult,
 } from "./git";
@@ -174,6 +176,7 @@ export const WS_METHODS = {
   gitReadWorkingTreeDiff: "git.readWorkingTreeDiff",
   gitRunStackedAction: "git.runStackedAction",
   gitListBranches: "git.listBranches",
+  gitGetWorktreeStats: "git.getWorktreeStats",
   gitListGitHubIssues: "git.listGitHubIssues",
   gitGetGitHubIssueThread: "git.getGitHubIssueThread",
   gitCreateWorktree: "git.createWorktree",
@@ -464,6 +467,11 @@ export const WsGitListBranchesRpc = Rpc.make(WS_METHODS.gitListBranches, {
   error: GitCommandError,
 });
 
+export const WsGitGetWorktreeStatsRpc = Rpc.make(WS_METHODS.gitGetWorktreeStats, {
+  payload: GitWorktreeStatsInput,
+  success: GitWorktreeStatsResult,
+});
+
 export const WsGitListGitHubIssuesRpc = Rpc.make(WS_METHODS.gitListGitHubIssues, {
   payload: GitListGitHubIssuesInput,
   success: GitListGitHubIssuesResult,
@@ -666,6 +674,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsGitResolvePullRequestRpc,
   WsGitPreparePullRequestThreadRpc,
   WsGitListBranchesRpc,
+  WsGitGetWorktreeStatsRpc,
   WsGitListGitHubIssuesRpc,
   WsGitGetGitHubIssueThreadRpc,
   WsGitCreateWorktreeRpc,

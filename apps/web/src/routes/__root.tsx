@@ -9,7 +9,7 @@ import {
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { QueryClient, useQueryClient } from "@tanstack/react-query";
 import { Throttler } from "@tanstack/react-pacer";
-import { ChevronDownIcon, CircleAlertIcon, RefreshCwIcon, RotateCcwIcon } from "lucide-react";
+import { CheckIcon, ChevronDownIcon, CopyIcon, RefreshCwIcon, RotateCcwIcon } from "lucide-react";
 
 import { resolveAppStartupMessage, resolveAppStartupState } from "../appStartup";
 import { LEAN_SNAPSHOT_RECOVERY_INPUT, resolveWelcomeBootstrapPlan } from "../bootstrapRecovery";
@@ -117,6 +117,7 @@ function RootRouteView() {
       return null;
     },
   });
+
   if (detachedWindowSearch?.kind === "browser") {
     return <DetachedBrowserWindow search={detachedWindowSearch} />;
   }
@@ -675,52 +676,93 @@ function DesktopCliInstallToastBridge() {
 function RootRouteErrorView({ error, reset }: ErrorComponentProps) {
   const message = errorMessage(error);
   const details = errorDetails(error);
+  const [copiedDetails, setCopiedDetails] = useState(false);
+
+  const copyDetails = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(details);
+      setCopiedDetails(true);
+      window.setTimeout(() => setCopiedDetails(false), 1600);
+    } catch {
+      setCopiedDetails(false);
+    }
+  }, [details]);
 
   return (
     <div className="flex min-h-screen flex-col bg-background text-foreground">
-      <header className="flex h-12 items-center justify-between border-b border-border/55 px-4">
-        <div className="flex items-center gap-2">
-          <span className="flex size-6 items-center justify-center rounded-md border border-border/70 bg-muted/20 text-[11px] font-semibold tracking-[0.08em] text-muted-foreground">
-            {APP_BASE_NAME.slice(0, 1).toUpperCase()}
-          </span>
-          <span className="text-sm font-medium">{APP_BASE_NAME}</span>
-        </div>
-        <span className="text-[11px] text-muted-foreground">App error</span>
-      </header>
-
-      <main className="flex flex-1 items-start justify-center px-4 py-16 sm:px-6">
-        <section className="w-full max-w-2xl overflow-hidden rounded-[var(--panel-radius)] border border-border/70 bg-background shadow-[0_1px_0_hsl(var(--foreground)/0.04)]">
-          <div className="flex items-start gap-3 border-b border-border/55 bg-muted/10 px-4 py-3">
-            <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md bg-destructive/10 text-destructive">
-              <CircleAlertIcon className="size-4" />
-            </span>
-            <div className="min-w-0 flex-1">
-              <h1 className="text-sm font-semibold leading-6">Something went wrong</h1>
-              <p className="truncate text-xs leading-5 text-muted-foreground">{message}</p>
+      <main className="min-h-0 flex-1 overflow-y-auto">
+        <section className="mx-auto flex min-h-screen w-full max-w-3xl flex-col justify-center px-5 py-10 sm:px-6">
+          <div className="min-w-0 rounded-[var(--panel-radius)] border border-border/55 bg-card/38 px-5 py-5 shadow-[0_1px_0_hsl(var(--foreground)/0.04)] sm:px-6 sm:py-6">
+            <div className="min-w-0 border-b border-border/30 pb-7">
+              <div className="flex items-center gap-2.5 text-foreground">
+                <span className="text-[15px] leading-none font-semibold tracking-tight">
+                  {APP_BASE_NAME}
+                </span>
+              </div>
+              <h1 className="mt-5 text-[24px] leading-8 font-semibold tracking-tight text-foreground sm:text-[28px] sm:leading-9">
+                Something went wrong
+              </h1>
+              <p className="mt-2 max-w-xl text-[13px] leading-5 text-muted-foreground">
+                Try again or reload.
+              </p>
             </div>
-          </div>
 
-          <div className="flex flex-wrap items-center gap-2 px-4 py-3">
-            <Button size="sm" variant="ghost" onClick={() => reset()}>
-              <RotateCcwIcon className="size-4" />
-              Try again
-            </Button>
-            <Button size="sm" variant="ghost" onClick={() => window.location.reload()}>
-              <RefreshCwIcon className="size-4" />
-              Reload app
-            </Button>
-          </div>
+            <div className="flex min-w-0 flex-col gap-4 border-b border-border/30 py-5 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex shrink-0 flex-wrap items-center gap-1">
+                <Button
+                  size="default"
+                  variant="ghost"
+                  onClick={() => reset()}
+                  className="h-8 gap-1.5 px-2.5 text-[12px]/none font-medium text-foreground/86 shadow-none hover:bg-foreground/[0.06] hover:text-foreground active:bg-foreground/[0.08]"
+                >
+                  <RotateCcwIcon className="size-3.5" />
+                  Try again
+                </Button>
+                <Button
+                  size="default"
+                  variant="ghost"
+                  onClick={() => window.location.reload()}
+                  className="h-8 gap-1.5 px-2.5 text-[12px]/none font-medium text-muted-foreground/78 shadow-none hover:bg-foreground/[0.06] hover:text-foreground active:bg-foreground/[0.08]"
+                >
+                  <RefreshCwIcon className="size-3.5" />
+                  Reload
+                </Button>
+              </div>
+            </div>
 
-          <details className="group border-t border-border/55">
-            <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/18 hover:text-foreground">
-              <span className="group-open:hidden">Show error details</span>
-              <span className="hidden group-open:inline">Hide error details</span>
-              <ChevronDownIcon className="size-3.5 transition-transform group-open:rotate-180" />
-            </summary>
-            <pre className="max-h-72 overflow-auto border-t border-border/55 bg-muted/18 px-4 py-3 font-mono text-[11px] leading-5 text-muted-foreground">
-              {details}
-            </pre>
-          </details>
+            <div className="border-b border-border/30">
+              <div className="grid gap-4 py-5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
+                <div className="min-w-0">
+                  <p className="mt-1 max-w-2xl text-[12px] leading-5 break-words text-muted-foreground">
+                    {message}
+                  </p>
+                </div>
+                <Button
+                  size="default"
+                  variant="ghost"
+                  onClick={() => void copyDetails()}
+                  className="h-8 justify-self-start gap-1.5 px-2.5 text-[12px]/none font-medium text-muted-foreground/78 shadow-none hover:bg-foreground/[0.06] hover:text-foreground active:bg-foreground/[0.08] sm:justify-self-end"
+                >
+                  {copiedDetails ? (
+                    <CheckIcon className="size-3.5" />
+                  ) : (
+                    <CopyIcon className="size-3.5" />
+                  )}
+                  {copiedDetails ? "Copied" : "Copy"}
+                </Button>
+              </div>
+            </div>
+
+            <details className="group mt-5">
+              <summary className="flex h-8 cursor-pointer list-none items-center justify-between gap-3 text-left text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground">
+                <span>Details</span>
+                <ChevronDownIcon className="size-3.5 transition-transform group-open:rotate-180" />
+              </summary>
+              <pre className="max-h-72 overflow-auto border-t border-border/25 py-3 font-mono text-[11px] leading-5 whitespace-pre-wrap text-muted-foreground">
+                {details}
+              </pre>
+            </details>
+          </div>
         </section>
       </main>
     </div>

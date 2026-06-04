@@ -324,7 +324,7 @@ export const EnvironmentMiniPanel = forwardRef<
     workspaceChangeStat !== null &&
     (workspaceChangeStat.additions > 0 || workspaceChangeStat.deletions > 0);
   const isCheckingChanges =
-    props.isGitRepo && workspaceChangeStat === null && props.gitStatusError === null;
+    props.isGitRepo && props.gitStatus === null && props.gitStatusError === null;
   const activeSubagentThreads = subagentThreads.filter((thread) => thread.status === "running");
   const activeTodoSteps = activePlan?.steps ?? [];
 

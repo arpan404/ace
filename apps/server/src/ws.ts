@@ -1,4 +1,7 @@
 import { Effect, Layer, Option, Queue, Ref, Schema, Stream } from "effect";
+import { execFile } from "node:child_process";
+import { lstat } from "node:fs/promises";
+import { promisify } from "node:util";
 import {
   type GitActionProgressEvent,
   type GitManagerServiceError,
@@ -100,10 +103,59 @@ const PROVIDER_AUTO_REFRESH_TICK_MS = 60_000;
 const PROVIDER_AUTO_REFRESH_READY_TTL_MS = 2 * 60 * 60_000;
 const PROVIDER_AUTO_REFRESH_WARNING_TTL_MS = 45 * 60_000;
 const PROVIDER_AUTO_REFRESH_ERROR_TTL_MS = 15 * 60_000;
+const WORKTREE_SIZE_CACHE_TTL_MS = 5 * 60_000;
+const WORKTREE_SIZE_CACHE_MAX_ENTRIES = 512;
+const WORKTREE_SIZE_DU_TIMEOUT_MS = 20_000;
+const WORKTREE_SIZE_STATS_CONCURRENCY = 4;
 const ORCHESTRATION_EVENT_REORDER_MAX_PENDING = Math.max(
   128,
   Number.parseInt(process.env.ACE_ORCHESTRATION_EVENT_REORDER_MAX_PENDING ?? "1024", 10) || 1024,
 );
+
+type WorktreeSizeStats = {
+  readonly exists: boolean;
+  readonly lastModifiedAt: string | null;
+  readonly sizeBytes: number;
+};
+
+type WorktreeSizeCacheEntry = {
+  readonly expiresAt: number;
+  readonly promise: Promise<WorktreeSizeStats> | null;
+  readonly value: WorktreeSizeStats | null;
+};
+
+const worktreeSizeCache = new Map<string, WorktreeSizeCacheEntry>();
+const execFileAsync = promisify(execFile);
+
+async function getDirectorySizeBytesFromPlatform(path: string): Promise<number | null> {
+  if (process.platform === "win32") {
+    const script = [
+      "$ErrorActionPreference = 'SilentlyContinue'",
+      "$total = 0",
+      "Get-ChildItem -LiteralPath $args[0] -Recurse -Force -File | ForEach-Object { $total += $_.Length }",
+      "[Console]::WriteLine($total)",
+    ].join("; ");
+    const { stdout } = await execFileAsync(
+      "powershell.exe",
+      ["-NoProfile", "-NonInteractive", "-Command", script, path],
+      {
+        encoding: "utf8",
+        maxBuffer: 1024 * 1024,
+        timeout: WORKTREE_SIZE_DU_TIMEOUT_MS,
+      },
+    );
+    const sizeBytes = Number.parseInt(String(stdout).trim(), 10);
+    return Number.isFinite(sizeBytes) && sizeBytes >= 0 ? sizeBytes : null;
+  }
+
+  const { stdout } = await execFileAsync("du", ["-sk", path], {
+    encoding: "utf8",
+    maxBuffer: 1024 * 1024,
+    timeout: WORKTREE_SIZE_DU_TIMEOUT_MS,
+  });
+  const sizeKiB = Number.parseInt(String(stdout).trim().split(/\s+/)[0] ?? "", 10);
+  return Number.isFinite(sizeKiB) && sizeKiB >= 0 ? sizeKiB * 1024 : null;
+}
 
 function normalizeStreamIdentity(input: {
   readonly clientSessionId?: string | undefined;
@@ -240,6 +292,139 @@ function replaceSnapshotThread(
         ? snapshot.updatedAt
         : nextThread.updatedAt,
   };
+}
+
+async function getDirectorySizeBytes(path: string): Promise<WorktreeSizeStats> {
+  let entryStat;
+  try {
+    entryStat = await lstat(path);
+  } catch {
+    return { exists: false, lastModifiedAt: null, sizeBytes: 0 };
+  }
+
+  if (!entryStat.isDirectory()) {
+    return {
+      exists: true,
+      lastModifiedAt: new Date(entryStat.mtimeMs).toISOString(),
+      sizeBytes: entryStat.size,
+    };
+  }
+
+  try {
+    const sizeBytes = await getDirectorySizeBytesFromPlatform(path);
+    if (sizeBytes !== null) {
+      return {
+        exists: true,
+        lastModifiedAt: new Date(entryStat.mtimeMs).toISOString(),
+        sizeBytes,
+      };
+    }
+  } catch {
+    // Fall back to the directory entry stat instead of leaving storage pending forever.
+  }
+
+  return {
+    exists: true,
+    lastModifiedAt: new Date(entryStat.mtimeMs).toISOString(),
+    sizeBytes: entryStat.size,
+  };
+}
+
+async function mapWithConcurrency<TInput, TOutput>(
+  inputs: readonly TInput[],
+  concurrency: number,
+  mapper: (input: TInput) => Promise<TOutput>,
+): Promise<TOutput[]> {
+  const results = Array.from({ length: inputs.length }) as TOutput[];
+  let nextIndex = 0;
+  const workerCount = Math.min(Math.max(1, concurrency), inputs.length);
+
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (nextIndex < inputs.length) {
+        const currentIndex = nextIndex;
+        nextIndex += 1;
+        results[currentIndex] = await mapper(inputs[currentIndex]!);
+      }
+    }),
+  );
+
+  return results;
+}
+
+function pruneWorktreeSizeCache(now: number) {
+  for (const [path, entry] of worktreeSizeCache) {
+    if (entry.expiresAt <= now && entry.promise === null && entry.value === null) {
+      worktreeSizeCache.delete(path);
+    }
+  }
+
+  while (worktreeSizeCache.size > WORKTREE_SIZE_CACHE_MAX_ENTRIES) {
+    const oldestPath = worktreeSizeCache.keys().next().value;
+    if (typeof oldestPath !== "string") {
+      break;
+    }
+    worktreeSizeCache.delete(oldestPath);
+  }
+}
+
+function refreshCachedWorktreeSizeStats(
+  path: string,
+  now: number,
+  cached: WorktreeSizeCacheEntry | undefined,
+): Promise<WorktreeSizeStats> {
+  const promise = getDirectorySizeBytes(path)
+    .then((value) => {
+      if (!value.exists) {
+        worktreeSizeCache.delete(path);
+        return value;
+      }
+      worktreeSizeCache.set(path, {
+        expiresAt: Date.now() + WORKTREE_SIZE_CACHE_TTL_MS,
+        promise: null,
+        value,
+      });
+      return value;
+    })
+    .catch((error: unknown) => {
+      if (cached?.value) {
+        worktreeSizeCache.set(path, {
+          expiresAt: Date.now() + Math.min(WORKTREE_SIZE_CACHE_TTL_MS, 60_000),
+          promise: null,
+          value: cached.value,
+        });
+      } else {
+        worktreeSizeCache.delete(path);
+      }
+      throw error;
+    });
+
+  worktreeSizeCache.set(path, {
+    expiresAt: now + WORKTREE_SIZE_CACHE_TTL_MS,
+    promise,
+    value: cached?.value ?? null,
+  });
+  return promise;
+}
+
+async function getCachedWorktreeSizeStats(path: string): Promise<WorktreeSizeStats> {
+  const now = Date.now();
+  const cached = worktreeSizeCache.get(path);
+  if (cached?.value && cached.expiresAt > now) {
+    return cached.value;
+  }
+  if (cached?.promise) {
+    return cached.promise;
+  }
+  if (cached?.value) {
+    void refreshCachedWorktreeSizeStats(path, now, cached).catch(() => {
+      // The stale value remains available until the next successful refresh or removal.
+    });
+    return cached.value;
+  }
+
+  pruneWorktreeSizeCache(now);
+  return refreshCachedWorktreeSizeStats(path, now, cached);
 }
 
 const WsRpcLayer = WsRpcGroup.toLayer(
@@ -918,6 +1103,25 @@ const WsRpcLayer = WsRpcGroup.toLayer(
       [WS_METHODS.gitPreparePullRequestThread]: (input) =>
         gitManager.preparePullRequestThread(input),
       [WS_METHODS.gitListBranches]: (input) => git.listBranches(input),
+      [WS_METHODS.gitGetWorktreeStats]: (input) =>
+        Effect.promise(async () => {
+          const uniquePaths = Array.from(new Set(input.paths));
+          return {
+            worktrees: await mapWithConcurrency(
+              uniquePaths,
+              WORKTREE_SIZE_STATS_CONCURRENCY,
+              async (path) => {
+                const stats = await getCachedWorktreeSizeStats(path);
+                return {
+                  path,
+                  sizeBytes: stats.sizeBytes,
+                  exists: stats.exists,
+                  lastModifiedAt: stats.lastModifiedAt,
+                };
+              },
+            ),
+          };
+        }),
       [WS_METHODS.gitListGitHubIssues]: (input) => gitManager.listGitHubIssues(input),
       [WS_METHODS.gitGetGitHubIssueThread]: (input) => gitManager.getGitHubIssueThread(input),
       [WS_METHODS.gitCreateWorktree]: (input) => git.createWorktree(input),

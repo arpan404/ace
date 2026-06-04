@@ -1,4 +1,5 @@
-import type { ThreadId } from "@ace/contracts";
+import type { GitStatusResult, ThreadId } from "@ace/contracts";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
@@ -55,5 +56,59 @@ describe("EnvironmentMiniPanel", () => {
     expect(markup).toContain("Map repository surfaces");
     expect(markup).not.toContain("line-through");
     expect(markup).toContain("lucide-check");
+  });
+
+  it("renders clean changes state after git status loads with no working tree changes", () => {
+    const queryClient = new QueryClient();
+    const cleanGitStatus: GitStatusResult = {
+      branch: "main",
+      hasWorkingTreeChanges: false,
+      workingTree: {
+        files: [],
+        insertions: 0,
+        deletions: 0,
+      },
+      hasUpstream: false,
+      aheadCount: 0,
+      behindCount: 0,
+      pr: null,
+    };
+
+    const markup = renderToStaticMarkup(
+      <QueryClientProvider client={queryClient}>
+        <EnvironmentMiniPanel
+          activeProjectScripts={undefined}
+          activePlan={null}
+          activeSubagentThreadId={null}
+          activeThreadId={"thread-1" as ThreadId}
+          branchToolbarProps={null}
+          gitCwd="/repo"
+          gitStatus={cleanGitStatus}
+          gitStatusError={null}
+          branchList={null}
+          isGitRepo={true}
+          keybindings={[]}
+          layoutMode="inline"
+          onAddProjectScript={() => Promise.resolve()}
+          onDeleteProjectScript={() => Promise.resolve()}
+          onOpenDiffPanel={() => undefined}
+          onOpenEnvironmentSettings={() => undefined}
+          onJumpToMessage={() => undefined}
+          onOpenSummaryPanel={() => undefined}
+          onRunProjectScript={() => undefined}
+          onSelectSubagentThread={() => undefined}
+          onSubagentPanelOpen={() => undefined}
+          onUpdateProjectScript={() => Promise.resolve()}
+          onWorkspaceModeChange={() => undefined}
+          preferredScriptId={null}
+          subagentThreads={[]}
+          workspaceChangeStat={null}
+          workspaceMode="chat"
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(markup).toContain(">Clean<");
+    expect(markup).not.toContain("Checking changes");
   });
 });

@@ -20,6 +20,8 @@ import type {
   GitResolvePullRequestResult,
   GitStatusInput,
   GitStatusResult,
+  GitWorktreeStatsInput,
+  GitWorktreeStatsResult,
   GitWorkingTreeDiffInput,
   GitWorkingTreeDiffResult,
 } from "./git";
@@ -515,6 +517,7 @@ export interface NativeApi {
   git: {
     // Existing branch/worktree API
     listBranches: (input: GitListBranchesInput) => Promise<GitListBranchesResult>;
+    getWorktreeStats: (input: GitWorktreeStatsInput) => Promise<GitWorktreeStatsResult>;
     listGitHubIssues: (input: GitListGitHubIssuesInput) => Promise<GitListGitHubIssuesResult>;
     getGitHubIssueThread: (
       input: GitGetGitHubIssueThreadInput,
