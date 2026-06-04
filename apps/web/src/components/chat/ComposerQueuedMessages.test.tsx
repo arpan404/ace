@@ -160,13 +160,13 @@ describe("ComposerQueuedMessages", () => {
       />,
     );
 
-    expect(markup).toContain(">1</span>");
     expect(markup).toContain(">Goal</span>");
     expect(markup).toContain("Audit the codebase in /repo/apps/server");
     expect(markup).toContain("23,275 tokens");
     expect(markup).toContain('aria-label="Pause goal"');
     expect(markup).toContain('aria-label="Edit goal"');
     expect(markup).toContain('aria-label="Delete goal"');
+    expect(markup).not.toContain(">Queue</span>");
     expect(markup).not.toContain("Clear all");
   });
 

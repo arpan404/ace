@@ -439,6 +439,10 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
 
   const isUltrathinkFrame =
     props.composerProviderState.composerFrameClassName === "ultrathink-frame";
+  const hasQueueContent =
+    (props.showQueue ?? true) &&
+    (props.activeGoal !== null || props.queuedComposerMessages.length > 0);
+  const queueFusesWithComposer = hasQueueContent && props.pendingUserInputs.length === 0;
 
   return (
     <div
@@ -464,7 +468,11 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
             <ComposerQueuedMessages
               activeGoal={props.activeGoal}
               messages={props.queuedComposerMessages}
-              className="mb-2"
+              className={cn(
+                "mb-2",
+                queueFusesWithComposer &&
+                  "mb-0 rounded-b-none border-border/25 border-b-0 bg-input",
+              )}
               {...(props.queuedSteerMessageId !== undefined
                 ? { steerMessageId: props.queuedSteerMessageId }
                 : {})}
@@ -499,6 +507,7 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
         <div
           className={cn(
             "group rounded-xl transition-colors duration-200",
+            queueFusesWithComposer && "rounded-t-none",
             isUltrathinkFrame && "p-px",
             props.composerProviderState.composerFrameClassName,
           )}
@@ -510,9 +519,11 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
           <div
             className={cn(
               "rounded-xl",
+              queueFusesWithComposer && "rounded-t-none",
               isUltrathinkFrame
                 ? "border-0 bg-input transition-all duration-200 focus-within:ring-2 focus-within:ring-ring/40"
                 : "border border-border/25 bg-input transition-[border-color,box-shadow] duration-200 focus-within:border-transparent focus-within:ring-2 focus-within:ring-ring/40 focus-within:shadow-sm",
+              queueFusesWithComposer && !isUltrathinkFrame && "border-t-border/45",
               props.isDragOverComposer && "bg-primary/8",
               props.composerProviderState.composerSurfaceClassName,
             )}

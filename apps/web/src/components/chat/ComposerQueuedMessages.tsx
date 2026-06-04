@@ -474,38 +474,6 @@ export function ComposerQueuedMessages(props: {
         props.className,
       )}
     >
-      <div className="flex items-center justify-between gap-2 border-b border-border/50 px-3 py-2">
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] font-semibold tracking-[0.16em] text-muted-foreground/70 uppercase">
-            Queue
-          </span>
-          <span className="rounded-full border border-border/55 bg-background/85 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-foreground/75">
-            {totalItems}
-          </span>
-        </div>
-        {hasMessages ? (
-          <div className="flex items-center gap-1">
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    className="h-6 rounded-md border border-transparent px-2 text-[10px] font-medium text-muted-foreground/65 hover:border-destructive/20 hover:bg-destructive/10 hover:text-destructive disabled:cursor-default disabled:opacity-45"
-                    onClick={props.onClearAll}
-                    disabled={!hasMessages}
-                    aria-label="Clear queued messages"
-                  />
-                }
-              >
-                Clear all
-              </TooltipTrigger>
-              <TooltipPopup side="top">Clear queue</TooltipPopup>
-            </Tooltip>
-          </div>
-        ) : null}
-      </div>
       <div className="max-h-[168px] overflow-y-auto">
         {props.activeGoal ? (
           <GoalQueueRow

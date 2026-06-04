@@ -38,9 +38,53 @@ function emptyStream(): AsyncIterable<unknown> {
   };
 }
 
+function controllableStream<T>() {
+  const values: Array<T> = [];
+  const waiters: Array<(value: IteratorResult<T>) => void> = [];
+  let closed = false;
+
+  const stream: AsyncIterable<T> = {
+    [Symbol.asyncIterator]() {
+      return {
+        next: async () => {
+          const value = values.shift();
+          if (value !== undefined) {
+            return { value, done: false };
+          }
+          if (closed) {
+            return { value: undefined, done: true };
+          }
+          return new Promise<IteratorResult<T>>((resolve) => {
+            waiters.push(resolve);
+          });
+        },
+      };
+    },
+  };
+
+  return {
+    stream,
+    emit(value: T) {
+      const waiter = waiters.shift();
+      if (waiter) {
+        waiter({ value, done: false });
+        return;
+      }
+      values.push(value);
+    },
+    close() {
+      closed = true;
+      for (const waiter of waiters.splice(0)) {
+        waiter({ value: undefined, done: true });
+      }
+    },
+  };
+}
+
 function makeFakeOpenCodeClient(
   sessionId: string,
   options?: {
+    readonly stream?: AsyncIterable<unknown>;
     readonly fork?: ReturnType<
       typeof vi.fn<
         (input: { readonly sessionID: string; readonly directory: string }) => Promise<{
@@ -99,11 +143,15 @@ function makeFakeOpenCodeClient(
       delete: vi.fn(async () => ({
         error: undefined,
       })),
+      promptAsync: vi.fn(async () => ({
+        error: undefined,
+        data: {},
+      })),
       ...(options?.fork ? { fork: options.fork } : {}),
     },
     event: {
       subscribe: vi.fn(async () => ({
-        stream: emptyStream(),
+        stream: options?.stream ?? emptyStream(),
       })),
     },
   };
@@ -336,6 +384,90 @@ layer("OpenCodeAdapterLive session lifecycle", (it) => {
       });
 
       yield* adapter.stopSession(asThreadId("thread-opencode-approval"));
+      assert.equal(serverClose.mock.calls.length, 1);
+    }),
+  );
+
+  it.effect("maps OpenCode subtask parts into collab agent items", () =>
+    Effect.gen(function* () {
+      const serverClose = vi.fn(async () => undefined);
+      const events = controllableStream<unknown>();
+      const client = makeFakeOpenCodeClient("opencode-session-subtask", {
+        stream: events.stream,
+      });
+      const threadId = asThreadId("thread-opencode-subtask");
+
+      mockedStartOpenCodeServerIsolated.mockResolvedValueOnce({
+        binaryPath: "/bin/opencode",
+        url: "http://127.0.0.1:4016",
+        close: serverClose,
+      });
+      mockedCreateOpenCodeSdkClient.mockReturnValueOnce(
+        client as unknown as ReturnType<typeof createOpenCodeSdkClient>,
+      );
+
+      const adapter = yield* OpenCodeAdapter;
+      const subtaskFiber = yield* Stream.runHead(
+        Stream.filter(
+          adapter.streamEvents,
+          (event) =>
+            event.threadId === threadId &&
+            event.type === "item.completed" &&
+            event.payload.itemType === "collab_agent_tool_call",
+        ),
+      ).pipe(Effect.forkChild);
+
+      yield* adapter.startSession({
+        provider: "opencode",
+        threadId,
+        cwd: "/repo-subtask",
+        runtimeMode: "full-access",
+      });
+      yield* adapter.sendTurn({
+        threadId,
+        input: "Ask a scout subagent to inspect dependencies.",
+      });
+
+      events.emit({
+        type: "message.part.updated",
+        properties: {
+          sessionID: "opencode-session-subtask",
+          part: {
+            id: "part-subtask-1",
+            sessionID: "opencode-session-subtask",
+            messageID: "message-assistant-1",
+            type: "subtask",
+            prompt: "Inspect dependency usage.",
+            description: "Read-only dependency research",
+            agent: "scout",
+            model: {
+              providerID: "openai",
+              modelID: "gpt-5",
+            },
+            command: "@scout Inspect dependency usage.",
+          },
+        },
+      });
+
+      const subtaskEvent = yield* Fiber.join(subtaskFiber);
+      assert.isTrue(Option.isSome(subtaskEvent));
+      if (!Option.isSome(subtaskEvent)) {
+        return;
+      }
+      assert.equal(subtaskEvent.value.type, "item.completed");
+      if (subtaskEvent.value.type !== "item.completed") {
+        return;
+      }
+      assert.deepStrictEqual((subtaskEvent.value.payload.data as { subagent?: unknown }).subagent, {
+        id: "scout",
+        type: "opencode subagent",
+        name: "scout",
+        model: "openai/gpt-5",
+      });
+      assert.equal(subtaskEvent.value.payload.detail, "Inspect dependency usage.");
+
+      events.close();
+      yield* adapter.stopSession(threadId);
       assert.equal(serverClose.mock.calls.length, 1);
     }),
   );

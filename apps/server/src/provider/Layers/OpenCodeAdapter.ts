@@ -15,6 +15,7 @@ import type {
   PermissionRequest as OpenCodeSdkPermissionRequest,
   QuestionRequest as OpenCodeSdkQuestionRequest,
   ReasoningPart as OpenCodeSdkReasoningPart,
+  SubtaskPart as OpenCodeSdkSubtaskPart,
   TextPart as OpenCodeSdkTextPart,
   ToolPart as OpenCodeSdkToolPart,
 } from "@opencode-ai/sdk/v2/client";
@@ -117,6 +118,7 @@ type OpenCodeSessionContext = {
     assistantStarted: boolean;
     toolItems: Map<string, OpenCodeToolItemState>;
     reasoningItems: Map<string, OpenCodeReasoningItemState>;
+    subtaskPartIds: Set<string>;
     usage?: unknown;
     totalCostUsd?: number;
   } | null;
@@ -835,6 +837,41 @@ function buildOpenCodeToolData(
   };
 }
 
+function buildOpenCodeSubtaskData(part: OpenCodeSdkSubtaskPart): Record<string, unknown> {
+  const model =
+    part.model !== undefined ? `${part.model.providerID}/${part.model.modelID}` : undefined;
+  return {
+    partId: part.id,
+    messageId: part.messageID,
+    sessionId: part.sessionID,
+    subagentId: part.agent,
+    agentName: part.agent,
+    agentDisplayName: part.agent,
+    subagentName: part.agent,
+    agentRole: "opencode subagent",
+    subagentType: "opencode subagent",
+    prompt: part.prompt,
+    description: part.description,
+    ...(part.command ? { command: part.command } : {}),
+    ...(model ? { model } : {}),
+    subagent: {
+      id: part.agent,
+      type: "opencode subagent",
+      name: part.agent,
+      ...(model ? { model } : {}),
+    },
+    item: {
+      id: part.id,
+      name: part.agent,
+      agentName: part.agent,
+      prompt: part.prompt,
+      description: part.description,
+      ...(part.command ? { command: part.command } : {}),
+      ...(model ? { model } : {}),
+    },
+  };
+}
+
 function openCodeToolStateCreatedAt(state: OpenCodeSdkToolPart["state"]): string | undefined {
   switch (state.status) {
     case "running":
@@ -1543,6 +1580,33 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
     );
   };
 
+  const handleOpenCodeSubtaskPart = (ctx: OpenCodeSessionContext, part: OpenCodeSdkSubtaskPart) => {
+    const turn = ctx.activeTurn;
+    if (!turn) {
+      return;
+    }
+    if (turn.subtaskPartIds.has(part.id)) {
+      return;
+    }
+    turn.subtaskPartIds.add(part.id);
+    const itemId = RuntimeItemId.makeUnsafe(`opencode-subtask:${part.id}`);
+    const data = buildOpenCodeSubtaskData(part);
+    emit(
+      baseEvent(ctx, {
+        type: "item.completed",
+        turnId: turn.id,
+        itemId,
+        payload: {
+          itemType: "collab_agent_tool_call",
+          status: "completed",
+          title: "Subagent task",
+          detail: part.prompt || part.description || part.agent,
+          data,
+        },
+      }),
+    );
+  };
+
   const handleSsePayload = (ctx: OpenCodeSessionContext, raw: unknown) => {
     if (ctx.stopped) return;
     const event = unwrapOpenCodeSseEvent(raw);
@@ -1656,6 +1720,9 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
             return;
           case "tool":
             handleOpenCodeToolPart(ctx, part);
+            return;
+          case "subtask":
+            handleOpenCodeSubtaskPart(ctx, part);
             return;
           case "step-finish": {
             if (!ctx.activeTurn) {
@@ -2237,6 +2304,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
           assistantStarted: false,
           toolItems: new Map(),
           reasoningItems: new Map(),
+          subtaskPartIds: new Set(),
         };
         ctx.session = {
           ...ctx.session,
