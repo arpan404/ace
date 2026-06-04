@@ -196,6 +196,7 @@ export const ThreadTurnStartRequestedPayload = Schema.Struct({
 export const ThreadSubagentTurnStartRequestedPayload = Schema.Struct({
   threadId: ThreadId,
   subagentThreadId: TrimmedNonEmptyString,
+  forkSourceThreadId: Schema.optional(ThreadId),
   messageId: MessageId,
   text: Schema.String,
   attachments: Schema.Array(UploadChatAttachment).pipe(Schema.withDecodingDefault(() => [])),

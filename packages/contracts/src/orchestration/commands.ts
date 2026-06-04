@@ -212,6 +212,7 @@ export const ThreadSubagentTurnStartCommand = Schema.Struct({
   commandId: CommandId,
   threadId: ThreadId,
   subagentThreadId: TrimmedNonEmptyString,
+  forkSourceThreadId: Schema.optional(ThreadId),
   message: Schema.Struct({
     messageId: MessageId,
     role: Schema.Literal("user"),

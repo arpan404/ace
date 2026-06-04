@@ -789,6 +789,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
+      const isNativeSideConversation = command.forkSourceThreadId !== undefined;
       const subagentMessageEvent: Omit<OrchestrationEvent, "sequence"> = {
         ...withEventBase({
           aggregateKind: "thread",
@@ -814,7 +815,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
               childProviderThreadId: command.subagentThreadId,
               subagent: {
                 id: command.subagentThreadId,
-                type: "codex subagent",
+                type: isNativeSideConversation ? "side chat" : "subagent",
               },
               messageId: command.message.messageId,
             },
@@ -835,6 +836,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         payload: {
           threadId: command.threadId,
           subagentThreadId: command.subagentThreadId,
+          ...(command.forkSourceThreadId !== undefined
+            ? { forkSourceThreadId: command.forkSourceThreadId }
+            : {}),
           messageId: command.message.messageId,
           text: command.message.text,
           attachments: command.message.attachments,

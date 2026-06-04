@@ -1599,22 +1599,58 @@ const make = Effect.gen(function* () {
       return;
     }
     const provider = resolveThreadProvider(thread);
+    const attachments = yield* normalizeUploadChatAttachments({
+      threadId: event.payload.threadId,
+      attachments: event.payload.attachments,
+    });
+
+    if (event.payload.forkSourceThreadId !== undefined) {
+      const sideThreadId = ThreadId.makeUnsafe(event.payload.subagentThreadId);
+      const readModel = yield* orchestrationEngine.getReadModel();
+      const effectiveCwd = resolveThreadWorkspaceCwd({
+        thread,
+        projects: readModel.projects,
+      });
+      const threadTitle = toNonEmptyProviderInput(`${thread.title} side chat`);
+      const desiredModelSelection = event.payload.modelSelection ?? thread.modelSelection;
+
+      yield* providerService.startSession(sideThreadId, {
+        threadId: sideThreadId,
+        provider,
+        ...(effectiveCwd ? { cwd: effectiveCwd } : {}),
+        ...(threadTitle ? { threadTitle } : {}),
+        modelSelection: desiredModelSelection,
+        forkSource: {
+          threadId: event.payload.forkSourceThreadId,
+        },
+        runtimeMode: event.payload.runtimeMode,
+        interactionMode: event.payload.interactionMode,
+      });
+      yield* providerService.sendTurn({
+        threadId: sideThreadId,
+        input: toNonEmptyProviderInput(event.payload.text),
+        ...(attachments.length > 0 ? { attachments } : {}),
+        ...(event.payload.modelSelection !== undefined
+          ? { modelSelection: event.payload.modelSelection }
+          : {}),
+        ...(event.payload.interactionMode !== undefined
+          ? { interactionMode: event.payload.interactionMode }
+          : {}),
+      });
+      return;
+    }
+
     if (provider !== "codex") {
       yield* appendProviderFailureActivity({
         threadId: event.payload.threadId,
         kind: "provider.turn.start.failed",
         summary: "Subagent message failed",
-        detail: `Subagent conversations are only supported for Codex threads. Current provider: '${provider}'.`,
+        detail: `Provider-managed subagent follow-ups require a provider child thread. Current provider: '${provider}'.`,
         turnId: null,
         createdAt: event.payload.createdAt,
       });
       return;
     }
-
-    const attachments = yield* normalizeUploadChatAttachments({
-      threadId: event.payload.threadId,
-      attachments: event.payload.attachments,
-    });
 
     yield* sendTurnForThread({
       threadId: event.payload.threadId,

@@ -8,6 +8,7 @@ import {
   CommandId,
   MessageId,
   type OrchestrationEvent,
+  type OrchestrationReadModel,
   type OrchestrationProposedPlanId,
   CheckpointRef,
   isToolLifecycleItemType,
@@ -15,6 +16,7 @@ import {
   type ThreadTokenUsageSnapshot,
   TurnId,
   type OrchestrationThreadActivity,
+  type OrchestrationThread,
   type ProviderRuntimeEvent,
   type ProviderSessionConfigOption,
   type ProviderSlashCommand,
@@ -1312,6 +1314,68 @@ function subagentThreadIdFromRuntimePayload(payload: Record<string, unknown>): s
 
 function isSubagentRuntimePayload(payload: Record<string, unknown>): boolean {
   return subagentThreadIdFromRuntimePayload(payload) !== undefined;
+}
+
+function sideConversationPayloadFromActivity(
+  activity: OrchestrationThreadActivity,
+): { id: string; type?: string | undefined; name?: string | undefined } | null {
+  const payload = asRecord(activity.payload);
+  const subagent = asRecord(payload?.subagent);
+  const childProviderThreadId = asTrimmedString(payload?.childProviderThreadId);
+  const subagentId = asTrimmedString(subagent?.id) ?? childProviderThreadId;
+  if (!subagentId) {
+    return null;
+  }
+  const type = asTrimmedString(subagent?.type);
+  if (type !== "side chat") {
+    return null;
+  }
+  return {
+    id: subagentId,
+    type,
+    ...(asTrimmedString(subagent?.name) ? { name: asTrimmedString(subagent?.name)! } : {}),
+  };
+}
+
+function findSideConversationRuntimeRoute(
+  readModel: OrchestrationReadModel,
+  runtimeThreadId: ThreadId,
+): { thread: OrchestrationThread; subagent: { id: string; type?: string; name?: string } } | null {
+  for (const thread of readModel.threads) {
+    for (const activity of thread.activities) {
+      const subagent = sideConversationPayloadFromActivity(activity);
+      if (subagent?.id === runtimeThreadId) {
+        return { thread, subagent };
+      }
+    }
+  }
+  return null;
+}
+
+function withSideConversationRuntimePayload(
+  event: ProviderRuntimeEvent,
+  subagent: { id: string; type?: string | undefined; name?: string | undefined },
+): ProviderRuntimeEvent {
+  const payload = asRecord(event.payload);
+  if (!payload) {
+    return event;
+  }
+  const data = asRecord(payload.data);
+  return {
+    ...event,
+    payload: {
+      ...payload,
+      data: {
+        ...(data ?? {}),
+        childProviderThreadId: subagent.id,
+        subagent: {
+          id: subagent.id,
+          type: subagent.type ?? "side chat",
+          ...(subagent.name ? { name: subagent.name } : {}),
+        },
+      },
+    },
+  } as ProviderRuntimeEvent;
 }
 
 function subagentTaskIdFromEvent(
