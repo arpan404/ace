@@ -1,4 +1,4 @@
-import { ThreadId } from "@ace/contracts";
+import { ProjectId, ThreadId } from "@ace/contracts";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { useCallback } from "react";
@@ -7,6 +7,7 @@ import { getFallbackThreadIdAfterDelete } from "../lib/sidebar";
 import { reportBackgroundError } from "../lib/async";
 import { useComposerDraftStore } from "../composerDraftStore";
 import { useHandleNewThread } from "./useHandleNewThread";
+import { resolveConnectionForProjectId } from "../lib/connectionRouting";
 import { gitRemoveWorktreeMutationOptions } from "../lib/gitReactQuery";
 import { newCommandId } from "../lib/utils";
 import { readNativeApi } from "../nativeApi";
@@ -20,6 +21,7 @@ import {
   normalizeWorktreePath,
 } from "../worktreeCleanup";
 import { toastManager } from "../components/ui/toast";
+import type { SidebarThreadSummary, Thread } from "../types";
 import { useSetting } from "./useSettings";
 
 type DeleteThreadOptions = {
@@ -28,11 +30,40 @@ type DeleteThreadOptions = {
 };
 
 type DeleteWorktreeAndRelatedDataInput = {
+  readonly connectionUrl?: string | null;
+  readonly projectId: ProjectId;
   readonly projectCwd: string;
   readonly skipConfirmation?: boolean;
   readonly suppressSuccessToast?: boolean;
   readonly worktreePath: string;
 };
+
+type ThreadActionEntry = Pick<
+  Thread | SidebarThreadSummary,
+  "createdAt" | "id" | "projectId" | "session" | "title" | "updatedAt" | "worktreePath"
+>;
+
+function getThreadActionEntries(input: {
+  readonly sidebarThreadsById: Readonly<Record<string, SidebarThreadSummary>>;
+  readonly threads: readonly Thread[];
+}): ThreadActionEntry[] {
+  const entriesById = new Map<ThreadId, ThreadActionEntry>();
+  for (const sidebarThread of Object.values(input.sidebarThreadsById)) {
+    entriesById.set(sidebarThread.id, sidebarThread);
+  }
+  for (const thread of input.threads) {
+    entriesById.set(thread.id, thread);
+  }
+  return [...entriesById.values()];
+}
+
+function getProjectThreadActionEntries(input: {
+  readonly projectId: ProjectId;
+  readonly sidebarThreadsById: Readonly<Record<string, SidebarThreadSummary>>;
+  readonly threads: readonly Thread[];
+}): ThreadActionEntry[] {
+  return getThreadActionEntries(input).filter((thread) => thread.projectId === input.projectId);
+}
 
 export function useThreadActions() {
   const sidebarThreadSortOrder = useSetting("sidebarThreadSortOrder");
@@ -50,6 +81,19 @@ export function useThreadActions() {
   const { handleNewThread } = useHandleNewThread();
   const queryClient = useQueryClient();
   const removeWorktreeMutation = useMutation(gitRemoveWorktreeMutationOptions({ queryClient }));
+  const clearDraftsForDeletedWorktree = useCallback((rawWorktreePath: string) => {
+    const worktreePath = normalizeWorktreePath(rawWorktreePath);
+    if (!worktreePath) return;
+
+    const draftStore = useComposerDraftStore.getState();
+    const draftThreadIds = Object.entries(draftStore.draftThreadsByThreadId)
+      .filter(([, draftThread]) => normalizeWorktreePath(draftThread.worktreePath) === worktreePath)
+      .map(([threadId]) => ThreadId.makeUnsafe(threadId));
+
+    for (const draftThreadId of draftThreadIds) {
+      draftStore.clearDraftThread(draftThreadId);
+    }
+  }, []);
 
   const archiveThread = useCallback(
     async (threadId: ThreadId) => {
@@ -88,15 +132,16 @@ export function useThreadActions() {
     async (threadId: ThreadId, opts: DeleteThreadOptions = {}) => {
       const api = readNativeApi();
       if (!api) return;
-      const { projects, threads } = useStore.getState();
-      const thread = threads.find((entry) => entry.id === threadId);
+      const { projects, sidebarThreadsById, threads } = useStore.getState();
+      const threadEntries = getThreadActionEntries({ sidebarThreadsById, threads });
+      const thread = threadEntries.find((entry) => entry.id === threadId);
       if (!thread) return;
       const threadProject = projects.find((project) => project.id === thread.projectId);
       const deletedIds = opts.deletedThreadIds;
       const survivingThreads =
         deletedIds && deletedIds.size > 0
-          ? threads.filter((entry) => entry.id === threadId || !deletedIds.has(entry.id))
-          : threads;
+          ? threadEntries.filter((entry) => entry.id === threadId || !deletedIds.has(entry.id))
+          : threadEntries;
       const orphanedWorktreePath =
         opts.worktreeRemovalPrompt === "skip"
           ? null
@@ -150,7 +195,7 @@ export function useThreadActions() {
       const deletedThreadIds = opts.deletedThreadIds ?? new Set<ThreadId>();
       const shouldNavigateToFallback = routeThreadId === threadId;
       const fallbackThreadId = getFallbackThreadIdAfterDelete({
-        threads,
+        threads: threadEntries,
         deletedThreadId: threadId,
         deletedThreadIds,
         sortOrder: sidebarThreadSortOrder,
@@ -182,10 +227,12 @@ export function useThreadActions() {
 
       try {
         await removeWorktreeMutation.mutateAsync({
+          connectionUrl: resolveConnectionForProjectId(thread.projectId) ?? null,
           cwd: threadProject.cwd,
           path: orphanedWorktreePath,
           force: true,
         });
+        clearDraftsForDeletedWorktree(orphanedWorktreePath);
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error removing worktree.";
         console.error("Failed to remove orphaned worktree after thread deletion", {
@@ -204,6 +251,7 @@ export function useThreadActions() {
     [
       clearComposerDraftForThread,
       clearProjectDraftThreadById,
+      clearDraftsForDeletedWorktree,
       clearTerminalState,
       sidebarThreadSortOrder,
       navigate,
@@ -214,6 +262,8 @@ export function useThreadActions() {
 
   const deleteWorktreeAndRelatedData = useCallback(
     async ({
+      connectionUrl,
+      projectId,
       projectCwd,
       skipConfirmation = false,
       suppressSuccessToast = false,
@@ -221,12 +271,17 @@ export function useThreadActions() {
     }: DeleteWorktreeAndRelatedDataInput) => {
       const api = readNativeApi();
       if (!api) return;
-      const { threads } = useStore.getState();
+      const { sidebarThreadsById, threads } = useStore.getState();
+      const threadEntries = getProjectThreadActionEntries({
+        projectId,
+        sidebarThreadsById,
+        threads,
+      });
       const worktreePath = normalizeWorktreePath(rawWorktreePath);
       if (!worktreePath) return;
 
-      const relatedThreadIds = getWorktreeLinkedThreadIds(threads, worktreePath);
-      const relatedThreads = threads.filter((thread) => relatedThreadIds.includes(thread.id));
+      const relatedThreadIds = getWorktreeLinkedThreadIds(threadEntries, worktreePath);
+      const relatedThreads = threadEntries.filter((thread) => relatedThreadIds.includes(thread.id));
       const activeThread = relatedThreads.find(isWorktreeThreadSessionActive);
 
       const displayWorktreePath = formatWorktreePathForDisplay(worktreePath);
@@ -268,10 +323,12 @@ export function useThreadActions() {
 
       try {
         await removeWorktreeMutation.mutateAsync({
+          connectionUrl: connectionUrl ?? resolveConnectionForProjectId(projectId) ?? null,
           cwd: projectCwd,
           path: worktreePath,
           force: true,
         });
+        clearDraftsForDeletedWorktree(worktreePath);
         if (!suppressSuccessToast) {
           toastManager.add({
             type: "success",
@@ -298,7 +355,7 @@ export function useThreadActions() {
         });
       }
     },
-    [deleteThread, removeWorktreeMutation],
+    [clearDraftsForDeletedWorktree, deleteThread, removeWorktreeMutation],
   );
 
   const deleteWorktreeAndRelatedThreads = useCallback(
@@ -309,6 +366,8 @@ export function useThreadActions() {
       const threadProject = projects.find((project) => project.id === thread.projectId);
       if (!threadProject) return;
       await deleteWorktreeAndRelatedData({
+        connectionUrl: resolveConnectionForProjectId(thread.projectId) ?? null,
+        projectId: thread.projectId,
         projectCwd: threadProject.cwd,
         worktreePath: thread.worktreePath ?? "",
       });

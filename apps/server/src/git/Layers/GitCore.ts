@@ -19,7 +19,11 @@ import {
 import { execFileSync } from "node:child_process";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 
-import { GitCommandError, type GitWorkingTreeFileStatus } from "@ace/contracts";
+import {
+  GitCommandError,
+  type GitRemoveWorktreeInput,
+  type GitWorkingTreeFileStatus,
+} from "@ace/contracts";
 import {
   GitCore,
   type ExecuteGitProgress,
@@ -1060,6 +1064,12 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
       }),
     );
 
+  const pathExists = (entryPath: string): Effect.Effect<boolean, never> =>
+    fileSystem.stat(entryPath).pipe(
+      Effect.map(() => true),
+      Effect.catch(() => Effect.succeed(false)),
+    );
+
   const runGit = (
     operation: string,
     cwd: string,
@@ -1969,6 +1979,11 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
     });
 
   const listBranches: GitCoreShape["listBranches"] = Effect.fn("listBranches")(function* (input) {
+    const cwdExists = yield* pathExists(input.cwd);
+    if (!cwdExists) {
+      return { branches: [], isRepo: false, hasOriginRemote: false };
+    }
+
     const branchRecencyPromise = readBranchRecency(input.cwd).pipe(
       Effect.catch(() => Effect.succeed(new Map<string, number>())),
     );
@@ -2227,6 +2242,56 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
       input.branch,
     ]);
 
+  const resolveWorktreeGitDir = Effect.fn("resolveWorktreeGitDir")(function* (
+    worktreePath: string,
+  ) {
+    const gitEntryPath = path.join(worktreePath, ".git");
+    const gitEntry = yield* fileSystem.readFileString(gitEntryPath).pipe(
+      Effect.map((contents) => contents.trim()),
+      Effect.catch(() => Effect.succeed(null)),
+    );
+
+    if (gitEntry === null) {
+      const gitDirectoryExists = yield* pathExists(gitEntryPath);
+      return gitDirectoryExists ? gitEntryPath : null;
+    }
+
+    const gitdirPrefix = "gitdir:";
+    if (!gitEntry.toLowerCase().startsWith(gitdirPrefix)) {
+      return null;
+    }
+
+    const rawGitDir = gitEntry.slice(gitdirPrefix.length).trim();
+    if (rawGitDir.length === 0) {
+      return null;
+    }
+    return path.isAbsolute(rawGitDir) ? rawGitDir : path.resolve(worktreePath, rawGitDir);
+  });
+
+  const resolveWorktreeRemoveCommand = Effect.fn("resolveWorktreeRemoveCommand")(function* (
+    input: GitRemoveWorktreeInput,
+    args: readonly string[],
+  ) {
+    if (yield* pathExists(input.cwd)) {
+      return { cwd: input.cwd, args };
+    }
+
+    const targetGitDir = yield* resolveWorktreeGitDir(input.path);
+    if (targetGitDir === null) {
+      return { cwd: input.cwd, args };
+    }
+
+    const targetGitParent = path.dirname(targetGitDir);
+    const commonGitDir =
+      path.basename(targetGitParent) === "worktrees" ? path.dirname(targetGitParent) : targetGitDir;
+    const candidateCwd = path.basename(commonGitDir) === ".git" ? path.dirname(commonGitDir) : ".";
+    const cwd = (yield* pathExists(candidateCwd)) ? candidateCwd : ".";
+    return {
+      cwd,
+      args: ["--git-dir", commonGitDir, ...args],
+    };
+  });
+
   const removeWorktree: GitCoreShape["removeWorktree"] = Effect.fn("removeWorktree")(
     function* (input) {
       const args = ["worktree", "remove"];
@@ -2234,16 +2299,17 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
         args.push("--force");
       }
       args.push(input.path);
-      yield* executeGit("GitCore.removeWorktree", input.cwd, args, {
+      const command = yield* resolveWorktreeRemoveCommand(input, args);
+      yield* executeGit("GitCore.removeWorktree", command.cwd, command.args, {
         timeoutMs: 15_000,
         fallbackErrorMessage: "git worktree remove failed",
       }).pipe(
         Effect.mapError((error) =>
           createGitCommandError(
             "GitCore.removeWorktree",
-            input.cwd,
-            args,
-            `${commandLabel(args)} failed (cwd: ${input.cwd}): ${error instanceof Error ? error.message : String(error)}`,
+            command.cwd,
+            command.args,
+            `${commandLabel(command.args)} failed (cwd: ${command.cwd}): ${error instanceof Error ? error.message : String(error)}`,
             error,
           ),
         ),

@@ -93,6 +93,7 @@ import {
 } from "../../worktreeCleanup";
 import { BROWSER_SEARCH_ENGINE_OPTIONS } from "../../lib/browser/types";
 import { cn, newCommandId } from "../../lib/utils";
+import { resolveConnectionForProjectId } from "../../lib/connectionRouting";
 import {
   readAgentAttentionNotificationPermission,
   requestAgentAttentionNotificationPermission,
@@ -3661,7 +3662,8 @@ function ProjectEnvironmentWorktrees({
   readonly project: Project;
   readonly threads: readonly Thread[];
 }) {
-  const branchesQuery = useQuery(gitBranchesQueryOptions(project.cwd));
+  const projectConnectionUrl = resolveConnectionForProjectId(project.id) ?? null;
+  const branchesQuery = useQuery(gitBranchesQueryOptions(project.cwd, projectConnectionUrl));
   const navigate = useNavigate();
   const settings = useSettings();
   const { updateSettings } = useUpdateSettings();
@@ -3705,7 +3707,9 @@ function ProjectEnvironmentWorktrees({
     [branchesQuery.data?.branches, project, projectThreads],
   );
   const worktreePaths = useMemo(() => worktrees.map((worktree) => worktree.path), [worktrees]);
-  const statsQuery = useQuery(gitWorktreeStatsQueryOptions({ paths: worktreePaths }));
+  const statsQuery = useQuery(
+    gitWorktreeStatsQueryOptions({ connectionUrl: projectConnectionUrl, paths: worktreePaths }),
+  );
   const statsByPath = useMemo(() => {
     const stats = new Map<string, EnvironmentWorktreeStats>();
     for (const worktreeStats of statsQuery.data?.worktrees ?? []) {
@@ -3879,6 +3883,8 @@ function ProjectEnvironmentWorktrees({
     try {
       for (const worktree of cleanupCandidates) {
         await deleteWorktreeAndRelatedData({
+          connectionUrl: projectConnectionUrl,
+          projectId: project.id,
           projectCwd: project.cwd,
           skipConfirmation: true,
           suppressSuccessToast: true,
@@ -3905,6 +3911,8 @@ function ProjectEnvironmentWorktrees({
     deleteWorktreeAndRelatedData,
     isCleaningWorktrees,
     project.cwd,
+    project.id,
+    projectConnectionUrl,
   ]);
   const handleDeleteSelectedWorktrees = useCallback(async () => {
     const api = readNativeApi();
@@ -3931,6 +3939,8 @@ function ProjectEnvironmentWorktrees({
     try {
       for (const worktree of selectedWorktrees) {
         await deleteWorktreeAndRelatedData({
+          connectionUrl: projectConnectionUrl,
+          projectId: project.id,
           projectCwd: project.cwd,
           skipConfirmation: true,
           suppressSuccessToast: true,
@@ -3955,6 +3965,8 @@ function ProjectEnvironmentWorktrees({
     deleteWorktreeAndRelatedData,
     isDeletingSelectedWorktrees,
     project.cwd,
+    project.id,
+    projectConnectionUrl,
     selectedLinkedChatCount,
     selectedStorageBytes,
     selectedWorktrees,
@@ -4234,6 +4246,8 @@ function ProjectEnvironmentWorktrees({
                               disabled={isActive}
                               onClick={() =>
                                 void deleteWorktreeAndRelatedData({
+                                  connectionUrl: projectConnectionUrl,
+                                  projectId: project.id,
                                   projectCwd: project.cwd,
                                   worktreePath: worktree.path,
                                 })
@@ -4557,7 +4571,8 @@ function EnvironmentProjectRow({
   readonly project: Project;
 }) {
   const navigate = useNavigate();
-  const branchesQuery = useQuery(gitBranchesQueryOptions(project.cwd));
+  const projectConnectionUrl = resolveConnectionForProjectId(project.id) ?? null;
+  const branchesQuery = useQuery(gitBranchesQueryOptions(project.cwd, projectConnectionUrl));
   const worktreePaths = useMemo(
     () =>
       getProjectWorktreePaths({
@@ -4566,7 +4581,9 @@ function EnvironmentProjectRow({
       }),
     [branchesQuery.data?.branches, project],
   );
-  const statsQuery = useQuery(gitWorktreeStatsQueryOptions({ paths: worktreePaths }));
+  const statsQuery = useQuery(
+    gitWorktreeStatsQueryOptions({ connectionUrl: projectConnectionUrl, paths: worktreePaths }),
+  );
   const setupScript = setupProjectScript(project.scripts);
   const environmentCount = Object.keys(setupScript?.env ?? {}).length;
   const totalStorageBytes =

@@ -8,7 +8,11 @@ export function normalizeWorktreePath(path: string | null): string | null {
   if (!trimmed) {
     return null;
   }
-  return trimmed;
+  const normalizedSeparators = trimmed.replace(/\\/g, "/");
+  if (normalizedSeparators === "/" || /^[A-Za-z]:\/$/.test(normalizedSeparators)) {
+    return normalizedSeparators;
+  }
+  return normalizedSeparators.replace(/\/+$/, "");
 }
 
 export function getOrphanedWorktreePathForThread(

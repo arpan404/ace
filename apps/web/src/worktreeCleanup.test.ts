@@ -109,6 +109,26 @@ describe("getWorktreeLinkedThreadIds", () => {
     expect(result).toEqual([ThreadId.makeUnsafe("thread-1"), ThreadId.makeUnsafe("thread-2")]);
   });
 
+  it("matches worktree paths with trailing slashes and windows separators", () => {
+    const threads = [
+      makeThread({
+        id: ThreadId.makeUnsafe("thread-1"),
+        worktreePath: "/tmp/repo/worktrees/feature-a/",
+      }),
+      makeThread({
+        id: ThreadId.makeUnsafe("thread-2"),
+        worktreePath: "C:\\Users\\ace\\worktrees\\feature-b",
+      }),
+    ];
+
+    expect(getWorktreeLinkedThreadIds(threads, "/tmp/repo/worktrees/feature-a")).toEqual([
+      ThreadId.makeUnsafe("thread-1"),
+    ]);
+    expect(getWorktreeLinkedThreadIds(threads, "C:/Users/ace/worktrees/feature-b/")).toEqual([
+      ThreadId.makeUnsafe("thread-2"),
+    ]);
+  });
+
   it("returns an empty list when the path is blank", () => {
     const result = getWorktreeLinkedThreadIds([makeThread()], " ");
 

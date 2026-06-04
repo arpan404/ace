@@ -127,6 +127,36 @@ type WorktreeSizeCacheEntry = {
 const worktreeSizeCache = new Map<string, WorktreeSizeCacheEntry>();
 const execFileAsync = promisify(execFile);
 
+async function getDirectorySizeBytesFromPlatform(path: string): Promise<number | null> {
+  if (process.platform === "win32") {
+    const script = [
+      "$ErrorActionPreference = 'SilentlyContinue'",
+      "$total = 0",
+      "Get-ChildItem -LiteralPath $args[0] -Recurse -Force -File | ForEach-Object { $total += $_.Length }",
+      "[Console]::WriteLine($total)",
+    ].join("; ");
+    const { stdout } = await execFileAsync(
+      "powershell.exe",
+      ["-NoProfile", "-NonInteractive", "-Command", script, path],
+      {
+        encoding: "utf8",
+        maxBuffer: 1024 * 1024,
+        timeout: WORKTREE_SIZE_DU_TIMEOUT_MS,
+      },
+    );
+    const sizeBytes = Number.parseInt(String(stdout).trim(), 10);
+    return Number.isFinite(sizeBytes) && sizeBytes >= 0 ? sizeBytes : null;
+  }
+
+  const { stdout } = await execFileAsync("du", ["-sk", path], {
+    encoding: "utf8",
+    maxBuffer: 1024 * 1024,
+    timeout: WORKTREE_SIZE_DU_TIMEOUT_MS,
+  });
+  const sizeKiB = Number.parseInt(String(stdout).trim().split(/\s+/)[0] ?? "", 10);
+  return Number.isFinite(sizeKiB) && sizeKiB >= 0 ? sizeKiB * 1024 : null;
+}
+
 function normalizeStreamIdentity(input: {
   readonly clientSessionId?: string | undefined;
   readonly connectionId?: string | undefined;
@@ -281,17 +311,12 @@ async function getDirectorySizeBytes(path: string): Promise<WorktreeSizeStats> {
   }
 
   try {
-    const { stdout } = await execFileAsync("du", ["-sk", path], {
-      encoding: "utf8",
-      maxBuffer: 1024 * 1024,
-      timeout: WORKTREE_SIZE_DU_TIMEOUT_MS,
-    });
-    const sizeKiB = Number.parseInt(String(stdout).trim().split(/\s+/)[0] ?? "", 10);
-    if (Number.isFinite(sizeKiB) && sizeKiB >= 0) {
+    const sizeBytes = await getDirectorySizeBytesFromPlatform(path);
+    if (sizeBytes !== null) {
       return {
         exists: true,
         lastModifiedAt: new Date(entryStat.mtimeMs).toISOString(),
-        sizeBytes: sizeKiB * 1024,
+        sizeBytes,
       };
     }
   } catch {
