@@ -94,10 +94,6 @@ export const Route = createRootRouteWithContext<{
 });
 
 function RootRouteView() {
-  const navigate = useNavigate();
-  const showErrorDemo = useLocation({
-    select: (location) => new URLSearchParams(location.searchStr).get("aceErrorDemo") === "1",
-  });
   const detachedWindowSearch = useLocation({
     select: (location) => {
       const searchParams = new URLSearchParams(location.searchStr);
@@ -121,17 +117,6 @@ function RootRouteView() {
       return null;
     },
   });
-
-  if (showErrorDemo) {
-    return (
-      <RootRouteErrorView
-        error={new Error("Demo error.")}
-        reset={() => {
-          void navigate({ to: "/", replace: true });
-        }}
-      />
-    );
-  }
 
   if (detachedWindowSearch?.kind === "browser") {
     return <DetachedBrowserWindow search={detachedWindowSearch} />;
