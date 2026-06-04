@@ -93,6 +93,9 @@ import {
   WorkspaceEditorDefinitionError,
   WorkspaceEditorDefinitionInput,
   WorkspaceEditorDefinitionResult,
+  WorkspaceEditorHoverError,
+  WorkspaceEditorHoverInput,
+  WorkspaceEditorHoverResult,
   WorkspaceEditorReferencesError,
   WorkspaceEditorReferencesInput,
   WorkspaceEditorReferencesResult,
@@ -160,6 +163,7 @@ export const WS_METHODS = {
   workspaceEditorCloseBuffer: "workspaceEditor.closeBuffer",
   workspaceEditorComplete: "workspaceEditor.complete",
   workspaceEditorDefinition: "workspaceEditor.definition",
+  workspaceEditorHover: "workspaceEditor.hover",
   workspaceEditorReferences: "workspaceEditor.references",
 
   // Shell methods
@@ -395,6 +399,12 @@ export const WsWorkspaceEditorDefinitionRpc = Rpc.make(WS_METHODS.workspaceEdito
   payload: WorkspaceEditorDefinitionInput,
   success: WorkspaceEditorDefinitionResult,
   error: WorkspaceEditorDefinitionError,
+});
+
+export const WsWorkspaceEditorHoverRpc = Rpc.make(WS_METHODS.workspaceEditorHover, {
+  payload: WorkspaceEditorHoverInput,
+  success: WorkspaceEditorHoverResult,
+  error: WorkspaceEditorHoverError,
 });
 
 export const WsWorkspaceEditorReferencesRpc = Rpc.make(WS_METHODS.workspaceEditorReferences, {
@@ -662,6 +672,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsWorkspaceEditorCloseBufferRpc,
   WsWorkspaceEditorCompleteRpc,
   WsWorkspaceEditorDefinitionRpc,
+  WsWorkspaceEditorHoverRpc,
   WsWorkspaceEditorReferencesRpc,
   WsShellOpenInEditorRpc,
   WsShellRevealInFileManagerRpc,

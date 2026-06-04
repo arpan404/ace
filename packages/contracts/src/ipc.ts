@@ -50,6 +50,8 @@ import type {
   WorkspaceEditorCompleteResult,
   WorkspaceEditorDefinitionInput,
   WorkspaceEditorDefinitionResult,
+  WorkspaceEditorHoverInput,
+  WorkspaceEditorHoverResult,
   WorkspaceEditorReferencesInput,
   WorkspaceEditorReferencesResult,
   WorkspaceEditorSyncBufferInput,
@@ -496,6 +498,7 @@ export interface NativeApi {
     ) => Promise<WorkspaceEditorCloseBufferResult>;
     complete: (input: WorkspaceEditorCompleteInput) => Promise<WorkspaceEditorCompleteResult>;
     definition: (input: WorkspaceEditorDefinitionInput) => Promise<WorkspaceEditorDefinitionResult>;
+    hover: (input: WorkspaceEditorHoverInput) => Promise<WorkspaceEditorHoverResult>;
     references: (input: WorkspaceEditorReferencesInput) => Promise<WorkspaceEditorReferencesResult>;
   };
   shell: {

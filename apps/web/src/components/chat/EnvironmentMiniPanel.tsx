@@ -233,6 +233,7 @@ export const EnvironmentMiniPanel = forwardRef<
     activeSubagentThreadId: string | null;
     activeThreadId: ThreadId;
     branchToolbarProps: ComponentProps<typeof BranchToolbar> | null;
+    editorStateInstanceId: string;
     gitCwd: string | null;
     gitStatus: GitStatusResult | null;
     gitStatusError: Error | null;
@@ -441,6 +442,7 @@ export const EnvironmentMiniPanel = forwardRef<
               activeThreadId={props.activeThreadId}
               branchList={props.branchList}
               connectionUrl={props.branchToolbarProps?.connectionUrl ?? null}
+              editorStateInstanceId={props.editorStateInstanceId}
               gitCwd={props.gitCwd}
               gitStatus={props.gitStatus}
               gitStatusError={props.gitStatusError}

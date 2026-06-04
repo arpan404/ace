@@ -84,9 +84,6 @@ export function decodeClientSettingsPatch(rawPatch: Record<string, unknown>): Cl
       case "editorLineNumbers":
         patch.editorLineNumbers = Schema.decodeUnknownSync(EditorLineNumbers)(value);
         break;
-      case "editorMinimap":
-        patch.editorMinimap = Schema.decodeUnknownSync(Schema.Boolean)(value);
-        break;
       case "editorNeovimMode":
         patch.editorNeovimMode = Schema.decodeUnknownSync(Schema.Boolean)(value);
         break;
@@ -438,10 +435,6 @@ export function buildLegacyClientSettingsMigrationPatch(
 
   if (Schema.is(EditorLineNumbers)(legacySettings.editorLineNumbers)) {
     patch.editorLineNumbers = legacySettings.editorLineNumbers;
-  }
-
-  if (Predicate.isBoolean(legacySettings.editorMinimap)) {
-    patch.editorMinimap = legacySettings.editorMinimap;
   }
 
   if (Predicate.isBoolean(legacySettings.editorNeovimMode)) {

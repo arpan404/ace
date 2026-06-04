@@ -128,6 +128,7 @@ describe("BrowserTabWebview lifecycle", () => {
           </button>
           <BrowserTabWebview
             active
+            browserPartition="persist:ace-browser:test"
             designerModeActive={false}
             designerTool="area-comment"
             onContextMenuFallbackRequest={() => undefined}
@@ -200,6 +201,7 @@ describe("BrowserTabWebview lifecycle", () => {
       <div style={{ height: "320px", width: "480px" }}>
         <BrowserTabWebview
           active
+          browserPartition="persist:ace-browser:test"
           onContextMenuFallbackRequest={() => undefined}
           onHandleChange={() => undefined}
           onOpenUrlInNewTab={onOpenUrlInNewTab}
@@ -268,6 +270,7 @@ describe("BrowserTabWebview lifecycle", () => {
       <div style={{ height: "320px", width: "480px" }}>
         <BrowserTabWebview
           active
+          browserPartition="persist:ace-browser:test"
           onContextMenuFallbackRequest={() => undefined}
           onHandleChange={() => undefined}
           onSnapshotChange={() => undefined}

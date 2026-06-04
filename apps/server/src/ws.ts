@@ -34,6 +34,7 @@ import {
   WorkspaceEditorCloseBufferError,
   WorkspaceEditorCompleteError,
   WorkspaceEditorDefinitionError,
+  WorkspaceEditorHoverError,
   WorkspaceEditorReferencesError,
   WorkspaceEditorSyncBufferError,
   WS_METHODS,
@@ -1047,6 +1048,21 @@ const WsRpcLayer = WsRpcGroup.toLayer(
                 ? cause.message
                 : "Failed to resolve workspace definitions.";
             return new WorkspaceEditorDefinitionError({
+              message,
+              cause,
+            });
+          }),
+        ),
+      [WS_METHODS.workspaceEditorHover]: (input) =>
+        workspaceEditor.hover(input).pipe(
+          Effect.mapError((cause) => {
+            const message = Schema.is(WorkspacePathOutsideRootError)(cause)
+              ? "Workspace file path must stay within the project root."
+              : Schema.is(WorkspaceRootNotExistsError)(cause) ||
+                  Schema.is(WorkspaceRootNotDirectoryError)(cause)
+                ? cause.message
+                : "Failed to resolve workspace hover.";
+            return new WorkspaceEditorHoverError({
               message,
               cause,
             });

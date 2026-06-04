@@ -58,17 +58,11 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.editorLineNumbers !== DEFAULT_UNIFIED_SETTINGS.editorLineNumbers
         ? ["Editor line numbers"]
         : []),
-      ...(settings.editorMinimap !== DEFAULT_UNIFIED_SETTINGS.editorMinimap
-        ? ["Editor minimap"]
-        : []),
       ...(settings.editorRenderWhitespace !== DEFAULT_UNIFIED_SETTINGS.editorRenderWhitespace
         ? ["Editor whitespace"]
         : []),
       ...(settings.editorStickyScroll !== DEFAULT_UNIFIED_SETTINGS.editorStickyScroll
         ? ["Editor sticky scroll"]
-        : []),
-      ...(settings.editorSuggestions !== DEFAULT_UNIFIED_SETTINGS.editorSuggestions
-        ? ["Editor suggestions"]
         : []),
       ...(settings.editorWordWrap !== DEFAULT_UNIFIED_SETTINGS.editorWordWrap
         ? ["Editor line wrapping"]
@@ -139,10 +133,8 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.providerCliMaxOpen,
       settings.diffWordWrap,
       settings.editorLineNumbers,
-      settings.editorMinimap,
       settings.editorRenderWhitespace,
       settings.editorStickyScroll,
-      settings.editorSuggestions,
       settings.editorWordWrap,
       settings.enableAssistantStreaming,
       settings.notifyOnAgentCompletion,

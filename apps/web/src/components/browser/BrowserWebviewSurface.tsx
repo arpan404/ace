@@ -38,7 +38,6 @@ import {
   type BrowserTabSnapshotOptions,
   type BrowserTabSnapshot,
   type BrowserWebview,
-  IN_APP_BROWSER_PARTITION,
 } from "~/lib/browser/types";
 import {
   normalizeBrowserHttpUrl,
@@ -1574,6 +1573,7 @@ function BrowserLoadErrorPage(props: { failure: BrowserLoadFailure; onRetry: () 
 
 function useBrowserTabWebviewComponent(props: {
   active: boolean;
+  browserPartition: string;
   connectionUrl?: string | null | undefined;
   designerModeActive?: boolean;
   designerTool?: BrowserDesignerTool;
@@ -1598,6 +1598,7 @@ function useBrowserTabWebviewComponent(props: {
 }) {
   const {
     active,
+    browserPartition,
     connectionUrl,
     designerModeActive = false,
     designerTool = "area-comment",
@@ -2412,7 +2413,7 @@ function useBrowserTabWebviewComponent(props: {
 
     const webview = document.createElement("webview") as BrowserWebview;
     webview.className = "size-full bg-background";
-    webview.setAttribute("partition", IN_APP_BROWSER_PARTITION);
+    webview.setAttribute("partition", browserPartition);
     webview.setAttribute("allowpopups", "true");
     webview.setAttribute("src", resolveLoadUrlEvent(requestedUrlRef.current));
 
@@ -2611,7 +2612,7 @@ function useBrowserTabWebviewComponent(props: {
       readyRef.current = false;
       cancelScheduledSnapshot();
     };
-  }, [cancelScheduledSnapshot]);
+  }, [browserPartition, cancelScheduledSnapshot]);
 
   useEffect(() => {
     navigate(tab.url);

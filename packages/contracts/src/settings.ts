@@ -105,7 +105,6 @@ export const ClientSettingsSchema = Schema.Struct({
   editorLineNumbers: EditorLineNumbers.pipe(
     Schema.withDecodingDefault(() => DEFAULT_EDITOR_LINE_NUMBERS),
   ),
-  editorMinimap: Schema.Boolean.pipe(Schema.withDecodingDefault(() => false)),
   editorNeovimMode: Schema.Boolean.pipe(Schema.withDecodingDefault(() => false)),
   editorRenderWhitespace: Schema.Boolean.pipe(Schema.withDecodingDefault(() => false)),
   editorStickyScroll: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),

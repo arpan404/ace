@@ -26,6 +26,7 @@ describe("EnvironmentMiniPanel", () => {
         activeSubagentThreadId={null}
         activeThreadId={"thread-1" as ThreadId}
         branchToolbarProps={null}
+        editorStateInstanceId="test-workspace-editor"
         gitCwd={null}
         gitStatus={null}
         gitStatusError={null}

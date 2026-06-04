@@ -5,10 +5,8 @@ export const WORKSPACE_EDITOR_FONT_FAMILY =
 
 export interface WorkspaceEditorSettingsSnapshot {
   readonly lineNumbers: EditorLineNumbers;
-  readonly minimap: boolean;
   readonly renderWhitespace: boolean;
   readonly stickyScroll: boolean;
-  readonly suggestions: boolean;
   readonly wordWrap: boolean;
 }
 
@@ -32,7 +30,7 @@ export function createWorkspaceEditorOptions(
     lineHeight: 22,
     lineNumbers: editorSettings.lineNumbers,
     renderWhitespace: editorSettings.renderWhitespace,
-    suggestions: editorSettings.suggestions,
+    suggestions: true,
     tabSize: 2,
     wordWrap: editorSettings.wordWrap,
   };

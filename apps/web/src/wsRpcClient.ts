@@ -96,6 +96,7 @@ export interface WsRpcClient {
     readonly closeBuffer: RpcUnaryMethod<typeof WS_METHODS.workspaceEditorCloseBuffer>;
     readonly complete: RpcUnaryMethod<typeof WS_METHODS.workspaceEditorComplete>;
     readonly definition: RpcUnaryMethod<typeof WS_METHODS.workspaceEditorDefinition>;
+    readonly hover: RpcUnaryMethod<typeof WS_METHODS.workspaceEditorHover>;
     readonly references: RpcUnaryMethod<typeof WS_METHODS.workspaceEditorReferences>;
   };
   readonly shell: {
@@ -254,6 +255,8 @@ export function createWsRpcClient(transport: RpcTransportLike = new WsTransport(
         transport.request((client) => client[WS_METHODS.workspaceEditorComplete](input)),
       definition: (input) =>
         transport.request((client) => client[WS_METHODS.workspaceEditorDefinition](input)),
+      hover: (input) =>
+        transport.request((client) => client[WS_METHODS.workspaceEditorHover](input)),
       references: (input) =>
         transport.request((client) => client[WS_METHODS.workspaceEditorReferences](input)),
     },

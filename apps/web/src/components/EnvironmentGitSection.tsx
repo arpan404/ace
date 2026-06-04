@@ -79,13 +79,14 @@ import {
 import { cn, newCommandId, randomUUID } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
 import { useStore } from "~/store";
-import { resolveEditorStateScopeId, useEditorStateStore } from "~/editorStateStore";
+import { resolveEditorInstanceStateScopeId, useEditorStateStore } from "~/editorStateStore";
 import type { ThreadWorkspaceMode } from "~/threadWorkspaceMode";
 import { useSettings } from "~/hooks/useSettings";
 import { applySettingsUpdated } from "~/rpc/serverState";
 
 interface EnvironmentGitSectionProps {
   connectionUrl?: string | null;
+  editorStateInstanceId?: string | null;
   gitCwd: string | null;
   gitStatus: GitStatusResult | null;
   gitStatusError: Error | null;
@@ -461,6 +462,7 @@ const gitActionMenuItemClassName =
 
 function useEnvironmentGitSection({
   connectionUrl,
+  editorStateInstanceId,
   gitCwd,
   gitStatus,
   gitStatusError,
@@ -1074,12 +1076,17 @@ function useEnvironmentGitSection({
         onWorkspaceModeChange("editor");
       }
       openFileInWorkspace(
-        resolveEditorStateScopeId({ gitCwd, threadId: activeThreadId }),
+        resolveEditorInstanceStateScopeId({
+          gitCwd,
+          instanceId: editorStateInstanceId,
+          threadId: activeThreadId,
+        }),
         relativePath,
       );
     },
     [
       activeThreadId,
+      editorStateInstanceId,
       gitCwd,
       onWorkspaceModeChange,
       openFileInWorkspace,
