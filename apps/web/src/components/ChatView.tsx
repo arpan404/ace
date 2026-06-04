@@ -3003,6 +3003,9 @@ function useChatViewComponent({
     [subagentProvider, timelineWorkEntries],
   );
   const [activeSubagentThreadId, setActiveSubagentThreadId] = useState<string | null>(null);
+  const [hiddenSubagentTabIds, setHiddenSubagentTabIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
   const newSideChatThread = useMemo<SubagentThread>(
     () => ({
       id: NEW_SIDE_CHAT_THREAD_ID,
@@ -3027,6 +3030,52 @@ function useChatViewComponent({
         : subagentThreads,
     [activeSubagentThreadId, newSideChatThread, subagentThreads],
   );
+  const subagentTabThreads = useMemo(
+    () => subagentThreads.filter((thread) => !hiddenSubagentTabIds.has(thread.id)),
+    [hiddenSubagentTabIds, subagentThreads],
+  );
+  const selectSubagentThread = useCallback(
+    (threadId: string) => {
+      setHiddenSubagentTabIds((current) => {
+        if (!current.has(threadId)) return current;
+        const next = new Set(current);
+        next.delete(threadId);
+        return next;
+      });
+      setActiveSubagentThreadId(threadId);
+      if (threadId !== NEW_SIDE_CHAT_THREAD_ID) {
+        appendRightPanelTabOrder(`subagent:${threadId}`);
+        appendBottomPanelTabOrder(`subagent:${threadId}`);
+      }
+    },
+    [appendBottomPanelTabOrder, appendRightPanelTabOrder],
+  );
+  const closeSubagentTab = useCallback(
+    (threadId: string) => {
+      setHiddenSubagentTabIds((current) => {
+        if (current.has(threadId)) return current;
+        const next = new Set(current);
+        next.add(threadId);
+        return next;
+      });
+      setRightPanelTabOrder((current) => removePanelTabOrder(current, `subagent:${threadId}`));
+      setBottomPanelTabOrder((current) => removePanelTabOrder(current, `subagent:${threadId}`));
+      if (activeSubagentThreadId !== threadId) {
+        return;
+      }
+      const nextThread = subagentThreads.find(
+        (thread) => thread.id !== threadId && !hiddenSubagentTabIds.has(thread.id),
+      );
+      if (nextThread) {
+        setActiveSubagentThreadId(nextThread.id);
+        return;
+      }
+      setActiveSubagentThreadId(null);
+      setRightSidePanelMode((current) => (current === "subagent" ? "summary" : current));
+      setBottomPanelMode((current) => (current === "subagent" ? null : current));
+    },
+    [activeSubagentThreadId, hiddenSubagentTabIds, subagentThreads],
+  );
   const environmentMiniPanelRef = useRef<HTMLElement | null>(null);
   const [environmentPanelPopoverStyle, setEnvironmentPanelPopoverStyle] = useState<{
     left: number;
@@ -3043,13 +3092,19 @@ function useChatViewComponent({
       }
       return;
     }
+    if (subagentTabThreads.length === 0) {
+      if (activeSubagentThreadId !== null) {
+        setActiveSubagentThreadId(null);
+      }
+      return;
+    }
     if (
       !activeSubagentThreadId ||
-      !subagentThreads.some((thread) => thread.id === activeSubagentThreadId)
+      !subagentTabThreads.some((thread) => thread.id === activeSubagentThreadId)
     ) {
-      setActiveSubagentThreadId(subagentThreads[0]?.id ?? null);
+      setActiveSubagentThreadId(subagentTabThreads[0]?.id ?? null);
     }
-  }, [activeSubagentThreadId, subagentThreads]);
+  }, [activeSubagentThreadId, subagentTabThreads, subagentThreads.length]);
   const activeThreadMessageIds = useMemo(
     () => new Set(activeThreadMessages.map((message) => message.id)),
     [activeThreadMessages],
@@ -9886,7 +9941,7 @@ function useChatViewComponent({
         onRunProjectScript: (script) => {
           void runProjectScript(script);
         },
-        onSelectSubagentThread: setActiveSubagentThreadId,
+        onSelectSubagentThread: selectSubagentThread,
         onSubagentPanelOpen: () => {
           setRightSidePanelMode("subagent");
           setRightSidePanelVisible(true);
@@ -10154,7 +10209,8 @@ function useChatViewComponent({
         onNewTerminalTab={createNewPanelTerminal}
         onPanelTabOrderChange={reorderRightPanelTabOrder}
         onSelectMode={onSelectRightSidePanelMode}
-        onSelectSubagentThread={setActiveSubagentThreadId}
+        onSelectSubagentThread={selectSubagentThread}
+        onSubagentTabClose={closeSubagentTab}
         onTogglePanelVisibility={onToggleRightSidePanel}
         onToggleFloatingChat={() => {
           onToggleRightSidePanelFloatingChat();
@@ -10162,7 +10218,7 @@ function useChatViewComponent({
         onToggleFullscreen={onToggleRightSidePanelFullscreen}
         panelToggleShortcutLabel={rightSidePanelToggleShortcutLabel}
         panelTabOrder={rightPanelTabOrder}
-        subagentThreads={subagentThreads}
+        subagentThreads={subagentTabThreads}
       />
     ) : null;
   const bottomPanelTabStrip = (className?: string) =>
@@ -10209,7 +10265,8 @@ function useChatViewComponent({
         onNewTerminalTab={createNewTerminal}
         onPanelTabOrderChange={reorderBottomPanelTabOrder}
         onSelectMode={onSelectBottomPanelMode}
-        onSelectSubagentThread={setActiveSubagentThreadId}
+        onSelectSubagentThread={selectSubagentThread}
+        onSubagentTabClose={closeSubagentTab}
         onTogglePanelVisibility={onToggleBottomPanel}
         onToggleFloatingChat={() => undefined}
         onToggleFullscreen={() => undefined}
@@ -10217,7 +10274,7 @@ function useChatViewComponent({
         panelTabOrder={bottomPanelTabOrder}
         showPanelActions={false}
         showSummaryTab={false}
-        subagentThreads={subagentThreads}
+        subagentThreads={subagentTabThreads}
       />
     ) : null;
   const handleQueueComposerMessage = useCallback(() => {

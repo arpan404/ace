@@ -533,6 +533,7 @@ export function RightSidePanelTabStrip(props: {
   onPanelTabOrderChange: (nextVisibleOrder: ReadonlyArray<PanelTabOrderEntry>) => void;
   onSelectMode: (mode: RightSidePanelMode) => void;
   onSelectSubagentThread: (threadId: string) => void;
+  onSubagentTabClose: (threadId: string) => void;
   onTogglePanelVisibility: () => void;
   onToggleFloatingChat: () => void;
   onToggleFullscreen: () => void;
@@ -724,7 +725,28 @@ export function RightSidePanelTabStrip(props: {
                       />
                     }
                   >
-                    <EnvironmentSubagentIcon className="size-4.5" thread={thread} />
+                    <span className="relative inline-flex size-4.5 shrink-0 items-center justify-center">
+                      <EnvironmentSubagentIcon
+                        className="size-4.5 transition-opacity group-hover/tab:opacity-0"
+                        thread={thread}
+                      />
+                      <button
+                        type="button"
+                        className="absolute inset-0 inline-flex items-center justify-center rounded-full bg-muted-foreground/80 text-background opacity-0 transition-opacity hover:bg-foreground group-hover/tab:opacity-100"
+                        aria-label={`Close ${thread.label}`}
+                        onPointerDown={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                        }}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          props.onSubagentTabClose(thread.id);
+                        }}
+                      >
+                        <XIcon className="size-3.5" />
+                      </button>
+                    </span>
                     <span className="truncate">{thread.label}</span>
                   </TooltipTrigger>
                   <TooltipPopup side="bottom" align="start">
