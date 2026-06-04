@@ -1,9 +1,13 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { WorkLogEntry } from "../../session-logic/types";
-import type { deriveSubagentThreads as deriveSubagentThreadsType } from "./subagentThreads";
+import type {
+  deriveSubagentThreads as deriveSubagentThreadsType,
+  resolveSubagentMainAgentMessage as resolveSubagentMainAgentMessageType,
+} from "./subagentThreads";
 
 let deriveSubagentThreads: typeof deriveSubagentThreadsType;
+let resolveSubagentMainAgentMessage: typeof resolveSubagentMainAgentMessageType;
 
 beforeAll(async () => {
   vi.stubGlobal("window", {
@@ -27,7 +31,7 @@ beforeAll(async () => {
     setItem: vi.fn(),
     removeItem: vi.fn(),
   });
-  ({ deriveSubagentThreads } = await import("./subagentThreads"));
+  ({ deriveSubagentThreads, resolveSubagentMainAgentMessage } = await import("./subagentThreads"));
 });
 
 function workEntry(input: Partial<WorkLogEntry> & Pick<WorkLogEntry, "id">): WorkLogEntry {
@@ -100,6 +104,38 @@ describe("deriveSubagentThreads", () => {
 
     expect(threads).toHaveLength(1);
     expect(threads[0]?.label).toBe("Review");
+  });
+
+  it("resolves the provider-agnostic main-agent handoff message", () => {
+    const [thread] = deriveSubagentThreads(
+      [
+        workEntry({
+          id: "main-to-subagent",
+          label: "Message sent",
+          detail: "Inspect the runtime event flow.",
+          subagentId: "child-provider-thread-1",
+          subagentName: "review",
+          sideChatMessageRole: "user",
+          sideChatMessageText: "Inspect the runtime event flow.",
+        }),
+        workEntry({
+          id: "subagent-response",
+          createdAt: "2026-06-02T00:00:01.000Z",
+          label: "Assistant response",
+          detail: "I will inspect the flow.",
+          subagentId: "child-provider-thread-1",
+          subagentName: "review",
+          sideChatMessageRole: "assistant",
+          sideChatMessageText: "I will inspect the flow.",
+        }),
+      ],
+      "codex",
+    );
+
+    expect(thread).toBeDefined();
+    expect(resolveSubagentMainAgentMessage(thread!)?.sideChatMessageText).toBe(
+      "Inspect the runtime event flow.",
+    );
   });
 
   it("generates a stable parody name for generic subagent identities", () => {

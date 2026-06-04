@@ -1,4 +1,4 @@
-import { BotIcon, SmileIcon } from "lucide-react";
+import { BotIcon, MessageSquareIcon, SmileIcon } from "lucide-react";
 import { useCallback, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import { MessageId, type ProviderKind } from "@ace/contracts";
 
@@ -8,7 +8,11 @@ import { cn } from "../../lib/utils";
 import { ScrollArea } from "../ui/scroll-area";
 import { MessagesTimeline } from "./MessagesTimeline";
 import type { ChatMessage } from "../../types";
-import { deriveSubagentThreads, type SubagentThread } from "./subagentThreads";
+import {
+  deriveSubagentThreads,
+  resolveSubagentMainAgentMessage,
+  type SubagentThread,
+} from "./subagentThreads";
 
 export function statusLabel(status: SubagentThread["status"]): string {
   if (status === "running") {
@@ -165,10 +169,14 @@ export function SubagentWorkspacePanel(props: {
   }, []);
   const activeThread =
     props.threads.find((thread) => thread.id === props.activeThreadId) ?? props.threads[0] ?? null;
+  const mainAgentMessageEntry = activeThread ? resolveSubagentMainAgentMessage(activeThread) : null;
   const sideChatTimeline = useMemo(() => {
     const messages: ChatMessage[] = [];
     const workEntries: WorkLogEntry[] = [];
     for (const entry of activeThread?.entries ?? []) {
+      if (mainAgentMessageEntry && entry.id === mainAgentMessageEntry.id) {
+        continue;
+      }
       if (entry.sideChatMessageRole && entry.sideChatMessageText) {
         messages.push({
           id: MessageId.makeUnsafe(entry.sideChatMessageId ?? entry.id),
@@ -187,7 +195,7 @@ export function SubagentWorkspacePanel(props: {
       messages,
       workEntries,
     };
-  }, [activeThread?.entries]);
+  }, [activeThread?.entries, mainAgentMessageEntry]);
   const timelineEntries = useMemo(
     () => deriveTimelineEntries(sideChatTimeline.messages, [], sideChatTimeline.workEntries),
     [sideChatTimeline],
@@ -212,6 +220,17 @@ export function SubagentWorkspacePanel(props: {
   return (
     <section className="flex min-h-0 flex-1 flex-col bg-background">
       <ScrollArea className="min-h-0 flex-1 px-3 py-4 sm:px-5" viewportRef={scrollContainerRef}>
+        {mainAgentMessageEntry?.sideChatMessageText ? (
+          <div className="mx-auto mb-4 w-full max-w-3xl rounded-lg border border-border/70 bg-card/65 px-3.5 py-3 shadow-sm">
+            <div className="mb-2 flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              <MessageSquareIcon className="size-3.5" />
+              <span>Main agent</span>
+            </div>
+            <p className="whitespace-pre-wrap text-sm leading-6 text-foreground">
+              {mainAgentMessageEntry.sideChatMessageText}
+            </p>
+          </div>
+        ) : null}
         <MessagesTimeline
           key={activeThread.id}
           {...props.timelineProps}

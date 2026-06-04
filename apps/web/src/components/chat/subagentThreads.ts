@@ -192,3 +192,14 @@ export function deriveSubagentThreads(
       return rightLast.localeCompare(leftLast);
     });
 }
+
+export function resolveSubagentMainAgentMessage(thread: SubagentThread): WorkLogEntry | null {
+  return (
+    thread.entries.find(
+      (entry) =>
+        entry.sideChatMessageRole === "user" &&
+        typeof entry.sideChatMessageText === "string" &&
+        entry.sideChatMessageText.trim().length > 0,
+    ) ?? null
+  );
+}

@@ -3074,7 +3074,13 @@ function useChatViewComponent({
       setRightSidePanelMode((current) => (current === "subagent" ? "summary" : current));
       setBottomPanelMode((current) => (current === "subagent" ? null : current));
     },
-    [activeSubagentThreadId, hiddenSubagentTabIds, subagentThreads],
+    [
+      activeSubagentThreadId,
+      hiddenSubagentTabIds,
+      setBottomPanelMode,
+      setRightSidePanelMode,
+      subagentThreads,
+    ],
   );
   const environmentMiniPanelRef = useRef<HTMLElement | null>(null);
   const [environmentPanelPopoverStyle, setEnvironmentPanelPopoverStyle] = useState<{
