@@ -20,7 +20,6 @@ import { m, type MotionStyle } from "motion/react";
 import BranchToolbar from "../BranchToolbar";
 import EnvironmentGitSection from "../EnvironmentGitSection";
 import ProjectScriptsControl, { type NewProjectScriptInput } from "../ProjectScriptsControl";
-import { SubagentPersonaIcon } from "./SubagentThreadsPanel";
 import type { SubagentThread } from "./subagentThreads";
 import type { ActivePlanState } from "../../session-logic";
 import { cn } from "~/lib/utils";
@@ -159,6 +158,71 @@ function ProgressStepMarker({ status }: { status: ActivePlanState["steps"][numbe
         status === "pending" && "border-muted-foreground/55 bg-transparent",
       )}
     />
+  );
+}
+
+function hashSubagentIconSeed(value: string): number {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function buildSubagentIconCells(seed: number): string[] {
+  const cells: string[] = [];
+  for (let row = 0; row < 5; row += 1) {
+    for (let column = 0; column < 3; column += 1) {
+      const bitIndex = row * 3 + column;
+      const enabled = ((seed >> bitIndex) & 1) === 1 || (row === 4 && column === 1);
+      if (!enabled) continue;
+      cells.push(`${column},${row}`);
+      const mirroredColumn = 4 - column;
+      if (mirroredColumn !== column) {
+        cells.push(`${mirroredColumn},${row}`);
+      }
+    }
+  }
+  return cells;
+}
+
+function EnvironmentSubagentIcon({ thread }: { thread: SubagentThread }) {
+  const isRunning = thread.status === "running";
+  const seed = hashSubagentIconSeed(thread.id || thread.label);
+  const hue = seed % 360;
+  const cells = buildSubagentIconCells(seed);
+  const fill = `hsl(${hue} 92% 66%)`;
+  const shadowFill = `hsl(${(hue + 24) % 360} 88% 58%)`;
+  return (
+    <span
+      className={cn(
+        "relative inline-flex size-4 shrink-0 items-center justify-center text-muted-foreground",
+        isRunning && "text-foreground",
+      )}
+      aria-label={`${thread.label} subagent icon`}
+    >
+      <svg
+        aria-hidden="true"
+        className="relative size-3 [image-rendering:pixelated]"
+        viewBox="0 0 5 5"
+      >
+        {cells.map((cell) => {
+          const [x, y] = cell.split(",");
+          const shouldUseShadowFill = (Number(x) * 7 + Number(y) * 11 + seed) % 4 === 0;
+          return (
+            <rect
+              key={cell}
+              x={x}
+              y={y}
+              width="1"
+              height="1"
+              fill={shouldUseShadowFill ? shadowFill : fill}
+            />
+          );
+        })}
+      </svg>
+    </span>
   );
 }
 
@@ -482,7 +546,7 @@ export const EnvironmentMiniPanel = forwardRef<
                     props.onSubagentPanelOpen();
                   }}
                 >
-                  <SubagentPersonaIcon className="size-5" status={thread.status} thread={thread} />
+                  <EnvironmentSubagentIcon thread={thread} />
                   <span className="min-w-0 flex-1 truncate font-medium">{thread.label}</span>
                 </button>
               ))}

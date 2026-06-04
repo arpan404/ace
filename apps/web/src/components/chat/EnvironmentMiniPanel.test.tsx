@@ -185,7 +185,8 @@ describe("EnvironmentMiniPanel", () => {
 
     expect(markup).toContain("Subagents");
     expect(markup).toContain("Dewey");
-    expect(markup).toContain("lucide-smile");
+    expect(markup).toContain("[image-rendering:pixelated]");
+    expect(markup).not.toContain("lucide-smile");
     expect(markup).not.toContain("Explorer");
     expect(markup).not.toContain("Completed");
   });
