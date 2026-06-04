@@ -292,10 +292,15 @@ export function parseProviderComposerSlashCommand(
   }
   const args = (match[2] ?? "").trim();
   const promptPrefix = command.promptPrefix?.trim() || `/${command.name}`;
+  const promptText = args
+    ? promptPrefix.includes("\n")
+      ? `${promptPrefix}\n\nUser request: ${args}`
+      : `${promptPrefix} ${args}`
+    : promptPrefix;
   return {
     commandName: command.name,
     args,
-    promptText: args ? `${promptPrefix} ${args}` : promptPrefix,
+    promptText,
   };
 }
 

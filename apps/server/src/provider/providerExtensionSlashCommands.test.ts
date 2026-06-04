@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import {
   discoverClaudeExtensionSlashCommands,
   discoverCodexExtensionSlashCommands,
+  discoverCursorExtensionSlashCommands,
   discoverGenericProviderExtensionSlashCommands,
   discoverGeminiExtensionSlashCommands,
   discoverGitHubCopilotAgentSlashCommands,
@@ -46,6 +47,11 @@ async function writeMarkdownSkill(
       "# Markdown skill",
     ].join("\n"),
   );
+}
+
+async function writeCursorCommand(root: string, fileName: string, body: string): Promise<void> {
+  await mkdir(root, { recursive: true });
+  await writeFile(path.join(root, fileName), body);
 }
 
 async function writeAgentMarkdown(input: {
@@ -581,6 +587,110 @@ describe("providerExtensionSlashCommands", () => {
       expect(findCommand(commands, "skill:deploy")?.description).toBe("Project Pi deploy skill");
       expect(findCommand(commands, "skill:ignored")).toBeUndefined();
       expect(findCommand(commands, "deploy")).toBeUndefined();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("discovers Cursor project and global Markdown commands", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "ace-cursor-extension-commands-"));
+    const cwd = path.join(root, "repo");
+    const cursorHome = path.join(root, ".cursor-home");
+    try {
+      await writeCursorCommand(
+        path.join(cwd, ".cursor", "commands"),
+        "security-audit.md",
+        "# Security Audit\n\nReview the code for security risks.",
+      );
+      await writeCursorCommand(
+        path.join(cwd, ".cursor", "commands"),
+        "create-pr.md",
+        "---\ndescription: Draft a pull request\n---\n\nWrite a pull request summary.",
+      );
+      await writeCursorCommand(
+        path.join(cursorHome, "commands"),
+        "security-audit.md",
+        "# Global Security Audit\n\nGlobal fallback should lose to project command.",
+      );
+      await writeCursorCommand(
+        path.join(cursorHome, "commands"),
+        "release-notes.md",
+        "# Release Notes\n\nWrite release notes from the current diff.",
+      );
+
+      const commands = discoverCursorExtensionSlashCommands({
+        cwd,
+        configDir: cursorHome,
+      });
+
+      expect(commands).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: "security-audit",
+            kind: "plugin",
+            promptPrefix: "# Security Audit\n\nReview the code for security risks.",
+            description: "Security Audit",
+          }),
+          expect.objectContaining({
+            name: "create-pr",
+            kind: "plugin",
+            promptPrefix: "Write a pull request summary.",
+            description: "Draft a pull request",
+          }),
+          expect.objectContaining({
+            name: "release-notes",
+            kind: "plugin",
+            promptPrefix: "# Release Notes\n\nWrite release notes from the current diff.",
+            description: "Release Notes",
+          }),
+        ]),
+      );
+      expect(findCommand(commands, "security-audit")?.promptPrefix).toBe(
+        "# Security Audit\n\nReview the code for security risks.",
+      );
+
+      const providerCommands = withProviderExtensionSlashCommands({
+        providers: [
+          {
+            provider: "cursor",
+            enabled: true,
+            installed: true,
+            version: "1.0.0",
+            minimumVersion: null,
+            versionStatus: "ok",
+            status: "ready",
+            auth: { status: "authenticated" },
+            checkedAt: "2026-01-01T00:00:00.000Z",
+            models: [],
+          },
+        ],
+        cwd,
+        settings: {
+          ...DEFAULT_SERVER_SETTINGS,
+          providers: {
+            ...DEFAULT_SERVER_SETTINGS.providers,
+            cursor: {
+              ...DEFAULT_SERVER_SETTINGS.providers.cursor,
+              configDir: cursorHome,
+            },
+          },
+        },
+      })[0]?.commands;
+
+      expect(providerCommands).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: "create-pr",
+            kind: "plugin",
+            promptPrefix: "Write a pull request summary.",
+          }),
+          expect.objectContaining({
+            name: "release-notes",
+            kind: "plugin",
+            promptPrefix: "# Release Notes\n\nWrite release notes from the current diff.",
+          }),
+        ]),
+      );
     } finally {
       await rm(root, { recursive: true, force: true });
     }

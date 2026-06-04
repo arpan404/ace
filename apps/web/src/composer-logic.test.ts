@@ -415,6 +415,23 @@ describe("parseProviderComposerSlashCommand", () => {
     });
   });
 
+  it("rewrites Markdown-backed provider commands with multiline prompt content", () => {
+    expect(
+      parseProviderComposerSlashCommand("/security-audit auth routes", [
+        {
+          name: "security-audit",
+          kind: "plugin",
+          promptPrefix: "# Security Audit\n\nReview the code for security risks.",
+        },
+      ]),
+    ).toEqual({
+      commandName: "security-audit",
+      args: "auth routes",
+      promptText:
+        "# Security Audit\n\nReview the code for security risks.\n\nUser request: auth routes",
+    });
+  });
+
   it("rewrites slash agent aliases to their provider mention invocation", () => {
     expect(
       parseProviderComposerSlashCommand("/security-auditor inspect auth", [
