@@ -41,6 +41,12 @@ type RankedBrowserSuggestion = BrowserSuggestion & {
   score: number;
 };
 
+function sortedCopy<T>(values: ReadonlyArray<T>, compare: (left: T, right: T) => number): Array<T> {
+  const result = [...values];
+  result.sort(compare);
+  return result;
+}
+
 const SUGGESTION_KIND_PRIORITY: Record<BrowserSuggestion["kind"], number> = {
   navigate: 0,
   tab: 1,
@@ -193,10 +199,10 @@ export function recordBrowserHistory(
     visitCount: Math.max(entry.visitCount, previousEntry?.visitCount ?? 0, 0) + 1,
   };
   const nextEntries = [nextEntry, ...history.filter((item) => item.url !== entry.url)];
-  return nextEntries
-    .filter((item) => Number.isFinite(item.visitedAt))
-    .toSorted((left, right) => right.visitedAt - left.visitedAt)
-    .slice(0, MAX_BROWSER_HISTORY_ENTRIES);
+  return sortedCopy(
+    nextEntries.filter((item) => Number.isFinite(item.visitedAt)),
+    (left, right) => right.visitedAt - left.visitedAt,
+  ).slice(0, MAX_BROWSER_HISTORY_ENTRIES);
 }
 
 function resolveSearchEngineLabel(searchEngine: BrowserSearchEngine): string {
@@ -309,7 +315,7 @@ export function buildBrowserSuggestions(
 
   const seenKeys = new Set<string>();
   const suggestions: BrowserSuggestion[] = [];
-  for (const suggestion of rankedSuggestions.toSorted(sortRankedSuggestions)) {
+  for (const suggestion of sortedCopy(rankedSuggestions, sortRankedSuggestions)) {
     if (seenKeys.has(suggestion.dedupeKey)) {
       continue;
     }

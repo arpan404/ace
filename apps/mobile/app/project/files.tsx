@@ -51,6 +51,7 @@ import { EmptyState, Panel, ScreenBackdrop, SectionTitle } from "../../src/desig
 import { connectionManager, type ManagedConnection } from "../../src/rpc/ConnectionManager";
 import { useHostStore } from "../../src/store/HostStore";
 import { useMobilePreferencesStore } from "../../src/store/MobilePreferencesStore";
+import { sortedCopy } from "../../src/sortedCopy";
 
 const MAX_VISIBLE_ENTRIES = 160;
 
@@ -226,7 +227,7 @@ export default function ProjectFilesScreen() {
       await client.server.getConfig();
       if (cwd.length > 0) {
         const result = await client.projects.listTree({ cwd });
-        setEntries(result.entries.toSorted(compareEntries));
+        setEntries(sortedCopy(result.entries, compareEntries));
         setTreeError(
           result.truncated
             ? "File list was truncated by the host. Use search to narrow the workspace."
@@ -253,7 +254,7 @@ export default function ProjectFilesScreen() {
     setTreeError(null);
     try {
       const result = await connection.client.projects.listTree({ cwd });
-      setEntries(result.entries.toSorted(compareEntries));
+      setEntries(sortedCopy(result.entries, compareEntries));
       if (result.truncated) {
         setTreeError("File list was truncated by the host. Use search to narrow the workspace.");
       }
@@ -300,7 +301,7 @@ export default function ProjectFilesScreen() {
           if (cancelled) {
             return;
           }
-          setSearchEntries(result.entries.toSorted(compareEntries));
+          setSearchEntries(sortedCopy(result.entries, compareEntries));
           setSearchTruncated(result.truncated);
         })
         .catch((cause: unknown) => {

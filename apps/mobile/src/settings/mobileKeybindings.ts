@@ -3,6 +3,7 @@ import type {
   ResolvedKeybindingsConfig,
   ResolvedKeybindingRule,
 } from "@ace/contracts";
+import { sortedCopy } from "../sortedCopy";
 
 export interface MobileKeybindingConflict {
   readonly shortcut: string;
@@ -103,12 +104,13 @@ export function findMobileKeybindingConflicts(
     metaBySignature.set(signature, { shortcut, when });
   }
 
-  return Array.from(commandBySignature.entries())
+  const conflicts = Array.from(commandBySignature.entries())
     .filter(([, commands]) => commands.size > 1)
     .map(([signature, commands]) => ({
       shortcut: metaBySignature.get(signature)?.shortcut ?? signature,
-      commands: Array.from(commands).toSorted((left, right) => left.localeCompare(right)),
+      commands: sortedCopy(Array.from(commands), (left, right) => left.localeCompare(right)),
       when: metaBySignature.get(signature)?.when,
-    }))
-    .toSorted((left, right) => left.shortcut.localeCompare(right.shortcut));
+    }));
+
+  return sortedCopy(conflicts, (left, right) => left.shortcut.localeCompare(right.shortcut));
 }

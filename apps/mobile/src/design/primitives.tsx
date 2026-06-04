@@ -912,7 +912,11 @@ export function ListSkeleton({ rows = 3 }: { rows?: number }) {
 
 const styles = StyleSheet.create({
   backdropBase: {
-    ...StyleSheet.absoluteFillObject,
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
   },
   headerShell: {
     marginBottom: 24,

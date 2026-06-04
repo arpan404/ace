@@ -4,6 +4,7 @@ import {
   type OrchestrationThreadActivity,
   type UserInputQuestion,
 } from "@ace/contracts";
+import { sortedCopy } from "../sortedCopy";
 
 export interface PendingApproval {
   readonly requestId: ApprovalRequestId;
@@ -60,7 +61,7 @@ function toNonEmptyString(value: unknown): string | null {
 function sortActivitiesBySequence(
   activities: ReadonlyArray<OrchestrationThreadActivity>,
 ): OrchestrationThreadActivity[] {
-  return activities.toSorted((left, right) => {
+  return sortedCopy(activities, (left, right) => {
     const leftSequence = left.sequence ?? Number.MAX_SAFE_INTEGER;
     const rightSequence = right.sequence ?? Number.MAX_SAFE_INTEGER;
     if (leftSequence !== rightSequence) {

@@ -4,6 +4,18 @@ import { Platform, StatusBar } from "react-native";
 import { useEffect, useRef, useState } from "react";
 import * as Notifications from "expo-notifications";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import {
+  useFonts as useSansFonts,
+  IBMPlexSans_400Regular,
+  IBMPlexSans_500Medium,
+  IBMPlexSans_600SemiBold,
+  IBMPlexSans_700Bold,
+} from "@expo-google-fonts/ibm-plex-sans";
+import {
+  useFonts as useMonoFonts,
+  IBMPlexMono_400Regular,
+  IBMPlexMono_500Medium,
+} from "@expo-google-fonts/ibm-plex-mono";
 import type { OrchestrationEvent } from "@ace/contracts";
 import { ThemeProvider, useTheme } from "../src/design/ThemeContext";
 import { initializeConnections } from "../src/store/HostStore";
@@ -218,9 +230,25 @@ function RootNavigator() {
 }
 
 export default function RootLayout() {
+  const [sansLoaded] = useSansFonts({
+    IBMPlexSans_400Regular,
+    IBMPlexSans_500Medium,
+    IBMPlexSans_600SemiBold,
+    IBMPlexSans_700Bold,
+  });
+
+  const [monoLoaded] = useMonoFonts({
+    IBMPlexMono_400Regular,
+    IBMPlexMono_500Medium,
+  });
+
   useEffect(() => {
     void initializeConnections();
   }, []);
+
+  if (!sansLoaded || !monoLoaded) {
+    return null;
+  }
 
   return (
     <SafeAreaProvider>

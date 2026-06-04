@@ -80,6 +80,7 @@
       },
       "devDependencies": {
         "@types/react": "~19.2.15",
+        "babel-plugin-react-compiler": "^19.0.0-beta-e552027-20250112",
         "babel-preset-expo": "~54.0.10",
         "typescript": "~5.9.2",
         "vitest": "catalog:",

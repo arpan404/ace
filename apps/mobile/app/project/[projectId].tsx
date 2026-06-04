@@ -85,6 +85,7 @@ import {
   resolveModelSelection,
 } from "../../src/project/projectThreadHelpers";
 import { useMobilePreferencesStore } from "../../src/store/MobilePreferencesStore";
+import { sortedCopy } from "../../src/sortedCopy";
 
 const DEFAULT_PROVIDER: ProviderKind = "codex";
 const DEFAULT_SCRIPT_ICON: ProjectScriptIcon = "play";
@@ -866,13 +867,12 @@ export default function ProjectDetailScreen() {
       }
     }
 
-    const sorted = Array.from(counts.entries())
-      .toSorted((left, right) => {
-        if (right[1] !== left[1]) {
-          return right[1] - left[1];
-        }
-        return left[0].localeCompare(right[0]);
-      })
+    const sorted = sortedCopy(Array.from(counts.entries()), (left, right) => {
+      if (right[1] !== left[1]) {
+        return right[1] - left[1];
+      }
+      return left[0].localeCompare(right[0]);
+    })
       .slice(0, 12)
       .map(([label, count]) => ({ label, count }));
 

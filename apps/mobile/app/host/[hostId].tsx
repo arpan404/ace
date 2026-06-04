@@ -38,6 +38,7 @@ import { resolveProjectAgentStats } from "../../src/projectAgentStats";
 import { compareMobileThreads, formatTimeAgo } from "../../src/orchestration/mobileData";
 import { useMobilePreferencesStore } from "../../src/store/MobilePreferencesStore";
 import { formatErrorMessage } from "../../src/errors";
+import { sortedCopy } from "../../src/sortedCopy";
 
 function statusTone(isConnected: boolean, error: string | null) {
   if (isConnected) {
@@ -92,9 +93,10 @@ export default function HostDetailScreen() {
     snapshot?.projects.filter((project) => !project.deletedAt && !project.archivedAt) ?? [];
   const threads = useMemo(
     () =>
-      (
-        snapshot?.threads.filter((thread) => !thread.deletedAt && !thread.archivedAt) ?? []
-      ).toSorted((left, right) => compareMobileThreads(left, right, sidebarThreadSortOrder)),
+      sortedCopy(
+        snapshot?.threads.filter((thread) => !thread.deletedAt && !thread.archivedAt) ?? [],
+        (left, right) => compareMobileThreads(left, right, sidebarThreadSortOrder),
+      ),
     [sidebarThreadSortOrder, snapshot?.threads],
   );
 

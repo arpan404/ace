@@ -2,6 +2,12 @@ import type { OrchestrationThreadActivity } from "@ace/contracts";
 
 export const DEFAULT_MAX_THREAD_ACTIVITIES = 2_000;
 
+function sortedCopy<T>(values: ReadonlyArray<T>, compare: (left: T, right: T) => number): Array<T> {
+  const result = [...values];
+  result.sort(compare);
+  return result;
+}
+
 export function compareOrchestrationThreadActivities(
   left: OrchestrationThreadActivity,
   right: OrchestrationThreadActivity,
@@ -32,7 +38,7 @@ export function appendCompactedThreadActivity(
   }
 
   return compactOrchestrationThreadActivities(
-    [...withoutExisting, activity].toSorted(compareOrchestrationThreadActivities),
+    sortedCopy([...withoutExisting, activity], compareOrchestrationThreadActivities),
   ).slice(-maxEntries);
 }
 

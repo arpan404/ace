@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { RefreshControl, ScrollView, StyleSheet, View } from "react-native";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { FlatList, RefreshControl, StyleSheet, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "../../src/design/ThemeContext";
@@ -65,17 +65,9 @@ export default function ThreadsScreen() {
       entry.status.bucket === "error",
   ).length;
 
-  return (
-    <View style={[styles.root, { backgroundColor: colors.bg.app }]}>
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{
-          paddingTop: insets.top + 24,
-          paddingHorizontal: Layout.pagePadding,
-          paddingBottom: insets.bottom + 120,
-        }}
-        refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void refresh()} />}
-      >
+  const renderHeader = useCallback(
+    () => (
+      <View>
         <ScreenHeaderV2
           title="Threads"
           subtitle="MONITOR RUNNING AGENT THREADS"
@@ -95,34 +87,60 @@ export default function ThreadsScreen() {
             onSelect={(key) => setActiveFilter(key as ThreadFilter)}
           />
         </View>
+      </View>
+    ),
+    [activeFilter, attentionCount, colors.border.soft],
+  );
 
-        {loading ? (
-          <ListSkeleton rows={5} />
-        ) : filteredThreads.length === 0 ? (
-          <EmptyState
-            title="NO THREADS FOUND"
-            body="Start an agent run from your connected workspace to see activity here."
+  const renderFooter = useCallback(
+    () => (error ? <NoticeBanner tone="danger" title="NETWORK ERROR" body={error} /> : null),
+    [error],
+  );
+
+  const renderEmpty = useCallback(() => {
+    if (loading) {
+      return <ListSkeleton rows={5} />;
+    }
+    return (
+      <EmptyState
+        title="NO THREADS FOUND"
+        body="Start an agent run from your connected workspace to see activity here."
+      />
+    );
+  }, [loading]);
+
+  return (
+    <View style={[styles.root, { backgroundColor: colors.bg.app }]}>
+      <FlatList
+        data={filteredThreads}
+        keyExtractor={(entry) => `${entry.hostId}-${entry.thread.id}`}
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void refresh()} />}
+        ListHeaderComponent={renderHeader}
+        ListFooterComponent={renderFooter}
+        ListEmptyComponent={renderEmpty}
+        contentContainerStyle={[
+          styles.flatListContent,
+          {
+            paddingTop: insets.top + 24,
+            paddingHorizontal: Layout.pagePadding,
+            paddingBottom: insets.bottom + 120,
+          },
+        ]}
+        ItemSeparatorComponent={() => <View style={{ height: 18 }} />}
+        renderItem={({ item, index }) => (
+          <ThreadListRow
+            entry={item}
+            animationIndex={index}
+            onPress={() =>
+              router.push({
+                pathname: "/thread/[threadId]",
+                params: { threadId: item.thread.id, hostId: item.hostId },
+              })
+            }
           />
-        ) : (
-          <View style={styles.groupList}>
-            {filteredThreads.map((entry, index) => (
-              <ThreadListRow
-                key={`${entry.hostId}-${entry.thread.id}`}
-                entry={entry}
-                animationIndex={index}
-                onPress={() =>
-                  router.push({
-                    pathname: "/thread/[threadId]",
-                    params: { threadId: entry.thread.id, hostId: entry.hostId },
-                  })
-                }
-              />
-            ))}
-          </View>
         )}
-
-        {error ? <NoticeBanner tone="danger" title="NETWORK ERROR" body={error} /> : null}
-      </ScrollView>
+      />
     </View>
   );
 }
@@ -136,7 +154,7 @@ const styles = StyleSheet.create({
     gap: 8,
     flexDirection: "row",
   },
-  groupList: {
-    gap: 18,
+  flatListContent: {
+    gap: 0,
   },
 });

@@ -105,6 +105,7 @@ import {
 } from "../../src/thread/modelTraits";
 import { useMobilePreferencesStore } from "../../src/store/MobilePreferencesStore";
 import { useMobileTerminalContextStore } from "../../src/store/MobileTerminalContextStore";
+import { sortedCopy } from "../../src/sortedCopy";
 
 type ThreadPanel = "chat" | "diff" | "todo";
 
@@ -2029,9 +2030,10 @@ function DiffPanel({
   const { colors } = useTheme();
   const readyCheckpoints = useMemo(
     () =>
-      checkpoints
-        .filter((checkpoint) => checkpoint.status === "ready")
-        .toSorted((left, right) => left.checkpointTurnCount - right.checkpointTurnCount),
+      sortedCopy(
+        checkpoints.filter((checkpoint) => checkpoint.status === "ready"),
+        (left, right) => left.checkpointTurnCount - right.checkpointTurnCount,
+      ),
     [checkpoints],
   );
   const latestReadyCheckpoint = readyCheckpoints.at(-1) ?? null;

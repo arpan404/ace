@@ -1,11 +1,11 @@
 export const FontFamilies = {
-  uiRegular: "Menlo",
-  uiMedium: "Menlo",
-  uiSemiBold: "Menlo",
-  monoRegular: "Menlo",
-  monoMedium: "Menlo",
-  fallbackSans: "Menlo",
-  fallbackMono: "Menlo",
+  uiRegular: "IBMPlexSans_400Regular",
+  uiMedium: "IBMPlexSans_500Medium",
+  uiSemiBold: "IBMPlexSans_600SemiBold",
+  monoRegular: "IBMPlexMono_400Regular",
+  monoMedium: "IBMPlexMono_500Medium",
+  fallbackSans: "System",
+  fallbackMono: "System",
 } as const;
 
 export const Typography = {
