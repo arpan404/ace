@@ -2045,6 +2045,31 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
       catch: (cause) => toRequestError(threadId, "turn/interrupt", cause),
     });
 
+  const updateGoal: CodexAdapterShape["updateGoal"] = (input) =>
+    Effect.tryPromise({
+      try: async () => {
+        if (
+          input.objective !== undefined &&
+          input.objective.length > CODEX_GOAL_MAX_OBJECTIVE_CHARS
+        ) {
+          throw new Error("Goal objective must be at most 4000 characters.");
+        }
+        await manager.setThreadGoal({
+          threadId: input.threadId,
+          ...(input.objective !== undefined ? { objective: input.objective } : {}),
+          status: input.status,
+          ...(input.tokenBudget !== undefined ? { tokenBudget: input.tokenBudget } : {}),
+        });
+      },
+      catch: (cause) => toRequestError(input.threadId, "thread/goal/set", cause),
+    });
+
+  const clearGoal: CodexAdapterShape["clearGoal"] = (input) =>
+    Effect.tryPromise({
+      try: () => manager.clearThreadGoal(input.threadId),
+      catch: (cause) => toRequestError(input.threadId, "thread/goal/clear", cause),
+    });
+
   const readThread: CodexAdapterShape["readThread"] = (threadId) =>
     Effect.tryPromise({
       try: () => manager.readThread(threadId),
@@ -2177,6 +2202,8 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
     startSession,
     sendTurn,
     steerTurn,
+    updateGoal,
+    clearGoal,
     interruptTurn,
     readThread,
     rollbackThread,

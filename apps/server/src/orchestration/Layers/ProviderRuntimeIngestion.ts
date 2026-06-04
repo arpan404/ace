@@ -11,6 +11,7 @@ import {
   type OrchestrationReadModel,
   type OrchestrationProposedPlanId,
   CheckpointRef,
+  type ProviderIntegrationCapabilities,
   isToolLifecycleItemType,
   ThreadId,
   type ThreadTokenUsageSnapshot,
@@ -149,6 +150,46 @@ function providerSlashCommandsFromSessionConfigured(
     providerCommands,
     providerFallbackSlashCommands(event.provider),
   );
+}
+
+function providerCapabilitiesFromSessionConfigured(
+  event: ProviderRuntimeEvent,
+): Partial<ProviderIntegrationCapabilities> | null {
+  if (event.type !== "session.configured") {
+    return null;
+  }
+  const config = asRecord(event.payload.config);
+  const capabilities = asRecord(
+    config?.capabilities ?? config?.providerCapabilities ?? config?.provider_capabilities,
+  );
+  if (!capabilities) {
+    return null;
+  }
+
+  const sessionForkMode = asNonEmptyString(capabilities.sessionForkMode);
+  const sideConversationMode = asNonEmptyString(capabilities.sideConversationMode);
+  const sessionResumeMode = asNonEmptyString(capabilities.sessionResumeMode);
+  const turnSteeringMode = asNonEmptyString(capabilities.turnSteeringMode);
+  const overrides: Partial<ProviderIntegrationCapabilities> = {};
+
+  if (sessionForkMode === "native" || sessionForkMode === "local-replay") {
+    overrides.sessionForkMode = sessionForkMode;
+  }
+  if (
+    sideConversationMode === "native-fork" ||
+    sideConversationMode === "replay-fork" ||
+    sideConversationMode === "unsupported"
+  ) {
+    overrides.sideConversationMode = sideConversationMode;
+  }
+  if (sessionResumeMode === "native" || sessionResumeMode === "local-replay") {
+    overrides.sessionResumeMode = sessionResumeMode;
+  }
+  if (turnSteeringMode === "native" || turnSteeringMode === "queued-message") {
+    overrides.turnSteeringMode = turnSteeringMode;
+  }
+
+  return Object.keys(overrides).length > 0 ? overrides : null;
 }
 
 function normalizeProviderSessionConfigOptionValues(

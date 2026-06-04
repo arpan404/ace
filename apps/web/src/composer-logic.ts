@@ -3,6 +3,7 @@ import {
   splitPromptIntoComposerSegments,
   type ComposerPromptSegment,
 } from "./composer-editor-mentions";
+import { isProviderSideConversationAlias } from "@ace/shared/providerSlashCommands";
 import { INLINE_TERMINAL_CONTEXT_PLACEHOLDER } from "./lib/terminalContext";
 
 export type ComposerTriggerKind = "path" | "slash-command" | "slash-model" | "issue";
@@ -278,6 +279,9 @@ export function parseProviderComposerSlashCommand(
   }
   const commandName = normalizeSlashCommandName(match[1] ?? "");
   if (!commandName) {
+    return null;
+  }
+  if (isProviderSideConversationAlias(commandName)) {
     return null;
   }
   const command = providerCommands.find(

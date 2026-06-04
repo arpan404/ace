@@ -17,6 +17,8 @@ import type {
   ProviderRespondToRequestInput,
   ProviderRespondToUserInputInput,
   ProviderRuntimeEvent,
+  ProviderGoalClearInput,
+  ProviderGoalUpdateInput,
   ProviderSendTurnInput,
   ProviderSession,
   ProviderSessionStartInput,
@@ -55,6 +57,18 @@ export interface ProviderServiceShape {
   readonly steerTurn: (
     input: ProviderSendTurnInput,
   ) => Effect.Effect<ProviderTurnStartResult, ProviderServiceError>;
+
+  /**
+   * Update provider-managed goal state without appending a chat turn.
+   */
+  readonly updateGoal: (
+    input: ProviderGoalUpdateInput,
+  ) => Effect.Effect<void, ProviderServiceError>;
+
+  /**
+   * Clear provider-managed goal state without appending a chat turn.
+   */
+  readonly clearGoal: (input: ProviderGoalClearInput) => Effect.Effect<void, ProviderServiceError>;
 
   /**
    * Interrupt a running provider turn.

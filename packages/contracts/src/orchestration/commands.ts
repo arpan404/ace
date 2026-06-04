@@ -5,6 +5,7 @@ import {
   IsoDateTime,
   MessageId,
   NonNegativeInt,
+  PositiveInt,
   ProjectId,
   ThreadId,
   TrimmedNonEmptyString,
@@ -293,6 +294,26 @@ export const ThreadWorkspaceSummaryRegenerateCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
+export const ThreadGoalStatus = Schema.Literals(["active", "paused", "completed", "blocked"]);
+export type ThreadGoalStatus = typeof ThreadGoalStatus.Type;
+
+export const ThreadGoalUpdateCommand = Schema.Struct({
+  type: Schema.Literal("thread.goal.update"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  objective: Schema.optional(TrimmedNonEmptyString),
+  status: ThreadGoalStatus,
+  tokenBudget: Schema.optional(PositiveInt),
+  createdAt: IsoDateTime,
+});
+
+export const ThreadGoalClearCommand = Schema.Struct({
+  type: Schema.Literal("thread.goal.clear"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  createdAt: IsoDateTime,
+});
+
 export const DispatchableClientOrchestrationCommand = Schema.Union([
   ProjectCreateCommand,
   ProjectMetaUpdateCommand,
@@ -320,6 +341,8 @@ export const DispatchableClientOrchestrationCommand = Schema.Union([
   ThreadCheckpointRevertCommand,
   ThreadSessionStopCommand,
   ThreadWorkspaceSummaryRegenerateCommand,
+  ThreadGoalUpdateCommand,
+  ThreadGoalClearCommand,
 ]);
 export type DispatchableClientOrchestrationCommand =
   typeof DispatchableClientOrchestrationCommand.Type;
@@ -351,6 +374,8 @@ export const ClientOrchestrationCommand = Schema.Union([
   ThreadCheckpointRevertCommand,
   ThreadSessionStopCommand,
   ThreadWorkspaceSummaryRegenerateCommand,
+  ThreadGoalUpdateCommand,
+  ThreadGoalClearCommand,
 ]);
 export type ClientOrchestrationCommand = typeof ClientOrchestrationCommand.Type;
 

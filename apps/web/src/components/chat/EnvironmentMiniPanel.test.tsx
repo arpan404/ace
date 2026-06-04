@@ -4,7 +4,7 @@ import type { ComponentProps } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
-import type { ActivePlanState } from "../../session-logic";
+import type { ActiveGoalState, ActivePlanState } from "../../session-logic";
 import type { EnvironmentMiniPanel as EnvironmentMiniPanelType } from "./EnvironmentMiniPanel";
 import type { SubagentThread } from "./subagentThreads";
 
@@ -49,6 +49,15 @@ const activePlan: ActivePlanState = {
   ],
 };
 
+const activeGoal: ActiveGoalState = {
+  createdAt: "2026-06-03T00:00:01.000Z",
+  threadId: "provider-thread-1",
+  objective: "Implement provider feature parity without polluting the transcript",
+  status: "active",
+  tokenBudget: 1000,
+  tokensUsed: 120,
+};
+
 function subagentThread(overrides: Partial<SubagentThread> = {}): SubagentThread {
   return {
     id: "child-provider-thread-1",
@@ -82,6 +91,7 @@ function renderEnvironmentMiniPanel(
   return renderToStaticMarkup(
     <EnvironmentMiniPanel
       activeProjectScripts={undefined}
+      activeGoal={null}
       activePlan={null}
       activeSubagentThreadId={null}
       activeThreadId={"thread-1" as ThreadId}
@@ -95,12 +105,16 @@ function renderEnvironmentMiniPanel(
       keybindings={[]}
       layoutMode="inline"
       onAddProjectScript={() => Promise.resolve()}
+      onDeleteGoal={() => undefined}
       onDeleteProjectScript={() => Promise.resolve()}
+      onEditGoal={() => undefined}
       onOpenDiffPanel={() => undefined}
       onOpenEnvironmentSettings={() => undefined}
       onJumpToMessage={() => undefined}
       onOpenSummaryPanel={() => undefined}
       onRunProjectScript={() => undefined}
+      onPauseGoal={() => undefined}
+      onResumeGoal={() => undefined}
       onSelectSubagentThread={() => undefined}
       onSubagentPanelOpen={() => undefined}
       onUpdateProjectScript={() => Promise.resolve()}
@@ -145,6 +159,7 @@ describe("EnvironmentMiniPanel", () => {
       <QueryClientProvider client={queryClient}>
         <EnvironmentMiniPanel
           activeProjectScripts={undefined}
+          activeGoal={null}
           activePlan={null}
           activeSubagentThreadId={null}
           activeThreadId={"thread-1" as ThreadId}
@@ -158,12 +173,16 @@ describe("EnvironmentMiniPanel", () => {
           keybindings={[]}
           layoutMode="inline"
           onAddProjectScript={() => Promise.resolve()}
+          onDeleteGoal={() => undefined}
           onDeleteProjectScript={() => Promise.resolve()}
+          onEditGoal={() => undefined}
           onOpenDiffPanel={() => undefined}
           onOpenEnvironmentSettings={() => undefined}
           onJumpToMessage={() => undefined}
           onOpenSummaryPanel={() => undefined}
           onRunProjectScript={() => undefined}
+          onPauseGoal={() => undefined}
+          onResumeGoal={() => undefined}
           onSelectSubagentThread={() => undefined}
           onSubagentPanelOpen={() => undefined}
           onUpdateProjectScript={() => Promise.resolve()}
@@ -235,5 +254,16 @@ describe("EnvironmentMiniPanel", () => {
     expect(markup).toContain("Side chat 1");
     expect(markup).toContain("Side chat 2");
     expect(markup).toContain("Dewey");
+  });
+
+  it("renders active goals separately from progress and environment state", () => {
+    const markup = renderEnvironmentMiniPanel({ activeGoal });
+
+    expect(markup).toContain("Goal");
+    expect(markup).toContain("Implement provider feature parity");
+    expect(markup).toContain("120 / 1,000 tokens");
+    expect(markup).toContain("Pause goal");
+    expect(markup).toContain("Edit goal");
+    expect(markup).toContain("Delete goal");
   });
 });

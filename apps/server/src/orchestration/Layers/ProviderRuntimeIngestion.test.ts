@@ -94,6 +94,8 @@ function createProviderServiceHarness() {
     startSession: () => unsupported(),
     sendTurn: () => unsupported(),
     steerTurn: () => unsupported(),
+    updateGoal: () => unsupported(),
+    clearGoal: () => unsupported(),
     interruptTurn: () => unsupported(),
     respondToRequest: () => unsupported(),
     respondToUserInput: () => unsupported(),

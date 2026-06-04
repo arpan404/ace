@@ -17,6 +17,8 @@ import {
   type ProviderKind,
   ThreadId,
   ProviderInterruptTurnInput,
+  ProviderGoalClearInput,
+  ProviderGoalUpdateInput,
   ProviderRespondToRequestInput,
   ProviderRespondToUserInputInput,
   ProviderSendTurnInput,
@@ -1085,6 +1087,48 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     return turn;
   });
 
+  const updateGoal: ProviderServiceShape["updateGoal"] = Effect.fn("updateGoal")(
+    function* (rawInput) {
+      const input = yield* decodeInputOrValidationError({
+        operation: "ProviderService.updateGoal",
+        schema: ProviderGoalUpdateInput,
+        payload: rawInput,
+      });
+      const routed = yield* resolveRoutableSession({
+        threadId: input.threadId,
+        operation: "ProviderService.updateGoal",
+        allowRecovery: true,
+      });
+      if (routed.adapter.updateGoal === undefined) {
+        return yield* toValidationError(
+          "ProviderService.updateGoal",
+          `Provider '${routed.adapter.provider}' does not support provider-managed goals.`,
+        );
+      }
+      yield* routed.adapter.updateGoal(input);
+    },
+  );
+
+  const clearGoal: ProviderServiceShape["clearGoal"] = Effect.fn("clearGoal")(function* (rawInput) {
+    const input = yield* decodeInputOrValidationError({
+      operation: "ProviderService.clearGoal",
+      schema: ProviderGoalClearInput,
+      payload: rawInput,
+    });
+    const routed = yield* resolveRoutableSession({
+      threadId: input.threadId,
+      operation: "ProviderService.clearGoal",
+      allowRecovery: true,
+    });
+    if (routed.adapter.clearGoal === undefined) {
+      return yield* toValidationError(
+        "ProviderService.clearGoal",
+        `Provider '${routed.adapter.provider}' does not support provider-managed goals.`,
+      );
+    }
+    yield* routed.adapter.clearGoal(input);
+  });
+
   const interruptTurn: ProviderServiceShape["interruptTurn"] = Effect.fn("interruptTurn")(
     function* (rawInput) {
       const input = yield* decodeInputOrValidationError({
@@ -1311,6 +1355,8 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     startSession,
     sendTurn,
     steerTurn,
+    updateGoal,
+    clearGoal,
     interruptTurn,
     respondToRequest,
     respondToUserInput,

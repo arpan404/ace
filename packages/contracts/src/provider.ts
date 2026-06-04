@@ -4,6 +4,7 @@ import {
   ApprovalRequestId,
   EventId,
   IsoDateTime,
+  PositiveInt,
   ProviderItemId,
   ThreadId,
   TurnId,
@@ -92,6 +93,24 @@ export const ProviderSendTurnInput = Schema.Struct({
   interactionMode: Schema.optional(ProviderInteractionMode),
 });
 export type ProviderSendTurnInput = typeof ProviderSendTurnInput.Type;
+
+export const ProviderGoalStatus = Schema.Literals(["active", "paused", "completed", "blocked"]);
+export type ProviderGoalStatus = typeof ProviderGoalStatus.Type;
+
+export const ProviderGoalUpdateInput = Schema.Struct({
+  threadId: ThreadId,
+  objective: Schema.optional(
+    TrimmedNonEmptyString.check(Schema.isMaxLength(PROVIDER_SEND_TURN_MAX_INPUT_CHARS)),
+  ),
+  status: ProviderGoalStatus,
+  tokenBudget: Schema.optional(PositiveInt),
+});
+export type ProviderGoalUpdateInput = typeof ProviderGoalUpdateInput.Type;
+
+export const ProviderGoalClearInput = Schema.Struct({
+  threadId: ThreadId,
+});
+export type ProviderGoalClearInput = typeof ProviderGoalClearInput.Type;
 
 export const ProviderTurnStartResult = Schema.Struct({
   threadId: ThreadId,

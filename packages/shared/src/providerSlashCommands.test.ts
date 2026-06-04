@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  isProviderSideConversationAlias,
   mergeProviderSlashCommands,
   normalizeProviderSlashCommandName,
   providerPluginSlashCommand,
@@ -15,6 +16,13 @@ describe("providerSlashCommands", () => {
     expect(normalizeProviderSlashCommandName("$frontend-design")).toBe("frontend-design");
     expect(normalizeProviderSlashCommandName("  //plan  ")).toBe("plan");
     expect(normalizeProviderSlashCommandName("/bad name")).toBeNull();
+  });
+
+  it("recognizes provider-native side-chat aliases that Ace owns behind /side", () => {
+    expect(isProviderSideConversationAlias("/side")).toBe(true);
+    expect(isProviderSideConversationAlias("btw")).toBe(true);
+    expect(isProviderSideConversationAlias("/ask")).toBe(true);
+    expect(isProviderSideConversationAlias("/review")).toBe(false);
   });
 
   it("creates concrete skill and plugin command invocations", () => {

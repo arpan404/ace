@@ -1,6 +1,6 @@
 import { type OrchestrationThreadActivity, type TurnId } from "@ace/contracts";
 
-import type { WorkLogEntry } from "./types";
+import type { ActiveGoalState, WorkLogEntry } from "./types";
 import {
   asRecord,
   asTrimmedString,
@@ -102,6 +102,9 @@ export function findLatestRenderableWorkTurnId(
 }
 
 function isRenderableWorkLogActivity(activity: OrchestrationThreadActivity): boolean {
+  if (activity.kind === "goal.updated" || activity.kind === "goal.cleared") {
+    return false;
+  }
   if (activity.kind === "task.started" || activity.kind === "task.completed") {
     return false;
   }
@@ -115,6 +118,58 @@ function isRenderableWorkLogActivity(activity: OrchestrationThreadActivity): boo
     return false;
   }
   return !isPlanBoundaryToolActivity(activity);
+}
+
+function asGoalStatus(value: unknown): ActiveGoalState["status"] | null {
+  return value === "active" || value === "paused" || value === "completed" || value === "blocked"
+    ? value
+    : null;
+}
+
+function asNonNegativeNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
+}
+
+export function deriveActiveGoalState(
+  activities: ReadonlyArray<OrchestrationThreadActivity>,
+): ActiveGoalState | null {
+  const ordered = ensureActivitiesOrdered(activities);
+  let activeGoal: ActiveGoalState | null = null;
+
+  for (const activity of ordered) {
+    if (activity.kind === "goal.cleared") {
+      activeGoal = null;
+      continue;
+    }
+    if (activity.kind !== "goal.updated") {
+      continue;
+    }
+    const payload = asRecord(activity.payload);
+    if (!payload) {
+      continue;
+    }
+    const status = asGoalStatus(payload.status);
+    const objective = asTrimmedString(payload.objective ?? payload.detail);
+    const threadId = asTrimmedString(payload.threadId);
+    if (!status || !objective || !threadId || status === "completed") {
+      activeGoal = status === "completed" ? null : activeGoal;
+      continue;
+    }
+    const tokenBudget = asNonNegativeNumber(payload.tokenBudget);
+    const tokensUsed = asNonNegativeNumber(payload.tokensUsed);
+    const timeUsedSeconds = asNonNegativeNumber(payload.timeUsedSeconds);
+    activeGoal = {
+      createdAt: activity.createdAt,
+      threadId,
+      objective,
+      status,
+      ...(tokenBudget !== undefined ? { tokenBudget } : {}),
+      ...(tokensUsed !== undefined ? { tokensUsed } : {}),
+      ...(timeUsedSeconds !== undefined ? { timeUsedSeconds } : {}),
+    };
+  }
+
+  return activeGoal;
 }
 
 function isPlanBoundaryToolActivity(activity: OrchestrationThreadActivity): boolean {

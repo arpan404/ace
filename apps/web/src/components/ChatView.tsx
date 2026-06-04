@@ -82,6 +82,7 @@ import {
   derivePhase,
   deriveActiveWorkStartedAt,
   deriveVisibleWorkTurnId,
+  deriveActiveGoalState,
   deriveActivePlanState,
   deriveLatestGeneratedWorkspaceSummary,
   findSidebarProposedPlan,
@@ -2686,6 +2687,8 @@ function useChatViewComponent({
     providerStatuses,
     selectedProvider,
   ]);
+  const sideConversationSupported =
+    activeThread?.session?.capabilities?.sideConversationMode !== "unsupported";
   const readCurrentSelectedPromptEffort = useCallback(() => {
     return getComposerProviderState({
       provider: selectedProvider,
@@ -2779,6 +2782,7 @@ function useChatViewComponent({
     () => deriveActivePlanState(threadActivities, activeWorkTurnId),
     [activeWorkTurnId, threadActivities],
   );
+  const activeGoal = useMemo(() => deriveActiveGoalState(threadActivities), [threadActivities]);
   const activeGeneratedWorkspaceSummary = useMemo(
     () => deriveLatestGeneratedWorkspaceSummary(threadActivities),
     [threadActivities],
@@ -3242,6 +3246,64 @@ function useChatViewComponent({
 
     await api.orchestration.dispatchCommand({
       type: "thread.workspace-summary.regenerate",
+      commandId: newCommandId(),
+      threadId: activeThread.id,
+      createdAt: new Date().toISOString(),
+    });
+  }, [activeThread]);
+  const dispatchGoalUpdate = useCallback(
+    async (input: {
+      objective?: string;
+      status: "active" | "paused" | "blocked" | "completed";
+    }) => {
+      if (!activeThread) {
+        return;
+      }
+      const api = readNativeApi();
+      if (!api) {
+        return;
+      }
+
+      await api.orchestration.dispatchCommand({
+        type: "thread.goal.update",
+        commandId: newCommandId(),
+        threadId: activeThread.id,
+        ...(input.objective !== undefined ? { objective: input.objective } : {}),
+        status: input.status,
+        createdAt: new Date().toISOString(),
+      });
+    },
+    [activeThread],
+  );
+  const handlePauseGoal = useCallback(() => {
+    void dispatchGoalUpdate({
+      ...(activeGoal?.objective ? { objective: activeGoal.objective } : {}),
+      status: "paused",
+    });
+  }, [activeGoal?.objective, dispatchGoalUpdate]);
+  const handleResumeGoal = useCallback(() => {
+    void dispatchGoalUpdate({
+      ...(activeGoal?.objective ? { objective: activeGoal.objective } : {}),
+      status: "active",
+    });
+  }, [activeGoal?.objective, dispatchGoalUpdate]);
+  const handleEditGoal = useCallback(
+    (objective: string) => {
+      void dispatchGoalUpdate({ objective, status: activeGoal?.status ?? "active" });
+    },
+    [activeGoal?.status, dispatchGoalUpdate],
+  );
+  const handleDeleteGoal = useCallback(async () => {
+    if (!activeThread) {
+      return;
+    }
+    const api = readNativeApi();
+    if (!api) {
+      return;
+    }
+
+    await api.orchestration.dispatchCommand({
+      type: "thread.goal.clear",
       commandId: newCommandId(),
       threadId: activeThread.id,
       createdAt: new Date().toISOString(),
@@ -9908,6 +9970,7 @@ function useChatViewComponent({
   > | null = activeThread
     ? {
         activeProjectScripts: activeProject?.scripts,
+        activeGoal,
         activePlan,
         activeSubagentThreadId,
         activeThreadId: activeThread.id,
@@ -9927,7 +9990,9 @@ function useChatViewComponent({
         workspaceChangeStat,
         workspaceMode: headerWorkspaceMode,
         onAddProjectScript: saveProjectScript,
+        onDeleteGoal: handleDeleteGoal,
         onDeleteProjectScript: deleteProjectScript,
+        onEditGoal: handleEditGoal,
         onOpenDiffPanel: onOpenRightSidePanelDiff,
         onJumpToMessage: jumpToTimelineMessage,
         onOpenEnvironmentSettings: () => {
@@ -9947,6 +10012,8 @@ function useChatViewComponent({
         onRunProjectScript: (script) => {
           void runProjectScript(script);
         },
+        onPauseGoal: handlePauseGoal,
+        onResumeGoal: handleResumeGoal,
         onSelectSubagentThread: selectSubagentThread,
         onSubagentPanelOpen: () => {
           setRightSidePanelMode("subagent");
@@ -10535,6 +10602,7 @@ function useChatViewComponent({
           selectedProviderModelOptions={composerModelOptions?.[targetProvider]}
           sessionConfigOptions={activeThread.session?.configOptions}
           providerCommands={composerProviderCommands}
+          sideConversationSupported={sideConversationSupported}
           selectedModelForPickerWithCustomFallback={selectedModel}
           lockedProvider={targetProvider}
           modelOptionsByProvider={modelOptionsByProvider}
@@ -10883,6 +10951,7 @@ function useChatViewComponent({
                         selectedProviderModelOptions={composerModelOptions?.[selectedProvider]}
                         sessionConfigOptions={activeThread.session?.configOptions}
                         providerCommands={composerProviderCommands}
+                        sideConversationSupported={sideConversationSupported}
                         selectedModelForPickerWithCustomFallback={
                           selectedModelForPickerWithCustomFallback
                         }

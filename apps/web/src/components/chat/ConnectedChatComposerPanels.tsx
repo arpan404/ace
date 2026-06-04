@@ -40,6 +40,7 @@ import { useDebouncedValue } from "@tanstack/react-pacer";
 import { useQuery } from "@tanstack/react-query";
 import { useShallow } from "zustand/react/shallow";
 import {
+  isProviderSideConversationAlias,
   providerSlashCommandExtensionKind,
   type ProviderExtensionCommandKind,
 } from "@ace/shared/providerSlashCommands";
@@ -113,10 +114,6 @@ function normalizeSlashCommandName(name: string): string {
     .trim()
     .replace(/^[/@$]+/, "")
     .toLowerCase();
-}
-
-function isProviderSideConversationAlias(name: string): boolean {
-  return ["side", "btw", "ask"].includes(normalizeSlashCommandName(name));
 }
 
 type ComposerProviderCommandKind = "provider" | ProviderExtensionCommandKind;
@@ -232,6 +229,7 @@ interface ConnectedChatComposerPanelsProps {
   readonly selectedProviderModelOptions: ProviderModelOptions[ProviderKind] | undefined;
   readonly sessionConfigOptions?: ReadonlyArray<ProviderSessionConfigOption> | undefined;
   readonly providerCommands: ReadonlyArray<ProviderSlashCommand>;
+  readonly sideConversationSupported: boolean;
   readonly selectedModelForPickerWithCustomFallback: string;
   readonly lockedProvider: ProviderKind | null;
   readonly modelOptionsByProvider: ComponentProps<
@@ -708,14 +706,18 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
               ] as const)
             : [];
       const slashCommandItems = [
-        {
-          id: "slash:side",
-          type: "slash-command" as const,
-          command: "side" as const,
-          commandSource: "ace" as const,
-          label: formatCommandDisplayLabel("side"),
-          description: "Open a side chat composer",
-        },
+        ...(props.sideConversationSupported
+          ? ([
+              {
+                id: "slash:side",
+                type: "slash-command" as const,
+                command: "side" as const,
+                commandSource: "ace" as const,
+                label: formatCommandDisplayLabel("side"),
+                description: "Open a side chat composer",
+              },
+            ] as const)
+          : []),
         {
           id: "slash:model",
           type: "slash-command" as const,

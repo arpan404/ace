@@ -169,6 +169,8 @@ describe("ProviderCommandReactor", () => {
         turnId: asTurnId("turn-1"),
       }),
     );
+    const updateGoal = vi.fn<ProviderServiceShape["updateGoal"]>(() => Effect.void);
+    const clearGoal = vi.fn<ProviderServiceShape["clearGoal"]>(() => Effect.void);
     const interruptTurn = vi.fn<ProviderServiceShape["interruptTurn"]>(() => Effect.void);
     const respondToRequest = vi.fn<ProviderServiceShape["respondToRequest"]>(() => Effect.void);
     const respondToUserInput = vi.fn<ProviderServiceShape["respondToUserInput"]>(() => Effect.void);
@@ -228,6 +230,8 @@ describe("ProviderCommandReactor", () => {
       startSession: startSession as ProviderServiceShape["startSession"],
       sendTurn: sendTurn as ProviderServiceShape["sendTurn"],
       steerTurn: steerTurn as ProviderServiceShape["steerTurn"],
+      updateGoal: updateGoal as ProviderServiceShape["updateGoal"],
+      clearGoal: clearGoal as ProviderServiceShape["clearGoal"],
       interruptTurn: interruptTurn as ProviderServiceShape["interruptTurn"],
       respondToRequest: respondToRequest as ProviderServiceShape["respondToRequest"],
       respondToUserInput: respondToUserInput as ProviderServiceShape["respondToUserInput"],
@@ -312,6 +316,8 @@ describe("ProviderCommandReactor", () => {
       startSession,
       sendTurn,
       steerTurn,
+      updateGoal,
+      clearGoal,
       interruptTurn,
       respondToRequest,
       respondToUserInput,
@@ -363,6 +369,47 @@ describe("ProviderCommandReactor", () => {
     const thread = readModel.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
     expect(thread?.session?.threadId).toBe("thread-1");
     expect(thread?.session?.runtimeMode).toBe("approval-required");
+  });
+
+  it("reacts to goal controls through provider goal APIs without sending a turn", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.goal.update",
+        commandId: CommandId.makeUnsafe("cmd-goal-update"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        objective: "Keep goal state out of the transcript",
+        status: "active",
+        tokenBudget: 2000,
+        createdAt: now,
+      }),
+    );
+    await waitFor(() => harness.updateGoal.mock.calls.length === 1);
+
+    expect(harness.updateGoal.mock.calls[0]?.[0]).toMatchObject({
+      threadId: ThreadId.makeUnsafe("thread-1"),
+      objective: "Keep goal state out of the transcript",
+      status: "active",
+      tokenBudget: 2000,
+    });
+    expect(harness.sendTurn.mock.calls).toHaveLength(0);
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.goal.clear",
+        commandId: CommandId.makeUnsafe("cmd-goal-clear"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        createdAt: new Date().toISOString(),
+      }),
+    );
+    await waitFor(() => harness.clearGoal.mock.calls.length === 1);
+
+    expect(harness.clearGoal.mock.calls[0]?.[0]).toEqual({
+      threadId: ThreadId.makeUnsafe("thread-1"),
+    });
+    expect(harness.sendTurn.mock.calls).toHaveLength(0);
   });
 
   it("dispatches queued composer messages from the backend with images and terminal context", async () => {
@@ -1345,6 +1392,26 @@ describe("ProviderCommandReactor", () => {
     );
     await waitFor(() => harness.startSession.mock.calls.length === 1);
     await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.activity.append",
+        commandId: CommandId.makeUnsafe("cmd-side-parent-activity"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        activity: {
+          id: EventId.makeUnsafe("evt-side-parent-activity"),
+          tone: "tool",
+          kind: "tool.completed",
+          summary: "Read provider architecture",
+          payload: {
+            detail: "Inspected provider capability routing and side chat startup.",
+          },
+          turnId: null,
+          createdAt: now,
+        },
+        createdAt: now,
+      }),
+    );
     harness.startSession.mockClear();
     harness.sendTurn.mockClear();
 
@@ -1599,12 +1666,20 @@ describe("ProviderCommandReactor", () => {
     expect(startInput?.threadId).toBe("side:thread-1:question-1");
     expect(startInput?.provider).toBe("claudeAgent");
     expect(startInput?.forkSource).toEqual({ threadId: ThreadId.makeUnsafe("thread-1") });
-    expect(startInput?.replayTurns).toEqual([
-      {
-        prompt: "We are reviewing the provider architecture.",
-        attachmentNames: [],
-      },
-    ]);
+    expect(startInput?.replayTurns?.[0]).toEqual({
+      prompt: "We are reviewing the provider architecture.",
+      attachmentNames: [],
+    });
+    expect(startInput?.replayTurns?.[1]?.prompt).toContain(
+      "Record this read-only parent-thread context",
+    );
+    expect(startInput?.replayTurns?.[1]?.assistantResponse).toContain(
+      "Ace side chat parent context",
+    );
+    expect(startInput?.replayTurns?.[1]?.assistantResponse).toContain("Thread title: Thread");
+    expect(startInput?.replayTurns?.[1]?.assistantResponse).toContain(
+      "[subagent.message.sent] User message: explain the current architecture",
+    );
 
     const sendInput = harness.sendTurn.mock.calls[0]?.[0] as
       | {

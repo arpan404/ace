@@ -418,6 +418,14 @@ describe("parseProviderComposerSlashCommand", () => {
   it("ignores unknown slash commands", () => {
     expect(parseProviderComposerSlashCommand("/unknown", providerCommands)).toBeNull();
   });
+
+  it("does not forward provider side-chat aliases as provider commands", () => {
+    const sideAliases = [{ name: "side" }, { name: "btw" }, { name: "ask" }];
+
+    expect(parseProviderComposerSlashCommand("/side inspect context", sideAliases)).toBeNull();
+    expect(parseProviderComposerSlashCommand("/btw inspect context", sideAliases)).toBeNull();
+    expect(parseProviderComposerSlashCommand("/ask inspect context", sideAliases)).toBeNull();
+  });
 });
 
 describe("parseComposerIssuesCommand", () => {

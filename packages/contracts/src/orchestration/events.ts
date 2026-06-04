@@ -7,6 +7,7 @@ import {
   IsoDateTime,
   MessageId,
   NonNegativeInt,
+  PositiveInt,
   ProjectId,
   ThreadId,
   TrimmedNonEmptyString,
@@ -45,6 +46,7 @@ import {
   ThreadHandoff,
   ThreadFork,
 } from "./readModel";
+import { ThreadGoalStatus } from "./commands";
 
 export const OrchestrationEventType = Schema.Literals([
   "project.created",
@@ -67,6 +69,8 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.reverted",
   "thread.session-stop-requested",
   "thread.workspace-summary-regenerate-requested",
+  "thread.goal-update-requested",
+  "thread.goal-clear-requested",
   "thread.session-set",
   "thread.proposed-plan-upserted",
   "thread.turn-diff-completed",
@@ -249,6 +253,19 @@ export const ThreadWorkspaceSummaryRegenerateRequestedPayload = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
+export const ThreadGoalUpdateRequestedPayload = Schema.Struct({
+  threadId: ThreadId,
+  objective: Schema.optional(TrimmedNonEmptyString),
+  status: ThreadGoalStatus,
+  tokenBudget: Schema.optional(PositiveInt),
+  createdAt: IsoDateTime,
+});
+
+export const ThreadGoalClearRequestedPayload = Schema.Struct({
+  threadId: ThreadId,
+  createdAt: IsoDateTime,
+});
+
 export const ThreadSessionSetPayload = Schema.Struct({
   threadId: ThreadId,
   session: OrchestrationSession,
@@ -391,6 +408,16 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.workspace-summary-regenerate-requested"),
     payload: ThreadWorkspaceSummaryRegenerateRequestedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.goal-update-requested"),
+    payload: ThreadGoalUpdateRequestedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.goal-clear-requested"),
+    payload: ThreadGoalClearRequestedPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,

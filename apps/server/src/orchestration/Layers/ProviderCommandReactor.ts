@@ -48,7 +48,9 @@ type ProviderIntentEvent = Extract<
       | "thread.turn-interrupt-requested"
       | "thread.approval-response-requested"
       | "thread.user-input-response-requested"
-      | "thread.session-stop-requested";
+      | "thread.session-stop-requested"
+      | "thread.goal-update-requested"
+      | "thread.goal-clear-requested";
   }
 >;
 function toNonEmptyProviderInput(value: string | undefined): string | undefined {
@@ -90,6 +92,9 @@ const DEFAULT_THREAD_TITLE = "New thread";
 const COMPOSER_ISSUE_REFERENCE_MARKER = "\u2063";
 const IMAGE_ONLY_BOOTSTRAP_PROMPT =
   "Please review the attached image and follow any visible instructions or context.";
+const SIDE_CONVERSATION_CONTEXT_RECENT_ACTIVITY_COUNT = 12;
+const SIDE_CONVERSATION_CONTEXT_DETAIL_MAX_CHARS = 500;
+const SIDE_CONVERSATION_CONTEXT_MAX_CHARS = 8_000;
 
 function canReplaceThreadTitle(currentTitle: string, titleSeed?: string): boolean {
   const trimmedCurrentTitle = currentTitle.trim();
@@ -419,6 +424,114 @@ function collectThreadReplayMessages(
   return messages;
 }
 
+function truncateContextText(text: string, maxChars: number): string {
+  const normalized = text.trim().replace(/\s+/gu, " ");
+  if (normalized.length <= maxChars) {
+    return normalized;
+  }
+  if (maxChars <= 1) {
+    return "…";
+  }
+  return `${normalized.slice(0, maxChars - 1).trimEnd()}…`;
+}
+
+function asContextRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function contextString(value: unknown): string | null {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+  if (value === undefined || value === null) {
+    return null;
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  try {
+    const serialized = JSON.stringify(value);
+    return serialized && serialized !== "{}" && serialized !== "[]" ? serialized : null;
+  } catch {
+    return null;
+  }
+}
+
+function activityContextLine(activity: OrchestrationThread["activities"][number]): string | null {
+  const payload = asContextRecord(activity.payload);
+  const detail =
+    contextString(payload?.detail) ??
+    contextString(payload?.message) ??
+    contextString(payload?.text) ??
+    contextString(payload?.command);
+  const base = `[${activity.kind}] ${activity.summary}`;
+  return detail
+    ? `${base}: ${truncateContextText(detail, SIDE_CONVERSATION_CONTEXT_DETAIL_MAX_CHARS)}`
+    : base;
+}
+
+function buildSideConversationContextReplayTurn(
+  thread: OrchestrationThread,
+): ProviderReplayTurn | null {
+  const sections: string[] = [
+    "Ace side chat parent context",
+    [
+      `Thread title: ${thread.title}`,
+      `Thread id: ${thread.id}`,
+      `Runtime mode: ${thread.runtimeMode}`,
+      `Interaction mode: ${thread.interactionMode}`,
+      `Latest turn state: ${thread.latestTurn?.state ?? "none"}`,
+    ].join("\n"),
+  ];
+
+  const latestAssistantMessage = [...thread.messages]
+    .toReversed()
+    .find((message) => message.role === "assistant" && message.text.trim().length > 0);
+  if (latestAssistantMessage) {
+    sections.push(
+      `Latest assistant message:\n${truncateContextText(
+        latestAssistantMessage.text,
+        SIDE_CONVERSATION_CONTEXT_DETAIL_MAX_CHARS,
+      )}`,
+    );
+  }
+
+  const recentActivityLines = thread.activities
+    .slice(-SIDE_CONVERSATION_CONTEXT_RECENT_ACTIVITY_COUNT)
+    .map(activityContextLine)
+    .filter((line): line is string => line !== null);
+  if (recentActivityLines.length > 0) {
+    sections.push(
+      `Recent work/activity:\n${recentActivityLines.map((line) => `- ${line}`).join("\n")}`,
+    );
+  }
+
+  const assistantResponse = truncateContextText(
+    sections.join("\n\n"),
+    SIDE_CONVERSATION_CONTEXT_MAX_CHARS,
+  );
+  if (assistantResponse.length === 0) {
+    return null;
+  }
+  return {
+    prompt:
+      "Record this read-only parent-thread context for the Ace side chat. Use it to answer the next side-chat user request without adding anything to the parent conversation.",
+    attachmentNames: [],
+    assistantResponse,
+  };
+}
+
+function buildSideConversationReplayTurns(
+  thread: OrchestrationThread,
+): ReadonlyArray<ProviderReplayTurn> {
+  const replayTurns = [...sourceMessagesToReplayTurns(thread.messages)];
+  const contextTurn = buildSideConversationContextReplayTurn(thread);
+  return contextTurn ? [...replayTurns, contextTurn] : replayTurns;
+}
+
 const make = Effect.gen(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
   const providerService = yield* ProviderService;
@@ -473,7 +586,8 @@ const make = Effect.gen(function* () {
       | "provider.turn.interrupt.failed"
       | "provider.approval.respond.failed"
       | "provider.user-input.respond.failed"
-      | "provider.session.stop.failed";
+      | "provider.session.stop.failed"
+      | "provider.goal.control.failed";
     readonly summary: string;
     readonly detail: string;
     readonly turnId: TurnId | null;
@@ -1627,7 +1741,7 @@ const make = Effect.gen(function* () {
         return;
       }
 
-      const replayTurns = sourceMessagesToReplayTurns(thread.messages);
+      const replayTurns = buildSideConversationReplayTurns(thread);
 
       yield* providerService.startSession(sideThreadId, {
         threadId: sideThreadId,
@@ -1876,6 +1990,46 @@ const make = Effect.gen(function* () {
     });
   });
 
+  const processGoalControlRequested = Effect.fnUntraced(function* (
+    event: Extract<
+      ProviderIntentEvent,
+      { type: "thread.goal-update-requested" | "thread.goal-clear-requested" }
+    >,
+  ) {
+    const threadId = event.payload.threadId;
+    const thread = yield* resolveThread(threadId);
+    if (!thread) {
+      return;
+    }
+
+    const control =
+      event.type === "thread.goal-update-requested"
+        ? providerService.updateGoal({
+            threadId,
+            ...(event.payload.objective !== undefined
+              ? { objective: event.payload.objective }
+              : {}),
+            status: event.payload.status,
+            ...(event.payload.tokenBudget !== undefined
+              ? { tokenBudget: event.payload.tokenBudget }
+              : {}),
+          })
+        : providerService.clearGoal({ threadId });
+
+    yield* control.pipe(
+      Effect.catchCause((cause) =>
+        appendProviderFailureActivity({
+          threadId,
+          kind: "provider.goal.control.failed",
+          summary: "Goal control failed",
+          detail: providerFailureDetailFromCause(cause),
+          turnId: null,
+          createdAt: event.payload.createdAt,
+        }),
+      ),
+    );
+  });
+
   const processDomainEvent = Effect.fn("processDomainEvent")(function* (
     event: ProviderIntentEvent,
   ) {
@@ -1910,6 +2064,10 @@ const make = Effect.gen(function* () {
         return;
       case "thread.session-stop-requested":
         yield* processSessionStopRequested(event);
+        return;
+      case "thread.goal-update-requested":
+      case "thread.goal-clear-requested":
+        yield* processGoalControlRequested(event);
         return;
     }
   });
@@ -1951,7 +2109,9 @@ const make = Effect.gen(function* () {
         event.type === "thread.turn-interrupt-requested" ||
         event.type === "thread.approval-response-requested" ||
         event.type === "thread.user-input-response-requested" ||
-        event.type === "thread.session-stop-requested"
+        event.type === "thread.session-stop-requested" ||
+        event.type === "thread.goal-update-requested" ||
+        event.type === "thread.goal-clear-requested"
       ) {
         if (event.type === "thread.turn-start-requested") {
           pausedQueueDispatchByThreadId.delete(event.payload.threadId);

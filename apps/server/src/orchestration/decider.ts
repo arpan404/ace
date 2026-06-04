@@ -993,6 +993,51 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
+    case "thread.goal.update": {
+      yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.goal-update-requested",
+        payload: {
+          threadId: command.threadId,
+          ...(command.objective !== undefined ? { objective: command.objective } : {}),
+          status: command.status,
+          ...(command.tokenBudget !== undefined ? { tokenBudget: command.tokenBudget } : {}),
+          createdAt: command.createdAt,
+        },
+      };
+    }
+
+    case "thread.goal.clear": {
+      yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.goal-clear-requested",
+        payload: {
+          threadId: command.threadId,
+          createdAt: command.createdAt,
+        },
+      };
+    }
+
     case "thread.session.set": {
       yield* requireThread({
         readModel,

@@ -98,6 +98,16 @@ export interface ActivePlanProgressState {
   currentStatus: "pending" | "inProgress" | null;
 }
 
+export interface ActiveGoalState {
+  createdAt: string;
+  threadId: string;
+  objective: string;
+  status: "active" | "paused" | "completed" | "blocked";
+  tokenBudget?: number;
+  tokensUsed?: number;
+  timeUsedSeconds?: number;
+}
+
 export interface LatestProposedPlanState {
   id: OrchestrationProposedPlanId;
   createdAt: string;

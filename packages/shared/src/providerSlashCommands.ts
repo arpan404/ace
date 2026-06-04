@@ -50,6 +50,11 @@ export function normalizeProviderSlashCommandName(value: string): string | null 
   return name;
 }
 
+export function isProviderSideConversationAlias(value: string): boolean {
+  const name = normalizeProviderSlashCommandName(value)?.toLowerCase();
+  return name === "side" || name === "btw" || name === "ask";
+}
+
 export function providerSlashCommandExtensionKind(
   command: ProviderSlashCommand,
   normalizedName: string,

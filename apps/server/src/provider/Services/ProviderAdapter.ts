@@ -10,6 +10,8 @@
 import type {
   ApprovalRequestId,
   ProviderApprovalDecision,
+  ProviderGoalClearInput,
+  ProviderGoalUpdateInput,
   ProviderIntegrationCapabilities,
   ProviderKind,
   ProviderSessionModelSwitchMode,
@@ -73,6 +75,20 @@ export interface ProviderAdapterShape<TError> {
   readonly steerTurn?: (
     input: ProviderSendTurnInput,
   ) => Effect.Effect<ProviderTurnStartResult, TError>;
+
+  /**
+   * Update provider-managed long-running goal state without starting a chat turn.
+   *
+   * Providers that do not expose native goal controls may omit this.
+   */
+  readonly updateGoal?: (input: ProviderGoalUpdateInput) => Effect.Effect<void, TError>;
+
+  /**
+   * Clear provider-managed long-running goal state without starting a chat turn.
+   *
+   * Providers that do not expose native goal controls may omit this.
+   */
+  readonly clearGoal?: (input: ProviderGoalClearInput) => Effect.Effect<void, TError>;
 
   /**
    * Interrupt an active turn.

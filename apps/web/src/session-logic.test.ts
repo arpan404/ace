@@ -10,6 +10,7 @@ import { describe, expect, it } from "vitest";
 import {
   deriveCompletionDividerBeforeEntryId,
   deriveActiveWorkStartedAt,
+  deriveActiveGoalState,
   deriveActivePlanState,
   deriveLatestGeneratedWorkspaceSummary,
   deriveVisibleWorkTurnId,
@@ -824,6 +825,33 @@ describe("findSidebarProposedPlan", () => {
 });
 
 describe("deriveWorkLogEntries", () => {
+  it("does not render provider goal updates in the work log", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "goal-updated",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "goal.updated",
+        summary: "Goal updated",
+        tone: "info",
+        payload: {
+          threadId: "provider-thread-1",
+          objective: "Ship provider goal UI",
+          status: "active",
+          detail: "Ship provider goal UI",
+        },
+      }),
+      makeActivity({
+        id: "goal-cleared",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        kind: "goal.cleared",
+        summary: "Goal cleared",
+        tone: "info",
+      }),
+    ];
+
+    expect(deriveWorkLogEntries(activities, undefined)).toEqual([]);
+  });
+
   it("omits tool started entries and keeps completed entries", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({
@@ -2794,6 +2822,59 @@ describe("filterVisibleWorkLogActivities", () => {
     });
 
     expect(visible).toBe(activities);
+  });
+});
+
+describe("deriveActiveGoalState", () => {
+  it("tracks the latest provider-confirmed active goal and clears it", () => {
+    const activeGoalActivity = makeActivity({
+      id: "goal-active",
+      createdAt: "2026-02-23T00:00:01.000Z",
+      kind: "goal.updated",
+      summary: "Goal updated",
+      tone: "info",
+      payload: {
+        threadId: "provider-thread-1",
+        objective: "Implement the goal panel",
+        status: "active",
+        tokenBudget: 2000,
+        tokensUsed: 125,
+      },
+    });
+    const pausedGoalActivity = makeActivity({
+      id: "goal-paused",
+      createdAt: "2026-02-23T00:00:02.000Z",
+      kind: "goal.updated",
+      summary: "Goal paused",
+      tone: "info",
+      payload: {
+        threadId: "provider-thread-1",
+        objective: "Implement the goal panel",
+        status: "paused",
+        tokensUsed: 200,
+      },
+    });
+
+    expect(deriveActiveGoalState([activeGoalActivity, pausedGoalActivity])).toEqual({
+      createdAt: "2026-02-23T00:00:02.000Z",
+      threadId: "provider-thread-1",
+      objective: "Implement the goal panel",
+      status: "paused",
+      tokensUsed: 200,
+    });
+    expect(
+      deriveActiveGoalState([
+        activeGoalActivity,
+        pausedGoalActivity,
+        makeActivity({
+          id: "goal-cleared",
+          createdAt: "2026-02-23T00:00:03.000Z",
+          kind: "goal.cleared",
+          summary: "Goal cleared",
+          tone: "info",
+        }),
+      ]),
+    ).toBeNull();
   });
 });
 

@@ -5,14 +5,19 @@ import type {
   ResolvedKeybindingsConfig,
   ThreadId,
 } from "@ace/contracts";
-import { type ComponentProps, forwardRef, type ReactNode } from "react";
+import { type ComponentProps, forwardRef, type ReactNode, useState } from "react";
 import * as Schema from "effect/Schema";
 import {
   CheckIcon,
   CheckSquareIcon,
   ChevronDownIcon,
   FileDiffIcon,
+  PauseIcon,
+  PencilIcon,
+  PlayIcon,
+  SaveIcon,
   SettingsIcon,
+  Trash2Icon,
   XIcon,
 } from "lucide-react";
 import { m, type MotionStyle } from "motion/react";
@@ -21,7 +26,7 @@ import BranchToolbar from "../BranchToolbar";
 import EnvironmentGitSection from "../EnvironmentGitSection";
 import ProjectScriptsControl, { type NewProjectScriptInput } from "../ProjectScriptsControl";
 import { isSideChatThread, type SubagentThread } from "./subagentThreads";
-import type { ActivePlanState } from "../../session-logic";
+import type { ActiveGoalState, ActivePlanState } from "../../session-logic";
 import { cn } from "~/lib/utils";
 import { PANEL_SPRING_TRANSITION } from "~/lib/panelMotion";
 import type { ThreadWorkspaceMode } from "~/threadWorkspaceMode";
@@ -83,6 +88,7 @@ function EnvironmentPanelGroup(props: {
 type EnvironmentPanelGroupId =
   | "actions"
   | "environment"
+  | "goal"
   | "notes"
   | "pinnedMessages"
   | "progress"
@@ -90,11 +96,12 @@ type EnvironmentPanelGroupId =
   | "subagents";
 type EnvironmentPanelGroupOpenState = Record<EnvironmentPanelGroupId, boolean>;
 
-const ENVIRONMENT_PANEL_GROUP_STORAGE_KEY = "ace:environment-mini-panel-groups:v4";
+const ENVIRONMENT_PANEL_GROUP_STORAGE_KEY = "ace:environment-mini-panel-groups:v5";
 
 const DEFAULT_ENVIRONMENT_PANEL_GROUP_OPEN_STATE: EnvironmentPanelGroupOpenState = {
   actions: false,
   environment: true,
+  goal: true,
   notes: false,
   pinnedMessages: false,
   progress: true,
@@ -105,6 +112,7 @@ const DEFAULT_ENVIRONMENT_PANEL_GROUP_OPEN_STATE: EnvironmentPanelGroupOpenState
 const EnvironmentPanelGroupOpenStateSchema = Schema.Struct({
   actions: Schema.Boolean,
   environment: Schema.Boolean,
+  goal: Schema.Boolean,
   notes: Schema.Boolean,
   pinnedMessages: Schema.Boolean,
   progress: Schema.Boolean,
@@ -161,6 +169,136 @@ function ProgressStepMarker({ status }: { status: ActivePlanState["steps"][numbe
         status === "pending" && "border-muted-foreground/55 bg-transparent",
       )}
     />
+  );
+}
+
+function formatGoalUsage(goal: ActiveGoalState): string | null {
+  if (goal.tokensUsed !== undefined && goal.tokenBudget !== undefined) {
+    return `${new Intl.NumberFormat().format(goal.tokensUsed)} / ${new Intl.NumberFormat().format(goal.tokenBudget)} tokens`;
+  }
+  if (goal.tokensUsed !== undefined) {
+    return `${new Intl.NumberFormat().format(goal.tokensUsed)} tokens`;
+  }
+  if (goal.timeUsedSeconds !== undefined) {
+    const minutes = Math.max(1, Math.round(goal.timeUsedSeconds / 60));
+    return `${minutes}m elapsed`;
+  }
+  return null;
+}
+
+function GoalControlButton(props: {
+  children: ReactNode;
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            className="inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-45"
+            onClick={props.onClick}
+            disabled={props.disabled}
+            aria-label={props.label}
+          />
+        }
+      >
+        {props.children}
+      </TooltipTrigger>
+      <TooltipPopup side="top">{props.label}</TooltipPopup>
+    </Tooltip>
+  );
+}
+
+function EnvironmentGoalPanel(props: {
+  goal: ActiveGoalState;
+  onDeleteGoal: () => void;
+  onEditGoal: (objective: string) => void;
+  onPauseGoal: () => void;
+  onResumeGoal: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draftObjective, setDraftObjective] = useState(props.goal.objective);
+  const usage = formatGoalUsage(props.goal);
+  const trimmedDraft = draftObjective.trim();
+  const saveDisabled = trimmedDraft.length === 0 || trimmedDraft === props.goal.objective;
+
+  if (editing) {
+    return (
+      <div className="space-y-1.5 px-2 py-1">
+        <textarea
+          value={draftObjective}
+          onChange={(event) => setDraftObjective(event.target.value)}
+          className="min-h-20 w-full resize-none rounded-lg border border-border/65 bg-background/75 px-2.5 py-2 text-[12px] leading-5 outline-none transition-colors focus:border-ring/55 focus:ring-2 focus:ring-ring/10"
+          aria-label="Edit goal objective"
+        />
+        <div className="flex items-center justify-end gap-1">
+          <GoalControlButton
+            label="Cancel edit"
+            onClick={() => {
+              setDraftObjective(props.goal.objective);
+              setEditing(false);
+            }}
+          >
+            <XIcon className="size-3.5" />
+          </GoalControlButton>
+          <GoalControlButton
+            label="Save goal"
+            disabled={saveDisabled}
+            onClick={() => {
+              if (saveDisabled) return;
+              props.onEditGoal(trimmedDraft);
+              setEditing(false);
+            }}
+          >
+            <SaveIcon className="size-3.5" />
+          </GoalControlButton>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="px-2 py-1">
+      <div className="flex min-w-0 items-start gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="line-clamp-3 text-[12px] leading-5 text-foreground">
+            {props.goal.objective}
+          </div>
+          <div className="mt-1 flex min-w-0 items-center gap-2 text-[10px] uppercase tracking-wide text-muted-foreground">
+            <span>{props.goal.status}</span>
+            {usage ? (
+              <span className="min-w-0 truncate normal-case tracking-normal">{usage}</span>
+            ) : null}
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-0.5">
+          {props.goal.status === "paused" ? (
+            <GoalControlButton label="Resume goal" onClick={props.onResumeGoal}>
+              <PlayIcon className="size-3.5" />
+            </GoalControlButton>
+          ) : (
+            <GoalControlButton label="Pause goal" onClick={props.onPauseGoal}>
+              <PauseIcon className="size-3.5" />
+            </GoalControlButton>
+          )}
+          <GoalControlButton
+            label="Edit goal"
+            onClick={() => {
+              setDraftObjective(props.goal.objective);
+              setEditing(true);
+            }}
+          >
+            <PencilIcon className="size-3.5" />
+          </GoalControlButton>
+          <GoalControlButton label="Delete goal" onClick={props.onDeleteGoal}>
+            <Trash2Icon className="size-3.5" />
+          </GoalControlButton>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -242,6 +380,7 @@ export const EnvironmentMiniPanel = forwardRef<
   HTMLElement,
   {
     activeProjectScripts: ProjectScript[] | undefined;
+    activeGoal: ActiveGoalState | null;
     activePlan: ActivePlanState | null;
     activeSubagentThreadId: string | null;
     activeThreadId: ThreadId;
@@ -257,11 +396,15 @@ export const EnvironmentMiniPanel = forwardRef<
     style?: MotionStyle;
     onAddProjectScript: (input: NewProjectScriptInput) => Promise<void>;
     onDeleteProjectScript: (scriptId: string) => Promise<void>;
+    onDeleteGoal: () => void;
+    onEditGoal: (objective: string) => void;
     onOpenDiffPanel: () => void;
     onOpenEnvironmentSettings: () => void;
     onJumpToMessage: (messageId: string, target: PinnedMessageNavigationTarget) => void;
     onOpenSummaryPanel: () => void;
     onRunProjectScript: (script: ProjectScript) => void;
+    onPauseGoal: () => void;
+    onResumeGoal: () => void;
     onSelectSubagentThread: (threadId: string) => void;
     onSubagentPanelOpen: () => void;
     onUpdateProjectScript: (scriptId: string, input: NewProjectScriptInput) => Promise<void>;
@@ -331,6 +474,7 @@ export const EnvironmentMiniPanel = forwardRef<
     }));
   };
   const activePlan = props.activePlan;
+  const activeGoal = props.activeGoal;
   const activeProjectScripts = props.activeProjectScripts;
   const subagentThreads = props.subagentThreads;
   const sideChatThreads = subagentThreads.filter(isSideChatThread);
@@ -362,6 +506,22 @@ export const EnvironmentMiniPanel = forwardRef<
       {...(props.style ? { style: props.style } : {})}
     >
       <div className="space-y-0">
+        {activeGoal ? (
+          <EnvironmentPanelGroup
+            title="Goal"
+            open={resolveEnvironmentPanelGroupOpen(groupOpenState, "goal")}
+            onOpenChange={(open) => setGroupOpen("goal", open)}
+          >
+            <EnvironmentGoalPanel
+              goal={activeGoal}
+              onDeleteGoal={props.onDeleteGoal}
+              onEditGoal={props.onEditGoal}
+              onPauseGoal={props.onPauseGoal}
+              onResumeGoal={props.onResumeGoal}
+            />
+          </EnvironmentPanelGroup>
+        ) : null}
+
         {activeTodoSteps.length > 0 ? (
           <EnvironmentPanelGroup
             title="Progress"
