@@ -87,6 +87,10 @@ import { loadClaudeAgentSdkModule, type ClaudeAgentSdkLoader } from "../provider
 
 const PROVIDER = "claudeAgent" as const;
 const ROLLBACK_BOOTSTRAP_MAX_CHARS = 24_000;
+const CLAUDE_PROVIDER_CAPABILITIES = {
+  sessionForkMode: "native" as const,
+  sideConversationMode: "native-fork" as const,
+};
 type ClaudeTextStreamKind = Extract<RuntimeContentStreamKind, "assistant_text" | "reasoning_text">;
 type ClaudeToolResultStreamKind = Extract<
   RuntimeContentStreamKind,

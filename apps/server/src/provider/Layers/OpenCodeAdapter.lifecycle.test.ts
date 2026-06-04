@@ -2,7 +2,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { ThreadId } from "@ace/contracts";
 import { assert, it } from "@effect/vitest";
 import { afterEach, vi } from "vitest";
-import { Effect, Layer } from "effect";
+import { Effect, Fiber, Layer, Option, Stream } from "effect";
 
 vi.mock("../opencodeRuntime.ts", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../opencodeRuntime.ts")>();
@@ -38,7 +38,19 @@ function emptyStream(): AsyncIterable<unknown> {
   };
 }
 
-function makeFakeOpenCodeClient(sessionId: string) {
+function makeFakeOpenCodeClient(
+  sessionId: string,
+  options?: {
+    readonly fork?: ReturnType<
+      typeof vi.fn<
+        (input: { readonly sessionID: string; readonly directory: string }) => Promise<{
+          readonly error?: unknown;
+          readonly data?: { readonly id: string };
+        }>
+      >
+    >;
+  },
+) {
   return {
     config: {
       providers: vi.fn(async () => ({
@@ -87,6 +99,7 @@ function makeFakeOpenCodeClient(sessionId: string) {
       delete: vi.fn(async () => ({
         error: undefined,
       })),
+      ...(options?.fork ? { fork: options.fork } : {}),
     },
     event: {
       subscribe: vi.fn(async () => ({
@@ -124,7 +137,109 @@ layer("OpenCodeAdapterLive session lifecycle", (it) => {
         transcriptAuthority: "local",
         historyAuthority: "local-server-session",
         sessionResumeMode: "local-replay",
+        sessionForkMode: "local-replay",
+        sideConversationMode: "replay-fork",
       });
+    }),
+  );
+
+  it.effect("emits replay fork capabilities when the OpenCode SDK cannot fork sessions", () =>
+    Effect.gen(function* () {
+      const serverClose = vi.fn(async () => undefined);
+      const client = makeFakeOpenCodeClient("opencode-session-replay-capabilities");
+      const threadId = asThreadId("thread-opencode-replay-capabilities");
+
+      mockedStartOpenCodeServerIsolated.mockResolvedValueOnce({
+        binaryPath: "/bin/opencode",
+        url: "http://127.0.0.1:4014",
+        close: serverClose,
+      });
+      mockedCreateOpenCodeSdkClient.mockReturnValueOnce(
+        client as unknown as ReturnType<typeof createOpenCodeSdkClient>,
+      );
+
+      const adapter = yield* OpenCodeAdapter;
+      const configuredFiber = yield* Stream.runHead(
+        Stream.filter(
+          adapter.streamEvents,
+          (event) => event.threadId === threadId && event.type === "session.configured",
+        ),
+      ).pipe(Effect.forkChild);
+      yield* adapter.startSession({
+        provider: "opencode",
+        threadId,
+        cwd: "/repo-replay",
+        runtimeMode: "full-access",
+      });
+
+      const configuredEvent = yield* Fiber.join(configuredFiber);
+      assert.isTrue(Option.isSome(configuredEvent));
+      if (!Option.isSome(configuredEvent)) {
+        return;
+      }
+      assert.equal(configuredEvent.value.type, "session.configured");
+      if (configuredEvent.value.type !== "session.configured") {
+        return;
+      }
+      assert.deepStrictEqual(configuredEvent.value.payload.config.capabilities, {
+        sessionForkMode: "local-replay",
+        sideConversationMode: "replay-fork",
+      });
+
+      yield* adapter.stopSession(threadId);
+      assert.equal(serverClose.mock.calls.length, 1);
+    }),
+  );
+
+  it.effect("emits native fork capabilities when the OpenCode SDK can fork sessions", () =>
+    Effect.gen(function* () {
+      const serverClose = vi.fn(async () => undefined);
+      const fork = vi.fn(async () => ({
+        error: undefined,
+        data: { id: "opencode-session-native-forked" },
+      }));
+      const client = makeFakeOpenCodeClient("opencode-session-native-capabilities", { fork });
+      const threadId = asThreadId("thread-opencode-native-capabilities");
+
+      mockedStartOpenCodeServerIsolated.mockResolvedValueOnce({
+        binaryPath: "/bin/opencode",
+        url: "http://127.0.0.1:4015",
+        close: serverClose,
+      });
+      mockedCreateOpenCodeSdkClient.mockReturnValueOnce(
+        client as unknown as ReturnType<typeof createOpenCodeSdkClient>,
+      );
+
+      const adapter = yield* OpenCodeAdapter;
+      const configuredFiber = yield* Stream.runHead(
+        Stream.filter(
+          adapter.streamEvents,
+          (event) => event.threadId === threadId && event.type === "session.configured",
+        ),
+      ).pipe(Effect.forkChild);
+      yield* adapter.startSession({
+        provider: "opencode",
+        threadId,
+        cwd: "/repo-native",
+        runtimeMode: "full-access",
+      });
+
+      const configuredEvent = yield* Fiber.join(configuredFiber);
+      assert.isTrue(Option.isSome(configuredEvent));
+      if (!Option.isSome(configuredEvent)) {
+        return;
+      }
+      assert.equal(configuredEvent.value.type, "session.configured");
+      if (configuredEvent.value.type !== "session.configured") {
+        return;
+      }
+      assert.deepStrictEqual(configuredEvent.value.payload.config.capabilities, {
+        sessionForkMode: "native",
+        sideConversationMode: "native-fork",
+      });
+
+      yield* adapter.stopSession(threadId);
+      assert.equal(serverClose.mock.calls.length, 1);
     }),
   );
 

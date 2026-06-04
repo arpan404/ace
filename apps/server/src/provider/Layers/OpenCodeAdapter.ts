@@ -2143,11 +2143,13 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
               payload: {
                 config: {
                   availableCommands,
+                  capabilities: openCodeProviderCapabilities(client),
                 },
               },
               raw: {
                 method: "command.list",
                 availableCommands,
+                capabilities: openCodeProviderCapabilities(client),
               },
             }),
           );
@@ -2574,6 +2576,8 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
       transcriptAuthority: "local",
       historyAuthority: "local-server-session",
       sessionResumeMode: "local-replay",
+      sessionForkMode: "local-replay",
+      sideConversationMode: "replay-fork",
     },
     startSession,
     sendTurn,
