@@ -33,12 +33,19 @@ import { type GeminiAdapterShape, GeminiAdapter } from "../Services/GeminiAdapte
 const mockedStartAcpClient = vi.mocked(startAcpClient);
 const asThreadId = (value: string): ThreadId => ThreadId.makeUnsafe(value);
 
-function geminiInitializeResult() {
+function geminiInitializeResult(input?: { readonly forkSession?: boolean }) {
   return {
     protocolVersion: 1,
     authMethods: [],
     agentCapabilities: {
       loadSession: true,
+      ...(input?.forkSession
+        ? {
+            sessionCapabilities: {
+              fork: {},
+            },
+          }
+        : {}),
     },
   };
 }
@@ -358,6 +365,63 @@ describe("GeminiAdapterLive startup", () => {
             input: { hint: "<target>" },
           },
         ]);
+        expect(configuredEvent.payload.config.capabilities).toEqual({
+          sessionForkMode: "local-replay",
+          sideConversationMode: "replay-fork",
+        });
+      } finally {
+        await Effect.runPromise(adapter.stopAll());
+      }
+    });
+  });
+
+  it("emits native fork capabilities when Gemini ACP advertises session fork", async () => {
+    const client = makeFakeGeminiClient({
+      requestImpl: async (method) => {
+        switch (method) {
+          case "initialize":
+            return geminiInitializeResult({ forkSession: true });
+          case "session/new":
+            return geminiSessionResult("gemini-session-native-fork");
+          default:
+            throw new Error(`Unexpected Gemini ACP request: ${method}`);
+        }
+      },
+    });
+    mockedStartAcpClient.mockReturnValue(client);
+
+    await withAdapter(async (adapter) => {
+      try {
+        const configuredPromise = Effect.runPromise(
+          Stream.runHead(
+            Stream.filter(adapter.streamEvents, (event) => event.type === "session.configured"),
+          ),
+        );
+
+        await Effect.runPromise(
+          adapter.startSession({
+            provider: "gemini",
+            threadId: asThreadId("thread-gemini-native-fork-capability"),
+            cwd: "/repo/gemini-native-fork-capability",
+            runtimeMode: "approval-required",
+            interactionMode: "default",
+          }),
+        );
+
+        const configuredEventOption = await configuredPromise;
+        expect(Option.isSome(configuredEventOption)).toBe(true);
+        if (!Option.isSome(configuredEventOption)) {
+          return;
+        }
+        const configuredEvent = configuredEventOption.value;
+        expect(configuredEvent.type).toBe("session.configured");
+        if (configuredEvent.type !== "session.configured") {
+          return;
+        }
+        expect(configuredEvent.payload.config.capabilities).toEqual({
+          sessionForkMode: "native",
+          sideConversationMode: "native-fork",
+        });
       } finally {
         await Effect.runPromise(adapter.stopAll());
       }

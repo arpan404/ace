@@ -538,11 +538,24 @@ export function buildCursorSessionMetadata(input: {
   };
 }
 
+function cursorProviderCapabilities(metadata: CursorSessionMetadata) {
+  return metadata.initialize.agentCapabilities.forkSession
+    ? {
+        sessionForkMode: "native" as const,
+        sideConversationMode: "native-fork" as const,
+      }
+    : {
+        sessionForkMode: "local-replay" as const,
+        sideConversationMode: "replay-fork" as const,
+      };
+}
+
 export function cursorSessionMetadataSnapshot(
   metadata: CursorSessionMetadata,
 ): Record<string, unknown> {
   return {
     initialize: metadata.initialize,
+    capabilities: cursorProviderCapabilities(metadata),
     configOptions: metadata.configOptions,
     ...(metadata.modes ? { modes: metadata.modes } : {}),
     ...(metadata.models ? { models: metadata.models } : {}),

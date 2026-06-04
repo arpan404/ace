@@ -76,6 +76,18 @@ type UserInputResponse = {
   readonly wasFreeform: boolean;
 };
 
+function gitHubCopilotProviderCapabilities(client: GitHubCopilotClientLike) {
+  return client.rpc?.sessions?.fork
+    ? {
+        sessionForkMode: "native" as const,
+        sideConversationMode: "native-fork" as const,
+      }
+    : {
+        sessionForkMode: "local-replay" as const,
+        sideConversationMode: "replay-fork" as const,
+      };
+}
+
 interface PendingApproval {
   readonly requestType: CanonicalRequestType;
   readonly detail?: string;
@@ -2735,12 +2747,14 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
             payload: {
               config: {
                 availableCommands: providerFallbackSlashCommands(PROVIDER),
+                capabilities: gitHubCopilotProviderCapabilities(sdkClient),
               },
             },
             rawMethod: "session.configured",
             rawSource: "github-copilot.sdk.event",
             rawPayload: {
               availableCommands: providerFallbackSlashCommands(PROVIDER),
+              capabilities: gitHubCopilotProviderCapabilities(sdkClient),
             },
           }),
         );

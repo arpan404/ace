@@ -46,6 +46,9 @@ function makeFakeClient(options: {
     typeof vi.fn<() => Promise<{ exists: boolean; content: string | null; path: string | null }>>
   >;
   readonly workspacePath?: string;
+  readonly forkSession?: ReturnType<
+    typeof vi.fn<(input: { readonly sessionId: string }) => Promise<{ readonly sessionId: string }>>
+  >;
   readonly stop?: ReturnType<typeof vi.fn<() => Promise<ReadonlyArray<Error>>>>;
   readonly forceStop?: ReturnType<typeof vi.fn<() => Promise<void>>>;
 }): GitHubCopilotClientLike & {
@@ -135,6 +138,15 @@ function makeFakeClient(options: {
     }),
     getStatus: vi.fn(async () => ({ version: "test", protocolVersion: 1 })),
     getAuthStatus: vi.fn(async () => ({ isAuthenticated: true, statusMessage: "ok" })),
+    ...(options.forkSession
+      ? {
+          rpc: {
+            sessions: {
+              fork: options.forkSession,
+            },
+          },
+        }
+      : {}),
     stop,
     forceStop,
     emitSessionEvent: (event: SessionEvent) => {
@@ -173,6 +185,92 @@ const fastTimeoutLayer = it.layer(
 );
 
 layer("GitHubCopilotAdapterLive startSession", (it) => {
+  it.effect("emits replay fork capabilities when the Copilot SDK cannot fork sessions", () =>
+    Effect.gen(function* () {
+      const fakeClient = makeFakeClient({
+        models: [],
+      });
+      mockedCreateGitHubCopilotClient.mockResolvedValue(fakeClient);
+
+      const adapter = yield* GitHubCopilotAdapter;
+      const threadId = asThreadId("thread-copilot-replay-fork-capability");
+      const configuredFiber = yield* Stream.runHead(
+        Stream.filter(
+          adapter.streamEvents,
+          (event) => event.threadId === threadId && event.type === "session.configured",
+        ),
+      ).pipe(Effect.forkChild);
+
+      yield* adapter.startSession({
+        provider: "githubCopilot",
+        threadId,
+        cwd: "/repo",
+        runtimeMode: "approval-required",
+      });
+
+      const configuredEvent = yield* Fiber.join(configuredFiber);
+      assert.equal(configuredEvent._tag, "Some");
+      if (configuredEvent._tag !== "Some") {
+        return;
+      }
+      assert.equal(configuredEvent.value.type, "session.configured");
+      if (configuredEvent.value.type !== "session.configured") {
+        return;
+      }
+      assert.deepEqual(configuredEvent.value.payload.config.capabilities, {
+        sessionForkMode: "local-replay",
+        sideConversationMode: "replay-fork",
+      });
+
+      yield* adapter.stopSession(threadId);
+    }),
+  );
+
+  it.effect("emits native fork capabilities when the Copilot SDK can fork sessions", () =>
+    Effect.gen(function* () {
+      const forkSession = vi.fn(async (_input: { readonly sessionId: string }) => ({
+        sessionId: "copilot-forked-session",
+      }));
+      const fakeClient = makeFakeClient({
+        models: [],
+        forkSession,
+      });
+      mockedCreateGitHubCopilotClient.mockResolvedValue(fakeClient);
+
+      const adapter = yield* GitHubCopilotAdapter;
+      const threadId = asThreadId("thread-copilot-native-fork-capability");
+      const configuredFiber = yield* Stream.runHead(
+        Stream.filter(
+          adapter.streamEvents,
+          (event) => event.threadId === threadId && event.type === "session.configured",
+        ),
+      ).pipe(Effect.forkChild);
+
+      yield* adapter.startSession({
+        provider: "githubCopilot",
+        threadId,
+        cwd: "/repo",
+        runtimeMode: "approval-required",
+      });
+
+      const configuredEvent = yield* Fiber.join(configuredFiber);
+      assert.equal(configuredEvent._tag, "Some");
+      if (configuredEvent._tag !== "Some") {
+        return;
+      }
+      assert.equal(configuredEvent.value.type, "session.configured");
+      if (configuredEvent.value.type !== "session.configured") {
+        return;
+      }
+      assert.deepEqual(configuredEvent.value.payload.config.capabilities, {
+        sessionForkMode: "native",
+        sideConversationMode: "native-fork",
+      });
+
+      yield* adapter.stopSession(threadId);
+    }),
+  );
+
   it.effect("syncs Ace Plan mode to the Copilot native session mode before sending", () =>
     Effect.gen(function* () {
       const modeSet = vi.fn(

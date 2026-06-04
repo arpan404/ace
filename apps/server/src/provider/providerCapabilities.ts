@@ -56,8 +56,8 @@ const PROVIDER_INTEGRATION_CAPABILITIES: Record<ProviderKind, ProviderIntegratio
     transcriptAuthority: "local",
     historyAuthority: "project-local",
     sessionResumeMode: "local-replay",
-    sessionForkMode: "native",
-    sideConversationMode: "native-fork",
+    sessionForkMode: "local-replay",
+    sideConversationMode: "replay-fork",
   },
   pi: {
     sessionModelSwitch: "in-session",
@@ -84,8 +84,8 @@ const PROVIDER_INTEGRATION_CAPABILITIES: Record<ProviderKind, ProviderIntegratio
     transcriptAuthority: "local",
     historyAuthority: "local-server-session",
     sessionResumeMode: "local-replay",
-    sessionForkMode: "native",
-    sideConversationMode: "native-fork",
+    sessionForkMode: "local-replay",
+    sideConversationMode: "replay-fork",
   },
   opencode: {
     sessionModelSwitch: "in-session",

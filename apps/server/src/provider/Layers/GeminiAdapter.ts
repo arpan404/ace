@@ -817,6 +817,18 @@ function normalizeInitializeResponse(value: unknown): GeminiSessionMetadata {
   };
 }
 
+function geminiProviderCapabilities(metadata: Pick<GeminiSessionMetadata, "forkSession">) {
+  return metadata.forkSession
+    ? {
+        sessionForkMode: "native" as const,
+        sideConversationMode: "native-fork" as const,
+      }
+    : {
+        sessionForkMode: "local-replay" as const,
+        sideConversationMode: "replay-fork" as const,
+      };
+}
+
 function updateMetadataFromSessionResult(
   metadata: GeminiSessionMetadata,
   result: unknown,
@@ -2126,6 +2138,7 @@ const makeGeminiAdapter = Effect.gen(function* () {
             payload: {
               config: {
                 currentModeId,
+                capabilities: geminiProviderCapabilities(context.metadata),
               },
             },
           }),
@@ -2144,6 +2157,7 @@ const makeGeminiAdapter = Effect.gen(function* () {
             payload: {
               config: {
                 availableCommands: context.metadata.availableCommands,
+                capabilities: geminiProviderCapabilities(context.metadata),
               },
             },
           }),
@@ -2209,6 +2223,7 @@ const makeGeminiAdapter = Effect.gen(function* () {
           payload: {
             config: {
               currentModeId: desiredModeId,
+              capabilities: geminiProviderCapabilities(context.metadata),
             },
           },
         }),
@@ -2244,6 +2259,7 @@ const makeGeminiAdapter = Effect.gen(function* () {
           payload: {
             config: {
               currentModelId: desiredModel,
+              capabilities: geminiProviderCapabilities(context.metadata),
             },
           },
         }),
@@ -2605,6 +2621,7 @@ const makeGeminiAdapter = Effect.gen(function* () {
           payload: {
             config: {
               availableCommands: context.metadata.availableCommands,
+              capabilities: geminiProviderCapabilities(context.metadata),
             },
           },
         }),

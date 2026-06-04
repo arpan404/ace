@@ -80,6 +80,18 @@ const isProviderAdapterValidationError = Schema.is(ProviderAdapterValidationErro
 const isProviderAdapterRequestError = Schema.is(ProviderAdapterRequestError);
 const isProviderAdapterSessionNotFoundError = Schema.is(ProviderAdapterSessionNotFoundError);
 
+function openCodeProviderCapabilities(client: OpencodeClient) {
+  return typeof client.session.fork === "function"
+    ? {
+        sessionForkMode: "native" as const,
+        sideConversationMode: "native-fork" as const,
+      }
+    : {
+        sessionForkMode: "local-replay" as const,
+        sideConversationMode: "replay-fork" as const,
+      };
+}
+
 type OpenCodeSessionContext = {
   readonly threadId: ThreadId;
   session: ProviderSession;

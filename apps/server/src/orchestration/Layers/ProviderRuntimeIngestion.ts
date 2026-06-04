@@ -170,7 +170,12 @@ function providerCapabilitiesFromSessionConfigured(
   const sideConversationMode = asNonEmptyString(capabilities.sideConversationMode);
   const sessionResumeMode = asNonEmptyString(capabilities.sessionResumeMode);
   const turnSteeringMode = asNonEmptyString(capabilities.turnSteeringMode);
-  const overrides: Partial<ProviderIntegrationCapabilities> = {};
+  const overrides: {
+    sessionForkMode?: ProviderIntegrationCapabilities["sessionForkMode"];
+    sideConversationMode?: ProviderIntegrationCapabilities["sideConversationMode"];
+    sessionResumeMode?: ProviderIntegrationCapabilities["sessionResumeMode"];
+    turnSteeringMode?: ProviderIntegrationCapabilities["turnSteeringMode"];
+  } = {};
 
   if (sessionForkMode === "native" || sessionForkMode === "local-replay") {
     overrides.sessionForkMode = sessionForkMode;
@@ -2090,6 +2095,18 @@ const make = Effect.fn("make")(function* () {
       ),
     );
   };
+  const resolveSessionCapabilitiesForEvent = (event: ProviderRuntimeEvent) =>
+    resolveSessionCapabilities(event.provider).pipe(
+      Effect.map((capabilities) => {
+        const overrides = providerCapabilitiesFromSessionConfigured(event);
+        return overrides
+          ? resolveProviderIntegrationCapabilities(event.provider, {
+              ...capabilities,
+              ...overrides,
+            })
+          : capabilities;
+      }),
+    );
 
   const turnMessageIdsByTurnKey = yield* Cache.make<string, Set<MessageId>>({
     capacity: TURN_MESSAGE_IDS_BY_TURN_CACHE_CAPACITY,
@@ -3324,7 +3341,7 @@ const make = Effect.fn("make")(function* () {
               threadId: thread.id,
               status,
               providerName: event.provider,
-              capabilities: yield* resolveSessionCapabilities(event.provider),
+              capabilities: yield* resolveSessionCapabilitiesForEvent(event),
               configOptions: thread.session?.configOptions ?? [],
               commands: thread.session?.commands ?? [],
               runtimeMode: thread.session?.runtimeMode ?? "full-access",
@@ -3339,7 +3356,13 @@ const make = Effect.fn("make")(function* () {
 
       const providerCommands = providerSlashCommandsFromSessionConfigured(event);
       const providerConfigOptions = providerConfigOptionsFromSessionConfigured(event);
-      if (!isSideRuntimeEvent && (providerConfigOptions !== null || providerCommands !== null)) {
+      const providerCapabilityOverrides = providerCapabilitiesFromSessionConfigured(event);
+      if (
+        !isSideRuntimeEvent &&
+        (providerConfigOptions !== null ||
+          providerCommands !== null ||
+          providerCapabilityOverrides !== null)
+      ) {
         yield* orchestrationEngine.dispatch({
           type: "thread.session.set",
           commandId: providerCommandId(event, "thread-session-configured-set"),
@@ -3348,7 +3371,7 @@ const make = Effect.fn("make")(function* () {
             threadId: thread.id,
             status: thread.session?.status ?? "ready",
             providerName: event.provider,
-            capabilities: yield* resolveSessionCapabilities(event.provider),
+            capabilities: yield* resolveSessionCapabilitiesForEvent(event),
             configOptions: providerConfigOptions ?? thread.session?.configOptions ?? [],
             commands: providerCommands ?? thread.session?.commands ?? [],
             runtimeMode: thread.session?.runtimeMode ?? "full-access",

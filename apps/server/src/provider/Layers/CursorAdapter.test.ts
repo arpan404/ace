@@ -37,12 +37,20 @@ const tinyPngBase64 =
 
 const cursorInitializeResult = (input?: {
   readonly loadSession?: boolean;
+  readonly forkSession?: boolean;
   readonly image?: boolean;
 }) => ({
   protocolVersion: 1,
   authMethods: [{ id: "cursor_login", name: "Cursor Login" }],
   agentCapabilities: {
     loadSession: input?.loadSession ?? true,
+    ...(input?.forkSession
+      ? {
+          sessionCapabilities: {
+            fork: {},
+          },
+        }
+      : {}),
     promptCapabilities: {
       image: input?.image ?? true,
     },
@@ -394,6 +402,112 @@ describe("CursorAdapterLive", () => {
           },
           { timeoutMs: 15_000 },
         );
+      } finally {
+        await Effect.runPromise(adapter.stopAll());
+      }
+    });
+  });
+
+  it("emits replay fork capabilities when Cursor ACP does not advertise session fork", async () => {
+    const client = makeFakeCursorClient({
+      requestImpl: async (method) => {
+        switch (method) {
+          case "initialize":
+            return cursorInitializeResult();
+          case "authenticate":
+            return {};
+          case "session/new":
+            return cursorSessionResult("cursor-session-replay-fork-capability");
+          default:
+            throw new Error(`Unexpected Cursor ACP request: ${method}`);
+        }
+      },
+    });
+    mockedStartCursorAcpClient.mockReturnValue(client);
+
+    await withAdapter(async (adapter) => {
+      try {
+        const configuredEventPromise = Effect.runPromise(
+          Stream.runHead(
+            Stream.filter(adapter.streamEvents, (event) => event.type === "session.configured"),
+          ),
+        );
+
+        await Effect.runPromise(
+          adapter.startSession({
+            provider: "cursor",
+            threadId: asThreadId("thread-cursor-replay-fork-capability"),
+            cwd: "/repo/cursor-replay-fork-capability",
+            runtimeMode: "full-access",
+          }),
+        );
+
+        const configuredEvent = await configuredEventPromise;
+        expect(configuredEvent._tag).toBe("Some");
+        if (configuredEvent._tag !== "Some") {
+          return;
+        }
+        expect(configuredEvent.value.type).toBe("session.configured");
+        if (configuredEvent.value.type !== "session.configured") {
+          return;
+        }
+        expect(configuredEvent.value.payload.config.capabilities).toEqual({
+          sessionForkMode: "local-replay",
+          sideConversationMode: "replay-fork",
+        });
+      } finally {
+        await Effect.runPromise(adapter.stopAll());
+      }
+    });
+  });
+
+  it("emits native fork capabilities when Cursor ACP advertises session fork", async () => {
+    const client = makeFakeCursorClient({
+      requestImpl: async (method) => {
+        switch (method) {
+          case "initialize":
+            return cursorInitializeResult({ forkSession: true });
+          case "authenticate":
+            return {};
+          case "session/new":
+            return cursorSessionResult("cursor-session-native-fork-capability");
+          default:
+            throw new Error(`Unexpected Cursor ACP request: ${method}`);
+        }
+      },
+    });
+    mockedStartCursorAcpClient.mockReturnValue(client);
+
+    await withAdapter(async (adapter) => {
+      try {
+        const configuredEventPromise = Effect.runPromise(
+          Stream.runHead(
+            Stream.filter(adapter.streamEvents, (event) => event.type === "session.configured"),
+          ),
+        );
+
+        await Effect.runPromise(
+          adapter.startSession({
+            provider: "cursor",
+            threadId: asThreadId("thread-cursor-native-fork-capability"),
+            cwd: "/repo/cursor-native-fork-capability",
+            runtimeMode: "full-access",
+          }),
+        );
+
+        const configuredEvent = await configuredEventPromise;
+        expect(configuredEvent._tag).toBe("Some");
+        if (configuredEvent._tag !== "Some") {
+          return;
+        }
+        expect(configuredEvent.value.type).toBe("session.configured");
+        if (configuredEvent.value.type !== "session.configured") {
+          return;
+        }
+        expect(configuredEvent.value.payload.config.capabilities).toEqual({
+          sessionForkMode: "native",
+          sideConversationMode: "native-fork",
+        });
       } finally {
         await Effect.runPromise(adapter.stopAll());
       }

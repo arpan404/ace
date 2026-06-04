@@ -163,6 +163,10 @@ describe("CursorAdapterSessionMetadata", () => {
 
     assert.deepEqual(cursorSessionMetadataSnapshot(metadata), {
       initialize: metadata.initialize,
+      capabilities: {
+        sessionForkMode: "local-replay",
+        sideConversationMode: "replay-fork",
+      },
       configOptions: [],
     });
   });

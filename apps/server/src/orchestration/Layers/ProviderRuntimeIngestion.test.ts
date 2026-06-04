@@ -410,6 +410,39 @@ describe("ProviderRuntimeIngestion", () => {
     expect(thread.session?.lastError).toBe("turn failed");
   });
 
+  it("applies provider runtime capability overrides from session configuration", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "session.configured",
+      eventId: asEventId("evt-gemini-native-fork-capabilities"),
+      provider: "gemini",
+      threadId: asThreadId("thread-1"),
+      createdAt: now,
+      payload: {
+        config: {
+          capabilities: {
+            sessionForkMode: "native",
+            sideConversationMode: "native-fork",
+          },
+        },
+      },
+    });
+
+    const thread = await waitForThread(
+      harness.engine,
+      (entry) =>
+        entry.session?.providerName === "gemini" &&
+        entry.session?.capabilities?.sessionForkMode === "native" &&
+        entry.session?.capabilities?.sideConversationMode === "native-fork",
+    );
+
+    expect(thread.session?.capabilities?.sessionForkMode).toBe("native");
+    expect(thread.session?.capabilities?.sideConversationMode).toBe("native-fork");
+    expect(thread.session?.capabilities?.sessionResumeMode).toBe("local-replay");
+  });
+
   it("applies provider session.state.changed transitions directly", async () => {
     const harness = await createHarness();
     const waitingAt = new Date().toISOString();

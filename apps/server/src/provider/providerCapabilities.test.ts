@@ -22,8 +22,11 @@ describe("providerCapabilities", () => {
   it("marks providers with native fork support", () => {
     expect(defaultProviderIntegrationCapabilities("codex").sessionForkMode).toBe("native");
     expect(defaultProviderIntegrationCapabilities("claudeAgent").sessionForkMode).toBe("native");
-    expect(defaultProviderIntegrationCapabilities("githubCopilot").sessionForkMode).toBe("native");
     expect(defaultProviderIntegrationCapabilities("opencode").sessionForkMode).toBe("native");
+    expect(defaultProviderIntegrationCapabilities("cursor").sessionForkMode).toBe("local-replay");
+    expect(defaultProviderIntegrationCapabilities("githubCopilot").sessionForkMode).toBe(
+      "local-replay",
+    );
   });
 
   it("declares side conversation support for every provider", () => {
@@ -33,14 +36,14 @@ describe("providerCapabilities", () => {
     expect(defaultProviderIntegrationCapabilities("claudeAgent").sideConversationMode).toBe(
       "native-fork",
     );
-    expect(defaultProviderIntegrationCapabilities("githubCopilot").sideConversationMode).toBe(
-      "native-fork",
-    );
     expect(defaultProviderIntegrationCapabilities("cursor").sideConversationMode).toBe(
-      "native-fork",
+      "replay-fork",
     );
     expect(defaultProviderIntegrationCapabilities("opencode").sideConversationMode).toBe(
       "native-fork",
+    );
+    expect(defaultProviderIntegrationCapabilities("githubCopilot").sideConversationMode).toBe(
+      "replay-fork",
     );
     expect(defaultProviderIntegrationCapabilities("gemini").sideConversationMode).toBe(
       "replay-fork",

@@ -791,6 +791,7 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
     prompt,
     props.providerCommands,
     props.selectedProvider,
+    props.sideConversationSupported,
     searchableModelOptions,
     workspaceEntries,
   ]);

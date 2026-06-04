@@ -10692,6 +10692,7 @@ function useChatViewComponent({
       setComposerDraftInteractionMode,
       setComposerDraftRuntimeMode,
       setThreadError,
+      sideConversationSupported,
       subagentComposerThreadId,
       togglePlanModeShortcutLabel,
     ],
