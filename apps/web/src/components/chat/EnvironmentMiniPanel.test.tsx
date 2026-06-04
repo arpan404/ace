@@ -190,4 +190,50 @@ describe("EnvironmentMiniPanel", () => {
     expect(markup).not.toContain("Explorer");
     expect(markup).not.toContain("Completed");
   });
+
+  it("shows side chats as a separate environment card group", () => {
+    const markup = renderEnvironmentMiniPanel({
+      subagentThreads: [
+        subagentThread(),
+        subagentThread({
+          id: "side:thread-1:first",
+          label: "Side chat 1",
+          entries: [
+            {
+              id: "side-chat-one",
+              createdAt: "2026-06-02T00:00:01.000Z",
+              label: "User message",
+              tone: "thinking",
+              subagentId: "side:thread-1:first",
+              subagentType: "side chat",
+              sideChatMessageRole: "user",
+              sideChatMessageText: "Explain the current branch.",
+            },
+          ],
+        }),
+        subagentThread({
+          id: "side:thread-1:second",
+          label: "Side chat 2",
+          entries: [
+            {
+              id: "side-chat-two",
+              createdAt: "2026-06-02T00:00:02.000Z",
+              label: "User message",
+              tone: "thinking",
+              subagentId: "side:thread-1:second",
+              subagentType: "side chat",
+              sideChatMessageRole: "user",
+              sideChatMessageText: "Check the recent diff.",
+            },
+          ],
+        }),
+      ],
+    });
+
+    expect(markup).toContain("Side chats");
+    expect(markup).toContain("Subagents");
+    expect(markup).toContain("Side chat 1");
+    expect(markup).toContain("Side chat 2");
+    expect(markup).toContain("Dewey");
+  });
 });

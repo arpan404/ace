@@ -3,10 +3,12 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import type { WorkLogEntry } from "../../session-logic/types";
 import type {
   deriveSubagentThreads as deriveSubagentThreadsType,
+  isSideChatThread as isSideChatThreadType,
   resolveSubagentMainAgentMessage as resolveSubagentMainAgentMessageType,
 } from "./subagentThreads";
 
 let deriveSubagentThreads: typeof deriveSubagentThreadsType;
+let isSideChatThread: typeof isSideChatThreadType;
 let resolveSubagentMainAgentMessage: typeof resolveSubagentMainAgentMessageType;
 
 beforeAll(async () => {
@@ -31,7 +33,8 @@ beforeAll(async () => {
     setItem: vi.fn(),
     removeItem: vi.fn(),
   });
-  ({ deriveSubagentThreads, resolveSubagentMainAgentMessage } = await import("./subagentThreads"));
+  ({ deriveSubagentThreads, isSideChatThread, resolveSubagentMainAgentMessage } =
+    await import("./subagentThreads"));
 });
 
 function workEntry(input: Partial<WorkLogEntry> & Pick<WorkLogEntry, "id">): WorkLogEntry {
@@ -136,6 +139,38 @@ describe("deriveSubagentThreads", () => {
     expect(resolveSubagentMainAgentMessage(thread!)?.sideChatMessageText).toBe(
       "Inspect the runtime event flow.",
     );
+  });
+
+  it("keeps multiple native side chats as distinct side-chat threads", () => {
+    const threads = deriveSubagentThreads(
+      [
+        workEntry({
+          id: "side-one-user",
+          detail: "Explain the current branch.",
+          subagentId: "side:thread-1:first",
+          subagentType: "side chat",
+          sideChatMessageRole: "user",
+          sideChatMessageText: "Explain the current branch.",
+        }),
+        workEntry({
+          id: "side-two-user",
+          createdAt: "2026-06-02T00:00:01.000Z",
+          detail: "Check the recent diff.",
+          subagentId: "side:thread-1:second",
+          subagentType: "side chat",
+          sideChatMessageRole: "user",
+          sideChatMessageText: "Check the recent diff.",
+        }),
+      ],
+      "claudeAgent",
+    );
+
+    expect(threads).toHaveLength(2);
+    expect(threads.every(isSideChatThread)).toBe(true);
+    expect(threads.map((thread) => thread.label).toSorted()).toEqual([
+      "Side chat 1",
+      "Side chat 2",
+    ]);
   });
 
   it("generates a stable parody name for generic subagent identities", () => {

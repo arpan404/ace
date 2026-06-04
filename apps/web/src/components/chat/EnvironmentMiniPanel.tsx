@@ -20,7 +20,7 @@ import { m, type MotionStyle } from "motion/react";
 import BranchToolbar from "../BranchToolbar";
 import EnvironmentGitSection from "../EnvironmentGitSection";
 import ProjectScriptsControl, { type NewProjectScriptInput } from "../ProjectScriptsControl";
-import type { SubagentThread } from "./subagentThreads";
+import { isSideChatThread, type SubagentThread } from "./subagentThreads";
 import type { ActivePlanState } from "../../session-logic";
 import { cn } from "~/lib/utils";
 import { PANEL_SPRING_TRANSITION } from "~/lib/panelMotion";
@@ -86,10 +86,11 @@ type EnvironmentPanelGroupId =
   | "notes"
   | "pinnedMessages"
   | "progress"
+  | "sideChats"
   | "subagents";
 type EnvironmentPanelGroupOpenState = Record<EnvironmentPanelGroupId, boolean>;
 
-const ENVIRONMENT_PANEL_GROUP_STORAGE_KEY = "ace:environment-mini-panel-groups:v3";
+const ENVIRONMENT_PANEL_GROUP_STORAGE_KEY = "ace:environment-mini-panel-groups:v4";
 
 const DEFAULT_ENVIRONMENT_PANEL_GROUP_OPEN_STATE: EnvironmentPanelGroupOpenState = {
   actions: false,
@@ -97,6 +98,7 @@ const DEFAULT_ENVIRONMENT_PANEL_GROUP_OPEN_STATE: EnvironmentPanelGroupOpenState
   notes: false,
   pinnedMessages: false,
   progress: true,
+  sideChats: true,
   subagents: true,
 };
 
@@ -106,6 +108,7 @@ const EnvironmentPanelGroupOpenStateSchema = Schema.Struct({
   notes: Schema.Boolean,
   pinnedMessages: Schema.Boolean,
   progress: Schema.Boolean,
+  sideChats: Schema.Boolean,
   subagents: Schema.Boolean,
 });
 
@@ -330,6 +333,8 @@ export const EnvironmentMiniPanel = forwardRef<
   const activePlan = props.activePlan;
   const activeProjectScripts = props.activeProjectScripts;
   const subagentThreads = props.subagentThreads;
+  const sideChatThreads = subagentThreads.filter(isSideChatThread);
+  const providerSubagentThreads = subagentThreads.filter((thread) => !isSideChatThread(thread));
   const workspaceChangeStat = props.workspaceChangeStat;
   const hasChanges =
     workspaceChangeStat !== null &&
@@ -538,14 +543,39 @@ export const EnvironmentMiniPanel = forwardRef<
           </EnvironmentPanelGroup>
         ) : null}
 
-        {subagentThreads.length > 0 ? (
+        {sideChatThreads.length > 0 ? (
+          <EnvironmentPanelGroup
+            title="Side chats"
+            open={resolveEnvironmentPanelGroupOpen(groupOpenState, "sideChats")}
+            onOpenChange={(open) => setGroupOpen("sideChats", open)}
+          >
+            <div className="space-y-1">
+              {sideChatThreads.map((thread) => (
+                <button
+                  key={thread.id}
+                  type="button"
+                  className="group/subagent flex min-h-8 w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-[12px] transition-colors hover:bg-accent hover:text-accent-foreground"
+                  onClick={() => {
+                    props.onSelectSubagentThread(thread.id);
+                    props.onSubagentPanelOpen();
+                  }}
+                >
+                  <EnvironmentSubagentIcon thread={thread} />
+                  <span className="min-w-0 flex-1 truncate font-medium">{thread.label}</span>
+                </button>
+              ))}
+            </div>
+          </EnvironmentPanelGroup>
+        ) : null}
+
+        {providerSubagentThreads.length > 0 ? (
           <EnvironmentPanelGroup
             title="Subagents"
             open={resolveEnvironmentPanelGroupOpen(groupOpenState, "subagents")}
             onOpenChange={(open) => setGroupOpen("subagents", open)}
           >
             <div className="space-y-1">
-              {subagentThreads.map((thread) => (
+              {providerSubagentThreads.map((thread) => (
                 <button
                   key={thread.id}
                   type="button"

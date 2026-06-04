@@ -21,6 +21,17 @@ export interface SubagentPersona {
   readonly pingClassName: string;
 }
 
+function isSideChatEntry(entry: WorkLogEntry): boolean {
+  return (
+    entry.subagentType?.trim().toLowerCase() === "side chat" ||
+    entry.subagentId?.trim().toLowerCase().startsWith("side:") === true
+  );
+}
+
+export function isSideChatThread(thread: SubagentThread): boolean {
+  return thread.entries.some(isSideChatEntry);
+}
+
 export function formatSubagentLabel(value: string | undefined): string | null {
   const normalized = value?.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
   if (!normalized) {
@@ -171,11 +182,14 @@ export function deriveSubagentThreads(
   }
 
   const usedNames = new Set<string>();
+  let sideChatIndex = 0;
   return [...grouped.entries()]
     .map(([id, group]) => {
       const identity = resolveSubagentIdentity({ entries: group, fallbackId: id, provider });
-      const persona = resolveSubagentPersona({ id, identityLabel: identity.label, usedNames });
-      const roleLabel = persona.name === identity.label ? null : identity.label;
+      const isSideChat = group.some(isSideChatEntry);
+      const identityLabel = isSideChat ? `Side chat ${++sideChatIndex}` : identity.label;
+      const persona = resolveSubagentPersona({ id, identityLabel, usedNames });
+      const roleLabel = isSideChat || persona.name === identity.label ? null : identity.label;
       return {
         id,
         label: persona.name,
