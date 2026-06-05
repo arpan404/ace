@@ -652,6 +652,8 @@ export function deriveEnvironmentSessionProviderStatus(
               Pick<
                 ProviderIntegrationCapabilities,
                 | "multiAgentMode"
+                | "multiAgentInvocationPrefixes"
+                | "multiAgentDefinitionPaths"
                 | "hookMode"
                 | "extensionMode"
                 | "mcpMode"
@@ -678,6 +680,8 @@ export function deriveEnvironmentSessionProviderStatuses(
               Pick<
                 ProviderIntegrationCapabilities,
                 | "multiAgentMode"
+                | "multiAgentInvocationPrefixes"
+                | "multiAgentDefinitionPaths"
                 | "hookMode"
                 | "extensionMode"
                 | "mcpMode"
@@ -706,12 +710,21 @@ export function deriveEnvironmentSessionProviderStatuses(
         : multiAgentMode === "agent-command"
           ? "command"
           : "unsupported";
-    const detail =
+    const detailLines = [
       multiAgentMode === "native"
         ? "Provider can run multi-agent delegation natively."
         : multiAgentMode === "agent-command"
           ? "Provider agents are available through command or mention routing."
-          : "Provider has not advertised multi-agent delegation.";
+          : "Provider has not advertised multi-agent delegation.",
+    ];
+    const invocationPrefixes = session.capabilities.multiAgentInvocationPrefixes ?? [];
+    if (invocationPrefixes.length > 0) {
+      detailLines.push(`Invoke: ${invocationPrefixes.join(", ")}`);
+    }
+    const definitionPaths = session.capabilities.multiAgentDefinitionPaths ?? [];
+    if (definitionPaths.length > 0) {
+      detailLines.push(`Definitions: ${definitionPaths.join(", ")}`);
+    }
 
     statuses.push({
       id: `${session.provider}:multi-agent-capability`,
@@ -719,7 +732,7 @@ export function deriveEnvironmentSessionProviderStatuses(
       label: `${providerLabel} agents`,
       status,
       tone: multiAgentMode === "unsupported" ? "warning" : "info",
-      detail,
+      detail: detailLines.join("\n"),
     });
   }
 

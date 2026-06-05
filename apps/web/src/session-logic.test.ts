@@ -4474,7 +4474,11 @@ describe("deriveEnvironmentSessionProviderStatus", () => {
       deriveEnvironmentSessionProviderStatus({
         provider: "cursor",
         updatedAt: "2026-02-23T00:00:08.000Z",
-        capabilities: { multiAgentMode: "agent-command" },
+        capabilities: {
+          multiAgentMode: "agent-command",
+          multiAgentInvocationPrefixes: ["@", "/agent"],
+          multiAgentDefinitionPaths: [".cursor/agents/*.md", "~/.cursor/agents/*.md"],
+        },
       }),
     ).toEqual({
       id: "cursor:multi-agent-capability",
@@ -4482,7 +4486,8 @@ describe("deriveEnvironmentSessionProviderStatus", () => {
       label: "Cursor agents",
       status: "command",
       tone: "info",
-      detail: "Provider agents are available through command or mention routing.",
+      detail:
+        "Provider agents are available through command or mention routing.\nInvoke: @, /agent\nDefinitions: .cursor/agents/*.md, ~/.cursor/agents/*.md",
     });
 
     expect(
