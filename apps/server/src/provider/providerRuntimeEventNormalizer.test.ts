@@ -485,6 +485,38 @@ describe("normalizeProviderRuntimeEvent", () => {
     });
   });
 
+  it("normalizes provider subagent transcript arrays", () => {
+    const event = normalizeProviderRuntimeEvent(
+      lifecycleEvent({
+        itemType: "dynamic_tool_call",
+        title: "SubagentStop",
+        status: "completed",
+        data: {
+          hook_event_name: "SubagentStop",
+          agent_id: "agent-transcript-1",
+          agent_type: "Research",
+          messages: [
+            { role: "user", text: "Inspect the provider adapters." },
+            { role: "assistant", text: "The first adapter is covered." },
+            { role: "user", text: "Check the side-chat path too." },
+            { role: "assistant", text: "The side-chat path is covered." },
+          ],
+        },
+      }),
+    );
+
+    expect(event.payload).toMatchObject({
+      itemType: "collab_agent_tool_call",
+      data: {
+        subagent: {
+          id: "agent-transcript-1",
+          type: "Research",
+          lastAssistantMessage: "The side-chat path is covered.",
+        },
+      },
+    });
+  });
+
   it("preserves explicit provider subagent task ids from nested lifecycle records", () => {
     const event = normalizeProviderRuntimeEvent(
       lifecycleEvent({

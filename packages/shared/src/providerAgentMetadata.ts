@@ -69,7 +69,7 @@ function firstTrimmedString(...values: ReadonlyArray<unknown>): string | undefin
 }
 
 function firstProviderText(value: unknown, depth = 0): string | undefined {
-  if (depth > 5) {
+  if (depth > 12) {
     return undefined;
   }
   if (Array.isArray(value)) {
@@ -94,6 +94,7 @@ function firstProviderText(value: unknown, depth = 0): string | undefined {
       record.message,
       record.content,
       record.contents,
+      record.parts,
       record.response,
       record.result,
       record.output,
@@ -105,6 +106,73 @@ function firstProviderText(value: unknown, depth = 0): string | undefined {
 function firstProviderTextFrom(...values: ReadonlyArray<unknown>): string | undefined {
   for (const value of values) {
     const normalized = firstProviderText(value);
+    if (normalized) {
+      return normalized;
+    }
+  }
+  return undefined;
+}
+
+function providerMessageRole(value: unknown): string | undefined {
+  const record = asRecord(value);
+  const rawRole = record?.role ?? record?.speaker ?? record?.author ?? record?.type ?? record?.kind;
+  return typeof rawRole === "string"
+    ? rawRole
+        .trim()
+        .toLowerCase()
+        .replace(/[_\s-]+/g, "-")
+    : undefined;
+}
+
+function isProviderAssistantRole(value: unknown): boolean {
+  const role = providerMessageRole(value);
+  return (
+    role === "assistant" ||
+    role === "agent" ||
+    role === "model" ||
+    role === "subagent" ||
+    role === "sub-agent"
+  );
+}
+
+function lastProviderAssistantText(value: unknown, depth = 0): string | undefined {
+  if (depth > 12) {
+    return undefined;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value.toReversed()) {
+      const normalized = lastProviderAssistantText(item, depth + 1);
+      if (normalized) {
+        return normalized;
+      }
+    }
+    return undefined;
+  }
+  const record = asRecord(value);
+  if (!record) {
+    return undefined;
+  }
+  if (isProviderAssistantRole(record)) {
+    return firstProviderText(record, depth + 1);
+  }
+  return lastProviderAssistantText(
+    [
+      record.messages,
+      record.message,
+      record.transcript,
+      record.conversation,
+      record.events,
+      record.items,
+      record.outputs,
+      record.results,
+    ],
+    depth + 1,
+  );
+}
+
+function lastProviderAssistantTextFrom(...values: ReadonlyArray<unknown>): string | undefined {
+  for (const value of values) {
+    const normalized = lastProviderAssistantText(value);
     if (normalized) {
       return normalized;
     }
@@ -324,20 +392,30 @@ export function providerAgentMetadataFromRecord(
     record.subagentTranscriptPath,
     record.subagent_transcript_path,
   );
-  const lastAssistantMessage = firstProviderTextFrom(
-    record.lastAssistantMessage,
-    record.last_assistant_message,
-    record.finalAssistantMessage,
-    record.final_assistant_message,
-    record.finalMessage,
-    record.final_message,
-    record.outputText,
-    record.output_text,
-    record.content,
-    record.response,
-    record.result,
-    record.output,
-  );
+  const lastAssistantMessage =
+    firstProviderTextFrom(
+      record.lastAssistantMessage,
+      record.last_assistant_message,
+      record.finalAssistantMessage,
+      record.final_assistant_message,
+      record.finalMessage,
+      record.final_message,
+      record.outputText,
+      record.output_text,
+      record.content,
+      record.response,
+      record.result,
+      record.output,
+    ) ??
+    lastProviderAssistantTextFrom(
+      record.messages,
+      record.transcript,
+      record.conversation,
+      record.events,
+      record.items,
+      record.outputs,
+      record.results,
+    );
   return {
     ...(id ? { id } : {}),
     ...(parentId ? { parentId } : {}),
@@ -458,6 +536,21 @@ export function providerAgentLooseRecord(
     "last_assistant_message",
     "finalAssistantMessage",
     "final_assistant_message",
+    "finalMessage",
+    "final_message",
+    "outputText",
+    "output_text",
+    "content",
+    "response",
+    "result",
+    "output",
+    "messages",
+    "transcript",
+    "conversation",
+    "events",
+    "items",
+    "outputs",
+    "results",
   ]) {
     if (record[key] !== undefined) {
       loose[key] = record[key];

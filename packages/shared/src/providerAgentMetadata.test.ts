@@ -188,6 +188,40 @@ describe("providerAgentMetadata", () => {
     });
   });
 
+  it("normalizes provider subagent transcript arrays to the latest assistant message", () => {
+    expect(
+      providerAgentMetadataFromRecord({
+        agent_id: "agent-transcript-1",
+        agent_type: "Research",
+        messages: [
+          { role: "user", content: [{ text: "Inspect the provider adapters." }] },
+          { role: "assistant", content: [{ text: "The first adapter is covered." }] },
+          { role: "user", content: [{ text: "Check the side-chat path too." }] },
+          { role: "assistant", content: [{ text: "The side-chat path is covered." }] },
+        ],
+      }),
+    ).toEqual({
+      id: "agent-transcript-1",
+      type: "Research",
+      lastAssistantMessage: "The side-chat path is covered.",
+    });
+
+    expect(
+      providerAgentMetadataFromRecord({
+        agent_id: "agent-model-role-1",
+        transcript: {
+          messages: [
+            { role: "user", text: "Review Gemini output." },
+            { role: "model", parts: [{ text: "Gemini-style model output." }] },
+          ],
+        },
+      }),
+    ).toEqual({
+      id: "agent-model-role-1",
+      lastAssistantMessage: "Gemini-style model output.",
+    });
+  });
+
   it("normalizes explicit provider subagent task ids without loose task leakage", () => {
     expect(
       providerAgentMetadataFromRecord({
