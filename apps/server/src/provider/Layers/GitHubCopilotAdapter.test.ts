@@ -1068,6 +1068,7 @@ layer("GitHubCopilotAdapterLive startSession", (it) => {
             description: "Researches implementation context programmatically",
             tools: [],
             infer: false,
+            disableModelInvocation: true,
             mcpServers: {
               "local-docs": {
                 type: "local",

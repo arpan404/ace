@@ -1310,6 +1310,14 @@ routing.layer("ProviderServiceLive routing", (it) => {
           sessionForkMode: "local-replay",
           sideConversationMode: "replay-fork",
           providerThreadTargetingMode: "unsupported",
+          goalControlMode: "unsupported",
+          multiAgentMode: "agent-command",
+          hookMode: "unsupported",
+          extensionMode: "local-discovery",
+          mcpMode: "native",
+          remoteAgentMode: "unsupported",
+          webAccessMode: "native",
+          hostedSessionMode: "native",
         },
       );
 
@@ -1525,6 +1533,8 @@ routing.layer("ProviderServiceLive routing", (it) => {
 
       yield* routing.codex.stopAll();
       yield* routing.claude.stopAll();
+      yield* routing.cursor.stopAll();
+      yield* routing.githubCopilot.stopAll();
 
       const remaining = yield* provider.listSessions();
       assert.equal(remaining.length, 0);
