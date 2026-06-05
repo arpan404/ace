@@ -64,6 +64,16 @@ const MULTI_CLICK_SELECTION_ACTION_DELAY_MS = 260;
 const TERMINAL_FONT_LOAD_TIMEOUT_MS = 140;
 const TERMINAL_LINK_LINE_CACHE_LIMIT = 512;
 const TERMINAL_WRITE_CHUNK_SIZE = 64 * 1024;
+const TERMINAL_RESIZE_SETTLE_DELAY_MS = 80;
+
+export function terminalFitSignature(input: {
+  width: number;
+  height: number;
+  cols: number;
+  rows: number;
+}): `${number}x${number}:${number}x${number}` {
+  return `${input.width}x${input.height}:${input.cols}x${input.rows}`;
+}
 
 function stableRuntimeEnvKey(runtimeEnv: Record<string, string> | undefined): string {
   if (!runtimeEnv) return "";
@@ -96,6 +106,11 @@ function writeTerminalData(terminal: Terminal, data: string): void {
   for (let index = 0; index < data.length; index += TERMINAL_WRITE_CHUNK_SIZE) {
     terminal.write(data.slice(index, index + TERMINAL_WRITE_CHUNK_SIZE));
   }
+}
+
+function refreshTerminalRows(terminal: Terminal): void {
+  if (terminal.rows <= 0) return;
+  terminal.refresh(0, terminal.rows - 1);
 }
 
 function isTransientTerminalTransportError(error: unknown): boolean {
@@ -481,12 +496,14 @@ function useTerminalViewportComponent({
     const api = readNativeApi();
     if (!api) return;
     let resizeFrame: number | null = null;
-    let lastObservedSize: `${number}x${number}` | null = null;
+    let resizeSettleTimer: number | null = null;
+    let lastAppliedFitSignature: `${number}x${number}:${number}x${number}` | null = null;
     let pendingNativeWindowResizeFit = false;
     let pendingTerminalOutput = "";
     let pendingTerminalOutputFrame: number | null = null;
 
-    const fitToViewport = () => {
+    const fitToViewport = (options: { force?: boolean; syncPty?: boolean } = {}) => {
+      const { force = false, syncPty = true } = options;
       pendingNativeWindowResizeFit = false;
       const activeTerminal = terminalRef.current;
       const activeFitAddon = fitAddonRef.current;
@@ -495,15 +512,35 @@ function useTerminalViewportComponent({
       const nextWidth = mountElement.clientWidth;
       const nextHeight = mountElement.clientHeight;
       if (nextWidth <= 0 || nextHeight <= 0) return;
-      const nextSize = `${nextWidth}x${nextHeight}` as const;
-      if (nextSize === lastObservedSize) return;
-      lastObservedSize = nextSize;
+      const proposedDimensions = activeFitAddon.proposeDimensions();
+      if (
+        !proposedDimensions ||
+        !Number.isFinite(proposedDimensions.cols) ||
+        !Number.isFinite(proposedDimensions.rows)
+      ) {
+        return;
+      }
+      const nextFitSignature = terminalFitSignature({
+        width: nextWidth,
+        height: nextHeight,
+        cols: proposedDimensions.cols,
+        rows: proposedDimensions.rows,
+      });
+      if (!force && nextFitSignature === lastAppliedFitSignature) return;
       const wasAtBottom =
         activeTerminal.buffer.active.viewportY >= activeTerminal.buffer.active.baseY;
       activeFitAddon.fit();
+      refreshTerminalRows(activeTerminal);
+      lastAppliedFitSignature = terminalFitSignature({
+        width: nextWidth,
+        height: nextHeight,
+        cols: activeTerminal.cols,
+        rows: activeTerminal.rows,
+      });
       if (wasAtBottom) {
         activeTerminal.scrollToBottom();
       }
+      if (!syncPty) return;
       runAsyncTask(
         api.terminal.resize({
           threadId,
@@ -515,7 +552,7 @@ function useTerminalViewportComponent({
       );
     };
 
-    const scheduleFitToViewport = () => {
+    const scheduleFitToViewport = (options: { force?: boolean; syncPty?: boolean } = {}) => {
       if (isLayoutResizeInProgress()) {
         pendingNativeWindowResizeFit = true;
         return;
@@ -525,8 +562,19 @@ function useTerminalViewportComponent({
       }
       resizeFrame = window.requestAnimationFrame(() => {
         resizeFrame = null;
-        fitToViewport();
+        fitToViewport(options);
       });
+    };
+
+    const scheduleSettledFitToViewport = () => {
+      if (resizeSettleTimer !== null) {
+        window.clearTimeout(resizeSettleTimer);
+      }
+      resizeSettleTimer = window.setTimeout(() => {
+        resizeSettleTimer = null;
+        lastAppliedFitSignature = null;
+        scheduleFitToViewport({ force: true });
+      }, TERMINAL_RESIZE_SETTLE_DELAY_MS);
     };
 
     const flushPendingTerminalOutput = () => {
@@ -802,8 +850,8 @@ function useTerminalViewportComponent({
           return;
         }
         activeTerminal.open(containerRef.current);
-        lastObservedSize = null;
-        scheduleFitToViewport();
+        lastAppliedFitSignature = null;
+        fitToViewport({ force: true, syncPty: false });
         const snapshot = await api.terminal.open({
           threadId,
           terminalId,
@@ -813,6 +861,8 @@ function useTerminalViewportComponent({
           ...(runtimeEnvRef.current ? { env: runtimeEnvRef.current } : {}),
         });
         if (disposed) return;
+        lastAppliedFitSignature = null;
+        scheduleFitToViewport({ force: true });
         activeTerminal.write("\u001bc");
         if (snapshot.history.length > 0) {
           writeTerminalData(activeTerminal, snapshot.history);
@@ -902,23 +952,28 @@ function useTerminalViewportComponent({
     });
 
     const fitTimer = window.setTimeout(() => {
-      lastObservedSize = null;
-      scheduleFitToViewport();
+      lastAppliedFitSignature = null;
+      scheduleFitToViewport({ force: true });
     }, 30);
+    const settledFitTimer = window.setTimeout(() => {
+      lastAppliedFitSignature = null;
+      scheduleFitToViewport({ force: true });
+    }, 160);
     const resizeObserver =
       typeof ResizeObserver === "undefined"
         ? null
         : new ResizeObserver(() => {
-            lastObservedSize = null;
             scheduleFitToViewport();
+            scheduleSettledFitToViewport();
           });
     resizeObserver?.observe(mount);
     const handleNativeWindowResizeEnd = () => {
       if (!pendingNativeWindowResizeFit) {
         return;
       }
-      lastObservedSize = null;
-      scheduleFitToViewport();
+      lastAppliedFitSignature = null;
+      scheduleFitToViewport({ force: true });
+      scheduleSettledFitToViewport();
     };
     window.addEventListener("ace:native-window-resize-end", handleNativeWindowResizeEnd);
     window.addEventListener(SIDEBAR_RESIZE_END_EVENT, handleNativeWindowResizeEnd);
@@ -927,8 +982,12 @@ function useTerminalViewportComponent({
     return () => {
       disposed = true;
       window.clearTimeout(fitTimer);
+      window.clearTimeout(settledFitTimer);
       if (resizeFrame !== null) {
         window.cancelAnimationFrame(resizeFrame);
+      }
+      if (resizeSettleTimer !== null) {
+        window.clearTimeout(resizeSettleTimer);
       }
       if (pendingTerminalOutputFrame !== null) {
         window.cancelAnimationFrame(pendingTerminalOutputFrame);
@@ -990,6 +1049,7 @@ function useTerminalViewportComponent({
     const wasAtBottom = terminal.buffer.active.viewportY >= terminal.buffer.active.baseY;
     const frame = window.requestAnimationFrame(() => {
       fitAddon.fit();
+      refreshTerminalRows(terminal);
       if (wasAtBottom) {
         terminal.scrollToBottom();
       }

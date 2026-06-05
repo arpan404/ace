@@ -1,7 +1,11 @@
 import { ThreadId } from "@ace/contracts";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { selectThreadTerminalState, useTerminalStateStore } from "./terminalStateStore";
+import {
+  selectThreadTerminalPanelState,
+  selectThreadTerminalState,
+  useTerminalStateStore,
+} from "./terminalStateStore";
 
 const THREAD_ID = ThreadId.makeUnsafe("thread-1");
 
@@ -31,6 +35,24 @@ describe("terminalStateStore actions", () => {
       terminalIconsById: {},
       terminalColorsById: {},
       splitRatiosByGroupId: { "group-default": [1] },
+      terminalPanelStateByPlacement: {
+        bottom: {
+          terminalOpen: false,
+          terminalHeight: 280,
+          activeTerminalId: "default",
+          terminalGroups: [{ id: "group-default", terminalIds: ["default"] }],
+          activeTerminalGroupId: "group-default",
+          splitRatiosByGroupId: { "group-default": [1] },
+        },
+        right: {
+          terminalOpen: false,
+          terminalHeight: 280,
+          activeTerminalId: "default",
+          terminalGroups: [{ id: "group-default", terminalIds: ["default"] }],
+          activeTerminalGroupId: "group-default",
+          splitRatiosByGroupId: { "group-default": [1] },
+        },
+      },
     });
   });
 
@@ -113,6 +135,31 @@ describe("terminalStateStore actions", () => {
       { id: "group-default", terminalIds: ["default"] },
       { id: "group-terminal-2", terminalIds: ["terminal-2"] },
     ]);
+  });
+
+  it("keeps right panel active and group layout separate from the bottom panel", () => {
+    const store = useTerminalStateStore.getState();
+    store.newTerminal(THREAD_ID, "bottom-terminal");
+    store.newTerminalForPanel(THREAD_ID, "right", "right-terminal");
+    store.setActiveTerminal(THREAD_ID, "default");
+    store.setActiveTerminalForPanel(THREAD_ID, "right", "right-terminal");
+    store.setTerminalGroupSplitRatiosForPanel(THREAD_ID, "right", "group-right-terminal", [1]);
+
+    const bottomState = selectThreadTerminalPanelState(
+      useTerminalStateStore.getState().terminalStateByThreadId,
+      THREAD_ID,
+      "bottom",
+    );
+    const rightState = selectThreadTerminalPanelState(
+      useTerminalStateStore.getState().terminalStateByThreadId,
+      THREAD_ID,
+      "right",
+    );
+
+    expect(bottomState.activeTerminalId).toBe("default");
+    expect(rightState.activeTerminalId).toBe("right-terminal");
+    expect(bottomState.activeTerminalGroupId).toBe("group-default");
+    expect(rightState.activeTerminalGroupId).toBe("group-right-terminal");
   });
 
   it("allows unlimited groups while keeping each group capped at four terminals", () => {

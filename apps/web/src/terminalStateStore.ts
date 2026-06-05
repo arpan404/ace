@@ -31,21 +31,30 @@ import {
   normalizeTerminalSidebarWidth,
 } from "./lib/terminalStateNormalization";
 
-interface ThreadTerminalState {
+export type TerminalPanelPlacement = "bottom" | "right";
+
+const RIGHT_PANEL_DEFAULT_TERMINAL_ID = "right-default";
+
+interface ThreadTerminalPanelState {
   terminalOpen: boolean;
   terminalHeight: number;
-  terminalSidebarWidth: number;
-  terminalSidebarDensity: "compact" | "comfortable";
   terminalIds: string[];
-  runningTerminalIds: string[];
   activeTerminalId: string;
   terminalGroups: ThreadTerminalGroup[];
   activeTerminalGroupId: string;
+  splitRatiosByGroupId: Record<string, number[]>;
+}
+
+interface ThreadTerminalState extends ThreadTerminalPanelState {
+  terminalSidebarWidth: number;
+  terminalSidebarDensity: "compact" | "comfortable";
+  terminalSessionIds: string[];
+  runningTerminalIds: string[];
   customTerminalTitlesById: Record<string, string>;
   autoTerminalTitlesById: Record<string, string>;
   terminalIconsById: Record<string, TerminalIconName>;
   terminalColorsById: Record<string, TerminalColorName>;
-  splitRatiosByGroupId: Record<string, number[]>;
+  terminalPanelStateByPlacement: Record<TerminalPanelPlacement, ThreadTerminalPanelState>;
 }
 
 const TERMINAL_STATE_STORAGE_KEY = "ace:terminal-state:v1";
@@ -205,6 +214,31 @@ function terminalGroupsEqual(left: ThreadTerminalGroup[], right: ThreadTerminalG
   return true;
 }
 
+function terminalPanelStateEqual(
+  left: ThreadTerminalPanelState,
+  right: ThreadTerminalPanelState,
+): boolean {
+  return (
+    left.terminalOpen === right.terminalOpen &&
+    left.terminalHeight === right.terminalHeight &&
+    arraysEqual(left.terminalIds, right.terminalIds) &&
+    left.activeTerminalId === right.activeTerminalId &&
+    left.activeTerminalGroupId === right.activeTerminalGroupId &&
+    terminalGroupsEqual(left.terminalGroups, right.terminalGroups) &&
+    splitRatioRecordEqual(left.splitRatiosByGroupId, right.splitRatiosByGroupId)
+  );
+}
+
+function terminalPanelStateByPlacementEqual(
+  left: Record<TerminalPanelPlacement, ThreadTerminalPanelState>,
+  right: Record<TerminalPanelPlacement, ThreadTerminalPanelState>,
+): boolean {
+  return (
+    terminalPanelStateEqual(left.bottom, right.bottom) &&
+    terminalPanelStateEqual(left.right, right.right)
+  );
+}
+
 function threadTerminalStateEqual(left: ThreadTerminalState, right: ThreadTerminalState): boolean {
   return (
     left.terminalOpen === right.terminalOpen &&
@@ -214,37 +248,68 @@ function threadTerminalStateEqual(left: ThreadTerminalState, right: ThreadTermin
     left.activeTerminalId === right.activeTerminalId &&
     left.activeTerminalGroupId === right.activeTerminalGroupId &&
     arraysEqual(left.terminalIds, right.terminalIds) &&
+    arraysEqual(left.terminalSessionIds, right.terminalSessionIds) &&
     arraysEqual(left.runningTerminalIds, right.runningTerminalIds) &&
     terminalGroupsEqual(left.terminalGroups, right.terminalGroups) &&
     stringRecordEqual(left.customTerminalTitlesById, right.customTerminalTitlesById) &&
     stringRecordEqual(left.autoTerminalTitlesById, right.autoTerminalTitlesById) &&
     stringRecordEqual(left.terminalIconsById, right.terminalIconsById) &&
     stringRecordEqual(left.terminalColorsById, right.terminalColorsById) &&
-    splitRatioRecordEqual(left.splitRatiosByGroupId, right.splitRatiosByGroupId)
+    splitRatioRecordEqual(left.splitRatiosByGroupId, right.splitRatiosByGroupId) &&
+    terminalPanelStateByPlacementEqual(
+      left.terminalPanelStateByPlacement,
+      right.terminalPanelStateByPlacement,
+    )
   );
 }
 
+function defaultTerminalIdForPlacement(placement: TerminalPanelPlacement): string {
+  return placement === "right" ? RIGHT_PANEL_DEFAULT_TERMINAL_ID : DEFAULT_THREAD_TERMINAL_ID;
+}
+
+function createDefaultThreadTerminalPanelState(
+  placement: TerminalPanelPlacement,
+): ThreadTerminalPanelState {
+  const terminalId = defaultTerminalIdForPlacement(placement);
+  return {
+    terminalOpen: false,
+    terminalHeight: DEFAULT_THREAD_TERMINAL_HEIGHT,
+    terminalIds: [terminalId],
+    activeTerminalId: terminalId,
+    terminalGroups: [
+      {
+        id: fallbackGroupId(terminalId),
+        terminalIds: [terminalId],
+      },
+    ],
+    activeTerminalGroupId: fallbackGroupId(terminalId),
+    splitRatiosByGroupId: {
+      [fallbackGroupId(terminalId)]: [1],
+    },
+  };
+}
+
+const DEFAULT_BOTTOM_TERMINAL_PANEL_STATE: ThreadTerminalPanelState = Object.freeze(
+  createDefaultThreadTerminalPanelState("bottom"),
+);
+
+const DEFAULT_RIGHT_TERMINAL_PANEL_STATE: ThreadTerminalPanelState = Object.freeze(
+  createDefaultThreadTerminalPanelState("right"),
+);
+
 const DEFAULT_THREAD_TERMINAL_STATE: ThreadTerminalState = Object.freeze({
-  terminalOpen: false,
-  terminalHeight: DEFAULT_THREAD_TERMINAL_HEIGHT,
+  ...DEFAULT_BOTTOM_TERMINAL_PANEL_STATE,
   terminalSidebarWidth: DEFAULT_TERMINAL_SIDEBAR_WIDTH,
   terminalSidebarDensity: "comfortable",
-  terminalIds: [DEFAULT_THREAD_TERMINAL_ID],
+  terminalSessionIds: [DEFAULT_THREAD_TERMINAL_ID, RIGHT_PANEL_DEFAULT_TERMINAL_ID],
   runningTerminalIds: [],
-  activeTerminalId: DEFAULT_THREAD_TERMINAL_ID,
-  terminalGroups: [
-    {
-      id: fallbackGroupId(DEFAULT_THREAD_TERMINAL_ID),
-      terminalIds: [DEFAULT_THREAD_TERMINAL_ID],
-    },
-  ],
-  activeTerminalGroupId: fallbackGroupId(DEFAULT_THREAD_TERMINAL_ID),
   customTerminalTitlesById: {},
   autoTerminalTitlesById: {},
   terminalIconsById: {},
   terminalColorsById: {},
-  splitRatiosByGroupId: {
-    [fallbackGroupId(DEFAULT_THREAD_TERMINAL_ID)]: [1],
+  terminalPanelStateByPlacement: {
+    bottom: DEFAULT_BOTTOM_TERMINAL_PANEL_STATE,
+    right: DEFAULT_RIGHT_TERMINAL_PANEL_STATE,
   },
 });
 
@@ -261,6 +326,14 @@ function createDefaultThreadTerminalState(): ThreadTerminalState {
     splitRatiosByGroupId: copySplitRatiosByGroupId(
       DEFAULT_THREAD_TERMINAL_STATE.splitRatiosByGroupId,
     ),
+    terminalPanelStateByPlacement: {
+      bottom: copyTerminalPanelState(
+        DEFAULT_THREAD_TERMINAL_STATE.terminalPanelStateByPlacement.bottom,
+      ),
+      right: copyTerminalPanelState(
+        DEFAULT_THREAD_TERMINAL_STATE.terminalPanelStateByPlacement.right,
+      ),
+    },
   };
 }
 
@@ -272,10 +345,25 @@ function normalizeThreadTerminalState(state: ThreadTerminalState): ThreadTermina
   const terminalIds = normalizeTerminalIds(state.terminalIds);
   const nextTerminalIds = terminalIds.length > 0 ? terminalIds : [DEFAULT_THREAD_TERMINAL_ID];
   const runningTerminalIds = normalizeRunningTerminalIds(state.runningTerminalIds, nextTerminalIds);
-  const activeTerminalId = nextTerminalIds.includes(state.activeTerminalId)
-    ? state.activeTerminalId
-    : (nextTerminalIds[0] ?? DEFAULT_THREAD_TERMINAL_ID);
-  const terminalGroups = normalizeTerminalGroups(state.terminalGroups, nextTerminalIds);
+  const legacyBottomPanelState = normalizeThreadTerminalPanelState(
+    {
+      terminalOpen: state.terminalOpen,
+      terminalHeight: state.terminalHeight,
+      activeTerminalId: state.activeTerminalId,
+      terminalGroups: state.terminalGroups,
+      activeTerminalGroupId: state.activeTerminalGroupId,
+      splitRatiosByGroupId: state.splitRatiosByGroupId,
+    },
+    nextTerminalIds,
+  );
+  const rightPanelState = normalizeThreadTerminalPanelState(
+    state.terminalPanelStateByPlacement?.right ?? DEFAULT_THREAD_TERMINAL_PANEL_STATE,
+    nextTerminalIds,
+  );
+  const bottomPanelState = normalizeThreadTerminalPanelState(
+    state.terminalPanelStateByPlacement?.bottom ?? legacyBottomPanelState,
+    nextTerminalIds,
+  );
   const customTerminalTitlesById = normalizeTerminalTitleMap(
     state.customTerminalTitlesById,
     nextTerminalIds,
@@ -294,40 +382,21 @@ function normalizeThreadTerminalState(state: ThreadTerminalState): ThreadTermina
     nextTerminalIds,
     normalizeTerminalColorName,
   );
-  const splitRatiosByGroupId = normalizeSplitRatiosByGroupId(
-    state.splitRatiosByGroupId,
-    terminalGroups,
-  );
-  const activeGroupIdFromState = terminalGroups.some(
-    (group) => group.id === state.activeTerminalGroupId,
-  )
-    ? state.activeTerminalGroupId
-    : null;
-  const activeGroupIdFromTerminal =
-    terminalGroups.find((group) => group.terminalIds.includes(activeTerminalId))?.id ?? null;
 
   const normalized: ThreadTerminalState = {
-    terminalOpen: state.terminalOpen,
-    terminalHeight:
-      Number.isFinite(state.terminalHeight) && state.terminalHeight > 0
-        ? state.terminalHeight
-        : DEFAULT_THREAD_TERMINAL_HEIGHT,
+    ...bottomPanelState,
     terminalSidebarWidth: normalizeTerminalSidebarWidth(state.terminalSidebarWidth),
     terminalSidebarDensity: normalizeTerminalSidebarDensity(state.terminalSidebarDensity),
     terminalIds: nextTerminalIds,
     runningTerminalIds,
-    activeTerminalId,
-    terminalGroups,
     customTerminalTitlesById,
     autoTerminalTitlesById,
     terminalIconsById,
     terminalColorsById,
-    splitRatiosByGroupId,
-    activeTerminalGroupId:
-      activeGroupIdFromState ??
-      activeGroupIdFromTerminal ??
-      terminalGroups[0]?.id ??
-      fallbackGroupId(DEFAULT_THREAD_TERMINAL_ID),
+    terminalPanelStateByPlacement: {
+      bottom: bottomPanelState,
+      right: rightPanelState,
+    },
   };
   return threadTerminalStateEqual(state, normalized) ? state : normalized;
 }
@@ -356,15 +425,191 @@ function copySplitRatiosByGroupId(
   );
 }
 
-function upsertTerminalIntoGroups(
+function copyTerminalPanelState(panelState: ThreadTerminalPanelState): ThreadTerminalPanelState {
+  return {
+    terminalOpen: panelState.terminalOpen,
+    terminalHeight: panelState.terminalHeight,
+    activeTerminalId: panelState.activeTerminalId,
+    terminalGroups: copyTerminalGroups(panelState.terminalGroups),
+    activeTerminalGroupId: panelState.activeTerminalGroupId,
+    splitRatiosByGroupId: copySplitRatiosByGroupId(panelState.splitRatiosByGroupId),
+  };
+}
+
+function normalizeThreadTerminalPanelState(
+  panelState: ThreadTerminalPanelState,
+  terminalIds: string[],
+): ThreadTerminalPanelState {
+  const activeTerminalId = terminalIds.includes(panelState.activeTerminalId)
+    ? panelState.activeTerminalId
+    : (terminalIds[0] ?? DEFAULT_THREAD_TERMINAL_ID);
+  const terminalGroups = normalizeTerminalGroups(panelState.terminalGroups, terminalIds);
+  const splitRatiosByGroupId = normalizeSplitRatiosByGroupId(
+    panelState.splitRatiosByGroupId,
+    terminalGroups,
+  );
+  const activeGroupIdFromState = terminalGroups.some(
+    (group) => group.id === panelState.activeTerminalGroupId,
+  )
+    ? panelState.activeTerminalGroupId
+    : null;
+  const activeGroupIdFromTerminal =
+    terminalGroups.find((group) => group.terminalIds.includes(activeTerminalId))?.id ?? null;
+
+  const normalized: ThreadTerminalPanelState = {
+    terminalOpen: panelState.terminalOpen,
+    terminalHeight:
+      Number.isFinite(panelState.terminalHeight) && panelState.terminalHeight > 0
+        ? panelState.terminalHeight
+        : DEFAULT_THREAD_TERMINAL_HEIGHT,
+    activeTerminalId,
+    terminalGroups,
+    splitRatiosByGroupId,
+    activeTerminalGroupId:
+      activeGroupIdFromState ??
+      activeGroupIdFromTerminal ??
+      terminalGroups[0]?.id ??
+      fallbackGroupId(DEFAULT_THREAD_TERMINAL_ID),
+  };
+  return terminalPanelStateEqual(panelState, normalized) ? panelState : normalized;
+}
+
+function panelStateFromThreadState(state: ThreadTerminalState): ThreadTerminalPanelState {
+  return {
+    terminalOpen: state.terminalOpen,
+    terminalHeight: state.terminalHeight,
+    activeTerminalId: state.activeTerminalId,
+    terminalGroups: state.terminalGroups,
+    activeTerminalGroupId: state.activeTerminalGroupId,
+    splitRatiosByGroupId: state.splitRatiosByGroupId,
+  };
+}
+
+function createThreadStateForPanel(
   state: ThreadTerminalState,
+  placement: TerminalPanelPlacement,
+): ThreadTerminalState {
+  const normalized = normalizeThreadTerminalState(state);
+  const panelState = normalized.terminalPanelStateByPlacement[placement];
+  return {
+    ...normalized,
+    ...copyTerminalPanelState(panelState),
+  };
+}
+
+function applyThreadStateForPanel(
+  baseState: ThreadTerminalState,
+  placement: TerminalPanelPlacement,
+  nextPanelThreadState: ThreadTerminalState,
+): ThreadTerminalState {
+  const normalizedBase = normalizeThreadTerminalState(baseState);
+  const nextTerminalIds = normalizeTerminalIds(nextPanelThreadState.terminalIds);
+  const normalizedNextTerminalIds =
+    nextTerminalIds.length > 0 ? nextTerminalIds : [DEFAULT_THREAD_TERMINAL_ID];
+  const nextPanelState = normalizeThreadTerminalPanelState(
+    panelStateFromThreadState(nextPanelThreadState),
+    normalizedNextTerminalIds,
+  );
+  const nextPanelsByPlacement = {
+    ...normalizedBase.terminalPanelStateByPlacement,
+    [placement]: nextPanelState,
+  };
+  const bottomPanelState =
+    placement === "bottom" ? nextPanelState : normalizedBase.terminalPanelStateByPlacement.bottom;
+  return normalizeThreadTerminalState({
+    ...normalizedBase,
+    ...copyTerminalPanelState(bottomPanelState),
+    terminalIds: normalizedNextTerminalIds,
+    runningTerminalIds: normalizeRunningTerminalIds(
+      nextPanelThreadState.runningTerminalIds,
+      normalizedNextTerminalIds,
+    ),
+    customTerminalTitlesById: normalizeTerminalTitleMap(
+      nextPanelThreadState.customTerminalTitlesById,
+      normalizedNextTerminalIds,
+    ),
+    autoTerminalTitlesById: normalizeTerminalTitleMap(
+      nextPanelThreadState.autoTerminalTitlesById,
+      normalizedNextTerminalIds,
+    ),
+    terminalIconsById: normalizeTerminalMetadataMap(
+      nextPanelThreadState.terminalIconsById,
+      normalizedNextTerminalIds,
+      normalizeTerminalIconName,
+    ),
+    terminalColorsById: normalizeTerminalMetadataMap(
+      nextPanelThreadState.terminalColorsById,
+      normalizedNextTerminalIds,
+      normalizeTerminalColorName,
+    ),
+    terminalPanelStateByPlacement: nextPanelsByPlacement,
+  });
+}
+
+function setThreadTerminalOpenForPanel(
+  state: ThreadTerminalState,
+  placement: TerminalPanelPlacement,
+  open: boolean,
+): ThreadTerminalState {
+  const normalized = createThreadStateForPanel(state, placement);
+  if (normalized.terminalOpen === open) return normalizeThreadTerminalState(state);
+  return applyThreadStateForPanel(state, placement, { ...normalized, terminalOpen: open });
+}
+
+function setThreadTerminalOpen(state: ThreadTerminalState, open: boolean): ThreadTerminalState {
+  return setThreadTerminalOpenForPanel(state, "bottom", open);
+}
+
+function setThreadTerminalHeightForPanel(
+  state: ThreadTerminalState,
+  placement: TerminalPanelPlacement,
+  height: number,
+): ThreadTerminalState {
+  const normalized = createThreadStateForPanel(state, placement);
+  if (!Number.isFinite(height) || height <= 0 || normalized.terminalHeight === height) {
+    return normalizeThreadTerminalState(state);
+  }
+  return applyThreadStateForPanel(state, placement, { ...normalized, terminalHeight: height });
+}
+
+function setThreadTerminalHeight(state: ThreadTerminalState, height: number): ThreadTerminalState {
+  return setThreadTerminalHeightForPanel(state, "bottom", height);
+}
+
+function setThreadTerminalSidebarWidth(
+  state: ThreadTerminalState,
+  width: number,
+): ThreadTerminalState {
+  const normalized = normalizeThreadTerminalState(state);
+  const nextWidth = normalizeTerminalSidebarWidth(width);
+  if (normalized.terminalSidebarWidth === nextWidth) {
+    return normalized;
+  }
+  return { ...normalized, terminalSidebarWidth: nextWidth };
+}
+
+function setThreadTerminalSidebarDensity(
+  state: ThreadTerminalState,
+  density: "compact" | "comfortable",
+): ThreadTerminalState {
+  const normalized = normalizeThreadTerminalState(state);
+  const nextDensity = normalizeTerminalSidebarDensity(density);
+  if (normalized.terminalSidebarDensity === nextDensity) {
+    return normalized;
+  }
+  return { ...normalized, terminalSidebarDensity: nextDensity };
+}
+
+function upsertTerminalIntoGroupsForPanel(
+  state: ThreadTerminalState,
+  placement: TerminalPanelPlacement,
   terminalId: string,
   mode: "split" | "new",
   options?: { terminalOpen?: boolean },
 ): ThreadTerminalState {
-  const normalized = normalizeThreadTerminalState(state);
+  const normalized = createThreadStateForPanel(state, placement);
   if (!isValidTerminalId(terminalId)) {
-    return normalized;
+    return normalizeThreadTerminalState(state);
   }
 
   const isNewTerminal = !normalized.terminalIds.includes(terminalId);
@@ -387,7 +632,7 @@ function upsertTerminalIntoGroups(
     const usedGroupIds = new Set(terminalGroups.map((group) => group.id));
     const nextGroupId = assignUniqueGroupId(fallbackGroupId(terminalId), usedGroupIds);
     terminalGroups.push({ id: nextGroupId, terminalIds: [terminalId] });
-    return normalizeThreadTerminalState({
+    return applyThreadStateForPanel(state, placement, {
       ...normalized,
       terminalOpen: options?.terminalOpen ?? true,
       terminalIds,
@@ -415,7 +660,7 @@ function upsertTerminalIntoGroups(
 
   const destinationGroup = terminalGroups[activeGroupIndex];
   if (!destinationGroup) {
-    return normalized;
+    return normalizeThreadTerminalState(state);
   }
 
   if (
@@ -423,7 +668,7 @@ function upsertTerminalIntoGroups(
     !destinationGroup.terminalIds.includes(terminalId) &&
     destinationGroup.terminalIds.length >= MAX_TERMINALS_PER_GROUP
   ) {
-    return normalized;
+    return normalizeThreadTerminalState(state);
   }
 
   if (!destinationGroup.terminalIds.includes(terminalId)) {
@@ -435,7 +680,7 @@ function upsertTerminalIntoGroups(
     }
   }
 
-  return normalizeThreadTerminalState({
+  return applyThreadStateForPanel(state, placement, {
     ...normalized,
     terminalOpen: options?.terminalOpen ?? true,
     terminalIds,
@@ -445,59 +690,38 @@ function upsertTerminalIntoGroups(
   });
 }
 
-function setThreadTerminalOpen(state: ThreadTerminalState, open: boolean): ThreadTerminalState {
-  const normalized = normalizeThreadTerminalState(state);
-  if (normalized.terminalOpen === open) return normalized;
-  return { ...normalized, terminalOpen: open };
-}
-
-function setThreadTerminalHeight(state: ThreadTerminalState, height: number): ThreadTerminalState {
-  const normalized = normalizeThreadTerminalState(state);
-  if (!Number.isFinite(height) || height <= 0 || normalized.terminalHeight === height) {
-    return normalized;
-  }
-  return { ...normalized, terminalHeight: height };
-}
-
-function setThreadTerminalSidebarWidth(
+function splitThreadTerminalForPanel(
   state: ThreadTerminalState,
-  width: number,
+  placement: TerminalPanelPlacement,
+  terminalId: string,
 ): ThreadTerminalState {
-  const normalized = normalizeThreadTerminalState(state);
-  const nextWidth = normalizeTerminalSidebarWidth(width);
-  if (normalized.terminalSidebarWidth === nextWidth) {
-    return normalized;
-  }
-  return { ...normalized, terminalSidebarWidth: nextWidth };
-}
-
-function setThreadTerminalSidebarDensity(
-  state: ThreadTerminalState,
-  density: "compact" | "comfortable",
-): ThreadTerminalState {
-  const normalized = normalizeThreadTerminalState(state);
-  const nextDensity = normalizeTerminalSidebarDensity(density);
-  if (normalized.terminalSidebarDensity === nextDensity) {
-    return normalized;
-  }
-  return { ...normalized, terminalSidebarDensity: nextDensity };
+  return upsertTerminalIntoGroupsForPanel(state, placement, terminalId, "split");
 }
 
 function splitThreadTerminal(state: ThreadTerminalState, terminalId: string): ThreadTerminalState {
-  return upsertTerminalIntoGroups(state, terminalId, "split");
+  return splitThreadTerminalForPanel(state, "bottom", terminalId);
+}
+
+function newThreadTerminalForPanel(
+  state: ThreadTerminalState,
+  placement: TerminalPanelPlacement,
+  terminalId: string,
+): ThreadTerminalState {
+  return upsertTerminalIntoGroupsForPanel(state, placement, terminalId, "new");
 }
 
 function newThreadTerminal(state: ThreadTerminalState, terminalId: string): ThreadTerminalState {
-  return upsertTerminalIntoGroups(state, terminalId, "new");
+  return newThreadTerminalForPanel(state, "bottom", terminalId);
 }
 
-function setThreadActiveTerminal(
+function setThreadActiveTerminalForPanel(
   state: ThreadTerminalState,
+  placement: TerminalPanelPlacement,
   terminalId: string,
 ): ThreadTerminalState {
-  const normalized = normalizeThreadTerminalState(state);
+  const normalized = createThreadStateForPanel(state, placement);
   if (!normalized.terminalIds.includes(terminalId)) {
-    return normalized;
+    return normalizeThreadTerminalState(state);
   }
   const activeTerminalGroupId =
     normalized.terminalGroups.find((group) => group.terminalIds.includes(terminalId))?.id ??
@@ -506,13 +730,20 @@ function setThreadActiveTerminal(
     normalized.activeTerminalId === terminalId &&
     normalized.activeTerminalGroupId === activeTerminalGroupId
   ) {
-    return normalized;
+    return normalizeThreadTerminalState(state);
   }
-  return {
+  return applyThreadStateForPanel(state, placement, {
     ...normalized,
     activeTerminalId: terminalId,
     activeTerminalGroupId,
-  };
+  });
+}
+
+function setThreadActiveTerminal(
+  state: ThreadTerminalState,
+  terminalId: string,
+): ThreadTerminalState {
+  return setThreadActiveTerminalForPanel(state, "bottom", terminalId);
 }
 
 function closeThreadTerminal(state: ThreadTerminalState, terminalId: string): ThreadTerminalState {
@@ -527,38 +758,52 @@ function closeThreadTerminal(state: ThreadTerminalState, terminalId: string): Th
   }
 
   const closedTerminalIndex = normalized.terminalIds.indexOf(terminalId);
-  const nextActiveTerminalId =
-    normalized.activeTerminalId === terminalId
-      ? (remainingTerminalIds[Math.min(closedTerminalIndex, remainingTerminalIds.length - 1)] ??
-        remainingTerminalIds[0] ??
-        DEFAULT_THREAD_TERMINAL_ID)
-      : normalized.activeTerminalId;
+  const closePanelState = (panelState: ThreadTerminalPanelState): ThreadTerminalPanelState => {
+    const nextActiveTerminalId =
+      panelState.activeTerminalId === terminalId
+        ? (remainingTerminalIds[Math.min(closedTerminalIndex, remainingTerminalIds.length - 1)] ??
+          remainingTerminalIds[0] ??
+          DEFAULT_THREAD_TERMINAL_ID)
+        : panelState.activeTerminalId;
 
-  const terminalGroups = normalized.terminalGroups.flatMap((group) => {
-    const terminalIds = group.terminalIds.filter((id) => id !== terminalId);
-    return terminalIds.length > 0 ? [{ ...group, terminalIds }] : [];
-  });
+    const terminalGroups = panelState.terminalGroups.flatMap((group) => {
+      const terminalIds = group.terminalIds.filter((id) => id !== terminalId);
+      return terminalIds.length > 0 ? [{ ...group, terminalIds }] : [];
+    });
 
-  const nextActiveTerminalGroupId =
-    terminalGroups.find((group) => group.terminalIds.includes(nextActiveTerminalId))?.id ??
-    terminalGroups[0]?.id ??
-    fallbackGroupId(nextActiveTerminalId);
+    const nextActiveTerminalGroupId =
+      terminalGroups.find((group) => group.terminalIds.includes(nextActiveTerminalId))?.id ??
+      terminalGroups[0]?.id ??
+      fallbackGroupId(nextActiveTerminalId);
+
+    return normalizeThreadTerminalPanelState(
+      {
+        ...panelState,
+        activeTerminalId: nextActiveTerminalId,
+        terminalGroups,
+        activeTerminalGroupId: nextActiveTerminalGroupId,
+      },
+      remainingTerminalIds,
+    );
+  };
+  const bottomPanelState = closePanelState(normalized.terminalPanelStateByPlacement.bottom);
+  const rightPanelState = closePanelState(normalized.terminalPanelStateByPlacement.right);
 
   return normalizeThreadTerminalState({
-    terminalOpen: normalized.terminalOpen,
-    terminalHeight: normalized.terminalHeight,
+    ...normalized,
+    ...bottomPanelState,
     terminalSidebarWidth: normalized.terminalSidebarWidth,
     terminalSidebarDensity: normalized.terminalSidebarDensity,
     terminalIds: remainingTerminalIds,
     runningTerminalIds: normalized.runningTerminalIds.filter((id) => id !== terminalId),
-    activeTerminalId: nextActiveTerminalId,
-    terminalGroups,
-    activeTerminalGroupId: nextActiveTerminalGroupId,
     customTerminalTitlesById: normalized.customTerminalTitlesById,
     autoTerminalTitlesById: normalized.autoTerminalTitlesById,
     terminalIconsById: normalized.terminalIconsById,
     terminalColorsById: normalized.terminalColorsById,
-    splitRatiosByGroupId: normalized.splitRatiosByGroupId,
+    terminalPanelStateByPlacement: {
+      bottom: bottomPanelState,
+      right: rightPanelState,
+    },
   });
 }
 
@@ -688,22 +933,23 @@ function setThreadTerminalColor(
   });
 }
 
-function setThreadTerminalGroupSplitRatios(
+function setThreadTerminalGroupSplitRatiosForPanel(
   state: ThreadTerminalState,
+  placement: TerminalPanelPlacement,
   groupId: string,
   ratios: number[],
 ): ThreadTerminalState {
-  const normalized = normalizeThreadTerminalState(state);
+  const normalized = createThreadStateForPanel(state, placement);
   const group = normalized.terminalGroups.find((candidate) => candidate.id === groupId);
   if (!group) {
-    return normalized;
+    return normalizeThreadTerminalState(state);
   }
   const nextRatios = normalizeSplitRatios(ratios, group.terminalIds.length);
   const currentRatios = normalized.splitRatiosByGroupId[groupId];
   if (currentRatios && numberArraysEqual(currentRatios, nextRatios)) {
-    return normalized;
+    return normalizeThreadTerminalState(state);
   }
-  return normalizeThreadTerminalState({
+  return applyThreadStateForPanel(state, placement, {
     ...normalized,
     splitRatiosByGroupId: {
       ...normalized.splitRatiosByGroupId,
@@ -712,15 +958,24 @@ function setThreadTerminalGroupSplitRatios(
   });
 }
 
-function moveThreadTerminal(
+function setThreadTerminalGroupSplitRatios(
   state: ThreadTerminalState,
+  groupId: string,
+  ratios: number[],
+): ThreadTerminalState {
+  return setThreadTerminalGroupSplitRatiosForPanel(state, "bottom", groupId, ratios);
+}
+
+function moveThreadTerminalForPanel(
+  state: ThreadTerminalState,
+  placement: TerminalPanelPlacement,
   terminalId: string,
   targetGroupId: string,
   targetIndex: number,
 ): ThreadTerminalState {
-  const normalized = normalizeThreadTerminalState(state);
+  const normalized = createThreadStateForPanel(state, placement);
   if (!normalized.terminalIds.includes(terminalId)) {
-    return normalized;
+    return normalizeThreadTerminalState(state);
   }
 
   const sourceGroupIndex = normalized.terminalGroups.findIndex((group) =>
@@ -730,19 +985,19 @@ function moveThreadTerminal(
     (group) => group.id === targetGroupId,
   );
   if (sourceGroupIndex < 0 || targetGroupIndex < 0) {
-    return normalized;
+    return normalizeThreadTerminalState(state);
   }
 
   const terminalGroups = copyTerminalGroups(normalized.terminalGroups);
   const sourceGroup = terminalGroups[sourceGroupIndex];
   const initialTargetGroup = terminalGroups[targetGroupIndex];
   if (!sourceGroup || !initialTargetGroup) {
-    return normalized;
+    return normalizeThreadTerminalState(state);
   }
 
   const sourceIndex = sourceGroup.terminalIds.indexOf(terminalId);
   if (sourceIndex < 0) {
-    return normalized;
+    return normalizeThreadTerminalState(state);
   }
 
   if (
@@ -755,7 +1010,7 @@ function moveThreadTerminal(
   if (sourceGroup.id === initialTargetGroup.id) {
     const finalIndex = Math.max(0, Math.min(targetIndex, sourceGroup.terminalIds.length - 1));
     if (sourceIndex === finalIndex) {
-      return normalized;
+      return normalizeThreadTerminalState(state);
     }
   }
 
@@ -770,14 +1025,14 @@ function moveThreadTerminal(
 
   const targetGroup = terminalGroups[nextTargetGroupIndex];
   if (!targetGroup) {
-    return normalized;
+    return normalizeThreadTerminalState(state);
   }
 
   let insertionIndex = Math.max(0, Math.min(targetIndex, targetGroup.terminalIds.length));
 
   const targetIds = targetGroup.terminalIds;
   if (sourceGroup.id === targetGroup.id && sourceIndex === insertionIndex) {
-    return normalized;
+    return normalizeThreadTerminalState(state);
   }
 
   targetIds.splice(insertionIndex, 0, terminalId);
@@ -787,7 +1042,7 @@ function moveThreadTerminal(
     terminalGroups[0]?.id ??
     fallbackGroupId(normalized.activeTerminalId);
 
-  return normalizeThreadTerminalState({
+  return applyThreadStateForPanel(state, placement, {
     ...normalized,
     terminalIds,
     terminalGroups,
@@ -795,35 +1050,45 @@ function moveThreadTerminal(
   });
 }
 
-function moveThreadTerminalToNewGroup(
+function moveThreadTerminal(
   state: ThreadTerminalState,
+  terminalId: string,
+  targetGroupId: string,
+  targetIndex: number,
+): ThreadTerminalState {
+  return moveThreadTerminalForPanel(state, "bottom", terminalId, targetGroupId, targetIndex);
+}
+
+function moveThreadTerminalToNewGroupForPanel(
+  state: ThreadTerminalState,
+  placement: TerminalPanelPlacement,
   terminalId: string,
   targetGroupIndex: number,
 ): ThreadTerminalState {
-  const normalized = normalizeThreadTerminalState(state);
+  const normalized = createThreadStateForPanel(state, placement);
   if (!normalized.terminalIds.includes(terminalId)) {
-    return normalized;
+    return normalizeThreadTerminalState(state);
   }
 
   const sourceGroupIndex = normalized.terminalGroups.findIndex((group) =>
     group.terminalIds.includes(terminalId),
   );
   if (sourceGroupIndex < 0) {
-    return normalized;
+    return normalizeThreadTerminalState(state);
   }
 
   const sourceGroup = normalized.terminalGroups[sourceGroupIndex];
   if (!sourceGroup) {
-    return normalized;
+    return normalizeThreadTerminalState(state);
   }
   if (sourceGroup.terminalIds.length === 1) {
-    return normalized;
+    return normalizeThreadTerminalState(state);
   }
 
   const terminalGroups = copyTerminalGroups(normalized.terminalGroups);
   const mutableSourceGroup = terminalGroups[sourceGroupIndex];
   if (!mutableSourceGroup) {
-    return normalized;
+    return normalizeThreadTerminalState(state);
   }
   mutableSourceGroup.terminalIds = mutableSourceGroup.terminalIds.filter((id) => id !== terminalId);
 
@@ -836,7 +1101,7 @@ function moveThreadTerminalToNewGroup(
   terminalGroups.splice(insertionIndex, 0, newGroup);
 
   const terminalIds = terminalGroups.flatMap((group) => group.terminalIds);
-  return normalizeThreadTerminalState({
+  return applyThreadStateForPanel(state, placement, {
     ...normalized,
     terminalIds,
     terminalGroups,
@@ -847,6 +1112,14 @@ function moveThreadTerminalToNewGroup(
   });
 }
 
+function moveThreadTerminalToNewGroup(
+  state: ThreadTerminalState,
+  terminalId: string,
+  targetGroupIndex: number,
+): ThreadTerminalState {
+  return moveThreadTerminalToNewGroupForPanel(state, "bottom", terminalId, targetGroupIndex);
+}
+
 export function selectThreadTerminalState(
   terminalStateByThreadId: Record<ThreadId, ThreadTerminalState>,
   threadId: ThreadId,
@@ -855,6 +1128,26 @@ export function selectThreadTerminalState(
     return getDefaultThreadTerminalState();
   }
   return terminalStateByThreadId[threadId] ?? getDefaultThreadTerminalState();
+}
+
+export function selectThreadTerminalPanelState(
+  terminalStateByThreadId: Record<ThreadId, ThreadTerminalState>,
+  threadId: ThreadId,
+  placement: TerminalPanelPlacement,
+): ThreadTerminalState {
+  const threadState = normalizeThreadTerminalState(
+    selectThreadTerminalState(terminalStateByThreadId, threadId),
+  );
+  const panelState = threadState.terminalPanelStateByPlacement[placement];
+  return {
+    ...threadState,
+    terminalOpen: panelState.terminalOpen,
+    terminalHeight: panelState.terminalHeight,
+    activeTerminalId: panelState.activeTerminalId,
+    terminalGroups: panelState.terminalGroups,
+    activeTerminalGroupId: panelState.activeTerminalGroupId,
+    splitRatiosByGroupId: panelState.splitRatiosByGroupId,
+  };
 }
 
 function updateTerminalStateByThreadId(
@@ -889,21 +1182,64 @@ function updateTerminalStateByThreadId(
 interface TerminalStateStoreState {
   terminalStateByThreadId: Record<ThreadId, ThreadTerminalState>;
   setTerminalOpen: (threadId: ThreadId, open: boolean) => void;
+  setTerminalOpenForPanel: (
+    threadId: ThreadId,
+    placement: TerminalPanelPlacement,
+    open: boolean,
+  ) => void;
   setTerminalHeight: (threadId: ThreadId, height: number) => void;
+  setTerminalHeightForPanel: (
+    threadId: ThreadId,
+    placement: TerminalPanelPlacement,
+    height: number,
+  ) => void;
   setTerminalSidebarWidth: (threadId: ThreadId, width: number) => void;
   setTerminalSidebarDensity: (threadId: ThreadId, density: "compact" | "comfortable") => void;
   splitTerminal: (threadId: ThreadId, terminalId: string) => void;
+  splitTerminalForPanel: (
+    threadId: ThreadId,
+    placement: TerminalPanelPlacement,
+    terminalId: string,
+  ) => void;
   newTerminal: (threadId: ThreadId, terminalId: string) => void;
+  newTerminalForPanel: (
+    threadId: ThreadId,
+    placement: TerminalPanelPlacement,
+    terminalId: string,
+  ) => void;
   newBackgroundTerminal: (threadId: ThreadId, terminalId: string) => void;
+  newBackgroundTerminalForPanel: (
+    threadId: ThreadId,
+    placement: TerminalPanelPlacement,
+    terminalId: string,
+  ) => void;
   setActiveTerminal: (threadId: ThreadId, terminalId: string) => void;
+  setActiveTerminalForPanel: (
+    threadId: ThreadId,
+    placement: TerminalPanelPlacement,
+    terminalId: string,
+  ) => void;
   moveTerminal: (
     threadId: ThreadId,
     terminalId: string,
     targetGroupId: string,
     targetIndex: number,
   ) => void;
+  moveTerminalForPanel: (
+    threadId: ThreadId,
+    placement: TerminalPanelPlacement,
+    terminalId: string,
+    targetGroupId: string,
+    targetIndex: number,
+  ) => void;
   moveTerminalToNewGroup: (
     threadId: ThreadId,
+    terminalId: string,
+    targetGroupIndex: number,
+  ) => void;
+  moveTerminalToNewGroupForPanel: (
+    threadId: ThreadId,
+    placement: TerminalPanelPlacement,
     terminalId: string,
     targetGroupIndex: number,
   ) => void;
@@ -916,6 +1252,12 @@ interface TerminalStateStoreState {
     color: TerminalColorName | null,
   ) => void;
   setTerminalGroupSplitRatios: (threadId: ThreadId, groupId: string, ratios: number[]) => void;
+  setTerminalGroupSplitRatiosForPanel: (
+    threadId: ThreadId,
+    placement: TerminalPanelPlacement,
+    groupId: string,
+    ratios: number[],
+  ) => void;
   closeTerminal: (threadId: ThreadId, terminalId: string) => void;
   setTerminalActivity: (
     threadId: ThreadId,
@@ -953,31 +1295,67 @@ export const useTerminalStateStore = create<TerminalStateStoreState>()(
         terminalStateByThreadId: {},
         setTerminalOpen: (threadId, open) =>
           updateTerminal(threadId, (state) => setThreadTerminalOpen(state, open)),
+        setTerminalOpenForPanel: (threadId, placement, open) =>
+          updateTerminal(threadId, (state) =>
+            setThreadTerminalOpenForPanel(state, placement, open),
+          ),
         setTerminalHeight: (threadId, height) =>
           updateTerminal(threadId, (state) => setThreadTerminalHeight(state, height)),
+        setTerminalHeightForPanel: (threadId, placement, height) =>
+          updateTerminal(threadId, (state) =>
+            setThreadTerminalHeightForPanel(state, placement, height),
+          ),
         setTerminalSidebarWidth: (threadId, width) =>
           updateTerminal(threadId, (state) => setThreadTerminalSidebarWidth(state, width)),
         setTerminalSidebarDensity: (threadId, density) =>
           updateTerminal(threadId, (state) => setThreadTerminalSidebarDensity(state, density)),
         splitTerminal: (threadId, terminalId) =>
           updateTerminal(threadId, (state) => splitThreadTerminal(state, terminalId)),
+        splitTerminalForPanel: (threadId, placement, terminalId) =>
+          updateTerminal(threadId, (state) =>
+            splitThreadTerminalForPanel(state, placement, terminalId),
+          ),
         newTerminal: (threadId, terminalId) =>
           updateTerminal(threadId, (state) => newThreadTerminal(state, terminalId)),
+        newTerminalForPanel: (threadId, placement, terminalId) =>
+          updateTerminal(threadId, (state) =>
+            newThreadTerminalForPanel(state, placement, terminalId),
+          ),
         newBackgroundTerminal: (threadId, terminalId) =>
           updateTerminal(threadId, (state) =>
-            upsertTerminalIntoGroups(state, terminalId, "new", {
+            upsertTerminalIntoGroupsForPanel(state, "bottom", terminalId, "new", {
               terminalOpen: normalizeThreadTerminalState(state).terminalOpen,
+            }),
+          ),
+        newBackgroundTerminalForPanel: (threadId, placement, terminalId) =>
+          updateTerminal(threadId, (state) =>
+            upsertTerminalIntoGroupsForPanel(state, placement, terminalId, "new", {
+              terminalOpen:
+                normalizeThreadTerminalState(state).terminalPanelStateByPlacement[placement]
+                  .terminalOpen,
             }),
           ),
         setActiveTerminal: (threadId, terminalId) =>
           updateTerminal(threadId, (state) => setThreadActiveTerminal(state, terminalId)),
+        setActiveTerminalForPanel: (threadId, placement, terminalId) =>
+          updateTerminal(threadId, (state) =>
+            setThreadActiveTerminalForPanel(state, placement, terminalId),
+          ),
         moveTerminal: (threadId, terminalId, targetGroupId, targetIndex) =>
           updateTerminal(threadId, (state) =>
             moveThreadTerminal(state, terminalId, targetGroupId, targetIndex),
           ),
+        moveTerminalForPanel: (threadId, placement, terminalId, targetGroupId, targetIndex) =>
+          updateTerminal(threadId, (state) =>
+            moveThreadTerminalForPanel(state, placement, terminalId, targetGroupId, targetIndex),
+          ),
         moveTerminalToNewGroup: (threadId, terminalId, targetGroupIndex) =>
           updateTerminal(threadId, (state) =>
             moveThreadTerminalToNewGroup(state, terminalId, targetGroupIndex),
+          ),
+        moveTerminalToNewGroupForPanel: (threadId, placement, terminalId, targetGroupIndex) =>
+          updateTerminal(threadId, (state) =>
+            moveThreadTerminalToNewGroupForPanel(state, placement, terminalId, targetGroupIndex),
           ),
         renameTerminal: (threadId, terminalId, title) =>
           updateTerminal(threadId, (state) =>
@@ -992,6 +1370,10 @@ export const useTerminalStateStore = create<TerminalStateStoreState>()(
         setTerminalGroupSplitRatios: (threadId, groupId, ratios) =>
           updateTerminal(threadId, (state) =>
             setThreadTerminalGroupSplitRatios(state, groupId, ratios),
+          ),
+        setTerminalGroupSplitRatiosForPanel: (threadId, placement, groupId, ratios) =>
+          updateTerminal(threadId, (state) =>
+            setThreadTerminalGroupSplitRatiosForPanel(state, placement, groupId, ratios),
           ),
         closeTerminal: (threadId, terminalId) =>
           updateTerminal(threadId, (state) => closeThreadTerminal(state, terminalId)),
@@ -1026,7 +1408,7 @@ export const useTerminalStateStore = create<TerminalStateStoreState>()(
     },
     {
       name: TERMINAL_STATE_STORAGE_KEY,
-      version: 5,
+      version: 6,
       storage: createJSONStorage(createTerminalStateStorage),
       migrate: (persistedState) => {
         const candidate = persistedState as {

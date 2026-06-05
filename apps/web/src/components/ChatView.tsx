@@ -204,7 +204,12 @@ import {
   deriveThreadTimelineRenderState,
 } from "~/lib/chat/threadRenderState";
 import { THREAD_ROUTE_CONNECTION_SEARCH_PARAM } from "../lib/connectionRouting";
-import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
+import {
+  selectThreadTerminalPanelState,
+  selectThreadTerminalState,
+  type TerminalPanelPlacement,
+  useTerminalStateStore,
+} from "../terminalStateStore";
 import {
   resolveEditorInstanceStateScopeId,
   resolveEditorWindowStateInstanceId,
@@ -655,6 +660,7 @@ interface ConnectedRetainedThreadTerminalDrawersProps {
 }
 
 interface ConnectedThreadTerminalPanelProps extends ConnectedRetainedThreadTerminalDrawersProps {
+  placement: TerminalPanelPlacement;
   onClosePanelTerminal: () => void;
 }
 
@@ -718,6 +724,7 @@ function ConnectedRetainedThreadTerminalDrawers({
 }
 
 function ConnectedThreadTerminalPanel({
+  placement,
   activeThreadId,
   activeProjectAvailable,
   cwd,
@@ -736,8 +743,10 @@ function ConnectedThreadTerminalPanel({
   onHeightChange,
   onAddTerminalContext,
 }: ConnectedThreadTerminalPanelProps) {
-  const terminalDrawerState = useTerminalStateStore((state) =>
-    selectThreadTerminalState(state.terminalStateByThreadId, activeThreadId),
+  const terminalDrawerState = useTerminalStateStore(
+    useShallow((state) =>
+      selectThreadTerminalPanelState(state.terminalStateByThreadId, activeThreadId, placement),
+    ),
   );
 
   if (!activeProjectAvailable || !cwd) {
@@ -1716,15 +1725,34 @@ function useChatViewComponent({
       };
     }),
   );
+  const rightTerminalPanelState = useTerminalStateStore(
+    useShallow((state) => {
+      const selectedState = selectThreadTerminalPanelState(
+        state.terminalStateByThreadId,
+        threadId,
+        "right",
+      );
+      return {
+        activeTerminalId: selectedState.activeTerminalId,
+        terminalGroups: selectedState.terminalGroups,
+      };
+    }),
+  );
   const storeSetTerminalOpen = useTerminalStateStore((s) => s.setTerminalOpen);
   const storeSetTerminalHeight = useTerminalStateStore((s) => s.setTerminalHeight);
+  const storeSetTerminalHeightForPanel = useTerminalStateStore((s) => s.setTerminalHeightForPanel);
   const storeSplitTerminal = useTerminalStateStore((s) => s.splitTerminal);
   const storeNewTerminal = useTerminalStateStore((s) => s.newTerminal);
-  const storeNewBackgroundTerminal = useTerminalStateStore((s) => s.newBackgroundTerminal);
+  const storeNewTerminalForPanel = useTerminalStateStore((s) => s.newTerminalForPanel);
   const storeSetActiveTerminal = useTerminalStateStore((s) => s.setActiveTerminal);
+  const storeSetActiveTerminalForPanel = useTerminalStateStore((s) => s.setActiveTerminalForPanel);
   const storeMoveTerminal = useTerminalStateStore((s) => s.moveTerminal);
+  const storeMoveTerminalForPanel = useTerminalStateStore((s) => s.moveTerminalForPanel);
   const storeSetTerminalGroupSplitRatios = useTerminalStateStore(
     (s) => s.setTerminalGroupSplitRatios,
+  );
+  const storeSetTerminalGroupSplitRatiosForPanel = useTerminalStateStore(
+    (s) => s.setTerminalGroupSplitRatiosForPanel,
   );
   const storeSetTerminalAutoTitle = useTerminalStateStore((s) => s.setTerminalAutoTitle);
   const storeCloseTerminal = useTerminalStateStore((s) => s.closeTerminal);
@@ -4697,6 +4725,13 @@ function useChatViewComponent({
     },
     [activeThreadId, storeSetTerminalHeight],
   );
+  const setRightPanelTerminalHeight = useCallback(
+    (height: number) => {
+      if (!activeThreadId) return;
+      storeSetTerminalHeightForPanel(activeThreadId, "right", height);
+    },
+    [activeThreadId, storeSetTerminalHeightForPanel],
+  );
   const handleBottomPanelResizePointerDown = useCallback(
     (event: ReactPointerEvent<HTMLElement>) => {
       if (!activeThreadId) return;
@@ -5319,16 +5354,22 @@ function useChatViewComponent({
       if (!activeThreadId || draggedTerminalId === targetTerminalId) {
         return;
       }
-      const targetGroup = terminalState.terminalGroups.find((group) =>
+      const targetGroup = rightTerminalPanelState.terminalGroups.find((group) =>
         group.terminalIds.includes(targetTerminalId),
       );
       if (!targetGroup) {
         return;
       }
       const targetIndex = targetGroup.terminalIds.indexOf(targetTerminalId);
-      storeMoveTerminal(activeThreadId, draggedTerminalId, targetGroup.id, targetIndex);
+      storeMoveTerminalForPanel(
+        activeThreadId,
+        "right",
+        draggedTerminalId,
+        targetGroup.id,
+        targetIndex,
+      );
     },
-    [activeThreadId, storeMoveTerminal, terminalState.terminalGroups],
+    [activeThreadId, rightTerminalPanelState.terminalGroups, storeMoveTerminalForPanel],
   );
   const onCloseBottomPanelTerminal = useCallback(() => {
     setTerminalOpen(false);
@@ -6546,14 +6587,14 @@ function useChatViewComponent({
   const createNewPanelTerminal = useCallback(() => {
     if (!activeThreadId) return;
     const terminalId = `terminal-${randomUUID()}`;
-    storeNewBackgroundTerminal(activeThreadId, terminalId);
+    storeNewTerminalForPanel(activeThreadId, "right", terminalId);
     appendRightPanelTabOrder(`terminal:${terminalId}`);
     setTerminalFocusRequestId((value) => value + 1);
   }, [
     activeThreadId,
     appendRightPanelTabOrder,
     setTerminalFocusRequestId,
-    storeNewBackgroundTerminal,
+    storeNewTerminalForPanel,
   ]);
   const createSplitTerminal = useCallback(() => {
     if (!activeThreadId) return;
@@ -6569,6 +6610,14 @@ function useChatViewComponent({
     },
     [activeThreadId, setTerminalFocusRequestId, storeSetActiveTerminal],
   );
+  const activatePanelTerminal = useCallback(
+    (terminalId: string) => {
+      if (!activeThreadId) return;
+      storeSetActiveTerminalForPanel(activeThreadId, "right", terminalId);
+      setTerminalFocusRequestId((value) => value + 1);
+    },
+    [activeThreadId, setTerminalFocusRequestId, storeSetActiveTerminalForPanel],
+  );
   const moveTerminal = useCallback(
     (terminalId: string, targetGroupId: string, targetIndex: number) => {
       if (!activeThreadId) return;
@@ -6576,12 +6625,26 @@ function useChatViewComponent({
     },
     [activeThreadId, storeMoveTerminal],
   );
+  const movePanelTerminal = useCallback(
+    (terminalId: string, targetGroupId: string, targetIndex: number) => {
+      if (!activeThreadId) return;
+      storeMoveTerminalForPanel(activeThreadId, "right", terminalId, targetGroupId, targetIndex);
+    },
+    [activeThreadId, storeMoveTerminalForPanel],
+  );
   const setTerminalGroupSplitRatios = useCallback(
     (groupId: string, ratios: number[]) => {
       if (!activeThreadId) return;
       storeSetTerminalGroupSplitRatios(activeThreadId, groupId, ratios);
     },
     [activeThreadId, storeSetTerminalGroupSplitRatios],
+  );
+  const setPanelTerminalGroupSplitRatios = useCallback(
+    (groupId: string, ratios: number[]) => {
+      if (!activeThreadId) return;
+      storeSetTerminalGroupSplitRatiosForPanel(activeThreadId, "right", groupId, ratios);
+    },
+    [activeThreadId, storeSetTerminalGroupSplitRatiosForPanel],
   );
   const readActiveTerminalState = useCallback(() => {
     if (!activeThreadId) {
@@ -10063,7 +10126,7 @@ function useChatViewComponent({
         terminalShortcutLabel={rightPanelTerminalShortcutLabel}
         terminalOpen={rightSidePanelTerminalOpen}
         terminalTabs={rightPanelTerminalTabs}
-        activeTerminalId={terminalState.activeTerminalId}
+        activeTerminalId={rightTerminalPanelState.activeTerminalId}
         activeSubagentThreadId={activeSubagentThreadId}
         floatingChatOpen={rightSidePanelFloatingChatOpen}
         onBrowserTabClose={onCloseRightSidePanelBrowserTab}
@@ -10078,7 +10141,7 @@ function useChatViewComponent({
         onTerminalTabClose={closeTerminal}
         onTerminalTabReorder={onReorderRightSidePanelTerminalTab}
         onTerminalTabSelect={(terminalId) => {
-          activateTerminal(terminalId);
+          activatePanelTerminal(terminalId);
           onOpenRightSidePanelTerminal();
         }}
         onNewBrowserTab={onOpenRightSidePanelBrowserTab}
@@ -10974,6 +11037,7 @@ function useChatViewComponent({
                               />
                             ) : activeRightSidePanelMode === "terminal" ? (
                               <ConnectedThreadTerminalPanel
+                                placement="right"
                                 activeThreadId={activeThread.id}
                                 activeProjectAvailable={activeProject !== undefined}
                                 cwd={gitCwd ?? activeProject?.cwd ?? null}
@@ -10983,14 +11047,14 @@ function useChatViewComponent({
                                 onNewTerminal={createNewPanelTerminal}
                                 newShortcutLabel={newTerminalShortcutLabel ?? undefined}
                                 toggleShortcutLabel={rightPanelTerminalShortcutLabel ?? undefined}
-                                onActiveTerminalChange={activateTerminal}
-                                onMoveTerminal={moveTerminal}
-                                onSplitRatiosChange={setTerminalGroupSplitRatios}
+                                onActiveTerminalChange={activatePanelTerminal}
+                                onMoveTerminal={movePanelTerminal}
+                                onSplitRatiosChange={setPanelTerminalGroupSplitRatios}
                                 onAutoTerminalTitleChange={setTerminalAutoTitle}
                                 onCloseTerminal={closeTerminal}
                                 onToggleTerminal={toggleTerminalVisibility}
                                 onClosePanelTerminal={onCloseRightSidePanelTerminal}
-                                onHeightChange={setTerminalHeight}
+                                onHeightChange={setRightPanelTerminalHeight}
                                 onAddTerminalContext={addTerminalContextToDraft}
                               />
                             ) : activeRightSidePanelMode === "editor" ? (
@@ -11136,6 +11200,7 @@ function useChatViewComponent({
                       />
                     ) : activeBottomPanelMode === "terminal" ? (
                       <ConnectedThreadTerminalPanel
+                        placement="bottom"
                         activeThreadId={activeThread.id}
                         activeProjectAvailable={activeProject !== undefined}
                         cwd={gitCwd ?? activeProject?.cwd ?? null}
