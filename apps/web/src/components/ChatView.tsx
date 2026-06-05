@@ -2003,9 +2003,7 @@ function useChatViewComponent({
         directThreadHydrationInFlightRef.current = null;
       }
       clearDirectThreadHydrationRetryTimeout();
-      startTransition(() => {
-        hydrateThreadFromReadModel(thread);
-      });
+      hydrateThreadFromReadModel(thread);
     },
   );
   const attemptDirectThreadHydration = useEffectEvent(

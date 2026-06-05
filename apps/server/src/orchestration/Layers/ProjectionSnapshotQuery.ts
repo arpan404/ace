@@ -30,6 +30,7 @@ import {
   RuntimeMode,
   ThreadId,
 } from "@ace/contracts";
+import { DEFAULT_MAX_THREAD_ACTIVITIES } from "@ace/shared/orchestrationThreadActivities";
 import { Effect, Layer, Option, Schema, Struct } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
@@ -756,6 +757,26 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     Result: ProjectionThreadActivityDbRowSchema,
     execute: ({ threadId }) =>
       sql`
+        WITH tail AS (
+          SELECT
+            activity_id,
+            thread_id,
+            turn_id,
+            tone,
+            kind,
+            summary,
+            payload_json,
+            sequence,
+            created_at
+          FROM projection_thread_activities
+          WHERE thread_id = ${threadId}
+          ORDER BY
+            CASE WHEN sequence IS NULL THEN 0 ELSE 1 END DESC,
+            sequence DESC,
+            created_at DESC,
+            activity_id DESC
+          LIMIT ${DEFAULT_MAX_THREAD_ACTIVITIES}
+        )
         SELECT
           activity_id AS "activityId",
           thread_id AS "threadId",
@@ -766,8 +787,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           payload_json AS "payload",
           sequence,
           created_at AS "createdAt"
-        FROM projection_thread_activities
-        WHERE thread_id = ${threadId}
+        FROM tail
         ORDER BY
           CASE WHEN sequence IS NULL THEN 0 ELSE 1 END ASC,
           sequence ASC,

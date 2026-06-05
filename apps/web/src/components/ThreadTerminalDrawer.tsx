@@ -63,6 +63,7 @@ const MIN_TERMINAL_PANE_WIDTH = 220;
 const MULTI_CLICK_SELECTION_ACTION_DELAY_MS = 260;
 const TERMINAL_FONT_LOAD_TIMEOUT_MS = 140;
 const TERMINAL_LINK_LINE_CACHE_LIMIT = 512;
+const TERMINAL_WRITE_CHUNK_SIZE = 64 * 1024;
 
 function stableRuntimeEnvKey(runtimeEnv: Record<string, string> | undefined): string {
   if (!runtimeEnv) return "";
@@ -84,7 +85,17 @@ function clampDrawerHeight(height: number): number {
 }
 
 function writeSystemMessage(terminal: Terminal, message: string): void {
-  terminal.write(`\r\n[terminal] ${message}\r\n`);
+  writeTerminalData(terminal, `\r\n[terminal] ${message}\r\n`);
+}
+
+function writeTerminalData(terminal: Terminal, data: string): void {
+  if (data.length <= TERMINAL_WRITE_CHUNK_SIZE) {
+    terminal.write(data);
+    return;
+  }
+  for (let index = 0; index < data.length; index += TERMINAL_WRITE_CHUNK_SIZE) {
+    terminal.write(data.slice(index, index + TERMINAL_WRITE_CHUNK_SIZE));
+  }
 }
 
 function isTransientTerminalTransportError(error: unknown): boolean {
@@ -523,7 +534,9 @@ function useTerminalViewportComponent({
 
       const output = pendingTerminalOutput;
       pendingTerminalOutput = "";
-      terminalRef.current?.write(output);
+      const activeTerminal = terminalRef.current;
+      if (!activeTerminal) return;
+      writeTerminalData(activeTerminal, output);
     };
 
     const schedulePendingTerminalOutputFlush = () => {
@@ -802,7 +815,7 @@ function useTerminalViewportComponent({
         if (disposed) return;
         activeTerminal.write("\u001bc");
         if (snapshot.history.length > 0) {
-          activeTerminal.write(snapshot.history);
+          writeTerminalData(activeTerminal, snapshot.history);
         }
         if (shouldFocusTerminal && interactive) {
           window.requestAnimationFrame(() => {
@@ -839,7 +852,7 @@ function useTerminalViewportComponent({
         clearSelectionAction();
         activeTerminal.reset();
         if (event.snapshot.history.length > 0) {
-          activeTerminal.write(event.snapshot.history);
+          writeTerminalData(activeTerminal, event.snapshot.history);
         }
         return;
       }
