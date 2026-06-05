@@ -10,6 +10,7 @@ import { MessagesTimeline } from "./MessagesTimeline";
 import type { ChatMessage } from "../../types";
 import {
   deriveSubagentThreads,
+  formatSideChatRequestForDisplay,
   resolveSubagentMainAgentMessage,
   type SubagentThread,
 } from "./subagentThreads";
@@ -170,6 +171,9 @@ export function SubagentWorkspacePanel(props: {
   const activeThread =
     props.threads.find((thread) => thread.id === props.activeThreadId) ?? props.threads[0] ?? null;
   const mainAgentMessageEntry = activeThread ? resolveSubagentMainAgentMessage(activeThread) : null;
+  const mainAgentMessageText = mainAgentMessageEntry?.sideChatMessageText
+    ? formatSideChatRequestForDisplay(mainAgentMessageEntry.sideChatMessageText)
+    : null;
   const sideChatTimeline = useMemo(() => {
     const messages: ChatMessage[] = [];
     const workEntries: WorkLogEntry[] = [];
@@ -220,14 +224,14 @@ export function SubagentWorkspacePanel(props: {
   return (
     <section className="flex min-h-0 flex-1 flex-col bg-background">
       <ScrollArea className="min-h-0 flex-1 px-3 py-4 sm:px-5" viewportRef={scrollContainerRef}>
-        {mainAgentMessageEntry?.sideChatMessageText ? (
+        {mainAgentMessageText ? (
           <div className="mx-auto mb-4 w-full max-w-3xl rounded-lg border border-border/70 bg-card/65 px-3.5 py-3 shadow-sm">
             <div className="mb-2 flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
               <MessageSquareIcon className="size-3.5" />
               <span>Main agent</span>
             </div>
             <p className="whitespace-pre-wrap text-sm leading-6 text-foreground">
-              {mainAgentMessageEntry.sideChatMessageText}
+              {mainAgentMessageText}
             </p>
           </div>
         ) : null}

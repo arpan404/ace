@@ -131,9 +131,18 @@ const SUBAGENT_PERSONA_TONES = [
 
 const PROVIDER_SIDE_CHAT_DISPLAY_PREFIX_PATTERN = /^(?:\.side|\/btw|\.btw)(?:\s+([\s\S]*))?$/i;
 const SIDE_CHAT_COMMAND_PREFIX_PATTERN = /^(?:\/side|\.side|\/btw|\.btw)(?:\s|$)/i;
+const SIDE_CHAT_PROMPT_EFFORT_PREFIX_PATTERN = /^Ultrathink:\s*/i;
 
 function hasSideChatCommandPrefix(value: string | undefined): boolean {
   return SIDE_CHAT_COMMAND_PREFIX_PATTERN.test(value?.trim() ?? "");
+}
+
+export function formatSideChatRequestForDisplay(value: string): string {
+  const withoutEffortPrefix = value.trim().replace(SIDE_CHAT_PROMPT_EFFORT_PREFIX_PATTERN, "");
+  const aceCommandTitle = stripAceSideChatCommand(withoutEffortPrefix);
+  const normalized = aceCommandTitle.replace(/\s+/g, " ").trim();
+  const providerAliasMatch = PROVIDER_SIDE_CHAT_DISPLAY_PREFIX_PATTERN.exec(normalized);
+  return (providerAliasMatch?.[1]?.trim() || normalized).trim();
 }
 
 function hashSubagentId(value: string): number {
@@ -170,12 +179,7 @@ function sideChatTitleFromEntries(entries: ReadonlyArray<WorkLogEntry>): string 
   if (!normalized) {
     return null;
   }
-  const providerAliasMatch = PROVIDER_SIDE_CHAT_DISPLAY_PREFIX_PATTERN.exec(normalized);
-  const aceCommandTitle = stripAceSideChatCommand(normalized);
-  const withoutCommand =
-    (aceCommandTitle !== normalized ? aceCommandTitle : null) ||
-    providerAliasMatch?.[1]?.trim() ||
-    normalized;
+  const withoutCommand = formatSideChatRequestForDisplay(normalized);
   if (withoutCommand.length <= 64) {
     return withoutCommand;
   }

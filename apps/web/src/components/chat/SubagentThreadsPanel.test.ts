@@ -4,6 +4,7 @@ import type { WorkLogEntry } from "../../session-logic/types";
 import type {
   canReplyToSubagentThread as canReplyToSubagentThreadType,
   deriveSubagentThreads as deriveSubagentThreadsType,
+  formatSideChatRequestForDisplay as formatSideChatRequestForDisplayType,
   isSideChatThread as isSideChatThreadType,
   orderSubagentThreadsForHierarchy as orderSubagentThreadsForHierarchyType,
   partitionSubagentThreads as partitionSubagentThreadsType,
@@ -12,6 +13,7 @@ import type {
 
 let canReplyToSubagentThread: typeof canReplyToSubagentThreadType;
 let deriveSubagentThreads: typeof deriveSubagentThreadsType;
+let formatSideChatRequestForDisplay: typeof formatSideChatRequestForDisplayType;
 let isSideChatThread: typeof isSideChatThreadType;
 let orderSubagentThreadsForHierarchy: typeof orderSubagentThreadsForHierarchyType;
 let partitionSubagentThreads: typeof partitionSubagentThreadsType;
@@ -42,6 +44,7 @@ beforeAll(async () => {
   ({
     canReplyToSubagentThread,
     deriveSubagentThreads,
+    formatSideChatRequestForDisplay,
     isSideChatThread,
     orderSubagentThreadsForHierarchy,
     partitionSubagentThreads,
@@ -489,6 +492,33 @@ describe("deriveSubagentThreads", () => {
     );
 
     expect(thread?.label).toBe("Inspect provider handoff behavior across adapters.");
+  });
+
+  it("removes provider effort prefixes from side-chat labels", () => {
+    const [thread] = deriveSubagentThreads(
+      [
+        workEntry({
+          id: "side-user",
+          detail: "Ultrathink:\nExplain the replay context.",
+          subagentId: "side:thread-1:ultra",
+          subagentType: "side chat",
+          sideChatMessageRole: "user",
+          sideChatMessageText: "Ultrathink:\nExplain the replay context.",
+        }),
+      ],
+      "claudeAgent",
+    );
+
+    expect(thread?.label).toBe("Explain the replay context.");
+  });
+
+  it("formats provider side-chat request text for panel display", () => {
+    expect(formatSideChatRequestForDisplay("/btw Inspect provider handoff behavior.")).toBe(
+      "Inspect provider handoff behavior.",
+    );
+    expect(formatSideChatRequestForDisplay("Ultrathink:\n/side Explain the branch.")).toBe(
+      "Explain the branch.",
+    );
   });
 
   it("allows replies only for side chats or natively targetable provider subagents", () => {
