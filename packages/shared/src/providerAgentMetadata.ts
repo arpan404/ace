@@ -68,6 +68,50 @@ function firstTrimmedString(...values: ReadonlyArray<unknown>): string | undefin
   return undefined;
 }
 
+function firstProviderText(value: unknown, depth = 0): string | undefined {
+  if (depth > 5) {
+    return undefined;
+  }
+  if (Array.isArray(value)) {
+    const parts = value
+      .map((item) => firstProviderText(item, depth + 1))
+      .filter((item): item is string => item !== undefined);
+    return parts.length > 0 ? parts.join("\n").trim() : undefined;
+  }
+  const direct = asTrimmedString(value);
+  if (direct) {
+    return direct;
+  }
+  const record = asRecord(value);
+  if (!record) {
+    return undefined;
+  }
+  return firstProviderText(
+    [
+      record.text,
+      record.outputText,
+      record.output_text,
+      record.message,
+      record.content,
+      record.contents,
+      record.response,
+      record.result,
+      record.output,
+    ],
+    depth + 1,
+  );
+}
+
+function firstProviderTextFrom(...values: ReadonlyArray<unknown>): string | undefined {
+  for (const value of values) {
+    const normalized = firstProviderText(value);
+    if (normalized) {
+      return normalized;
+    }
+  }
+  return undefined;
+}
+
 export function providerAgentRecord(
   record: Record<string, unknown> | null | undefined,
 ): Record<string, unknown> | undefined {
@@ -280,13 +324,19 @@ export function providerAgentMetadataFromRecord(
     record.subagentTranscriptPath,
     record.subagent_transcript_path,
   );
-  const lastAssistantMessage = firstTrimmedString(
+  const lastAssistantMessage = firstProviderTextFrom(
     record.lastAssistantMessage,
     record.last_assistant_message,
     record.finalAssistantMessage,
     record.final_assistant_message,
+    record.finalMessage,
+    record.final_message,
+    record.outputText,
+    record.output_text,
+    record.content,
     record.response,
     record.result,
+    record.output,
   );
   return {
     ...(id ? { id } : {}),

@@ -453,6 +453,38 @@ describe("normalizeProviderRuntimeEvent", () => {
     });
   });
 
+  it("normalizes provider subagent final content parts", () => {
+    const event = normalizeProviderRuntimeEvent(
+      lifecycleEvent({
+        itemType: "dynamic_tool_call",
+        title: "SubagentStop",
+        status: "completed",
+        data: {
+          hook_event_name: "SubagentStop",
+          agent_id: "agent-content-1",
+          agent_type: "Explore",
+          finalAssistantMessage: {
+            content: [
+              { type: "text", text: "Found the adapter." },
+              { type: "text", text: "The event path is covered." },
+            ],
+          },
+        },
+      }),
+    );
+
+    expect(event.payload).toMatchObject({
+      itemType: "collab_agent_tool_call",
+      data: {
+        subagent: {
+          id: "agent-content-1",
+          type: "Explore",
+          lastAssistantMessage: "Found the adapter.\nThe event path is covered.",
+        },
+      },
+    });
+  });
+
   it("preserves explicit provider subagent task ids from nested lifecycle records", () => {
     const event = normalizeProviderRuntimeEvent(
       lifecycleEvent({

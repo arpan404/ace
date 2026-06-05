@@ -157,6 +157,37 @@ describe("providerAgentMetadata", () => {
     });
   });
 
+  it("normalizes provider subagent final message content parts", () => {
+    expect(
+      providerAgentMetadataFromRecord({
+        agent_id: "agent-content-1",
+        agent_type: "Explore",
+        finalAssistantMessage: {
+          content: [
+            { type: "text", text: "Found the adapter." },
+            { type: "text", text: "The event path is covered." },
+          ],
+        },
+      }),
+    ).toEqual({
+      id: "agent-content-1",
+      type: "Explore",
+      lastAssistantMessage: "Found the adapter.\nThe event path is covered.",
+    });
+
+    expect(
+      providerAgentMetadataFromRecord({
+        agent_id: "agent-output-1",
+        output: {
+          content: [{ text: "Provider returned nested output." }],
+        },
+      }),
+    ).toEqual({
+      id: "agent-output-1",
+      lastAssistantMessage: "Provider returned nested output.",
+    });
+  });
+
   it("normalizes explicit provider subagent task ids without loose task leakage", () => {
     expect(
       providerAgentMetadataFromRecord({

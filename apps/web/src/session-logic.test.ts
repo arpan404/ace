@@ -2131,6 +2131,41 @@ describe("deriveWorkLogEntries", () => {
     });
   });
 
+  it("marks provider subagent content-part final messages as side-chat assistant entries", () => {
+    const entries = deriveWorkLogEntries([
+      makeActivity({
+        id: "provider-subagent-content-stop",
+        kind: "tool.completed",
+        summary: "Subagent task",
+        tone: "tool",
+        payload: {
+          itemType: "collab_agent_tool_call",
+          data: {
+            subagent: {
+              id: "agent-content-1",
+              type: "Explore",
+              finalAssistantMessage: {
+                content: [
+                  { type: "text", text: "Found the adapter." },
+                  { type: "text", text: "The event path is covered." },
+                ],
+              },
+            },
+          },
+        },
+      }),
+    ]);
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      sideChatMessageId: "provider-subagent-content-stop:assistant",
+      sideChatMessageRole: "assistant",
+      sideChatMessageText: "Found the adapter.\nThe event path is covered.",
+      subagentId: "agent-content-1",
+      subagentType: "Explore",
+    });
+  });
+
   it("omits checkpoint captured info entries", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({
