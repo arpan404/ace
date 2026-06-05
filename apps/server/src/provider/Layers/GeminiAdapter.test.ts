@@ -1,5 +1,5 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { ThreadId } from "@ace/contracts";
+import { ApprovalRequestId, ThreadId } from "@ace/contracts";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -33,6 +33,8 @@ import { type GeminiAdapterShape, GeminiAdapter } from "../Services/GeminiAdapte
 
 const mockedStartAcpClient = vi.mocked(startAcpClient);
 const asThreadId = (value: string): ThreadId => ThreadId.makeUnsafe(value);
+const asApprovalRequestId = (value: string): ApprovalRequestId =>
+  ApprovalRequestId.makeUnsafe(value);
 
 function geminiInitializeResult(input?: {
   readonly resumeSession?: boolean;
@@ -838,6 +840,123 @@ describe("GeminiAdapterLive startup", () => {
       } finally {
         await Effect.runPromise(adapter.stopAll());
         await rm(root, { force: true, recursive: true });
+      }
+    });
+  });
+
+  it("maps Gemini ACP user-input requests to canonical user-input events", async () => {
+    let resolvePrompt: ((value: unknown) => void) | undefined;
+    const client = makeFakeGeminiClient({
+      requestImpl: async (method) => {
+        switch (method) {
+          case "initialize":
+            return geminiInitializeResult();
+          case "session/new":
+            return geminiSessionResult("gemini-session-user-input");
+          case "session/prompt":
+            return await new Promise((resolve) => {
+              resolvePrompt = resolve;
+            });
+          default:
+            throw new Error(`Unexpected Gemini ACP request: ${method}`);
+        }
+      },
+    });
+    mockedStartAcpClient.mockReturnValue(client);
+
+    await withAdapter(async (adapter) => {
+      try {
+        const threadId = asThreadId("thread-gemini-user-input");
+        await Effect.runPromise(
+          adapter.startSession({
+            provider: "gemini",
+            threadId,
+            cwd: "/repo/gemini-user-input",
+            runtimeMode: "approval-required",
+            interactionMode: "default",
+          }),
+        );
+        await Effect.runPromise(Stream.take(adapter.streamEvents, 2).pipe(Stream.runDrain));
+
+        await Effect.runPromise(
+          adapter.sendTurn({
+            threadId,
+            input: "Ask a clarifying question",
+          }),
+        );
+
+        const requestedPromise = Effect.runPromise(
+          Stream.runHead(
+            Stream.filter(adapter.streamEvents, (event) => event.type === "user-input.requested"),
+          ),
+        );
+        client.getRequestHandler()?.({
+          id: "gemini-question-1",
+          method: "session/request_user_input",
+          params: {
+            sessionId: "gemini-session-user-input",
+            questions: [
+              {
+                id: "scope",
+                title: "Scope",
+                prompt: "Which area should Gemini inspect?",
+                choices: ["server", "web"],
+              },
+            ],
+          },
+        });
+
+        const requested = await requestedPromise;
+        expect(Option.isSome(requested)).toBe(true);
+        if (!Option.isSome(requested)) {
+          return;
+        }
+        expect(requested.value.type).toBe("user-input.requested");
+        if (requested.value.type !== "user-input.requested") {
+          return;
+        }
+        expect(requested.value.requestId).toBe("gemini-question-1");
+        expect(requested.value.payload.questions).toEqual([
+          {
+            id: "scope",
+            header: "Scope",
+            question: "Which area should Gemini inspect?",
+            options: [
+              { label: "server", description: "" },
+              { label: "web", description: "" },
+            ],
+          },
+        ]);
+
+        const resolvedPromise = Effect.runPromise(
+          Stream.runHead(
+            Stream.filter(adapter.streamEvents, (event) => event.type === "user-input.resolved"),
+          ),
+        );
+        await Effect.runPromise(
+          adapter.respondToUserInput(threadId, asApprovalRequestId("gemini-question-1"), {
+            scope: "server",
+          }),
+        );
+
+        expect(client.respond).toHaveBeenCalledWith("gemini-question-1", {
+          answers: { scope: "server" },
+          answer: "server",
+          response: "server",
+        });
+        const resolved = await resolvedPromise;
+        expect(Option.isSome(resolved)).toBe(true);
+        if (Option.isSome(resolved)) {
+          expect(resolved.value.type).toBe("user-input.resolved");
+          if (resolved.value.type === "user-input.resolved") {
+            expect(resolved.value.requestId).toBe("gemini-question-1");
+            expect(resolved.value.payload.answers).toEqual({ scope: "server" });
+          }
+        }
+
+        resolvePrompt?.({ stopReason: "end_turn" });
+      } finally {
+        await Effect.runPromise(adapter.stopAll());
       }
     });
   });

@@ -17,6 +17,7 @@ import {
   type ProviderSlashCommand,
   type ProviderTurnStartResult,
   type ProviderUserInputAnswers,
+  type UserInputQuestion,
   RuntimeItemId,
   RuntimeRequestId,
   ThreadId,
@@ -556,6 +557,13 @@ type GeminiPendingPermission = {
   readonly toolCallId: string;
 };
 
+type GeminiPendingUserInput = {
+  readonly jsonRpcId: AcpJsonRpcId;
+  readonly requestId: RuntimeRequestId;
+  readonly turnId?: TurnId;
+  readonly questions: ReadonlyArray<UserInputQuestion>;
+};
+
 type GeminiContextUsageSnapshot = {
   readonly usedTokens: number;
   readonly maxTokens?: number;
@@ -575,6 +583,7 @@ type GeminiSessionContext = {
   nextFallbackSessionSequence: number;
   activeTurn: GeminiTurnState | null;
   readonly pendingPermissions: Map<string, GeminiPendingPermission>;
+  readonly pendingUserInputs: Map<string, GeminiPendingUserInput>;
   lastUsageSnapshot?: GeminiContextUsageSnapshot;
   totalProcessedTokens: number;
   pendingBootstrapReset: boolean;
@@ -1781,6 +1790,115 @@ function selectPermissionOption(
   }
 }
 
+function isGeminiUserInputRequestMethod(method: string): boolean {
+  return (
+    method === "session/request_user_input" ||
+    method === "session/requestUserInput" ||
+    method === "session/request_input" ||
+    method === "session/ask_user" ||
+    method === "session/askUser" ||
+    method === "session/elicitation" ||
+    method === "elicitation/request"
+  );
+}
+
+function geminiUserInputOption(value: unknown): UserInputQuestion["options"][number] | null {
+  if (typeof value === "string") {
+    const label = value.trim();
+    return label ? { label, description: "" } : null;
+  }
+  const record = asObject(value);
+  if (!record) {
+    return null;
+  }
+  const label =
+    asString(record.label) ??
+    asString(record.name) ??
+    asString(record.title) ??
+    asString(record.value) ??
+    asString(record.id);
+  if (!label) {
+    return null;
+  }
+  return {
+    label,
+    description: asString(record.description) ?? asString(record.detail) ?? "",
+  };
+}
+
+function geminiUserInputOptions(value: unknown): UserInputQuestion["options"] {
+  return asArray(value)
+    .map(geminiUserInputOption)
+    .filter((option) => option !== null);
+}
+
+function geminiUserInputQuestion(value: unknown, fallbackIndex: number): UserInputQuestion | null {
+  const record = asObject(value);
+  if (!record) {
+    if (typeof value === "string" && value.trim().length > 0) {
+      return {
+        id: `question-${fallbackIndex + 1}`,
+        header: "Gemini question",
+        question: value.trim(),
+        options: [],
+      };
+    }
+    return null;
+  }
+
+  const id =
+    asString(record.id) ??
+    asString(record.questionId) ??
+    asString(record.question_id) ??
+    asString(record.name) ??
+    `question-${fallbackIndex + 1}`;
+  const header =
+    asString(record.header) ?? asString(record.title) ?? asString(record.name) ?? "Gemini question";
+  const question =
+    asString(record.question) ??
+    asString(record.prompt) ??
+    asString(record.message) ??
+    asString(record.text) ??
+    asString(record.description) ??
+    header;
+  const options = geminiUserInputOptions(record.options ?? record.choices ?? record.items);
+  return {
+    id,
+    header,
+    question,
+    options,
+    ...(typeof record.multiSelect === "boolean"
+      ? { multiSelect: record.multiSelect }
+      : typeof record.multi_select === "boolean"
+        ? { multiSelect: record.multi_select }
+        : {}),
+  };
+}
+
+function geminiUserInputQuestions(
+  params: Record<string, unknown>,
+): ReadonlyArray<UserInputQuestion> {
+  const questionList = asArray(params.questions ?? params.prompts ?? params.fields)
+    .map(geminiUserInputQuestion)
+    .filter((question) => question !== null);
+  if (questionList.length > 0) {
+    return questionList;
+  }
+
+  const single = geminiUserInputQuestion(params, 0);
+  return single ? [single] : [];
+}
+
+function firstGeminiUserInputAnswer(answers: ProviderUserInputAnswers): unknown {
+  for (const value of Object.values(answers)) {
+    if (Array.isArray(value)) {
+      return value[0] ?? "";
+    }
+    return value;
+  }
+  return "";
+}
+
 const makeGeminiAdapter = Effect.gen(function* () {
   const runtimeEventQueue = yield* Queue.unbounded<ProviderRuntimeEvent>();
   const services = yield* Effect.services();
@@ -2178,6 +2296,7 @@ const makeGeminiAdapter = Effect.gen(function* () {
     }
 
     cancelPendingPermissionsForTurn(context, turn.id);
+    cancelPendingUserInputsForTurn(context, turn.id);
     if (turn.started) {
       context.turns.push({ id: turn.id, items: [...turn.items] });
       context.replayTurns.push({
@@ -2285,6 +2404,75 @@ const makeGeminiAdapter = Effect.gen(function* () {
         decision: "cancel",
       });
     }
+  };
+
+  const emitGeminiUserInputResolved = (
+    context: GeminiSessionContext,
+    pending: GeminiPendingUserInput,
+    answers: ProviderUserInputAnswers,
+  ) => {
+    emit(
+      baseEvent(context, {
+        type: "user-input.resolved",
+        ...(pending.turnId ? { turnId: pending.turnId } : {}),
+        requestId: pending.requestId,
+        payload: { answers },
+      }),
+    );
+  };
+
+  const cancelPendingUserInputsForTurn = (context: GeminiSessionContext, turnId: TurnId) => {
+    for (const pending of context.pendingUserInputs.values()) {
+      if (pending.turnId !== turnId) {
+        continue;
+      }
+      context.client.respond(pending.jsonRpcId, {
+        answers: {},
+        answer: "",
+        response: "",
+        cancelled: true,
+      });
+      context.pendingUserInputs.delete(pending.requestId);
+      emitGeminiUserInputResolved(context, pending, {});
+    }
+  };
+
+  const handleGeminiUserInputRequest = (
+    context: GeminiSessionContext,
+    request: AcpRequest,
+  ): void => {
+    const params = asObject(request.params);
+    if (!params) {
+      context.client.respondError(request.id, -32602, "Invalid Gemini user-input request.");
+      return;
+    }
+    const requestSessionId = asString(params.sessionId);
+    if (requestSessionId && requestSessionId !== context.sessionId) {
+      context.client.respondError(request.id, -32000, "Session not found.");
+      return;
+    }
+    const questions = geminiUserInputQuestions(params);
+    if (questions.length === 0) {
+      context.client.respondError(request.id, -32602, "Gemini user-input request has no question.");
+      return;
+    }
+
+    const requestId = RuntimeRequestId.makeUnsafe(String(request.id));
+    const pending: GeminiPendingUserInput = {
+      jsonRpcId: request.id,
+      requestId,
+      ...(context.activeTurn ? { turnId: context.activeTurn.id } : {}),
+      questions,
+    };
+    context.pendingUserInputs.set(requestId, pending);
+    emit(
+      baseEvent(context, {
+        type: "user-input.requested",
+        ...(pending.turnId ? { turnId: pending.turnId } : {}),
+        requestId,
+        payload: { questions },
+      }),
+    );
   };
 
   const handleGeminiPermissionRequest = async (
@@ -3062,6 +3250,10 @@ const makeGeminiAdapter = Effect.gen(function* () {
         });
         return;
       }
+      if (isGeminiUserInputRequestMethod(request.method)) {
+        handleGeminiUserInputRequest(contextRef, request);
+        return;
+      }
       client.respondError(request.id, -32601, `Unsupported ACP client request: ${request.method}`);
     });
     client.setProtocolErrorHandler((error) => {
@@ -3123,6 +3315,7 @@ const makeGeminiAdapter = Effect.gen(function* () {
         nextFallbackSessionSequence: 0,
         activeTurn: null,
         pendingPermissions: new Map(),
+        pendingUserInputs: new Map(),
         totalProcessedTokens: 0,
         pendingBootstrapReset: false,
         closed: false,
@@ -3654,8 +3847,8 @@ const makeGeminiAdapter = Effect.gen(function* () {
 
   const respondToUserInput: GeminiAdapterShape["respondToUserInput"] = (
     threadId: ThreadId,
-    _requestId: string,
-    _answers: ProviderUserInputAnswers,
+    requestId: string,
+    answers: ProviderUserInputAnswers,
   ) =>
     Effect.sync(() => {
       const context = sessions.get(threadId);
@@ -3665,11 +3858,22 @@ const makeGeminiAdapter = Effect.gen(function* () {
           threadId,
         });
       }
-      throw new ProviderAdapterRequestError({
-        provider: PROVIDER,
-        method: "respondToUserInput",
-        detail: "Gemini ACP user-input requests are not implemented by this adapter.",
+      const pending = context.pendingUserInputs.get(requestId);
+      if (!pending) {
+        throw new ProviderAdapterRequestError({
+          provider: PROVIDER,
+          method: "respondToUserInput",
+          detail: `Unknown pending Gemini user-input request: ${requestId}`,
+        });
+      }
+      context.pendingUserInputs.delete(requestId);
+      const firstAnswer = firstGeminiUserInputAnswer(answers);
+      context.client.respond(pending.jsonRpcId, {
+        answers,
+        answer: firstAnswer,
+        response: firstAnswer,
       });
+      emitGeminiUserInputResolved(context, pending, answers);
     });
 
   const stopSession: GeminiAdapterShape["stopSession"] = (threadId) =>
@@ -3681,6 +3885,7 @@ const makeGeminiAdapter = Effect.gen(function* () {
       context.stopRequested = true;
       if (context.activeTurn) {
         cancelPendingPermissionsForTurn(context, context.activeTurn.id);
+        cancelPendingUserInputsForTurn(context, context.activeTurn.id);
       }
       await closeGeminiProviderSession(context, "stopSession");
       await context.client.close();
@@ -3803,6 +4008,7 @@ const makeGeminiAdapter = Effect.gen(function* () {
         context.stopRequested = true;
         if (context.activeTurn) {
           cancelPendingPermissionsForTurn(context, context.activeTurn.id);
+          cancelPendingUserInputsForTurn(context, context.activeTurn.id);
         }
         try {
           await closeGeminiProviderSession(context, "stopAll");
