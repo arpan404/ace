@@ -7,6 +7,7 @@ import {
   normalizeIntentDisplayText,
   normalizeIntentToolLabel,
 } from "./shared";
+import { parseAceSideChatCommand } from "../lib/chat/sideChatDraft";
 
 function compareCompatibleTimelineSequence(
   left: number | undefined,
@@ -170,7 +171,7 @@ export function filterMainTimelineWorkLogEntries(
 }
 
 export function isSideCommandMessage(message: ChatMessage): boolean {
-  return message.role === "user" && /^\/side(?:\s|$)/i.test(message.text.trim());
+  return message.role === "user" && parseAceSideChatCommand(message.text) !== null;
 }
 
 export function filterMainTimelineMessages(messages: ReadonlyArray<ChatMessage>): ChatMessage[] {

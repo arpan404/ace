@@ -413,11 +413,11 @@ describe("deriveSubagentThreads", () => {
       [
         workEntry({
           id: "side-user",
-          detail: "/side Inspect provider handoff behavior across adapters.",
+          detail: "/btw Inspect provider handoff behavior across adapters.",
           subagentId: "side:thread-1:first",
           subagentType: "side chat",
           sideChatMessageRole: "user",
-          sideChatMessageText: "/side Inspect provider handoff behavior across adapters.",
+          sideChatMessageText: "/btw Inspect provider handoff behavior across adapters.",
         }),
         workEntry({
           id: "side-assistant",

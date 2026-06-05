@@ -367,6 +367,15 @@ describe("parseComposerSideCommand", () => {
     });
   });
 
+  it("parses hidden provider side-chat aliases through Ace side chat", () => {
+    expect(parseComposerSideCommand(".side inspect Codex context")).toEqual({
+      prompt: "inspect Codex context",
+    });
+    expect(parseComposerSideCommand("/btw inspect Claude context")).toEqual({
+      prompt: "inspect Claude context",
+    });
+  });
+
   it("ignores non-side slash commands", () => {
     expect(parseComposerSideCommand("/review src")).toBeNull();
   });

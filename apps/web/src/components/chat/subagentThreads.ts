@@ -1,6 +1,7 @@
 import type { ProviderIntegrationCapabilities, ProviderKind } from "@ace/contracts";
 import { isProviderSideConversationType } from "@ace/shared/providerAgentMetadata";
 
+import { stripAceSideChatCommand } from "../../lib/chat/sideChatDraft";
 import { resolveSubagentIdentity } from "../../lib/subagentAdapters";
 import type { WorkLogEntry } from "../../session-logic/types";
 
@@ -144,7 +145,7 @@ function sideChatTitleFromEntries(entries: ReadonlyArray<WorkLogEntry>): string 
   if (!normalized) {
     return null;
   }
-  const withoutCommand = normalized.replace(/^\/?side\b\s*/i, "").trim() || normalized;
+  const withoutCommand = stripAceSideChatCommand(normalized) || normalized;
   if (withoutCommand.length <= 64) {
     return withoutCommand;
   }

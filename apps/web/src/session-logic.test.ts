@@ -3159,9 +3159,30 @@ describe("deriveTimelineEntries", () => {
         createdAt: "2026-02-23T00:00:02.000Z",
         streaming: false,
       },
+      {
+        id: MessageId.makeUnsafe("codex-side-message"),
+        role: "user",
+        text: ".side inspect the Codex app server",
+        createdAt: "2026-02-23T00:00:03.000Z",
+        streaming: false,
+      },
+      {
+        id: MessageId.makeUnsafe("claude-side-message"),
+        role: "user",
+        text: "/btw inspect the Claude side context",
+        createdAt: "2026-02-23T00:00:04.000Z",
+        streaming: false,
+      },
+      {
+        id: MessageId.makeUnsafe("normal-btw-message"),
+        role: "user",
+        text: "btw keep this as normal prose",
+        createdAt: "2026-02-23T00:00:05.000Z",
+        streaming: false,
+      },
     ]);
 
-    expect(entries.map((entry) => entry.id)).toEqual(["main-message"]);
+    expect(entries.map((entry) => entry.id)).toEqual(["main-message", "normal-btw-message"]);
   });
 
   it("includes proposed plans alongside messages and work entries in chronological order", () => {

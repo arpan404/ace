@@ -8,6 +8,7 @@ import {
   providerSlashCommandExtensionKind,
 } from "@ace/shared/providerSlashCommands";
 import { INLINE_TERMINAL_CONTEXT_PLACEHOLDER } from "./lib/terminalContext";
+import { parseAceSideChatCommand } from "./lib/chat/sideChatDraft";
 
 export type ComposerTriggerKind = "path" | "slash-command" | "slash-model" | "issue";
 export type ComposerSlashCommand = "model" | "plan" | "default" | "issues" | "side";
@@ -254,11 +255,7 @@ export function parseStandaloneComposerSlashCommand(
 }
 
 export function parseComposerSideCommand(text: string): { prompt: string } | null {
-  const match = /^\/side(?:\s+([\s\S]*))?$/i.exec(text.trim());
-  if (!match) {
-    return null;
-  }
-  return { prompt: (match[1] ?? "").trim() };
+  return parseAceSideChatCommand(text);
 }
 
 function normalizeSlashCommandName(value: string): string {

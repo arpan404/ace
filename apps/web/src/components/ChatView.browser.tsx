@@ -3322,6 +3322,49 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
+  it("opens hidden provider side-chat aliases as Ace side-chat drafts", async () => {
+    const sideDraftThreadId = `subagent:${THREAD_ID}:__ace_new_side_chat__` as ThreadId;
+    useComposerDraftStore.getState().setPrompt(THREAD_ID, ".side Inspect Codex context");
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-side-provider-alias" as MessageId,
+        targetText: "side provider alias target",
+      }),
+      resolveRpc: (body) => {
+        if (body._tag === ORCHESTRATION_WS_METHODS.dispatchCommand) {
+          return { sequence: 1 };
+        }
+        return undefined;
+      },
+    });
+
+    try {
+      const sendButton = await waitForSendButton();
+      expect(sendButton.disabled).toBe(false);
+      sendButton.click();
+
+      await vi.waitFor(
+        () => {
+          const mainTurnStartRequest = wsRequests.find(
+            (request) =>
+              request._tag === ORCHESTRATION_WS_METHODS.dispatchCommand &&
+              request.type === "thread.turn.start",
+          );
+          expect(mainTurnStartRequest).toBeUndefined();
+          const sourceDraft = useComposerDraftStore.getState().draftsByThreadId[THREAD_ID];
+          expect(sourceDraft?.prompt ?? "").toBe("");
+          const sideDraft = useComposerDraftStore.getState().draftsByThreadId[sideDraftThreadId];
+          expect(sideDraft?.prompt).toBe("Inspect Codex context");
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
   it("keeps a typed /side draft in the main composer when side chats are unsupported", async () => {
     const sideDraftThreadId = `subagent:${THREAD_ID}:__ace_new_side_chat__` as ThreadId;
     useComposerDraftStore.getState().setPrompt(THREAD_ID, "/side Inspect unsupported provider");
