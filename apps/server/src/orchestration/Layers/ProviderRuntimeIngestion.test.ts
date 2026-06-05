@@ -433,6 +433,8 @@ describe("ProviderRuntimeIngestion", () => {
             multiAgentMode: "agentCommand",
             agentInvocationPrefixes: ["@", "/agent", "@"],
             agentDefinitionPaths: [".gemini/agents/*.md", "~/.gemini/agents/*.md"],
+            agentFilesLocations: ["configured chat.agentFilesLocations"],
+            chatModeFilesLocations: [".github/chatmodes/*.md"],
             hookMode: "native",
             extensionMode: "localDiscovery",
             mcpMode: "native",
@@ -458,7 +460,7 @@ describe("ProviderRuntimeIngestion", () => {
         entry.session?.capabilities?.multiAgentMode === "agent-command" &&
         entry.session?.capabilities?.multiAgentInvocationPrefixes?.join(",") === "@,/agent" &&
         entry.session?.capabilities?.multiAgentDefinitionPaths?.join(",") ===
-          ".gemini/agents/*.md,~/.gemini/agents/*.md" &&
+          ".gemini/agents/*.md,~/.gemini/agents/*.md,configured chat.agentFilesLocations,.github/chatmodes/*.md" &&
         entry.session?.capabilities?.hookMode === "native" &&
         entry.session?.capabilities?.extensionMode === "local-discovery" &&
         entry.session?.capabilities?.mcpMode === "native" &&
@@ -479,6 +481,8 @@ describe("ProviderRuntimeIngestion", () => {
     expect(thread.session?.capabilities?.multiAgentDefinitionPaths).toEqual([
       ".gemini/agents/*.md",
       "~/.gemini/agents/*.md",
+      "configured chat.agentFilesLocations",
+      ".github/chatmodes/*.md",
     ]);
     expect(thread.session?.capabilities?.hookMode).toBe("native");
     expect(thread.session?.capabilities?.extensionMode).toBe("local-discovery");
