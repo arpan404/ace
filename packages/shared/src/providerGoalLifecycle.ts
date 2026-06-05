@@ -114,9 +114,20 @@ function asNonNegativeNumber(value: unknown): number | undefined {
 }
 
 function asLifecycleStatus(value: unknown): ProviderGoalLifecycleStatus | null {
-  return value === "active" || value === "paused" || value === "completed" || value === "blocked"
-    ? value
-    : null;
+  if (typeof value !== "string") {
+    return null;
+  }
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replace(/[_\s-]+/gu, "_");
+  if (normalized === "active" || normalized === "paused" || normalized === "blocked") {
+    return normalized;
+  }
+  if (normalized === "completed" || normalized === "complete") {
+    return "completed";
+  }
+  return null;
 }
 
 export function normalizeProviderGoalLifecycleText(value: unknown): string | null {

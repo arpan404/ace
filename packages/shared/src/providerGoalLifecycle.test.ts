@@ -67,6 +67,22 @@ describe("providerGoalLifecycle", () => {
     });
   });
 
+  it("normalizes complete status aliases from provider goal tool payloads", () => {
+    expect(
+      parseProviderGoalLifecycle({
+        title: "Goal updated",
+        result: {
+          status: "complete",
+          objective: "Finish provider feature parity",
+        },
+      }),
+    ).toEqual({
+      action: "updated",
+      status: "completed",
+      objective: "Finish provider feature parity",
+    });
+  });
+
   it("extracts nested provider goal thread and usage metadata", () => {
     expect(
       parseProviderGoalLifecycle({

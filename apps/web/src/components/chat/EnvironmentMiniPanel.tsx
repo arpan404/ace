@@ -294,7 +294,7 @@ function EnvironmentGoalPanel(props: {
         </div>
         {props.goalControlsSupported ? (
           <div className="flex shrink-0 items-center gap-0.5">
-            {props.goal.status === "paused" ? (
+            {props.goal.status === "paused" || props.goal.status === "completed" ? (
               <GoalControlButton label="Resume goal" onClick={props.onResumeGoal}>
                 <PlayIcon className="size-3.5" />
               </GoalControlButton>

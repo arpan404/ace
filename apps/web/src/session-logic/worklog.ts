@@ -891,10 +891,6 @@ export function deriveActiveGoalState(
       activeGoal = null;
       continue;
     }
-    if (parsedGoal.status === "completed") {
-      activeGoal = null;
-      continue;
-    }
     activeGoal = {
       createdAt: activity.createdAt,
       threadId: parsedGoal.threadId ?? "active-thread",

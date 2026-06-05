@@ -4646,6 +4646,35 @@ describe("deriveActiveGoalState", () => {
       tokensUsed: 42,
     });
   });
+
+  it("normalizes completed provider goal aliases for the active goal panel", () => {
+    const goalToolActivity = makeActivity({
+      id: "goal-tool-complete-result",
+      createdAt: "2026-02-23T00:00:01.000Z",
+      kind: "reasoning.completed",
+      summary: "Thinking",
+      tone: "info",
+      payload: {
+        data: {
+          item: {
+            title: "Goal updated",
+            result: {
+              objective: "Finish provider feature parity",
+              status: "complete",
+            },
+          },
+        },
+      },
+    });
+
+    expect(deriveWorkLogEntries([goalToolActivity], undefined)).toEqual([]);
+    expect(deriveActiveGoalState([goalToolActivity])).toEqual({
+      createdAt: "2026-02-23T00:00:01.000Z",
+      threadId: "active-thread",
+      objective: "Finish provider feature parity",
+      status: "completed",
+    });
+  });
 });
 
 describe("deriveLatestGeneratedWorkspaceSummary", () => {

@@ -363,6 +363,22 @@ describe("EnvironmentMiniPanel", () => {
     expect(markup).toContain("Delete goal");
   });
 
+  it("shows completed goals as resumable goal panel state", () => {
+    const markup = renderEnvironmentMiniPanel({
+      activeGoal: {
+        ...activeGoal,
+        status: "completed",
+      },
+    });
+
+    expect(markup).toContain("Goal");
+    expect(markup).toContain("completed");
+    expect(markup).toContain("Resume goal");
+    expect(markup).not.toContain("Pause goal");
+    expect(markup).toContain("Edit goal");
+    expect(markup).toContain("Delete goal");
+  });
+
   it("keeps provider goal state visible without controls when native goal control is unsupported", () => {
     const markup = renderEnvironmentMiniPanel({
       activeGoal,
