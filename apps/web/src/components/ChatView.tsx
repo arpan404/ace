@@ -205,7 +205,6 @@ import {
 } from "~/lib/chat/threadRenderState";
 import { THREAD_ROUTE_CONNECTION_SEARCH_PARAM } from "../lib/connectionRouting";
 import {
-  selectThreadTerminalPanelState,
   selectThreadTerminalState,
   type TerminalPanelPlacement,
   useTerminalStateStore,
@@ -744,9 +743,22 @@ function ConnectedThreadTerminalPanel({
   onAddTerminalContext,
 }: ConnectedThreadTerminalPanelProps) {
   const terminalDrawerState = useTerminalStateStore(
-    useShallow((state) =>
-      selectThreadTerminalPanelState(state.terminalStateByThreadId, activeThreadId, placement),
-    ),
+    useShallow((state) => {
+      const selectedThreadState = selectThreadTerminalState(
+        state.terminalStateByThreadId,
+        activeThreadId,
+      );
+      const selectedPanelState = selectedThreadState.terminalPanelStateByPlacement[placement];
+      return {
+        terminalHeight: selectedPanelState.terminalHeight,
+        terminalIds: selectedPanelState.terminalIds,
+        activeTerminalId: selectedPanelState.activeTerminalId,
+        terminalGroups: selectedPanelState.terminalGroups,
+        runningTerminalIds: selectedThreadState.runningTerminalIds,
+        autoTerminalTitlesById: selectedThreadState.autoTerminalTitlesById,
+        splitRatiosByGroupId: selectedPanelState.splitRatiosByGroupId,
+      };
+    }),
   );
 
   if (!activeProjectAvailable || !cwd) {
@@ -1727,12 +1739,13 @@ function useChatViewComponent({
   );
   const rightTerminalPanelState = useTerminalStateStore(
     useShallow((state) => {
-      const selectedState = selectThreadTerminalPanelState(
+      const selectedThreadState = selectThreadTerminalState(
         state.terminalStateByThreadId,
         threadId,
-        "right",
       );
+      const selectedState = selectedThreadState.terminalPanelStateByPlacement.right;
       return {
+        terminalIds: selectedState.terminalIds,
         activeTerminalId: selectedState.activeTerminalId,
         terminalGroups: selectedState.terminalGroups,
       };
@@ -5370,6 +5383,22 @@ function useChatViewComponent({
       );
     },
     [activeThreadId, rightTerminalPanelState.terminalGroups, storeMoveTerminalForPanel],
+  );
+  const onReorderBottomPanelTerminalTab = useCallback(
+    (draggedTerminalId: string, targetTerminalId: string) => {
+      if (!activeThreadId || draggedTerminalId === targetTerminalId) {
+        return;
+      }
+      const targetGroup = terminalState.terminalGroups.find((group) =>
+        group.terminalIds.includes(targetTerminalId),
+      );
+      if (!targetGroup) {
+        return;
+      }
+      const targetIndex = targetGroup.terminalIds.indexOf(targetTerminalId);
+      storeMoveTerminal(activeThreadId, draggedTerminalId, targetGroup.id, targetIndex);
+    },
+    [activeThreadId, storeMoveTerminal, terminalState.terminalGroups],
   );
   const onCloseBottomPanelTerminal = useCallback(() => {
     setTerminalOpen(false);
@@ -10023,7 +10052,7 @@ function useChatViewComponent({
     browserPanel && bottomBrowserInstanceId
       ? browserPanel.instances.filter((instance) => instance.key === bottomBrowserInstanceId)
       : [];
-  const rightPanelTerminalTabs = useMemo(
+  const bottomPanelTerminalTabs = useMemo(
     () =>
       terminalState.terminalIds.map((terminalId) => ({
         id: terminalId,
@@ -10041,6 +10070,26 @@ function useChatViewComponent({
       terminalState.autoTerminalTitlesById,
       terminalState.runningTerminalIds,
       terminalState.terminalIds,
+    ],
+  );
+  const rightPanelTerminalTabs = useMemo(
+    () =>
+      rightTerminalPanelState.terminalIds.map((terminalId) => ({
+        id: terminalId,
+        label: resolveTerminalDisplayTitle({
+          autoTitle: terminalState.autoTerminalTitlesById[terminalId],
+          cwd: gitCwd ?? activeProject?.cwd ?? "",
+          isRunning: terminalState.runningTerminalIds.includes(terminalId),
+          terminalId,
+        }),
+        running: terminalState.runningTerminalIds.includes(terminalId),
+      })),
+    [
+      activeProject?.cwd,
+      gitCwd,
+      rightTerminalPanelState.terminalIds,
+      terminalState.autoTerminalTitlesById,
+      terminalState.runningTerminalIds,
     ],
   );
   const avoidNativeBrowserPanelTransforms = isElectron && activeRightSidePanelMode === "browser";
@@ -10181,7 +10230,7 @@ function useChatViewComponent({
         terminalNewShortcutLabel={newTerminalTabShortcutLabel}
         terminalShortcutLabel={terminalToggleShortcutLabel}
         terminalOpen={terminalState.terminalOpen}
-        terminalTabs={rightPanelTerminalTabs}
+        terminalTabs={bottomPanelTerminalTabs}
         activeTerminalId={terminalState.activeTerminalId}
         activeSubagentThreadId={activeSubagentThreadId}
         floatingChatOpen={false}
@@ -10194,7 +10243,7 @@ function useChatViewComponent({
         onEditorTabSelect={onSelectBottomPanelEditorTab}
         onTerminalClose={onCloseBottomPanelTerminal}
         onTerminalTabClose={closeTerminal}
-        onTerminalTabReorder={onReorderRightSidePanelTerminalTab}
+        onTerminalTabReorder={onReorderBottomPanelTerminalTab}
         onTerminalTabSelect={(terminalId) => {
           activateTerminal(terminalId);
           onSelectBottomPanelMode("terminal");

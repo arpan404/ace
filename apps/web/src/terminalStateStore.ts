@@ -58,6 +58,7 @@ interface ThreadTerminalState extends ThreadTerminalPanelState {
 }
 
 const TERMINAL_STATE_STORAGE_KEY = "ace:terminal-state:v1";
+const normalizedThreadTerminalStateCache = new WeakMap<object, ThreadTerminalState>();
 
 function createTerminalStateStorage() {
   return resolveStorage(typeof window !== "undefined" ? window.localStorage : undefined);
@@ -161,7 +162,11 @@ function normalizeSplitRatiosByGroupId(
   );
 }
 
-function arraysEqual(a: string[], b: string[]): boolean {
+function arraysEqual(
+  a: readonly string[] | null | undefined,
+  b: readonly string[] | null | undefined,
+): boolean {
+  if (!Array.isArray(a) || !Array.isArray(b)) return false;
   if (a.length !== b.length) return false;
   for (let index = 0; index < a.length; index += 1) {
     if (a[index] !== b[index]) return false;
@@ -169,7 +174,11 @@ function arraysEqual(a: string[], b: string[]): boolean {
   return true;
 }
 
-function numberArraysEqual(left: number[], right: number[]): boolean {
+function numberArraysEqual(
+  left: readonly number[] | null | undefined,
+  right: readonly number[] | null | undefined,
+): boolean {
+  if (!Array.isArray(left) || !Array.isArray(right)) return false;
   if (left.length !== right.length) return false;
   for (let index = 0; index < left.length; index += 1) {
     const leftValue = left[index];
@@ -180,7 +189,11 @@ function numberArraysEqual(left: number[], right: number[]): boolean {
   return true;
 }
 
-function stringRecordEqual(left: Record<string, string>, right: Record<string, string>): boolean {
+function stringRecordEqual(
+  left: Record<string, string> | null | undefined,
+  right: Record<string, string> | null | undefined,
+): boolean {
+  if (!left || !right) return false;
   const leftKeys = Object.keys(left);
   const rightKeys = Object.keys(right);
   if (!arraysEqual(leftKeys, rightKeys)) return false;
@@ -188,9 +201,10 @@ function stringRecordEqual(left: Record<string, string>, right: Record<string, s
 }
 
 function splitRatioRecordEqual(
-  left: Record<string, number[]>,
-  right: Record<string, number[]>,
+  left: Record<string, number[]> | null | undefined,
+  right: Record<string, number[]> | null | undefined,
 ): boolean {
+  if (!left || !right) return false;
   const leftKeys = Object.keys(left);
   const rightKeys = Object.keys(right);
   if (!arraysEqual(leftKeys, rightKeys)) return false;
@@ -202,7 +216,11 @@ function splitRatioRecordEqual(
   });
 }
 
-function terminalGroupsEqual(left: ThreadTerminalGroup[], right: ThreadTerminalGroup[]): boolean {
+function terminalGroupsEqual(
+  left: readonly ThreadTerminalGroup[] | null | undefined,
+  right: readonly ThreadTerminalGroup[] | null | undefined,
+): boolean {
+  if (!Array.isArray(left) || !Array.isArray(right)) return false;
   if (left.length !== right.length) return false;
   for (let index = 0; index < left.length; index += 1) {
     const leftGroup = left[index];
@@ -215,9 +233,10 @@ function terminalGroupsEqual(left: ThreadTerminalGroup[], right: ThreadTerminalG
 }
 
 function terminalPanelStateEqual(
-  left: ThreadTerminalPanelState,
-  right: ThreadTerminalPanelState,
+  left: ThreadTerminalPanelState | null | undefined,
+  right: ThreadTerminalPanelState | null | undefined,
 ): boolean {
+  if (!left || !right) return false;
   return (
     left.terminalOpen === right.terminalOpen &&
     left.terminalHeight === right.terminalHeight &&
@@ -230,9 +249,10 @@ function terminalPanelStateEqual(
 }
 
 function terminalPanelStateByPlacementEqual(
-  left: Record<TerminalPanelPlacement, ThreadTerminalPanelState>,
-  right: Record<TerminalPanelPlacement, ThreadTerminalPanelState>,
+  left: Record<TerminalPanelPlacement, ThreadTerminalPanelState> | null | undefined,
+  right: Record<TerminalPanelPlacement, ThreadTerminalPanelState> | null | undefined,
 ): boolean {
+  if (!left || !right) return false;
   return (
     terminalPanelStateEqual(left.bottom, right.bottom) &&
     terminalPanelStateEqual(left.right, right.right)
@@ -317,6 +337,7 @@ function createDefaultThreadTerminalState(): ThreadTerminalState {
   return {
     ...DEFAULT_THREAD_TERMINAL_STATE,
     terminalIds: [...DEFAULT_THREAD_TERMINAL_STATE.terminalIds],
+    terminalSessionIds: [...DEFAULT_THREAD_TERMINAL_STATE.terminalSessionIds],
     runningTerminalIds: [...DEFAULT_THREAD_TERMINAL_STATE.runningTerminalIds],
     terminalGroups: copyTerminalGroups(DEFAULT_THREAD_TERMINAL_STATE.terminalGroups),
     customTerminalTitlesById: { ...DEFAULT_THREAD_TERMINAL_STATE.customTerminalTitlesById },
@@ -341,45 +362,63 @@ function getDefaultThreadTerminalState(): ThreadTerminalState {
   return DEFAULT_THREAD_TERMINAL_STATE;
 }
 
+function getCachedNormalizedThreadTerminalState(state: ThreadTerminalState): ThreadTerminalState {
+  const cached = normalizedThreadTerminalStateCache.get(state);
+  if (cached) return cached;
+  const normalized = normalizeThreadTerminalState(state);
+  normalizedThreadTerminalStateCache.set(state, normalized);
+  return normalized;
+}
+
 function normalizeThreadTerminalState(state: ThreadTerminalState): ThreadTerminalState {
-  const terminalIds = normalizeTerminalIds(state.terminalIds);
-  const nextTerminalIds = terminalIds.length > 0 ? terminalIds : [DEFAULT_THREAD_TERMINAL_ID];
-  const runningTerminalIds = normalizeRunningTerminalIds(state.runningTerminalIds, nextTerminalIds);
   const legacyBottomPanelState = normalizeThreadTerminalPanelState(
     {
       terminalOpen: state.terminalOpen,
       terminalHeight: state.terminalHeight,
+      terminalIds: state.terminalIds,
       activeTerminalId: state.activeTerminalId,
       terminalGroups: state.terminalGroups,
       activeTerminalGroupId: state.activeTerminalGroupId,
       splitRatiosByGroupId: state.splitRatiosByGroupId,
     },
-    nextTerminalIds,
+    state.terminalIds,
+    "bottom",
   );
   const rightPanelState = normalizeThreadTerminalPanelState(
-    state.terminalPanelStateByPlacement?.right ?? DEFAULT_THREAD_TERMINAL_PANEL_STATE,
-    nextTerminalIds,
+    state.terminalPanelStateByPlacement?.right ?? DEFAULT_RIGHT_TERMINAL_PANEL_STATE,
+    state.terminalPanelStateByPlacement?.right?.terminalIds ?? [RIGHT_PANEL_DEFAULT_TERMINAL_ID],
+    "right",
   );
   const bottomPanelState = normalizeThreadTerminalPanelState(
     state.terminalPanelStateByPlacement?.bottom ?? legacyBottomPanelState,
-    nextTerminalIds,
+    state.terminalPanelStateByPlacement?.bottom?.terminalIds ?? legacyBottomPanelState.terminalIds,
+    "bottom",
+  );
+  const terminalSessionIds = normalizeTerminalIds([
+    ...bottomPanelState.terminalIds,
+    ...rightPanelState.terminalIds,
+    ...((state as Partial<ThreadTerminalState>).terminalSessionIds ?? []),
+  ]);
+  const runningTerminalIds = normalizeRunningTerminalIds(
+    state.runningTerminalIds,
+    terminalSessionIds,
   );
   const customTerminalTitlesById = normalizeTerminalTitleMap(
     state.customTerminalTitlesById,
-    nextTerminalIds,
+    terminalSessionIds,
   );
   const autoTerminalTitlesById = normalizeTerminalTitleMap(
     state.autoTerminalTitlesById,
-    nextTerminalIds,
+    terminalSessionIds,
   );
   const terminalIconsById = normalizeTerminalMetadataMap(
     state.terminalIconsById,
-    nextTerminalIds,
+    terminalSessionIds,
     normalizeTerminalIconName,
   );
   const terminalColorsById = normalizeTerminalMetadataMap(
     state.terminalColorsById,
-    nextTerminalIds,
+    terminalSessionIds,
     normalizeTerminalColorName,
   );
 
@@ -387,7 +426,7 @@ function normalizeThreadTerminalState(state: ThreadTerminalState): ThreadTermina
     ...bottomPanelState,
     terminalSidebarWidth: normalizeTerminalSidebarWidth(state.terminalSidebarWidth),
     terminalSidebarDensity: normalizeTerminalSidebarDensity(state.terminalSidebarDensity),
-    terminalIds: nextTerminalIds,
+    terminalSessionIds,
     runningTerminalIds,
     customTerminalTitlesById,
     autoTerminalTitlesById,
@@ -429,6 +468,7 @@ function copyTerminalPanelState(panelState: ThreadTerminalPanelState): ThreadTer
   return {
     terminalOpen: panelState.terminalOpen,
     terminalHeight: panelState.terminalHeight,
+    terminalIds: [...panelState.terminalIds],
     activeTerminalId: panelState.activeTerminalId,
     terminalGroups: copyTerminalGroups(panelState.terminalGroups),
     activeTerminalGroupId: panelState.activeTerminalGroupId,
@@ -439,11 +479,14 @@ function copyTerminalPanelState(panelState: ThreadTerminalPanelState): ThreadTer
 function normalizeThreadTerminalPanelState(
   panelState: ThreadTerminalPanelState,
   terminalIds: string[],
+  placement: TerminalPanelPlacement,
 ): ThreadTerminalPanelState {
-  const activeTerminalId = terminalIds.includes(panelState.activeTerminalId)
+  const fallbackTerminalId = defaultTerminalIdForPlacement(placement);
+  const panelTerminalIds = normalizeTerminalIds(terminalIds, fallbackTerminalId);
+  const activeTerminalId = panelTerminalIds.includes(panelState.activeTerminalId)
     ? panelState.activeTerminalId
-    : (terminalIds[0] ?? DEFAULT_THREAD_TERMINAL_ID);
-  const terminalGroups = normalizeTerminalGroups(panelState.terminalGroups, terminalIds);
+    : (panelTerminalIds[0] ?? fallbackTerminalId);
+  const terminalGroups = normalizeTerminalGroups(panelState.terminalGroups, panelTerminalIds);
   const splitRatiosByGroupId = normalizeSplitRatiosByGroupId(
     panelState.splitRatiosByGroupId,
     terminalGroups,
@@ -462,6 +505,7 @@ function normalizeThreadTerminalPanelState(
       Number.isFinite(panelState.terminalHeight) && panelState.terminalHeight > 0
         ? panelState.terminalHeight
         : DEFAULT_THREAD_TERMINAL_HEIGHT,
+    terminalIds: panelTerminalIds,
     activeTerminalId,
     terminalGroups,
     splitRatiosByGroupId,
@@ -469,7 +513,7 @@ function normalizeThreadTerminalPanelState(
       activeGroupIdFromState ??
       activeGroupIdFromTerminal ??
       terminalGroups[0]?.id ??
-      fallbackGroupId(DEFAULT_THREAD_TERMINAL_ID),
+      fallbackGroupId(fallbackTerminalId),
   };
   return terminalPanelStateEqual(panelState, normalized) ? panelState : normalized;
 }
@@ -478,6 +522,7 @@ function panelStateFromThreadState(state: ThreadTerminalState): ThreadTerminalPa
   return {
     terminalOpen: state.terminalOpen,
     terminalHeight: state.terminalHeight,
+    terminalIds: state.terminalIds,
     activeTerminalId: state.activeTerminalId,
     terminalGroups: state.terminalGroups,
     activeTerminalGroupId: state.activeTerminalGroupId,
@@ -505,10 +550,11 @@ function applyThreadStateForPanel(
   const normalizedBase = normalizeThreadTerminalState(baseState);
   const nextTerminalIds = normalizeTerminalIds(nextPanelThreadState.terminalIds);
   const normalizedNextTerminalIds =
-    nextTerminalIds.length > 0 ? nextTerminalIds : [DEFAULT_THREAD_TERMINAL_ID];
+    nextTerminalIds.length > 0 ? nextTerminalIds : [defaultTerminalIdForPlacement(placement)];
   const nextPanelState = normalizeThreadTerminalPanelState(
     panelStateFromThreadState(nextPanelThreadState),
     normalizedNextTerminalIds,
+    placement,
   );
   const nextPanelsByPlacement = {
     ...normalizedBase.terminalPanelStateByPlacement,
@@ -519,27 +565,30 @@ function applyThreadStateForPanel(
   return normalizeThreadTerminalState({
     ...normalizedBase,
     ...copyTerminalPanelState(bottomPanelState),
-    terminalIds: normalizedNextTerminalIds,
+    terminalSessionIds: normalizeTerminalIds([
+      ...normalizedBase.terminalSessionIds,
+      ...nextPanelState.terminalIds,
+    ]),
     runningTerminalIds: normalizeRunningTerminalIds(
       nextPanelThreadState.runningTerminalIds,
-      normalizedNextTerminalIds,
+      normalizeTerminalIds([...normalizedBase.terminalSessionIds, ...nextPanelState.terminalIds]),
     ),
     customTerminalTitlesById: normalizeTerminalTitleMap(
       nextPanelThreadState.customTerminalTitlesById,
-      normalizedNextTerminalIds,
+      normalizeTerminalIds([...normalizedBase.terminalSessionIds, ...nextPanelState.terminalIds]),
     ),
     autoTerminalTitlesById: normalizeTerminalTitleMap(
       nextPanelThreadState.autoTerminalTitlesById,
-      normalizedNextTerminalIds,
+      normalizeTerminalIds([...normalizedBase.terminalSessionIds, ...nextPanelState.terminalIds]),
     ),
     terminalIconsById: normalizeTerminalMetadataMap(
       nextPanelThreadState.terminalIconsById,
-      normalizedNextTerminalIds,
+      normalizeTerminalIds([...normalizedBase.terminalSessionIds, ...nextPanelState.terminalIds]),
       normalizeTerminalIconName,
     ),
     terminalColorsById: normalizeTerminalMetadataMap(
       nextPanelThreadState.terminalColorsById,
-      normalizedNextTerminalIds,
+      normalizeTerminalIds([...normalizedBase.terminalSessionIds, ...nextPanelState.terminalIds]),
       normalizeTerminalColorName,
     ),
     terminalPanelStateByPlacement: nextPanelsByPlacement,
@@ -748,22 +797,35 @@ function setThreadActiveTerminal(
 
 function closeThreadTerminal(state: ThreadTerminalState, terminalId: string): ThreadTerminalState {
   const normalized = normalizeThreadTerminalState(state);
-  if (!normalized.terminalIds.includes(terminalId)) {
+  if (!normalized.terminalSessionIds.includes(terminalId)) {
     return normalized;
   }
 
-  const remainingTerminalIds = normalized.terminalIds.filter((id) => id !== terminalId);
-  if (remainingTerminalIds.length === 0) {
+  const remainingTerminalSessionIds = normalized.terminalSessionIds.filter(
+    (id) => id !== terminalId,
+  );
+  if (remainingTerminalSessionIds.length === 0) {
     return createDefaultThreadTerminalState();
   }
 
-  const closedTerminalIndex = normalized.terminalIds.indexOf(terminalId);
-  const closePanelState = (panelState: ThreadTerminalPanelState): ThreadTerminalPanelState => {
+  const closedTerminalIndex = normalized.terminalSessionIds.indexOf(terminalId);
+  const closePanelState = (
+    panelState: ThreadTerminalPanelState,
+    placement: TerminalPanelPlacement,
+  ): ThreadTerminalPanelState => {
+    const remainingPanelTerminalIds = panelState.terminalIds.filter((id) => id !== terminalId);
+    if (remainingPanelTerminalIds.length === panelState.terminalIds.length) {
+      return panelState;
+    }
+    const nextPanelTerminalIds =
+      remainingPanelTerminalIds.length > 0
+        ? remainingPanelTerminalIds
+        : [defaultTerminalIdForPlacement(placement)];
     const nextActiveTerminalId =
       panelState.activeTerminalId === terminalId
-        ? (remainingTerminalIds[Math.min(closedTerminalIndex, remainingTerminalIds.length - 1)] ??
-          remainingTerminalIds[0] ??
-          DEFAULT_THREAD_TERMINAL_ID)
+        ? (nextPanelTerminalIds[Math.min(closedTerminalIndex, nextPanelTerminalIds.length - 1)] ??
+          nextPanelTerminalIds[0] ??
+          defaultTerminalIdForPlacement(placement))
         : panelState.activeTerminalId;
 
     const terminalGroups = panelState.terminalGroups.flatMap((group) => {
@@ -779,22 +841,31 @@ function closeThreadTerminal(state: ThreadTerminalState, terminalId: string): Th
     return normalizeThreadTerminalPanelState(
       {
         ...panelState,
+        terminalIds: nextPanelTerminalIds,
         activeTerminalId: nextActiveTerminalId,
         terminalGroups,
         activeTerminalGroupId: nextActiveTerminalGroupId,
       },
-      remainingTerminalIds,
+      nextPanelTerminalIds,
+      placement,
     );
   };
-  const bottomPanelState = closePanelState(normalized.terminalPanelStateByPlacement.bottom);
-  const rightPanelState = closePanelState(normalized.terminalPanelStateByPlacement.right);
+  const bottomPanelState = closePanelState(
+    normalized.terminalPanelStateByPlacement.bottom,
+    "bottom",
+  );
+  const rightPanelState = closePanelState(normalized.terminalPanelStateByPlacement.right, "right");
 
   return normalizeThreadTerminalState({
     ...normalized,
     ...bottomPanelState,
     terminalSidebarWidth: normalized.terminalSidebarWidth,
     terminalSidebarDensity: normalized.terminalSidebarDensity,
-    terminalIds: remainingTerminalIds,
+    terminalSessionIds: normalizeTerminalIds([
+      ...bottomPanelState.terminalIds,
+      ...rightPanelState.terminalIds,
+      ...remainingTerminalSessionIds,
+    ]),
     runningTerminalIds: normalized.runningTerminalIds.filter((id) => id !== terminalId),
     customTerminalTitlesById: normalized.customTerminalTitlesById,
     autoTerminalTitlesById: normalized.autoTerminalTitlesById,
@@ -813,7 +884,7 @@ function setThreadTerminalActivity(
   hasRunningSubprocess: boolean,
 ): ThreadTerminalState {
   const normalized = normalizeThreadTerminalState(state);
-  if (!normalized.terminalIds.includes(terminalId)) {
+  if (!normalized.terminalSessionIds.includes(terminalId)) {
     return normalized;
   }
   const alreadyRunning = normalized.runningTerminalIds.includes(terminalId);
@@ -835,7 +906,7 @@ function setThreadTerminalCustomTitle(
   title: string,
 ): ThreadTerminalState {
   const normalized = normalizeThreadTerminalState(state);
-  if (!normalized.terminalIds.includes(terminalId)) {
+  if (!normalized.terminalSessionIds.includes(terminalId)) {
     return normalized;
   }
   const normalizedTitle = normalizeTerminalTitle(title);
@@ -861,7 +932,7 @@ function setThreadTerminalAutoTitle(
   title: string | null,
 ): ThreadTerminalState {
   const normalized = normalizeThreadTerminalState(state);
-  if (!normalized.terminalIds.includes(terminalId)) {
+  if (!normalized.terminalSessionIds.includes(terminalId)) {
     return normalized;
   }
   const normalizedTitle = normalizeTerminalTitle(title);
@@ -887,7 +958,7 @@ function setThreadTerminalIcon(
   icon: TerminalIconName | null,
 ): ThreadTerminalState {
   const normalized = normalizeThreadTerminalState(state);
-  if (!normalized.terminalIds.includes(terminalId)) {
+  if (!normalized.terminalSessionIds.includes(terminalId)) {
     return normalized;
   }
   const normalizedIcon = normalizeTerminalIconName(icon);
@@ -913,7 +984,7 @@ function setThreadTerminalColor(
   color: TerminalColorName | null,
 ): ThreadTerminalState {
   const normalized = normalizeThreadTerminalState(state);
-  if (!normalized.terminalIds.includes(terminalId)) {
+  if (!normalized.terminalSessionIds.includes(terminalId)) {
     return normalized;
   }
   const normalizedColor = normalizeTerminalColorName(color);
@@ -1127,7 +1198,10 @@ export function selectThreadTerminalState(
   if (threadId.length === 0) {
     return getDefaultThreadTerminalState();
   }
-  return terminalStateByThreadId[threadId] ?? getDefaultThreadTerminalState();
+  const threadState = terminalStateByThreadId[threadId];
+  return threadState
+    ? getCachedNormalizedThreadTerminalState(threadState)
+    : getDefaultThreadTerminalState();
 }
 
 export function selectThreadTerminalPanelState(
@@ -1143,6 +1217,7 @@ export function selectThreadTerminalPanelState(
     ...threadState,
     terminalOpen: panelState.terminalOpen,
     terminalHeight: panelState.terminalHeight,
+    terminalIds: panelState.terminalIds,
     activeTerminalId: panelState.activeTerminalId,
     terminalGroups: panelState.terminalGroups,
     activeTerminalGroupId: panelState.activeTerminalGroupId,
@@ -1408,7 +1483,7 @@ export const useTerminalStateStore = create<TerminalStateStoreState>()(
     },
     {
       name: TERMINAL_STATE_STORAGE_KEY,
-      version: 6,
+      version: 7,
       storage: createJSONStorage(createTerminalStateStorage),
       migrate: (persistedState) => {
         const candidate = persistedState as {
