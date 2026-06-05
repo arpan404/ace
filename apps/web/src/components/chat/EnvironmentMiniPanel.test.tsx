@@ -216,7 +216,7 @@ describe("EnvironmentMiniPanel", () => {
         subagentThread(),
         subagentThread({
           id: "side:thread-1:first",
-          label: "Side chat 1",
+          label: "Explain the current branch.",
           entries: [
             {
               id: "side-chat-one",
@@ -232,7 +232,7 @@ describe("EnvironmentMiniPanel", () => {
         }),
         subagentThread({
           id: "side:thread-1:second",
-          label: "Side chat 2",
+          label: "Check the recent diff.",
           entries: [
             {
               id: "side-chat-two",
@@ -251,8 +251,8 @@ describe("EnvironmentMiniPanel", () => {
 
     expect(markup).toContain("Side chats");
     expect(markup).toContain("Subagents");
-    expect(markup).toContain("Side chat 1");
-    expect(markup).toContain("Side chat 2");
+    expect(markup).toContain("Explain the current branch.");
+    expect(markup).toContain("Check the recent diff.");
     expect(markup).toContain("Dewey");
   });
 

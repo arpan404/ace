@@ -340,6 +340,19 @@ describe("ClaudeAdapterLive", () => {
       path.join(cwd, ".claude", "commands", "release.md"),
       "---\ndescription: Draft release notes\nargument-hint: <version>\n---\n\n# Release command\n",
     );
+    mkdirSync(path.join(cwd, ".claude", "output-styles"), { recursive: true });
+    writeFileSync(
+      path.join(cwd, ".claude", "output-styles", "diagrams.md"),
+      [
+        "---",
+        "name: Diagrams first",
+        "description: Lead with diagrams",
+        "keep-coding-instructions: true",
+        "---",
+        "",
+        "Start explanations with a diagram.",
+      ].join("\n"),
+    );
     const harness = makeHarness({ cwd, baseDir: root });
     return Effect.gen(function* () {
       const adapter = yield* ClaudeAdapter;
@@ -355,6 +368,16 @@ describe("ClaudeAdapterLive", () => {
         provider: "claudeAgent",
         cwd,
         runtimeMode: "full-access",
+        modelSelection: {
+          provider: "claudeAgent",
+          model: "claude-sonnet-4-6",
+          options: {
+            outputStyle: "Diagrams first",
+            agent: "reviewer",
+            forkSubagents: true,
+            agentTeams: true,
+          },
+        },
       });
 
       const configuredEvent = yield* Fiber.join(configuredFiber);
@@ -364,13 +387,132 @@ describe("ClaudeAdapterLive", () => {
       }
       const commands = (configuredEvent.value.payload.config as { availableCommands?: unknown })
         .availableCommands as ReadonlyArray<ProviderSlashCommand> | undefined;
+      assert.deepEqual(harness.getLastCreateQueryInput()?.options.settings, {
+        outputStyle: "Diagrams first",
+        agent: "reviewer",
+      });
+      assert.equal(harness.getLastCreateQueryInput()?.options.env?.CLAUDE_CODE_FORK_SUBAGENT, "1");
+      assert.equal(
+        harness.getLastCreateQueryInput()?.options.env?.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS,
+        "1",
+      );
+      assert.deepEqual(
+        (configuredEvent.value.payload.config as { configOptions?: unknown }).configOptions,
+        [
+          {
+            id: "output_style",
+            name: "Style",
+            category: "output_style",
+            type: "select",
+            currentValue: "Diagrams first",
+            description: "Claude Code output style for this session.",
+            options: [
+              {
+                value: "Default",
+                name: "Default",
+                description: "Claude Code's default software engineering style.",
+              },
+              {
+                value: "Explanatory",
+                name: "Explanatory",
+                description: "Add educational insights while completing coding tasks.",
+              },
+              {
+                value: "Learning",
+                name: "Learning",
+                description: "Collaborative learn-by-doing style with human TODOs.",
+              },
+              {
+                value: "Diagrams first",
+                name: "Diagrams first",
+                description: "Lead with diagrams",
+              },
+            ],
+          },
+          {
+            id: "agent",
+            name: "Agent",
+            category: "agent",
+            type: "select",
+            currentValue: "reviewer",
+            description: "Claude Code main agent for this session.",
+            options: [
+              {
+                value: "default",
+                name: "Default",
+                description: "Use Claude Code's default main agent for this session.",
+              },
+              {
+                value: "explore",
+                name: "explore",
+                description: "Use Claude's read-only Explore subagent for fast codebase research.",
+              },
+              {
+                value: "general-purpose",
+                name: "general-purpose",
+                description: "Use Claude's general-purpose subagent for complex multi-step tasks.",
+              },
+              {
+                value: "plan",
+                name: "plan",
+                description: "Use Claude's Plan subagent for planning-oriented codebase research.",
+              },
+              {
+                value: "reviewer",
+                name: "reviewer",
+                description: "Review implementation details",
+              },
+            ],
+          },
+          {
+            id: "fork_subagents",
+            name: "Forks",
+            category: "subagent_fork_mode",
+            type: "select",
+            currentValue: "on",
+            description: "Claude Code forked subagents inherit the current conversation context.",
+            options: [
+              {
+                value: "off",
+                name: "Off",
+                description: "Use named subagents with fresh task context.",
+              },
+              {
+                value: "on",
+                name: "On",
+                description: "Enable Claude Code forked subagents for shared-context side tasks.",
+              },
+            ],
+          },
+          {
+            id: "agent_teams",
+            name: "Teams",
+            category: "agent_team_mode",
+            type: "select",
+            currentValue: "on",
+            description: "Claude Code experimental agent teams for peer-to-peer multi-agent work.",
+            options: [
+              {
+                value: "off",
+                name: "Off",
+                description: "Keep Claude agent teams disabled for this session.",
+              },
+              {
+                value: "on",
+                name: "On",
+                description: "Enable Claude Code agent teams for multi-agent collaboration.",
+              },
+            ],
+          },
+        ],
+      );
       assert.deepEqual(
         commands?.find((command) => command.name === "reviewer"),
         {
           name: "reviewer",
           description: "Review implementation details",
           kind: "agent",
-          promptPrefix: "Use the reviewer subagent:",
+          promptPrefix: "@agent-reviewer",
           inputHint: "<prompt>",
         },
       );
@@ -380,7 +522,7 @@ describe("ClaudeAdapterLive", () => {
           name: "release-review",
           description: "Review release readiness",
           kind: "skill",
-          promptPrefix: "Use the release-review skill:",
+          promptPrefix: "/release-review",
           inputHint: "<prompt>",
         },
       );

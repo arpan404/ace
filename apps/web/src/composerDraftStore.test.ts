@@ -1172,6 +1172,7 @@ describe("composerDraftStore provider-scoped option updates", () => {
     store.setProviderModelOptions(threadId, "cursor", {
       reasoningEffort: "xhigh",
       fastMode: true,
+      modeId: "plan",
     });
 
     const draft = useComposerDraftStore.getState().draftsByThreadId[threadId];
@@ -1182,6 +1183,33 @@ describe("composerDraftStore provider-scoped option updates", () => {
       modelSelection("cursor", "auto", {
         reasoningEffort: "xhigh",
         fastMode: true,
+        modeId: "plan",
+      }),
+    );
+    expect(draft?.activeProvider).toBe("codex");
+  });
+
+  it("stores GitHub Copilot agent options without changing the active selection", () => {
+    const store = useComposerDraftStore.getState();
+    store.setModelSelection(
+      threadId,
+      modelSelection("codex", "gpt-5.3-codex", {
+        reasoningEffort: "medium",
+      }),
+    );
+    store.setProviderModelOptions(threadId, "githubCopilot", {
+      reasoningEffort: "high",
+      agent: "security-auditor",
+    });
+
+    const draft = useComposerDraftStore.getState().draftsByThreadId[threadId];
+    expect(draft?.modelSelectionByProvider.codex).toEqual(
+      modelSelection("codex", "gpt-5.3-codex", { reasoningEffort: "medium" }),
+    );
+    expect(draft?.modelSelectionByProvider.githubCopilot).toEqual(
+      modelSelection("githubCopilot", "gpt-5", {
+        reasoningEffort: "high",
+        agent: "security-auditor",
       }),
     );
     expect(draft?.activeProvider).toBe("codex");
@@ -1213,6 +1241,30 @@ describe("composerDraftStore provider-scoped option updates", () => {
     expect(draft?.activeProvider).toBe("codex");
   });
 
+  it("stores Gemini mode options without changing the active selection", () => {
+    const store = useComposerDraftStore.getState();
+    store.setModelSelection(
+      threadId,
+      modelSelection("codex", "gpt-5.3-codex", {
+        reasoningEffort: "medium",
+      }),
+    );
+    store.setProviderModelOptions(threadId, "gemini", {
+      modeId: "yolo",
+    });
+
+    const draft = useComposerDraftStore.getState().draftsByThreadId[threadId];
+    expect(draft?.modelSelectionByProvider.codex).toEqual(
+      modelSelection("codex", "gpt-5.3-codex", { reasoningEffort: "medium" }),
+    );
+    expect(draft?.modelSelectionByProvider.gemini).toEqual(
+      modelSelection("gemini", "gemini-2.5-pro", {
+        modeId: "yolo",
+      }),
+    );
+    expect(draft?.activeProvider).toBe("codex");
+  });
+
   it("stores OpenCode variant options without changing the active selection", () => {
     const store = useComposerDraftStore.getState();
     store.setModelSelection(
@@ -1224,6 +1276,7 @@ describe("composerDraftStore provider-scoped option updates", () => {
     store.setProviderModelOptions(threadId, "opencode", {
       variant: "max",
       fastMode: true,
+      modeId: "review",
     });
 
     const draft = useComposerDraftStore.getState().draftsByThreadId[threadId];
@@ -1234,6 +1287,7 @@ describe("composerDraftStore provider-scoped option updates", () => {
       modelSelection("opencode", "auto", {
         variant: "max",
         fastMode: true,
+        modeId: "review",
       }),
     );
     expect(draft?.activeProvider).toBe("codex");
@@ -1301,6 +1355,7 @@ describe("composerDraftStore cursor selections", () => {
       modelSelection("cursor", "gpt-5.4-mini", {
         reasoningEffort: "high",
         fastMode: false,
+        modeId: "plan",
       }),
     );
 
@@ -1310,6 +1365,7 @@ describe("composerDraftStore cursor selections", () => {
       modelSelection("cursor", "gpt-5.4-mini", {
         reasoningEffort: "high",
         fastMode: false,
+        modeId: "plan",
       }),
     );
   });

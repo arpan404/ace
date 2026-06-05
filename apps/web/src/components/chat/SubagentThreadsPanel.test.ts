@@ -174,9 +174,36 @@ describe("deriveSubagentThreads", () => {
     expect(threads).toHaveLength(2);
     expect(threads.every(isSideChatThread)).toBe(true);
     expect(threads.map((thread) => thread.label).toSorted()).toEqual([
-      "Side chat 1",
-      "Side chat 2",
+      "Check the recent diff.",
+      "Explain the current branch.",
     ]);
+  });
+
+  it("titles side chats from the first user request", () => {
+    const [thread] = deriveSubagentThreads(
+      [
+        workEntry({
+          id: "side-user",
+          detail: "/side Inspect provider handoff behavior across adapters.",
+          subagentId: "side:thread-1:first",
+          subagentType: "side chat",
+          sideChatMessageRole: "user",
+          sideChatMessageText: "/side Inspect provider handoff behavior across adapters.",
+        }),
+        workEntry({
+          id: "side-assistant",
+          createdAt: "2026-06-02T00:00:01.000Z",
+          detail: "I will inspect the adapters.",
+          subagentId: "side:thread-1:first",
+          subagentType: "side chat",
+          sideChatMessageRole: "assistant",
+          sideChatMessageText: "I will inspect the adapters.",
+        }),
+      ],
+      "codex",
+    );
+
+    expect(thread?.label).toBe("Inspect provider handoff behavior across adapters.");
   });
 
   it("allows replies only for side chats or natively targetable provider subagents", () => {

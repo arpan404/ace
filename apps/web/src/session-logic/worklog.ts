@@ -1,4 +1,13 @@
 import { type OrchestrationThreadActivity, type TurnId } from "@ace/contracts";
+import {
+  mergeProviderAgentMetadata,
+  providerAgentLooseRecord,
+  providerAgentRecord,
+} from "@ace/shared/providerAgentMetadata";
+import {
+  hasProviderGoalLifecycleSignal,
+  parseProviderGoalLifecycle,
+} from "@ace/shared/providerGoalLifecycle";
 
 import type { ActiveGoalState, WorkLogEntry } from "./types";
 import {
@@ -38,6 +47,9 @@ const TOOL_ACTIVITY_KINDS = new Set<OrchestrationThreadActivity["kind"]>([
   "tool.started",
   "tool.updated",
   "tool.completed",
+  "hook.started",
+  "hook.progress",
+  "hook.completed",
 ]);
 const MAX_WORK_LOG_TERMINAL_OUTPUT_CHARS = 16_000;
 
@@ -122,228 +134,11 @@ function isRenderableWorkLogActivity(activity: OrchestrationThreadActivity): boo
   return !isPlanBoundaryToolActivity(activity);
 }
 
-const GOAL_LIFECYCLE_LABELS = new Set([
-  "goal updated",
-  "goal update",
-  "goal set",
-  "goal created",
-  "goal paused",
-  "goal resumed",
-  "goal cleared",
-  "goal deleted",
-  "goal completed",
-  "goal blocked",
-  "get goal",
-  "create goal",
-  "update goal",
-  "clear goal",
-  "delete goal",
-]);
-
-function normalizeGoalLifecycleText(value: unknown): string | null {
-  const raw = asTrimmedString(value);
-  if (!raw) {
-    return null;
-  }
-  return raw
-    .replace(/[_/-]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .toLowerCase();
-}
-
-function hasGoalLifecycleLabel(value: unknown): boolean {
-  const normalized = normalizeGoalLifecycleText(value);
-  if (!normalized) {
-    return false;
-  }
-  if (GOAL_LIFECYCLE_LABELS.has(normalized)) {
-    return true;
-  }
-  return /^(?:goal|thread goal)\s+(?:updated?|set|created|paused|resumed|cleared|deleted|completed|blocked)\b/u.test(
-    normalized,
-  );
-}
-
-function goalLifecycleToolNameFromPayload(payload: Record<string, unknown> | null): string | null {
-  const data = asRecord(payload?.data);
-  const item = asRecord(data?.item);
-  const input = asRecord(data?.input);
-  const rawInput = asRecord(data?.rawInput);
-  const candidates = [
-    payload?.toolName,
-    payload?.tool_name,
-    payload?.name,
-    payload?.title,
-    data?.toolName,
-    data?.tool_name,
-    data?.name,
-    data?.kind,
-    item?.toolName,
-    item?.tool_name,
-    item?.name,
-    input?.toolName,
-    input?.tool_name,
-    input?.name,
-    rawInput?.toolName,
-    rawInput?.tool_name,
-    rawInput?.name,
-  ];
-  return candidates.find((candidate) => hasGoalLifecycleLabel(candidate)) ? "goal" : null;
-}
-
-function hasGoalLifecyclePayload(payload: Record<string, unknown> | null): boolean {
-  if (!payload) {
-    return false;
-  }
-  const data = asRecord(payload.data);
-  const item = asRecord(data?.item);
-  const input = asRecord(data?.input);
-  const rawInput = asRecord(data?.rawInput);
-  const result = asRecord(data?.result);
-  const output = asRecord(data?.output);
-  const itemResult = asRecord(item?.result);
-  const itemOutput = asRecord(item?.output);
-  const goal =
-    asRecord(payload.goal) ??
-    asRecord(data?.goal) ??
-    asRecord(item?.goal) ??
-    asRecord(input?.goal) ??
-    asRecord(rawInput?.goal) ??
-    asRecord(result?.goal) ??
-    asRecord(output?.goal) ??
-    asRecord(itemResult?.goal) ??
-    asRecord(itemOutput?.goal);
-  const status =
-    asGoalStatus(payload.status) ??
-    asGoalStatus(data?.status) ??
-    asGoalStatus(item?.status) ??
-    asGoalStatus(input?.status) ??
-    asGoalStatus(rawInput?.status) ??
-    asGoalStatus(result?.status) ??
-    asGoalStatus(output?.status) ??
-    asGoalStatus(itemResult?.status) ??
-    asGoalStatus(itemOutput?.status) ??
-    asGoalStatus(goal?.status);
-  const objective =
-    asTrimmedString(payload.objective) ??
-    asTrimmedString(data?.objective) ??
-    asTrimmedString(item?.objective) ??
-    asTrimmedString(input?.objective) ??
-    asTrimmedString(rawInput?.objective) ??
-    asTrimmedString(result?.objective) ??
-    asTrimmedString(output?.objective) ??
-    asTrimmedString(itemResult?.objective) ??
-    asTrimmedString(itemOutput?.objective) ??
-    asTrimmedString(goal?.objective);
-  if (status && objective) {
-    return true;
-  }
-  if (goal && (status || objective)) {
-    return true;
-  }
-  return false;
-}
-
-function nestedGoalLifecycleSignalFromValue(value: unknown, depth: number): boolean {
-  if (depth > 6) {
-    return false;
-  }
-  if (Array.isArray(value)) {
-    return value.some((item) => nestedGoalLifecycleSignalFromValue(item, depth + 1));
-  }
-  const record = asRecord(value);
-  if (!record) {
-    return hasGoalLifecycleLabel(value);
-  }
-  if (
-    hasGoalLifecyclePayload(record) ||
-    hasGoalLifecycleLabel(record.summary) ||
-    hasGoalLifecycleLabel(record.title) ||
-    hasGoalLifecycleLabel(record.detail) ||
-    hasGoalLifecycleLabel(record.name) ||
-    hasGoalLifecycleLabel(record.toolName) ||
-    hasGoalLifecycleLabel(record.tool_name)
-  ) {
-    return true;
-  }
-  for (const nestedKey of [
-    "data",
-    "item",
-    "items",
-    "input",
-    "rawInput",
-    "arguments",
-    "args",
-    "result",
-    "results",
-    "output",
-    "outputs",
-    "content",
-    "message",
-    "tool",
-    "toolCall",
-    "tool_call",
-  ] as const) {
-    if (!(nestedKey in record)) {
-      continue;
-    }
-    if (nestedGoalLifecycleSignalFromValue(record[nestedKey], depth + 1)) {
-      return true;
-    }
-  }
-  return false;
-}
-
 function isGoalLifecycleWorkLogActivity(activity: OrchestrationThreadActivity): boolean {
-  const payload = asRecord(activity.payload);
-  const data = asRecord(payload?.data);
-  const item = asRecord(data?.item);
-  const input = asRecord(data?.input);
-  const rawInput = asRecord(data?.rawInput);
-  if (
-    !hasGoalLifecycleLabel(activity.summary) &&
-    !hasGoalLifecycleLabel(payload?.summary) &&
-    !hasGoalLifecycleLabel(payload?.title) &&
-    !hasGoalLifecycleLabel(payload?.detail) &&
-    !hasGoalLifecycleLabel(data?.summary) &&
-    !hasGoalLifecycleLabel(data?.title) &&
-    !hasGoalLifecycleLabel(data?.detail) &&
-    !hasGoalLifecycleLabel(item?.summary) &&
-    !hasGoalLifecycleLabel(item?.title) &&
-    !hasGoalLifecycleLabel(item?.detail) &&
-    !hasGoalLifecycleLabel(input?.summary) &&
-    !hasGoalLifecycleLabel(input?.title) &&
-    !hasGoalLifecycleLabel(input?.detail) &&
-    !hasGoalLifecycleLabel(rawInput?.summary) &&
-    !hasGoalLifecycleLabel(rawInput?.title) &&
-    !hasGoalLifecycleLabel(rawInput?.detail) &&
-    !goalLifecycleToolNameFromPayload(payload) &&
-    !hasGoalLifecyclePayload(payload) &&
-    !nestedGoalLifecycleSignalFromValue(payload, 0)
-  ) {
-    return false;
-  }
-
-  return (
-    activity.kind === "tool.started" ||
-    activity.kind === "tool.updated" ||
-    activity.kind === "tool.completed" ||
-    activity.kind === "task.progress" ||
-    activity.kind === "reasoning.completed" ||
-    activity.kind === "runtime.warning" ||
-    activity.kind === "runtime.error"
-  );
-}
-
-function asGoalStatus(value: unknown): ActiveGoalState["status"] | null {
-  return value === "active" || value === "paused" || value === "completed" || value === "blocked"
-    ? value
-    : null;
-}
-
-function asNonNegativeNumber(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
+  return hasProviderGoalLifecycleSignal({
+    summary: activity.summary,
+    payload: activity.payload,
+  });
 }
 
 export function deriveActiveGoalState(
@@ -357,31 +152,34 @@ export function deriveActiveGoalState(
       activeGoal = null;
       continue;
     }
-    if (activity.kind !== "goal.updated") {
+    if (activity.kind !== "goal.updated" && !isGoalLifecycleWorkLogActivity(activity)) {
       continue;
     }
-    const payload = asRecord(activity.payload);
-    if (!payload) {
+    const parsedGoal = parseProviderGoalLifecycle({
+      summary: activity.summary,
+      payload: activity.payload,
+    });
+    if (!parsedGoal) {
       continue;
     }
-    const status = asGoalStatus(payload.status);
-    const objective = asTrimmedString(payload.objective ?? payload.detail);
-    const threadId = asTrimmedString(payload.threadId);
-    if (!status || !objective || !threadId || status === "completed") {
-      activeGoal = status === "completed" ? null : activeGoal;
+    if (parsedGoal.action === "cleared") {
+      activeGoal = null;
       continue;
     }
-    const tokenBudget = asNonNegativeNumber(payload.tokenBudget);
-    const tokensUsed = asNonNegativeNumber(payload.tokensUsed);
-    const timeUsedSeconds = asNonNegativeNumber(payload.timeUsedSeconds);
+    if (parsedGoal.status === "completed") {
+      activeGoal = null;
+      continue;
+    }
     activeGoal = {
       createdAt: activity.createdAt,
-      threadId,
-      objective,
-      status,
-      ...(tokenBudget !== undefined ? { tokenBudget } : {}),
-      ...(tokensUsed !== undefined ? { tokensUsed } : {}),
-      ...(timeUsedSeconds !== undefined ? { timeUsedSeconds } : {}),
+      threadId: parsedGoal.threadId ?? "active-thread",
+      objective: parsedGoal.objective,
+      status: parsedGoal.status,
+      ...(parsedGoal.tokenBudget !== undefined ? { tokenBudget: parsedGoal.tokenBudget } : {}),
+      ...(parsedGoal.tokensUsed !== undefined ? { tokensUsed: parsedGoal.tokensUsed } : {}),
+      ...(parsedGoal.timeUsedSeconds !== undefined
+        ? { timeUsedSeconds: parsedGoal.timeUsedSeconds }
+        : {}),
     };
   }
 
@@ -734,130 +532,52 @@ function extractSubagentMetadata(payload: Record<string, unknown> | null): {
   const data = asRecord(payload?.data);
   const ace = asRecord(data?.ace);
   const aceSubagent = asRecord(ace?.subagent);
-  const subagent = asRecord(payload?.subagent) ?? asRecord(data?.subagent) ?? aceSubagent;
+  const item = asRecord(data?.item);
+  const subagent =
+    providerAgentRecord(payload) ??
+    aceSubagent ??
+    providerAgentRecord(data) ??
+    providerAgentRecord(item);
   const input = asRecord(data?.input);
   const args = asRecord(data?.arguments);
-  const item = asRecord(data?.item);
   const result = asRecord(data?.result);
+  const metadata = mergeProviderAgentMetadata(
+    subagent,
+    providerAgentLooseRecord(payload),
+    providerAgentLooseRecord(data),
+    providerAgentLooseRecord(item),
+    providerAgentLooseRecord(input),
+    providerAgentLooseRecord(args),
+    providerAgentLooseRecord(result),
+  );
   const receiverThreadId = firstTrimmedString(item?.receiverThreadIds);
   const childProviderThreadId =
     asTrimmedString(payload?.childProviderThreadId) ??
     asTrimmedString(payload?.child_provider_thread_id) ??
     asTrimmedString(ace?.childProviderThreadId) ??
+    asTrimmedString(ace?.child_provider_thread_id) ??
     asTrimmedString(data?.childProviderThreadId) ??
     asTrimmedString(data?.child_provider_thread_id) ??
     asTrimmedString(item?.childProviderThreadId) ??
     asTrimmedString(item?.child_provider_thread_id) ??
     receiverThreadId;
+  const providerSessionId =
+    metadata.id !== undefined || subagent !== undefined
+      ? (asTrimmedString(payload?.sessionId) ??
+        asTrimmedString(payload?.sessionID) ??
+        asTrimmedString(payload?.session_id) ??
+        asTrimmedString(data?.sessionId) ??
+        asTrimmedString(data?.sessionID) ??
+        asTrimmedString(data?.session_id) ??
+        asTrimmedString(item?.sessionId) ??
+        asTrimmedString(item?.sessionID) ??
+        asTrimmedString(item?.session_id))
+      : undefined;
   return {
-    id:
-      asTrimmedString(subagent?.id) ??
-      asTrimmedString(payload?.agentId) ??
-      asTrimmedString(payload?.agent_id) ??
-      asTrimmedString(payload?.subagentId) ??
-      asTrimmedString(payload?.subagent_id) ??
-      childProviderThreadId ??
-      asTrimmedString(data?.agentId) ??
-      asTrimmedString(data?.agent_id) ??
-      asTrimmedString(data?.subagentId) ??
-      asTrimmedString(data?.subagent_id) ??
-      asTrimmedString(result?.agentId) ??
-      asTrimmedString(result?.agent_id) ??
-      asTrimmedString(result?.subagentId) ??
-      asTrimmedString(result?.subagent_id) ??
-      undefined,
-    type:
-      asTrimmedString(subagent?.type) ??
-      asTrimmedString(subagent?.agentRole) ??
-      asTrimmedString(subagent?.agent_role) ??
-      asTrimmedString(payload?.agentRole) ??
-      asTrimmedString(payload?.agent_role) ??
-      asTrimmedString(payload?.subagentType) ??
-      asTrimmedString(payload?.subagent_type) ??
-      asTrimmedString(data?.agentRole) ??
-      asTrimmedString(data?.agent_role) ??
-      asTrimmedString(data?.subagentType) ??
-      asTrimmedString(data?.subagent_type) ??
-      asTrimmedString(item?.agentRole) ??
-      asTrimmedString(item?.agent_role) ??
-      asTrimmedString(input?.agentRole) ??
-      asTrimmedString(input?.agent_role) ??
-      asTrimmedString(input?.subagentType) ??
-      asTrimmedString(input?.subagent_type) ??
-      asTrimmedString(args?.agentRole) ??
-      asTrimmedString(args?.agent_role) ??
-      asTrimmedString(args?.subagentType) ??
-      asTrimmedString(args?.subagent_type) ??
-      (childProviderThreadId ? "codex subagent" : undefined) ??
-      undefined,
-    name:
-      asTrimmedString(subagent?.name) ??
-      asTrimmedString(subagent?.displayName) ??
-      asTrimmedString(subagent?.display_name) ??
-      asTrimmedString(subagent?.agentNickname) ??
-      asTrimmedString(subagent?.agent_nickname) ??
-      asTrimmedString(payload?.agentNickname) ??
-      asTrimmedString(payload?.agent_nickname) ??
-      asTrimmedString(payload?.agentDisplayName) ??
-      asTrimmedString(payload?.agent_display_name) ??
-      asTrimmedString(payload?.agentName) ??
-      asTrimmedString(payload?.agent_name) ??
-      asTrimmedString(payload?.subagentName) ??
-      asTrimmedString(payload?.subagent_name) ??
-      asTrimmedString(payload?.name) ??
-      asTrimmedString(data?.agentNickname) ??
-      asTrimmedString(data?.agent_nickname) ??
-      asTrimmedString(data?.agentDisplayName) ??
-      asTrimmedString(data?.agent_display_name) ??
-      asTrimmedString(data?.agentName) ??
-      asTrimmedString(data?.agent_name) ??
-      asTrimmedString(data?.subagentName) ??
-      asTrimmedString(data?.subagent_name) ??
-      asTrimmedString(data?.name) ??
-      asTrimmedString(item?.agentNickname) ??
-      asTrimmedString(item?.agent_nickname) ??
-      asTrimmedString(item?.agentDisplayName) ??
-      asTrimmedString(item?.agent_display_name) ??
-      asTrimmedString(item?.agentName) ??
-      asTrimmedString(item?.agent_name) ??
-      asTrimmedString(item?.subagentName) ??
-      asTrimmedString(item?.subagent_name) ??
-      asTrimmedString(item?.name) ??
-      asTrimmedString(input?.agentNickname) ??
-      asTrimmedString(input?.agent_nickname) ??
-      asTrimmedString(input?.agentDisplayName) ??
-      asTrimmedString(input?.agent_display_name) ??
-      asTrimmedString(input?.agentName) ??
-      asTrimmedString(input?.agent_name) ??
-      asTrimmedString(input?.subagentName) ??
-      asTrimmedString(input?.subagent_name) ??
-      asTrimmedString(input?.name) ??
-      asTrimmedString(args?.agentNickname) ??
-      asTrimmedString(args?.agent_nickname) ??
-      asTrimmedString(args?.agentDisplayName) ??
-      asTrimmedString(args?.agent_display_name) ??
-      asTrimmedString(args?.agentName) ??
-      asTrimmedString(args?.agent_name) ??
-      asTrimmedString(args?.subagentName) ??
-      asTrimmedString(args?.subagent_name) ??
-      asTrimmedString(args?.name) ??
-      asTrimmedString(result?.agentNickname) ??
-      asTrimmedString(result?.agent_nickname) ??
-      asTrimmedString(result?.agentDisplayName) ??
-      asTrimmedString(result?.agent_display_name) ??
-      asTrimmedString(result?.agentName) ??
-      asTrimmedString(result?.agent_name) ??
-      asTrimmedString(result?.subagentName) ??
-      asTrimmedString(result?.subagent_name) ??
-      asTrimmedString(result?.name) ??
-      undefined,
-    model:
-      asTrimmedString(subagent?.model) ??
-      asTrimmedString(payload?.model) ??
-      asTrimmedString(data?.model) ??
-      asTrimmedString(input?.model) ??
-      asTrimmedString(args?.model) ??
-      undefined,
+    id: childProviderThreadId ?? providerSessionId ?? metadata.id ?? undefined,
+    type: metadata.type ?? (childProviderThreadId ? "codex subagent" : undefined) ?? undefined,
+    name: metadata.name ?? undefined,
+    model: metadata.model ?? undefined,
   };
 }
 

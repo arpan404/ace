@@ -85,7 +85,13 @@ import {
 import { ClaudeAdapter, type ClaudeAdapterShape } from "../Services/ClaudeAdapter.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 import { loadClaudeAgentSdkModule, type ClaudeAgentSdkLoader } from "../providerSdkRuntime.ts";
-import { discoverProviderExtensionSlashCommands } from "../providerExtensionSlashCommands.ts";
+import {
+  discoverClaudeAgentTeamsConfigOption,
+  discoverClaudeAgentConfigOption,
+  discoverClaudeForkSubagentsConfigOption,
+  discoverClaudeOutputStyleConfigOption,
+  discoverProviderExtensionSlashCommands,
+} from "../providerExtensionSlashCommands.ts";
 
 const PROVIDER = "claudeAgent" as const;
 const ROLLBACK_BOOTSTRAP_MAX_CHARS = 24_000;
@@ -2854,6 +2860,43 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         typeof modelSelection?.options?.thinking === "boolean" && caps.supportsThinkingToggle
           ? modelSelection.options.thinking
           : undefined;
+      const outputStyle = modelSelection?.options?.outputStyle?.trim();
+      const agent = modelSelection?.options?.agent?.trim();
+      const forkSubagents =
+        typeof modelSelection?.options?.forkSubagents === "boolean"
+          ? modelSelection.options.forkSubagents
+          : undefined;
+      const agentTeams =
+        typeof modelSelection?.options?.agentTeams === "boolean"
+          ? modelSelection.options.agentTeams
+          : undefined;
+      const configOptions = [
+        discoverClaudeOutputStyleConfigOption({
+          cwd: input.cwd ?? serverConfig.cwd,
+          home: claudeSettings.configDir,
+          ...(outputStyle ? { selectedOutputStyle: outputStyle } : {}),
+        }),
+        discoverClaudeAgentConfigOption({
+          cwd: input.cwd ?? serverConfig.cwd,
+          home: claudeSettings.configDir,
+          ...(agent ? { selectedAgent: agent } : {}),
+          commands: extensionCommands,
+        }),
+        discoverClaudeForkSubagentsConfigOption({
+          ...(forkSubagents !== undefined ? { selectedForkSubagents: forkSubagents } : {}),
+          env: {
+            ...process.env,
+            ...claudeSettings.launchEnv,
+          },
+        }),
+        discoverClaudeAgentTeamsConfigOption({
+          ...(agentTeams !== undefined ? { selectedAgentTeams: agentTeams } : {}),
+          env: {
+            ...process.env,
+            ...claudeSettings.launchEnv,
+          },
+        }),
+      ];
       const effectiveEffort = getEffectiveClaudeCodeEffort(effort);
       const permissionMode = isFullAccessRuntimeMode(input.runtimeMode)
         ? "bypassPermissions"
@@ -2861,6 +2904,8 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       const settings = {
         ...(typeof thinking === "boolean" ? { alwaysThinkingEnabled: thinking } : {}),
         ...(fastMode ? { fastMode: true } : {}),
+        ...(outputStyle ? { outputStyle } : {}),
+        ...(agent && agent !== "default" ? { agent } : {}),
       };
 
       const queryOptions: ClaudeQueryOptions = {
@@ -2882,6 +2927,12 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         env: {
           ...process.env,
           ...claudeSettings.launchEnv,
+          ...(forkSubagents !== undefined
+            ? { CLAUDE_CODE_FORK_SUBAGENT: forkSubagents ? "1" : "0" }
+            : {}),
+          ...(agentTeams !== undefined
+            ? { CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: agentTeams ? "1" : "0" }
+            : {}),
           ...(claudeSettings.configDir ? { CLAUDE_CONFIG_DIR: claudeSettings.configDir } : {}),
         },
         ...(input.cwd ? { additionalDirectories: [input.cwd] } : {}),
@@ -2982,6 +3033,7 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
             ...(effectiveEffort ? { effort: effectiveEffort } : {}),
             ...(permissionMode ? { permissionMode } : {}),
             ...(fastMode ? { fastMode: true } : {}),
+            configOptions,
             ...(extensionCommands.length > 0 ? { availableCommands: extensionCommands } : {}),
             capabilities: CLAUDE_PROVIDER_CAPABILITIES,
           },

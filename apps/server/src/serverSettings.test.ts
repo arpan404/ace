@@ -44,6 +44,25 @@ it.layer(NodeServices.layer)("server settings", (it) => {
 
       assert.deepEqual(
         decodePatch({
+          textGenerationModelSelection: {
+            provider: "githubCopilot",
+            options: {
+              agent: "security-auditor",
+            },
+          },
+        }),
+        {
+          textGenerationModelSelection: {
+            provider: "githubCopilot",
+            options: {
+              agent: "security-auditor",
+            },
+          },
+        },
+      );
+
+      assert.deepEqual(
+        decodePatch({
           gitSshKeyPassphrase: "global-passphrase",
           gitSshKeyPassphraseByProjectRoot: {
             "/tmp/project-a": "project-passphrase",
@@ -53,8 +72,10 @@ it.layer(NodeServices.layer)("server settings", (it) => {
           },
           workspaceSummaryGenerationMode: "auto",
           textGenerationModelSelection: {
+            provider: "claudeAgent",
             options: {
               fastMode: false,
+              agentTeams: true,
             },
           },
         }),
@@ -68,8 +89,10 @@ it.layer(NodeServices.layer)("server settings", (it) => {
           },
           workspaceSummaryGenerationMode: "auto",
           textGenerationModelSelection: {
+            provider: "claudeAgent",
             options: {
               fastMode: false,
+              agentTeams: true,
             },
           },
         },

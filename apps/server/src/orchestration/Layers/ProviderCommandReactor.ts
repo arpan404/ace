@@ -37,6 +37,7 @@ import {
   type ProviderCommandReactorShape,
 } from "../Services/ProviderCommandReactor.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
+import { isAceSideConversationThreadId } from "../sideConversation.ts";
 
 type ProviderIntentEvent = Extract<
   OrchestrationEvent,
@@ -1718,9 +1719,12 @@ const make = Effect.gen(function* () {
       threadId: event.payload.threadId,
       attachments: event.payload.attachments,
     });
+    const sideThreadId = isAceSideConversationThreadId(event.payload.subagentThreadId)
+      ? ThreadId.makeUnsafe(event.payload.subagentThreadId)
+      : null;
 
     if (event.payload.forkSourceThreadId !== undefined) {
-      const sideThreadId = ThreadId.makeUnsafe(event.payload.subagentThreadId);
+      const initialSideThreadId = ThreadId.makeUnsafe(event.payload.subagentThreadId);
       const readModel = yield* orchestrationEngine.getReadModel();
       const effectiveCwd = resolveThreadWorkspaceCwd({
         thread,
@@ -1745,22 +1749,24 @@ const make = Effect.gen(function* () {
         capabilities?.sideConversationMode === "native-fork"
           ? []
           : buildSideConversationReplayTurns(thread);
+      const forkSource =
+        capabilities?.sideConversationMode === "native-fork"
+          ? { threadId: event.payload.forkSourceThreadId }
+          : undefined;
 
-      yield* providerService.startSession(sideThreadId, {
-        threadId: sideThreadId,
+      yield* providerService.startSession(initialSideThreadId, {
+        threadId: initialSideThreadId,
         provider,
         ...(effectiveCwd ? { cwd: effectiveCwd } : {}),
         ...(threadTitle ? { threadTitle } : {}),
         modelSelection: desiredModelSelection,
-        forkSource: {
-          threadId: event.payload.forkSourceThreadId,
-        },
+        ...(forkSource !== undefined ? { forkSource } : {}),
         ...(replayTurns.length > 0 ? { replayTurns } : {}),
         runtimeMode: event.payload.runtimeMode,
         interactionMode: event.payload.interactionMode,
       });
       yield* providerService.sendTurn({
-        threadId: sideThreadId,
+        threadId: initialSideThreadId,
         input: toNonEmptyProviderInput(event.payload.text),
         ...(attachments.length > 0 ? { attachments } : {}),
         modelSelection: desiredModelSelection,
@@ -1768,6 +1774,32 @@ const make = Effect.gen(function* () {
           ? { interactionMode: event.payload.interactionMode }
           : {}),
       });
+      return;
+    }
+
+    if (sideThreadId !== null) {
+      yield* providerService
+        .sendTurn({
+          threadId: sideThreadId,
+          input: toNonEmptyProviderInput(event.payload.text),
+          ...(attachments.length > 0 ? { attachments } : {}),
+          modelSelection: desiredModelSelection,
+          ...(event.payload.interactionMode !== undefined
+            ? { interactionMode: event.payload.interactionMode }
+            : {}),
+        })
+        .pipe(
+          Effect.catchCause((cause) =>
+            appendProviderFailureActivity({
+              threadId: event.payload.threadId,
+              kind: "provider.turn.start.failed",
+              summary: "Side chat failed",
+              detail: providerFailureDetailFromCause(cause),
+              turnId: null,
+              createdAt: event.payload.createdAt,
+            }),
+          ),
+        );
       return;
     }
 

@@ -121,6 +121,26 @@ function initialsForName(name: string): string {
   return (parts[0]?.slice(0, 2) ?? "AI").toUpperCase();
 }
 
+function sideChatTitleFromEntries(entries: ReadonlyArray<WorkLogEntry>): string | null {
+  const firstUserMessage = entries
+    .toSorted((left, right) => left.createdAt.localeCompare(right.createdAt))
+    .find(
+      (entry) =>
+        entry.sideChatMessageRole === "user" &&
+        typeof entry.sideChatMessageText === "string" &&
+        entry.sideChatMessageText.trim().length > 0,
+    )?.sideChatMessageText;
+  const normalized = firstUserMessage?.replace(/\s+/g, " ").trim();
+  if (!normalized) {
+    return null;
+  }
+  const withoutCommand = normalized.replace(/^\/?side\b\s*/i, "").trim() || normalized;
+  if (withoutCommand.length <= 64) {
+    return withoutCommand;
+  }
+  return `${withoutCommand.slice(0, 61).trimEnd()}...`;
+}
+
 function resolveGeneratedSubagentName(hash: number, usedNames: Set<string>): string {
   for (let offset = 0; offset < GENERATED_SUBAGENT_NAMES.length; offset += 1) {
     const candidate =
@@ -194,7 +214,9 @@ export function deriveSubagentThreads(
     .map(([id, group]) => {
       const identity = resolveSubagentIdentity({ entries: group, fallbackId: id, provider });
       const isSideChat = group.some(isSideChatEntry);
-      const identityLabel = isSideChat ? `Side chat ${++sideChatIndex}` : identity.label;
+      const identityLabel = isSideChat
+        ? (sideChatTitleFromEntries(group) ?? `Side chat ${++sideChatIndex}`)
+        : identity.label;
       const persona = resolveSubagentPersona({ id, identityLabel, usedNames });
       const roleLabel = isSideChat || persona.name === identity.label ? null : identity.label;
       return {

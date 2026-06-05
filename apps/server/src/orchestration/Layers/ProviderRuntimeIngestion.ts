@@ -31,6 +31,15 @@ import {
   normalizeProviderSlashCommandName,
   providerFallbackSlashCommands,
 } from "@ace/shared/providerSlashCommands";
+import {
+  mergeProviderAgentMetadata,
+  providerAgentLooseRecord,
+  providerAgentRecord,
+} from "@ace/shared/providerAgentMetadata";
+import {
+  hasProviderGoalLifecycleSignal,
+  parseProviderGoalLifecycle,
+} from "@ace/shared/providerGoalLifecycle";
 
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { ProjectionTurnRepository } from "../../persistence/Services/ProjectionTurns.ts";
@@ -168,13 +177,21 @@ function providerCapabilitiesFromSessionConfigured(
     return null;
   }
 
-  const sessionForkMode = asNonEmptyString(capabilities.sessionForkMode);
-  const sideConversationMode = asNonEmptyString(capabilities.sideConversationMode);
+  const sessionForkMode =
+    asNonEmptyString(capabilities.sessionForkMode) ??
+    asNonEmptyString(capabilities.session_fork_mode);
+  const sideConversationMode =
+    asNonEmptyString(capabilities.sideConversationMode) ??
+    asNonEmptyString(capabilities.side_conversation_mode);
   const providerThreadTargetingMode =
     asNonEmptyString(capabilities.providerThreadTargetingMode) ??
     asNonEmptyString(capabilities.provider_thread_targeting_mode);
-  const sessionResumeMode = asNonEmptyString(capabilities.sessionResumeMode);
-  const turnSteeringMode = asNonEmptyString(capabilities.turnSteeringMode);
+  const sessionResumeMode =
+    asNonEmptyString(capabilities.sessionResumeMode) ??
+    asNonEmptyString(capabilities.session_resume_mode);
+  const turnSteeringMode =
+    asNonEmptyString(capabilities.turnSteeringMode) ??
+    asNonEmptyString(capabilities.turn_steering_mode);
   const overrides: {
     sessionForkMode?: ProviderIntegrationCapabilities["sessionForkMode"];
     sideConversationMode?: ProviderIntegrationCapabilities["sideConversationMode"];
@@ -1355,23 +1372,40 @@ function subagentThreadIdFromRuntimePayload(payload: Record<string, unknown>): s
   const data = asRecord(payload.data);
   const ace = asRecord(data?.ace);
   const item = asRecord(data?.item);
-  const rootSubagent = asRecord(payload.subagent);
-  const subagent = rootSubagent ?? asRecord(data?.subagent) ?? asRecord(ace?.subagent);
-  return (
-    asTrimmedString(subagent?.id) ??
-    asTrimmedString(payload.agentId) ??
-    asTrimmedString(payload.agent_id) ??
-    asTrimmedString(payload.subagentId) ??
-    asTrimmedString(payload.subagent_id) ??
+  const subagent =
+    providerAgentRecord(payload) ??
+    asRecord(ace?.subagent) ??
+    providerAgentRecord(data) ??
+    providerAgentRecord(item);
+  const metadata = mergeProviderAgentMetadata(
+    subagent,
+    providerAgentLooseRecord(payload),
+    providerAgentLooseRecord(data),
+    providerAgentLooseRecord(item),
+  );
+  const childProviderThreadId =
     asTrimmedString(payload.childProviderThreadId) ??
     asTrimmedString(payload.child_provider_thread_id) ??
     asTrimmedString(ace?.childProviderThreadId) ??
+    asTrimmedString(ace?.child_provider_thread_id) ??
     asTrimmedString(data?.childProviderThreadId) ??
     asTrimmedString(data?.child_provider_thread_id) ??
     asTrimmedString(item?.childProviderThreadId) ??
     asTrimmedString(item?.child_provider_thread_id) ??
-    firstTrimmedArrayString(item?.receiverThreadIds)
-  );
+    firstTrimmedArrayString(item?.receiverThreadIds);
+  const providerSessionId =
+    metadata.id !== undefined || subagent !== undefined
+      ? (asTrimmedString(payload.sessionId) ??
+        asTrimmedString(payload.sessionID) ??
+        asTrimmedString(payload.session_id) ??
+        asTrimmedString(data?.sessionId) ??
+        asTrimmedString(data?.sessionID) ??
+        asTrimmedString(data?.session_id) ??
+        asTrimmedString(item?.sessionId) ??
+        asTrimmedString(item?.sessionID) ??
+        asTrimmedString(item?.session_id))
+      : undefined;
+  return childProviderThreadId ?? providerSessionId ?? metadata.id;
 }
 
 function isSubagentRuntimePayload(payload: Record<string, unknown>): boolean {
@@ -1383,6 +1417,20 @@ function subagentRuntimePayloadFields(payload: Record<string, unknown>): Record<
   if (payload.subagent !== undefined) {
     fields.subagent = payload.subagent;
   }
+  const data = asRecord(payload.data);
+  const item = asRecord(data?.item);
+  const payloadAgent = providerAgentRecord(payload);
+  const dataAgent = providerAgentRecord(data);
+  const itemAgent = providerAgentRecord(item);
+  if (fields.subagent === undefined && payloadAgent !== undefined) {
+    fields.subagent = payloadAgent;
+  }
+  if (fields.subagent === undefined && dataAgent !== undefined) {
+    fields.subagent = dataAgent;
+  }
+  if (fields.subagent === undefined && itemAgent !== undefined) {
+    fields.subagent = itemAgent;
+  }
   if (payload.childProviderThreadId !== undefined) {
     fields.childProviderThreadId = payload.childProviderThreadId;
   }
@@ -1390,6 +1438,11 @@ function subagentRuntimePayloadFields(payload: Record<string, unknown>): Record<
     fields.child_provider_thread_id = payload.child_provider_thread_id;
   }
   for (const key of [
+    "sessionId",
+    "sessionID",
+    "session_id",
+    "parentProviderThreadId",
+    "parent_provider_thread_id",
     "agentId",
     "agent_id",
     "subagentId",
@@ -1422,20 +1475,39 @@ function sideConversationPayloadFromActivity(
   activity: OrchestrationThreadActivity,
 ): { id: string; type?: string | undefined; name?: string | undefined } | null {
   const payload = asRecord(activity.payload);
-  const subagent = asRecord(payload?.subagent);
-  const childProviderThreadId = asTrimmedString(payload?.childProviderThreadId);
-  const subagentId = asTrimmedString(subagent?.id) ?? childProviderThreadId;
+  const data = asRecord(payload?.data);
+  const ace = asRecord(data?.ace);
+  const item = asRecord(data?.item);
+  const subagent =
+    providerAgentRecord(payload) ??
+    asRecord(ace?.subagent) ??
+    providerAgentRecord(data) ??
+    providerAgentRecord(item);
+  const metadata = mergeProviderAgentMetadata(
+    subagent,
+    providerAgentLooseRecord(payload),
+    providerAgentLooseRecord(data),
+    providerAgentLooseRecord(ace),
+  );
+  const childProviderThreadId =
+    asTrimmedString(payload?.childProviderThreadId) ??
+    asTrimmedString(payload?.child_provider_thread_id) ??
+    asTrimmedString(data?.childProviderThreadId) ??
+    asTrimmedString(data?.child_provider_thread_id) ??
+    asTrimmedString(ace?.childProviderThreadId) ??
+    asTrimmedString(ace?.child_provider_thread_id);
+  const subagentId = metadata.id ?? childProviderThreadId;
   if (!subagentId) {
     return null;
   }
-  const type = asTrimmedString(subagent?.type);
+  const type = metadata.type;
   if (type !== "side chat") {
     return null;
   }
   return {
     id: subagentId,
     type,
-    ...(asTrimmedString(subagent?.name) ? { name: asTrimmedString(subagent?.name)! } : {}),
+    ...(metadata.name ? { name: metadata.name } : {}),
   };
 }
 
@@ -1548,6 +1620,57 @@ function requestKindFromCanonicalRequestType(
     default:
       return undefined;
   }
+}
+
+function goalLifecycleActivitiesFromLifecycleEvent(
+  event: Extract<
+    ProviderRuntimeEvent,
+    { type: "item.started" | "item.updated" | "item.completed" }
+  >,
+): ReadonlyArray<OrchestrationThreadActivity> | null {
+  const goal = parseProviderGoalLifecycle(event.payload);
+  if (!goal) {
+    return hasProviderGoalLifecycleSignal(event.payload) ? [] : null;
+  }
+  const maybeSequence = providerMessageSequence(event);
+  if (goal.action === "cleared") {
+    const payload = goal.threadId
+      ? { threadId: goal.threadId, providerThreadId: goal.threadId }
+      : {};
+    return [
+      {
+        id: event.eventId,
+        createdAt: event.createdAt,
+        tone: "info",
+        kind: "goal.cleared",
+        summary: "Goal cleared",
+        payload,
+        turnId: toTurnId(event.turnId) ?? null,
+        ...maybeSequence,
+      },
+    ];
+  }
+  return [
+    {
+      id: event.eventId,
+      createdAt: event.createdAt,
+      tone: "info",
+      kind: "goal.updated",
+      summary: goal.status === "paused" ? "Goal paused" : "Goal updated",
+      payload: {
+        threadId: goal.threadId ?? event.threadId,
+        providerThreadId: goal.threadId ?? event.threadId,
+        objective: goal.objective,
+        status: goal.status,
+        detail: goal.objective,
+        ...(goal.tokenBudget !== undefined ? { tokenBudget: goal.tokenBudget } : {}),
+        ...(goal.tokensUsed !== undefined ? { tokensUsed: goal.tokensUsed } : {}),
+        ...(goal.timeUsedSeconds !== undefined ? { timeUsedSeconds: goal.timeUsedSeconds } : {}),
+      },
+      turnId: toTurnId(event.turnId) ?? null,
+      ...maybeSequence,
+    },
+  ];
 }
 
 function runtimeEventToActivities(
@@ -1802,6 +1925,91 @@ function runtimeEventToActivities(
       ];
     }
 
+    case "hook.started": {
+      if (!streamingSettings.enableToolStreaming) {
+        return [];
+      }
+      return [
+        {
+          id: event.eventId,
+          createdAt: event.createdAt,
+          tone: "tool",
+          kind: "hook.started",
+          summary: `Hook started: ${event.payload.hookName}`,
+          payload: {
+            hookId: event.payload.hookId,
+            hookName: event.payload.hookName,
+            hookEvent: event.payload.hookEvent,
+          },
+          turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
+        },
+      ];
+    }
+
+    case "hook.progress": {
+      if (!streamingSettings.enableToolStreaming) {
+        return [];
+      }
+      const detail =
+        asNonEmptyString(event.payload.output) ??
+        asNonEmptyString(event.payload.stdout) ??
+        asNonEmptyString(event.payload.stderr);
+      return [
+        {
+          id: event.eventId,
+          createdAt: event.createdAt,
+          tone: "tool",
+          kind: "hook.progress",
+          summary: "Hook output",
+          payload: {
+            hookId: event.payload.hookId,
+            ...(detail ? { detail } : {}),
+            ...(event.payload.output !== undefined ? { output: event.payload.output } : {}),
+            ...(event.payload.stdout !== undefined ? { stdout: event.payload.stdout } : {}),
+            ...(event.payload.stderr !== undefined ? { stderr: event.payload.stderr } : {}),
+          },
+          turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
+        },
+      ];
+    }
+
+    case "hook.completed": {
+      if (!streamingSettings.enableToolStreaming) {
+        return [];
+      }
+      const detail =
+        asNonEmptyString(event.payload.output) ??
+        asNonEmptyString(event.payload.stdout) ??
+        asNonEmptyString(event.payload.stderr);
+      return [
+        {
+          id: event.eventId,
+          createdAt: event.createdAt,
+          tone: event.payload.outcome === "error" ? "error" : "tool",
+          kind: "hook.completed",
+          summary:
+            event.payload.outcome === "success"
+              ? "Hook completed"
+              : event.payload.outcome === "cancelled"
+                ? "Hook cancelled"
+                : "Hook failed",
+          payload: {
+            hookId: event.payload.hookId,
+            outcome: event.payload.outcome,
+            ...(detail ? { detail } : {}),
+            ...(event.payload.output !== undefined ? { output: event.payload.output } : {}),
+            ...(event.payload.stdout !== undefined ? { stdout: event.payload.stdout } : {}),
+            ...(event.payload.stderr !== undefined ? { stderr: event.payload.stderr } : {}),
+            ...(event.payload.exitCode !== undefined ? { exitCode: event.payload.exitCode } : {}),
+          },
+          turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
+        },
+      ];
+    }
+
     case "thread.state.changed": {
       if (event.payload.state !== "compacted") {
         return [];
@@ -1969,6 +2177,10 @@ function runtimeEventToActivities(
     }
 
     case "item.updated": {
+      const goalLifecycleActivities = goalLifecycleActivitiesFromLifecycleEvent(event);
+      if (goalLifecycleActivities) {
+        return goalLifecycleActivities;
+      }
       if (!streamingSettings.enableToolStreaming) {
         return [];
       }
@@ -1994,6 +2206,10 @@ function runtimeEventToActivities(
     }
 
     case "item.completed": {
+      const goalLifecycleActivities = goalLifecycleActivitiesFromLifecycleEvent(event);
+      if (goalLifecycleActivities) {
+        return goalLifecycleActivities;
+      }
       if (isImageGenerationPlaceholderPayload(event.payload)) {
         return [];
       }
@@ -2065,6 +2281,10 @@ function runtimeEventToActivities(
     }
 
     case "item.started": {
+      const goalLifecycleActivities = goalLifecycleActivitiesFromLifecycleEvent(event);
+      if (goalLifecycleActivities) {
+        return goalLifecycleActivities;
+      }
       if (!streamingSettings.enableToolStreaming) {
         return [];
       }

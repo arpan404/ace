@@ -2,6 +2,7 @@ import {
   type ClaudeModelOptions,
   type CodexModelOptions,
   type CursorModelOptions,
+  type GeminiModelOptions,
   type GitHubCopilotModelOptions,
   type ModelCapabilities,
   type OpenCodeModelOptions,
@@ -76,11 +77,21 @@ export function normalizeClaudeModelOptionsWithCapabilities(
   const thinking = caps.supportsThinkingToggle ? modelOptions?.thinking : undefined;
   const fastMode = caps.supportsFastMode ? modelOptions?.fastMode : undefined;
   const contextWindow = resolveContextWindow(caps, modelOptions?.contextWindow);
+  const outputStyle = modelOptions?.outputStyle?.trim();
+  const agent = modelOptions?.agent?.trim();
+  const forkSubagents =
+    typeof modelOptions?.forkSubagents === "boolean" ? modelOptions.forkSubagents : undefined;
+  const agentTeams =
+    typeof modelOptions?.agentTeams === "boolean" ? modelOptions.agentTeams : undefined;
   const nextOptions: ClaudeModelOptions = {
     ...(thinking !== undefined ? { thinking } : {}),
     ...(effort ? { effort: effort as ClaudeModelOptions["effort"] } : {}),
     ...(fastMode !== undefined ? { fastMode } : {}),
     ...(contextWindow !== undefined ? { contextWindow } : {}),
+    ...(outputStyle ? { outputStyle } : {}),
+    ...(agent ? { agent } : {}),
+    ...(forkSubagents !== undefined ? { forkSubagents } : {}),
+    ...(agentTeams !== undefined ? { agentTeams } : {}),
   };
   return Object.keys(nextOptions).length > 0 ? nextOptions : undefined;
 }
@@ -90,11 +101,13 @@ export function normalizeGitHubCopilotModelOptionsWithCapabilities(
   modelOptions: GitHubCopilotModelOptions | null | undefined,
 ): GitHubCopilotModelOptions | undefined {
   const reasoningEffort = resolveEffort(caps, modelOptions?.reasoningEffort);
-  const nextOptions: GitHubCopilotModelOptions = reasoningEffort
-    ? {
-        reasoningEffort: reasoningEffort as GitHubCopilotModelOptions["reasoningEffort"],
-      }
-    : {};
+  const agent = modelOptions?.agent?.trim();
+  const nextOptions: GitHubCopilotModelOptions = {
+    ...(reasoningEffort
+      ? { reasoningEffort: reasoningEffort as GitHubCopilotModelOptions["reasoningEffort"] }
+      : {}),
+    ...(agent ? { agent } : {}),
+  };
   return Object.keys(nextOptions).length > 0 ? nextOptions : undefined;
 }
 
@@ -104,11 +117,24 @@ export function normalizeCursorModelOptionsWithCapabilities(
 ): CursorModelOptions | undefined {
   const reasoningEffort = resolveEffort(caps, modelOptions?.reasoningEffort);
   const fastMode = caps.supportsFastMode ? modelOptions?.fastMode : undefined;
+  const modeId = modelOptions?.modeId?.trim();
   const nextOptions: CursorModelOptions = {
     ...(reasoningEffort
       ? { reasoningEffort: reasoningEffort as CursorModelOptions["reasoningEffort"] }
       : {}),
     ...(fastMode !== undefined ? { fastMode } : {}),
+    ...(modeId ? { modeId } : {}),
+  };
+  return Object.keys(nextOptions).length > 0 ? nextOptions : undefined;
+}
+
+export function normalizeGeminiModelOptionsWithCapabilities(
+  _caps: ModelCapabilities,
+  modelOptions: GeminiModelOptions | null | undefined,
+): GeminiModelOptions | undefined {
+  const modeId = modelOptions?.modeId?.trim();
+  const nextOptions: GeminiModelOptions = {
+    ...(modeId ? { modeId } : {}),
   };
   return Object.keys(nextOptions).length > 0 ? nextOptions : undefined;
 }
@@ -142,9 +168,16 @@ export function normalizeOpenCodeModelOptionsWithCapabilities(
 ): OpenCodeModelOptions | undefined {
   const variant = resolveContextWindow(caps, modelOptions?.variant);
   const fastMode = caps.supportsFastMode ? modelOptions?.fastMode : undefined;
-  const nextOptions: OpenCodeModelOptions = {
-    ...(variant !== undefined ? { variant } : {}),
-    ...(fastMode !== undefined ? { fastMode } : {}),
-  };
+  const modeId = modelOptions?.modeId?.trim();
+  const nextOptions: OpenCodeModelOptions = modeId
+    ? {
+        ...(variant !== undefined ? { variant } : {}),
+        ...(fastMode !== undefined ? { fastMode } : {}),
+        modeId,
+      }
+    : {
+        ...(variant !== undefined ? { variant } : {}),
+        ...(fastMode !== undefined ? { fastMode } : {}),
+      };
   return Object.keys(nextOptions).length > 0 ? nextOptions : undefined;
 }

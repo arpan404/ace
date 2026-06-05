@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ThreadId, type ServerProviderModel } from "@ace/contracts";
+import { renderToStaticMarkup } from "react-dom/server";
 import {
   getComposerProviderState,
   renderProviderTraitsMenuContent,
@@ -205,6 +206,21 @@ const PI_MODELS: ReadonlyArray<ServerProviderModel> = [
         { value: "medium", label: "Medium", isDefault: true },
         { value: "high", label: "High" },
       ],
+      supportsFastMode: false,
+      supportsThinkingToggle: false,
+      contextWindowOptions: [],
+      promptInjectedEffortLevels: [],
+    },
+  },
+];
+
+const GEMINI_MODELS: ReadonlyArray<ServerProviderModel> = [
+  {
+    slug: "gemini-2.5-pro",
+    name: "Gemini 2.5 Pro",
+    isCustom: false,
+    capabilities: {
+      reasoningEffortLevels: [],
       supportsFastMode: false,
       supportsThinkingToggle: false,
       contextWindowOptions: [],
@@ -562,7 +578,7 @@ describe("getComposerProviderState", () => {
     });
   });
 
-  it("dispatches exact Cursor model slugs without a Cursor options bag", () => {
+  it("dispatches Cursor model traits so ACP can select the matching variant", () => {
     const state = getComposerProviderState({
       provider: "cursor",
       model: "gpt-5.3-codex-low-fast",
@@ -579,7 +595,10 @@ describe("getComposerProviderState", () => {
     expect(state).toEqual({
       provider: "cursor",
       promptEffort: null,
-      modelOptionsForDispatch: undefined,
+      modelOptionsForDispatch: {
+        reasoningEffort: "low",
+        fastMode: true,
+      },
     });
   });
 
@@ -627,6 +646,63 @@ describe("getComposerProviderState", () => {
       },
     });
   });
+
+  it("preserves Gemini ACP mode in dispatch options", () => {
+    const state = getComposerProviderState({
+      provider: "gemini",
+      model: "gemini-2.5-pro",
+      models: GEMINI_MODELS,
+      prompt: "",
+      modelOptions: {
+        gemini: {
+          modeId: "yolo",
+        },
+      },
+    });
+
+    expect(state).toEqual({
+      provider: "gemini",
+      promptEffort: null,
+      modelOptionsForDispatch: {
+        modeId: "yolo",
+      },
+    });
+  });
+
+  it("preserves OpenCode primary agent mode in dispatch options", () => {
+    const state = getComposerProviderState({
+      provider: "opencode",
+      model: "auto",
+      models: [
+        {
+          slug: "auto",
+          name: "Auto",
+          isCustom: false,
+          capabilities: {
+            reasoningEffortLevels: [],
+            promptInjectedEffortLevels: [],
+            supportsThinkingToggle: false,
+            supportsFastMode: false,
+            contextWindowOptions: [],
+          },
+        },
+      ],
+      prompt: "",
+      modelOptions: {
+        opencode: {
+          modeId: "review",
+        },
+      },
+    });
+
+    expect(state).toEqual({
+      provider: "opencode",
+      promptEffort: null,
+      modelOptionsForDispatch: {
+        modeId: "review",
+      },
+    });
+  });
 });
 
 describe("renderProviderTraitsPicker", () => {
@@ -657,6 +733,60 @@ describe("renderProviderTraitsPicker", () => {
 
     expect(picker).not.toBeNull();
   });
+
+  it("renders Cursor traits picker when ACP mode config options are available", () => {
+    const picker = renderProviderTraitsPicker({
+      provider: "cursor",
+      threadId: ThreadId.makeUnsafe("thread-1"),
+      model: "auto",
+      models: GITHUB_COPILOT_MODELS,
+      modelOptions: { modeId: "plan" },
+      prompt: "",
+      onPromptChange: () => undefined,
+      sessionConfigOptions: [
+        {
+          id: "mode",
+          name: "Mode",
+          category: "mode",
+          type: "select",
+          currentValue: "agent",
+          options: [
+            { value: "agent", name: "Agent" },
+            { value: "plan", name: "Plan" },
+          ],
+        },
+      ],
+    });
+
+    expect(picker).not.toBeNull();
+  });
+
+  it("renders GitHub Copilot agent config options in the traits picker", () => {
+    const picker = renderProviderTraitsPicker({
+      provider: "githubCopilot",
+      threadId: ThreadId.makeUnsafe("thread-1"),
+      model: "gpt-4.1",
+      models: GITHUB_COPILOT_MODELS,
+      modelOptions: { agent: "security-auditor" },
+      prompt: "",
+      onPromptChange: () => undefined,
+      sessionConfigOptions: [
+        {
+          id: "agent",
+          name: "Agent",
+          category: "agent",
+          type: "select",
+          currentValue: "default",
+          options: [
+            { value: "default", name: "Default" },
+            { value: "security-auditor", name: "Security Auditor" },
+          ],
+        },
+      ],
+    });
+
+    expect(renderToStaticMarkup(<>{picker}</>)).toContain("Security Auditor");
+  });
 });
 
 describe("renderProviderTraitsMenuContent", () => {
@@ -672,5 +802,62 @@ describe("renderProviderTraitsMenuContent", () => {
     });
 
     expect(menuContent).toBeNull();
+  });
+
+  it("renders Cursor traits menu content when ACP mode config options are available", () => {
+    const menuContent = renderProviderTraitsMenuContent({
+      provider: "cursor",
+      threadId: ThreadId.makeUnsafe("thread-1"),
+      model: "auto",
+      models: GITHUB_COPILOT_MODELS,
+      modelOptions: { modeId: "plan" },
+      prompt: "",
+      onPromptChange: () => undefined,
+      sessionConfigOptions: [
+        {
+          id: "mode",
+          name: "Mode",
+          category: "mode",
+          type: "select",
+          currentValue: "agent",
+          options: [
+            { value: "agent", name: "Agent" },
+            { value: "plan", name: "Plan" },
+          ],
+        },
+      ],
+    });
+
+    expect(menuContent).not.toBeNull();
+  });
+
+  it("renders GitHub Copilot agent config options in the traits menu content", () => {
+    const sessionConfigOptions = [
+      {
+        id: "agent",
+        name: "Agent",
+        category: "agent" as const,
+        type: "select" as const,
+        currentValue: "default",
+        options: [
+          { value: "default", name: "Default" },
+          { value: "security-auditor", name: "Security Auditor" },
+        ],
+      },
+    ];
+    const menuContent = renderProviderTraitsMenuContent({
+      provider: "githubCopilot",
+      threadId: ThreadId.makeUnsafe("thread-1"),
+      model: "gpt-4.1",
+      models: GITHUB_COPILOT_MODELS,
+      modelOptions: { agent: "security-auditor" },
+      prompt: "",
+      onPromptChange: () => undefined,
+      sessionConfigOptions,
+    });
+
+    expect((menuContent as { props?: { sessionConfigOptions?: unknown } }).props).toMatchObject({
+      sessionConfigOptions,
+    });
   });
 });

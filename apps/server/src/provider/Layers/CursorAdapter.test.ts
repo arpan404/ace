@@ -415,6 +415,64 @@ describe("CursorAdapterLive", () => {
     });
   });
 
+  it("syncs selected Cursor ACP mode from model options on session start", async () => {
+    const client = makeFakeCursorClient({
+      requestImpl: async (method, params) => {
+        switch (method) {
+          case "initialize":
+            return cursorInitializeResult();
+          case "authenticate":
+            return {};
+          case "session/new":
+            return cursorSessionResult("cursor-session-selected-mode");
+          case "session/set_config_option": {
+            const record = params as { readonly value?: string };
+            return {
+              configOptions: cursorSessionConfigOptions({
+                mode: record.value === "plan" ? "plan" : "agent",
+              }),
+            };
+          }
+          default:
+            throw new Error(`Unexpected Cursor ACP request: ${method}`);
+        }
+      },
+    });
+    mockedStartCursorAcpClient.mockReturnValue(client);
+
+    await withAdapter(async (adapter) => {
+      try {
+        await Effect.runPromise(
+          adapter.startSession({
+            provider: "cursor",
+            threadId: asThreadId("thread-selected-mode"),
+            cwd: "/repo/selected-mode",
+            runtimeMode: "full-access",
+            modelSelection: {
+              provider: "cursor",
+              model: "gpt-5-mini",
+              options: {
+                modeId: "plan",
+              },
+            },
+          }),
+        );
+
+        expect(client.request).toHaveBeenCalledWith(
+          "session/set_config_option",
+          {
+            sessionId: "cursor-session-selected-mode",
+            configId: "mode",
+            value: "plan",
+          },
+          { timeoutMs: 15_000 },
+        );
+      } finally {
+        await Effect.runPromise(adapter.stopAll());
+      }
+    });
+  });
+
   it("emits replay fork capabilities when Cursor ACP does not advertise session fork", async () => {
     const client = makeFakeCursorClient({
       requestImpl: async (method) => {
@@ -593,7 +651,7 @@ describe("CursorAdapterLive", () => {
               expect.objectContaining({
                 name: "release-review",
                 kind: "skill",
-                promptPrefix: "Use the release-review skill:",
+                promptPrefix: "/release-review",
               }),
             ]),
           );
@@ -922,6 +980,86 @@ describe("CursorAdapterLive", () => {
         ]);
 
         secondPromptResult.resolve({ stopReason: "end_turn" });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      } finally {
+        await Effect.runPromise(adapter.stopAll());
+      }
+    });
+  });
+
+  it("does not override an explicit Cursor ACP mode with the generic interaction mode", async () => {
+    const promptResult = deferred<{ readonly stopReason: string }>();
+    const client = makeFakeCursorClient({
+      requestImpl: async (method, params) => {
+        switch (method) {
+          case "initialize":
+            return cursorInitializeResult();
+          case "authenticate":
+            return {};
+          case "session/new":
+            return cursorSessionResult("cursor-session-explicit-mode");
+          case "session/set_config_option": {
+            const record = params as { readonly value?: string };
+            return {
+              configOptions: cursorSessionConfigOptions({
+                mode: record.value === "plan" ? "plan" : "agent",
+              }),
+            };
+          }
+          case "session/prompt":
+            return promptResult.promise;
+          default:
+            throw new Error(`Unexpected Cursor ACP request: ${method}`);
+        }
+      },
+    });
+    mockedStartCursorAcpClient.mockReturnValue(client);
+
+    await withAdapter(async (adapter) => {
+      try {
+        const threadId = asThreadId("thread-explicit-mode");
+        await Effect.runPromise(
+          adapter.startSession({
+            provider: "cursor",
+            threadId,
+            cwd: "/repo/explicit-mode",
+            runtimeMode: "full-access",
+          }),
+        );
+
+        await Effect.runPromise(
+          adapter.sendTurn({
+            threadId,
+            input: "Use the selected provider mode.",
+            interactionMode: "default",
+            modelSelection: {
+              provider: "cursor",
+              model: "gpt-5-mini",
+              options: {
+                modeId: "plan",
+              },
+            },
+          }),
+        );
+
+        const modeRequests = client.request.mock.calls.filter(
+          ([method, requestParams]) =>
+            method === "session/set_config_option" &&
+            (requestParams as { readonly configId?: string } | undefined)?.configId === "mode",
+        );
+        expect(modeRequests).toEqual([
+          [
+            "session/set_config_option",
+            {
+              sessionId: "cursor-session-explicit-mode",
+              configId: "mode",
+              value: "plan",
+            },
+            { timeoutMs: 15_000 },
+          ],
+        ]);
+
+        promptResult.resolve({ stopReason: "end_turn" });
         await new Promise((resolve) => setTimeout(resolve, 0));
       } finally {
         await Effect.runPromise(adapter.stopAll());

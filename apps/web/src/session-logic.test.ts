@@ -997,6 +997,364 @@ describe("deriveWorkLogEntries", () => {
     expect(deriveWorkLogEntries(activities, undefined)).toEqual([]);
   });
 
+  it("does not render streamed goal lifecycle text fields inside thinking payloads", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "goal-streamed-text-item",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "task.progress",
+        summary: "Thinking",
+        tone: "info",
+        payload: {
+          data: {
+            item: {
+              text: "Goal updated",
+              output_text: "Implement provider feature parity",
+              result: {
+                status: "active",
+                objective: "Implement provider feature parity",
+              },
+            },
+          },
+        },
+      }),
+      makeActivity({
+        id: "goal-streamed-delta-item",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        kind: "reasoning.completed",
+        summary: "Thinking",
+        tone: "info",
+        payload: {
+          data: {
+            items: [
+              {
+                label: "Goal updated",
+                delta: "Implement provider feature parity",
+                output: {
+                  goal: {
+                    status: "active",
+                    objective: "Implement provider feature parity",
+                  },
+                },
+              },
+            ],
+          },
+        },
+      }),
+    ];
+
+    expect(deriveWorkLogEntries(activities, undefined)).toEqual([]);
+  });
+
+  it("does not render status-prefixed goal lifecycle text inside thinking payloads", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "goal-prefixed-thinking-item",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "task.progress",
+        summary: "Thinking",
+        tone: "info",
+        payload: {
+          data: {
+            item: {
+              description: "✓ Goal updated",
+              detail: "Implement provider feature parity",
+              result: {
+                status: "active",
+                objective: "Implement provider feature parity",
+              },
+            },
+          },
+        },
+      }),
+    ];
+
+    expect(deriveWorkLogEntries(activities, undefined)).toEqual([]);
+  });
+
+  it("does not render serialized goal lifecycle provider payloads", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "goal-serialized-function-call",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "task.progress",
+        summary: "Thinking",
+        tone: "info",
+        payload: {
+          data: {
+            item: {
+              type: "function_call_output",
+              output:
+                '{"toolName":"update_goal","title":"Goal updated","result":{"objective":"Implement provider feature parity","status":"active"}}',
+            },
+          },
+        },
+      }),
+      makeActivity({
+        id: "goal-nested-function-call",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        kind: "reasoning.completed",
+        summary: "Thinking",
+        tone: "info",
+        payload: {
+          data: {
+            item: {
+              function_call: {
+                function: {
+                  name: "update_goal",
+                },
+                arguments: {
+                  objective: "Implement provider feature parity",
+                  status: "paused",
+                },
+              },
+            },
+          },
+        },
+      }),
+    ];
+
+    expect(deriveWorkLogEntries(activities, undefined)).toEqual([]);
+  });
+
+  it("does not render provider-namespaced goal tool activity in thinking rows", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "goal-provider-tool-thinking",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "reasoning.completed",
+        summary: "Thinking",
+        tone: "info",
+        payload: {
+          data: {
+            item: {
+              type: "function_call_output",
+              name: "functions.update_goal",
+              output: {
+                objective: "Implement provider feature parity",
+                status: "active",
+              },
+            },
+          },
+        },
+      }),
+      makeActivity({
+        id: "goal-provider-tool-progress",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        kind: "task.progress",
+        summary: "Thinking",
+        tone: "info",
+        payload: {
+          data: {
+            item: {
+              toolName: "tools.update_goal",
+              text: "Goal updated\nImplement provider feature parity",
+            },
+          },
+        },
+      }),
+    ];
+
+    expect(deriveWorkLogEntries(activities, undefined)).toEqual([]);
+    expect(deriveActiveGoalState(activities)).toEqual({
+      createdAt: "2026-02-23T00:00:02.000Z",
+      threadId: "active-thread",
+      objective: "Implement provider feature parity",
+      status: "active",
+    });
+  });
+
+  it("does not render separator-namespaced provider goal lifecycle tools", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "goal-mcp-namespaced-tool",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "reasoning.completed",
+        summary: "Thinking",
+        tone: "info",
+        payload: {
+          data: {
+            item: {
+              type: "function_call_output",
+              name: "mcp__goals__update_goal",
+              output: {
+                objective: "Keep provider goal state out of transcript",
+                status: "active",
+              },
+            },
+          },
+        },
+      }),
+      makeActivity({
+        id: "goal-thread-path-tool",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        kind: "task.progress",
+        summary: "Thinking",
+        tone: "info",
+        payload: {
+          data: {
+            item: {
+              toolName: "thread/goal/set",
+              outputText: "Goal updated\nKeep provider goal state out of transcript",
+              result: {
+                objective: "Keep provider goal state out of transcript",
+                status: "paused",
+              },
+            },
+          },
+        },
+      }),
+    ];
+
+    expect(deriveWorkLogEntries(activities, undefined)).toEqual([]);
+    expect(deriveActiveGoalState(activities)).toEqual({
+      createdAt: "2026-02-23T00:00:02.000Z",
+      threadId: "active-thread",
+      objective: "Keep provider goal state out of transcript",
+      status: "paused",
+    });
+  });
+
+  it("does not render provider goal updates from generic completed items", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "goal-generic-provider-item",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "item.completed",
+        summary: "Goal updated",
+        tone: "info",
+        payload: {
+          data: {
+            item: {
+              type: "function_call_output",
+              name: "update_goal",
+              result: {
+                goal: {
+                  threadId: "provider-thread-1",
+                  objective: "Implement provider feature parity",
+                  status: "active",
+                },
+              },
+            },
+          },
+        },
+      }),
+    ];
+
+    expect(deriveWorkLogEntries(activities, undefined)).toEqual([]);
+    expect(deriveActiveGoalState(activities)).toEqual({
+      createdAt: "2026-02-23T00:00:01.000Z",
+      threadId: "provider-thread-1",
+      objective: "Implement provider feature parity",
+      status: "active",
+    });
+  });
+
+  it("derives goal panel state from plain streamed goal lifecycle text without rendering it", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "goal-plain-streamed-text",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "task.progress",
+        summary: "Thinking",
+        tone: "info",
+        payload: {
+          data: {
+            item: {
+              type: "function_call_output",
+              outputText:
+                "Goal updated\nImplement the latest provider features without transcript leaks",
+            },
+          },
+        },
+      }),
+    ];
+
+    expect(deriveWorkLogEntries(activities, undefined)).toEqual([]);
+    expect(deriveActiveGoalState(activities)).toEqual({
+      createdAt: "2026-02-23T00:00:01.000Z",
+      threadId: "active-thread",
+      objective: "Implement the latest provider features without transcript leaks",
+      status: "active",
+    });
+  });
+
+  it("does not render nested provider goal content arrays and still updates goal state", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "goal-provider-content-array",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "reasoning.completed",
+        summary: "Thinking",
+        tone: "info",
+        payload: {
+          data: {
+            item: {
+              type: "function_call_output",
+              name: "functions.update_goal",
+              content: [
+                { type: "text", text: "Goal updated" },
+                {
+                  type: "text",
+                  text: "Implement provider feature parity without transcript leaks",
+                },
+              ],
+              output: [
+                {
+                  type: "text",
+                  text: "Goal updated\nImplement provider feature parity without transcript leaks",
+                },
+              ],
+            },
+          },
+        },
+      }),
+    ];
+
+    expect(deriveWorkLogEntries(activities, undefined)).toEqual([]);
+    expect(deriveActiveGoalState(activities)).toEqual({
+      createdAt: "2026-02-23T00:00:01.000Z",
+      threadId: "active-thread",
+      objective: "Implement provider feature parity without transcript leaks",
+      status: "active",
+    });
+  });
+
+  it("clears goal panel state from plain streamed goal clear text", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "goal-active",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "goal.updated",
+        summary: "Goal updated",
+        tone: "info",
+        payload: {
+          threadId: "provider-thread-1",
+          objective: "Implement provider feature parity",
+          status: "active",
+        },
+      }),
+      makeActivity({
+        id: "goal-plain-clear-text",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        kind: "task.progress",
+        summary: "Thinking",
+        tone: "info",
+        payload: {
+          data: {
+            item: {
+              type: "function_call_output",
+              outputText: "Goal cleared",
+            },
+          },
+        },
+      }),
+    ];
+
+    expect(deriveWorkLogEntries(activities, undefined)).toEqual([]);
+    expect(deriveActiveGoalState(activities)).toBeNull();
+  });
+
   it("omits tool started entries and keeps completed entries", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({
@@ -1252,6 +1610,57 @@ describe("deriveWorkLogEntries", () => {
     });
   });
 
+  it("prefers provider child session ids over agent ids for separate side chats", () => {
+    const entries = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "provider-side-chat-a",
+          turnId: "turn-provider-side-chat-a",
+          kind: "task.progress",
+          summary: "Subagent message",
+          payload: {
+            itemType: "assistant_message",
+            detail: "First reviewer side-chat response.",
+            data: {
+              sessionId: "provider-child-session-a",
+              subagent: {
+                id: "reviewer",
+                type: "provider subagent",
+                name: "Reviewer",
+              },
+            },
+          },
+        }),
+        makeActivity({
+          id: "provider-side-chat-b",
+          turnId: "turn-provider-side-chat-b",
+          kind: "task.progress",
+          summary: "Subagent message",
+          payload: {
+            itemType: "assistant_message",
+            detail: "Second reviewer side-chat response.",
+            data: {
+              sessionID: "provider-child-session-b",
+              subagent: {
+                id: "reviewer",
+                type: "provider subagent",
+                name: "Reviewer",
+              },
+            },
+          },
+        }),
+      ],
+      undefined,
+    );
+
+    expect(entries).toHaveLength(2);
+    expect(entries.map((entry) => entry.subagentId)).toEqual([
+      "provider-child-session-a",
+      "provider-child-session-b",
+    ]);
+    expect(entries.map((entry) => entry.subagentName)).toEqual(["Reviewer", "Reviewer"]);
+  });
+
   it("derives provider-agnostic root scalar agent metadata", () => {
     const entries = deriveWorkLogEntries(
       [
@@ -1313,6 +1722,116 @@ describe("deriveWorkLogEntries", () => {
       subagentModel: "gpt-5.4",
       sideChatMessageRole: "assistant",
       sideChatMessageText: "Root display subagent result.",
+    });
+  });
+
+  it("derives provider-agnostic nested agent metadata", () => {
+    const entries = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "root-nested-agent-response",
+          turnId: "turn-root-nested-agent",
+          kind: "task.progress",
+          summary: "Subagent message",
+          payload: {
+            itemType: "assistant_message",
+            detail: "Root nested agent result.",
+            data: {
+              agent: {
+                id: "nested-agent-1",
+                name: "Nested Reviewer",
+                role: "code-reviewer",
+                model: "gpt-5.4",
+              },
+            },
+          },
+        }),
+      ],
+      undefined,
+    );
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      subagentId: "nested-agent-1",
+      subagentType: "code-reviewer",
+      subagentName: "Nested Reviewer",
+      subagentModel: "gpt-5.4",
+      sideChatMessageRole: "assistant",
+      sideChatMessageText: "Root nested agent result.",
+    });
+  });
+
+  it("derives provider-agnostic item-nested agent metadata", () => {
+    const entries = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "root-item-agent-response",
+          turnId: "turn-root-item-agent",
+          kind: "task.progress",
+          summary: "Subagent message",
+          payload: {
+            itemType: "assistant_message",
+            detail: "Root item agent result.",
+            data: {
+              item: {
+                agent: {
+                  id: "item-agent-1",
+                  name: "Item Reviewer",
+                  role: "researcher",
+                  model: "gpt-5.4",
+                },
+              },
+            },
+          },
+        }),
+      ],
+      undefined,
+    );
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      subagentId: "item-agent-1",
+      subagentType: "researcher",
+      subagentName: "Item Reviewer",
+      subagentModel: "gpt-5.4",
+      sideChatMessageRole: "assistant",
+      sideChatMessageText: "Root item agent result.",
+    });
+  });
+
+  it("derives provider-agnostic delegated agent metadata", () => {
+    const entries = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "root-delegated-agent-response",
+          turnId: "turn-root-delegated-agent",
+          kind: "task.progress",
+          summary: "Subagent message",
+          payload: {
+            itemType: "assistant_message",
+            detail: "Delegated agent result.",
+            data: {
+              assignedAgent: {
+                id: "assigned-agent-1",
+                displayName: "Platform Specialist",
+                role: "platform",
+                model: "gpt-5.4",
+              },
+            },
+          },
+        }),
+      ],
+      undefined,
+    );
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      subagentId: "assigned-agent-1",
+      subagentType: "platform",
+      subagentName: "Platform Specialist",
+      subagentModel: "gpt-5.4",
+      sideChatMessageRole: "assistant",
+      sideChatMessageText: "Delegated agent result.",
     });
   });
 
@@ -3081,6 +3600,12 @@ describe("filterVisibleWorkLogActivities", () => {
         tone: "tool",
       }),
       makeActivity({
+        id: "hook-progress",
+        kind: "hook.progress",
+        summary: "Hook output",
+        tone: "tool",
+      }),
+      makeActivity({
         id: "task-progress",
         kind: "task.progress",
         summary: "Reasoning update",
@@ -3187,6 +3712,37 @@ describe("deriveActiveGoalState", () => {
         }),
       ]),
     ).toBeNull();
+  });
+
+  it("derives the active goal from lifecycle tool payloads without rendering transcript noise", () => {
+    const goalToolActivity = makeActivity({
+      id: "goal-tool-result",
+      createdAt: "2026-02-23T00:00:01.000Z",
+      kind: "reasoning.completed",
+      summary: "Thinking",
+      tone: "info",
+      payload: {
+        data: {
+          item: {
+            title: "✓ Goal updated",
+            result: {
+              objective: "Implement provider feature parity",
+              status: "active",
+              tokensUsed: 42,
+            },
+          },
+        },
+      },
+    });
+
+    expect(deriveWorkLogEntries([goalToolActivity], undefined)).toEqual([]);
+    expect(deriveActiveGoalState([goalToolActivity])).toEqual({
+      createdAt: "2026-02-23T00:00:01.000Z",
+      threadId: "active-thread",
+      objective: "Implement provider feature parity",
+      status: "active",
+      tokensUsed: 42,
+    });
   });
 });
 

@@ -121,4 +121,42 @@ describe("providerSlashCommands", () => {
     expect(providerFallbackSlashCommands("gemini")).toEqual([]);
     expect(providerFallbackSlashCommands("opencode")).toEqual([]);
   });
+
+  it("drops provider-reported side-chat aliases so Ace owns /side", () => {
+    expect(
+      mergeProviderSlashCommands([
+        {
+          name: "side",
+          kind: "provider",
+          description: "Provider native side conversation",
+          promptPrefix: "/side",
+        },
+        {
+          name: "btw",
+          kind: "provider",
+          description: "Provider side note",
+          promptPrefix: "/btw",
+        },
+        {
+          name: "ask",
+          kind: "agent",
+          description: "Provider side agent",
+          promptPrefix: "@ask",
+        },
+        {
+          name: "review",
+          kind: "agent",
+          description: "Review with a provider agent",
+          promptPrefix: "@review",
+        },
+      ]),
+    ).toEqual([
+      {
+        name: "review",
+        kind: "agent",
+        description: "Review with a provider agent",
+        promptPrefix: "@review",
+      },
+    ]);
+  });
 });

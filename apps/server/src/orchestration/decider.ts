@@ -16,6 +16,7 @@ import {
   requireThreadAbsent,
   requireThreadNotArchived,
 } from "./commandInvariants.ts";
+import { isAceSideConversationThreadId } from "./sideConversation.ts";
 
 const nowIso = () => new Date().toISOString();
 const defaultMetadata: Omit<OrchestrationEvent, "sequence" | "type" | "payload"> = {
@@ -789,7 +790,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
-      const isNativeSideConversation = command.forkSourceThreadId !== undefined;
+      const isSideConversation =
+        command.forkSourceThreadId !== undefined ||
+        isAceSideConversationThreadId(command.subagentThreadId);
       const subagentMessageEvent: Omit<OrchestrationEvent, "sequence"> = {
         ...withEventBase({
           aggregateKind: "thread",
@@ -815,7 +818,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
               childProviderThreadId: command.subagentThreadId,
               subagent: {
                 id: command.subagentThreadId,
-                type: isNativeSideConversation ? "side chat" : "subagent",
+                type: isSideConversation ? "side chat" : "subagent",
               },
               messageId: command.message.messageId,
             },

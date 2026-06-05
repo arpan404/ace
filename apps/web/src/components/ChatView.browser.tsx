@@ -8,6 +8,7 @@ import {
   ORCHESTRATION_WS_METHODS,
   type MessageId,
   type OrchestrationEvent,
+  type ProviderIntegrationCapabilities,
   type OrchestrationReadModel,
   type ProjectId,
   type ServerConfig,
@@ -242,6 +243,7 @@ function createSnapshotForTargetUser(options: {
   threadId?: ThreadId;
   threadTitle?: string;
   messageIdPrefix?: string;
+  sideConversationMode?: ProviderIntegrationCapabilities["sideConversationMode"];
 }): OrchestrationReadModel {
   const threadId = options.threadId ?? THREAD_ID;
   const threadTitle = options.threadTitle ?? "Browser test thread";
@@ -330,6 +332,25 @@ function createSnapshotForTargetUser(options: {
           activeTurnId: null,
           lastError: null,
           updatedAt: NOW_ISO,
+          ...(options.sideConversationMode
+            ? {
+                capabilities: {
+                  sessionModelSwitch: "in-session",
+                  sessionModelOptionsSwitch: "in-session",
+                  liveTurnDiffMode: "native",
+                  reviewChangesMode: "provider",
+                  reviewSurface: "git-worktree",
+                  approvalRequestsMode: "native",
+                  turnSteeringMode: "native",
+                  transcriptAuthority: "provider",
+                  historyAuthority: "project-local",
+                  sessionResumeMode: "native",
+                  sessionForkMode: "native",
+                  sideConversationMode: options.sideConversationMode,
+                  providerThreadTargetingMode: "native",
+                },
+              }
+            : {}),
         },
       },
     ],
@@ -3280,6 +3301,51 @@ describe("ChatView timeline estimator parity (full app)", () => {
           expect(sideDraft?.terminalContexts.map((context) => context.id)).toEqual([
             "ctx-side-transfer",
           ]);
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("keeps a typed /side draft in the main composer when side chats are unsupported", async () => {
+    const sideDraftThreadId = `subagent:${THREAD_ID}:__ace_new_side_chat__` as ThreadId;
+    useComposerDraftStore.getState().setPrompt(THREAD_ID, "/side Inspect unsupported provider");
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-side-unsupported" as MessageId,
+        targetText: "side unsupported target",
+        sideConversationMode: "unsupported",
+      }),
+      resolveRpc: (body) => {
+        if (body._tag === ORCHESTRATION_WS_METHODS.dispatchCommand) {
+          return { sequence: 1 };
+        }
+        return undefined;
+      },
+    });
+
+    try {
+      const sendButton = await waitForSendButton();
+      expect(sendButton.disabled).toBe(false);
+      sendButton.click();
+
+      await vi.waitFor(
+        () => {
+          const mainTurnStartRequest = wsRequests.find(
+            (request) =>
+              request._tag === ORCHESTRATION_WS_METHODS.dispatchCommand &&
+              request.type === "thread.turn.start",
+          );
+          expect(mainTurnStartRequest).toBeUndefined();
+          const sourceDraft = useComposerDraftStore.getState().draftsByThreadId[THREAD_ID];
+          expect(sourceDraft?.prompt).toBe("/side Inspect unsupported provider");
+          const sideDraft = useComposerDraftStore.getState().draftsByThreadId[sideDraftThreadId];
+          expect(sideDraft).toBeUndefined();
+          expect(document.body.textContent).toContain("Side chat is unavailable");
         },
         { timeout: 8_000, interval: 16 },
       );

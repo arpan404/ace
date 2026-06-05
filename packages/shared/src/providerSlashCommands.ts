@@ -168,6 +168,9 @@ export function mergeProviderSlashCommands(
       if (!name) {
         continue;
       }
+      if (isProviderSideConversationAlias(name)) {
+        continue;
+      }
       const normalizedKind = normalizeProviderSlashCommandKind(candidate.kind);
       const inferredExtensionKind = providerSlashCommandExtensionKind(candidate, name);
       const kind = normalizedKind ?? inferredExtensionKind ?? undefined;

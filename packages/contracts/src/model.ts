@@ -20,17 +20,23 @@ export const ClaudeModelOptions = Schema.Struct({
   effort: Schema.optional(Schema.Literals(CLAUDE_CODE_EFFORT_OPTIONS)),
   fastMode: Schema.optional(Schema.Boolean),
   contextWindow: Schema.optional(Schema.String),
+  outputStyle: Schema.optional(TrimmedNonEmptyString),
+  agent: Schema.optional(TrimmedNonEmptyString),
+  forkSubagents: Schema.optional(Schema.Boolean),
+  agentTeams: Schema.optional(Schema.Boolean),
 });
 export type ClaudeModelOptions = typeof ClaudeModelOptions.Type;
 
 export const GitHubCopilotModelOptions = Schema.Struct({
   reasoningEffort: Schema.optional(Schema.Literals(CODEX_REASONING_EFFORT_OPTIONS)),
+  agent: Schema.optional(TrimmedNonEmptyString),
 });
 export type GitHubCopilotModelOptions = typeof GitHubCopilotModelOptions.Type;
 
 export const CursorModelOptions = Schema.Struct({
   reasoningEffort: Schema.optional(Schema.Literals(CODEX_REASONING_EFFORT_OPTIONS)),
   fastMode: Schema.optional(Schema.Boolean),
+  modeId: Schema.optional(TrimmedNonEmptyString),
 });
 export type CursorModelOptions = typeof CursorModelOptions.Type;
 
@@ -60,12 +66,15 @@ export const CursorModelMetadata = Schema.Struct({
 });
 export type CursorModelMetadata = typeof CursorModelMetadata.Type;
 
-export const GeminiModelOptions = Schema.Struct({});
+export const GeminiModelOptions = Schema.Struct({
+  modeId: Schema.optional(TrimmedNonEmptyString),
+});
 export type GeminiModelOptions = typeof GeminiModelOptions.Type;
 
 export const OpenCodeModelOptions = Schema.Struct({
   variant: Schema.optional(TrimmedNonEmptyString),
   fastMode: Schema.optional(Schema.Boolean),
+  modeId: Schema.optional(TrimmedNonEmptyString),
 });
 export type OpenCodeModelOptions = typeof OpenCodeModelOptions.Type;
 

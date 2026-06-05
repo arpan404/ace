@@ -422,10 +422,12 @@ describe("ProviderRuntimeIngestion", () => {
       createdAt: now,
       payload: {
         config: {
-          capabilities: {
-            sessionForkMode: "native",
-            sideConversationMode: "native-fork",
-            providerThreadTargetingMode: "native",
+          provider_capabilities: {
+            session_fork_mode: "native",
+            side_conversation_mode: "native-fork",
+            provider_thread_targeting_mode: "native",
+            session_resume_mode: "native",
+            turn_steering_mode: "native",
           },
         },
       },
@@ -437,13 +439,16 @@ describe("ProviderRuntimeIngestion", () => {
         entry.session?.providerName === "gemini" &&
         entry.session?.capabilities?.sessionForkMode === "native" &&
         entry.session?.capabilities?.sideConversationMode === "native-fork" &&
-        entry.session?.capabilities?.providerThreadTargetingMode === "native",
+        entry.session?.capabilities?.providerThreadTargetingMode === "native" &&
+        entry.session?.capabilities?.sessionResumeMode === "native" &&
+        entry.session?.capabilities?.turnSteeringMode === "native",
     );
 
     expect(thread.session?.capabilities?.sessionForkMode).toBe("native");
     expect(thread.session?.capabilities?.sideConversationMode).toBe("native-fork");
     expect(thread.session?.capabilities?.providerThreadTargetingMode).toBe("native");
-    expect(thread.session?.capabilities?.sessionResumeMode).toBe("local-replay");
+    expect(thread.session?.capabilities?.sessionResumeMode).toBe("native");
+    expect(thread.session?.capabilities?.turnSteeringMode).toBe("native");
   });
 
   it("applies provider session.state.changed transitions directly", async () => {
@@ -1299,6 +1304,56 @@ describe("ProviderRuntimeIngestion", () => {
     expect(message?.streaming).toBe(false);
   });
 
+  it("promotes provider goal lifecycle items into hidden goal state activities", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-goal-tool-output"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-goal"),
+      itemId: asItemId("item-goal-tool-output"),
+      payload: {
+        itemType: "dynamic_tool_call",
+        status: "completed",
+        title: "Tool call",
+        data: {
+          item: {
+            type: "function_call_output",
+            name: "functions.update_goal",
+            outputText: "Goal updated\nKeep provider goal state out of the transcript",
+            result: {
+              objective: "Keep provider goal state out of the transcript",
+              status: "active",
+            },
+          },
+        },
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.activities.some((activity) => activity.id === "evt-goal-tool-output"),
+    );
+    const activity = thread.activities.find((entry) => entry.id === "evt-goal-tool-output");
+    expect(activity?.kind).toBe("goal.updated");
+    expect(activity?.summary).toBe("Goal updated");
+    expect(activity?.payload).toMatchObject({
+      objective: "Keep provider goal state out of the transcript",
+      status: "active",
+      detail: "Keep provider goal state out of the transcript",
+    });
+    expect(
+      thread.activities.some(
+        (entry) =>
+          (entry.kind === "tool.completed" || entry.kind === "task.progress") &&
+          JSON.stringify(entry.payload).includes("Goal updated"),
+      ),
+    ).toBe(false);
+  });
+
   it("keeps Codex child conversation assistant text out of the main transcript", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
@@ -1433,6 +1488,92 @@ describe("ProviderRuntimeIngestion", () => {
     expect(
       thread.messages.some((message: ProviderRuntimeTestMessage) =>
         message.text.includes("root subagent result"),
+      ),
+    ).toBe(false);
+  });
+
+  it("routes side-chat runtime events through nested provider-agnostic side metadata", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+    const sideThreadId = "side:thread-1:nested-route";
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.activity.append",
+        commandId: CommandId.makeUnsafe("cmd-side-route-activity"),
+        threadId: asThreadId("thread-1"),
+        activity: {
+          id: asEventId("activity-side-route-message"),
+          tone: "info",
+          kind: "subagent.message.sent",
+          summary: "User message",
+          payload: {
+            detail: "Inspect this branch.",
+            itemType: "subagent_message",
+            data: {
+              childProviderThreadId: sideThreadId,
+              subagent: {
+                id: sideThreadId,
+                type: "side chat",
+                name: "Branch side chat",
+              },
+            },
+          },
+          turnId: null,
+          createdAt: now,
+        },
+        createdAt: now,
+      }),
+    );
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-side-route-message-completed"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId(sideThreadId),
+      turnId: asTurnId("turn-side-route"),
+      itemId: asItemId("side-route-message"),
+      payload: {
+        itemType: "assistant_message",
+        status: "completed",
+        detail: "Nested side-chat result.",
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) =>
+          activity.kind === "task.progress" &&
+          activity.payload &&
+          typeof activity.payload === "object" &&
+          "detail" in activity.payload &&
+          activity.payload.detail === "Nested side-chat result.",
+      ),
+    );
+
+    const progress = thread.activities.find(
+      (activity: ProviderRuntimeTestActivity) =>
+        activity.kind === "task.progress" &&
+        activity.payload &&
+        typeof activity.payload === "object" &&
+        "detail" in activity.payload &&
+        activity.payload.detail === "Nested side-chat result.",
+    );
+    expect(progress?.payload).toMatchObject({
+      detail: "Nested side-chat result.",
+      data: {
+        childProviderThreadId: sideThreadId,
+        subagent: {
+          id: sideThreadId,
+          type: "side chat",
+          name: "Branch side chat",
+        },
+      },
+    });
+    expect(
+      thread.messages.some((message: ProviderRuntimeTestMessage) =>
+        message.text.includes("Nested side-chat result."),
       ),
     ).toBe(false);
   });
@@ -1595,6 +1736,217 @@ describe("ProviderRuntimeIngestion", () => {
     expect(
       thread.messages.some((message: ProviderRuntimeTestMessage) =>
         message.text.includes("root display subagent result"),
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps nested provider agent metadata out of the main transcript", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-root-nested-agent-completed"),
+      provider: "githubCopilot",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-root-nested-agent"),
+      itemId: asItemId("root-nested-agent-message"),
+      payload: {
+        itemType: "assistant_message",
+        status: "completed",
+        detail: "root nested agent result",
+        data: {
+          agent: {
+            id: "nested-agent-1",
+            name: "Nested Reviewer",
+            role: "code-reviewer",
+            model: "gpt-5.4",
+          },
+        },
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) =>
+          activity.kind === "task.progress" &&
+          activity.payload &&
+          typeof activity.payload === "object" &&
+          "detail" in activity.payload &&
+          activity.payload.detail === "root nested agent result",
+      ),
+    );
+
+    const progress = thread.activities.find(
+      (activity: ProviderRuntimeTestActivity) =>
+        activity.kind === "task.progress" &&
+        activity.payload &&
+        typeof activity.payload === "object" &&
+        "detail" in activity.payload &&
+        activity.payload.detail === "root nested agent result",
+    );
+    expect(progress?.payload).toMatchObject({
+      data: {
+        agent: {
+          id: "nested-agent-1",
+          name: "Nested Reviewer",
+          role: "code-reviewer",
+          model: "gpt-5.4",
+        },
+      },
+      subagent: {
+        id: "nested-agent-1",
+        name: "Nested Reviewer",
+        role: "code-reviewer",
+        model: "gpt-5.4",
+      },
+    });
+    expect(
+      thread.messages.some((message: ProviderRuntimeTestMessage) =>
+        message.text.includes("root nested agent result"),
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps item-nested provider agent metadata out of the main transcript", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-root-item-agent-completed"),
+      provider: "githubCopilot",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-root-item-agent"),
+      itemId: asItemId("root-item-agent-message"),
+      payload: {
+        itemType: "assistant_message",
+        status: "completed",
+        detail: "root item agent result",
+        data: {
+          item: {
+            agent: {
+              id: "item-agent-1",
+              name: "Item Reviewer",
+              role: "researcher",
+              model: "gpt-5.4",
+            },
+          },
+        },
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) =>
+          activity.kind === "task.progress" &&
+          activity.payload &&
+          typeof activity.payload === "object" &&
+          "detail" in activity.payload &&
+          activity.payload.detail === "root item agent result",
+      ),
+    );
+
+    const progress = thread.activities.find(
+      (activity: ProviderRuntimeTestActivity) =>
+        activity.kind === "task.progress" &&
+        activity.payload &&
+        typeof activity.payload === "object" &&
+        "detail" in activity.payload &&
+        activity.payload.detail === "root item agent result",
+    );
+    expect(progress?.payload).toMatchObject({
+      data: {
+        item: {
+          agent: {
+            id: "item-agent-1",
+            name: "Item Reviewer",
+            role: "researcher",
+            model: "gpt-5.4",
+          },
+        },
+      },
+      subagent: {
+        id: "item-agent-1",
+        name: "Item Reviewer",
+        role: "researcher",
+        model: "gpt-5.4",
+      },
+    });
+    expect(
+      thread.messages.some((message: ProviderRuntimeTestMessage) =>
+        message.text.includes("root item agent result"),
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps delegated provider agent metadata out of the main transcript", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-root-delegated-agent-completed"),
+      provider: "githubCopilot",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-root-delegated-agent"),
+      itemId: asItemId("root-delegated-agent-message"),
+      payload: {
+        itemType: "assistant_message",
+        status: "completed",
+        detail: "delegated agent result",
+        data: {
+          assignedAgent: {
+            id: "assigned-agent-1",
+            displayName: "Platform Specialist",
+            role: "platform",
+            model: "gpt-5.4",
+          },
+        },
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) =>
+          activity.kind === "task.progress" &&
+          activity.payload &&
+          typeof activity.payload === "object" &&
+          "detail" in activity.payload &&
+          activity.payload.detail === "delegated agent result",
+      ),
+    );
+
+    const progress = thread.activities.find(
+      (activity: ProviderRuntimeTestActivity) =>
+        activity.kind === "task.progress" &&
+        activity.payload &&
+        typeof activity.payload === "object" &&
+        "detail" in activity.payload &&
+        activity.payload.detail === "delegated agent result",
+    );
+    expect(progress?.payload).toMatchObject({
+      data: {
+        assignedAgent: {
+          id: "assigned-agent-1",
+          displayName: "Platform Specialist",
+          role: "platform",
+          model: "gpt-5.4",
+        },
+      },
+      subagent: {
+        id: "assigned-agent-1",
+        displayName: "Platform Specialist",
+        role: "platform",
+        model: "gpt-5.4",
+      },
+    });
+    expect(
+      thread.messages.some((message: ProviderRuntimeTestMessage) =>
+        message.text.includes("delegated agent result"),
       ),
     ).toBe(false);
   });
@@ -4785,6 +5137,102 @@ describe("ProviderRuntimeIngestion", () => {
         (entry: ProviderRuntimeTestProposedPlan) => entry.id === "plan:thread-1:turn:turn-task-1",
       )?.planMarkdown,
     ).toBe("# Plan title");
+  });
+
+  it("projects provider hook lifecycle chunks into thread activities", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "hook.started",
+      eventId: asEventId("evt-hook-started"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-hook-1"),
+      payload: {
+        hookId: "hook-run-1",
+        hookName: "command",
+        hookEvent: "PreToolUse",
+      },
+    });
+
+    harness.emit({
+      type: "hook.progress",
+      eventId: asEventId("evt-hook-progress"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-hook-1"),
+      payload: {
+        hookId: "hook-run-1",
+        stdout: "checking command safety",
+      },
+    });
+
+    harness.emit({
+      type: "hook.completed",
+      eventId: asEventId("evt-hook-completed"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-hook-1"),
+      payload: {
+        hookId: "hook-run-1",
+        outcome: "error",
+        stderr: "blocked unsafe command",
+        exitCode: 2,
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) => activity.id === "evt-hook-completed",
+      ),
+    );
+
+    const started = thread.activities.find(
+      (activity: ProviderRuntimeTestActivity) => activity.id === "evt-hook-started",
+    );
+    const progress = thread.activities.find(
+      (activity: ProviderRuntimeTestActivity) => activity.id === "evt-hook-progress",
+    );
+    const completed = thread.activities.find(
+      (activity: ProviderRuntimeTestActivity) => activity.id === "evt-hook-completed",
+    );
+
+    expect(started).toMatchObject({
+      kind: "hook.started",
+      tone: "tool",
+      summary: "Hook started: command",
+      payload: {
+        hookId: "hook-run-1",
+        hookName: "command",
+        hookEvent: "PreToolUse",
+      },
+    });
+    expect(progress).toMatchObject({
+      kind: "hook.progress",
+      tone: "tool",
+      summary: "Hook output",
+      payload: {
+        hookId: "hook-run-1",
+        detail: "checking command safety",
+        stdout: "checking command safety",
+      },
+    });
+    expect(completed).toMatchObject({
+      kind: "hook.completed",
+      tone: "error",
+      summary: "Hook failed",
+      payload: {
+        hookId: "hook-run-1",
+        outcome: "error",
+        detail: "blocked unsafe command",
+        stderr: "blocked unsafe command",
+        exitCode: 2,
+      },
+    });
   });
 
   it("projects structured user input request and resolution as thread activities", async () => {

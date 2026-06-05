@@ -5,6 +5,7 @@ import { NonNegativeInt, PositiveInt, TrimmedNonEmptyString, TrimmedString } fro
 import {
   ClaudeModelOptions,
   CodexModelOptions,
+  CursorModelOptions,
   DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER,
   GeminiModelOptions,
   GitHubCopilotModelOptions,
@@ -395,19 +396,31 @@ const ClaudeModelOptionsPatch = Schema.Struct({
   effort: Schema.optionalKey(ClaudeModelOptions.fields.effort),
   fastMode: Schema.optionalKey(ClaudeModelOptions.fields.fastMode),
   contextWindow: Schema.optionalKey(ClaudeModelOptions.fields.contextWindow),
+  outputStyle: Schema.optionalKey(ClaudeModelOptions.fields.outputStyle),
+  agent: Schema.optionalKey(ClaudeModelOptions.fields.agent),
+  forkSubagents: Schema.optionalKey(ClaudeModelOptions.fields.forkSubagents),
+  agentTeams: Schema.optionalKey(ClaudeModelOptions.fields.agentTeams),
 });
 
 const GitHubCopilotModelOptionsPatch = Schema.Struct({
   reasoningEffort: Schema.optionalKey(GitHubCopilotModelOptions.fields.reasoningEffort),
+  agent: Schema.optionalKey(GitHubCopilotModelOptions.fields.agent),
+});
+
+const CursorModelOptionsPatch = Schema.Struct({
+  reasoningEffort: Schema.optionalKey(CursorModelOptions.fields.reasoningEffort),
+  fastMode: Schema.optionalKey(CursorModelOptions.fields.fastMode),
+  modeId: Schema.optionalKey(CursorModelOptions.fields.modeId),
 });
 
 const OpenCodeModelOptionsPatch = Schema.Struct({
   variant: Schema.optionalKey(OpenCodeModelOptions.fields.variant),
   fastMode: Schema.optionalKey(OpenCodeModelOptions.fields.fastMode),
+  modeId: Schema.optionalKey(OpenCodeModelOptions.fields.modeId),
 });
 
 const GeminiModelOptionsPatch = Schema.Struct({
-  ...(GeminiModelOptions.fields satisfies Record<string, never>),
+  modeId: Schema.optionalKey(GeminiModelOptions.fields.modeId),
 });
 
 const ModelSelectionPatch = Schema.Union([
@@ -433,6 +446,7 @@ const ModelSelectionPatch = Schema.Union([
     provider: Schema.optionalKey(Schema.Literal("cursor")),
     providerInstanceId: Schema.optionalKey(ProviderInstanceId),
     model: Schema.optionalKey(TrimmedNonEmptyString),
+    options: Schema.optionalKey(CursorModelOptionsPatch),
   }),
   Schema.Struct({
     provider: Schema.optionalKey(Schema.Literal("pi")),

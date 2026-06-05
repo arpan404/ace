@@ -4,6 +4,7 @@ import path from "node:path";
 
 import type {
   ProviderKind,
+  ProviderSessionConfigOption,
   ProviderSlashCommand,
   ServerProvider,
   ServerSettings,
@@ -39,9 +40,9 @@ type ProviderCommandInput = {
 type PluginManifest = {
   readonly name?: string;
   readonly description?: string;
-  readonly agents?: string;
-  readonly skills?: string;
-  readonly commands?: string;
+  readonly agents?: string | ReadonlyArray<string>;
+  readonly skills?: string | ReadonlyArray<string>;
+  readonly commands?: string | ReadonlyArray<string>;
   readonly interface?: {
     readonly displayName?: string;
     readonly shortDescription?: string;
@@ -52,6 +53,31 @@ type PluginManifest = {
 type GeminiExtensionManifest = {
   readonly name?: string;
   readonly description?: string;
+};
+
+type GeminiSettingsFile = {
+  readonly experimental?: {
+    readonly enableAgents?: unknown;
+  };
+  readonly agents?: {
+    readonly overrides?: Record<
+      string,
+      {
+        readonly enabled?: unknown;
+      }
+    >;
+  };
+  readonly extensions?: {
+    readonly disabled?: unknown;
+  };
+};
+
+type ClaudeSettingsFile = {
+  readonly outputStyle?: unknown;
+  readonly agent?: unknown;
+  readonly permissions?: {
+    readonly deny?: unknown;
+  };
 };
 
 type ClaudeInstalledPlugins = {
@@ -69,6 +95,30 @@ type ClaudeInstalledPluginEntry = {
   readonly installPath: string;
 };
 
+type ClaudeOutputStyle = {
+  readonly value: string;
+  readonly name: string;
+  readonly description?: string | undefined;
+};
+
+type PiPackageManifest = {
+  readonly keywords?: unknown;
+  readonly pi?: {
+    readonly prompts?: unknown;
+    readonly skills?: unknown;
+    readonly agents?: unknown;
+  };
+};
+
+type PiSettingsFile = {
+  readonly packages?: unknown;
+  readonly prompts?: unknown;
+  readonly skills?: unknown;
+  readonly agents?: unknown;
+  readonly subagents?: unknown;
+  readonly enableSkillCommands?: unknown;
+};
+
 type SkillReadOptions = {
   readonly prefix?: string | undefined;
   readonly promptPrefix?: (commandName: string, skillName: string) => string;
@@ -79,8 +129,11 @@ type SkillReadOptions = {
 
 type AgentReadOptions = {
   readonly nameFromFrontmatter?: boolean | undefined;
+  readonly requireNameFromFrontmatter?: boolean | undefined;
   readonly includeMode?: ReadonlySet<string> | undefined;
   readonly includeMissingMode?: boolean | undefined;
+  readonly excludeDisabled?: boolean | undefined;
+  readonly requireDescription?: boolean | undefined;
   readonly promptPrefix?: ((agentName: string) => string) | undefined;
   readonly normalizeFileName?: ((fileName: string) => string) | undefined;
 };
@@ -90,9 +143,20 @@ export type GitHubCopilotCustomAgent = {
   readonly prompt: string;
   readonly displayName?: string;
   readonly description?: string;
+  readonly argumentHint?: string;
   readonly tools?: string[] | null;
+  readonly agents?: string[];
   readonly infer?: boolean;
   readonly userInvocable?: boolean;
+  readonly model?: string | string[];
+  readonly metadata?: Record<string, string>;
+  readonly handoffs?: ReadonlyArray<{
+    readonly label?: string;
+    readonly agent?: string;
+    readonly prompt?: string;
+    readonly send?: boolean;
+    readonly model?: string;
+  }>;
   readonly mcpServers?: Record<
     string,
     | {
@@ -113,6 +177,7 @@ export type GitHubCopilotCustomAgent = {
       }
   >;
   readonly skills?: string[];
+  readonly hooks?: Record<string, ReadonlyArray<Record<string, unknown>>>;
 };
 
 export const GEMINI_BUILT_IN_SUBAGENT_COMMANDS = [
@@ -134,6 +199,12 @@ export const GEMINI_BUILT_IN_SUBAGENT_COMMANDS = [
     promptPrefix: "@generalist",
     inputHint: "<prompt>",
   }),
+  providerAgentSlashCommand({
+    name: "browser_agent",
+    description: "Run Gemini's browser automation subagent for web navigation tasks.",
+    promptPrefix: "@browser_agent",
+    inputHint: "<prompt>",
+  }),
 ] as const satisfies ReadonlyArray<ProviderSlashCommand>;
 
 export const OPENCODE_BUILT_IN_SUBAGENT_COMMANDS = [
@@ -153,6 +224,135 @@ export const OPENCODE_BUILT_IN_SUBAGENT_COMMANDS = [
     name: "scout",
     description: "Run an OpenCode subagent for external docs and dependency research.",
     promptPrefix: "@scout",
+    inputHint: "<prompt>",
+  }),
+] as const satisfies ReadonlyArray<ProviderSlashCommand>;
+
+export const PI_BUILT_IN_SUBAGENT_COMMANDS = [
+  providerAgentSlashCommand({
+    name: "scout",
+    description: "Run fast local codebase reconnaissance in a focused Pi child agent.",
+    promptPrefix: "@scout",
+    inputHint: "<prompt>",
+  }),
+  providerAgentSlashCommand({
+    name: "researcher",
+    description: "Research external docs and recent changes with sources in a Pi child agent.",
+    promptPrefix: "@researcher",
+    inputHint: "<prompt>",
+  }),
+  providerAgentSlashCommand({
+    name: "planner",
+    description: "Turn current context into a concrete implementation plan without editing.",
+    promptPrefix: "@planner",
+    inputHint: "<prompt>",
+  }),
+  providerAgentSlashCommand({
+    name: "worker",
+    description: "Implement an approved plan in a focused Pi child agent.",
+    promptPrefix: "@worker",
+    inputHint: "<prompt>",
+  }),
+  providerAgentSlashCommand({
+    name: "reviewer",
+    description: "Review code, tests, edge cases, and simplicity in a Pi child agent.",
+    promptPrefix: "@reviewer",
+    inputHint: "<prompt>",
+  }),
+  providerAgentSlashCommand({
+    name: "debugger",
+    description: "Investigate failures and regressions systematically in a Pi child agent.",
+    promptPrefix: "@debugger",
+    inputHint: "<prompt>",
+  }),
+  providerAgentSlashCommand({
+    name: "verifier",
+    description: "Run checks and report concrete verification evidence in a Pi child agent.",
+    promptPrefix: "@verifier",
+    inputHint: "<prompt>",
+  }),
+  providerAgentSlashCommand({
+    name: "security-auditor",
+    description: "Review trust boundaries and unsafe behavior in a Pi child agent.",
+    promptPrefix: "@security-auditor",
+    inputHint: "<prompt>",
+  }),
+  providerAgentSlashCommand({
+    name: "docs-writer",
+    description: "Draft documentation updates grounded in code and existing docs.",
+    promptPrefix: "@docs-writer",
+    inputHint: "<prompt>",
+  }),
+  providerAgentSlashCommand({
+    name: "refactorer",
+    description: "Perform behavior-preserving cleanup and simplification in a Pi child agent.",
+    promptPrefix: "@refactorer",
+    inputHint: "<prompt>",
+  }),
+  providerAgentSlashCommand({
+    name: "context-builder",
+    description: "Gather stronger planning context and handoff material in a Pi child agent.",
+    promptPrefix: "@context-builder",
+    inputHint: "<prompt>",
+  }),
+  providerAgentSlashCommand({
+    name: "oracle",
+    description: "Get an advisory second opinion before acting, without editing files.",
+    promptPrefix: "@oracle",
+    inputHint: "<prompt>",
+  }),
+  providerAgentSlashCommand({
+    name: "delegate",
+    description: "Run a lightweight general Pi child agent close to the parent session behavior.",
+    promptPrefix: "@delegate",
+    inputHint: "<prompt>",
+  }),
+] as const satisfies ReadonlyArray<ProviderSlashCommand>;
+
+export const CLAUDE_BUILT_IN_SUBAGENT_COMMANDS = [
+  providerAgentSlashCommand({
+    name: "explore",
+    description: "Use Claude's read-only Explore subagent for fast codebase research.",
+    promptPrefix: "@agent-explore",
+    inputHint: "<prompt>",
+  }),
+  providerAgentSlashCommand({
+    name: "plan",
+    description: "Use Claude's Plan subagent for planning-oriented codebase research.",
+    promptPrefix: "@agent-plan",
+    inputHint: "<prompt>",
+  }),
+  providerAgentSlashCommand({
+    name: "general-purpose",
+    description: "Use Claude's general-purpose subagent for complex multi-step tasks.",
+    promptPrefix: "@agent-general-purpose",
+    inputHint: "<prompt>",
+  }),
+] as const satisfies ReadonlyArray<ProviderSlashCommand>;
+
+export const GITHUB_COPILOT_BUILT_IN_AGENT_COMMANDS = [
+  providerAgentSlashCommand({
+    name: "explore",
+    description: "Explore the codebase and gather implementation context with GitHub Copilot.",
+    promptPrefix: "@explore",
+    inputHint: "<prompt>",
+  }),
+  providerAgentSlashCommand({
+    name: "task",
+    description: "Delegate a focused implementation task to GitHub Copilot.",
+    promptPrefix: "@task",
+    inputHint: "<prompt>",
+  }),
+  providerAgentSlashCommand({
+    name: "general-purpose",
+    description: "Delegate broad multi-step work to GitHub Copilot general-purpose agent.",
+    promptPrefix: "@general-purpose",
+    inputHint: "<prompt>",
+  }),
+  providerAgentSlashCommand({
+    name: "code-review",
+    description: "Run GitHub Copilot code-review agent on a change or code area.",
+    promptPrefix: "@code-review",
     inputHint: "<prompt>",
   }),
 ] as const satisfies ReadonlyArray<ProviderSlashCommand>;
@@ -183,13 +383,17 @@ function isDirectory(value: string): boolean {
   }
 }
 
+function isRegularFile(value: string): boolean {
+  try {
+    return statSync(value).isFile();
+  } catch {
+    return false;
+  }
+}
+
 function normalizeCommandName(value: string): string | null {
   const normalized = value.trim().replace(/\s+/g, "-");
   return COMMAND_NAME_PATTERN.test(normalized) ? normalized : null;
-}
-
-function stripMarkdownAgentSuffix(fileName: string): string {
-  return fileName.endsWith(".agent") ? fileName.slice(0, -".agent".length) : fileName;
 }
 
 function stripGitHubCopilotAgentSuffix(fileName: string): string {
@@ -245,23 +449,68 @@ function githubCopilotHomeRoots(home?: string | undefined): string[] {
   return uniquePaths([path.join(homedir(), ".copilot"), path.join(homedir(), ".github-copilot")]);
 }
 
+function githubCopilotPluginRoots(home?: string | undefined): string[] {
+  return uniquePaths(
+    githubCopilotHomeRoots(home).flatMap((homeRoot) => [
+      path.join(homeRoot, "installed-plugins"),
+      path.join(homeRoot, "plugins"),
+    ]),
+  );
+}
+
+function githubCopilotWorkspaceSettings(cwd: string | undefined): Record<string, unknown> | null {
+  const start = cwd?.trim();
+  if (!start) {
+    return null;
+  }
+  return safeParseJsoncRecord(path.join(path.resolve(start), ".vscode", "settings.json"));
+}
+
+function githubCopilotProjectRoots(cwd: string | undefined): string[] {
+  const start = cwd?.trim();
+  if (!start) {
+    return [];
+  }
+  const root = path.resolve(start);
+  const settings = githubCopilotWorkspaceSettings(root);
+  return settings?.["chat.useCustomizationsInParentRepositories"] === true
+    ? ancestorDirsUntilGitRoot(root)
+    : [root];
+}
+
+function githubCopilotPrivateRepositoryAgentRoots(root: string): string[] {
+  return path.basename(root) === ".github-private" ? [path.join(root, "agents")] : [];
+}
+
+function githubCopilotAgentSkillsEnabled(cwd: string | undefined): boolean {
+  return githubCopilotWorkspaceSettings(cwd)?.["chat.useAgentSkills"] !== false;
+}
+
+function githubCopilotCustomAgentHooksEnabled(cwd: string | undefined): boolean {
+  return githubCopilotWorkspaceSettings(cwd)?.["chat.useCustomAgentHooks"] === true;
+}
+
 function githubCopilotAgentRoots(input: {
   readonly cwd?: string | undefined;
   readonly home?: string | undefined;
 }): string[] {
   const homeRoots = githubCopilotHomeRoots(input.home);
-  const projectRoots = ancestorDirsUntilGitRoot(input.cwd);
-  return uniquePaths([
-    ...projectRoots.flatMap((root) => [
-      path.join(root, ".github", "agents"),
-      path.join(root, ".github", "chatmodes"),
-    ]),
-    ...homeRoots.flatMap((homeRoot) => [
-      path.join(homeRoot, "agents"),
-      path.join(homeRoot, "chatmodes"),
-      path.join(homeRoot, ".github-private", "agents"),
-    ]),
+  const projectRoots = githubCopilotProjectRoots(input.cwd);
+  const userAgentRoots = homeRoots.flatMap((homeRoot) => [
+    path.join(homeRoot, "agents"),
+    path.join(homeRoot, "chatmodes"),
   ]);
+  const projectAgentRoots = projectRoots.flatMap((root) => [
+    path.join(root, ".github", "agents"),
+    path.join(root, ".claude", "agents"),
+    path.join(root, ".github", "chatmodes"),
+    ...githubCopilotConfiguredAgentRoots(root),
+  ]);
+  const organizationAgentRoots = [
+    ...projectRoots.flatMap((root) => githubCopilotPrivateRepositoryAgentRoots(root)),
+    ...homeRoots.map((homeRoot) => path.join(homeRoot, ".github-private", "agents")),
+  ];
+  return uniquePaths([...projectAgentRoots, ...organizationAgentRoots, ...userAgentRoots]);
 }
 
 function githubCopilotPromptRoots(input: {
@@ -269,10 +518,100 @@ function githubCopilotPromptRoots(input: {
   readonly home?: string | undefined;
 }): string[] {
   const homeRoots = githubCopilotHomeRoots(input.home);
-  const projectRoots = ancestorDirsUntilGitRoot(input.cwd);
+  const projectRoots = githubCopilotProjectRoots(input.cwd);
   return uniquePaths([
     ...projectRoots.map((root) => path.join(root, ".github", "prompts")),
+    ...projectRoots.flatMap((root) => githubCopilotConfiguredPromptRoots(root)),
     ...homeRoots.map((homeRoot) => path.join(homeRoot, "prompts")),
+  ]);
+}
+
+function githubCopilotConfiguredPromptRoots(projectRoot: string): string[] {
+  const settings = safeParseJsoncRecord(path.join(projectRoot, ".vscode", "settings.json"));
+  const value = settings?.["chat.promptFilesLocations"] ?? settings?.["chat.promptFiles"];
+  return resolveWorkspaceLocationSetting(projectRoot, value);
+}
+
+function githubCopilotConfiguredAgentRoots(projectRoot: string): string[] {
+  const settings = safeParseJsoncRecord(path.join(projectRoot, ".vscode", "settings.json"));
+  const value = settings?.["chat.agentFilesLocations"] ?? settings?.["chat.agentFiles"];
+  return resolveWorkspaceLocationSetting(projectRoot, value);
+}
+
+function githubCopilotConfiguredInstructionRoots(projectRoot: string): string[] {
+  const settings = safeParseJsoncRecord(path.join(projectRoot, ".vscode", "settings.json"));
+  const value =
+    settings?.["chat.instructionsFilesLocations"] ?? settings?.["chat.instructionsFiles"];
+  return resolveWorkspaceLocationSetting(projectRoot, value);
+}
+
+function githubCopilotConfiguredSkillRoots(projectRoot: string): string[] {
+  const settings = safeParseJsoncRecord(path.join(projectRoot, ".vscode", "settings.json"));
+  const value = settings?.["chat.agentSkillsLocations"] ?? settings?.["chat.skillsFiles"];
+  return resolveWorkspaceLocationSetting(projectRoot, value);
+}
+
+function workspaceLocationSettingEntries(value: unknown): string[] {
+  if (typeof value === "string") {
+    return value.trim().length > 0 ? [value.trim()] : [];
+  }
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+      .filter((entry) => entry.length > 0);
+  }
+  if (!value || typeof value !== "object") {
+    return [];
+  }
+  return Object.entries(value as Record<string, unknown>)
+    .filter(([, enabled]) => enabled !== false)
+    .map(([location]) => location.trim())
+    .filter((location) => location.length > 0);
+}
+
+function resolveWorkspaceLocationSetting(baseDir: string, value: unknown): string[] {
+  return workspaceLocationSettingEntries(value).flatMap((rawLocation) => {
+    if (rawLocation.startsWith("!") || rawLocation.startsWith("-")) {
+      return [];
+    }
+    const exactLocation = rawLocation.startsWith("+") ? rawLocation.slice(1).trim() : rawLocation;
+    if (!exactLocation) {
+      return [];
+    }
+    const hasGlob = /[*?[\]{}]/u.test(exactLocation);
+    const withoutGlob = exactLocation.split(/[*?[\]{}]/u, 1)[0]?.replace(/[\\/]+$/u, "") ?? "";
+    const resolvedLocation = withoutGlob || (hasGlob ? "." : exactLocation);
+    if (resolvedLocation.startsWith("~/")) {
+      return [path.join(homedir(), resolvedLocation.slice(2))];
+    }
+    if (path.isAbsolute(resolvedLocation)) {
+      return [resolvedLocation];
+    }
+    return [path.resolve(baseDir, resolvedLocation)];
+  });
+}
+
+function githubCopilotInstructionFiles(input: {
+  readonly cwd?: string | undefined;
+  readonly home?: string | undefined;
+}): string[] {
+  const homeRoots = githubCopilotHomeRoots(input.home);
+  const projectRoots = githubCopilotProjectRoots(input.cwd);
+  return uniquePaths([
+    ...projectRoots.flatMap((root) => [
+      path.join(root, "AGENTS.md"),
+      path.join(root, "CLAUDE.md"),
+      path.join(root, "CLAUDE.local.md"),
+      path.join(root, "GEMINI.md"),
+      path.join(root, ".github", "copilot-instructions.md"),
+      path.join(root, ".claude", "CLAUDE.md"),
+      path.join(root, ".claude", "CLAUDE.local.md"),
+    ]),
+    ...homeRoots.map((homeRoot) => path.join(homeRoot, "copilot-instructions.md")),
+    ...homeRoots.flatMap((homeRoot) => [
+      path.join(homeRoot, "CLAUDE.md"),
+      path.join(homeRoot, "GEMINI.md"),
+    ]),
   ]);
 }
 
@@ -352,6 +691,263 @@ function frontmatterStringListField(markdown: string, field: string): string[] |
   return values.length > 0 ? values : undefined;
 }
 
+function frontmatterStringOrListField(
+  markdown: string,
+  field: string,
+): string | string[] | undefined {
+  const values = frontmatterStringListField(markdown, field);
+  if (values === undefined) {
+    return undefined;
+  }
+  return values.length === 1 ? values[0] : values;
+}
+
+function frontmatterBlock(markdown: string, field: string): string | undefined {
+  const frontmatter = /^---\n(?<body>[\s\S]*?)\n---/u.exec(markdown)?.groups?.body;
+  if (!frontmatter) {
+    return undefined;
+  }
+  const lines = frontmatter.split(/\r?\n/u);
+  for (let index = 0; index < lines.length; index += 1) {
+    if (!new RegExp(`^${field}:[ \\t]*$`, "u").test(lines[index] ?? "")) {
+      continue;
+    }
+    const block: string[] = [];
+    for (let childIndex = index + 1; childIndex < lines.length; childIndex += 1) {
+      const line = lines[childIndex] ?? "";
+      if (/^\S/u.test(line)) {
+        break;
+      }
+      block.push(line);
+    }
+    return block.join("\n");
+  }
+  return undefined;
+}
+
+function parseSimpleYamlScalar(value: string): string {
+  return value
+    .trim()
+    .replace(/^["']|["']$/g, "")
+    .trim();
+}
+
+function frontmatterContent(markdown: string): string | undefined {
+  return /^---\n(?<body>[\s\S]*?)\n---/u.exec(markdown)?.groups?.body;
+}
+
+function parseSimpleYamlBoolean(value: string): boolean | undefined {
+  const normalized = parseSimpleYamlScalar(value).toLowerCase();
+  if (normalized === "true") {
+    return true;
+  }
+  if (normalized === "false") {
+    return false;
+  }
+  return undefined;
+}
+
+function parseSimpleYamlValue(value: string): unknown {
+  const trimmed = value.trim();
+  if (/^\[(?<items>.*)\]$/u.test(trimmed)) {
+    return splitFrontmatterListValue(trimmed);
+  }
+  const booleanValue = parseSimpleYamlBoolean(trimmed);
+  if (booleanValue !== undefined) {
+    return booleanValue;
+  }
+  if (/^-?\d+(?:\.\d+)?$/u.test(trimmed)) {
+    return Number(trimmed);
+  }
+  return parseSimpleYamlScalar(trimmed);
+}
+
+function leadingSpaceCount(value: string): number {
+  return /^\s*/u.exec(value)?.[0].length ?? 0;
+}
+
+function setYamlObjectValue(
+  root: Record<string, unknown>,
+  pathSegments: ReadonlyArray<string>,
+  value: unknown,
+): void {
+  let target = root;
+  for (let index = 0; index < pathSegments.length - 1; index += 1) {
+    const segment = pathSegments[index];
+    if (!segment) {
+      continue;
+    }
+    const existing = target[segment];
+    if (!existing || typeof existing !== "object" || Array.isArray(existing)) {
+      const child: Record<string, unknown> = {};
+      target[segment] = child;
+      target = child;
+      continue;
+    }
+    target = existing as Record<string, unknown>;
+  }
+  const last = pathSegments.at(-1);
+  if (last) {
+    target[last] = value;
+  }
+}
+
+function getYamlObjectValue(
+  root: Record<string, unknown>,
+  pathSegments: ReadonlyArray<string>,
+): unknown {
+  let value: unknown = root;
+  for (const segment of pathSegments) {
+    if (!segment || !value || typeof value !== "object" || Array.isArray(value)) {
+      return undefined;
+    }
+    value = (value as Record<string, unknown>)[segment];
+  }
+  return value;
+}
+
+function frontmatterYamlObjectField(
+  markdown: string,
+  field: string,
+): Record<string, unknown> | undefined {
+  const block = frontmatterBlock(markdown, field);
+  if (!block) {
+    return undefined;
+  }
+  const root: Record<string, unknown> = {};
+  const stack: Array<{ indent: number; key: string }> = [];
+  let lastPath: string[] = [];
+
+  for (const rawLine of block.split(/\r?\n/u)) {
+    if (!rawLine.trim() || rawLine.trimStart().startsWith("#")) {
+      continue;
+    }
+    const indent = leadingSpaceCount(rawLine);
+    const line = rawLine.trim();
+
+    while (stack.length > 0 && indent <= stack.at(-1)!.indent) {
+      stack.pop();
+    }
+
+    if (line.startsWith("- ")) {
+      const item = line.slice(2).trim();
+      const existing = getYamlObjectValue(root, lastPath);
+      const list = Array.isArray(existing) ? existing : [];
+      list.push(parseSimpleYamlValue(item));
+      setYamlObjectValue(root, lastPath, list);
+      continue;
+    }
+
+    const match = /^(?<key>[A-Za-z0-9_.-]+):(?:\s*(?<value>.*))?$/u.exec(line);
+    const key = match?.groups?.key;
+    if (!key) {
+      continue;
+    }
+
+    const value = match.groups?.value?.trim();
+    const pathSegments = [...stack.map((entry) => entry.key), key];
+    lastPath = pathSegments;
+    if (value) {
+      setYamlObjectValue(root, pathSegments, parseSimpleYamlValue(value));
+      continue;
+    }
+
+    setYamlObjectValue(root, pathSegments, {});
+    stack.push({ indent, key });
+  }
+
+  return Object.keys(root).length > 0 ? root : undefined;
+}
+
+function frontmatterObjectListField(
+  markdown: string,
+  field: string,
+): ReadonlyArray<Record<string, string | boolean>> | undefined {
+  const block = frontmatterBlock(markdown, field);
+  if (!block) {
+    return undefined;
+  }
+  const items: Array<Record<string, string | boolean>> = [];
+  let current: Record<string, string | boolean> | null = null;
+  const assign = (target: Record<string, string | boolean>, rawKey: string, rawValue: string) => {
+    const key = rawKey.trim();
+    const value = rawValue.trim();
+    if (!key || !value) {
+      return;
+    }
+    const booleanValue = parseSimpleYamlBoolean(value);
+    target[key] = booleanValue ?? parseSimpleYamlScalar(value);
+  };
+
+  for (const line of block.split(/\r?\n/u)) {
+    const itemMatch = /^\s*-\s*(?<rest>.*)$/u.exec(line);
+    if (itemMatch) {
+      current = {};
+      items.push(current);
+      const rest = itemMatch.groups?.rest?.trim();
+      if (rest) {
+        const fieldMatch = /^(?<key>[A-Za-z0-9_.-]+):\s*(?<value>.+)$/u.exec(rest);
+        if (fieldMatch?.groups) {
+          assign(current, fieldMatch.groups.key ?? "", fieldMatch.groups.value ?? "");
+        }
+      }
+      continue;
+    }
+    if (!current) {
+      continue;
+    }
+    const fieldMatch = /^\s+(?<key>[A-Za-z0-9_.-]+):\s*(?<value>.+)$/u.exec(line);
+    if (fieldMatch?.groups) {
+      assign(current, fieldMatch.groups.key ?? "", fieldMatch.groups.value ?? "");
+    }
+  }
+  return items.length > 0 ? items : undefined;
+}
+
+function frontmatterRootObjectList(
+  markdown: string,
+): ReadonlyArray<Record<string, string | boolean>> | undefined {
+  const frontmatter = frontmatterContent(markdown);
+  if (!frontmatter) {
+    return undefined;
+  }
+  const items: Array<Record<string, string | boolean>> = [];
+  let current: Record<string, string | boolean> | null = null;
+  const assign = (target: Record<string, string | boolean>, rawKey: string, rawValue: string) => {
+    const key = rawKey.trim();
+    const value = rawValue.trim();
+    if (!key || !value) {
+      return;
+    }
+    const booleanValue = parseSimpleYamlBoolean(value);
+    target[key] = booleanValue ?? parseSimpleYamlScalar(value);
+  };
+
+  for (const line of frontmatter.split(/\r?\n/u)) {
+    const itemMatch = /^\s*-\s*(?<rest>.*)$/u.exec(line);
+    if (itemMatch) {
+      current = {};
+      items.push(current);
+      const rest = itemMatch.groups?.rest?.trim();
+      if (rest) {
+        const fieldMatch = /^(?<key>[A-Za-z0-9_.-]+):\s*(?<value>.+)$/u.exec(rest);
+        if (fieldMatch?.groups) {
+          assign(current, fieldMatch.groups.key ?? "", fieldMatch.groups.value ?? "");
+        }
+      }
+      continue;
+    }
+    if (!current) {
+      continue;
+    }
+    const fieldMatch = /^\s+(?<key>[A-Za-z0-9_.-]+):\s*(?<value>.+)$/u.exec(line);
+    if (fieldMatch?.groups) {
+      assign(current, fieldMatch.groups.key ?? "", fieldMatch.groups.value ?? "");
+    }
+  }
+  return items.length > 0 ? items : undefined;
+}
+
 function frontmatterJsonObjectField(
   markdown: string,
   field: string,
@@ -384,6 +980,9 @@ function readSkillCommand(
   if (!markdown) {
     return null;
   }
+  if (frontmatterBooleanField(markdown, "user-invocable") === false) {
+    return null;
+  }
   const rawName =
     (options.nameFromFrontmatter === false ? undefined : frontmatterField(markdown, "name")) ??
     path.basename(skillDir);
@@ -402,7 +1001,7 @@ function readSkillCommand(
     name: commandName,
     description: description ?? `Use ${commandName}`,
     promptPrefix: options.promptPrefix?.(commandName, skillName) ?? `$${commandName}`,
-    inputHint: "<prompt>",
+    inputHint: frontmatterField(markdown, "argument-hint") ?? "<prompt>",
   });
 }
 
@@ -415,6 +1014,9 @@ function readMarkdownSkillCommand(
   }
   const markdown = safeReadFile(file);
   if (!markdown) {
+    return null;
+  }
+  if (frontmatterBooleanField(markdown, "user-invocable") === false) {
     return null;
   }
   const rawName = frontmatterField(markdown, "name") ?? path.basename(file, ".md");
@@ -436,7 +1038,7 @@ function readMarkdownSkillCommand(
     name: commandName,
     description: description ?? `Use ${commandName}`,
     promptPrefix: options.promptPrefix?.(commandName, skillName) ?? `$${commandName}`,
-    inputHint: "<prompt>",
+    inputHint: frontmatterField(markdown, "argument-hint") ?? "<prompt>",
   });
 }
 
@@ -469,30 +1071,1001 @@ function readPiSkillRoot(input: {
     return [];
   }
   const commands: ProviderSlashCommand[] = [];
-  const options: SkillReadOptions = {
-    commandName: (skillName) => `skill:${skillName}`,
-    promptPrefix: (commandName) => `/${commandName}`,
-    requireDescription: true,
-  };
   for (const entry of safeReadDir(input.root)) {
     const entryPath = path.join(input.root, entry);
-    const directoryCommand = readSkillCommand(entryPath, options);
+    const directoryCommand = readSkillCommand(entryPath, PI_SKILL_READ_OPTIONS);
     if (directoryCommand) {
       commands.push(directoryCommand);
       continue;
     }
     if (input.includeRootMarkdownFiles) {
-      const fileCommand = readMarkdownSkillCommand(entryPath, options);
+      const fileCommand = readMarkdownSkillCommand(entryPath, PI_SKILL_READ_OPTIONS);
       if (fileCommand) {
         commands.push(fileCommand);
         continue;
       }
     }
     if (isDirectory(entryPath)) {
-      commands.push(...readSkillRoot(entryPath, options, 1));
+      commands.push(...readSkillRoot(entryPath, PI_SKILL_READ_OPTIONS, 1));
     }
   }
   return commands;
+}
+
+const PI_SKILL_READ_OPTIONS: SkillReadOptions = {
+  commandName: (skillName) => `skill:${skillName}`,
+  promptPrefix: (commandName) => `/${commandName}`,
+  requireDescription: true,
+};
+
+function firstNonEmptyMarkdownLine(markdown: string): string | undefined {
+  const body = markdownBodyWithoutFrontmatter(markdown);
+  for (const line of body.split(/\r?\n/u)) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      continue;
+    }
+    return trimmed.replace(/^#+\s*/u, "").trim() || undefined;
+  }
+  return undefined;
+}
+
+function readPiPromptTemplateCommand(file: string): ProviderSlashCommand | null {
+  if (!file.endsWith(".md")) {
+    return null;
+  }
+  const rawName = path.basename(file, ".md");
+  if (rawName.startsWith("_")) {
+    return null;
+  }
+  const commandName = normalizeCommandName(rawName);
+  if (!commandName) {
+    return null;
+  }
+  const markdown = safeReadFile(file);
+  if (!markdown) {
+    return null;
+  }
+  const body = markdownBodyWithoutFrontmatter(markdown);
+  if (!body) {
+    return null;
+  }
+  const description =
+    frontmatterField(markdown, "description") ?? firstNonEmptyMarkdownLine(markdown);
+  return {
+    name: commandName,
+    kind: "provider",
+    promptPrefix: `/${commandName}`,
+    inputHint: frontmatterField(markdown, "argument-hint") ?? "<prompt>",
+    ...(description ? { description } : {}),
+  };
+}
+
+function readPiPromptTemplateRoot(root: string): ProviderSlashCommand[] {
+  if (!isDirectory(root)) {
+    return [];
+  }
+  return safeReadDir(root)
+    .map((entry) => readPiPromptTemplateCommand(path.join(root, entry)))
+    .filter((command): command is ProviderSlashCommand => command !== null);
+}
+
+function safeParseJsonRecord(file: string): Record<string, unknown> | null {
+  const raw = safeReadFile(file);
+  if (!raw) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function readGeminiSettingsFile(file: string): GeminiSettingsFile | null {
+  return safeParseJsonRecord(file) as GeminiSettingsFile | null;
+}
+
+function geminiSettingsFiles(input: {
+  readonly cwd?: string | undefined;
+  readonly home?: string | undefined;
+}): string[] {
+  const geminiHome = input.home?.trim() || path.join(homedir(), ".gemini");
+  const projectRoots = ancestorDirsUntilGitRoot(input.cwd);
+  return uniquePaths([
+    path.join(geminiHome, "settings.json"),
+    ...projectRoots.map((root) => path.join(root, ".gemini", "settings.json")),
+  ]);
+}
+
+export function resolveGeminiAgentSettings(input: {
+  readonly cwd?: string | undefined;
+  readonly home?: string | undefined;
+}): {
+  readonly enabled: boolean;
+  readonly disabledAgentNames: ReadonlySet<string>;
+  readonly enabledAgentNames: ReadonlySet<string>;
+} {
+  let enabled = true;
+  const disabledAgentNames = new Set<string>();
+  const enabledAgentNames = new Set<string>();
+  for (const settingsFile of geminiSettingsFiles(input)) {
+    const settings = readGeminiSettingsFile(settingsFile);
+    if (!settings) {
+      continue;
+    }
+    if (settings.experimental?.enableAgents === false) {
+      enabled = false;
+    }
+    for (const [agentName, override] of Object.entries(settings.agents?.overrides ?? {})) {
+      const normalizedName = normalizeCommandName(agentName);
+      if (!normalizedName) {
+        continue;
+      }
+      if (override?.enabled === false) {
+        enabledAgentNames.delete(normalizedName.toLowerCase());
+        disabledAgentNames.add(normalizedName.toLowerCase());
+      } else if (override?.enabled === true) {
+        enabledAgentNames.add(normalizedName.toLowerCase());
+        disabledAgentNames.delete(normalizedName.toLowerCase());
+      }
+    }
+  }
+  return { enabled, disabledAgentNames, enabledAgentNames };
+}
+
+function geminiBuiltInSubagentCommandsForSettings(
+  settings: ReturnType<typeof resolveGeminiAgentSettings>,
+): ReadonlyArray<ProviderSlashCommand> {
+  return GEMINI_BUILT_IN_SUBAGENT_COMMANDS.filter(
+    (command) =>
+      command.name !== "browser_agent" || settings.enabledAgentNames.has("browser_agent"),
+  );
+}
+
+export function geminiBuiltInSubagentCommands(input: {
+  readonly cwd?: string | undefined;
+  readonly home?: string | undefined;
+}): ReadonlyArray<ProviderSlashCommand> {
+  return geminiBuiltInSubagentCommandsForSettings(resolveGeminiAgentSettings(input));
+}
+
+function normalizedGeminiPathRulePath(value: string | undefined): string {
+  const normalized = path.resolve(value?.trim() || process.cwd()).replaceAll(path.sep, "/");
+  return normalized.startsWith("/") ? `${normalized.replace(/\/+$/u, "")}/` : `/${normalized}/`;
+}
+
+function geminiEnablementRuleMatches(rule: string, cwd: string | undefined): boolean {
+  const rawRule = rule.startsWith("!") ? rule.slice(1) : rule;
+  const includeSubdirs = rawRule.endsWith("*");
+  const normalizedRule = normalizedGeminiPathRulePath(
+    includeSubdirs ? rawRule.slice(0, -1) : rawRule,
+  );
+  const normalizedCwd = normalizedGeminiPathRulePath(cwd);
+  return includeSubdirs
+    ? normalizedCwd === normalizedRule || normalizedCwd.startsWith(normalizedRule)
+    : normalizedCwd === normalizedRule;
+}
+
+function geminiDisabledExtensionNames(input: {
+  readonly cwd?: string | undefined;
+  readonly home?: string | undefined;
+}): Set<string> {
+  const disabled = new Set<string>();
+  for (const settingsFile of geminiSettingsFiles(input)) {
+    const settings = readGeminiSettingsFile(settingsFile);
+    for (const entry of stringArrayFromUnknown(settings?.extensions?.disabled)) {
+      disabled.add(entry.toLowerCase());
+    }
+  }
+  return disabled;
+}
+
+function isGeminiExtensionEnabled(input: {
+  readonly extensionName: string;
+  readonly cwd?: string | undefined;
+  readonly geminiHome: string;
+}): boolean {
+  const extensionName = input.extensionName.toLowerCase();
+  const disabledNames = geminiDisabledExtensionNames({
+    cwd: input.cwd,
+    home: input.geminiHome,
+  });
+  if (disabledNames.has("none") || disabledNames.has(extensionName)) {
+    return false;
+  }
+  const enablement = safeParseJsonRecord(
+    path.join(input.geminiHome, "extensions", "extension-enablement.json"),
+  );
+  const extensionConfig = enablement?.[input.extensionName];
+  const overrides =
+    extensionConfig && typeof extensionConfig === "object" && !Array.isArray(extensionConfig)
+      ? stringArrayFromUnknown((extensionConfig as { readonly overrides?: unknown }).overrides)
+      : [];
+  let enabled = true;
+  for (const override of overrides) {
+    if (!geminiEnablementRuleMatches(override, input.cwd)) {
+      continue;
+    }
+    enabled = !override.startsWith("!");
+  }
+  return enabled;
+}
+
+function applyGeminiAgentSettings(
+  commands: ReadonlyArray<ProviderSlashCommand>,
+  settings: ReturnType<typeof resolveGeminiAgentSettings>,
+): ReadonlyArray<ProviderSlashCommand> {
+  if (settings.enabled && settings.disabledAgentNames.size === 0) {
+    return commands;
+  }
+  return commands.filter((command) => {
+    if (command.kind !== "agent") {
+      return true;
+    }
+    if (!settings.enabled) {
+      return false;
+    }
+    return !settings.disabledAgentNames.has(command.name.toLowerCase());
+  });
+}
+
+function readClaudeSettingsFile(file: string): ClaudeSettingsFile | null {
+  return safeParseJsonRecord(file) as ClaudeSettingsFile | null;
+}
+
+function claudeSettingsFiles(input: {
+  readonly cwd?: string | undefined;
+  readonly home?: string | undefined;
+}): string[] {
+  const claudeHome = input.home?.trim() || path.join(homedir(), ".claude");
+  const projectRoots = ancestorDirsUntilGitRoot(input.cwd);
+  return uniquePaths([
+    ...projectRoots.flatMap((root) => [
+      path.join(root, ".claude", "settings.json"),
+      path.join(root, ".claude", "settings.local.json"),
+    ]),
+    path.join(claudeHome, "settings.json"),
+  ]);
+}
+
+function claudeDeniedAgentName(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const match = /^Agent\((?<agentName>[^)]+)\)$/iu.exec(value.trim());
+  const agentName = normalizeCommandName(match?.groups?.agentName ?? "");
+  return agentName ? agentName.toLowerCase() : null;
+}
+
+function resolveClaudeAgentSettings(input: {
+  readonly cwd?: string | undefined;
+  readonly home?: string | undefined;
+}): {
+  readonly currentAgent: string | null;
+  readonly deniedAgentNames: ReadonlySet<string>;
+} {
+  let currentAgent: string | null = null;
+  const deniedAgentNames = new Set<string>();
+  for (const settingsFile of claudeSettingsFiles(input)) {
+    const settings = readClaudeSettingsFile(settingsFile);
+    if (!settings) {
+      continue;
+    }
+    const agent = normalizeCommandName(typeof settings.agent === "string" ? settings.agent : "");
+    if (agent) {
+      currentAgent = agent;
+    }
+    const deny = settings.permissions?.deny;
+    if (!Array.isArray(deny)) {
+      continue;
+    }
+    for (const entry of deny) {
+      const agentName = claudeDeniedAgentName(entry);
+      if (agentName) {
+        deniedAgentNames.add(agentName);
+      }
+    }
+  }
+  return { currentAgent, deniedAgentNames };
+}
+
+function claudeAgentCommandNames(command: ProviderSlashCommand): ReadonlyArray<string> {
+  const names = new Set<string>();
+  const commandName = normalizeCommandName(command.name);
+  if (commandName) {
+    names.add(commandName.toLowerCase());
+    const suffix = commandName.split(":").at(-1);
+    if (suffix) {
+      names.add(suffix.toLowerCase());
+    }
+  }
+  const promptPrefix = command.promptPrefix?.trim();
+  if (promptPrefix?.startsWith("/")) {
+    const promptName = normalizeCommandName(promptPrefix.slice(1).split(/\s/u, 1)[0] ?? "");
+    if (promptName) {
+      names.add(promptName.toLowerCase());
+    }
+  }
+  return [...names];
+}
+
+function applyClaudeAgentSettings(
+  commands: ReadonlyArray<ProviderSlashCommand>,
+  settings: ReturnType<typeof resolveClaudeAgentSettings>,
+): ReadonlyArray<ProviderSlashCommand> {
+  if (settings.deniedAgentNames.size === 0) {
+    return commands;
+  }
+  return commands.filter((command) => {
+    if (command.kind !== "agent") {
+      return true;
+    }
+    return !claudeAgentCommandNames(command).some((name) => settings.deniedAgentNames.has(name));
+  });
+}
+
+function defaultClaudeOutputStyles(): ClaudeOutputStyle[] {
+  return [
+    {
+      value: "Default",
+      name: "Default",
+      description: "Claude Code's default software engineering style.",
+    },
+    {
+      value: "Explanatory",
+      name: "Explanatory",
+      description: "Add educational insights while completing coding tasks.",
+    },
+    {
+      value: "Learning",
+      name: "Learning",
+      description: "Collaborative learn-by-doing style with human TODOs.",
+    },
+  ];
+}
+
+function normalizeClaudeOutputStyleName(value: string | undefined): string | null {
+  const normalized = value?.trim();
+  if (!normalized || normalized.length > 120) {
+    return null;
+  }
+  return /^[\p{L}\p{N}][\p{L}\p{N} _.,:@/-]*$/u.test(normalized) ? normalized : null;
+}
+
+function readClaudeOutputStyleFile(file: string): ClaudeOutputStyle | null {
+  if (!file.endsWith(".md")) {
+    return null;
+  }
+  const markdown = safeReadFile(file);
+  if (!markdown) {
+    return null;
+  }
+  const name = normalizeClaudeOutputStyleName(
+    frontmatterField(markdown, "name") ?? path.basename(file, ".md"),
+  );
+  if (!name) {
+    return null;
+  }
+  const description = frontmatterField(markdown, "description") ?? firstMarkdownHeading(markdown);
+  return {
+    value: name,
+    name,
+    ...(description ? { description } : {}),
+  };
+}
+
+function readClaudeOutputStyleRoot(root: string): ClaudeOutputStyle[] {
+  if (!isDirectory(root)) {
+    return [];
+  }
+  return safeReadDir(root)
+    .map((entry) => readClaudeOutputStyleFile(path.join(root, entry)))
+    .filter((style): style is ClaudeOutputStyle => style !== null);
+}
+
+function resolveClaudeCurrentOutputStyle(input: {
+  readonly cwd?: string | undefined;
+  readonly home?: string | undefined;
+}): string {
+  let current = "Default";
+  for (const settingsFile of claudeSettingsFiles(input)) {
+    const settings = readClaudeSettingsFile(settingsFile);
+    const outputStyle = normalizeClaudeOutputStyleName(
+      typeof settings?.outputStyle === "string" ? settings.outputStyle : undefined,
+    );
+    if (outputStyle) {
+      current = outputStyle;
+    }
+  }
+  return current;
+}
+
+function mergeClaudeOutputStyles(
+  styles: ReadonlyArray<ClaudeOutputStyle>,
+): ReadonlyArray<ClaudeOutputStyle> {
+  const byValue = new Map<string, ClaudeOutputStyle>();
+  for (const style of styles) {
+    const key = style.value.toLowerCase();
+    if (!byValue.has(key)) {
+      byValue.set(key, style);
+    }
+  }
+  return [...byValue.values()].toSorted((left, right) => {
+    const leftBuiltin = defaultClaudeOutputStyles().some((style) => style.value === left.value);
+    const rightBuiltin = defaultClaudeOutputStyles().some((style) => style.value === right.value);
+    if (leftBuiltin !== rightBuiltin) {
+      return leftBuiltin ? -1 : 1;
+    }
+    return left.name.localeCompare(right.name);
+  });
+}
+
+export function discoverClaudeOutputStyleConfigOption(input: {
+  readonly cwd?: string | undefined;
+  readonly home?: string | undefined;
+  readonly selectedOutputStyle?: string | undefined;
+}): ProviderSessionConfigOption {
+  const claudeHome = input.home?.trim() || path.join(homedir(), ".claude");
+  const projectRoots = ancestorDirsUntilGitRoot(input.cwd);
+  const pluginStyles = readClaudeInstalledPluginEntries(claudeHome).flatMap((entry) =>
+    readClaudeOutputStyleRoot(path.join(entry.installPath, "output-styles")),
+  );
+  const outputStyles = mergeClaudeOutputStyles([
+    ...defaultClaudeOutputStyles(),
+    ...projectRoots.flatMap((root) =>
+      readClaudeOutputStyleRoot(path.join(root, ".claude", "output-styles")),
+    ),
+    ...readClaudeOutputStyleRoot(path.join(claudeHome, "output-styles")),
+    ...pluginStyles,
+  ]);
+  const selected =
+    normalizeClaudeOutputStyleName(input.selectedOutputStyle) ??
+    resolveClaudeCurrentOutputStyle(input);
+  const hasSelected = outputStyles.some(
+    (style) => style.value.toLowerCase() === selected.toLowerCase(),
+  );
+  const options = hasSelected
+    ? outputStyles
+    : mergeClaudeOutputStyles([{ value: selected, name: selected }, ...outputStyles]);
+
+  return {
+    id: "output_style",
+    name: "Style",
+    category: "output_style",
+    type: "select",
+    currentValue: selected,
+    description: "Claude Code output style for this session.",
+    options: options.map((style) => ({
+      value: style.value,
+      name: style.name,
+      ...(style.description ? { description: style.description } : {}),
+    })),
+  };
+}
+
+function mergeProviderAgentOptions(
+  commands: ReadonlyArray<ProviderSlashCommand>,
+  defaultDescription: string,
+): ReadonlyArray<ProviderSessionConfigOption["options"][number]> {
+  const byValue = new Map<string, ProviderSessionConfigOption["options"][number]>();
+  byValue.set("default", {
+    value: "default",
+    name: "Default",
+    description: defaultDescription,
+  });
+  for (const command of commands) {
+    if (command.kind !== "agent") {
+      continue;
+    }
+    const value = normalizeCommandName(command.name);
+    if (!value || byValue.has(value.toLowerCase())) {
+      continue;
+    }
+    byValue.set(value.toLowerCase(), {
+      value,
+      name: command.name,
+      ...(command.description ? { description: command.description } : {}),
+    });
+  }
+  const [defaultOption, ...agentOptions] = [...byValue.values()];
+  return [
+    ...(defaultOption ? [defaultOption] : []),
+    ...agentOptions.toSorted((left, right) => left.name.localeCompare(right.name)),
+  ];
+}
+
+export function discoverClaudeAgentConfigOption(input: {
+  readonly cwd?: string | undefined;
+  readonly home?: string | undefined;
+  readonly selectedAgent?: string | undefined;
+  readonly commands: ReadonlyArray<ProviderSlashCommand>;
+}): ProviderSessionConfigOption {
+  const settings = resolveClaudeAgentSettings(input);
+  const selected =
+    normalizeCommandName(input.selectedAgent ?? "") ?? settings.currentAgent ?? "default";
+  const options = mergeProviderAgentOptions(
+    input.commands,
+    "Use Claude Code's default main agent for this session.",
+  );
+  const hasSelected = options.some(
+    (option) => option.value.toLowerCase() === selected.toLowerCase(),
+  );
+  const resolvedOptions = hasSelected
+    ? options
+    : [
+        ...options,
+        {
+          value: selected,
+          name: selected,
+          description: "Claude Code subagent selected for this session.",
+        },
+      ];
+
+  return {
+    id: "agent",
+    name: "Agent",
+    category: "agent",
+    type: "select",
+    currentValue: selected,
+    description: "Claude Code main agent for this session.",
+    options: resolvedOptions,
+  };
+}
+
+export function discoverGitHubCopilotAgentConfigOption(input: {
+  readonly selectedAgent?: string | undefined;
+  readonly commands: ReadonlyArray<ProviderSlashCommand>;
+}): ProviderSessionConfigOption {
+  const selected = normalizeCommandName(input.selectedAgent ?? "") ?? "default";
+  const options = mergeProviderAgentOptions(
+    input.commands,
+    "Use GitHub Copilot's default agent for this session.",
+  );
+  const hasSelected = options.some(
+    (option) => option.value.toLowerCase() === selected.toLowerCase(),
+  );
+  const resolvedOptions = hasSelected
+    ? options
+    : [
+        ...options,
+        {
+          value: selected,
+          name: selected,
+          description: "GitHub Copilot custom agent selected for this session.",
+        },
+      ];
+
+  return {
+    id: "agent",
+    name: "Agent",
+    category: "agent",
+    type: "select",
+    currentValue: selected,
+    description: "GitHub Copilot custom agent for this session.",
+    options: resolvedOptions,
+  };
+}
+
+function claudeForkSubagentsEnabledFromEnv(env: NodeJS.ProcessEnv): boolean {
+  return env.CLAUDE_CODE_FORK_SUBAGENT === "1";
+}
+
+function claudeAgentTeamsEnabledFromEnv(env: NodeJS.ProcessEnv): boolean {
+  return env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS === "1";
+}
+
+export function discoverClaudeForkSubagentsConfigOption(
+  input: {
+    readonly selectedForkSubagents?: boolean | undefined;
+    readonly env?: NodeJS.ProcessEnv | undefined;
+  } = {},
+): ProviderSessionConfigOption {
+  const selected =
+    typeof input.selectedForkSubagents === "boolean"
+      ? input.selectedForkSubagents
+      : claudeForkSubagentsEnabledFromEnv(input.env ?? process.env);
+  return {
+    id: "fork_subagents",
+    name: "Forks",
+    category: "subagent_fork_mode",
+    type: "select",
+    currentValue: selected ? "on" : "off",
+    description: "Claude Code forked subagents inherit the current conversation context.",
+    options: [
+      {
+        value: "off",
+        name: "Off",
+        description: "Use named subagents with fresh task context.",
+      },
+      {
+        value: "on",
+        name: "On",
+        description: "Enable Claude Code forked subagents for shared-context side tasks.",
+      },
+    ],
+  };
+}
+
+export function discoverClaudeAgentTeamsConfigOption(
+  input: {
+    readonly selectedAgentTeams?: boolean | undefined;
+    readonly env?: NodeJS.ProcessEnv | undefined;
+  } = {},
+): ProviderSessionConfigOption {
+  const selected =
+    typeof input.selectedAgentTeams === "boolean"
+      ? input.selectedAgentTeams
+      : claudeAgentTeamsEnabledFromEnv(input.env ?? process.env);
+  return {
+    id: "agent_teams",
+    name: "Teams",
+    category: "agent_team_mode",
+    type: "select",
+    currentValue: selected ? "on" : "off",
+    description: "Claude Code experimental agent teams for peer-to-peer multi-agent work.",
+    options: [
+      {
+        value: "off",
+        name: "Off",
+        description: "Keep Claude agent teams disabled for this session.",
+      },
+      {
+        value: "on",
+        name: "On",
+        description: "Enable Claude Code agent teams for multi-agent collaboration.",
+      },
+    ],
+  };
+}
+
+function stripJsonComments(raw: string): string {
+  let output = "";
+  let inString = false;
+  let escaped = false;
+  for (let index = 0; index < raw.length; index += 1) {
+    const char = raw[index];
+    const next = raw[index + 1];
+    if (inString) {
+      output += char;
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (char === '"') {
+      inString = true;
+      output += char;
+      continue;
+    }
+    if (char === "/" && next === "/") {
+      index += 2;
+      while (index < raw.length && raw[index] !== "\n" && raw[index] !== "\r") {
+        index += 1;
+      }
+      index -= 1;
+      continue;
+    }
+    if (char === "/" && next === "*") {
+      index += 2;
+      while (index < raw.length && !(raw[index] === "*" && raw[index + 1] === "/")) {
+        index += 1;
+      }
+      index += 1;
+      continue;
+    }
+    output += char;
+  }
+  return output;
+}
+
+function stripJsonTrailingCommas(raw: string): string {
+  let output = "";
+  let inString = false;
+  let escaped = false;
+  for (let index = 0; index < raw.length; index += 1) {
+    const char = raw[index];
+    if (inString) {
+      output += char;
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (char === '"') {
+      inString = true;
+      output += char;
+      continue;
+    }
+    if (char === ",") {
+      let nextIndex = index + 1;
+      while (/\s/u.test(raw[nextIndex] ?? "")) {
+        nextIndex += 1;
+      }
+      if (raw[nextIndex] === "}" || raw[nextIndex] === "]") {
+        continue;
+      }
+    }
+    output += char;
+  }
+  return output;
+}
+
+function safeParseJsoncRecord(file: string): Record<string, unknown> | null {
+  const raw = safeReadFile(file);
+  if (!raw) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(stripJsonTrailingCommas(stripJsonComments(raw))) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function stringArrayFromUnknown(value: unknown): string[] {
+  if (typeof value === "string") {
+    return value.trim().length > 0 ? [value.trim()] : [];
+  }
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+    .filter((entry) => entry.length > 0);
+}
+
+function resolvePiResourcePaths(baseDir: string, value: unknown): string[] {
+  return stringArrayFromUnknown(value).flatMap((rawPath) => {
+    if (rawPath.startsWith("!") || rawPath.startsWith("-")) {
+      return [];
+    }
+    const exactPath = rawPath.startsWith("+") ? rawPath.slice(1).trim() : rawPath;
+    if (!exactPath || /[*?[\]{}]/u.test(exactPath)) {
+      return [];
+    }
+    if (exactPath.startsWith("~/")) {
+      return [path.join(homedir(), exactPath.slice(2))];
+    }
+    if (path.isAbsolute(exactPath)) {
+      return [exactPath];
+    }
+    return [path.resolve(baseDir, exactPath)];
+  });
+}
+
+function readPiPromptTemplateResource(resourcePath: string): ProviderSlashCommand[] {
+  if (isDirectory(resourcePath)) {
+    return readPiPromptTemplateRoot(resourcePath);
+  }
+  if (!isRegularFile(resourcePath)) {
+    return [];
+  }
+  const command = readPiPromptTemplateCommand(resourcePath);
+  return command ? [command] : [];
+}
+
+function readPiSkillResource(resourcePath: string): ProviderSlashCommand[] {
+  if (isDirectory(resourcePath)) {
+    const directCommand = readSkillCommand(resourcePath, PI_SKILL_READ_OPTIONS);
+    return directCommand
+      ? [directCommand]
+      : readPiSkillRoot({ root: resourcePath, includeRootMarkdownFiles: true });
+  }
+  if (!isRegularFile(resourcePath)) {
+    return [];
+  }
+  const command = readMarkdownSkillCommand(resourcePath, PI_SKILL_READ_OPTIONS);
+  return command ? [command] : [];
+}
+
+function readPiAgentResource(resourcePath: string): ProviderSlashCommand[] {
+  const options: AgentReadOptions = {
+    excludeDisabled: true,
+    promptPrefix: (agentName) => `@${agentName}`,
+    normalizeFileName: (fileName) =>
+      fileName.endsWith(".chain") ? "" : fileName.replace(/\.agent$/u, ""),
+  };
+  if (isDirectory(resourcePath)) {
+    return readPiAgentRoot(resourcePath, options);
+  }
+  if (!isRegularFile(resourcePath)) {
+    return [];
+  }
+  if (path.basename(resourcePath).endsWith(".chain.md")) {
+    return [];
+  }
+  const command = readAgentMarkdownCommand(resourcePath, options);
+  return command ? [command] : [];
+}
+
+function readPiAgentRoot(
+  root: string,
+  options: AgentReadOptions,
+  depth = 0,
+): ProviderSlashCommand[] {
+  if (!isDirectory(root)) {
+    return [];
+  }
+  const commands: ProviderSlashCommand[] = [];
+  for (const entry of safeReadDir(root)) {
+    const entryPath = path.join(root, entry);
+    if (entry.endsWith(".chain.md")) {
+      continue;
+    }
+    const command = readAgentMarkdownCommand(entryPath, options);
+    if (command) {
+      commands.push(command);
+    } else if (depth < 4 && isDirectory(entryPath)) {
+      commands.push(...readPiAgentRoot(entryPath, options, depth + 1));
+    }
+  }
+  return commands;
+}
+
+function readPiPackageCommands(packageRoot: string): ReadonlyArray<ProviderSlashCommand> {
+  const rawManifest = safeParseJsonRecord(path.join(packageRoot, "package.json"));
+  if (!rawManifest) {
+    return [];
+  }
+  const manifest = rawManifest as PiPackageManifest;
+  const hasPiManifest = Boolean(manifest.pi && typeof manifest.pi === "object");
+  const isPiPackage =
+    hasPiManifest ||
+    (Array.isArray(manifest.keywords) &&
+      manifest.keywords.some((keyword) => keyword === "pi-package"));
+  if (!isPiPackage) {
+    return [];
+  }
+  const promptResources = hasPiManifest
+    ? resolvePiResourcePaths(packageRoot, manifest.pi?.prompts)
+    : [path.join(packageRoot, "prompts")];
+  const skillResources = hasPiManifest
+    ? resolvePiResourcePaths(packageRoot, manifest.pi?.skills)
+    : [path.join(packageRoot, "skills")];
+  const agentResources = hasPiManifest
+    ? resolvePiResourcePaths(packageRoot, manifest.pi?.agents)
+    : [path.join(packageRoot, "agents")];
+  return mergeProviderSlashCommands(
+    agentResources.flatMap(readPiAgentResource),
+    promptResources.flatMap(readPiPromptTemplateResource),
+    skillResources.flatMap(readPiSkillResource),
+  );
+}
+
+function readPiSettingsFile(file: string): PiSettingsFile | null {
+  return safeParseJsonRecord(file) as PiSettingsFile | null;
+}
+
+function isLocalPiPackageSource(value: string): boolean {
+  return (
+    value.startsWith(".") ||
+    value.startsWith("/") ||
+    value.startsWith("~/") ||
+    value.startsWith("+.") ||
+    value.startsWith("+/") ||
+    value.startsWith("+~/")
+  );
+}
+
+function piPackageSourcesFromUnknown(value: unknown): string[] {
+  if (typeof value === "string") {
+    return value.trim().length > 0 ? [value.trim()] : [];
+  }
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.flatMap((entry) => {
+    if (typeof entry === "string") {
+      const trimmed = entry.trim();
+      return trimmed ? [trimmed] : [];
+    }
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      return [];
+    }
+    const source = (entry as { readonly source?: unknown }).source;
+    return typeof source === "string" && source.trim().length > 0 ? [source.trim()] : [];
+  });
+}
+
+function readPiSettingsCommands(input: {
+  readonly settingsFile: string;
+  readonly baseDir: string;
+}): ReadonlyArray<ProviderSlashCommand> {
+  const settings = readPiSettingsFile(input.settingsFile);
+  if (!settings) {
+    return [];
+  }
+  const packageRoots = piPackageSourcesFromUnknown(settings.packages)
+    .filter(isLocalPiPackageSource)
+    .flatMap((packageSource) => resolvePiResourcePaths(input.baseDir, packageSource));
+  return mergeProviderSlashCommands(
+    resolvePiResourcePaths(input.baseDir, settings.agents).flatMap(readPiAgentResource),
+    resolvePiResourcePaths(input.baseDir, settings.prompts).flatMap(readPiPromptTemplateResource),
+    resolvePiResourcePaths(input.baseDir, settings.skills).flatMap(readPiSkillResource),
+    packageRoots.flatMap(readPiPackageCommands),
+  );
+}
+
+function piDisabledBuiltinSubagentNames(settingsFiles: ReadonlyArray<string>): Set<string> {
+  const disabled = new Set<string>();
+  for (const settingsFile of settingsFiles) {
+    const settings = readPiSettingsFile(settingsFile);
+    const subagents =
+      settings?.subagents && typeof settings.subagents === "object"
+        ? (settings.subagents as {
+            readonly disableBuiltins?: unknown;
+            readonly agentOverrides?: unknown;
+          })
+        : null;
+    if (!subagents) {
+      continue;
+    }
+    if (subagents.disableBuiltins === true) {
+      for (const command of PI_BUILT_IN_SUBAGENT_COMMANDS) {
+        disabled.add(command.name);
+      }
+    }
+    const overrides =
+      subagents.agentOverrides && typeof subagents.agentOverrides === "object"
+        ? (subagents.agentOverrides as Record<string, unknown>)
+        : {};
+    for (const [rawName, override] of Object.entries(overrides)) {
+      const agentName = normalizeCommandName(rawName);
+      if (!agentName || !override || typeof override !== "object") {
+        continue;
+      }
+      if ((override as { readonly disabled?: unknown }).disabled === true) {
+        disabled.add(agentName);
+      }
+    }
+  }
+  return disabled;
+}
+
+function filterPiBuiltinSubagentCommands(
+  settingsFiles: ReadonlyArray<string>,
+): ReadonlyArray<ProviderSlashCommand> {
+  const disabled = piDisabledBuiltinSubagentNames(settingsFiles);
+  if (disabled.size === 0) {
+    return PI_BUILT_IN_SUBAGENT_COMMANDS;
+  }
+  return PI_BUILT_IN_SUBAGENT_COMMANDS.filter((command) => !disabled.has(command.name));
+}
+
+function piSkillCommandsEnabled(settingsFiles: ReadonlyArray<string>): boolean {
+  let enabled = true;
+  for (const settingsFile of settingsFiles.toReversed()) {
+    const settings = readPiSettingsFile(settingsFile);
+    if (typeof settings?.enableSkillCommands === "boolean") {
+      enabled = settings.enableSkillCommands;
+    }
+  }
+  return enabled;
+}
+
+function applyPiSettings(
+  commands: ReadonlyArray<ProviderSlashCommand>,
+  settingsFiles: ReadonlyArray<string>,
+): ReadonlyArray<ProviderSlashCommand> {
+  if (piSkillCommandsEnabled(settingsFiles)) {
+    return commands;
+  }
+  return commands.filter((command) => command.kind !== "skill");
 }
 
 function readAgentMarkdownCommand(
@@ -516,8 +2089,24 @@ function readAgentMarkdownCommand(
   if (frontmatterBooleanField(markdown, "hidden") === true) {
     return null;
   }
+  if (
+    options.excludeDisabled &&
+    (frontmatterBooleanField(markdown, "disable") === true ||
+      frontmatterBooleanField(markdown, "disabled") === true)
+  ) {
+    return null;
+  }
+  const frontmatterName = options.nameFromFrontmatter ? frontmatterField(markdown, "name") : null;
+  if (options.requireNameFromFrontmatter && !frontmatterName) {
+    return null;
+  }
+  const frontmatterDescription = frontmatterField(markdown, "description");
+  if (options.requireDescription && !frontmatterDescription) {
+    return null;
+  }
+  const description = frontmatterDescription ?? firstMarkdownHeading(markdown);
   const rawName =
-    (options.nameFromFrontmatter ? frontmatterField(markdown, "name") : undefined) ??
+    frontmatterName ??
     options.normalizeFileName?.(path.basename(file, ".md")) ??
     path.basename(file, ".md");
   const agentName = normalizeCommandName(rawName);
@@ -526,7 +2115,7 @@ function readAgentMarkdownCommand(
   }
   return providerAgentSlashCommand({
     name: agentName,
-    description: frontmatterField(markdown, "description") ?? firstMarkdownHeading(markdown),
+    description,
     promptPrefix: options.promptPrefix?.(agentName) ?? `@${agentName}`,
     inputHint: "<prompt>",
   });
@@ -553,18 +2142,202 @@ function readAgentMarkdownRoot(
   return commands;
 }
 
+function geminiRemoteAgentCommandFromEntry(
+  entry: Record<string, string | boolean>,
+): ProviderSlashCommand | null {
+  if (entry.kind !== "remote" || typeof entry.name !== "string") {
+    return null;
+  }
+  if (typeof entry.agent_card_url !== "string" && typeof entry.agent_card_json !== "string") {
+    return null;
+  }
+  const agentName = normalizeCommandName(entry.name);
+  if (!agentName) {
+    return null;
+  }
+  const description =
+    typeof entry.description === "string"
+      ? entry.description
+      : typeof entry.agent_card_url === "string"
+        ? `Remote Gemini A2A subagent at ${entry.agent_card_url}`
+        : "Remote Gemini A2A subagent";
+  return providerAgentSlashCommand({
+    name: agentName,
+    description,
+    promptPrefix: `@${agentName}`,
+    inputHint: "<prompt>",
+  });
+}
+
+function readGeminiRemoteAgentMarkdownCommands(file: string): ProviderSlashCommand[] {
+  if (!file.endsWith(".md")) {
+    return [];
+  }
+  const markdown = safeReadFile(file);
+  if (!markdown) {
+    return [];
+  }
+  const entries = frontmatterRootObjectList(markdown) ?? [
+    {
+      kind: frontmatterField(markdown, "kind") ?? "",
+      name: frontmatterField(markdown, "name") ?? "",
+      agent_card_url: frontmatterField(markdown, "agent_card_url") ?? "",
+      agent_card_json: frontmatterField(markdown, "agent_card_json") ?? "",
+      description: frontmatterField(markdown, "description") ?? "",
+    },
+  ];
+  return entries
+    .map(geminiRemoteAgentCommandFromEntry)
+    .filter((command): command is ProviderSlashCommand => command !== null);
+}
+
+function readGeminiRemoteAgentRoot(root: string, depth = 0): ProviderSlashCommand[] {
+  if (!isDirectory(root)) {
+    return [];
+  }
+  const commands: ProviderSlashCommand[] = [];
+  for (const entry of safeReadDir(root)) {
+    const entryPath = path.join(root, entry);
+    commands.push(...readGeminiRemoteAgentMarkdownCommands(entryPath));
+    if (depth < 4 && isDirectory(entryPath)) {
+      commands.push(...readGeminiRemoteAgentRoot(entryPath, depth + 1));
+    }
+  }
+  return commands;
+}
+
+function pluginAgentScopeSegments(root: string, file: string): string[] {
+  const relativeDir = path.relative(root, path.dirname(file));
+  if (!relativeDir || relativeDir === ".") {
+    return [];
+  }
+  return relativeDir
+    .split(path.sep)
+    .map((part) => normalizeCommandName(part))
+    .filter((part): part is string => Boolean(part));
+}
+
+function readPluginAgentMarkdownCommand(input: {
+  readonly root: string;
+  readonly file: string;
+  readonly pluginName: string;
+  readonly agentPromptPrefix?: ((pluginName: string, agentName: string) => string) | undefined;
+}): ProviderSlashCommand | null {
+  if (!input.file.endsWith(".md")) {
+    return null;
+  }
+  const markdown = safeReadFile(input.file);
+  if (!markdown) {
+    return null;
+  }
+  if (frontmatterBooleanField(markdown, "hidden") === true) {
+    return null;
+  }
+  const rawAgentName = frontmatterField(markdown, "name") ?? path.basename(input.file, ".md");
+  const agentName = normalizeCommandName(rawAgentName);
+  if (!agentName) {
+    return null;
+  }
+  const scopedAgentName = [...pluginAgentScopeSegments(input.root, input.file), agentName].join(
+    ":",
+  );
+  if (!scopedAgentName) {
+    return null;
+  }
+  const description = frontmatterField(markdown, "description") ?? firstMarkdownHeading(markdown);
+  return providerAgentSlashCommand({
+    name: `${input.pluginName}:${scopedAgentName}`,
+    description,
+    promptPrefix:
+      input.agentPromptPrefix?.(input.pluginName, scopedAgentName) ??
+      `@${input.pluginName}:${scopedAgentName}`,
+    inputHint: "<prompt>",
+  });
+}
+
+function readPluginAgentMarkdownRoot(input: {
+  readonly root: string;
+  readonly scanRoot?: string | undefined;
+  readonly pluginName: string;
+  readonly agentPromptPrefix?: ((pluginName: string, agentName: string) => string) | undefined;
+  readonly depth?: number | undefined;
+}): ProviderSlashCommand[] {
+  const depth = input.depth ?? 0;
+  const scanRoot = input.scanRoot ?? input.root;
+  if (!isDirectory(scanRoot)) {
+    return [];
+  }
+  const commands: ProviderSlashCommand[] = [];
+  for (const entry of safeReadDir(scanRoot)) {
+    const entryPath = path.join(scanRoot, entry);
+    const command = readPluginAgentMarkdownCommand({
+      root: input.root,
+      file: entryPath,
+      pluginName: input.pluginName,
+      ...(input.agentPromptPrefix ? { agentPromptPrefix: input.agentPromptPrefix } : {}),
+    });
+    if (command) {
+      commands.push(command);
+    } else if (depth < 4 && isDirectory(entryPath)) {
+      commands.push(
+        ...readPluginAgentMarkdownRoot({
+          ...input,
+          scanRoot: entryPath,
+          depth: depth + 1,
+        }),
+      );
+    }
+  }
+  return commands;
+}
+
+function openCodeAgentConfigEntries(parsed: {
+  readonly agent?: unknown;
+  readonly agents?: unknown;
+}): ReadonlyArray<readonly [string, unknown]> {
+  const agents = {
+    ...(parsed.agent && typeof parsed.agent === "object"
+      ? (parsed.agent as Record<string, unknown>)
+      : {}),
+    ...(parsed.agents && typeof parsed.agents === "object"
+      ? (parsed.agents as Record<string, unknown>)
+      : {}),
+  };
+  return Object.entries(agents);
+}
+
+function openCodeCommandConfigEntries(parsed: {
+  readonly command?: unknown;
+  readonly commands?: unknown;
+}): ReadonlyArray<readonly [string, unknown]> {
+  const commands = {
+    ...(parsed.command && typeof parsed.command === "object"
+      ? (parsed.command as Record<string, unknown>)
+      : {}),
+    ...(parsed.commands && typeof parsed.commands === "object"
+      ? (parsed.commands as Record<string, unknown>)
+      : {}),
+  };
+  return Object.entries(commands);
+}
+
+function isOpenCodeAgentDisabled(agent: {
+  readonly disable?: unknown;
+  readonly disabled?: unknown;
+}): boolean {
+  return agent.disable === true || agent.disabled === true;
+}
+
 function readOpenCodeJsonAgentCommands(file: string): ProviderSlashCommand[] {
-  const raw = safeReadFile(file);
-  if (!raw) {
+  const parsed = safeParseJsoncRecord(file) as {
+    readonly agent?: unknown;
+    readonly agents?: unknown;
+  } | null;
+  if (!parsed) {
     return [];
   }
   try {
-    const parsed = JSON.parse(raw) as { readonly agent?: unknown };
-    const agents =
-      parsed.agent && typeof parsed.agent === "object"
-        ? (parsed.agent as Record<string, unknown>)
-        : {};
-    return Object.entries(agents).flatMap(([rawName, rawAgent]) => {
+    return openCodeAgentConfigEntries(parsed).flatMap(([rawName, rawAgent]) => {
       const agentName = normalizeCommandName(rawName);
       if (!agentName || !rawAgent || typeof rawAgent !== "object") {
         return [];
@@ -573,11 +2346,17 @@ function readOpenCodeJsonAgentCommands(file: string): ProviderSlashCommand[] {
         readonly description?: unknown;
         readonly mode?: unknown;
         readonly disable?: unknown;
+        readonly disabled?: unknown;
         readonly hidden?: unknown;
       };
+      const description =
+        typeof agent.description === "string" && agent.description.trim().length > 0
+          ? agent.description.trim()
+          : null;
       const mode = typeof agent.mode === "string" ? agent.mode.toLowerCase() : "all";
       if (
-        agent.disable === true ||
+        !description ||
+        isOpenCodeAgentDisabled(agent) ||
         agent.hidden === true ||
         (mode !== "subagent" && mode !== "all")
       ) {
@@ -586,7 +2365,7 @@ function readOpenCodeJsonAgentCommands(file: string): ProviderSlashCommand[] {
       return [
         providerAgentSlashCommand({
           name: agentName,
-          description: typeof agent.description === "string" ? agent.description : undefined,
+          description,
           promptPrefix: `@${agentName}`,
           inputHint: "<prompt>",
         }),
@@ -597,18 +2376,79 @@ function readOpenCodeJsonAgentCommands(file: string): ProviderSlashCommand[] {
   }
 }
 
-function readOpenCodeJsonConfigCommands(file: string): ProviderSlashCommand[] {
-  const raw = safeReadFile(file);
-  if (!raw) {
+const OPENCODE_BUILT_IN_SUBAGENT_NAMES = new Set(["general", "explore", "scout"]);
+
+function readOpenCodeJsonSubagentNames(file: string): Set<string> {
+  const parsed = safeParseJsoncRecord(file) as {
+    readonly agent?: unknown;
+    readonly agents?: unknown;
+  } | null;
+  if (!parsed) {
+    return new Set();
+  }
+  try {
+    const subagentNames = new Set<string>();
+    for (const [rawName, rawAgent] of openCodeAgentConfigEntries(parsed)) {
+      const agentName = normalizeCommandName(rawName);
+      if (!agentName || !rawAgent || typeof rawAgent !== "object") {
+        continue;
+      }
+      const agent = rawAgent as {
+        readonly description?: unknown;
+        readonly mode?: unknown;
+        readonly disable?: unknown;
+        readonly disabled?: unknown;
+        readonly hidden?: unknown;
+      };
+      const description =
+        typeof agent.description === "string" && agent.description.trim().length > 0
+          ? agent.description.trim()
+          : null;
+      const mode = typeof agent.mode === "string" ? agent.mode.toLowerCase() : "all";
+      if (
+        description &&
+        !isOpenCodeAgentDisabled(agent) &&
+        agent.hidden !== true &&
+        (mode === "subagent" || mode === "all")
+      ) {
+        subagentNames.add(agentName);
+      }
+    }
+    return subagentNames;
+  } catch {
+    return new Set();
+  }
+}
+
+function mergeOpenCodeSubagentNames(...sets: ReadonlyArray<ReadonlySet<string>>): Set<string> {
+  const merged = new Set(OPENCODE_BUILT_IN_SUBAGENT_NAMES);
+  for (const set of sets) {
+    for (const name of set) {
+      merged.add(name);
+    }
+  }
+  return merged;
+}
+
+function readOpenCodeJsonConfigCommands(
+  file: string,
+  subagentNames: ReadonlySet<string> = OPENCODE_BUILT_IN_SUBAGENT_NAMES,
+): ProviderSlashCommand[] {
+  const parsed = safeParseJsoncRecord(file) as {
+    readonly command?: unknown;
+    readonly commands?: unknown;
+    readonly agent?: unknown;
+    readonly agents?: unknown;
+  } | null;
+  if (!parsed) {
     return [];
   }
   try {
-    const parsed = JSON.parse(raw) as { readonly command?: unknown };
-    const commands =
-      parsed.command && typeof parsed.command === "object"
-        ? (parsed.command as Record<string, unknown>)
-        : {};
-    return Object.entries(commands).flatMap(([rawName, rawCommand]) => {
+    const mergedSubagentNames = mergeOpenCodeSubagentNames(
+      subagentNames,
+      readOpenCodeJsonSubagentNames(file),
+    );
+    return openCodeCommandConfigEntries(parsed).flatMap(([rawName, rawCommand]) => {
       const commandName = normalizeCommandName(rawName);
       if (!commandName || !rawCommand || typeof rawCommand !== "object") {
         return [];
@@ -616,14 +2456,21 @@ function readOpenCodeJsonConfigCommands(file: string): ProviderSlashCommand[] {
       const command = rawCommand as {
         readonly description?: unknown;
         readonly template?: unknown;
+        readonly agent?: unknown;
+        readonly subtask?: unknown;
       };
       if (typeof command.template !== "string" || command.template.trim().length === 0) {
         return [];
       }
+      const runsAsSubtask =
+        command.subtask === true ||
+        (typeof command.agent === "string" &&
+          mergedSubagentNames.has(command.agent.trim()) &&
+          command.subtask !== false);
       return [
         {
           name: commandName,
-          kind: "provider",
+          kind: runsAsSubtask ? "agent" : "provider",
           promptPrefix: `/${commandName}`,
           inputHint: "<prompt>",
           ...(typeof command.description === "string" && command.description.trim().length > 0
@@ -637,7 +2484,10 @@ function readOpenCodeJsonConfigCommands(file: string): ProviderSlashCommand[] {
   }
 }
 
-function readOpenCodeMarkdownCommand(file: string): ProviderSlashCommand | null {
+function readOpenCodeMarkdownCommand(
+  file: string,
+  subagentNames: ReadonlySet<string> = OPENCODE_BUILT_IN_SUBAGENT_NAMES,
+): ProviderSlashCommand | null {
   if (!file.endsWith(".md")) {
     return null;
   }
@@ -654,21 +2504,29 @@ function readOpenCodeMarkdownCommand(file: string): ProviderSlashCommand | null 
     return null;
   }
   const description = frontmatterField(markdown, "description") ?? firstMarkdownHeading(markdown);
+  const subtask = frontmatterBooleanField(markdown, "subtask");
+  const commandAgent = frontmatterField(markdown, "agent");
+  const runsAsSubtask =
+    subtask === true ||
+    (commandAgent !== undefined && subagentNames.has(commandAgent) && subtask !== false);
   return {
     name: commandName,
-    kind: "provider",
+    kind: runsAsSubtask ? "agent" : "provider",
     promptPrefix: `/${commandName}`,
     inputHint: "<prompt>",
     ...(description ? { description } : {}),
   };
 }
 
-function readOpenCodeMarkdownCommandRoot(root: string): ProviderSlashCommand[] {
+function readOpenCodeMarkdownCommandRoot(
+  root: string,
+  subagentNames: ReadonlySet<string> = OPENCODE_BUILT_IN_SUBAGENT_NAMES,
+): ProviderSlashCommand[] {
   if (!isDirectory(root)) {
     return [];
   }
   return safeReadDir(root)
-    .map((entry) => readOpenCodeMarkdownCommand(path.join(root, entry)))
+    .map((entry) => readOpenCodeMarkdownCommand(path.join(root, entry), subagentNames))
     .filter((command): command is ProviderSlashCommand => command !== null);
 }
 
@@ -679,8 +2537,197 @@ function gitHubCopilotPromptCommandName(file: string): string | null {
   return normalizeCommandName(path.basename(file, ".prompt.md"));
 }
 
+function gitHubCopilotPromptPrefix(markdown: string, body: string): string {
+  const agentName = normalizeCommandName(frontmatterField(markdown, "agent") ?? "");
+  return agentName ? `@${agentName} ${body}` : body;
+}
+
 function readGitHubCopilotPromptCommand(file: string): ProviderSlashCommand | null {
-  const commandName = gitHubCopilotPromptCommandName(file);
+  const markdown = safeReadFile(file);
+  if (!markdown) {
+    return null;
+  }
+  const commandName =
+    normalizeCommandName(frontmatterField(markdown, "name") ?? "") ??
+    gitHubCopilotPromptCommandName(file);
+  if (!commandName) {
+    return null;
+  }
+  const body = markdownBodyWithoutFrontmatter(markdown);
+  if (!body) {
+    return null;
+  }
+  const description = frontmatterField(markdown, "description") ?? firstMarkdownHeading(markdown);
+  return {
+    name: commandName,
+    kind: "provider",
+    promptPrefix: gitHubCopilotPromptPrefix(markdown, body),
+    inputHint: frontmatterField(markdown, "argument-hint") ?? "<prompt>",
+    ...(description ? { description } : {}),
+  };
+}
+
+function readGitHubCopilotPromptRoot(root: string, depth = 0): ProviderSlashCommand[] {
+  if (!isDirectory(root) || depth > 4) {
+    return [];
+  }
+  const commands: ProviderSlashCommand[] = [];
+  for (const entry of safeReadDir(root)) {
+    const entryPath = path.join(root, entry);
+    const command = readGitHubCopilotPromptCommand(entryPath);
+    if (command) {
+      commands.push(command);
+    } else if (isDirectory(entryPath)) {
+      commands.push(...readGitHubCopilotPromptRoot(entryPath, depth + 1));
+    }
+  }
+  return commands;
+}
+
+function pathCommandSegment(value: string): string | null {
+  return normalizeCommandName(
+    value
+      .split(path.sep)
+      .filter((part) => part.length > 0)
+      .join("-"),
+  );
+}
+
+function gitHubCopilotRepositoryRoot(cwd?: string | undefined): string | null {
+  return githubCopilotProjectRoots(cwd).at(-1) ?? null;
+}
+
+function gitHubCopilotInstructionCommandName(file: string): string | null {
+  const basename = path.basename(file);
+  if (basename.endsWith(".instructions.md")) {
+    const commandName = normalizeCommandName(basename.slice(0, -".instructions.md".length));
+    return commandName ? `instructions:${commandName}` : null;
+  }
+  if (basename === "AGENTS.md") {
+    return "instructions:agents";
+  }
+  if (basename === "copilot-instructions.md") {
+    return "instructions:copilot";
+  }
+  if (basename === "CLAUDE.md") {
+    return "instructions:claude";
+  }
+  if (basename === "CLAUDE.local.md") {
+    return "instructions:claude-local";
+  }
+  if (basename === "GEMINI.md") {
+    return "instructions:gemini";
+  }
+  return null;
+}
+
+function gitHubCopilotScopedInstructionCommandName(input: {
+  readonly file: string;
+  readonly repositoryRoot?: string | null | undefined;
+}): string | null {
+  const commandName = gitHubCopilotInstructionCommandName(input.file);
+  if (!commandName || !isRegularFile(input.file)) {
+    return null;
+  }
+  if (!input.repositoryRoot || !path.basename(input.file).endsWith(".md")) {
+    return commandName;
+  }
+
+  const parent = path.dirname(input.file);
+  const repositoryRoot = path.resolve(input.repositoryRoot);
+  const relativeParent = path.relative(repositoryRoot, parent);
+  const isRepositoryRootFile = relativeParent === "";
+  const githubInstructionsRoot = path.join(".github", "instructions");
+  const isRepositoryGithubFile =
+    relativeParent === ".github" || relativeParent === githubInstructionsRoot;
+  const isRepositoryClaudeFile = relativeParent === ".claude";
+  if (isRepositoryRootFile || isRepositoryGithubFile || isRepositoryClaudeFile) {
+    return commandName;
+  }
+
+  if (relativeParent.startsWith(`${githubInstructionsRoot}${path.sep}`)) {
+    const scope = pathCommandSegment(path.relative(githubInstructionsRoot, relativeParent));
+    return scope ? `${commandName}:${scope}` : commandName;
+  }
+
+  const scope = pathCommandSegment(relativeParent);
+  return scope ? `${commandName}:${scope}` : commandName;
+}
+
+function readGitHubCopilotInstructionCommand(input: {
+  readonly file: string;
+  readonly repositoryRoot?: string | null | undefined;
+}): ProviderSlashCommand | null {
+  const commandName = gitHubCopilotScopedInstructionCommandName(input);
+  if (!commandName || !isRegularFile(input.file)) {
+    return null;
+  }
+  const markdown = safeReadFile(input.file);
+  if (!markdown) {
+    return null;
+  }
+  const body = markdownBodyWithoutFrontmatter(markdown);
+  if (!body) {
+    return null;
+  }
+  const description =
+    frontmatterField(markdown, "description") ??
+    frontmatterField(markdown, "name") ??
+    firstMarkdownHeading(markdown) ??
+    (commandName.startsWith("instructions:agents")
+      ? "Repository agent instructions"
+      : commandName.startsWith("instructions:copilot")
+        ? "Copilot instructions"
+        : "Custom instructions");
+  return {
+    name: commandName,
+    kind: "provider",
+    promptPrefix: body,
+    inputHint: "<prompt>",
+    description,
+  };
+}
+
+function readGitHubCopilotInstructionRoot(input: {
+  readonly root: string;
+  readonly repositoryRoot?: string | null | undefined;
+  readonly depth?: number | undefined;
+}): ProviderSlashCommand[] {
+  const depth = input.depth ?? 0;
+  if (!isDirectory(input.root) || depth > 5) {
+    return [];
+  }
+  const commands: ProviderSlashCommand[] = [];
+  for (const entry of safeReadDir(input.root)) {
+    const entryPath = path.join(input.root, entry);
+    const command = readGitHubCopilotInstructionCommand({
+      file: entryPath,
+      repositoryRoot: input.repositoryRoot,
+    });
+    if (command) {
+      commands.push(command);
+    } else if (isDirectory(entryPath)) {
+      commands.push(
+        ...readGitHubCopilotInstructionRoot({
+          root: entryPath,
+          repositoryRoot: input.repositoryRoot,
+          depth: depth + 1,
+        }),
+      );
+    }
+  }
+  return commands;
+}
+
+function readCodexCustomPromptCommand(file: string): ProviderSlashCommand | null {
+  if (!file.endsWith(".md")) {
+    return null;
+  }
+  const rawName = path.basename(file, ".md");
+  if (rawName.startsWith("_")) {
+    return null;
+  }
+  const commandName = normalizeCommandName(rawName);
   if (!commandName) {
     return null;
   }
@@ -692,22 +2739,23 @@ function readGitHubCopilotPromptCommand(file: string): ProviderSlashCommand | nu
   if (!body) {
     return null;
   }
+  const name = `prompts:${commandName}`;
   const description = frontmatterField(markdown, "description") ?? firstMarkdownHeading(markdown);
   return {
-    name: commandName,
+    name,
     kind: "provider",
-    promptPrefix: `/${commandName}`,
+    promptPrefix: `/${name}`,
     inputHint: frontmatterField(markdown, "argument-hint") ?? "<prompt>",
     ...(description ? { description } : {}),
   };
 }
 
-function readGitHubCopilotPromptRoot(root: string): ProviderSlashCommand[] {
+function readCodexCustomPromptRoot(root: string): ProviderSlashCommand[] {
   if (!isDirectory(root)) {
     return [];
   }
   return safeReadDir(root)
-    .map((entry) => readGitHubCopilotPromptCommand(path.join(root, entry)))
+    .map((entry) => readCodexCustomPromptCommand(path.join(root, entry)))
     .filter((command): command is ProviderSlashCommand => command !== null);
 }
 
@@ -825,7 +2873,7 @@ function claudeMarkdownCommandName(input: {
   if (withoutExtension.split(path.sep).some((part) => part.length === 0 || part.startsWith("_"))) {
     return null;
   }
-  return normalizeCommandName(withoutExtension.split(path.sep).join(":"));
+  return normalizeCommandName(path.basename(withoutExtension));
 }
 
 function readClaudeMarkdownCommand(input: {
@@ -904,6 +2952,97 @@ function readCursorMarkdownCommandRoot(root: string): ProviderSlashCommand[] {
     .filter((command): command is ProviderSlashCommand => command !== null);
 }
 
+function readCursorRuleCommand(file: string): ProviderSlashCommand | null {
+  if (!file.endsWith(".mdc")) {
+    return null;
+  }
+  const ruleName = normalizeCommandName(path.basename(file, ".mdc"));
+  if (!ruleName) {
+    return null;
+  }
+  const markdown = safeReadFile(file);
+  if (!markdown) {
+    return null;
+  }
+  const description =
+    frontmatterField(markdown, "description") ?? firstMarkdownHeading(markdown) ?? ruleName;
+  return providerSkillSlashCommand({
+    name: `rule:${ruleName}`,
+    description,
+    promptPrefix: `@${ruleName}`,
+    inputHint: "<prompt>",
+  });
+}
+
+function readCursorRuleRoot(root: string, depth = 0): ProviderSlashCommand[] {
+  if (!isDirectory(root)) {
+    return [];
+  }
+  const commands: ProviderSlashCommand[] = [];
+  for (const entry of safeReadDir(root)) {
+    const entryPath = path.join(root, entry);
+    const command = readCursorRuleCommand(entryPath);
+    if (command) {
+      commands.push(command);
+    } else if (depth < 4 && isDirectory(entryPath)) {
+      commands.push(...readCursorRuleRoot(entryPath, depth + 1));
+    }
+  }
+  return commands;
+}
+
+function cursorProjectRoot(cwd: string | undefined): string | null {
+  const roots = ancestorDirsUntilGitRoot(cwd);
+  return roots.find((root) => existsSync(path.join(root, ".git"))) ?? roots[0] ?? null;
+}
+
+function readCursorPlainRuleFile(input: {
+  readonly file: string;
+  readonly name: string;
+  readonly fallbackDescription: string;
+}): ProviderSlashCommand | null {
+  const markdown = safeReadFile(input.file);
+  if (!markdown) {
+    return null;
+  }
+  const body = markdownBodyWithoutFrontmatter(markdown);
+  if (!body) {
+    return null;
+  }
+  return providerSkillSlashCommand({
+    name: `rule:${input.name}`,
+    description:
+      frontmatterField(markdown, "description") ??
+      firstMarkdownHeading(markdown) ??
+      input.fallbackDescription,
+    promptPrefix: body,
+    inputHint: "<prompt>",
+  });
+}
+
+function readCursorProjectContextRules(projectRoot: string | null): ProviderSlashCommand[] {
+  if (!projectRoot) {
+    return [];
+  }
+  return [
+    readCursorPlainRuleFile({
+      file: path.join(projectRoot, "AGENTS.md"),
+      name: "agents",
+      fallbackDescription: "Cursor AGENTS.md project instructions",
+    }),
+    readCursorPlainRuleFile({
+      file: path.join(projectRoot, ".cursorrules"),
+      name: "cursorrules",
+      fallbackDescription: "Legacy Cursor project rules",
+    }),
+    readCursorPlainRuleFile({
+      file: path.join(projectRoot, "CLAUDE.md"),
+      name: "claude",
+      fallbackDescription: "Cursor CLI Claude compatibility instructions",
+    }),
+  ].filter((command): command is ProviderSlashCommand => command !== null);
+}
+
 function geminiCommandNameFromTomlPath(root: string, file: string): string | null {
   if (!file.endsWith(".toml")) {
     return null;
@@ -918,6 +3057,14 @@ function geminiCommandNameFromTomlPath(root: string, file: string): string | nul
 }
 
 function frontmatterTomlStringField(toml: string, field: string): string | undefined {
+  const multilineMatch = new RegExp(
+    `^${field}\\s*=\\s*(?<quote>"""|''')(?<value>[\\s\\S]*?)\\k<quote>\\s*$`,
+    "mu",
+  ).exec(toml);
+  const multilineValue = multilineMatch?.groups?.value?.trim();
+  if (multilineValue) {
+    return multilineValue;
+  }
   const match = new RegExp(
     `^${field}\\s*=\\s*(?<quote>["'])(?<value>.*?)\\k<quote>\\s*$`,
     "mu",
@@ -939,11 +3086,20 @@ function readGeminiExtensionTomlCommand(input: {
   if (!toml) {
     return null;
   }
+  const prompt = frontmatterTomlStringField(toml, "prompt");
+  if (!prompt) {
+    return null;
+  }
   const command = {
     name: commandName,
     kind: input.kind ?? "plugin",
-    description: frontmatterTomlStringField(toml, "description"),
-    promptPrefix: `/${commandName}`,
+    description:
+      frontmatterTomlStringField(toml, "description") ??
+      commandName
+        .split(":")
+        .join(" ")
+        .replace(/\b\w/gu, (char) => char.toUpperCase()),
+    promptPrefix: prompt,
     inputHint: "<prompt>",
   } satisfies ProviderSlashCommand;
   return command.kind === "plugin" ? providerPluginSlashCommand(command) : command;
@@ -982,6 +3138,17 @@ function naturalSkillPromptPrefix(commandName: string, skillName: string): strin
     : `Use the ${skillName} skill:`;
 }
 
+function pluginManifestPathEntries(value: string | ReadonlyArray<string> | undefined): string[] {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed ? [trimmed] : [];
+  }
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.map((entry) => entry.trim()).filter((entry) => entry.length > 0);
+}
+
 function readPluginCommands(input: {
   readonly pluginJsonPath: string;
   readonly manifestDirName: string;
@@ -1014,6 +3181,7 @@ function readPluginRootCommands(input: {
   readonly pluginRoot: string;
   readonly pluginName: string;
   readonly includeMarkdownCommands?: boolean | undefined;
+  readonly includeRootSkillFallback?: boolean | undefined;
   readonly pluginPromptPrefix?: (pluginName: string) => string;
   readonly skillPromptPrefix?: (commandName: string, skillName: string) => string;
   readonly agentPromptPrefix?: (pluginName: string, agentName: string) => string;
@@ -1035,36 +3203,181 @@ function readPluginRootCommands(input: {
       inputHint: "<prompt>",
     }),
   ];
-  if (input.manifest?.skills) {
-    commands.push(
-      ...readSkillRoot(path.resolve(input.pluginRoot, input.manifest.skills), {
-        prefix: pluginName,
-        ...(input.skillPromptPrefix ? { promptPrefix: input.skillPromptPrefix } : {}),
-      }),
-    );
-  }
-  if (input.manifest?.agents) {
-    const agentCommands = readAgentMarkdownRoot(
-      path.resolve(input.pluginRoot, input.manifest.agents),
-      {
-        nameFromFrontmatter: true,
-        promptPrefix: (agentName) =>
-          input.agentPromptPrefix?.(pluginName, agentName) ?? `@${pluginName}:${agentName}`,
-      },
-    );
-    for (const command of agentCommands) {
-      commands.push(Object.assign({}, command, { name: `${pluginName}:${command.name}` }));
+  const skillPaths = pluginManifestPathEntries(input.manifest?.skills);
+  if (skillPaths.length > 0) {
+    for (const skillPath of skillPaths) {
+      commands.push(
+        ...readSkillRoot(path.resolve(input.pluginRoot, skillPath), {
+          prefix: pluginName,
+          ...(input.skillPromptPrefix ? { promptPrefix: input.skillPromptPrefix } : {}),
+        }),
+      );
     }
   }
-  if (input.includeMarkdownCommands && input.manifest?.commands) {
+  if (skillPaths.length === 0 && input.includeRootSkillFallback) {
+    const rootSkill = readSkillCommand(input.pluginRoot, {
+      ...(input.skillPromptPrefix ? { promptPrefix: input.skillPromptPrefix } : {}),
+      nameFromFrontmatter: true,
+    });
+    if (rootSkill) {
+      commands.push(rootSkill);
+    }
+  }
+  for (const agentPath of pluginManifestPathEntries(input.manifest?.agents)) {
     commands.push(
-      ...readPluginMarkdownCommandRoot({
-        root: path.resolve(input.pluginRoot, input.manifest.commands),
+      ...readPluginAgentMarkdownRoot({
+        root: path.resolve(input.pluginRoot, agentPath),
         pluginName,
+        ...(input.agentPromptPrefix ? { agentPromptPrefix: input.agentPromptPrefix } : {}),
       }),
     );
   }
+  if (input.includeMarkdownCommands) {
+    for (const commandPath of pluginManifestPathEntries(input.manifest?.commands)) {
+      commands.push(
+        ...readPluginMarkdownCommandRoot({
+          root: path.resolve(input.pluginRoot, commandPath),
+          pluginName,
+        }),
+      );
+    }
+  }
   return commands;
+}
+
+const GITHUB_COPILOT_PLUGIN_MANIFEST_CANDIDATES = [
+  [".plugin", "plugin.json"],
+  ["plugin.json"],
+  [".github", "plugin.json"],
+  [".github", "plugin", "plugin.json"],
+  [".claude-plugin", "plugin.json"],
+] as const;
+
+type GitHubCopilotPluginEntry = {
+  readonly pluginRoot: string;
+  readonly manifestPath?: string | undefined;
+};
+
+function githubCopilotPluginManifestPath(pluginRoot: string): string | null {
+  for (const parts of GITHUB_COPILOT_PLUGIN_MANIFEST_CANDIDATES) {
+    const candidate = path.join(pluginRoot, ...parts);
+    if (isRegularFile(candidate)) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+function githubCopilotPluginEntries(root: string, depth = 0): GitHubCopilotPluginEntry[] {
+  if (!isDirectory(root) || depth > 5) {
+    return [];
+  }
+
+  const manifest = githubCopilotPluginManifestPath(root);
+  if (manifest) {
+    return [
+      {
+        pluginRoot: githubCopilotPluginRootFromManifest(manifest),
+        manifestPath: manifest,
+      },
+    ];
+  }
+
+  if (isRegularFile(path.join(root, "SKILL.md"))) {
+    return [{ pluginRoot: root }];
+  }
+
+  return safeReadDir(root).flatMap((entry) =>
+    githubCopilotPluginEntries(path.join(root, entry), depth + 1),
+  );
+}
+
+function githubCopilotPluginRootFromManifest(manifestPath: string): string {
+  const parent = path.dirname(manifestPath);
+  if (path.basename(parent) === ".plugin" || path.basename(parent) === ".claude-plugin") {
+    return path.dirname(parent);
+  }
+  if (path.basename(parent) === ".github") {
+    return path.dirname(parent);
+  }
+  if (path.basename(parent) === "plugin" && path.basename(path.dirname(parent)) === ".github") {
+    return path.dirname(path.dirname(parent));
+  }
+  return parent;
+}
+
+function withGitHubCopilotPluginDefaults(
+  manifest: PluginManifest,
+  pluginRoot: string,
+): PluginManifest {
+  const defaultAgents = isDirectory(path.join(pluginRoot, "agents")) ? "agents" : undefined;
+  const defaultSkills = isDirectory(path.join(pluginRoot, "skills")) ? "skills" : undefined;
+  const defaultCommands = isDirectory(path.join(pluginRoot, "commands")) ? "commands" : undefined;
+  const agents = manifest.agents ?? defaultAgents;
+  const skills = manifest.skills ?? defaultSkills;
+  const commands = manifest.commands ?? defaultCommands;
+  return {
+    ...manifest,
+    ...(agents ? { agents } : {}),
+    ...(skills ? { skills } : {}),
+    ...(commands ? { commands } : {}),
+  };
+}
+
+function readGitHubCopilotPluginCommands(pluginJsonPath: string): ProviderSlashCommand[] {
+  const manifest = safeParsePluginManifest(pluginJsonPath);
+  const pluginRoot = githubCopilotPluginRootFromManifest(pluginJsonPath);
+  const pluginName = normalizeCommandName(manifest?.name ?? path.basename(pluginRoot));
+  if (!manifest || !pluginName) {
+    return [];
+  }
+  return readPluginRootCommands({
+    manifest: withGitHubCopilotPluginDefaults(manifest, pluginRoot),
+    pluginRoot,
+    pluginName,
+    includeMarkdownCommands: true,
+    includeRootSkillFallback: true,
+    pluginPromptPrefix: naturalPluginPromptPrefix,
+    skillPromptPrefix: (commandName) => `/${commandName}`,
+    agentPromptPrefix: (_pluginName, agentName) => `@${agentName}`,
+  });
+}
+
+function readGitHubCopilotPluginEntryCommands(
+  entry: GitHubCopilotPluginEntry,
+): ProviderSlashCommand[] {
+  if (entry.manifestPath) {
+    return readGitHubCopilotPluginCommands(entry.manifestPath);
+  }
+  const rootSkill = readSkillCommand(entry.pluginRoot, {
+    nameFromFrontmatter: true,
+    promptPrefix: (commandName) => `/${commandName}`,
+  });
+  return rootSkill ? [rootSkill] : [];
+}
+
+export function discoverGitHubCopilotPluginSlashCommands(
+  input: {
+    readonly home?: string | undefined;
+  } = {},
+): ReadonlyArray<ProviderSlashCommand> {
+  return mergeProviderSlashCommands(
+    githubCopilotPluginRoots(input.home).flatMap((root) =>
+      githubCopilotPluginEntries(root).flatMap(readGitHubCopilotPluginEntryCommands),
+    ),
+  );
+}
+
+export function discoverGitHubCopilotPluginDirectories(
+  input: {
+    readonly home?: string | undefined;
+  } = {},
+): ReadonlyArray<string> {
+  return uniquePaths(
+    githubCopilotPluginRoots(input.home).flatMap((root) =>
+      githubCopilotPluginEntries(root).map((entry) => entry.pluginRoot),
+    ),
+  );
 }
 
 export function discoverCodexExtensionSlashCommands(
@@ -1072,14 +3385,19 @@ export function discoverCodexExtensionSlashCommands(
 ): ReadonlyArray<ProviderSlashCommand> {
   const codexHome = input.codexHome?.trim() || path.join(homedir(), ".codex");
   const userAgentsHome = input.agentsHome?.trim() || path.join(homedir(), ".agents");
-  const skillRoots = [
-    input.cwd ? path.join(input.cwd, ".codex", "skills") : null,
-    input.cwd ? path.join(input.cwd, ".agents", "skills") : null,
+  const projectRoots = ancestorDirsUntilGitRoot(input.cwd);
+  const skillRoots = uniquePaths([
+    ...projectRoots.flatMap((root) => [
+      path.join(root, ".codex", "skills"),
+      path.join(root, ".agents", "skills"),
+    ]),
     path.join(codexHome, "skills"),
     path.join(userAgentsHome, "skills"),
-  ].filter((root): root is string => Boolean(root));
+    "/etc/codex/skills",
+  ]);
 
   const skillCommands = skillRoots.flatMap((root) => readSkillRoot(root));
+  const customPromptCommands = readCodexCustomPromptRoot(path.join(codexHome, "prompts"));
   const pluginCommands = pluginManifestFiles(
     path.join(codexHome, "plugins", "cache"),
     ".codex-plugin",
@@ -1090,7 +3408,7 @@ export function discoverCodexExtensionSlashCommands(
     }),
   );
 
-  return mergeProviderSlashCommands(skillCommands, pluginCommands);
+  return mergeProviderSlashCommands(skillCommands, customPromptCommands, pluginCommands);
 }
 
 function discoverSkillRootSlashCommands(input: {
@@ -1112,7 +3430,28 @@ function discoverSkillRootSlashCommands(input: {
   );
 }
 
-function readGeminiExtensionCommands(extensionRoot: string): ReadonlyArray<ProviderSlashCommand> {
+function prefixGeminiExtensionCommandConflict(
+  command: ProviderSlashCommand,
+  extensionName: string,
+  reservedCommandNames: ReadonlySet<string>,
+): ProviderSlashCommand {
+  if (command.kind !== "plugin" || !reservedCommandNames.has(command.name.toLowerCase())) {
+    return command;
+  }
+  return {
+    ...command,
+    name: `${extensionName}.${command.name}`,
+  };
+}
+
+function readGeminiExtensionCommands(
+  extensionRoot: string,
+  input: {
+    readonly cwd?: string | undefined;
+    readonly geminiHome: string;
+    readonly reservedCommandNames?: ReadonlySet<string> | undefined;
+  },
+): ReadonlyArray<ProviderSlashCommand> {
   const manifest = safeParseGeminiExtensionManifest(
     path.join(extensionRoot, "gemini-extension.json"),
   );
@@ -1120,7 +3459,17 @@ function readGeminiExtensionCommands(extensionRoot: string): ReadonlyArray<Provi
   if (!manifest || !extensionName) {
     return [];
   }
+  if (
+    !isGeminiExtensionEnabled({
+      extensionName,
+      cwd: input.cwd,
+      geminiHome: input.geminiHome,
+    })
+  ) {
+    return [];
+  }
 
+  const reservedCommandNames = input.reservedCommandNames ?? new Set<string>();
   return mergeProviderSlashCommands(
     readAgentMarkdownRoot(path.join(extensionRoot, "agents"), {
       nameFromFrontmatter: true,
@@ -1129,13 +3478,17 @@ function readGeminiExtensionCommands(extensionRoot: string): ReadonlyArray<Provi
     readSkillRoot(path.join(extensionRoot, "skills"), {
       promptPrefix: naturalSkillPromptPrefix,
     }),
-    readGeminiExtensionTomlCommandRoot(path.join(extensionRoot, "commands")),
+    readGeminiExtensionTomlCommandRoot(path.join(extensionRoot, "commands")).map((command) =>
+      prefixGeminiExtensionCommandConflict(command, extensionName, reservedCommandNames),
+    ),
   );
 }
 
 export function discoverGeminiExtensionSlashCommands(
   input: {
+    readonly cwd?: string | undefined;
     readonly home?: string | undefined;
+    readonly reservedCommandNames?: ReadonlySet<string> | undefined;
   } = {},
 ): ReadonlyArray<ProviderSlashCommand> {
   const geminiHome = input.home?.trim() || path.join(homedir(), ".gemini");
@@ -1145,7 +3498,11 @@ export function discoverGeminiExtensionSlashCommands(
   }
   return mergeProviderSlashCommands(
     safeReadDir(extensionsRoot).flatMap((entry) =>
-      readGeminiExtensionCommands(path.join(extensionsRoot, entry)),
+      readGeminiExtensionCommands(path.join(extensionsRoot, entry), {
+        cwd: input.cwd,
+        geminiHome,
+        reservedCommandNames: input.reservedCommandNames,
+      }),
     ),
   );
 }
@@ -1157,15 +3514,31 @@ export function discoverGeminiCustomSlashCommands(
   } = {},
 ): ReadonlyArray<ProviderSlashCommand> {
   const geminiHome = input.home?.trim() || path.join(homedir(), ".gemini");
+  const projectRoots = ancestorDirsUntilGitRoot(input.cwd);
   return mergeProviderSlashCommands(
-    input.cwd
-      ? readGeminiExtensionTomlCommandRoot(
-          path.join(input.cwd, ".gemini", "commands"),
-          undefined,
-          undefined,
-          "provider",
-        )
-      : [],
+    [
+      ...projectRoots.map((root) => path.join(root, ".gemini", "agents")),
+      path.join(geminiHome, "agents"),
+    ].flatMap((root) => readGeminiRemoteAgentRoot(root)),
+    [
+      ...projectRoots.map((root) => path.join(root, ".gemini", "agents")),
+      path.join(geminiHome, "agents"),
+    ].flatMap((root) =>
+      readAgentMarkdownRoot(root, {
+        nameFromFrontmatter: true,
+        requireNameFromFrontmatter: true,
+        requireDescription: true,
+        promptPrefix: (agentName) => `@${agentName}`,
+      }),
+    ),
+    projectRoots.flatMap((root) =>
+      readGeminiExtensionTomlCommandRoot(
+        path.join(root, ".gemini", "commands"),
+        undefined,
+        undefined,
+        "provider",
+      ),
+    ),
     readGeminiExtensionTomlCommandRoot(
       path.join(geminiHome, "commands"),
       undefined,
@@ -1213,9 +3586,10 @@ function readClaudeInstalledPluginCommands(
     pluginRoot,
     pluginName,
     includeMarkdownCommands: true,
+    includeRootSkillFallback: true,
     pluginPromptPrefix: naturalPluginPromptPrefix,
     skillPromptPrefix: (commandName) => `/${commandName}`,
-    agentPromptPrefix: (_pluginName, agentName) => `/${agentName}`,
+    agentPromptPrefix: (pluginName, agentName) => `@agent-${pluginName}:${agentName}`,
   });
 }
 
@@ -1232,7 +3606,7 @@ export function discoverClaudeExtensionSlashCommands(
     ].flatMap((root) =>
       readAgentMarkdownRoot(root, {
         nameFromFrontmatter: true,
-        promptPrefix: (agentName) => `/${agentName}`,
+        promptPrefix: (agentName) => `@agent-${agentName}`,
       }),
     ),
   );
@@ -1248,17 +3622,21 @@ export function discoverClaudeExtensionSlashCommands(
   });
   const nativeCommands = mergeProviderSlashCommands(
     [
-      input.cwd ? path.join(input.cwd, ".claude", "commands") : null,
+      ...projectRoots.map((root) => path.join(root, ".claude", "commands")),
       path.join(claudeHome, "commands"),
-    ]
-      .filter((root): root is string => Boolean(root))
-      .flatMap((root) => readClaudeMarkdownCommandRoot(root)),
+    ].flatMap((root) => readClaudeMarkdownCommandRoot(root)),
   );
   const pluginCommands = readClaudeInstalledPluginEntries(claudeHome).flatMap(
     readClaudeInstalledPluginCommands,
   );
 
-  return mergeProviderSlashCommands(agentCommands, skillCommands, nativeCommands, pluginCommands);
+  return applyClaudeAgentSettings(
+    mergeProviderSlashCommands(agentCommands, skillCommands, nativeCommands, pluginCommands),
+    resolveClaudeAgentSettings({
+      cwd: input.cwd,
+      home: input.home,
+    }),
+  );
 }
 
 function discoverProviderAgentSlashCommands(input: {
@@ -1270,20 +3648,19 @@ function discoverProviderAgentSlashCommands(input: {
   readonly includeMissingMode?: boolean | undefined;
   readonly promptPrefix?: (agentName: string) => string;
 }): ReadonlyArray<ProviderSlashCommand> {
+  const projectRoots = ancestorDirsUntilGitRoot(input.cwd);
   return mergeProviderSlashCommands(
     [
-      input.cwd ? path.join(input.cwd, input.providerHomeDirName, "agents") : null,
+      ...projectRoots.map((root) => path.join(root, input.providerHomeDirName, "agents")),
       path.join(input.providerHome, "agents"),
-    ]
-      .filter((root): root is string => Boolean(root))
-      .flatMap((root) =>
-        readAgentMarkdownRoot(root, {
-          nameFromFrontmatter: input.nameFromFrontmatter,
-          includeMode: input.includeMode,
-          includeMissingMode: input.includeMissingMode,
-          promptPrefix: input.promptPrefix,
-        }),
-      ),
+    ].flatMap((root) =>
+      readAgentMarkdownRoot(root, {
+        nameFromFrontmatter: input.nameFromFrontmatter,
+        includeMode: input.includeMode,
+        includeMissingMode: input.includeMissingMode,
+        promptPrefix: input.promptPrefix,
+      }),
+    ),
   );
 }
 
@@ -1302,6 +3679,7 @@ export function discoverGenericProviderExtensionSlashCommands(input: {
     input.configHomePath?.trim() ||
     path.join(homedir(), input.providerHomeDirName);
   const userAgentsHome = input.agentsHome?.trim() || path.join(homedir(), ".agents");
+  const projectRoots = ancestorDirsUntilGitRoot(input.cwd);
   const agentCommands =
     input.includeAgentCommands === false
       ? []
@@ -1316,8 +3694,10 @@ export function discoverGenericProviderExtensionSlashCommands(input: {
       input.includeSkillCommands === false
         ? []
         : [
-            input.cwd ? path.join(input.cwd, input.providerHomeDirName, "skills") : null,
-            input.cwd ? path.join(input.cwd, ".agents", "skills") : null,
+            ...projectRoots.flatMap((root) => [
+              path.join(root, input.providerHomeDirName, "skills"),
+              path.join(root, ".agents", "skills"),
+            ]),
             path.join(providerHome, "skills"),
             path.join(userAgentsHome, "skills"),
           ],
@@ -1351,6 +3731,7 @@ export function discoverCursorExtensionSlashCommands(input: {
   const codexHome = input.codexHome?.trim() || path.join(homedir(), ".codex");
   const userAgentsHome = input.agentsHome?.trim() || path.join(homedir(), ".agents");
   const projectRoots = ancestorDirsUntilGitRoot(input.cwd);
+  const projectRoot = cursorProjectRoot(input.cwd);
   const agentCommands = mergeProviderSlashCommands(
     [
       ...projectRoots.map((root) => path.join(root, ".cursor", "agents")),
@@ -1379,6 +3760,13 @@ export function discoverCursorExtensionSlashCommands(input: {
     ],
     skillPromptPrefix: (commandName) => `/${commandName}`,
   });
+  const ruleCommands = mergeProviderSlashCommands(
+    [
+      ...projectRoots.map((root) => path.join(root, ".cursor", "rules")),
+      path.join(cursorHome, "rules"),
+    ].flatMap((root) => readCursorRuleRoot(root)),
+  );
+  const projectContextRuleCommands = readCursorProjectContextRules(projectRoot);
   const pluginCommands = pluginManifestFiles(
     path.join(cursorHome, "plugins"),
     ".cursor-plugin",
@@ -1393,10 +3781,14 @@ export function discoverCursorExtensionSlashCommands(input: {
     }),
   );
   return mergeProviderSlashCommands(
-    readCursorMarkdownCommandRoot(input.cwd ? path.join(input.cwd, ".cursor", "commands") : ""),
+    ...projectRoots.map((root) =>
+      readCursorMarkdownCommandRoot(path.join(root, ".cursor", "commands")),
+    ),
     readCursorMarkdownCommandRoot(path.join(cursorHome, "commands")),
     agentCommands,
     skillCommands,
+    ruleCommands,
+    projectContextRuleCommands,
     pluginCommands,
   );
 }
@@ -1413,7 +3805,7 @@ export function discoverGitHubCopilotAgentSlashCommands(input: {
           name: agent.name,
           ...(agent.description ? { description: agent.description } : {}),
           promptPrefix: `@${agent.name}`,
-          inputHint: "<prompt>",
+          inputHint: agent.argumentHint ?? "<prompt>",
         }),
       ),
   );
@@ -1494,7 +3886,174 @@ function gitHubCopilotCustomAgentUserInvocable(markdown: string): boolean | unde
   return frontmatterBooleanField(markdown, "user-invocable");
 }
 
-function readGitHubCopilotCustomAgent(file: string): GitHubCopilotCustomAgent | null {
+function normalizeGitHubCopilotMetadata(
+  value: Record<string, unknown> | undefined,
+): Record<string, string> | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const metadata: Record<string, string> = {};
+  for (const [key, rawValue] of Object.entries(value)) {
+    const normalizedKey = key.trim();
+    if (!normalizedKey || typeof rawValue !== "string") {
+      continue;
+    }
+    const normalizedValue = rawValue.trim();
+    if (!normalizedValue) {
+      continue;
+    }
+    metadata[normalizedKey] = normalizedValue;
+  }
+  return Object.keys(metadata).length > 0 ? metadata : undefined;
+}
+
+function gitHubCopilotCustomAgentHandoffs(
+  markdown: string,
+): GitHubCopilotCustomAgent["handoffs"] | undefined {
+  const handoffs = frontmatterObjectListField(markdown, "handoffs");
+  if (!handoffs) {
+    return undefined;
+  }
+  const normalized = handoffs
+    .map((handoff) => {
+      const label = typeof handoff.label === "string" ? handoff.label : undefined;
+      const agent = typeof handoff.agent === "string" ? handoff.agent : undefined;
+      const prompt = typeof handoff.prompt === "string" ? handoff.prompt : undefined;
+      const model = typeof handoff.model === "string" ? handoff.model : undefined;
+      const send = typeof handoff.send === "boolean" ? handoff.send : undefined;
+      return {
+        ...(label ? { label } : {}),
+        ...(agent ? { agent } : {}),
+        ...(prompt ? { prompt } : {}),
+        ...(send !== undefined ? { send } : {}),
+        ...(model ? { model } : {}),
+      };
+    })
+    .filter(
+      (handoff) =>
+        handoff.label !== undefined ||
+        handoff.agent !== undefined ||
+        handoff.prompt !== undefined ||
+        handoff.send !== undefined ||
+        handoff.model !== undefined,
+    );
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function normalizeHookEventName(value: string): string | null {
+  const normalized = parseSimpleYamlScalar(value);
+  const aliases: Record<string, string> = {
+    setup: "Setup",
+    pretooluse: "PreToolUse",
+    permissionrequest: "PermissionRequest",
+    permissiondenied: "PermissionDenied",
+    posttooluse: "PostToolUse",
+    posttoolusefailure: "PostToolUseFailure",
+    posttoolbatch: "PostToolBatch",
+    userpromptsubmit: "UserPromptSubmit",
+    userpromptsubmitted: "UserPromptSubmit",
+    userpromptexpansion: "UserPromptExpansion",
+    sessionstart: "SessionStart",
+    stop: "Stop",
+    stopfailure: "StopFailure",
+    sessionend: "SessionEnd",
+    subagentstart: "SubagentStart",
+    subagentstop: "SubagentStop",
+    taskcreated: "TaskCreated",
+    taskcompleted: "TaskCompleted",
+    teammateidle: "TeammateIdle",
+    precompact: "PreCompact",
+    postcompact: "PostCompact",
+    sessionended: "SessionEnd",
+    worktreecreate: "WorktreeCreate",
+    worktreeremove: "WorktreeRemove",
+    notification: "Notification",
+    configchange: "ConfigChange",
+    instructionsloaded: "InstructionsLoaded",
+    cwdchanged: "CwdChanged",
+    filechanged: "FileChanged",
+    elicitation: "Elicitation",
+    elicitationresult: "ElicitationResult",
+  };
+  return aliases[normalized.replace(/[-_\s]/gu, "").toLowerCase()] ?? null;
+}
+
+function frontmatterHooksField(
+  markdown: string,
+): Record<string, ReadonlyArray<Record<string, unknown>>> | undefined {
+  const block = frontmatterBlock(markdown, "hooks");
+  if (!block) {
+    return undefined;
+  }
+  const hooks: Record<string, Array<Record<string, unknown>>> = {};
+  let currentEvent: string | null = null;
+  let currentItem: Record<string, unknown> | null = null;
+  let currentItemIndent = 0;
+
+  const assign = (target: Record<string, unknown>, rawKey: string, rawValue: string) => {
+    const key = rawKey.trim();
+    const value = rawValue.trim();
+    if (!key || !value) {
+      return;
+    }
+    target[key] = parseSimpleYamlValue(value);
+  };
+
+  for (const rawLine of block.split(/\r?\n/u)) {
+    if (!rawLine.trim() || rawLine.trimStart().startsWith("#")) {
+      continue;
+    }
+    const indent = leadingSpaceCount(rawLine);
+    const line = rawLine.trim();
+    const eventMatch = /^(?<event>[A-Za-z][A-Za-z0-9_-]*):\s*$/u.exec(line);
+    if (eventMatch?.groups && !line.startsWith("- ")) {
+      currentEvent = normalizeHookEventName(eventMatch.groups.event ?? "");
+      currentItem = null;
+      currentItemIndent = 0;
+      if (currentEvent && !hooks[currentEvent]) {
+        hooks[currentEvent] = [];
+      }
+      continue;
+    }
+    if (!currentEvent) {
+      continue;
+    }
+    const itemMatch = /^-\s*(?<rest>.*)$/u.exec(line);
+    if (itemMatch) {
+      currentItem = {};
+      currentItemIndent = indent;
+      hooks[currentEvent]?.push(currentItem);
+      const rest = itemMatch.groups?.rest?.trim();
+      if (rest) {
+        const fieldMatch = /^(?<key>[A-Za-z0-9_.-]+):\s*(?<value>.+)$/u.exec(rest);
+        if (fieldMatch?.groups) {
+          assign(currentItem, fieldMatch.groups.key ?? "", fieldMatch.groups.value ?? "");
+        }
+      }
+      continue;
+    }
+    if (!currentItem || indent <= currentItemIndent) {
+      continue;
+    }
+    const fieldMatch = /^(?<key>[A-Za-z0-9_.-]+):\s*(?<value>.+)$/u.exec(line);
+    if (fieldMatch?.groups) {
+      assign(currentItem, fieldMatch.groups.key ?? "", fieldMatch.groups.value ?? "");
+    }
+  }
+
+  for (const [eventName, commands] of Object.entries(hooks)) {
+    hooks[eventName] = commands.filter((command) => Object.keys(command).length > 0);
+    if ((hooks[eventName]?.length ?? 0) === 0) {
+      delete hooks[eventName];
+    }
+  }
+  return Object.keys(hooks).length > 0 ? hooks : undefined;
+}
+
+function readGitHubCopilotCustomAgent(
+  file: string,
+  options: { readonly includeHooks: boolean },
+): GitHubCopilotCustomAgent | null {
   if (!file.endsWith(".md")) {
     return null;
   }
@@ -1512,11 +4071,24 @@ function readGitHubCopilotCustomAgent(file: string): GitHubCopilotCustomAgent | 
   }
   const displayName = frontmatterField(markdown, "name");
   const description = frontmatterField(markdown, "description");
+  if (!description) {
+    return null;
+  }
+  const argumentHint = frontmatterField(markdown, "argument-hint");
   const tools = frontmatterStringListField(markdown, "tools");
+  const agents = frontmatterStringListField(markdown, "agents");
   const infer = gitHubCopilotCustomAgentInfer(markdown);
   const userInvocable = gitHubCopilotCustomAgentUserInvocable(markdown);
+  const model = frontmatterStringOrListField(markdown, "model");
+  const metadata = normalizeGitHubCopilotMetadata(
+    frontmatterJsonObjectField(markdown, "metadata") ??
+      frontmatterYamlObjectField(markdown, "metadata"),
+  );
+  const handoffs = gitHubCopilotCustomAgentHandoffs(markdown);
+  const hooks = options.includeHooks ? frontmatterHooksField(markdown) : undefined;
   const mcpServers = normalizeGitHubCopilotMcpServers(
-    frontmatterJsonObjectField(markdown, "mcp-servers"),
+    frontmatterJsonObjectField(markdown, "mcp-servers") ??
+      frontmatterYamlObjectField(markdown, "mcp-servers"),
   );
   const skills = frontmatterStringListField(markdown, "skills");
   return {
@@ -1524,26 +4096,36 @@ function readGitHubCopilotCustomAgent(file: string): GitHubCopilotCustomAgent | 
     prompt,
     ...(displayName ? { displayName } : {}),
     ...(description ? { description } : {}),
+    ...(argumentHint ? { argumentHint } : {}),
     ...(tools ? { tools } : {}),
+    ...(agents ? { agents } : {}),
     ...(infer !== undefined ? { infer } : {}),
     ...(userInvocable !== undefined ? { userInvocable } : {}),
+    ...(model !== undefined ? { model } : {}),
+    ...(metadata ? { metadata } : {}),
+    ...(handoffs ? { handoffs } : {}),
+    ...(hooks ? { hooks } : {}),
     ...(mcpServers ? { mcpServers } : {}),
     ...(skills ? { skills } : {}),
   };
 }
 
-function readGitHubCopilotCustomAgentRoot(root: string, depth = 0): GitHubCopilotCustomAgent[] {
+function readGitHubCopilotCustomAgentRoot(
+  root: string,
+  options: { readonly includeHooks: boolean },
+  depth = 0,
+): GitHubCopilotCustomAgent[] {
   if (!isDirectory(root)) {
     return [];
   }
   const agents: GitHubCopilotCustomAgent[] = [];
   for (const entry of safeReadDir(root)) {
     const entryPath = path.join(root, entry);
-    const agent = readGitHubCopilotCustomAgent(entryPath);
+    const agent = readGitHubCopilotCustomAgent(entryPath, options);
     if (agent) {
       agents.push(agent);
     } else if (depth < 4 && isDirectory(entryPath)) {
-      agents.push(...readGitHubCopilotCustomAgentRoot(entryPath, depth + 1));
+      agents.push(...readGitHubCopilotCustomAgentRoot(entryPath, options, depth + 1));
     }
   }
   return agents;
@@ -1554,10 +4136,11 @@ export function discoverGitHubCopilotCustomAgents(input: {
   readonly home?: string | undefined;
 }): ReadonlyArray<GitHubCopilotCustomAgent> {
   const roots = githubCopilotAgentRoots(input);
+  const includeHooks = githubCopilotCustomAgentHooksEnabled(input.cwd);
   const agents: GitHubCopilotCustomAgent[] = [];
   const seen = new Set<string>();
   for (const root of roots) {
-    for (const agent of readGitHubCopilotCustomAgentRoot(root)) {
+    for (const agent of readGitHubCopilotCustomAgentRoot(root, { includeHooks })) {
       const key = agent.name.toLowerCase();
       if (seen.has(key)) {
         continue;
@@ -1574,12 +4157,20 @@ export function discoverGitHubCopilotSkillDirectories(input: {
   readonly home?: string | undefined;
   readonly agentsHome?: string | undefined;
 }): ReadonlyArray<string> {
+  if (!githubCopilotAgentSkillsEnabled(input.cwd)) {
+    return [];
+  }
   const providerHomes = githubCopilotHomeRoots(input.home);
   const userAgentsHome = input.agentsHome?.trim() || path.join(homedir(), ".agents");
+  const projectRoots = githubCopilotProjectRoots(input.cwd);
   return uniquePaths([
-    input.cwd ? path.join(input.cwd, ".github", "skills") : null,
-    input.cwd ? path.join(input.cwd, ".github-copilot", "skills") : null,
-    input.cwd ? path.join(input.cwd, ".agents", "skills") : null,
+    ...projectRoots.flatMap((root) => [
+      path.join(root, ".github", "skills"),
+      path.join(root, ".claude", "skills"),
+      path.join(root, ".github-copilot", "skills"),
+      path.join(root, ".agents", "skills"),
+      ...githubCopilotConfiguredSkillRoots(root),
+    ]),
     ...providerHomes.map((providerHome) => path.join(providerHome, "skills")),
     path.join(userAgentsHome, "skills"),
   ]).filter((root) => isDirectory(root));
@@ -1589,7 +4180,40 @@ export function discoverGitHubCopilotPromptSlashCommands(input: {
   readonly cwd?: string | undefined;
   readonly home?: string | undefined;
 }): ReadonlyArray<ProviderSlashCommand> {
-  return mergeProviderSlashCommands(githubCopilotPromptRoots(input).flatMap(readGitHubCopilotPromptRoot));
+  return mergeProviderSlashCommands(
+    githubCopilotPromptRoots(input).flatMap(readGitHubCopilotPromptRoot),
+  );
+}
+
+export function discoverGitHubCopilotInstructionSlashCommands(input: {
+  readonly cwd?: string | undefined;
+  readonly home?: string | undefined;
+}): ReadonlyArray<ProviderSlashCommand> {
+  const homeRoots = githubCopilotHomeRoots(input.home);
+  const projectRoots = githubCopilotProjectRoots(input.cwd);
+  const repositoryRoot = gitHubCopilotRepositoryRoot(input.cwd);
+  return mergeProviderSlashCommands(
+    githubCopilotInstructionFiles(input)
+      .map((file) => readGitHubCopilotInstructionCommand({ file, repositoryRoot }))
+      .filter((command): command is ProviderSlashCommand => command !== null),
+    projectRoots.flatMap((root) =>
+      [
+        path.join(root, ".github", "instructions"),
+        path.join(root, ".claude", "rules"),
+        ...githubCopilotConfiguredInstructionRoots(root),
+      ].flatMap((instructionRoot) =>
+        readGitHubCopilotInstructionRoot({
+          root: instructionRoot,
+          repositoryRoot,
+        }),
+      ),
+    ),
+    homeRoots.flatMap((homeRoot) =>
+      readGitHubCopilotInstructionRoot({
+        root: path.join(homeRoot, "instructions"),
+      }),
+    ),
+  );
 }
 
 export function discoverOpenCodeAgentSlashCommands(input: {
@@ -1599,8 +4223,12 @@ export function discoverOpenCodeAgentSlashCommands(input: {
   const providerHome = input.home?.trim() || path.join(homedir(), ".config", "opencode");
   const projectRoots = ancestorDirsUntilGitRoot(input.cwd);
   const configFiles = [
-    ...projectRoots.map((root) => path.join(root, "opencode.json")),
+    ...projectRoots.flatMap((root) => [
+      path.join(root, "opencode.json"),
+      path.join(root, "opencode.jsonc"),
+    ]),
     path.join(providerHome, "opencode.json"),
+    path.join(providerHome, "opencode.jsonc"),
   ];
   const markdownAgentCommands = mergeProviderSlashCommands(
     [
@@ -1614,15 +4242,23 @@ export function discoverOpenCodeAgentSlashCommands(input: {
       readAgentMarkdownRoot(root, {
         includeMode: new Set(["subagent", "all"]),
         includeMissingMode: true,
+        excludeDisabled: true,
+        requireDescription: true,
       }),
     ),
+  );
+  const subagentNames = mergeOpenCodeSubagentNames(
+    ...configFiles.map(readOpenCodeJsonSubagentNames),
+    new Set(markdownAgentCommands.map((command) => command.name)),
   );
   return mergeProviderSlashCommands(
     [
       ...projectRoots.map((root) => path.join(root, ".opencode", "commands")),
+      ...projectRoots.map((root) => path.join(root, ".opencode", "command")),
       path.join(providerHome, "commands"),
-    ].flatMap((root) => readOpenCodeMarkdownCommandRoot(root)),
-    configFiles.flatMap(readOpenCodeJsonConfigCommands),
+      path.join(providerHome, "command"),
+    ].flatMap((root) => readOpenCodeMarkdownCommandRoot(root, subagentNames)),
+    configFiles.flatMap((file) => readOpenCodeJsonConfigCommands(file, subagentNames)),
     markdownAgentCommands,
     configFiles.flatMap(readOpenCodeJsonAgentCommands),
   );
@@ -1644,26 +4280,57 @@ export function discoverPiExtensionSlashCommands(input: {
     ...ancestorDirs.map((dir) => path.join(dir, ".agents", "skills")),
     path.join(userAgentsHome, "skills"),
   ]);
+  const piAgentRoots = uniquePaths([
+    ...ancestorDirs.flatMap((dir) => [path.join(dir, ".pi", "agents"), path.join(dir, ".agents")]),
+    path.join(piAgentDir, "agents"),
+    path.join(piAgentDir, "extensions", "subagent", "agents"),
+  ]);
+  const promptRoots = uniquePaths([
+    ...ancestorDirs.map((dir) => path.join(dir, ".pi", "prompts")),
+    path.join(piAgentDir, "prompts"),
+  ]);
+  const packageRoots = uniquePaths(ancestorDirs);
+  const settingsFiles = uniquePaths([
+    ...ancestorDirs.map((dir) => path.join(dir, ".pi", "settings.json")),
+    path.join(piAgentDir, "settings.json"),
+  ]);
 
-  return mergeProviderSlashCommands(
-    piSpecificRoots.flatMap((root) =>
-      readPiSkillRoot({
-        root,
-        includeRootMarkdownFiles: true,
+  return applyPiSettings(
+    mergeProviderSlashCommands(
+      piSpecificRoots.flatMap((root) =>
+        readPiSkillRoot({
+          root,
+          includeRootMarkdownFiles: true,
+        }),
+      ),
+      piAgentRoots.flatMap(readPiAgentResource),
+      sharedAgentRoots.flatMap((root) =>
+        readPiSkillRoot({
+          root,
+        }),
+      ),
+      promptRoots.flatMap(readPiPromptTemplateRoot),
+      packageRoots.flatMap(readPiPackageCommands),
+      settingsFiles.flatMap((settingsFile) =>
+        readPiSettingsCommands({
+          settingsFile,
+          baseDir:
+            settingsFile === path.join(piAgentDir, "settings.json")
+              ? piAgentDir
+              : path.dirname(settingsFile),
+        }),
+      ),
+      filterPiBuiltinSubagentCommands(settingsFiles),
+      discoverGenericProviderExtensionSlashCommands({
+        cwd: input.cwd,
+        home: piAgentDir,
+        providerHomeDirName: ".pi",
+        pluginManifestDirName: ".pi-plugin",
+        includeAgentCommands: false,
+        includeSkillCommands: false,
       }),
     ),
-    sharedAgentRoots.flatMap((root) =>
-      readPiSkillRoot({
-        root,
-      }),
-    ),
-    discoverGenericProviderExtensionSlashCommands({
-      cwd: input.cwd,
-      home: piAgentDir,
-      providerHomeDirName: ".pi",
-      pluginManifestDirName: ".pi-plugin",
-      includeSkillCommands: false,
-    }),
+    settingsFiles,
   );
 }
 
@@ -1680,10 +4347,19 @@ export function discoverProviderExtensionSlashCommands(
         [CODEX_GOAL_SLASH_COMMAND],
       );
     case "claudeAgent":
-      return discoverClaudeExtensionSlashCommands({
-        cwd: input.cwd,
-        home: input.settings.providers.claudeAgent.configDir,
-      });
+      return applyClaudeAgentSettings(
+        mergeProviderSlashCommands(
+          discoverClaudeExtensionSlashCommands({
+            cwd: input.cwd,
+            home: input.settings.providers.claudeAgent.configDir,
+          }),
+          CLAUDE_BUILT_IN_SUBAGENT_COMMANDS,
+        ),
+        resolveClaudeAgentSettings({
+          cwd: input.cwd,
+          home: input.settings.providers.claudeAgent.configDir,
+        }),
+      );
     case "cursor":
       return discoverCursorExtensionSlashCommands({
         cwd: input.cwd,
@@ -1691,22 +4367,41 @@ export function discoverProviderExtensionSlashCommands(
         claudeHome: input.settings.providers.claudeAgent.configDir,
         codexHome: input.settings.providers.codex.homePath,
       });
-    case "gemini":
-      return mergeProviderSlashCommands(
-        discoverGenericProviderExtensionSlashCommands({
-          cwd: input.cwd,
-          home: input.settings.providers.gemini.configDir,
-          providerHomeDirName: ".gemini",
-        }),
-        discoverGeminiCustomSlashCommands({
-          cwd: input.cwd,
-          home: input.settings.providers.gemini.configDir,
-        }),
-        discoverGeminiExtensionSlashCommands({
-          home: input.settings.providers.gemini.configDir,
-        }),
-        GEMINI_BUILT_IN_SUBAGENT_COMMANDS,
+    case "gemini": {
+      const agentSettings = resolveGeminiAgentSettings({
+        cwd: input.cwd,
+        home: input.settings.providers.gemini.configDir,
+      });
+      const genericCommands = discoverGenericProviderExtensionSlashCommands({
+        cwd: input.cwd,
+        home: input.settings.providers.gemini.configDir,
+        providerHomeDirName: ".gemini",
+        includeAgentCommands: false,
+      });
+      const customCommands = discoverGeminiCustomSlashCommands({
+        cwd: input.cwd,
+        home: input.settings.providers.gemini.configDir,
+      });
+      const builtInAgentCommands = geminiBuiltInSubagentCommandsForSettings(agentSettings);
+      const extensionReservedCommandNames = new Set(
+        mergeProviderSlashCommands(genericCommands, customCommands, builtInAgentCommands).map(
+          (command) => command.name.toLowerCase(),
+        ),
       );
+      return applyGeminiAgentSettings(
+        mergeProviderSlashCommands(
+          genericCommands,
+          customCommands,
+          discoverGeminiExtensionSlashCommands({
+            cwd: input.cwd,
+            home: input.settings.providers.gemini.configDir,
+            reservedCommandNames: extensionReservedCommandNames,
+          }),
+          builtInAgentCommands,
+        ),
+        agentSettings,
+      );
+    }
     case "pi":
       return discoverPiExtensionSlashCommands({
         cwd: input.cwd,
@@ -1718,7 +4413,12 @@ export function discoverProviderExtensionSlashCommands(
           cwd: input.cwd,
           home: input.settings.providers.githubCopilot.homePath,
         }),
+        GITHUB_COPILOT_BUILT_IN_AGENT_COMMANDS,
         discoverGitHubCopilotPromptSlashCommands({
+          cwd: input.cwd,
+          home: input.settings.providers.githubCopilot.homePath,
+        }),
+        discoverGitHubCopilotInstructionSlashCommands({
           cwd: input.cwd,
           home: input.settings.providers.githubCopilot.homePath,
         }),
@@ -1727,12 +4427,16 @@ export function discoverProviderExtensionSlashCommands(
             cwd: input.cwd,
             home: input.settings.providers.githubCopilot.homePath,
           }),
-          skillPromptPrefix: naturalSkillPromptPrefix,
+          skillPromptPrefix: (commandName) => `/${commandName}`,
+        }),
+        discoverGitHubCopilotPluginSlashCommands({
+          home: input.settings.providers.githubCopilot.homePath,
         }),
         discoverGenericProviderExtensionSlashCommands({
           cwd: input.cwd,
           home: input.settings.providers.githubCopilot.homePath,
           providerHomeDirName: ".github-copilot",
+          includeAgentCommands: false,
         }),
       );
     case "opencode":

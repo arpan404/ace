@@ -617,16 +617,45 @@ function normalizeProviderModelOptions(
     typeof claudeCandidate?.contextWindow === "string" && claudeCandidate.contextWindow.length > 0
       ? claudeCandidate.contextWindow
       : undefined;
+  const claudeOutputStyle =
+    typeof claudeCandidate?.outputStyle === "string" &&
+    claudeCandidate.outputStyle.trim().length > 0
+      ? claudeCandidate.outputStyle.trim()
+      : undefined;
+  const claudeAgent =
+    typeof claudeCandidate?.agent === "string" && claudeCandidate.agent.trim().length > 0
+      ? claudeCandidate.agent.trim()
+      : undefined;
+  const claudeForkSubagents =
+    claudeCandidate?.forkSubagents === true
+      ? true
+      : claudeCandidate?.forkSubagents === false
+        ? false
+        : undefined;
+  const claudeAgentTeams =
+    claudeCandidate?.agentTeams === true
+      ? true
+      : claudeCandidate?.agentTeams === false
+        ? false
+        : undefined;
   const claude =
     claudeThinking !== undefined ||
     claudeEffort !== undefined ||
     claudeFastMode !== undefined ||
-    claudeContextWindow !== undefined
+    claudeContextWindow !== undefined ||
+    claudeOutputStyle !== undefined ||
+    claudeAgent !== undefined ||
+    claudeForkSubagents !== undefined ||
+    claudeAgentTeams !== undefined
       ? {
           ...(claudeThinking !== undefined ? { thinking: claudeThinking } : {}),
           ...(claudeEffort !== undefined ? { effort: claudeEffort } : {}),
           ...(claudeFastMode !== undefined ? { fastMode: claudeFastMode } : {}),
           ...(claudeContextWindow !== undefined ? { contextWindow: claudeContextWindow } : {}),
+          ...(claudeOutputStyle !== undefined ? { outputStyle: claudeOutputStyle } : {}),
+          ...(claudeAgent !== undefined ? { agent: claudeAgent } : {}),
+          ...(claudeForkSubagents !== undefined ? { forkSubagents: claudeForkSubagents } : {}),
+          ...(claudeAgentTeams !== undefined ? { agentTeams: claudeAgentTeams } : {}),
         }
       : undefined;
 
@@ -641,9 +670,19 @@ function normalizeProviderModelOptions(
     githubCopilotCandidate?.reasoningEffort === "xhigh"
       ? githubCopilotCandidate.reasoningEffort
       : undefined;
+  const githubCopilotAgent =
+    typeof githubCopilotCandidate?.agent === "string" &&
+    githubCopilotCandidate.agent.trim().length > 0
+      ? githubCopilotCandidate.agent.trim()
+      : undefined;
   const githubCopilot =
-    githubCopilotReasoningEffort !== undefined
-      ? { reasoningEffort: githubCopilotReasoningEffort }
+    githubCopilotReasoningEffort !== undefined || githubCopilotAgent !== undefined
+      ? {
+          ...(githubCopilotReasoningEffort !== undefined
+            ? { reasoningEffort: githubCopilotReasoningEffort }
+            : {}),
+          ...(githubCopilotAgent !== undefined ? { agent: githubCopilotAgent } : {}),
+        }
       : undefined;
 
   const cursorCandidate =
@@ -663,13 +702,20 @@ function normalizeProviderModelOptions(
       : cursorCandidate?.fastMode === false
         ? false
         : undefined;
+  const cursorModeId =
+    typeof cursorCandidate?.modeId === "string" && cursorCandidate.modeId.trim().length > 0
+      ? cursorCandidate.modeId.trim()
+      : undefined;
   const cursor =
-    cursorReasoningEffort !== undefined || cursorFastMode !== undefined
+    cursorReasoningEffort !== undefined ||
+    cursorFastMode !== undefined ||
+    cursorModeId !== undefined
       ? {
           ...(cursorReasoningEffort !== undefined
             ? { reasoningEffort: cursorReasoningEffort }
             : {}),
           ...(cursorFastMode !== undefined ? { fastMode: cursorFastMode } : {}),
+          ...(cursorModeId !== undefined ? { modeId: cursorModeId } : {}),
         }
       : undefined;
 
@@ -701,6 +747,16 @@ function normalizeProviderModelOptions(
         }
       : undefined;
 
+  const geminiCandidate =
+    candidate?.gemini && typeof candidate.gemini === "object"
+      ? (candidate.gemini as Record<string, unknown>)
+      : null;
+  const geminiModeId =
+    typeof geminiCandidate?.modeId === "string" && geminiCandidate.modeId.trim().length > 0
+      ? geminiCandidate.modeId.trim()
+      : undefined;
+  const gemini = geminiModeId !== undefined ? { modeId: geminiModeId } : undefined;
+
   const opencodeCandidate =
     candidate?.opencode && typeof candidate.opencode === "object"
       ? (candidate.opencode as Record<string, unknown>)
@@ -715,15 +771,20 @@ function normalizeProviderModelOptions(
       : opencodeCandidate?.fastMode === false
         ? false
         : undefined;
+  const opencodeModeId =
+    typeof opencodeCandidate?.modeId === "string" && opencodeCandidate.modeId.trim().length > 0
+      ? opencodeCandidate.modeId.trim()
+      : undefined;
   const opencode =
-    opencodeVariant !== undefined || opencodeFastMode !== undefined
+    opencodeVariant !== undefined || opencodeFastMode !== undefined || opencodeModeId !== undefined
       ? {
           ...(opencodeVariant !== undefined ? { variant: opencodeVariant } : {}),
           ...(opencodeFastMode !== undefined ? { fastMode: opencodeFastMode } : {}),
+          ...(opencodeModeId !== undefined ? { modeId: opencodeModeId } : {}),
         }
       : undefined;
 
-  if (!codex && !claude && !githubCopilot && !cursor && !pi && !opencode) {
+  if (!codex && !claude && !githubCopilot && !cursor && !pi && !gemini && !opencode) {
     return null;
   }
   return {
@@ -732,6 +793,7 @@ function normalizeProviderModelOptions(
     ...(githubCopilot ? { githubCopilot } : {}),
     ...(cursor ? { cursor } : {}),
     ...(pi ? { pi } : {}),
+    ...(gemini ? { gemini } : {}),
     ...(opencode ? { opencode } : {}),
   };
 }

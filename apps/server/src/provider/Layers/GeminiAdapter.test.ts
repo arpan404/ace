@@ -16,6 +16,7 @@ vi.mock("../acpClient.ts", async (importOriginal) => {
 
 import {
   buildGeminiAcpArgAttempts,
+  buildGeminiAcpMcpServersFromSettings,
   buildGeminiInitializeParams,
   buildGeminiPromptText,
   canGeminiSetSessionMode,
@@ -199,6 +200,84 @@ describe("buildGeminiInitializeParams", () => {
   });
 });
 
+describe("buildGeminiAcpMcpServersFromSettings", () => {
+  it("normalizes Gemini settings MCP servers to ACP session server configs", () => {
+    expect(
+      buildGeminiAcpMcpServersFromSettings([
+        {
+          mcpServers: {
+            docs: {
+              command: "node",
+              args: ["server.js"],
+              env: {
+                DOCS_TOKEN: "token-1",
+              },
+            },
+            sentry: {
+              httpUrl: "https://mcp.sentry.dev/mcp",
+              headers: {
+                Authorization: "Bearer token-2",
+              },
+            },
+            legacy: {
+              url: "https://legacy.example.test/sse",
+            },
+          },
+        },
+      ]),
+    ).toEqual([
+      {
+        name: "docs",
+        command: "node",
+        args: ["server.js"],
+        env: [{ name: "DOCS_TOKEN", value: "token-1" }],
+      },
+      {
+        name: "sentry",
+        type: "http",
+        url: "https://mcp.sentry.dev/mcp",
+        headers: [{ name: "Authorization", value: "Bearer token-2" }],
+      },
+      {
+        name: "legacy",
+        type: "sse",
+        url: "https://legacy.example.test/sse",
+        headers: [],
+      },
+    ]);
+  });
+
+  it("lets later Gemini settings override earlier MCP servers with the same name", () => {
+    expect(
+      buildGeminiAcpMcpServersFromSettings([
+        {
+          mcpServers: {
+            docs: {
+              command: "node",
+              args: ["old.js"],
+            },
+          },
+        },
+        {
+          mcpServers: {
+            docs: {
+              command: "node",
+              args: ["new.js"],
+            },
+          },
+        },
+      ]),
+    ).toEqual([
+      {
+        name: "docs",
+        command: "node",
+        args: ["new.js"],
+        env: [],
+      },
+    ]);
+  });
+});
+
 describe("Gemini ACP capability guards", () => {
   it("skips mode switching when the session does not advertise modes", () => {
     expect(canGeminiSetSessionMode({ availableModes: [] })).toBe(false);
@@ -370,6 +449,122 @@ describe("GeminiAdapterLive startup", () => {
           }),
         }),
       );
+    });
+  });
+
+  it("passes Gemini settings MCP servers to ACP session startup", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "ace-gemini-mcp-"));
+    const geminiHome = path.join(root, "home");
+    const repo = path.join(root, "repo");
+    const nestedCwd = path.join(repo, "packages", "app");
+    await mkdir(path.join(geminiHome), { recursive: true });
+    await mkdir(path.join(repo, ".git"), { recursive: true });
+    await mkdir(path.join(repo, ".gemini"), { recursive: true });
+    await mkdir(nestedCwd, { recursive: true });
+    await writeFile(
+      path.join(geminiHome, "settings.json"),
+      JSON.stringify({
+        mcpServers: {
+          docs: {
+            command: "node",
+            args: ["home-docs.js"],
+            env: {
+              DOCS_TOKEN: "home-token",
+            },
+          },
+          remote: {
+            httpUrl: "https://mcp.example.test/mcp",
+            headers: {
+              Authorization: "Bearer home",
+            },
+          },
+        },
+      }),
+    );
+    await writeFile(
+      path.join(repo, ".gemini", "settings.json"),
+      JSON.stringify({
+        mcpServers: {
+          docs: {
+            command: "node",
+            args: ["project-docs.js"],
+            env: {
+              DOCS_TOKEN: "project-token",
+            },
+          },
+          browser: {
+            command: "npx",
+            args: ["-y", "@mcp/browser"],
+          },
+        },
+      }),
+    );
+
+    const client = makeFakeGeminiClient({
+      requestImpl: async (method) => {
+        switch (method) {
+          case "initialize":
+            return geminiInitializeResult();
+          case "session/new":
+            return geminiSessionResult("gemini-session-mcp");
+          default:
+            throw new Error(`Unexpected Gemini ACP request: ${method}`);
+        }
+      },
+    });
+    mockedStartAcpClient.mockReturnValue(client);
+
+    await withAdapter(async (adapter, _config, settingsService) => {
+      try {
+        await Effect.runPromise(
+          settingsService.updateSettings({
+            providers: {
+              gemini: {
+                configDir: geminiHome,
+              },
+            },
+          }),
+        );
+
+        await Effect.runPromise(
+          adapter.startSession({
+            provider: "gemini",
+            threadId: asThreadId("thread-gemini-mcp"),
+            cwd: nestedCwd,
+            runtimeMode: "approval-required",
+          }),
+        );
+
+        expect(client.request).toHaveBeenCalledWith(
+          "session/new",
+          {
+            cwd: nestedCwd,
+            mcpServers: [
+              {
+                name: "docs",
+                command: "node",
+                args: ["project-docs.js"],
+                env: [{ name: "DOCS_TOKEN", value: "project-token" }],
+              },
+              {
+                name: "remote",
+                type: "http",
+                url: "https://mcp.example.test/mcp",
+                headers: [{ name: "Authorization", value: "Bearer home" }],
+              },
+              {
+                name: "browser",
+                command: "npx",
+                args: ["-y", "@mcp/browser"],
+                env: [],
+              },
+            ],
+          },
+          { timeoutMs: 20_000 },
+        );
+      } finally {
+        await rm(root, { force: true, recursive: true });
+      }
     });
   });
 
@@ -611,6 +806,76 @@ describe("GeminiAdapterLive startup", () => {
           expect.anything(),
           expect.anything(),
         );
+      } finally {
+        await Effect.runPromise(adapter.stopAll());
+      }
+    });
+  });
+
+  it("syncs selected Gemini ACP mode from model options and exposes mode config", async () => {
+    const client = makeFakeGeminiClient({
+      requestImpl: async (method) => {
+        switch (method) {
+          case "initialize":
+            return geminiInitializeResult();
+          case "session/new":
+            return geminiSessionResult("gemini-session-selected-mode", {
+              currentModeId: "yolo",
+            });
+          case "session/set_mode":
+            return {};
+          default:
+            throw new Error(`Unexpected Gemini ACP request: ${method}`);
+        }
+      },
+    });
+    mockedStartAcpClient.mockReturnValue(client);
+
+    await withAdapter(async (adapter) => {
+      try {
+        await Effect.runPromise(
+          adapter.startSession({
+            provider: "gemini",
+            threadId: asThreadId("thread-gemini-selected-mode"),
+            cwd: "/repo/gemini-selected-mode",
+            runtimeMode: "full-access",
+            modelSelection: {
+              provider: "gemini",
+              model: "gemini-2.5-pro",
+              options: {
+                modeId: "default",
+              },
+            },
+          }),
+        );
+
+        expect(client.request).toHaveBeenCalledWith(
+          "session/set_mode",
+          {
+            sessionId: "gemini-session-selected-mode",
+            modeId: "default",
+          },
+          { timeoutMs: 20_000 },
+        );
+
+        const firstEvent = await Effect.runPromise(Stream.runHead(adapter.streamEvents));
+        expect(firstEvent._tag).toBe("Some");
+        if (firstEvent._tag !== "Some" || firstEvent.value.type !== "session.configured") {
+          return;
+        }
+        expect(firstEvent.value.payload.config).toMatchObject({
+          configOptions: [
+            {
+              id: "mode",
+              category: "mode",
+              currentValue: "yolo",
+              options: [
+                { value: "default", name: "Default" },
+                { value: "yolo", name: "YOLO" },
+              ],
+            },
+          ],
+        });
       } finally {
         await Effect.runPromise(adapter.stopAll());
       }

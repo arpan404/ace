@@ -1,5 +1,10 @@
 import type { CanonicalItemType, ProviderRuntimeEvent } from "@ace/contracts";
 import { isToolLifecycleItemType } from "@ace/contracts";
+import {
+  mergeProviderAgentMetadata,
+  providerAgentLooseRecord,
+  providerAgentRecord,
+} from "@ace/shared/providerAgentMetadata";
 
 type ItemLifecycleEvent = Extract<
   ProviderRuntimeEvent,
@@ -302,127 +307,40 @@ function subagentFromLifecycle(
   payload: ItemLifecycleEvent["payload"],
 ): Record<string, unknown> | undefined {
   const { data, item, input, args, result } = lifecycleRecords(payload);
-  const agentId = firstTrimmedString(
-    data?.agentId,
-    data?.agent_id,
-    data?.subagentId,
-    data?.subagent_id,
-    data?.taskId,
-    data?.task_id,
-    item?.agentId,
-    item?.agent_id,
-    item?.subagentId,
-    item?.subagent_id,
-    input?.agentId,
-    input?.agent_id,
-    input?.subagentId,
-    input?.subagent_id,
-    args?.agentId,
-    args?.agent_id,
-    args?.subagentId,
-    args?.subagent_id,
-    result?.agentId,
-    result?.agent_id,
-    result?.subagentId,
-    result?.subagent_id,
+  const payloadRecord = payload as Record<string, unknown>;
+  const metadata = mergeProviderAgentMetadata(
+    providerAgentRecord(payloadRecord),
+    providerAgentRecord(data),
+    providerAgentRecord(item),
+    providerAgentRecord(input),
+    providerAgentRecord(args),
+    providerAgentRecord(result),
+    providerAgentLooseRecord(data),
+    providerAgentLooseRecord(item),
+    providerAgentLooseRecord(input),
+    providerAgentLooseRecord(args),
+    providerAgentLooseRecord(result),
+    providerAgentLooseRecord({ description: payload.detail }),
   );
-  const type = firstTrimmedString(
-    data?.subagentType,
-    data?.subagent_type,
-    data?.agentType,
-    data?.agent_type,
-    data?.agentRole,
-    data?.agent_role,
-    item?.subagentType,
-    item?.subagent_type,
-    item?.agentType,
-    item?.agent_type,
-    item?.agentRole,
-    item?.agent_role,
-    input?.subagentType,
-    input?.subagent_type,
-    input?.agentType,
-    input?.agent_type,
-    input?.agentRole,
-    input?.agent_role,
-    args?.subagentType,
-    args?.subagent_type,
-    args?.agentType,
-    args?.agent_type,
-    args?.agentRole,
-    args?.agent_role,
-    result?.subagentType,
-    result?.subagent_type,
-    result?.agentType,
-    result?.agent_type,
-    result?.agentRole,
-    result?.agent_role,
-  );
-  const name = firstTrimmedString(
-    data?.agentDisplayName,
-    data?.agent_display_name,
-    data?.agentNickname,
-    data?.agent_nickname,
-    data?.agentName,
-    data?.agent_name,
-    data?.subagentName,
-    data?.subagent_name,
-    data?.displayName,
-    data?.display_name,
-    data?.name,
-    item?.agentDisplayName,
-    item?.agent_display_name,
-    item?.agentNickname,
-    item?.agent_nickname,
-    item?.agentName,
-    item?.agent_name,
-    item?.subagentName,
-    item?.subagent_name,
-    item?.displayName,
-    item?.display_name,
-    item?.name,
-    input?.agentDisplayName,
-    input?.agent_display_name,
-    input?.agentNickname,
-    input?.agent_nickname,
-    input?.agentName,
-    input?.agent_name,
-    input?.subagentName,
-    input?.subagent_name,
-    input?.displayName,
-    input?.display_name,
-    input?.name,
-    args?.agentDisplayName,
-    args?.agent_display_name,
-    args?.agentNickname,
-    args?.agent_nickname,
-    args?.agentName,
-    args?.agent_name,
-    args?.subagentName,
-    args?.subagent_name,
-    args?.displayName,
-    args?.display_name,
-    args?.name,
-    result?.agentDisplayName,
-    result?.agent_display_name,
-    result?.agentNickname,
-    result?.agent_nickname,
-    result?.agentName,
-    result?.agent_name,
-    result?.subagentName,
-    result?.subagent_name,
-    result?.displayName,
-    result?.display_name,
-    result?.name,
-  );
-  const description = firstTrimmedString(
-    input?.description,
-    args?.description,
-    data?.description,
-    payload.detail,
-  );
-  const prompt = firstTrimmedString(input?.prompt, args?.prompt, data?.prompt);
-  const model = firstTrimmedString(input?.model, args?.model, data?.model);
+  const agentId =
+    metadata.id ??
+    firstTrimmedString(
+      data?.taskId,
+      data?.task_id,
+      item?.taskId,
+      item?.task_id,
+      input?.taskId,
+      input?.task_id,
+      args?.taskId,
+      args?.task_id,
+      result?.taskId,
+      result?.task_id,
+    );
+  const type = metadata.type;
+  const name = metadata.name;
+  const description = metadata.description;
+  const prompt = metadata.prompt;
+  const model = metadata.model;
   if (!agentId && !type && !name && !description && !prompt && !model) {
     return undefined;
   }

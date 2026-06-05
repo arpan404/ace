@@ -2,6 +2,7 @@ import {
   type ClaudeModelOptions,
   type CodexModelOptions,
   type CursorModelOptions,
+  type GeminiModelOptions,
   type GitHubCopilotModelOptions,
   type OpenCodeModelOptions,
   type ProviderKind,
@@ -104,6 +105,62 @@ function findPiThoughtConfigOption(
   );
 }
 
+function findOutputStyleConfigOption(
+  sessionConfigOptions: ReadonlyArray<ProviderSessionConfigOption> | undefined,
+): ProviderSessionConfigOption | undefined {
+  return (sessionConfigOptions ?? []).find(
+    (option) => option.category === "output_style" || option.id === "output_style",
+  );
+}
+
+function findAgentConfigOption(
+  sessionConfigOptions: ReadonlyArray<ProviderSessionConfigOption> | undefined,
+): ProviderSessionConfigOption | undefined {
+  return (sessionConfigOptions ?? []).find(
+    (option) => option.category === "agent" || option.id === "agent",
+  );
+}
+
+function findForkSubagentsConfigOption(
+  sessionConfigOptions: ReadonlyArray<ProviderSessionConfigOption> | undefined,
+): ProviderSessionConfigOption | undefined {
+  return (sessionConfigOptions ?? []).find(
+    (option) => option.category === "subagent_fork_mode" || option.id === "fork_subagents",
+  );
+}
+
+function findAgentTeamsConfigOption(
+  sessionConfigOptions: ReadonlyArray<ProviderSessionConfigOption> | undefined,
+): ProviderSessionConfigOption | undefined {
+  return (sessionConfigOptions ?? []).find(
+    (option) => option.category === "agent_team_mode" || option.id === "agent_teams",
+  );
+}
+
+function findCursorModeConfigOption(
+  sessionConfigOptions: ReadonlyArray<ProviderSessionConfigOption> | undefined,
+): ProviderSessionConfigOption | undefined {
+  return (sessionConfigOptions ?? []).find(
+    (option) => option.category === "mode" || option.id === "mode",
+  );
+}
+
+function findGeminiModeConfigOption(
+  sessionConfigOptions: ReadonlyArray<ProviderSessionConfigOption> | undefined,
+): ProviderSessionConfigOption | undefined {
+  return (sessionConfigOptions ?? []).find(
+    (option) => option.category === "mode" || option.id === "mode",
+  );
+}
+
+function findOpenCodeModeConfigOption(
+  sessionConfigOptions: ReadonlyArray<ProviderSessionConfigOption> | undefined,
+): ProviderSessionConfigOption | undefined {
+  return (sessionConfigOptions ?? []).find(
+    (option) => option.category === "mode" || option.id === "mode",
+  );
+}
+
 function buildPiOptionsFromThoughtLevel(
   modelOptions: ProviderOptions | null | undefined,
   value: string,
@@ -164,12 +221,16 @@ function buildNextOptions(
         ...patch,
       } as PiModelOptions;
     case "gemini":
-      return {} as ProviderModelOptions["gemini"];
+      return {
+        ...(modelOptions as GeminiModelOptions | undefined),
+        ...patch,
+      } as GeminiModelOptions;
     case "opencode":
       return {
         ...(modelOptions as OpenCodeModelOptions | undefined),
         ...(typeof patch.contextWindow === "string" ? { variant: patch.contextWindow } : {}),
         ...(typeof patch.fastMode === "boolean" ? { fastMode: patch.fastMode } : {}),
+        ...(typeof patch.modeId === "string" ? { modeId: patch.modeId } : {}),
       } as OpenCodeModelOptions;
   }
 }
@@ -314,11 +375,41 @@ export function shouldRenderTraitsPicker(input: {
   allowPromptInjectedEffort?: boolean;
 }): boolean {
   if (input.provider === "cursor") {
+    const cursorModeOption = findCursorModeConfigOption(input.sessionConfigOptions);
+    if (cursorModeOption && cursorModeOption.options.length > 1) {
+      return true;
+    }
     return hasVisibleCursorTraits(input.models, input.model);
   }
   if (input.provider === "pi") {
     const piThoughtOption = findPiThoughtConfigOption(input.sessionConfigOptions);
     if (piThoughtOption && piThoughtOption.options.length > 0) {
+      return true;
+    }
+  }
+  if (input.provider === "claudeAgent" || input.provider === "githubCopilot") {
+    const outputStyleOption = findOutputStyleConfigOption(input.sessionConfigOptions);
+    const agentOption = findAgentConfigOption(input.sessionConfigOptions);
+    const forkSubagentsOption = findForkSubagentsConfigOption(input.sessionConfigOptions);
+    const agentTeamsOption = findAgentTeamsConfigOption(input.sessionConfigOptions);
+    if (
+      (outputStyleOption && outputStyleOption.options.length > 1) ||
+      (agentOption && agentOption.options.length > 1) ||
+      (forkSubagentsOption && forkSubagentsOption.options.length > 1) ||
+      (agentTeamsOption && agentTeamsOption.options.length > 1)
+    ) {
+      return true;
+    }
+  }
+  if (input.provider === "gemini") {
+    const geminiModeOption = findGeminiModeConfigOption(input.sessionConfigOptions);
+    if (geminiModeOption && geminiModeOption.options.length > 1) {
+      return true;
+    }
+  }
+  if (input.provider === "opencode") {
+    const openCodeModeOption = findOpenCodeModeConfigOption(input.sessionConfigOptions);
+    if (openCodeModeOption && openCodeModeOption.options.length > 1) {
       return true;
     }
   }
@@ -570,6 +661,22 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
   );
   const piThoughtOption =
     provider === "pi" ? findPiThoughtConfigOption(sessionConfigOptions) : undefined;
+  const outputStyleOption =
+    provider === "claudeAgent" ? findOutputStyleConfigOption(sessionConfigOptions) : undefined;
+  const agentOption =
+    provider === "claudeAgent" || provider === "githubCopilot"
+      ? findAgentConfigOption(sessionConfigOptions)
+      : undefined;
+  const forkSubagentsOption =
+    provider === "claudeAgent" ? findForkSubagentsConfigOption(sessionConfigOptions) : undefined;
+  const agentTeamsOption =
+    provider === "claudeAgent" ? findAgentTeamsConfigOption(sessionConfigOptions) : undefined;
+  const cursorModeOption =
+    provider === "cursor" ? findCursorModeConfigOption(sessionConfigOptions) : undefined;
+  const geminiModeOption =
+    provider === "gemini" ? findGeminiModeConfigOption(sessionConfigOptions) : undefined;
+  const openCodeModeOption =
+    provider === "opencode" ? findOpenCodeModeConfigOption(sessionConfigOptions) : undefined;
   const {
     caps,
     effort,
@@ -654,7 +761,14 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
       thinkingEnabled,
       supportsFastMode: caps.supportsFastMode,
       contextWindowOptions,
-    })
+    }) &&
+    !(outputStyleOption && outputStyleOption.options.length > 1) &&
+    !(agentOption && agentOption.options.length > 1) &&
+    !(forkSubagentsOption && forkSubagentsOption.options.length > 1) &&
+    !(agentTeamsOption && agentTeamsOption.options.length > 1) &&
+    !(cursorModeOption && cursorModeOption.options.length > 1) &&
+    !(geminiModeOption && geminiModeOption.options.length > 1) &&
+    !(openCodeModeOption && openCodeModeOption.options.length > 1)
   ) {
     return null;
   }
@@ -753,6 +867,205 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
     );
   }
 
+  if (outputStyleOption && outputStyleOption.options.length > 1) {
+    const selectedOutputStyle =
+      (modelOptions as ClaudeModelOptions | undefined)?.outputStyle ??
+      outputStyleOption.currentValue;
+    sections.push(
+      <MenuGroup key="output-style">
+        <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">Style</div>
+        <MenuRadioGroup
+          value={selectedOutputStyle}
+          onValueChange={(value) => {
+            updateModelOptions(
+              buildNextOptions(provider, modelOptions, {
+                outputStyle: value,
+              }),
+            );
+          }}
+        >
+          {outputStyleOption.options.map((option) => (
+            <MenuRadioItem key={option.value} value={option.value}>
+              {option.name}
+              {option.value === outputStyleOption.currentValue ? " (current)" : ""}
+            </MenuRadioItem>
+          ))}
+        </MenuRadioGroup>
+      </MenuGroup>,
+    );
+  }
+
+  if (agentOption && agentOption.options.length > 1) {
+    const selectedAgent =
+      (modelOptions as (ClaudeModelOptions | GitHubCopilotModelOptions) | undefined)?.agent ??
+      agentOption.currentValue;
+    sections.push(
+      <MenuGroup key="agent">
+        <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">Agent</div>
+        <MenuRadioGroup
+          value={selectedAgent}
+          onValueChange={(value) => {
+            updateModelOptions(
+              buildNextOptions(provider, modelOptions, {
+                agent: value,
+              }),
+            );
+          }}
+        >
+          {agentOption.options.map((option) => (
+            <MenuRadioItem key={option.value} value={option.value}>
+              {option.name}
+              {option.value === agentOption.currentValue ? " (current)" : ""}
+            </MenuRadioItem>
+          ))}
+        </MenuRadioGroup>
+      </MenuGroup>,
+    );
+  }
+
+  if (forkSubagentsOption && forkSubagentsOption.options.length > 1) {
+    const selectedForkSubagents =
+      typeof (modelOptions as ClaudeModelOptions | undefined)?.forkSubagents === "boolean"
+        ? (modelOptions as ClaudeModelOptions | undefined)?.forkSubagents
+          ? "on"
+          : "off"
+        : forkSubagentsOption.currentValue;
+    sections.push(
+      <MenuGroup key="fork-subagents">
+        <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">Forks</div>
+        <MenuRadioGroup
+          value={selectedForkSubagents}
+          onValueChange={(value) => {
+            updateModelOptions(
+              buildNextOptions(provider, modelOptions, {
+                forkSubagents: value === "on",
+              }),
+            );
+          }}
+        >
+          {forkSubagentsOption.options.map((option) => (
+            <MenuRadioItem key={option.value} value={option.value}>
+              {option.name}
+              {option.value === forkSubagentsOption.currentValue ? " (current)" : ""}
+            </MenuRadioItem>
+          ))}
+        </MenuRadioGroup>
+      </MenuGroup>,
+    );
+  }
+
+  if (agentTeamsOption && agentTeamsOption.options.length > 1) {
+    const selectedAgentTeams =
+      typeof (modelOptions as ClaudeModelOptions | undefined)?.agentTeams === "boolean"
+        ? (modelOptions as ClaudeModelOptions | undefined)?.agentTeams
+          ? "on"
+          : "off"
+        : agentTeamsOption.currentValue;
+    sections.push(
+      <MenuGroup key="agent-teams">
+        <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">Teams</div>
+        <MenuRadioGroup
+          value={selectedAgentTeams}
+          onValueChange={(value) => {
+            updateModelOptions(
+              buildNextOptions(provider, modelOptions, {
+                agentTeams: value === "on",
+              }),
+            );
+          }}
+        >
+          {agentTeamsOption.options.map((option) => (
+            <MenuRadioItem key={option.value} value={option.value}>
+              {option.name}
+              {option.value === agentTeamsOption.currentValue ? " (current)" : ""}
+            </MenuRadioItem>
+          ))}
+        </MenuRadioGroup>
+      </MenuGroup>,
+    );
+  }
+
+  if (cursorModeOption && cursorModeOption.options.length > 1) {
+    const selectedMode =
+      (modelOptions as CursorModelOptions | undefined)?.modeId ?? cursorModeOption.currentValue;
+    sections.push(
+      <MenuGroup key="cursor-mode">
+        <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">Mode</div>
+        <MenuRadioGroup
+          value={selectedMode}
+          onValueChange={(value) => {
+            updateModelOptions(
+              buildNextOptions(provider, modelOptions, {
+                modeId: value,
+              }),
+            );
+          }}
+        >
+          {cursorModeOption.options.map((option) => (
+            <MenuRadioItem key={option.value} value={option.value}>
+              {option.name}
+              {option.value === cursorModeOption.currentValue ? " (current)" : ""}
+            </MenuRadioItem>
+          ))}
+        </MenuRadioGroup>
+      </MenuGroup>,
+    );
+  }
+
+  if (geminiModeOption && geminiModeOption.options.length > 1) {
+    const selectedMode =
+      (modelOptions as GeminiModelOptions | undefined)?.modeId ?? geminiModeOption.currentValue;
+    sections.push(
+      <MenuGroup key="gemini-mode">
+        <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">Mode</div>
+        <MenuRadioGroup
+          value={selectedMode}
+          onValueChange={(value) => {
+            updateModelOptions(
+              buildNextOptions(provider, modelOptions, {
+                modeId: value,
+              }),
+            );
+          }}
+        >
+          {geminiModeOption.options.map((option) => (
+            <MenuRadioItem key={option.value} value={option.value}>
+              {option.name}
+              {option.value === geminiModeOption.currentValue ? " (current)" : ""}
+            </MenuRadioItem>
+          ))}
+        </MenuRadioGroup>
+      </MenuGroup>,
+    );
+  }
+
+  if (openCodeModeOption && openCodeModeOption.options.length > 1) {
+    const selectedMode =
+      (modelOptions as OpenCodeModelOptions | undefined)?.modeId ?? openCodeModeOption.currentValue;
+    sections.push(
+      <MenuGroup key="opencode-mode">
+        <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">Mode</div>
+        <MenuRadioGroup
+          value={selectedMode}
+          onValueChange={(value) => {
+            updateModelOptions(
+              buildNextOptions(provider, modelOptions, {
+                modeId: value,
+              }),
+            );
+          }}
+        >
+          {openCodeModeOption.options.map((option) => (
+            <MenuRadioItem key={option.value} value={option.value}>
+              {option.name}
+              {option.value === openCodeModeOption.currentValue ? " (current)" : ""}
+            </MenuRadioItem>
+          ))}
+        </MenuRadioGroup>
+      </MenuGroup>,
+    );
+  }
+
   return (
     <>
       {sections.map((section, index) => (
@@ -782,6 +1095,22 @@ export const TraitsPicker = memo(function TraitsPicker({
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const piThoughtOption =
     provider === "pi" ? findPiThoughtConfigOption(sessionConfigOptions) : undefined;
+  const outputStyleOption =
+    provider === "claudeAgent" ? findOutputStyleConfigOption(sessionConfigOptions) : undefined;
+  const agentOption =
+    provider === "claudeAgent" || provider === "githubCopilot"
+      ? findAgentConfigOption(sessionConfigOptions)
+      : undefined;
+  const forkSubagentsOption =
+    provider === "claudeAgent" ? findForkSubagentsConfigOption(sessionConfigOptions) : undefined;
+  const agentTeamsOption =
+    provider === "claudeAgent" ? findAgentTeamsConfigOption(sessionConfigOptions) : undefined;
+  const cursorModeOption =
+    provider === "cursor" ? findCursorModeConfigOption(sessionConfigOptions) : undefined;
+  const geminiModeOption =
+    provider === "gemini" ? findGeminiModeConfigOption(sessionConfigOptions) : undefined;
+  const openCodeModeOption =
+    provider === "opencode" ? findOpenCodeModeConfigOption(sessionConfigOptions) : undefined;
   if (provider === "pi" && piThoughtOption && piThoughtOption.options.length > 0) {
     const selectedThoughtLevel =
       getRawEffort(provider, modelOptions) ?? piThoughtOption.currentValue;
@@ -856,6 +1185,68 @@ export const TraitsPicker = memo(function TraitsPicker({
           : `Thinking ${thinkingEnabled ? "On" : "Off"}`,
     ...(showFastInTriggerLabel && caps.supportsFastMode && fastModeEnabled ? ["Fast"] : []),
     ...(contextWindowLabel ? [contextWindowLabel] : []),
+    ...(outputStyleOption &&
+    (modelOptions as ClaudeModelOptions | undefined)?.outputStyle &&
+    (modelOptions as ClaudeModelOptions | undefined)?.outputStyle !== "Default"
+      ? [
+          outputStyleOption.options.find(
+            (option) =>
+              option.value === (modelOptions as ClaudeModelOptions | undefined)?.outputStyle,
+          )?.name ?? (modelOptions as ClaudeModelOptions | undefined)?.outputStyle,
+        ]
+      : []),
+    ...(agentOption &&
+    (modelOptions as (ClaudeModelOptions | GitHubCopilotModelOptions) | undefined)?.agent &&
+    (modelOptions as (ClaudeModelOptions | GitHubCopilotModelOptions) | undefined)?.agent !==
+      "default"
+      ? [
+          agentOption.options.find(
+            (option) =>
+              option.value ===
+              (modelOptions as (ClaudeModelOptions | GitHubCopilotModelOptions) | undefined)?.agent,
+          )?.name ??
+            (modelOptions as (ClaudeModelOptions | GitHubCopilotModelOptions) | undefined)?.agent,
+        ]
+      : []),
+    ...(forkSubagentsOption &&
+    typeof (modelOptions as ClaudeModelOptions | undefined)?.forkSubagents === "boolean" &&
+    (modelOptions as ClaudeModelOptions | undefined)?.forkSubagents !==
+      (forkSubagentsOption.currentValue === "on")
+      ? [(modelOptions as ClaudeModelOptions | undefined)?.forkSubagents ? "Forks On" : "Forks Off"]
+      : []),
+    ...(agentTeamsOption &&
+    typeof (modelOptions as ClaudeModelOptions | undefined)?.agentTeams === "boolean" &&
+    (modelOptions as ClaudeModelOptions | undefined)?.agentTeams !==
+      (agentTeamsOption.currentValue === "on")
+      ? [(modelOptions as ClaudeModelOptions | undefined)?.agentTeams ? "Teams On" : "Teams Off"]
+      : []),
+    ...(cursorModeOption &&
+    (modelOptions as CursorModelOptions | undefined)?.modeId &&
+    (modelOptions as CursorModelOptions | undefined)?.modeId !== cursorModeOption.currentValue
+      ? [
+          cursorModeOption.options.find(
+            (option) => option.value === (modelOptions as CursorModelOptions | undefined)?.modeId,
+          )?.name ?? (modelOptions as CursorModelOptions | undefined)?.modeId,
+        ]
+      : []),
+    ...(geminiModeOption &&
+    (modelOptions as GeminiModelOptions | undefined)?.modeId &&
+    (modelOptions as GeminiModelOptions | undefined)?.modeId !== geminiModeOption.currentValue
+      ? [
+          geminiModeOption.options.find(
+            (option) => option.value === (modelOptions as GeminiModelOptions | undefined)?.modeId,
+          )?.name ?? (modelOptions as GeminiModelOptions | undefined)?.modeId,
+        ]
+      : []),
+    ...(openCodeModeOption &&
+    (modelOptions as OpenCodeModelOptions | undefined)?.modeId &&
+    (modelOptions as OpenCodeModelOptions | undefined)?.modeId !== openCodeModeOption.currentValue
+      ? [
+          openCodeModeOption.options.find(
+            (option) => option.value === (modelOptions as OpenCodeModelOptions | undefined)?.modeId,
+          )?.name ?? (modelOptions as OpenCodeModelOptions | undefined)?.modeId,
+        ]
+      : []),
   ]
     .filter(Boolean)
     .join(" · ");
@@ -870,7 +1261,14 @@ export const TraitsPicker = memo(function TraitsPicker({
       thinkingEnabled,
       supportsFastMode: caps.supportsFastMode,
       contextWindowOptions,
-    })
+    }) &&
+    !(outputStyleOption && outputStyleOption.options.length > 1) &&
+    !(agentOption && agentOption.options.length > 1) &&
+    !(forkSubagentsOption && forkSubagentsOption.options.length > 1) &&
+    !(agentTeamsOption && agentTeamsOption.options.length > 1) &&
+    !(cursorModeOption && cursorModeOption.options.length > 1) &&
+    !(geminiModeOption && geminiModeOption.options.length > 1) &&
+    !(openCodeModeOption && openCodeModeOption.options.length > 1)
   ) {
     return null;
   }

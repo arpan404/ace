@@ -1752,7 +1752,7 @@ describe("ProviderCommandReactor", () => {
           replayTurns?: Array<{ prompt: string; assistantResponse?: string }>;
         }
       | undefined;
-    expect(startInput?.forkSource).toEqual({ threadId: ThreadId.makeUnsafe("thread-1") });
+    expect(startInput?.forkSource).toBeUndefined();
     expect(startInput?.modelSelection).toEqual({
       provider: "githubCopilot",
       model: "gpt-5-copilot",
@@ -1781,6 +1781,98 @@ describe("ProviderCommandReactor", () => {
       | undefined;
     expect(sendInput?.threadId).toBe("side:thread-1:question-replay");
     expect(sendInput?.input).toBe("summarize the replay context");
+    expect(sendInput?.modelSelection).toEqual({
+      provider: "githubCopilot",
+      model: "gpt-5-copilot",
+    });
+  });
+
+  it("routes Ace side-chat follow-ups to the existing side session", async () => {
+    const harness = await createHarness({
+      threadModelSelection: {
+        provider: "githubCopilot",
+        model: "gpt-5-copilot",
+      },
+      sideConversationMode: "replay-fork",
+    });
+    const now = new Date().toISOString();
+    const sideThreadId = "side:thread-1:question-replay";
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-side-follow-parent-turn"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("message-side-follow-parent-1"),
+          role: "user",
+          text: "We are reviewing replay-backed provider behavior.",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+    await waitFor(() => harness.startSession.mock.calls.length === 1);
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    harness.startSession.mockClear();
+    harness.sendTurn.mockClear();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.subagent.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-side-follow-start"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        subagentThreadId: sideThreadId,
+        forkSourceThreadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("message-side-follow-start-1"),
+          role: "user",
+          text: "summarize the replay context",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+    await waitFor(() => harness.startSession.mock.calls.length === 1);
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    harness.startSession.mockClear();
+    harness.sendTurn.mockClear();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.subagent.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-side-follow-up"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        subagentThreadId: sideThreadId,
+        message: {
+          messageId: asMessageId("message-side-follow-up-1"),
+          role: "user",
+          text: "now explain the tradeoffs",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    expect(harness.startSession.mock.calls).toHaveLength(0);
+    const sendInput = harness.sendTurn.mock.calls[0]?.[0] as
+      | {
+          threadId?: ThreadId;
+          providerThreadId?: string;
+          input?: string;
+          modelSelection?: ModelSelection;
+        }
+      | undefined;
+    expect(sendInput?.threadId).toBe(sideThreadId);
+    expect(sendInput?.providerThreadId).toBeUndefined();
+    expect(sendInput?.input).toBe("now explain the tradeoffs");
     expect(sendInput?.modelSelection).toEqual({
       provider: "githubCopilot",
       model: "gpt-5-copilot",

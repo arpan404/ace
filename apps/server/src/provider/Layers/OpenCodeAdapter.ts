@@ -29,6 +29,7 @@ import {
   type ProviderRuntimeEvent,
   type ProviderSendTurnInput,
   type ProviderSession,
+  type ProviderSessionConfigOption,
   type ProviderSessionStartInput,
   type ProviderTurnStartResult,
   type ProviderUserInputAnswers,
@@ -153,6 +154,8 @@ type OpenCodeSessionContext = {
     string,
     { readonly name?: string | undefined; readonly model?: string | undefined }
   >;
+  readonly availableModes: ReadonlyArray<OpenCodeModeOption>;
+  readonly defaultModeId?: string | undefined;
   sseAbort: AbortController | null;
   idleStopTimer: ReturnType<typeof setTimeout> | null;
   lastActivityAtMs: number;
@@ -191,6 +194,19 @@ type OpenCodeReasoningItemState = {
 };
 
 type OpenCodeMessageRole = Extract<OpenCodeSdkMessage["role"], "assistant" | "user">;
+
+type OpenCodeAgentInfo = {
+  readonly name?: string;
+  readonly mode?: string;
+  readonly hidden?: boolean;
+  readonly description?: string;
+};
+
+type OpenCodeModeOption = {
+  readonly id: string;
+  readonly name: string;
+  readonly description?: string | undefined;
+};
 
 function resolveTurnSnapshot(
   context: OpenCodeSessionContext,
@@ -1092,6 +1108,85 @@ function resolveOpenCodeVariant(modelSelection: ModelSelection | undefined): str
   }
   const variant = modelSelection.options?.variant?.trim();
   return variant && variant.length > 0 ? variant : undefined;
+}
+
+function resolveOpenCodeModeId(modelSelection: ModelSelection | undefined): string | undefined {
+  if (modelSelection?.provider !== PROVIDER) {
+    return undefined;
+  }
+  const modeId = modelSelection.options?.modeId?.trim();
+  return modeId && modeId.length > 0 ? modeId : undefined;
+}
+
+export function normalizeOpenCodeModeOptions(rawAgents: unknown): {
+  readonly modes: ReadonlyArray<OpenCodeModeOption>;
+  readonly defaultModeId?: string | undefined;
+} {
+  const agents = Array.isArray(rawAgents) ? (rawAgents as ReadonlyArray<OpenCodeAgentInfo>) : [];
+  const modes = agents
+    .filter((agent) => agent.mode !== "subagent" && agent.hidden !== true)
+    .flatMap((agent): OpenCodeModeOption[] => {
+      const id = agent.name?.trim();
+      if (!id) {
+        return [];
+      }
+      return [
+        {
+          id,
+          name: id,
+          ...(agent.description?.trim() ? { description: agent.description.trim() } : {}),
+        },
+      ];
+    });
+  const primaryModeId = agents.find(
+    (agent) => agent.mode === "primary" && agent.hidden !== true && agent.name?.trim(),
+  )?.name;
+  return {
+    modes,
+    ...(primaryModeId
+      ? { defaultModeId: primaryModeId }
+      : modes[0]
+        ? { defaultModeId: modes[0].id }
+        : {}),
+  };
+}
+
+function buildOpenCodeModeConfigOption(input: {
+  readonly modes: ReadonlyArray<OpenCodeModeOption>;
+  readonly currentModeId?: string | undefined;
+}): ProviderSessionConfigOption | undefined {
+  if (input.modes.length === 0) {
+    return undefined;
+  }
+  const currentModeId = input.currentModeId ?? input.modes[0]?.id;
+  if (!currentModeId) {
+    return undefined;
+  }
+  const options = input.modes.map((mode) => ({
+    value: mode.id,
+    name: mode.name,
+    ...(mode.description ? { description: mode.description } : {}),
+  }));
+  return {
+    id: "mode",
+    name: "Mode",
+    category: "mode",
+    type: "select",
+    currentValue: currentModeId,
+    description: "OpenCode primary agent mode for this session.",
+    options,
+  };
+}
+
+function selectedOpenCodeModeId(
+  context: Pick<OpenCodeSessionContext, "availableModes" | "defaultModeId">,
+  modelSelection: ModelSelection | undefined,
+): string | undefined {
+  const explicit = resolveOpenCodeModeId(modelSelection);
+  if (explicit && context.availableModes.some((mode) => mode.id === explicit)) {
+    return explicit;
+  }
+  return context.defaultModeId;
 }
 
 const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
@@ -2189,6 +2284,10 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
           }
           const defaultModels = body.default ?? {};
           const listedCommands = await client.command.list({ directory: cwd }).catch(() => null);
+          const listedAgents = await client.app.agents({ directory: cwd }).catch(() => null);
+          const modeOptions = normalizeOpenCodeModeOptions(
+            listedAgents && !listedAgents.error ? listedAgents.data : [],
+          );
           const availableCommands = mergeProviderSlashCommands(
             listedCommands?.error ? [] : normalizeOpenCodeAvailableCommands(listedCommands?.data),
             OPENCODE_BUILT_IN_SUBAGENT_COMMANDS,
@@ -2197,10 +2296,13 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
 
           const createSession = async (): Promise<string> => {
             const permission = openCodePermissionRulesForRuntimeMode(input.runtimeMode);
+            const initialModeId =
+              resolveOpenCodeModeId(input.modelSelection) ?? modeOptions.defaultModeId;
             const created = await client.session.create({
               directory: cwd,
               ...(input.threadTitle ? { title: input.threadTitle } : {}),
               ...(permission ? { permission } : {}),
+              ...(initialModeId ? { agent: initialModeId } : {}),
             });
             if (created.error || !created.data) {
               throw new ProviderAdapterRequestError({
@@ -2279,6 +2381,10 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
             input.modelSelection && input.modelSelection.provider === PROVIDER
               ? input.modelSelection.model
               : DEFAULT_MODEL_BY_PROVIDER.opencode;
+          const modeConfigOption = buildOpenCodeModeConfigOption({
+            modes: modeOptions.modes,
+            currentModeId: resolveOpenCodeModeId(input.modelSelection) ?? modeOptions.defaultModeId,
+          });
 
           const session: ProviderSession = {
             provider: PROVIDER,
@@ -2291,6 +2397,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
             resumeCursor: {
               sessionId: opencodeSessionId,
             },
+            ...(modeConfigOption ? { configOptions: [modeConfigOption] } : {}),
             createdAt,
             updatedAt: createdAt,
           };
@@ -2320,6 +2427,8 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
             reasoningDeltaPartIds: new Set(),
             childSessionIds: new Set(),
             childSessionSubagents: new Map(),
+            availableModes: modeOptions.modes,
+            defaultModeId: modeOptions.defaultModeId,
             sseAbort: null,
             idleStopTimer: null,
             lastActivityAtMs: Date.now(),
@@ -2428,6 +2537,11 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
           ctx.defaultModels,
         );
         const variant = resolveOpenCodeVariant(input.modelSelection);
+        const modeId = selectedOpenCodeModeId(ctx, input.modelSelection);
+        const modeConfigOption = buildOpenCodeModeConfigOption({
+          modes: ctx.availableModes,
+          currentModeId: modeId,
+        });
 
         ctx.activeTurn = {
           id: turnId,
@@ -2450,6 +2564,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
           activeTurnId: turnId,
           updatedAt: isoNow(),
           model: selectedModelSlug,
+          ...(modeConfigOption ? { configOptions: [modeConfigOption] } : {}),
         };
 
         emit(
@@ -2506,6 +2621,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
           directory: ctx.cwd,
           model: modelIds,
           ...(variant ? { variant } : {}),
+          ...(modeId ? { agent: modeId } : {}),
           parts,
         });
 

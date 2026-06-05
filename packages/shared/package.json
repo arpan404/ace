@@ -88,6 +88,14 @@
       "types": "./src/providerSlashCommands.ts",
       "import": "./src/providerSlashCommands.ts"
     },
+    "./providerAgentMetadata": {
+      "types": "./src/providerAgentMetadata.ts",
+      "import": "./src/providerAgentMetadata.ts"
+    },
+    "./providerGoalLifecycle": {
+      "types": "./src/providerGoalLifecycle.ts",
+      "import": "./src/providerGoalLifecycle.ts"
+    },
     "./providerInstances": {
       "types": "./src/providerInstances.ts",
       "import": "./src/providerInstances.ts"

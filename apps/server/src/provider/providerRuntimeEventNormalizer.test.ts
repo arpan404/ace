@@ -253,4 +253,121 @@ describe("normalizeProviderRuntimeEvent", () => {
       },
     });
   });
+
+  it("normalizes nested provider agent objects as subagent metadata", () => {
+    const event = normalizeProviderRuntimeEvent(
+      lifecycleEvent({
+        itemType: "collab_agent_tool_call",
+        title: "Agent task",
+        detail: "Inspect provider side-chat routing.",
+        status: "completed",
+        data: {
+          agent: {
+            id: "provider-agent-1",
+            name: "Routing Reviewer",
+            role: "code-reviewer",
+            model: "provider-model",
+          },
+          input: {
+            prompt: "Inspect provider side-chat routing.",
+          },
+        },
+      }),
+    );
+
+    expect(event.payload).toMatchObject({
+      itemType: "collab_agent_tool_call",
+      title: "Subagent task",
+      detail: "Inspect provider side-chat routing.",
+      data: {
+        subagent: {
+          id: "provider-agent-1",
+          type: "code-reviewer",
+          name: "Routing Reviewer",
+          model: "provider-model",
+          prompt: "Inspect provider side-chat routing.",
+        },
+        ace: {
+          normalized: true,
+          action: "collab-agent",
+          itemType: "collab_agent_tool_call",
+          subagent: {
+            id: "provider-agent-1",
+            type: "code-reviewer",
+            name: "Routing Reviewer",
+            model: "provider-model",
+          },
+        },
+      },
+    });
+  });
+
+  it("normalizes root provider agent objects as subagent metadata", () => {
+    const event = normalizeProviderRuntimeEvent(
+      lifecycleEvent({
+        itemType: "collab_agent_tool_call",
+        title: "Agent task",
+        detail: "Inspect provider command discovery.",
+        status: "completed",
+        agent: {
+          id: "root-agent-1",
+          name: "Command Reviewer",
+          role: "researcher",
+          model: "provider-root-model",
+        },
+        data: {
+          input: {
+            prompt: "Inspect provider command discovery.",
+          },
+        },
+      } as Extract<ProviderRuntimeEvent, { type: "item.completed" }>["payload"]),
+    );
+
+    expect(event.payload).toMatchObject({
+      itemType: "collab_agent_tool_call",
+      title: "Subagent task",
+      data: {
+        subagent: {
+          id: "root-agent-1",
+          type: "researcher",
+          name: "Command Reviewer",
+          model: "provider-root-model",
+        },
+      },
+    });
+  });
+
+  it("normalizes provider delegated-agent aliases as subagent metadata", () => {
+    const event = normalizeProviderRuntimeEvent(
+      lifecycleEvent({
+        itemType: "collab_agent_tool_call",
+        title: "Delegate task",
+        detail: "Ask the platform specialist to inspect deploy hooks.",
+        status: "completed",
+        data: {
+          delegatedAgent: {
+            id: "delegate-agent-1",
+            displayName: "Platform Specialist",
+            role: "platform",
+            model: "provider-delegate-model",
+            prompt: "Inspect deploy hooks and summarize risks.",
+          },
+        },
+      }),
+    );
+
+    expect(event.payload).toMatchObject({
+      itemType: "collab_agent_tool_call",
+      title: "Subagent task",
+      data: {
+        subagent: {
+          id: "delegate-agent-1",
+          type: "platform",
+          name: "Platform Specialist",
+          model: "provider-delegate-model",
+          prompt: "Inspect deploy hooks and summarize risks.",
+        },
+      },
+    });
+  });
 });

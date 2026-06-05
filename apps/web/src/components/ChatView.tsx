@@ -8560,6 +8560,14 @@ function useChatViewComponent({
     }
     const composerSideCommandPayload = parseComposerSideCommand(trimmed);
     if (composerSideCommandPayload !== null) {
+      if (!sideConversationSupported) {
+        toastManager.add({
+          type: "error",
+          title: "Side chat is unavailable",
+          description: "This provider does not support Ace side chats for this session.",
+        });
+        return;
+      }
       openNewSideChat({
         initialPrompt: composerSideCommandPayload.prompt,
         images: composerImages,
@@ -10007,7 +10015,7 @@ function useChatViewComponent({
   > | null = activeThread
     ? {
         activeProjectScripts: activeProject?.scripts,
-        activeGoal: null,
+        activeGoal,
         activePlan,
         activeSubagentThreadId,
         activeThreadId: activeThread.id,

@@ -298,6 +298,74 @@ layer("GitHubCopilotAdapterLive startSession", (it) => {
     }),
   );
 
+  it.effect("loads installed Copilot plugin directories into the runtime", () =>
+    Effect.gen(function* () {
+      const root = yield* Effect.promise(() =>
+        mkdtemp(path.join(tmpdir(), "ace-copilot-runtime-plugins-")),
+      );
+      try {
+        const copilotHome = path.join(root, ".copilot");
+        const releasePlugin = path.join(
+          copilotHome,
+          "installed-plugins",
+          "_direct",
+          "release-tools",
+        );
+        const skillOnlyPlugin = path.join(copilotHome, "plugins", "skill-only-plugin");
+        yield* Effect.promise(() => mkdir(releasePlugin, { recursive: true }));
+        yield* Effect.promise(() =>
+          writeFile(
+            path.join(releasePlugin, "plugin.json"),
+            JSON.stringify({ name: "release-tools" }),
+          ),
+        );
+        yield* Effect.promise(() => mkdir(skillOnlyPlugin, { recursive: true }));
+        yield* Effect.promise(() =>
+          writeFile(
+            path.join(skillOnlyPlugin, "SKILL.md"),
+            [
+              "---",
+              "name: skill-only-review",
+              "description: Review through a skill-only plugin",
+              "---",
+              "",
+              "# Skill-only review",
+            ].join("\n"),
+          ),
+        );
+
+        const fakeClient = makeFakeClient({ models: [] });
+        mockedCreateGitHubCopilotClient.mockResolvedValue(fakeClient);
+
+        const settingsService = yield* ServerSettingsService;
+        yield* settingsService.updateSettings({
+          providers: {
+            githubCopilot: {
+              homePath: copilotHome,
+            },
+          },
+        });
+
+        const adapter = yield* GitHubCopilotAdapter;
+        const threadId = asThreadId("thread-copilot-runtime-plugins");
+        yield* adapter.startSession({
+          provider: "githubCopilot",
+          threadId,
+          cwd: root,
+          runtimeMode: "approval-required",
+        });
+
+        assert.deepEqual(mockedCreateGitHubCopilotClient.mock.calls[0]?.[1], {
+          cliArgs: ["--plugin-dir", releasePlugin, "--plugin-dir", skillOnlyPlugin],
+        });
+
+        yield* adapter.stopSession(threadId);
+      } finally {
+        yield* Effect.promise(() => rm(root, { recursive: true, force: true }));
+      }
+    }),
+  );
+
   it.effect("syncs Ace Plan mode to the Copilot native session mode before sending", () =>
     Effect.gen(function* () {
       const modeSet = vi.fn(
@@ -621,6 +689,15 @@ layer("GitHubCopilotAdapterLive startSession", (it) => {
         yield* Effect.promise(() =>
           mkdir(path.join(repo, ".github", "agents"), { recursive: true }),
         );
+        yield* Effect.promise(() => mkdir(path.join(repo, ".vscode"), { recursive: true }));
+        yield* Effect.promise(() =>
+          writeFile(
+            path.join(repo, ".vscode", "settings.json"),
+            JSON.stringify({
+              "chat.useCustomAgentHooks": true,
+            }),
+          ),
+        );
         yield* Effect.promise(() =>
           mkdir(path.join(repo, ".github", "skills", "repo-review"), {
             recursive: true,
@@ -648,6 +725,23 @@ layer("GitHubCopilotAdapterLive startSession", (it) => {
               "---",
               "name: Security Auditor",
               "description: Reviews code for security issues",
+              "argument-hint: <risk area>",
+              "agents: [programmatic-researcher]",
+              "model: Claude Sonnet 4.5",
+              "metadata:",
+              "  team: AppSec",
+              "  runbook: security-review",
+              "  ignoredNumber: 42",
+              "handoffs:",
+              "  - label: Ask Researcher",
+              "    agent: programmatic-researcher",
+              "    prompt: Research the risky area.",
+              "    send: true",
+              "hooks:",
+              "  postToolUse:",
+              "    - type: command",
+              "      command: ./scripts/format-changed-files.sh",
+              "      timeout: 15",
               "skills:",
               "  - release-review",
               "tools: [read_file, grep]",
@@ -683,6 +777,19 @@ layer("GitHubCopilotAdapterLive startSession", (it) => {
               "---",
               "",
               "Research implementation details without direct user invocation.",
+            ].join("\n"),
+          ),
+        );
+        yield* Effect.promise(() =>
+          writeFile(
+            path.join(repo, ".github", "agents", "missing-description.agent.md"),
+            [
+              "---",
+              "name: Missing Description",
+              "target: github-copilot",
+              "---",
+              "",
+              "This malformed custom agent is missing GitHub Copilot's required description.",
             ].join("\n"),
           ),
         );
@@ -736,6 +843,13 @@ layer("GitHubCopilotAdapterLive startSession", (it) => {
           threadId,
           cwd: repo,
           runtimeMode: "full-access",
+          modelSelection: {
+            provider: "githubCopilot",
+            model: "gpt-5",
+            options: {
+              agent: "security-auditor",
+            },
+          },
         });
 
         const createConfig = fakeClient.createSession.mock.calls[0]?.[0] as
@@ -744,6 +858,20 @@ layer("GitHubCopilotAdapterLive startSession", (it) => {
                 readonly name: string;
                 readonly displayName?: string | undefined;
                 readonly description?: string | undefined;
+                readonly argumentHint?: string | undefined;
+                readonly agents?: ReadonlyArray<string> | undefined;
+                readonly model?: string | ReadonlyArray<string> | undefined;
+                readonly metadata?: Record<string, string> | undefined;
+                readonly handoffs?:
+                  | ReadonlyArray<{
+                      readonly label?: string | undefined;
+                      readonly agent?: string | undefined;
+                      readonly prompt?: string | undefined;
+                      readonly send?: boolean | undefined;
+                      readonly model?: string | undefined;
+                    }>
+                  | undefined;
+                readonly hooks?: Record<string, ReadonlyArray<Record<string, unknown>>> | undefined;
                 readonly skills?: ReadonlyArray<string> | undefined;
                 readonly tools?: ReadonlyArray<string> | null | undefined;
                 readonly infer?: boolean | undefined;
@@ -751,10 +879,11 @@ layer("GitHubCopilotAdapterLive startSession", (it) => {
                 readonly prompt: string;
               }>;
               readonly enableConfigDiscovery?: boolean;
+              readonly agent?: string;
               readonly skillDirectories?: ReadonlyArray<string>;
             })
           | undefined;
-        assert.deepEqual(createConfig?.customAgents, [
+        assert.deepEqual(createConfig?.customAgents as unknown, [
           {
             name: "programmatic-researcher",
             description: "Researches implementation context programmatically",
@@ -774,6 +903,30 @@ layer("GitHubCopilotAdapterLive startSession", (it) => {
             name: "security-auditor",
             displayName: "Security Auditor",
             description: "Reviews code for security issues",
+            argumentHint: "<risk area>",
+            agents: ["programmatic-researcher"],
+            model: "Claude Sonnet 4.5",
+            metadata: {
+              team: "AppSec",
+              runbook: "security-review",
+            },
+            handoffs: [
+              {
+                label: "Ask Researcher",
+                agent: "programmatic-researcher",
+                prompt: "Research the risky area.",
+                send: true,
+              },
+            ],
+            hooks: {
+              PostToolUse: [
+                {
+                  type: "command",
+                  command: "./scripts/format-changed-files.sh",
+                  timeout: 15,
+                },
+              ],
+            },
             skills: ["release-review"],
             tools: ["read_file", "grep"],
             infer: false,
@@ -800,6 +953,7 @@ layer("GitHubCopilotAdapterLive startSession", (it) => {
         );
         assert.equal(createConfig?.enableConfigDiscovery, true);
         assert.equal(createConfig?.includeSubAgentStreamingEvents, true);
+        assert.equal(createConfig?.agent, "security-auditor");
         const configuredEvent = yield* Fiber.join(configuredFiber);
         assert.equal(configuredEvent._tag, "Some");
         if (
@@ -815,7 +969,47 @@ layer("GitHubCopilotAdapterLive startSession", (it) => {
               kind: "agent",
               promptPrefix: "@security-auditor",
               description: "Reviews code for security issues",
-              inputHint: "<prompt>",
+              inputHint: "<risk area>",
+            },
+          );
+          const configOptions = (configuredEvent.value.payload.config.configOptions ??
+            []) as ReadonlyArray<{
+            readonly id: string;
+            readonly name: string;
+            readonly category?: string;
+            readonly type: "select";
+            readonly currentValue: string;
+            readonly description?: string;
+            readonly options: ReadonlyArray<{
+              readonly value: string;
+              readonly name: string;
+              readonly description?: string;
+            }>;
+          }>;
+          const agentOption = configOptions.find((option) => option.id === "agent");
+          assert.deepEqual(agentOption ? { ...agentOption, options: undefined } : undefined, {
+            id: "agent",
+            name: "Agent",
+            category: "agent",
+            type: "select",
+            currentValue: "security-auditor",
+            description: "GitHub Copilot custom agent for this session.",
+            options: undefined,
+          });
+          assert.deepEqual(
+            agentOption?.options.find((option) => option.value === "default"),
+            {
+              value: "default",
+              name: "Default",
+              description: "Use GitHub Copilot's default agent for this session.",
+            },
+          );
+          assert.deepEqual(
+            agentOption?.options.find((option) => option.value === "security-auditor"),
+            {
+              value: "security-auditor",
+              name: "security-auditor",
+              description: "Reviews code for security issues",
             },
           );
           assert.equal(
@@ -827,7 +1021,7 @@ layer("GitHubCopilotAdapterLive startSession", (it) => {
             {
               name: "release-review",
               kind: "skill",
-              promptPrefix: "Use the release-review skill:",
+              promptPrefix: "/release-review",
               description: "Use release-review",
               inputHint: "<prompt>",
             },
@@ -902,6 +1096,344 @@ layer("GitHubCopilotAdapterLive startSession", (it) => {
       } finally {
         yield* Effect.promise(() => rm(repo, { recursive: true, force: true }));
       }
+    }),
+  );
+
+  it.effect("selects a configured Copilot agent before sending a normal prompt", () =>
+    Effect.gen(function* () {
+      const repo = yield* Effect.promise(() =>
+        mkdtemp(path.join(tmpdir(), "ace-copilot-configured-agent-select-")),
+      );
+      try {
+        yield* Effect.promise(() =>
+          mkdir(path.join(repo, ".github", "agents"), { recursive: true }),
+        );
+        yield* Effect.promise(() =>
+          writeFile(
+            path.join(repo, ".github", "agents", "security-auditor.md"),
+            [
+              "---",
+              "name: Security Auditor",
+              "description: Reviews code for security issues",
+              "---",
+              "",
+              "Inspect code for vulnerabilities and report concrete risks.",
+            ].join("\n"),
+          ),
+        );
+
+        const send = vi.fn(async (_input: unknown) => "message-1");
+        const agentSelect = vi.fn(async (input: { readonly name: string }) => ({
+          agent: {
+            name: input.name,
+            displayName: "Security Auditor",
+            description: "Reviews code for security issues",
+          },
+        }));
+        const fakeClient = makeFakeClient({
+          models: [],
+          send,
+          agentSelect,
+        });
+        mockedCreateGitHubCopilotClient.mockResolvedValue(fakeClient);
+
+        const adapter = yield* GitHubCopilotAdapter;
+        const threadId = asThreadId("thread-copilot-configured-agent-select");
+        yield* adapter.startSession({
+          provider: "githubCopilot",
+          threadId,
+          cwd: repo,
+          runtimeMode: "full-access",
+        });
+
+        yield* adapter.sendTurn({
+          threadId,
+          input: "inspect auth flows",
+          modelSelection: {
+            provider: "githubCopilot",
+            model: "gpt-5",
+            options: {
+              agent: "security-auditor",
+            },
+          },
+        });
+
+        assert.deepEqual(agentSelect.mock.calls, [[{ name: "security-auditor" }]]);
+        assert.deepEqual(send.mock.calls[0]?.[0], {
+          prompt: "inspect auth flows",
+        });
+
+        yield* adapter.stopSession(threadId);
+      } finally {
+        yield* Effect.promise(() => rm(repo, { recursive: true, force: true }));
+      }
+    }),
+  );
+
+  it.effect("preselects a configured Copilot custom agent at session creation", () =>
+    Effect.gen(function* () {
+      const repo = yield* Effect.promise(() =>
+        mkdtemp(path.join(tmpdir(), "ace-copilot-start-agent-select-")),
+      );
+      try {
+        yield* Effect.promise(() =>
+          mkdir(path.join(repo, ".github", "agents"), { recursive: true }),
+        );
+        yield* Effect.promise(() =>
+          writeFile(
+            path.join(repo, ".github", "agents", "security-auditor.md"),
+            [
+              "---",
+              "name: Security Auditor",
+              "description: Reviews code for security issues",
+              "---",
+              "",
+              "Inspect code for vulnerabilities and report concrete risks.",
+            ].join("\n"),
+          ),
+        );
+
+        const send = vi.fn(async (_input: unknown) => "message-1");
+        const agentSelect = vi.fn(async (input: { readonly name: string }) => ({
+          agent: {
+            name: input.name,
+            displayName: "Security Auditor",
+            description: "Reviews code for security issues",
+          },
+        }));
+        const fakeClient = makeFakeClient({
+          models: [],
+          send,
+          agentSelect,
+        });
+        mockedCreateGitHubCopilotClient.mockResolvedValue(fakeClient);
+
+        const adapter = yield* GitHubCopilotAdapter;
+        const threadId = asThreadId("thread-copilot-start-agent-select");
+        yield* adapter.startSession({
+          provider: "githubCopilot",
+          threadId,
+          cwd: repo,
+          runtimeMode: "full-access",
+          modelSelection: {
+            provider: "githubCopilot",
+            model: "gpt-5",
+            options: {
+              agent: "security-auditor",
+            },
+          },
+        });
+
+        const createConfig = fakeClient.createSession.mock.calls[0]?.[0] as
+          | (FakeStartConfig & { readonly agent?: string })
+          | undefined;
+        assert.equal(createConfig?.agent, "security-auditor");
+
+        yield* adapter.sendTurn({
+          threadId,
+          input: "inspect auth flows",
+          modelSelection: {
+            provider: "githubCopilot",
+            model: "gpt-5",
+            options: {
+              agent: "security-auditor",
+            },
+          },
+        });
+
+        assert.deepEqual(agentSelect.mock.calls, []);
+        assert.deepEqual(send.mock.calls[0]?.[0], {
+          prompt: "inspect auth flows",
+        });
+
+        yield* adapter.stopSession(threadId);
+      } finally {
+        yield* Effect.promise(() => rm(repo, { recursive: true, force: true }));
+      }
+    }),
+  );
+
+  it.effect("selects a Copilot built-in agent before sending a prompt-file command", () =>
+    Effect.gen(function* () {
+      const send = vi.fn(async (_input: unknown) => "message-1");
+      const agentSelect = vi.fn(async (input: { readonly name: string }) => ({
+        agent: {
+          name: input.name,
+          displayName: "Plan",
+          description: "Plan with Copilot",
+        },
+      }));
+      const fakeClient = makeFakeClient({
+        models: [],
+        send,
+        agentSelect,
+      });
+      mockedCreateGitHubCopilotClient.mockResolvedValue(fakeClient);
+
+      const adapter = yield* GitHubCopilotAdapter;
+      const threadId = asThreadId("thread-copilot-built-in-agent-select");
+      yield* adapter.startSession({
+        provider: "githubCopilot",
+        threadId,
+        runtimeMode: "full-access",
+      });
+
+      yield* adapter.sendTurn({
+        threadId,
+        input: "@plan Review release readiness for v2.0.",
+      });
+
+      assert.deepEqual(agentSelect.mock.calls, [[{ name: "plan" }]]);
+      assert.deepEqual(send.mock.calls[0]?.[0], {
+        prompt: "Review release readiness for v2.0.",
+      });
+
+      yield* adapter.stopSession(threadId);
+    }),
+  );
+
+  it.effect("refreshes available commands from Copilot SDK loaded skills and agents", () =>
+    Effect.gen(function* () {
+      const send = vi.fn(async (_input: unknown) => "message-1");
+      const agentSelect = vi.fn(async (input: { readonly name: string }) => ({
+        agent: {
+          name: input.name,
+          displayName: "SDK Auditor",
+          description: "Audit with SDK-discovered agent",
+        },
+      }));
+      const fakeClient = makeFakeClient({
+        models: [],
+        send,
+        agentSelect,
+      });
+      mockedCreateGitHubCopilotClient.mockResolvedValue(fakeClient);
+
+      const adapter = yield* GitHubCopilotAdapter;
+      const threadId = asThreadId("thread-copilot-sdk-loaded-commands");
+      const configuredFiber = yield* Stream.runCollect(
+        Stream.take(
+          Stream.filter(
+            adapter.streamEvents,
+            (event) => event.threadId === threadId && event.type === "session.configured",
+          ),
+          3,
+        ),
+      ).pipe(Effect.forkChild);
+
+      yield* adapter.startSession({
+        provider: "githubCopilot",
+        threadId,
+        cwd: "/repo",
+        runtimeMode: "full-access",
+      });
+
+      fakeClient.emitSessionEvent({
+        id: "event-skills-loaded",
+        type: "session.skills_loaded",
+        timestamp: new Date().toISOString(),
+        parentId: null,
+        ephemeral: true,
+        data: {
+          skills: [
+            {
+              name: "sdk-review",
+              description: "Review with SDK-discovered skill",
+              enabled: true,
+              userInvocable: true,
+              source: "plugin",
+            },
+            {
+              name: "background-only",
+              description: "Hidden background skill",
+              enabled: true,
+              userInvocable: false,
+              source: "project",
+            },
+          ],
+        },
+      } as unknown as SessionEvent);
+
+      fakeClient.emitSessionEvent({
+        id: "event-custom-agents-updated",
+        type: "session.custom_agents_updated",
+        timestamp: new Date().toISOString(),
+        parentId: "event-skills-loaded",
+        ephemeral: true,
+        data: {
+          agents: [
+            {
+              id: "sdk-agent-1",
+              name: "sdk-auditor",
+              displayName: "SDK Auditor",
+              description: "Audit with SDK-discovered agent",
+              source: "plugin",
+              tools: [],
+              userInvocable: true,
+            },
+            {
+              id: "sdk-agent-2",
+              name: "hidden-agent",
+              displayName: "Hidden Agent",
+              description: "Hidden SDK agent",
+              source: "plugin",
+              tools: [],
+              userInvocable: false,
+            },
+          ],
+          errors: [],
+          warnings: [],
+        },
+      } as unknown as SessionEvent);
+
+      const configuredEvents = Array.from(yield* Fiber.join(configuredFiber));
+      const latest = configuredEvents.at(-1);
+      assert.equal(latest?.type, "session.configured");
+      if (latest?.type !== "session.configured") {
+        return;
+      }
+      const availableCommands = (latest.payload.config.availableCommands ??
+        []) as ReadonlyArray<ProviderSlashCommand>;
+      assert.deepEqual(
+        availableCommands.find((command) => command.name === "sdk-review"),
+        {
+          name: "sdk-review",
+          kind: "skill",
+          promptPrefix: "/sdk-review",
+          description: "Review with SDK-discovered skill",
+          inputHint: "<prompt>",
+        },
+      );
+      assert.deepEqual(
+        availableCommands.find((command) => command.name === "sdk-auditor"),
+        {
+          name: "sdk-auditor",
+          kind: "agent",
+          promptPrefix: "@sdk-auditor",
+          description: "Audit with SDK-discovered agent",
+          inputHint: "<prompt>",
+        },
+      );
+      assert.equal(
+        availableCommands.some((command) => command.name === "background-only"),
+        false,
+      );
+      assert.equal(
+        availableCommands.some((command) => command.name === "hidden-agent"),
+        false,
+      );
+
+      yield* adapter.sendTurn({
+        threadId,
+        input: "@sdk-auditor inspect auth flows",
+      });
+
+      assert.deepEqual(agentSelect.mock.calls, [[{ name: "sdk-auditor" }]]);
+      assert.deepEqual(send.mock.calls[0]?.[0], {
+        prompt: "inspect auth flows",
+      });
+
+      yield* adapter.stopSession(threadId);
     }),
   );
 

@@ -294,6 +294,10 @@ describe("decider project scripts", () => {
       payload: {
         detail: "continue the audit",
         childProviderThreadId: "provider-child",
+        subagent: {
+          id: "provider-child",
+          type: "subagent",
+        },
       },
     });
     if (events[1]?.type !== "thread.subagent-turn-start-requested") {
@@ -304,6 +308,102 @@ describe("decider project scripts", () => {
       subagentThreadId: "provider-child",
       messageId: asMessageId("message-subagent-1"),
       text: "continue the audit",
+    });
+  });
+
+  it("keeps existing Ace side-chat replies classified as side chats", async () => {
+    const now = new Date().toISOString();
+    const initial = createEmptyReadModel(now);
+    const withProject = await Effect.runPromise(
+      projectEvent(initial, {
+        sequence: 1,
+        eventId: asEventId("evt-project-create-side-reply"),
+        aggregateKind: "project",
+        aggregateId: asProjectId("project-1"),
+        type: "project.created",
+        occurredAt: now,
+        commandId: CommandId.makeUnsafe("cmd-project-create-side-reply"),
+        causationEventId: null,
+        correlationId: CommandId.makeUnsafe("cmd-project-create-side-reply"),
+        metadata: {},
+        payload: {
+          projectId: asProjectId("project-1"),
+          title: "Project",
+          workspaceRoot: "/tmp/project",
+          defaultModelSelection: null,
+          scripts: [],
+          createdAt: now,
+          updatedAt: now,
+        },
+      }),
+    );
+    const readModel = await Effect.runPromise(
+      projectEvent(withProject, {
+        sequence: 2,
+        eventId: asEventId("evt-thread-create-side-reply"),
+        aggregateKind: "thread",
+        aggregateId: ThreadId.makeUnsafe("thread-1"),
+        type: "thread.created",
+        occurredAt: now,
+        commandId: CommandId.makeUnsafe("cmd-thread-create-side-reply"),
+        causationEventId: null,
+        correlationId: CommandId.makeUnsafe("cmd-thread-create-side-reply"),
+        metadata: {},
+        payload: {
+          threadId: ThreadId.makeUnsafe("thread-1"),
+          projectId: asProjectId("project-1"),
+          title: "Thread",
+          modelSelection: {
+            provider: "codex",
+            model: "gpt-5-codex",
+          },
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          runtimeMode: "approval-required",
+          branch: null,
+          worktreePath: null,
+          createdAt: now,
+          updatedAt: now,
+        },
+      }),
+    );
+
+    const result = await Effect.runPromise(
+      decideOrchestrationCommand({
+        command: {
+          type: "thread.subagent.turn.start",
+          commandId: CommandId.makeUnsafe("cmd-side-reply-turn"),
+          threadId: ThreadId.makeUnsafe("thread-1"),
+          subagentThreadId: "side:thread-1:question-1",
+          message: {
+            messageId: asMessageId("message-side-reply-1"),
+            role: "user",
+            text: "follow up in the side chat",
+            attachments: [],
+          },
+          runtimeMode: "approval-required",
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          createdAt: now,
+        },
+        readModel,
+      }),
+    );
+
+    expect(Array.isArray(result)).toBe(true);
+    const events = Array.isArray(result) ? result : [result];
+    expect(events[0]?.type).toBe("thread.activity-appended");
+    if (events[0]?.type !== "thread.activity-appended") {
+      return;
+    }
+    expect(events[0].payload.activity).toMatchObject({
+      kind: "subagent.message.sent",
+      payload: {
+        detail: "follow up in the side chat",
+        childProviderThreadId: "side:thread-1:question-1",
+        subagent: {
+          id: "side:thread-1:question-1",
+          type: "side chat",
+        },
+      },
     });
   });
 

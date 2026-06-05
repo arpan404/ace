@@ -727,36 +727,9 @@ export const CursorAdapterLive = Layer.effect(
       return prompt;
     });
 
-    const syncCursorInteractionMode = async (
-      context: CursorSessionContext,
-      interactionMode: ProviderSendTurnInput["interactionMode"],
-    ) => {
-      if (interactionMode === undefined) {
-        return;
-      }
+    const syncCursorModeById = async (context: CursorSessionContext, desiredModeId: string) => {
       const sessionId = requireCursorSessionId(context, "session/set_mode");
       const currentModeId = currentCursorModeId(context);
-      const availableModeIds = availableCursorModeIds(context);
-      const desiredModeId =
-        interactionMode === "plan"
-          ? availableModeIds.has("plan")
-            ? "plan"
-            : undefined
-          : (context.metadata.defaultModeId ??
-            currentModeId ??
-            findCursorConfigOption(context.metadata.configOptions, { category: "mode", id: "mode" })
-              ?.options[0]?.value ??
-            context.metadata.modes?.availableModes[0]?.id);
-      if (!desiredModeId) {
-        if (interactionMode === "plan") {
-          throw new ProviderAdapterRequestError({
-            provider: PROVIDER,
-            method: "session/set_mode",
-            detail: "Cursor ACP session does not expose a plan mode.",
-          });
-        }
-        return;
-      }
       if (currentModeId === desiredModeId) {
         return;
       }
@@ -785,7 +758,7 @@ export const CursorAdapterLive = Layer.effect(
         });
         return;
       }
-      if (!availableModeIds.has(desiredModeId)) {
+      if (!availableCursorModeIds(context).has(desiredModeId)) {
         throw new ProviderAdapterRequestError({
           provider: PROVIDER,
           method: "session/set_mode",
@@ -804,6 +777,54 @@ export const CursorAdapterLive = Layer.effect(
         rawPayload: { currentModeId: desiredModeId },
         rawSource: "cursor.acp.request",
       });
+    };
+
+    const syncCursorInteractionMode = async (
+      context: CursorSessionContext,
+      interactionMode: ProviderSendTurnInput["interactionMode"],
+    ) => {
+      if (interactionMode === undefined) {
+        return;
+      }
+      const currentModeId = currentCursorModeId(context);
+      const availableModeIds = availableCursorModeIds(context);
+      const desiredModeId =
+        interactionMode === "plan"
+          ? availableModeIds.has("plan")
+            ? "plan"
+            : undefined
+          : (context.metadata.defaultModeId ??
+            currentModeId ??
+            findCursorConfigOption(context.metadata.configOptions, { category: "mode", id: "mode" })
+              ?.options[0]?.value ??
+            context.metadata.modes?.availableModes[0]?.id);
+      if (!desiredModeId) {
+        if (interactionMode === "plan") {
+          throw new ProviderAdapterRequestError({
+            provider: PROVIDER,
+            method: "session/set_mode",
+            detail: "Cursor ACP session does not expose a plan mode.",
+          });
+        }
+        return;
+      }
+      await syncCursorModeById(context, desiredModeId);
+    };
+
+    const syncCursorSelectedMode = async (
+      context: CursorSessionContext,
+      modelSelection:
+        | {
+            readonly provider: "cursor";
+            readonly options?: CursorModelOptions | undefined;
+          }
+        | undefined,
+    ) => {
+      const desiredModeId = modelSelection?.options?.modeId?.trim();
+      if (!desiredModeId) {
+        return;
+      }
+      await syncCursorModeById(context, desiredModeId);
     };
 
     const syncCursorModelSelection = async (
@@ -2096,6 +2117,7 @@ export const CursorAdapterLive = Layer.effect(
               });
               if (input.modelSelection?.provider === PROVIDER) {
                 await syncCursorModelSelection(context, input.modelSelection);
+                await syncCursorSelectedMode(context, input.modelSelection);
               }
               emitSessionConfigured(context, {
                 rawMethod: sessionMethod,
@@ -2199,8 +2221,14 @@ export const CursorAdapterLive = Layer.effect(
           const prompt = await runPromise(buildCursorPromptContent(context, promptInput));
           if (input.modelSelection?.provider === PROVIDER) {
             await syncCursorModelSelection(context, input.modelSelection);
+            await syncCursorSelectedMode(context, input.modelSelection);
           }
-          await syncCursorInteractionMode(context, input.interactionMode);
+          if (
+            input.modelSelection?.provider !== PROVIDER ||
+            !input.modelSelection.options?.modeId?.trim()
+          ) {
+            await syncCursorInteractionMode(context, input.interactionMode);
+          }
 
           const turnId = TurnId.makeUnsafe(`cursor-turn:${randomUUID()}`);
           const selectedModel = resolveSelectedModel(input.modelSelection);

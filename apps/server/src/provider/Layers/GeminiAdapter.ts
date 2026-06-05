@@ -12,6 +12,7 @@ import {
   type ProviderRuntimeEvent,
   type ProviderSendTurnInput,
   type ProviderSession,
+  type ProviderSessionConfigOption,
   type ProviderSessionStartInput,
   type ProviderSlashCommand,
   type ProviderTurnStartResult,
@@ -58,7 +59,7 @@ import {
   ProviderAdapterValidationError,
 } from "../Errors.ts";
 import { type GeminiAdapterShape, GeminiAdapter } from "../Services/GeminiAdapter.ts";
-import { GEMINI_BUILT_IN_SUBAGENT_COMMANDS } from "../providerExtensionSlashCommands.ts";
+import { geminiBuiltInSubagentCommands } from "../providerExtensionSlashCommands.ts";
 
 const PROVIDER = "gemini" as const;
 const ACP_CONTROL_TIMEOUT_MS = 20_000;
@@ -70,6 +71,26 @@ export const GEMINI_ACP_CLIENT_INFO = {
   name: "ace",
   version: "1.0.17",
 } as const;
+
+export type GeminiAcpMcpServer =
+  | {
+      readonly name: string;
+      readonly command: string;
+      readonly args: ReadonlyArray<string>;
+      readonly env: ReadonlyArray<{
+        readonly name: string;
+        readonly value: string;
+      }>;
+    }
+  | {
+      readonly name: string;
+      readonly type: "http" | "sse";
+      readonly url: string;
+      readonly headers: ReadonlyArray<{
+        readonly name: string;
+        readonly value: string;
+      }>;
+    };
 
 export function buildGeminiInitializeParams() {
   return {
@@ -83,6 +104,158 @@ export function buildGeminiInitializeParams() {
       terminal: false,
     },
   };
+}
+
+function normalizeGeminiMcpStringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
+}
+
+function normalizeGeminiMcpStringMap(
+  value: unknown,
+): ReadonlyArray<{ readonly name: string; readonly value: string }> {
+  const record = asObject(value);
+  if (!record) {
+    return [];
+  }
+  return Object.entries(record)
+    .filter(
+      (entry): entry is [string, string] =>
+        entry[0].trim().length > 0 && typeof entry[1] === "string",
+    )
+    .map(([name, value]) => ({ name, value }));
+}
+
+function normalizeGeminiAcpMcpServer(name: string, value: unknown): GeminiAcpMcpServer | null {
+  const normalizedName = name.trim();
+  if (!normalizedName) {
+    return null;
+  }
+  const server = asObject(value);
+  if (!server) {
+    return null;
+  }
+  const httpUrl = asString(server.httpUrl);
+  if (httpUrl) {
+    return {
+      name: normalizedName,
+      type: "http",
+      url: httpUrl,
+      headers: normalizeGeminiMcpStringMap(server.headers),
+    };
+  }
+  const sseUrl = asString(server.url);
+  if (sseUrl) {
+    return {
+      name: normalizedName,
+      type: "sse",
+      url: sseUrl,
+      headers: normalizeGeminiMcpStringMap(server.headers),
+    };
+  }
+  const command = asString(server.command);
+  if (!command) {
+    return null;
+  }
+  return {
+    name: normalizedName,
+    command,
+    args: normalizeGeminiMcpStringArray(server.args),
+    env: normalizeGeminiMcpStringMap(server.env),
+  };
+}
+
+export function buildGeminiAcpMcpServersFromSettings(
+  settings: ReadonlyArray<Record<string, unknown> | null | undefined>,
+): GeminiAcpMcpServer[] {
+  const serversByName = new Map<string, GeminiAcpMcpServer>();
+  for (const settingsRecord of settings) {
+    const mcpServers = asObject(settingsRecord?.mcpServers);
+    if (!mcpServers) {
+      continue;
+    }
+    for (const [name, value] of Object.entries(mcpServers)) {
+      const server = normalizeGeminiAcpMcpServer(name, value);
+      if (server) {
+        serversByName.set(server.name, server);
+      }
+    }
+  }
+  return [...serversByName.values()];
+}
+
+async function fileExists(file: string): Promise<boolean> {
+  try {
+    const fileStat = await stat(file);
+    return fileStat.isFile() || fileStat.isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+async function nearestGitRoot(cwd: string): Promise<string | null> {
+  let current = path.resolve(cwd);
+  while (true) {
+    if (await fileExists(path.join(current, ".git"))) {
+      return current;
+    }
+    const parent = path.dirname(current);
+    if (parent === current) {
+      return null;
+    }
+    current = parent;
+  }
+}
+
+async function geminiProjectSettingsFiles(cwd: string): Promise<string[]> {
+  const root = await nearestGitRoot(cwd);
+  const limit = root ?? path.parse(path.resolve(cwd)).root;
+  const files: string[] = [];
+  let current = path.resolve(cwd);
+  while (true) {
+    files.unshift(path.join(current, ".gemini", "settings.json"));
+    if (current === limit) {
+      return files;
+    }
+    const parent = path.dirname(current);
+    if (parent === current) {
+      return files;
+    }
+    current = parent;
+  }
+}
+
+function parseGeminiSettings(raw: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+async function readGeminiSettingsRecord(file: string): Promise<Record<string, unknown> | null> {
+  try {
+    return parseGeminiSettings(await readFile(file, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+async function readGeminiAcpMcpServers(input: {
+  readonly cwd: string;
+  readonly geminiHome?: string | undefined;
+}): Promise<GeminiAcpMcpServer[]> {
+  const homeSettings = path.join(
+    input.geminiHome?.trim() || path.join(homedir(), ".gemini"),
+    "settings.json",
+  );
+  const settingsFiles = [homeSettings, ...(await geminiProjectSettingsFiles(input.cwd))];
+  const settings = await Promise.all(settingsFiles.map((file) => readGeminiSettingsRecord(file)));
+  return buildGeminiAcpMcpServersFromSettings(settings);
 }
 
 export function canGeminiSetSessionMode(metadata: Pick<GeminiSessionMetadata, "availableModes">) {
@@ -238,6 +411,7 @@ type GeminiSessionMetadata = {
   readonly authMethods: ReadonlyArray<GeminiAuthMethod>;
   readonly loadSession: boolean;
   readonly forkSession: boolean;
+  builtInSubagentCommands: ReadonlyArray<ProviderSlashCommand>;
   availableCommands: ReadonlyArray<GeminiAvailableCommand>;
   availableModes: ReadonlyArray<GeminiMode>;
   currentModeId?: string;
@@ -255,6 +429,7 @@ type GeminiAvailableCommand = {
 
 function geminiProviderSlashCommands(
   commands: ReadonlyArray<GeminiAvailableCommand>,
+  builtInSubagentCommands: ReadonlyArray<ProviderSlashCommand>,
 ): ReadonlyArray<ProviderSlashCommand> {
   return mergeProviderSlashCommands(
     commands.map((command) => ({
@@ -262,8 +437,45 @@ function geminiProviderSlashCommands(
       ...(command.description ? { description: command.description } : {}),
       ...(command.input?.hint ? { inputHint: command.input.hint } : {}),
     })),
-    GEMINI_BUILT_IN_SUBAGENT_COMMANDS,
+    builtInSubagentCommands,
   );
+}
+
+function buildGeminiSessionConfigOptions(
+  metadata: GeminiSessionMetadata,
+): ReadonlyArray<ProviderSessionConfigOption> {
+  if (metadata.availableModes.length === 0) {
+    return [];
+  }
+  const currentValue = metadata.currentModeId ?? metadata.availableModes[0]?.id;
+  if (!currentValue) {
+    return [];
+  }
+  return [
+    {
+      id: "mode",
+      name: "Mode",
+      category: "mode",
+      type: "select",
+      currentValue,
+      options: metadata.availableModes.map((mode) => ({
+        value: mode.id,
+        name: mode.name ?? mode.id,
+        ...(mode.description ? { description: mode.description } : {}),
+      })),
+    },
+  ];
+}
+
+function geminiSessionConfigSnapshot(metadata: GeminiSessionMetadata): Record<string, unknown> {
+  return {
+    availableCommands: geminiProviderSlashCommands(
+      metadata.availableCommands,
+      metadata.builtInSubagentCommands,
+    ),
+    configOptions: buildGeminiSessionConfigOptions(metadata),
+    capabilities: geminiProviderCapabilities(metadata),
+  };
 }
 
 type GeminiToolItemState = {
@@ -832,6 +1044,7 @@ function normalizeInitializeResponse(value: unknown): GeminiSessionMetadata {
     authMethods,
     loadSession: agentCapabilities?.loadSession === true,
     forkSession: hasAcpSessionForkCapability(value),
+    builtInSubagentCommands: [],
     availableCommands: normalizeAvailableCommands(record?.availableCommands),
     availableModes: [],
     availableModels: [],
@@ -963,6 +1176,15 @@ function resolveDesiredModeId(
     return yoloMode?.id ?? permissiveMode?.id ?? fallbackMode?.id;
   }
   return defaultMode?.id ?? fallbackMode?.id ?? availableModes[0]?.id;
+}
+
+function explicitGeminiModeId(
+  modelSelection:
+    | ProviderSessionStartInput["modelSelection"]
+    | ProviderSendTurnInput["modelSelection"]
+    | undefined,
+): string | undefined {
+  return modelSelection?.provider === PROVIDER ? modelSelection.options?.modeId?.trim() : undefined;
 }
 
 function runtimeItemTypeFromToolKind(kind?: GeminiToolKind | null): GeminiToolItemType {
@@ -2300,8 +2522,8 @@ const makeGeminiAdapter = Effect.gen(function* () {
             ...(notificationCreatedAt ? { createdAt: notificationCreatedAt } : {}),
             payload: {
               config: {
+                ...geminiSessionConfigSnapshot(context.metadata),
                 currentModeId,
-                capabilities: geminiProviderCapabilities(context.metadata),
               },
             },
           }),
@@ -2318,10 +2540,7 @@ const makeGeminiAdapter = Effect.gen(function* () {
             type: "session.configured",
             ...(notificationCreatedAt ? { createdAt: notificationCreatedAt } : {}),
             payload: {
-              config: {
-                availableCommands: geminiProviderSlashCommands(context.metadata.availableCommands),
-                capabilities: geminiProviderCapabilities(context.metadata),
-              },
+              config: geminiSessionConfigSnapshot(context.metadata),
             },
           }),
         );
@@ -2342,17 +2561,17 @@ const makeGeminiAdapter = Effect.gen(function* () {
         | ProviderSendTurnInput["modelSelection"];
     },
   ): Promise<void> => {
-    const desiredModeId = resolveDesiredModeId(
-      context.metadata,
-      input.runtimeMode,
-      input.interactionMode,
-    );
+    const explicitModeId = explicitGeminiModeId(input.modelSelection);
+    const desiredModeId =
+      explicitModeId ??
+      resolveDesiredModeId(context.metadata, input.runtimeMode, input.interactionMode);
     const canSetMode = canGeminiSetSessionMode(context.metadata);
     const planModePinnedAtLaunch =
+      !explicitModeId &&
       input.interactionMode === "plan" &&
       !desiredModeId &&
       context.launchApprovalModeApplied === "plan";
-    if (input.interactionMode === "plan" && !desiredModeId) {
+    if (!explicitModeId && input.interactionMode === "plan" && !desiredModeId) {
       if (!planModePinnedAtLaunch) {
         throw new ProviderAdapterRequestError({
           provider: PROVIDER,
@@ -2361,6 +2580,16 @@ const makeGeminiAdapter = Effect.gen(function* () {
             "Gemini ACP session does not expose a plan mode and the process was not launched with --approval-mode=plan.",
         });
       }
+    }
+    if (
+      explicitModeId &&
+      !context.metadata.availableModes.some((mode) => mode.id === explicitModeId)
+    ) {
+      throw new ProviderAdapterRequestError({
+        provider: PROVIDER,
+        method: "session/set_mode",
+        detail: `Gemini ACP session does not support mode '${explicitModeId}'.`,
+      });
     }
     if (
       !planModePinnedAtLaunch &&
@@ -2385,8 +2614,8 @@ const makeGeminiAdapter = Effect.gen(function* () {
           type: "session.configured",
           payload: {
             config: {
+              ...geminiSessionConfigSnapshot(context.metadata),
               currentModeId: desiredModeId,
-              capabilities: geminiProviderCapabilities(context.metadata),
             },
           },
         }),
@@ -2421,8 +2650,8 @@ const makeGeminiAdapter = Effect.gen(function* () {
           type: "session.configured",
           payload: {
             config: {
+              ...geminiSessionConfigSnapshot(context.metadata),
               currentModelId: desiredModel,
-              capabilities: geminiProviderCapabilities(context.metadata),
             },
           },
         }),
@@ -2515,6 +2744,7 @@ const makeGeminiAdapter = Effect.gen(function* () {
     input: ProviderSessionStartInput,
     cwd: string,
     env: NodeJS.ProcessEnv,
+    mcpServers: ReadonlyArray<GeminiAcpMcpServer>,
   ): Promise<{
     readonly sessionId: string;
     readonly metadata: GeminiSessionMetadata;
@@ -2526,14 +2756,14 @@ const makeGeminiAdapter = Effect.gen(function* () {
     const canLoadSession = resumeSessionId !== undefined && metadata.loadSession;
     const newSessionParams = {
       cwd,
-      mcpServers: [],
+      mcpServers,
     };
 
     const execute = async (
       method: "session/fork" | "session/load" | "session/new",
       params: {
         readonly cwd: string;
-        readonly mcpServers: ReadonlyArray<never>;
+        readonly mcpServers: ReadonlyArray<GeminiAcpMcpServer>;
         readonly sessionId?: string;
       },
     ) => {
@@ -2562,7 +2792,7 @@ const makeGeminiAdapter = Effect.gen(function* () {
       method: "session/fork" | "session/load" | "session/new",
       params: {
         readonly cwd: string;
-        readonly mcpServers: ReadonlyArray<never>;
+        readonly mcpServers: ReadonlyArray<GeminiAcpMcpServer>;
         readonly sessionId?: string;
       },
     ) => {
@@ -2674,6 +2904,14 @@ const makeGeminiAdapter = Effect.gen(function* () {
       ...(geminiSettings.configDir ? { GEMINI_CLI_HOME: geminiSettings.configDir } : {}),
     };
     const cwd = input.cwd ?? serverConfig.cwd;
+    const acpMcpServers = await readGeminiAcpMcpServers({
+      cwd,
+      geminiHome: geminiSettings.configDir,
+    });
+    const builtInSubagentCommands = geminiBuiltInSubagentCommands({
+      cwd,
+      home: geminiSettings.configDir,
+    });
     const launchApprovalMode = geminiLaunchApprovalModeForSession(
       input.runtimeMode,
       input.interactionMode,
@@ -2688,6 +2926,10 @@ const makeGeminiAdapter = Effect.gen(function* () {
       launchApprovalMode,
       instanceEnv,
     );
+    const initializedMetadataWithSettings: GeminiSessionMetadata = {
+      ...initializedMetadata,
+      builtInSubagentCommands,
+    };
 
     let contextRef: GeminiSessionContext | null = null;
     client.setNotificationHandler((notification) => {
@@ -2732,10 +2974,11 @@ const makeGeminiAdapter = Effect.gen(function* () {
     try {
       const started = await startOrLoadGeminiSession(
         client,
-        initializedMetadata,
+        initializedMetadataWithSettings,
         input,
         cwd,
         instanceEnv,
+        acpMcpServers,
       );
 
       const createdAt = isoNow();
@@ -2786,10 +3029,7 @@ const makeGeminiAdapter = Effect.gen(function* () {
         baseEvent(context, {
           type: "session.configured",
           payload: {
-            config: {
-              availableCommands: geminiProviderSlashCommands(context.metadata.availableCommands),
-              capabilities: geminiProviderCapabilities(context.metadata),
-            },
+            config: geminiSessionConfigSnapshot(context.metadata),
           },
         }),
       );
@@ -2831,7 +3071,14 @@ const makeGeminiAdapter = Effect.gen(function* () {
     context: GeminiSessionContext,
     runtimeMode: ProviderSession["runtimeMode"],
     interactionMode: ProviderSendTurnInput["interactionMode"],
+    modelSelection:
+      | ProviderSessionStartInput["modelSelection"]
+      | ProviderSendTurnInput["modelSelection"]
+      | undefined,
   ): boolean => {
+    if (explicitGeminiModeId(modelSelection)) {
+      return false;
+    }
     const desiredLaunchApprovalMode = geminiLaunchApprovalModeForSession(
       runtimeMode,
       interactionMode,
@@ -2937,6 +3184,7 @@ const makeGeminiAdapter = Effect.gen(function* () {
               existing,
               input.runtimeMode,
               input.interactionMode,
+              input.modelSelection,
             )
           ) {
             const context = await restartGeminiSessionForStartInput(existing, input);
@@ -3001,6 +3249,7 @@ const makeGeminiAdapter = Effect.gen(function* () {
             context,
             context.session.runtimeMode,
             input.interactionMode,
+            input.modelSelection,
           )
         ) {
           context = await restartGeminiSessionForInteractionMode(

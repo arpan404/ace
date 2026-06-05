@@ -28,6 +28,7 @@ const GITHUB_COPILOT_CLI_STOP_TIMEOUT_MS = 5_000;
 
 export interface GitHubCopilotClientConfig {
   readonly cliUrl?: string;
+  readonly cliArgs?: ReadonlyArray<string>;
   readonly requestTimeoutMs?: number;
   readonly startupTimeoutMs?: number;
   readonly stopTimeoutMs?: number;
@@ -185,7 +186,10 @@ export async function createGitHubCopilotClient(
   const client =
     cliUrl && cliUrl.length > 0
       ? new CopilotClient({ cliUrl, useStdio: false })
-      : new CopilotClient({ cliPath: await resolveGitHubCopilotCliPath(binaryPath) });
+      : new CopilotClient({
+          cliPath: await resolveGitHubCopilotCliPath(binaryPath),
+          ...(config?.cliArgs && config.cliArgs.length > 0 ? { cliArgs: [...config.cliArgs] } : {}),
+        });
   const startTimeoutMs = config?.startupTimeoutMs ?? GITHUB_COPILOT_CLI_START_TIMEOUT_MS;
   const stopTimeoutMs = config?.stopTimeoutMs ?? GITHUB_COPILOT_CLI_STOP_TIMEOUT_MS;
   const startOutcome = await withTimeoutOutcome(client.start(), startTimeoutMs);

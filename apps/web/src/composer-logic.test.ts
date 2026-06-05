@@ -403,6 +403,18 @@ describe("parseProviderComposerSlashCommand", () => {
     });
   });
 
+  it("preserves native slash skill invocations for providers that support them", () => {
+    expect(
+      parseProviderComposerSlashCommand("/frontend-design make it polished", [
+        { name: "frontend-design", kind: "skill", promptPrefix: "/frontend-design" },
+      ]),
+    ).toEqual({
+      commandName: "frontend-design",
+      args: "make it polished",
+      promptText: "/frontend-design make it polished",
+    });
+  });
+
   it("rewrites slash plugin aliases to their provider prompt invocation", () => {
     expect(
       parseProviderComposerSlashCommand("/browser-use inspect localhost", [
@@ -429,6 +441,86 @@ describe("parseProviderComposerSlashCommand", () => {
       args: "auth routes",
       promptText:
         "# Security Audit\n\nReview the code for security risks.\n\nUser request: auth routes",
+    });
+  });
+
+  it("rewrites Copilot prompt file commands to their prompt body", () => {
+    expect(
+      parseProviderComposerSlashCommand("/release-ready v2.0", [
+        {
+          name: "release-ready",
+          kind: "provider",
+          promptPrefix: "Review release readiness for $ARGUMENTS.",
+        },
+      ]),
+    ).toEqual({
+      commandName: "release-ready",
+      args: "v2.0",
+      promptText: "Review release readiness for v2.0.",
+    });
+  });
+
+  it("preserves Copilot prompt file agent selectors while replacing arguments", () => {
+    expect(
+      parseProviderComposerSlashCommand("/release-ready v2.0", [
+        {
+          name: "release-ready",
+          kind: "provider",
+          promptPrefix: "@plan Review release readiness for $ARGUMENTS.",
+        },
+      ]),
+    ).toEqual({
+      commandName: "release-ready",
+      args: "v2.0",
+      promptText: "@plan Review release readiness for v2.0.",
+    });
+  });
+
+  it("removes Copilot prompt file argument placeholders cleanly when no arguments are provided", () => {
+    expect(
+      parseProviderComposerSlashCommand("/release-ready", [
+        {
+          name: "release-ready",
+          kind: "provider",
+          promptPrefix: "Review release readiness for $ARGUMENTS.",
+        },
+      ]),
+    ).toEqual({
+      commandName: "release-ready",
+      args: "",
+      promptText: "Review release readiness.",
+    });
+  });
+
+  it("rewrites Gemini TOML prompt commands by replacing {{args}}", () => {
+    expect(
+      parseProviderComposerSlashCommand("/review auth routes", [
+        {
+          name: "review",
+          kind: "provider",
+          promptPrefix: "Review this code path.\n\nFocus on {{args}}.",
+        },
+      ]),
+    ).toEqual({
+      commandName: "review",
+      args: "auth routes",
+      promptText: "Review this code path.\n\nFocus on auth routes.",
+    });
+  });
+
+  it("removes Gemini TOML prompt placeholders cleanly when no arguments are provided", () => {
+    expect(
+      parseProviderComposerSlashCommand("/review", [
+        {
+          name: "review",
+          kind: "provider",
+          promptPrefix: "Review this code path.\n\nFocus on {{args}}.",
+        },
+      ]),
+    ).toEqual({
+      commandName: "review",
+      args: "",
+      promptText: "Review this code path.\n\nFocus.",
     });
   });
 

@@ -12,6 +12,7 @@ import {
   normalizeClaudeModelOptionsWithCapabilities,
   normalizeCodexModelOptionsWithCapabilities,
   normalizeCursorModelOptionsWithCapabilities,
+  normalizeGeminiModelOptionsWithCapabilities,
   normalizeGitHubCopilotModelOptionsWithCapabilities,
   normalizeOpenCodeModelOptionsWithCapabilities,
   normalizeModelSlug,
@@ -71,6 +72,14 @@ const cursorCaps: ModelCapabilities = {
     { value: "low", label: "Low" },
   ],
   supportsFastMode: true,
+  supportsThinkingToggle: false,
+  contextWindowOptions: [],
+  promptInjectedEffortLevels: [],
+};
+
+const geminiCaps: ModelCapabilities = {
+  reasoningEffortLevels: [],
+  supportsFastMode: false,
   supportsThinkingToggle: false,
   contextWindowOptions: [],
   promptInjectedEffortLevels: [],
@@ -355,6 +364,23 @@ describe("normalize*ModelOptionsWithCapabilities", () => {
     });
   });
 
+  it("preserves Claude session agent selections", () => {
+    expect(
+      normalizeClaudeModelOptionsWithCapabilities(claudeCaps, {
+        effort: "high",
+        agent: "reviewer",
+        forkSubagents: false,
+        agentTeams: true,
+      }),
+    ).toEqual({
+      effort: "high",
+      contextWindow: "1m",
+      agent: "reviewer",
+      forkSubagents: false,
+      agentTeams: true,
+    });
+  });
+
   it("omits unsupported Claude context window options", () => {
     expect(
       normalizeClaudeModelOptionsWithCapabilities(
@@ -378,9 +404,11 @@ describe("normalize*ModelOptionsWithCapabilities", () => {
     expect(
       normalizeGitHubCopilotModelOptionsWithCapabilities(githubCopilotCaps, {
         reasoningEffort: "medium",
+        agent: "security-auditor",
       }),
     ).toEqual({
       reasoningEffort: "medium",
+      agent: "security-auditor",
     });
   });
 
@@ -393,9 +421,10 @@ describe("normalize*ModelOptionsWithCapabilities", () => {
         },
         {
           reasoningEffort: "high",
+          agent: "reviewer",
         },
       ),
-    ).toBeUndefined();
+    ).toEqual({ agent: "reviewer" });
   });
 
   it("normalizes Cursor reasoning effort and fast mode against capabilities", () => {
@@ -403,10 +432,12 @@ describe("normalize*ModelOptionsWithCapabilities", () => {
       normalizeCursorModelOptionsWithCapabilities(cursorCaps, {
         reasoningEffort: "low",
         fastMode: true,
+        modeId: "plan",
       }),
     ).toEqual({
       reasoningEffort: "low",
       fastMode: true,
+      modeId: "plan",
     });
   });
 
@@ -426,13 +457,25 @@ describe("normalize*ModelOptionsWithCapabilities", () => {
     ).toBeUndefined();
   });
 
+  it("preserves Gemini session mode selections", () => {
+    expect(
+      normalizeGeminiModelOptionsWithCapabilities(geminiCaps, {
+        modeId: "yolo",
+      }),
+    ).toEqual({
+      modeId: "yolo",
+    });
+  });
+
   it("normalizes OpenCode variant options against capabilities", () => {
     expect(
       normalizeOpenCodeModelOptionsWithCapabilities(openCodeCaps, {
         variant: "fast",
+        modeId: "build",
       }),
     ).toEqual({
       variant: "fast",
+      modeId: "build",
     });
   });
 

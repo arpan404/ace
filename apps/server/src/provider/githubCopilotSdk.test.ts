@@ -6,9 +6,14 @@ const getAuthStatusMock = vi.fn();
 const listModelsMock = vi.fn();
 const stopMock = vi.fn<() => Promise<ReadonlyArray<Error>>>();
 const forceStopMock = vi.fn<() => Promise<void>>();
+const constructorOptions: unknown[] = [];
 
 vi.mock("@github/copilot-sdk", () => {
   class MockCopilotClient {
+    constructor(options: unknown) {
+      constructorOptions.push(options);
+    }
+
     start = startMock;
     getStatus = getStatusMock;
     getAuthStatus = getAuthStatusMock;
@@ -53,6 +58,7 @@ describe("githubCopilotSdk", () => {
     listModelsMock.mockReset();
     stopMock.mockReset();
     forceStopMock.mockReset();
+    constructorOptions.length = 0;
   });
 
   afterEach(() => {
@@ -78,6 +84,19 @@ describe("githubCopilotSdk", () => {
     await startupResult;
     expect(stopMock).toHaveBeenCalledTimes(1);
     expect(forceStopMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("passes CLI startup args to locally spawned Copilot CLI", async () => {
+    startMock.mockResolvedValue(undefined);
+
+    await createGitHubCopilotClient("/bin/copilot", {
+      cliArgs: ["--plugin-dir", "/plugin/a", "--plugin-dir", "/plugin/b"],
+    });
+
+    expect(constructorOptions[0]).toEqual({
+      cliPath: "/bin/copilot",
+      cliArgs: ["--plugin-dir", "/plugin/a", "--plugin-dir", "/plugin/b"],
+    });
   });
 
   it("times out slow probe requests and still stops the client", async () => {

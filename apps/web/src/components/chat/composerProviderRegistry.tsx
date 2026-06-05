@@ -19,6 +19,7 @@ import {
   normalizeClaudeModelOptionsWithCapabilities,
   normalizeCodexModelOptionsWithCapabilities,
   normalizeCursorModelOptionsWithCapabilities,
+  normalizeGeminiModelOptionsWithCapabilities,
   normalizeGitHubCopilotModelOptionsWithCapabilities,
   normalizeOpenCodeModelOptionsWithCapabilities,
   normalizePiModelOptionsWithCapabilities,
@@ -63,6 +64,14 @@ type ProviderRegistryEntry = {
     sessionConfigOptions?: ReadonlyArray<ProviderSessionConfigOption> | undefined;
   }) => ReactNode;
 };
+
+function hasProviderModeConfigOption(
+  sessionConfigOptions: ReadonlyArray<ProviderSessionConfigOption> | undefined,
+): boolean {
+  return (sessionConfigOptions ?? []).some(
+    (option) => (option.category === "mode" || option.id === "mode") && option.options.length > 1,
+  );
+}
 
 function getProviderStateFromCapabilities(
   input: ComposerProviderStateInput,
@@ -109,7 +118,7 @@ function getProviderStateFromCapabilities(
               ? (normalizePiModelOptionsWithCapabilities(caps, modelOptions?.pi) ??
                 modelOptions?.pi)
               : provider === "gemini"
-                ? undefined
+                ? normalizeGeminiModelOptionsWithCapabilities(caps, modelOptions?.gemini)
                 : provider === "opencode"
                   ? normalizeOpenCodeModelOptionsWithCapabilities(caps, modelOptions?.opencode)
                   : undefined;
@@ -183,6 +192,7 @@ const composerProviderRegistry: Record<ProviderKind, ProviderRegistryEntry> = {
       modelOptions,
       prompt,
       onPromptChange,
+      sessionConfigOptions,
     }) => (
       <TraitsMenuContent
         provider="claudeAgent"
@@ -192,6 +202,7 @@ const composerProviderRegistry: Record<ProviderKind, ProviderRegistryEntry> = {
         modelOptions={modelOptions}
         prompt={prompt}
         onPromptChange={onPromptChange}
+        sessionConfigOptions={sessionConfigOptions}
       />
     ),
     renderTraitsPicker: ({
@@ -202,6 +213,7 @@ const composerProviderRegistry: Record<ProviderKind, ProviderRegistryEntry> = {
       prompt,
       onPromptChange,
       showFastInTriggerLabel,
+      sessionConfigOptions,
     }) => (
       <TraitsPicker
         provider="claudeAgent"
@@ -211,6 +223,7 @@ const composerProviderRegistry: Record<ProviderKind, ProviderRegistryEntry> = {
         modelOptions={modelOptions}
         prompt={prompt}
         onPromptChange={onPromptChange}
+        sessionConfigOptions={sessionConfigOptions}
         {...(typeof showFastInTriggerLabel === "boolean" ? { showFastInTriggerLabel } : {})}
       />
     ),
@@ -224,6 +237,7 @@ const composerProviderRegistry: Record<ProviderKind, ProviderRegistryEntry> = {
       modelOptions,
       prompt,
       onPromptChange,
+      sessionConfigOptions,
     }) => (
       <TraitsMenuContent
         provider="githubCopilot"
@@ -233,6 +247,7 @@ const composerProviderRegistry: Record<ProviderKind, ProviderRegistryEntry> = {
         modelOptions={modelOptions}
         prompt={prompt}
         onPromptChange={onPromptChange}
+        sessionConfigOptions={sessionConfigOptions}
       />
     ),
     renderTraitsPicker: ({
@@ -243,6 +258,7 @@ const composerProviderRegistry: Record<ProviderKind, ProviderRegistryEntry> = {
       prompt,
       onPromptChange,
       showFastInTriggerLabel,
+      sessionConfigOptions,
     }) => (
       <TraitsPicker
         provider="githubCopilot"
@@ -252,6 +268,7 @@ const composerProviderRegistry: Record<ProviderKind, ProviderRegistryEntry> = {
         modelOptions={modelOptions}
         prompt={prompt}
         onPromptChange={onPromptChange}
+        sessionConfigOptions={sessionConfigOptions}
         {...(typeof showFastInTriggerLabel === "boolean" ? { showFastInTriggerLabel } : {})}
       />
     ),
@@ -260,19 +277,60 @@ const composerProviderRegistry: Record<ProviderKind, ProviderRegistryEntry> = {
     getState: (input) => ({
       ...getProviderStateFromCapabilities(input),
       promptEffort: null,
-      modelOptionsForDispatch: undefined,
     }),
-    renderTraitsMenuContent: ({ threadId, model, models }) => (
-      <CursorTraitsMenuContent threadId={threadId} model={model} models={models} />
-    ),
-    renderTraitsPicker: ({ threadId, model, models, showFastInTriggerLabel }) => (
-      <CursorTraitsPicker
-        threadId={threadId}
-        model={model}
-        models={models}
-        {...(typeof showFastInTriggerLabel === "boolean" ? { showFastInTriggerLabel } : {})}
-      />
-    ),
+    renderTraitsMenuContent: ({
+      threadId,
+      model,
+      models,
+      modelOptions,
+      prompt,
+      onPromptChange,
+      sessionConfigOptions,
+    }) =>
+      hasProviderModeConfigOption(sessionConfigOptions) ? (
+        <TraitsMenuContent
+          provider="cursor"
+          models={models}
+          threadId={threadId}
+          model={model}
+          modelOptions={modelOptions}
+          prompt={prompt}
+          onPromptChange={onPromptChange}
+          sessionConfigOptions={sessionConfigOptions}
+        />
+      ) : (
+        <CursorTraitsMenuContent threadId={threadId} model={model} models={models} />
+      ),
+    renderTraitsPicker: ({
+      threadId,
+      model,
+      models,
+      modelOptions,
+      prompt,
+      onPromptChange,
+      showFastInTriggerLabel,
+      sessionConfigOptions,
+    }) =>
+      hasProviderModeConfigOption(sessionConfigOptions) ? (
+        <TraitsPicker
+          provider="cursor"
+          models={models}
+          threadId={threadId}
+          model={model}
+          modelOptions={modelOptions}
+          prompt={prompt}
+          onPromptChange={onPromptChange}
+          sessionConfigOptions={sessionConfigOptions}
+          {...(typeof showFastInTriggerLabel === "boolean" ? { showFastInTriggerLabel } : {})}
+        />
+      ) : (
+        <CursorTraitsPicker
+          threadId={threadId}
+          model={model}
+          models={models}
+          {...(typeof showFastInTriggerLabel === "boolean" ? { showFastInTriggerLabel } : {})}
+        />
+      ),
   },
   pi: {
     getState: (input) => getProviderStateFromCapabilities(input),
@@ -326,6 +384,7 @@ const composerProviderRegistry: Record<ProviderKind, ProviderRegistryEntry> = {
       modelOptions,
       prompt,
       onPromptChange,
+      sessionConfigOptions,
     }) => (
       <TraitsMenuContent
         provider="gemini"
@@ -335,6 +394,7 @@ const composerProviderRegistry: Record<ProviderKind, ProviderRegistryEntry> = {
         modelOptions={modelOptions}
         prompt={prompt}
         onPromptChange={onPromptChange}
+        sessionConfigOptions={sessionConfigOptions}
       />
     ),
     renderTraitsPicker: ({
@@ -345,6 +405,7 @@ const composerProviderRegistry: Record<ProviderKind, ProviderRegistryEntry> = {
       prompt,
       onPromptChange,
       showFastInTriggerLabel,
+      sessionConfigOptions,
     }) => (
       <TraitsPicker
         provider="gemini"
@@ -354,6 +415,7 @@ const composerProviderRegistry: Record<ProviderKind, ProviderRegistryEntry> = {
         modelOptions={modelOptions}
         prompt={prompt}
         onPromptChange={onPromptChange}
+        sessionConfigOptions={sessionConfigOptions}
         {...(typeof showFastInTriggerLabel === "boolean" ? { showFastInTriggerLabel } : {})}
       />
     ),
@@ -367,6 +429,7 @@ const composerProviderRegistry: Record<ProviderKind, ProviderRegistryEntry> = {
       modelOptions,
       prompt,
       onPromptChange,
+      sessionConfigOptions,
     }) => (
       <TraitsMenuContent
         provider="opencode"
@@ -376,6 +439,7 @@ const composerProviderRegistry: Record<ProviderKind, ProviderRegistryEntry> = {
         modelOptions={modelOptions}
         prompt={prompt}
         onPromptChange={onPromptChange}
+        sessionConfigOptions={sessionConfigOptions}
       />
     ),
     renderTraitsPicker: ({
@@ -386,6 +450,7 @@ const composerProviderRegistry: Record<ProviderKind, ProviderRegistryEntry> = {
       prompt,
       onPromptChange,
       showFastInTriggerLabel,
+      sessionConfigOptions,
     }) => (
       <TraitsPicker
         provider="opencode"
@@ -395,6 +460,7 @@ const composerProviderRegistry: Record<ProviderKind, ProviderRegistryEntry> = {
         modelOptions={modelOptions}
         prompt={prompt}
         onPromptChange={onPromptChange}
+        sessionConfigOptions={sessionConfigOptions}
         {...(typeof showFastInTriggerLabel === "boolean" ? { showFastInTriggerLabel } : {})}
       />
     ),

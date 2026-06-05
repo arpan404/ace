@@ -15,6 +15,7 @@ import {
   EventId,
   isFullAccessRuntimeMode,
   ProviderItemId,
+  type ProviderSlashCommand,
   type ProviderApprovalDecision,
   type ProviderInteractionMode,
   type ProviderRuntimeEvent,
@@ -55,7 +56,10 @@ import {
 } from "@ace/shared/providerSlashCommands";
 import { resolveProviderSettings } from "@ace/shared/providerInstances";
 import {
+  discoverGitHubCopilotAgentConfigOption,
+  discoverGitHubCopilotAgentSlashCommands,
   discoverGitHubCopilotCustomAgents,
+  discoverGitHubCopilotPluginDirectories,
   discoverGitHubCopilotSkillDirectories,
   discoverProviderExtensionSlashCommands,
 } from "../providerExtensionSlashCommands.ts";
@@ -165,10 +169,12 @@ interface GitHubCopilotSessionContext {
   readonly toolRequestMetadata: Map<string, ToolRequestMetadata>;
   readonly turns: Array<{ id: TurnId; items: Array<unknown> }>;
   readonly replayTurns: Array<TranscriptReplayTurn>;
-  readonly customAgentNames: ReadonlySet<string>;
+  readonly customAgentNames: Set<string>;
+  availableCommands: ReadonlyArray<ProviderSlashCommand>;
   readonly unsubscribers: Array<() => void>;
   readonly sequenceTieBreakersByTimestampMs: Map<number, number>;
   nextFallbackSessionSequence: number;
+  selectedAgentName: string | undefined;
   turnState: TurnState | undefined;
   lastKnownTokenUsage?: ThreadTokenUsageSnapshot;
   pendingBootstrapReset: boolean;
@@ -176,6 +182,8 @@ interface GitHubCopilotSessionContext {
   turnWatchdog: ReturnType<typeof setTimeout> | undefined;
   recoveryPromise: Promise<void> | undefined;
 }
+
+const GITHUB_COPILOT_BUILT_IN_AGENT_NAMES = new Set(["agent", "ask", "plan"]);
 
 export interface GitHubCopilotAdapterLiveOptions {
   readonly nativeEventLogPath?: string;
@@ -501,6 +509,10 @@ function extractPlanPathFromAssistantMessage(content: string | undefined): strin
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function booleanValue(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
 }
 
 function numberValue(value: unknown): number | undefined {
@@ -928,6 +940,81 @@ function copilotSubagentPayload(data: Record<string, unknown>, fallbackId: strin
   };
 }
 
+function copilotSkillCommandsFromLoadedEvent(data: Record<string, unknown>) {
+  const skills = getObjectProperty(data, "skills");
+  if (!Array.isArray(skills)) {
+    return [];
+  }
+  return skills.flatMap((entry) => {
+    const skill = recordValue(entry);
+    const name = stringValue(skill?.name);
+    const description = stringValue(skill?.description);
+    const userInvocable = booleanValue(skill?.userInvocable);
+    const enabled = booleanValue(skill?.enabled);
+    if (!name || userInvocable === false || enabled === false) {
+      return [];
+    }
+    return [
+      {
+        name,
+        kind: "skill" as const,
+        promptPrefix: `/${name}`,
+        ...(description ? { description } : {}),
+        inputHint: "<prompt>",
+      },
+    ];
+  });
+}
+
+interface CopilotUserInvocableAgentMetadata {
+  readonly name: string;
+  readonly description?: string;
+}
+
+function copilotUserInvocableAgentsFromUpdatedEvent(
+  data: Record<string, unknown>,
+): CopilotUserInvocableAgentMetadata[] {
+  const agents = getObjectProperty(data, "agents");
+  if (!Array.isArray(agents)) {
+    return [];
+  }
+  return agents.flatMap((entry) => {
+    const agent = recordValue(entry);
+    const name = stringValue(agent?.name);
+    const description = stringValue(agent?.description);
+    const userInvocable = booleanValue(agent?.userInvocable);
+    if (!name || userInvocable === false) {
+      return [];
+    }
+    return [
+      {
+        name,
+        ...(description ? { description } : {}),
+      },
+    ];
+  });
+}
+
+function copilotAgentCommandsFromUpdatedEvent(data: Record<string, unknown>) {
+  return copilotUserInvocableAgentsFromUpdatedEvent(data).map(({ name, description }) =>
+    providerAgentSlashCommand({
+      name,
+      ...(description ? { description } : {}),
+      promptPrefix: `@${name}`,
+      inputHint: "<prompt>",
+    }),
+  );
+}
+
+function rememberCopilotUserInvocableAgentNames(
+  context: GitHubCopilotSessionContext,
+  data: Record<string, unknown>,
+): void {
+  for (const agent of copilotUserInvocableAgentsFromUpdatedEvent(data)) {
+    context.customAgentNames.add(agent.name.toLowerCase());
+  }
+}
+
 function rememberToolRequestMetadata(context: GitHubCopilotSessionContext, data: object): void {
   const toolRequests = getObjectProperty(data, "toolRequests");
   if (!Array.isArray(toolRequests)) {
@@ -1292,6 +1379,37 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
         payload: input.rawPayload,
       },
     } as unknown as ProviderRuntimeEventByType<TType>;
+  };
+
+  const emitGitHubCopilotAvailableCommandsUpdate = (
+    context: GitHubCopilotSessionContext,
+    event: SessionEvent,
+    nextCommands: ReadonlyArray<ProviderSlashCommand>,
+  ): void => {
+    if (nextCommands.length === 0) {
+      return;
+    }
+    const merged = mergeProviderSlashCommands(context.availableCommands, nextCommands);
+    if (merged.length === context.availableCommands.length) {
+      return;
+    }
+    context.availableCommands = merged;
+    const capabilities = gitHubCopilotProviderCapabilities(context.sdkClient);
+    emitRuntimeEvent(
+      makeBaseEvent(context, {
+        type: "session.configured",
+        createdAt: getSessionEventTimestamp(event),
+        payload: {
+          config: {
+            availableCommands: merged,
+            capabilities,
+          },
+        },
+        rawMethod: event.type,
+        rawSource: "github-copilot.sdk.event",
+        rawPayload: event,
+      }),
+    );
   };
 
   const emitTodoPlanUpdate = (
@@ -1832,6 +1950,23 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
       }
       case "assistant.intent": {
         emitAssistantIntentAsReasoning(context, event, data);
+        return;
+      }
+      case "session.skills_loaded": {
+        emitGitHubCopilotAvailableCommandsUpdate(
+          context,
+          event,
+          copilotSkillCommandsFromLoadedEvent(data),
+        );
+        return;
+      }
+      case "session.custom_agents_updated": {
+        rememberCopilotUserInvocableAgentNames(context, data);
+        emitGitHubCopilotAvailableCommandsUpdate(
+          context,
+          event,
+          copilotAgentCommandsFromUpdatedEvent(data),
+        );
         return;
       }
       case "assistant.message_delta": {
@@ -2647,9 +2782,18 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
         sessions.delete(input.threadId);
       }
 
+      const configuredCliUrl = settings.cliUrl.trim();
+      const pluginDirectories = discoverGitHubCopilotPluginDirectories({
+        home: settings.homePath,
+      });
+      const pluginCliArgs = pluginDirectories.flatMap((pluginDir) => ["--plugin-dir", pluginDir]);
       const sdkClient = await createGitHubCopilotClient(
         settings.binaryPath,
-        settings.cliUrl.trim().length > 0 ? { cliUrl: settings.cliUrl.trim() } : undefined,
+        configuredCliUrl.length > 0
+          ? { cliUrl: configuredCliUrl }
+          : pluginCliArgs.length > 0
+            ? { cliArgs: pluginCliArgs }
+            : undefined,
         sdkLoader,
       );
 
@@ -2806,19 +2950,25 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
           settings: serverSettings,
         });
         const availableCommands = mergeProviderSlashCommands(
-          discoveredCustomAgents
-            .filter((agent) => agent.userInvocable !== false)
-            .map((agent) =>
-              providerAgentSlashCommand({
-                name: agent.name,
-                ...(agent.description ? { description: agent.description } : {}),
-                promptPrefix: `@${agent.name}`,
-                inputHint: "<prompt>",
-              }),
-            ),
+          discoverGitHubCopilotAgentSlashCommands({
+            cwd: input.cwd ?? serverConfig.cwd,
+            home: settings.homePath,
+          }),
           extensionCommands,
           providerFallbackSlashCommands(PROVIDER),
         );
+        const selectedAgent = input.modelSelection?.options?.agent?.trim();
+        const sessionSelectedAgent =
+          selectedAgent && selectedAgent !== "default"
+            ? customAgents.find((agent) => agent.name.toLowerCase() === selectedAgent.toLowerCase())
+                ?.name
+            : undefined;
+        const configOptions = [
+          discoverGitHubCopilotAgentConfigOption({
+            commands: availableCommands,
+            ...(selectedAgent ? { selectedAgent } : {}),
+          }),
+        ];
         const sessionConfig = {
           onPermissionRequest: permissionHandler,
           onUserInputRequest: userInputHandler,
@@ -2829,6 +2979,7 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
           ...(input.cwd ? { workingDirectory: input.cwd } : {}),
           ...(settings.homePath ? { configDir: settings.homePath } : {}),
           enableConfigDiscovery: true,
+          ...(sessionSelectedAgent ? { agent: sessionSelectedAgent } : {}),
           ...(customAgents.length > 0 ? { customAgents } : {}),
           ...(skillDirectories.length > 0 ? { skillDirectories: [...skillDirectories] } : {}),
           streaming: true,
@@ -2897,14 +3048,17 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
           toolRequestMetadata: new Map(),
           turns: [],
           replayTurns,
-          customAgentNames: new Set(
-            discoveredCustomAgents
+          customAgentNames: new Set([
+            ...GITHUB_COPILOT_BUILT_IN_AGENT_NAMES,
+            ...discoveredCustomAgents
               .filter((agent) => agent.userInvocable !== false)
               .map((agent) => agent.name.toLowerCase()),
-          ),
+          ]),
+          availableCommands,
           unsubscribers: [],
           sequenceTieBreakersByTimestampMs: new Map(),
           nextFallbackSessionSequence: 0,
+          selectedAgentName: sessionSelectedAgent,
           turnState: undefined,
           pendingBootstrapReset: replayTurns.length > 0 && !resumedExistingSession,
           stopped: false,
@@ -2942,6 +3096,7 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
             payload: {
               config: {
                 availableCommands,
+                configOptions,
                 capabilities: gitHubCopilotProviderCapabilities(sdkClient),
               },
             },
@@ -2949,6 +3104,7 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
             rawSource: "github-copilot.sdk.event",
             rawPayload: {
               availableCommands,
+              configOptions,
               capabilities: gitHubCopilotProviderCapabilities(sdkClient),
             },
           }),
@@ -3019,19 +3175,47 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
         latestPrompt,
         context.customAgentNames,
       );
+      const modelSelectedAgent = input.modelSelection?.options?.agent?.trim();
+      const shouldDeselectAgent = modelSelectedAgent === "default" && !agentSelection;
+      const configuredAgent =
+        modelSelectedAgent && modelSelectedAgent !== "default" ? modelSelectedAgent : undefined;
+      const selectedAgentName = agentSelection?.agentName ?? configuredAgent;
       const agentSelect = context.sdkSession.rpc?.agent?.select;
-      if (agentSelection && agentSelect) {
-        try {
-          await agentSelect({ name: agentSelection.agentName });
+      const agentDeselect = context.sdkSession.rpc?.agent?.deselect;
+      if (
+        selectedAgentName &&
+        context.selectedAgentName?.toLowerCase() === selectedAgentName.toLowerCase()
+      ) {
+        if (agentSelection) {
           latestPrompt = agentSelection.prompt;
+        }
+      } else if (selectedAgentName && agentSelect) {
+        try {
+          await agentSelect({ name: selectedAgentName });
+          context.selectedAgentName = selectedAgentName;
+          if (agentSelection) {
+            latestPrompt = agentSelection.prompt;
+          }
         } catch (cause) {
           throw new ProviderAdapterRequestError({
             provider: PROVIDER,
             method: "sendTurn",
             detail: toMessage(
               cause,
-              `Failed to select GitHub Copilot custom agent '${agentSelection.agentName}'.`,
+              `Failed to select GitHub Copilot custom agent '${selectedAgentName}'.`,
             ),
+            cause,
+          });
+        }
+      } else if (shouldDeselectAgent && agentDeselect) {
+        try {
+          await agentDeselect();
+          context.selectedAgentName = undefined;
+        } catch (cause) {
+          throw new ProviderAdapterRequestError({
+            provider: PROVIDER,
+            method: "sendTurn",
+            detail: toMessage(cause, "Failed to reset GitHub Copilot to the default agent."),
             cause,
           });
         }

@@ -13,17 +13,24 @@ import {
   BotIcon,
   CircleAlertIcon,
   ListTodoIcon,
+  PauseIcon,
+  PencilIcon,
+  PlayIcon,
+  SaveIcon,
   ShieldAlertIcon,
   ShieldCheckIcon,
+  Trash2Icon,
   XIcon,
 } from "lucide-react";
 import {
   memo,
   useMemo,
+  useState,
   type ClipboardEvent,
   type ComponentProps,
   type DragEvent,
   type FormEvent,
+  type ReactNode,
   type RefObject,
 } from "react";
 
@@ -334,6 +341,126 @@ const ComposerImageStrip = memo(function ComposerImageStrip(props: {
   );
 });
 
+function formatComposerGoalUsage(goal: ActiveGoalState): string | null {
+  if (goal.tokensUsed !== undefined && goal.tokenBudget !== undefined) {
+    return `${new Intl.NumberFormat().format(goal.tokensUsed)} / ${new Intl.NumberFormat().format(goal.tokenBudget)} tokens`;
+  }
+  if (goal.tokensUsed !== undefined) {
+    return `${new Intl.NumberFormat().format(goal.tokensUsed)} tokens`;
+  }
+  if (goal.timeUsedSeconds !== undefined) {
+    const minutes = Math.max(1, Math.round(goal.timeUsedSeconds / 60));
+    return `${minutes}m elapsed`;
+  }
+  return null;
+}
+
+function ComposerGoalButton(props: {
+  readonly children: ReactNode;
+  readonly label: string;
+  readonly onClick: () => void;
+  readonly disabled?: boolean;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-45"
+            onClick={props.onClick}
+            disabled={props.disabled}
+            aria-label={props.label}
+          />
+        }
+      >
+        {props.children}
+      </TooltipTrigger>
+      <TooltipPopup side="top">{props.label}</TooltipPopup>
+    </Tooltip>
+  );
+}
+
+function ComposerGoalPanel(props: {
+  readonly goal: ActiveGoalState;
+  readonly onDeleteGoal: () => void;
+  readonly onEditGoal: (objective: string) => void;
+  readonly onPauseGoal: () => void;
+  readonly onResumeGoal: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draftObjective, setDraftObjective] = useState(props.goal.objective);
+  const trimmedDraft = draftObjective.trim();
+  const saveDisabled = trimmedDraft.length === 0 || trimmedDraft === props.goal.objective;
+  const usage = formatComposerGoalUsage(props.goal);
+
+  return (
+    <div className="mb-2 rounded-xl border border-border/45 bg-muted/35 px-3 py-2">
+      <div className="mb-1.5 flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <div className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+            Current goal
+          </div>
+          <div className="mt-0.5 flex min-w-0 items-center gap-2 text-[10px] uppercase tracking-wide text-muted-foreground">
+            <span>{props.goal.status}</span>
+            {usage ? (
+              <span className="min-w-0 truncate normal-case tracking-normal">{usage}</span>
+            ) : null}
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-0.5">
+          {props.goal.status === "paused" ? (
+            <ComposerGoalButton label="Resume goal" onClick={props.onResumeGoal}>
+              <PlayIcon className="size-3.5" />
+            </ComposerGoalButton>
+          ) : (
+            <ComposerGoalButton label="Pause goal" onClick={props.onPauseGoal}>
+              <PauseIcon className="size-3.5" />
+            </ComposerGoalButton>
+          )}
+          <ComposerGoalButton
+            label="Edit goal"
+            onClick={() => {
+              setDraftObjective(props.goal.objective);
+              setEditing((current) => !current);
+            }}
+          >
+            <PencilIcon className="size-3.5" />
+          </ComposerGoalButton>
+          <ComposerGoalButton label="Delete goal" onClick={props.onDeleteGoal}>
+            <Trash2Icon className="size-3.5" />
+          </ComposerGoalButton>
+        </div>
+      </div>
+      {editing ? (
+        <div className="flex min-w-0 items-end gap-2">
+          <textarea
+            value={draftObjective}
+            onChange={(event) => setDraftObjective(event.target.value)}
+            className="min-h-16 flex-1 resize-none rounded-lg border border-border/65 bg-background/70 px-2.5 py-2 text-[12px] leading-5 outline-none transition-colors focus:border-ring/55 focus:ring-2 focus:ring-ring/10"
+            aria-label="Edit goal objective"
+          />
+          <ComposerGoalButton
+            label="Save goal"
+            disabled={saveDisabled}
+            onClick={() => {
+              if (saveDisabled) return;
+              props.onEditGoal(trimmedDraft);
+              setEditing(false);
+            }}
+          >
+            <SaveIcon className="size-3.5" />
+          </ComposerGoalButton>
+        </div>
+      ) : (
+        <div className="line-clamp-2 text-[12px] leading-5 text-foreground">
+          {props.goal.objective}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComposerPanelProps) {
   const interactionModeDisabledReason = null;
   const providerTraitsMenuContent = useMemo(
@@ -494,6 +621,15 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
               onAdvance={props.onAdvancePendingUserInput}
             />
           </div>
+        ) : null}
+        {props.activeGoal ? (
+          <ComposerGoalPanel
+            goal={props.activeGoal}
+            onDeleteGoal={props.onDeleteGoal}
+            onEditGoal={props.onEditGoal}
+            onPauseGoal={props.onPauseGoal}
+            onResumeGoal={props.onResumeGoal}
+          />
         ) : null}
 
         <div

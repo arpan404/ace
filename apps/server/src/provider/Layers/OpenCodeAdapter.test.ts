@@ -10,6 +10,7 @@ import {
   mapOpenCodeTodoStatus,
   mapOpenCodePermissionReplyDecision,
   mapOpenCodeQuestionAnswers,
+  normalizeOpenCodeModeOptions,
   openCodePermissionRulesForRuntimeMode,
   openCodeTimestampToIso,
   openCodeTimestampToEpochMs,
@@ -20,6 +21,25 @@ import {
   resolveOpenCodePartTimestamp,
   shouldEmitOpenCodeSnapshotDelta,
 } from "./OpenCodeAdapter.ts";
+
+describe("normalizeOpenCodeModeOptions", () => {
+  it("maps visible primary and all OpenCode agents to selectable modes", () => {
+    expect(
+      normalizeOpenCodeModeOptions([
+        { name: "build", mode: "primary", description: "Build software" },
+        { name: "review", mode: "all", description: "Review changes" },
+        { name: "helper", mode: "subagent", description: "Background helper" },
+        { name: "hidden", mode: "primary", hidden: true },
+      ]),
+    ).toEqual({
+      defaultModeId: "build",
+      modes: [
+        { id: "build", name: "build", description: "Build software" },
+        { id: "review", name: "review", description: "Review changes" },
+      ],
+    });
+  });
+});
 
 describe("classifyOpenCodeToolItemType", () => {
   it("maps shell-style tools to command execution activities", () => {
