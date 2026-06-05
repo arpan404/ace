@@ -95,6 +95,7 @@ interface InAppBrowserProps {
   designerDrawCommentShortcutLabel?: string | null;
   designerElementCommentShortcutLabel?: string | null;
   devToolsShortcutLabel?: string | null;
+  deferWebviewMount?: boolean;
   forwardShortcutLabel?: string | null;
   reloadShortcutLabel?: string | null;
   detachEnabled?: boolean;
@@ -276,6 +277,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     backShortcutLabel,
     designerAreaCommentShortcutLabel,
     designerElementCommentShortcutLabel,
+    deferWebviewMount = false,
     forwardShortcutLabel,
     reloadShortcutLabel,
     detachEnabled = true,
@@ -599,12 +601,14 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
   }, [activeRuntime.loading, activeTab?.id, activeTab?.url, signInWindowAvailable]);
   const mountedBrowserTabs = useMemo(
     () =>
-      resolveMountedBrowserTabs({
-        activeTabId: activeTab?.id ?? null,
-        retainInactiveTabs: visible,
-        tabs: browserSession.tabs,
-      }),
-    [activeTab?.id, browserSession.tabs, visible],
+      deferWebviewMount
+        ? []
+        : resolveMountedBrowserTabs({
+            activeTabId: activeTab?.id ?? null,
+            retainInactiveTabs: visible,
+            tabs: browserSession.tabs,
+          }),
+    [activeTab?.id, browserSession.tabs, deferWebviewMount, visible],
   );
 
   useEffect(() => {

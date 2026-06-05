@@ -9883,6 +9883,7 @@ function useChatViewComponent({
                   open: true,
                   activeInstance: isVisibleBrowserInstance && rightSidePanelInteractive,
                   connectionUrl: browserConnectionUrl,
+                  deferWebviewMount: isThreadHistoryLoading,
                   visible: isVisibleBrowserInstance,
                   mode: browserViewMode,
                   scopeId: browserInstanceId,
