@@ -150,7 +150,7 @@ export function writeCachedTimelineRows(
   return rows;
 }
 
-function requestTimelineRows(
+export function resolveTimelineRows(
   cacheKey: string,
   input: BuildTimelineRowsInput,
 ): Promise<ReadonlyArray<TimelineRow>> {
@@ -191,7 +191,7 @@ export function prewarmTimelineRows(cacheKey: string, input: BuildTimelineRowsIn
   if (readCachedTimelineRows(cacheKey)) {
     return;
   }
-  void requestTimelineRows(cacheKey, input).catch(() => {
+  void resolveTimelineRows(cacheKey, input).catch(() => {
     writeCachedTimelineRows(cacheKey, input, buildTimelineRows(input));
   });
 }

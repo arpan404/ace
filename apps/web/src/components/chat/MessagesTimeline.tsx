@@ -124,8 +124,8 @@ import {
 } from "~/lib/chat/timelineRows";
 import {
   buildTimelineRowsCacheKey,
-  prewarmTimelineRows,
   readCachedTimelineRows,
+  resolveTimelineRows,
   writeCachedTimelineRows,
 } from "~/lib/chat/timelineRowsClient";
 import type { StuckTurnSnapshot } from "~/lib/reliability/stuckTurn";
@@ -793,32 +793,79 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     [timelineRowsInput],
   );
   const cachedTimelineRows = readCachedTimelineRows(timelineRowsCacheKey);
+  const [asyncTimelineRows, setAsyncTimelineRows] = useState<{
+    readonly cacheKey: string;
+    readonly rows: ReadonlyArray<TimelineRow>;
+  } | null>(null);
+  const resolvedAsyncTimelineRows =
+    asyncTimelineRows?.cacheKey === timelineRowsCacheKey ? asyncTimelineRows.rows : null;
+  const shouldResolveTimelineRowsAsync = shouldResolveTimelineRowsInWorker && !cachedTimelineRows;
   const syncTimelineRows = useMemo<ReadonlyArray<TimelineRow>>(() => {
     if (cachedTimelineRows) {
       return cachedTimelineRows;
     }
+    if (shouldResolveTimelineRowsAsync) {
+      return EMPTY_TIMELINE_ROWS;
+    }
     return measureRenderWork("chat.buildTimelineRows", () => buildTimelineRows(timelineRowsInput));
-  }, [cachedTimelineRows, timelineRowsInput]);
-  const rows = syncTimelineRows.length > 0 ? syncTimelineRows : EMPTY_TIMELINE_ROWS;
+  }, [cachedTimelineRows, shouldResolveTimelineRowsAsync, timelineRowsInput]);
+  const rows = shouldResolveTimelineRowsAsync
+    ? (resolvedAsyncTimelineRows ?? EMPTY_TIMELINE_ROWS)
+    : syncTimelineRows.length > 0
+      ? syncTimelineRows
+      : EMPTY_TIMELINE_ROWS;
+  const timelineRowsLoading = shouldResolveTimelineRowsAsync && resolvedAsyncTimelineRows === null;
 
   useEffect(() => {
-    if (cachedTimelineRows) {
+    if (cachedTimelineRows || shouldResolveTimelineRowsAsync) {
       return;
     }
     writeCachedTimelineRows(timelineRowsCacheKey, timelineRowsInput, syncTimelineRows);
-  }, [cachedTimelineRows, syncTimelineRows, timelineRowsCacheKey, timelineRowsInput]);
-
-  useEffect(() => {
-    if (!shouldResolveTimelineRowsInWorker || cachedTimelineRows) {
-      return;
-    }
-    prewarmTimelineRows(timelineRowsCacheKey, timelineRowsInput);
   }, [
     cachedTimelineRows,
-    shouldResolveTimelineRowsInWorker,
+    shouldResolveTimelineRowsAsync,
+    syncTimelineRows,
     timelineRowsCacheKey,
     timelineRowsInput,
   ]);
+
+  useEffect(() => {
+    setAsyncTimelineRows((current) =>
+      current?.cacheKey === timelineRowsCacheKey ? current : null,
+    );
+  }, [timelineRowsCacheKey]);
+
+  useEffect(() => {
+    if (!shouldResolveTimelineRowsAsync) {
+      return;
+    }
+    let canceled = false;
+    resolveTimelineRows(timelineRowsCacheKey, timelineRowsInput)
+      .then((resolvedRows) => {
+        if (canceled) {
+          return;
+        }
+        startTransition(() => {
+          setAsyncTimelineRows({ cacheKey: timelineRowsCacheKey, rows: resolvedRows });
+        });
+      })
+      .catch(() => {
+        const fallbackRows = writeCachedTimelineRows(
+          timelineRowsCacheKey,
+          timelineRowsInput,
+          buildTimelineRows(timelineRowsInput),
+        );
+        if (canceled) {
+          return;
+        }
+        startTransition(() => {
+          setAsyncTimelineRows({ cacheKey: timelineRowsCacheKey, rows: fallbackRows });
+        });
+      });
+    return () => {
+      canceled = true;
+    };
+  }, [shouldResolveTimelineRowsAsync, timelineRowsCacheKey, timelineRowsInput]);
 
   const latestForkableAssistantMessageId = useMemo(() => {
     for (let index = rows.length - 1; index >= 0; index -= 1) {
@@ -1788,6 +1835,14 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             .
           </p>
         </div>
+      </div>
+    );
+  }
+
+  if (timelineRowsLoading) {
+    return (
+      <div className="flex h-full items-center justify-center px-4">
+        <p className="text-sm text-muted-foreground/60">Loading conversation...</p>
       </div>
     );
   }

@@ -29,15 +29,18 @@ const BACKGROUND_PREFETCH_TIMEOUT_MS = 750;
 const BACKGROUND_PREFETCH_FALLBACK_DELAY_MS = 120;
 const INITIAL_THREAD_HYDRATION_RETRY_DELAY_MS = 500;
 const MAX_THREAD_HYDRATION_RETRY_DELAY_MS = 10_000;
+const DEFAULT_THREAD_HYDRATION_TIMEOUT_MS = 15_000;
 
 export interface ThreadHydrationCacheConfig {
   readonly maxEntries?: number;
   readonly maxMemoryBytes?: number;
+  readonly hydrationTimeoutMs?: number;
 }
 
 interface ResolvedThreadHydrationCacheConfig {
   readonly maxEntries: number;
   readonly maxMemoryBytes: number;
+  readonly hydrationTimeoutMs: number;
 }
 
 type ThreadHydrationOptions = {
@@ -87,6 +90,10 @@ function resolveThreadHydrationCacheConfig(
     BYTES_PER_MEGABYTE,
     Math.trunc(config?.maxMemoryBytes ?? DEFAULT_CACHE_MEMORY_BYTES),
   );
+  const hydrationTimeoutMs = Math.max(
+    1_000,
+    Math.trunc(config?.hydrationTimeoutMs ?? DEFAULT_THREAD_HYDRATION_TIMEOUT_MS),
+  );
   const maxEntries = clampCacheEntryCount(requestedMaxEntries, {
     moderateCapEntries: MODERATE_DEVICE_MAX_CACHED_THREADS,
     constrainedCapEntries: CONSTRAINED_DEVICE_MAX_CACHED_THREADS,
@@ -98,7 +105,23 @@ function resolveThreadHydrationCacheConfig(
   return {
     maxEntries,
     maxMemoryBytes,
+    hydrationTimeoutMs,
   };
+}
+
+function withHydrationTimeout<T>(request: Promise<T>, timeoutMs: number): Promise<T> {
+  let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timeoutHandle = setTimeout(() => {
+      reject(new Error(`Thread hydration timed out after ${String(timeoutMs)}ms.`));
+    }, timeoutMs);
+  });
+
+  return Promise.race([request, timeout]).finally(() => {
+    if (timeoutHandle !== null) {
+      clearTimeout(timeoutHandle);
+    }
+  });
 }
 
 function cancelScheduledPrefetch(handle: ScheduledPrefetchHandle): void {
@@ -191,7 +214,7 @@ export function createThreadHydrationCache(
       return existing;
     }
 
-    const request = fetchThread(threadId)
+    const request = withHydrationTimeout(fetchThread(threadId), resolvedConfig.hydrationTimeoutMs)
       .then((thread) => prime(thread))
       .finally(() => {
         if (inFlightByThreadId.get(threadId) === request) {
