@@ -3054,7 +3054,16 @@ function useChatViewComponent({
       },
       roleLabel: "Side conversation",
       status: "completed",
-      entries: [],
+      entries: [
+        {
+          id: NEW_SIDE_CHAT_THREAD_ID,
+          createdAt: "1970-01-01T00:00:00.000Z",
+          label: "New side chat",
+          tone: "tool",
+          subagentId: NEW_SIDE_CHAT_THREAD_ID,
+          subagentType: "side chat",
+        },
+      ],
     }),
     [],
   );
@@ -10079,7 +10088,7 @@ function useChatViewComponent({
         preferredScriptId: activeProject
           ? (lastInvokedScriptByProjectId[activeProject.id] ?? null)
           : null,
-        subagentThreads,
+        subagentThreads: subagentPanelThreads,
         workspaceChangeStat,
         workspaceMode: headerWorkspaceMode,
         onAddProjectScript: saveProjectScript,

@@ -306,6 +306,34 @@ describe("EnvironmentMiniPanel", () => {
     expect(markup).toContain("Dewey");
   });
 
+  it("shows the active new side-chat draft in the side chats group", () => {
+    const markup = renderEnvironmentMiniPanel({
+      activeSubagentThreadId: "__ace_new_side_chat__",
+      subagentThreads: [
+        subagentThread(),
+        subagentThread({
+          id: "__ace_new_side_chat__",
+          label: "New side chat",
+          entries: [
+            {
+              id: "__ace_new_side_chat__",
+              createdAt: "1970-01-01T00:00:00.000Z",
+              label: "New side chat",
+              tone: "tool",
+              subagentId: "__ace_new_side_chat__",
+              subagentType: "side chat",
+            },
+          ],
+        }),
+      ],
+    });
+
+    expect(markup).toContain("Side chats");
+    expect(markup).toContain("New side chat");
+    expect(markup).toContain("Subagents");
+    expect(markup).toContain("Dewey");
+  });
+
   it("shows provider child side chats with the same agent as separate environment entries", () => {
     const markup = renderEnvironmentMiniPanel({
       subagentThreads: [
