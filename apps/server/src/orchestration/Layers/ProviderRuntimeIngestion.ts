@@ -59,6 +59,7 @@ import { ServerSettingsService } from "../../serverSettings.ts";
 import { updateProviderRuntimeIngestionCacheStats } from "../../runtimeProfile.ts";
 import { resolveProviderIntegrationCapabilities } from "../../provider/providerCapabilities.ts";
 import {
+  acpSideConversationCommands,
   hasAcpMultiAgentCapability,
   hasAcpProviderThreadTargetingCapability,
   hasAcpSideConversationCapability,
@@ -365,6 +366,7 @@ function providerCapabilitiesFromSessionConfigured(
     sessions?.sideConversationCommands,
     sessions?.sideCommands,
     sessions?.sideChatCommands,
+    acpSideConversationCommands({ capabilities }),
   );
   const providerThreadTargetingMode =
     normalizeProviderCapabilityMode(

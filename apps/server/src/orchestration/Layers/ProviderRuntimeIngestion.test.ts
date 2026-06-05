@@ -507,7 +507,10 @@ describe("ProviderRuntimeIngestion", () => {
           capabilities: {
             "session.fork": true,
             session: {
-              sideChat: { supported: true },
+              sideChat: {
+                supported: true,
+                commands: ["/btw", ".side", "/btw"],
+              },
               loadSession: true,
               goalControl: true,
             },
@@ -549,6 +552,7 @@ describe("ProviderRuntimeIngestion", () => {
         entry.session?.providerName === "cursor" &&
         entry.session?.capabilities?.sessionForkMode === "native" &&
         entry.session?.capabilities?.sideConversationMode === "native-fork" &&
+        entry.session?.capabilities?.sideConversationCommands?.join(",") === "/btw,.side" &&
         entry.session?.capabilities?.providerThreadTargetingMode === "native" &&
         entry.session?.capabilities?.sessionResumeMode === "native" &&
         entry.session?.capabilities?.turnSteeringMode === "native" &&
@@ -564,6 +568,7 @@ describe("ProviderRuntimeIngestion", () => {
 
     expect(thread.session?.capabilities?.sessionForkMode).toBe("native");
     expect(thread.session?.capabilities?.sideConversationMode).toBe("native-fork");
+    expect(thread.session?.capabilities?.sideConversationCommands).toEqual(["/btw", ".side"]);
     expect(thread.session?.capabilities?.providerThreadTargetingMode).toBe("native");
     expect(thread.session?.capabilities?.sessionResumeMode).toBe("native");
     expect(thread.session?.capabilities?.turnSteeringMode).toBe("native");
