@@ -7,6 +7,7 @@ import {
   type ModelCapabilities,
   type OpenCodeModelOptions,
   type PiModelOptions,
+  type ProviderSessionConfig,
 } from "@ace/contracts";
 
 /** Check whether a capabilities object includes a given effort value. */
@@ -54,17 +55,28 @@ export function resolveContextWindow(
   return hasContextWindowOption(caps, raw) ? raw : (defaultValue ?? undefined);
 }
 
+function normalizeProviderConfig(
+  providerConfig: ProviderSessionConfig | null | undefined,
+): ProviderSessionConfig | undefined {
+  if (!providerConfig || Object.keys(providerConfig).length === 0) {
+    return undefined;
+  }
+  return providerConfig;
+}
+
 export function normalizeCodexModelOptionsWithCapabilities(
   caps: ModelCapabilities,
   modelOptions: CodexModelOptions | null | undefined,
 ): CodexModelOptions | undefined {
   const reasoningEffort = resolveEffort(caps, modelOptions?.reasoningEffort);
   const fastMode = caps.supportsFastMode ? modelOptions?.fastMode : undefined;
+  const providerConfig = normalizeProviderConfig(modelOptions?.providerConfig);
   const nextOptions: CodexModelOptions = {
     ...(reasoningEffort
       ? { reasoningEffort: reasoningEffort as CodexModelOptions["reasoningEffort"] }
       : {}),
     ...(fastMode !== undefined ? { fastMode } : {}),
+    ...(providerConfig ? { providerConfig } : {}),
   };
   return Object.keys(nextOptions).length > 0 ? nextOptions : undefined;
 }
@@ -86,6 +98,7 @@ export function normalizeClaudeModelOptionsWithCapabilities(
     typeof modelOptions?.forkSubagents === "boolean" ? modelOptions.forkSubagents : undefined;
   const agentTeams =
     typeof modelOptions?.agentTeams === "boolean" ? modelOptions.agentTeams : undefined;
+  const providerConfig = normalizeProviderConfig(modelOptions?.providerConfig);
   const nextOptions: ClaudeModelOptions = {
     ...(thinking !== undefined ? { thinking } : {}),
     ...(effort ? { effort: effort as ClaudeModelOptions["effort"] } : {}),
@@ -96,6 +109,7 @@ export function normalizeClaudeModelOptionsWithCapabilities(
     ...(subagentModel ? { subagentModel } : {}),
     ...(forkSubagents !== undefined ? { forkSubagents } : {}),
     ...(agentTeams !== undefined ? { agentTeams } : {}),
+    ...(providerConfig ? { providerConfig } : {}),
   };
   return Object.keys(nextOptions).length > 0 ? nextOptions : undefined;
 }
@@ -106,11 +120,13 @@ export function normalizeGitHubCopilotModelOptionsWithCapabilities(
 ): GitHubCopilotModelOptions | undefined {
   const reasoningEffort = resolveEffort(caps, modelOptions?.reasoningEffort);
   const agent = modelOptions?.agent?.trim();
+  const providerConfig = normalizeProviderConfig(modelOptions?.providerConfig);
   const nextOptions: GitHubCopilotModelOptions = {
     ...(reasoningEffort
       ? { reasoningEffort: reasoningEffort as GitHubCopilotModelOptions["reasoningEffort"] }
       : {}),
     ...(agent ? { agent } : {}),
+    ...(providerConfig ? { providerConfig } : {}),
   };
   return Object.keys(nextOptions).length > 0 ? nextOptions : undefined;
 }
@@ -122,12 +138,14 @@ export function normalizeCursorModelOptionsWithCapabilities(
   const reasoningEffort = resolveEffort(caps, modelOptions?.reasoningEffort);
   const fastMode = caps.supportsFastMode ? modelOptions?.fastMode : undefined;
   const modeId = modelOptions?.modeId?.trim();
+  const providerConfig = normalizeProviderConfig(modelOptions?.providerConfig);
   const nextOptions: CursorModelOptions = {
     ...(reasoningEffort
       ? { reasoningEffort: reasoningEffort as CursorModelOptions["reasoningEffort"] }
       : {}),
     ...(fastMode !== undefined ? { fastMode } : {}),
     ...(modeId ? { modeId } : {}),
+    ...(providerConfig ? { providerConfig } : {}),
   };
   return Object.keys(nextOptions).length > 0 ? nextOptions : undefined;
 }
@@ -137,8 +155,10 @@ export function normalizeGeminiModelOptionsWithCapabilities(
   modelOptions: GeminiModelOptions | null | undefined,
 ): GeminiModelOptions | undefined {
   const modeId = modelOptions?.modeId?.trim();
+  const providerConfig = normalizeProviderConfig(modelOptions?.providerConfig);
   const nextOptions: GeminiModelOptions = {
     ...(modeId ? { modeId } : {}),
+    ...(providerConfig ? { providerConfig } : {}),
   };
   return Object.keys(nextOptions).length > 0 ? nextOptions : undefined;
 }
@@ -151,6 +171,7 @@ export function normalizePiModelOptionsWithCapabilities(
     caps,
     modelOptions?.thoughtLevel ?? modelOptions?.reasoningEffort,
   );
+  const providerConfig = normalizeProviderConfig(modelOptions?.providerConfig);
   const nextOptions: PiModelOptions = {
     ...(normalizedEffort
       ? { thoughtLevel: normalizedEffort as PiModelOptions["thoughtLevel"] }
@@ -162,6 +183,7 @@ export function normalizePiModelOptionsWithCapabilities(
       normalizedEffort === "xhigh")
       ? { reasoningEffort: normalizedEffort as PiModelOptions["reasoningEffort"] }
       : {}),
+    ...(providerConfig ? { providerConfig } : {}),
   };
   return Object.keys(nextOptions).length > 0 ? nextOptions : undefined;
 }
@@ -173,15 +195,18 @@ export function normalizeOpenCodeModelOptionsWithCapabilities(
   const variant = resolveContextWindow(caps, modelOptions?.variant);
   const fastMode = caps.supportsFastMode ? modelOptions?.fastMode : undefined;
   const modeId = modelOptions?.modeId?.trim();
+  const providerConfig = normalizeProviderConfig(modelOptions?.providerConfig);
   const nextOptions: OpenCodeModelOptions = modeId
     ? {
         ...(variant !== undefined ? { variant } : {}),
         ...(fastMode !== undefined ? { fastMode } : {}),
         modeId,
+        ...(providerConfig ? { providerConfig } : {}),
       }
     : {
         ...(variant !== undefined ? { variant } : {}),
         ...(fastMode !== undefined ? { fastMode } : {}),
+        ...(providerConfig ? { providerConfig } : {}),
       };
   return Object.keys(nextOptions).length > 0 ? nextOptions : undefined;
 }

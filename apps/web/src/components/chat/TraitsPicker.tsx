@@ -8,6 +8,7 @@ import {
   type ProviderKind,
   type ProviderModelOptions,
   type ProviderSessionConfigOption,
+  type ProviderSessionConfigValue,
   type PiModelOptions,
   type ServerProviderModel,
   type ThreadId,
@@ -27,6 +28,7 @@ import type { VariantProps } from "class-variance-authority";
 import { ChevronDownIcon, ZapIcon } from "lucide-react";
 import { Button } from "../ui/button";
 import { buttonVariants } from "../ui/buttonVariants";
+import { Input } from "../ui/input";
 import {
   Menu,
   MenuGroup,
@@ -169,6 +171,126 @@ function findOpenCodeModeConfigOption(
   );
 }
 
+function isKnownSessionConfigOption(
+  provider: ProviderKind,
+  option: ProviderSessionConfigOption,
+): boolean {
+  const category = option.category;
+  const id = option.id;
+  if (provider === "pi" && (category === "thought_level" || id === "thought_level")) {
+    return true;
+  }
+  if (
+    provider === "claudeAgent" &&
+    (category === "output_style" ||
+      id === "output_style" ||
+      category === "subagent_fork_mode" ||
+      id === "fork_subagents" ||
+      category === "subagent_model" ||
+      id === "subagent_model" ||
+      category === "agent_team_mode" ||
+      id === "agent_teams")
+  ) {
+    return true;
+  }
+  if (
+    (provider === "claudeAgent" || provider === "githubCopilot") &&
+    (category === "agent" || id === "agent")
+  ) {
+    return true;
+  }
+  return (
+    (provider === "cursor" || provider === "gemini" || provider === "opencode") &&
+    (category === "mode" || id === "mode")
+  );
+}
+
+function isRenderableGenericSessionConfigOption(option: ProviderSessionConfigOption): boolean {
+  switch (option.type) {
+    case "select":
+      return option.options.length > 1;
+    case "boolean":
+    case "number":
+    case "text":
+      return true;
+  }
+}
+
+function getGenericSessionConfigOptions(
+  provider: ProviderKind,
+  sessionConfigOptions: ReadonlyArray<ProviderSessionConfigOption> | undefined,
+): ReadonlyArray<ProviderSessionConfigOption> {
+  return (sessionConfigOptions ?? []).filter(
+    (option) =>
+      !isKnownSessionConfigOption(provider, option) &&
+      isRenderableGenericSessionConfigOption(option),
+  );
+}
+
+function readProviderConfig(
+  modelOptions: ProviderOptions | null | undefined,
+): Record<string, ProviderSessionConfigValue> {
+  const providerConfig =
+    modelOptions && typeof modelOptions === "object" && "providerConfig" in modelOptions
+      ? modelOptions.providerConfig
+      : undefined;
+  return providerConfig && typeof providerConfig === "object" ? providerConfig : {};
+}
+
+function coerceBooleanConfigValue(value: ProviderSessionConfigValue | string | undefined): boolean {
+  if (typeof value === "boolean") return value;
+  const normalized = String(value ?? "")
+    .trim()
+    .toLowerCase();
+  return normalized === "on" || normalized === "true" || normalized === "1" || normalized === "yes";
+}
+
+function readSessionConfigValue(
+  modelOptions: ProviderOptions | null | undefined,
+  option: ProviderSessionConfigOption,
+): ProviderSessionConfigValue {
+  const providerConfig = readProviderConfig(modelOptions);
+  if (option.id in providerConfig) {
+    return providerConfig[option.id] ?? option.currentValue;
+  }
+  if (option.type === "boolean") {
+    return coerceBooleanConfigValue(option.currentValue);
+  }
+  if (option.type === "number") {
+    const numeric = Number(option.currentValue);
+    return Number.isFinite(numeric) ? numeric : option.currentValue;
+  }
+  return option.currentValue;
+}
+
+function buildProviderConfigOptions(
+  provider: ProviderKind,
+  modelOptions: ProviderOptions | null | undefined,
+  optionId: string,
+  value: ProviderSessionConfigValue,
+): ProviderOptions {
+  return buildNextOptions(provider, modelOptions, {
+    providerConfig: {
+      ...readProviderConfig(modelOptions),
+      [optionId]: value,
+    },
+  });
+}
+
+function formatGenericSessionConfigLabel(
+  option: ProviderSessionConfigOption,
+  value: ProviderSessionConfigValue,
+): string {
+  if (option.type === "boolean") {
+    return `${option.name} ${coerceBooleanConfigValue(value) ? "On" : "Off"}`;
+  }
+  const stringValue = String(value);
+  if (option.type === "select") {
+    return option.options.find((item) => item.value === stringValue)?.name ?? stringValue;
+  }
+  return stringValue.length > 18 ? `${stringValue.slice(0, 17)}...` : stringValue;
+}
+
 function buildPiOptionsFromThoughtLevel(
   modelOptions: ProviderOptions | null | undefined,
   value: string,
@@ -239,6 +361,11 @@ function buildNextOptions(
         ...(typeof patch.contextWindow === "string" ? { variant: patch.contextWindow } : {}),
         ...(typeof patch.fastMode === "boolean" ? { fastMode: patch.fastMode } : {}),
         ...(typeof patch.modeId === "string" ? { modeId: patch.modeId } : {}),
+        ...(patch.providerConfig &&
+        typeof patch.providerConfig === "object" &&
+        !Array.isArray(patch.providerConfig)
+          ? { providerConfig: patch.providerConfig }
+          : {}),
       } as OpenCodeModelOptions;
   }
 }
@@ -382,6 +509,9 @@ export function shouldRenderTraitsPicker(input: {
   sessionConfigOptions?: ReadonlyArray<ProviderSessionConfigOption> | undefined;
   allowPromptInjectedEffort?: boolean;
 }): boolean {
+  if (getGenericSessionConfigOptions(input.provider, input.sessionConfigOptions).length > 0) {
+    return true;
+  }
   if (input.provider === "cursor") {
     const cursorModeOption = findCursorModeConfigOption(input.sessionConfigOptions);
     if (cursorModeOption && cursorModeOption.options.length > 1) {
@@ -689,6 +819,10 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
     provider === "gemini" ? findGeminiModeConfigOption(sessionConfigOptions) : undefined;
   const openCodeModeOption =
     provider === "opencode" ? findOpenCodeModeConfigOption(sessionConfigOptions) : undefined;
+  const genericSessionConfigOptions = getGenericSessionConfigOptions(
+    provider,
+    sessionConfigOptions,
+  );
   const {
     caps,
     effort,
@@ -781,7 +915,8 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
     !(agentTeamsOption && agentTeamsOption.options.length > 1) &&
     !(cursorModeOption && cursorModeOption.options.length > 1) &&
     !(geminiModeOption && geminiModeOption.options.length > 1) &&
-    !(openCodeModeOption && openCodeModeOption.options.length > 1)
+    !(openCodeModeOption && openCodeModeOption.options.length > 1) &&
+    genericSessionConfigOptions.length === 0
   ) {
     return null;
   }
@@ -1107,6 +1242,94 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
     );
   }
 
+  for (const option of genericSessionConfigOptions) {
+    const selectedValue = readSessionConfigValue(modelOptions, option);
+    if (option.type === "select") {
+      sections.push(
+        <MenuGroup key={`provider-config:${option.id}`}>
+          <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">{option.name}</div>
+          <MenuRadioGroup
+            value={String(selectedValue)}
+            onValueChange={(value) => {
+              updateModelOptions(
+                buildProviderConfigOptions(provider, modelOptions, option.id, value),
+              );
+            }}
+          >
+            {option.options.map((item) => (
+              <MenuRadioItem key={item.value} value={item.value}>
+                {item.name}
+                {item.value === option.currentValue ? " (current)" : ""}
+              </MenuRadioItem>
+            ))}
+          </MenuRadioGroup>
+        </MenuGroup>,
+      );
+      continue;
+    }
+    if (option.type === "boolean") {
+      sections.push(
+        <MenuGroup key={`provider-config:${option.id}`}>
+          <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">{option.name}</div>
+          <MenuRadioGroup
+            value={coerceBooleanConfigValue(selectedValue) ? "on" : "off"}
+            onValueChange={(value) => {
+              updateModelOptions(
+                buildProviderConfigOptions(provider, modelOptions, option.id, value === "on"),
+              );
+            }}
+          >
+            <MenuRadioItem value="off">off</MenuRadioItem>
+            <MenuRadioItem value="on">on</MenuRadioItem>
+          </MenuRadioGroup>
+        </MenuGroup>,
+      );
+      continue;
+    }
+    sections.push(
+      <MenuGroup key={`provider-config:${option.id}`}>
+        <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">{option.name}</div>
+        <div className="px-2 pb-1.5">
+          <Input
+            nativeInput
+            size="sm"
+            type={option.type}
+            value={String(selectedValue)}
+            {...(option.type === "number" && option.minValue !== undefined
+              ? { min: option.minValue }
+              : {})}
+            {...(option.type === "number" && option.maxValue !== undefined
+              ? { max: option.maxValue }
+              : {})}
+            {...(option.type === "number" && option.stepValue !== undefined
+              ? { step: option.stepValue }
+              : {})}
+            onChange={(event) => {
+              const rawValue = event.currentTarget.value;
+              const nextValue =
+                option.type === "number" && rawValue.trim().length > 0
+                  ? Number(rawValue)
+                  : rawValue;
+              updateModelOptions(
+                buildProviderConfigOptions(
+                  provider,
+                  modelOptions,
+                  option.id,
+                  typeof nextValue === "number" && Number.isFinite(nextValue)
+                    ? nextValue
+                    : rawValue,
+                ),
+              );
+            }}
+            onKeyDown={(event) => {
+              event.stopPropagation();
+            }}
+          />
+        </div>
+      </MenuGroup>,
+    );
+  }
+
   return (
     <>
       {sections.map((section, index) => (
@@ -1218,6 +1441,10 @@ export const TraitsPicker = memo(function TraitsPicker({
     (provider === "opencode" || contextWindow !== defaultContextWindow)
       ? (contextWindowOptions.find((o) => o.value === contextWindow)?.label ?? null)
       : null;
+  const genericSessionConfigOptions = getGenericSessionConfigOptions(
+    provider,
+    sessionConfigOptions,
+  );
   const triggerLabel = [
     ultrathinkPromptControlled
       ? "Ultrathink"
@@ -1301,6 +1528,15 @@ export const TraitsPicker = memo(function TraitsPicker({
           )?.name ?? (modelOptions as OpenCodeModelOptions | undefined)?.modeId,
         ]
       : []),
+    ...genericSessionConfigOptions
+      .map((option) => {
+        const selectedValue = readSessionConfigValue(modelOptions, option);
+        const defaultValue = readSessionConfigValue(undefined, option);
+        return String(selectedValue) !== String(defaultValue)
+          ? formatGenericSessionConfigLabel(option, selectedValue)
+          : null;
+      })
+      .filter((label): label is string => label !== null),
   ]
     .filter(Boolean)
     .join(" · ");
@@ -1323,7 +1559,8 @@ export const TraitsPicker = memo(function TraitsPicker({
     !(agentTeamsOption && agentTeamsOption.options.length > 1) &&
     !(cursorModeOption && cursorModeOption.options.length > 1) &&
     !(geminiModeOption && geminiModeOption.options.length > 1) &&
-    !(openCodeModeOption && openCodeModeOption.options.length > 1)
+    !(openCodeModeOption && openCodeModeOption.options.length > 1) &&
+    genericSessionConfigOptions.length === 0
   ) {
     return null;
   }

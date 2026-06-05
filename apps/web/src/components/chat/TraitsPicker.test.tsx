@@ -440,4 +440,80 @@ describe("TraitsPicker", () => {
 
     expect(html).toContain("Review");
   });
+
+  it("renders generic provider session config options as traits", () => {
+    const html = renderToStaticMarkup(
+      <TraitsPicker
+        provider="codex"
+        models={COPILOT_WITHOUT_REASONING}
+        model="gpt-5.4"
+        prompt=""
+        onPromptChange={() => undefined}
+        modelOptions={{
+          providerConfig: {
+            web_search: true,
+            temperature: 0.7,
+            profile: "deep-research",
+          },
+        }}
+        onModelOptionsChange={() => undefined}
+        sessionConfigOptions={[
+          {
+            id: "web_search",
+            name: "Web Search",
+            type: "boolean",
+            currentValue: "off",
+            options: [
+              { value: "off", name: "Off" },
+              { value: "on", name: "On" },
+            ],
+          },
+          {
+            id: "temperature",
+            name: "Temperature",
+            type: "number",
+            currentValue: "0.3",
+            options: [],
+            minValue: 0,
+            maxValue: 1,
+            stepValue: 0.1,
+          },
+          {
+            id: "profile",
+            name: "Profile",
+            type: "select",
+            currentValue: "default",
+            options: [
+              { value: "default", name: "Default" },
+              { value: "deep-research", name: "Deep Research" },
+            ],
+          },
+        ]}
+      />,
+    );
+
+    expect(html).toContain("Web Search On");
+    expect(html).toContain("0.7");
+    expect(html).toContain("Deep Research");
+  });
+
+  it("treats generic provider session config options as visible traits", () => {
+    expect(
+      shouldRenderTraitsPicker({
+        provider: "codex",
+        models: COPILOT_WITHOUT_REASONING,
+        model: "gpt-5.4",
+        prompt: "",
+        sessionConfigOptions: [
+          {
+            id: "web_search",
+            name: "Web Search",
+            type: "boolean",
+            currentValue: "off",
+            options: [],
+          },
+        ],
+      }),
+    ).toBe(true);
+  });
 });

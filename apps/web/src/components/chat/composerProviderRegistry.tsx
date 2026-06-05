@@ -73,6 +73,31 @@ function hasProviderModeConfigOption(
   );
 }
 
+function hasGenericProviderConfigOption(
+  sessionConfigOptions: ReadonlyArray<ProviderSessionConfigOption> | undefined,
+): boolean {
+  return (sessionConfigOptions ?? []).some((option) => {
+    if (option.category === "mode" || option.id === "mode") {
+      return false;
+    }
+    return (
+      (option.type === "select" && option.options.length > 1) ||
+      option.type === "boolean" ||
+      option.type === "text" ||
+      option.type === "number"
+    );
+  });
+}
+
+function shouldUseSharedTraitsMenu(
+  sessionConfigOptions: ReadonlyArray<ProviderSessionConfigOption> | undefined,
+): boolean {
+  return (
+    hasProviderModeConfigOption(sessionConfigOptions) ||
+    hasGenericProviderConfigOption(sessionConfigOptions)
+  );
+}
+
 function getProviderStateFromCapabilities(
   input: ComposerProviderStateInput,
 ): ComposerProviderState {
@@ -151,6 +176,7 @@ const composerProviderRegistry: Record<ProviderKind, ProviderRegistryEntry> = {
       modelOptions,
       prompt,
       onPromptChange,
+      sessionConfigOptions,
     }) => (
       <TraitsMenuContent
         provider="codex"
@@ -160,6 +186,7 @@ const composerProviderRegistry: Record<ProviderKind, ProviderRegistryEntry> = {
         modelOptions={modelOptions}
         prompt={prompt}
         onPromptChange={onPromptChange}
+        sessionConfigOptions={sessionConfigOptions}
       />
     ),
     renderTraitsPicker: ({
@@ -170,6 +197,7 @@ const composerProviderRegistry: Record<ProviderKind, ProviderRegistryEntry> = {
       prompt,
       onPromptChange,
       showFastInTriggerLabel,
+      sessionConfigOptions,
     }) => (
       <TraitsPicker
         provider="codex"
@@ -179,6 +207,7 @@ const composerProviderRegistry: Record<ProviderKind, ProviderRegistryEntry> = {
         modelOptions={modelOptions}
         prompt={prompt}
         onPromptChange={onPromptChange}
+        sessionConfigOptions={sessionConfigOptions}
         {...(typeof showFastInTriggerLabel === "boolean" ? { showFastInTriggerLabel } : {})}
       />
     ),
@@ -287,7 +316,7 @@ const composerProviderRegistry: Record<ProviderKind, ProviderRegistryEntry> = {
       onPromptChange,
       sessionConfigOptions,
     }) =>
-      hasProviderModeConfigOption(sessionConfigOptions) ? (
+      shouldUseSharedTraitsMenu(sessionConfigOptions) ? (
         <TraitsMenuContent
           provider="cursor"
           models={models}
@@ -311,7 +340,7 @@ const composerProviderRegistry: Record<ProviderKind, ProviderRegistryEntry> = {
       showFastInTriggerLabel,
       sessionConfigOptions,
     }) =>
-      hasProviderModeConfigOption(sessionConfigOptions) ? (
+      shouldUseSharedTraitsMenu(sessionConfigOptions) ? (
         <TraitsPicker
           provider="cursor"
           models={models}

@@ -319,6 +319,33 @@ describe("getComposerProviderState", () => {
     });
   });
 
+  it("preserves generic codex provider config in dispatch options", () => {
+    const state = getComposerProviderState({
+      provider: "codex",
+      model: "gpt-5.4",
+      models: CODEX_MODELS,
+      prompt: "",
+      modelOptions: {
+        codex: {
+          providerConfig: {
+            web_search: true,
+          },
+        },
+      },
+    });
+
+    expect(state).toEqual({
+      provider: "codex",
+      promptEffort: "high",
+      modelOptionsForDispatch: {
+        reasoningEffort: "high",
+        providerConfig: {
+          web_search: true,
+        },
+      },
+    });
+  });
+
   it("returns Claude defaults for effort-capable models", () => {
     const state = getComposerProviderState({
       provider: "claudeAgent",
@@ -803,6 +830,46 @@ describe("renderProviderTraitsPicker", () => {
 
     expect(renderToStaticMarkup(<>{picker}</>)).toContain("Security Auditor");
   });
+
+  it("renders Codex generic config options in the traits picker", () => {
+    const picker = renderProviderTraitsPicker({
+      provider: "codex",
+      threadId: ThreadId.makeUnsafe("thread-1"),
+      model: "gpt-5.4",
+      models: [
+        {
+          slug: "gpt-5.4",
+          name: "GPT-5.4",
+          isCustom: false,
+          capabilities: {
+            reasoningEffortLevels: [],
+            promptInjectedEffortLevels: [],
+            supportsThinkingToggle: false,
+            supportsFastMode: false,
+            contextWindowOptions: [],
+          },
+        },
+      ],
+      modelOptions: {
+        providerConfig: {
+          web_search: true,
+        },
+      },
+      prompt: "",
+      onPromptChange: () => undefined,
+      sessionConfigOptions: [
+        {
+          id: "web_search",
+          name: "Web Search",
+          type: "boolean",
+          currentValue: "off",
+          options: [],
+        },
+      ],
+    });
+
+    expect(renderToStaticMarkup(<>{picker}</>)).toContain("Web Search On");
+  });
 });
 
 describe("renderProviderTraitsMenuContent", () => {
@@ -874,6 +941,35 @@ describe("renderProviderTraitsMenuContent", () => {
 
     expect((menuContent as { props?: { sessionConfigOptions?: unknown } }).props).toMatchObject({
       sessionConfigOptions,
+    });
+  });
+
+  it("routes Cursor generic config options through the shared traits menu", () => {
+    const menuContent = renderProviderTraitsMenuContent({
+      provider: "cursor",
+      threadId: ThreadId.makeUnsafe("thread-1"),
+      model: "auto",
+      models: GITHUB_COPILOT_MODELS,
+      modelOptions: {
+        providerConfig: {
+          web_search: true,
+        },
+      },
+      prompt: "",
+      onPromptChange: () => undefined,
+      sessionConfigOptions: [
+        {
+          id: "web_search",
+          name: "Web Search",
+          type: "boolean",
+          currentValue: "off",
+          options: [],
+        },
+      ],
+    });
+
+    expect((menuContent as { props?: { provider?: unknown } }).props).toMatchObject({
+      provider: "cursor",
     });
   });
 });

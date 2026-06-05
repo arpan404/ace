@@ -389,6 +389,7 @@ export const DEFAULT_UNIFIED_SETTINGS: UnifiedSettings = {
 const CodexModelOptionsPatch = Schema.Struct({
   reasoningEffort: Schema.optionalKey(CodexModelOptions.fields.reasoningEffort),
   fastMode: Schema.optionalKey(CodexModelOptions.fields.fastMode),
+  providerConfig: Schema.optionalKey(CodexModelOptions.fields.providerConfig),
 });
 
 const ClaudeModelOptionsPatch = Schema.Struct({
@@ -401,27 +402,32 @@ const ClaudeModelOptionsPatch = Schema.Struct({
   subagentModel: Schema.optionalKey(ClaudeModelOptions.fields.subagentModel),
   forkSubagents: Schema.optionalKey(ClaudeModelOptions.fields.forkSubagents),
   agentTeams: Schema.optionalKey(ClaudeModelOptions.fields.agentTeams),
+  providerConfig: Schema.optionalKey(ClaudeModelOptions.fields.providerConfig),
 });
 
 const GitHubCopilotModelOptionsPatch = Schema.Struct({
   reasoningEffort: Schema.optionalKey(GitHubCopilotModelOptions.fields.reasoningEffort),
   agent: Schema.optionalKey(GitHubCopilotModelOptions.fields.agent),
+  providerConfig: Schema.optionalKey(GitHubCopilotModelOptions.fields.providerConfig),
 });
 
 const CursorModelOptionsPatch = Schema.Struct({
   reasoningEffort: Schema.optionalKey(CursorModelOptions.fields.reasoningEffort),
   fastMode: Schema.optionalKey(CursorModelOptions.fields.fastMode),
   modeId: Schema.optionalKey(CursorModelOptions.fields.modeId),
+  providerConfig: Schema.optionalKey(CursorModelOptions.fields.providerConfig),
 });
 
 const OpenCodeModelOptionsPatch = Schema.Struct({
   variant: Schema.optionalKey(OpenCodeModelOptions.fields.variant),
   fastMode: Schema.optionalKey(OpenCodeModelOptions.fields.fastMode),
   modeId: Schema.optionalKey(OpenCodeModelOptions.fields.modeId),
+  providerConfig: Schema.optionalKey(OpenCodeModelOptions.fields.providerConfig),
 });
 
 const GeminiModelOptionsPatch = Schema.Struct({
   modeId: Schema.optionalKey(GeminiModelOptions.fields.modeId),
+  providerConfig: Schema.optionalKey(GeminiModelOptions.fields.providerConfig),
 });
 
 const ModelSelectionPatch = Schema.Union([
@@ -457,6 +463,7 @@ const ModelSelectionPatch = Schema.Union([
       Schema.Struct({
         thoughtLevel: Schema.optionalKey(PiModelOptions.fields.thoughtLevel),
         reasoningEffort: Schema.optionalKey(PiModelOptions.fields.reasoningEffort),
+        providerConfig: Schema.optionalKey(PiModelOptions.fields.providerConfig),
       }),
     ),
   }),

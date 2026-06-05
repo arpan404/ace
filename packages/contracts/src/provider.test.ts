@@ -28,6 +28,11 @@ describe("ProviderSessionStartInput", () => {
         options: {
           reasoningEffort: "high",
           fastMode: true,
+          providerConfig: {
+            web_search: true,
+            temperature: 0.7,
+            profile: "deep-research",
+          },
         },
       },
       runtimeMode: "full-access",
@@ -40,6 +45,11 @@ describe("ProviderSessionStartInput", () => {
     }
     expect(parsed.modelSelection.options?.reasoningEffort).toBe("high");
     expect(parsed.modelSelection.options?.fastMode).toBe(true);
+    expect(parsed.modelSelection.options?.providerConfig).toEqual({
+      web_search: true,
+      temperature: 0.7,
+      profile: "deep-research",
+    });
   });
 
   it("rejects payloads without runtime mode", () => {

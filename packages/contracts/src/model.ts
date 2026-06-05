@@ -9,9 +9,23 @@ export const CLAUDE_CODE_EFFORT_OPTIONS = ["low", "medium", "high", "max", "ultr
 export type ClaudeCodeEffort = (typeof CLAUDE_CODE_EFFORT_OPTIONS)[number];
 export type ProviderReasoningEffort = CodexReasoningEffort | ClaudeCodeEffort;
 
+export const ProviderSessionConfigValue = Schema.Union([
+  Schema.String,
+  Schema.Boolean,
+  Schema.Number,
+]);
+export type ProviderSessionConfigValue = typeof ProviderSessionConfigValue.Type;
+
+export const ProviderSessionConfig = Schema.Record(
+  TrimmedNonEmptyString,
+  ProviderSessionConfigValue,
+);
+export type ProviderSessionConfig = typeof ProviderSessionConfig.Type;
+
 export const CodexModelOptions = Schema.Struct({
   reasoningEffort: Schema.optional(Schema.Literals(CODEX_REASONING_EFFORT_OPTIONS)),
   fastMode: Schema.optional(Schema.Boolean),
+  providerConfig: Schema.optional(ProviderSessionConfig),
 });
 export type CodexModelOptions = typeof CodexModelOptions.Type;
 
@@ -25,12 +39,14 @@ export const ClaudeModelOptions = Schema.Struct({
   subagentModel: Schema.optional(TrimmedNonEmptyString),
   forkSubagents: Schema.optional(Schema.Boolean),
   agentTeams: Schema.optional(Schema.Boolean),
+  providerConfig: Schema.optional(ProviderSessionConfig),
 });
 export type ClaudeModelOptions = typeof ClaudeModelOptions.Type;
 
 export const GitHubCopilotModelOptions = Schema.Struct({
   reasoningEffort: Schema.optional(Schema.Literals(CODEX_REASONING_EFFORT_OPTIONS)),
   agent: Schema.optional(TrimmedNonEmptyString),
+  providerConfig: Schema.optional(ProviderSessionConfig),
 });
 export type GitHubCopilotModelOptions = typeof GitHubCopilotModelOptions.Type;
 
@@ -38,6 +54,7 @@ export const CursorModelOptions = Schema.Struct({
   reasoningEffort: Schema.optional(Schema.Literals(CODEX_REASONING_EFFORT_OPTIONS)),
   fastMode: Schema.optional(Schema.Boolean),
   modeId: Schema.optional(TrimmedNonEmptyString),
+  providerConfig: Schema.optional(ProviderSessionConfig),
 });
 export type CursorModelOptions = typeof CursorModelOptions.Type;
 
@@ -54,6 +71,7 @@ export type PiThoughtLevel = (typeof PI_THOUGHT_LEVEL_OPTIONS)[number];
 export const PiModelOptions = Schema.Struct({
   thoughtLevel: Schema.optional(Schema.Literals(PI_THOUGHT_LEVEL_OPTIONS)),
   reasoningEffort: Schema.optional(Schema.Literals(CODEX_REASONING_EFFORT_OPTIONS)),
+  providerConfig: Schema.optional(ProviderSessionConfig),
 });
 export type PiModelOptions = typeof PiModelOptions.Type;
 
@@ -69,6 +87,7 @@ export type CursorModelMetadata = typeof CursorModelMetadata.Type;
 
 export const GeminiModelOptions = Schema.Struct({
   modeId: Schema.optional(TrimmedNonEmptyString),
+  providerConfig: Schema.optional(ProviderSessionConfig),
 });
 export type GeminiModelOptions = typeof GeminiModelOptions.Type;
 
@@ -76,6 +95,7 @@ export const OpenCodeModelOptions = Schema.Struct({
   variant: Schema.optional(TrimmedNonEmptyString),
   fastMode: Schema.optional(Schema.Boolean),
   modeId: Schema.optional(TrimmedNonEmptyString),
+  providerConfig: Schema.optional(ProviderSessionConfig),
 });
 export type OpenCodeModelOptions = typeof OpenCodeModelOptions.Type;
 

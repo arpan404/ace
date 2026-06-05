@@ -343,6 +343,25 @@ describe("normalize*ModelOptionsWithCapabilities", () => {
     });
   });
 
+  it("preserves generic provider config while normalizing model options", () => {
+    expect(
+      normalizeCodexModelOptionsWithCapabilities(codexCaps, {
+        providerConfig: {
+          web_search: true,
+          temperature: 0.7,
+          profile: "deep-research",
+        },
+      }),
+    ).toEqual({
+      reasoningEffort: "high",
+      providerConfig: {
+        web_search: true,
+        temperature: 0.7,
+        profile: "deep-research",
+      },
+    });
+  });
+
   it("preserves the default Claude context window explicitly", () => {
     expect(
       normalizeClaudeModelOptionsWithCapabilities(
@@ -477,6 +496,29 @@ describe("normalize*ModelOptionsWithCapabilities", () => {
       }),
     ).toEqual({
       modeId: "yolo",
+    });
+  });
+
+  it("keeps generic provider config even when specialized options are unsupported", () => {
+    expect(
+      normalizeCursorModelOptionsWithCapabilities(
+        {
+          ...cursorCaps,
+          reasoningEffortLevels: [],
+          supportsFastMode: false,
+        },
+        {
+          reasoningEffort: "high",
+          fastMode: true,
+          providerConfig: {
+            web_search: true,
+          },
+        },
+      ),
+    ).toEqual({
+      providerConfig: {
+        web_search: true,
+      },
     });
   });
 
