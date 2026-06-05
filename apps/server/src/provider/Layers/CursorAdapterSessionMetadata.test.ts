@@ -24,6 +24,8 @@ describe("CursorAdapterSessionMetadata", () => {
         closeSession: false,
         forkSession: false,
         multiAgent: false,
+        multiAgentInvocationPrefixes: [],
+        multiAgentDefinitionPaths: [],
         promptCapabilities: {
           image: true,
           audio: false,
@@ -41,6 +43,8 @@ describe("CursorAdapterSessionMetadata", () => {
         closeSession: false,
         forkSession: false,
         multiAgent: false,
+        multiAgentInvocationPrefixes: [],
+        multiAgentDefinitionPaths: [],
         promptCapabilities: {
           image: true,
           audio: false,
@@ -344,10 +348,25 @@ describe("CursorAdapterSessionMetadata", () => {
   it("exposes native Cursor multi-agent capability when ACP advertises it", () => {
     const initialize = parseCursorInitializeState({
       agentCapabilities: {
-        subagents: true,
+        subagents: {
+          enabled: true,
+          invocationPrefixes: ["@", "@"],
+          definitionPaths: [".cursor/agents/*.md"],
+        },
+      },
+      _meta: {
+        capabilities: {
+          agentInvocationPrefixes: ["/agent"],
+          agentDefinitionPaths: ["~/.cursor/agents/*.md"],
+        },
       },
     });
     assert.equal(initialize.agentCapabilities.multiAgent, true);
+    assert.deepEqual(initialize.agentCapabilities.multiAgentInvocationPrefixes, ["@", "/agent"]);
+    assert.deepEqual(initialize.agentCapabilities.multiAgentDefinitionPaths, [
+      ".cursor/agents/*.md",
+      "~/.cursor/agents/*.md",
+    ]);
 
     const metadata = buildCursorSessionMetadata({
       previous: EMPTY_CURSOR_SESSION_METADATA,
@@ -360,6 +379,8 @@ describe("CursorAdapterSessionMetadata", () => {
       sessionResumeMode: "local-replay",
       sideConversationMode: "replay-fork",
       multiAgentMode: "native",
+      multiAgentInvocationPrefixes: ["@", "/agent"],
+      multiAgentDefinitionPaths: [".cursor/agents/*.md", "~/.cursor/agents/*.md"],
     });
   });
 

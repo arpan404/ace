@@ -49,6 +49,67 @@ function stringList(value: unknown): string[] {
   return value.flatMap(stringList);
 }
 
+function normalizedStringList(...values: ReadonlyArray<unknown>): string[] {
+  const entries = new Set<string>();
+  for (const value of values) {
+    for (const entry of stringList(value)) {
+      const normalized = entry.trim();
+      if (normalized.length > 0) {
+        entries.add(normalized);
+      }
+    }
+  }
+  return [...entries];
+}
+
+function acpCapabilityRecords(initializeResult: unknown): ReadonlyArray<Record<string, unknown>> {
+  const record = isRecord(initializeResult);
+  const agentCapabilities = isRecord(record?.agentCapabilities);
+  const rootSessionCapabilities = isRecord(record?.sessionCapabilities);
+  const agentSessionCapabilities = isRecord(agentCapabilities?.sessionCapabilities);
+  const agentSession = isRecord(agentCapabilities?.session);
+  const agentSessions = isRecord(agentCapabilities?.sessions);
+  const rootCapabilities = isRecord(record?.capabilities);
+  const rootSession = isRecord(record?.session);
+  const capabilitySession = isRecord(rootCapabilities?.session);
+  const meta = isRecord(record?._meta);
+  const metaCapabilities = isRecord(meta?.capabilities);
+  const metaSessionCapabilities = isRecord(metaCapabilities?.sessionCapabilities);
+  const metaSession = isRecord(metaCapabilities?.session);
+  return [
+    agentCapabilities,
+    agentSessionCapabilities,
+    agentSession,
+    agentSessions,
+    rootSessionCapabilities,
+    rootSession,
+    rootCapabilities,
+    capabilitySession,
+    meta,
+    metaCapabilities,
+    metaSessionCapabilities,
+    metaSession,
+  ].filter((entry): entry is Record<string, unknown> => entry !== null);
+}
+
+function nestedAgentCapabilityRecords(
+  record: Record<string, unknown>,
+): ReadonlyArray<Record<string, unknown>> {
+  return [
+    isRecord(record.multiAgent),
+    isRecord(record.multi_agent),
+    isRecord(record.multiAgents),
+    isRecord(record.multi_agents),
+    isRecord(record.agents),
+    isRecord(record.agent),
+    isRecord(record.subagents),
+    isRecord(record.subAgents),
+    isRecord(record.sub_agents),
+    isRecord(record.handoffs),
+    isRecord(record.teams),
+  ].filter((entry): entry is Record<string, unknown> => entry !== null);
+}
+
 function hasSessionForkMethod(value: unknown): boolean {
   return stringList(value).some((entry) => {
     const normalized = entry.trim().toLowerCase().replace(/_/g, "-");
@@ -897,4 +958,78 @@ export function hasAcpMultiAgentCapability(initializeResult: unknown): boolean {
     metaSessionCapabilities,
     metaSession,
   }).some((container) => hasMethod(container, MULTI_AGENT_METHODS));
+}
+
+export function acpMultiAgentInvocationPrefixes(initializeResult: unknown): string[] {
+  const values: unknown[] = [];
+  for (const record of acpCapabilityRecords(initializeResult)) {
+    values.push(
+      record.multiAgentInvocationPrefixes,
+      record.multi_agent_invocation_prefixes,
+      record.agentInvocationPrefixes,
+      record.agent_invocation_prefixes,
+      record.subagentInvocationPrefixes,
+      record.subagent_invocation_prefixes,
+      record.agentPrefixes,
+      record.agent_prefixes,
+      record.subagentPrefixes,
+      record.subagent_prefixes,
+      record.invocationPrefixes,
+      record.invocation_prefixes,
+      record.prefixes,
+    );
+    for (const nested of nestedAgentCapabilityRecords(record)) {
+      values.push(
+        nested.invocationPrefixes,
+        nested.invocation_prefixes,
+        nested.agentInvocationPrefixes,
+        nested.agent_invocation_prefixes,
+        nested.subagentInvocationPrefixes,
+        nested.subagent_invocation_prefixes,
+        nested.agentPrefixes,
+        nested.agent_prefixes,
+        nested.subagentPrefixes,
+        nested.subagent_prefixes,
+        nested.prefixes,
+      );
+    }
+  }
+  return normalizedStringList(...values);
+}
+
+export function acpMultiAgentDefinitionPaths(initializeResult: unknown): string[] {
+  const values: unknown[] = [];
+  for (const record of acpCapabilityRecords(initializeResult)) {
+    values.push(
+      record.multiAgentDefinitionPaths,
+      record.multi_agent_definition_paths,
+      record.agentDefinitionPaths,
+      record.agent_definition_paths,
+      record.subagentDefinitionPaths,
+      record.subagent_definition_paths,
+      record.agentPaths,
+      record.agent_paths,
+      record.subagentPaths,
+      record.subagent_paths,
+      record.definitionPaths,
+      record.definition_paths,
+      record.paths,
+    );
+    for (const nested of nestedAgentCapabilityRecords(record)) {
+      values.push(
+        nested.definitionPaths,
+        nested.definition_paths,
+        nested.agentDefinitionPaths,
+        nested.agent_definition_paths,
+        nested.subagentDefinitionPaths,
+        nested.subagent_definition_paths,
+        nested.agentPaths,
+        nested.agent_paths,
+        nested.subagentPaths,
+        nested.subagent_paths,
+        nested.paths,
+      );
+    }
+  }
+  return normalizedStringList(...values);
 }

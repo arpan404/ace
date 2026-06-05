@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  acpMultiAgentDefinitionPaths,
+  acpMultiAgentInvocationPrefixes,
   hasAcpMultiAgentCapability,
   hasAcpProviderThreadTargetingCapability,
   hasAcpSideConversationCapability,
@@ -357,5 +359,28 @@ describe("acpCapabilities", () => {
         },
       }),
     ).toBe(false);
+  });
+
+  it("extracts ACP multi-agent invocation prefixes and definition paths", () => {
+    const initializeResult = {
+      agentCapabilities: {
+        subagents: {
+          invocationPrefixes: ["@", "@"],
+          definitionPaths: [".cursor/agents/*.md"],
+        },
+      },
+      _meta: {
+        capabilities: {
+          agentInvocationPrefixes: ["/agent"],
+          agentDefinitionPaths: ["~/.cursor/agents/*.md"],
+        },
+      },
+    };
+
+    expect(acpMultiAgentInvocationPrefixes(initializeResult)).toEqual(["@", "/agent"]);
+    expect(acpMultiAgentDefinitionPaths(initializeResult)).toEqual([
+      ".cursor/agents/*.md",
+      "~/.cursor/agents/*.md",
+    ]);
   });
 });

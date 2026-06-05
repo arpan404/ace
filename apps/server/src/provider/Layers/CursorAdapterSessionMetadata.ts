@@ -5,6 +5,8 @@ import {
 } from "../unknown.ts";
 import type { ProviderSlashCommand } from "@ace/contracts";
 import {
+  acpMultiAgentDefinitionPaths,
+  acpMultiAgentInvocationPrefixes,
   hasAcpMultiAgentCapability,
   hasAcpSessionCloseCapability,
   hasAcpSessionForkCapability,
@@ -43,6 +45,8 @@ export type CursorInitializeState = {
     readonly closeSession: boolean;
     readonly forkSession: boolean;
     readonly multiAgent: boolean;
+    readonly multiAgentInvocationPrefixes: ReadonlyArray<string>;
+    readonly multiAgentDefinitionPaths: ReadonlyArray<string>;
     readonly promptCapabilities: CursorPromptCapabilities;
   };
   readonly authMethods: ReadonlyArray<CursorAuthMethod>;
@@ -120,6 +124,8 @@ export const EMPTY_CURSOR_INITIALIZE_STATE: CursorInitializeState = {
     closeSession: false,
     forkSession: false,
     multiAgent: false,
+    multiAgentInvocationPrefixes: [],
+    multiAgentDefinitionPaths: [],
     promptCapabilities: EMPTY_CURSOR_PROMPT_CAPABILITIES,
   },
   authMethods: [],
@@ -203,6 +209,8 @@ export function parseCursorInitializeState(value: unknown): CursorInitializeStat
       closeSession: hasAcpSessionCloseCapability(value),
       forkSession: hasAcpSessionForkCapability(value),
       multiAgent: hasAcpMultiAgentCapability(value),
+      multiAgentInvocationPrefixes: acpMultiAgentInvocationPrefixes(value),
+      multiAgentDefinitionPaths: acpMultiAgentDefinitionPaths(value),
       promptCapabilities: parseCursorPromptCapabilities(agentCapabilities?.promptCapabilities),
     },
     authMethods: parseCursorAuthMethods(record?.authMethods),
@@ -678,6 +686,18 @@ function cursorProviderCapabilities(metadata: CursorSessionMetadata) {
         }),
     ...(metadata.initialize.agentCapabilities.multiAgent
       ? { multiAgentMode: "native" as const }
+      : {}),
+    ...(metadata.initialize.agentCapabilities.multiAgentInvocationPrefixes.length > 0
+      ? {
+          multiAgentInvocationPrefixes:
+            metadata.initialize.agentCapabilities.multiAgentInvocationPrefixes,
+        }
+      : {}),
+    ...(metadata.initialize.agentCapabilities.multiAgentDefinitionPaths.length > 0
+      ? {
+          multiAgentDefinitionPaths:
+            metadata.initialize.agentCapabilities.multiAgentDefinitionPaths,
+        }
       : {}),
   };
 }
