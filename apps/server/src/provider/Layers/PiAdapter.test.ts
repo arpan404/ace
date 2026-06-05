@@ -327,9 +327,9 @@ describe("PiAdapterLive", () => {
                 description: "Review the workspace",
               }),
               expect.objectContaining({
-                name: "release-review",
+                name: "skill:release-review",
                 kind: "skill",
-                promptPrefix: "Use the release-review skill:",
+                promptPrefix: "/skill:release-review",
               }),
             ]),
           );
@@ -1312,6 +1312,85 @@ describe("PiAdapterLive", () => {
         expect(client.notify).toHaveBeenCalledWith("extension_ui_response", {
           id: "ui-select-1",
           value: "Beta",
+        });
+      } finally {
+        await Effect.runPromise(adapter.stopAll());
+      }
+    });
+  });
+
+  it("responds to Pi text extension UI requests", async () => {
+    const client = makeFakePiClient({
+      requestImpl: async (command) => {
+        switch (command) {
+          case "get_state":
+            return {
+              sessionId: "pi-session-input",
+              model: { id: "gpt-5.4", provider: "openai", name: "GPT-5.4" },
+            };
+          case "get_available_models":
+            return {
+              models: [{ id: "gpt-5.4", provider: "openai", name: "GPT-5.4" }],
+            };
+          case "get_commands":
+            return { commands: [] };
+          default:
+            throw new Error(`Unexpected Pi RPC command: ${command}`);
+        }
+      },
+    });
+    mockedStartPiRpcClient.mockReturnValue(client);
+
+    await withAdapter(async (adapter) => {
+      try {
+        await Effect.runPromise(
+          adapter.startSession({
+            provider: "pi",
+            threadId: asThreadId("thread-pi-input"),
+            cwd: "/repo/pi-input",
+            runtimeMode: "full-access",
+          }),
+        );
+
+        const requestedPromise = collectEvents(
+          adapter,
+          1,
+          (event) => event.type === "user-input.requested",
+        );
+        client.emitEvent({
+          type: "extension_ui_request",
+          id: "ui-input-1",
+          method: "input",
+          title: "Name branch",
+          message: "What should the branch be called?",
+          placeholder: "feature/provider-parity",
+        });
+
+        const [requestedEvent] = await requestedPromise;
+        expect(requestedEvent?.type).toBe("user-input.requested");
+        if (requestedEvent?.type !== "user-input.requested" || !requestedEvent.requestId) {
+          return;
+        }
+        expect(requestedEvent.payload.questions).toEqual([
+          {
+            id: "input",
+            header: "Name branch",
+            question: "What should the branch be called?",
+            options: [],
+          },
+        ]);
+
+        await Effect.runPromise(
+          adapter.respondToUserInput(
+            asThreadId("thread-pi-input"),
+            ApprovalRequestId.makeUnsafe(String(requestedEvent.requestId)),
+            { input: "provider-parity" },
+          ),
+        );
+
+        expect(client.notify).toHaveBeenCalledWith("extension_ui_response", {
+          id: "ui-input-1",
+          value: "provider-parity",
         });
       } finally {
         await Effect.runPromise(adapter.stopAll());

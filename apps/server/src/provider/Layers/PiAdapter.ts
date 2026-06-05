@@ -135,7 +135,7 @@ type PendingPiUserInput =
   | {
       readonly requestId: ApprovalRequestId;
       readonly rpcRequestId: string;
-      readonly method: "select";
+      readonly method: "select" | "input";
       readonly questions: ReadonlyArray<UserInputQuestion>;
       readonly turnId?: TurnId | undefined;
     };
@@ -707,6 +707,28 @@ function buildUserInputQuestionsForSelect(
       })),
     },
   ];
+}
+
+function buildUserInputQuestionsForText(
+  title: string,
+  message: string | undefined,
+  placeholder: string | undefined,
+): ReadonlyArray<UserInputQuestion> {
+  return [
+    {
+      id: "input",
+      header: title,
+      question: message ?? placeholder ?? title,
+      options: [],
+    },
+  ];
+}
+
+function normalizePiExtensionUiMethod(method: string): "confirm" | "select" | "input" | null {
+  if (method === "confirm" || method === "select") {
+    return method;
+  }
+  return method === "input" || method === "text" || method === "textarea" ? "input" : null;
 }
 
 export const PiAdapterLive = Layer.effect(
@@ -1360,7 +1382,8 @@ export const PiAdapterLive = Layer.effect(
         return;
       }
 
-      if (method !== "confirm" && method !== "select") {
+      const normalizedMethod = normalizePiExtensionUiMethod(method);
+      if (!normalizedMethod) {
         context.client.notify("extension_ui_response", {
           id: rpcRequestId,
           cancelled: true,
@@ -1381,15 +1404,21 @@ export const PiAdapterLive = Layer.effect(
       const requestId = ApprovalRequestId.makeUnsafe(`pi-ui:${randomUUID()}`);
       const title = asString(event.title) ?? "Input requested";
       const questions =
-        method === "confirm"
+        normalizedMethod === "confirm"
           ? buildUserInputQuestionsForConfirm(title, asString(event.message))
-          : buildUserInputQuestionsForSelect(
-              title,
-              asArray(event.options).flatMap((option) =>
-                typeof option === "string" && option.trim().length > 0 ? [option.trim()] : [],
-              ),
-            );
-      if (questions[0]?.options.length === 0) {
+          : normalizedMethod === "select"
+            ? buildUserInputQuestionsForSelect(
+                title,
+                asArray(event.options).flatMap((option) =>
+                  typeof option === "string" && option.trim().length > 0 ? [option.trim()] : [],
+                ),
+              )
+            : buildUserInputQuestionsForText(
+                title,
+                asString(event.message),
+                asString(event.placeholder),
+              );
+      if (normalizedMethod === "select" && questions[0]?.options.length === 0) {
         context.client.notify("extension_ui_response", {
           id: rpcRequestId,
           cancelled: true,
@@ -1410,7 +1439,7 @@ export const PiAdapterLive = Layer.effect(
       context.pendingUserInputs.set(requestId, {
         requestId,
         rpcRequestId,
-        method,
+        method: normalizedMethod,
         questions,
         ...(context.activeTurn ? { turnId: context.activeTurn.id } : {}),
       });
@@ -2266,7 +2295,7 @@ export const PiAdapterLive = Layer.effect(
               id: pending.rpcRequestId,
               confirmed,
             });
-          } else {
+          } else if (pending.method === "select") {
             const value = typeof answerValue === "string" ? answerValue : undefined;
             if (!value) {
               context.client.notify("extension_ui_response", {
@@ -2279,6 +2308,11 @@ export const PiAdapterLive = Layer.effect(
                 value,
               });
             }
+          } else {
+            context.client.notify("extension_ui_response", {
+              id: pending.rpcRequestId,
+              value: typeof answerValue === "string" ? answerValue : "",
+            });
           }
           context.pendingUserInputs.delete(requestId);
           emitUserInputResolved(context, pending, normalizedAnswers, {
