@@ -45,22 +45,35 @@ describe("providerCapabilities", () => {
     expect(defaultProviderIntegrationCapabilities("codex").sideConversationMode).toBe(
       "native-fork",
     );
+    expect(defaultProviderIntegrationCapabilities("codex").sideConversationCommands).toEqual([
+      ".side",
+    ]);
     expect(defaultProviderIntegrationCapabilities("claudeAgent").sideConversationMode).toBe(
       "native-fork",
     );
+    expect(defaultProviderIntegrationCapabilities("claudeAgent").sideConversationCommands).toEqual([
+      "/btw",
+    ]);
     expect(defaultProviderIntegrationCapabilities("cursor").sideConversationMode).toBe(
       "replay-fork",
     );
+    expect(defaultProviderIntegrationCapabilities("cursor").sideConversationCommands).toEqual([]);
     expect(defaultProviderIntegrationCapabilities("opencode").sideConversationMode).toBe(
       "replay-fork",
     );
+    expect(defaultProviderIntegrationCapabilities("opencode").sideConversationCommands).toEqual([]);
     expect(defaultProviderIntegrationCapabilities("githubCopilot").sideConversationMode).toBe(
       "replay-fork",
     );
+    expect(
+      defaultProviderIntegrationCapabilities("githubCopilot").sideConversationCommands,
+    ).toEqual([]);
     expect(defaultProviderIntegrationCapabilities("gemini").sideConversationMode).toBe(
       "replay-fork",
     );
+    expect(defaultProviderIntegrationCapabilities("gemini").sideConversationCommands).toEqual([]);
     expect(defaultProviderIntegrationCapabilities("pi").sideConversationMode).toBe("replay-fork");
+    expect(defaultProviderIntegrationCapabilities("pi").sideConversationCommands).toEqual([]);
   });
 
   it("declares provider child-thread targeting only for adapters that implement it", () => {
@@ -206,6 +219,22 @@ describe("providerCapabilities", () => {
       remoteAgentMode: "unsupported",
       webAccessMode: "unsupported",
       hostedSessionMode: "unsupported",
+    });
+  });
+
+  it("preserves default side conversation commands unless an adapter advertises aliases", () => {
+    expect(
+      resolveProviderIntegrationCapabilities("codex", { sessionModelSwitch: "in-session" }),
+    ).toMatchObject({
+      sideConversationCommands: [".side"],
+    });
+    expect(
+      resolveProviderIntegrationCapabilities("codex", {
+        sessionModelSwitch: "in-session",
+        sideConversationCommands: ["/side"],
+      }),
+    ).toMatchObject({
+      sideConversationCommands: ["/side"],
     });
   });
 });

@@ -181,6 +181,9 @@ export const ProviderIntegrationCapabilities = Schema.Struct({
   sideConversationMode: ProviderSideConversationMode.pipe(
     Schema.withDecodingDefault(() => "replay-fork" as const),
   ),
+  sideConversationCommands: Schema.Array(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(() => [] as const),
+  ),
   providerThreadTargetingMode: ProviderThreadTargetingMode.pipe(
     Schema.withDecodingDefault(() => "unsupported" as const),
   ),

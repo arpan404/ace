@@ -347,6 +347,7 @@ function createSnapshotForTargetUser(options: {
                   sessionResumeMode: "native",
                   sessionForkMode: "native",
                   sideConversationMode: options.sideConversationMode,
+                  sideConversationCommands: [".side"],
                   providerThreadTargetingMode: "native",
                   goalControlMode: "native",
                   multiAgentMode: "native",

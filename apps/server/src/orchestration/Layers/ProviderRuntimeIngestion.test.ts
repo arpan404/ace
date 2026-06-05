@@ -425,6 +425,7 @@ describe("ProviderRuntimeIngestion", () => {
           provider_capabilities: {
             forkMode: "native",
             sideMode: "nativeFork",
+            sideCommands: [".side", "/btw", ".side"],
             threadTargeting: "native",
             resumeMode: "native",
             steeringMode: "queuedMessage",
@@ -447,6 +448,7 @@ describe("ProviderRuntimeIngestion", () => {
         entry.session?.providerName === "gemini" &&
         entry.session?.capabilities?.sessionForkMode === "native" &&
         entry.session?.capabilities?.sideConversationMode === "native-fork" &&
+        entry.session?.capabilities?.sideConversationCommands?.join(",") === ".side,/btw" &&
         entry.session?.capabilities?.providerThreadTargetingMode === "native" &&
         entry.session?.capabilities?.sessionResumeMode === "native" &&
         entry.session?.capabilities?.turnSteeringMode === "queued-message" &&
@@ -462,6 +464,7 @@ describe("ProviderRuntimeIngestion", () => {
 
     expect(thread.session?.capabilities?.sessionForkMode).toBe("native");
     expect(thread.session?.capabilities?.sideConversationMode).toBe("native-fork");
+    expect(thread.session?.capabilities?.sideConversationCommands).toEqual([".side", "/btw"]);
     expect(thread.session?.capabilities?.providerThreadTargetingMode).toBe("native");
     expect(thread.session?.capabilities?.sessionResumeMode).toBe("native");
     expect(thread.session?.capabilities?.turnSteeringMode).toBe("queued-message");

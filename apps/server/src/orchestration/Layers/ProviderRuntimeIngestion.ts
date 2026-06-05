@@ -344,6 +344,28 @@ function providerCapabilitiesFromSessionConfigured(
     hasProviderCapabilityMethod(methodContainers, "side-conversation")
       ? "native-fork"
       : undefined);
+  const sideConversationCommands = normalizeProviderCapabilityStringList(
+    capabilities.sideConversationCommands,
+    capabilities.side_conversation_commands,
+    capabilities.sideCommands,
+    capabilities.side_commands,
+    capabilities.sideChatCommands,
+    capabilities.side_chat_commands,
+    capabilities.sideConversationAliases,
+    capabilities.side_conversation_aliases,
+    capabilities.sideAliases,
+    capabilities.side_aliases,
+    sessionCapabilities?.sideConversationCommands,
+    sessionCapabilities?.sideCommands,
+    sessionCapabilities?.sideChatCommands,
+    sessionCapabilities?.sideConversationAliases,
+    session?.sideConversationCommands,
+    session?.sideCommands,
+    session?.sideChatCommands,
+    sessions?.sideConversationCommands,
+    sessions?.sideCommands,
+    sessions?.sideChatCommands,
+  );
   const providerThreadTargetingMode =
     normalizeProviderCapabilityMode(
       "native",
@@ -809,6 +831,7 @@ function providerCapabilitiesFromSessionConfigured(
     turnSteeringMode?: ProviderIntegrationCapabilities["turnSteeringMode"];
     goalControlMode?: ProviderIntegrationCapabilities["goalControlMode"];
     multiAgentMode?: ProviderIntegrationCapabilities["multiAgentMode"];
+    sideConversationCommands?: ProviderIntegrationCapabilities["sideConversationCommands"];
     hookMode?: ProviderIntegrationCapabilities["hookMode"];
     extensionMode?: ProviderIntegrationCapabilities["extensionMode"];
     mcpMode?: ProviderIntegrationCapabilities["mcpMode"];
@@ -826,6 +849,9 @@ function providerCapabilitiesFromSessionConfigured(
     sideConversationMode === "unsupported"
   ) {
     overrides.sideConversationMode = sideConversationMode;
+  }
+  if (sideConversationCommands.length > 0) {
+    overrides.sideConversationCommands = sideConversationCommands;
   }
   if (providerThreadTargetingMode === "native" || providerThreadTargetingMode === "unsupported") {
     overrides.providerThreadTargetingMode = providerThreadTargetingMode;
@@ -1528,6 +1554,42 @@ function normalizeProviderCapabilityMode(
     }
   }
   return undefined;
+}
+
+function normalizeProviderCapabilityStringList(...values: ReadonlyArray<unknown>): string[] {
+  const commands: string[] = [];
+  const seen = new Set<string>();
+  const append = (value: unknown): void => {
+    const direct = asNonEmptyString(value);
+    if (direct) {
+      const normalized = direct.trim();
+      const key = normalized.toLowerCase();
+      if (!seen.has(key)) {
+        seen.add(key);
+        commands.push(normalized);
+      }
+      return;
+    }
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        append(item);
+      }
+      return;
+    }
+    const record = asRecord(value);
+    if (!record) {
+      return;
+    }
+    append(record.commands);
+    append(record.commandAliases);
+    append(record.command_aliases);
+    append(record.aliases);
+    append(record.values);
+  };
+  for (const value of values) {
+    append(value);
+  }
+  return commands;
 }
 
 function normalizeProviderCapabilityValue(value: unknown, enabledMode: string): string | undefined {

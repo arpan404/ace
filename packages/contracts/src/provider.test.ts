@@ -271,6 +271,7 @@ describe("ProviderIntegrationCapabilities", () => {
     });
 
     expect(parsed.sideConversationMode).toBe("replay-fork");
+    expect(parsed.sideConversationCommands).toEqual([]);
     expect(parsed.providerThreadTargetingMode).toBe("unsupported");
     expect(parsed.goalControlMode).toBe("unsupported");
     expect(parsed.multiAgentMode).toBe("unsupported");
@@ -292,6 +293,7 @@ describe("ProviderIntegrationCapabilities", () => {
       turnSteeringMode: "queued-message",
       transcriptAuthority: "local",
       sessionResumeMode: "local-replay",
+      sideConversationCommands: ["/btw", ".side"],
       hookMode: "native",
       extensionMode: "local-discovery",
       mcpMode: "native",
@@ -300,6 +302,7 @@ describe("ProviderIntegrationCapabilities", () => {
       hostedSessionMode: "local-bridge",
     });
 
+    expect(parsed.sideConversationCommands).toEqual(["/btw", ".side"]);
     expect(parsed.hookMode).toBe("native");
     expect(parsed.extensionMode).toBe("local-discovery");
     expect(parsed.mcpMode).toBe("native");

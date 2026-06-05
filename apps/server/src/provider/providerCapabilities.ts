@@ -16,6 +16,7 @@ const PROVIDER_INTEGRATION_CAPABILITIES: Record<ProviderKind, ProviderIntegratio
     sessionResumeMode: "native",
     sessionForkMode: "native",
     sideConversationMode: "native-fork",
+    sideConversationCommands: [".side"],
     providerThreadTargetingMode: "native",
     goalControlMode: "native",
     multiAgentMode: "native",
@@ -39,6 +40,7 @@ const PROVIDER_INTEGRATION_CAPABILITIES: Record<ProviderKind, ProviderIntegratio
     sessionResumeMode: "native",
     sessionForkMode: "native",
     sideConversationMode: "native-fork",
+    sideConversationCommands: ["/btw"],
     providerThreadTargetingMode: "unsupported",
     goalControlMode: "unsupported",
     multiAgentMode: "native",
@@ -62,6 +64,7 @@ const PROVIDER_INTEGRATION_CAPABILITIES: Record<ProviderKind, ProviderIntegratio
     sessionResumeMode: "local-replay",
     sessionForkMode: "local-replay",
     sideConversationMode: "replay-fork",
+    sideConversationCommands: [],
     providerThreadTargetingMode: "unsupported",
     goalControlMode: "unsupported",
     multiAgentMode: "native",
@@ -85,6 +88,7 @@ const PROVIDER_INTEGRATION_CAPABILITIES: Record<ProviderKind, ProviderIntegratio
     sessionResumeMode: "local-replay",
     sessionForkMode: "local-replay",
     sideConversationMode: "replay-fork",
+    sideConversationCommands: [],
     providerThreadTargetingMode: "unsupported",
     goalControlMode: "unsupported",
     multiAgentMode: "agent-command",
@@ -108,6 +112,7 @@ const PROVIDER_INTEGRATION_CAPABILITIES: Record<ProviderKind, ProviderIntegratio
     sessionResumeMode: "local-replay",
     sessionForkMode: "local-replay",
     sideConversationMode: "replay-fork",
+    sideConversationCommands: [],
     providerThreadTargetingMode: "unsupported",
     goalControlMode: "unsupported",
     multiAgentMode: "agent-command",
@@ -131,6 +136,7 @@ const PROVIDER_INTEGRATION_CAPABILITIES: Record<ProviderKind, ProviderIntegratio
     sessionResumeMode: "native",
     sessionForkMode: "local-replay",
     sideConversationMode: "replay-fork",
+    sideConversationCommands: [],
     providerThreadTargetingMode: "unsupported",
     goalControlMode: "unsupported",
     multiAgentMode: "native",
@@ -154,6 +160,7 @@ const PROVIDER_INTEGRATION_CAPABILITIES: Record<ProviderKind, ProviderIntegratio
     sessionResumeMode: "local-replay",
     sessionForkMode: "local-replay",
     sideConversationMode: "replay-fork",
+    sideConversationCommands: [],
     providerThreadTargetingMode: "native",
     goalControlMode: "unsupported",
     multiAgentMode: "native",
@@ -186,5 +193,7 @@ export function resolveProviderIntegrationCapabilities(
     sessionModelSwitch: capabilities.sessionModelSwitch ?? defaults.sessionModelSwitch,
     sessionModelOptionsSwitch:
       capabilities.sessionModelOptionsSwitch ?? defaults.sessionModelOptionsSwitch,
+    sideConversationCommands:
+      capabilities.sideConversationCommands ?? defaults.sideConversationCommands,
   };
 }

@@ -390,6 +390,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
               sessionResumeMode: "native",
               sessionForkMode: "native",
               sideConversationMode: "native-fork",
+              sideConversationCommands: [".side"],
               goalControlMode: "native",
               multiAgentMode: "native",
               hookMode: "native",
