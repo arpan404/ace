@@ -367,12 +367,14 @@ describe("acpCapabilities", () => {
         subagents: {
           invocationPrefixes: ["@", "@"],
           definitionPaths: [".cursor/agents/*.md"],
+          chatModeFilesLocations: [".github/chatmodes/*.md"],
         },
       },
       _meta: {
         capabilities: {
           agentInvocationPrefixes: ["/agent"],
           agentDefinitionPaths: ["~/.cursor/agents/*.md"],
+          agentFilesLocations: ["configured chat.agentFilesLocations"],
         },
       },
     };
@@ -380,7 +382,9 @@ describe("acpCapabilities", () => {
     expect(acpMultiAgentInvocationPrefixes(initializeResult)).toEqual(["@", "/agent"]);
     expect(acpMultiAgentDefinitionPaths(initializeResult)).toEqual([
       ".cursor/agents/*.md",
+      ".github/chatmodes/*.md",
       "~/.cursor/agents/*.md",
+      "configured chat.agentFilesLocations",
     ]);
   });
 });
