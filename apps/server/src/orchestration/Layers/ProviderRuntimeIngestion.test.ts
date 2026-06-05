@@ -6131,22 +6131,21 @@ describe("ProviderRuntimeIngestion", () => {
       },
     });
 
+    const expectedKinds = [
+      "auth.status",
+      "model.rerouted",
+      "config.warning",
+      "account.rate-limits.updated",
+    ];
     const thread = await waitForThread(harness.engine, (entry) =>
-      entry.activities.some(
-        (activity: ProviderRuntimeTestActivity) => activity.kind === "config.warning",
+      expectedKinds.every((kind) =>
+        entry.activities.some((activity: ProviderRuntimeTestActivity) => activity.kind === kind),
       ),
     );
 
     expect(
       thread.activities
-        .filter((activity: ProviderRuntimeTestActivity) =>
-          [
-            "auth.status",
-            "model.rerouted",
-            "config.warning",
-            "account.rate-limits.updated",
-          ].includes(activity.kind),
-        )
+        .filter((activity: ProviderRuntimeTestActivity) => expectedKinds.includes(activity.kind))
         .map((activity: ProviderRuntimeTestActivity) => ({
           kind: activity.kind,
           summary: activity.summary,
