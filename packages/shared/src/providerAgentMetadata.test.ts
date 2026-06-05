@@ -128,6 +128,42 @@ describe("providerAgentMetadata", () => {
     });
   });
 
+  it("normalizes provider telemetry agent identity attributes", () => {
+    expect(
+      providerAgentMetadataFromRecord({
+        attributes: {
+          "gen_ai.agent.id": "github.copilot.default.explore",
+          "gen_ai.agent.name": "Explore",
+          "gen_ai.agent.role": "subagent",
+          "gen_ai.agent.description": "Analyze codebase context without polluting main context.",
+          "gen_ai.request.model": "gpt-5-copilot",
+        },
+      }),
+    ).toEqual({
+      id: "github.copilot.default.explore",
+      type: "subagent",
+      name: "Explore",
+      model: "gpt-5-copilot",
+      description: "Analyze codebase context without polluting main context.",
+    });
+
+    expect(
+      mergeProviderAgentMetadata(
+        providerAgentLooseRecord({
+          attributes: {
+            "gen_ai.agent.id": "github.copilot.default.task",
+            "gen_ai.agent.name": "Task",
+            "gen_ai.agent.role": "subagent",
+          },
+        }),
+      ),
+    ).toEqual({
+      id: "github.copilot.default.task",
+      type: "subagent",
+      name: "Task",
+    });
+  });
+
   it("normalizes provider side-chat conversation id aliases", () => {
     expect(
       providerAgentMetadataFromRecord({

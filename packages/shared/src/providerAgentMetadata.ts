@@ -312,8 +312,11 @@ export function providerAgentMetadataFromRecord(
   if (!record) {
     return {};
   }
+  const attributes = asRecord(record.attributes) ?? asRecord(record.attribute);
   const id = firstTrimmedString(
     record.id,
+    record["gen_ai.agent.id"],
+    attributes?.["gen_ai.agent.id"],
     record.agentId,
     record.agent_id,
     record.taskId,
@@ -364,6 +367,8 @@ export function providerAgentMetadataFromRecord(
   );
   const parentId = firstTrimmedString(
     record.parentId,
+    record["gen_ai.agent.parent_id"],
+    attributes?.["gen_ai.agent.parent_id"],
     record.parent_id,
     record.parentAgentId,
     record.parent_agent_id,
@@ -388,6 +393,10 @@ export function providerAgentMetadataFromRecord(
   );
   const type = firstTrimmedString(
     record.type,
+    record["gen_ai.agent.type"],
+    attributes?.["gen_ai.agent.type"],
+    record["gen_ai.agent.role"],
+    attributes?.["gen_ai.agent.role"],
     record.role,
     record.agentRole,
     record.agent_role,
@@ -398,6 +407,10 @@ export function providerAgentMetadataFromRecord(
   );
   const name = firstTrimmedString(
     record.name,
+    record["gen_ai.agent.name"],
+    attributes?.["gen_ai.agent.name"],
+    record["gen_ai.agent.nickname"],
+    attributes?.["gen_ai.agent.nickname"],
     record.displayName,
     record.display_name,
     record.nickname,
@@ -410,10 +423,27 @@ export function providerAgentMetadataFromRecord(
     record.subagentName,
     record.subagent_name,
   );
-  const model = firstTrimmedString(record.model, record.modelId, record.model_id);
-  const description = firstTrimmedString(record.description, record.summary);
+  const model = firstTrimmedString(
+    record.model,
+    record["gen_ai.request.model"],
+    attributes?.["gen_ai.request.model"],
+    record["gen_ai.response.model"],
+    attributes?.["gen_ai.response.model"],
+    record.modelId,
+    record.model_id,
+  );
+  const description = firstTrimmedString(
+    record.description,
+    record["gen_ai.agent.description"],
+    attributes?.["gen_ai.agent.description"],
+    record.summary,
+  );
   const prompt = firstTrimmedString(
     record.prompt,
+    record["gen_ai.agent.prompt"],
+    attributes?.["gen_ai.agent.prompt"],
+    record["gen_ai.agent.instructions"],
+    attributes?.["gen_ai.agent.instructions"],
     record.instructions,
     record.instruction,
     record.message,
@@ -424,6 +454,8 @@ export function providerAgentMetadataFromRecord(
   );
   const transcriptPath = firstTrimmedString(
     record.transcriptPath,
+    record["gen_ai.agent.transcript_path"],
+    attributes?.["gen_ai.agent.transcript_path"],
     record.transcript_path,
     record.agentTranscriptPath,
     record.agent_transcript_path,
@@ -474,7 +506,20 @@ export function providerAgentLooseRecord(
     return undefined;
   }
   const loose: Record<string, unknown> = {};
+  const attributes = asRecord(record.attributes) ?? asRecord(record.attribute);
   for (const key of [
+    "gen_ai.agent.id",
+    "gen_ai.agent.parent_id",
+    "gen_ai.agent.type",
+    "gen_ai.agent.role",
+    "gen_ai.agent.name",
+    "gen_ai.agent.nickname",
+    "gen_ai.agent.description",
+    "gen_ai.agent.prompt",
+    "gen_ai.agent.instructions",
+    "gen_ai.agent.transcript_path",
+    "gen_ai.request.model",
+    "gen_ai.response.model",
     "agentId",
     "agent_id",
     "subagentId",
@@ -592,6 +637,8 @@ export function providerAgentLooseRecord(
   ]) {
     if (record[key] !== undefined) {
       loose[key] = record[key];
+    } else if (attributes?.[key] !== undefined) {
+      loose[key] = attributes[key];
     }
   }
   return Object.keys(loose).length > 0 ? loose : undefined;

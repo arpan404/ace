@@ -1759,6 +1759,40 @@ describe("deriveWorkLogEntries", () => {
     });
   });
 
+  it("derives provider subagent metadata from telemetry attributes", () => {
+    const entries = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "provider-telemetry-subagent-response",
+          turnId: "turn-provider-telemetry-subagent",
+          kind: "task.progress",
+          summary: "Telemetry subagent response",
+          payload: {
+            itemType: "assistant_message",
+            detail: "Telemetry agent result.",
+            attributes: {
+              "gen_ai.agent.id": "github.copilot.default.explore",
+              "gen_ai.agent.name": "Explore",
+              "gen_ai.agent.role": "subagent",
+              "gen_ai.request.model": "gpt-5-copilot",
+            },
+          },
+        }),
+      ],
+      undefined,
+    );
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      subagentId: "github.copilot.default.explore",
+      subagentType: "subagent",
+      subagentName: "Explore",
+      subagentModel: "gpt-5-copilot",
+      sideChatMessageRole: "assistant",
+      sideChatMessageText: "Telemetry agent result.",
+    });
+  });
+
   it("derives provider side-chat ids from side conversation aliases", () => {
     const entries = deriveWorkLogEntries(
       [
