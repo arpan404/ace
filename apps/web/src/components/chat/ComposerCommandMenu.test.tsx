@@ -57,6 +57,34 @@ describe("ComposerCommandMenu", () => {
     expect(html).toContain("Agent");
   });
 
+  it("renders provider command metadata badges", () => {
+    const html = renderToStaticMarkup(
+      <ComposerCommandMenu
+        items={[
+          {
+            id: "provider-slash:skill:claude-project",
+            type: "provider-command",
+            command: "claude-project",
+            commandKind: "skill",
+            label: "Claude Project",
+            description: "Skill - [target] [format]",
+            metadataBadges: ["sonnet", "2 tools"],
+          },
+        ]}
+        resolvedTheme="dark"
+        isLoading={false}
+        triggerKind="slash-command"
+        activeItemId="provider-slash:skill:claude-project"
+        onHighlightedItemChange={vi.fn()}
+        onSelect={vi.fn()}
+      />,
+    );
+
+    expect(html).toContain("Claude Project");
+    expect(html).toContain("sonnet");
+    expect(html).toContain("2 tools");
+  });
+
   it("uses a generic empty state for slash commands", () => {
     const html = renderToStaticMarkup(
       <ComposerCommandMenu

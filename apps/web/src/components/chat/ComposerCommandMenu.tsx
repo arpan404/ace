@@ -32,6 +32,7 @@ export type ComposerCommandItem =
       commandKind: "provider" | "skill" | "plugin" | "agent";
       label: string;
       description: string;
+      metadataBadges?: string[];
     }
   | {
       id: string;
@@ -269,7 +270,19 @@ const ComposerCommandMenuItem = memo(function ComposerCommandMenuItem(props: {
         <HashIcon className="size-4 shrink-0 text-blue-400/90" />
       ) : null}
       <span className="grid min-w-0 flex-1 grid-cols-[max-content_minmax(0,1fr)] items-center gap-x-3 gap-y-0.5">
-        <span className="whitespace-nowrap">{props.item.label}</span>
+        <span className="flex min-w-0 items-center gap-1.5">
+          <span className="truncate whitespace-nowrap">{props.item.label}</span>
+          {props.item.type === "provider-command"
+            ? props.item.metadataBadges?.map((badge) => (
+                <span
+                  key={badge}
+                  className="max-w-24 shrink-0 truncate rounded border border-border/70 bg-muted/60 px-1.5 py-0 font-medium text-[10px] text-muted-foreground/75 uppercase leading-4"
+                >
+                  {badge}
+                </span>
+              ))
+            : null}
+        </span>
         <span className="min-w-0 truncate text-muted-foreground/70 text-xs">
           {props.item.description}
         </span>

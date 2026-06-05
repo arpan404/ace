@@ -1,4 +1,7 @@
 import { randomUUID } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import path from "node:path";
 
 import {
   DEFAULT_MODEL_BY_PROVIDER,
@@ -66,6 +69,7 @@ import {
   parseCursorAvailableCommands,
   parseCursorConfigOptions,
   parseCursorInitializeState,
+  parseCursorMcpServers,
   parseCursorSessionModeState,
   parseCursorSessionModelState,
 } from "./CursorAdapterSessionMetadata.ts";
@@ -99,6 +103,82 @@ import { asObject, asTrimmedNonEmptyString as asString } from "../unknown.ts";
 const PROVIDER = "cursor" as const;
 const ACP_CONTROL_TIMEOUT_MS = 15_000;
 const ROLLBACK_BOOTSTRAP_MAX_CHARS = 24_000;
+
+function safeParseJsonRecord(file: string): Record<string, unknown> | null {
+  try {
+    const raw = readFileSync(file, "utf8");
+    const parsed = JSON.parse(raw) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function cursorAncestorDirsUntilGitRoot(cwd: string | undefined): string[] {
+  const start = cwd?.trim();
+  if (!start) {
+    return [];
+  }
+  const dirs: string[] = [];
+  let current = path.resolve(start);
+  while (true) {
+    dirs.push(current);
+    if (existsSync(path.join(current, ".git"))) {
+      break;
+    }
+    const parent = path.dirname(current);
+    if (parent === current) {
+      break;
+    }
+    current = parent;
+  }
+  return dirs;
+}
+
+function uniqueCursorPaths(paths: ReadonlyArray<string | null | undefined>): string[] {
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const candidate of paths) {
+    const normalized = candidate?.trim();
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    unique.push(normalized);
+  }
+  return unique;
+}
+
+function cursorMcpConfigFiles(input: {
+  readonly cwd?: string | undefined;
+  readonly configDir?: string | undefined;
+}): string[] {
+  const cursorHome = input.configDir?.trim() || path.join(homedir(), ".cursor");
+  const projectRoots = cursorAncestorDirsUntilGitRoot(input.cwd).toReversed();
+  return uniqueCursorPaths([
+    path.join(cursorHome, "mcp.json"),
+    ...projectRoots.flatMap((root) => [
+      path.join(root, ".cursor", "mcp.json"),
+      path.join(root, ".vscode", "mcp.json"),
+      path.join(root, ".mcp.json"),
+    ]),
+  ]);
+}
+
+function discoverCursorMcpServers(input: {
+  readonly cwd?: string | undefined;
+  readonly configDir?: string | undefined;
+}) {
+  const byName = new Map<string, ReturnType<typeof parseCursorMcpServers>[number]>();
+  for (const file of cursorMcpConfigFiles(input)) {
+    for (const server of parseCursorMcpServers(safeParseJsonRecord(file))) {
+      byName.set(server.name, server);
+    }
+  }
+  return [...byName.values()];
+}
 
 type CursorResumeCursor = {
   readonly sessionId: string;
@@ -632,6 +712,35 @@ export const CursorAdapterLive = Layer.effect(
         });
       }
       return sessionId;
+    };
+
+    const closeCursorProviderSession = async (
+      context: CursorSessionContext,
+      phase: string,
+    ): Promise<void> => {
+      if (!context.metadata.initialize.agentCapabilities.closeSession) {
+        return;
+      }
+      const sessionId = readResumeSessionId(context.session.resumeCursor);
+      if (!sessionId) {
+        return;
+      }
+      try {
+        await context.client.request(
+          "session/close",
+          { sessionId },
+          { timeoutMs: ACP_CONTROL_TIMEOUT_MS },
+        );
+      } catch (cause) {
+        await runPromise(
+          Effect.logWarning("cursor native session close failed; closing client anyway", {
+            threadId: context.session.threadId,
+            sessionId,
+            phase,
+            cause: describeCursorAdapterCause(cause),
+          }),
+        );
+      }
     };
 
     const currentCursorModeId = (context: CursorSessionContext) =>
@@ -1885,6 +1994,10 @@ export const CursorAdapterLive = Layer.effect(
           );
           const selectedModel = resolveSelectedModel(input.modelSelection);
           const cwd = input.cwd ?? serverConfig.cwd;
+          const configuredMcpServers = discoverCursorMcpServers({
+            cwd,
+            configDir: cursorSettings.configDir,
+          });
           const extensionCommands = discoverProviderExtensionSlashCommands({
             provider: PROVIDER,
             cwd,
@@ -2011,18 +2124,27 @@ export const CursorAdapterLive = Layer.effect(
               const canForkSession =
                 forkSourceSessionId !== undefined &&
                 context.metadata.initialize.agentCapabilities.forkSession;
+              const canResumeSession =
+                resumeSessionId !== undefined &&
+                context.metadata.initialize.agentCapabilities.resumeSession;
               const canLoadSession =
                 resumeSessionId !== undefined &&
                 context.metadata.initialize.agentCapabilities.loadSession;
               const newSessionParams = {
                 cwd,
-                mcpServers: [],
+                mcpServers: configuredMcpServers,
               };
-              let sessionMethod: "session/fork" | "session/load" | "session/new" = canForkSession
+              let sessionMethod:
+                | "session/fork"
+                | "session/resume"
+                | "session/load"
+                | "session/new" = canForkSession
                 ? "session/fork"
-                : canLoadSession
-                  ? "session/load"
-                  : "session/new";
+                : canResumeSession
+                  ? "session/resume"
+                  : canLoadSession
+                    ? "session/load"
+                    : "session/new";
               let sessionResult: Record<string, unknown> | undefined;
 
               if (canForkSession) {
@@ -2048,6 +2170,29 @@ export const CursorAdapterLive = Layer.effect(
                       },
                     ),
                   );
+                  sessionMethod = "session/new";
+                  sessionResult = asObject(
+                    await client.request("session/new", newSessionParams, {
+                      timeoutMs: ACP_CONTROL_TIMEOUT_MS,
+                    }),
+                  );
+                }
+              } else if (canResumeSession) {
+                try {
+                  sessionResult = asObject(
+                    await client.request(
+                      "session/resume",
+                      {
+                        ...newSessionParams,
+                        sessionId: resumeSessionId,
+                      },
+                      { timeoutMs: ACP_CONTROL_TIMEOUT_MS },
+                    ),
+                  );
+                } catch (cause) {
+                  if (!isMissingCursorSessionError(cause)) {
+                    throw cause;
+                  }
                   sessionMethod = "session/new";
                   sessionResult = asObject(
                     await client.request("session/new", newSessionParams, {
@@ -2087,7 +2232,9 @@ export const CursorAdapterLive = Layer.effect(
               }
               const sessionId =
                 asString(sessionResult?.sessionId) ??
-                (sessionMethod === "session/load" ? resumeSessionId : undefined);
+                (sessionMethod === "session/resume" || sessionMethod === "session/load"
+                  ? resumeSessionId
+                  : undefined);
               if (!sessionId) {
                 throw new ProviderAdapterRequestError({
                   provider: PROVIDER,
@@ -2114,6 +2261,7 @@ export const CursorAdapterLive = Layer.effect(
                   sessionResult,
                   context.extensionCommands,
                 ),
+                mcpServers: configuredMcpServers,
               });
               if (input.modelSelection?.provider === PROVIDER) {
                 await syncCursorModelSelection(context, input.modelSelection);
@@ -2124,6 +2272,25 @@ export const CursorAdapterLive = Layer.effect(
                 rawPayload: sessionResult,
                 rawSource: "cursor.acp.request",
               });
+              if (configuredMcpServers.length > 0) {
+                emit({
+                  ...baseEvent(context, {
+                    rawMethod: "cursor.mcp.config",
+                    rawPayload: { mcpServers: configuredMcpServers },
+                    rawSource: "cursor.acp.request",
+                  }),
+                  type: "mcp.status.updated",
+                  payload: {
+                    status: {
+                      provider: PROVIDER,
+                      mcpServers: configuredMcpServers.map((server) => ({
+                        ...server,
+                        status: "configured",
+                      })),
+                    },
+                  },
+                });
+              }
 
               emit({
                 ...baseEvent(context),
@@ -2544,6 +2711,7 @@ export const CursorAdapterLive = Layer.effect(
             });
           }
           context.stopping = true;
+          await closeCursorProviderSession(context, "stopSession");
           await context.client.close();
           sessions.delete(threadId);
         },
@@ -2685,6 +2853,7 @@ export const CursorAdapterLive = Layer.effect(
           Array.from(sessions.entries()).map(async ([threadId, context]) => {
             context.stopping = true;
             sessions.delete(threadId);
+            await closeCursorProviderSession(context, "stopAll");
             await context.client.close();
           }),
         ).then(() => undefined),

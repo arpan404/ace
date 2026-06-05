@@ -56,9 +56,11 @@ export interface WorkLogEntry {
   itemType?: ToolLifecycleItemType;
   requestKind?: PendingApproval["requestKind"];
   subagentId?: string;
+  subagentParentId?: string;
   subagentType?: string;
   subagentName?: string;
   subagentModel?: string;
+  subagentTranscriptPath?: string;
   sideChatMessageId?: string;
   sideChatMessageRole?: "user" | "assistant";
   sideChatMessageText?: string;
@@ -106,6 +108,25 @@ export interface ActiveGoalState {
   tokenBudget?: number;
   tokensUsed?: number;
   timeUsedSeconds?: number;
+}
+
+export interface EnvironmentMcpStatus {
+  id: string;
+  createdAt: string;
+  name: string;
+  providerLabel?: string;
+  status: string;
+  tone: "info" | "error";
+  detail?: string;
+}
+
+export interface EnvironmentProviderStatus {
+  id: string;
+  createdAt: string;
+  label: string;
+  status: string;
+  tone: "info" | "warning" | "error";
+  detail?: string;
 }
 
 export interface LatestProposedPlanState {

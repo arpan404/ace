@@ -348,6 +348,14 @@ function createSnapshotForTargetUser(options: {
                   sessionForkMode: "native",
                   sideConversationMode: options.sideConversationMode,
                   providerThreadTargetingMode: "native",
+                  goalControlMode: "native",
+                  multiAgentMode: "native",
+                  hookMode: "native",
+                  extensionMode: "native",
+                  mcpMode: "native",
+                  remoteAgentMode: "native",
+                  webAccessMode: "native",
+                  hostedSessionMode: "native",
                 },
               }
             : {}),
@@ -3301,6 +3309,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
           expect(sideDraft?.terminalContexts.map((context) => context.id)).toEqual([
             "ctx-side-transfer",
           ]);
+          expect(
+            [...document.querySelectorAll<HTMLButtonElement>('button[aria-pressed="true"]')].some(
+              (button) => button.textContent?.includes("New side chat"),
+            ),
+          ).toBe(true);
         },
         { timeout: 8_000, interval: 16 },
       );

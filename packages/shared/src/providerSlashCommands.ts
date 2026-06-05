@@ -9,6 +9,7 @@ export function providerSkillSlashCommand(input: {
   readonly description?: string | undefined;
   readonly promptPrefix?: string | undefined;
   readonly inputHint?: string | undefined;
+  readonly metadata?: Record<string, unknown> | undefined;
 }): ProviderSlashCommand {
   return {
     name: input.name,
@@ -16,6 +17,7 @@ export function providerSkillSlashCommand(input: {
     promptPrefix: input.promptPrefix ?? `$${input.name}`,
     ...(input.description ? { description: input.description } : {}),
     ...(input.inputHint ? { inputHint: input.inputHint } : {}),
+    ...(input.metadata ? { metadata: input.metadata } : {}),
   };
 }
 
@@ -24,6 +26,7 @@ export function providerPluginSlashCommand(input: {
   readonly description?: string | undefined;
   readonly promptPrefix?: string | undefined;
   readonly inputHint?: string | undefined;
+  readonly metadata?: Record<string, unknown> | undefined;
 }): ProviderSlashCommand {
   return {
     name: input.name,
@@ -31,6 +34,7 @@ export function providerPluginSlashCommand(input: {
     promptPrefix: input.promptPrefix ?? `@${input.name}`,
     ...(input.description ? { description: input.description } : {}),
     ...(input.inputHint ? { inputHint: input.inputHint } : {}),
+    ...(input.metadata ? { metadata: input.metadata } : {}),
   };
 }
 
@@ -39,6 +43,7 @@ export function providerAgentSlashCommand(input: {
   readonly description?: string | undefined;
   readonly promptPrefix?: string | undefined;
   readonly inputHint?: string | undefined;
+  readonly metadata?: Record<string, unknown> | undefined;
 }): ProviderSlashCommand {
   return {
     name: input.name,
@@ -46,6 +51,7 @@ export function providerAgentSlashCommand(input: {
     promptPrefix: input.promptPrefix ?? `@${input.name}`,
     ...(input.description ? { description: input.description } : {}),
     ...(input.inputHint ? { inputHint: input.inputHint } : {}),
+    ...(input.metadata ? { metadata: input.metadata } : {}),
   };
 }
 
@@ -68,8 +74,8 @@ export function normalizeProviderSlashCommandName(value: string): string | null 
 }
 
 export function isProviderSideConversationAlias(value: string): boolean {
-  const name = normalizeProviderSlashCommandName(value)?.toLowerCase();
-  return name === "side" || name === "btw" || name === "ask";
+  const name = normalizeProviderSlashCommandName(value)?.replace(/^\.+/, "").toLowerCase();
+  return name === "side" || name === "btw";
 }
 
 export function providerSlashCommandExtensionKind(
@@ -197,6 +203,7 @@ export function mergeProviderSlashCommands(
         ...(candidate.inputHint?.trim() ? { inputHint: candidate.inputHint.trim() } : {}),
         ...(kind ? { kind } : {}),
         ...(promptPrefix ? { promptPrefix } : {}),
+        ...(candidate.metadata ? { metadata: candidate.metadata } : {}),
       });
     }
   }

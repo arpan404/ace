@@ -4,7 +4,11 @@ import {
   asTrimmedNonEmptyString as asString,
 } from "../unknown.ts";
 import type { ProviderSlashCommand } from "@ace/contracts";
-import { hasAcpSessionForkCapability } from "../acpCapabilities.ts";
+import {
+  hasAcpSessionCloseCapability,
+  hasAcpSessionForkCapability,
+  hasAcpSessionResumeCapability,
+} from "../acpCapabilities.ts";
 
 export type CursorPromptCapabilities = {
   readonly image: boolean;
@@ -34,6 +38,8 @@ export type CursorInitializeState = {
   readonly protocolVersion?: number;
   readonly agentCapabilities: {
     readonly loadSession: boolean;
+    readonly resumeSession: boolean;
+    readonly closeSession: boolean;
     readonly forkSession: boolean;
     readonly promptCapabilities: CursorPromptCapabilities;
   };
@@ -78,12 +84,24 @@ export type CursorSessionConfigOption = {
 
 export type CursorAvailableCommand = ProviderSlashCommand;
 
+export type CursorMcpServer = {
+  readonly name: string;
+  readonly type?: "stdio" | "http" | "sse";
+  readonly command?: string;
+  readonly args?: ReadonlyArray<string>;
+  readonly url?: string;
+  readonly tools?: ReadonlyArray<string>;
+  readonly env?: Record<string, string>;
+  readonly headers?: Record<string, string>;
+};
+
 export type CursorSessionMetadata = {
   readonly initialize: CursorInitializeState;
   readonly configOptions: ReadonlyArray<CursorSessionConfigOption>;
   readonly modes?: CursorSessionModeState;
   readonly models?: CursorSessionModelState;
   readonly availableCommands: ReadonlyArray<CursorAvailableCommand>;
+  readonly mcpServers: ReadonlyArray<CursorMcpServer>;
   readonly defaultModeId?: string;
 };
 
@@ -96,6 +114,8 @@ export const EMPTY_CURSOR_PROMPT_CAPABILITIES: CursorPromptCapabilities = {
 export const EMPTY_CURSOR_INITIALIZE_STATE: CursorInitializeState = {
   agentCapabilities: {
     loadSession: false,
+    resumeSession: false,
+    closeSession: false,
     forkSession: false,
     promptCapabilities: EMPTY_CURSOR_PROMPT_CAPABILITIES,
   },
@@ -106,6 +126,7 @@ export const EMPTY_CURSOR_SESSION_METADATA: CursorSessionMetadata = {
   initialize: EMPTY_CURSOR_INITIALIZE_STATE,
   configOptions: [],
   availableCommands: [],
+  mcpServers: [],
 };
 
 function sanitizeCursorDisplayLabel(value: string): string {
@@ -175,6 +196,8 @@ export function parseCursorInitializeState(value: unknown): CursorInitializeStat
       : {}),
     agentCapabilities: {
       loadSession: agentCapabilities?.loadSession === true,
+      resumeSession: hasAcpSessionResumeCapability(value),
+      closeSession: hasAcpSessionCloseCapability(value),
       forkSession: hasAcpSessionForkCapability(value),
       promptCapabilities: parseCursorPromptCapabilities(agentCapabilities?.promptCapabilities),
     },
@@ -184,7 +207,8 @@ export function parseCursorInitializeState(value: unknown): CursorInitializeStat
 
 export function parseCursorSessionModeState(value: unknown): CursorSessionModeState | undefined {
   const record = asObject(value);
-  const availableModesRaw = asArray(record?.availableModes);
+  const availableModesRaw =
+    asArray(record?.availableModes) ?? asArray(record?.available_modes) ?? asArray(record?.modes);
   const availableModes: Array<CursorSessionModeDefinition> = [];
   if (availableModesRaw) {
     for (const mode of availableModesRaw) {
@@ -192,12 +216,17 @@ export function parseCursorSessionModeState(value: unknown): CursorSessionModeSt
       if (!entry) {
         continue;
       }
-      const id = asString(entry.id);
+      const id =
+        asString(entry.id) ??
+        asString(entry.modeId) ??
+        asString(entry.mode_id) ??
+        asString(entry.value) ??
+        asString(entry.mode);
       if (!id) {
         continue;
       }
       const normalized: { id: string; name?: string; description?: string } = { id };
-      const name = asString(entry.name);
+      const name = asString(entry.name) ?? asString(entry.label) ?? asString(entry.title);
       if (name) {
         normalized.name = name;
       }
@@ -208,7 +237,12 @@ export function parseCursorSessionModeState(value: unknown): CursorSessionModeSt
       availableModes.push(normalized);
     }
   }
-  const currentModeId = asString(record?.currentModeId);
+  const currentModeId =
+    asString(record?.currentModeId) ??
+    asString(record?.current_mode_id) ??
+    asString(record?.modeId) ??
+    asString(record?.mode_id) ??
+    asString(record?.mode);
   if (!currentModeId && availableModes.length === 0) {
     return undefined;
   }
@@ -220,7 +254,10 @@ export function parseCursorSessionModeState(value: unknown): CursorSessionModeSt
 
 export function parseCursorSessionModelState(value: unknown): CursorSessionModelState | undefined {
   const record = asObject(value);
-  const availableModelsRaw = asArray(record?.availableModels);
+  const availableModelsRaw =
+    asArray(record?.availableModels) ??
+    asArray(record?.available_models) ??
+    asArray(record?.models);
   const availableModels: Array<CursorSessionModelDefinition> = [];
   if (availableModelsRaw) {
     for (const model of availableModelsRaw) {
@@ -228,19 +265,29 @@ export function parseCursorSessionModelState(value: unknown): CursorSessionModel
       if (!entry) {
         continue;
       }
-      const modelId = asString(entry.modelId);
+      const modelId =
+        asString(entry.modelId) ??
+        asString(entry.model_id) ??
+        asString(entry.id) ??
+        asString(entry.value) ??
+        asString(entry.model);
       if (!modelId) {
         continue;
       }
       const normalized: { modelId: string; name?: string } = { modelId };
-      const name = asString(entry.name);
+      const name = asString(entry.name) ?? asString(entry.label) ?? asString(entry.title);
       if (name) {
         normalized.name = sanitizeCursorDisplayLabel(name);
       }
       availableModels.push(normalized);
     }
   }
-  const currentModelId = asString(record?.currentModelId);
+  const currentModelId =
+    asString(record?.currentModelId) ??
+    asString(record?.current_model_id) ??
+    asString(record?.modelId) ??
+    asString(record?.model_id) ??
+    asString(record?.model);
   if (!currentModelId && availableModels.length === 0) {
     return undefined;
   }
@@ -372,6 +419,73 @@ export function parseCursorAvailableCommands(
   return parsed;
 }
 
+function parseCursorStringArray(value: unknown): ReadonlyArray<string> | undefined {
+  const values = asArray(value)
+    ?.map((entry) => asString(entry))
+    .filter((entry): entry is string => entry !== undefined);
+  return values && values.length > 0 ? values : undefined;
+}
+
+function parseCursorStringRecord(value: unknown): Record<string, string> | undefined {
+  const record = asObject(value);
+  if (!record) {
+    return undefined;
+  }
+  const normalized: Record<string, string> = {};
+  for (const [key, rawValue] of Object.entries(record)) {
+    const name = key.trim();
+    const stringValue = asString(rawValue);
+    if (name && stringValue) {
+      normalized[name] = stringValue;
+    }
+  }
+  return Object.keys(normalized).length > 0 ? normalized : undefined;
+}
+
+function parseCursorMcpServer(name: string, value: unknown): CursorMcpServer | null {
+  const serverName = asString(name);
+  const record = asObject(value);
+  if (!serverName || !record) {
+    return null;
+  }
+  const command = asString(record.command);
+  const url = asString(record.url) ?? asString(record.httpUrl) ?? asString(record.http_url);
+  if (!command && !url) {
+    return null;
+  }
+  const explicitType = asString(record.type)?.toLowerCase();
+  const normalized: CursorMcpServer = {
+    name: serverName,
+    ...(explicitType === "http" || explicitType === "sse" || explicitType === "stdio"
+      ? { type: explicitType }
+      : command
+        ? { type: "stdio" as const }
+        : {}),
+    ...(command ? { command } : {}),
+    ...(url ? { url } : {}),
+    ...(parseCursorStringArray(record.args) ? { args: parseCursorStringArray(record.args)! } : {}),
+    ...(parseCursorStringArray(record.tools)
+      ? { tools: parseCursorStringArray(record.tools)! }
+      : {}),
+    ...(parseCursorStringRecord(record.env) ? { env: parseCursorStringRecord(record.env)! } : {}),
+    ...(parseCursorStringRecord(record.headers)
+      ? { headers: parseCursorStringRecord(record.headers)! }
+      : {}),
+  };
+  return normalized;
+}
+
+export function parseCursorMcpServers(value: unknown): ReadonlyArray<CursorMcpServer> {
+  const record = asObject(value);
+  const container = asObject(record?.mcpServers) ?? asObject(record?.mcp_servers) ?? record;
+  if (!container) {
+    return [];
+  }
+  return Object.entries(container)
+    .map(([name, server]) => parseCursorMcpServer(name, server))
+    .filter((server): server is CursorMcpServer => server !== null);
+}
+
 export function findCursorConfigOption(
   configOptions: ReadonlyArray<CursorSessionConfigOption>,
   input: { readonly category?: string; readonly id?: string },
@@ -475,6 +589,7 @@ export function buildCursorSessionMetadata(input: {
   readonly modes?: CursorSessionModeState | undefined;
   readonly models?: CursorSessionModelState | undefined;
   readonly availableCommands?: ReadonlyArray<CursorAvailableCommand> | undefined;
+  readonly mcpServers?: ReadonlyArray<CursorMcpServer> | undefined;
   readonly currentModeId?: string | undefined;
   readonly currentModelId?: string | undefined;
 }): CursorSessionMetadata {
@@ -538,20 +653,26 @@ export function buildCursorSessionMetadata(input: {
     ...(modes ? { modes } : {}),
     ...(models ? { models } : {}),
     availableCommands: input.availableCommands ?? previous.availableCommands,
+    mcpServers: input.mcpServers ?? previous.mcpServers,
     ...(defaultModeId ? { defaultModeId } : {}),
   };
 }
 
 function cursorProviderCapabilities(metadata: CursorSessionMetadata) {
-  return metadata.initialize.agentCapabilities.forkSession
-    ? {
-        sessionForkMode: "native" as const,
-        sideConversationMode: "native-fork" as const,
-      }
-    : {
-        sessionForkMode: "local-replay" as const,
-        sideConversationMode: "replay-fork" as const,
-      };
+  return {
+    sessionResumeMode: metadata.initialize.agentCapabilities.resumeSession
+      ? ("native" as const)
+      : ("local-replay" as const),
+    ...(metadata.initialize.agentCapabilities.forkSession
+      ? {
+          sessionForkMode: "native" as const,
+          sideConversationMode: "native-fork" as const,
+        }
+      : {
+          sessionForkMode: "local-replay" as const,
+          sideConversationMode: "replay-fork" as const,
+        }),
+  };
 }
 
 export function cursorSessionMetadataSnapshot(
@@ -566,6 +687,7 @@ export function cursorSessionMetadataSnapshot(
     ...(metadata.availableCommands.length > 0
       ? { availableCommands: metadata.availableCommands }
       : {}),
+    ...(metadata.mcpServers.length > 0 ? { mcpServers: metadata.mcpServers } : {}),
     ...(metadata.defaultModeId ? { defaultModeId: metadata.defaultModeId } : {}),
   };
 }

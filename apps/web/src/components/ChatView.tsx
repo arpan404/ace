@@ -83,6 +83,9 @@ import {
   deriveActiveWorkStartedAt,
   deriveVisibleWorkTurnId,
   deriveActiveGoalState,
+  deriveEnvironmentMcpStatuses,
+  deriveEnvironmentProviderStatuses,
+  deriveEnvironmentSessionProviderStatuses,
   deriveActivePlanState,
   deriveLatestGeneratedWorkspaceSummary,
   findSidebarProposedPlan,
@@ -205,6 +208,11 @@ import {
   deriveThreadActivityRenderState,
   deriveThreadTimelineRenderState,
 } from "~/lib/chat/threadRenderState";
+import {
+  NEW_SIDE_CHAT_DRAFT_RUNTIME_MODE,
+  NEW_SIDE_CHAT_THREAD_ID,
+  newSideChatDraftThreadId,
+} from "~/lib/chat/sideChatDraft";
 import { THREAD_ROUTE_CONNECTION_SEARCH_PARAM } from "../lib/connectionRouting";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
 import {
@@ -482,7 +490,6 @@ const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnsw
 const EMPTY_QUEUED_COMPOSER_MESSAGES: Thread["queuedComposerMessages"] = [];
 const EMPTY_COMPOSER_MODEL_SELECTIONS: ModelSelectionByProvider = Object.freeze({});
 const EMPTY_PENDING_COMPOSER_COMMENTS: readonly PendingComposerComment[] = Object.freeze([]);
-const NEW_SIDE_CHAT_THREAD_ID = "__ace_new_side_chat__";
 const THREAD_SWITCH_SCROLL_SETTLE_DELAY_MS = 96;
 
 const SCRIPT_TERMINAL_COLS = 120;
@@ -2789,6 +2796,19 @@ function useChatViewComponent({
     [activeWorkTurnId, threadActivities],
   );
   const activeGoal = useMemo(() => deriveActiveGoalState(threadActivities), [threadActivities]);
+  const activeGoalControlsSupported =
+    activeThread?.session?.capabilities?.goalControlMode === "native";
+  const mcpStatuses = useMemo(
+    () => deriveEnvironmentMcpStatuses(threadActivities),
+    [threadActivities],
+  );
+  const environmentProviderStatuses = useMemo(() => {
+    const sessionProviderStatuses = deriveEnvironmentSessionProviderStatuses(activeThread?.session);
+    const activityStatuses = deriveEnvironmentProviderStatuses(threadActivities);
+    return sessionProviderStatuses.length > 0
+      ? [...sessionProviderStatuses, ...activityStatuses]
+      : activityStatuses;
+  }, [activeThread?.session, threadActivities]);
   const activeGeneratedWorkspaceSummary = useMemo(
     () => deriveLatestGeneratedWorkspaceSummary(threadActivities),
     [threadActivities],
@@ -3040,10 +3060,16 @@ function useChatViewComponent({
         : subagentThreads,
     [activeSubagentThreadId, newSideChatThread, subagentThreads],
   );
-  const subagentTabThreads = useMemo(
-    () => subagentThreads.filter((thread) => !hiddenSubagentTabIds.has(thread.id)),
-    [hiddenSubagentTabIds, subagentThreads],
-  );
+  const subagentTabThreads = useMemo(() => {
+    const visibleThreads = subagentThreads.filter((thread) => !hiddenSubagentTabIds.has(thread.id));
+    if (
+      activeSubagentThreadId === NEW_SIDE_CHAT_THREAD_ID &&
+      !hiddenSubagentTabIds.has(NEW_SIDE_CHAT_THREAD_ID)
+    ) {
+      return [newSideChatThread, ...visibleThreads];
+    }
+    return visibleThreads;
+  }, [activeSubagentThreadId, hiddenSubagentTabIds, newSideChatThread, subagentThreads]);
   const selectSubagentThread = useCallback(
     (threadId: string) => {
       setHiddenSubagentTabIds((current) => {
@@ -8493,12 +8519,15 @@ function useChatViewComponent({
       if (!activeThread) {
         return;
       }
-      const draftThreadId = ThreadId.makeUnsafe(
-        `subagent:${activeThread.id ?? threadId}:${NEW_SIDE_CHAT_THREAD_ID}`,
-      );
+      const draftThreadId = newSideChatDraftThreadId({
+        parentThreadId: activeThread.id ?? threadId,
+      });
       setActiveSubagentThreadId(NEW_SIDE_CHAT_THREAD_ID);
+      appendRightPanelTabOrder(`subagent:${NEW_SIDE_CHAT_THREAD_ID}`);
+      appendBottomPanelTabOrder(`subagent:${NEW_SIDE_CHAT_THREAD_ID}`);
       setRightSidePanelMode("subagent");
       setRightSidePanelVisible(true);
+      setComposerDraftRuntimeMode(draftThreadId, NEW_SIDE_CHAT_DRAFT_RUNTIME_MODE);
       setComposerDraftPrompt(draftThreadId, input.initialPrompt);
       if (input.images && input.images.length > 0) {
         addComposerDraftImages(draftThreadId, [...input.images]);
@@ -8510,6 +8539,9 @@ function useChatViewComponent({
     [
       activeThread,
       addComposerDraftImages,
+      appendBottomPanelTabOrder,
+      appendRightPanelTabOrder,
+      setComposerDraftRuntimeMode,
       setComposerDraftPrompt,
       setComposerDraftTerminalContexts,
       setRightSidePanelMode,
@@ -10016,6 +10048,7 @@ function useChatViewComponent({
     ? {
         activeProjectScripts: activeProject?.scripts,
         activeGoal,
+        activeGoalControlsSupported,
         activePlan,
         activeSubagentThreadId,
         activeThreadId: activeThread.id,
@@ -10028,6 +10061,8 @@ function useChatViewComponent({
           workspaceStatusQuery.error instanceof Error ? workspaceStatusQuery.error : null,
         isGitRepo,
         keybindings,
+        mcpStatuses,
+        providerStatuses: environmentProviderStatuses,
         preferredScriptId: activeProject
           ? (lastInvokedScriptByProjectId[activeProject.id] ?? null)
           : null,
@@ -10661,7 +10696,7 @@ function useChatViewComponent({
           selectedProviderModelOptions={composerModelOptions?.[targetProvider]}
           sessionConfigOptions={activeThread.session?.configOptions}
           providerCommands={composerProviderCommands}
-          sideConversationSupported={sideConversationSupported}
+          sideConversationSupported={false}
           selectedModelForPickerWithCustomFallback={selectedModel}
           lockedProvider={targetProvider}
           modelOptionsByProvider={modelOptionsByProvider}
@@ -10761,7 +10796,6 @@ function useChatViewComponent({
       setComposerDraftInteractionMode,
       setComposerDraftRuntimeMode,
       setThreadError,
-      sideConversationSupported,
       subagentComposerThreadId,
       togglePlanModeShortcutLabel,
     ],

@@ -1,10 +1,12 @@
 import type { ProviderIntegrationCapabilities, ProviderKind } from "@ace/contracts";
+import { isProviderSideConversationType } from "@ace/shared/providerAgentMetadata";
 
 import { resolveSubagentIdentity } from "../../lib/subagentAdapters";
 import type { WorkLogEntry } from "../../session-logic/types";
 
 export interface SubagentThread {
   readonly id: string;
+  readonly parentId?: string;
   readonly label: string;
   readonly model?: string;
   readonly persona: SubagentPersona;
@@ -21,9 +23,14 @@ export interface SubagentPersona {
   readonly pingClassName: string;
 }
 
+export interface HierarchicalSubagentThread {
+  readonly depth: number;
+  readonly thread: SubagentThread;
+}
+
 function isSideChatEntry(entry: WorkLogEntry): boolean {
   return (
-    entry.subagentType?.trim().toLowerCase() === "side chat" ||
+    isProviderSideConversationType(entry.subagentType) ||
     entry.subagentId?.trim().toLowerCase().startsWith("side:") === true
   );
 }
@@ -51,6 +58,9 @@ export function formatSubagentLabel(value: string | undefined): string | null {
 }
 
 function subagentThreadKey(entry: WorkLogEntry): string | null {
+  if (isSideChatEntry(entry)) {
+    return entry.subagentId ?? entry.sideChatMessageId ?? entry.id;
+  }
   return entry.subagentId ?? entry.subagentName ?? entry.subagentType ?? null;
 }
 
@@ -190,6 +200,12 @@ function resolveThreadStatus(entries: ReadonlyArray<WorkLogEntry>): SubagentThre
   return "completed";
 }
 
+function resolveSubagentParentId(entries: ReadonlyArray<WorkLogEntry>): string | undefined {
+  return entries
+    .toSorted((left, right) => left.createdAt.localeCompare(right.createdAt))
+    .find((entry) => entry.subagentParentId?.trim())?.subagentParentId;
+}
+
 export function deriveSubagentThreads(
   entries: ReadonlyArray<WorkLogEntry>,
   provider?: ProviderKind | null,
@@ -219,8 +235,10 @@ export function deriveSubagentThreads(
         : identity.label;
       const persona = resolveSubagentPersona({ id, identityLabel, usedNames });
       const roleLabel = isSideChat || persona.name === identity.label ? null : identity.label;
+      const parentId = resolveSubagentParentId(group);
       return {
         id,
+        ...(parentId ? { parentId } : {}),
         label: persona.name,
         ...(identity.model ? { model: identity.model } : {}),
         persona,
@@ -234,6 +252,50 @@ export function deriveSubagentThreads(
       const rightLast = right.entries.at(-1)?.createdAt ?? "";
       return rightLast.localeCompare(leftLast);
     });
+}
+
+export function orderSubagentThreadsForHierarchy(
+  threads: ReadonlyArray<SubagentThread>,
+): HierarchicalSubagentThread[] {
+  const remaining = [...threads];
+  const emitted = new Set<string>();
+  const ordered: HierarchicalSubagentThread[] = [];
+  let madeProgress = true;
+
+  while (remaining.length > 0 && madeProgress) {
+    madeProgress = false;
+    for (let index = 0; index < remaining.length; ) {
+      const thread = remaining[index];
+      if (!thread) {
+        index += 1;
+        continue;
+      }
+      const parentId = thread.parentId;
+      const parentReady =
+        !parentId || emitted.has(parentId) || !threads.some((item) => item.id === parentId);
+      if (!parentReady) {
+        index += 1;
+        continue;
+      }
+      const parentDepth =
+        parentId !== undefined
+          ? (ordered.find((item) => item.thread.id === parentId)?.depth ?? -1)
+          : -1;
+      ordered.push({
+        thread,
+        depth: Math.min(parentDepth + 1, 2),
+      });
+      emitted.add(thread.id);
+      remaining.splice(index, 1);
+      madeProgress = true;
+    }
+  }
+
+  for (const thread of remaining) {
+    ordered.push({ thread, depth: thread.parentId ? 1 : 0 });
+  }
+
+  return ordered;
 }
 
 export function resolveSubagentMainAgentMessage(thread: SubagentThread): WorkLogEntry | null {

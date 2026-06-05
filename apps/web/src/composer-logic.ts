@@ -3,7 +3,10 @@ import {
   splitPromptIntoComposerSegments,
   type ComposerPromptSegment,
 } from "./composer-editor-mentions";
-import { isProviderSideConversationAlias } from "@ace/shared/providerSlashCommands";
+import {
+  isProviderSideConversationAlias,
+  providerSlashCommandExtensionKind,
+} from "@ace/shared/providerSlashCommands";
 import { INLINE_TERMINAL_CONTEXT_PLACEHOLDER } from "./lib/terminalContext";
 
 export type ComposerTriggerKind = "path" | "slash-command" | "slash-model" | "issue";
@@ -265,6 +268,21 @@ function normalizeSlashCommandName(value: string): string {
     .toLowerCase();
 }
 
+function isProviderCommandSupportedInComposer(command: {
+  readonly name: string;
+  readonly promptPrefix?: string | undefined;
+  readonly kind?: "provider" | "skill" | "plugin" | "agent" | undefined;
+}): boolean {
+  const normalizedName = normalizeSlashCommandName(command.name);
+  if (normalizedName === "goal") {
+    return true;
+  }
+  if (command.kind === "provider") {
+    return false;
+  }
+  return providerSlashCommandExtensionKind(command, normalizedName) !== null;
+}
+
 export function parseProviderComposerSlashCommand(
   text: string,
   providerCommands: ReadonlyArray<{
@@ -288,6 +306,9 @@ export function parseProviderComposerSlashCommand(
     (candidate) => normalizeSlashCommandName(candidate.name) === commandName,
   );
   if (!command) {
+    return null;
+  }
+  if (!isProviderCommandSupportedInComposer(command)) {
     return null;
   }
   const args = (match[2] ?? "").trim();

@@ -32,9 +32,11 @@ import {
   providerFallbackSlashCommands,
 } from "@ace/shared/providerSlashCommands";
 import {
+  isProviderSideConversationType,
   mergeProviderAgentMetadata,
   providerAgentLooseRecord,
   providerAgentRecord,
+  providerAgentRecords,
 } from "@ace/shared/providerAgentMetadata";
 import {
   hasProviderGoalLifecycleSignal,
@@ -56,6 +58,11 @@ import {
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { updateProviderRuntimeIngestionCacheStats } from "../../runtimeProfile.ts";
 import { resolveProviderIntegrationCapabilities } from "../../provider/providerCapabilities.ts";
+import {
+  hasAcpMultiAgentCapability,
+  hasAcpProviderThreadTargetingCapability,
+  hasAcpSideConversationCapability,
+} from "../../provider/acpCapabilities.ts";
 import { ServerConfig } from "../../config.ts";
 import { createAttachmentId, resolveAttachmentPath } from "../../attachmentStore.ts";
 import { parseBase64DataUrl } from "../../imageMime.ts";
@@ -66,6 +73,19 @@ const providerCommandId = (event: ProviderRuntimeEvent, tag: string): CommandId 
 
 function asNonEmptyString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function asConfigValueString(value: unknown): string | undefined {
+  if (typeof value === "string") {
+    return value.trim();
+  }
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return String(value);
+  }
+  if (typeof value === "boolean") {
+    return value ? "on" : "off";
+  }
+  return undefined;
 }
 
 function normalizeProviderSlashCommands(
@@ -123,16 +143,85 @@ function normalizeProviderSlashCommands(
       asNonEmptyString(record?.promptPrefix) ??
       asNonEmptyString(record?.prompt_prefix) ??
       asNonEmptyString(record?.replacementPrefix);
+    const metadata = normalizeProviderSlashCommandMetadata(record, input);
     commands.push({
       name,
       ...(description ? { description } : {}),
       ...(inputHint ? { inputHint } : {}),
       ...(kind ? { kind } : {}),
       ...(promptPrefix ? { promptPrefix } : {}),
+      ...(metadata ? { metadata } : {}),
     });
   }
 
   return commands;
+}
+
+function normalizeProviderSlashCommandMetadata(
+  record: Record<string, unknown> | undefined,
+  input: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+  if (!record) {
+    return undefined;
+  }
+  const metadata: Record<string, unknown> = {
+    ...(asRecord(record.metadata) ?? {}),
+  };
+  const aliases: ReadonlyArray<readonly [string, ReadonlyArray<unknown>]> = [
+    [
+      "model",
+      [record.model, record.modelId, record.model_id, record.defaultModel, record.modelName],
+    ],
+    [
+      "allowedTools",
+      [
+        record.allowedTools,
+        record.allowed_tools,
+        record.tools,
+        record.toolNames,
+        record.tool_names,
+        input?.allowedTools,
+        input?.allowed_tools,
+        input?.tools,
+      ],
+    ],
+    [
+      "arguments",
+      [
+        record.arguments,
+        record.args,
+        record.argumentNames,
+        record.argument_names,
+        record.parameters,
+        input?.arguments,
+        input?.args,
+        input?.parameters,
+      ],
+    ],
+    [
+      "disableModelInvocation",
+      [
+        record.disableModelInvocation,
+        record.disable_model_invocation,
+        record.noModel,
+        record.no_model,
+        input?.disableModelInvocation,
+        input?.disable_model_invocation,
+      ],
+    ],
+  ];
+
+  for (const [key, values] of aliases) {
+    if (metadata[key] !== undefined) {
+      continue;
+    }
+    const value = values.find((candidate) => candidate !== undefined);
+    if (value !== undefined) {
+      metadata[key] = value;
+    }
+  }
+
+  return Object.keys(metadata).length > 0 ? metadata : undefined;
 }
 
 function providerSlashCommandsFromSessionConfigured(
@@ -176,28 +265,556 @@ function providerCapabilitiesFromSessionConfigured(
   if (!capabilities) {
     return null;
   }
+  const sessionCapabilities = asRecord(capabilities.sessionCapabilities);
+  const session = asRecord(capabilities.session);
+  const sessions = asRecord(capabilities.sessions);
+  const turn = asRecord(capabilities.turn);
+  const turns = asRecord(capabilities.turns);
+  const methodContainers = providerCapabilityMethodContainers({
+    config,
+    capabilities,
+    sessionCapabilities,
+    session,
+    sessions,
+    turn,
+    turns,
+  });
 
   const sessionForkMode =
-    asNonEmptyString(capabilities.sessionForkMode) ??
-    asNonEmptyString(capabilities.session_fork_mode);
+    normalizeProviderCapabilityMode(
+      "native",
+      capabilities.sessionForkMode,
+      capabilities.session_fork_mode,
+      capabilities.forkSession,
+      capabilities.fork_session,
+      capabilities.sessionFork,
+      capabilities.session_fork,
+      capabilities["session.fork"],
+      capabilities["session/fork"],
+      capabilities.forkMode,
+      capabilities.fork_mode,
+      sessionCapabilities?.fork,
+      sessionCapabilities?.forkSession,
+      sessionCapabilities?.sessionFork,
+      sessionCapabilities?.["session.fork"],
+      session?.fork,
+      session?.forkSession,
+      session?.sessionFork,
+      session?.["session.fork"],
+      sessions?.fork,
+      sessions?.forkSession,
+      sessions?.sessionFork,
+    ) ?? (hasProviderCapabilityMethod(methodContainers, "session-fork") ? "native" : undefined);
   const sideConversationMode =
-    asNonEmptyString(capabilities.sideConversationMode) ??
-    asNonEmptyString(capabilities.side_conversation_mode);
+    normalizeProviderCapabilityMode(
+      "native-fork",
+      capabilities.sideConversationMode,
+      capabilities.side_conversation_mode,
+      capabilities.sideConversationMode,
+      capabilities.sideMode,
+      capabilities.side_mode,
+      capabilities.sideConversation,
+      capabilities.side_conversation,
+      capabilities.sideChat,
+      capabilities.side_chat,
+      capabilities.sideSession,
+      capabilities.side_session,
+      capabilities.sideThread,
+      capabilities.side_thread,
+      capabilities["side.conversation"],
+      capabilities["side/chat"],
+      capabilities["side.session"],
+      capabilities["side/session"],
+      capabilities["side.thread"],
+      capabilities["side/thread"],
+      sessionCapabilities?.sideConversation,
+      sessionCapabilities?.sideChat,
+      sessionCapabilities?.sideSession,
+      sessionCapabilities?.sideThread,
+      session?.sideConversation,
+      session?.sideChat,
+      session?.sideSession,
+      session?.sideThread,
+      sessions?.sideConversation,
+      sessions?.sideChat,
+      sessions?.sideSession,
+      sessions?.sideThread,
+    ) ??
+    (hasAcpSideConversationCapability({ capabilities }) ||
+    hasProviderCapabilityMethod(methodContainers, "side-conversation")
+      ? "native-fork"
+      : undefined);
   const providerThreadTargetingMode =
-    asNonEmptyString(capabilities.providerThreadTargetingMode) ??
-    asNonEmptyString(capabilities.provider_thread_targeting_mode);
+    normalizeProviderCapabilityMode(
+      "native",
+      capabilities.providerThreadTargetingMode,
+      capabilities.provider_thread_targeting_mode,
+      capabilities.threadTargetingMode,
+      capabilities.thread_targeting_mode,
+      capabilities.threadTargeting,
+      capabilities.thread_targeting,
+      capabilities.providerThreadTargeting,
+      capabilities.provider_thread_targeting,
+      capabilities.providerSessionTargeting,
+      capabilities.provider_session_targeting,
+      capabilities.childThreadTargeting,
+      capabilities.child_thread_targeting,
+      capabilities.childSessionTargeting,
+      capabilities.child_session_targeting,
+      capabilities.childConversationTargeting,
+      capabilities.child_conversation_targeting,
+      capabilities.providerThread,
+      capabilities.provider_thread,
+      capabilities.providerSession,
+      capabilities.provider_session,
+      capabilities.childThread,
+      capabilities.child_thread,
+      capabilities.childSession,
+      capabilities.child_session,
+      capabilities.childConversation,
+      capabilities.child_conversation,
+      sessionCapabilities?.threadTargeting,
+      sessionCapabilities?.providerThreadTargeting,
+      sessionCapabilities?.providerSessionTargeting,
+      sessionCapabilities?.childThreadTargeting,
+      sessionCapabilities?.childSessionTargeting,
+      session?.threadTargeting,
+      session?.providerThreadTargeting,
+      session?.providerSessionTargeting,
+      session?.childThreadTargeting,
+      session?.childSessionTargeting,
+    ) ??
+    (hasAcpProviderThreadTargetingCapability({ capabilities }) ||
+    hasProviderCapabilityMethod(methodContainers, "provider-thread-targeting")
+      ? "native"
+      : undefined);
   const sessionResumeMode =
-    asNonEmptyString(capabilities.sessionResumeMode) ??
-    asNonEmptyString(capabilities.session_resume_mode);
+    normalizeProviderCapabilityMode(
+      "native",
+      capabilities.sessionResumeMode,
+      capabilities.session_resume_mode,
+      capabilities.resumeSession,
+      capabilities.resume_session,
+      capabilities.sessionResume,
+      capabilities.session_resume,
+      capabilities.loadSession,
+      capabilities.load_session,
+      capabilities.resumeMode,
+      capabilities.resume_mode,
+      sessionCapabilities?.resume,
+      sessionCapabilities?.resumeSession,
+      sessionCapabilities?.loadSession,
+      session?.resume,
+      session?.resumeSession,
+      session?.loadSession,
+    ) ?? (hasProviderCapabilityMethod(methodContainers, "session-resume") ? "native" : undefined);
   const turnSteeringMode =
-    asNonEmptyString(capabilities.turnSteeringMode) ??
-    asNonEmptyString(capabilities.turn_steering_mode);
+    normalizeProviderCapabilityMode(
+      "native",
+      capabilities.turnSteeringMode,
+      capabilities.turn_steering_mode,
+      capabilities.steerTurn,
+      capabilities.steer_turn,
+      capabilities.turnSteering,
+      capabilities.turn_steering,
+      capabilities["turn.steer"],
+      capabilities["turn/steer"],
+      capabilities.steeringMode,
+      capabilities.steering_mode,
+      turn?.steer,
+      turn?.steerTurn,
+      turn?.turnSteering,
+      turn?.["turn.steer"],
+      turns?.steer,
+      turns?.steerTurn,
+      turns?.turnSteering,
+    ) ?? (hasProviderCapabilityMethod(methodContainers, "turn-steer") ? "native" : undefined);
+  const goalControlMode =
+    normalizeProviderCapabilityMode(
+      "native",
+      capabilities.goalControlMode,
+      capabilities.goal_control_mode,
+      capabilities.goalControl,
+      capabilities.goal_control,
+      capabilities.goalControls,
+      capabilities.goal_controls,
+      capabilities.threadGoal,
+      capabilities.thread_goal,
+      capabilities.threadGoalControl,
+      capabilities.thread_goal_control,
+      capabilities["thread.goal"],
+      capabilities["thread/goal"],
+      capabilities["thread.goal.update"],
+      capabilities["thread/goal/update"],
+      capabilities["thread.goal.clear"],
+      capabilities["thread/goal/clear"],
+      sessionCapabilities?.goalControl,
+      sessionCapabilities?.goalControls,
+      sessionCapabilities?.threadGoal,
+      sessionCapabilities?.threadGoalControl,
+      session?.goalControl,
+      session?.goalControls,
+      session?.threadGoal,
+      session?.threadGoalControl,
+      sessions?.goalControl,
+      sessions?.goalControls,
+      sessions?.threadGoal,
+      sessions?.threadGoalControl,
+    ) ?? (hasProviderCapabilityMethod(methodContainers, "goal-control") ? "native" : undefined);
+  const multiAgentMode =
+    normalizeProviderMultiAgentMode(
+      capabilities.multiAgentMode,
+      capabilities.multi_agent_mode,
+      capabilities.agentMode,
+      capabilities.agent_mode,
+      capabilities.multiAgent,
+      capabilities.multi_agent,
+      capabilities.multiAgents,
+      capabilities.multi_agents,
+      capabilities.subagents,
+      capabilities.subAgents,
+      capabilities.sub_agents,
+      capabilities.agents,
+      capabilities.agentTeams,
+      capabilities.agent_teams,
+      capabilities.teams,
+      capabilities.handoffs,
+      sessionCapabilities?.multiAgent,
+      sessionCapabilities?.multiAgents,
+      sessionCapabilities?.subagents,
+      sessionCapabilities?.subAgents,
+      sessionCapabilities?.agents,
+      sessionCapabilities?.agentTeams,
+      session?.multiAgent,
+      session?.multiAgents,
+      session?.subagents,
+      session?.subAgents,
+      session?.agents,
+      session?.agentTeams,
+      sessions?.multiAgent,
+      sessions?.multiAgents,
+      sessions?.subagents,
+      sessions?.subAgents,
+      sessions?.agents,
+      sessions?.agentTeams,
+    ) ??
+    (hasAcpMultiAgentCapability({ capabilities }) ||
+    hasProviderCapabilityMethod(methodContainers, "multi-agent") ||
+    hasProviderCapabilityMethod(methodContainers, "agent-team") ||
+    hasProviderCapabilityMethod(methodContainers, "agent-handoff") ||
+    hasProviderCapabilityMethod(methodContainers, "subagent")
+      ? "native"
+      : undefined);
+  const hookMode =
+    normalizeProviderCapabilityMode(
+      "native",
+      capabilities.hookMode,
+      capabilities.hook_mode,
+      capabilities.hooksMode,
+      capabilities.hooks_mode,
+      capabilities.hook,
+      capabilities.hooks,
+      capabilities.agentHooks,
+      capabilities.agent_hooks,
+      capabilities.lifecycleHooks,
+      capabilities.lifecycle_hooks,
+      capabilities.workflowHooks,
+      capabilities.workflow_hooks,
+      capabilities["agent.hooks"],
+      capabilities["agent/hooks"],
+      capabilities["lifecycle.hooks"],
+      capabilities["lifecycle/hooks"],
+      sessionCapabilities?.hook,
+      sessionCapabilities?.hooks,
+      sessionCapabilities?.agentHooks,
+      sessionCapabilities?.lifecycleHooks,
+      session?.hook,
+      session?.hooks,
+      session?.agentHooks,
+      session?.lifecycleHooks,
+      sessions?.hook,
+      sessions?.hooks,
+      sessions?.agentHooks,
+      sessions?.lifecycleHooks,
+    ) ?? (hasProviderCapabilityMethod(methodContainers, "hooks") ? "native" : undefined);
+  const extensionMode =
+    normalizeProviderExtensionMode(
+      capabilities.extensionMode,
+      capabilities.extension_mode,
+      capabilities.customizationMode,
+      capabilities.customization_mode,
+      capabilities.extensibilityMode,
+      capabilities.extensibility_mode,
+      capabilities.extensions,
+      capabilities.plugins,
+      capabilities.skills,
+      capabilities.agentSkills,
+      capabilities.agent_skills,
+      capabilities.customAgents,
+      capabilities.custom_agents,
+      capabilities.promptFiles,
+      capabilities.prompt_files,
+      capabilities.instructions,
+      capabilities.customInstructions,
+      capabilities.custom_instructions,
+      capabilities["agent.skills"],
+      capabilities["agent/skills"],
+      capabilities["custom.agents"],
+      capabilities["custom/agents"],
+      sessionCapabilities?.extensions,
+      sessionCapabilities?.plugins,
+      sessionCapabilities?.skills,
+      sessionCapabilities?.agentSkills,
+      sessionCapabilities?.customAgents,
+      sessionCapabilities?.promptFiles,
+      sessionCapabilities?.instructions,
+      session?.extensions,
+      session?.plugins,
+      session?.skills,
+      session?.agentSkills,
+      session?.customAgents,
+      session?.promptFiles,
+      session?.instructions,
+      sessions?.extensions,
+      sessions?.plugins,
+      sessions?.skills,
+      sessions?.agentSkills,
+      sessions?.customAgents,
+      sessions?.promptFiles,
+      sessions?.instructions,
+    ) ?? (hasProviderCapabilityMethod(methodContainers, "extensions") ? "native" : undefined);
+  const mcpMode =
+    normalizeProviderMcpMode(
+      capabilities.mcpMode,
+      capabilities.mcp_mode,
+      capabilities.mcp,
+      capabilities.mcpServers,
+      capabilities.mcp_servers,
+      capabilities.modelContextProtocol,
+      capabilities.model_context_protocol,
+      capabilities.toolServers,
+      capabilities.tool_servers,
+      capabilities.externalTools,
+      capabilities.external_tools,
+      capabilities.connectors,
+      capabilities["mcp.servers"],
+      capabilities["mcp/servers"],
+      sessionCapabilities?.mcp,
+      sessionCapabilities?.mcpServers,
+      sessionCapabilities?.toolServers,
+      sessionCapabilities?.externalTools,
+      session?.mcp,
+      session?.mcpServers,
+      session?.toolServers,
+      session?.externalTools,
+      sessions?.mcp,
+      sessions?.mcpServers,
+      sessions?.toolServers,
+      sessions?.externalTools,
+    ) ?? (hasProviderCapabilityMethod(methodContainers, "mcp") ? "native" : undefined);
+  const remoteAgentMode =
+    normalizeProviderRemoteAgentMode(
+      capabilities.remoteAgentMode,
+      capabilities.remote_agent_mode,
+      capabilities.remoteAgentsMode,
+      capabilities.remote_agents_mode,
+      capabilities.remoteAgent,
+      capabilities.remote_agent,
+      capabilities.remoteAgents,
+      capabilities.remote_agents,
+      capabilities.hostedAgent,
+      capabilities.hosted_agent,
+      capabilities.hostedAgents,
+      capabilities.hosted_agents,
+      capabilities.cloudAgent,
+      capabilities.cloud_agent,
+      capabilities.cloudAgents,
+      capabilities.cloud_agents,
+      capabilities.a2aAgent,
+      capabilities.a2a_agent,
+      capabilities.a2aAgents,
+      capabilities.a2a_agents,
+      capabilities.agentConnect,
+      capabilities.agent_connect,
+      capabilities.remoteDelegation,
+      capabilities.remote_delegation,
+      sessionCapabilities?.remoteAgent,
+      sessionCapabilities?.remoteAgents,
+      sessionCapabilities?.hostedAgent,
+      sessionCapabilities?.hostedAgents,
+      sessionCapabilities?.cloudAgent,
+      sessionCapabilities?.cloudAgents,
+      sessionCapabilities?.a2aAgent,
+      sessionCapabilities?.a2aAgents,
+      sessionCapabilities?.agentConnect,
+      sessionCapabilities?.remoteDelegation,
+      session?.remoteAgent,
+      session?.remoteAgents,
+      session?.hostedAgent,
+      session?.hostedAgents,
+      session?.cloudAgent,
+      session?.cloudAgents,
+      session?.a2aAgent,
+      session?.a2aAgents,
+      session?.agentConnect,
+      session?.remoteDelegation,
+      sessions?.remoteAgent,
+      sessions?.remoteAgents,
+      sessions?.hostedAgent,
+      sessions?.hostedAgents,
+      sessions?.cloudAgent,
+      sessions?.cloudAgents,
+      sessions?.a2aAgent,
+      sessions?.a2aAgents,
+      sessions?.agentConnect,
+      sessions?.remoteDelegation,
+    ) ?? (hasProviderCapabilityMethod(methodContainers, "remote-agent") ? "native" : undefined);
+  const webAccessMode =
+    normalizeProviderWebAccessMode(
+      capabilities.webAccessMode,
+      capabilities.web_access_mode,
+      capabilities.webMode,
+      capabilities.web_mode,
+      capabilities.webAccess,
+      capabilities.web_access,
+      capabilities.webSearch,
+      capabilities.web_search,
+      capabilities.webFetch,
+      capabilities.web_fetch,
+      capabilities.webTools,
+      capabilities.web_tools,
+      capabilities.browser,
+      capabilities.browsing,
+      capabilities.research,
+      capabilities.internetAccess,
+      capabilities.internet_access,
+      sessionCapabilities?.webAccess,
+      sessionCapabilities?.webSearch,
+      sessionCapabilities?.webFetch,
+      sessionCapabilities?.webTools,
+      sessionCapabilities?.browser,
+      sessionCapabilities?.browsing,
+      sessionCapabilities?.research,
+      sessionCapabilities?.internetAccess,
+      session?.webAccess,
+      session?.webSearch,
+      session?.webFetch,
+      session?.webTools,
+      session?.browser,
+      session?.browsing,
+      session?.research,
+      session?.internetAccess,
+      sessions?.webAccess,
+      sessions?.webSearch,
+      sessions?.webFetch,
+      sessions?.webTools,
+      sessions?.browser,
+      sessions?.browsing,
+      sessions?.research,
+      sessions?.internetAccess,
+    ) ??
+    (hasProviderCapabilityMethod(methodContainers, "web-access")
+      ? "native"
+      : hasProviderCapabilityMethod(methodContainers, "web-agent-command")
+        ? "agent-command"
+        : undefined);
+  const hostedSessionMode =
+    normalizeProviderHostedSessionMode(
+      capabilities.hostedSessionMode,
+      capabilities.hosted_session_mode,
+      capabilities.cloudSessionMode,
+      capabilities.cloud_session_mode,
+      capabilities.backgroundSessionMode,
+      capabilities.background_session_mode,
+      capabilities.hostedSession,
+      capabilities.hosted_session,
+      capabilities.hostedSessions,
+      capabilities.hosted_sessions,
+      capabilities.cloudSession,
+      capabilities.cloud_session,
+      capabilities.cloudSessions,
+      capabilities.cloud_sessions,
+      capabilities.cloudTask,
+      capabilities.cloud_task,
+      capabilities.cloudTasks,
+      capabilities.cloud_tasks,
+      capabilities.backgroundAgent,
+      capabilities.background_agent,
+      capabilities.backgroundAgents,
+      capabilities.background_agents,
+      capabilities.webAgent,
+      capabilities.web_agent,
+      capabilities.webAgents,
+      capabilities.web_agents,
+      capabilities.remoteSession,
+      capabilities.remote_session,
+      capabilities.remoteSessions,
+      capabilities.remote_sessions,
+      capabilities.remoteControl,
+      capabilities.remote_control,
+      capabilities.teleport,
+      sessionCapabilities?.hostedSession,
+      sessionCapabilities?.hostedSessions,
+      sessionCapabilities?.cloudSession,
+      sessionCapabilities?.cloudSessions,
+      sessionCapabilities?.cloudTask,
+      sessionCapabilities?.cloudTasks,
+      sessionCapabilities?.backgroundAgent,
+      sessionCapabilities?.backgroundAgents,
+      sessionCapabilities?.webAgent,
+      sessionCapabilities?.webAgents,
+      sessionCapabilities?.remoteSession,
+      sessionCapabilities?.remoteSessions,
+      sessionCapabilities?.remoteControl,
+      sessionCapabilities?.teleport,
+      session?.hostedSession,
+      session?.hostedSessions,
+      session?.cloudSession,
+      session?.cloudSessions,
+      session?.cloudTask,
+      session?.cloudTasks,
+      session?.backgroundAgent,
+      session?.backgroundAgents,
+      session?.webAgent,
+      session?.webAgents,
+      session?.remoteSession,
+      session?.remoteSessions,
+      session?.remoteControl,
+      session?.teleport,
+      sessions?.hostedSession,
+      sessions?.hostedSessions,
+      sessions?.cloudSession,
+      sessions?.cloudSessions,
+      sessions?.cloudTask,
+      sessions?.cloudTasks,
+      sessions?.backgroundAgent,
+      sessions?.backgroundAgents,
+      sessions?.webAgent,
+      sessions?.webAgents,
+      sessions?.remoteSession,
+      sessions?.remoteSessions,
+      sessions?.remoteControl,
+      sessions?.teleport,
+    ) ??
+    (hasProviderCapabilityMethod(methodContainers, "hosted-session")
+      ? "native"
+      : hasProviderCapabilityMethod(methodContainers, "local-session-bridge")
+        ? "local-bridge"
+        : undefined);
   const overrides: {
     sessionForkMode?: ProviderIntegrationCapabilities["sessionForkMode"];
     sideConversationMode?: ProviderIntegrationCapabilities["sideConversationMode"];
     providerThreadTargetingMode?: ProviderIntegrationCapabilities["providerThreadTargetingMode"];
     sessionResumeMode?: ProviderIntegrationCapabilities["sessionResumeMode"];
     turnSteeringMode?: ProviderIntegrationCapabilities["turnSteeringMode"];
+    goalControlMode?: ProviderIntegrationCapabilities["goalControlMode"];
+    multiAgentMode?: ProviderIntegrationCapabilities["multiAgentMode"];
+    hookMode?: ProviderIntegrationCapabilities["hookMode"];
+    extensionMode?: ProviderIntegrationCapabilities["extensionMode"];
+    mcpMode?: ProviderIntegrationCapabilities["mcpMode"];
+    remoteAgentMode?: ProviderIntegrationCapabilities["remoteAgentMode"];
+    webAccessMode?: ProviderIntegrationCapabilities["webAccessMode"];
+    hostedSessionMode?: ProviderIntegrationCapabilities["hostedSessionMode"];
   } = {};
 
   if (sessionForkMode === "native" || sessionForkMode === "local-replay") {
@@ -219,8 +836,731 @@ function providerCapabilitiesFromSessionConfigured(
   if (turnSteeringMode === "native" || turnSteeringMode === "queued-message") {
     overrides.turnSteeringMode = turnSteeringMode;
   }
+  if (goalControlMode === "native" || goalControlMode === "unsupported") {
+    overrides.goalControlMode = goalControlMode;
+  }
+  if (
+    multiAgentMode === "native" ||
+    multiAgentMode === "agent-command" ||
+    multiAgentMode === "unsupported"
+  ) {
+    overrides.multiAgentMode = multiAgentMode;
+  }
+  if (hookMode === "native" || hookMode === "unsupported") {
+    overrides.hookMode = hookMode;
+  }
+  if (
+    extensionMode === "native" ||
+    extensionMode === "local-discovery" ||
+    extensionMode === "unsupported"
+  ) {
+    overrides.extensionMode = extensionMode;
+  }
+  if (mcpMode === "native" || mcpMode === "local-discovery" || mcpMode === "unsupported") {
+    overrides.mcpMode = mcpMode;
+  }
+  if (
+    remoteAgentMode === "native" ||
+    remoteAgentMode === "local-bridge" ||
+    remoteAgentMode === "unsupported"
+  ) {
+    overrides.remoteAgentMode = remoteAgentMode;
+  }
+  if (
+    webAccessMode === "native" ||
+    webAccessMode === "agent-command" ||
+    webAccessMode === "mcp-or-shell" ||
+    webAccessMode === "unsupported"
+  ) {
+    overrides.webAccessMode = webAccessMode;
+  }
+  if (
+    hostedSessionMode === "native" ||
+    hostedSessionMode === "local-bridge" ||
+    hostedSessionMode === "unsupported"
+  ) {
+    overrides.hostedSessionMode = hostedSessionMode;
+  }
 
   return Object.keys(overrides).length > 0 ? overrides : null;
+}
+
+function providerCapabilityMethodContainers(input: {
+  readonly config: Record<string, unknown> | undefined;
+  readonly capabilities: Record<string, unknown>;
+  readonly sessionCapabilities: Record<string, unknown> | undefined;
+  readonly session: Record<string, unknown> | undefined;
+  readonly sessions: Record<string, unknown> | undefined;
+  readonly turn: Record<string, unknown> | undefined;
+  readonly turns: Record<string, unknown> | undefined;
+}): ReadonlyArray<unknown> {
+  return [
+    input.config?.methods,
+    input.config?.availableMethods,
+    input.config?.available_methods,
+    input.capabilities.methods,
+    input.capabilities.availableMethods,
+    input.capabilities.available_methods,
+    input.sessionCapabilities?.methods,
+    input.sessionCapabilities?.availableMethods,
+    input.sessionCapabilities?.available_methods,
+    input.session?.methods,
+    input.session?.availableMethods,
+    input.session?.available_methods,
+    input.sessions?.methods,
+    input.sessions?.availableMethods,
+    input.sessions?.available_methods,
+    input.turn?.methods,
+    input.turn?.availableMethods,
+    input.turn?.available_methods,
+    input.turns?.methods,
+    input.turns?.availableMethods,
+    input.turns?.available_methods,
+    input.capabilities.tools,
+    input.capabilities.availableTools,
+    input.capabilities.available_tools,
+    input.sessionCapabilities?.tools,
+    input.sessionCapabilities?.availableTools,
+    input.sessionCapabilities?.available_tools,
+    input.session?.tools,
+    input.session?.availableTools,
+    input.session?.available_tools,
+    input.sessions?.tools,
+    input.sessions?.availableTools,
+    input.sessions?.available_tools,
+  ];
+}
+
+function normalizeProviderCapabilityMethod(value: string): string {
+  return value
+    .trim()
+    .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
+    .replace(/[_.\s]+/g, "-")
+    .replace(/\/+/g, "-")
+    .toLowerCase();
+}
+
+function providerCapabilityMethodNames(value: unknown): ReadonlyArray<string> {
+  if (typeof value === "string") {
+    const method = normalizeProviderCapabilityMethod(value);
+    return method ? [method] : [];
+  }
+  if (Array.isArray(value)) {
+    return value.flatMap(providerCapabilityMethodNames);
+  }
+  const record = asRecord(value);
+  if (!record) {
+    return [];
+  }
+  return [
+    record.name,
+    record.method,
+    record.id,
+    record.type,
+    record.command,
+    record.rpc,
+    record.path,
+  ].flatMap(providerCapabilityMethodNames);
+}
+
+function hasProviderCapabilityMethod(
+  containers: ReadonlyArray<unknown>,
+  capability:
+    | "session-fork"
+    | "side-conversation"
+    | "provider-thread-targeting"
+    | "session-resume"
+    | "turn-steer"
+    | "goal-control"
+    | "hooks"
+    | "extensions"
+    | "mcp"
+    | "remote-agent"
+    | "web-access"
+    | "web-agent-command"
+    | "hosted-session"
+    | "local-session-bridge"
+    | "multi-agent"
+    | "agent-team"
+    | "agent-handoff"
+    | "subagent",
+): boolean {
+  const methods = new Set(containers.flatMap(providerCapabilityMethodNames));
+  switch (capability) {
+    case "session-fork":
+      return ["session-fork", "thread-fork", "conversation-fork"].some((method) =>
+        methods.has(method),
+      );
+    case "side-conversation":
+      return [
+        "side-chat",
+        "side-conversation",
+        "side-session",
+        "side-thread",
+        "session-side",
+        "session-side-chat",
+        "session-side-conversation",
+        "session-side-session",
+        "session-side-thread",
+        "thread-side",
+        "thread-side-chat",
+        "thread-side-conversation",
+        "thread-side-session",
+        "thread-side-thread",
+        "conversation-side",
+        "conversation-side-chat",
+        "conversation-side-conversation",
+        "conversation-side-session",
+        "conversation-side-thread",
+      ].some((method) => methods.has(method));
+    case "provider-thread-targeting":
+      return [
+        "session-target",
+        "session-targeting",
+        "thread-target",
+        "thread-targeting",
+        "provider-session-target",
+        "provider-session-targeting",
+        "provider-thread-target",
+        "provider-thread-targeting",
+        "provider-conversation-target",
+        "provider-conversation-targeting",
+        "child-thread-target",
+        "child-thread-targeting",
+        "child-session-target",
+        "child-session-targeting",
+        "child-conversation-target",
+        "child-conversation-targeting",
+        "session-message",
+        "child-session-message",
+        "child-conversation-message",
+        "thread-message",
+      ].some((method) => methods.has(method));
+    case "session-resume":
+      return ["session-resume", "session-load", "thread-resume", "conversation-resume"].some(
+        (method) => methods.has(method),
+      );
+    case "turn-steer":
+      return ["turn-steer", "turn-steering", "thread-steer", "session-steer"].some((method) =>
+        methods.has(method),
+      );
+    case "goal-control":
+      return [
+        "goal-control",
+        "goal-controls",
+        "thread-goal",
+        "thread-goal-control",
+        "thread-goal-controls",
+        "thread-goal-update",
+        "thread-goal-clear",
+        "goal-update",
+        "goal-clear",
+      ].some((method) => methods.has(method));
+    case "hooks":
+      return [
+        "hook",
+        "hooks",
+        "agent-hook",
+        "agent-hooks",
+        "lifecycle-hook",
+        "lifecycle-hooks",
+        "workflow-hook",
+        "workflow-hooks",
+        "session-hook",
+        "session-hooks",
+        "pre-tool-use",
+        "post-tool-use",
+        "pre-tool-call",
+        "post-tool-call",
+        "permission-request",
+      ].some((method) => methods.has(method));
+    case "extensions":
+      return [
+        "extension",
+        "extensions",
+        "plugin",
+        "plugins",
+        "skill",
+        "skills",
+        "agent-skill",
+        "agent-skills",
+        "custom-agent",
+        "custom-agents",
+        "prompt-file",
+        "prompt-files",
+        "custom-prompt",
+        "custom-prompts",
+        "instruction",
+        "instructions",
+        "custom-instruction",
+        "custom-instructions",
+        "slash-command",
+        "slash-commands",
+      ].some((method) => methods.has(method));
+    case "mcp":
+      return [
+        "mcp",
+        "mcp-server",
+        "mcp-servers",
+        "model-context-protocol",
+        "tool-server",
+        "tool-servers",
+        "external-tool",
+        "external-tools",
+        "connector",
+        "connectors",
+        "mcp-tool",
+        "mcp-tools",
+      ].some((method) => methods.has(method));
+    case "remote-agent":
+      return [
+        "remote-agent",
+        "remote-agents",
+        "hosted-agent",
+        "hosted-agents",
+        "cloud-agent",
+        "cloud-agents",
+        "a2a-agent",
+        "a2a-agents",
+        "agent-connect",
+        "agent-connection",
+        "agent2agent",
+        "agent-to-agent",
+        "remote-delegation",
+        "remote-subagent",
+        "remote-subagents",
+      ].some((method) => methods.has(method));
+    case "web-access":
+      return [
+        "web",
+        "web-access",
+        "web-search",
+        "web-searches",
+        "web-fetch",
+        "web-fetches",
+        "web-tool",
+        "web-tools",
+        "websearch",
+        "webfetch",
+        "google-web-search",
+        "google-web-searches",
+        "google-search",
+        "url-context",
+        "url-fetch",
+        "browser",
+        "browsing",
+        "browse",
+        "internet-access",
+      ].some((method) => methods.has(method));
+    case "web-agent-command":
+      return [
+        "research",
+        "deep-research",
+        "web-research",
+        "browser-agent",
+        "browse-command",
+        "web-command",
+      ].some((method) => methods.has(method));
+    case "hosted-session":
+      return [
+        "hosted-session",
+        "hosted-sessions",
+        "cloud-session",
+        "cloud-sessions",
+        "cloud-task",
+        "cloud-tasks",
+        "background-session",
+        "background-sessions",
+        "background-agent",
+        "background-agents",
+        "web-agent",
+        "web-agents",
+        "web-session",
+        "web-sessions",
+        "async-agent",
+        "async-agents",
+        "cloud-agent-session",
+        "cloud-agent-sessions",
+        "copilot-coding-agent",
+        "coding-agent",
+        "codex-cloud",
+      ].some((method) => methods.has(method));
+    case "local-session-bridge":
+      return [
+        "remote-control",
+        "remote-session",
+        "remote-sessions",
+        "remote-tui",
+        "remote-app-server",
+        "local-bridge",
+        "local-session-bridge",
+        "teleport",
+        "mobile-remote",
+        "web-remote",
+      ].some((method) => methods.has(method));
+    case "multi-agent":
+      return [
+        "multi-agent",
+        "multi-agents",
+        "agent",
+        "agents",
+        "agent-delegate",
+        "agent-delegation",
+      ].some((method) => methods.has(method));
+    case "agent-team":
+      return ["agent-team", "agent-teams", "team-agent", "team-agents", "teams"].some((method) =>
+        methods.has(method),
+      );
+    case "agent-handoff":
+      return ["agent-handoff", "agent-handoffs", "handoff", "handoffs"].some((method) =>
+        methods.has(method),
+      );
+    case "subagent":
+      return ["subagent", "subagents", "sub-agent", "sub-agents", "task-agent"].some((method) =>
+        methods.has(method),
+      );
+  }
+}
+
+function normalizeProviderMultiAgentMode(
+  ...values: ReadonlyArray<unknown>
+): ProviderIntegrationCapabilities["multiAgentMode"] | undefined {
+  for (const value of values) {
+    const mode = normalizeProviderCapabilityValue(value, "native");
+    if (!mode) {
+      continue;
+    }
+    if (
+      mode === "native" ||
+      mode === "provider-native" ||
+      mode === "multi-agent" ||
+      mode === "multi-agents" ||
+      mode === "agent" ||
+      mode === "agents" ||
+      mode === "agent-team" ||
+      mode === "agent-teams" ||
+      mode === "handoff" ||
+      mode === "handoffs" ||
+      mode === "subagent" ||
+      mode === "subagents"
+    ) {
+      return "native";
+    }
+    if (
+      mode === "agent-command" ||
+      mode === "command" ||
+      mode === "commands" ||
+      mode === "slash-command" ||
+      mode === "slash-commands" ||
+      mode === "mention" ||
+      mode === "mentions"
+    ) {
+      return "agent-command";
+    }
+    if (mode === "unsupported" || mode === "none" || mode === "disabled" || mode === "false") {
+      return "unsupported";
+    }
+  }
+  return undefined;
+}
+
+function normalizeProviderExtensionMode(
+  ...values: ReadonlyArray<unknown>
+): ProviderIntegrationCapabilities["extensionMode"] | undefined {
+  for (const value of values) {
+    const mode = normalizeProviderCapabilityValue(value, "native");
+    if (!mode) {
+      continue;
+    }
+    if (
+      mode === "native" ||
+      mode === "provider-native" ||
+      mode === "extension" ||
+      mode === "extensions" ||
+      mode === "plugin" ||
+      mode === "plugins" ||
+      mode === "skill" ||
+      mode === "skills" ||
+      mode === "agent-skill" ||
+      mode === "agent-skills" ||
+      mode === "custom-agent" ||
+      mode === "custom-agents" ||
+      mode === "prompt-file" ||
+      mode === "prompt-files" ||
+      mode === "instructions" ||
+      mode === "custom-instructions"
+    ) {
+      return "native";
+    }
+    if (
+      mode === "local-discovery" ||
+      mode === "local" ||
+      mode === "discovered" ||
+      mode === "local-commands" ||
+      mode === "command-discovery" ||
+      mode === "slash-command" ||
+      mode === "slash-commands"
+    ) {
+      return "local-discovery";
+    }
+    if (mode === "unsupported" || mode === "none" || mode === "disabled" || mode === "false") {
+      return "unsupported";
+    }
+  }
+  return undefined;
+}
+
+function normalizeProviderMcpMode(
+  ...values: ReadonlyArray<unknown>
+): ProviderIntegrationCapabilities["mcpMode"] | undefined {
+  for (const value of values) {
+    const mode = normalizeProviderCapabilityValue(value, "native");
+    if (!mode) {
+      continue;
+    }
+    if (
+      mode === "native" ||
+      mode === "provider-native" ||
+      mode === "mcp" ||
+      mode === "mcp-server" ||
+      mode === "mcp-servers" ||
+      mode === "model-context-protocol" ||
+      mode === "tool-server" ||
+      mode === "tool-servers" ||
+      mode === "external-tool" ||
+      mode === "external-tools" ||
+      mode === "connector" ||
+      mode === "connectors"
+    ) {
+      return "native";
+    }
+    if (
+      mode === "local-discovery" ||
+      mode === "local" ||
+      mode === "discovered" ||
+      mode === "local-config" ||
+      mode === "config-discovery"
+    ) {
+      return "local-discovery";
+    }
+    if (mode === "unsupported" || mode === "none" || mode === "disabled" || mode === "false") {
+      return "unsupported";
+    }
+  }
+  return undefined;
+}
+
+function normalizeProviderRemoteAgentMode(
+  ...values: ReadonlyArray<unknown>
+): ProviderIntegrationCapabilities["remoteAgentMode"] | undefined {
+  for (const value of values) {
+    const mode = normalizeProviderCapabilityValue(value, "native");
+    if (!mode) {
+      continue;
+    }
+    if (
+      mode === "native" ||
+      mode === "provider-native" ||
+      mode === "remote-agent" ||
+      mode === "remote-agents" ||
+      mode === "hosted-agent" ||
+      mode === "hosted-agents" ||
+      mode === "cloud-agent" ||
+      mode === "cloud-agents" ||
+      mode === "a2a-agent" ||
+      mode === "a2a-agents" ||
+      mode === "agent-connect" ||
+      mode === "agent-to-agent" ||
+      mode === "agent2agent" ||
+      mode === "remote-delegation"
+    ) {
+      return "native";
+    }
+    if (
+      mode === "local-bridge" ||
+      mode === "bridge" ||
+      mode === "local" ||
+      mode === "remote-bridge" ||
+      mode === "remote-connection" ||
+      mode === "remote-connection-bridge"
+    ) {
+      return "local-bridge";
+    }
+    if (mode === "unsupported" || mode === "none" || mode === "disabled" || mode === "false") {
+      return "unsupported";
+    }
+  }
+  return undefined;
+}
+
+function normalizeProviderWebAccessMode(
+  ...values: ReadonlyArray<unknown>
+): ProviderIntegrationCapabilities["webAccessMode"] | undefined {
+  for (const value of values) {
+    const mode = normalizeProviderCapabilityValue(value, "native");
+    if (!mode) {
+      continue;
+    }
+    if (
+      mode === "native" ||
+      mode === "provider-native" ||
+      mode === "web" ||
+      mode === "web-access" ||
+      mode === "web-search" ||
+      mode === "web-searches" ||
+      mode === "web-fetch" ||
+      mode === "web-fetches" ||
+      mode === "web-tool" ||
+      mode === "web-tools" ||
+      mode === "websearch" ||
+      mode === "webfetch" ||
+      mode === "google-web-search" ||
+      mode === "url-context" ||
+      mode === "url-fetch" ||
+      mode === "browser" ||
+      mode === "browsing" ||
+      mode === "browse" ||
+      mode === "internet" ||
+      mode === "internet-access" ||
+      mode === "live-search" ||
+      mode === "cached-search"
+    ) {
+      return "native";
+    }
+    if (
+      mode === "agent-command" ||
+      mode === "command" ||
+      mode === "commands" ||
+      mode === "slash-command" ||
+      mode === "slash-commands" ||
+      mode === "research" ||
+      mode === "deep-research" ||
+      mode === "web-research" ||
+      mode === "browser-agent"
+    ) {
+      return "agent-command";
+    }
+    if (
+      mode === "mcp-or-shell" ||
+      mode === "mcp" ||
+      mode === "shell" ||
+      mode === "terminal" ||
+      mode === "local-network" ||
+      mode === "network" ||
+      mode === "external-tool" ||
+      mode === "external-tools"
+    ) {
+      return "mcp-or-shell";
+    }
+    if (mode === "unsupported" || mode === "none" || mode === "disabled" || mode === "false") {
+      return "unsupported";
+    }
+  }
+  return undefined;
+}
+
+function normalizeProviderHostedSessionMode(
+  ...values: ReadonlyArray<unknown>
+): ProviderIntegrationCapabilities["hostedSessionMode"] | undefined {
+  for (const value of values) {
+    const mode = normalizeProviderCapabilityValue(value, "native");
+    if (!mode) {
+      continue;
+    }
+    if (
+      mode === "native" ||
+      mode === "provider-native" ||
+      mode === "hosted-session" ||
+      mode === "hosted-sessions" ||
+      mode === "cloud-session" ||
+      mode === "cloud-sessions" ||
+      mode === "cloud-task" ||
+      mode === "cloud-tasks" ||
+      mode === "background-session" ||
+      mode === "background-sessions" ||
+      mode === "background-agent" ||
+      mode === "background-agents" ||
+      mode === "web-agent" ||
+      mode === "web-agents" ||
+      mode === "web-session" ||
+      mode === "web-sessions" ||
+      mode === "async-agent" ||
+      mode === "async-agents" ||
+      mode === "cloud-agent-session" ||
+      mode === "cloud-agent-sessions" ||
+      mode === "copilot-coding-agent" ||
+      mode === "coding-agent" ||
+      mode === "codex-cloud"
+    ) {
+      return "native";
+    }
+    if (
+      mode === "local-bridge" ||
+      mode === "bridge" ||
+      mode === "local" ||
+      mode === "remote-control" ||
+      mode === "remote-session" ||
+      mode === "remote-sessions" ||
+      mode === "remote-tui" ||
+      mode === "remote-app-server" ||
+      mode === "local-session-bridge" ||
+      mode === "teleport" ||
+      mode === "mobile-remote" ||
+      mode === "web-remote"
+    ) {
+      return "local-bridge";
+    }
+    if (mode === "unsupported" || mode === "none" || mode === "disabled" || mode === "false") {
+      return "unsupported";
+    }
+  }
+  return undefined;
+}
+
+function normalizeProviderCapabilityMode(
+  enabledMode: string,
+  ...values: ReadonlyArray<unknown>
+): string | undefined {
+  for (const value of values) {
+    const mode = normalizeProviderCapabilityValue(value, enabledMode);
+    if (mode) {
+      return mode;
+    }
+  }
+  return undefined;
+}
+
+function normalizeProviderCapabilityValue(value: unknown, enabledMode: string): string | undefined {
+  const raw = asNonEmptyString(value);
+  if (raw) {
+    return normalizeProviderCapabilityString(raw);
+  }
+  if (typeof value === "boolean") {
+    return value ? enabledMode : "unsupported";
+  }
+  const record = asRecord(value);
+  if (!record) {
+    return undefined;
+  }
+  const recordMode =
+    normalizeProviderCapabilityValue(record.mode, enabledMode) ??
+    normalizeProviderCapabilityValue(record.kind, enabledMode) ??
+    normalizeProviderCapabilityValue(record.value, enabledMode) ??
+    normalizeProviderCapabilityValue(record.support, enabledMode) ??
+    normalizeProviderCapabilityValue(record.supported, enabledMode) ??
+    normalizeProviderCapabilityValue(record.enabled, enabledMode);
+  if (recordMode) {
+    return recordMode;
+  }
+  return enabledMode;
+}
+
+function normalizeProviderCapabilityString(value: string): string {
+  return value
+    .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
+    .replace(/[_\s]+/g, "-")
+    .trim()
+    .toLowerCase();
 }
 
 function normalizeProviderSessionConfigOptionValues(
@@ -255,6 +1595,72 @@ function normalizeProviderSessionConfigOptionValues(
   return options;
 }
 
+function normalizeProviderSessionConfigOptionType(input: {
+  readonly rawType: unknown;
+  readonly normalizedValues: ReadonlyArray<ProviderSessionConfigOption["options"][number]>;
+  readonly currentValue: string | undefined;
+}): ProviderSessionConfigOption["type"] | undefined {
+  const rawType = asNonEmptyString(input.rawType);
+  if (rawType) {
+    const normalized = normalizeProviderCapabilityString(rawType);
+    if (
+      normalized === "select" ||
+      normalized === "choice" ||
+      normalized === "enum" ||
+      normalized === "dropdown" ||
+      normalized === "radio"
+    ) {
+      return "select";
+    }
+    if (
+      normalized === "boolean" ||
+      normalized === "bool" ||
+      normalized === "toggle" ||
+      normalized === "switch" ||
+      normalized === "checkbox"
+    ) {
+      return "boolean";
+    }
+    if (
+      normalized === "text" ||
+      normalized === "string" ||
+      normalized === "input" ||
+      normalized === "textarea" ||
+      normalized === "freeform" ||
+      normalized === "free-form"
+    ) {
+      return "text";
+    }
+    if (
+      normalized === "number" ||
+      normalized === "numeric" ||
+      normalized === "integer" ||
+      normalized === "float" ||
+      normalized === "range" ||
+      normalized === "slider"
+    ) {
+      return "number";
+    }
+  }
+
+  if (input.normalizedValues.length > 0) {
+    return "select";
+  }
+  if (input.currentValue === "on" || input.currentValue === "off") {
+    return "boolean";
+  }
+  return undefined;
+}
+
+function defaultBooleanConfigOptionValues(): ReadonlyArray<
+  ProviderSessionConfigOption["options"][number]
+> {
+  return [
+    { value: "off", name: "Off" },
+    { value: "on", name: "On" },
+  ];
+}
+
 function normalizeProviderSessionConfigOptions(
   value: unknown,
 ): ReadonlyArray<ProviderSessionConfigOption> | null {
@@ -266,16 +1672,44 @@ function normalizeProviderSessionConfigOptions(
   const options: ProviderSessionConfigOption[] = [];
   for (const optionEntry of optionEntries) {
     const optionRecord = asRecord(optionEntry);
-    const id = asNonEmptyString(optionRecord?.id);
-    const name = asNonEmptyString(optionRecord?.name) ?? id;
+    const id =
+      asNonEmptyString(optionRecord?.id) ??
+      asNonEmptyString(optionRecord?.key) ??
+      asNonEmptyString(optionRecord?.setting) ??
+      asNonEmptyString(optionRecord?.field);
+    const name =
+      asNonEmptyString(optionRecord?.name) ??
+      asNonEmptyString(optionRecord?.label) ??
+      asNonEmptyString(optionRecord?.title) ??
+      id;
     const currentValue =
-      asNonEmptyString(optionRecord?.currentValue) ??
-      asNonEmptyString(optionRecord?.current_value) ??
-      asNonEmptyString(optionRecord?.value);
-    const normalizedValues = normalizeProviderSessionConfigOptionValues(optionRecord?.options);
-    if (!id || !name || !currentValue || normalizedValues.length === 0) {
+      asConfigValueString(optionRecord?.currentValue) ??
+      asConfigValueString(optionRecord?.current_value) ??
+      asConfigValueString(optionRecord?.selectedValue) ??
+      asConfigValueString(optionRecord?.selected_value) ??
+      asConfigValueString(optionRecord?.selected) ??
+      asConfigValueString(optionRecord?.current) ??
+      asConfigValueString(optionRecord?.activeValue) ??
+      asConfigValueString(optionRecord?.active_value) ??
+      asConfigValueString(optionRecord?.value);
+    const normalizedValues = normalizeProviderSessionConfigOptionValues(
+      optionRecord?.options ?? optionRecord?.values ?? optionRecord?.choices ?? optionRecord?.items,
+    );
+    const type = normalizeProviderSessionConfigOptionType({
+      rawType: optionRecord?.type ?? optionRecord?.kind ?? optionRecord?.control,
+      normalizedValues,
+      currentValue,
+    });
+    if (!id || !name || currentValue === undefined || !type) {
       continue;
     }
+    if (type === "select" && normalizedValues.length === 0) {
+      continue;
+    }
+    const optionValues =
+      type === "boolean" && normalizedValues.length === 0
+        ? defaultBooleanConfigOptionValues()
+        : normalizedValues;
 
     options.push({
       id,
@@ -286,9 +1720,34 @@ function normalizeProviderSessionConfigOptions(
       ...(asNonEmptyString(optionRecord?.category)
         ? { category: asNonEmptyString(optionRecord?.category)! }
         : {}),
-      type: "select",
+      type,
       currentValue,
-      options: normalizedValues,
+      options: optionValues,
+      ...(asFiniteNumber(optionRecord?.minValue ?? optionRecord?.min_value ?? optionRecord?.min) !==
+      undefined
+        ? {
+            minValue: asFiniteNumber(
+              optionRecord?.minValue ?? optionRecord?.min_value ?? optionRecord?.min,
+            )!,
+          }
+        : {}),
+      ...(asFiniteNumber(optionRecord?.maxValue ?? optionRecord?.max_value ?? optionRecord?.max) !==
+      undefined
+        ? {
+            maxValue: asFiniteNumber(
+              optionRecord?.maxValue ?? optionRecord?.max_value ?? optionRecord?.max,
+            )!,
+          }
+        : {}),
+      ...(asFiniteNumber(
+        optionRecord?.stepValue ?? optionRecord?.step_value ?? optionRecord?.step,
+      ) !== undefined
+        ? {
+            stepValue: asFiniteNumber(
+              optionRecord?.stepValue ?? optionRecord?.step_value ?? optionRecord?.step,
+            )!,
+          }
+        : {}),
     });
   }
 
@@ -500,12 +1959,7 @@ function imageGenerationStreamKey(threadId: ThreadId, turnId: TurnId | undefined
 function buildContextWindowActivityPayload(
   event: ProviderRuntimeEvent,
 ): ThreadTokenUsageSnapshot | undefined {
-  if (
-    event.type !== "thread.token-usage.updated" ||
-    event.payload.usage.usedTokens <= 0 ||
-    event.payload.usage.maxTokens === undefined ||
-    event.payload.usage.maxTokens <= 0
-  ) {
+  if (event.type !== "thread.token-usage.updated" || event.payload.usage.usedTokens <= 0) {
     return undefined;
   }
   return event.payload.usage;
@@ -1381,6 +2835,7 @@ function subagentThreadIdFromRuntimePayload(payload: Record<string, unknown>): s
     subagent,
     providerAgentLooseRecord(payload),
     providerAgentLooseRecord(data),
+    providerAgentLooseRecord(ace),
     providerAgentLooseRecord(item),
   );
   const childProviderThreadId =
@@ -1421,12 +2876,16 @@ function subagentRuntimePayloadFields(payload: Record<string, unknown>): Record<
   const item = asRecord(data?.item);
   const payloadAgent = providerAgentRecord(payload);
   const dataAgent = providerAgentRecord(data);
+  const aceAgent = providerAgentRecord(asRecord(data?.ace));
   const itemAgent = providerAgentRecord(item);
   if (fields.subagent === undefined && payloadAgent !== undefined) {
     fields.subagent = payloadAgent;
   }
   if (fields.subagent === undefined && dataAgent !== undefined) {
     fields.subagent = dataAgent;
+  }
+  if (fields.subagent === undefined && aceAgent !== undefined) {
+    fields.subagent = aceAgent;
   }
   if (fields.subagent === undefined && itemAgent !== undefined) {
     fields.subagent = itemAgent;
@@ -1441,8 +2900,28 @@ function subagentRuntimePayloadFields(payload: Record<string, unknown>): Record<
     "sessionId",
     "sessionID",
     "session_id",
+    "parentId",
+    "parent_id",
+    "parentAgentId",
+    "parent_agent_id",
+    "parentSubagentId",
+    "parent_subagent_id",
+    "parentTaskId",
+    "parentTaskID",
+    "parent_task_id",
+    "parentToolUseId",
+    "parent_tool_use_id",
     "parentProviderThreadId",
     "parent_provider_thread_id",
+    "parentProviderConversationId",
+    "parent_provider_conversation_id",
+    "parentThreadId",
+    "parent_thread_id",
+    "parentSessionId",
+    "parentSessionID",
+    "parent_session_id",
+    "parentConversationId",
+    "parent_conversation_id",
     "agentId",
     "agent_id",
     "subagentId",
@@ -1471,44 +2950,78 @@ function subagentRuntimePayloadFields(payload: Record<string, unknown>): Record<
   return fields;
 }
 
-function sideConversationPayloadFromActivity(
+function sideConversationPayloadsFromActivity(
   activity: OrchestrationThreadActivity,
-): { id: string; type?: string | undefined; name?: string | undefined } | null {
+): ReadonlyArray<{ id: string; type?: string | undefined; name?: string | undefined }> {
   const payload = asRecord(activity.payload);
   const data = asRecord(payload?.data);
   const ace = asRecord(data?.ace);
   const item = asRecord(data?.item);
-  const subagent =
+  const candidates = [
+    ...providerAgentRecords(payload),
+    ...providerAgentRecords(data),
+    ...providerAgentRecords(ace),
+    ...providerAgentRecords(item),
+  ];
+  const looseCandidates = [
+    providerAgentLooseRecord(payload),
+    providerAgentLooseRecord(data),
+    providerAgentLooseRecord(ace),
+    providerAgentLooseRecord(item),
+  ].filter((candidate): candidate is Record<string, unknown> => candidate !== undefined);
+  const fallbackSubagent =
     providerAgentRecord(payload) ??
     asRecord(ace?.subagent) ??
     providerAgentRecord(data) ??
     providerAgentRecord(item);
-  const metadata = mergeProviderAgentMetadata(
-    subagent,
-    providerAgentLooseRecord(payload),
-    providerAgentLooseRecord(data),
-    providerAgentLooseRecord(ace),
-  );
-  const childProviderThreadId =
-    asTrimmedString(payload?.childProviderThreadId) ??
-    asTrimmedString(payload?.child_provider_thread_id) ??
-    asTrimmedString(data?.childProviderThreadId) ??
-    asTrimmedString(data?.child_provider_thread_id) ??
-    asTrimmedString(ace?.childProviderThreadId) ??
-    asTrimmedString(ace?.child_provider_thread_id);
-  const subagentId = metadata.id ?? childProviderThreadId;
-  if (!subagentId) {
-    return null;
+  if (fallbackSubagent !== undefined && candidates.length === 0) {
+    candidates.push(fallbackSubagent);
   }
-  const type = metadata.type;
-  if (type !== "side chat") {
-    return null;
+  if (candidates.length === 0) {
+    candidates.push(...looseCandidates);
   }
-  return {
-    id: subagentId,
-    type,
-    ...(metadata.name ? { name: metadata.name } : {}),
-  };
+
+  const routes: Array<{ id: string; type?: string | undefined; name?: string | undefined }> = [];
+  const seen = new Set<string>();
+  for (const [candidateIndex, candidate] of candidates.entries()) {
+    const metadata = mergeProviderAgentMetadata(
+      candidate,
+      providerAgentLooseRecord(candidate),
+      providerAgentLooseRecord(payload),
+      providerAgentLooseRecord(data),
+      providerAgentLooseRecord(ace),
+      providerAgentLooseRecord(item),
+    );
+    const childProviderThreadId =
+      asTrimmedString(candidate.childProviderThreadId) ??
+      asTrimmedString(candidate.child_provider_thread_id) ??
+      asTrimmedString(payload?.childProviderThreadId) ??
+      asTrimmedString(payload?.child_provider_thread_id) ??
+      asTrimmedString(data?.childProviderThreadId) ??
+      asTrimmedString(data?.child_provider_thread_id) ??
+      asTrimmedString(ace?.childProviderThreadId) ??
+      asTrimmedString(ace?.child_provider_thread_id) ??
+      asTrimmedString(item?.childProviderThreadId) ??
+      asTrimmedString(item?.child_provider_thread_id) ??
+      firstTrimmedArrayString(candidate.receiverThreadIds) ??
+      firstTrimmedArrayString(candidate.receiver_thread_ids) ??
+      (candidateIndex === 0 ? firstTrimmedArrayString(item?.receiverThreadIds) : undefined);
+    const subagentId = childProviderThreadId ?? metadata.id;
+    if (!subagentId || seen.has(subagentId)) {
+      continue;
+    }
+    const type = metadata.type;
+    if (!isProviderSideConversationType(type)) {
+      continue;
+    }
+    seen.add(subagentId);
+    routes.push({
+      id: subagentId,
+      type,
+      ...(metadata.name ? { name: metadata.name } : {}),
+    });
+  }
+  return routes;
 }
 
 function findSideConversationRuntimeRoute(
@@ -1520,9 +3033,10 @@ function findSideConversationRuntimeRoute(
 } | null {
   for (const thread of readModel.threads) {
     for (const activity of thread.activities) {
-      const subagent = sideConversationPayloadFromActivity(activity);
-      if (subagent?.id === runtimeThreadId) {
-        return { thread, subagent };
+      for (const subagent of sideConversationPayloadsFromActivity(activity)) {
+        if (subagent.id === runtimeThreadId) {
+          return { thread, subagent };
+        }
       }
     }
   }
@@ -1748,6 +3262,7 @@ function runtimeEventToActivities(
           kind: "runtime.error",
           summary: "Runtime error",
           payload: {
+            provider: event.provider,
             message: truncateDetail(event.payload.message),
           },
           turnId: toTurnId(event.turnId) ?? null,
@@ -1765,8 +3280,130 @@ function runtimeEventToActivities(
           kind: "runtime.warning",
           summary: "Runtime warning",
           payload: {
+            provider: event.provider,
             message: truncateDetail(event.payload.message),
             ...(event.payload.detail !== undefined ? { detail: event.payload.detail } : {}),
+          },
+          turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
+        },
+      ];
+    }
+
+    case "auth.status": {
+      return [
+        {
+          id: event.eventId,
+          createdAt: event.createdAt,
+          tone: event.payload.error ? "error" : "info",
+          kind: "auth.status",
+          summary: "Provider auth status",
+          payload: {
+            provider: event.provider,
+            ...(event.payload.isAuthenticating !== undefined
+              ? { isAuthenticating: event.payload.isAuthenticating }
+              : {}),
+            ...(event.payload.status ? { status: event.payload.status } : {}),
+            ...(event.payload.label ? { label: event.payload.label } : {}),
+            ...(event.payload.account !== undefined ? { account: event.payload.account } : {}),
+            ...(event.payload.output !== undefined ? { output: event.payload.output } : {}),
+            ...(event.payload.error ? { error: truncateDetail(event.payload.error) } : {}),
+          },
+          turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
+        },
+      ];
+    }
+
+    case "account.updated": {
+      return [
+        {
+          id: event.eventId,
+          createdAt: event.createdAt,
+          tone: "info",
+          kind: "account.updated",
+          summary: "Provider account updated",
+          payload: {
+            provider: event.provider,
+            account: event.payload.account,
+          },
+          turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
+        },
+      ];
+    }
+
+    case "account.rate-limits.updated": {
+      return [
+        {
+          id: event.eventId,
+          createdAt: event.createdAt,
+          tone: "info",
+          kind: "account.rate-limits.updated",
+          summary: "Provider rate limits updated",
+          payload: {
+            provider: event.provider,
+            rateLimits: event.payload.rateLimits,
+          },
+          turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
+        },
+      ];
+    }
+
+    case "model.rerouted": {
+      return [
+        {
+          id: event.eventId,
+          createdAt: event.createdAt,
+          tone: "info",
+          kind: "model.rerouted",
+          summary: "Model rerouted",
+          payload: {
+            provider: event.provider,
+            fromModel: event.payload.fromModel,
+            toModel: event.payload.toModel,
+            reason: event.payload.reason,
+          },
+          turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
+        },
+      ];
+    }
+
+    case "config.warning": {
+      return [
+        {
+          id: event.eventId,
+          createdAt: event.createdAt,
+          tone: "info",
+          kind: "config.warning",
+          summary: "Provider configuration warning",
+          payload: {
+            provider: event.provider,
+            summary: truncateDetail(event.payload.summary),
+            ...(event.payload.details ? { details: truncateDetail(event.payload.details) } : {}),
+            ...(event.payload.path ? { path: event.payload.path } : {}),
+            ...(event.payload.range !== undefined ? { range: event.payload.range } : {}),
+          },
+          turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
+        },
+      ];
+    }
+
+    case "deprecation.notice": {
+      return [
+        {
+          id: event.eventId,
+          createdAt: event.createdAt,
+          tone: "info",
+          kind: "deprecation.notice",
+          summary: "Provider deprecation notice",
+          payload: {
+            provider: event.provider,
+            summary: truncateDetail(event.payload.summary),
+            ...(event.payload.details ? { details: truncateDetail(event.payload.details) } : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
           ...maybeSequence,
@@ -2082,6 +3719,44 @@ function runtimeEventToActivities(
           kind: "goal.cleared",
           summary: "Goal cleared",
           payload,
+          turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
+        },
+      ];
+    }
+
+    case "mcp.status.updated": {
+      return [
+        {
+          id: event.eventId,
+          createdAt: event.createdAt,
+          tone: "info",
+          kind: "mcp.status.updated",
+          summary: "MCP status updated",
+          payload: {
+            provider: event.provider,
+            status: event.payload.status,
+          },
+          turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
+        },
+      ];
+    }
+
+    case "mcp.oauth.completed": {
+      return [
+        {
+          id: event.eventId,
+          createdAt: event.createdAt,
+          tone: event.payload.success ? "info" : "error",
+          kind: "mcp.oauth.completed",
+          summary: event.payload.success ? "MCP OAuth completed" : "MCP OAuth failed",
+          payload: {
+            provider: event.provider,
+            success: event.payload.success,
+            ...(event.payload.name ? { name: event.payload.name } : {}),
+            ...(event.payload.error ? { error: event.payload.error } : {}),
+          },
           turnId: toTurnId(event.turnId) ?? null,
           ...maybeSequence,
         },
@@ -3665,7 +5340,8 @@ const make = Effect.fn("make")(function* () {
       const assistantDelta =
         event.type === "content.delta" &&
         event.payload.streamKind === "assistant_text" &&
-        !isSubagentRuntimePayload(event.payload)
+        !isSubagentRuntimePayload(event.payload) &&
+        !hasProviderGoalLifecycleSignal(event.payload)
           ? event.payload.delta
           : undefined;
       const proposedPlanDelta =
@@ -3768,12 +5444,6 @@ const make = Effect.fn("make")(function* () {
       const assistantCompletion =
         event.type === "item.completed"
           ? (() => {
-              if (
-                event.payload.itemType === "assistant_message" &&
-                isSubagentRuntimePayload(event.payload)
-              ) {
-                return undefined;
-              }
               const isImageGenerationCompletion = isImageGenerationLifecyclePayload(event.payload);
               const isStructuredImageGenerationCompletion =
                 isStructuredImageGenerationToolLifecyclePayload(event.payload);
@@ -3781,6 +5451,15 @@ const make = Effect.fn("make")(function* () {
                 isImageGenerationCompletion || isStructuredImageGenerationCompletion
                   ? extractGeneratedImageDataUrl(event.payload)
                   : undefined;
+              if (
+                event.payload.itemType === "assistant_message" &&
+                !isImageGenerationCompletion &&
+                !isStructuredImageGenerationCompletion &&
+                (isSubagentRuntimePayload(event.payload) ||
+                  hasProviderGoalLifecycleSignal(event.payload))
+              ) {
+                return undefined;
+              }
               if (
                 event.payload.itemType !== "assistant_message" &&
                 !isImageGenerationCompletion &&

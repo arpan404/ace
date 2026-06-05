@@ -1,15 +1,27 @@
-import { type OrchestrationThreadActivity, type TurnId } from "@ace/contracts";
+import {
+  PROVIDER_DISPLAY_NAMES,
+  type OrchestrationThreadActivity,
+  type ProviderIntegrationCapabilities,
+  type ProviderKind,
+  type TurnId,
+} from "@ace/contracts";
 import {
   mergeProviderAgentMetadata,
   providerAgentLooseRecord,
   providerAgentRecord,
+  providerAgentRecords,
 } from "@ace/shared/providerAgentMetadata";
 import {
   hasProviderGoalLifecycleSignal,
   parseProviderGoalLifecycle,
 } from "@ace/shared/providerGoalLifecycle";
 
-import type { ActiveGoalState, WorkLogEntry } from "./types";
+import type {
+  ActiveGoalState,
+  EnvironmentMcpStatus,
+  EnvironmentProviderStatus,
+  WorkLogEntry,
+} from "./types";
 import {
   asRecord,
   asTrimmedString,
@@ -125,6 +137,18 @@ function isRenderableWorkLogActivity(activity: OrchestrationThreadActivity): boo
   if (activity.kind === "context-window.updated") {
     return false;
   }
+  if (
+    activity.kind === "mcp.status.updated" ||
+    activity.kind === "mcp.oauth.completed" ||
+    activity.kind === "auth.status" ||
+    activity.kind === "account.updated" ||
+    activity.kind === "account.rate-limits.updated" ||
+    activity.kind === "model.rerouted" ||
+    activity.kind === "config.warning" ||
+    activity.kind === "deprecation.notice"
+  ) {
+    return false;
+  }
   if (activity.summary === "Checkpoint captured") {
     return false;
   }
@@ -139,6 +163,707 @@ function isGoalLifecycleWorkLogActivity(activity: OrchestrationThreadActivity): 
     summary: activity.summary,
     payload: activity.payload,
   });
+}
+
+function normalizeMcpStatusText(value: unknown): string | null {
+  const text = asTrimmedString(value);
+  return text ? text.replaceAll("_", " ") : null;
+}
+
+function isErrorMcpStatus(value: string): boolean {
+  const normalized = value.toLowerCase();
+  return (
+    normalized.includes("fail") ||
+    normalized.includes("error") ||
+    normalized.includes("needs auth") ||
+    normalized.includes("needs client registration")
+  );
+}
+
+function isPlainStatusRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function mcpStatusRecordHasIdentity(record: Record<string, unknown>): boolean {
+  return Boolean(
+    asTrimmedString(record.name) ??
+    asTrimmedString(record.server) ??
+    asTrimmedString(record.serverName) ??
+    asTrimmedString(record.server_name) ??
+    asTrimmedString(record.id),
+  );
+}
+
+function collectMcpStatusRecords(value: unknown): ReadonlyArray<Record<string, unknown>> {
+  if (Array.isArray(value)) {
+    return value.flatMap(collectMcpStatusRecords);
+  }
+
+  if (!isPlainStatusRecord(value)) {
+    return [];
+  }
+
+  const nestedContainers = [
+    value.status,
+    value.statuses,
+    value.serverStatuses,
+    value.server_statuses,
+    value.servers,
+    value.mcpServers,
+    value.mcp_servers,
+    value.tools,
+  ];
+  const nestedRecords = nestedContainers.flatMap(collectMcpStatusRecords);
+
+  if (mcpStatusRecordHasIdentity(value)) {
+    return [value, ...nestedRecords];
+  }
+
+  const containerKeys = new Set([
+    "status",
+    "statuses",
+    "serverStatuses",
+    "server_statuses",
+    "servers",
+    "mcpServers",
+    "mcp_servers",
+    "tools",
+  ]);
+  const keyedRecords = Object.entries(value).flatMap(([key, entry]) => {
+    if (containerKeys.has(key)) {
+      return collectMcpStatusRecords(entry);
+    }
+    if (!isPlainStatusRecord(entry)) {
+      return collectMcpStatusRecords(entry);
+    }
+    const record = mcpStatusRecordHasIdentity(entry) ? entry : { ...entry, name: key };
+    return [record, ...collectMcpStatusRecords(entry)];
+  });
+
+  return [...nestedRecords, ...keyedRecords];
+}
+
+function mcpStatusName(record: Record<string, unknown>): string | null {
+  return (
+    asTrimmedString(record.name) ??
+    asTrimmedString(record.server) ??
+    asTrimmedString(record.serverName) ??
+    asTrimmedString(record.server_name) ??
+    asTrimmedString(record.id)
+  );
+}
+
+export function deriveEnvironmentMcpStatuses(
+  activities: ReadonlyArray<OrchestrationThreadActivity>,
+): EnvironmentMcpStatus[] {
+  const ordered = ensureActivitiesOrdered(activities);
+  const byName = new Map<string, EnvironmentMcpStatus>();
+
+  for (const activity of ordered) {
+    const payload =
+      activity.payload && typeof activity.payload === "object"
+        ? (activity.payload as Record<string, unknown>)
+        : null;
+
+    if (activity.kind === "mcp.status.updated") {
+      const providerLabel = optionalProviderLabelFromPayload(payload);
+      for (const statusRecord of collectMcpStatusRecords(payload?.status ?? payload)) {
+        const name = mcpStatusName(statusRecord);
+        if (!name) {
+          continue;
+        }
+        const status =
+          normalizeMcpStatusText(statusRecord.status) ??
+          normalizeMcpStatusText(statusRecord.state) ??
+          normalizeMcpStatusText(statusRecord.phase) ??
+          "updated";
+        const detail =
+          normalizeMcpStatusText(statusRecord.error) ??
+          normalizeMcpStatusText(statusRecord.message) ??
+          normalizeMcpStatusText(statusRecord.reason) ??
+          normalizeMcpStatusText(statusRecord.scope) ??
+          normalizeMcpStatusText(statusRecord.detail);
+        const key = providerLabel ? `${providerLabel}:${name}` : name;
+        byName.set(key, {
+          id: `${activity.id}:${key}`,
+          createdAt: activity.createdAt,
+          name,
+          ...(providerLabel ? { providerLabel } : {}),
+          status,
+          tone: isErrorMcpStatus(status) ? "error" : "info",
+          ...(detail ? { detail } : {}),
+        });
+      }
+      continue;
+    }
+
+    if (activity.kind === "mcp.oauth.completed") {
+      const providerLabel = optionalProviderLabelFromPayload(payload);
+      const name = asTrimmedString(payload?.name) ?? "MCP server";
+      const success = payload?.success === true;
+      const detail = normalizeMcpStatusText(payload?.error);
+      const key = providerLabel ? `${providerLabel}:${name}` : name;
+      byName.set(key, {
+        id: `${activity.id}:${key}`,
+        createdAt: activity.createdAt,
+        name,
+        ...(providerLabel ? { providerLabel } : {}),
+        status: success ? "authenticated" : "authentication failed",
+        tone: success ? "info" : "error",
+        ...(detail ? { detail } : {}),
+      });
+    }
+  }
+
+  return [...byName.values()].toSorted((left, right) => {
+    if (left.tone !== right.tone) {
+      return left.tone === "error" ? -1 : 1;
+    }
+    return left.name.localeCompare(right.name);
+  });
+}
+
+function providerLabelFromPayload(payload: Record<string, unknown> | null): string {
+  const provider = asTrimmedString(payload?.provider);
+  return provider && provider in PROVIDER_DISPLAY_NAMES
+    ? PROVIDER_DISPLAY_NAMES[provider as keyof typeof PROVIDER_DISPLAY_NAMES]
+    : (provider ?? "Provider");
+}
+
+function optionalProviderLabelFromPayload(payload: Record<string, unknown> | null): string | null {
+  return payload && asTrimmedString(payload.provider) ? providerLabelFromPayload(payload) : null;
+}
+
+function normalizeStatusDetail(...values: ReadonlyArray<unknown>): string | undefined {
+  for (const value of values) {
+    if (Array.isArray(value)) {
+      const detail = value
+        .map((entry) => asTrimmedString(entry))
+        .filter((entry): entry is string => entry !== undefined)
+        .join("\n");
+      if (detail) {
+        return detail;
+      }
+      continue;
+    }
+    const detail = asTrimmedString(value);
+    if (detail) {
+      return detail;
+    }
+  }
+  return undefined;
+}
+
+function firstProviderAccountLabel(account: unknown): string | undefined {
+  const record = asRecord(account);
+  if (!record) {
+    return undefined;
+  }
+  return (
+    asTrimmedString(record.email) ??
+    asTrimmedString(record.name) ??
+    asTrimmedString(record.username) ??
+    asTrimmedString(record.login) ??
+    asTrimmedString(record.accountId) ??
+    asTrimmedString(record.account_id) ??
+    undefined
+  );
+}
+
+function providerAuthStatusFromPayload(payload: Record<string, unknown> | null): {
+  status: string;
+  tone: EnvironmentProviderStatus["tone"];
+  detail?: string | undefined;
+} {
+  const error = normalizeStatusDetail(payload?.error);
+  if (error) {
+    return { status: "authentication error", tone: "error", detail: error };
+  }
+
+  const accountLabel = firstProviderAccountLabel(payload?.account);
+  const label = asTrimmedString(payload?.label);
+  const rawStatus = asTrimmedString(payload?.status);
+  const output = normalizeStatusDetail(payload?.output);
+  const normalized = [rawStatus, output].filter(Boolean).join(" ").toLowerCase();
+
+  if (payload?.isAuthenticating === true) {
+    return {
+      status: "authenticating",
+      tone: "info",
+      ...(output ? { detail: output } : {}),
+    };
+  }
+
+  if (
+    rawStatus === "unauthenticated" ||
+    normalized.includes("unauthenticated") ||
+    normalized.includes("not authenticated") ||
+    normalized.includes("not logged in") ||
+    normalized.includes("login required") ||
+    normalized.includes("logged out")
+  ) {
+    return {
+      status: "not authenticated",
+      tone: "warning",
+      ...(output ? { detail: output } : {}),
+    };
+  }
+
+  if (
+    rawStatus === "authenticated" ||
+    normalized.includes("authenticated") ||
+    normalized.includes("logged in") ||
+    accountLabel ||
+    label
+  ) {
+    return {
+      status: label ?? accountLabel ?? "authenticated",
+      tone: "info",
+      ...(output && output !== label && output !== accountLabel ? { detail: output } : {}),
+    };
+  }
+
+  return {
+    status: rawStatus ?? "updated",
+    tone: "info",
+    ...(output ? { detail: output } : {}),
+  };
+}
+
+function firstRateLimitStatus(rateLimits: unknown): string | undefined {
+  if (Array.isArray(rateLimits)) {
+    for (const entry of rateLimits) {
+      const status = firstRateLimitStatus(entry);
+      if (status) {
+        return status;
+      }
+    }
+    return undefined;
+  }
+  const record = asRecord(rateLimits);
+  if (!record) {
+    return undefined;
+  }
+  const remaining =
+    asFiniteInteger(record.remaining) ??
+    asFiniteInteger(record.remainingRequests) ??
+    asFiniteInteger(record.remaining_requests);
+  const limit =
+    asFiniteInteger(record.limit) ??
+    asFiniteInteger(record.max) ??
+    asFiniteInteger(record.total) ??
+    asFiniteInteger(record.requests);
+  if (remaining !== undefined && limit !== undefined) {
+    return `${remaining}/${limit} remaining`;
+  }
+  if (remaining !== undefined) {
+    return `${remaining} remaining`;
+  }
+  return (
+    asTrimmedString(record.status) ??
+    asTrimmedString(record.state) ??
+    asTrimmedString(record.type) ??
+    asTrimmedString(record.message) ??
+    undefined
+  );
+}
+
+function rateLimitTone(
+  rateLimits: unknown,
+  status: string | undefined,
+): EnvironmentProviderStatus["tone"] {
+  const normalized = status?.toLowerCase() ?? "";
+  if (
+    normalized.includes("exhaust") ||
+    normalized.includes("limited") ||
+    normalized.includes("throttle") ||
+    normalized.includes("quota") ||
+    normalized.startsWith("0/")
+  ) {
+    return "warning";
+  }
+  if (Array.isArray(rateLimits)) {
+    return rateLimits.some((entry) => rateLimitTone(entry, undefined) === "warning")
+      ? "warning"
+      : "info";
+  }
+  const record = asRecord(rateLimits);
+  if (!record) {
+    return "info";
+  }
+  const remaining =
+    asFiniteInteger(record.remaining) ??
+    asFiniteInteger(record.remainingRequests) ??
+    asFiniteInteger(record.remaining_requests);
+  return remaining === 0 ? "warning" : "info";
+}
+
+function rateLimitDetail(rateLimits: unknown): string | undefined {
+  if (Array.isArray(rateLimits)) {
+    return normalizeStatusDetail(
+      rateLimits
+        .map((entry) => rateLimitDetail(entry) ?? firstRateLimitStatus(entry))
+        .filter((entry): entry is string => entry !== undefined),
+    );
+  }
+  const record = asRecord(rateLimits);
+  if (!record) {
+    return undefined;
+  }
+  return normalizeStatusDetail(
+    record.detail,
+    record.details,
+    record.reason,
+    record.error,
+    record.resetAt,
+    record.reset_at,
+    record.resetsAt,
+    record.resets_at,
+    record.retryAfter,
+    record.retry_after,
+    record.window,
+  );
+}
+
+export function deriveEnvironmentProviderStatuses(
+  activities: ReadonlyArray<OrchestrationThreadActivity>,
+): EnvironmentProviderStatus[] {
+  const ordered = ensureActivitiesOrdered(activities);
+  const byKey = new Map<string, EnvironmentProviderStatus>();
+
+  for (const activity of ordered) {
+    const payload =
+      activity.payload && typeof activity.payload === "object"
+        ? (activity.payload as Record<string, unknown>)
+        : null;
+    const providerLabel = providerLabelFromPayload(payload);
+    const baseId = `${activity.id}:${activity.kind}`;
+
+    if (activity.kind === "auth.status") {
+      const authStatus = providerAuthStatusFromPayload(payload);
+      byKey.set(`${providerLabel}:auth`, {
+        id: baseId,
+        createdAt: activity.createdAt,
+        label: `${providerLabel} auth`,
+        status: authStatus.status,
+        tone: authStatus.tone,
+        ...(authStatus.detail ? { detail: authStatus.detail } : {}),
+      });
+      continue;
+    }
+
+    if (activity.kind === "account.updated") {
+      const accountLabel = firstProviderAccountLabel(payload?.account);
+      byKey.set(`${providerLabel}:account`, {
+        id: baseId,
+        createdAt: activity.createdAt,
+        label: `${providerLabel} account`,
+        status: accountLabel ?? "updated",
+        tone: "info",
+      });
+      continue;
+    }
+
+    if (activity.kind === "account.rate-limits.updated") {
+      const status = firstRateLimitStatus(payload?.rateLimits) ?? "updated";
+      const detail = rateLimitDetail(payload?.rateLimits);
+      byKey.set(`${providerLabel}:rate-limits`, {
+        id: baseId,
+        createdAt: activity.createdAt,
+        label: `${providerLabel} limits`,
+        status,
+        tone: rateLimitTone(payload?.rateLimits, status),
+        ...(detail && detail !== status ? { detail } : {}),
+      });
+      continue;
+    }
+
+    if (activity.kind === "model.rerouted") {
+      const fromModel = asTrimmedString(payload?.fromModel) ?? "unknown";
+      const toModel = asTrimmedString(payload?.toModel) ?? "unknown";
+      const detail = normalizeStatusDetail(payload?.reason);
+      byKey.set(`${providerLabel}:model-rerouted`, {
+        id: baseId,
+        createdAt: activity.createdAt,
+        label: `${providerLabel} model`,
+        status: `${fromModel} -> ${toModel}`,
+        tone: "warning",
+        ...(detail ? { detail } : {}),
+      });
+      continue;
+    }
+
+    if (activity.kind === "config.warning") {
+      const detail = normalizeStatusDetail(payload?.details, payload?.path);
+      byKey.set(`${providerLabel}:config-warning`, {
+        id: baseId,
+        createdAt: activity.createdAt,
+        label: `${providerLabel} config`,
+        status: asTrimmedString(payload?.summary) ?? "configuration warning",
+        tone: "warning",
+        ...(detail ? { detail } : {}),
+      });
+      continue;
+    }
+
+    if (activity.kind === "deprecation.notice") {
+      const detail = normalizeStatusDetail(payload?.details);
+      byKey.set(`${providerLabel}:deprecation`, {
+        id: baseId,
+        createdAt: activity.createdAt,
+        label: `${providerLabel} deprecation`,
+        status: asTrimmedString(payload?.summary) ?? "deprecation notice",
+        tone: "warning",
+        ...(detail ? { detail } : {}),
+      });
+      continue;
+    }
+
+    if (activity.kind === "runtime.error" || activity.kind === "runtime.warning") {
+      const message = normalizeStatusDetail(payload?.message);
+      const detail = normalizeStatusDetail(payload?.detail);
+      byKey.set(`${providerLabel}:runtime`, {
+        id: baseId,
+        createdAt: activity.createdAt,
+        label: `${providerLabel} runtime`,
+        status:
+          message ?? (activity.kind === "runtime.error" ? "runtime error" : "runtime warning"),
+        tone: activity.kind === "runtime.error" ? "error" : "warning",
+        ...(detail && detail !== message ? { detail } : {}),
+      });
+    }
+  }
+
+  return [...byKey.values()].toSorted((left, right) => {
+    if (left.tone !== right.tone) {
+      const rank = { error: 0, warning: 1, info: 2 } as const;
+      return rank[left.tone] - rank[right.tone];
+    }
+    return left.label.localeCompare(right.label);
+  });
+}
+
+export function deriveEnvironmentSessionProviderStatus(
+  session:
+    | {
+        readonly provider: ProviderKind;
+        readonly capabilities?:
+          | Partial<
+              Pick<
+                ProviderIntegrationCapabilities,
+                | "multiAgentMode"
+                | "hookMode"
+                | "extensionMode"
+                | "mcpMode"
+                | "remoteAgentMode"
+                | "webAccessMode"
+                | "hostedSessionMode"
+              >
+            >
+          | undefined;
+        readonly updatedAt: string;
+      }
+    | null
+    | undefined,
+): EnvironmentProviderStatus | null {
+  return deriveEnvironmentSessionProviderStatuses(session)[0] ?? null;
+}
+
+export function deriveEnvironmentSessionProviderStatuses(
+  session:
+    | {
+        readonly provider: ProviderKind;
+        readonly capabilities?:
+          | Partial<
+              Pick<
+                ProviderIntegrationCapabilities,
+                | "multiAgentMode"
+                | "hookMode"
+                | "extensionMode"
+                | "mcpMode"
+                | "remoteAgentMode"
+                | "webAccessMode"
+                | "hostedSessionMode"
+              >
+            >
+          | undefined;
+        readonly updatedAt: string;
+      }
+    | null
+    | undefined,
+): EnvironmentProviderStatus[] {
+  const multiAgentMode = session?.capabilities?.multiAgentMode;
+  if (!session || !session.capabilities) {
+    return [];
+  }
+  const providerLabel = PROVIDER_DISPLAY_NAMES[session.provider] ?? session.provider;
+  const statuses: EnvironmentProviderStatus[] = [];
+
+  if (multiAgentMode) {
+    const status =
+      multiAgentMode === "native"
+        ? "native"
+        : multiAgentMode === "agent-command"
+          ? "command"
+          : "unsupported";
+    const detail =
+      multiAgentMode === "native"
+        ? "Provider can run multi-agent delegation natively."
+        : multiAgentMode === "agent-command"
+          ? "Provider agents are available through command or mention routing."
+          : "Provider has not advertised multi-agent delegation.";
+
+    statuses.push({
+      id: `${session.provider}:multi-agent-capability`,
+      createdAt: session.updatedAt,
+      label: `${providerLabel} agents`,
+      status,
+      tone: multiAgentMode === "unsupported" ? "warning" : "info",
+      detail,
+    });
+  }
+
+  const hookMode = session.capabilities.hookMode;
+  if (hookMode) {
+    statuses.push({
+      id: `${session.provider}:hook-capability`,
+      createdAt: session.updatedAt,
+      label: `${providerLabel} hooks`,
+      status: hookMode === "native" ? "native" : "unsupported",
+      tone: hookMode === "unsupported" ? "warning" : "info",
+      detail:
+        hookMode === "native"
+          ? "Provider can run configured lifecycle hooks."
+          : "Provider has not advertised lifecycle hooks.",
+    });
+  }
+
+  const extensionMode = session.capabilities.extensionMode;
+  if (extensionMode) {
+    const status =
+      extensionMode === "native"
+        ? "native"
+        : extensionMode === "local-discovery"
+          ? "local"
+          : "unsupported";
+    const detail =
+      extensionMode === "native"
+        ? "Provider supports configured skills, plugins, extensions, or custom agents."
+        : extensionMode === "local-discovery"
+          ? "Ace exposes locally discovered provider skills, instructions, or extension commands."
+          : "Provider has not advertised customization extensions.";
+
+    statuses.push({
+      id: `${session.provider}:extension-capability`,
+      createdAt: session.updatedAt,
+      label: `${providerLabel} extensions`,
+      status,
+      tone: extensionMode === "unsupported" ? "warning" : "info",
+      detail,
+    });
+  }
+
+  const mcpMode = session.capabilities.mcpMode;
+  if (mcpMode) {
+    const status =
+      mcpMode === "native" ? "native" : mcpMode === "local-discovery" ? "local" : "unsupported";
+    const detail =
+      mcpMode === "native"
+        ? "Provider can use configured MCP servers and external tool connectors."
+        : mcpMode === "local-discovery"
+          ? "Ace exposes locally discovered MCP server configuration."
+          : "Provider has not advertised MCP server support.";
+
+    statuses.push({
+      id: `${session.provider}:mcp-capability`,
+      createdAt: session.updatedAt,
+      label: `${providerLabel} MCP`,
+      status,
+      tone: mcpMode === "unsupported" ? "warning" : "info",
+      detail,
+    });
+  }
+
+  const remoteAgentMode = session.capabilities.remoteAgentMode;
+  if (remoteAgentMode) {
+    const status =
+      remoteAgentMode === "native"
+        ? "native"
+        : remoteAgentMode === "local-bridge"
+          ? "bridge"
+          : "unsupported";
+    const detail =
+      remoteAgentMode === "native"
+        ? "Provider can delegate to hosted, cloud, or remote A2A agents."
+        : remoteAgentMode === "local-bridge"
+          ? "Ace can bridge provider sessions to remote agent endpoints."
+          : "Provider has not advertised hosted or remote agent delegation.";
+
+    statuses.push({
+      id: `${session.provider}:remote-agent-capability`,
+      createdAt: session.updatedAt,
+      label: `${providerLabel} remote agents`,
+      status,
+      tone: remoteAgentMode === "unsupported" ? "warning" : "info",
+      detail,
+    });
+  }
+
+  const hostedSessionMode = session.capabilities.hostedSessionMode;
+  if (hostedSessionMode) {
+    const status =
+      hostedSessionMode === "native"
+        ? "native"
+        : hostedSessionMode === "local-bridge"
+          ? "bridge"
+          : "unsupported";
+    const detail =
+      hostedSessionMode === "native"
+        ? "Provider can run hosted, cloud, or background coding sessions."
+        : hostedSessionMode === "local-bridge"
+          ? "Provider can bridge Ace to a remotely controlled local provider session."
+          : "Provider has not advertised hosted or background sessions.";
+
+    statuses.push({
+      id: `${session.provider}:hosted-session-capability`,
+      createdAt: session.updatedAt,
+      label: `${providerLabel} hosted sessions`,
+      status,
+      tone: hostedSessionMode === "unsupported" ? "warning" : "info",
+      detail,
+    });
+  }
+
+  const webAccessMode = session.capabilities.webAccessMode;
+  if (webAccessMode) {
+    const status =
+      webAccessMode === "native"
+        ? "native"
+        : webAccessMode === "agent-command"
+          ? "command"
+          : webAccessMode === "mcp-or-shell"
+            ? "tool"
+            : "unsupported";
+    const detail =
+      webAccessMode === "native"
+        ? "Provider can use first-party web search, web fetch, or browsing tools."
+        : webAccessMode === "agent-command"
+          ? "Provider exposes web research through a command or agent route."
+          : webAccessMode === "mcp-or-shell"
+            ? "Provider can reach web context through MCP tools or shell/network access."
+            : "Provider has not advertised web search or web fetch support.";
+
+    statuses.push({
+      id: `${session.provider}:web-access-capability`,
+      createdAt: session.updatedAt,
+      label: `${providerLabel} web access`,
+      status,
+      tone: webAccessMode === "unsupported" ? "warning" : "info",
+      detail,
+    });
+  }
+
+  return statuses;
 }
 
 export function deriveActiveGoalState(
@@ -345,6 +1070,9 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   if (subagent.id) {
     entry.subagentId = subagent.id;
   }
+  if (subagent.parentId) {
+    entry.subagentParentId = subagent.parentId;
+  }
   if (subagent.type) {
     entry.subagentType = subagent.type;
   }
@@ -354,7 +1082,24 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   if (subagent.model) {
     entry.subagentModel = subagent.model;
   }
-  if (activity.kind === "subagent.message.sent" && entry.detail) {
+  if (subagent.transcriptPath) {
+    entry.subagentTranscriptPath = subagent.transcriptPath;
+  }
+  const subagentAssistantMessage = subagent.lastAssistantMessage;
+  const subagentOpeningMessage = entry.detail ?? subagent.prompt;
+  if (rawPayloadItemType === "collab_agent_tool_call" && subagent.id && subagentAssistantMessage) {
+    entry.sideChatMessageId = `${activity.id}:assistant`;
+    entry.sideChatMessageRole = "assistant";
+    entry.sideChatMessageText = subagentAssistantMessage;
+  } else if (
+    rawPayloadItemType === "collab_agent_tool_call" &&
+    subagent.id &&
+    subagentOpeningMessage
+  ) {
+    entry.sideChatMessageId = activity.id;
+    entry.sideChatMessageRole = "user";
+    entry.sideChatMessageText = subagentOpeningMessage;
+  } else if (activity.kind === "subagent.message.sent" && entry.detail) {
     entry.sideChatMessageId =
       typeof payload?.messageId === "string" && payload.messageId.trim().length > 0
         ? payload.messageId.trim()
@@ -374,6 +1119,61 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
     entry.collapseKey = collapseKey;
   }
   return entry;
+}
+
+function toProviderChildRecordEntries(
+  activity: OrchestrationThreadActivity,
+  baseEntry: DerivedWorkLogEntry,
+): DerivedWorkLogEntry[] {
+  const payload =
+    activity.payload && typeof activity.payload === "object"
+      ? (activity.payload as Record<string, unknown>)
+      : null;
+  const data = asRecord(payload?.data);
+  const item = asRecord(data?.item);
+  const records = [
+    ...providerAgentRecords(payload),
+    ...providerAgentRecords(data),
+    ...providerAgentRecords(item),
+  ];
+  if (records.length <= 1 || !baseEntry.sideChatMessageText) {
+    return [baseEntry];
+  }
+  const entries = [baseEntry];
+  for (const [recordIndex, record] of records.slice(1).entries()) {
+    const metadata = mergeProviderAgentMetadata(
+      record,
+      providerAgentLooseRecord(record),
+      providerAgentLooseRecord(payload),
+      providerAgentLooseRecord(data),
+      providerAgentLooseRecord(item),
+    );
+    const subagentId = metadata.id;
+    if (!subagentId && !metadata.type && !metadata.name) {
+      continue;
+    }
+    const detail =
+      metadata.lastAssistantMessage ??
+      metadata.prompt ??
+      baseEntry.sideChatMessageText ??
+      baseEntry.detail;
+    const { collapseKey: _collapseKey, ...baseWithoutCollapseKey } = baseEntry;
+    const entry: DerivedWorkLogEntry = {
+      ...baseWithoutCollapseKey,
+      id: `${baseEntry.id}:provider-child:${recordIndex + 1}`,
+      ...(detail ? { detail } : {}),
+      ...(subagentId ? { subagentId } : {}),
+      ...(metadata.parentId ? { subagentParentId: metadata.parentId } : {}),
+      ...(metadata.type ? { subagentType: metadata.type } : {}),
+      ...(metadata.name ? { subagentName: metadata.name } : {}),
+      ...(metadata.model ? { subagentModel: metadata.model } : {}),
+      ...(metadata.transcriptPath ? { subagentTranscriptPath: metadata.transcriptPath } : {}),
+      sideChatMessageId: `${baseEntry.sideChatMessageId ?? baseEntry.id}:provider-child:${recordIndex + 1}`,
+      ...(detail ? { sideChatMessageText: detail } : {}),
+    };
+    entries.push(entry);
+  }
+  return entries;
 }
 
 function collapseDerivedWorkLogEntries(
@@ -481,9 +1281,11 @@ function mergeDerivedWorkLogEntries(
   const exitCode = next.exitCode ?? previous.exitCode;
   const durationMs = next.durationMs ?? previous.durationMs;
   const subagentId = next.subagentId ?? previous.subagentId;
+  const subagentParentId = next.subagentParentId ?? previous.subagentParentId;
   const subagentType = next.subagentType ?? previous.subagentType;
   const subagentName = next.subagentName ?? previous.subagentName;
   const subagentModel = next.subagentModel ?? previous.subagentModel;
+  const subagentTranscriptPath = next.subagentTranscriptPath ?? previous.subagentTranscriptPath;
   const sideChatMessageId = next.sideChatMessageId ?? previous.sideChatMessageId;
   const sideChatMessageRole = next.sideChatMessageRole ?? previous.sideChatMessageRole;
   const sideChatMessageText =
@@ -513,9 +1315,11 @@ function mergeDerivedWorkLogEntries(
     ...(itemType ? { itemType } : {}),
     ...(requestKind ? { requestKind } : {}),
     ...(subagentId ? { subagentId } : {}),
+    ...(subagentParentId ? { subagentParentId } : {}),
     ...(subagentType ? { subagentType } : {}),
     ...(subagentName ? { subagentName } : {}),
     ...(subagentModel ? { subagentModel } : {}),
+    ...(subagentTranscriptPath ? { subagentTranscriptPath } : {}),
     ...(sideChatMessageId ? { sideChatMessageId } : {}),
     ...(sideChatMessageRole ? { sideChatMessageRole } : {}),
     ...(sideChatMessageText ? { sideChatMessageText } : {}),
@@ -525,9 +1329,13 @@ function mergeDerivedWorkLogEntries(
 
 function extractSubagentMetadata(payload: Record<string, unknown> | null): {
   id?: string | undefined;
+  parentId?: string | undefined;
   type?: string | undefined;
   name?: string | undefined;
   model?: string | undefined;
+  prompt?: string | undefined;
+  transcriptPath?: string | undefined;
+  lastAssistantMessage?: string | undefined;
 } {
   const data = asRecord(payload?.data);
   const ace = asRecord(data?.ace);
@@ -539,7 +1347,7 @@ function extractSubagentMetadata(payload: Record<string, unknown> | null): {
     providerAgentRecord(data) ??
     providerAgentRecord(item);
   const input = asRecord(data?.input);
-  const args = asRecord(data?.arguments);
+  const args = asRecord(data?.arguments) ?? asRecord(data?.args) ?? asRecord(data?.rawInput);
   const result = asRecord(data?.result);
   const metadata = mergeProviderAgentMetadata(
     subagent,
@@ -575,9 +1383,13 @@ function extractSubagentMetadata(payload: Record<string, unknown> | null): {
       : undefined;
   return {
     id: childProviderThreadId ?? providerSessionId ?? metadata.id ?? undefined,
+    parentId: metadata.parentId ?? undefined,
     type: metadata.type ?? (childProviderThreadId ? "codex subagent" : undefined) ?? undefined,
     name: metadata.name ?? undefined,
     model: metadata.model ?? undefined,
+    prompt: metadata.prompt ?? undefined,
+    transcriptPath: metadata.transcriptPath ?? undefined,
+    lastAssistantMessage: metadata.lastAssistantMessage ?? undefined,
   };
 }
 
@@ -961,7 +1773,7 @@ export function deriveWorkLogEntries(
     if (!isRenderableWorkLogActivity(activity)) {
       continue;
     }
-    entries.push(toDerivedWorkLogEntry(activity));
+    entries.push(...toProviderChildRecordEntries(activity, toDerivedWorkLogEntry(activity)));
   }
   const collapsedEntries = collapseDerivedWorkLogEntries(entries);
   const normalizedEntries: WorkLogEntry[] = [];

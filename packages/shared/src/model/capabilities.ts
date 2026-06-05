@@ -79,6 +79,9 @@ export function normalizeClaudeModelOptionsWithCapabilities(
   const contextWindow = resolveContextWindow(caps, modelOptions?.contextWindow);
   const outputStyle = modelOptions?.outputStyle?.trim();
   const agent = modelOptions?.agent?.trim();
+  const rawSubagentModel = modelOptions?.subagentModel?.trim();
+  const subagentModel =
+    rawSubagentModel && rawSubagentModel !== "inherit" ? rawSubagentModel : undefined;
   const forkSubagents =
     typeof modelOptions?.forkSubagents === "boolean" ? modelOptions.forkSubagents : undefined;
   const agentTeams =
@@ -90,6 +93,7 @@ export function normalizeClaudeModelOptionsWithCapabilities(
     ...(contextWindow !== undefined ? { contextWindow } : {}),
     ...(outputStyle ? { outputStyle } : {}),
     ...(agent ? { agent } : {}),
+    ...(subagentModel ? { subagentModel } : {}),
     ...(forkSubagents !== undefined ? { forkSubagents } : {}),
     ...(agentTeams !== undefined ? { agentTeams } : {}),
   };

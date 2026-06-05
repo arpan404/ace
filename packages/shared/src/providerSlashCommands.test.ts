@@ -21,8 +21,9 @@ describe("providerSlashCommands", () => {
 
   it("reserves provider-native side-chat aliases behind the Ace-native /side command", () => {
     expect(isProviderSideConversationAlias("/side")).toBe(true);
+    expect(isProviderSideConversationAlias(".side")).toBe(true);
     expect(isProviderSideConversationAlias("btw")).toBe(true);
-    expect(isProviderSideConversationAlias("/ask")).toBe(true);
+    expect(isProviderSideConversationAlias("/ask")).toBe(false);
     expect(isProviderSideConversationAlias("/review")).toBe(false);
   });
 
@@ -74,12 +75,22 @@ describe("providerSlashCommands", () => {
       mergeProviderSlashCommands([
         { name: "plugin-browser", promptPrefix: "@browser-use" },
         { name: "skill-frontend", promptPrefix: "$frontend-design" },
-        { name: "security-auditor", kind: "agent", promptPrefix: "@security-auditor" },
+        {
+          name: "security-auditor",
+          kind: "agent",
+          promptPrefix: "@security-auditor",
+          metadata: { model: "sonnet" },
+        },
       ]),
     ).toEqual([
       { name: "plugin-browser", kind: "plugin", promptPrefix: "@browser-use" },
       { name: "skill-frontend", kind: "skill", promptPrefix: "$frontend-design" },
-      { name: "security-auditor", kind: "agent", promptPrefix: "@security-auditor" },
+      {
+        name: "security-auditor",
+        kind: "agent",
+        promptPrefix: "@security-auditor",
+        metadata: { model: "sonnet" },
+      },
     ]);
   });
 
@@ -122,7 +133,7 @@ describe("providerSlashCommands", () => {
     expect(providerFallbackSlashCommands("opencode")).toEqual([]);
   });
 
-  it("drops provider-reported side-chat aliases so Ace owns /side", () => {
+  it("drops provider-reported side-chat aliases without hiding normal ask agents", () => {
     expect(
       mergeProviderSlashCommands([
         {
@@ -130,6 +141,12 @@ describe("providerSlashCommands", () => {
           kind: "provider",
           description: "Provider native side conversation",
           promptPrefix: "/side",
+        },
+        {
+          name: ".side",
+          kind: "provider",
+          description: "Provider dot-command side conversation",
+          promptPrefix: ".side",
         },
         {
           name: "btw",
@@ -151,6 +168,12 @@ describe("providerSlashCommands", () => {
         },
       ]),
     ).toEqual([
+      {
+        name: "ask",
+        kind: "agent",
+        description: "Provider side agent",
+        promptPrefix: "@ask",
+      },
       {
         name: "review",
         kind: "agent",

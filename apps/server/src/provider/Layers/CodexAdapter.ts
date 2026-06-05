@@ -72,6 +72,7 @@ const CODEX_PROVIDER_CAPABILITIES = {
   sessionForkMode: "native" as const,
   sideConversationMode: "native-fork" as const,
   providerThreadTargetingMode: "native" as const,
+  goalControlMode: "native" as const,
 };
 
 export interface CodexAdapterLiveOptions {

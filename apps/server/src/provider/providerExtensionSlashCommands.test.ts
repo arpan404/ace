@@ -9,16 +9,20 @@ import { describe, expect, it } from "vitest";
 import {
   discoverClaudeAgentConfigOption,
   discoverClaudeForkSubagentsConfigOption,
+  discoverClaudeSdkAgentSlashCommands,
   discoverClaudeOutputStyleConfigOption,
+  discoverClaudeSubagentModelConfigOption,
   discoverClaudeExtensionSlashCommands,
   discoverCodexExtensionSlashCommands,
   discoverCursorExtensionSlashCommands,
   discoverGeminiCustomSlashCommands,
   discoverGenericProviderExtensionSlashCommands,
+  geminiBuiltInSubagentCommands,
   discoverGeminiExtensionSlashCommands,
   discoverGitHubCopilotAgentSlashCommands,
   discoverGitHubCopilotAgentConfigOption,
   discoverGitHubCopilotCustomAgents,
+  discoverGitHubCopilotMcpServers,
   discoverGitHubCopilotInstructionSlashCommands,
   discoverGitHubCopilotPluginSlashCommands,
   discoverGitHubCopilotPromptSlashCommands,
@@ -82,6 +86,12 @@ async function writeAgentMarkdown(input: {
   readonly name?: string | undefined;
   readonly description: string;
   readonly mode?: string | undefined;
+  readonly model?: string | undefined;
+  readonly tools?: ReadonlyArray<string> | undefined;
+  readonly allowedTools?: ReadonlyArray<string> | undefined;
+  readonly permission?: Record<string, string | Record<string, string>> | undefined;
+  readonly taskPermission?: Record<string, string> | undefined;
+  readonly color?: string | undefined;
   readonly disable?: boolean | undefined;
   readonly disabled?: boolean | undefined;
 }): Promise<void> {
@@ -93,6 +103,31 @@ async function writeAgentMarkdown(input: {
       ...(input.name ? [`name: ${input.name}`] : []),
       `description: ${input.description}`,
       ...(input.mode ? [`mode: ${input.mode}`] : []),
+      ...(input.model ? [`model: ${input.model}`] : []),
+      ...(input.tools ? [`tools: [${input.tools.join(", ")}]`] : []),
+      ...(input.allowedTools ? [`allowed-tools: [${input.allowedTools.join(", ")}]`] : []),
+      ...(input.permission || input.taskPermission
+        ? [
+            "permission:",
+            ...Object.entries(input.permission ?? {}).flatMap(([key, value]) =>
+              typeof value === "string"
+                ? [`  ${key}: ${value}`]
+                : [
+                    `  ${key}:`,
+                    ...Object.entries(value).map(
+                      ([pattern, action]) => `    "${pattern}": ${action}`,
+                    ),
+                  ],
+            ),
+            ...(input.taskPermission ? ["  task:"] : []),
+            ...(input.taskPermission
+              ? Object.entries(input.taskPermission).map(
+                  ([pattern, action]) => `    "${pattern}": ${action}`,
+                )
+              : []),
+          ]
+        : []),
+      ...(input.color ? [`color: ${input.color}`] : []),
       ...(input.disable !== undefined ? [`disable: ${input.disable ? "true" : "false"}`] : []),
       ...(input.disabled !== undefined ? [`disabled: ${input.disabled ? "true" : "false"}`] : []),
       "---",
@@ -217,13 +252,46 @@ describe("providerExtensionSlashCommands", () => {
         fileName: "reviewer.md",
         name: "reviewer",
         description: "Review implementation details",
+        model: "sonnet",
+        tools: ["Read", "Grep"],
       });
       await writeAgentMarkdown({
         root: path.join(claudeHome, "agents"),
         fileName: "docs-writer.md",
         name: "docs-writer",
         description: "Draft documentation",
+        allowedTools: ["Read"],
       });
+      await writeFile(
+        path.join(repo, ".claude", "agents", "safe-researcher.md"),
+        [
+          "---",
+          "name: safe-researcher",
+          "description: Research agent with a constrained Claude Code profile",
+          "tools: Read, Grep, Glob, Bash",
+          "disallowedTools: Write, Edit",
+          "model: claude-haiku-4-5",
+          "permissionMode: plan",
+          "mcpServers:",
+          "  docs:",
+          "    command: docs-mcp",
+          "    args:",
+          "      - --stdio",
+          'hooks: {"SessionStart":[{"type":"command","command":"./scripts/agent-start.sh"}]}',
+          "maxTurns: 8",
+          "skills: [repo-map, dependency-docs]",
+          "initialPrompt: Summarize the current implementation context before researching.",
+          "effort: high",
+          "background: true",
+          "isolation: worktree",
+          "color: teal",
+          "memory:",
+          "  retain: project-map",
+          "---",
+          "",
+          "Research safely without editing files.",
+        ].join("\n"),
+      );
 
       const commands = discoverClaudeExtensionSlashCommands({ cwd, home: claudeHome });
       const option = discoverClaudeAgentConfigOption({
@@ -254,8 +322,120 @@ describe("providerExtensionSlashCommands", () => {
             name: "docs-writer",
             description: "Draft documentation",
           }),
+          expect.objectContaining({
+            value: "safe-researcher",
+            name: "safe-researcher",
+            description: "Research agent with a constrained Claude Code profile",
+          }),
         ]),
       );
+      expect(findCommand(commands, "reviewer")).toEqual(
+        expect.objectContaining({
+          kind: "agent",
+          promptPrefix: "@agent-reviewer",
+          metadata: {
+            provider: "claude",
+            source: "agent",
+            model: "sonnet",
+            tools: ["Read", "Grep"],
+          },
+        }),
+      );
+      expect(findCommand(commands, "safe-researcher")).toEqual(
+        expect.objectContaining({
+          kind: "agent",
+          promptPrefix: "@agent-safe-researcher",
+          metadata: {
+            provider: "claude",
+            source: "agent",
+            tools: ["Read", "Grep", "Glob", "Bash"],
+            disallowedTools: ["Write", "Edit"],
+            model: "claude-haiku-4-5",
+            permissionMode: "plan",
+            mcpServers: {
+              docs: {
+                command: "docs-mcp",
+                args: ["--stdio"],
+              },
+            },
+            hooks: {
+              SessionStart: [
+                {
+                  type: "command",
+                  command: "./scripts/agent-start.sh",
+                },
+              ],
+            },
+            maxTurns: 8,
+            skills: ["repo-map", "dependency-docs"],
+            initialPrompt: "Summarize the current implementation context before researching.",
+            effort: "high",
+            background: true,
+            isolation: "worktree",
+            color: "teal",
+            memory: {
+              retain: "project-map",
+            },
+          },
+        }),
+      );
+      expect(findCommand(commands, "docs-writer")).toEqual(
+        expect.objectContaining({
+          metadata: {
+            provider: "claude",
+            source: "agent",
+            allowedTools: "Read",
+          },
+        }),
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("converts Claude SDK supported agents into Ace agent commands", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "ace-claude-sdk-agent-config-"));
+    const repo = path.join(root, "repo");
+    const cwd = path.join(repo, "packages", "web");
+    const claudeHome = path.join(root, ".claude");
+    try {
+      await mkdir(path.join(repo, ".git"), { recursive: true });
+      await mkdir(cwd, { recursive: true });
+      await mkdir(path.join(repo, ".claude"), { recursive: true });
+      await writeFile(
+        path.join(repo, ".claude", "settings.json"),
+        JSON.stringify({ permissions: { deny: ["Agent(hidden-reviewer)"] } }),
+      );
+
+      expect(
+        discoverClaudeSdkAgentSlashCommands({
+          cwd,
+          home: claudeHome,
+          agents: [
+            {
+              name: "sdk-auditor",
+              description: "Audit implementation details from the Claude SDK",
+              model: "sonnet",
+            },
+            {
+              name: "hidden-reviewer",
+              description: "Denied by Claude settings",
+            },
+            {
+              name: "!!!",
+              description: "Invalid command name",
+            },
+          ],
+        }),
+      ).toEqual([
+        {
+          name: "sdk-auditor",
+          kind: "agent",
+          description: "Audit implementation details from the Claude SDK Model: sonnet.",
+          promptPrefix: "@sdk-auditor",
+          inputHint: "<prompt>",
+        },
+      ]);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -281,6 +461,32 @@ describe("providerExtensionSlashCommands", () => {
         env: { CLAUDE_CODE_FORK_SUBAGENT: "1" },
       }).currentValue,
     ).toBe("off");
+  });
+
+  it("preserves custom Claude subagent model ids without command-name normalization", () => {
+    const option = discoverClaudeSubagentModelConfigOption({
+      selectedSubagentModel: " anthropic/claude-opus-4.1 ",
+      env: { CLAUDE_CODE_SUBAGENT_MODEL: "haiku" },
+    });
+
+    expect(option).toEqual(
+      expect.objectContaining({
+        id: "subagent_model",
+        name: "Subagent Model",
+        category: "subagent_model",
+        type: "select",
+        currentValue: "anthropic/claude-opus-4.1",
+      }),
+    );
+    expect(option.options).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ value: "inherit", name: "Inherit" }),
+        expect.objectContaining({
+          value: "anthropic/claude-opus-4.1",
+          name: "anthropic/claude-opus-4.1",
+        }),
+      ]),
+    );
   });
 
   it("discovers concrete Codex skill and plugin commands", async () => {
@@ -603,6 +809,14 @@ describe("providerExtensionSlashCommands", () => {
         path.join(cwd, ".claude", "skills"),
         "claude-project",
         "Claude project skill",
+        [
+          "arguments: [target, format]",
+          "allowed-tools: [Read, Grep]",
+          "model: sonnet",
+          "context: fork",
+          "agent: Explore",
+          'hooks: {"SkillStart":[{"type":"command","command":"./scripts/skill-start.sh"}]}',
+        ],
       );
       await writeSkill(path.join(cwd, ".claude", "skills"), "release", "Claude release skill");
       await mkdir(path.join(cwd, ".claude", "skills", "workflow", "folder-command"), {
@@ -623,8 +837,18 @@ describe("providerExtensionSlashCommands", () => {
         "---\ndescription: Draft release notes\nargument-hint: <version>\n---\n\n# Release\n",
       );
       await writeFile(
-        path.join(cwd, ".claude", "commands", "frontend", "component.md"),
-        "# Component\n\nCreate a component using $ARGUMENTS.\n",
+        path.join(cwd, ".claude", "commands", "frontend", "widget.md"),
+        [
+          "---",
+          "arguments: [name, variant]",
+          "allowed-tools: Bash(git status *), Read",
+          "disable-model-invocation: true",
+          "---",
+          "",
+          "# Widget",
+          "",
+          "Create a widget using $ARGUMENTS.",
+        ].join("\n"),
       );
       await writeSkill(path.join(claudeHome, "skills"), "claude-global", "Claude global skill");
       await mkdir(path.join(claudeHome, "commands"), { recursive: true });
@@ -708,11 +932,11 @@ describe("providerExtensionSlashCommands", () => {
             promptPrefix: "/folder-command",
           }),
           expect.objectContaining({
-            name: "component",
+            name: "widget",
             kind: "provider",
-            description: "Component",
-            promptPrefix: "/component",
-            inputHint: "<prompt>",
+            description: "Widget",
+            promptPrefix: "/widget",
+            inputHint: "[name] [variant]",
           }),
           expect.objectContaining({
             name: "changelog",
@@ -756,6 +980,32 @@ describe("providerExtensionSlashCommands", () => {
       );
       expect(findCommand(commands, "shared-global")?.description).toBe("Claude project override");
       expect(findCommand(commands, "release")?.description).toBe("Claude release skill");
+      expect(findCommand(commands, "claude-project")?.inputHint).toBe("[target] [format]");
+      expect(findCommand(commands, "claude-project")?.metadata).toEqual({
+        provider: "claude",
+        source: "skill",
+        arguments: ["target", "format"],
+        allowedTools: ["Read", "Grep"],
+        model: "sonnet",
+        context: "fork",
+        agent: "Explore",
+        hooks: {
+          SkillStart: [
+            {
+              type: "command",
+              command: "./scripts/skill-start.sh",
+            },
+          ],
+        },
+      });
+      expect(findCommand(commands, "widget")?.inputHint).toBe("[name] [variant]");
+      expect(findCommand(commands, "widget")?.metadata).toEqual({
+        provider: "claude",
+        source: "command",
+        arguments: ["name", "variant"],
+        allowedTools: ["Bash(git status *)", "Read"],
+        disableModelInvocation: true,
+      });
       expect(findCommand(commands, "folder-command")?.promptPrefix).toBe("/folder-command");
       expect(findCommand(commands, "Display Name Only")).toBeUndefined();
       expect(
@@ -767,9 +1017,9 @@ describe("providerExtensionSlashCommands", () => {
       expect(
         findCommand(
           discoverClaudeExtensionSlashCommands({ cwd: nestedCwd, home: claudeHome, agentsHome }),
-          "component",
+          "widget",
         )?.promptPrefix,
-      ).toBe("/component");
+      ).toBe("/widget");
 
       const providerCommands = withProviderExtensionSlashCommands({
         providers: [
@@ -908,12 +1158,23 @@ describe("providerExtensionSlashCommands", () => {
         "Project frontend design",
       );
       await writeSkill(path.join(geminiHome, "skills"), "frontend-design", "Build UI");
-      await writeAgentMarkdown({
-        root: path.join(cwd, ".gemini", "agents"),
-        fileName: "security-auditor.md",
-        name: "security-auditor",
-        description: "Find security defects",
-      });
+      await mkdir(path.join(cwd, ".gemini", "agents"), { recursive: true });
+      await writeFile(
+        path.join(cwd, ".gemini", "agents", "security-auditor.md"),
+        [
+          "---",
+          "name: security-auditor",
+          "description: Find security defects",
+          "kind: local",
+          "tools: [read_file, grep_search]",
+          "model: gemini-3-flash-preview",
+          "temperature: 0.2",
+          "max_turns: 10",
+          "---",
+          "",
+          "# Agent prompt",
+        ].join("\n"),
+      );
       await writeFile(
         path.join(cwd, ".gemini", "agents", "remote-auditor.md"),
         [
@@ -940,6 +1201,42 @@ describe("providerExtensionSlashCommands", () => {
           "---",
           "",
           "Multiple remote A2A agents.",
+        ].join("\n"),
+      );
+      await writeFile(
+        path.join(cwd, ".gemini", "agents", "remote-json-block.md"),
+        [
+          "---",
+          "kind: remote",
+          "name: remote-json-block",
+          "description: Uses an inline A2A agent card",
+          "agent_card_json: |",
+          '  { "protocolVersion": "0.3.0", "name": "Inline Remote", "version": "1.0.0" }',
+          "---",
+          "",
+          "Remote A2A agent configuration with an inline card.",
+        ].join("\n"),
+      );
+      await writeFile(
+        path.join(cwd, ".gemini", "agents", "remote-auth.md"),
+        [
+          "---",
+          "kind: remote",
+          "name: remote-auth",
+          "description: Uses sanitized remote auth metadata",
+          "agent_card_url: https://example.com/remote-auth/.well-known/agent.json",
+          "auth:",
+          "  type: oauth2",
+          "  scheme: bearer",
+          "  scopes:",
+          "    - repo:read",
+          "  authorization_url: https://auth.example.test/oauth/authorize",
+          "  token_url: https://auth.example.test/oauth/token",
+          "  client_secret: should-not-leak",
+          "  token: should-not-leak",
+          "---",
+          "",
+          "Remote A2A agent with auth.",
         ].join("\n"),
       );
       await writeAgentMarkdown({
@@ -972,12 +1269,24 @@ describe("providerExtensionSlashCommands", () => {
         "cloud-run-deploy",
         "Deploy Cloud Run services",
       );
-      await writeAgentMarkdown({
-        root: path.join(extensionRoot, "agents"),
-        fileName: "cloud-architect.md",
-        name: "cloud-architect",
-        description: "Design Google Cloud architecture",
-      });
+      await mkdir(path.join(extensionRoot, "agents"), { recursive: true });
+      await writeFile(
+        path.join(extensionRoot, "agents", "cloud-architect.md"),
+        [
+          "---",
+          "name: cloud-architect",
+          "description: Design Google Cloud architecture",
+          "kind: local",
+          "tools:",
+          "  - read_file",
+          "  - mcp_gcp_*",
+          "model: gemini-3-pro-preview",
+          "max_turns: 20",
+          "---",
+          "",
+          "# Agent prompt",
+        ].join("\n"),
+      );
       await mkdir(path.join(extensionRoot, "commands", "gcs"), { recursive: true });
       await writeFile(
         path.join(extensionRoot, "commands", "gcs", "sync.toml"),
@@ -995,6 +1304,19 @@ describe("providerExtensionSlashCommands", () => {
       await writeFile(
         path.join(cwd, ".gemini", "commands", "git", "commit.toml"),
         'description = "Draft a commit message"\nprompt = "Draft a commit for {{args}}."\n',
+      );
+      await writeFile(
+        path.join(cwd, ".gemini", "commands", "context.toml"),
+        [
+          'description = "Review with injected Gemini context"',
+          'prompt = """',
+          "Review {{args}} with these project notes:",
+          "@{docs/best-practices.md}",
+          "",
+          "Current status:",
+          "!{git status --short}",
+          '"""',
+        ].join("\n"),
       );
       await mkdir(path.join(geminiHome, "commands"), { recursive: true });
       await writeFile(
@@ -1078,6 +1400,15 @@ describe("providerExtensionSlashCommands", () => {
             kind: "agent",
             promptPrefix: "@security-auditor",
             description: "Find security defects",
+            metadata: {
+              provider: "gemini",
+              source: "agent",
+              kind: "local",
+              tools: ["read_file", "grep_search"],
+              model: "gemini-3-flash-preview",
+              temperature: 0.2,
+              maxTurns: 10,
+            },
           }),
           expect.objectContaining({
             name: "global-researcher",
@@ -1090,6 +1421,12 @@ describe("providerExtensionSlashCommands", () => {
             kind: "agent",
             promptPrefix: "@remote-auditor",
             description: "Audit through a remote A2A agent",
+            metadata: expect.objectContaining({
+              provider: "gemini",
+              source: "remote-agent",
+              kind: "remote",
+              agentCardUrl: "https://example.com/remote-auditor/.well-known/agent.json",
+            }),
           }),
           expect.objectContaining({
             name: "remote-architect",
@@ -1105,6 +1442,39 @@ describe("providerExtensionSlashCommands", () => {
             description: "Remote Gemini A2A subagent",
           }),
           expect.objectContaining({
+            name: "remote-json-block",
+            kind: "agent",
+            promptPrefix: "@remote-json-block",
+            description: "Uses an inline A2A agent card",
+            metadata: expect.objectContaining({
+              provider: "gemini",
+              source: "remote-agent",
+              kind: "remote",
+              agentCardJson:
+                '{ "protocolVersion": "0.3.0", "name": "Inline Remote", "version": "1.0.0" }',
+            }),
+          }),
+          expect.objectContaining({
+            name: "remote-auth",
+            kind: "agent",
+            promptPrefix: "@remote-auth",
+            description: "Uses sanitized remote auth metadata",
+            metadata: expect.objectContaining({
+              provider: "gemini",
+              source: "remote-agent",
+              kind: "remote",
+              agentCardUrl: "https://example.com/remote-auth/.well-known/agent.json",
+              authType: "oauth2",
+              auth: {
+                type: "oauth2",
+                scheme: "bearer",
+                scopes: ["repo:read"],
+                authorizationUrl: "https://auth.example.test/oauth/authorize",
+                tokenUrl: "https://auth.example.test/oauth/token",
+              },
+            }),
+          }),
+          expect.objectContaining({
             name: "review",
             kind: "provider",
             promptPrefix: "Review {{args}}.",
@@ -1115,6 +1485,23 @@ describe("providerExtensionSlashCommands", () => {
             kind: "provider",
             promptPrefix: "Draft a commit for {{args}}.",
             description: "Draft a commit message",
+            metadata: {
+              provider: "gemini",
+              source: "command",
+              arguments: ["args"],
+            },
+          }),
+          expect.objectContaining({
+            name: "context",
+            kind: "provider",
+            description: "Review with injected Gemini context",
+            metadata: {
+              provider: "gemini",
+              source: "command",
+              arguments: ["args"],
+              shellInjection: true,
+              fileInjection: true,
+            },
           }),
           expect.objectContaining({
             name: "triage",
@@ -1131,6 +1518,9 @@ describe("providerExtensionSlashCommands", () => {
         ]),
       );
       expect(findCommand(customCommands, "review")?.description).toBe("Review the current diff");
+      expect(JSON.stringify(findCommand(customCommands, "remote-auth")?.metadata)).not.toContain(
+        "should-not-leak",
+      );
       expect(findCommand(customCommands, "missing-name")).toBeUndefined();
       expect(findCommand(customCommands, "missing-description")).toBeUndefined();
       expect(findCommand(customCommands, "missing-prompt")).toBeUndefined();
@@ -1157,6 +1547,14 @@ describe("providerExtensionSlashCommands", () => {
             name: "cloud-architect",
             kind: "agent",
             promptPrefix: "@cloud-architect",
+            metadata: {
+              provider: "gemini",
+              source: "agent",
+              kind: "local",
+              tools: ["read_file", "mcp_gcp_*"],
+              model: "gemini-3-pro-preview",
+              maxTurns: 20,
+            },
           }),
           expect.objectContaining({
             name: "cloud-run-deploy",
@@ -1395,6 +1793,7 @@ describe("providerExtensionSlashCommands", () => {
         },
       })[0]?.commands;
       expect(disabledProviderCommands?.some((command) => command.kind === "agent")).toBe(false);
+      expect(geminiBuiltInSubagentCommands({ cwd, home: geminiHome })).toEqual([]);
       expect(findCommand(disabledProviderCommands ?? [], "review")).toEqual(
         expect.objectContaining({
           kind: "provider",
@@ -1415,6 +1814,71 @@ describe("providerExtensionSlashCommands", () => {
       await mkdir(path.join(cwd, ".gemini"), { recursive: true });
       await writeFile(
         path.join(geminiHome, "settings.json"),
+        JSON.stringify({
+          agents: {
+            overrides: {
+              browser_agent: { enabled: true },
+            },
+          },
+        }),
+      );
+      await writeFile(
+        path.join(cwd, ".gemini", "settings.json"),
+        JSON.stringify({
+          agents: {
+            overrides: {
+              browser_agent: { enabled: false },
+            },
+          },
+        }),
+      );
+
+      const commands = withProviderExtensionSlashCommands({
+        providers: [
+          {
+            provider: "gemini",
+            enabled: true,
+            installed: true,
+            version: "1.0.0",
+            minimumVersion: null,
+            versionStatus: "ok",
+            status: "ready",
+            auth: { status: "authenticated" },
+            checkedAt: "2026-01-01T00:00:00.000Z",
+            models: [],
+          },
+        ],
+        cwd,
+        settings: {
+          ...DEFAULT_SERVER_SETTINGS,
+          providers: {
+            ...DEFAULT_SERVER_SETTINGS.providers,
+            gemini: {
+              ...DEFAULT_SERVER_SETTINGS.providers.gemini,
+              configDir: geminiHome,
+            },
+          },
+        },
+      })[0]?.commands;
+
+      expect(findCommand(commands ?? [], "browser_agent")).toBeUndefined();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("lets nearest Gemini workspace settings override parent workspace settings", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "ace-gemini-nested-settings-precedence-"));
+    const geminiHome = path.join(root, "gemini-home");
+    const repo = path.join(root, "repo");
+    const cwd = path.join(repo, "packages", "web");
+    try {
+      await mkdir(geminiHome, { recursive: true });
+      await mkdir(path.join(repo, ".git"), { recursive: true });
+      await mkdir(path.join(repo, ".gemini"), { recursive: true });
+      await mkdir(path.join(cwd, ".gemini"), { recursive: true });
+      await writeFile(
+        path.join(repo, ".gemini", "settings.json"),
         JSON.stringify({
           agents: {
             overrides: {
@@ -1490,6 +1954,22 @@ describe("providerExtensionSlashCommands", () => {
         name: "architect",
         description: "Project Pi architect agent",
       });
+      await writeFile(
+        path.join(repo, ".pi", "agents", "scout.md"),
+        [
+          "---",
+          "name: scout",
+          "package: code-analysis",
+          "description: Packaged Pi scout agent",
+          "model: openai/gpt-5.4-mini",
+          "thinking: high",
+          "tools: [read_file, grep]",
+          "agents: [reviewer, worker]",
+          "---",
+          "",
+          "Scout code with package-scoped identity.",
+        ].join("\n"),
+      );
       await writeFile(
         path.join(repo, ".pi", "agents", "review-loop.chain.md"),
         "---\nname: review-loop\ndescription: Pi chain, not an agent\n---\n\nRun reviewer then worker.",
@@ -1607,6 +2087,66 @@ describe("providerExtensionSlashCommands", () => {
           keywords: ["pi-package"],
         }),
       );
+      const filteredPackageRoot = path.join(repo, ".pi", "packages", "filtered-tools");
+      await writePiPrompt(
+        path.join(filteredPackageRoot, "prompts"),
+        "included.md",
+        "---\ndescription: Included filtered package prompt\n---\n\nRun included prompt.",
+      );
+      await writePiPrompt(
+        path.join(filteredPackageRoot, "prompts"),
+        "excluded.md",
+        "---\ndescription: Excluded filtered package prompt\n---\n\nRun excluded prompt.",
+      );
+      await writeSkill(
+        path.join(filteredPackageRoot, "skills"),
+        "filtered-skill",
+        "Filtered package skill",
+      );
+      await writeAgentMarkdown({
+        root: path.join(filteredPackageRoot, "agents"),
+        fileName: "filtered-agent.md",
+        name: "filtered-agent",
+        description: "Filtered package agent",
+      });
+      await mkdir(filteredPackageRoot, { recursive: true });
+      await writeFile(
+        path.join(filteredPackageRoot, "package.json"),
+        JSON.stringify({
+          name: "filtered-tools",
+          keywords: ["pi-package"],
+          pi: {
+            prompts: ["./prompts"],
+            skills: ["./skills"],
+            agents: ["./agents"],
+          },
+        }),
+      );
+      const extensionOnlyPackageRoot = path.join(repo, ".pi", "packages", "extension-only");
+      await writePiPrompt(
+        path.join(extensionOnlyPackageRoot, "prompts"),
+        "extension-hidden-prompt.md",
+        "---\ndescription: Hidden by extension-only package filter\n---\n\nDo not expose.",
+      );
+      await writeSkill(
+        path.join(extensionOnlyPackageRoot, "skills"),
+        "extension-hidden-skill",
+        "Hidden extension-only package skill",
+      );
+      await writeAgentMarkdown({
+        root: path.join(extensionOnlyPackageRoot, "agents"),
+        fileName: "extension-hidden-agent.md",
+        name: "extension-hidden-agent",
+        description: "Hidden extension-only package agent",
+      });
+      await mkdir(extensionOnlyPackageRoot, { recursive: true });
+      await writeFile(
+        path.join(extensionOnlyPackageRoot, "package.json"),
+        JSON.stringify({
+          name: "extension-only",
+          keywords: ["pi-package"],
+        }),
+      );
       await mkdir(path.join(repo, ".pi"), { recursive: true });
       await writeFile(
         path.join(repo, ".pi", "settings.json"),
@@ -1614,7 +2154,19 @@ describe("providerExtensionSlashCommands", () => {
           prompts: ["./settings-prompts/standup.md"],
           skills: ["./settings-skills/ops.md"],
           agents: ["./settings-agents/settings-oracle.md"],
-          packages: [{ source: "./packages/team-tools" }],
+          packages: [
+            { source: "./packages/team-tools" },
+            {
+              source: "./packages/filtered-tools",
+              prompts: ["./prompts/included.md"],
+              skills: [],
+              agents: [],
+            },
+            {
+              source: "./packages/extension-only",
+              extensions: ["./extensions/index.ts"],
+            },
+          ],
         }),
       );
       await writePiPrompt(
@@ -1681,6 +2233,21 @@ describe("providerExtensionSlashCommands", () => {
             description: "Project Pi architect agent",
           }),
           expect.objectContaining({
+            name: "code-analysis.scout",
+            kind: "agent",
+            promptPrefix: "@code-analysis.scout",
+            description: "Packaged Pi scout agent",
+            metadata: {
+              provider: "pi",
+              source: "agent",
+              package: "code-analysis",
+              model: "openai/gpt-5.4-mini",
+              thinking: "high",
+              tools: ["read_file", "grep"],
+              agents: ["reviewer", "worker"],
+            },
+          }),
+          expect.objectContaining({
             name: "legacy-reviewer",
             kind: "agent",
             promptPrefix: "@legacy-reviewer",
@@ -1742,6 +2309,12 @@ describe("providerExtensionSlashCommands", () => {
             description: "Global settings brief",
           }),
           expect.objectContaining({
+            name: "included",
+            kind: "provider",
+            promptPrefix: "/included",
+            description: "Included filtered package prompt",
+          }),
+          expect.objectContaining({
             name: "skill:incident",
             kind: "skill",
             promptPrefix: "/skill:incident",
@@ -1796,10 +2369,17 @@ describe("providerExtensionSlashCommands", () => {
       );
       expect(findCommand(commands, "skill:deploy")?.description).toBe("Project Pi deploy skill");
       expect(findCommand(commands, "oracle")).toBeUndefined();
+      expect(findCommand(commands, "scout")?.description).not.toBe("Packaged Pi scout agent");
       expect(findCommand(commands, "review-loop")).toBeUndefined();
       expect(findCommand(commands, "skill:ignored")).toBeUndefined();
       expect(findCommand(commands, "deploy")).toBeUndefined();
       expect(findCommand(commands, "unlisted")).toBeUndefined();
+      expect(findCommand(commands, "excluded")).toBeUndefined();
+      expect(findCommand(commands, "skill:filtered-skill")).toBeUndefined();
+      expect(findCommand(commands, "filtered-agent")).toBeUndefined();
+      expect(findCommand(commands, "extension-hidden-prompt")).toBeUndefined();
+      expect(findCommand(commands, "skill:extension-hidden-skill")).toBeUndefined();
+      expect(findCommand(commands, "extension-hidden-agent")).toBeUndefined();
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -1893,6 +2473,12 @@ describe("providerExtensionSlashCommands", () => {
         "create-pr.md",
         "---\ndescription: Draft a pull request\n---\n\nWrite a pull request summary.",
       );
+      await mkdir(path.join(repo, ".cursor", "commands", "git"), { recursive: true });
+      await writeCursorCommand(
+        path.join(repo, ".cursor", "commands", "git"),
+        "commit.md",
+        "---\ndescription: Draft a commit message\n---\n\nWrite a commit message.",
+      );
       await writeCursorCommand(
         path.join(cursorHome, "commands"),
         "security-audit.md",
@@ -1908,7 +2494,22 @@ describe("providerExtensionSlashCommands", () => {
         fileName: "security-auditor.md",
         name: "security-auditor",
         description: "Security specialist. Use when auth or payments change.",
+        model: "composer-2",
       });
+      await writeFile(
+        path.join(repo, ".cursor", "agents", "background-verifier.md"),
+        [
+          "---",
+          "name: background-verifier",
+          "description: Verify completed work in the background.",
+          "model: inherit",
+          "read_only: true",
+          "is_background: true",
+          "---",
+          "",
+          "Verify changes and report results.",
+        ].join("\n"),
+      );
       await writeAgentMarkdown({
         root: path.join(repo, ".claude", "agents"),
         fileName: "security-auditor.md",
@@ -1969,6 +2570,18 @@ describe("providerExtensionSlashCommands", () => {
           "Use the component conventions.",
         ].join("\n"),
       );
+      await mkdir(path.join(repo, "packages", "api", ".cursor", "rules"), { recursive: true });
+      await writeFile(
+        path.join(repo, "packages", "api", ".cursor", "rules", "backend.mdc"),
+        [
+          "---",
+          "description: Backend package rule",
+          "alwaysApply: false",
+          "---",
+          "",
+          "Use the backend package conventions.",
+        ].join("\n"),
+      );
       await mkdir(path.join(cursorHome, "rules"), { recursive: true });
       await writeFile(
         path.join(cursorHome, "rules", "architecture.mdc"),
@@ -1991,12 +2604,22 @@ describe("providerExtensionSlashCommands", () => {
             kind: "plugin",
             promptPrefix: "# Security Audit\n\nReview the code for security risks.",
             description: "Security Audit",
+            metadata: {
+              provider: "cursor",
+              source: "command",
+            },
           }),
           expect.objectContaining({
             name: "create-pr",
             kind: "plugin",
             promptPrefix: "Write a pull request summary.",
             description: "Draft a pull request",
+          }),
+          expect.objectContaining({
+            name: "git:commit",
+            kind: "plugin",
+            promptPrefix: "Write a commit message.",
+            description: "Draft a commit message",
           }),
           expect.objectContaining({
             name: "release-notes",
@@ -2009,6 +2632,24 @@ describe("providerExtensionSlashCommands", () => {
             kind: "agent",
             promptPrefix: "/security-auditor",
             description: "Security specialist. Use when auth or payments change.",
+            metadata: {
+              provider: "cursor",
+              source: "agent",
+              model: "composer-2",
+            },
+          }),
+          expect.objectContaining({
+            name: "background-verifier",
+            kind: "agent",
+            promptPrefix: "/background-verifier",
+            description: "Verify completed work in the background.",
+            metadata: {
+              provider: "cursor",
+              source: "agent",
+              model: "inherit",
+              readOnly: true,
+              isBackground: true,
+            },
           }),
           expect.objectContaining({
             name: "verifier",
@@ -2021,6 +2662,24 @@ describe("providerExtensionSlashCommands", () => {
             kind: "agent",
             promptPrefix: "/release-reviewer",
             description: "Global release reviewer.",
+          }),
+          expect.objectContaining({
+            name: "explore",
+            kind: "agent",
+            promptPrefix: "/explore",
+            description: "Run Cursor's built-in codebase search subagent.",
+          }),
+          expect.objectContaining({
+            name: "bash",
+            kind: "agent",
+            promptPrefix: "/bash",
+            description: "Run Cursor's built-in shell command subagent.",
+          }),
+          expect.objectContaining({
+            name: "browser",
+            kind: "agent",
+            promptPrefix: "/browser",
+            description: "Run Cursor's built-in browser automation subagent.",
           }),
           expect.objectContaining({
             name: "land-it",
@@ -2051,12 +2710,28 @@ describe("providerExtensionSlashCommands", () => {
             kind: "skill",
             promptPrefix: "@architecture",
             description: "Architecture project rule",
+            metadata: {
+              provider: "cursor",
+              source: "rule",
+              alwaysApply: false,
+            },
           }),
           expect.objectContaining({
             name: "rule:component",
             kind: "skill",
             promptPrefix: "@component",
             description: "Component rule",
+            metadata: {
+              provider: "cursor",
+              source: "rule",
+              globs: "**/*.tsx",
+            },
+          }),
+          expect.objectContaining({
+            name: "rule:backend",
+            kind: "skill",
+            promptPrefix: "@backend",
+            description: "Backend package rule",
           }),
           expect.objectContaining({
             name: "rule:global-context",
@@ -2069,6 +2744,10 @@ describe("providerExtensionSlashCommands", () => {
             kind: "skill",
             promptPrefix: "# Cursor Agents\n\nUse repository-wide Cursor agent instructions.",
             description: "Cursor Agents",
+            metadata: {
+              provider: "cursor",
+              source: "rule",
+            },
           }),
           expect.objectContaining({
             name: "rule:cursorrules",
@@ -2129,6 +2808,11 @@ describe("providerExtensionSlashCommands", () => {
             name: "create-pr",
             kind: "plugin",
             promptPrefix: "Write a pull request summary.",
+          }),
+          expect.objectContaining({
+            name: "git:commit",
+            kind: "plugin",
+            promptPrefix: "Write a commit message.",
           }),
           expect.objectContaining({
             name: "release-notes",
@@ -2209,6 +2893,67 @@ describe("providerExtensionSlashCommands", () => {
           "Follow the repository Copilot workflow.",
         ].join("\n"),
       );
+      await mkdir(path.join(cwd, ".vscode"), { recursive: true });
+      await writeFile(
+        path.join(cwd, ".vscode", "mcp.json"),
+        JSON.stringify({
+          servers: {
+            fetch: {
+              type: "stdio",
+              command: "uvx",
+              args: ["mcp-server-fetch"],
+              tools: ["fetch"],
+            },
+            shared: {
+              command: "vscode-shared-mcp",
+              args: [],
+            },
+          },
+        }),
+      );
+      await writeFile(
+        path.join(cwd, ".mcp.json"),
+        JSON.stringify({
+          mcpServers: {
+            shared: {
+              type: "http",
+              url: "https://workspace.example.test/mcp",
+              headers: {
+                "X-Workspace": "true",
+              },
+              tools: ["workspace_search"],
+            },
+          },
+        }),
+      );
+      await writeFile(
+        path.join(cwd, ".github", "mcp.json"),
+        JSON.stringify({
+          mcpServers: {
+            repo: {
+              type: "sse",
+              url: "https://repo.example.test/sse",
+              tools: ["repo_search"],
+            },
+          },
+        }),
+      );
+      await mkdir(copilotHome, { recursive: true });
+      await writeFile(
+        path.join(copilotHome, "mcp-config.json"),
+        JSON.stringify({
+          mcpServers: {
+            personal: {
+              command: "personal-mcp",
+              args: ["--stdio"],
+              env: {
+                COPILOT_MCP_SCOPE: "personal",
+              },
+              tools: ["personal_read"],
+            },
+          },
+        }),
+      );
       await mkdir(path.join(cwd, ".github", "instructions", "ui"), { recursive: true });
       await writeFile(
         path.join(cwd, ".github", "instructions", "frontend.instructions.md"),
@@ -2242,6 +2987,11 @@ describe("providerExtensionSlashCommands", () => {
         root: path.join(cwd, ".github", "agents"),
         fileName: "repo-auditor.agent.md",
         description: "Audit repository health",
+      });
+      await writeAgentMarkdown({
+        root: path.join(cwd, ".github", "agents"),
+        fileName: "workspace-helper.agents.md",
+        description: "Modern plural-suffix Copilot custom agent",
       });
       await writeFile(
         path.join(cwd, ".github", "agents", "release-manager.agent.md"),
@@ -2321,6 +3071,31 @@ describe("providerExtensionSlashCommands", () => {
         ].join("\n"),
       );
       await writeFile(
+        path.join(cwd, ".github", "agents", "mcp-list-specialist.agent.md"),
+        [
+          "---",
+          "description: Uses list-form MCP server config",
+          "target: github-copilot",
+          'mcp-servers: [{"name":"list-docs","type":"http","url":"https://list.example.test/mcp","tools":["search","read"],"headers":{"X-List":"true"}},{"servers":{"nested-local":{"type":"stdio","command":"nested-mcp","args":["--stdio"],"tools":["nested_search"]}}}]',
+          "---",
+          "",
+          "Use list-form MCP server configuration for specialist research.",
+        ].join("\n"),
+      );
+      await writeFile(
+        path.join(cwd, ".github", "agents", "automatic-specialist.agent.md"),
+        [
+          "---",
+          "description: Allows automatic model invocation using the current Copilot field",
+          "target: github-copilot",
+          "disable-model-invocation: false",
+          "infer: false",
+          "---",
+          "",
+          "Use this agent automatically when its specialty applies.",
+        ].join("\n"),
+      );
+      await writeFile(
         path.join(cwd, ".github", "agents", "missing-description.agent.md"),
         [
           "---",
@@ -2341,6 +3116,12 @@ describe("providerExtensionSlashCommands", () => {
           "",
           "Only load in VS Code.",
         ].join("\n"),
+      );
+      await writeFile(
+        path.join(cwd, ".github", "agents", "zed-only.agent.md"),
+        ["---", "description: Zed only agent", "target: zed", "---", "", "Only load in Zed."].join(
+          "\n",
+        ),
       );
       await writeAgentMarkdown({
         root: path.join(cwd, ".github", "copilot", "agents"),
@@ -2381,6 +3162,17 @@ describe("providerExtensionSlashCommands", () => {
           "---",
           "",
           "Review release readiness for $ARGUMENTS.",
+        ].join("\n"),
+      );
+      await writeFile(
+        path.join(cwd, ".github", "prompts", "tooling.prompt.md"),
+        [
+          "---",
+          "description: Run a tool-using prompt",
+          "tools: [search/codebase, vscode/askQuestion]",
+          "---",
+          "",
+          "Use tools to answer $ARGUMENTS.",
         ].join("\n"),
       );
       await mkdir(path.join(cwd, ".github", "copilot", "prompts"), { recursive: true });
@@ -2521,6 +3313,22 @@ describe("providerExtensionSlashCommands", () => {
         fileName: "review.md",
         description: "Review code quality",
         mode: "subagent",
+        model: "anthropic/claude-sonnet-4-20250514",
+        color: "accent",
+        permission: {
+          read: "allow",
+          bash: {
+            "git *": "ask",
+            "rm *": "deny",
+          },
+          skill: {
+            "docs-*": "allow",
+          },
+        },
+        taskPermission: {
+          "*": "deny",
+          reviewer: "allow",
+        },
       });
       await writeAgentMarkdown({
         root: path.join(cwd, ".opencode", "agents"),
@@ -2596,6 +3404,7 @@ describe("providerExtensionSlashCommands", () => {
           "---",
           "description: Review through the markdown subagent",
           "agent: review",
+          "model: opencode/gpt-5.1-codex",
           "---",
           "",
           "Review $ARGUMENTS without changing files.",
@@ -2606,7 +3415,7 @@ describe("providerExtensionSlashCommands", () => {
         [
           "---",
           "description: Scout through the built-in subagent",
-          "agent: scout",
+          "agent: ' Scout '",
           "---",
           "",
           "Research $ARGUMENTS with scout.",
@@ -2635,6 +3444,17 @@ describe("providerExtensionSlashCommands", () => {
           "Run $ARGUMENTS without a disabled subagent.",
         ].join("\n"),
       );
+      await writeFile(
+        path.join(cwd, ".opencode", "commands", "internal-fast.md"),
+        [
+          "---",
+          "description: Run hidden markdown subagent",
+          "agent: internal",
+          "---",
+          "",
+          "Use the hidden markdown subagent for $ARGUMENTS.",
+        ].join("\n"),
+      );
       await mkdir(path.join(cwd, ".opencode", "command"), { recursive: true });
       await writeFile(
         path.join(cwd, ".opencode", "command", "legacy-review.md"),
@@ -2659,6 +3479,7 @@ describe("providerExtensionSlashCommands", () => {
               template: "Draft docs for $ARGUMENTS.",
               description: "Draft docs through a subagent",
               agent: "rootarchitect",
+              model: "opencode/gpt-5.1-codex-mini",
             },
             rootplan: {
               template: "Plan $ARGUMENTS.",
@@ -2675,11 +3496,32 @@ describe("providerExtensionSlashCommands", () => {
               description: "Draft docs without malformed architect",
               agent: "missingdescarchitect",
             },
+            internaldocs: {
+              template: "Draft hidden docs for $ARGUMENTS.",
+              description: "Draft docs through hidden architect",
+              agent: "internalarchitect",
+            },
           },
           agent: {
             rootarchitect: {
               description: "Architect from project root config",
               mode: "subagent",
+              model: "opencode/gpt-5.1-codex",
+              color: "#4ade80",
+              permission: {
+                read: "allow",
+                bash: {
+                  "git *": "ask",
+                  "rm *": "deny",
+                },
+                skill: {
+                  "docs-*": "allow",
+                },
+                task: {
+                  "*": "deny",
+                  reviewer: "allow",
+                },
+              },
             },
             disabledarchitect: {
               description: "Disabled architect from project root config",
@@ -2688,6 +3530,11 @@ describe("providerExtensionSlashCommands", () => {
             },
             missingdescarchitect: {
               mode: "subagent",
+            },
+            internalarchitect: {
+              description: "Hidden architect from project root config",
+              mode: "subagent",
+              hidden: true,
             },
           },
           commands: {
@@ -2770,7 +3617,7 @@ describe("providerExtensionSlashCommands", () => {
             scoutdeps: {
               template: "Research dependencies for $ARGUMENTS.",
               description: "Scout dependency docs",
-              agent: "scout",
+              agent: " Scout ",
             },
             isolated: {
               template: "Run isolated analysis for $ARGUMENTS.",
@@ -2816,9 +3663,10 @@ describe("providerExtensionSlashCommands", () => {
             promptPrefix: "@repo-auditor",
           }),
           expect.objectContaining({
-            name: "planning",
+            name: "workspace-helper",
             kind: "agent",
-            promptPrefix: "@planning",
+            description: "Modern plural-suffix Copilot custom agent",
+            promptPrefix: "@workspace-helper",
           }),
           expect.objectContaining({
             name: "claude-format",
@@ -2844,16 +3692,124 @@ describe("providerExtensionSlashCommands", () => {
             description: "Project explore override",
             promptPrefix: "@explore",
           }),
+          expect.objectContaining({
+            name: "planning",
+            kind: "agent",
+            description: "Plan work before implementation",
+            promptPrefix: "@planning",
+          }),
+          expect.objectContaining({
+            name: "vscode-only",
+            kind: "agent",
+            description: "VS Code only agent",
+            promptPrefix: "@vscode-only",
+          }),
+          expect.objectContaining({
+            name: "release-manager",
+            kind: "agent",
+            description: "Coordinates release readiness",
+            promptPrefix: "@release-manager",
+            inputHint: "<release plan>",
+            metadata: {
+              provider: "github-copilot",
+              source: "agent",
+              agents: ["security-auditor", "programmatic-researcher"],
+              model: ["Claude Opus 4.5", "GPT-5.2"],
+              tools: ["read_file", "grep"],
+              skills: ["release-review", "migration-audit"],
+              annotations: {
+                team: "Release Engineering",
+                workflow: "release-readiness",
+              },
+              handoffs: [
+                {
+                  label: "Implement Release Plan",
+                  agent: "agent",
+                  prompt: "Implement the release plan.",
+                  send: false,
+                  model: "GPT-5.2 (copilot)",
+                },
+              ],
+              infer: false,
+            },
+          }),
+          expect.objectContaining({
+            name: "mcp-specialist",
+            kind: "agent",
+            description: "Uses an agent-scoped MCP server",
+            metadata: expect.objectContaining({
+              provider: "github-copilot",
+              source: "agent",
+              tools: ["read", "custom-mcp/tool-1"],
+              mcpServers: {
+                "custom-mcp": {
+                  type: "local",
+                  command: "some-command",
+                  args: ["--arg1", "--arg2"],
+                  tools: ["*"],
+                  timeout: 30,
+                  env: {
+                    ENV_VAR_NAME: "${{ secrets.COPILOT_MCP_ENV_VAR_VALUE }}",
+                  },
+                },
+              },
+            }),
+          }),
+          expect.objectContaining({
+            name: "mcp-list-specialist",
+            kind: "agent",
+            description: "Uses list-form MCP server config",
+            metadata: expect.objectContaining({
+              provider: "github-copilot",
+              source: "agent",
+              mcpServers: {
+                "list-docs": {
+                  type: "http",
+                  url: "https://list.example.test/mcp",
+                  tools: ["search", "read"],
+                  headers: {
+                    "X-List": "true",
+                  },
+                },
+                "nested-local": {
+                  type: "local",
+                  command: "nested-mcp",
+                  args: ["--stdio"],
+                  tools: ["nested_search"],
+                },
+              },
+            }),
+          }),
         ]),
       );
+      expect(findCommand(discoverGitHubCopilotAgentSlashCommands({ cwd }), "vscode-only")).toEqual(
+        expect.objectContaining({
+          kind: "agent",
+          promptPrefix: "@vscode-only",
+          metadata: {
+            provider: "github-copilot",
+            source: "agent",
+            target: ["vscode"],
+          },
+        }),
+      );
       expect(
-        findCommand(discoverGitHubCopilotAgentSlashCommands({ cwd }), "vscode-only"),
+        findCommand(discoverGitHubCopilotAgentSlashCommands({ cwd }), "zed-only"),
       ).toBeUndefined();
+      expect(findCommand(discoverGitHubCopilotAgentSlashCommands({ cwd }), "planning")).toEqual(
+        expect.objectContaining({
+          kind: "agent",
+          promptPrefix: "@planning",
+        }),
+      );
       expect(
         findCommand(discoverGitHubCopilotAgentSlashCommands({ cwd }), "ignored"),
       ).toBeUndefined();
       expect(
         findCommand(discoverGitHubCopilotAgentSlashCommands({ cwd }), "programmatic-researcher"),
+      ).toBeUndefined();
+      expect(
+        findCommand(discoverGitHubCopilotAgentSlashCommands({ cwd }), "workspace-helper.agents"),
       ).toBeUndefined();
       expect(
         findCommand(discoverGitHubCopilotAgentSlashCommands({ cwd }), "missing-description"),
@@ -2897,6 +3853,35 @@ describe("providerExtensionSlashCommands", () => {
           }),
         ]),
       );
+      expect(discoverGitHubCopilotMcpServers({ cwd, home: copilotHome })).toEqual({
+        personal: {
+          command: "personal-mcp",
+          args: ["--stdio"],
+          env: {
+            COPILOT_MCP_SCOPE: "personal",
+          },
+          tools: ["personal_read"],
+        },
+        fetch: {
+          type: "local",
+          command: "uvx",
+          args: ["mcp-server-fetch"],
+          tools: ["fetch"],
+        },
+        shared: {
+          type: "http",
+          url: "https://workspace.example.test/mcp",
+          headers: {
+            "X-Workspace": "true",
+          },
+          tools: ["workspace_search"],
+        },
+        repo: {
+          type: "sse",
+          url: "https://repo.example.test/sse",
+          tools: ["repo_search"],
+        },
+      });
       expect(discoverGitHubCopilotCustomAgents({ cwd })).toEqual(
         expect.arrayContaining([
           {
@@ -2908,6 +3893,11 @@ describe("providerExtensionSlashCommands", () => {
           {
             name: "repo-auditor",
             description: "Audit repository health",
+            prompt: "# Agent prompt",
+          },
+          {
+            name: "workspace-helper",
+            description: "Modern plural-suffix Copilot custom agent",
             prompt: "# Agent prompt",
           },
           {
@@ -2923,6 +3913,11 @@ describe("providerExtensionSlashCommands", () => {
           {
             name: "workflow",
             description: "Workflow configured agent",
+            prompt: "# Agent prompt",
+          },
+          {
+            name: "planning",
+            description: "Plan work before implementation",
             prompt: "# Agent prompt",
           },
           {
@@ -2966,9 +3961,11 @@ describe("providerExtensionSlashCommands", () => {
             tools: [],
             infer: false,
             userInvocable: false,
+            disableModelInvocation: true,
+            target: ["github-copilot"],
             mcpServers: {
               "local-docs": {
-                type: "stdio",
+                type: "local",
                 command: "docs-mcp",
                 args: ["--stdio"],
                 tools: ["search"],
@@ -2981,6 +3978,7 @@ describe("providerExtensionSlashCommands", () => {
             description: "Uses an agent-scoped MCP server",
             prompt: "Use the custom MCP server for specialist research.",
             tools: ["read", "custom-mcp/tool-1"],
+            target: ["github-copilot"],
             mcpServers: {
               "custom-mcp": {
                 type: "local",
@@ -2994,10 +3992,43 @@ describe("providerExtensionSlashCommands", () => {
               },
             },
           },
+          {
+            name: "mcp-list-specialist",
+            description: "Uses list-form MCP server config",
+            prompt: "Use list-form MCP server configuration for specialist research.",
+            target: ["github-copilot"],
+            mcpServers: {
+              "list-docs": {
+                type: "http",
+                url: "https://list.example.test/mcp",
+                tools: ["search", "read"],
+                headers: {
+                  "X-List": "true",
+                },
+              },
+              "nested-local": {
+                type: "local",
+                command: "nested-mcp",
+                args: ["--stdio"],
+                tools: ["nested_search"],
+              },
+            },
+          },
+          {
+            name: "automatic-specialist",
+            description: "Allows automatic model invocation using the current Copilot field",
+            prompt: "Use this agent automatically when its specialty applies.",
+            infer: true,
+            disableModelInvocation: false,
+            target: ["github-copilot"],
+          },
         ]),
       );
       expect(
         discoverGitHubCopilotCustomAgents({ cwd }).some((agent) => agent.name === "vscode-only"),
+      ).toBe(true);
+      expect(
+        discoverGitHubCopilotCustomAgents({ cwd }).some((agent) => agent.name === "zed-only"),
       ).toBe(false);
       expect(
         discoverGitHubCopilotCustomAgents({ cwd }).some(
@@ -3027,6 +4058,25 @@ describe("providerExtensionSlashCommands", () => {
             description: "Review release readiness",
             promptPrefix: "@plan Review release readiness for $ARGUMENTS.",
             inputHint: "<release>",
+            metadata: {
+              provider: "github-copilot",
+              source: "prompt",
+              agent: "plan",
+              model: "GPT-5.2",
+              tools: ["search/codebase"],
+            },
+          }),
+          expect.objectContaining({
+            name: "tooling",
+            kind: "provider",
+            description: "Run a tool-using prompt",
+            promptPrefix: "@agent Use tools to answer $ARGUMENTS.",
+            metadata: {
+              provider: "github-copilot",
+              source: "prompt",
+              agent: "agent",
+              tools: ["search/codebase", "vscode/askQuestion"],
+            },
           }),
           expect.objectContaining({
             name: "summary",
@@ -3091,12 +4141,22 @@ describe("providerExtensionSlashCommands", () => {
             kind: "provider",
             description: "Frontend Copilot instructions",
             promptPrefix: "Use frontend-specific Copilot conventions.",
+            metadata: {
+              provider: "github-copilot",
+              source: "instructions",
+              fileGlobs: "apps/web/**",
+            },
           }),
           expect.objectContaining({
             name: "instructions:accessibility:ui",
             kind: "provider",
             description: "Accessibility instructions",
             promptPrefix: "Preserve accessible UI behavior.",
+            metadata: {
+              provider: "github-copilot",
+              source: "instructions",
+              fileGlobs: "**/*.tsx",
+            },
           }),
           expect.objectContaining({
             name: "instructions:configured",
@@ -3304,6 +4364,16 @@ describe("providerExtensionSlashCommands", () => {
             promptPrefix: "@code-review",
           }),
           expect.objectContaining({
+            name: "research",
+            kind: "agent",
+            promptPrefix: "@research",
+          }),
+          expect.objectContaining({
+            name: "rubber-duck",
+            kind: "agent",
+            promptPrefix: "@rubber-duck",
+          }),
+          expect.objectContaining({
             name: "repo-skill",
             kind: "skill",
             promptPrefix: "/repo-skill",
@@ -3342,6 +4412,31 @@ describe("providerExtensionSlashCommands", () => {
             name: "review",
             kind: "agent",
             promptPrefix: "@review",
+            metadata: {
+              provider: "opencode",
+              source: "agent",
+              mode: "subagent",
+              model: "anthropic/claude-sonnet-4-20250514",
+              color: "accent",
+              permission: {
+                read: "allow",
+                bash: {
+                  "git *": "ask",
+                  "rm *": "deny",
+                },
+                skill: {
+                  "docs-*": "allow",
+                },
+                task: {
+                  "*": "deny",
+                  reviewer: "allow",
+                },
+              },
+              taskPermission: {
+                "*": "deny",
+                reviewer: "allow",
+              },
+            },
           }),
           expect.objectContaining({
             name: "research",
@@ -3383,18 +4478,34 @@ describe("providerExtensionSlashCommands", () => {
             kind: "provider",
             description: "Run project tests",
             promptPrefix: "/test",
+            metadata: {
+              provider: "opencode",
+              source: "command",
+              agent: "build",
+            },
           }),
           expect.objectContaining({
             name: "analyze",
             kind: "agent",
             description: "Analyze without polluting primary context",
             promptPrefix: "/analyze",
+            metadata: {
+              provider: "opencode",
+              source: "command",
+              subtask: true,
+            },
           }),
           expect.objectContaining({
             name: "review-fast",
             kind: "agent",
             description: "Review through the markdown subagent",
             promptPrefix: "/review-fast",
+            metadata: {
+              provider: "opencode",
+              source: "command",
+              agent: "review",
+              model: "opencode/gpt-5.1-codex",
+            },
           }),
           expect.objectContaining({
             name: "scout-fast",
@@ -3407,12 +4518,29 @@ describe("providerExtensionSlashCommands", () => {
             kind: "provider",
             description: "Review in the primary context",
             promptPrefix: "/review-inline",
+            metadata: {
+              provider: "opencode",
+              source: "command",
+              agent: "review",
+              subtask: false,
+            },
           }),
           expect.objectContaining({
             name: "disabled-fast",
             kind: "provider",
             description: "Try disabled markdown helper inline",
             promptPrefix: "/disabled-fast",
+          }),
+          expect.objectContaining({
+            name: "internal-fast",
+            kind: "agent",
+            description: "Run hidden markdown subagent",
+            promptPrefix: "/internal-fast",
+            metadata: {
+              provider: "opencode",
+              source: "command",
+              agent: "internal",
+            },
           }),
           expect.objectContaining({
             name: "legacy-review",
@@ -3461,6 +4589,12 @@ describe("providerExtensionSlashCommands", () => {
             kind: "agent",
             description: "Draft docs through a subagent",
             promptPrefix: "/rootdocs",
+            metadata: {
+              provider: "opencode",
+              source: "command",
+              agent: "rootarchitect",
+              model: "opencode/gpt-5.1-codex-mini",
+            },
           }),
           expect.objectContaining({
             name: "v2review",
@@ -3505,10 +4639,46 @@ describe("providerExtensionSlashCommands", () => {
             promptPrefix: "/missingdescdocs",
           }),
           expect.objectContaining({
+            name: "internaldocs",
+            kind: "agent",
+            description: "Draft docs through hidden architect",
+            promptPrefix: "/internaldocs",
+            metadata: {
+              provider: "opencode",
+              source: "command",
+              agent: "internalarchitect",
+            },
+          }),
+          expect.objectContaining({
             name: "rootarchitect",
             kind: "agent",
             description: "Architect from project root config",
             promptPrefix: "@rootarchitect",
+            metadata: {
+              provider: "opencode",
+              source: "agent",
+              mode: "subagent",
+              model: "opencode/gpt-5.1-codex",
+              color: "#4ade80",
+              permission: {
+                read: "allow",
+                bash: {
+                  "git *": "ask",
+                  "rm *": "deny",
+                },
+                skill: {
+                  "docs-*": "allow",
+                },
+                task: {
+                  "*": "deny",
+                  reviewer: "allow",
+                },
+              },
+              taskPermission: {
+                "*": "deny",
+                reviewer: "allow",
+              },
+            },
           }),
           expect.objectContaining({
             name: "v2architect",
@@ -3526,6 +4696,7 @@ describe("providerExtensionSlashCommands", () => {
       );
       expect(findCommand(opencodeCommands, "build")).toBeUndefined();
       expect(findCommand(opencodeCommands, "internal")).toBeUndefined();
+      expect(findCommand(opencodeCommands, "internalarchitect")).toBeUndefined();
       expect(findCommand(opencodeCommands, "missing-description")).toBeUndefined();
       expect(findCommand(opencodeCommands, "disabled-helper")).toBeUndefined();
       expect(findCommand(opencodeCommands, "disabled-v2-helper")).toBeUndefined();
@@ -3880,6 +5051,30 @@ describe("providerExtensionSlashCommands", () => {
         findCommand(discoverGitHubCopilotPromptSlashCommands({ cwd: nestedCwd }), "parent-plan"),
       ).toBeUndefined();
 
+      await mkdir(path.join(repo, ".vscode"), { recursive: true });
+      await writeFile(
+        path.join(repo, ".vscode", "settings.json"),
+        JSON.stringify({
+          "chat.useCustomizationsInParentRepositories": true,
+        }),
+      );
+      expect(discoverGitHubCopilotAgentSlashCommands({ cwd: nestedCwd })).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: "parent-reviewer",
+            kind: "agent",
+          }),
+        ]),
+      );
+      expect(discoverGitHubCopilotPromptSlashCommands({ cwd: nestedCwd })).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: "parent-plan",
+            kind: "provider",
+          }),
+        ]),
+      );
+
       await mkdir(path.join(nestedCwd, ".vscode"), { recursive: true });
       await writeFile(
         path.join(nestedCwd, ".vscode", "settings.json"),
@@ -3999,6 +5194,63 @@ describe("providerExtensionSlashCommands", () => {
     }
   });
 
+  it("parses Copilot custom-agent camel-case MCP server frontmatter", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "ace-copilot-agent-mcp-camel-case-"));
+    const repo = path.join(root, "repo");
+    try {
+      await mkdir(path.join(repo, ".git"), { recursive: true });
+      await mkdir(path.join(repo, ".github", "agents"), { recursive: true });
+      await writeFile(
+        path.join(repo, ".github", "agents", "schema-explorer.agent.md"),
+        [
+          "---",
+          "description: Explores schema docs",
+          'mcpServers: {"schema-docs":{"type":"http","url":"https://docs.example.test/mcp","tools":["search"]}}',
+          "---",
+          "",
+          "Explore schema documentation.",
+        ].join("\n"),
+      );
+
+      expect(discoverGitHubCopilotCustomAgents({ cwd: repo })).toEqual([
+        {
+          name: "schema-explorer",
+          description: "Explores schema docs",
+          mcpServers: {
+            "schema-docs": {
+              type: "http",
+              url: "https://docs.example.test/mcp",
+              tools: ["search"],
+            },
+          },
+          prompt: "Explore schema documentation.",
+        },
+      ]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("caps Copilot custom-agent prompts at GitHub's documented maximum", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "ace-copilot-agent-prompt-cap-"));
+    const repo = path.join(root, "repo");
+    try {
+      await mkdir(path.join(repo, ".git"), { recursive: true });
+      await mkdir(path.join(repo, ".github", "agents"), { recursive: true });
+      await writeFile(
+        path.join(repo, ".github", "agents", "longform.agent.md"),
+        ["---", "description: Long custom agent prompt", "---", "", "a".repeat(30_005)].join("\n"),
+      );
+
+      const [agent] = discoverGitHubCopilotCustomAgents({ cwd: repo });
+      expect(agent?.name).toBe("longform");
+      expect(agent?.prompt).toHaveLength(30_000);
+      expect(agent?.prompt.endsWith("a")).toBe(true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("respects skill slash-command visibility frontmatter", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "ace-skill-visibility-"));
     const repo = path.join(root, "repo");
@@ -4006,6 +5258,11 @@ describe("providerExtensionSlashCommands", () => {
       await mkdir(path.join(repo, ".git"), { recursive: true });
       await writeSkill(path.join(repo, ".github", "skills"), "visible", "Visible skill", [
         "argument-hint: [topic]",
+        "arguments: [topic]",
+        "tools: [search, read_file]",
+        "model: GPT-5.2",
+        "metadata:",
+        "  team: Docs",
       ]);
       await writeSkill(path.join(repo, ".github", "skills"), "manual-only", "Manual-only skill", [
         "disable-model-invocation: true",
@@ -4015,6 +5272,12 @@ describe("providerExtensionSlashCommands", () => {
         "background-only",
         "Background skill",
         ["user-invocable: false"],
+      );
+      await writeSkill(
+        path.join(repo, ".github", "skills"),
+        "legacy-background-only",
+        "Legacy spelling background skill",
+        ["user-invokable: false"],
       );
       await writeSkill(path.join(repo, ".github", "skills"), "disabled", "Disabled skill", [
         "user-invocable: false",
@@ -4047,15 +5310,31 @@ describe("providerExtensionSlashCommands", () => {
             kind: "skill",
             promptPrefix: "/visible",
             inputHint: "[topic]",
+            metadata: {
+              provider: "github-copilot",
+              source: "skill",
+              arguments: ["topic"],
+              tools: ["search", "read_file"],
+              model: "GPT-5.2",
+              annotations: {
+                team: "Docs",
+              },
+            },
           }),
           expect.objectContaining({
             name: "manual-only",
             kind: "skill",
             promptPrefix: "/manual-only",
+            metadata: {
+              provider: "github-copilot",
+              source: "skill",
+              disableModelInvocation: true,
+            },
           }),
         ]),
       );
       expect(findCommand(commands ?? [], "background-only")).toBeUndefined();
+      expect(findCommand(commands ?? [], "legacy-background-only")).toBeUndefined();
       expect(findCommand(commands ?? [], "disabled")).toBeUndefined();
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -4098,12 +5377,38 @@ describe("providerExtensionSlashCommands", () => {
           "Format generated changes.",
         ].join("\n"),
       );
+      await writeFile(
+        path.join(repo, ".github", "agents", "background-only.agent.md"),
+        [
+          "---",
+          "description: Hidden with alternate spelling",
+          "user-invokable: false",
+          "---",
+          "",
+          "Run only as an inferred subagent.",
+        ].join("\n"),
+      );
 
       expect(discoverGitHubCopilotCustomAgents({ cwd: repo })).toEqual([
+        {
+          name: "background-only",
+          description: "Hidden with alternate spelling",
+          userInvocable: false,
+          prompt: "Run only as an inferred subagent.",
+        },
         {
           name: "formatter",
           description: "Formats generated changes",
           prompt: "Format generated changes.",
+        },
+      ]);
+      expect(discoverGitHubCopilotAgentSlashCommands({ cwd: repo })).toEqual([
+        {
+          name: "formatter",
+          kind: "agent",
+          promptPrefix: "@formatter",
+          description: "Formats generated changes",
+          inputHint: "<prompt>",
         },
       ]);
 
@@ -4115,6 +5420,12 @@ describe("providerExtensionSlashCommands", () => {
         }),
       );
       expect(discoverGitHubCopilotCustomAgents({ cwd: repo })).toEqual([
+        {
+          name: "background-only",
+          description: "Hidden with alternate spelling",
+          userInvocable: false,
+          prompt: "Run only as an inferred subagent.",
+        },
         {
           name: "formatter",
           description: "Formats generated changes",

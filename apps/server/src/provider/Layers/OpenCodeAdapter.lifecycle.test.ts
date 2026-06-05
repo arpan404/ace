@@ -22,6 +22,7 @@ vi.mock("../opencodeSdk.ts", async (importOriginal) => {
 
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
+import { ProviderAdapterValidationError } from "../Errors.ts";
 import { OpenCodeAdapter } from "../Services/OpenCodeAdapter.ts";
 import { createOpenCodeSdkClient } from "../opencodeSdk.ts";
 import { startOpenCodeServerIsolated } from "../opencodeRuntime.ts";
@@ -85,6 +86,7 @@ function makeFakeOpenCodeClient(
   sessionId: string,
   options?: {
     readonly stream?: AsyncIterable<unknown>;
+    readonly agents?: ReadonlyArray<unknown>;
     readonly fork?: ReturnType<
       typeof vi.fn<
         (input: { readonly sessionID: string; readonly directory: string }) => Promise<{
@@ -131,6 +133,12 @@ function makeFakeOpenCodeClient(
       list: vi.fn(async () => ({
         error: undefined,
         data: [],
+      })),
+    },
+    app: {
+      agents: vi.fn(async () => ({
+        error: undefined,
+        data: options?.agents ?? [],
       })),
     },
     session: {
@@ -381,6 +389,96 @@ layer("OpenCodeAdapterLive session lifecycle", (it) => {
     }),
   );
 
+  it.effect("passes a valid OpenCode mode selection as the session agent", () =>
+    Effect.gen(function* () {
+      const serverClose = vi.fn(async () => undefined);
+      const client = makeFakeOpenCodeClient("opencode-session-mode-valid", {
+        agents: [
+          { name: "build", mode: "primary", description: "Build software" },
+          { name: "review", mode: "all", description: "Review changes" },
+        ],
+      });
+      const threadId = asThreadId("thread-opencode-mode-valid");
+
+      mockedStartOpenCodeServerIsolated.mockResolvedValueOnce({
+        binaryPath: "/bin/opencode",
+        url: "http://127.0.0.1:4021",
+        close: serverClose,
+      });
+      mockedCreateOpenCodeSdkClient.mockReturnValueOnce(
+        client as unknown as ReturnType<typeof createOpenCodeSdkClient>,
+      );
+
+      const adapter = yield* OpenCodeAdapter;
+      yield* adapter.startSession({
+        provider: "opencode",
+        threadId,
+        cwd: "/repo-opencode-mode-valid",
+        runtimeMode: "full-access",
+        modelSelection: {
+          provider: "opencode",
+          model: "openai/gpt-5",
+          options: {
+            modeId: "review",
+          },
+        },
+      });
+
+      const createInput = client.session.create.mock.calls[0]?.[0] as
+        | { readonly directory?: string; readonly agent?: string }
+        | undefined;
+      assert.equal(createInput?.directory, "/repo-opencode-mode-valid");
+      assert.equal(createInput?.agent, "review");
+
+      yield* adapter.stopSession(threadId);
+      assert.equal(serverClose.mock.calls.length, 1);
+    }),
+  );
+
+  it.effect("rejects stale OpenCode mode selections before creating a session", () =>
+    Effect.gen(function* () {
+      const serverClose = vi.fn(async () => undefined);
+      const client = makeFakeOpenCodeClient("opencode-session-mode-invalid", {
+        agents: [
+          { name: "build", mode: "primary", description: "Build software" },
+          { name: "review", mode: "all", description: "Review changes" },
+        ],
+      });
+      const threadId = asThreadId("thread-opencode-mode-invalid");
+
+      mockedStartOpenCodeServerIsolated.mockResolvedValueOnce({
+        binaryPath: "/bin/opencode",
+        url: "http://127.0.0.1:4022",
+        close: serverClose,
+      });
+      mockedCreateOpenCodeSdkClient.mockReturnValueOnce(
+        client as unknown as ReturnType<typeof createOpenCodeSdkClient>,
+      );
+
+      const adapter = yield* OpenCodeAdapter;
+      const failure = yield* Effect.flip(
+        adapter.startSession({
+          provider: "opencode",
+          threadId,
+          cwd: "/repo-opencode-mode-invalid",
+          runtimeMode: "full-access",
+          modelSelection: {
+            provider: "opencode",
+            model: "openai/gpt-5",
+            options: {
+              modeId: "stale",
+            },
+          },
+        }),
+      );
+
+      assert.instanceOf(failure, ProviderAdapterValidationError);
+      assert.include(failure.issue, "OpenCode mode 'stale' is not available");
+      assert.equal(client.session.create.mock.calls.length, 0);
+      assert.equal(serverClose.mock.calls.length, 1);
+    }),
+  );
+
   it.effect("does not override OpenCode defaults for approval-required sessions", () =>
     Effect.gen(function* () {
       const serverClose = vi.fn(async () => undefined);
@@ -485,11 +583,16 @@ layer("OpenCodeAdapterLive session lifecycle", (it) => {
         return;
       }
       assert.deepStrictEqual((subtaskEvent.value.payload.data as { subagent?: unknown }).subagent, {
-        id: "scout",
+        id: "opencode-session-subtask",
         type: "opencode subagent",
         name: "scout",
         model: "openai/gpt-5",
       });
+      assert.equal(
+        (subtaskEvent.value.payload.data as { childProviderThreadId?: unknown })
+          .childProviderThreadId,
+        "opencode-session-subtask",
+      );
       assert.equal(subtaskEvent.value.payload.detail, "Inspect dependency usage.");
 
       events.close();
@@ -572,6 +675,7 @@ layer("OpenCodeAdapterLive session lifecycle", (it) => {
         (childSessionEvent.value.payload.data as { subagent?: unknown }).subagent,
         {
           id: "opencode-session-child-scout",
+          parentId: "opencode-session-parent",
           type: "opencode subagent",
           name: "scout",
           model: "openai/gpt-5",
@@ -633,6 +737,7 @@ layer("OpenCodeAdapterLive session lifecycle", (it) => {
         (childDeltaEvent.value.payload.data as { subagent?: unknown }).subagent,
         {
           id: "opencode-session-child-scout",
+          parentId: "opencode-session-parent",
           type: "opencode subagent",
           name: "scout",
           model: "openai/gpt-5",

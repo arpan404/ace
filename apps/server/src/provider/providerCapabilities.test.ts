@@ -29,6 +29,18 @@ describe("providerCapabilities", () => {
     );
   });
 
+  it("marks providers with native resume support", () => {
+    expect(defaultProviderIntegrationCapabilities("codex").sessionResumeMode).toBe("native");
+    expect(defaultProviderIntegrationCapabilities("claudeAgent").sessionResumeMode).toBe("native");
+    expect(defaultProviderIntegrationCapabilities("githubCopilot").sessionResumeMode).toBe(
+      "native",
+    );
+    expect(defaultProviderIntegrationCapabilities("cursor").sessionResumeMode).toBe("local-replay");
+    expect(defaultProviderIntegrationCapabilities("opencode").sessionResumeMode).toBe(
+      "local-replay",
+    );
+  });
+
   it("declares side conversation support for every provider", () => {
     expect(defaultProviderIntegrationCapabilities("codex").sideConversationMode).toBe(
       "native-fork",
@@ -75,6 +87,109 @@ describe("providerCapabilities", () => {
     );
   });
 
+  it("declares native provider goal controls only for adapters that implement them", () => {
+    expect(defaultProviderIntegrationCapabilities("codex").goalControlMode).toBe("native");
+    expect(defaultProviderIntegrationCapabilities("claudeAgent").goalControlMode).toBe(
+      "unsupported",
+    );
+    expect(defaultProviderIntegrationCapabilities("cursor").goalControlMode).toBe("unsupported");
+    expect(defaultProviderIntegrationCapabilities("githubCopilot").goalControlMode).toBe(
+      "unsupported",
+    );
+    expect(defaultProviderIntegrationCapabilities("gemini").goalControlMode).toBe("unsupported");
+    expect(defaultProviderIntegrationCapabilities("opencode").goalControlMode).toBe("unsupported");
+    expect(defaultProviderIntegrationCapabilities("pi").goalControlMode).toBe("unsupported");
+  });
+
+  it("declares provider multi-agent support without inferring from UI commands", () => {
+    expect(defaultProviderIntegrationCapabilities("codex").multiAgentMode).toBe("native");
+    expect(defaultProviderIntegrationCapabilities("claudeAgent").multiAgentMode).toBe("native");
+    expect(defaultProviderIntegrationCapabilities("gemini").multiAgentMode).toBe("native");
+    expect(defaultProviderIntegrationCapabilities("githubCopilot").multiAgentMode).toBe("native");
+    expect(defaultProviderIntegrationCapabilities("opencode").multiAgentMode).toBe("native");
+    expect(defaultProviderIntegrationCapabilities("cursor").multiAgentMode).toBe("agent-command");
+    expect(defaultProviderIntegrationCapabilities("pi").multiAgentMode).toBe("agent-command");
+  });
+
+  it("declares provider hook support from documented native provider features", () => {
+    expect(defaultProviderIntegrationCapabilities("codex").hookMode).toBe("native");
+    expect(defaultProviderIntegrationCapabilities("claudeAgent").hookMode).toBe("native");
+    expect(defaultProviderIntegrationCapabilities("gemini").hookMode).toBe("native");
+    expect(defaultProviderIntegrationCapabilities("githubCopilot").hookMode).toBe("native");
+    expect(defaultProviderIntegrationCapabilities("opencode").hookMode).toBe("native");
+    expect(defaultProviderIntegrationCapabilities("cursor").hookMode).toBe("unsupported");
+    expect(defaultProviderIntegrationCapabilities("pi").hookMode).toBe("unsupported");
+  });
+
+  it("declares provider customization and extension support", () => {
+    expect(defaultProviderIntegrationCapabilities("codex").extensionMode).toBe("native");
+    expect(defaultProviderIntegrationCapabilities("claudeAgent").extensionMode).toBe("native");
+    expect(defaultProviderIntegrationCapabilities("gemini").extensionMode).toBe("native");
+    expect(defaultProviderIntegrationCapabilities("githubCopilot").extensionMode).toBe("native");
+    expect(defaultProviderIntegrationCapabilities("opencode").extensionMode).toBe("native");
+    expect(defaultProviderIntegrationCapabilities("pi").extensionMode).toBe("native");
+    expect(defaultProviderIntegrationCapabilities("cursor").extensionMode).toBe("local-discovery");
+  });
+
+  it("declares provider MCP support for adapters with MCP config/status handling", () => {
+    expect(defaultProviderIntegrationCapabilities("codex").mcpMode).toBe("native");
+    expect(defaultProviderIntegrationCapabilities("claudeAgent").mcpMode).toBe("native");
+    expect(defaultProviderIntegrationCapabilities("gemini").mcpMode).toBe("native");
+    expect(defaultProviderIntegrationCapabilities("githubCopilot").mcpMode).toBe("native");
+    expect(defaultProviderIntegrationCapabilities("opencode").mcpMode).toBe("native");
+    expect(defaultProviderIntegrationCapabilities("cursor").mcpMode).toBe("native");
+    expect(defaultProviderIntegrationCapabilities("pi").mcpMode).toBe("unsupported");
+  });
+
+  it("declares hosted and remote agent support separately from local subagents", () => {
+    expect(defaultProviderIntegrationCapabilities("codex").remoteAgentMode).toBe("native");
+    expect(defaultProviderIntegrationCapabilities("gemini").remoteAgentMode).toBe("native");
+    expect(defaultProviderIntegrationCapabilities("githubCopilot").remoteAgentMode).toBe("native");
+    expect(defaultProviderIntegrationCapabilities("claudeAgent").remoteAgentMode).toBe(
+      "unsupported",
+    );
+    expect(defaultProviderIntegrationCapabilities("opencode").remoteAgentMode).toBe("unsupported");
+    expect(defaultProviderIntegrationCapabilities("cursor").remoteAgentMode).toBe("unsupported");
+    expect(defaultProviderIntegrationCapabilities("pi").remoteAgentMode).toBe("unsupported");
+  });
+
+  it("declares provider web access support by first-party surface", () => {
+    expect(defaultProviderIntegrationCapabilities("codex").webAccessMode).toBe("native");
+    expect(defaultProviderIntegrationCapabilities("claudeAgent").webAccessMode).toBe("native");
+    expect(defaultProviderIntegrationCapabilities("gemini").webAccessMode).toBe("native");
+    expect(defaultProviderIntegrationCapabilities("cursor").webAccessMode).toBe("native");
+    expect(defaultProviderIntegrationCapabilities("githubCopilot").webAccessMode).toBe(
+      "agent-command",
+    );
+    expect(defaultProviderIntegrationCapabilities("opencode").webAccessMode).toBe("mcp-or-shell");
+    expect(defaultProviderIntegrationCapabilities("pi").webAccessMode).toBe("unsupported");
+  });
+
+  it("declares hosted and background session support separately from remote agents", () => {
+    expect(defaultProviderIntegrationCapabilities("codex").hostedSessionMode).toBe("native");
+    expect(defaultProviderIntegrationCapabilities("claudeAgent").hostedSessionMode).toBe("native");
+    expect(defaultProviderIntegrationCapabilities("cursor").hostedSessionMode).toBe("native");
+    expect(defaultProviderIntegrationCapabilities("githubCopilot").hostedSessionMode).toBe(
+      "native",
+    );
+    expect(defaultProviderIntegrationCapabilities("gemini").hostedSessionMode).toBe("unsupported");
+    expect(defaultProviderIntegrationCapabilities("opencode").hostedSessionMode).toBe(
+      "unsupported",
+    );
+    expect(defaultProviderIntegrationCapabilities("pi").hostedSessionMode).toBe("unsupported");
+  });
+
+  it("allows adapters to override multi-agent capability mode", () => {
+    expect(
+      resolveProviderIntegrationCapabilities("cursor", {
+        sessionModelSwitch: "restart-session",
+        multiAgentMode: "native",
+      }),
+    ).toMatchObject({
+      multiAgentMode: "native",
+    });
+  });
+
   it("preserves Pi defaults when adapter capabilities do not override them", () => {
     expect(
       resolveProviderIntegrationCapabilities("pi", { sessionModelSwitch: "in-session" }),
@@ -83,6 +198,14 @@ describe("providerCapabilities", () => {
       turnSteeringMode: "native",
       sideConversationMode: "replay-fork",
       providerThreadTargetingMode: "unsupported",
+      goalControlMode: "unsupported",
+      multiAgentMode: "agent-command",
+      hookMode: "unsupported",
+      extensionMode: "native",
+      mcpMode: "unsupported",
+      remoteAgentMode: "unsupported",
+      webAccessMode: "unsupported",
+      hostedSessionMode: "unsupported",
     });
   });
 });

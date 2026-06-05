@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   appendOnlyDelta,
+  buildOpenCodeChildSessionData,
+  buildOpenCodeMcpToolsChangedStatus,
+  buildOpenCodeModeConfigOption,
+  buildOpenCodeSubtaskData,
   buildOpenCodeThreadUsageSnapshot,
   classifyOpenCodeDeltaStreamKind,
   isOpenCodeRetryStatusError,
@@ -37,6 +41,125 @@ describe("normalizeOpenCodeModeOptions", () => {
         { id: "build", name: "build", description: "Build software" },
         { id: "review", name: "review", description: "Review changes" },
       ],
+    });
+  });
+});
+
+describe("buildOpenCodeModeConfigOption", () => {
+  it("builds the OpenCode mode selector used in session config snapshots", () => {
+    expect(
+      buildOpenCodeModeConfigOption({
+        currentModeId: "review",
+        modes: [
+          { id: "build", name: "build", description: "Build software" },
+          { id: "review", name: "review", description: "Review changes" },
+        ],
+      }),
+    ).toEqual({
+      id: "mode",
+      name: "Mode",
+      category: "mode",
+      type: "select",
+      currentValue: "review",
+      description: "OpenCode primary agent mode for this session.",
+      options: [
+        { value: "build", name: "build", description: "Build software" },
+        { value: "review", name: "review", description: "Review changes" },
+      ],
+    });
+  });
+});
+
+describe("OpenCode subagent data builders", () => {
+  it("builds provider-agnostic subtask metadata from OpenCode subtask parts", () => {
+    expect(
+      buildOpenCodeSubtaskData({
+        id: "part-1",
+        messageID: "message-1",
+        sessionID: "child-session-1",
+        agent: "reviewer",
+        prompt: "Review the current diff.",
+        description: "Code review",
+        command: "review",
+        model: {
+          providerID: "anthropic",
+          modelID: "claude-sonnet-4-6",
+        },
+      } as never),
+    ).toEqual({
+      partId: "part-1",
+      messageId: "message-1",
+      sessionId: "child-session-1",
+      childProviderThreadId: "child-session-1",
+      subagentId: "child-session-1",
+      agentName: "reviewer",
+      agentDisplayName: "reviewer",
+      subagentName: "reviewer",
+      agentRole: "opencode subagent",
+      subagentType: "opencode subagent",
+      prompt: "Review the current diff.",
+      description: "Code review",
+      command: "review",
+      model: "anthropic/claude-sonnet-4-6",
+      subagent: {
+        id: "child-session-1",
+        type: "opencode subagent",
+        name: "reviewer",
+        model: "anthropic/claude-sonnet-4-6",
+      },
+      item: {
+        id: "part-1",
+        name: "reviewer",
+        agentName: "reviewer",
+        childProviderThreadId: "child-session-1",
+        prompt: "Review the current diff.",
+        description: "Code review",
+        command: "review",
+        model: "anthropic/claude-sonnet-4-6",
+      },
+    });
+  });
+
+  it("builds side-chat thread metadata from OpenCode child sessions", () => {
+    expect(
+      buildOpenCodeChildSessionData({
+        id: "child-session-1",
+        parentID: "parent-session-1",
+        agent: "architect",
+        title: "Architecture check",
+        model: {
+          providerID: "openai",
+          id: "gpt-5",
+        },
+      } as never),
+    ).toEqual({
+      sessionId: "child-session-1",
+      childProviderThreadId: "child-session-1",
+      parentProviderThreadId: "parent-session-1",
+      subagentId: "child-session-1",
+      agentName: "architect",
+      agentDisplayName: "architect",
+      subagentName: "architect",
+      agentRole: "opencode subagent",
+      subagentType: "opencode subagent",
+      title: "Architecture check",
+      model: "openai/gpt-5",
+      subagent: {
+        id: "child-session-1",
+        parentId: "parent-session-1",
+        type: "opencode subagent",
+        name: "architect",
+        model: "openai/gpt-5",
+      },
+      item: {
+        id: "child-session-1",
+        name: "architect",
+        agentName: "architect",
+        childProviderThreadId: "child-session-1",
+        parentProviderThreadId: "parent-session-1",
+        title: "Architecture check",
+        model: "openai/gpt-5",
+      },
     });
   });
 });
@@ -102,6 +225,24 @@ describe("isOpenCodeRetryStatusError", () => {
         message: "Free usage exceeded",
       }),
     ).toBe(false);
+  });
+});
+
+describe("buildOpenCodeMcpToolsChangedStatus", () => {
+  it("maps OpenCode MCP tool change events onto Ace MCP status snapshots", () => {
+    expect(buildOpenCodeMcpToolsChangedStatus({ server: "schema-docs" })).toEqual([
+      {
+        name: "schema-docs",
+        status: "tools_changed",
+        reason: "mcp.tools.changed",
+      },
+    ]);
+  });
+
+  it("ignores malformed MCP tool change payloads", () => {
+    expect(buildOpenCodeMcpToolsChangedStatus({ server: "" })).toBeUndefined();
+    expect(buildOpenCodeMcpToolsChangedStatus({})).toBeUndefined();
+    expect(buildOpenCodeMcpToolsChangedStatus(null)).toBeUndefined();
   });
 });
 

@@ -40,7 +40,7 @@ import { DiffPanelHeaderSkeleton, DiffPanelLoadingState, DiffPanelShell } from "
 import { Menu, MenuItem, MenuPopup, MenuShortcut, MenuTrigger } from "../ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { EnvironmentSubagentIcon } from "./EnvironmentMiniPanel";
-import type { SubagentThread } from "./subagentThreads";
+import { orderSubagentThreadsForHierarchy, type SubagentThread } from "./subagentThreads";
 
 const DiffPanel = lazy(() => import("../DiffPanel"));
 
@@ -94,9 +94,11 @@ interface EditorPanelTab {
 }
 
 interface VisiblePanelTabEntry {
+  depth?: number | undefined;
   id?: string | undefined;
   key: PanelTabOrderEntry;
   mode: RightSidePanelMode;
+  parentId?: string | undefined;
 }
 
 export type PanelTabOrderEntry =
@@ -585,6 +587,9 @@ export function RightSidePanelTabStrip(props: {
   const hasTerminalTabs = props.terminalOpen && props.terminalTabs.length > 0;
   const browserTabs = props.browserSession?.tabs ?? [];
   const hasBrowserTabs = browserTabs.length > 0;
+  const hierarchicalSubagentThreads = hasSubagentTabs
+    ? orderSubagentThreadsForHierarchy(props.subagentThreads)
+    : [];
   const tabOrder = props.panelTabOrder.length > 0 ? props.panelTabOrder : ["summary"];
   const orderIndex = (key: PanelTabOrderEntry, mode: RightSidePanelMode): number => {
     const exactIndex = tabOrder.indexOf(key);
@@ -595,10 +600,12 @@ export function RightSidePanelTabStrip(props: {
   const visibleTabEntries: VisiblePanelTabEntry[] = [
     ...(showSummaryTab ? [{ key: panelTabOrderKey("summary"), mode: "summary" as const }] : []),
     ...(hasSubagentTabs
-      ? props.subagentThreads.map((thread) => ({
+      ? hierarchicalSubagentThreads.map(({ thread, depth }) => ({
+          depth,
           id: thread.id,
           key: panelTabOrderKey("subagent", thread.id),
           mode: "subagent" as const,
+          ...(thread.parentId ? { parentId: thread.parentId } : {}),
         }))
       : []),
     ...(hasReviewTab ? [{ key: panelTabOrderKey("diff"), mode: "diff" as const }] : []),
@@ -710,10 +717,16 @@ export function RightSidePanelTabStrip(props: {
                     render={
                       <button
                         type="button"
-                        className={tabClassName(
-                          props.activeMode === "subagent" &&
-                            props.activeSubagentThreadId === thread.id,
+                        className={cn(
+                          tabClassName(
+                            props.activeMode === "subagent" &&
+                              props.activeSubagentThreadId === thread.id,
+                          ),
+                          entry.depth === 1 && "pl-2.5",
+                          entry.depth !== undefined && entry.depth > 1 && "pl-2",
                         )}
+                        data-subagent-depth={entry.depth ?? 0}
+                        {...(entry.parentId ? { "data-subagent-parent-id": entry.parentId } : {})}
                         aria-pressed={
                           props.activeMode === "subagent" &&
                           props.activeSubagentThreadId === thread.id
@@ -725,6 +738,9 @@ export function RightSidePanelTabStrip(props: {
                       />
                     }
                   >
+                    {entry.depth !== undefined && entry.depth > 0 ? (
+                      <span aria-hidden="true" className="-mr-1 h-px w-2 shrink-0 bg-border/75" />
+                    ) : null}
                     <span className="relative inline-flex size-4.5 shrink-0 items-center justify-center">
                       <EnvironmentSubagentIcon
                         className="size-4.5 transition-opacity group-hover/tab:opacity-0"

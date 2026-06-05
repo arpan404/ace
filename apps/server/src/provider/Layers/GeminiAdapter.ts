@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { readFile, readdir, stat } from "node:fs/promises";
+import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -29,7 +29,11 @@ import { resolveProviderSettings } from "@ace/shared/providerInstances";
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
-import { hasAcpSessionForkCapability } from "../acpCapabilities.ts";
+import {
+  hasAcpSessionCloseCapability,
+  hasAcpSessionForkCapability,
+  hasAcpSessionResumeCapability,
+} from "../acpCapabilities.ts";
 import { meaningfulErrorMessage } from "../errorCause.ts";
 import { logWarningEffect, runLoggedEffect } from "../fireAndForget.ts";
 import { buildRuntimeErrorPayload } from "../runtimeEventPayloads.ts";
@@ -185,6 +189,12 @@ export function buildGeminiAcpMcpServersFromSettings(
   return [...serversByName.values()];
 }
 
+function geminiConfiguredMcpStatus(
+  mcpServers: ReadonlyArray<GeminiAcpMcpServer>,
+): ReadonlyArray<GeminiAcpMcpServer & { readonly status: "configured" }> {
+  return mcpServers.map((server) => Object.assign({}, server, { status: "configured" as const }));
+}
+
 async function fileExists(file: string): Promise<boolean> {
   try {
     const fileStat = await stat(file);
@@ -249,13 +259,43 @@ async function readGeminiAcpMcpServers(input: {
   readonly cwd: string;
   readonly geminiHome?: string | undefined;
 }): Promise<GeminiAcpMcpServer[]> {
-  const homeSettings = path.join(
-    input.geminiHome?.trim() || path.join(homedir(), ".gemini"),
-    "settings.json",
-  );
+  const homeSettings = path.join(resolveGeminiHome(input.geminiHome), "settings.json");
   const settingsFiles = [homeSettings, ...(await geminiProjectSettingsFiles(input.cwd))];
   const settings = await Promise.all(settingsFiles.map((file) => readGeminiSettingsRecord(file)));
   return buildGeminiAcpMcpServersFromSettings(settings);
+}
+
+function resolveGeminiHome(geminiHome?: string | undefined): string {
+  return geminiHome?.trim() || path.join(homedir(), ".gemini");
+}
+
+async function ensureGeminiProjectRegistry(geminiHome?: string | undefined): Promise<void> {
+  const home = resolveGeminiHome(geminiHome);
+  const registryFile = path.join(home, "projects.json");
+  const defaultRegistry = { projects: {} };
+  let raw: string;
+  try {
+    raw = await readFile(registryFile, "utf8");
+  } catch {
+    await mkdir(home, { recursive: true });
+    await writeFile(registryFile, `${JSON.stringify(defaultRegistry, null, 2)}\n`);
+    return;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    await writeFile(registryFile, `${JSON.stringify(defaultRegistry, null, 2)}\n`);
+    return;
+  }
+  const record = parsed as Record<string, unknown>;
+  if (!record.projects || typeof record.projects !== "object" || Array.isArray(record.projects)) {
+    await writeFile(registryFile, `${JSON.stringify({ ...record, projects: {} }, null, 2)}\n`);
+  }
 }
 
 export function canGeminiSetSessionMode(metadata: Pick<GeminiSessionMetadata, "availableModes">) {
@@ -410,6 +450,8 @@ type GeminiToolCallLike = {
 type GeminiSessionMetadata = {
   readonly authMethods: ReadonlyArray<GeminiAuthMethod>;
   readonly loadSession: boolean;
+  readonly resumeSession: boolean;
+  readonly closeSession: boolean;
   readonly forkSession: boolean;
   builtInSubagentCommands: ReadonlyArray<ProviderSlashCommand>;
   availableCommands: ReadonlyArray<GeminiAvailableCommand>;
@@ -1043,6 +1085,8 @@ function normalizeInitializeResponse(value: unknown): GeminiSessionMetadata {
   return {
     authMethods,
     loadSession: agentCapabilities?.loadSession === true,
+    resumeSession: hasAcpSessionResumeCapability(value),
+    closeSession: hasAcpSessionCloseCapability(value),
     forkSession: hasAcpSessionForkCapability(value),
     builtInSubagentCommands: [],
     availableCommands: normalizeAvailableCommands(record?.availableCommands),
@@ -1051,16 +1095,21 @@ function normalizeInitializeResponse(value: unknown): GeminiSessionMetadata {
   };
 }
 
-function geminiProviderCapabilities(metadata: Pick<GeminiSessionMetadata, "forkSession">) {
-  return metadata.forkSession
-    ? {
-        sessionForkMode: "native" as const,
-        sideConversationMode: "native-fork" as const,
-      }
-    : {
-        sessionForkMode: "local-replay" as const,
-        sideConversationMode: "replay-fork" as const,
-      };
+function geminiProviderCapabilities(
+  metadata: Pick<GeminiSessionMetadata, "forkSession" | "resumeSession">,
+) {
+  return {
+    sessionResumeMode: metadata.resumeSession ? ("native" as const) : ("local-replay" as const),
+    ...(metadata.forkSession
+      ? {
+          sessionForkMode: "native" as const,
+          sideConversationMode: "native-fork" as const,
+        }
+      : {
+          sessionForkMode: "local-replay" as const,
+          sideConversationMode: "replay-fork" as const,
+        }),
+  };
 }
 
 function updateMetadataFromSessionResult(
@@ -1759,6 +1808,37 @@ const makeGeminiAdapter = Effect.gen(function* () {
         cause: cause instanceof Error ? cause.message : String(cause),
       },
     });
+  };
+
+  const closeGeminiProviderSession = async (
+    context: GeminiSessionContext,
+    phase: string,
+  ): Promise<void> => {
+    if (!context.metadata.closeSession) {
+      return;
+    }
+    const sessionId = readGeminiResumeCursor(context.session.resumeCursor);
+    if (!sessionId) {
+      return;
+    }
+    try {
+      await context.client.request(
+        "session/close",
+        { sessionId },
+        { timeoutMs: ACP_CONTROL_TIMEOUT_MS },
+      );
+    } catch (cause) {
+      logWarningEffect({
+        runPromise,
+        message: "Gemini native session close failed; closing client anyway.",
+        metadata: {
+          phase,
+          threadId: context.session.threadId,
+          sessionId,
+          cause: meaningfulErrorMessage(cause, "Unknown Gemini session close failure"),
+        },
+      });
+    }
   };
 
   const baseEvent = <TType extends ProviderRuntimeEvent["type"]>(
@@ -2748,11 +2828,12 @@ const makeGeminiAdapter = Effect.gen(function* () {
   ): Promise<{
     readonly sessionId: string;
     readonly metadata: GeminiSessionMetadata;
-    readonly method: "session/fork" | "session/load" | "session/new";
+    readonly method: "session/fork" | "session/resume" | "session/load" | "session/new";
   }> => {
     const resumeSessionId = readGeminiResumeCursor(input.resumeCursor);
     const forkSourceSessionId = readGeminiResumeCursor(input.forkSource?.resumeCursor);
     const canForkSession = forkSourceSessionId !== undefined && metadata.forkSession;
+    const canResumeSession = resumeSessionId !== undefined && metadata.resumeSession;
     const canLoadSession = resumeSessionId !== undefined && metadata.loadSession;
     const newSessionParams = {
       cwd,
@@ -2760,7 +2841,7 @@ const makeGeminiAdapter = Effect.gen(function* () {
     };
 
     const execute = async (
-      method: "session/fork" | "session/load" | "session/new",
+      method: "session/fork" | "session/resume" | "session/load" | "session/new",
       params: {
         readonly cwd: string;
         readonly mcpServers: ReadonlyArray<GeminiAcpMcpServer>;
@@ -2773,7 +2854,7 @@ const makeGeminiAdapter = Effect.gen(function* () {
       const resultRecord = asObject(result);
       const sessionId =
         asString(resultRecord?.sessionId) ??
-        (method === "session/load" ? resumeSessionId : undefined);
+        (method === "session/resume" || method === "session/load" ? resumeSessionId : undefined);
       if (!sessionId) {
         throw new ProviderAdapterRequestError({
           provider: PROVIDER,
@@ -2789,7 +2870,7 @@ const makeGeminiAdapter = Effect.gen(function* () {
     };
 
     const executeWithAuthRetry = async (
-      method: "session/fork" | "session/load" | "session/new",
+      method: "session/fork" | "session/resume" | "session/load" | "session/new",
       params: {
         readonly cwd: string;
         readonly mcpServers: ReadonlyArray<GeminiAcpMcpServer>;
@@ -2822,8 +2903,36 @@ const makeGeminiAdapter = Effect.gen(function* () {
     }
 
     if (canLoadSession) {
+      if (canResumeSession) {
+        try {
+          return await executeWithAuthRetry("session/resume", {
+            ...newSessionParams,
+            sessionId: resumeSessionId,
+          });
+        } catch (cause) {
+          if (!isMissingGeminiSessionError(cause)) {
+            throw cause;
+          }
+          return await executeWithAuthRetry("session/new", newSessionParams);
+        }
+      }
+
       try {
         return await executeWithAuthRetry("session/load", {
+          ...newSessionParams,
+          sessionId: resumeSessionId,
+        });
+      } catch (cause) {
+        if (!isMissingGeminiSessionError(cause)) {
+          throw cause;
+        }
+        return await executeWithAuthRetry("session/new", newSessionParams);
+      }
+    }
+
+    if (canResumeSession) {
+      try {
+        return await executeWithAuthRetry("session/resume", {
           ...newSessionParams,
           sessionId: resumeSessionId,
         });
@@ -2904,6 +3013,7 @@ const makeGeminiAdapter = Effect.gen(function* () {
       ...(geminiSettings.configDir ? { GEMINI_CLI_HOME: geminiSettings.configDir } : {}),
     };
     const cwd = input.cwd ?? serverConfig.cwd;
+    await ensureGeminiProjectRegistry(geminiSettings.configDir);
     const acpMcpServers = await readGeminiAcpMcpServers({
       cwd,
       geminiHome: geminiSettings.configDir,
@@ -3033,6 +3143,19 @@ const makeGeminiAdapter = Effect.gen(function* () {
           },
         }),
       );
+      if (acpMcpServers.length > 0) {
+        emit(
+          baseEvent(context, {
+            type: "mcp.status.updated",
+            payload: {
+              status: {
+                provider: PROVIDER,
+                mcpServers: geminiConfiguredMcpStatus(acpMcpServers),
+              },
+            },
+          }),
+        );
+      }
       emit(
         baseEvent(context, {
           type: "session.started",
@@ -3559,6 +3682,7 @@ const makeGeminiAdapter = Effect.gen(function* () {
       if (context.activeTurn) {
         cancelPendingPermissionsForTurn(context, context.activeTurn.id);
       }
+      await closeGeminiProviderSession(context, "stopSession");
       await context.client.close();
     });
 
@@ -3681,6 +3805,7 @@ const makeGeminiAdapter = Effect.gen(function* () {
           cancelPendingPermissionsForTurn(context, context.activeTurn.id);
         }
         try {
+          await closeGeminiProviderSession(context, "stopAll");
           await context.client.close();
         } catch (cause) {
           reportClientCloseFailure(cause, {

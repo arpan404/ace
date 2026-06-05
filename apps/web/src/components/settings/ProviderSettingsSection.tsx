@@ -327,8 +327,6 @@ function getProviderPathPatch(
       return { configDir: value };
     case "pi":
       return { agentDir: value };
-    case "gemini":
-      return null;
   }
 }
 

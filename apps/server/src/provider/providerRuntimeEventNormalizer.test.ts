@@ -29,7 +29,168 @@ function lifecycleEvent(
   };
 }
 
+function authStatusEvent(
+  payload: Extract<ProviderRuntimeEvent, { type: "auth.status" }>["payload"] &
+    Record<string, unknown>,
+): Extract<ProviderRuntimeEvent, { type: "auth.status" }> {
+  return {
+    type: "auth.status",
+    eventId: asEventId("event-auth-1"),
+    provider: "githubCopilot",
+    createdAt: "2026-05-13T10:00:00.000Z",
+    threadId: asThreadId("thread-1"),
+    payload,
+  };
+}
+
+function accountUpdatedEvent(
+  payload: Record<string, unknown>,
+): Extract<ProviderRuntimeEvent, { type: "account.updated" }> {
+  return {
+    type: "account.updated",
+    eventId: asEventId("event-account-1"),
+    provider: "claudeAgent",
+    createdAt: "2026-05-13T10:00:00.000Z",
+    threadId: asThreadId("thread-1"),
+    payload: payload as Extract<ProviderRuntimeEvent, { type: "account.updated" }>["payload"],
+  };
+}
+
+function rateLimitsEvent(
+  payload: Record<string, unknown>,
+): Extract<ProviderRuntimeEvent, { type: "account.rate-limits.updated" }> {
+  return {
+    type: "account.rate-limits.updated",
+    eventId: asEventId("event-rate-limits-1"),
+    provider: "gemini",
+    createdAt: "2026-05-13T10:00:00.000Z",
+    threadId: asThreadId("thread-1"),
+    payload: payload as Extract<
+      ProviderRuntimeEvent,
+      { type: "account.rate-limits.updated" }
+    >["payload"],
+  };
+}
+
 describe("normalizeProviderRuntimeEvent", () => {
+  it("normalizes provider-native auth status fields", () => {
+    const event = normalizeProviderRuntimeEvent(
+      authStatusEvent({
+        isAuthenticated: true,
+        login: "dev@example.test",
+        authType: "user",
+        statusMessage: "Logged in as dev@example.test",
+      }),
+    );
+
+    expect(event.type).toBe("auth.status");
+    if (event.type !== "auth.status") {
+      return;
+    }
+    expect(event.payload).toEqual({
+      isAuthenticated: true,
+      login: "dev@example.test",
+      authType: "user",
+      statusMessage: "Logged in as dev@example.test",
+      status: "authenticated",
+      label: "dev@example.test",
+      account: {
+        label: "dev@example.test",
+      },
+      output: ["Logged in as dev@example.test"],
+    });
+  });
+
+  it("normalizes provider rate-limit aliases into rateLimits", () => {
+    const event = normalizeProviderRuntimeEvent(
+      rateLimitsEvent({
+        rate_limit: {
+          limit: 100,
+          remaining: 4,
+          resetAt: "2026-05-13T11:00:00.000Z",
+        },
+      }),
+    );
+
+    expect(event.type).toBe("account.rate-limits.updated");
+    if (event.type !== "account.rate-limits.updated") {
+      return;
+    }
+    expect(event.payload.rateLimits).toEqual({
+      limit: 100,
+      remaining: 4,
+      resetAt: "2026-05-13T11:00:00.000Z",
+    });
+  });
+
+  it("normalizes provider quota metadata into rateLimits", () => {
+    const event = normalizeProviderRuntimeEvent(
+      rateLimitsEvent({
+        quota: {
+          token_count: 1200,
+          token_limit: 2000,
+        },
+      }),
+    );
+
+    expect(event.type).toBe("account.rate-limits.updated");
+    if (event.type !== "account.rate-limits.updated") {
+      return;
+    }
+    expect(event.payload.rateLimits).toEqual({
+      token_count: 1200,
+      token_limit: 2000,
+    });
+  });
+
+  it("normalizes provider-native account fields into account metadata", () => {
+    const event = normalizeProviderRuntimeEvent(
+      accountUpdatedEvent({
+        user: {
+          login: "dev@example.test",
+          id: "user-1",
+        },
+        subscription: {
+          planType: "pro",
+        },
+      }),
+    );
+
+    expect(event.type).toBe("account.updated");
+    if (event.type !== "account.updated") {
+      return;
+    }
+    expect(event.payload.account).toEqual({
+      login: "dev@example.test",
+      id: "user-1",
+      label: "dev@example.test",
+      subscription: {
+        planType: "pro",
+      },
+    });
+  });
+
+  it("adds a label to existing provider account payloads", () => {
+    const event = normalizeProviderRuntimeEvent(
+      accountUpdatedEvent({
+        account: {
+          email: "team@example.test",
+          accountId: "acct-1",
+        },
+      }),
+    );
+
+    expect(event.type).toBe("account.updated");
+    if (event.type !== "account.updated") {
+      return;
+    }
+    expect(event.payload.account).toEqual({
+      email: "team@example.test",
+      accountId: "acct-1",
+      label: "team@example.test",
+    });
+  });
+
   it("does not rewrite assistant text that happens to mention tools", () => {
     const event = normalizeProviderRuntimeEvent(
       lifecycleEvent({
@@ -207,6 +368,214 @@ describe("normalizeProviderRuntimeEvent", () => {
     });
   });
 
+  it("classifies generic provider task tools with agent metadata as subagent calls", () => {
+    const event = normalizeProviderRuntimeEvent(
+      lifecycleEvent({
+        itemType: "dynamic_tool_call",
+        title: "Task",
+        detail: "Review provider event flow.",
+        status: "completed",
+        data: {
+          toolName: "Task",
+          input: {
+            subagent_type: "code-reviewer",
+            instructions: "Review provider event flow.",
+          },
+          result: {
+            agent_id: "agent-dynamic-1",
+          },
+        },
+      }),
+    );
+
+    expect(event.payload).toMatchObject({
+      itemType: "collab_agent_tool_call",
+      title: "Subagent task",
+      detail: "Review provider event flow.",
+      data: {
+        subagent: {
+          id: "agent-dynamic-1",
+          type: "code-reviewer",
+          prompt: "Review provider event flow.",
+        },
+        ace: {
+          normalized: true,
+          action: "collab-agent",
+          itemType: "collab_agent_tool_call",
+          subagent: {
+            id: "agent-dynamic-1",
+            type: "code-reviewer",
+          },
+        },
+      },
+    });
+  });
+
+  it("preserves provider subagent transcript lifecycle fields", () => {
+    const event = normalizeProviderRuntimeEvent(
+      lifecycleEvent({
+        itemType: "dynamic_tool_call",
+        title: "SubagentStop",
+        detail: "Subagent completed.",
+        status: "completed",
+        data: {
+          hook_event_name: "SubagentStop",
+          agent_id: "agent-hook-1",
+          agent_type: "Explore",
+          agent_transcript_path: "/repo/.claude/projects/session/subagents/agent-hook-1.jsonl",
+          last_assistant_message: "Found two relevant files.",
+        },
+      }),
+    );
+
+    expect(event.payload).toMatchObject({
+      itemType: "collab_agent_tool_call",
+      title: "Subagent task",
+      data: {
+        subagent: {
+          id: "agent-hook-1",
+          type: "Explore",
+          transcriptPath: "/repo/.claude/projects/session/subagents/agent-hook-1.jsonl",
+          lastAssistantMessage: "Found two relevant files.",
+        },
+        ace: {
+          normalized: true,
+          action: "collab-agent",
+          itemType: "collab_agent_tool_call",
+          subagent: {
+            id: "agent-hook-1",
+            type: "Explore",
+            transcriptPath: "/repo/.claude/projects/session/subagents/agent-hook-1.jsonl",
+            lastAssistantMessage: "Found two relevant files.",
+          },
+        },
+      },
+    });
+  });
+
+  it("preserves explicit provider subagent task ids from nested lifecycle records", () => {
+    const event = normalizeProviderRuntimeEvent(
+      lifecycleEvent({
+        itemType: "dynamic_tool_call",
+        title: "TaskCreated",
+        detail: "Started background exploration.",
+        status: "completed",
+        data: {
+          toolName: "TaskCreated",
+          subagent: {
+            task_id: "provider-task-1",
+            agent_type: "Explore",
+            agent_name: "Explore",
+          },
+        },
+      }),
+    );
+
+    expect(event.payload).toMatchObject({
+      itemType: "collab_agent_tool_call",
+      title: "Subagent task",
+      data: {
+        subagent: {
+          id: "provider-task-1",
+          type: "Explore",
+          name: "Explore",
+        },
+        ace: {
+          normalized: true,
+          action: "collab-agent",
+          itemType: "collab_agent_tool_call",
+          subagent: {
+            id: "provider-task-1",
+            type: "Explore",
+            name: "Explore",
+          },
+        },
+      },
+    });
+  });
+
+  it("classifies generic provider side-chat tools with child thread metadata as subagent calls", () => {
+    const event = normalizeProviderRuntimeEvent(
+      lifecycleEvent({
+        itemType: "dynamic_tool_call",
+        title: "side_chat",
+        detail: "Inspect migration risks without adding to the main thread.",
+        status: "completed",
+        data: {
+          tool_name: "side_chat",
+          childProviderThreadId: "provider-side-thread-1",
+          agentRole: "side-chat",
+          agentName: "Migration side chat",
+          input: {
+            prompt: "Inspect migration risks without adding to the main thread.",
+          },
+        },
+      }),
+    );
+
+    expect(event.payload).toMatchObject({
+      itemType: "collab_agent_tool_call",
+      title: "Subagent task",
+      data: {
+        subagent: {
+          id: "provider-side-thread-1",
+          type: "side-chat",
+          name: "Migration side chat",
+          prompt: "Inspect migration risks without adding to the main thread.",
+        },
+        ace: {
+          normalized: true,
+          action: "collab-agent",
+          itemType: "collab_agent_tool_call",
+          subagent: {
+            id: "provider-side-thread-1",
+            type: "side-chat",
+            name: "Migration side chat",
+          },
+        },
+      },
+    });
+  });
+
+  it("classifies provider side-chat tools with receiver thread arrays as subagent calls", () => {
+    const event = normalizeProviderRuntimeEvent(
+      lifecycleEvent({
+        itemType: "dynamic_tool_call",
+        title: "side_chat",
+        status: "completed",
+        data: {
+          tool_name: "side_chat",
+          receiverThreadIds: ["provider-side-thread-array-1"],
+          agentRole: "side-chat",
+          args: {
+            message: "Inspect fan-out child routing without adding to the main thread.",
+          },
+        },
+      }),
+    );
+
+    expect(event.payload).toMatchObject({
+      itemType: "collab_agent_tool_call",
+      title: "Subagent task",
+      data: {
+        subagent: {
+          id: "provider-side-thread-array-1",
+          type: "side-chat",
+          prompt: "Inspect fan-out child routing without adding to the main thread.",
+        },
+        ace: {
+          normalized: true,
+          action: "collab-agent",
+          itemType: "collab_agent_tool_call",
+          subagent: {
+            id: "provider-side-thread-array-1",
+            type: "side-chat",
+          },
+        },
+      },
+    });
+  });
+
   it("preserves Copilot-style custom agent identity fields on subagent tools", () => {
     const event = normalizeProviderRuntimeEvent(
       lifecycleEvent({
@@ -337,6 +706,51 @@ describe("normalizeProviderRuntimeEvent", () => {
     });
   });
 
+  it("normalizes root scalar provider agent fields as subagent metadata", () => {
+    const event = normalizeProviderRuntimeEvent(
+      lifecycleEvent({
+        itemType: "collab_agent_tool_call",
+        title: "Agent task",
+        detail: "Inspect provider scalar metadata.",
+        status: "completed",
+        agentId: "root-scalar-agent-1",
+        agentName: "Scalar Reviewer",
+        agentRole: "code-reviewer",
+        model: "provider-scalar-model",
+        data: {
+          input: {
+            prompt: "Inspect provider scalar metadata.",
+          },
+        },
+      } as Extract<ProviderRuntimeEvent, { type: "item.completed" }>["payload"]),
+    );
+
+    expect(event.payload).toMatchObject({
+      itemType: "collab_agent_tool_call",
+      title: "Subagent task",
+      data: {
+        subagent: {
+          id: "root-scalar-agent-1",
+          type: "code-reviewer",
+          name: "Scalar Reviewer",
+          model: "provider-scalar-model",
+          prompt: "Inspect provider scalar metadata.",
+        },
+        ace: {
+          normalized: true,
+          action: "collab-agent",
+          itemType: "collab_agent_tool_call",
+          subagent: {
+            id: "root-scalar-agent-1",
+            type: "code-reviewer",
+            name: "Scalar Reviewer",
+            model: "provider-scalar-model",
+          },
+        },
+      },
+    });
+  });
+
   it("normalizes provider delegated-agent aliases as subagent metadata", () => {
     const event = normalizeProviderRuntimeEvent(
       lifecycleEvent({
@@ -366,6 +780,96 @@ describe("normalizeProviderRuntimeEvent", () => {
           name: "Platform Specialist",
           model: "provider-delegate-model",
           prompt: "Inspect deploy hooks and summarize risks.",
+        },
+      },
+    });
+  });
+
+  it("normalizes provider side-chat child thread aliases as subagent metadata", () => {
+    const event = normalizeProviderRuntimeEvent(
+      lifecycleEvent({
+        itemType: "collab_agent_tool_call",
+        title: "Side chat",
+        detail: "Open a side chat to inspect migration risks.",
+        status: "completed",
+        data: {
+          threadId: "parent-provider-thread",
+          childProviderThreadId: "side-provider-thread-1",
+          agentName: "Migration Side Chat",
+          agentRole: "side-chat",
+          input: {
+            prompt: "Inspect migration risks without polluting the main thread.",
+          },
+        },
+      }),
+    );
+
+    expect(event.payload).toMatchObject({
+      itemType: "collab_agent_tool_call",
+      title: "Subagent task",
+      data: {
+        subagent: {
+          id: "side-provider-thread-1",
+          type: "side-chat",
+          name: "Migration Side Chat",
+          prompt: "Inspect migration risks without polluting the main thread.",
+        },
+        ace: {
+          normalized: true,
+          action: "collab-agent",
+          itemType: "collab_agent_tool_call",
+          subagent: {
+            id: "side-provider-thread-1",
+            type: "side-chat",
+            name: "Migration Side Chat",
+          },
+        },
+      },
+    });
+  });
+
+  it("normalizes provider side-chat arrays as subagent metadata", () => {
+    const event = normalizeProviderRuntimeEvent(
+      lifecycleEvent({
+        itemType: "dynamic_tool_call",
+        title: "side chat",
+        detail: "Open a side conversation.",
+        status: "completed",
+        data: {
+          sideChats: [
+            {
+              threadId: "provider-side-array-thread-1",
+              displayName: "Architecture side chat",
+              role: "side-chat",
+              model: "provider-model",
+              prompt: "Review the architecture without polluting the main thread.",
+            },
+          ],
+        },
+      }),
+    );
+
+    expect(event.payload).toMatchObject({
+      itemType: "collab_agent_tool_call",
+      title: "Subagent task",
+      data: {
+        subagent: {
+          id: "provider-side-array-thread-1",
+          type: "side-chat",
+          name: "Architecture side chat",
+          model: "provider-model",
+          prompt: "Review the architecture without polluting the main thread.",
+        },
+        ace: {
+          normalized: true,
+          action: "collab-agent",
+          itemType: "collab_agent_tool_call",
+          subagent: {
+            id: "provider-side-array-thread-1",
+            type: "side-chat",
+            name: "Architecture side chat",
+            model: "provider-model",
+          },
         },
       },
     });

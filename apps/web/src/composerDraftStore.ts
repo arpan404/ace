@@ -626,6 +626,11 @@ function normalizeProviderModelOptions(
     typeof claudeCandidate?.agent === "string" && claudeCandidate.agent.trim().length > 0
       ? claudeCandidate.agent.trim()
       : undefined;
+  const claudeSubagentModel =
+    typeof claudeCandidate?.subagentModel === "string" &&
+    claudeCandidate.subagentModel.trim().length > 0
+      ? claudeCandidate.subagentModel.trim()
+      : undefined;
   const claudeForkSubagents =
     claudeCandidate?.forkSubagents === true
       ? true
@@ -645,6 +650,7 @@ function normalizeProviderModelOptions(
     claudeContextWindow !== undefined ||
     claudeOutputStyle !== undefined ||
     claudeAgent !== undefined ||
+    claudeSubagentModel !== undefined ||
     claudeForkSubagents !== undefined ||
     claudeAgentTeams !== undefined
       ? {
@@ -654,6 +660,7 @@ function normalizeProviderModelOptions(
           ...(claudeContextWindow !== undefined ? { contextWindow: claudeContextWindow } : {}),
           ...(claudeOutputStyle !== undefined ? { outputStyle: claudeOutputStyle } : {}),
           ...(claudeAgent !== undefined ? { agent: claudeAgent } : {}),
+          ...(claudeSubagentModel !== undefined ? { subagentModel: claudeSubagentModel } : {}),
           ...(claudeForkSubagents !== undefined ? { forkSubagents: claudeForkSubagents } : {}),
           ...(claudeAgentTeams !== undefined ? { agentTeams: claudeAgentTeams } : {}),
         }

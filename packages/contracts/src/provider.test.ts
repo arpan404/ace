@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 import { Schema } from "effect";
 
 import { ProviderSendTurnInput, ProviderSessionStartInput } from "./provider";
-import { ProviderIntegrationCapabilities, ProviderSlashCommand } from "./orchestration";
+import {
+  ProviderIntegrationCapabilities,
+  ProviderSessionConfigOption,
+  ProviderSlashCommand,
+} from "./orchestration";
 
 const decodeProviderSessionStartInput = Schema.decodeUnknownSync(ProviderSessionStartInput);
 const decodeProviderSendTurnInput = Schema.decodeUnknownSync(ProviderSendTurnInput);
@@ -10,6 +14,7 @@ const decodeProviderIntegrationCapabilities = Schema.decodeUnknownSync(
   ProviderIntegrationCapabilities,
 );
 const decodeProviderSlashCommand = Schema.decodeUnknownSync(ProviderSlashCommand);
+const decodeProviderSessionConfigOption = Schema.decodeUnknownSync(ProviderSessionConfigOption);
 
 describe("ProviderSessionStartInput", () => {
   it("accepts codex-compatible payloads", () => {
@@ -187,6 +192,61 @@ describe("ProviderSessionStartInput", () => {
   });
 });
 
+describe("ProviderSessionConfigOption", () => {
+  it("accepts typed provider session controls", () => {
+    expect(
+      decodeProviderSessionConfigOption({
+        id: "agent_teams",
+        name: "Teams",
+        type: "boolean",
+        currentValue: "on",
+        options: [
+          { value: "off", name: "Off" },
+          { value: "on", name: "On" },
+        ],
+      }),
+    ).toMatchObject({
+      id: "agent_teams",
+      type: "boolean",
+      currentValue: "on",
+    });
+
+    expect(
+      decodeProviderSessionConfigOption({
+        id: "temperature",
+        name: "Temperature",
+        type: "number",
+        currentValue: "0.7",
+        options: [],
+        minValue: 0,
+        maxValue: 1,
+        stepValue: 0.1,
+      }),
+    ).toMatchObject({
+      id: "temperature",
+      type: "number",
+      currentValue: "0.7",
+      minValue: 0,
+      maxValue: 1,
+      stepValue: 0.1,
+    });
+
+    expect(
+      decodeProviderSessionConfigOption({
+        id: "system_prompt",
+        name: "System Prompt",
+        type: "text",
+        currentValue: "",
+        options: [],
+      }),
+    ).toMatchObject({
+      id: "system_prompt",
+      type: "text",
+      currentValue: "",
+    });
+  });
+});
+
 describe("ProviderIntegrationCapabilities", () => {
   it("defaults side conversation mode for older persisted capability payloads", () => {
     const parsed = decodeProviderIntegrationCapabilities({
@@ -202,6 +262,40 @@ describe("ProviderIntegrationCapabilities", () => {
 
     expect(parsed.sideConversationMode).toBe("replay-fork");
     expect(parsed.providerThreadTargetingMode).toBe("unsupported");
+    expect(parsed.goalControlMode).toBe("unsupported");
+    expect(parsed.multiAgentMode).toBe("unsupported");
+    expect(parsed.hookMode).toBe("unsupported");
+    expect(parsed.extensionMode).toBe("unsupported");
+    expect(parsed.mcpMode).toBe("unsupported");
+    expect(parsed.remoteAgentMode).toBe("unsupported");
+    expect(parsed.webAccessMode).toBe("unsupported");
+    expect(parsed.hostedSessionMode).toBe("unsupported");
+  });
+
+  it("accepts provider hook, extension, MCP, remote-agent, web access, and hosted session capability modes", () => {
+    const parsed = decodeProviderIntegrationCapabilities({
+      sessionModelSwitch: "in-session",
+      sessionModelOptionsSwitch: "in-session",
+      liveTurnDiffMode: "workspace",
+      reviewChangesMode: "git",
+      approvalRequestsMode: "native",
+      turnSteeringMode: "queued-message",
+      transcriptAuthority: "local",
+      sessionResumeMode: "local-replay",
+      hookMode: "native",
+      extensionMode: "local-discovery",
+      mcpMode: "native",
+      remoteAgentMode: "local-bridge",
+      webAccessMode: "agent-command",
+      hostedSessionMode: "local-bridge",
+    });
+
+    expect(parsed.hookMode).toBe("native");
+    expect(parsed.extensionMode).toBe("local-discovery");
+    expect(parsed.mcpMode).toBe("native");
+    expect(parsed.remoteAgentMode).toBe("local-bridge");
+    expect(parsed.webAccessMode).toBe("agent-command");
+    expect(parsed.hostedSessionMode).toBe("local-bridge");
   });
 });
 
@@ -213,10 +307,18 @@ describe("ProviderSlashCommand", () => {
       promptPrefix: "@security-auditor",
       description: "Review code for security issues",
       inputHint: "<prompt>",
+      metadata: {
+        provider: "github-copilot",
+        model: "gpt-5",
+      },
     });
 
     expect(parsed.kind).toBe("agent");
     expect(parsed.promptPrefix).toBe("@security-auditor");
+    expect(parsed.metadata).toEqual({
+      provider: "github-copilot",
+      model: "gpt-5",
+    });
   });
 });
 

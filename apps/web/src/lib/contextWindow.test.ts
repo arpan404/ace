@@ -44,14 +44,17 @@ describe("contextWindow", () => {
     expect(snapshot).toBeNull();
   });
 
-  it("ignores token-only payloads without a native context window", () => {
+  it("derives token-only payloads without a native context window", () => {
     const snapshot = deriveLatestContextWindowSnapshot([
       makeActivity("activity-1", "context-window.updated", {
         usedTokens: 1400,
       }),
     ]);
 
-    expect(snapshot).toBeNull();
+    expect(snapshot?.usedTokens).toBe(1400);
+    expect(snapshot?.maxTokens).toBeNull();
+    expect(snapshot?.remainingTokens).toBeNull();
+    expect(snapshot?.usedPercentage).toBeNull();
   });
 
   it("formats compact token counts", () => {

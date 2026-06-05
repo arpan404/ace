@@ -270,6 +270,9 @@ function makeProviderServiceLayer(options?: {
   const codex = makeFakeCodexAdapter();
   const claude = makeFakeCodexAdapter("claudeAgent");
   const cursor = makeFakeCodexAdapter("cursor", "restart-session");
+  const githubCopilot = makeFakeCodexAdapter("githubCopilot", "restart-session", {
+    sessionResumeMode: "native",
+  });
   const serverSettingsLayer = options?.serverSettingsLayer ?? defaultServerSettingsLayer;
   const registry: typeof ProviderAdapterRegistry.Service = {
     getByProvider: (provider) =>
@@ -279,8 +282,10 @@ function makeProviderServiceLayer(options?: {
           ? Effect.succeed(claude.adapter)
           : provider === "cursor"
             ? Effect.succeed(cursor.adapter)
-            : Effect.fail(new ProviderUnsupportedError({ provider })),
-    listProviders: () => Effect.succeed(["codex", "claudeAgent", "cursor"]),
+            : provider === "githubCopilot"
+              ? Effect.succeed(githubCopilot.adapter)
+              : Effect.fail(new ProviderUnsupportedError({ provider })),
+    listProviders: () => Effect.succeed(["codex", "claudeAgent", "cursor", "githubCopilot"]),
   };
 
   const providerAdapterLayer = Layer.succeed(ProviderAdapterRegistry, registry);
@@ -313,6 +318,7 @@ function makeProviderServiceLayer(options?: {
     codex,
     claude,
     cursor,
+    githubCopilot,
     layer,
   };
 }
@@ -860,6 +866,48 @@ routing.layer("ProviderServiceLive routing", (it) => {
     }),
   );
 
+  it.effect("uses dynamic native provider-thread targeting capabilities for child sends", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService;
+      const session = yield* provider.startSession(asThreadId("thread-dynamic-child-target"), {
+        provider: "cursor",
+        threadId: asThreadId("thread-dynamic-child-target"),
+        runtimeMode: "full-access",
+      });
+      routing.cursor.emit({
+        type: "session.configured",
+        eventId: asEventId("evt-dynamic-child-target-configured"),
+        provider: "cursor",
+        createdAt: new Date().toISOString(),
+        threadId: session.threadId,
+        payload: {
+          config: {
+            capabilities: {
+              providerThreadTargetingMode: "native",
+            },
+          },
+        },
+      });
+      yield* sleep(50);
+      routing.cursor.sendTurn.mockClear();
+
+      yield* provider.sendTurn({
+        threadId: session.threadId,
+        providerThreadId: "cursor-child-session-1",
+        input: "Follow up in the side chat",
+        attachments: [],
+      });
+
+      assert.equal(routing.cursor.sendTurn.mock.calls.length, 1);
+      assert.equal(
+        routing.cursor.sendTurn.mock.calls[0]?.[0]?.providerThreadId,
+        "cursor-child-session-1",
+      );
+
+      yield* provider.stopSession({ threadId: session.threadId });
+    }),
+  );
+
   it.effect("rejects steerTurn for providers without native steering", () =>
     Effect.gen(function* () {
       const provider = yield* ProviderService;
@@ -884,6 +932,43 @@ routing.layer("ProviderServiceLive routing", (it) => {
         }),
       );
       assert.equal(routing.cursor.steerTurn.mock.calls.length, 0);
+
+      yield* provider.stopSession({ threadId: session.threadId });
+    }),
+  );
+
+  it.effect("uses dynamic native steering capabilities for steerTurn", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService;
+      const session = yield* provider.startSession(asThreadId("thread-dynamic-native-steer"), {
+        provider: "cursor",
+        threadId: asThreadId("thread-dynamic-native-steer"),
+        runtimeMode: "full-access",
+      });
+      routing.cursor.emit({
+        type: "session.configured",
+        eventId: asEventId("evt-dynamic-native-steer-configured"),
+        provider: "cursor",
+        createdAt: new Date().toISOString(),
+        threadId: session.threadId,
+        payload: {
+          config: {
+            capabilities: {
+              turnSteeringMode: "native",
+            },
+          },
+        },
+      });
+      yield* sleep(50);
+      routing.cursor.steerTurn.mockClear();
+
+      yield* provider.steerTurn({
+        threadId: session.threadId,
+        input: "steer",
+        attachments: [],
+      });
+
+      assert.equal(routing.cursor.steerTurn.mock.calls.length, 1);
 
       yield* provider.stopSession({ threadId: session.threadId });
     }),
@@ -1161,6 +1246,208 @@ routing.layer("ProviderServiceLive routing", (it) => {
           },
         ]);
         assert.equal(routing.cursor.sendTurn.mock.calls.length, 1);
+
+        yield* provider.stopSession({ threadId });
+      }),
+  );
+
+  it.effect("recovers dynamic ACP native-resume sessions without transcript replay", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService;
+      const directory = yield* ProviderSessionDirectory;
+      const messages = yield* ProjectionThreadMessageRepository;
+      const threadId = asThreadId("thread-cursor-dynamic-native-resume-recover");
+      const createdAt = "2026-04-05T12:00:00.500Z";
+
+      const initial = yield* provider.startSession(threadId, {
+        provider: "cursor",
+        threadId,
+        cwd: "/tmp/project-cursor-dynamic-native-resume-recover",
+        modelSelection: {
+          provider: "cursor",
+          model: "gpt-5-mini",
+        },
+        runtimeMode: "full-access",
+      });
+
+      routing.cursor.emit({
+        type: "session.configured",
+        eventId: asEventId("evt-cursor-dynamic-native-resume-configured"),
+        provider: "cursor",
+        createdAt,
+        threadId,
+        payload: {
+          config: {
+            capabilities: {
+              sessionResumeMode: "native",
+              sessionForkMode: "local-replay",
+              sideConversationMode: "replay-fork",
+            },
+          },
+        },
+      });
+      yield* sleep(50);
+
+      const persisted = Option.getOrUndefined(yield* directory.getBinding(threadId));
+      assert.deepEqual(
+        persisted?.runtimePayload &&
+          typeof persisted.runtimePayload === "object" &&
+          !Array.isArray(persisted.runtimePayload) &&
+          "capabilities" in persisted.runtimePayload
+          ? persisted.runtimePayload.capabilities
+          : undefined,
+        {
+          sessionModelSwitch: "restart-session",
+          sessionModelOptionsSwitch: "restart-session",
+          liveTurnDiffMode: "workspace",
+          reviewChangesMode: "git",
+          reviewSurface: "pending-changes",
+          approvalRequestsMode: "native",
+          turnSteeringMode: "queued-message",
+          transcriptAuthority: "local",
+          historyAuthority: "project-local",
+          sessionResumeMode: "native",
+          sessionForkMode: "local-replay",
+          sideConversationMode: "replay-fork",
+          providerThreadTargetingMode: "unsupported",
+        },
+      );
+
+      yield* messages.upsert({
+        messageId: asMessageId("user-cursor-dynamic-native-resume-recover-1"),
+        threadId,
+        turnId: asTurnId("turn-cursor-dynamic-native-resume-recover-1"),
+        role: "user",
+        text: "Original prompt",
+        attachments: [],
+        isStreaming: false,
+        sequence: 1,
+        createdAt,
+        updatedAt: createdAt,
+      });
+      yield* messages.upsert({
+        messageId: asMessageId("assistant-cursor-dynamic-native-resume-recover-1"),
+        threadId,
+        turnId: asTurnId("turn-cursor-dynamic-native-resume-recover-1"),
+        role: "assistant",
+        text: "Original answer",
+        isStreaming: false,
+        sequence: 2,
+        createdAt,
+        updatedAt: createdAt,
+      });
+
+      yield* routing.cursor.stopAll();
+      routing.cursor.startSession.mockClear();
+      routing.cursor.sendTurn.mockClear();
+
+      yield* provider.sendTurn({
+        threadId,
+        input: "Continue",
+        attachments: [],
+      });
+
+      assert.equal(routing.cursor.startSession.mock.calls.length, 1);
+      const startPayload = routing.cursor.startSession.mock.calls[0]?.[0] as
+        | {
+            provider?: string;
+            cwd?: string;
+            modelSelection?: unknown;
+            resumeCursor?: unknown;
+            replayTurns?: unknown;
+          }
+        | undefined;
+      assert.equal(startPayload?.provider, "cursor");
+      assert.equal(startPayload?.cwd, "/tmp/project-cursor-dynamic-native-resume-recover");
+      assert.deepEqual(startPayload?.resumeCursor, initial.resumeCursor);
+      assert.deepEqual(startPayload?.modelSelection, {
+        provider: "cursor",
+        model: "gpt-5-mini",
+      });
+      assert.equal(startPayload?.replayTurns, undefined);
+      assert.equal(routing.cursor.sendTurn.mock.calls.length, 1);
+
+      yield* provider.stopSession({ threadId });
+    }),
+  );
+
+  it.effect(
+    "recovers GitHub Copilot sessions with native resume instead of transcript replay",
+    () =>
+      Effect.gen(function* () {
+        const provider = yield* ProviderService;
+        const directory = yield* ProviderSessionDirectory;
+        const messages = yield* ProjectionThreadMessageRepository;
+        const threadId = asThreadId("thread-copilot-native-resume-recover");
+        const createdAt = "2026-04-05T12:00:00.500Z";
+        const persistedResumeCursor = "copilot-session-live";
+
+        yield* directory.upsert({
+          provider: "githubCopilot",
+          threadId,
+          runtimeMode: "full-access",
+          status: "stopped",
+          resumeCursor: persistedResumeCursor,
+          runtimePayload: {
+            cwd: "/tmp/project-copilot-native-resume-recover",
+            modelSelection: {
+              provider: "githubCopilot",
+              model: "gpt-5.1-copilot",
+            },
+          },
+        });
+        yield* messages.upsert({
+          messageId: asMessageId("user-copilot-native-resume-recover-1"),
+          threadId,
+          turnId: asTurnId("turn-copilot-native-resume-recover-1"),
+          role: "user",
+          text: "Original prompt",
+          attachments: [],
+          isStreaming: false,
+          sequence: 1,
+          createdAt,
+          updatedAt: createdAt,
+        });
+        yield* messages.upsert({
+          messageId: asMessageId("assistant-copilot-native-resume-recover-1"),
+          threadId,
+          turnId: asTurnId("turn-copilot-native-resume-recover-1"),
+          role: "assistant",
+          text: "Original answer",
+          isStreaming: false,
+          sequence: 2,
+          createdAt,
+          updatedAt: createdAt,
+        });
+
+        routing.githubCopilot.startSession.mockClear();
+        routing.githubCopilot.sendTurn.mockClear();
+
+        yield* provider.sendTurn({
+          threadId,
+          input: "Continue",
+          attachments: [],
+        });
+
+        assert.equal(routing.githubCopilot.startSession.mock.calls.length, 1);
+        const startPayload = routing.githubCopilot.startSession.mock.calls[0]?.[0] as
+          | {
+              provider?: string;
+              cwd?: string;
+              modelSelection?: unknown;
+              resumeCursor?: unknown;
+              replayTurns?: unknown;
+            }
+          | undefined;
+        assert.equal(startPayload?.provider, "githubCopilot");
+        assert.equal(startPayload?.cwd, "/tmp/project-copilot-native-resume-recover");
+        assert.equal(startPayload?.resumeCursor, persistedResumeCursor);
+        assert.deepEqual(startPayload?.modelSelection, {
+          provider: "githubCopilot",
+          model: "gpt-5.1-copilot",
+        });
+        assert.equal(startPayload?.replayTurns, undefined);
+        assert.equal(routing.githubCopilot.sendTurn.mock.calls.length, 1);
 
         yield* provider.stopSession({ threadId });
       }),

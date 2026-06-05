@@ -580,6 +580,13 @@ const make = Effect.gen(function* () {
     );
   };
 
+  const resolveThreadSessionCapabilities = (thread: OrchestrationThread) => {
+    if (thread.session?.capabilities) {
+      return Effect.succeed(thread.session.capabilities);
+    }
+    return resolveSessionCapabilities(resolveThreadProvider(thread));
+  };
+
   const appendProviderFailureActivity = (input: {
     readonly threadId: ThreadId;
     readonly kind:
@@ -852,7 +859,7 @@ const make = Effect.gen(function* () {
     }
 
     const provider = resolveThreadProvider(thread);
-    const capabilities = yield* resolveSessionCapabilities(provider).pipe(
+    const capabilities = yield* resolveThreadSessionCapabilities(thread).pipe(
       Effect.catch(() => Effect.succeed<OrchestrationSession["capabilities"] | null>(null)),
     );
     if (!capabilities || capabilities.turnSteeringMode !== "native") {
@@ -1731,7 +1738,7 @@ const make = Effect.gen(function* () {
         projects: readModel.projects,
       });
       const threadTitle = toNonEmptyProviderInput(`${thread.title} side chat`);
-      const capabilities = yield* resolveSessionCapabilities(provider);
+      const capabilities = yield* resolveThreadSessionCapabilities(thread);
 
       if (capabilities?.sideConversationMode === "unsupported") {
         yield* appendProviderFailureActivity({

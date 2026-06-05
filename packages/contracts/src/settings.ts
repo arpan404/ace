@@ -398,6 +398,7 @@ const ClaudeModelOptionsPatch = Schema.Struct({
   contextWindow: Schema.optionalKey(ClaudeModelOptions.fields.contextWindow),
   outputStyle: Schema.optionalKey(ClaudeModelOptions.fields.outputStyle),
   agent: Schema.optionalKey(ClaudeModelOptions.fields.agent),
+  subagentModel: Schema.optionalKey(ClaudeModelOptions.fields.subagentModel),
   forkSubagents: Schema.optionalKey(ClaudeModelOptions.fields.forkSubagents),
   agentTeams: Schema.optionalKey(ClaudeModelOptions.fields.agentTeams),
 });

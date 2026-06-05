@@ -300,6 +300,36 @@ describe("TraitsPicker", () => {
     expect(html).toContain("On");
   });
 
+  it("renders Claude subagent model config options as selectable traits", () => {
+    const html = renderToStaticMarkup(
+      <TraitsPicker
+        provider="claudeAgent"
+        models={CLAUDE_WITHOUT_VISIBLE_TRAITS}
+        model="claude-sonnet-4-6"
+        prompt=""
+        onPromptChange={() => undefined}
+        modelOptions={{ subagentModel: "haiku" }}
+        onModelOptionsChange={() => undefined}
+        sessionConfigOptions={[
+          {
+            id: "subagent_model",
+            name: "Subagent Model",
+            category: "subagent_model",
+            type: "select",
+            currentValue: "inherit",
+            options: [
+              { value: "inherit", name: "Inherit" },
+              { value: "haiku", name: "Haiku" },
+              { value: "sonnet", name: "Sonnet" },
+            ],
+          },
+        ]}
+      />,
+    );
+
+    expect(html).toContain("Haiku");
+  });
+
   it("renders Cursor ACP mode config options as selectable traits", () => {
     const html = renderToStaticMarkup(
       <TraitsPicker

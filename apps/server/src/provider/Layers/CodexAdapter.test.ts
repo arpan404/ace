@@ -421,6 +421,7 @@ goalFeatureLayer("CodexAdapterLive goal feature discovery", (it) => {
         sessionForkMode: "native",
         sideConversationMode: "native-fork",
         providerThreadTargetingMode: "native",
+        goalControlMode: "native",
       });
       assert.equal(
         availableCommands.some((command) => command.name === "goal"),
@@ -801,6 +802,7 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
             sessionForkMode: "native",
             sideConversationMode: "native-fork",
             providerThreadTargetingMode: "native",
+            goalControlMode: "native",
           },
         );
         assert.equal(
@@ -847,6 +849,7 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
         sessionForkMode: "native",
         sideConversationMode: "native-fork",
         providerThreadTargetingMode: "native",
+        goalControlMode: "native",
       });
       assert.equal(
         availableCommands.some((command) => command.name === "goal"),

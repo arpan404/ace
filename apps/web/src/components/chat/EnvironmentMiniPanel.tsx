@@ -11,10 +11,12 @@ import {
   CheckIcon,
   CheckSquareIcon,
   ChevronDownIcon,
+  CircleAlertIcon,
   FileDiffIcon,
   PauseIcon,
   PencilIcon,
   PlayIcon,
+  PlugIcon,
   SaveIcon,
   SettingsIcon,
   Trash2Icon,
@@ -25,8 +27,17 @@ import { m, type MotionStyle } from "motion/react";
 import BranchToolbar from "../BranchToolbar";
 import EnvironmentGitSection from "../EnvironmentGitSection";
 import ProjectScriptsControl, { type NewProjectScriptInput } from "../ProjectScriptsControl";
-import { isSideChatThread, type SubagentThread } from "./subagentThreads";
-import type { ActiveGoalState, ActivePlanState } from "../../session-logic";
+import {
+  isSideChatThread,
+  orderSubagentThreadsForHierarchy,
+  type SubagentThread,
+} from "./subagentThreads";
+import type {
+  ActiveGoalState,
+  ActivePlanState,
+  EnvironmentMcpStatus,
+  EnvironmentProviderStatus,
+} from "../../session-logic";
 import { cn } from "~/lib/utils";
 import { PANEL_SPRING_TRANSITION } from "~/lib/panelMotion";
 import type { ThreadWorkspaceMode } from "~/threadWorkspaceMode";
@@ -89,21 +100,25 @@ type EnvironmentPanelGroupId =
   | "actions"
   | "environment"
   | "goal"
+  | "mcp"
   | "notes"
   | "pinnedMessages"
+  | "provider"
   | "progress"
   | "sideChats"
   | "subagents";
 type EnvironmentPanelGroupOpenState = Record<EnvironmentPanelGroupId, boolean>;
 
-const ENVIRONMENT_PANEL_GROUP_STORAGE_KEY = "ace:environment-mini-panel-groups:v5";
+const ENVIRONMENT_PANEL_GROUP_STORAGE_KEY = "ace:environment-mini-panel-groups:v7";
 
 const DEFAULT_ENVIRONMENT_PANEL_GROUP_OPEN_STATE: EnvironmentPanelGroupOpenState = {
   actions: false,
   environment: true,
   goal: true,
+  mcp: true,
   notes: false,
   pinnedMessages: false,
+  provider: true,
   progress: true,
   sideChats: true,
   subagents: true,
@@ -113,8 +128,10 @@ const EnvironmentPanelGroupOpenStateSchema = Schema.Struct({
   actions: Schema.Boolean,
   environment: Schema.Boolean,
   goal: Schema.Boolean,
+  mcp: Schema.Boolean,
   notes: Schema.Boolean,
   pinnedMessages: Schema.Boolean,
+  provider: Schema.Boolean,
   progress: Schema.Boolean,
   sideChats: Schema.Boolean,
   subagents: Schema.Boolean,
@@ -214,6 +231,7 @@ function GoalControlButton(props: {
 
 function EnvironmentGoalPanel(props: {
   goal: ActiveGoalState;
+  goalControlsSupported: boolean;
   onDeleteGoal: () => void;
   onEditGoal: (objective: string) => void;
   onPauseGoal: () => void;
@@ -225,7 +243,7 @@ function EnvironmentGoalPanel(props: {
   const trimmedDraft = draftObjective.trim();
   const saveDisabled = trimmedDraft.length === 0 || trimmedDraft === props.goal.objective;
 
-  if (editing) {
+  if (editing && props.goalControlsSupported) {
     return (
       <div className="space-y-1.5 px-2 py-1">
         <textarea
@@ -274,30 +292,95 @@ function EnvironmentGoalPanel(props: {
             ) : null}
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-0.5">
-          {props.goal.status === "paused" ? (
-            <GoalControlButton label="Resume goal" onClick={props.onResumeGoal}>
-              <PlayIcon className="size-3.5" />
+        {props.goalControlsSupported ? (
+          <div className="flex shrink-0 items-center gap-0.5">
+            {props.goal.status === "paused" ? (
+              <GoalControlButton label="Resume goal" onClick={props.onResumeGoal}>
+                <PlayIcon className="size-3.5" />
+              </GoalControlButton>
+            ) : (
+              <GoalControlButton label="Pause goal" onClick={props.onPauseGoal}>
+                <PauseIcon className="size-3.5" />
+              </GoalControlButton>
+            )}
+            <GoalControlButton
+              label="Edit goal"
+              onClick={() => {
+                setDraftObjective(props.goal.objective);
+                setEditing(true);
+              }}
+            >
+              <PencilIcon className="size-3.5" />
             </GoalControlButton>
-          ) : (
-            <GoalControlButton label="Pause goal" onClick={props.onPauseGoal}>
-              <PauseIcon className="size-3.5" />
+            <GoalControlButton label="Delete goal" onClick={props.onDeleteGoal}>
+              <Trash2Icon className="size-3.5" />
             </GoalControlButton>
-          )}
-          <GoalControlButton
-            label="Edit goal"
-            onClick={() => {
-              setDraftObjective(props.goal.objective);
-              setEditing(true);
-            }}
-          >
-            <PencilIcon className="size-3.5" />
-          </GoalControlButton>
-          <GoalControlButton label="Delete goal" onClick={props.onDeleteGoal}>
-            <Trash2Icon className="size-3.5" />
-          </GoalControlButton>
-        </div>
+          </div>
+        ) : null}
       </div>
+    </div>
+  );
+}
+
+function EnvironmentMcpStatusRow({ status }: { status: EnvironmentMcpStatus }) {
+  const detail = [status.providerLabel, status.detail].filter(Boolean).join(" · ");
+  return (
+    <div className="flex min-h-7 items-center gap-2 px-2 py-0.5 text-[12px]">
+      <PlugIcon
+        className={cn(
+          "size-3.5 shrink-0",
+          status.tone === "error" ? "text-destructive" : "text-muted-foreground",
+        )}
+      />
+      <div className="min-w-0 flex-1">
+        <div className="truncate font-medium text-foreground">{status.name}</div>
+        {detail ? <div className="truncate text-[10px] text-muted-foreground">{detail}</div> : null}
+      </div>
+      <span
+        className={cn(
+          "shrink-0 rounded-full px-2 py-0.5 text-[10px] uppercase tracking-wide",
+          status.tone === "error"
+            ? "bg-destructive/12 text-destructive"
+            : "bg-muted text-muted-foreground",
+        )}
+      >
+        {status.status}
+      </span>
+    </div>
+  );
+}
+
+function EnvironmentProviderStatusRow({ status }: { status: EnvironmentProviderStatus }) {
+  return (
+    <div className="flex min-h-7 items-center gap-2 px-2 py-0.5 text-[12px]">
+      <CircleAlertIcon
+        className={cn(
+          "size-3.5 shrink-0",
+          status.tone === "error"
+            ? "text-destructive"
+            : status.tone === "warning"
+              ? "text-warning"
+              : "text-muted-foreground",
+        )}
+      />
+      <div className="min-w-0 flex-1">
+        <div className="truncate font-medium text-foreground">{status.label}</div>
+        {status.detail ? (
+          <div className="truncate text-[10px] text-muted-foreground">{status.detail}</div>
+        ) : null}
+      </div>
+      <span
+        className={cn(
+          "shrink-0 rounded-full px-2 py-0.5 text-[10px] uppercase tracking-wide",
+          status.tone === "error"
+            ? "bg-destructive/12 text-destructive"
+            : status.tone === "warning"
+              ? "bg-warning/12 text-warning"
+              : "bg-muted text-muted-foreground",
+        )}
+      >
+        {status.status}
+      </span>
     </div>
   );
 }
@@ -376,11 +459,43 @@ export function EnvironmentSubagentIcon({
   );
 }
 
+function EnvironmentSubagentThreadButton(props: {
+  active: boolean;
+  depth?: number;
+  onClick: () => void;
+  thread: SubagentThread;
+}) {
+  const depth = props.depth ?? 0;
+  return (
+    <button
+      type="button"
+      className={cn(
+        "group/subagent relative flex min-h-8 w-full items-center gap-2 rounded-lg py-1 pr-2 text-left text-[12px] transition-colors hover:bg-accent hover:text-accent-foreground",
+        depth === 0 ? "pl-2" : depth === 1 ? "pl-5" : "pl-7",
+        props.active && "bg-accent/70 text-accent-foreground",
+      )}
+      data-subagent-depth={depth}
+      {...(props.thread.parentId ? { "data-subagent-parent-id": props.thread.parentId } : {})}
+      onClick={props.onClick}
+    >
+      {depth > 0 ? (
+        <span
+          aria-hidden="true"
+          className="absolute left-2 top-1/2 h-px w-2 -translate-y-1/2 bg-border/75"
+        />
+      ) : null}
+      <EnvironmentSubagentIcon thread={props.thread} />
+      <span className="min-w-0 flex-1 truncate font-medium">{props.thread.label}</span>
+    </button>
+  );
+}
+
 export const EnvironmentMiniPanel = forwardRef<
   HTMLElement,
   {
     activeProjectScripts: ProjectScript[] | undefined;
     activeGoal: ActiveGoalState | null;
+    activeGoalControlsSupported: boolean;
     activePlan: ActivePlanState | null;
     activeSubagentThreadId: string | null;
     activeThreadId: ThreadId;
@@ -393,6 +508,8 @@ export const EnvironmentMiniPanel = forwardRef<
     isGitRepo: boolean;
     keybindings: ResolvedKeybindingsConfig;
     layoutMode: "inline" | "popover";
+    mcpStatuses: ReadonlyArray<EnvironmentMcpStatus>;
+    providerStatuses: ReadonlyArray<EnvironmentProviderStatus>;
     style?: MotionStyle;
     onAddProjectScript: (input: NewProjectScriptInput) => Promise<void>;
     onDeleteProjectScript: (scriptId: string) => Promise<void>;
@@ -476,6 +593,8 @@ export const EnvironmentMiniPanel = forwardRef<
   const activePlan = props.activePlan;
   const activeGoal = props.activeGoal;
   const activeProjectScripts = props.activeProjectScripts;
+  const mcpStatuses = props.mcpStatuses;
+  const providerStatuses = props.providerStatuses;
   const subagentThreads = props.subagentThreads;
   const sideChatThreads = subagentThreads.filter(isSideChatThread);
   const providerSubagentThreads = subagentThreads.filter((thread) => !isSideChatThread(thread));
@@ -514,6 +633,7 @@ export const EnvironmentMiniPanel = forwardRef<
           >
             <EnvironmentGoalPanel
               goal={activeGoal}
+              goalControlsSupported={props.activeGoalControlsSupported}
               onDeleteGoal={props.onDeleteGoal}
               onEditGoal={props.onEditGoal}
               onPauseGoal={props.onPauseGoal}
@@ -628,6 +748,34 @@ export const EnvironmentMiniPanel = forwardRef<
           ) : null}
         </EnvironmentPanelGroup>
 
+        {providerStatuses.length > 0 ? (
+          <EnvironmentPanelGroup
+            title="Provider"
+            open={resolveEnvironmentPanelGroupOpen(groupOpenState, "provider")}
+            onOpenChange={(open) => setGroupOpen("provider", open)}
+          >
+            <div className="space-y-0.5">
+              {providerStatuses.map((status) => (
+                <EnvironmentProviderStatusRow key={status.id} status={status} />
+              ))}
+            </div>
+          </EnvironmentPanelGroup>
+        ) : null}
+
+        {mcpStatuses.length > 0 ? (
+          <EnvironmentPanelGroup
+            title="MCP"
+            open={resolveEnvironmentPanelGroupOpen(groupOpenState, "mcp")}
+            onOpenChange={(open) => setGroupOpen("mcp", open)}
+          >
+            <div className="space-y-0.5">
+              {mcpStatuses.map((status) => (
+                <EnvironmentMcpStatusRow key={status.id} status={status} />
+              ))}
+            </div>
+          </EnvironmentPanelGroup>
+        ) : null}
+
         {threadPinnedMessages.length > 0 ? (
           <EnvironmentPanelGroup
             title="Pinned Messages"
@@ -711,18 +859,15 @@ export const EnvironmentMiniPanel = forwardRef<
           >
             <div className="space-y-1">
               {sideChatThreads.map((thread) => (
-                <button
+                <EnvironmentSubagentThreadButton
                   key={thread.id}
-                  type="button"
-                  className="group/subagent flex min-h-8 w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-[12px] transition-colors hover:bg-accent hover:text-accent-foreground"
+                  active={props.activeSubagentThreadId === thread.id}
+                  thread={thread}
                   onClick={() => {
                     props.onSelectSubagentThread(thread.id);
                     props.onSubagentPanelOpen();
                   }}
-                >
-                  <EnvironmentSubagentIcon thread={thread} />
-                  <span className="min-w-0 flex-1 truncate font-medium">{thread.label}</span>
-                </button>
+                />
               ))}
             </div>
           </EnvironmentPanelGroup>
@@ -735,20 +880,20 @@ export const EnvironmentMiniPanel = forwardRef<
             onOpenChange={(open) => setGroupOpen("subagents", open)}
           >
             <div className="space-y-1">
-              {providerSubagentThreads.map((thread) => (
-                <button
-                  key={thread.id}
-                  type="button"
-                  className="group/subagent flex min-h-8 w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-[12px] transition-colors hover:bg-accent hover:text-accent-foreground"
-                  onClick={() => {
-                    props.onSelectSubagentThread(thread.id);
-                    props.onSubagentPanelOpen();
-                  }}
-                >
-                  <EnvironmentSubagentIcon thread={thread} />
-                  <span className="min-w-0 flex-1 truncate font-medium">{thread.label}</span>
-                </button>
-              ))}
+              {orderSubagentThreadsForHierarchy(providerSubagentThreads).map(
+                ({ thread, depth }) => (
+                  <EnvironmentSubagentThreadButton
+                    key={thread.id}
+                    active={props.activeSubagentThreadId === thread.id}
+                    depth={depth}
+                    thread={thread}
+                    onClick={() => {
+                      props.onSelectSubagentThread(thread.id);
+                      props.onSubagentPanelOpen();
+                    }}
+                  />
+                ),
+              )}
             </div>
           </EnvironmentPanelGroup>
         ) : null}

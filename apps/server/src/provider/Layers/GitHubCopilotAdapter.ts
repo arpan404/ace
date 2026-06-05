@@ -4,6 +4,7 @@ import path from "node:path";
 
 import type {
   CustomAgentConfig,
+  GetAuthStatusResponse,
   PermissionRequest,
   PermissionRequestResult,
   SessionConfig,
@@ -56,9 +57,11 @@ import {
 } from "@ace/shared/providerSlashCommands";
 import { resolveProviderSettings } from "@ace/shared/providerInstances";
 import {
+  GITHUB_COPILOT_BUILT_IN_AGENT_COMMANDS,
   discoverGitHubCopilotAgentConfigOption,
   discoverGitHubCopilotAgentSlashCommands,
   discoverGitHubCopilotCustomAgents,
+  discoverGitHubCopilotMcpServers,
   discoverGitHubCopilotPluginDirectories,
   discoverGitHubCopilotSkillDirectories,
   discoverProviderExtensionSlashCommands,
@@ -95,13 +98,80 @@ type UserInputResponse = {
   readonly wasFreeform: boolean;
 };
 
+type GitHubCopilotForkSession = (params: {
+  readonly sessionId: string;
+  readonly toEventId?: string;
+}) => Promise<{ readonly sessionId: string }>;
+
+function asObject(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function gitHubCopilotConfiguredMcpStatus(
+  mcpServers: NonNullable<ReturnType<typeof discoverGitHubCopilotMcpServers>>,
+): ReadonlyArray<Record<string, unknown>> {
+  return Object.entries(mcpServers).map(([name, server]) =>
+    Object.assign({}, server, { name, status: "configured" }),
+  );
+}
+
+function gitHubCopilotAuthStatusPayload(auth: GetAuthStatusResponse) {
+  return {
+    isAuthenticating: false,
+    status: auth.isAuthenticated ? ("authenticated" as const) : ("unauthenticated" as const),
+    ...(auth.login
+      ? { label: auth.login }
+      : auth.statusMessage
+        ? { label: auth.statusMessage }
+        : {}),
+    ...(auth.authType || auth.login
+      ? {
+          account: {
+            ...(auth.authType ? { type: auth.authType } : {}),
+            ...(auth.login ? { login: auth.login } : {}),
+          },
+        }
+      : {}),
+    ...(auth.statusMessage ? { output: [auth.statusMessage] } : {}),
+  };
+}
+
+function gitHubCopilotSessionForkFunction(
+  client: GitHubCopilotClientLike,
+): GitHubCopilotForkSession | null {
+  const clientRecord = asObject(client);
+  const rpcRecord = asObject(client.rpc);
+  const candidateContainers = [
+    asObject(rpcRecord?.sessions),
+    asObject(rpcRecord?.session),
+    asObject(clientRecord?.sessions),
+    asObject(clientRecord?.session),
+  ];
+  for (const container of candidateContainers) {
+    const fork =
+      container?.fork ??
+      container?.forkSession ??
+      container?.sessionFork ??
+      container?.["session.fork"] ??
+      container?.["session/fork"];
+    if (typeof fork === "function") {
+      return fork as GitHubCopilotForkSession;
+    }
+  }
+  return null;
+}
+
 function gitHubCopilotProviderCapabilities(client: GitHubCopilotClientLike) {
-  return client.rpc?.sessions?.fork
+  return gitHubCopilotSessionForkFunction(client)
     ? {
+        sessionResumeMode: "native" as const,
         sessionForkMode: "native" as const,
         sideConversationMode: "native-fork" as const,
       }
     : {
+        sessionResumeMode: "native" as const,
         sessionForkMode: "local-replay" as const,
         sideConversationMode: "replay-fork" as const,
       };
@@ -183,7 +253,15 @@ interface GitHubCopilotSessionContext {
   recoveryPromise: Promise<void> | undefined;
 }
 
-const GITHUB_COPILOT_BUILT_IN_AGENT_NAMES = new Set(["agent", "ask", "plan"]);
+const GITHUB_COPILOT_BUILT_IN_AGENT_NAMES = new Set([
+  "agent",
+  "ask",
+  "plan",
+  "explore",
+  "task",
+  "general-purpose",
+  "code-review",
+]);
 
 export interface GitHubCopilotAdapterLiveOptions {
   readonly nativeEventLogPath?: string;
@@ -888,8 +966,20 @@ function copilotSubagentId(data: Record<string, unknown>, fallback: string): str
   );
 }
 
-function copilotSubagentPayload(data: Record<string, unknown>, fallbackId: string) {
+function copilotSubagentPayload(
+  data: Record<string, unknown>,
+  fallbackId: string,
+  eventParentId?: string | null | undefined,
+) {
   const subagentId = copilotSubagentId(data, fallbackId);
+  const parentId =
+    stringValue(eventParentId) ??
+    stringValue(getObjectProperty(data, "parentId")) ??
+    stringValue(getObjectProperty(data, "parent_id")) ??
+    stringValue(getObjectProperty(data, "parentAgentId")) ??
+    stringValue(getObjectProperty(data, "parent_agent_id")) ??
+    stringValue(getObjectProperty(data, "parentSubagentId")) ??
+    stringValue(getObjectProperty(data, "parent_subagent_id"));
   const type =
     stringValue(getObjectProperty(data, "agentRole")) ??
     stringValue(getObjectProperty(data, "agent_role")) ??
@@ -919,6 +1009,7 @@ function copilotSubagentPayload(data: Record<string, unknown>, fallbackId: strin
   return {
     subagent: {
       id: subagentId,
+      ...(parentId ? { parentId } : {}),
       ...(type ? { type } : {}),
       ...(name ? { name } : {}),
       ...(model ? { model } : {}),
@@ -927,11 +1018,13 @@ function copilotSubagentPayload(data: Record<string, unknown>, fallbackId: strin
     data: {
       ...data,
       subagentId,
+      ...(parentId ? { parentId } : {}),
       ...(type ? { agentRole: type } : {}),
       ...(name ? { agentDisplayName: name } : {}),
       ...(model ? { model } : {}),
       subagent: {
         id: subagentId,
+        ...(parentId ? { parentId } : {}),
         ...(type ? { type } : {}),
         ...(name ? { name } : {}),
         ...(model ? { model } : {}),
@@ -1379,6 +1472,46 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
         payload: input.rawPayload,
       },
     } as unknown as ProviderRuntimeEventByType<TType>;
+  };
+
+  const emitGitHubCopilotAuthStatus = (context: GitHubCopilotSessionContext): void => {
+    runLoggedEffect({
+      runPromise,
+      effect: Effect.tryPromise(() => context.sdkClient.getAuthStatus()).pipe(
+        Effect.flatMap((auth) =>
+          offerRuntimeEvent(
+            makeBaseEvent(context, {
+              type: "auth.status",
+              payload: gitHubCopilotAuthStatusPayload(auth),
+              rawMethod: "github-copilot.auth.status",
+              rawSource: "github-copilot.sdk.event",
+              rawPayload: auth,
+            }),
+          ),
+        ),
+        Effect.catchCause((cause) => {
+          const detail = meaningfulErrorMessage(
+            cause,
+            "Failed to fetch GitHub Copilot auth status",
+          );
+          return offerRuntimeEvent(
+            makeBaseEvent(context, {
+              type: "auth.status",
+              payload: {
+                isAuthenticating: false,
+                status: "unknown",
+                error: detail,
+              },
+              rawMethod: "github-copilot.auth.status",
+              rawSource: "github-copilot.sdk.event",
+              rawPayload: { error: detail },
+            }),
+          );
+        }),
+      ),
+      message: "Failed to emit GitHub Copilot auth status.",
+      metadata: { threadId: context.session.threadId },
+    });
   };
 
   const emitGitHubCopilotAvailableCommandsUpdate = (
@@ -2152,7 +2285,7 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
           return;
         }
         const providerItemId = copilotSubagentId(data, event.id);
-        const subagent = copilotSubagentPayload(data, providerItemId);
+        const subagent = copilotSubagentPayload(data, providerItemId, event.parentId);
         const runtimeEvent = makeBaseEvent(context, {
           type: event.type === "subagent.started" ? "item.started" : "item.updated",
           createdAt: getSessionEventTimestamp(event),
@@ -2180,7 +2313,7 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
           return;
         }
         const providerItemId = copilotSubagentId(data, event.id);
-        const subagent = copilotSubagentPayload(data, providerItemId);
+        const subagent = copilotSubagentPayload(data, providerItemId, event.parentId);
         const runtimeEvent = makeBaseEvent(context, {
           type: "item.completed",
           createdAt: getSessionEventTimestamp(event),
@@ -2935,12 +3068,17 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
           ...discoverGitHubCopilotCustomAgents({
             cwd: input.cwd,
             home: settings.homePath,
+            includeChatModes: true,
           }),
         ];
         const customAgents: CustomAgentConfig[] = discoveredCustomAgents.map(
           ({ userInvocable: _userInvocable, ...agent }) => agent,
         );
         const skillDirectories = discoverGitHubCopilotSkillDirectories({
+          cwd: input.cwd ?? serverConfig.cwd,
+          home: settings.homePath,
+        });
+        const mcpServers = discoverGitHubCopilotMcpServers({
           cwd: input.cwd ?? serverConfig.cwd,
           home: settings.homePath,
         });
@@ -2954,14 +3092,18 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
             cwd: input.cwd ?? serverConfig.cwd,
             home: settings.homePath,
           }),
+          GITHUB_COPILOT_BUILT_IN_AGENT_COMMANDS,
           extensionCommands,
           providerFallbackSlashCommands(PROVIDER),
         );
         const selectedAgent = input.modelSelection?.options?.agent?.trim();
         const sessionSelectedAgent =
           selectedAgent && selectedAgent !== "default"
-            ? customAgents.find((agent) => agent.name.toLowerCase() === selectedAgent.toLowerCase())
-                ?.name
+            ? GITHUB_COPILOT_BUILT_IN_AGENT_NAMES.has(selectedAgent.toLowerCase())
+              ? selectedAgent
+              : customAgents.find(
+                  (agent) => agent.name.toLowerCase() === selectedAgent.toLowerCase(),
+                )?.name
             : undefined;
         const configOptions = [
           discoverGitHubCopilotAgentConfigOption({
@@ -2981,6 +3123,7 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
           enableConfigDiscovery: true,
           ...(sessionSelectedAgent ? { agent: sessionSelectedAgent } : {}),
           ...(customAgents.length > 0 ? { customAgents } : {}),
+          ...(mcpServers ? { mcpServers } : {}),
           ...(skillDirectories.length > 0 ? { skillDirectories: [...skillDirectories] } : {}),
           streaming: true,
           includeSubAgentStreamingEvents: true,
@@ -2991,9 +3134,10 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
             ? input.forkSource.resumeCursor
             : undefined;
         let nativeForkSucceeded = false;
-        if (forkSourceSessionId !== undefined && sdkClient.rpc?.sessions?.fork !== undefined) {
+        const forkSession = gitHubCopilotSessionForkFunction(sdkClient);
+        if (forkSourceSessionId !== undefined && forkSession !== null) {
           try {
-            const forkedSession = await sdkClient.rpc.sessions.fork({
+            const forkedSession = await forkSession({
               sessionId: forkSourceSessionId,
             });
             sdkSession = await sdkClient.resumeSession(forkedSession.sessionId, sessionConfig);
@@ -3089,6 +3233,7 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
             },
           }),
         );
+        emitGitHubCopilotAuthStatus(createdContext);
 
         emitRuntimeEvent(
           makeBaseEvent(createdContext, {
@@ -3109,6 +3254,24 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
             },
           }),
         );
+        if (mcpServers && Object.keys(mcpServers).length > 0) {
+          emitRuntimeEvent(
+            makeBaseEvent(createdContext, {
+              type: "mcp.status.updated",
+              payload: {
+                status: {
+                  provider: PROVIDER,
+                  mcpServers: gitHubCopilotConfiguredMcpStatus(mcpServers),
+                },
+              },
+              rawMethod: "github-copilot.mcp.config",
+              rawSource: "github-copilot.sdk.event",
+              rawPayload: {
+                mcpServers,
+              },
+            }),
+          );
+        }
 
         emitRuntimeEvent(
           makeBaseEvent(createdContext, {
@@ -3552,7 +3715,7 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
       turnSteeringMode: "queued-message",
       transcriptAuthority: "local",
       historyAuthority: "local-server-session",
-      sessionResumeMode: "local-replay",
+      sessionResumeMode: "native",
     },
     startSession,
     sendTurn,

@@ -42,7 +42,6 @@ import { useShallow } from "zustand/react/shallow";
 import {
   isProviderSideConversationAlias,
   providerSlashCommandExtensionKind,
-  type ProviderExtensionCommandKind,
 } from "@ace/shared/providerSlashCommands";
 
 import {
@@ -78,6 +77,13 @@ import { useEffectEvent } from "../../hooks/useEffectEvent";
 import { gitGitHubIssuesQueryOptions } from "~/lib/gitReactQuery";
 import { projectSearchEntriesQueryOptions } from "~/lib/projectReactQuery";
 import { formatCommandDisplayLabel } from "~/lib/commandDisplay";
+import {
+  type ComposerProviderCommandKind,
+  providerCommandDisplayBadges,
+  providerCommandDisplayDescription,
+  providerCommandDisplayItemMatchesQuery,
+  providerCommandDisplaySearchText,
+} from "~/lib/providerCommandDisplay";
 import { basenameOfPath } from "../../vscode-icons";
 import { cn, randomUUID } from "~/lib/utils";
 import { syncTerminalContextsByIds, terminalContextIdListsEqual } from "../../lib/terminalContext";
@@ -116,9 +122,10 @@ function normalizeSlashCommandName(name: string): string {
     .toLowerCase();
 }
 
-type ComposerProviderCommandKind = "provider" | ProviderExtensionCommandKind;
-
 function composerProviderCommandKind(command: ProviderSlashCommand): ComposerProviderCommandKind {
+  if (command.kind === "provider") {
+    return "provider";
+  }
   const normalizedName = normalizeSlashCommandName(command.name);
   const extensionKind = normalizedName
     ? providerSlashCommandExtensionKind(command, normalizedName)
@@ -126,21 +133,18 @@ function composerProviderCommandKind(command: ProviderSlashCommand): ComposerPro
   return extensionKind ?? "provider";
 }
 
-function providerCommandDescription(
-  command: ProviderSlashCommand,
-  commandKind: ComposerProviderCommandKind,
-): string {
-  const noun =
-    commandKind === "plugin"
-      ? "Plugin"
-      : commandKind === "skill"
-        ? "Skill"
-        : commandKind === "agent"
-          ? "Agent"
-          : "Provider command";
-  return command.inputHint
-    ? `${command.description ?? noun} - ${command.inputHint}`
-    : (command.description ?? noun);
+function isComposerVisibleProviderCommand(command: ProviderSlashCommand): boolean {
+  const normalizedName = normalizeSlashCommandName(command.name);
+  if (!normalizedName || isProviderSideConversationAlias(normalizedName)) {
+    return false;
+  }
+  if (normalizedName === "goal") {
+    return true;
+  }
+  if (command.kind === "provider") {
+    return false;
+  }
+  return providerSlashCommandExtensionKind(command, normalizedName) !== null;
 }
 
 function commandMatchesComposerQuery(command: ProviderSlashCommand, query: string): boolean {
@@ -150,7 +154,8 @@ function commandMatchesComposerQuery(command: ProviderSlashCommand, query: strin
   const normalizedQuery = query.trim().toLowerCase();
   return (
     normalizeSlashCommandName(command.name).includes(normalizedQuery) ||
-    command.description?.toLowerCase().includes(normalizedQuery) === true
+    command.description?.toLowerCase().includes(normalizedQuery) === true ||
+    providerCommandDisplaySearchText(command).includes(normalizedQuery)
   );
 }
 
@@ -666,27 +671,34 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
         commandKind: ComposerProviderCommandKind;
         label: string;
         description: string;
+        metadataBadges?: string[];
+        metadataSearchText?: string;
       }> = [];
       for (const command of props.providerCommands) {
-        if (isProviderSideConversationAlias(command.name)) {
+        if (!isComposerVisibleProviderCommand(command)) {
           continue;
         }
         if (!commandMatchesComposerQuery(command, query)) {
           continue;
         }
         const commandKind = composerProviderCommandKind(command);
+        if (commandKind === "provider") {
+          continue;
+        }
         providerCommandItems.push({
           id: `provider-slash:${commandKind}:${command.name}`,
           type: "provider-command",
           command: command.name,
           commandKind,
           label: formatCommandDisplayLabel(command.name),
-          description: providerCommandDescription(command, commandKind),
+          description: providerCommandDisplayDescription(command, commandKind),
+          metadataBadges: providerCommandDisplayBadges(command),
+          metadataSearchText: providerCommandDisplaySearchText(command),
         });
       }
       const providerCommandNames = new Set(
         props.providerCommands
-          .filter((command) => !isProviderSideConversationAlias(command.name))
+          .filter(isComposerVisibleProviderCommand)
           .map((command) => normalizeSlashCommandName(command.name)),
       );
       const slashTriggerAtPromptStart =
@@ -761,10 +773,8 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
       if (!query) {
         return allSlashCommandItems;
       }
-      return allSlashCommandItems.filter(
-        (item) =>
-          normalizeSlashCommandName(item.command).includes(query) ||
-          item.label.toLowerCase().includes(query),
+      return allSlashCommandItems.filter((item) =>
+        providerCommandDisplayItemMatchesQuery(item, query),
       );
     }
     return searchableModelOptions.reduce<

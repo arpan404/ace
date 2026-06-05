@@ -92,6 +92,7 @@ function renderEnvironmentMiniPanel(
     <EnvironmentMiniPanel
       activeProjectScripts={undefined}
       activeGoal={null}
+      activeGoalControlsSupported={true}
       activePlan={null}
       activeSubagentThreadId={null}
       activeThreadId={"thread-1" as ThreadId}
@@ -104,6 +105,8 @@ function renderEnvironmentMiniPanel(
       isGitRepo={false}
       keybindings={[]}
       layoutMode="inline"
+      mcpStatuses={[]}
+      providerStatuses={[]}
       onAddProjectScript={() => Promise.resolve()}
       onDeleteGoal={() => undefined}
       onDeleteProjectScript={() => Promise.resolve()}
@@ -160,6 +163,7 @@ describe("EnvironmentMiniPanel", () => {
         <EnvironmentMiniPanel
           activeProjectScripts={undefined}
           activeGoal={null}
+          activeGoalControlsSupported={true}
           activePlan={null}
           activeSubagentThreadId={null}
           activeThreadId={"thread-1" as ThreadId}
@@ -172,6 +176,8 @@ describe("EnvironmentMiniPanel", () => {
           isGitRepo={true}
           keybindings={[]}
           layoutMode="inline"
+          mcpStatuses={[]}
+          providerStatuses={[]}
           onAddProjectScript={() => Promise.resolve()}
           onDeleteGoal={() => undefined}
           onDeleteProjectScript={() => Promise.resolve()}
@@ -208,6 +214,50 @@ describe("EnvironmentMiniPanel", () => {
     expect(markup).not.toContain("lucide-smile");
     expect(markup).not.toContain("Explorer");
     expect(markup).not.toContain("Completed");
+  });
+
+  it("renders nested provider subagents as a visual tree while keeping name-only rows", () => {
+    const markup = renderEnvironmentMiniPanel({
+      subagentThreads: [
+        subagentThread({
+          id: "agent-root",
+          label: "Runtime Reviewer",
+          entries: [
+            {
+              id: "root-agent-message",
+              createdAt: "2026-06-02T00:00:00.000Z",
+              label: "Subagent message",
+              tone: "thinking",
+              subagentId: "agent-root",
+              subagentName: "Runtime Reviewer",
+            },
+          ],
+        }),
+        subagentThread({
+          id: "agent-child",
+          parentId: "agent-root",
+          label: "Docs Writer",
+          entries: [
+            {
+              id: "child-agent-message",
+              createdAt: "2026-06-02T00:00:01.000Z",
+              label: "Subagent message",
+              tone: "thinking",
+              subagentId: "agent-child",
+              subagentParentId: "agent-root",
+              subagentName: "Docs Writer",
+            },
+          ],
+        }),
+      ],
+    });
+
+    expect(markup).toContain("Runtime Reviewer");
+    expect(markup).toContain("Docs Writer");
+    expect(markup).toContain('data-subagent-depth="0"');
+    expect(markup).toContain('data-subagent-depth="1"');
+    expect(markup).toContain('data-subagent-parent-id="agent-root"');
+    expect(markup).not.toContain("docs-writer");
   });
 
   it("shows side chats as a separate environment card group", () => {
@@ -256,6 +306,52 @@ describe("EnvironmentMiniPanel", () => {
     expect(markup).toContain("Dewey");
   });
 
+  it("shows provider child side chats with the same agent as separate environment entries", () => {
+    const markup = renderEnvironmentMiniPanel({
+      subagentThreads: [
+        subagentThread({
+          id: "provider-child-session-a",
+          label: "Review the API route.",
+          entries: [
+            {
+              id: "provider-side-chat-one",
+              createdAt: "2026-06-02T00:00:01.000Z",
+              label: "User message",
+              tone: "thinking",
+              subagentId: "provider-child-session-a",
+              subagentName: "Reviewer",
+              subagentType: "side chat",
+              sideChatMessageRole: "user",
+              sideChatMessageText: "Review the API route.",
+            },
+          ],
+        }),
+        subagentThread({
+          id: "provider-child-session-b",
+          label: "Review the worker route.",
+          entries: [
+            {
+              id: "provider-side-chat-two",
+              createdAt: "2026-06-02T00:00:02.000Z",
+              label: "User message",
+              tone: "thinking",
+              subagentId: "provider-child-session-b",
+              subagentName: "Reviewer",
+              subagentType: "side chat",
+              sideChatMessageRole: "user",
+              sideChatMessageText: "Review the worker route.",
+            },
+          ],
+        }),
+      ],
+    });
+
+    expect(markup).toContain("Side chats");
+    expect(markup).toContain("Review the API route.");
+    expect(markup).toContain("Review the worker route.");
+    expect(markup).not.toContain("Subagents");
+  });
+
   it("renders active goals separately from progress and environment state", () => {
     const markup = renderEnvironmentMiniPanel({ activeGoal });
 
@@ -265,5 +361,76 @@ describe("EnvironmentMiniPanel", () => {
     expect(markup).toContain("Pause goal");
     expect(markup).toContain("Edit goal");
     expect(markup).toContain("Delete goal");
+  });
+
+  it("keeps provider goal state visible without controls when native goal control is unsupported", () => {
+    const markup = renderEnvironmentMiniPanel({
+      activeGoal,
+      activeGoalControlsSupported: false,
+    });
+
+    expect(markup).toContain("Goal");
+    expect(markup).toContain("Implement provider feature parity");
+    expect(markup).not.toContain("Pause goal");
+    expect(markup).not.toContain("Edit goal");
+    expect(markup).not.toContain("Delete goal");
+  });
+
+  it("shows MCP provider status as a separate environment card group", () => {
+    const markup = renderEnvironmentMiniPanel({
+      mcpStatuses: [
+        {
+          id: "mcp:schema-docs",
+          createdAt: "2026-06-02T00:00:00.000Z",
+          name: "schema-docs",
+          status: "tools changed",
+          tone: "info",
+          detail: "mcp.tools.changed",
+        },
+        {
+          id: "mcp:browser",
+          createdAt: "2026-06-02T00:00:01.000Z",
+          name: "browser",
+          status: "authentication failed",
+          tone: "error",
+          detail: "OAuth callback failed",
+        },
+      ],
+    });
+
+    expect(markup).toContain("MCP");
+    expect(markup).toContain("schema-docs");
+    expect(markup).toContain("tools changed");
+    expect(markup).toContain("browser");
+    expect(markup).toContain("authentication failed");
+  });
+
+  it("shows provider health status as a separate environment card group", () => {
+    const markup = renderEnvironmentMiniPanel({
+      providerStatuses: [
+        {
+          id: "provider:codex:model",
+          createdAt: "2026-06-02T00:00:00.000Z",
+          label: "Codex model",
+          status: "gpt-5 -> gpt-5.4",
+          tone: "warning",
+          detail: "requested model unavailable",
+        },
+        {
+          id: "provider:claude:auth",
+          createdAt: "2026-06-02T00:00:01.000Z",
+          label: "Claude auth",
+          status: "authentication error",
+          tone: "error",
+          detail: "OAuth expired",
+        },
+      ],
+    });
+
+    expect(markup).toContain("Provider");
+    expect(markup).toContain("Codex model");
+    expect(markup).toContain("gpt-5 -&gt; gpt-5.4");
+    expect(markup).toContain("Claude auth");
+    expect(markup).toContain("authentication error");
   });
 });

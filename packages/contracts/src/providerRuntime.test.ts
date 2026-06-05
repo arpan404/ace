@@ -165,6 +165,87 @@ describe("ProviderRuntimeEvent", () => {
     expect(parsed.payload.usage.usedTokens).toBe(31251);
   });
 
+  it("decodes provider auth status labels and account metadata", () => {
+    const parsed = decodeRuntimeEvent({
+      type: "auth.status",
+      eventId: "event-auth-status-1",
+      provider: "cursor",
+      createdAt: "2026-02-28T00:00:04.250Z",
+      threadId: "thread-1",
+      payload: {
+        status: "authenticated",
+        label: "dev@cursor.example",
+        account: {
+          email: "dev@cursor.example",
+        },
+      },
+    });
+
+    expect(parsed.type).toBe("auth.status");
+    if (parsed.type !== "auth.status") {
+      throw new Error("expected auth.status");
+    }
+    expect(parsed.payload.status).toBe("authenticated");
+    expect(parsed.payload.label).toBe("dev@cursor.example");
+    expect(parsed.payload.account).toEqual({ email: "dev@cursor.example" });
+  });
+
+  it("decodes provider-native account update payloads before normalization", () => {
+    const parsed = decodeRuntimeEvent({
+      type: "account.updated",
+      eventId: "event-account-updated-native-1",
+      provider: "githubCopilot",
+      createdAt: "2026-02-28T00:00:04.300Z",
+      threadId: "thread-1",
+      payload: {
+        user: {
+          login: "dev@example.test",
+          id: "user-1",
+        },
+        subscription: {
+          planType: "pro",
+        },
+      },
+    });
+
+    expect(parsed.type).toBe("account.updated");
+    if (parsed.type !== "account.updated") {
+      throw new Error("expected account.updated");
+    }
+    expect(parsed.payload.user).toEqual({
+      login: "dev@example.test",
+      id: "user-1",
+    });
+    expect(parsed.payload.subscription).toEqual({
+      planType: "pro",
+    });
+  });
+
+  it("decodes provider-native rate-limit aliases before normalization", () => {
+    const parsed = decodeRuntimeEvent({
+      type: "account.rate-limits.updated",
+      eventId: "event-rate-limits-native-1",
+      provider: "gemini",
+      createdAt: "2026-02-28T00:00:04.350Z",
+      threadId: "thread-1",
+      payload: {
+        quota: {
+          token_count: 1200,
+          token_limit: 2000,
+        },
+      },
+    });
+
+    expect(parsed.type).toBe("account.rate-limits.updated");
+    if (parsed.type !== "account.rate-limits.updated") {
+      throw new Error("expected account.rate-limits.updated");
+    }
+    expect(parsed.payload.quota).toEqual({
+      token_count: 1200,
+      token_limit: 2000,
+    });
+  });
+
   it("decodes structured metadata on content deltas", () => {
     const parsed = decodeRuntimeEvent({
       type: "content.delta",
@@ -196,36 +277,55 @@ describe("ProviderRuntimeEvent", () => {
     });
   });
 
-  it("decodes task progress subagent metadata", () => {
-    const parsed = decodeRuntimeEvent({
-      type: "task.progress",
-      eventId: "event-task-progress-subagent-1",
-      provider: "claudeAgent",
-      createdAt: "2026-02-28T00:00:04.750Z",
-      threadId: "thread-1",
-      turnId: "turn-1",
-      payload: {
-        taskId: "task-subagent-1",
-        description: "Reviewing migration edge cases",
-        summary: "Checked nullable projection columns.",
-        subagent: {
-          id: "task-subagent-1",
-          type: "claude subagent",
-          name: "Reviewing migration edge cases",
+  it.each(["task.started", "task.progress", "task.completed"] as const)(
+    "decodes %s subagent metadata",
+    (type) => {
+      const parsed = decodeRuntimeEvent({
+        type,
+        eventId: `event-${type}-subagent-1`,
+        provider: "claudeAgent",
+        createdAt: "2026-02-28T00:00:04.750Z",
+        threadId: "thread-1",
+        turnId: "turn-1",
+        payload: {
+          taskId: "task-subagent-1",
+          ...(type === "task.progress"
+            ? {
+                description: "Reviewing migration edge cases",
+                summary: "Checked nullable projection columns.",
+              }
+            : type === "task.completed"
+              ? {
+                  status: "completed",
+                  summary: "Checked nullable projection columns.",
+                }
+              : {
+                  description: "Reviewing migration edge cases",
+                  taskType: "claude subagent",
+                }),
+          subagent: {
+            id: "task-subagent-1",
+            type: "claude subagent",
+            name: "Reviewing migration edge cases",
+          },
         },
-      },
-    });
+      });
 
-    expect(parsed.type).toBe("task.progress");
-    if (parsed.type !== "task.progress") {
-      throw new Error("expected task.progress");
-    }
-    expect(parsed.payload.subagent).toEqual({
-      id: "task-subagent-1",
-      type: "claude subagent",
-      name: "Reviewing migration edge cases",
-    });
-  });
+      expect(parsed.type).toBe(type);
+      if (
+        parsed.type !== "task.started" &&
+        parsed.type !== "task.progress" &&
+        parsed.type !== "task.completed"
+      ) {
+        throw new Error("expected task lifecycle event");
+      }
+      expect(parsed.payload.subagent).toEqual({
+        id: "task-subagent-1",
+        type: "claude subagent",
+        name: "Reviewing migration edge cases",
+      });
+    },
+  );
 
   it("accepts OpenCode raw event source payloads", () => {
     const parsed = decodeRuntimeEvent({

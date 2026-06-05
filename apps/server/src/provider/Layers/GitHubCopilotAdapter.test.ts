@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import type {
   AssistantMessageEvent,
+  GetAuthStatusResponse,
   ModelInfo,
   ResumeSessionConfig,
   SessionEvent,
@@ -63,8 +64,10 @@ function makeFakeClient(options: {
   readonly forkSession?: ReturnType<
     typeof vi.fn<(input: { readonly sessionId: string }) => Promise<{ readonly sessionId: string }>>
   >;
+  readonly forkSessionShape?: "rpc.sessions.fork" | "rpc.session.forkSession";
   readonly stop?: ReturnType<typeof vi.fn<() => Promise<ReadonlyArray<Error>>>>;
   readonly forceStop?: ReturnType<typeof vi.fn<() => Promise<void>>>;
+  readonly getAuthStatus?: ReturnType<typeof vi.fn<() => Promise<GetAuthStatusResponse>>>;
 }): GitHubCopilotClientLike & {
   readonly createSession: ReturnType<
     typeof vi.fn<(config: FakeStartConfig) => Promise<GitHubCopilotSessionClient>>
@@ -157,23 +160,15 @@ function makeFakeClient(options: {
     },
   );
 
-  return {
+  const client = {
     listModels: vi.fn(async () => options.models),
     createSession,
     resumeSession: vi.fn(async (_sessionId: string, _config: ResumeSessionConfig) => {
       throw new Error("resumeSession should not be called in this test");
     }),
     getStatus: vi.fn(async () => ({ version: "test", protocolVersion: 1 })),
-    getAuthStatus: vi.fn(async () => ({ isAuthenticated: true, statusMessage: "ok" })),
-    ...(options.forkSession
-      ? {
-          rpc: {
-            sessions: {
-              fork: options.forkSession,
-            },
-          },
-        }
-      : {}),
+    getAuthStatus:
+      options.getAuthStatus ?? vi.fn(async () => ({ isAuthenticated: true, statusMessage: "ok" })),
     stop,
     forceStop,
     emitSessionEvent: (event: SessionEvent) => {
@@ -182,6 +177,27 @@ function makeFakeClient(options: {
       }
     },
   };
+  if (options.forkSession && options.forkSessionShape !== "rpc.session.forkSession") {
+    return {
+      ...client,
+      rpc: {
+        sessions: {
+          fork: options.forkSession,
+        },
+      },
+    };
+  }
+  if (options.forkSession) {
+    return {
+      ...client,
+      rpc: {
+        session: {
+          forkSession: options.forkSession,
+        },
+      },
+    } as unknown as ReturnType<typeof makeFakeClient>;
+  }
+  return client;
 }
 
 afterEach(() => {
@@ -245,6 +261,7 @@ layer("GitHubCopilotAdapterLive startSession", (it) => {
         return;
       }
       assert.deepEqual(configuredEvent.value.payload.config.capabilities, {
+        sessionResumeMode: "native",
         sessionForkMode: "local-replay",
         sideConversationMode: "replay-fork",
       });
@@ -290,8 +307,106 @@ layer("GitHubCopilotAdapterLive startSession", (it) => {
         return;
       }
       assert.deepEqual(configuredEvent.value.payload.config.capabilities, {
+        sessionResumeMode: "native",
         sessionForkMode: "native",
         sideConversationMode: "native-fork",
+      });
+
+      yield* adapter.stopSession(threadId);
+    }),
+  );
+
+  it.effect("emits native fork capabilities for newer Copilot ACP fork spellings", () =>
+    Effect.gen(function* () {
+      const forkSession = vi.fn(async (_input: { readonly sessionId: string }) => ({
+        sessionId: "copilot-forked-session",
+      }));
+      const fakeClient = makeFakeClient({
+        models: [],
+        forkSession,
+        forkSessionShape: "rpc.session.forkSession",
+      });
+      mockedCreateGitHubCopilotClient.mockResolvedValue(fakeClient);
+
+      const adapter = yield* GitHubCopilotAdapter;
+      const threadId = asThreadId("thread-copilot-native-fork-session-spelling");
+      const configuredFiber = yield* Stream.runHead(
+        Stream.filter(
+          adapter.streamEvents,
+          (event) => event.threadId === threadId && event.type === "session.configured",
+        ),
+      ).pipe(Effect.forkChild);
+
+      yield* adapter.startSession({
+        provider: "githubCopilot",
+        threadId,
+        cwd: "/repo",
+        runtimeMode: "approval-required",
+      });
+
+      const configuredEvent = yield* Fiber.join(configuredFiber);
+      assert.equal(configuredEvent._tag, "Some");
+      if (configuredEvent._tag !== "Some") {
+        return;
+      }
+      assert.equal(configuredEvent.value.type, "session.configured");
+      if (configuredEvent.value.type !== "session.configured") {
+        return;
+      }
+      assert.deepEqual(configuredEvent.value.payload.config.capabilities, {
+        sessionResumeMode: "native",
+        sessionForkMode: "native",
+        sideConversationMode: "native-fork",
+      });
+
+      yield* adapter.stopSession(threadId);
+    }),
+  );
+
+  it.effect("emits Copilot SDK auth status when a session starts", () =>
+    Effect.gen(function* () {
+      const getAuthStatus = vi.fn(async () => ({
+        isAuthenticated: true,
+        authType: "user" as const,
+        login: "dev@github.example",
+        statusMessage: "Logged in as dev@github.example",
+      }));
+      const fakeClient = makeFakeClient({
+        models: [],
+        getAuthStatus,
+      });
+      mockedCreateGitHubCopilotClient.mockResolvedValue(fakeClient);
+
+      const adapter = yield* GitHubCopilotAdapter;
+      const threadId = asThreadId("thread-copilot-auth-status");
+      const authStatusFiber = yield* Stream.runHead(
+        Stream.filter(
+          adapter.streamEvents,
+          (event) => event.threadId === threadId && event.type === "auth.status",
+        ),
+      ).pipe(Effect.forkChild);
+
+      yield* adapter.startSession({
+        provider: "githubCopilot",
+        threadId,
+        cwd: "/repo",
+        runtimeMode: "approval-required",
+      });
+
+      const authStatusEvent = yield* Fiber.join(authStatusFiber);
+      assert.equal(authStatusEvent._tag, "Some");
+      if (authStatusEvent._tag !== "Some" || authStatusEvent.value.type !== "auth.status") {
+        return;
+      }
+      assert.deepEqual(authStatusEvent.value.payload, {
+        isAuthenticating: false,
+        status: "authenticated",
+        label: "dev@github.example",
+        account: {
+          type: "user",
+          login: "dev@github.example",
+        },
+        output: ["Logged in as dev@github.example"],
       });
 
       yield* adapter.stopSession(threadId);
@@ -689,12 +804,44 @@ layer("GitHubCopilotAdapterLive startSession", (it) => {
         yield* Effect.promise(() =>
           mkdir(path.join(repo, ".github", "agents"), { recursive: true }),
         );
+        yield* Effect.promise(() =>
+          mkdir(path.join(repo, ".github", "chatmodes"), { recursive: true }),
+        );
         yield* Effect.promise(() => mkdir(path.join(repo, ".vscode"), { recursive: true }));
         yield* Effect.promise(() =>
           writeFile(
             path.join(repo, ".vscode", "settings.json"),
             JSON.stringify({
               "chat.useCustomAgentHooks": true,
+            }),
+          ),
+        );
+        yield* Effect.promise(() =>
+          writeFile(
+            path.join(repo, ".vscode", "mcp.json"),
+            JSON.stringify({
+              servers: {
+                fetch: {
+                  type: "stdio",
+                  command: "uvx",
+                  args: ["mcp-server-fetch"],
+                  tools: ["fetch"],
+                },
+              },
+            }),
+          ),
+        );
+        yield* Effect.promise(() =>
+          writeFile(
+            path.join(repo, ".github", "mcp.json"),
+            JSON.stringify({
+              mcpServers: {
+                docs: {
+                  type: "http",
+                  url: "https://repo.example.test/mcp",
+                  tools: ["search"],
+                },
+              },
             }),
           ),
         );
@@ -766,6 +913,19 @@ layer("GitHubCopilotAdapterLive startSession", (it) => {
         );
         yield* Effect.promise(() =>
           writeFile(
+            path.join(repo, ".github", "agents", "schema-explorer.agent.md"),
+            [
+              "---",
+              "description: Explores schema docs with a dedicated MCP server",
+              'mcpServers: {"schema-docs":{"type":"http","url":"https://docs.example.test/mcp","tools":["search"],"headers":{"X-Team":"Schema"}}}',
+              "---",
+              "",
+              "Explore schema documentation before implementation.",
+            ].join("\n"),
+          ),
+        );
+        yield* Effect.promise(() =>
+          writeFile(
             path.join(repo, ".github", "agents", "programmatic-researcher.agent.md"),
             [
               "---",
@@ -777,6 +937,19 @@ layer("GitHubCopilotAdapterLive startSession", (it) => {
               "---",
               "",
               "Research implementation details without direct user invocation.",
+            ].join("\n"),
+          ),
+        );
+        yield* Effect.promise(() =>
+          writeFile(
+            path.join(repo, ".github", "chatmodes", "planning.chatmode.md"),
+            [
+              "---",
+              "description: Plan work before implementation",
+              "tools: [read_file]",
+              "---",
+              "",
+              "Plan implementation options before editing.",
             ].join("\n"),
           ),
         );
@@ -832,10 +1005,15 @@ layer("GitHubCopilotAdapterLive startSession", (it) => {
 
         const adapter = yield* GitHubCopilotAdapter;
         const threadId = asThreadId("thread-copilot-custom-agents");
-        const configuredFiber = yield* Stream.runHead(
-          Stream.filter(
-            adapter.streamEvents,
-            (event) => event.threadId === threadId && event.type === "session.configured",
+        const lifecycleEventsFiber = yield* Stream.runCollect(
+          Stream.take(
+            Stream.filter(
+              adapter.streamEvents,
+              (event) =>
+                event.threadId === threadId &&
+                (event.type === "session.configured" || event.type === "mcp.status.updated"),
+            ),
+            2,
           ),
         ).pipe(Effect.forkChild);
         yield* adapter.startSession({
@@ -880,6 +1058,7 @@ layer("GitHubCopilotAdapterLive startSession", (it) => {
               }>;
               readonly enableConfigDiscovery?: boolean;
               readonly agent?: string;
+              readonly mcpServers?: Record<string, unknown> | undefined;
               readonly skillDirectories?: ReadonlyArray<string>;
             })
           | undefined;
@@ -891,13 +1070,28 @@ layer("GitHubCopilotAdapterLive startSession", (it) => {
             infer: false,
             mcpServers: {
               "local-docs": {
-                type: "stdio",
+                type: "local",
                 command: "docs-mcp",
                 args: ["--stdio"],
                 tools: ["search"],
               },
             },
             prompt: "Research implementation details without direct user invocation.",
+          },
+          {
+            name: "schema-explorer",
+            description: "Explores schema docs with a dedicated MCP server",
+            mcpServers: {
+              "schema-docs": {
+                type: "http",
+                url: "https://docs.example.test/mcp",
+                tools: ["search"],
+                headers: {
+                  "X-Team": "Schema",
+                },
+              },
+            },
+            prompt: "Explore schema documentation before implementation.",
           },
           {
             name: "security-auditor",
@@ -933,12 +1127,31 @@ layer("GitHubCopilotAdapterLive startSession", (it) => {
             prompt: "Inspect code for vulnerabilities and report concrete risks.",
           },
           {
+            name: "planning",
+            description: "Plan work before implementation",
+            tools: ["read_file"],
+            prompt: "Plan implementation options before editing.",
+          },
+          {
             name: "personal-reviewer",
             description: "Reviews user-level tasks",
             prompt: "Review the request using the user's personal workflow.",
           },
         ]);
         assert.equal(createConfig?.configDir, copilotHome);
+        assert.deepEqual(createConfig?.mcpServers as unknown, {
+          fetch: {
+            type: "local",
+            command: "uvx",
+            args: ["mcp-server-fetch"],
+            tools: ["fetch"],
+          },
+          docs: {
+            type: "http",
+            url: "https://repo.example.test/mcp",
+            tools: ["search"],
+          },
+        });
         assert.equal(
           createConfig?.skillDirectories?.includes(path.join(repo, ".github", "skills")),
           true,
@@ -954,16 +1167,50 @@ layer("GitHubCopilotAdapterLive startSession", (it) => {
         assert.equal(createConfig?.enableConfigDiscovery, true);
         assert.equal(createConfig?.includeSubAgentStreamingEvents, true);
         assert.equal(createConfig?.agent, "security-auditor");
-        const configuredEvent = yield* Fiber.join(configuredFiber);
-        assert.equal(configuredEvent._tag, "Some");
-        if (
-          configuredEvent._tag === "Some" &&
-          configuredEvent.value.type === "session.configured"
-        ) {
-          const availableCommands = (configuredEvent.value.payload.config.availableCommands ??
+        const lifecycleEvents = Array.from(yield* Fiber.join(lifecycleEventsFiber));
+        const mcpStatusEvent = lifecycleEvents.find((event) => event.type === "mcp.status.updated");
+        assert.equal(mcpStatusEvent?.type, "mcp.status.updated");
+        if (mcpStatusEvent?.type === "mcp.status.updated") {
+          assert.deepEqual(mcpStatusEvent.payload.status, {
+            provider: "githubCopilot",
+            mcpServers: [
+              {
+                type: "local",
+                command: "uvx",
+                args: ["mcp-server-fetch"],
+                tools: ["fetch"],
+                name: "fetch",
+                status: "configured",
+              },
+              {
+                type: "http",
+                url: "https://repo.example.test/mcp",
+                tools: ["search"],
+                name: "docs",
+                status: "configured",
+              },
+            ],
+          });
+        }
+        const configuredEvent = lifecycleEvents.find(
+          (event) => event.type === "session.configured",
+        );
+        assert.equal(configuredEvent?.type, "session.configured");
+        if (configuredEvent?.type === "session.configured") {
+          const availableCommands = (configuredEvent.payload.config.availableCommands ??
             []) as ReadonlyArray<ProviderSlashCommand>;
+          const securityAuditorCommand = availableCommands.find(
+            (command) => command.name === "security-auditor",
+          );
+          assert.equal(securityAuditorCommand !== undefined, true);
           assert.deepEqual(
-            availableCommands.find((command) => command.name === "security-auditor"),
+            {
+              name: securityAuditorCommand?.name,
+              kind: securityAuditorCommand?.kind,
+              promptPrefix: securityAuditorCommand?.promptPrefix,
+              description: securityAuditorCommand?.description,
+              inputHint: securityAuditorCommand?.inputHint,
+            },
             {
               name: "security-auditor",
               kind: "agent",
@@ -972,7 +1219,18 @@ layer("GitHubCopilotAdapterLive startSession", (it) => {
               inputHint: "<risk area>",
             },
           );
-          const configOptions = (configuredEvent.value.payload.config.configOptions ??
+          assert.deepEqual(
+            availableCommands.find((command) => command.name === "explore"),
+            {
+              name: "explore",
+              kind: "agent",
+              promptPrefix: "@explore",
+              description:
+                "Explore the codebase and gather implementation context with GitHub Copilot.",
+              inputHint: "<prompt>",
+            },
+          );
+          const configOptions = (configuredEvent.payload.config.configOptions ??
             []) as ReadonlyArray<{
             readonly id: string;
             readonly name: string;
@@ -1286,6 +1544,76 @@ layer("GitHubCopilotAdapterLive startSession", (it) => {
       assert.deepEqual(agentSelect.mock.calls, [[{ name: "plan" }]]);
       assert.deepEqual(send.mock.calls[0]?.[0], {
         prompt: "Review release readiness for v2.0.",
+      });
+
+      yield* adapter.stopSession(threadId);
+    }),
+  );
+
+  it.effect("passes selected Copilot built-in agents into session startup", () =>
+    Effect.gen(function* () {
+      const fakeClient = makeFakeClient({
+        models: [],
+      });
+      mockedCreateGitHubCopilotClient.mockResolvedValue(fakeClient);
+
+      const adapter = yield* GitHubCopilotAdapter;
+      const threadId = asThreadId("thread-copilot-start-built-in-agent-select");
+      yield* adapter.startSession({
+        provider: "githubCopilot",
+        threadId,
+        runtimeMode: "full-access",
+        modelSelection: {
+          provider: "githubCopilot",
+          model: "gpt-5",
+          options: {
+            agent: "explore",
+          },
+        },
+      });
+
+      const createConfig = fakeClient.createSession.mock.calls[0]?.[0] as
+        | (FakeStartConfig & { readonly agent?: string })
+        | undefined;
+      assert.equal(createConfig?.agent, "explore");
+
+      yield* adapter.stopSession(threadId);
+    }),
+  );
+
+  it.effect("selects advertised built-in Copilot agents instead of sending mentions as text", () =>
+    Effect.gen(function* () {
+      const send = vi.fn(async (_input: unknown) => "message-1");
+      const agentSelect = vi.fn(async (input: { readonly name: string }) => ({
+        agent: {
+          name: input.name,
+          displayName: input.name,
+          description: "Built-in Copilot agent",
+        },
+      }));
+      const fakeClient = makeFakeClient({
+        models: [],
+        send,
+        agentSelect,
+      });
+      mockedCreateGitHubCopilotClient.mockResolvedValue(fakeClient);
+
+      const adapter = yield* GitHubCopilotAdapter;
+      const threadId = asThreadId("thread-copilot-advertised-built-in-agent-select");
+      yield* adapter.startSession({
+        provider: "githubCopilot",
+        threadId,
+        runtimeMode: "full-access",
+      });
+
+      yield* adapter.sendTurn({
+        threadId,
+        input: "@explore inspect the auth boundary",
+      });
+
+      assert.deepEqual(agentSelect.mock.calls, [[{ name: "explore" }]]);
+      assert.deepEqual(send.mock.calls[0]?.[0], {
+        prompt: "inspect the auth boundary",
       });
 
       yield* adapter.stopSession(threadId);
@@ -1840,6 +2168,7 @@ layer("GitHubCopilotAdapterLive startSession", (it) => {
       assert.equal(completed.payload.status, "completed");
       assert.deepEqual((completed.payload.data as { subagent?: unknown }).subagent, {
         id: "copilot-subagent-1",
+        parentId: "event-subagent-started",
         type: "code-reviewer",
         name: "Runtime Reviewer",
         model: "gpt-5.4",

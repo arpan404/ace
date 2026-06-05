@@ -373,22 +373,38 @@ describe("parseComposerSideCommand", () => {
 });
 
 describe("parseProviderComposerSlashCommand", () => {
-  const providerCommands = [{ name: "plan" }, { name: "review" }, { name: "frontend/component" }];
+  const providerCommands = [
+    { name: "plan", kind: "provider" as const },
+    { name: "review", kind: "provider" as const },
+    { name: "frontend/component", kind: "skill" as const, promptPrefix: "$frontend/component" },
+  ];
 
-  it("matches provider commands with optional args", () => {
-    expect(parseProviderComposerSlashCommand("/review src", providerCommands)).toEqual({
-      commandName: "review",
-      args: "src",
-      promptText: "/review src",
+  it("ignores generic provider CLI commands", () => {
+    expect(parseProviderComposerSlashCommand("/review src", providerCommands)).toBeNull();
+  });
+
+  it("keeps Codex goal as the only provider-kind slash command exception", () => {
+    expect(
+      parseProviderComposerSlashCommand("/goal", [{ name: "goal", kind: "provider" }]),
+    ).toEqual({
+      commandName: "goal",
+      args: "",
+      promptText: "/goal",
     });
   });
 
-  it("lets provider commands shadow Ace standalone commands", () => {
-    expect(parseProviderComposerSlashCommand("/plan", providerCommands)).toEqual({
-      commandName: "plan",
-      args: "",
-      promptText: "/plan",
-    });
+  it("does not let generic provider commands shadow Ace standalone commands", () => {
+    expect(parseProviderComposerSlashCommand("/plan", providerCommands)).toBeNull();
+  });
+
+  it("matches provider extension commands with optional args", () => {
+    expect(parseProviderComposerSlashCommand("/frontend/component auth", providerCommands)).toEqual(
+      {
+        commandName: "frontend/component",
+        args: "auth",
+        promptText: "$frontend/component auth",
+      },
+    );
   });
 
   it("rewrites synthetic provider commands to their prompt invocation", () => {
@@ -444,7 +460,7 @@ describe("parseProviderComposerSlashCommand", () => {
     });
   });
 
-  it("rewrites Copilot prompt file commands to their prompt body", () => {
+  it("does not rewrite provider-kind Copilot prompt file commands", () => {
     expect(
       parseProviderComposerSlashCommand("/release-ready v2.0", [
         {
@@ -453,14 +469,10 @@ describe("parseProviderComposerSlashCommand", () => {
           promptPrefix: "Review release readiness for $ARGUMENTS.",
         },
       ]),
-    ).toEqual({
-      commandName: "release-ready",
-      args: "v2.0",
-      promptText: "Review release readiness for v2.0.",
-    });
+    ).toBeNull();
   });
 
-  it("preserves Copilot prompt file agent selectors while replacing arguments", () => {
+  it("does not rewrite provider-kind Copilot prompt file agent selectors", () => {
     expect(
       parseProviderComposerSlashCommand("/release-ready v2.0", [
         {
@@ -469,14 +481,10 @@ describe("parseProviderComposerSlashCommand", () => {
           promptPrefix: "@plan Review release readiness for $ARGUMENTS.",
         },
       ]),
-    ).toEqual({
-      commandName: "release-ready",
-      args: "v2.0",
-      promptText: "@plan Review release readiness for v2.0.",
-    });
+    ).toBeNull();
   });
 
-  it("removes Copilot prompt file argument placeholders cleanly when no arguments are provided", () => {
+  it("does not rewrite provider-kind prompt placeholders when no arguments are provided", () => {
     expect(
       parseProviderComposerSlashCommand("/release-ready", [
         {
@@ -485,14 +493,10 @@ describe("parseProviderComposerSlashCommand", () => {
           promptPrefix: "Review release readiness for $ARGUMENTS.",
         },
       ]),
-    ).toEqual({
-      commandName: "release-ready",
-      args: "",
-      promptText: "Review release readiness.",
-    });
+    ).toBeNull();
   });
 
-  it("rewrites Gemini TOML prompt commands by replacing {{args}}", () => {
+  it("does not rewrite provider-kind Gemini TOML prompt commands", () => {
     expect(
       parseProviderComposerSlashCommand("/review auth routes", [
         {
@@ -501,14 +505,10 @@ describe("parseProviderComposerSlashCommand", () => {
           promptPrefix: "Review this code path.\n\nFocus on {{args}}.",
         },
       ]),
-    ).toEqual({
-      commandName: "review",
-      args: "auth routes",
-      promptText: "Review this code path.\n\nFocus on auth routes.",
-    });
+    ).toBeNull();
   });
 
-  it("removes Gemini TOML prompt placeholders cleanly when no arguments are provided", () => {
+  it("does not rewrite provider-kind Gemini TOML prompts without arguments", () => {
     expect(
       parseProviderComposerSlashCommand("/review", [
         {
@@ -517,11 +517,7 @@ describe("parseProviderComposerSlashCommand", () => {
           promptPrefix: "Review this code path.\n\nFocus on {{args}}.",
         },
       ]),
-    ).toEqual({
-      commandName: "review",
-      args: "",
-      promptText: "Review this code path.\n\nFocus.",
-    });
+    ).toBeNull();
   });
 
   it("rewrites slash agent aliases to their provider mention invocation", () => {
@@ -541,11 +537,21 @@ describe("parseProviderComposerSlashCommand", () => {
   });
 
   it("does not forward provider side-chat aliases as provider commands", () => {
-    const sideAliases = [{ name: "side" }, { name: "btw" }, { name: "ask" }];
+    const sideAliases = [
+      { name: "side", kind: "provider" as const },
+      { name: ".side", kind: "provider" as const },
+      { name: "btw", kind: "provider" as const },
+      { name: "ask", kind: "agent" as const, promptPrefix: "@ask" },
+    ];
 
     expect(parseProviderComposerSlashCommand("/side inspect context", sideAliases)).toBeNull();
+    expect(parseProviderComposerSlashCommand("/.side inspect context", sideAliases)).toBeNull();
     expect(parseProviderComposerSlashCommand("/btw inspect context", sideAliases)).toBeNull();
-    expect(parseProviderComposerSlashCommand("/ask inspect context", sideAliases)).toBeNull();
+    expect(parseProviderComposerSlashCommand("/ask inspect context", sideAliases)).toEqual({
+      commandName: "ask",
+      args: "inspect context",
+      promptText: "@ask inspect context",
+    });
   });
 });
 

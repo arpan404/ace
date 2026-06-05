@@ -11,6 +11,10 @@ import {
   deriveCompletionDividerBeforeEntryId,
   deriveActiveWorkStartedAt,
   deriveActiveGoalState,
+  deriveEnvironmentMcpStatuses,
+  deriveEnvironmentProviderStatuses,
+  deriveEnvironmentSessionProviderStatus,
+  deriveEnvironmentSessionProviderStatuses,
   deriveActivePlanState,
   deriveLatestGeneratedWorkspaceSummary,
   deriveVisibleWorkTurnId,
@@ -1568,6 +1572,7 @@ describe("deriveWorkLogEntries", () => {
           detail: "Root subagent result.",
           subagent: {
             id: "agent-root-1",
+            parentId: "agent-parent-1",
             type: "code-reviewer",
             name: "Reviewer",
             model: "claude-sonnet",
@@ -1596,6 +1601,7 @@ describe("deriveWorkLogEntries", () => {
     );
     expect(rootSubagentEntry).toMatchObject({
       subagentId: "agent-root-1",
+      subagentParentId: "agent-parent-1",
       subagentType: "code-reviewer",
       subagentName: "Reviewer",
       subagentModel: "claude-sonnet",
@@ -1659,6 +1665,97 @@ describe("deriveWorkLogEntries", () => {
       "provider-child-session-b",
     ]);
     expect(entries.map((entry) => entry.subagentName)).toEqual(["Reviewer", "Reviewer"]);
+  });
+
+  it("derives multiple side-chat entries from one provider side-chat array payload", () => {
+    const entries = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "provider-side-chat-array-response",
+          turnId: "turn-provider-side-chat-array",
+          kind: "task.progress",
+          summary: "Side chat responses",
+          payload: {
+            itemType: "assistant_message",
+            detail: "Provider reported multiple side chats.",
+            data: {
+              sideChats: [
+                {
+                  threadId: "provider-side-chat-a",
+                  displayName: "Reviewer A",
+                  role: "side-chat",
+                  response: "Reviewer A result.",
+                },
+                {
+                  threadId: "provider-side-chat-b",
+                  displayName: "Reviewer B",
+                  role: "side-chat",
+                  response: "Reviewer B result.",
+                },
+              ],
+            },
+          },
+        }),
+      ],
+      undefined,
+    );
+
+    expect(entries).toHaveLength(2);
+    expect(entries.map((entry) => entry.subagentId)).toEqual([
+      "provider-side-chat-a",
+      "provider-side-chat-b",
+    ]);
+    expect(entries.map((entry) => entry.subagentName)).toEqual(["Reviewer A", "Reviewer B"]);
+    expect(entries.map((entry) => entry.sideChatMessageRole)).toEqual(["assistant", "assistant"]);
+    expect(entries[1]).toMatchObject({
+      detail: "Reviewer B result.",
+      sideChatMessageText: "Reviewer B result.",
+    });
+  });
+
+  it("derives provider side-chat ids from side conversation aliases", () => {
+    const entries = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "provider-side-conversation-user",
+          turnId: "turn-provider-side-conversation",
+          kind: "subagent.message.sent",
+          summary: "Side chat message",
+          payload: {
+            detail: "Review this without polluting the parent context.",
+            sideConversationId: "provider-side-conversation-1",
+            subagentType: "side chat",
+            subagentName: "Context helper",
+          },
+        }),
+        makeActivity({
+          id: "provider-side-conversation-assistant",
+          turnId: "turn-provider-side-conversation",
+          kind: "task.progress",
+          summary: "Side chat response",
+          payload: {
+            itemType: "assistant_message",
+            detail: "The parent context stays clean.",
+            data: {
+              provider_side_conversation_id: "provider-side-conversation-1",
+              subagent_type: "side chat",
+              subagent_name: "Context helper",
+            },
+          },
+        }),
+      ],
+      undefined,
+    );
+
+    expect(entries).toHaveLength(2);
+    expect(entries.map((entry) => entry.subagentId)).toEqual([
+      "provider-side-conversation-1",
+      "provider-side-conversation-1",
+    ]);
+    expect(entries.map((entry) => entry.sideChatMessageRole).toSorted()).toEqual([
+      "assistant",
+      "user",
+    ]);
   });
 
   it("derives provider-agnostic root scalar agent metadata", () => {
@@ -1866,6 +1963,87 @@ describe("deriveWorkLogEntries", () => {
       subagentType: "code-reviewer",
       subagentName: "Reviewer",
       subagentModel: "claude-sonnet",
+      sideChatMessageId: "root-collab-tool",
+      sideChatMessageRole: "user",
+      sideChatMessageText: "Review this change.",
+    });
+  });
+
+  it("uses provider prompt aliases as the side-chat opening message", () => {
+    const entries = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "root-collab-tool-instructions",
+          turnId: "turn-root-collab-tool-instructions",
+          kind: "tool.started",
+          summary: "Reviewer",
+          payload: {
+            itemType: "collab_agent_tool_call",
+            title: "Reviewer",
+            data: {
+              subagent: {
+                id: "agent-root-tool-instructions-1",
+                type: "code-reviewer",
+                name: "Reviewer",
+              },
+              input: {
+                instructions: "Review this change without adding to the main thread.",
+              },
+            },
+          },
+        }),
+      ],
+      undefined,
+    );
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      itemType: "collab_agent_tool_call",
+      subagentId: "agent-root-tool-instructions-1",
+      subagentType: "code-reviewer",
+      subagentName: "Reviewer",
+      sideChatMessageId: "root-collab-tool-instructions",
+      sideChatMessageRole: "user",
+      sideChatMessageText: "Review this change without adding to the main thread.",
+    });
+  });
+
+  it("uses provider args aliases as the side-chat opening message", () => {
+    const entries = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "root-collab-tool-args",
+          turnId: "turn-root-collab-tool-args",
+          kind: "tool.started",
+          summary: "Researcher",
+          payload: {
+            itemType: "collab_agent_tool_call",
+            title: "Researcher",
+            data: {
+              subagent: {
+                id: "agent-root-tool-args-1",
+                type: "researcher",
+                name: "Researcher",
+              },
+              args: {
+                message: "Inspect the provider docs in a side conversation.",
+              },
+            },
+          },
+        }),
+      ],
+      undefined,
+    );
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      itemType: "collab_agent_tool_call",
+      subagentId: "agent-root-tool-args-1",
+      subagentType: "researcher",
+      subagentName: "Researcher",
+      sideChatMessageId: "root-collab-tool-args",
+      sideChatMessageRole: "user",
+      sideChatMessageText: "Inspect the provider docs in a side conversation.",
     });
   });
 
@@ -1916,6 +2094,40 @@ describe("deriveWorkLogEntries", () => {
       sideChatMessageRole: "assistant",
       sideChatMessageText: "I am checking the build now.",
       subagentId: "child_provider_1",
+    });
+  });
+
+  it("marks provider subagent lifecycle final messages as side-chat assistant entries", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "claude-subagent-stop",
+        kind: "tool.completed",
+        summary: "Subagent task",
+        tone: "tool",
+        payload: {
+          itemType: "collab_agent_tool_call",
+          data: {
+            subagent: {
+              id: "agent-hook-1",
+              type: "Explore",
+              transcriptPath: "/repo/.claude/projects/session/subagents/agent-hook-1.jsonl",
+              lastAssistantMessage: "Found two relevant files.",
+            },
+          },
+        },
+      }),
+    ];
+
+    const entries = deriveWorkLogEntries(activities);
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      sideChatMessageId: "claude-subagent-stop:assistant",
+      sideChatMessageRole: "assistant",
+      sideChatMessageText: "Found two relevant files.",
+      subagentId: "agent-hook-1",
+      subagentType: "Explore",
+      subagentTranscriptPath: "/repo/.claude/projects/session/subagents/agent-hook-1.jsonl",
     });
   });
 
@@ -3659,6 +3871,675 @@ describe("filterVisibleWorkLogActivities", () => {
     });
 
     expect(visible.map((activity) => activity.id)).toEqual(["tool-complete"]);
+  });
+
+  it("removes MCP provider status activities from the work log", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({ id: "tool-complete", kind: "tool.completed", tone: "tool" }),
+      makeActivity({
+        id: "mcp-status",
+        kind: "mcp.status.updated",
+        summary: "MCP status updated",
+        tone: "info",
+        payload: { status: [{ name: "browser", status: "tools_changed" }] },
+      }),
+      makeActivity({
+        id: "mcp-oauth",
+        kind: "mcp.oauth.completed",
+        summary: "MCP OAuth completed",
+        tone: "info",
+        payload: { name: "schema-docs", success: true },
+      }),
+      makeActivity({
+        id: "provider-config",
+        kind: "config.warning",
+        summary: "Provider configuration warning",
+        tone: "info",
+        payload: { provider: "codex", summary: "Unsupported config key" },
+      }),
+      makeActivity({
+        id: "provider-rate-limit",
+        kind: "account.rate-limits.updated",
+        summary: "Provider rate limits updated",
+        tone: "info",
+        payload: { provider: "githubCopilot", rateLimits: { remaining: 0, limit: 500 } },
+      }),
+    ];
+
+    const visible = filterVisibleWorkLogActivities(activities, {
+      enableToolStreaming: true,
+      enableThinkingStreaming: true,
+    });
+
+    expect(visible.map((activity) => activity.id)).toEqual(["tool-complete"]);
+  });
+});
+
+describe("deriveEnvironmentMcpStatuses", () => {
+  it("derives latest provider MCP state and sorts failing servers first", () => {
+    const statuses = deriveEnvironmentMcpStatuses([
+      makeActivity({
+        id: "schema-docs-old",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "mcp.status.updated",
+        summary: "MCP status updated",
+        payload: {
+          provider: "codex",
+          status: [{ name: "schema-docs", status: "tools_changed", scope: "initial tools" }],
+        },
+      }),
+      makeActivity({
+        id: "schema-docs-new",
+        createdAt: "2026-02-23T00:00:03.000Z",
+        kind: "mcp.status.updated",
+        summary: "MCP status updated",
+        payload: {
+          provider: "codex",
+          status: [{ name: "schema-docs", status: "ready", scope: "latest tools" }],
+        },
+      }),
+      makeActivity({
+        id: "schema-docs-claude",
+        createdAt: "2026-02-23T00:00:04.000Z",
+        kind: "mcp.status.updated",
+        summary: "MCP status updated",
+        payload: {
+          provider: "claudeAgent",
+          status: [{ name: "schema-docs", status: "needs_auth", reason: "login required" }],
+        },
+      }),
+      makeActivity({
+        id: "browser-oauth",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        kind: "mcp.oauth.completed",
+        summary: "MCP OAuth completed",
+        payload: {
+          provider: "opencode",
+          name: "browser",
+          success: false,
+          error: "OAuth callback failed",
+        },
+      }),
+    ]);
+
+    expect(statuses).toEqual([
+      {
+        id: "browser-oauth:OpenCode:browser",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        name: "browser",
+        providerLabel: "OpenCode",
+        status: "authentication failed",
+        tone: "error",
+        detail: "OAuth callback failed",
+      },
+      {
+        id: "schema-docs-claude:Claude:schema-docs",
+        createdAt: "2026-02-23T00:00:04.000Z",
+        name: "schema-docs",
+        providerLabel: "Claude",
+        status: "needs auth",
+        tone: "error",
+        detail: "login required",
+      },
+      {
+        id: "schema-docs-new:Codex:schema-docs",
+        createdAt: "2026-02-23T00:00:03.000Z",
+        name: "schema-docs",
+        providerLabel: "Codex",
+        status: "ready",
+        tone: "info",
+        detail: "latest tools",
+      },
+    ]);
+  });
+
+  it("derives MCP state from provider map and nested server containers", () => {
+    const statuses = deriveEnvironmentMcpStatuses([
+      makeActivity({
+        id: "cursor-mcp-map",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "mcp.status.updated",
+        summary: "MCP status updated",
+        payload: {
+          provider: "cursor",
+          status: {
+            filesystem: {
+              state: "ready",
+              message: "3 tools",
+            },
+            browser: {
+              phase: "needs_client_registration",
+              error: "OAuth client missing",
+            },
+          },
+        },
+      }),
+      makeActivity({
+        id: "gemini-mcp-container",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        kind: "mcp.status.updated",
+        summary: "MCP status updated",
+        payload: {
+          provider: "gemini",
+          servers: {
+            docs: {
+              status: "tools_changed",
+              detail: "new tool list",
+            },
+          },
+        },
+      }),
+    ]);
+
+    expect(statuses).toEqual([
+      {
+        id: "cursor-mcp-map:Cursor:browser",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        name: "browser",
+        providerLabel: "Cursor",
+        status: "needs client registration",
+        tone: "error",
+        detail: "OAuth client missing",
+      },
+      {
+        id: "gemini-mcp-container:Gemini:docs",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        name: "docs",
+        providerLabel: "Gemini",
+        status: "tools changed",
+        tone: "info",
+        detail: "new tool list",
+      },
+      {
+        id: "cursor-mcp-map:Cursor:filesystem",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        name: "filesystem",
+        providerLabel: "Cursor",
+        status: "ready",
+        tone: "info",
+        detail: "3 tools",
+      },
+    ]);
+  });
+});
+
+describe("deriveEnvironmentProviderStatuses", () => {
+  it("derives provider health and config rows sorted by severity", () => {
+    const statuses = deriveEnvironmentProviderStatuses([
+      makeActivity({
+        id: "codex-account",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "account.updated",
+        summary: "Provider account updated",
+        payload: {
+          provider: "codex",
+          account: { email: "dev@example.com" },
+        },
+      }),
+      makeActivity({
+        id: "codex-reroute",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        kind: "model.rerouted",
+        summary: "Model rerouted",
+        payload: {
+          provider: "codex",
+          fromModel: "gpt-5",
+          toModel: "gpt-5.4",
+          reason: "requested model unavailable",
+        },
+      }),
+      makeActivity({
+        id: "claude-auth",
+        createdAt: "2026-02-23T00:00:03.000Z",
+        kind: "auth.status",
+        summary: "Provider auth status",
+        payload: {
+          provider: "claudeAgent",
+          error: "OAuth expired",
+        },
+      }),
+      makeActivity({
+        id: "cursor-auth",
+        createdAt: "2026-02-23T00:00:03.500Z",
+        kind: "auth.status",
+        summary: "Provider auth status",
+        payload: {
+          provider: "cursor",
+          status: "authenticated",
+          label: "dev@cursor.example",
+        },
+      }),
+      makeActivity({
+        id: "opencode-auth",
+        createdAt: "2026-02-23T00:00:03.750Z",
+        kind: "auth.status",
+        summary: "Provider auth status",
+        payload: {
+          provider: "opencode",
+          output: ["Not logged in"],
+        },
+      }),
+      makeActivity({
+        id: "pi-config",
+        createdAt: "2026-02-23T00:00:04.000Z",
+        kind: "config.warning",
+        summary: "Provider configuration warning",
+        payload: {
+          provider: "pi",
+          summary: "Unsupported config key",
+          path: "/repo/pi.json",
+        },
+      }),
+      makeActivity({
+        id: "copilot-rate-limit",
+        createdAt: "2026-02-23T00:00:04.500Z",
+        kind: "account.rate-limits.updated",
+        summary: "Provider rate limits updated",
+        payload: {
+          provider: "githubCopilot",
+          rateLimits: {
+            remaining: 0,
+            limit: 500,
+            reset_at: "2026-02-23T01:00:00.000Z",
+          },
+        },
+      }),
+      makeActivity({
+        id: "gemini-runtime-error",
+        createdAt: "2026-02-23T00:00:05.000Z",
+        kind: "runtime.error",
+        summary: "Runtime error",
+        payload: {
+          provider: "gemini",
+          message: "Browser MCP failed to open",
+          detail: "Timed out waiting for localhost preview",
+        },
+      }),
+      makeActivity({
+        id: "opencode-runtime-warning",
+        createdAt: "2026-02-23T00:00:06.000Z",
+        kind: "runtime.warning",
+        summary: "Runtime warning",
+        payload: {
+          provider: "opencode",
+          message: "MCP tools changed",
+        },
+      }),
+    ]);
+
+    expect(statuses).toEqual([
+      {
+        id: "claude-auth:auth.status",
+        createdAt: "2026-02-23T00:00:03.000Z",
+        label: "Claude auth",
+        status: "authentication error",
+        tone: "error",
+        detail: "OAuth expired",
+      },
+      {
+        id: "gemini-runtime-error:runtime.error",
+        createdAt: "2026-02-23T00:00:05.000Z",
+        label: "Gemini runtime",
+        status: "Browser MCP failed to open",
+        tone: "error",
+        detail: "Timed out waiting for localhost preview",
+      },
+      {
+        id: "codex-reroute:model.rerouted",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        label: "Codex model",
+        status: "gpt-5 -> gpt-5.4",
+        tone: "warning",
+        detail: "requested model unavailable",
+      },
+      {
+        id: "copilot-rate-limit:account.rate-limits.updated",
+        createdAt: "2026-02-23T00:00:04.500Z",
+        label: "Copilot limits",
+        status: "0/500 remaining",
+        tone: "warning",
+        detail: "2026-02-23T01:00:00.000Z",
+      },
+      {
+        id: "opencode-auth:auth.status",
+        createdAt: "2026-02-23T00:00:03.750Z",
+        label: "OpenCode auth",
+        status: "not authenticated",
+        tone: "warning",
+        detail: "Not logged in",
+      },
+      {
+        id: "opencode-runtime-warning:runtime.warning",
+        createdAt: "2026-02-23T00:00:06.000Z",
+        label: "OpenCode runtime",
+        status: "MCP tools changed",
+        tone: "warning",
+      },
+      {
+        id: "pi-config:config.warning",
+        createdAt: "2026-02-23T00:00:04.000Z",
+        label: "Pi config",
+        status: "Unsupported config key",
+        tone: "warning",
+        detail: "/repo/pi.json",
+      },
+      {
+        id: "codex-account:account.updated",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        label: "Codex account",
+        status: "dev@example.com",
+        tone: "info",
+      },
+      {
+        id: "cursor-auth:auth.status",
+        createdAt: "2026-02-23T00:00:03.500Z",
+        label: "Cursor auth",
+        status: "dev@cursor.example",
+        tone: "info",
+      },
+    ]);
+  });
+});
+
+describe("deriveEnvironmentSessionProviderStatus", () => {
+  it("describes active session multi-agent capability modes", () => {
+    expect(
+      deriveEnvironmentSessionProviderStatus({
+        provider: "codex",
+        updatedAt: "2026-02-23T00:00:07.000Z",
+        capabilities: { multiAgentMode: "native" },
+      }),
+    ).toEqual({
+      id: "codex:multi-agent-capability",
+      createdAt: "2026-02-23T00:00:07.000Z",
+      label: "Codex agents",
+      status: "native",
+      tone: "info",
+      detail: "Provider can run multi-agent delegation natively.",
+    });
+
+    expect(
+      deriveEnvironmentSessionProviderStatus({
+        provider: "cursor",
+        updatedAt: "2026-02-23T00:00:08.000Z",
+        capabilities: { multiAgentMode: "agent-command" },
+      }),
+    ).toEqual({
+      id: "cursor:multi-agent-capability",
+      createdAt: "2026-02-23T00:00:08.000Z",
+      label: "Cursor agents",
+      status: "command",
+      tone: "info",
+      detail: "Provider agents are available through command or mention routing.",
+    });
+
+    expect(
+      deriveEnvironmentSessionProviderStatus({
+        provider: "pi",
+        updatedAt: "2026-02-23T00:00:09.000Z",
+        capabilities: { multiAgentMode: "unsupported" },
+      }),
+    ).toEqual({
+      id: "pi:multi-agent-capability",
+      createdAt: "2026-02-23T00:00:09.000Z",
+      label: "Pi agents",
+      status: "unsupported",
+      tone: "warning",
+      detail: "Provider has not advertised multi-agent delegation.",
+    });
+  });
+
+  it("omits session provider status when capabilities are unavailable", () => {
+    expect(deriveEnvironmentSessionProviderStatus(null)).toBeNull();
+    expect(
+      deriveEnvironmentSessionProviderStatus({
+        provider: "codex",
+        updatedAt: "2026-02-23T00:00:07.000Z",
+      }),
+    ).toBeNull();
+  });
+
+  it("describes active session hook capability separately from agents", () => {
+    expect(
+      deriveEnvironmentSessionProviderStatuses({
+        provider: "claudeAgent",
+        updatedAt: "2026-02-23T00:00:10.000Z",
+        capabilities: {
+          multiAgentMode: "native",
+          hookMode: "native",
+          extensionMode: "native",
+          mcpMode: "native",
+          remoteAgentMode: "native",
+          hostedSessionMode: "native",
+          webAccessMode: "native",
+        },
+      }),
+    ).toEqual([
+      {
+        id: "claudeAgent:multi-agent-capability",
+        createdAt: "2026-02-23T00:00:10.000Z",
+        label: "Claude agents",
+        status: "native",
+        tone: "info",
+        detail: "Provider can run multi-agent delegation natively.",
+      },
+      {
+        id: "claudeAgent:hook-capability",
+        createdAt: "2026-02-23T00:00:10.000Z",
+        label: "Claude hooks",
+        status: "native",
+        tone: "info",
+        detail: "Provider can run configured lifecycle hooks.",
+      },
+      {
+        id: "claudeAgent:extension-capability",
+        createdAt: "2026-02-23T00:00:10.000Z",
+        label: "Claude extensions",
+        status: "native",
+        tone: "info",
+        detail: "Provider supports configured skills, plugins, extensions, or custom agents.",
+      },
+      {
+        id: "claudeAgent:mcp-capability",
+        createdAt: "2026-02-23T00:00:10.000Z",
+        label: "Claude MCP",
+        status: "native",
+        tone: "info",
+        detail: "Provider can use configured MCP servers and external tool connectors.",
+      },
+      {
+        id: "claudeAgent:remote-agent-capability",
+        createdAt: "2026-02-23T00:00:10.000Z",
+        label: "Claude remote agents",
+        status: "native",
+        tone: "info",
+        detail: "Provider can delegate to hosted, cloud, or remote A2A agents.",
+      },
+      {
+        id: "claudeAgent:hosted-session-capability",
+        createdAt: "2026-02-23T00:00:10.000Z",
+        label: "Claude hosted sessions",
+        status: "native",
+        tone: "info",
+        detail: "Provider can run hosted, cloud, or background coding sessions.",
+      },
+      {
+        id: "claudeAgent:web-access-capability",
+        createdAt: "2026-02-23T00:00:10.000Z",
+        label: "Claude web access",
+        status: "native",
+        tone: "info",
+        detail: "Provider can use first-party web search, web fetch, or browsing tools.",
+      },
+    ]);
+
+    expect(
+      deriveEnvironmentSessionProviderStatuses({
+        provider: "cursor",
+        updatedAt: "2026-02-23T00:00:11.000Z",
+        capabilities: { hookMode: "unsupported" },
+      }),
+    ).toEqual([
+      {
+        id: "cursor:hook-capability",
+        createdAt: "2026-02-23T00:00:11.000Z",
+        label: "Cursor hooks",
+        status: "unsupported",
+        tone: "warning",
+        detail: "Provider has not advertised lifecycle hooks.",
+      },
+    ]);
+
+    expect(
+      deriveEnvironmentSessionProviderStatuses({
+        provider: "cursor",
+        updatedAt: "2026-02-23T00:00:12.000Z",
+        capabilities: { extensionMode: "local-discovery", mcpMode: "local-discovery" },
+      }),
+    ).toEqual([
+      {
+        id: "cursor:extension-capability",
+        createdAt: "2026-02-23T00:00:12.000Z",
+        label: "Cursor extensions",
+        status: "local",
+        tone: "info",
+        detail:
+          "Ace exposes locally discovered provider skills, instructions, or extension commands.",
+      },
+      {
+        id: "cursor:mcp-capability",
+        createdAt: "2026-02-23T00:00:12.000Z",
+        label: "Cursor MCP",
+        status: "local",
+        tone: "info",
+        detail: "Ace exposes locally discovered MCP server configuration.",
+      },
+    ]);
+  });
+
+  it("describes hosted remote agent support separately from local agent delegation", () => {
+    expect(
+      deriveEnvironmentSessionProviderStatuses({
+        provider: "gemini",
+        updatedAt: "2026-02-23T00:00:13.000Z",
+        capabilities: { remoteAgentMode: "local-bridge" },
+      }),
+    ).toEqual([
+      {
+        id: "gemini:remote-agent-capability",
+        createdAt: "2026-02-23T00:00:13.000Z",
+        label: "Gemini remote agents",
+        status: "bridge",
+        tone: "info",
+        detail: "Ace can bridge provider sessions to remote agent endpoints.",
+      },
+    ]);
+
+    expect(
+      deriveEnvironmentSessionProviderStatuses({
+        provider: "opencode",
+        updatedAt: "2026-02-23T00:00:14.000Z",
+        capabilities: { remoteAgentMode: "unsupported" },
+      }),
+    ).toEqual([
+      {
+        id: "opencode:remote-agent-capability",
+        createdAt: "2026-02-23T00:00:14.000Z",
+        label: "OpenCode remote agents",
+        status: "unsupported",
+        tone: "warning",
+        detail: "Provider has not advertised hosted or remote agent delegation.",
+      },
+    ]);
+  });
+
+  it("describes provider web access separately from MCP and subagents", () => {
+    expect(
+      deriveEnvironmentSessionProviderStatuses({
+        provider: "githubCopilot",
+        updatedAt: "2026-02-23T00:00:15.000Z",
+        capabilities: { webAccessMode: "agent-command" },
+      }),
+    ).toEqual([
+      {
+        id: "githubCopilot:web-access-capability",
+        createdAt: "2026-02-23T00:00:15.000Z",
+        label: "Copilot web access",
+        status: "command",
+        tone: "info",
+        detail: "Provider exposes web research through a command or agent route.",
+      },
+    ]);
+
+    expect(
+      deriveEnvironmentSessionProviderStatuses({
+        provider: "opencode",
+        updatedAt: "2026-02-23T00:00:16.000Z",
+        capabilities: { webAccessMode: "mcp-or-shell" },
+      }),
+    ).toEqual([
+      {
+        id: "opencode:web-access-capability",
+        createdAt: "2026-02-23T00:00:16.000Z",
+        label: "OpenCode web access",
+        status: "tool",
+        tone: "info",
+        detail: "Provider can reach web context through MCP tools or shell/network access.",
+      },
+    ]);
+
+    expect(
+      deriveEnvironmentSessionProviderStatuses({
+        provider: "pi",
+        updatedAt: "2026-02-23T00:00:17.000Z",
+        capabilities: { webAccessMode: "unsupported" },
+      }),
+    ).toEqual([
+      {
+        id: "pi:web-access-capability",
+        createdAt: "2026-02-23T00:00:17.000Z",
+        label: "Pi web access",
+        status: "unsupported",
+        tone: "warning",
+        detail: "Provider has not advertised web search or web fetch support.",
+      },
+    ]);
+  });
+
+  it("describes provider hosted sessions separately from remote agents", () => {
+    expect(
+      deriveEnvironmentSessionProviderStatuses({
+        provider: "codex",
+        updatedAt: "2026-02-23T00:00:18.000Z",
+        capabilities: { hostedSessionMode: "local-bridge" },
+      }),
+    ).toEqual([
+      {
+        id: "codex:hosted-session-capability",
+        createdAt: "2026-02-23T00:00:18.000Z",
+        label: "Codex hosted sessions",
+        status: "bridge",
+        tone: "info",
+        detail: "Provider can bridge Ace to a remotely controlled local provider session.",
+      },
+    ]);
+
+    expect(
+      deriveEnvironmentSessionProviderStatuses({
+        provider: "pi",
+        updatedAt: "2026-02-23T00:00:19.000Z",
+        capabilities: { hostedSessionMode: "unsupported" },
+      }),
+    ).toEqual([
+      {
+        id: "pi:hosted-session-capability",
+        createdAt: "2026-02-23T00:00:19.000Z",
+        label: "Pi hosted sessions",
+        status: "unsupported",
+        tone: "warning",
+        detail: "Provider has not advertised hosted or background sessions.",
+      },
+    ]);
   });
 });
 

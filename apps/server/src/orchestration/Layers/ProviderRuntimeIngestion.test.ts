@@ -423,11 +423,19 @@ describe("ProviderRuntimeIngestion", () => {
       payload: {
         config: {
           provider_capabilities: {
-            session_fork_mode: "native",
-            side_conversation_mode: "native-fork",
-            provider_thread_targeting_mode: "native",
-            session_resume_mode: "native",
-            turn_steering_mode: "native",
+            forkMode: "native",
+            sideMode: "nativeFork",
+            threadTargeting: "native",
+            resumeMode: "native",
+            steeringMode: "queuedMessage",
+            goalControlMode: "native",
+            multiAgentMode: "agentCommand",
+            hookMode: "native",
+            extensionMode: "localDiscovery",
+            mcpMode: "native",
+            remoteAgentMode: "localBridge",
+            webAccessMode: "agentCommand",
+            hostedSessionMode: "localBridge",
           },
         },
       },
@@ -441,7 +449,100 @@ describe("ProviderRuntimeIngestion", () => {
         entry.session?.capabilities?.sideConversationMode === "native-fork" &&
         entry.session?.capabilities?.providerThreadTargetingMode === "native" &&
         entry.session?.capabilities?.sessionResumeMode === "native" &&
-        entry.session?.capabilities?.turnSteeringMode === "native",
+        entry.session?.capabilities?.turnSteeringMode === "queued-message" &&
+        entry.session?.capabilities?.goalControlMode === "native" &&
+        entry.session?.capabilities?.multiAgentMode === "agent-command" &&
+        entry.session?.capabilities?.hookMode === "native" &&
+        entry.session?.capabilities?.extensionMode === "local-discovery" &&
+        entry.session?.capabilities?.mcpMode === "native" &&
+        entry.session?.capabilities?.remoteAgentMode === "local-bridge" &&
+        entry.session?.capabilities?.webAccessMode === "agent-command" &&
+        entry.session?.capabilities?.hostedSessionMode === "local-bridge",
+    );
+
+    expect(thread.session?.capabilities?.sessionForkMode).toBe("native");
+    expect(thread.session?.capabilities?.sideConversationMode).toBe("native-fork");
+    expect(thread.session?.capabilities?.providerThreadTargetingMode).toBe("native");
+    expect(thread.session?.capabilities?.sessionResumeMode).toBe("native");
+    expect(thread.session?.capabilities?.turnSteeringMode).toBe("queued-message");
+    expect(thread.session?.capabilities?.goalControlMode).toBe("native");
+    expect(thread.session?.capabilities?.multiAgentMode).toBe("agent-command");
+    expect(thread.session?.capabilities?.hookMode).toBe("native");
+    expect(thread.session?.capabilities?.extensionMode).toBe("local-discovery");
+    expect(thread.session?.capabilities?.mcpMode).toBe("native");
+    expect(thread.session?.capabilities?.remoteAgentMode).toBe("local-bridge");
+    expect(thread.session?.capabilities?.webAccessMode).toBe("agent-command");
+    expect(thread.session?.capabilities?.hostedSessionMode).toBe("local-bridge");
+  });
+
+  it("applies provider runtime capability overrides from boolean and nested capability advertisements", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "session.configured",
+      eventId: asEventId("evt-acp-session-fork-capabilities"),
+      provider: "cursor",
+      threadId: asThreadId("thread-1"),
+      createdAt: now,
+      payload: {
+        config: {
+          capabilities: {
+            "session.fork": true,
+            session: {
+              sideChat: { supported: true },
+              loadSession: true,
+              goalControl: true,
+            },
+            providerThreadTargeting: { enabled: true },
+            turn: {
+              "turn.steer": true,
+            },
+            agents: {
+              supported: true,
+            },
+            hooks: {
+              supported: true,
+            },
+            skills: {
+              supported: true,
+            },
+            mcpServers: {
+              docs: {
+                enabled: true,
+              },
+            },
+            cloudAgents: {
+              supported: true,
+            },
+            cloudTasks: {
+              supported: true,
+            },
+            webFetch: {
+              supported: true,
+            },
+          },
+        },
+      },
+    });
+
+    const thread = await waitForThread(
+      harness.engine,
+      (entry) =>
+        entry.session?.providerName === "cursor" &&
+        entry.session?.capabilities?.sessionForkMode === "native" &&
+        entry.session?.capabilities?.sideConversationMode === "native-fork" &&
+        entry.session?.capabilities?.providerThreadTargetingMode === "native" &&
+        entry.session?.capabilities?.sessionResumeMode === "native" &&
+        entry.session?.capabilities?.turnSteeringMode === "native" &&
+        entry.session?.capabilities?.goalControlMode === "native" &&
+        entry.session?.capabilities?.multiAgentMode === "native" &&
+        entry.session?.capabilities?.hookMode === "native" &&
+        entry.session?.capabilities?.extensionMode === "native" &&
+        entry.session?.capabilities?.mcpMode === "native" &&
+        entry.session?.capabilities?.remoteAgentMode === "native" &&
+        entry.session?.capabilities?.webAccessMode === "native" &&
+        entry.session?.capabilities?.hostedSessionMode === "native",
     );
 
     expect(thread.session?.capabilities?.sessionForkMode).toBe("native");
@@ -449,6 +550,118 @@ describe("ProviderRuntimeIngestion", () => {
     expect(thread.session?.capabilities?.providerThreadTargetingMode).toBe("native");
     expect(thread.session?.capabilities?.sessionResumeMode).toBe("native");
     expect(thread.session?.capabilities?.turnSteeringMode).toBe("native");
+    expect(thread.session?.capabilities?.goalControlMode).toBe("native");
+    expect(thread.session?.capabilities?.multiAgentMode).toBe("native");
+    expect(thread.session?.capabilities?.hookMode).toBe("native");
+    expect(thread.session?.capabilities?.extensionMode).toBe("native");
+    expect(thread.session?.capabilities?.mcpMode).toBe("native");
+    expect(thread.session?.capabilities?.remoteAgentMode).toBe("native");
+    expect(thread.session?.capabilities?.webAccessMode).toBe("native");
+    expect(thread.session?.capabilities?.hostedSessionMode).toBe("native");
+  });
+
+  it("applies provider runtime capability overrides from advertised method lists", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "session.configured",
+      eventId: asEventId("evt-provider-method-list-capabilities"),
+      provider: "cursor",
+      threadId: asThreadId("thread-1"),
+      createdAt: now,
+      payload: {
+        config: {
+          capabilities: {
+            availableMethods: [
+              "session/fork",
+              "side/chat",
+              "provider_thread_targeting",
+              "session.resume",
+              "turn/steer",
+              "thread/goal/update",
+              "agent/team",
+              "permission/request",
+              "custom/agents",
+              "mcp/servers",
+              "a2a/agents",
+              "web/search",
+              "cloud/tasks",
+            ],
+          },
+        },
+      },
+    });
+
+    const thread = await waitForThread(
+      harness.engine,
+      (entry) =>
+        entry.session?.providerName === "cursor" &&
+        entry.session?.capabilities?.sessionForkMode === "native" &&
+        entry.session?.capabilities?.sideConversationMode === "native-fork" &&
+        entry.session?.capabilities?.providerThreadTargetingMode === "native" &&
+        entry.session?.capabilities?.sessionResumeMode === "native" &&
+        entry.session?.capabilities?.turnSteeringMode === "native" &&
+        entry.session?.capabilities?.goalControlMode === "native" &&
+        entry.session?.capabilities?.multiAgentMode === "native" &&
+        entry.session?.capabilities?.hookMode === "native" &&
+        entry.session?.capabilities?.extensionMode === "native" &&
+        entry.session?.capabilities?.mcpMode === "native" &&
+        entry.session?.capabilities?.remoteAgentMode === "native" &&
+        entry.session?.capabilities?.webAccessMode === "native" &&
+        entry.session?.capabilities?.hostedSessionMode === "native",
+    );
+
+    expect(thread.session?.capabilities?.sessionForkMode).toBe("native");
+    expect(thread.session?.capabilities?.sideConversationMode).toBe("native-fork");
+    expect(thread.session?.capabilities?.providerThreadTargetingMode).toBe("native");
+    expect(thread.session?.capabilities?.sessionResumeMode).toBe("native");
+    expect(thread.session?.capabilities?.turnSteeringMode).toBe("native");
+    expect(thread.session?.capabilities?.goalControlMode).toBe("native");
+    expect(thread.session?.capabilities?.multiAgentMode).toBe("native");
+    expect(thread.session?.capabilities?.hookMode).toBe("native");
+    expect(thread.session?.capabilities?.extensionMode).toBe("native");
+    expect(thread.session?.capabilities?.mcpMode).toBe("native");
+    expect(thread.session?.capabilities?.remoteAgentMode).toBe("native");
+    expect(thread.session?.capabilities?.webAccessMode).toBe("native");
+    expect(thread.session?.capabilities?.hostedSessionMode).toBe("native");
+  });
+
+  it("applies side-session and child-session capability aliases", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "session.configured",
+      eventId: asEventId("evt-provider-child-session-capabilities"),
+      provider: "opencode",
+      threadId: asThreadId("thread-1"),
+      createdAt: now,
+      payload: {
+        config: {
+          capabilities: {
+            sideSession: {
+              supported: true,
+            },
+            childSessionTargeting: {
+              enabled: true,
+            },
+            methods: ["provider/session/target", "conversation/side/thread"],
+          },
+        },
+      },
+    });
+
+    const thread = await waitForThread(
+      harness.engine,
+      (entry) =>
+        entry.session?.providerName === "opencode" &&
+        entry.session?.capabilities?.sideConversationMode === "native-fork" &&
+        entry.session?.capabilities?.providerThreadTargetingMode === "native",
+    );
+
+    expect(thread.session?.capabilities?.sideConversationMode).toBe("native-fork");
+    expect(thread.session?.capabilities?.providerThreadTargetingMode).toBe("native");
   });
 
   it("applies provider session.state.changed transitions directly", async () => {
@@ -607,12 +820,12 @@ describe("ProviderRuntimeIngestion", () => {
               ],
             },
             {
-              id: "thought_level",
-              name: "Thinking Level",
+              key: "thought_level",
+              label: "Thinking Level",
               category: "thought_level",
               type: "select",
-              currentValue: "xhigh",
-              options: [
+              selectedValue: "xhigh",
+              choices: [
                 {
                   value: "medium",
                   name: "Medium",
@@ -623,12 +836,50 @@ describe("ProviderRuntimeIngestion", () => {
                 },
               ],
             },
+            {
+              id: "agent_teams",
+              name: "Agent Teams",
+              category: "multi_agent",
+              type: "toggle",
+              currentValue: true,
+            },
+            {
+              id: "temperature",
+              name: "Temperature",
+              category: "generation",
+              type: "range",
+              value: 0.7,
+              min: 0,
+              max: 1,
+              step: 0.1,
+            },
+            {
+              id: "system_note",
+              name: "System Note",
+              category: "prompting",
+              type: "text",
+              value: "",
+            },
           ],
           availableCommands: [
             {
               name: "review",
               kind: "provider",
               description: "Review the workspace",
+              metadata: {
+                model: "pi-pro",
+                allowedTools: ["Read", "Grep"],
+                arguments: ["target"],
+              },
+            },
+            {
+              name: "root-meta",
+              kind: "provider",
+              description: "Root metadata command",
+              modelId: "pi-root-model",
+              tools: ["Read", "Bash"],
+              args: ["subject"],
+              noModel: true,
             },
           ],
         },
@@ -640,7 +891,27 @@ describe("ProviderRuntimeIngestion", () => {
     const configuredThread = configuredReadModel.threads.find((thread) => thread.id === "thread-1");
     expect(configuredThread?.session?.providerName).toBe("pi");
     expect(configuredThread?.session?.commands).toEqual(
-      expect.arrayContaining([expect.objectContaining({ name: "review", kind: "provider" })]),
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "review",
+          kind: "provider",
+          metadata: {
+            model: "pi-pro",
+            allowedTools: ["Read", "Grep"],
+            arguments: ["target"],
+          },
+        }),
+        expect.objectContaining({
+          name: "root-meta",
+          kind: "provider",
+          metadata: {
+            model: "pi-root-model",
+            allowedTools: ["Read", "Bash"],
+            arguments: ["subject"],
+            disableModelInvocation: true,
+          },
+        }),
+      ]),
     );
     expect(configuredThread?.session?.configOptions).toEqual(
       expect.arrayContaining([
@@ -651,6 +922,30 @@ describe("ProviderRuntimeIngestion", () => {
         expect.objectContaining({
           id: "thought_level",
           currentValue: "xhigh",
+        }),
+        expect.objectContaining({
+          id: "agent_teams",
+          type: "boolean",
+          currentValue: "on",
+          options: [
+            { value: "off", name: "Off" },
+            { value: "on", name: "On" },
+          ],
+        }),
+        expect.objectContaining({
+          id: "temperature",
+          type: "number",
+          currentValue: "0.7",
+          minValue: 0,
+          maxValue: 1,
+          stepValue: 0.1,
+          options: [],
+        }),
+        expect.objectContaining({
+          id: "system_note",
+          type: "text",
+          currentValue: "",
+          options: [],
         }),
       ]),
     );
@@ -787,6 +1082,21 @@ describe("ProviderRuntimeIngestion", () => {
         expect.objectContaining({
           id: "thought_level",
           currentValue: "xhigh",
+        }),
+        expect.objectContaining({
+          id: "agent_teams",
+          type: "boolean",
+          currentValue: "on",
+        }),
+        expect.objectContaining({
+          id: "temperature",
+          type: "number",
+          currentValue: "0.7",
+        }),
+        expect.objectContaining({
+          id: "system_note",
+          type: "text",
+          currentValue: "",
         }),
       ]),
     );
@@ -1354,6 +1664,74 @@ describe("ProviderRuntimeIngestion", () => {
     ).toBe(false);
   });
 
+  it("keeps streamed goal lifecycle assistant deltas out of the transcript", async () => {
+    const harness = await createHarness({ serverSettings: { enableAssistantStreaming: true } });
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-goal-assistant-delta"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-goal-delta"),
+      itemId: asItemId("item-goal-delta"),
+      payload: {
+        streamKind: "assistant_text",
+        delta: "Goal updated\nImplement provider feature parity without transcript leaks",
+      },
+    });
+    await harness.drain();
+
+    const readModel = await Effect.runPromise(harness.engine.getReadModel());
+    const thread = readModel.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
+    expect(
+      thread?.messages.some((message: ProviderRuntimeTestMessage) =>
+        message.text.includes("Goal updated"),
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps completed goal lifecycle assistant items out of the transcript", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-goal-assistant-complete"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-goal-complete"),
+      itemId: asItemId("item-goal-complete"),
+      payload: {
+        itemType: "assistant_message",
+        status: "completed",
+        detail: "Goal updated\nKeep completed goal state out of chat messages",
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.activities.some((activity) => activity.id === "evt-goal-assistant-complete"),
+    );
+
+    expect(
+      thread.messages.some((message: ProviderRuntimeTestMessage) =>
+        message.text.includes("Goal updated"),
+      ),
+    ).toBe(false);
+    expect(
+      thread.activities.find((activity) => activity.id === "evt-goal-assistant-complete"),
+    ).toMatchObject({
+      kind: "goal.updated",
+      summary: "Goal updated",
+      payload: {
+        objective: "Keep completed goal state out of chat messages",
+        status: "active",
+      },
+    });
+  });
+
   it("keeps Codex child conversation assistant text out of the main transcript", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
@@ -1574,6 +1952,426 @@ describe("ProviderRuntimeIngestion", () => {
     expect(
       thread.messages.some((message: ProviderRuntimeTestMessage) =>
         message.text.includes("Nested side-chat result."),
+      ),
+    ).toBe(false);
+  });
+
+  it("routes side-chat runtime events through item-nested provider thread ids", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+    const sideThreadId = "side:thread-1:item-nested-route";
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.activity.append",
+        commandId: CommandId.makeUnsafe("cmd-side-item-route-activity"),
+        threadId: asThreadId("thread-1"),
+        activity: {
+          id: asEventId("activity-side-item-route-message"),
+          tone: "info",
+          kind: "subagent.message.sent",
+          summary: "User message",
+          payload: {
+            detail: "Inspect this branch through item metadata.",
+            itemType: "subagent_message",
+            data: {
+              item: {
+                receiverThreadIds: [sideThreadId],
+              },
+              subagent: {
+                id: "reviewer",
+                type: "side chat",
+                name: "Reviewer side chat",
+              },
+            },
+          },
+          turnId: null,
+          createdAt: now,
+        },
+        createdAt: now,
+      }),
+    );
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-side-item-route-message-completed"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId(sideThreadId),
+      turnId: asTurnId("turn-side-item-route"),
+      itemId: asItemId("side-item-route-message"),
+      payload: {
+        itemType: "assistant_message",
+        status: "completed",
+        detail: "Item-nested side-chat result.",
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) =>
+          activity.kind === "task.progress" &&
+          activity.payload &&
+          typeof activity.payload === "object" &&
+          "detail" in activity.payload &&
+          activity.payload.detail === "Item-nested side-chat result.",
+      ),
+    );
+
+    const progress = thread.activities.find(
+      (activity: ProviderRuntimeTestActivity) =>
+        activity.kind === "task.progress" &&
+        activity.payload &&
+        typeof activity.payload === "object" &&
+        "detail" in activity.payload &&
+        activity.payload.detail === "Item-nested side-chat result.",
+    );
+    expect(progress?.payload).toMatchObject({
+      detail: "Item-nested side-chat result.",
+      data: {
+        childProviderThreadId: sideThreadId,
+        subagent: {
+          id: sideThreadId,
+          type: "side chat",
+          name: "Reviewer side chat",
+        },
+      },
+    });
+    expect(
+      thread.messages.some((message: ProviderRuntimeTestMessage) =>
+        message.text.includes("Item-nested side-chat result."),
+      ),
+    ).toBe(false);
+  });
+
+  it("routes side-chat runtime events through item-nested snake_case receiver thread ids", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+    const sideThreadId = "side:thread-1:item-snake-route";
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.activity.append",
+        commandId: CommandId.makeUnsafe("cmd-side-item-snake-route-activity"),
+        threadId: asThreadId("thread-1"),
+        activity: {
+          id: asEventId("activity-side-item-snake-route-message"),
+          tone: "info",
+          kind: "subagent.message.sent",
+          summary: "User message",
+          payload: {
+            detail: "Inspect this branch through snake-case item metadata.",
+            itemType: "subagent_message",
+            data: {
+              item: {
+                receiver_thread_ids: [sideThreadId],
+                agent_role: "side_chat",
+                agent_name: "Snake case side chat",
+              },
+            },
+          },
+          turnId: null,
+          createdAt: now,
+        },
+        createdAt: now,
+      }),
+    );
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-side-item-snake-route-message-completed"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId(sideThreadId),
+      turnId: asTurnId("turn-side-item-snake-route"),
+      itemId: asItemId("side-item-snake-route-message"),
+      payload: {
+        itemType: "assistant_message",
+        status: "completed",
+        detail: "Snake-case item side-chat result.",
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) =>
+          activity.kind === "task.progress" &&
+          activity.payload &&
+          typeof activity.payload === "object" &&
+          "detail" in activity.payload &&
+          activity.payload.detail === "Snake-case item side-chat result.",
+      ),
+    );
+
+    const progress = thread.activities.find(
+      (activity: ProviderRuntimeTestActivity) =>
+        activity.kind === "task.progress" &&
+        activity.payload &&
+        typeof activity.payload === "object" &&
+        "detail" in activity.payload &&
+        activity.payload.detail === "Snake-case item side-chat result.",
+    );
+    expect(progress?.payload).toMatchObject({
+      detail: "Snake-case item side-chat result.",
+      data: {
+        childProviderThreadId: sideThreadId,
+        subagent: {
+          id: sideThreadId,
+          type: "side_chat",
+          name: "Snake case side chat",
+        },
+      },
+    });
+    expect(
+      thread.messages.some((message: ProviderRuntimeTestMessage) =>
+        message.text.includes("Snake-case item side-chat result."),
+      ),
+    ).toBe(false);
+  });
+
+  it("routes side-chat runtime events through normalized ace subagent metadata", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+    const sideThreadId = "side:thread-1:ace-normalized-route";
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.activity.append",
+        commandId: CommandId.makeUnsafe("cmd-side-ace-route-activity"),
+        threadId: asThreadId("thread-1"),
+        activity: {
+          id: asEventId("activity-side-ace-route-message"),
+          tone: "info",
+          kind: "subagent.message.sent",
+          summary: "User message",
+          payload: {
+            detail: "Inspect this branch through normalized Ace metadata.",
+            itemType: "subagent_message",
+            data: {
+              ace: {
+                childProviderThreadId: sideThreadId,
+                subagent: {
+                  id: sideThreadId,
+                  type: "side-chat",
+                  name: "Normalized side chat",
+                },
+              },
+            },
+          },
+          turnId: null,
+          createdAt: now,
+        },
+        createdAt: now,
+      }),
+    );
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-side-ace-route-message-completed"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId(sideThreadId),
+      turnId: asTurnId("turn-side-ace-route"),
+      itemId: asItemId("side-ace-route-message"),
+      payload: {
+        itemType: "assistant_message",
+        status: "completed",
+        detail: "Normalized Ace side-chat result.",
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) =>
+          activity.kind === "task.progress" &&
+          activity.payload &&
+          typeof activity.payload === "object" &&
+          "detail" in activity.payload &&
+          activity.payload.detail === "Normalized Ace side-chat result.",
+      ),
+    );
+
+    const progress = thread.activities.find(
+      (activity: ProviderRuntimeTestActivity) =>
+        activity.kind === "task.progress" &&
+        activity.payload &&
+        typeof activity.payload === "object" &&
+        "detail" in activity.payload &&
+        activity.payload.detail === "Normalized Ace side-chat result.",
+    );
+    expect(progress?.payload).toMatchObject({
+      detail: "Normalized Ace side-chat result.",
+      data: {
+        childProviderThreadId: sideThreadId,
+        subagent: {
+          id: sideThreadId,
+          type: "side-chat",
+          name: "Normalized side chat",
+        },
+      },
+    });
+    expect(
+      thread.messages.some((message: ProviderRuntimeTestMessage) =>
+        message.text.includes("Normalized Ace side-chat result."),
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps provider side-chat array assistant messages out of the main transcript", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-side-array-message-completed"),
+      provider: "githubCopilot",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-side-array"),
+      itemId: asItemId("side-array-message"),
+      payload: {
+        itemType: "assistant_message",
+        status: "completed",
+        title: "Side chat",
+        detail: "Provider side-chat array result.",
+        data: {
+          sideChats: [
+            {
+              threadId: "provider-side-array-thread-1",
+              displayName: "Architecture side chat",
+              role: "side-chat",
+              model: "provider-model",
+            },
+          ],
+        },
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) =>
+          activity.kind === "task.progress" &&
+          activity.payload &&
+          typeof activity.payload === "object" &&
+          "detail" in activity.payload &&
+          activity.payload.detail === "Provider side-chat array result.",
+      ),
+    );
+
+    const progress = thread.activities.find(
+      (activity: ProviderRuntimeTestActivity) =>
+        activity.kind === "task.progress" &&
+        activity.payload &&
+        typeof activity.payload === "object" &&
+        "detail" in activity.payload &&
+        activity.payload.detail === "Provider side-chat array result.",
+    );
+    expect(progress?.payload).toMatchObject({
+      itemType: "assistant_message",
+      subagent: {
+        threadId: "provider-side-array-thread-1",
+        displayName: "Architecture side chat",
+        role: "side-chat",
+        model: "provider-model",
+      },
+    });
+    expect(
+      thread.messages.some((message: ProviderRuntimeTestMessage) =>
+        message.text.includes("Provider side-chat array result."),
+      ),
+    ).toBe(false);
+  });
+
+  it("routes later provider side-chat array child thread events back to the parent thread", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-side-array-route-created"),
+      provider: "githubCopilot",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-side-array-route"),
+      itemId: asItemId("side-array-route-created"),
+      payload: {
+        itemType: "collab_agent_tool_call",
+        status: "completed",
+        title: "Side chats",
+        detail: "Provider reported multiple side chats.",
+        data: {
+          sideChats: [
+            {
+              threadId: "provider-side-array-route-thread-1",
+              displayName: "Architecture side chat",
+              role: "side-chat",
+              model: "provider-model",
+            },
+            {
+              threadId: "provider-side-array-route-thread-2",
+              displayName: "Runtime side chat",
+              role: "side-chat",
+              model: "provider-model",
+            },
+          ],
+        },
+      },
+    });
+
+    await waitForThread(harness.engine, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) => activity.id === "evt-side-array-route-created",
+      ),
+    );
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-side-array-route-second-message"),
+      provider: "githubCopilot",
+      createdAt: now,
+      threadId: asThreadId("provider-side-array-route-thread-2"),
+      turnId: asTurnId("turn-side-array-route-second"),
+      itemId: asItemId("side-array-route-second-message"),
+      payload: {
+        itemType: "assistant_message",
+        status: "completed",
+        detail: "Second side chat stayed attached to the parent thread.",
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) =>
+          activity.kind === "task.progress" &&
+          activity.payload &&
+          typeof activity.payload === "object" &&
+          "detail" in activity.payload &&
+          activity.payload.detail === "Second side chat stayed attached to the parent thread.",
+      ),
+    );
+
+    const progress = thread.activities.find(
+      (activity: ProviderRuntimeTestActivity) =>
+        activity.kind === "task.progress" &&
+        activity.payload &&
+        typeof activity.payload === "object" &&
+        "detail" in activity.payload &&
+        activity.payload.detail === "Second side chat stayed attached to the parent thread.",
+    );
+    expect(progress?.payload).toMatchObject({
+      detail: "Second side chat stayed attached to the parent thread.",
+      data: {
+        childProviderThreadId: "provider-side-array-route-thread-2",
+        subagent: {
+          id: "provider-side-array-route-thread-2",
+          type: "side-chat",
+          name: "Runtime side chat",
+        },
+      },
+    });
+    expect(
+      thread.messages.some((message: ProviderRuntimeTestMessage) =>
+        message.text.includes("Second side chat stayed attached to the parent thread."),
       ),
     ).toBe(false);
   });
@@ -4530,6 +5328,7 @@ describe("ProviderRuntimeIngestion", () => {
         : undefined;
 
     expect(activity?.kind).toBe("runtime.error");
+    expect(activityPayload?.provider).toBe("codex");
     expect(activityPayload?.message).toBe("runtime activity exploded");
   });
 
@@ -4797,6 +5596,7 @@ describe("ProviderRuntimeIngestion", () => {
         ? (warning.payload as Record<string, unknown>)
         : undefined;
     expect(warning?.kind).toBe("runtime.warning");
+    expect(warningPayload?.provider).toBe("codex");
     expect(warningPayload?.message).toBe("Provider got slow");
 
     const checkpoint = thread.checkpoints.find(
@@ -4863,7 +5663,7 @@ describe("ProviderRuntimeIngestion", () => {
     });
   });
 
-  it("does not project token-only usage as a context window activity", async () => {
+  it("projects token-only usage as an observed context usage activity", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
 
@@ -4881,15 +5681,22 @@ describe("ProviderRuntimeIngestion", () => {
       },
     });
 
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    const readModel = await Effect.runPromise(harness.engine.getReadModel());
-    const thread = readModel.threads.find((entry) => entry.id === asThreadId("thread-1"));
-
-    expect(
-      thread?.activities.some(
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.activities.some(
         (activity: ProviderRuntimeTestActivity) => activity.kind === "context-window.updated",
-      ) ?? false,
-    ).toBe(false);
+      ),
+    );
+
+    const usageActivity = thread.activities.find(
+      (activity: ProviderRuntimeTestActivity) => activity.kind === "context-window.updated",
+    );
+    expect(usageActivity?.payload).toMatchObject({
+      usedTokens: 1075,
+      lastUsedTokens: 1075,
+    });
+    expect(
+      (usageActivity?.payload as { maxTokens?: unknown } | undefined)?.maxTokens,
+    ).toBeUndefined();
   });
 
   it("projects Codex camelCase token usage payloads into normalized thread activities", async () => {
@@ -4989,6 +5796,235 @@ describe("ProviderRuntimeIngestion", () => {
     });
   });
 
+  it("projects provider MCP status snapshots into thread activities", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "mcp.status.updated",
+      eventId: asEventId("evt-mcp-status-updated"),
+      provider: "opencode",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      payload: {
+        status: [
+          {
+            name: "schema-docs",
+            status: "tools_changed",
+            reason: "mcp.tools.changed",
+          },
+        ],
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) => activity.kind === "mcp.status.updated",
+      ),
+    );
+
+    const activity = thread.activities.find(
+      (candidate: ProviderRuntimeTestActivity) => candidate.kind === "mcp.status.updated",
+    );
+    expect(activity?.summary).toBe("MCP status updated");
+    expect(activity?.tone).toBe("info");
+    expect(activity?.payload).toEqual({
+      provider: "opencode",
+      status: [
+        {
+          name: "schema-docs",
+          status: "tools_changed",
+          reason: "mcp.tools.changed",
+        },
+      ],
+    });
+  });
+
+  it("projects provider MCP OAuth completion into thread activities", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "mcp.oauth.completed",
+      eventId: asEventId("evt-mcp-oauth-completed"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      payload: {
+        success: false,
+        name: "schema-docs",
+        error: "OAuth callback failed",
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) => activity.kind === "mcp.oauth.completed",
+      ),
+    );
+
+    const activity = thread.activities.find(
+      (candidate: ProviderRuntimeTestActivity) => candidate.kind === "mcp.oauth.completed",
+    );
+    expect(activity?.summary).toBe("MCP OAuth failed");
+    expect(activity?.tone).toBe("error");
+    expect(activity?.payload).toEqual({
+      provider: "codex",
+      success: false,
+      name: "schema-docs",
+      error: "OAuth callback failed",
+    });
+  });
+
+  it("projects provider health, account, and configuration events into thread activities", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "auth.status",
+      eventId: asEventId("evt-auth-status"),
+      provider: "claudeAgent",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      payload: {
+        isAuthenticating: false,
+        error: "OAuth expired",
+      },
+    });
+    harness.emit({
+      type: "auth.status",
+      eventId: asEventId("evt-auth-status-authenticated"),
+      provider: "cursor",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      payload: {
+        status: "authenticated",
+        label: "dev@cursor.example",
+        account: {
+          email: "dev@cursor.example",
+        },
+      },
+    });
+    harness.emit({
+      type: "model.rerouted",
+      eventId: asEventId("evt-model-rerouted"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      payload: {
+        fromModel: "gpt-5",
+        toModel: "gpt-5.4",
+        reason: "requested model unavailable",
+      },
+    });
+    harness.emit({
+      type: "config.warning",
+      eventId: asEventId("evt-config-warning"),
+      provider: "pi",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      payload: {
+        summary: "Unsupported config key",
+        details: "Ignoring unknown config key",
+        path: "/repo/pi.json",
+      },
+    });
+    harness.emit({
+      type: "account.rate-limits.updated",
+      eventId: asEventId("evt-rate-limits"),
+      provider: "claudeAgent",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      payload: {
+        rateLimits: {
+          status: "limited",
+        },
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) => activity.kind === "config.warning",
+      ),
+    );
+
+    expect(
+      thread.activities
+        .filter((activity: ProviderRuntimeTestActivity) =>
+          [
+            "auth.status",
+            "model.rerouted",
+            "config.warning",
+            "account.rate-limits.updated",
+          ].includes(activity.kind),
+        )
+        .map((activity: ProviderRuntimeTestActivity) => ({
+          kind: activity.kind,
+          summary: activity.summary,
+          tone: activity.tone,
+          payload: activity.payload,
+        }))
+        .toSorted((left, right) => left.kind.localeCompare(right.kind)),
+    ).toEqual([
+      {
+        kind: "account.rate-limits.updated",
+        summary: "Provider rate limits updated",
+        tone: "info",
+        payload: {
+          provider: "claudeAgent",
+          rateLimits: {
+            status: "limited",
+          },
+        },
+      },
+      {
+        kind: "auth.status",
+        summary: "Provider auth status",
+        tone: "error",
+        payload: {
+          provider: "claudeAgent",
+          isAuthenticating: false,
+          error: "OAuth expired",
+        },
+      },
+      {
+        kind: "auth.status",
+        summary: "Provider auth status",
+        tone: "info",
+        payload: {
+          provider: "cursor",
+          status: "authenticated",
+          label: "dev@cursor.example",
+          account: {
+            email: "dev@cursor.example",
+          },
+        },
+      },
+      {
+        kind: "config.warning",
+        summary: "Provider configuration warning",
+        tone: "info",
+        payload: {
+          provider: "pi",
+          summary: "Unsupported config key",
+          details: "Ignoring unknown config key",
+          path: "/repo/pi.json",
+        },
+      },
+      {
+        kind: "model.rerouted",
+        summary: "Model rerouted",
+        tone: "info",
+        payload: {
+          provider: "codex",
+          fromModel: "gpt-5",
+          toModel: "gpt-5.4",
+          reason: "requested model unavailable",
+        },
+      },
+    ]);
+  });
+
   it("projects compacted thread state into context compaction activities", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
@@ -5045,6 +6081,11 @@ describe("ProviderRuntimeIngestion", () => {
         taskType: "plan",
         description:
           "This task description is intentionally long enough that the old projection truncation would have hidden the end of the text from the expanded Task row in the timeline.",
+        subagent: {
+          id: "turn-task-1",
+          type: "plan",
+          name: "Planning side task",
+        },
       },
     });
 
@@ -5059,6 +6100,11 @@ describe("ProviderRuntimeIngestion", () => {
         taskId: "turn-task-1",
         description: "Comparing the desktop rollout chunks to the app-server stream.",
         summary: "Code reviewer is validating the desktop rollout chunks.",
+        subagent: {
+          id: "turn-task-1",
+          type: "plan",
+          name: "Planning side task",
+        },
       },
     });
 
@@ -5073,6 +6119,11 @@ describe("ProviderRuntimeIngestion", () => {
         taskId: "turn-task-1",
         status: "completed",
         summary: longCompletedSummary,
+        subagent: {
+          id: "turn-task-1",
+          type: "plan",
+          name: "Planning side task",
+        },
       },
     });
     harness.emit({
@@ -5123,15 +6174,30 @@ describe("ProviderRuntimeIngestion", () => {
     expect((started?.payload as { detail?: string } | undefined)?.detail).toContain(
       "hidden the end of the text",
     );
+    expect((started?.payload as { subagent?: unknown } | undefined)?.subagent).toEqual({
+      id: "turn-task-1",
+      type: "plan",
+      name: "Planning side task",
+    });
     expect(progress?.kind).toBe("task.progress");
     expect(progressPayload?.detail).toBe("Code reviewer is validating the desktop rollout chunks.");
     expect(progressPayload?.summary).toBe(
       "Code reviewer is validating the desktop rollout chunks.",
     );
+    expect(progressPayload?.subagent).toEqual({
+      id: "turn-task-1",
+      type: "plan",
+      name: "Planning side task",
+    });
     expect(completed?.kind).toBe("task.completed");
     expect(completedPayload?.detail).toBe(longCompletedSummary);
     expect(completedPayload?.detail).toContain("The shared packages keep contracts");
     expect(completedPayload?.detail).not.toContain("...");
+    expect(completedPayload?.subagent).toEqual({
+      id: "turn-task-1",
+      type: "plan",
+      name: "Planning side task",
+    });
     expect(
       thread.proposedPlans.find(
         (entry: ProviderRuntimeTestProposedPlan) => entry.id === "plan:thread-1:turn:turn-task-1",

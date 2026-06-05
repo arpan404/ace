@@ -9,6 +9,7 @@ import {
   parseCursorAvailableCommands,
   parseCursorConfigOptions,
   parseCursorInitializeState,
+  parseCursorMcpServers,
   parseCursorSessionModeState,
   parseCursorSessionModelState,
 } from "./CursorAdapterSessionMetadata.ts";
@@ -19,6 +20,8 @@ describe("CursorAdapterSessionMetadata", () => {
       protocolVersion: 1,
       agentCapabilities: {
         loadSession: true,
+        resumeSession: false,
+        closeSession: false,
         forkSession: false,
         promptCapabilities: {
           image: true,
@@ -33,6 +36,8 @@ describe("CursorAdapterSessionMetadata", () => {
       protocolVersion: 1,
       agentCapabilities: {
         loadSession: true,
+        resumeSession: false,
+        closeSession: false,
         forkSession: false,
         promptCapabilities: {
           image: true,
@@ -44,13 +49,52 @@ describe("CursorAdapterSessionMetadata", () => {
     });
   });
 
+  it("recognizes alternate ACP session resume capability shapes", () => {
+    for (const initializeResult of [
+      { agentCapabilities: { resumeSession: true } },
+      { agentCapabilities: { sessionCapabilities: { resume: true } } },
+      { agentCapabilities: { "session.resume": true } },
+      { sessionCapabilities: { resumeSession: true } },
+      { session: { resume: true } },
+      { capabilities: { sessionResume: "enabled" } },
+      { capabilities: { session: { resume: true } } },
+      { availableMethods: ["session/resume"] },
+    ]) {
+      assert.equal(
+        parseCursorInitializeState(initializeResult).agentCapabilities.resumeSession,
+        true,
+      );
+    }
+  });
+
+  it("recognizes alternate ACP session close capability shapes", () => {
+    for (const initializeResult of [
+      { agentCapabilities: { closeSession: true } },
+      { agentCapabilities: { sessionCapabilities: { close: true } } },
+      { agentCapabilities: { "session.close": true } },
+      { sessionCapabilities: { closeSession: true } },
+      { session: { close: true } },
+      { capabilities: { sessionClose: "enabled" } },
+      { capabilities: { session: { close: true } } },
+      { availableMethods: ["session/close"] },
+    ]) {
+      assert.equal(
+        parseCursorInitializeState(initializeResult).agentCapabilities.closeSession,
+        true,
+      );
+    }
+  });
+
   it("recognizes alternate ACP session fork capability shapes", () => {
     for (const initializeResult of [
       { agentCapabilities: { forkSession: true } },
       { agentCapabilities: { sessionCapabilities: { fork: true } } },
       { agentCapabilities: { sessions: { fork: "supported" } } },
+      { agentCapabilities: { "session.fork": true } },
       { sessionCapabilities: { forkSession: true } },
+      { session: { fork: true } },
       { capabilities: { sessionFork: "enabled" } },
+      { capabilities: { session: { fork: true } } },
     ]) {
       assert.equal(
         parseCursorInitializeState(initializeResult).agentCapabilities.forkSession,
@@ -75,6 +119,26 @@ describe("CursorAdapterSessionMetadata", () => {
     );
 
     assert.deepEqual(
+      parseCursorSessionModeState({
+        current_mode_id: "plan",
+        modes: [
+          { id: "agent", label: "Agent" },
+          { value: "plan", title: "Plan" },
+          { mode: "ask" },
+          { bad: true },
+        ],
+      }),
+      {
+        currentModeId: "plan",
+        availableModes: [
+          { id: "agent", name: "Agent" },
+          { id: "plan", name: "Plan" },
+          { id: "ask" },
+        ],
+      },
+    );
+
+    assert.deepEqual(
       parseCursorSessionModelState({
         currentModelId: "gpt-5-mini[]",
         availableModels: [
@@ -85,6 +149,26 @@ describe("CursorAdapterSessionMetadata", () => {
       {
         currentModelId: "gpt-5-mini[]",
         availableModels: [{ modelId: "gpt-5-mini[]", name: "GPT-5 mini" }],
+      },
+    );
+
+    assert.deepEqual(
+      parseCursorSessionModelState({
+        current_model_id: "composer-2-fast",
+        models: [
+          { id: "composer-2-fast", label: "Composer 2 Fast (current)" },
+          { value: "gpt-5.2", title: "GPT-5.2" },
+          { model: "claude-opus-4.5" },
+          { bad: true },
+        ],
+      }),
+      {
+        currentModelId: "composer-2-fast",
+        availableModels: [
+          { modelId: "composer-2-fast", name: "Composer 2 Fast" },
+          { modelId: "gpt-5.2", name: "GPT-5.2" },
+          { modelId: "claude-opus-4.5" },
+        ],
       },
     );
   });
@@ -115,6 +199,43 @@ describe("CursorAdapterSessionMetadata", () => {
         ],
       },
     ]);
+  });
+
+  it("parses Cursor MCP server maps from provider config shapes", () => {
+    assert.deepEqual(
+      parseCursorMcpServers({
+        mcpServers: {
+          browser: {
+            command: "npx",
+            args: ["-y", "@playwright/mcp"],
+            env: { BROWSER_HEADLESS: "1" },
+            tools: ["navigate", "screenshot"],
+          },
+          docs: {
+            type: "http",
+            url: "https://docs.example.test/mcp",
+            headers: { Authorization: "Bearer token" },
+          },
+          malformed: { args: ["missing-command"] },
+        },
+      }),
+      [
+        {
+          name: "browser",
+          type: "stdio",
+          command: "npx",
+          args: ["-y", "@playwright/mcp"],
+          tools: ["navigate", "screenshot"],
+          env: { BROWSER_HEADLESS: "1" },
+        },
+        {
+          name: "docs",
+          type: "http",
+          url: "https://docs.example.test/mcp",
+          headers: { Authorization: "Bearer token" },
+        },
+      ],
+    );
   });
 
   it("builds metadata by merging config options with explicit session state", () => {
@@ -152,6 +273,11 @@ describe("CursorAdapterSessionMetadata", () => {
       availableCommands: parseCursorAvailableCommands([
         { name: "search", description: "Search files" },
       ]),
+      mcpServers: parseCursorMcpServers({
+        mcpServers: {
+          browser: { command: "npx", args: ["-y", "@playwright/mcp"] },
+        },
+      }),
     });
 
     assert.deepEqual(findCursorConfigOption(metadata.configOptions, { category: "mode" }), {
@@ -175,6 +301,14 @@ describe("CursorAdapterSessionMetadata", () => {
         promptPrefix: "/search",
       },
     ]);
+    assert.deepEqual(metadata.mcpServers, [
+      {
+        name: "browser",
+        type: "stdio",
+        command: "npx",
+        args: ["-y", "@playwright/mcp"],
+      },
+    ]);
   });
 
   it("creates a compact metadata snapshot that omits empty optional fields", () => {
@@ -187,6 +321,7 @@ describe("CursorAdapterSessionMetadata", () => {
       initialize: metadata.initialize,
       capabilities: {
         sessionForkMode: "local-replay",
+        sessionResumeMode: "local-replay",
         sideConversationMode: "replay-fork",
       },
       configOptions: [],

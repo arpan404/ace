@@ -10,6 +10,12 @@ type ItemLifecycleEvent = Extract<
   ProviderRuntimeEvent,
   { type: "item.started" | "item.updated" | "item.completed" }
 >;
+type AuthStatusEvent = Extract<ProviderRuntimeEvent, { type: "auth.status" }>;
+type AccountUpdatedEvent = Extract<ProviderRuntimeEvent, { type: "account.updated" }>;
+type AccountRateLimitsUpdatedEvent = Extract<
+  ProviderRuntimeEvent,
+  { type: "account.rate-limits.updated" }
+>;
 
 type NormalizedToolAction =
   | "command"
@@ -47,6 +53,10 @@ function asFiniteInteger(value: unknown): number | undefined {
   return Number.isFinite(numberValue) ? Math.trunc(numberValue) : undefined;
 }
 
+function asBoolean(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
 function firstTrimmedString(...values: ReadonlyArray<unknown>): string | undefined {
   for (const value of values) {
     const candidate = asTrimmedString(value);
@@ -55,6 +65,44 @@ function firstTrimmedString(...values: ReadonlyArray<unknown>): string | undefin
     }
   }
   return undefined;
+}
+
+function firstDefined<T>(...values: ReadonlyArray<T | undefined>): T | undefined {
+  for (const value of values) {
+    if (value !== undefined) {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+function normalizeAuthStatusValue(value: unknown): AuthStatusEvent["payload"]["status"] {
+  const normalized = asTrimmedString(value)
+    ?.toLowerCase()
+    .replace(/[\s_-]+/g, "-");
+  switch (normalized) {
+    case "authenticated":
+    case "logged-in":
+    case "signed-in":
+    case "ok":
+    case "success":
+      return "authenticated";
+    case "unauthenticated":
+    case "not-authenticated":
+    case "logged-out":
+    case "signed-out":
+    case "not-logged-in":
+    case "not-signed-in":
+    case "missing":
+    case "expired":
+      return "unauthenticated";
+    case "unknown":
+    case "warning":
+    case "pending":
+      return "unknown";
+    default:
+      return undefined;
+  }
 }
 
 function normalizeCommandValue(value: unknown): string | undefined {
@@ -315,6 +363,7 @@ function subagentFromLifecycle(
     providerAgentRecord(input),
     providerAgentRecord(args),
     providerAgentRecord(result),
+    providerAgentLooseRecord(payloadRecord),
     providerAgentLooseRecord(data),
     providerAgentLooseRecord(item),
     providerAgentLooseRecord(input),
@@ -341,7 +390,18 @@ function subagentFromLifecycle(
   const description = metadata.description;
   const prompt = metadata.prompt;
   const model = metadata.model;
-  if (!agentId && !type && !name && !description && !prompt && !model) {
+  const transcriptPath = metadata.transcriptPath;
+  const lastAssistantMessage = metadata.lastAssistantMessage;
+  if (
+    !agentId &&
+    !type &&
+    !name &&
+    !description &&
+    !prompt &&
+    !model &&
+    !transcriptPath &&
+    !lastAssistantMessage
+  ) {
     return undefined;
   }
   return {
@@ -351,7 +411,30 @@ function subagentFromLifecycle(
     ...(description ? { description } : {}),
     ...(prompt ? { prompt } : {}),
     ...(model ? { model } : {}),
+    ...(transcriptPath ? { transcriptPath } : {}),
+    ...(lastAssistantMessage ? { lastAssistantMessage } : {}),
   };
+}
+
+function hasSubagentRoutingSignal(subagent: Record<string, unknown> | undefined): boolean {
+  if (!subagent) {
+    return false;
+  }
+  return Boolean(
+    asTrimmedString(subagent.id) ??
+    asTrimmedString(subagent.type) ??
+    asTrimmedString(subagent.name) ??
+    asTrimmedString(subagent.prompt) ??
+    asTrimmedString(subagent.model),
+  );
+}
+
+function looksLikeAgentDelegationLabel(toolLabel: string): boolean {
+  return (
+    /\b(task|subagent|sub-agent|agent|delegate|delegation|handoff|worker|side[-_\s]?(chat|conversation)|btw)\b/.test(
+      toolLabel,
+    ) || /\b(?:subagent|task)(?:start|stop|created|completed)\b/.test(toolLabel)
+  );
 }
 
 function inferAction(payload: ItemLifecycleEvent["payload"]): NormalizedToolAction {
@@ -375,6 +458,10 @@ function inferAction(payload: ItemLifecycleEvent["payload"]): NormalizedToolActi
   const toolLabel = oneLine(
     [toolNameFromLifecycle(payload), payload.itemType].filter(Boolean).join(" "),
   ).toLowerCase();
+  const subagent = subagentFromLifecycle(payload);
+  if (hasSubagentRoutingSignal(subagent) && looksLikeAgentDelegationLabel(toolLabel)) {
+    return "collab-agent";
+  }
   if (commandFromLifecycle(payload) || /\b(bash|shell|terminal|exec|command)\b/.test(toolLabel)) {
     return "command";
   }
@@ -548,12 +635,180 @@ function normalizeLifecycleEvent(event: ItemLifecycleEvent): ProviderRuntimeEven
   } as ProviderRuntimeEvent;
 }
 
+function normalizeAuthStatusEvent(event: AuthStatusEvent): ProviderRuntimeEvent {
+  const payload = event.payload as AuthStatusEvent["payload"] & Record<string, unknown>;
+  const account = asRecord(payload.account);
+  const auth = asRecord(payload.auth);
+  const user = asRecord(payload.user);
+  const profile = asRecord(payload.profile);
+  const isAuthenticated = firstDefined(
+    asBoolean(payload.isAuthenticated),
+    asBoolean(payload.authenticated),
+    asBoolean(auth?.isAuthenticated),
+    asBoolean(auth?.authenticated),
+  );
+  const status =
+    payload.status ??
+    normalizeAuthStatusValue(payload.authStatus) ??
+    normalizeAuthStatusValue(payload.auth_status) ??
+    normalizeAuthStatusValue(auth?.status) ??
+    normalizeAuthStatusValue(payload.state) ??
+    (isAuthenticated === true
+      ? "authenticated"
+      : isAuthenticated === false
+        ? "unauthenticated"
+        : undefined);
+  const label =
+    payload.label ??
+    firstTrimmedString(
+      payload.login,
+      payload.email,
+      payload.username,
+      payload.user,
+      payload.statusMessage,
+      payload.status_message,
+      payload.message,
+      account?.login,
+      account?.email,
+      account?.username,
+      auth?.login,
+      auth?.email,
+      user?.login,
+      user?.email,
+      user?.username,
+      profile?.login,
+      profile?.email,
+    );
+  const accountPayload =
+    account ??
+    auth ??
+    user ??
+    profile ??
+    (label
+      ? {
+          label,
+        }
+      : undefined);
+  const output = Array.isArray(payload.output)
+    ? payload.output
+    : firstTrimmedString(payload.statusMessage, payload.status_message, payload.message)
+      ? [
+          firstTrimmedString(
+            payload.statusMessage,
+            payload.status_message,
+            payload.message,
+          ) as string,
+        ]
+      : undefined;
+
+  return {
+    ...event,
+    payload: {
+      ...event.payload,
+      ...(status ? { status } : {}),
+      ...(label ? { label } : {}),
+      ...(accountPayload ? { account: accountPayload } : {}),
+      ...(output ? { output } : {}),
+    },
+  } as ProviderRuntimeEvent;
+}
+
+function normalizeAccountUpdatedEvent(event: AccountUpdatedEvent): ProviderRuntimeEvent {
+  const payload = event.payload as AccountUpdatedEvent["payload"] & Record<string, unknown>;
+  const account = asRecord(payload.account);
+  const auth = asRecord(payload.auth);
+  const user = asRecord(payload.user);
+  const profile = asRecord(payload.profile);
+  const subscription = asRecord(payload.subscription);
+  const plan = asRecord(payload.plan);
+  const label = firstTrimmedString(
+    payload.label,
+    payload.login,
+    payload.email,
+    payload.username,
+    payload.name,
+    payload.accountId,
+    payload.account_id,
+    account?.label,
+    account?.login,
+    account?.email,
+    account?.username,
+    account?.name,
+    account?.accountId,
+    account?.account_id,
+    auth?.login,
+    auth?.email,
+    user?.login,
+    user?.email,
+    user?.username,
+    user?.name,
+    profile?.login,
+    profile?.email,
+    profile?.username,
+    profile?.name,
+  );
+  const accountPayload =
+    account ??
+    user ??
+    profile ??
+    auth ??
+    (label
+      ? {
+          label,
+        }
+      : payload.account);
+  const accountRecord = asRecord(accountPayload);
+  const normalizedAccount =
+    accountRecord !== undefined
+      ? {
+          ...accountRecord,
+          ...(label ? { label } : {}),
+          ...(subscription ? { subscription } : {}),
+          ...(plan ? { plan } : {}),
+        }
+      : accountPayload;
+
+  return {
+    ...event,
+    payload: {
+      ...event.payload,
+      account: normalizedAccount,
+    },
+  } as ProviderRuntimeEvent;
+}
+
+function normalizeRateLimitsEvent(event: AccountRateLimitsUpdatedEvent): ProviderRuntimeEvent {
+  const payload = event.payload as AccountRateLimitsUpdatedEvent["payload"] &
+    Record<string, unknown>;
+  const rateLimits =
+    payload.rateLimits ??
+    payload.rate_limits ??
+    payload.rateLimit ??
+    payload.rate_limit ??
+    payload.limits ??
+    payload.quota ??
+    payload;
+  return {
+    ...event,
+    payload: {
+      ...event.payload,
+      rateLimits,
+    },
+  } as ProviderRuntimeEvent;
+}
+
 export function normalizeProviderRuntimeEvent(event: ProviderRuntimeEvent): ProviderRuntimeEvent {
   switch (event.type) {
     case "item.started":
     case "item.updated":
     case "item.completed":
       return normalizeLifecycleEvent(event);
+    case "auth.status":
+      return normalizeAuthStatusEvent(event);
+    case "account.updated":
+      return normalizeAccountUpdatedEvent(event);
+    case "account.rate-limits.updated":
+      return normalizeRateLimitsEvent(event);
     default:
       return event;
   }

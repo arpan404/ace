@@ -22,6 +22,7 @@ export const ClaudeModelOptions = Schema.Struct({
   contextWindow: Schema.optional(Schema.String),
   outputStyle: Schema.optional(TrimmedNonEmptyString),
   agent: Schema.optional(TrimmedNonEmptyString),
+  subagentModel: Schema.optional(TrimmedNonEmptyString),
   forkSubagents: Schema.optional(Schema.Boolean),
   agentTeams: Schema.optional(Schema.Boolean),
 });

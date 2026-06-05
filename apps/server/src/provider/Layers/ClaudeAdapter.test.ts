@@ -40,7 +40,16 @@ class FakeClaudeQuery implements AsyncIterable<SDKMessage> {
   public readonly setModelCalls: Array<string | undefined> = [];
   public readonly setPermissionModeCalls: Array<string> = [];
   public readonly setMaxThinkingTokensCalls: Array<number | null> = [];
+  public readonly supportedAgentsCalls: Array<void> = [];
+  public readonly mcpServerStatusCalls: Array<void> = [];
+  public readonly getContextUsageCalls: Array<void> = [];
   public closeCalls = 0;
+
+  constructor(
+    private readonly supportedAgentEntries: ReadonlyArray<Record<string, unknown>> = [],
+    private readonly mcpServerStatusSnapshot: unknown = undefined,
+    private readonly contextUsageSnapshot: unknown = undefined,
+  ) {}
 
   emit(message: SDKMessage): void {
     if (this.done) {
@@ -92,6 +101,21 @@ class FakeClaudeQuery implements AsyncIterable<SDKMessage> {
     this.setMaxThinkingTokensCalls.push(maxThinkingTokens);
   };
 
+  readonly supportedAgents = async (): Promise<ReadonlyArray<Record<string, unknown>>> => {
+    this.supportedAgentsCalls.push(undefined);
+    return this.supportedAgentEntries;
+  };
+
+  readonly mcpServerStatus = async (): Promise<unknown> => {
+    this.mcpServerStatusCalls.push(undefined);
+    return this.mcpServerStatusSnapshot;
+  };
+
+  readonly getContextUsage = async (): Promise<unknown> => {
+    this.getContextUsageCalls.push(undefined);
+    return this.contextUsageSnapshot;
+  };
+
   readonly close = (): void => {
     this.closeCalls += 1;
     this.finish();
@@ -136,8 +160,15 @@ function makeHarness(config?: {
   readonly nativeEventLogger?: ClaudeAdapterLiveOptions["nativeEventLogger"];
   readonly cwd?: string;
   readonly baseDir?: string;
+  readonly supportedAgents?: ReadonlyArray<Record<string, unknown>>;
+  readonly mcpServerStatus?: unknown;
+  readonly contextUsage?: unknown;
 }) {
-  const query = new FakeClaudeQuery();
+  const query = new FakeClaudeQuery(
+    config?.supportedAgents,
+    config?.mcpServerStatus,
+    config?.contextUsage,
+  );
   let createInput:
     | {
         readonly prompt: AsyncIterable<SDKUserMessage>;
@@ -322,6 +353,46 @@ describe("ClaudeAdapterLive", () => {
     );
   });
 
+  it.effect("normalizes Claude auth telemetry into structured provider auth status", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const authStatusFiber = yield* Stream.runHead(
+        Stream.filter(
+          adapter.streamEvents,
+          (event) => event.threadId === THREAD_ID && event.type === "auth.status",
+        ),
+      ).pipe(Effect.forkChild);
+
+      yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: "claudeAgent",
+        runtimeMode: "full-access",
+      });
+
+      harness.query.emit({
+        type: "auth_status",
+        isAuthenticating: false,
+        output: ["Logged in as dev@claude.example"],
+      } as unknown as SDKMessage);
+
+      const authStatusEvent = yield* Fiber.join(authStatusFiber);
+      assert.isTrue(Option.isSome(authStatusEvent));
+      if (!Option.isSome(authStatusEvent) || authStatusEvent.value.type !== "auth.status") {
+        return;
+      }
+      assert.deepEqual(authStatusEvent.value.payload, {
+        isAuthenticating: false,
+        status: "authenticated",
+        label: "dev@claude.example",
+        output: ["Logged in as dev@claude.example"],
+      });
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
   it.effect("publishes Claude extension commands in runtime session config", () => {
     const root = mkdtempSync(path.join(os.tmpdir(), "ace-claude-runtime-commands-"));
     const cwd = path.join(root, "repo");
@@ -353,15 +424,52 @@ describe("ClaudeAdapterLive", () => {
         "Start explanations with a diagram.",
       ].join("\n"),
     );
-    const harness = makeHarness({ cwd, baseDir: root });
+    const harness = makeHarness({
+      cwd,
+      baseDir: root,
+      supportedAgents: [
+        {
+          name: "sdk-auditor",
+          description: "Audit implementation details from the Claude SDK",
+          model: "sonnet",
+        },
+      ],
+      mcpServerStatus: [
+        {
+          name: "schema-docs",
+          status: "connected",
+          tools: [{ name: "search", description: "Search docs" }],
+        },
+      ],
+      contextUsage: {
+        totalTokens: 6400,
+        maxTokens: 200000,
+        rawMaxTokens: 200000,
+        percentage: 3.2,
+        categories: [{ name: "Messages", tokens: 4000, color: "#fff" }],
+        gridRows: [],
+        model: "claude-sonnet-4-6",
+        memoryFiles: [{ path: "CLAUDE.md", type: "memory", tokens: 200 }],
+        mcpTools: [{ name: "search", serverName: "schema-docs", tokens: 120, isLoaded: true }],
+        agents: [{ agentType: "reviewer", source: "project", tokens: 300 }],
+        isAutoCompactEnabled: true,
+      },
+    });
     return Effect.gen(function* () {
+      const services = yield* Effect.services();
+      const runFork = Effect.runForkWith(services);
       const adapter = yield* ClaudeAdapter;
-      const configuredFiber = yield* Stream.runHead(
-        Stream.filter(
-          adapter.streamEvents,
-          (event) => event.threadId === THREAD_ID && event.type === "session.configured",
+      const runtimeEvents: Array<ProviderRuntimeEvent> = [];
+      const runtimeEventsFiber = runFork(
+        Stream.runForEach(adapter.streamEvents, (event) =>
+          Effect.sync(() => {
+            if (event.threadId === THREAD_ID) {
+              runtimeEvents.push(event);
+            }
+          }),
         ),
-      ).pipe(Effect.forkChild);
+      );
+      yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 0)));
 
       yield* adapter.startSession({
         threadId: THREAD_ID,
@@ -374,30 +482,67 @@ describe("ClaudeAdapterLive", () => {
           options: {
             outputStyle: "Diagrams first",
             agent: "reviewer",
+            subagentModel: "haiku",
             forkSubagents: true,
             agentTeams: true,
           },
         },
       });
+      yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 0)));
 
-      const configuredEvent = yield* Fiber.join(configuredFiber);
-      assert.isTrue(Option.isSome(configuredEvent));
-      if (!Option.isSome(configuredEvent) || configuredEvent.value.type !== "session.configured") {
+      yield* Fiber.interrupt(runtimeEventsFiber);
+      const configuredEvent = runtimeEvents.find((event) => event.type === "session.configured");
+      const mcpStatusEvent = runtimeEvents.find((event) => event.type === "mcp.status.updated");
+      const contextUsageEvent = runtimeEvents.find(
+        (event) => event.type === "thread.token-usage.updated",
+      );
+      assert.equal(configuredEvent?.type, "session.configured");
+      if (!configuredEvent || configuredEvent.type !== "session.configured") {
         return;
       }
-      const commands = (configuredEvent.value.payload.config as { availableCommands?: unknown })
+      const commands = (configuredEvent.payload.config as { availableCommands?: unknown })
         .availableCommands as ReadonlyArray<ProviderSlashCommand> | undefined;
       assert.deepEqual(harness.getLastCreateQueryInput()?.options.settings, {
         outputStyle: "Diagrams first",
         agent: "reviewer",
       });
+      assert.equal(harness.getLastCreateQueryInput()?.options.agentProgressSummaries, true);
+      assert.equal(harness.getLastCreateQueryInput()?.options.forwardSubagentText, true);
+      assert.deepEqual(harness.query.supportedAgentsCalls, [undefined]);
+      assert.deepEqual(harness.query.mcpServerStatusCalls, [undefined]);
+      assert.deepEqual(harness.query.getContextUsageCalls, [undefined]);
+      assert.equal(mcpStatusEvent?.type, "mcp.status.updated");
+      if (mcpStatusEvent?.type === "mcp.status.updated") {
+        assert.deepEqual(mcpStatusEvent.payload.status, [
+          {
+            name: "schema-docs",
+            status: "connected",
+            tools: [{ name: "search", description: "Search docs" }],
+          },
+        ]);
+      }
+      assert.equal(contextUsageEvent?.type, "thread.token-usage.updated");
+      if (contextUsageEvent?.type === "thread.token-usage.updated") {
+        assert.deepEqual(contextUsageEvent.payload.usage, {
+          usedTokens: 6400,
+          lastUsedTokens: 6400,
+          maxTokens: 200000,
+          toolUses: 1,
+          compactsAutomatically: true,
+          totalProcessedTokens: 6400,
+        });
+      }
       assert.equal(harness.getLastCreateQueryInput()?.options.env?.CLAUDE_CODE_FORK_SUBAGENT, "1");
+      assert.equal(
+        harness.getLastCreateQueryInput()?.options.env?.CLAUDE_CODE_SUBAGENT_MODEL,
+        "haiku",
+      );
       assert.equal(
         harness.getLastCreateQueryInput()?.options.env?.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS,
         "1",
       );
       assert.deepEqual(
-        (configuredEvent.value.payload.config as { configOptions?: unknown }).configOptions,
+        (configuredEvent.payload.config as { configOptions?: unknown }).configOptions,
         [
           {
             id: "output_style",
@@ -462,6 +607,11 @@ describe("ClaudeAdapterLive", () => {
                 name: "reviewer",
                 description: "Review implementation details",
               },
+              {
+                value: "sdk-auditor",
+                name: "sdk-auditor",
+                description: "Audit implementation details from the Claude SDK Model: sonnet.",
+              },
             ],
           },
           {
@@ -481,6 +631,37 @@ describe("ClaudeAdapterLive", () => {
                 value: "on",
                 name: "On",
                 description: "Enable Claude Code forked subagents for shared-context side tasks.",
+              },
+            ],
+          },
+          {
+            id: "subagent_model",
+            name: "Subagent Model",
+            category: "subagent_model",
+            type: "select",
+            currentValue: "haiku",
+            description: "Claude Code model override for subagent invocations.",
+            options: [
+              {
+                value: "inherit",
+                name: "Inherit",
+                description:
+                  "Use each Claude subagent's configured model or inherit from the parent.",
+              },
+              {
+                value: "haiku",
+                name: "Haiku",
+                description: "Force Claude subagents onto the fast Haiku model alias.",
+              },
+              {
+                value: "sonnet",
+                name: "Sonnet",
+                description: "Force Claude subagents onto the Sonnet model alias.",
+              },
+              {
+                value: "opus",
+                name: "Opus",
+                description: "Force Claude subagents onto the Opus model alias.",
               },
             ],
           },
@@ -513,6 +694,16 @@ describe("ClaudeAdapterLive", () => {
           description: "Review implementation details",
           kind: "agent",
           promptPrefix: "@agent-reviewer",
+          inputHint: "<prompt>",
+        },
+      );
+      assert.deepEqual(
+        commands?.find((command) => command.name === "sdk-auditor"),
+        {
+          name: "sdk-auditor",
+          description: "Audit implementation details from the Claude SDK Model: sonnet.",
+          kind: "agent",
+          promptPrefix: "@sdk-auditor",
           inputHint: "<prompt>",
         },
       );
@@ -557,6 +748,33 @@ describe("ClaudeAdapterLive", () => {
       assert.deepEqual(createInput?.options.settingSources, ["user", "project", "local"]);
       assert.equal(createInput?.options.permissionMode, undefined);
       assert.equal(createInput?.options.allowDangerouslySkipPermissions, undefined);
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("does not export Claude inherit subagent model as an override", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: "claudeAgent",
+        runtimeMode: "full-access",
+        modelSelection: {
+          provider: "claudeAgent",
+          model: "claude-sonnet-4-6",
+          options: {
+            subagentModel: "inherit",
+            forkSubagents: true,
+          },
+        },
+      });
+
+      const createInput = harness.getLastCreateQueryInput();
+      assert.equal(createInput?.options.env?.CLAUDE_CODE_FORK_SUBAGENT, "1");
+      assert.equal(createInput?.options.env?.CLAUDE_CODE_SUBAGENT_MODEL, undefined);
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
       Effect.provide(harness.layer),
@@ -1365,6 +1583,113 @@ describe("ClaudeAdapterLive", () => {
       if (toolStarted?.type === "item.started") {
         assert.equal(toolStarted.payload.itemType, "collab_agent_tool_call");
         assert.equal(toolStarted.payload.title, "Subagent task");
+      }
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("routes forwarded Claude subagent assistant text through subagent metadata", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+
+      const runtimeEventsFiber = yield* Stream.take(adapter.streamEvents, 9).pipe(
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+
+      const session = yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: "claudeAgent",
+        runtimeMode: "full-access",
+      });
+
+      yield* adapter.sendTurn({
+        threadId: session.threadId,
+        input: "delegate this",
+        attachments: [],
+      });
+
+      harness.query.emit({
+        type: "stream_event",
+        session_id: "sdk-session-task-forwarded",
+        uuid: "stream-task-forwarded-1",
+        parent_tool_use_id: null,
+        event: {
+          type: "content_block_start",
+          index: 0,
+          content_block: {
+            type: "tool_use",
+            id: "tool-task-forwarded-1",
+            name: "Task",
+            input: {
+              description: "Review database layer",
+              prompt: "Audit SQL changes",
+              subagent_type: "code-reviewer",
+            },
+          },
+        },
+      } as unknown as SDKMessage);
+
+      harness.query.emit({
+        type: "assistant",
+        session_id: "sdk-session-task-forwarded",
+        uuid: "assistant-task-forwarded-1",
+        parent_tool_use_id: "tool-task-forwarded-1",
+        message: {
+          id: "assistant-message-task-forwarded-1",
+          content: [{ type: "text", text: "Subagent found one migration issue." }],
+        },
+      } as unknown as SDKMessage);
+
+      harness.query.emit({
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        errors: [],
+        session_id: "sdk-session-task-forwarded",
+        uuid: "result-task-forwarded-1",
+      } as unknown as SDKMessage);
+
+      const runtimeEvents = Array.from(yield* Fiber.join(runtimeEventsFiber));
+      const subagent = {
+        id: "tool-task-forwarded-1",
+        type: "code-reviewer",
+        name: "Review database layer",
+      };
+      const expectedData = {
+        childProviderThreadId: "tool-task-forwarded-1",
+        parentToolUseId: "tool-task-forwarded-1",
+        subagent,
+        ace: {
+          childProviderThreadId: "tool-task-forwarded-1",
+          parentToolUseId: "tool-task-forwarded-1",
+          subagent,
+        },
+      };
+
+      const forwardedDelta = runtimeEvents.find(
+        (event) =>
+          event.type === "content.delta" &&
+          event.payload.streamKind === "assistant_text" &&
+          event.payload.delta === "Subagent found one migration issue.",
+      );
+      assert.equal(forwardedDelta?.type, "content.delta");
+      if (forwardedDelta?.type === "content.delta") {
+        assert.deepEqual(forwardedDelta.payload.data, expectedData);
+      }
+
+      const forwardedCompleted = runtimeEvents.find(
+        (event) =>
+          event.type === "item.completed" &&
+          event.payload.itemType === "assistant_message" &&
+          event.payload.detail === "Subagent found one migration issue.",
+      );
+      assert.equal(forwardedCompleted?.type, "item.completed");
+      if (forwardedCompleted?.type === "item.completed") {
+        assert.deepEqual(forwardedCompleted.payload.data, expectedData);
       }
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),

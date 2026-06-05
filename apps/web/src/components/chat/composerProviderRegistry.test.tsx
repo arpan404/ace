@@ -469,6 +469,22 @@ describe("getComposerProviderState", () => {
     expect(state.modelOptionsForDispatch).toHaveProperty("thinking", true);
   });
 
+  it("preserves Claude subagent model override in dispatch options", () => {
+    const state = getComposerProviderState({
+      provider: "claudeAgent",
+      model: "claude-sonnet-4-6",
+      models: CLAUDE_MODELS,
+      prompt: "",
+      modelOptions: {
+        claudeAgent: {
+          subagentModel: "haiku",
+        },
+      },
+    });
+
+    expect(state.modelOptionsForDispatch).toHaveProperty("subagentModel", "haiku");
+  });
+
   it("preserves Claude default context window explicitly in dispatch options", () => {
     const state = getComposerProviderState({
       provider: "claudeAgent",

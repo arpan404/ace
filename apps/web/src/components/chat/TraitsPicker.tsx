@@ -129,6 +129,14 @@ function findForkSubagentsConfigOption(
   );
 }
 
+function findSubagentModelConfigOption(
+  sessionConfigOptions: ReadonlyArray<ProviderSessionConfigOption> | undefined,
+): ProviderSessionConfigOption | undefined {
+  return (sessionConfigOptions ?? []).find(
+    (option) => option.category === "subagent_model" || option.id === "subagent_model",
+  );
+}
+
 function findAgentTeamsConfigOption(
   sessionConfigOptions: ReadonlyArray<ProviderSessionConfigOption> | undefined,
 ): ProviderSessionConfigOption | undefined {
@@ -391,11 +399,13 @@ export function shouldRenderTraitsPicker(input: {
     const outputStyleOption = findOutputStyleConfigOption(input.sessionConfigOptions);
     const agentOption = findAgentConfigOption(input.sessionConfigOptions);
     const forkSubagentsOption = findForkSubagentsConfigOption(input.sessionConfigOptions);
+    const subagentModelOption = findSubagentModelConfigOption(input.sessionConfigOptions);
     const agentTeamsOption = findAgentTeamsConfigOption(input.sessionConfigOptions);
     if (
       (outputStyleOption && outputStyleOption.options.length > 1) ||
       (agentOption && agentOption.options.length > 1) ||
       (forkSubagentsOption && forkSubagentsOption.options.length > 1) ||
+      (subagentModelOption && subagentModelOption.options.length > 1) ||
       (agentTeamsOption && agentTeamsOption.options.length > 1)
     ) {
       return true;
@@ -669,6 +679,8 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
       : undefined;
   const forkSubagentsOption =
     provider === "claudeAgent" ? findForkSubagentsConfigOption(sessionConfigOptions) : undefined;
+  const subagentModelOption =
+    provider === "claudeAgent" ? findSubagentModelConfigOption(sessionConfigOptions) : undefined;
   const agentTeamsOption =
     provider === "claudeAgent" ? findAgentTeamsConfigOption(sessionConfigOptions) : undefined;
   const cursorModeOption =
@@ -765,6 +777,7 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
     !(outputStyleOption && outputStyleOption.options.length > 1) &&
     !(agentOption && agentOption.options.length > 1) &&
     !(forkSubagentsOption && forkSubagentsOption.options.length > 1) &&
+    !(subagentModelOption && subagentModelOption.options.length > 1) &&
     !(agentTeamsOption && agentTeamsOption.options.length > 1) &&
     !(cursorModeOption && cursorModeOption.options.length > 1) &&
     !(geminiModeOption && geminiModeOption.options.length > 1) &&
@@ -954,6 +967,34 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
     );
   }
 
+  if (subagentModelOption && subagentModelOption.options.length > 1) {
+    const selectedSubagentModel =
+      (modelOptions as ClaudeModelOptions | undefined)?.subagentModel ??
+      subagentModelOption.currentValue;
+    sections.push(
+      <MenuGroup key="subagent-model">
+        <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">Subagent Model</div>
+        <MenuRadioGroup
+          value={selectedSubagentModel}
+          onValueChange={(value) => {
+            updateModelOptions(
+              buildNextOptions(provider, modelOptions, {
+                subagentModel: value,
+              }),
+            );
+          }}
+        >
+          {subagentModelOption.options.map((option) => (
+            <MenuRadioItem key={option.value} value={option.value}>
+              {option.name}
+              {option.value === subagentModelOption.currentValue ? " (current)" : ""}
+            </MenuRadioItem>
+          ))}
+        </MenuRadioGroup>
+      </MenuGroup>,
+    );
+  }
+
   if (agentTeamsOption && agentTeamsOption.options.length > 1) {
     const selectedAgentTeams =
       typeof (modelOptions as ClaudeModelOptions | undefined)?.agentTeams === "boolean"
@@ -1103,6 +1144,8 @@ export const TraitsPicker = memo(function TraitsPicker({
       : undefined;
   const forkSubagentsOption =
     provider === "claudeAgent" ? findForkSubagentsConfigOption(sessionConfigOptions) : undefined;
+  const subagentModelOption =
+    provider === "claudeAgent" ? findSubagentModelConfigOption(sessionConfigOptions) : undefined;
   const agentTeamsOption =
     provider === "claudeAgent" ? findAgentTeamsConfigOption(sessionConfigOptions) : undefined;
   const cursorModeOption =
@@ -1214,6 +1257,17 @@ export const TraitsPicker = memo(function TraitsPicker({
       (forkSubagentsOption.currentValue === "on")
       ? [(modelOptions as ClaudeModelOptions | undefined)?.forkSubagents ? "Forks On" : "Forks Off"]
       : []),
+    ...(subagentModelOption &&
+    (modelOptions as ClaudeModelOptions | undefined)?.subagentModel &&
+    (modelOptions as ClaudeModelOptions | undefined)?.subagentModel !==
+      subagentModelOption.currentValue
+      ? [
+          subagentModelOption.options.find(
+            (option) =>
+              option.value === (modelOptions as ClaudeModelOptions | undefined)?.subagentModel,
+          )?.name ?? (modelOptions as ClaudeModelOptions | undefined)?.subagentModel,
+        ]
+      : []),
     ...(agentTeamsOption &&
     typeof (modelOptions as ClaudeModelOptions | undefined)?.agentTeams === "boolean" &&
     (modelOptions as ClaudeModelOptions | undefined)?.agentTeams !==
@@ -1265,6 +1319,7 @@ export const TraitsPicker = memo(function TraitsPicker({
     !(outputStyleOption && outputStyleOption.options.length > 1) &&
     !(agentOption && agentOption.options.length > 1) &&
     !(forkSubagentsOption && forkSubagentsOption.options.length > 1) &&
+    !(subagentModelOption && subagentModelOption.options.length > 1) &&
     !(agentTeamsOption && agentTeamsOption.options.length > 1) &&
     !(cursorModeOption && cursorModeOption.options.length > 1) &&
     !(geminiModeOption && geminiModeOption.options.length > 1) &&

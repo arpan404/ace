@@ -152,7 +152,11 @@ type OpenCodeSessionContext = {
   readonly childSessionIds: Set<string>;
   readonly childSessionSubagents: Map<
     string,
-    { readonly name?: string | undefined; readonly model?: string | undefined }
+    {
+      readonly parentId?: string | undefined;
+      readonly name?: string | undefined;
+      readonly model?: string | undefined;
+    }
   >;
   readonly availableModes: ReadonlyArray<OpenCodeModeOption>;
   readonly defaultModeId?: string | undefined;
@@ -650,6 +654,27 @@ export function isOpenCodeRetryStatusError(status: unknown): boolean {
   });
 }
 
+export function buildOpenCodeMcpToolsChangedStatus(properties: unknown):
+  | ReadonlyArray<{
+      readonly name: string;
+      readonly status: "tools_changed";
+      readonly reason: "mcp.tools.changed";
+    }>
+  | undefined {
+  const record = asRecord(properties);
+  const server = nonEmptyString(record?.server);
+  if (!server) {
+    return undefined;
+  }
+  return [
+    {
+      name: server,
+      status: "tools_changed",
+      reason: "mcp.tools.changed",
+    },
+  ];
+}
+
 function safeJsonStringify(value: unknown): string | undefined {
   if (value === undefined) {
     return undefined;
@@ -863,14 +888,15 @@ function buildOpenCodeToolData(
   };
 }
 
-function buildOpenCodeSubtaskData(part: OpenCodeSdkSubtaskPart): Record<string, unknown> {
+export function buildOpenCodeSubtaskData(part: OpenCodeSdkSubtaskPart): Record<string, unknown> {
   const model =
     part.model !== undefined ? `${part.model.providerID}/${part.model.modelID}` : undefined;
   return {
     partId: part.id,
     messageId: part.messageID,
     sessionId: part.sessionID,
-    subagentId: part.agent,
+    childProviderThreadId: part.sessionID,
+    subagentId: part.sessionID,
     agentName: part.agent,
     agentDisplayName: part.agent,
     subagentName: part.agent,
@@ -881,7 +907,7 @@ function buildOpenCodeSubtaskData(part: OpenCodeSdkSubtaskPart): Record<string, 
     ...(part.command ? { command: part.command } : {}),
     ...(model ? { model } : {}),
     subagent: {
-      id: part.agent,
+      id: part.sessionID,
       type: "opencode subagent",
       name: part.agent,
       ...(model ? { model } : {}),
@@ -890,6 +916,7 @@ function buildOpenCodeSubtaskData(part: OpenCodeSdkSubtaskPart): Record<string, 
       id: part.id,
       name: part.agent,
       agentName: part.agent,
+      childProviderThreadId: part.sessionID,
       prompt: part.prompt,
       description: part.description,
       ...(part.command ? { command: part.command } : {}),
@@ -898,7 +925,9 @@ function buildOpenCodeSubtaskData(part: OpenCodeSdkSubtaskPart): Record<string, 
   };
 }
 
-function buildOpenCodeChildSessionData(session: OpenCodeSdkSession): Record<string, unknown> {
+export function buildOpenCodeChildSessionData(
+  session: OpenCodeSdkSession,
+): Record<string, unknown> {
   const model =
     session.model !== undefined ? `${session.model.providerID}/${session.model.id}` : undefined;
   const agent = session.agent ?? session.title ?? session.id;
@@ -916,6 +945,7 @@ function buildOpenCodeChildSessionData(session: OpenCodeSdkSession): Record<stri
     ...(model ? { model } : {}),
     subagent: {
       id: session.id,
+      ...(session.parentID ? { parentId: session.parentID } : {}),
       type: "opencode subagent",
       name: agent,
       ...(model ? { model } : {}),
@@ -1118,6 +1148,10 @@ function resolveOpenCodeModeId(modelSelection: ModelSelection | undefined): stri
   return modeId && modeId.length > 0 ? modeId : undefined;
 }
 
+function formatOpenCodeModeList(modes: ReadonlyArray<OpenCodeModeOption>): string {
+  return modes.map((mode) => `'${mode.id}'`).join(", ") || "none";
+}
+
 export function normalizeOpenCodeModeOptions(rawAgents: unknown): {
   readonly modes: ReadonlyArray<OpenCodeModeOption>;
   readonly defaultModeId?: string | undefined;
@@ -1151,7 +1185,7 @@ export function normalizeOpenCodeModeOptions(rawAgents: unknown): {
   };
 }
 
-function buildOpenCodeModeConfigOption(input: {
+export function buildOpenCodeModeConfigOption(input: {
   readonly modes: ReadonlyArray<OpenCodeModeOption>;
   readonly currentModeId?: string | undefined;
 }): ProviderSessionConfigOption | undefined {
@@ -1183,10 +1217,39 @@ function selectedOpenCodeModeId(
   modelSelection: ModelSelection | undefined,
 ): string | undefined {
   const explicit = resolveOpenCodeModeId(modelSelection);
-  if (explicit && context.availableModes.some((mode) => mode.id === explicit)) {
+  if (!explicit) {
+    return context.defaultModeId;
+  }
+  if (context.availableModes.some((mode) => mode.id === explicit)) {
     return explicit;
   }
-  return context.defaultModeId;
+  throw new ProviderAdapterValidationError({
+    provider: PROVIDER,
+    operation: "sendTurn",
+    issue: `OpenCode mode '${explicit}' is not available. Available modes: ${formatOpenCodeModeList(
+      context.availableModes,
+    )}.`,
+  });
+}
+
+function initialOpenCodeModeId(
+  modeOptions: ReturnType<typeof normalizeOpenCodeModeOptions>,
+  modelSelection: ModelSelection | undefined,
+): string | undefined {
+  const explicit = resolveOpenCodeModeId(modelSelection);
+  if (!explicit) {
+    return modeOptions.defaultModeId;
+  }
+  if (modeOptions.modes.some((mode) => mode.id === explicit)) {
+    return explicit;
+  }
+  throw new ProviderAdapterValidationError({
+    provider: PROVIDER,
+    operation: "startSession",
+    issue: `OpenCode mode '${explicit}' is not available. Available modes: ${formatOpenCodeModeList(
+      modeOptions.modes,
+    )}.`,
+  });
 }
 
 const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
@@ -1268,6 +1331,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
         childProviderThreadId: providerThreadId,
         subagent: {
           id: providerThreadId,
+          ...(knownSubagent?.parentId ? { parentId: knownSubagent.parentId } : {}),
           type: "opencode subagent",
           ...(knownSubagent?.name ? { name: knownSubagent.name } : {}),
           ...(knownSubagent?.model ? { model: knownSubagent.model } : {}),
@@ -1781,6 +1845,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
     const dataRecord = asRecord(data);
     const subagent = asRecord(dataRecord?.subagent);
     ctx.childSessionSubagents.set(info.id, {
+      ...(typeof subagent?.parentId === "string" ? { parentId: subagent.parentId } : {}),
       ...(typeof subagent?.name === "string" ? { name: subagent.name } : {}),
       ...(typeof subagent?.model === "string" ? { model: subagent.model } : {}),
     });
@@ -2025,6 +2090,39 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
             type: "runtime.warning",
             ...(ctx.activeTurn ? { turnId: ctx.activeTurn.id } : {}),
             payload: buildRuntimeWarningPayload(message, detail),
+          }),
+        );
+        return;
+      }
+      case "mcp.tools.changed": {
+        const status = buildOpenCodeMcpToolsChangedStatus(event.properties);
+        if (!status) {
+          return;
+        }
+        emit(
+          sseEvent({
+            type: "mcp.status.updated",
+            payload: {
+              status,
+            },
+          }),
+        );
+        return;
+      }
+      case "mcp.browser.open.failed": {
+        const mcpName = nonEmptyString(event.properties.mcpName) ?? "unknown";
+        const url = nonEmptyString(event.properties.url);
+        emit(
+          sseEvent({
+            type: "runtime.warning",
+            ...(ctx.activeTurn ? { turnId: ctx.activeTurn.id } : {}),
+            payload: buildRuntimeWarningPayload(
+              `OpenCode MCP '${mcpName}' could not open the browser.`,
+              safeJsonStringify({
+                mcpName,
+                ...(url ? { url } : {}),
+              }),
+            ),
           }),
         );
         return;
@@ -2284,7 +2382,10 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
           }
           const defaultModels = body.default ?? {};
           const listedCommands = await client.command.list({ directory: cwd }).catch(() => null);
-          const listedAgents = await client.app.agents({ directory: cwd }).catch(() => null);
+          const listedAgents =
+            typeof client.app?.agents === "function"
+              ? await client.app.agents({ directory: cwd }).catch(() => null)
+              : null;
           const modeOptions = normalizeOpenCodeModeOptions(
             listedAgents && !listedAgents.error ? listedAgents.data : [],
           );
@@ -2296,8 +2397,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
 
           const createSession = async (): Promise<string> => {
             const permission = openCodePermissionRulesForRuntimeMode(input.runtimeMode);
-            const initialModeId =
-              resolveOpenCodeModeId(input.modelSelection) ?? modeOptions.defaultModeId;
+            const initialModeId = initialOpenCodeModeId(modeOptions, input.modelSelection);
             const created = await client.session.create({
               directory: cwd,
               ...(input.threadTitle ? { title: input.threadTitle } : {}),
@@ -2383,7 +2483,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
               : DEFAULT_MODEL_BY_PROVIDER.opencode;
           const modeConfigOption = buildOpenCodeModeConfigOption({
             modes: modeOptions.modes,
-            currentModeId: resolveOpenCodeModeId(input.modelSelection) ?? modeOptions.defaultModeId,
+            currentModeId: initialOpenCodeModeId(modeOptions, input.modelSelection),
           });
 
           const session: ProviderSession = {
@@ -2453,12 +2553,14 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
               payload: {
                 config: {
                   availableCommands,
+                  ...(modeConfigOption ? { configOptions: [modeConfigOption] } : {}),
                   capabilities: openCodeProviderCapabilities(client),
                 },
               },
               raw: {
                 method: "command.list",
                 availableCommands,
+                ...(modeConfigOption ? { configOptions: [modeConfigOption] } : {}),
                 capabilities: openCodeProviderCapabilities(client),
               },
             }),

@@ -121,12 +121,42 @@ export type ProviderSideConversationMode = typeof ProviderSideConversationMode.T
 export const ProviderThreadTargetingMode = Schema.Literals(["native", "unsupported"]);
 export type ProviderThreadTargetingMode = typeof ProviderThreadTargetingMode.Type;
 
+export const ProviderGoalControlMode = Schema.Literals(["native", "unsupported"]);
+export type ProviderGoalControlMode = typeof ProviderGoalControlMode.Type;
+
+export const ProviderMultiAgentMode = Schema.Literals(["native", "agent-command", "unsupported"]);
+export type ProviderMultiAgentMode = typeof ProviderMultiAgentMode.Type;
+
+export const ProviderHookMode = Schema.Literals(["native", "unsupported"]);
+export type ProviderHookMode = typeof ProviderHookMode.Type;
+
+export const ProviderExtensionMode = Schema.Literals(["native", "local-discovery", "unsupported"]);
+export type ProviderExtensionMode = typeof ProviderExtensionMode.Type;
+
+export const ProviderMcpMode = Schema.Literals(["native", "local-discovery", "unsupported"]);
+export type ProviderMcpMode = typeof ProviderMcpMode.Type;
+
+export const ProviderRemoteAgentMode = Schema.Literals(["native", "local-bridge", "unsupported"]);
+export type ProviderRemoteAgentMode = typeof ProviderRemoteAgentMode.Type;
+
+export const ProviderWebAccessMode = Schema.Literals([
+  "native",
+  "agent-command",
+  "mcp-or-shell",
+  "unsupported",
+]);
+export type ProviderWebAccessMode = typeof ProviderWebAccessMode.Type;
+
+export const ProviderHostedSessionMode = Schema.Literals(["native", "local-bridge", "unsupported"]);
+export type ProviderHostedSessionMode = typeof ProviderHostedSessionMode.Type;
+
 export const ProviderSlashCommand = Schema.Struct({
   name: TrimmedNonEmptyString,
   description: Schema.optional(TrimmedNonEmptyString),
   inputHint: Schema.optional(TrimmedNonEmptyString),
   kind: Schema.optional(Schema.Literals(["provider", "skill", "plugin", "agent"])),
   promptPrefix: Schema.optional(TrimmedNonEmptyString),
+  metadata: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
 });
 export type ProviderSlashCommand = typeof ProviderSlashCommand.Type;
 
@@ -152,6 +182,26 @@ export const ProviderIntegrationCapabilities = Schema.Struct({
     Schema.withDecodingDefault(() => "replay-fork" as const),
   ),
   providerThreadTargetingMode: ProviderThreadTargetingMode.pipe(
+    Schema.withDecodingDefault(() => "unsupported" as const),
+  ),
+  goalControlMode: ProviderGoalControlMode.pipe(
+    Schema.withDecodingDefault(() => "unsupported" as const),
+  ),
+  multiAgentMode: ProviderMultiAgentMode.pipe(
+    Schema.withDecodingDefault(() => "unsupported" as const),
+  ),
+  hookMode: ProviderHookMode.pipe(Schema.withDecodingDefault(() => "unsupported" as const)),
+  extensionMode: ProviderExtensionMode.pipe(
+    Schema.withDecodingDefault(() => "unsupported" as const),
+  ),
+  mcpMode: ProviderMcpMode.pipe(Schema.withDecodingDefault(() => "unsupported" as const)),
+  remoteAgentMode: ProviderRemoteAgentMode.pipe(
+    Schema.withDecodingDefault(() => "unsupported" as const),
+  ),
+  webAccessMode: ProviderWebAccessMode.pipe(
+    Schema.withDecodingDefault(() => "unsupported" as const),
+  ),
+  hostedSessionMode: ProviderHostedSessionMode.pipe(
     Schema.withDecodingDefault(() => "unsupported" as const),
   ),
 });
@@ -236,9 +286,12 @@ export const ProviderSessionConfigOption = Schema.Struct({
   name: TrimmedNonEmptyString,
   description: Schema.optional(TrimmedNonEmptyString),
   category: Schema.optional(TrimmedNonEmptyString),
-  type: Schema.Literal("select"),
-  currentValue: TrimmedNonEmptyString,
+  type: Schema.Literals(["select", "boolean", "text", "number"]),
+  currentValue: Schema.String,
   options: Schema.Array(ProviderSessionConfigOptionValue),
+  minValue: Schema.optional(Schema.Number),
+  maxValue: Schema.optional(Schema.Number),
+  stepValue: Schema.optional(Schema.Number),
 });
 export type ProviderSessionConfigOption = typeof ProviderSessionConfigOption.Type;
 

@@ -5,12 +5,14 @@ import type {
   canReplyToSubagentThread as canReplyToSubagentThreadType,
   deriveSubagentThreads as deriveSubagentThreadsType,
   isSideChatThread as isSideChatThreadType,
+  orderSubagentThreadsForHierarchy as orderSubagentThreadsForHierarchyType,
   resolveSubagentMainAgentMessage as resolveSubagentMainAgentMessageType,
 } from "./subagentThreads";
 
 let canReplyToSubagentThread: typeof canReplyToSubagentThreadType;
 let deriveSubagentThreads: typeof deriveSubagentThreadsType;
 let isSideChatThread: typeof isSideChatThreadType;
+let orderSubagentThreadsForHierarchy: typeof orderSubagentThreadsForHierarchyType;
 let resolveSubagentMainAgentMessage: typeof resolveSubagentMainAgentMessageType;
 
 beforeAll(async () => {
@@ -39,6 +41,7 @@ beforeAll(async () => {
     canReplyToSubagentThread,
     deriveSubagentThreads,
     isSideChatThread,
+    orderSubagentThreadsForHierarchy,
     resolveSubagentMainAgentMessage,
   } = await import("./subagentThreads"));
 });
@@ -95,6 +98,76 @@ describe("deriveSubagentThreads", () => {
 
     expect(threads).toHaveLength(1);
     expect(threads[0]?.label).toBe("Pauli");
+  });
+
+  it("preserves provider parent relationships for nested agent trees", () => {
+    const threads = deriveSubagentThreads(
+      [
+        workEntry({
+          id: "copilot-root-agent",
+          createdAt: "2026-06-02T00:00:00.000Z",
+          subagentId: "agent-root",
+          subagentName: "Runtime Reviewer",
+          subagentType: "code-reviewer",
+        }),
+        workEntry({
+          id: "copilot-child-agent",
+          createdAt: "2026-06-02T00:00:01.000Z",
+          subagentId: "agent-child",
+          subagentParentId: "agent-root",
+          subagentName: "Docs Writer",
+          subagentType: "docs-writer",
+        }),
+      ],
+      "githubCopilot",
+    );
+
+    expect(threads.map((thread) => ({ id: thread.id, parentId: thread.parentId }))).toEqual([
+      { id: "agent-child", parentId: "agent-root" },
+      { id: "agent-root", parentId: undefined },
+    ]);
+  });
+
+  it("orders nested provider subagents parent-first for shared UI surfaces", () => {
+    const threads = deriveSubagentThreads(
+      [
+        workEntry({
+          id: "child",
+          createdAt: "2026-06-02T00:00:03.000Z",
+          subagentId: "child-agent",
+          subagentParentId: "root-agent",
+          subagentName: "Child Agent",
+          subagentType: "reviewer",
+        }),
+        workEntry({
+          id: "grandchild",
+          createdAt: "2026-06-02T00:00:04.000Z",
+          subagentId: "grandchild-agent",
+          subagentParentId: "child-agent",
+          subagentName: "Grandchild Agent",
+          subagentType: "reviewer",
+        }),
+        workEntry({
+          id: "root",
+          createdAt: "2026-06-02T00:00:01.000Z",
+          subagentId: "root-agent",
+          subagentName: "Root Agent",
+          subagentType: "reviewer",
+        }),
+      ],
+      "githubCopilot",
+    );
+
+    expect(
+      orderSubagentThreadsForHierarchy(threads).map(({ thread, depth }) => ({
+        depth,
+        id: thread.id,
+      })),
+    ).toEqual([
+      { depth: 0, id: "root-agent" },
+      { depth: 1, id: "child-agent" },
+      { depth: 2, id: "grandchild-agent" },
+    ]);
   });
 
   it("removes agent suffixes from supplied subagent names", () => {
@@ -177,6 +250,162 @@ describe("deriveSubagentThreads", () => {
       "Check the recent diff.",
       "Explain the current branch.",
     ]);
+  });
+
+  it("keeps multiple provider child side chats with the same agent as distinct threads", () => {
+    const threads = deriveSubagentThreads(
+      [
+        workEntry({
+          id: "provider-side-one-user",
+          detail: "Review the API route.",
+          subagentId: "provider-child-session-a",
+          subagentName: "Reviewer",
+          subagentType: "side-chat",
+          sideChatMessageRole: "user",
+          sideChatMessageText: "Review the API route.",
+        }),
+        workEntry({
+          id: "provider-side-two-user",
+          createdAt: "2026-06-02T00:00:01.000Z",
+          detail: "Review the worker route.",
+          subagentId: "provider-child-session-b",
+          subagentName: "Reviewer",
+          subagentType: "side_chat",
+          sideChatMessageRole: "user",
+          sideChatMessageText: "Review the worker route.",
+        }),
+      ],
+      "opencode",
+    );
+
+    expect(threads).toHaveLength(2);
+    expect(threads.every(isSideChatThread)).toBe(true);
+    expect(threads.map((thread) => thread.id).toSorted()).toEqual([
+      "provider-child-session-a",
+      "provider-child-session-b",
+    ]);
+    expect(threads.map((thread) => thread.label).toSorted()).toEqual([
+      "Review the API route.",
+      "Review the worker route.",
+    ]);
+  });
+
+  it("recognizes provider btw side chats as side-chat threads", () => {
+    const threads = deriveSubagentThreads(
+      [
+        workEntry({
+          id: "provider-btw-user",
+          detail: "Check the current context quietly.",
+          subagentId: "provider-btw-session",
+          subagentName: "Context side chat",
+          subagentType: "btw",
+          sideChatMessageRole: "user",
+          sideChatMessageText: "Check the current context quietly.",
+        }),
+      ],
+      "claudeAgent",
+    );
+
+    expect(threads).toHaveLength(1);
+    expect(isSideChatThread(threads[0]!)).toBe(true);
+    expect(threads[0]?.label).toBe("Check the current context quietly.");
+  });
+
+  it("does not merge side chats that only have generic side-chat metadata", () => {
+    const threads = deriveSubagentThreads(
+      [
+        workEntry({
+          id: "side-one-user",
+          detail: "Review the first route.",
+          subagentType: "side chat",
+          sideChatMessageId: "side-one-message",
+          sideChatMessageRole: "user",
+          sideChatMessageText: "Review the first route.",
+        }),
+        workEntry({
+          id: "side-two-user",
+          createdAt: "2026-06-02T00:00:01.000Z",
+          detail: "Review the second route.",
+          subagentType: "side chat",
+          sideChatMessageId: "side-two-message",
+          sideChatMessageRole: "user",
+          sideChatMessageText: "Review the second route.",
+        }),
+      ],
+      "gemini",
+    );
+
+    expect(threads).toHaveLength(2);
+    expect(threads.every(isSideChatThread)).toBe(true);
+    expect(threads.map((thread) => thread.id).toSorted()).toEqual([
+      "side-one-message",
+      "side-two-message",
+    ]);
+  });
+
+  it("groups side-chat messages by provider conversation id when no child thread id exists", () => {
+    const threads = deriveSubagentThreads(
+      [
+        workEntry({
+          id: "side-user",
+          detail: "Review the current route.",
+          subagentId: "provider-side-conversation-1",
+          subagentType: "side chat",
+          sideChatMessageId: "side-user-message",
+          sideChatMessageRole: "user",
+          sideChatMessageText: "Review the current route.",
+        }),
+        workEntry({
+          id: "side-assistant",
+          createdAt: "2026-06-02T00:00:01.000Z",
+          detail: "The route uses the provider command reactor.",
+          subagentId: "provider-side-conversation-1",
+          subagentType: "side chat",
+          sideChatMessageId: "side-assistant-message",
+          sideChatMessageRole: "assistant",
+          sideChatMessageText: "The route uses the provider command reactor.",
+        }),
+      ],
+      "gemini",
+    );
+
+    expect(threads).toHaveLength(1);
+    expect(threads[0]?.id).toBe("provider-side-conversation-1");
+    expect(threads[0]?.label).toBe("Review the current route.");
+    expect(threads[0]?.entries.map((entry) => entry.sideChatMessageRole)).toEqual([
+      "user",
+      "assistant",
+    ]);
+  });
+
+  it("does not merge provider subagent threads that share an agent name", () => {
+    const threads = deriveSubagentThreads(
+      [
+        workEntry({
+          id: "opencode-subtask-one",
+          subagentId: "opencode-child-session-1",
+          subagentName: "scout",
+          subagentType: "opencode subagent",
+          subagentModel: "openai/gpt-5",
+        }),
+        workEntry({
+          id: "opencode-subtask-two",
+          createdAt: "2026-06-02T00:00:01.000Z",
+          subagentId: "opencode-child-session-2",
+          subagentName: "scout",
+          subagentType: "opencode subagent",
+          subagentModel: "openai/gpt-5",
+        }),
+      ],
+      "opencode",
+    );
+
+    expect(threads).toHaveLength(2);
+    expect(threads.map((thread) => thread.id).toSorted()).toEqual([
+      "opencode-child-session-1",
+      "opencode-child-session-2",
+    ]);
+    expect(threads.map((thread) => thread.label)).toEqual(["Scout", "Scout"]);
   });
 
   it("titles side chats from the first user request", () => {

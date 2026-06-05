@@ -14,6 +14,7 @@ import {
   DEFAULT_PROVIDER_CLI_MAX_OPEN,
   ModelSelection,
   NonNegativeInt,
+  ProviderIntegrationCapabilities,
   type ProviderKind,
   ThreadId,
   ProviderInterruptTurnInput,
@@ -92,20 +93,37 @@ type QueuedProviderTurn = {
 function shouldReplayPersistedTranscript(provider: {
   readonly provider: ProviderKind;
   readonly capabilities?: ProviderAdapterCapabilities | null;
+  readonly persistedCapabilities?: ProviderIntegrationCapabilities | null | undefined;
 }): boolean {
   return (
-    resolveProviderIntegrationCapabilities(provider.provider, provider.capabilities)
-      .sessionResumeMode === "local-replay"
+    (
+      provider.persistedCapabilities ??
+      resolveProviderIntegrationCapabilities(provider.provider, provider.capabilities)
+    ).sessionResumeMode === "local-replay"
   );
 }
 
 function shouldClearResumeCursorOnRollback(provider: {
   readonly provider: ProviderKind;
   readonly capabilities?: ProviderAdapterCapabilities | null;
+  readonly persistedCapabilities?: ProviderIntegrationCapabilities | null | undefined;
 }): boolean {
   return (
-    resolveProviderIntegrationCapabilities(provider.provider, provider.capabilities)
-      .sessionResumeMode === "local-replay"
+    (
+      provider.persistedCapabilities ??
+      resolveProviderIntegrationCapabilities(provider.provider, provider.capabilities)
+    ).sessionResumeMode === "local-replay"
+  );
+}
+
+function resolveEffectiveProviderCapabilities(input: {
+  readonly provider: ProviderKind;
+  readonly capabilities?: ProviderAdapterCapabilities | null;
+  readonly runtimePayload?: ProviderRuntimeBinding["runtimePayload"];
+}): ProviderIntegrationCapabilities {
+  return (
+    readPersistedCapabilities(input.runtimePayload) ??
+    resolveProviderIntegrationCapabilities(input.provider, input.capabilities)
   );
 }
 
@@ -174,6 +192,21 @@ function toRuntimePayloadFromSession(
   };
 }
 
+function readPersistedCapabilities(
+  runtimePayload: ProviderRuntimeBinding["runtimePayload"],
+): ProviderIntegrationCapabilities | undefined {
+  if (!runtimePayload || typeof runtimePayload !== "object" || Array.isArray(runtimePayload)) {
+    return undefined;
+  }
+  const raw =
+    "capabilities" in runtimePayload
+      ? runtimePayload.capabilities
+      : "providerCapabilities" in runtimePayload
+        ? runtimePayload.providerCapabilities
+        : undefined;
+  return Schema.is(ProviderIntegrationCapabilities)(raw) ? raw : undefined;
+}
+
 function readPersistedModelSelection(
   runtimePayload: ProviderRuntimeBinding["runtimePayload"],
 ): ModelSelection | undefined {
@@ -194,6 +227,19 @@ function readPersistedCwd(
   if (typeof rawCwd !== "string") return undefined;
   const trimmed = rawCwd.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function readConfiguredCapabilities(
+  event: ProviderRuntimeEvent,
+): ProviderAdapterCapabilities | ProviderIntegrationCapabilities | undefined {
+  if (event.type !== "session.configured") {
+    return undefined;
+  }
+  const raw = event.payload.config.capabilities;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return undefined;
+  }
+  return raw as ProviderAdapterCapabilities | ProviderIntegrationCapabilities;
 }
 
 function parseIsoTimestampMs(value: string): number | undefined {
@@ -607,6 +653,32 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       const event = normalizeProviderRuntimeEvent(adapterEvent);
       recordRuntimeEventActivity(event);
 
+      const configuredCapabilities = readConfiguredCapabilities(event);
+      if (configuredCapabilities !== undefined) {
+        yield* directory
+          .upsert({
+            threadId: event.threadId,
+            provider: event.provider,
+            runtimePayload: {
+              capabilities: resolveProviderIntegrationCapabilities(
+                event.provider,
+                configuredCapabilities,
+              ),
+              lastRuntimeEvent: "provider.session.configured",
+              lastRuntimeEventAt: event.createdAt,
+            },
+          })
+          .pipe(
+            Effect.catchCause((cause) =>
+              Effect.logWarning("failed to persist provider session capabilities", {
+                provider: event.provider,
+                threadId: event.threadId,
+                cause,
+              }),
+            ),
+          );
+      }
+
       if (event.type === "turn.completed") {
         const completedPayload = event.payload;
         yield* analytics.record("provider.turn.completed", {
@@ -676,7 +748,12 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       input.binding.resumeCursor !== null && input.binding.resumeCursor !== undefined
         ? input.binding.resumeCursor
         : undefined;
-    const shouldReplayTranscript = shouldReplayPersistedTranscript(adapter);
+    const persistedCapabilities = readPersistedCapabilities(input.binding.runtimePayload);
+    const shouldReplayTranscript = shouldReplayPersistedTranscript({
+      provider: adapter.provider,
+      capabilities: adapter.capabilities,
+      persistedCapabilities,
+    });
     const hasActiveSession = yield* adapter.hasSession(input.binding.threadId);
     if (hasActiveSession) {
       const activeSessions = yield* adapter.listSessions();
@@ -814,7 +891,15 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       }
       const adapter = yield* registry.getByProvider(input.provider);
       const persistedBinding = Option.getOrUndefined(yield* directory.getBinding(threadId));
-      const shouldReplayTranscript = shouldReplayPersistedTranscript(adapter);
+      const persistedCapabilities =
+        persistedBinding?.provider === input.provider
+          ? readPersistedCapabilities(persistedBinding.runtimePayload)
+          : undefined;
+      const shouldReplayTranscript = shouldReplayPersistedTranscript({
+        provider: adapter.provider,
+        capabilities: adapter.capabilities,
+        persistedCapabilities,
+      });
       const explicitReplayTurns = input.replayTurns;
       const shouldIncludePersistedTranscript =
         explicitReplayTurns === undefined &&
@@ -910,10 +995,12 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       operation: "ProviderService.sendTurn",
       allowRecovery: true,
     });
-    const capabilities = resolveProviderIntegrationCapabilities(
-      routed.adapter.provider,
-      routed.adapter.capabilities,
-    );
+    const binding = Option.getOrUndefined(yield* directory.getBinding(input.threadId));
+    const capabilities = resolveEffectiveProviderCapabilities({
+      provider: routed.adapter.provider,
+      capabilities: routed.adapter.capabilities,
+      runtimePayload: binding?.runtimePayload,
+    });
     if (
       input.providerThreadId !== undefined &&
       capabilities.providerThreadTargetingMode !== "native"
@@ -1056,10 +1143,12 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       operation: "ProviderService.steerTurn",
       allowRecovery: true,
     });
-    const capabilities = resolveProviderIntegrationCapabilities(
-      routed.adapter.provider,
-      routed.adapter.capabilities,
-    );
+    const binding = Option.getOrUndefined(yield* directory.getBinding(input.threadId));
+    const capabilities = resolveEffectiveProviderCapabilities({
+      provider: routed.adapter.provider,
+      capabilities: routed.adapter.capabilities,
+      runtimePayload: binding?.runtimePayload,
+    });
     if (capabilities.turnSteeringMode !== "native") {
       return yield* toValidationError(
         "ProviderService.steerTurn",
@@ -1304,7 +1393,12 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       );
     if (refreshedSession) {
       markSessionObserved(refreshedSession, Date.now());
-      const shouldClearResumeCursor = shouldClearResumeCursorOnRollback(routed.adapter);
+      const refreshedBinding = Option.getOrUndefined(yield* directory.getBinding(routed.threadId));
+      const shouldClearResumeCursor = shouldClearResumeCursorOnRollback({
+        provider: routed.adapter.provider,
+        capabilities: routed.adapter.capabilities,
+        persistedCapabilities: readPersistedCapabilities(refreshedBinding?.runtimePayload),
+      });
       yield* upsertSessionBinding(refreshedSession, routed.threadId, {
         lastRuntimeEvent: "provider.rollbackConversation",
         lastRuntimeEventAt: new Date().toISOString(),

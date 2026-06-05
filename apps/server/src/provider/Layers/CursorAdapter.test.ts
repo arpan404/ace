@@ -27,7 +27,7 @@ import {
   streamKindFromUpdateKind,
 } from "./CursorAdapter";
 import { type ServerConfigShape, ServerConfig } from "../../config.ts";
-import { ServerSettingsService } from "../../serverSettings.ts";
+import { type ServerSettingsShape, ServerSettingsService } from "../../serverSettings.ts";
 import { startCursorAcpClient, type CursorAcpClient } from "../cursorAcp";
 import { type CursorAdapterShape, CursorAdapter } from "../Services/CursorAdapter.ts";
 
@@ -38,25 +38,28 @@ const tinyPngBase64 =
 
 const cursorInitializeResult = (input?: {
   readonly loadSession?: boolean;
+  readonly resumeSession?: boolean;
+  readonly closeSession?: boolean;
   readonly forkSession?: boolean;
   readonly image?: boolean;
-}) => ({
-  protocolVersion: 1,
-  authMethods: [{ id: "cursor_login", name: "Cursor Login" }],
-  agentCapabilities: {
-    loadSession: input?.loadSession ?? true,
-    ...(input?.forkSession
-      ? {
-          sessionCapabilities: {
-            fork: {},
-          },
-        }
-      : {}),
-    promptCapabilities: {
-      image: input?.image ?? true,
+}) => {
+  const sessionCapabilities = {
+    ...(input?.resumeSession ? { resume: {} } : {}),
+    ...(input?.closeSession ? { close: {} } : {}),
+    ...(input?.forkSession ? { fork: {} } : {}),
+  };
+  return {
+    protocolVersion: 1,
+    authMethods: [{ id: "cursor_login", name: "Cursor Login" }],
+    agentCapabilities: {
+      loadSession: input?.loadSession ?? true,
+      ...(Object.keys(sessionCapabilities).length > 0 ? { sessionCapabilities } : {}),
+      promptCapabilities: {
+        image: input?.image ?? true,
+      },
     },
-  },
-});
+  };
+};
 
 const cursorSessionConfigOptions = (input?: {
   readonly mode?: string;
@@ -210,14 +213,19 @@ const adapterLayer = CursorAdapterLive.pipe(
 );
 
 async function withAdapter<T>(
-  run: (adapter: CursorAdapterShape, config: ServerConfigShape) => Promise<T>,
+  run: (
+    adapter: CursorAdapterShape,
+    config: ServerConfigShape,
+    settingsService: ServerSettingsShape,
+  ) => Promise<T>,
 ): Promise<T> {
   return Effect.runPromise(
     Effect.scoped(
       Effect.gen(function* () {
         const adapter = yield* CursorAdapter;
         const config = yield* ServerConfig;
-        return yield* Effect.promise(() => run(adapter, config));
+        const settingsService = yield* ServerSettingsService;
+        return yield* Effect.promise(() => run(adapter, config, settingsService));
       }),
     ).pipe(Effect.provide(adapterLayer)),
   );
@@ -415,6 +423,229 @@ describe("CursorAdapterLive", () => {
     });
   });
 
+  it("resumes Cursor ACP sessions with session/resume when advertised", async () => {
+    const client = makeFakeCursorClient({
+      requestImpl: async (method) => {
+        switch (method) {
+          case "initialize":
+            return cursorInitializeResult({ resumeSession: true });
+          case "authenticate":
+            return {};
+          case "session/resume":
+            return {};
+          default:
+            throw new Error(`Unexpected Cursor ACP request: ${method}`);
+        }
+      },
+    });
+    mockedStartCursorAcpClient.mockReturnValue(client);
+
+    await withAdapter(async (adapter) => {
+      try {
+        const session = await Effect.runPromise(
+          adapter.startSession({
+            provider: "cursor",
+            threadId: asThreadId("thread-cursor-native-resume"),
+            cwd: "/repo/cursor-native-resume",
+            resumeCursor: { sessionId: "cursor-session-native-resume" },
+            runtimeMode: "full-access",
+          }),
+        );
+
+        expect(session.resumeCursor).toEqual({ sessionId: "cursor-session-native-resume" });
+        expect(client.request).toHaveBeenNthCalledWith(
+          3,
+          "session/resume",
+          {
+            cwd: "/repo/cursor-native-resume",
+            mcpServers: [],
+            sessionId: "cursor-session-native-resume",
+          },
+          { timeoutMs: 15_000 },
+        );
+      } finally {
+        await Effect.runPromise(adapter.stopAll());
+      }
+    });
+  });
+
+  it("passes effective Cursor MCP servers into ACP startup and environment status", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ace-cursor-mcp-"));
+    try {
+      const cursorHome = join(root, "home");
+      const repo = join(root, "repo");
+      await mkdir(join(cursorHome), { recursive: true });
+      await mkdir(join(repo, ".git"), { recursive: true });
+      await mkdir(join(repo, ".cursor"), { recursive: true });
+      await writeFile(
+        join(cursorHome, "mcp.json"),
+        JSON.stringify({
+          mcpServers: {
+            browser: {
+              command: "home-browser-mcp",
+              args: ["--stdio"],
+            },
+          },
+        }),
+      );
+      await writeFile(
+        join(repo, ".cursor", "mcp.json"),
+        JSON.stringify({
+          mcpServers: {
+            browser: {
+              command: "project-browser-mcp",
+              args: ["--project"],
+              tools: ["navigate", "screenshot"],
+            },
+            docs: {
+              type: "http",
+              url: "https://docs.example.test/mcp",
+              headers: { Authorization: "Bearer token" },
+            },
+          },
+        }),
+      );
+
+      const client = makeFakeCursorClient({
+        requestImpl: async (method) => {
+          switch (method) {
+            case "initialize":
+              return cursorInitializeResult();
+            case "authenticate":
+              return {};
+            case "session/new":
+              return cursorSessionResult("cursor-session-mcp");
+            default:
+              throw new Error(`Unexpected Cursor ACP request: ${method}`);
+          }
+        },
+      });
+      mockedStartCursorAcpClient.mockReturnValue(client);
+
+      await withAdapter(async (adapter, _config, settingsService) => {
+        await Effect.runPromise(
+          settingsService.updateSettings({
+            providers: {
+              cursor: {
+                configDir: cursorHome,
+              },
+            },
+          }),
+        );
+        try {
+          const eventsPromise = Effect.runPromise(
+            Stream.runCollect(
+              Stream.take(
+                Stream.filter(
+                  adapter.streamEvents,
+                  (event) =>
+                    event.type === "session.configured" || event.type === "mcp.status.updated",
+                ),
+                2,
+              ),
+            ),
+          );
+
+          await Effect.runPromise(
+            adapter.startSession({
+              provider: "cursor",
+              threadId: asThreadId("thread-cursor-mcp"),
+              cwd: repo,
+              runtimeMode: "full-access",
+            }),
+          );
+
+          const mcpServers = [
+            {
+              name: "browser",
+              type: "stdio",
+              command: "project-browser-mcp",
+              args: ["--project"],
+              tools: ["navigate", "screenshot"],
+            },
+            {
+              name: "docs",
+              type: "http",
+              url: "https://docs.example.test/mcp",
+              headers: { Authorization: "Bearer token" },
+            },
+          ];
+          expect(client.request).toHaveBeenNthCalledWith(
+            3,
+            "session/new",
+            {
+              cwd: repo,
+              mcpServers,
+            },
+            { timeoutMs: 15_000 },
+          );
+
+          const events = Array.from(await eventsPromise);
+          const configuredEvent = events.find((event) => event.type === "session.configured");
+          expect(configuredEvent?.type).toBe("session.configured");
+          if (configuredEvent?.type === "session.configured") {
+            expect(configuredEvent.payload.config.mcpServers).toEqual(mcpServers);
+          }
+          const mcpEvent = events.find((event) => event.type === "mcp.status.updated");
+          expect(mcpEvent?.type).toBe("mcp.status.updated");
+          if (mcpEvent?.type === "mcp.status.updated") {
+            expect(mcpEvent.payload.status).toEqual({
+              provider: "cursor",
+              mcpServers: mcpServers.map((server) =>
+                Object.assign({ status: "configured" }, server),
+              ),
+            });
+          }
+        } finally {
+          await Effect.runPromise(adapter.stopAll());
+        }
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("closes Cursor ACP sessions with session/close when advertised", async () => {
+    const client = makeFakeCursorClient({
+      requestImpl: async (method) => {
+        switch (method) {
+          case "initialize":
+            return cursorInitializeResult({ closeSession: true });
+          case "authenticate":
+            return {};
+          case "session/new":
+            return cursorSessionResult("cursor-session-native-close");
+          case "session/close":
+            return {};
+          default:
+            throw new Error(`Unexpected Cursor ACP request: ${method}`);
+        }
+      },
+    });
+    mockedStartCursorAcpClient.mockReturnValue(client);
+
+    await withAdapter(async (adapter) => {
+      const threadId = asThreadId("thread-cursor-native-close");
+      await Effect.runPromise(
+        adapter.startSession({
+          provider: "cursor",
+          threadId,
+          cwd: "/repo/cursor-native-close",
+          runtimeMode: "full-access",
+        }),
+      );
+
+      await Effect.runPromise(adapter.stopSession(threadId));
+
+      expect(client.request).toHaveBeenCalledWith(
+        "session/close",
+        { sessionId: "cursor-session-native-close" },
+        { timeoutMs: 15_000 },
+      );
+      expect(client.close).toHaveBeenCalled();
+    });
+  });
+
   it("syncs selected Cursor ACP mode from model options on session start", async () => {
     const client = makeFakeCursorClient({
       requestImpl: async (method, params) => {
@@ -517,6 +748,7 @@ describe("CursorAdapterLive", () => {
           return;
         }
         expect(configuredEvent.value.payload.config.capabilities).toEqual({
+          sessionResumeMode: "local-replay",
           sessionForkMode: "local-replay",
           sideConversationMode: "replay-fork",
         });
@@ -570,6 +802,7 @@ describe("CursorAdapterLive", () => {
           return;
         }
         expect(configuredEvent.value.payload.config.capabilities).toEqual({
+          sessionResumeMode: "local-replay",
           sessionForkMode: "native",
           sideConversationMode: "native-fork",
         });

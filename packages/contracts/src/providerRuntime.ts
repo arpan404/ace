@@ -23,6 +23,7 @@ const RuntimeEventRawSource = Schema.Literals([
   "codex.eventmsg",
   "claude.sdk.message",
   "claude.sdk.permission",
+  "claude.sdk.control",
   "codex.sdk.thread-event",
   "github-copilot.sdk.event",
   "github-copilot.sdk.permission",
@@ -553,18 +554,38 @@ export type ToolSummaryPayload = typeof ToolSummaryPayload.Type;
 
 const AuthStatusPayload = Schema.Struct({
   isAuthenticating: Schema.optional(Schema.Boolean),
+  status: Schema.optional(Schema.Literals(["authenticated", "unauthenticated", "unknown"])),
+  label: Schema.optional(TrimmedNonEmptyStringSchema),
+  account: Schema.optional(Schema.Unknown),
   output: Schema.optional(Schema.Array(Schema.String)),
   error: Schema.optional(TrimmedNonEmptyStringSchema),
 });
 export type AuthStatusPayload = typeof AuthStatusPayload.Type;
 
 const AccountUpdatedPayload = Schema.Struct({
-  account: Schema.Unknown,
+  account: Schema.optional(Schema.Unknown),
+  auth: Schema.optional(Schema.Unknown),
+  user: Schema.optional(Schema.Unknown),
+  profile: Schema.optional(Schema.Unknown),
+  subscription: Schema.optional(Schema.Unknown),
+  plan: Schema.optional(Schema.Unknown),
+  label: Schema.optional(TrimmedNonEmptyStringSchema),
+  login: Schema.optional(TrimmedNonEmptyStringSchema),
+  email: Schema.optional(TrimmedNonEmptyStringSchema),
+  username: Schema.optional(TrimmedNonEmptyStringSchema),
+  name: Schema.optional(TrimmedNonEmptyStringSchema),
+  accountId: Schema.optional(TrimmedNonEmptyStringSchema),
+  account_id: Schema.optional(TrimmedNonEmptyStringSchema),
 });
 export type AccountUpdatedPayload = typeof AccountUpdatedPayload.Type;
 
 const AccountRateLimitsUpdatedPayload = Schema.Struct({
-  rateLimits: Schema.Unknown,
+  rateLimits: Schema.optional(Schema.Unknown),
+  rate_limits: Schema.optional(Schema.Unknown),
+  rateLimit: Schema.optional(Schema.Unknown),
+  rate_limit: Schema.optional(Schema.Unknown),
+  limits: Schema.optional(Schema.Unknown),
+  quota: Schema.optional(Schema.Unknown),
 });
 export type AccountRateLimitsUpdatedPayload = typeof AccountRateLimitsUpdatedPayload.Type;
 

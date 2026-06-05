@@ -1,6 +1,6 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { ThreadId } from "@ace/contracts";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Effect, Layer, Option, Stream } from "effect";
@@ -35,10 +35,17 @@ const mockedStartAcpClient = vi.mocked(startAcpClient);
 const asThreadId = (value: string): ThreadId => ThreadId.makeUnsafe(value);
 
 function geminiInitializeResult(input?: {
+  readonly resumeSession?: boolean;
+  readonly closeSession?: boolean;
   readonly forkSession?: boolean;
-  readonly forkSessionShape?: "nested-object" | "boolean" | "root-capability";
+  readonly forkSessionShape?: "nested-object" | "boolean" | "root-capability" | "session-dot";
 }) {
   const forkSessionShape = input?.forkSessionShape ?? "nested-object";
+  const sessionCapabilities = {
+    ...(input?.resumeSession ? { resume: {} } : {}),
+    ...(input?.closeSession ? { close: {} } : {}),
+    ...(input?.forkSession && forkSessionShape === "nested-object" ? { fork: {} } : {}),
+  };
   return {
     protocolVersion: 1,
     authMethods: [],
@@ -47,14 +54,9 @@ function geminiInitializeResult(input?: {
       : {}),
     agentCapabilities: {
       loadSession: true,
+      ...(Object.keys(sessionCapabilities).length > 0 ? { sessionCapabilities } : {}),
       ...(input?.forkSession && forkSessionShape === "boolean" ? { forkSession: true } : {}),
-      ...(input?.forkSession && forkSessionShape === "nested-object"
-        ? {
-            sessionCapabilities: {
-              fork: {},
-            },
-          }
-        : {}),
+      ...(input?.forkSession && forkSessionShape === "session-dot" ? { "session.fork": true } : {}),
     },
   };
 }
@@ -452,6 +454,63 @@ describe("GeminiAdapterLive startup", () => {
     });
   });
 
+  it("initializes Gemini projects registry in the configured home before ACP startup", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "ace-gemini-project-registry-"));
+    const geminiHome = path.join(root, "home");
+    await mkdir(geminiHome, { recursive: true });
+    await writeFile(path.join(geminiHome, "projects.json"), "{}");
+    const client = makeFakeGeminiClient({
+      requestImpl: async (method) => {
+        switch (method) {
+          case "initialize":
+            return geminiInitializeResult();
+          case "session/new":
+            return geminiSessionResult("gemini-session-project-registry");
+          default:
+            throw new Error(`Unexpected Gemini ACP request: ${method}`);
+        }
+      },
+    });
+    mockedStartAcpClient.mockReturnValue(client);
+
+    await withAdapter(async (adapter, _config, settingsService) => {
+      try {
+        await Effect.runPromise(
+          settingsService.updateSettings({
+            providers: {
+              gemini: {
+                configDir: geminiHome,
+              },
+            },
+          }),
+        );
+
+        await Effect.runPromise(
+          adapter.startSession({
+            provider: "gemini",
+            threadId: asThreadId("thread-gemini-project-registry"),
+            cwd: "/repo/gemini-project-registry",
+            runtimeMode: "approval-required",
+            interactionMode: "default",
+          }),
+        );
+
+        expect(JSON.parse(await readFile(path.join(geminiHome, "projects.json"), "utf8"))).toEqual({
+          projects: {},
+        });
+        expect(mockedStartAcpClient).toHaveBeenCalledWith(
+          expect.objectContaining({
+            env: expect.objectContaining({
+              GEMINI_CLI_HOME: geminiHome,
+            }),
+          }),
+        );
+      } finally {
+        await rm(root, { force: true, recursive: true });
+      }
+    });
+  });
+
   it("passes Gemini settings MCP servers to ACP session startup", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "ace-gemini-mcp-"));
     const geminiHome = path.join(root, "home");
@@ -516,6 +575,7 @@ describe("GeminiAdapterLive startup", () => {
 
     await withAdapter(async (adapter, _config, settingsService) => {
       try {
+        const threadId = asThreadId("thread-gemini-mcp");
         await Effect.runPromise(
           settingsService.updateSettings({
             providers: {
@@ -526,10 +586,24 @@ describe("GeminiAdapterLive startup", () => {
           }),
         );
 
+        const eventsPromise = Effect.runPromise(
+          Stream.runCollect(
+            Stream.take(
+              Stream.filter(
+                adapter.streamEvents,
+                (event) =>
+                  event.threadId === threadId &&
+                  (event.type === "session.configured" || event.type === "mcp.status.updated"),
+              ),
+              2,
+            ),
+          ),
+        );
+
         await Effect.runPromise(
           adapter.startSession({
             provider: "gemini",
-            threadId: asThreadId("thread-gemini-mcp"),
+            threadId,
             cwd: nestedCwd,
             runtimeMode: "approval-required",
           }),
@@ -562,6 +636,37 @@ describe("GeminiAdapterLive startup", () => {
           },
           { timeoutMs: 20_000 },
         );
+        const events = Array.from(await eventsPromise);
+        const mcpEvent = events.find((event) => event.type === "mcp.status.updated");
+        expect(mcpEvent?.type).toBe("mcp.status.updated");
+        if (mcpEvent?.type === "mcp.status.updated") {
+          expect(mcpEvent.payload.status).toEqual({
+            provider: "gemini",
+            mcpServers: [
+              {
+                name: "docs",
+                command: "node",
+                args: ["project-docs.js"],
+                env: [{ name: "DOCS_TOKEN", value: "project-token" }],
+                status: "configured",
+              },
+              {
+                name: "remote",
+                type: "http",
+                url: "https://mcp.example.test/mcp",
+                headers: [{ name: "Authorization", value: "Bearer home" }],
+                status: "configured",
+              },
+              {
+                name: "browser",
+                command: "npx",
+                args: ["-y", "@mcp/browser"],
+                env: [],
+                status: "configured",
+              },
+            ],
+          });
+        }
       } finally {
         await rm(root, { force: true, recursive: true });
       }
@@ -646,12 +751,93 @@ describe("GeminiAdapterLive startup", () => {
             }),
           ]),
         );
+        expect(configuredEvent.payload.config.availableCommands).not.toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              name: "browser_agent",
+            }),
+          ]),
+        );
         expect(configuredEvent.payload.config.capabilities).toEqual({
+          sessionResumeMode: "local-replay",
           sessionForkMode: "local-replay",
           sideConversationMode: "replay-fork",
         });
       } finally {
         await Effect.runPromise(adapter.stopAll());
+      }
+    });
+  });
+
+  it("emits Gemini browser agent command only when settings enable it", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "ace-gemini-browser-agent-"));
+    const cwd = path.join(root, "repo");
+    await mkdir(path.join(cwd, ".gemini"), { recursive: true });
+    await writeFile(
+      path.join(cwd, ".gemini", "settings.json"),
+      JSON.stringify({
+        agents: {
+          overrides: {
+            browser_agent: { enabled: true },
+          },
+        },
+      }),
+    );
+
+    const client = makeFakeGeminiClient({
+      requestImpl: async (method) => {
+        switch (method) {
+          case "initialize":
+            return geminiInitializeResult();
+          case "session/new":
+            return geminiSessionResult("gemini-session-browser-agent");
+          default:
+            throw new Error(`Unexpected Gemini ACP request: ${method}`);
+        }
+      },
+    });
+    mockedStartAcpClient.mockReturnValue(client);
+
+    await withAdapter(async (adapter) => {
+      try {
+        const configuredPromise = Effect.runPromise(
+          Stream.runHead(
+            Stream.filter(adapter.streamEvents, (event) => event.type === "session.configured"),
+          ),
+        );
+
+        await Effect.runPromise(
+          adapter.startSession({
+            provider: "gemini",
+            threadId: asThreadId("thread-gemini-browser-agent"),
+            cwd,
+            runtimeMode: "approval-required",
+            interactionMode: "default",
+          }),
+        );
+
+        const configuredEventOption = await configuredPromise;
+        expect(Option.isSome(configuredEventOption)).toBe(true);
+        if (!Option.isSome(configuredEventOption)) {
+          return;
+        }
+        const configuredEvent = configuredEventOption.value;
+        expect(configuredEvent.type).toBe("session.configured");
+        if (configuredEvent.type !== "session.configured") {
+          return;
+        }
+        expect(configuredEvent.payload.config.availableCommands).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              name: "browser_agent",
+              kind: "agent",
+              promptPrefix: "@browser_agent",
+            }),
+          ]),
+        );
+      } finally {
+        await Effect.runPromise(adapter.stopAll());
+        await rm(root, { force: true, recursive: true });
       }
     });
   });
@@ -700,6 +886,7 @@ describe("GeminiAdapterLive startup", () => {
           return;
         }
         expect(configuredEvent.payload.config.capabilities).toEqual({
+          sessionResumeMode: "local-replay",
           sessionForkMode: "native",
           sideConversationMode: "native-fork",
         });
@@ -709,7 +896,7 @@ describe("GeminiAdapterLive startup", () => {
     });
   });
 
-  it.each(["boolean", "root-capability"] as const)(
+  it.each(["boolean", "root-capability", "session-dot"] as const)(
     "emits native fork capabilities for alternate Gemini ACP %s fork metadata",
     async (forkSessionShape) => {
       const client = makeFakeGeminiClient({
@@ -755,6 +942,7 @@ describe("GeminiAdapterLive startup", () => {
             return;
           }
           expect(configuredEvent.payload.config.capabilities).toEqual({
+            sessionResumeMode: "local-replay",
             sessionForkMode: "native",
             sideConversationMode: "native-fork",
           });
@@ -1188,6 +1376,91 @@ describe("GeminiAdapterLive startup", () => {
       } finally {
         await Effect.runPromise(adapter.stopAll());
       }
+    });
+  });
+
+  it("resumes Gemini ACP sessions with session/resume when advertised", async () => {
+    const client = makeFakeGeminiClient({
+      requestImpl: async (method) => {
+        switch (method) {
+          case "initialize":
+            return geminiInitializeResult({ resumeSession: true });
+          case "session/resume":
+            return {};
+          default:
+            throw new Error(`Unexpected Gemini ACP request: ${method}`);
+        }
+      },
+    });
+    mockedStartAcpClient.mockReturnValue(client);
+
+    await withAdapter(async (adapter) => {
+      try {
+        const session = await Effect.runPromise(
+          adapter.startSession({
+            provider: "gemini",
+            threadId: asThreadId("thread-gemini-native-resume"),
+            cwd: "/repo/gemini-native-resume",
+            resumeCursor: { sessionId: "gemini-session-native-resume" },
+            runtimeMode: "full-access",
+          }),
+        );
+
+        expect(session.resumeCursor).toEqual({ sessionId: "gemini-session-native-resume" });
+        expect(client.request).toHaveBeenNthCalledWith(
+          2,
+          "session/resume",
+          {
+            cwd: "/repo/gemini-native-resume",
+            mcpServers: [],
+            sessionId: "gemini-session-native-resume",
+          },
+          { timeoutMs: 20_000 },
+        );
+      } finally {
+        await Effect.runPromise(adapter.stopAll());
+      }
+    });
+  });
+
+  it("closes Gemini ACP sessions with session/close when advertised", async () => {
+    const client = makeFakeGeminiClient({
+      requestImpl: async (method) => {
+        switch (method) {
+          case "initialize":
+            return geminiInitializeResult({ closeSession: true });
+          case "session/new":
+            return geminiSessionResult("gemini-session-native-close");
+          case "session/set_mode":
+            return geminiSessionResult("gemini-session-native-close", { currentModeId: "yolo" });
+          case "session/close":
+            return {};
+          default:
+            throw new Error(`Unexpected Gemini ACP request: ${method}`);
+        }
+      },
+    });
+    mockedStartAcpClient.mockReturnValue(client);
+
+    await withAdapter(async (adapter) => {
+      const threadId = asThreadId("thread-gemini-native-close");
+      await Effect.runPromise(
+        adapter.startSession({
+          provider: "gemini",
+          threadId,
+          cwd: "/repo/gemini-native-close",
+          runtimeMode: "full-access",
+        }),
+      );
+
+      await Effect.runPromise(adapter.stopSession(threadId));
+
+      expect(client.request).toHaveBeenCalledWith(
+        "session/close",
+        { sessionId: "gemini-session-native-close" },
+        { timeoutMs: 20_000 },
+      );
+      expect(client.close).toHaveBeenCalled();
     });
   });
 });

@@ -381,6 +381,19 @@ describe("normalize*ModelOptionsWithCapabilities", () => {
     });
   });
 
+  it("treats Claude inherit subagent model as no model override", () => {
+    expect(
+      normalizeClaudeModelOptionsWithCapabilities(claudeCaps, {
+        subagentModel: "inherit",
+        forkSubagents: true,
+      }),
+    ).toEqual({
+      effort: "high",
+      contextWindow: "1m",
+      forkSubagents: true,
+    });
+  });
+
   it("omits unsupported Claude context window options", () => {
     expect(
       normalizeClaudeModelOptionsWithCapabilities(
