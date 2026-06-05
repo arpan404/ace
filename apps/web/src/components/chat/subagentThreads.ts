@@ -32,7 +32,9 @@ export interface HierarchicalSubagentThread {
 function isSideChatEntry(entry: WorkLogEntry): boolean {
   return (
     isProviderSideConversationType(entry.subagentType) ||
-    entry.subagentId?.trim().toLowerCase().startsWith("side:") === true
+    entry.subagentId?.trim().toLowerCase().startsWith("side:") === true ||
+    hasSideChatCommandPrefix(entry.sideChatMessageText) ||
+    hasSideChatCommandPrefix(entry.detail)
   );
 }
 
@@ -128,6 +130,11 @@ const SUBAGENT_PERSONA_TONES = [
 ] as const;
 
 const PROVIDER_SIDE_CHAT_DISPLAY_PREFIX_PATTERN = /^(?:\.side|\/btw|\.btw)(?:\s+([\s\S]*))?$/i;
+const SIDE_CHAT_COMMAND_PREFIX_PATTERN = /^(?:\/side|\.side|\/btw|\.btw)(?:\s|$)/i;
+
+function hasSideChatCommandPrefix(value: string | undefined): boolean {
+  return SIDE_CHAT_COMMAND_PREFIX_PATTERN.test(value?.trim() ?? "");
+}
 
 function hashSubagentId(value: string): number {
   let hash = 2166136261;

@@ -342,6 +342,31 @@ describe("deriveSubagentThreads", () => {
     expect(threads[0]?.label).toBe("Check the current context quietly.");
   });
 
+  it("recognizes provider side-chat command text when metadata is generic", () => {
+    const threads = deriveSubagentThreads(
+      [
+        workEntry({
+          id: "provider-side-command-user",
+          detail: ".side Check the current provider context quietly.",
+          subagentId: "provider-child-session-side",
+          subagentName: "Context helper",
+          subagentType: "subagent",
+          sideChatMessageRole: "user",
+          sideChatMessageText: ".side Check the current provider context quietly.",
+        }),
+      ],
+      "codex",
+    );
+
+    expect(threads).toHaveLength(1);
+    expect(isSideChatThread(threads[0]!)).toBe(true);
+    expect(threads[0]?.label).toBe("Check the current provider context quietly.");
+    expect(partitionSubagentThreads(threads)).toMatchObject({
+      providerSubagentThreads: [],
+      sideChatThreads: [{ id: "provider-child-session-side" }],
+    });
+  });
+
   it("does not merge side chats that only have generic side-chat metadata", () => {
     const threads = deriveSubagentThreads(
       [
