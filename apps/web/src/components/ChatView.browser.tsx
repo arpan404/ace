@@ -351,6 +351,8 @@ function createSnapshotForTargetUser(options: {
                   providerThreadTargetingMode: "native",
                   goalControlMode: "native",
                   multiAgentMode: "native",
+                  multiAgentInvocationPrefixes: [],
+                  multiAgentDefinitionPaths: [],
                   hookMode: "native",
                   extensionMode: "native",
                   mcpMode: "native",

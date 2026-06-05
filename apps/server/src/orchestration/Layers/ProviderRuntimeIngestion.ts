@@ -527,6 +527,48 @@ function providerCapabilitiesFromSessionConfigured(
     hasProviderCapabilityMethod(methodContainers, "subagent")
       ? "native"
       : undefined);
+  const multiAgentInvocationPrefixes = normalizeProviderCapabilityStringList(
+    capabilities.multiAgentInvocationPrefixes,
+    capabilities.multi_agent_invocation_prefixes,
+    capabilities.agentInvocationPrefixes,
+    capabilities.agent_invocation_prefixes,
+    capabilities.subagentInvocationPrefixes,
+    capabilities.subagent_invocation_prefixes,
+    capabilities.agentPrefixes,
+    capabilities.agent_prefixes,
+    capabilities.subagentPrefixes,
+    capabilities.subagent_prefixes,
+    sessionCapabilities?.multiAgentInvocationPrefixes,
+    sessionCapabilities?.agentInvocationPrefixes,
+    sessionCapabilities?.subagentInvocationPrefixes,
+    session?.multiAgentInvocationPrefixes,
+    session?.agentInvocationPrefixes,
+    session?.subagentInvocationPrefixes,
+    sessions?.multiAgentInvocationPrefixes,
+    sessions?.agentInvocationPrefixes,
+    sessions?.subagentInvocationPrefixes,
+  );
+  const multiAgentDefinitionPaths = normalizeProviderCapabilityStringList(
+    capabilities.multiAgentDefinitionPaths,
+    capabilities.multi_agent_definition_paths,
+    capabilities.agentDefinitionPaths,
+    capabilities.agent_definition_paths,
+    capabilities.subagentDefinitionPaths,
+    capabilities.subagent_definition_paths,
+    capabilities.agentPaths,
+    capabilities.agent_paths,
+    capabilities.subagentPaths,
+    capabilities.subagent_paths,
+    sessionCapabilities?.multiAgentDefinitionPaths,
+    sessionCapabilities?.agentDefinitionPaths,
+    sessionCapabilities?.subagentDefinitionPaths,
+    session?.multiAgentDefinitionPaths,
+    session?.agentDefinitionPaths,
+    session?.subagentDefinitionPaths,
+    sessions?.multiAgentDefinitionPaths,
+    sessions?.agentDefinitionPaths,
+    sessions?.subagentDefinitionPaths,
+  );
   const hookMode =
     normalizeProviderCapabilityMode(
       "native",
@@ -831,6 +873,8 @@ function providerCapabilitiesFromSessionConfigured(
     turnSteeringMode?: ProviderIntegrationCapabilities["turnSteeringMode"];
     goalControlMode?: ProviderIntegrationCapabilities["goalControlMode"];
     multiAgentMode?: ProviderIntegrationCapabilities["multiAgentMode"];
+    multiAgentInvocationPrefixes?: ProviderIntegrationCapabilities["multiAgentInvocationPrefixes"];
+    multiAgentDefinitionPaths?: ProviderIntegrationCapabilities["multiAgentDefinitionPaths"];
     sideConversationCommands?: ProviderIntegrationCapabilities["sideConversationCommands"];
     hookMode?: ProviderIntegrationCapabilities["hookMode"];
     extensionMode?: ProviderIntegrationCapabilities["extensionMode"];
@@ -871,6 +915,12 @@ function providerCapabilitiesFromSessionConfigured(
     multiAgentMode === "unsupported"
   ) {
     overrides.multiAgentMode = multiAgentMode;
+  }
+  if (multiAgentInvocationPrefixes.length > 0) {
+    overrides.multiAgentInvocationPrefixes = multiAgentInvocationPrefixes;
+  }
+  if (multiAgentDefinitionPaths.length > 0) {
+    overrides.multiAgentDefinitionPaths = multiAgentDefinitionPaths;
   }
   if (hookMode === "native" || hookMode === "unsupported") {
     overrides.hookMode = hookMode;

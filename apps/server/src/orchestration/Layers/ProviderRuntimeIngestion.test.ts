@@ -431,6 +431,8 @@ describe("ProviderRuntimeIngestion", () => {
             steeringMode: "queuedMessage",
             goalControlMode: "native",
             multiAgentMode: "agentCommand",
+            agentInvocationPrefixes: ["@", "/agent", "@"],
+            agentDefinitionPaths: [".gemini/agents/*.md", "~/.gemini/agents/*.md"],
             hookMode: "native",
             extensionMode: "localDiscovery",
             mcpMode: "native",
@@ -454,6 +456,9 @@ describe("ProviderRuntimeIngestion", () => {
         entry.session?.capabilities?.turnSteeringMode === "queued-message" &&
         entry.session?.capabilities?.goalControlMode === "native" &&
         entry.session?.capabilities?.multiAgentMode === "agent-command" &&
+        entry.session?.capabilities?.multiAgentInvocationPrefixes?.join(",") === "@,/agent" &&
+        entry.session?.capabilities?.multiAgentDefinitionPaths?.join(",") ===
+          ".gemini/agents/*.md,~/.gemini/agents/*.md" &&
         entry.session?.capabilities?.hookMode === "native" &&
         entry.session?.capabilities?.extensionMode === "local-discovery" &&
         entry.session?.capabilities?.mcpMode === "native" &&
@@ -470,6 +475,11 @@ describe("ProviderRuntimeIngestion", () => {
     expect(thread.session?.capabilities?.turnSteeringMode).toBe("queued-message");
     expect(thread.session?.capabilities?.goalControlMode).toBe("native");
     expect(thread.session?.capabilities?.multiAgentMode).toBe("agent-command");
+    expect(thread.session?.capabilities?.multiAgentInvocationPrefixes).toEqual(["@", "/agent"]);
+    expect(thread.session?.capabilities?.multiAgentDefinitionPaths).toEqual([
+      ".gemini/agents/*.md",
+      "~/.gemini/agents/*.md",
+    ]);
     expect(thread.session?.capabilities?.hookMode).toBe("native");
     expect(thread.session?.capabilities?.extensionMode).toBe("local-discovery");
     expect(thread.session?.capabilities?.mcpMode).toBe("native");

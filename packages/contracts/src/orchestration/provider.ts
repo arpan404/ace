@@ -193,6 +193,12 @@ export const ProviderIntegrationCapabilities = Schema.Struct({
   multiAgentMode: ProviderMultiAgentMode.pipe(
     Schema.withDecodingDefault(() => "unsupported" as const),
   ),
+  multiAgentInvocationPrefixes: Schema.Array(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(() => [] as const),
+  ),
+  multiAgentDefinitionPaths: Schema.Array(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(() => [] as const),
+  ),
   hookMode: ProviderHookMode.pipe(Schema.withDecodingDefault(() => "unsupported" as const)),
   extensionMode: ProviderExtensionMode.pipe(
     Schema.withDecodingDefault(() => "unsupported" as const),

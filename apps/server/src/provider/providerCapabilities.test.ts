@@ -116,12 +116,41 @@ describe("providerCapabilities", () => {
 
   it("declares provider multi-agent support without inferring from UI commands", () => {
     expect(defaultProviderIntegrationCapabilities("codex").multiAgentMode).toBe("native");
+    expect(defaultProviderIntegrationCapabilities("codex").multiAgentInvocationPrefixes).toEqual(
+      [],
+    );
+    expect(defaultProviderIntegrationCapabilities("codex").multiAgentDefinitionPaths).toEqual([]);
     expect(defaultProviderIntegrationCapabilities("claudeAgent").multiAgentMode).toBe("native");
+    expect(defaultProviderIntegrationCapabilities("claudeAgent").multiAgentDefinitionPaths).toEqual(
+      [".claude/agents/*.md", "~/.claude/agents/*.md"],
+    );
     expect(defaultProviderIntegrationCapabilities("gemini").multiAgentMode).toBe("native");
+    expect(defaultProviderIntegrationCapabilities("gemini").multiAgentInvocationPrefixes).toEqual([
+      "@",
+    ]);
+    expect(defaultProviderIntegrationCapabilities("gemini").multiAgentDefinitionPaths).toEqual([
+      ".gemini/agents/*.md",
+      "~/.gemini/agents/*.md",
+    ]);
     expect(defaultProviderIntegrationCapabilities("githubCopilot").multiAgentMode).toBe("native");
+    expect(
+      defaultProviderIntegrationCapabilities("githubCopilot").multiAgentInvocationPrefixes,
+    ).toEqual(["/agent"]);
+    expect(
+      defaultProviderIntegrationCapabilities("githubCopilot").multiAgentDefinitionPaths,
+    ).toEqual([".github/agents/*.agent.md", "~/.copilot/agents/*.agent.md"]);
     expect(defaultProviderIntegrationCapabilities("opencode").multiAgentMode).toBe("native");
+    expect(defaultProviderIntegrationCapabilities("opencode").multiAgentDefinitionPaths).toEqual([
+      "opencode.json agents",
+      "~/.config/opencode/config.json agents",
+    ]);
     expect(defaultProviderIntegrationCapabilities("cursor").multiAgentMode).toBe("agent-command");
+    expect(defaultProviderIntegrationCapabilities("cursor").multiAgentDefinitionPaths).toEqual([
+      ".cursor/agents/*.md",
+      "~/.cursor/agents/*.md",
+    ]);
     expect(defaultProviderIntegrationCapabilities("pi").multiAgentMode).toBe("agent-command");
+    expect(defaultProviderIntegrationCapabilities("pi").multiAgentDefinitionPaths).toEqual([]);
   });
 
   it("declares provider hook support from documented native provider features", () => {
@@ -235,6 +264,25 @@ describe("providerCapabilities", () => {
       }),
     ).toMatchObject({
       sideConversationCommands: ["/side"],
+    });
+  });
+
+  it("preserves default multi-agent metadata unless an adapter advertises it", () => {
+    expect(
+      resolveProviderIntegrationCapabilities("gemini", { sessionModelSwitch: "in-session" }),
+    ).toMatchObject({
+      multiAgentInvocationPrefixes: ["@"],
+      multiAgentDefinitionPaths: [".gemini/agents/*.md", "~/.gemini/agents/*.md"],
+    });
+    expect(
+      resolveProviderIntegrationCapabilities("gemini", {
+        sessionModelSwitch: "in-session",
+        multiAgentInvocationPrefixes: ["/agent"],
+        multiAgentDefinitionPaths: ["custom/agents/*.md"],
+      }),
+    ).toMatchObject({
+      multiAgentInvocationPrefixes: ["/agent"],
+      multiAgentDefinitionPaths: ["custom/agents/*.md"],
     });
   });
 });

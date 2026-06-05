@@ -393,6 +393,8 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
               sideConversationCommands: [".side"],
               goalControlMode: "native",
               multiAgentMode: "native",
+              multiAgentInvocationPrefixes: [],
+              multiAgentDefinitionPaths: [],
               hookMode: "native",
               extensionMode: "native",
               mcpMode: "native",
