@@ -1768,7 +1768,7 @@ describe("ProviderCommandReactor", () => {
       "Ace side chat parent context",
     );
     expect(startInput?.replayTurns?.[1]?.assistantResponse).toContain("Thread title: Thread");
-    expect(startInput?.replayTurns?.[1]?.assistantResponse).toContain(
+    expect(startInput?.replayTurns?.[1]?.assistantResponse).not.toContain(
       "[subagent.message.sent] User message: summarize the replay context",
     );
 

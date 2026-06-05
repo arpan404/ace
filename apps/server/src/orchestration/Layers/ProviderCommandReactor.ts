@@ -17,6 +17,7 @@ import {
 import { Cache, Cause, Duration, Effect, Equal, Layer, Option, Schema, Stream } from "effect";
 import { makeDrainableWorker } from "@ace/shared/DrainableWorker";
 import { appendTerminalContextsToPrompt } from "@ace/shared/terminalContext";
+import { isProviderSideConversationType } from "@ace/shared/providerAgentMetadata";
 
 import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
 import { GitCore } from "../../git/Services/GitCore.ts";
@@ -474,6 +475,31 @@ function activityContextLine(activity: OrchestrationThread["activities"][number]
     : base;
 }
 
+function isSideConversationActivity(activity: OrchestrationThread["activities"][number]): boolean {
+  const payload = asContextRecord(activity.payload);
+  const subagent = asContextRecord(payload?.subagent);
+  const data = asContextRecord(payload?.data);
+  const dataSubagent = asContextRecord(data?.subagent);
+  const subagentType =
+    contextString(subagent?.type) ??
+    contextString(subagent?.agentType) ??
+    contextString(subagent?.agent_type) ??
+    contextString(dataSubagent?.type) ??
+    contextString(dataSubagent?.agentType) ??
+    contextString(dataSubagent?.agent_type) ??
+    contextString(payload?.subagentType) ??
+    contextString(payload?.subagent_type);
+  if (isProviderSideConversationType(subagentType ?? undefined)) {
+    return true;
+  }
+  const childProviderThreadId =
+    contextString(payload?.childProviderThreadId) ??
+    contextString(payload?.child_provider_thread_id) ??
+    contextString(subagent?.id) ??
+    contextString(dataSubagent?.id);
+  return isAceSideConversationThreadId(childProviderThreadId ?? undefined);
+}
+
 function buildSideConversationContextReplayTurn(
   thread: OrchestrationThread,
 ): ProviderReplayTurn | null {
@@ -501,6 +527,7 @@ function buildSideConversationContextReplayTurn(
   }
 
   const recentActivityLines = thread.activities
+    .filter((activity) => !isSideConversationActivity(activity))
     .slice(-SIDE_CONVERSATION_CONTEXT_RECENT_ACTIVITY_COUNT)
     .map(activityContextLine)
     .filter((line): line is string => line !== null);
