@@ -47,7 +47,7 @@ const PROVIDER_INTEGRATION_CAPABILITIES: Record<ProviderKind, ProviderIntegratio
     goalControlMode: "unsupported",
     multiAgentMode: "native",
     multiAgentInvocationPrefixes: [],
-    multiAgentDefinitionPaths: [".claude/agents/*.md", "~/.claude/agents/*.md"],
+    multiAgentDefinitionPaths: [".claude/agents", "~/.claude/agents"],
     hookMode: "native",
     extensionMode: "native",
     mcpMode: "native",

@@ -122,7 +122,7 @@ describe("providerCapabilities", () => {
     expect(defaultProviderIntegrationCapabilities("codex").multiAgentDefinitionPaths).toEqual([]);
     expect(defaultProviderIntegrationCapabilities("claudeAgent").multiAgentMode).toBe("native");
     expect(defaultProviderIntegrationCapabilities("claudeAgent").multiAgentDefinitionPaths).toEqual(
-      [".claude/agents/*.md", "~/.claude/agents/*.md"],
+      [".claude/agents", "~/.claude/agents"],
     );
     expect(defaultProviderIntegrationCapabilities("gemini").multiAgentMode).toBe("native");
     expect(defaultProviderIntegrationCapabilities("gemini").multiAgentInvocationPrefixes).toEqual(
