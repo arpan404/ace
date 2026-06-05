@@ -22,25 +22,23 @@ describe("sideChatDraft", () => {
     expect(NEW_SIDE_CHAT_DRAFT_RUNTIME_MODE).toBe("approval-required");
   });
 
-  it("parses Ace-native side-chat commands and hidden provider aliases", () => {
+  it("parses only the Ace-native side-chat command", () => {
     expect(parseAceSideChatCommand(" /side ")).toEqual({ prompt: "" });
-    expect(parseAceSideChatCommand(".side inspect Codex context")).toEqual({
-      prompt: "inspect Codex context",
-    });
-    expect(parseAceSideChatCommand("/btw inspect Claude context")).toEqual({
-      prompt: "inspect Claude context",
-    });
-    expect(parseAceSideChatCommand(".btw inspect provider context")).toEqual({
+    expect(parseAceSideChatCommand("/side inspect provider context")).toEqual({
       prompt: "inspect provider context",
     });
-  });
-
-  it("does not treat natural language btw as a side-chat command", () => {
+    expect(parseAceSideChatCommand(".side inspect Codex context")).toBeNull();
+    expect(parseAceSideChatCommand("/btw inspect Claude context")).toBeNull();
+    expect(parseAceSideChatCommand(".btw inspect provider context")).toBeNull();
     expect(parseAceSideChatCommand("btw inspect provider context")).toBeNull();
   });
 
-  it("strips side-chat command aliases from display titles", () => {
-    expect(stripAceSideChatCommand(".side inspect Codex context")).toBe("inspect Codex context");
-    expect(stripAceSideChatCommand("/btw inspect Claude context")).toBe("inspect Claude context");
+  it("strips the Ace-native side-chat command from display titles", () => {
+    expect(stripAceSideChatCommand("/side inspect provider context")).toBe(
+      "inspect provider context",
+    );
+    expect(stripAceSideChatCommand(".side inspect Codex context")).toBe(
+      ".side inspect Codex context",
+    );
   });
 });

@@ -3,7 +3,7 @@ import { ThreadId, type RuntimeMode } from "@ace/contracts";
 export const NEW_SIDE_CHAT_THREAD_ID = "__ace_new_side_chat__";
 export const NEW_SIDE_CHAT_DRAFT_RUNTIME_MODE: RuntimeMode = "approval-required";
 
-const SIDE_CHAT_COMMAND_PATTERN = /^(?:\/side|\.side|\/btw|\.btw)(?:\s+([\s\S]*))?$/i;
+const SIDE_CHAT_COMMAND_PATTERN = /^\/side(?:\s+([\s\S]*))?$/i;
 
 export function newSideChatDraftThreadId(input: {
   readonly parentThreadId: ThreadId | string;

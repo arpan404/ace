@@ -3257,6 +3257,42 @@ describe("deriveWorkLogEntries", () => {
 });
 
 describe("deriveTimelineEntries", () => {
+  it("keeps provider goal lifecycle output out of the main worklog", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "goal-tool-output",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "tool.completed",
+        summary: "Tool call completed",
+        tone: "tool",
+        payload: {
+          itemType: "dynamic_tool_call",
+          title: "Tool call",
+          data: {
+            item: {
+              type: "function_call_output",
+              name: "functions.update_goal",
+              content: [
+                { type: "text", text: "Goal updated" },
+                { type: "text", text: "Keep goal state out of the transcript" },
+              ],
+              output: {
+                status: "active",
+                objective: "Keep goal state out of the transcript",
+              },
+            },
+          },
+        },
+      }),
+    ];
+
+    expect(deriveWorkLogEntries(activities, undefined)).toEqual([]);
+    expect(deriveActiveGoalState(activities)).toMatchObject({
+      objective: "Keep goal state out of the transcript",
+      status: "active",
+    });
+  });
+
   it("filters subagent work entries from the main thread timeline source", () => {
     const entries = filterMainTimelineWorkLogEntries([
       {
@@ -3332,7 +3368,12 @@ describe("deriveTimelineEntries", () => {
       },
     ]);
 
-    expect(entries.map((entry) => entry.id)).toEqual(["main-message", "normal-btw-message"]);
+    expect(entries.map((entry) => entry.id)).toEqual([
+      "main-message",
+      "codex-side-message",
+      "claude-side-message",
+      "normal-btw-message",
+    ]);
   });
 
   it("includes proposed plans alongside messages and work entries in chronological order", () => {
