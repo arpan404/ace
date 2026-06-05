@@ -7,6 +7,7 @@ import type { ProviderSlashCommand } from "@ace/contracts";
 import {
   acpMultiAgentDefinitionPaths,
   acpMultiAgentInvocationPrefixes,
+  acpSideConversationCommands,
   hasAcpMultiAgentCapability,
   hasAcpSessionCloseCapability,
   hasAcpSessionForkCapability,
@@ -47,6 +48,7 @@ export type CursorInitializeState = {
     readonly multiAgent: boolean;
     readonly multiAgentInvocationPrefixes: ReadonlyArray<string>;
     readonly multiAgentDefinitionPaths: ReadonlyArray<string>;
+    readonly sideConversationCommands: ReadonlyArray<string>;
     readonly promptCapabilities: CursorPromptCapabilities;
   };
   readonly authMethods: ReadonlyArray<CursorAuthMethod>;
@@ -126,6 +128,7 @@ export const EMPTY_CURSOR_INITIALIZE_STATE: CursorInitializeState = {
     multiAgent: false,
     multiAgentInvocationPrefixes: [],
     multiAgentDefinitionPaths: [],
+    sideConversationCommands: [],
     promptCapabilities: EMPTY_CURSOR_PROMPT_CAPABILITIES,
   },
   authMethods: [],
@@ -211,6 +214,7 @@ export function parseCursorInitializeState(value: unknown): CursorInitializeStat
       multiAgent: hasAcpMultiAgentCapability(value),
       multiAgentInvocationPrefixes: acpMultiAgentInvocationPrefixes(value),
       multiAgentDefinitionPaths: acpMultiAgentDefinitionPaths(value),
+      sideConversationCommands: acpSideConversationCommands(value),
       promptCapabilities: parseCursorPromptCapabilities(agentCapabilities?.promptCapabilities),
     },
     authMethods: parseCursorAuthMethods(record?.authMethods),
@@ -697,6 +701,11 @@ function cursorProviderCapabilities(metadata: CursorSessionMetadata) {
       ? {
           multiAgentDefinitionPaths:
             metadata.initialize.agentCapabilities.multiAgentDefinitionPaths,
+        }
+      : {}),
+    ...(metadata.initialize.agentCapabilities.sideConversationCommands.length > 0
+      ? {
+          sideConversationCommands: metadata.initialize.agentCapabilities.sideConversationCommands,
         }
       : {}),
   };

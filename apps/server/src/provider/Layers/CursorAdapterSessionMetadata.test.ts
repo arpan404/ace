@@ -26,6 +26,7 @@ describe("CursorAdapterSessionMetadata", () => {
         multiAgent: false,
         multiAgentInvocationPrefixes: [],
         multiAgentDefinitionPaths: [],
+        sideConversationCommands: [],
         promptCapabilities: {
           image: true,
           audio: false,
@@ -45,6 +46,7 @@ describe("CursorAdapterSessionMetadata", () => {
         multiAgent: false,
         multiAgentInvocationPrefixes: [],
         multiAgentDefinitionPaths: [],
+        sideConversationCommands: [],
         promptCapabilities: {
           image: true,
           audio: false,
@@ -118,6 +120,41 @@ describe("CursorAdapterSessionMetadata", () => {
     ]) {
       assert.equal(parseCursorInitializeState(initializeResult).agentCapabilities.multiAgent, true);
     }
+  });
+
+  it("preserves ACP side conversation command aliases in capability snapshots", () => {
+    const initialize = parseCursorInitializeState({
+      agentCapabilities: {
+        sessionCapabilities: {
+          sideChat: {
+            commands: ["/btw", ".side", "/btw"],
+          },
+        },
+      },
+      _meta: {
+        capabilities: {
+          sideConversationAliases: ["/side"],
+        },
+      },
+    });
+    assert.deepEqual(initialize.agentCapabilities.sideConversationCommands, [
+      "/btw",
+      ".side",
+      "/side",
+    ]);
+
+    const metadata = buildCursorSessionMetadata({
+      previous: EMPTY_CURSOR_SESSION_METADATA,
+      initialize,
+      configOptions: [],
+    });
+
+    assert.deepEqual(cursorSessionMetadataSnapshot(metadata).capabilities, {
+      sessionForkMode: "local-replay",
+      sessionResumeMode: "local-replay",
+      sideConversationMode: "replay-fork",
+      sideConversationCommands: ["/btw", ".side", "/side"],
+    });
   });
 
   it("parses mode and model state only when meaningful values exist", () => {

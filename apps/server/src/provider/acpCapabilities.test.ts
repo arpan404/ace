@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   acpMultiAgentDefinitionPaths,
   acpMultiAgentInvocationPrefixes,
+  acpSideConversationCommands,
   hasAcpMultiAgentCapability,
   hasAcpProviderThreadTargetingCapability,
   hasAcpSideConversationCapability,
@@ -247,6 +248,40 @@ describe("acpCapabilities", () => {
         },
       }),
     ).toBe(false);
+  });
+
+  it("extracts ACP side conversation command aliases from explicit side capability shapes", () => {
+    expect(
+      acpSideConversationCommands({
+        agentCapabilities: {
+          sideConversationCommands: ["/btw", "/btw"],
+          sessionCapabilities: {
+            sideChat: {
+              commands: [".side"],
+              aliases: ["  /side  "],
+            },
+          },
+        },
+        _meta: {
+          capabilities: {
+            sideThread: {
+              commandAliases: [".btw"],
+            },
+          },
+        },
+      }),
+    ).toEqual(["/btw", ".side", "/side", ".btw"]);
+  });
+
+  it("does not extract generic ACP commands as side conversation aliases", () => {
+    expect(
+      acpSideConversationCommands({
+        capabilities: {
+          commands: ["/review"],
+          sideChat: true,
+        },
+      }),
+    ).toEqual([]);
   });
 
   it("detects ACP provider thread targeting capability shapes", () => {

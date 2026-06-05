@@ -110,6 +110,27 @@ function nestedAgentCapabilityRecords(
   ].filter((entry): entry is Record<string, unknown> => entry !== null);
 }
 
+function nestedSideConversationCapabilityRecords(
+  record: Record<string, unknown>,
+): ReadonlyArray<Record<string, unknown>> {
+  return [
+    isRecord(record.sideConversation),
+    isRecord(record.side_conversation),
+    isRecord(record.sideChat),
+    isRecord(record.side_chat),
+    isRecord(record.sideSession),
+    isRecord(record.side_session),
+    isRecord(record.sideThread),
+    isRecord(record.side_thread),
+    isRecord(record["side.conversation"]),
+    isRecord(record["side/chat"]),
+    isRecord(record["side.session"]),
+    isRecord(record["side/session"]),
+    isRecord(record["side.thread"]),
+    isRecord(record["side/thread"]),
+  ].filter((entry): entry is Record<string, unknown> => entry !== null);
+}
+
 function hasSessionForkMethod(value: unknown): boolean {
   return stringList(value).some((entry) => {
     const normalized = entry.trim().toLowerCase().replace(/_/g, "-");
@@ -1036,6 +1057,45 @@ export function acpMultiAgentDefinitionPaths(initializeResult: unknown): string[
         nested.subagentPaths,
         nested.subagent_paths,
         nested.paths,
+      );
+    }
+  }
+  return normalizedStringList(...values);
+}
+
+export function acpSideConversationCommands(initializeResult: unknown): string[] {
+  const values: unknown[] = [];
+  for (const record of acpCapabilityRecords(initializeResult)) {
+    values.push(
+      record.sideConversationCommands,
+      record.side_conversation_commands,
+      record.sideCommands,
+      record.side_commands,
+      record.sideChatCommands,
+      record.side_chat_commands,
+      record.sideConversationAliases,
+      record.side_conversation_aliases,
+      record.sideAliases,
+      record.side_aliases,
+    );
+    for (const nested of nestedSideConversationCapabilityRecords(record)) {
+      values.push(
+        nested.commands,
+        nested.commandAliases,
+        nested.command_aliases,
+        nested.aliases,
+        nested.promptPrefixes,
+        nested.prompt_prefixes,
+        nested.sideConversationCommands,
+        nested.side_conversation_commands,
+        nested.sideCommands,
+        nested.side_commands,
+        nested.sideChatCommands,
+        nested.side_chat_commands,
+        nested.sideConversationAliases,
+        nested.side_conversation_aliases,
+        nested.sideAliases,
+        nested.side_aliases,
       );
     }
   }
