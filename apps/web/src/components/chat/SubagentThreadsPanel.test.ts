@@ -6,6 +6,7 @@ import type {
   deriveSubagentThreads as deriveSubagentThreadsType,
   isSideChatThread as isSideChatThreadType,
   orderSubagentThreadsForHierarchy as orderSubagentThreadsForHierarchyType,
+  partitionSubagentThreads as partitionSubagentThreadsType,
   resolveSubagentMainAgentMessage as resolveSubagentMainAgentMessageType,
 } from "./subagentThreads";
 
@@ -13,6 +14,7 @@ let canReplyToSubagentThread: typeof canReplyToSubagentThreadType;
 let deriveSubagentThreads: typeof deriveSubagentThreadsType;
 let isSideChatThread: typeof isSideChatThreadType;
 let orderSubagentThreadsForHierarchy: typeof orderSubagentThreadsForHierarchyType;
+let partitionSubagentThreads: typeof partitionSubagentThreadsType;
 let resolveSubagentMainAgentMessage: typeof resolveSubagentMainAgentMessageType;
 
 beforeAll(async () => {
@@ -42,6 +44,7 @@ beforeAll(async () => {
     deriveSubagentThreads,
     isSideChatThread,
     orderSubagentThreadsForHierarchy,
+    partitionSubagentThreads,
     resolveSubagentMainAgentMessage,
   } = await import("./subagentThreads"));
 });
@@ -250,6 +253,34 @@ describe("deriveSubagentThreads", () => {
       "Check the recent diff.",
       "Explain the current branch.",
     ]);
+  });
+
+  it("partitions side chats separately from provider subagent threads", () => {
+    const threads = deriveSubagentThreads(
+      [
+        workEntry({
+          id: "provider-subagent",
+          subagentId: "agent-reviewer",
+          subagentName: "Reviewer",
+          subagentType: "code-reviewer",
+        }),
+        workEntry({
+          id: "side-chat",
+          createdAt: "2026-06-02T00:00:01.000Z",
+          detail: "Explain the current branch.",
+          subagentId: "side:thread-1:first",
+          subagentType: "side chat",
+          sideChatMessageRole: "user",
+          sideChatMessageText: "Explain the current branch.",
+        }),
+      ],
+      "githubCopilot",
+    );
+
+    expect(partitionSubagentThreads(threads)).toMatchObject({
+      providerSubagentThreads: [{ id: "agent-reviewer", label: "Reviewer" }],
+      sideChatThreads: [{ id: "side:thread-1:first", label: "Explain the current branch." }],
+    });
   });
 
   it("keeps multiple provider child side chats with the same agent as distinct threads", () => {

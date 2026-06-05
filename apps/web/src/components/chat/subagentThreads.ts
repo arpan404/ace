@@ -40,6 +40,22 @@ export function isSideChatThread(thread: SubagentThread): boolean {
   return thread.entries.some(isSideChatEntry);
 }
 
+export function partitionSubagentThreads(threads: ReadonlyArray<SubagentThread>): {
+  readonly providerSubagentThreads: SubagentThread[];
+  readonly sideChatThreads: SubagentThread[];
+} {
+  const sideChatThreads: SubagentThread[] = [];
+  const providerSubagentThreads: SubagentThread[] = [];
+  for (const thread of threads) {
+    if (isSideChatThread(thread)) {
+      sideChatThreads.push(thread);
+    } else {
+      providerSubagentThreads.push(thread);
+    }
+  }
+  return { providerSubagentThreads, sideChatThreads };
+}
+
 export function canReplyToSubagentThread(
   thread: SubagentThread,
   providerThreadTargetingMode: ProviderIntegrationCapabilities["providerThreadTargetingMode"],
@@ -111,6 +127,8 @@ const SUBAGENT_PERSONA_TONES = [
   },
 ] as const;
 
+const PROVIDER_SIDE_CHAT_DISPLAY_PREFIX_PATTERN = /^(?:\.side|\/btw|\.btw)(?:\s+([\s\S]*))?$/i;
+
 function hashSubagentId(value: string): number {
   let hash = 2166136261;
   for (let index = 0; index < value.length; index += 1) {
@@ -145,7 +163,12 @@ function sideChatTitleFromEntries(entries: ReadonlyArray<WorkLogEntry>): string 
   if (!normalized) {
     return null;
   }
-  const withoutCommand = stripAceSideChatCommand(normalized) || normalized;
+  const providerAliasMatch = PROVIDER_SIDE_CHAT_DISPLAY_PREFIX_PATTERN.exec(normalized);
+  const aceCommandTitle = stripAceSideChatCommand(normalized);
+  const withoutCommand =
+    (aceCommandTitle !== normalized ? aceCommandTitle : null) ||
+    providerAliasMatch?.[1]?.trim() ||
+    normalized;
   if (withoutCommand.length <= 64) {
     return withoutCommand;
   }

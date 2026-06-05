@@ -255,6 +255,7 @@ import { SubagentWorkspacePanel } from "./chat/SubagentThreadsPanel";
 import {
   canReplyToSubagentThread,
   deriveSubagentThreads,
+  partitionSubagentThreads,
   type SubagentThread,
 } from "./chat/subagentThreads";
 import { useChatViewProviderSelectionState } from "./chat/useChatViewModelState";
@@ -3032,6 +3033,10 @@ function useChatViewComponent({
     () => deriveSubagentThreads(timelineWorkEntries, subagentProvider),
     [subagentProvider, timelineWorkEntries],
   );
+  const { providerSubagentThreads, sideChatThreads } = useMemo(
+    () => partitionSubagentThreads(subagentThreads),
+    [subagentThreads],
+  );
   const [activeSubagentThreadId, setActiveSubagentThreadId] = useState<string | null>(null);
   const [hiddenSubagentTabIds, setHiddenSubagentTabIds] = useState<ReadonlySet<string>>(
     () => new Set(),
@@ -3056,12 +3061,14 @@ function useChatViewComponent({
   const subagentPanelThreads = useMemo(
     () =>
       activeSubagentThreadId === NEW_SIDE_CHAT_THREAD_ID
-        ? [newSideChatThread, ...subagentThreads]
-        : subagentThreads,
-    [activeSubagentThreadId, newSideChatThread, subagentThreads],
+        ? [newSideChatThread, ...sideChatThreads, ...providerSubagentThreads]
+        : [...sideChatThreads, ...providerSubagentThreads],
+    [activeSubagentThreadId, newSideChatThread, providerSubagentThreads, sideChatThreads],
   );
   const subagentTabThreads = useMemo(() => {
-    const visibleThreads = subagentThreads.filter((thread) => !hiddenSubagentTabIds.has(thread.id));
+    const visibleThreads = [...sideChatThreads, ...providerSubagentThreads].filter(
+      (thread) => !hiddenSubagentTabIds.has(thread.id),
+    );
     if (
       activeSubagentThreadId === NEW_SIDE_CHAT_THREAD_ID &&
       !hiddenSubagentTabIds.has(NEW_SIDE_CHAT_THREAD_ID)
@@ -3069,7 +3076,13 @@ function useChatViewComponent({
       return [newSideChatThread, ...visibleThreads];
     }
     return visibleThreads;
-  }, [activeSubagentThreadId, hiddenSubagentTabIds, newSideChatThread, subagentThreads]);
+  }, [
+    activeSubagentThreadId,
+    hiddenSubagentTabIds,
+    newSideChatThread,
+    providerSubagentThreads,
+    sideChatThreads,
+  ]);
   const selectSubagentThread = useCallback(
     (threadId: string) => {
       setHiddenSubagentTabIds((current) => {
@@ -3099,7 +3112,7 @@ function useChatViewComponent({
       if (activeSubagentThreadId !== threadId) {
         return;
       }
-      const nextThread = subagentThreads.find(
+      const nextThread = subagentPanelThreads.find(
         (thread) => thread.id !== threadId && !hiddenSubagentTabIds.has(thread.id),
       );
       if (nextThread) {
@@ -3115,7 +3128,7 @@ function useChatViewComponent({
       hiddenSubagentTabIds,
       setBottomPanelMode,
       setRightSidePanelMode,
-      subagentThreads,
+      subagentPanelThreads,
     ],
   );
   const environmentMiniPanelRef = useRef<HTMLElement | null>(null);
@@ -3128,7 +3141,7 @@ function useChatViewComponent({
     if (activeSubagentThreadId === NEW_SIDE_CHAT_THREAD_ID) {
       return;
     }
-    if (subagentThreads.length === 0) {
+    if (subagentPanelThreads.length === 0) {
       if (activeSubagentThreadId !== null) {
         setActiveSubagentThreadId(null);
       }
@@ -3146,7 +3159,7 @@ function useChatViewComponent({
     ) {
       setActiveSubagentThreadId(subagentTabThreads[0]?.id ?? null);
     }
-  }, [activeSubagentThreadId, subagentTabThreads, subagentThreads.length]);
+  }, [activeSubagentThreadId, subagentPanelThreads.length, subagentTabThreads]);
   const activeThreadMessageIds = useMemo(
     () => new Set(activeThreadMessages.map((message) => message.id)),
     [activeThreadMessages],

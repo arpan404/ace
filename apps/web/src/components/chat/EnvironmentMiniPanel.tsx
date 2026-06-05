@@ -28,8 +28,8 @@ import BranchToolbar from "../BranchToolbar";
 import EnvironmentGitSection from "../EnvironmentGitSection";
 import ProjectScriptsControl, { type NewProjectScriptInput } from "../ProjectScriptsControl";
 import {
-  isSideChatThread,
   orderSubagentThreadsForHierarchy,
+  partitionSubagentThreads,
   type SubagentThread,
 } from "./subagentThreads";
 import type {
@@ -596,8 +596,7 @@ export const EnvironmentMiniPanel = forwardRef<
   const mcpStatuses = props.mcpStatuses;
   const providerStatuses = props.providerStatuses;
   const subagentThreads = props.subagentThreads;
-  const sideChatThreads = subagentThreads.filter(isSideChatThread);
-  const providerSubagentThreads = subagentThreads.filter((thread) => !isSideChatThread(thread));
+  const { providerSubagentThreads, sideChatThreads } = partitionSubagentThreads(subagentThreads);
   const workspaceChangeStat = props.workspaceChangeStat;
   const hasChanges =
     workspaceChangeStat !== null &&
