@@ -140,9 +140,14 @@ describe("providerCapabilities", () => {
       defaultProviderIntegrationCapabilities("githubCopilot").multiAgentDefinitionPaths,
     ).toEqual([".github/agents/*.agent.md", "~/.copilot/agents/*.agent.md"]);
     expect(defaultProviderIntegrationCapabilities("opencode").multiAgentMode).toBe("native");
+    expect(defaultProviderIntegrationCapabilities("opencode").multiAgentInvocationPrefixes).toEqual(
+      ["@"],
+    );
     expect(defaultProviderIntegrationCapabilities("opencode").multiAgentDefinitionPaths).toEqual([
-      "opencode.json agents",
-      "~/.config/opencode/config.json agents",
+      "opencode.json agent",
+      "~/.config/opencode/opencode.json agent",
+      ".opencode/agents",
+      "~/.config/opencode/agents",
     ]);
     expect(defaultProviderIntegrationCapabilities("cursor").multiAgentMode).toBe("agent-command");
     expect(defaultProviderIntegrationCapabilities("cursor").multiAgentDefinitionPaths).toEqual([
