@@ -106,6 +106,21 @@ function hasMethod(value: unknown, candidates: ReadonlySet<string>): boolean {
   return methodNames(value).some((method) => candidates.has(method));
 }
 
+function methodAndFeatureContainers(
+  record: Record<string, unknown> | null | undefined,
+): ReadonlyArray<unknown> {
+  return [
+    record?.methods,
+    record?.availableMethods,
+    record?.available_methods,
+    record?.features,
+    record?.availableFeatures,
+    record?.available_features,
+    record?.supportedFeatures,
+    record?.supported_features,
+  ];
+}
+
 const SIDE_CONVERSATION_METHODS = new Set([
   "side-chat",
   "side-conversation",
@@ -191,46 +206,20 @@ function acpMethodContainers(input: {
   readonly metaSession?: Record<string, unknown> | null;
 }): ReadonlyArray<unknown> {
   return [
-    input.record?.methods,
-    input.record?.availableMethods,
-    input.record?.available_methods,
-    input.rootCapabilities?.methods,
-    input.rootCapabilities?.availableMethods,
-    input.rootCapabilities?.available_methods,
-    input.agentCapabilities?.methods,
-    input.agentCapabilities?.availableMethods,
-    input.agentCapabilities?.available_methods,
-    input.rootSessionCapabilities?.methods,
-    input.rootSessionCapabilities?.availableMethods,
-    input.rootSessionCapabilities?.available_methods,
-    input.agentSessionCapabilities?.methods,
-    input.agentSessionCapabilities?.availableMethods,
-    input.agentSessionCapabilities?.available_methods,
-    input.rootSession?.methods,
-    input.rootSession?.availableMethods,
-    input.rootSession?.available_methods,
-    input.agentSession?.methods,
-    input.agentSession?.availableMethods,
-    input.agentSession?.available_methods,
-    input.agentSessions?.methods,
-    input.agentSessions?.availableMethods,
-    input.agentSessions?.available_methods,
-    input.capabilitySession?.methods,
-    input.capabilitySession?.availableMethods,
-    input.capabilitySession?.available_methods,
-    input.meta?.methods,
-    input.meta?.availableMethods,
-    input.meta?.available_methods,
-    input.metaCapabilities?.methods,
-    input.metaCapabilities?.availableMethods,
-    input.metaCapabilities?.available_methods,
-    input.metaSessionCapabilities?.methods,
-    input.metaSessionCapabilities?.availableMethods,
-    input.metaSessionCapabilities?.available_methods,
-    input.metaSession?.methods,
-    input.metaSession?.availableMethods,
-    input.metaSession?.available_methods,
-  ];
+    input.record,
+    input.rootCapabilities,
+    input.agentCapabilities,
+    input.rootSessionCapabilities,
+    input.agentSessionCapabilities,
+    input.rootSession,
+    input.agentSession,
+    input.agentSessions,
+    input.capabilitySession,
+    input.meta,
+    input.metaCapabilities,
+    input.metaSessionCapabilities,
+    input.metaSession,
+  ].flatMap(methodAndFeatureContainers);
 }
 
 export function hasAcpSessionForkCapability(initializeResult: unknown): boolean {

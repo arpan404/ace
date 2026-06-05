@@ -23,6 +23,7 @@ describe("CursorAdapterSessionMetadata", () => {
         resumeSession: false,
         closeSession: false,
         forkSession: false,
+        multiAgent: false,
         promptCapabilities: {
           image: true,
           audio: false,
@@ -39,6 +40,7 @@ describe("CursorAdapterSessionMetadata", () => {
         resumeSession: false,
         closeSession: false,
         forkSession: false,
+        multiAgent: false,
         promptCapabilities: {
           image: true,
           audio: false,
@@ -100,6 +102,17 @@ describe("CursorAdapterSessionMetadata", () => {
         parseCursorInitializeState(initializeResult).agentCapabilities.forkSession,
         true,
       );
+    }
+  });
+
+  it("recognizes ACP multi-agent capability shapes", () => {
+    for (const initializeResult of [
+      { agentCapabilities: { subagents: true } },
+      { agentCapabilities: { sessionCapabilities: { agentTeams: { enabled: true } } } },
+      { capabilities: { session: { availableFeatures: [{ id: "subagents" }] } } },
+      { availableMethods: ["agent/team"] },
+    ]) {
+      assert.equal(parseCursorInitializeState(initializeResult).agentCapabilities.multiAgent, true);
     }
   });
 
@@ -325,6 +338,28 @@ describe("CursorAdapterSessionMetadata", () => {
         sideConversationMode: "replay-fork",
       },
       configOptions: [],
+    });
+  });
+
+  it("exposes native Cursor multi-agent capability when ACP advertises it", () => {
+    const initialize = parseCursorInitializeState({
+      agentCapabilities: {
+        subagents: true,
+      },
+    });
+    assert.equal(initialize.agentCapabilities.multiAgent, true);
+
+    const metadata = buildCursorSessionMetadata({
+      previous: EMPTY_CURSOR_SESSION_METADATA,
+      initialize,
+      configOptions: [],
+    });
+
+    assert.deepEqual(cursorSessionMetadataSnapshot(metadata).capabilities, {
+      sessionForkMode: "local-replay",
+      sessionResumeMode: "local-replay",
+      sideConversationMode: "replay-fork",
+      multiAgentMode: "native",
     });
   });
 

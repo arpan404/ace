@@ -5,6 +5,7 @@ import {
 } from "../unknown.ts";
 import type { ProviderSlashCommand } from "@ace/contracts";
 import {
+  hasAcpMultiAgentCapability,
   hasAcpSessionCloseCapability,
   hasAcpSessionForkCapability,
   hasAcpSessionResumeCapability,
@@ -41,6 +42,7 @@ export type CursorInitializeState = {
     readonly resumeSession: boolean;
     readonly closeSession: boolean;
     readonly forkSession: boolean;
+    readonly multiAgent: boolean;
     readonly promptCapabilities: CursorPromptCapabilities;
   };
   readonly authMethods: ReadonlyArray<CursorAuthMethod>;
@@ -117,6 +119,7 @@ export const EMPTY_CURSOR_INITIALIZE_STATE: CursorInitializeState = {
     resumeSession: false,
     closeSession: false,
     forkSession: false,
+    multiAgent: false,
     promptCapabilities: EMPTY_CURSOR_PROMPT_CAPABILITIES,
   },
   authMethods: [],
@@ -199,6 +202,7 @@ export function parseCursorInitializeState(value: unknown): CursorInitializeStat
       resumeSession: hasAcpSessionResumeCapability(value),
       closeSession: hasAcpSessionCloseCapability(value),
       forkSession: hasAcpSessionForkCapability(value),
+      multiAgent: hasAcpMultiAgentCapability(value),
       promptCapabilities: parseCursorPromptCapabilities(agentCapabilities?.promptCapabilities),
     },
     authMethods: parseCursorAuthMethods(record?.authMethods),
@@ -672,6 +676,9 @@ function cursorProviderCapabilities(metadata: CursorSessionMetadata) {
           sessionForkMode: "local-replay" as const,
           sideConversationMode: "replay-fork" as const,
         }),
+    ...(metadata.initialize.agentCapabilities.multiAgent
+      ? { multiAgentMode: "native" as const }
+      : {}),
   };
 }
 

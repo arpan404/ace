@@ -225,6 +225,13 @@ describe("acpCapabilities", () => {
         availableMethods: ["session/new", "conversation/side/thread"],
       }),
     ).toBe(true);
+    expect(
+      hasAcpSideConversationCapability({
+        capabilities: {
+          features: [{ id: "side-conversation" }],
+        },
+      }),
+    ).toBe(true);
   });
 
   it("does not treat omitted or disabled side conversation capabilities as supported", () => {
@@ -273,6 +280,15 @@ describe("acpCapabilities", () => {
         methods: ["provider/session/target"],
       }),
     ).toBe(true);
+    expect(
+      hasAcpProviderThreadTargetingCapability({
+        _meta: {
+          capabilities: {
+            supportedFeatures: [{ name: "child-session-targeting" }],
+          },
+        },
+      }),
+    ).toBe(true);
   });
 
   it("does not treat omitted or disabled provider thread targeting as supported", () => {
@@ -319,6 +335,15 @@ describe("acpCapabilities", () => {
     expect(
       hasAcpMultiAgentCapability({
         availableMethods: ["session/new", "agent/team"],
+      }),
+    ).toBe(true);
+    expect(
+      hasAcpMultiAgentCapability({
+        capabilities: {
+          session: {
+            availableFeatures: [{ id: "subagents" }],
+          },
+        },
       }),
     ).toBe(true);
   });
