@@ -1579,6 +1579,11 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
           };
           const previousThreadIdForProject = state.projectDraftThreadIdByProjectId[projectId];
           const hasSameProjectMapping = previousThreadIdForProject === threadId;
+          const hasStaleProjectMappingForThread = Object.entries(
+            state.projectDraftThreadIdByProjectId,
+          ).some(([mappedProjectId, mappedThreadId]) => {
+            return mappedProjectId !== projectId && mappedThreadId === threadId;
+          });
           const hasSameDraftThread =
             existingThread &&
             existingThread.projectId === nextDraftThread.projectId &&
@@ -1588,13 +1593,16 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
             existingThread.branch === nextDraftThread.branch &&
             existingThread.worktreePath === nextDraftThread.worktreePath &&
             existingThread.envMode === nextDraftThread.envMode;
-          if (hasSameProjectMapping && hasSameDraftThread) {
+          if (hasSameProjectMapping && !hasStaleProjectMappingForThread && hasSameDraftThread) {
             return state;
           }
-          const nextProjectDraftThreadIdByProjectId: Record<ProjectId, ThreadId> = {
-            ...state.projectDraftThreadIdByProjectId,
-            [projectId]: threadId,
-          };
+          const nextProjectDraftThreadIdByProjectId = Object.fromEntries(
+            Object.entries(state.projectDraftThreadIdByProjectId).filter(
+              ([mappedProjectId, mappedThreadId]) =>
+                mappedProjectId === projectId || mappedThreadId !== threadId,
+            ),
+          ) as Record<ProjectId, ThreadId>;
+          nextProjectDraftThreadIdByProjectId[projectId] = threadId;
           const nextProjectDraftThreadIds = new Set(
             Object.values(nextProjectDraftThreadIdByProjectId),
           );

@@ -20,6 +20,7 @@ import {
   pruneHydratedThreadHistories,
   selectThreadById,
   syncServerReadModel,
+  useStore,
   type AppState,
 } from "./store";
 import {
@@ -31,6 +32,7 @@ import { DEFAULT_INTERACTION_MODE, DEFAULT_RUNTIME_MODE, type Thread } from "./t
 
 beforeEach(() => {
   __resetThreadHydrationCacheForTests();
+  useStore.getState().resetToInitialState();
 });
 
 function makeThread(overrides: Partial<Thread> = {}): Thread {
@@ -767,6 +769,182 @@ describe("store read model sync", () => {
     expect(runningThread?.messages).toHaveLength(2);
   });
 
+  it("keeps hydrated running thread history when syncing lean recovery snapshots", () => {
+    const threadId = ThreadId.makeUnsafe("thread-running");
+    const turnId = TurnId.makeUnsafe("turn-running");
+    const state = makeState(
+      makeThread({
+        id: threadId,
+        historyLoaded: true,
+        messages: [
+          {
+            id: MessageId.makeUnsafe("running-user"),
+            role: "user",
+            text: "Keep the full thread visible",
+            turnId,
+            streaming: false,
+            createdAt: "2026-02-27T00:00:00.000Z",
+          },
+          {
+            id: MessageId.makeUnsafe("running-assistant"),
+            role: "assistant",
+            text: "Still working",
+            turnId,
+            streaming: true,
+            createdAt: "2026-02-27T00:00:01.000Z",
+          },
+        ],
+        latestTurn: {
+          turnId,
+          state: "running",
+          requestedAt: "2026-02-27T00:00:00.000Z",
+          startedAt: "2026-02-27T00:00:00.000Z",
+          completedAt: null,
+          assistantMessageId: MessageId.makeUnsafe("running-assistant"),
+        },
+        session: {
+          provider: "codex",
+          status: "running",
+          orchestrationStatus: "running",
+          activeTurnId: turnId,
+          createdAt: "2026-02-27T00:00:00.000Z",
+          updatedAt: "2026-02-27T00:00:01.000Z",
+        },
+      }),
+    );
+
+    const readModel = makeReadModel(
+      makeReadModelThread({
+        id: threadId,
+        latestTurn: {
+          turnId,
+          state: "running",
+          requestedAt: "2026-02-27T00:00:00.000Z",
+          startedAt: "2026-02-27T00:00:00.000Z",
+          completedAt: null,
+          assistantMessageId: MessageId.makeUnsafe("running-assistant"),
+        },
+        session: {
+          threadId,
+          status: "running",
+          providerName: "codex",
+          runtimeMode: "approval-required",
+          activeTurnId: turnId,
+          lastError: null,
+          updatedAt: "2026-02-27T00:00:01.000Z",
+        },
+        messages: [
+          {
+            id: MessageId.makeUnsafe("running-user"),
+            role: "user",
+            text: "Lean summary",
+            turnId,
+            streaming: false,
+            createdAt: "2026-02-27T00:00:00.000Z",
+            updatedAt: "2026-02-27T00:00:00.000Z",
+          },
+        ],
+      }),
+    );
+
+    const next = syncServerReadModel(state, readModel, { hydrateThreadId: null });
+
+    expect(next.threads[0]?.historyLoaded).toBe(true);
+    expect(next.threads[0]?.messages.map((message) => message.id)).toEqual([
+      MessageId.makeUnsafe("running-user"),
+      MessageId.makeUnsafe("running-assistant"),
+    ]);
+  });
+
+  it("updates active session metadata while preserving hydrated history from lean snapshots", () => {
+    const threadId = ThreadId.makeUnsafe("thread-running");
+    const turnId = TurnId.makeUnsafe("turn-running");
+    const state = makeState(
+      makeThread({
+        id: threadId,
+        historyLoaded: true,
+        messages: [
+          {
+            id: MessageId.makeUnsafe("running-user"),
+            role: "user",
+            text: "Keep visible",
+            turnId,
+            streaming: false,
+            createdAt: "2026-02-27T00:00:00.000Z",
+          },
+          {
+            id: MessageId.makeUnsafe("running-assistant"),
+            role: "assistant",
+            text: "Still working",
+            turnId,
+            streaming: true,
+            createdAt: "2026-02-27T00:00:01.000Z",
+          },
+        ],
+        latestTurn: {
+          turnId,
+          state: "running",
+          requestedAt: "2026-02-27T00:00:00.000Z",
+          startedAt: "2026-02-27T00:00:00.000Z",
+          completedAt: null,
+          assistantMessageId: MessageId.makeUnsafe("running-assistant"),
+        },
+        session: {
+          provider: "codex",
+          status: "running",
+          orchestrationStatus: "running",
+          commands: [{ name: "review", description: "Old review command" }],
+          activeTurnId: turnId,
+          createdAt: "2026-02-27T00:00:00.000Z",
+          updatedAt: "2026-02-27T00:00:01.000Z",
+        },
+      }),
+    );
+
+    const readModel = makeReadModel(
+      makeReadModelThread({
+        id: threadId,
+        latestTurn: {
+          turnId,
+          state: "running",
+          requestedAt: "2026-02-27T00:00:00.000Z",
+          startedAt: "2026-02-27T00:00:00.000Z",
+          completedAt: null,
+          assistantMessageId: MessageId.makeUnsafe("running-assistant"),
+        },
+        session: {
+          threadId,
+          status: "running",
+          providerName: "codex",
+          runtimeMode: "approval-required",
+          commands: [{ name: "review", description: "New review command" }],
+          activeTurnId: turnId,
+          lastError: null,
+          updatedAt: "2026-02-27T00:00:02.000Z",
+        },
+        messages: [
+          {
+            id: MessageId.makeUnsafe("running-user"),
+            role: "user",
+            text: "Lean summary",
+            turnId,
+            streaming: false,
+            createdAt: "2026-02-27T00:00:00.000Z",
+            updatedAt: "2026-02-27T00:00:00.000Z",
+          },
+        ],
+      }),
+    );
+
+    const next = syncServerReadModel(state, readModel, { hydrateThreadId: null });
+
+    expect(next.threads[0]?.historyLoaded).toBe(true);
+    expect(next.threads[0]?.messages).toBe(state.threads[0]?.messages);
+    expect(next.threads[0]?.session?.commands).toEqual([
+      { name: "review", description: "New review command" },
+    ]);
+  });
+
   it("derives sidebar proposed-plan state from latestProposedPlanSummary for lean threads", () => {
     const threadId = ThreadId.makeUnsafe("thread-1");
     const initialState = makeState(makeThread({ id: threadId }));
@@ -942,6 +1120,200 @@ describe("incremental orchestration updates", () => {
 
     expect(nextAfterProjectDelete).toBe(state);
     expect(nextAfterThreadDelete).toBe(state);
+  });
+
+  it("removes dismissed error state when a thread is deleted", () => {
+    const thread = makeThread();
+    const state = {
+      ...makeState(thread),
+      dismissedThreadErrorKeysById: {
+        [thread.id]: "dismissed-error",
+      },
+    };
+
+    const next = applyOrchestrationEvent(
+      state,
+      makeEvent("thread.deleted", {
+        threadId: thread.id,
+        deletedAt: "2026-02-27T00:00:01.000Z",
+      }),
+    );
+
+    expect(next.threads).toEqual([]);
+    expect(next.dismissedThreadErrorKeysById).toEqual({});
+  });
+
+  it("removes dismissed error state for threads omitted by full snapshot sync", () => {
+    const retainedThreadId = ThreadId.makeUnsafe("thread-retained");
+    const removedThreadId = ThreadId.makeUnsafe("thread-removed");
+    const retainedThread = makeThread({ id: retainedThreadId });
+    const removedThread = makeThread({ id: removedThreadId });
+    const state = {
+      ...makeState(retainedThread),
+      threads: [retainedThread, removedThread],
+      threadsById: {
+        [retainedThread.id]: retainedThread,
+        [removedThread.id]: removedThread,
+      },
+      threadIdsByProjectId: {
+        [retainedThread.projectId]: [retainedThread.id, removedThread.id],
+      },
+      dismissedThreadErrorKeysById: {
+        [retainedThread.id]: "retained-error",
+        [removedThread.id]: "removed-error",
+      },
+    };
+
+    const next = syncServerReadModel(
+      state,
+      makeReadModel(
+        makeReadModelThread({
+          id: retainedThreadId,
+        }),
+      ),
+    );
+
+    expect(next.threads.map((thread) => thread.id)).toEqual([retainedThreadId]);
+    expect(next.dismissedThreadErrorKeysById).toEqual({
+      [retainedThreadId]: "retained-error",
+    });
+  });
+
+  it("removes project-owned thread state when a project is deleted", () => {
+    const thread = makeThread();
+    const state = {
+      ...makeState(thread),
+      sidebarThreadsById: {
+        [thread.id]: {
+          id: thread.id,
+          projectId: thread.projectId,
+          title: thread.title,
+          interactionMode: thread.interactionMode,
+          session: thread.session,
+          createdAt: thread.createdAt,
+          archivedAt: thread.archivedAt,
+          updatedAt: thread.updatedAt,
+          latestTurn: thread.latestTurn,
+          branch: thread.branch,
+          worktreePath: thread.worktreePath,
+          latestUserMessageAt: null,
+          hasPendingApprovals: false,
+          hasPendingUserInput: false,
+          hasActionableProposedPlan: false,
+          isErrorDismissed: true,
+        },
+      },
+      dismissedThreadErrorKeysById: {
+        [thread.id]: "dismissed-error",
+      },
+    };
+
+    const next = applyOrchestrationEvent(
+      state,
+      makeEvent("project.deleted", {
+        projectId: thread.projectId,
+        deletedAt: "2026-02-27T00:00:01.000Z",
+      }),
+    );
+
+    expect(next.projects).toEqual([]);
+    expect(next.threads).toEqual([]);
+    expect(next.threadsById).toEqual({});
+    expect(next.sidebarThreadsById).toEqual({});
+    expect(next.threadIdsByProjectId).toEqual({});
+    expect(next.dismissedThreadErrorKeysById).toEqual({});
+  });
+
+  it("removes project-owned thread state when read-model ownership is removed", () => {
+    const removedProjectId = ProjectId.makeUnsafe("project-removed");
+    const retainedProjectId = ProjectId.makeUnsafe("project-retained");
+    const removedThread = makeThread({
+      id: ThreadId.makeUnsafe("thread-removed"),
+      projectId: removedProjectId,
+    });
+    const retainedThread = makeThread({
+      id: ThreadId.makeUnsafe("thread-retained"),
+      projectId: retainedProjectId,
+    });
+    useStore.setState({
+      projects: [
+        {
+          id: removedProjectId,
+          name: "Removed",
+          cwd: "/tmp/removed",
+          icon: null,
+          defaultModelSelection: {
+            provider: "codex",
+            model: DEFAULT_MODEL_BY_PROVIDER.codex,
+          },
+          archivedAt: null,
+          scripts: [],
+        },
+        {
+          id: retainedProjectId,
+          name: "Retained",
+          cwd: "/tmp/retained",
+          icon: null,
+          defaultModelSelection: {
+            provider: "codex",
+            model: DEFAULT_MODEL_BY_PROVIDER.codex,
+          },
+          archivedAt: null,
+          scripts: [],
+        },
+      ],
+      threads: [removedThread, retainedThread],
+      threadsById: {
+        [removedThread.id]: removedThread,
+        [retainedThread.id]: retainedThread,
+      },
+      sidebarThreadsById: {
+        [removedThread.id]: {
+          id: removedThread.id,
+          projectId: removedThread.projectId,
+          title: removedThread.title,
+          interactionMode: removedThread.interactionMode,
+          session: removedThread.session,
+          createdAt: removedThread.createdAt,
+          archivedAt: removedThread.archivedAt,
+          updatedAt: removedThread.updatedAt,
+          latestTurn: removedThread.latestTurn,
+          branch: removedThread.branch,
+          worktreePath: removedThread.worktreePath,
+          latestUserMessageAt: null,
+          hasPendingApprovals: false,
+          hasPendingUserInput: false,
+          hasActionableProposedPlan: false,
+          isErrorDismissed: true,
+        },
+      },
+      threadIdsByProjectId: {
+        [removedProjectId]: [removedThread.id],
+        [retainedProjectId]: [retainedThread.id],
+      },
+      dismissedThreadErrorKeysById: {
+        [removedThread.id]: "dismissed-error",
+        [retainedThread.id]: "retained-error",
+      },
+      bootstrapComplete: true,
+    });
+
+    useStore.getState().removeReadModelEntities({
+      projectIds: [removedProjectId],
+      threadIds: [],
+    });
+
+    const next = useStore.getState();
+    expect(next.projects.map((project) => project.id)).toEqual([retainedProjectId]);
+    expect(next.threads.map((thread) => thread.id)).toEqual([retainedThread.id]);
+    expect(next.threadsById?.[removedThread.id]).toBeUndefined();
+    expect(next.threadsById?.[retainedThread.id]).toBe(retainedThread);
+    expect(next.sidebarThreadsById[removedThread.id]).toBeUndefined();
+    expect(next.threadIdsByProjectId[removedProjectId]).toBeUndefined();
+    expect(next.threadIdsByProjectId[retainedProjectId]).toEqual([retainedThread.id]);
+    expect(next.dismissedThreadErrorKeysById).toEqual({
+      [retainedThread.id]: "retained-error",
+    });
   });
 
   it("reuses an existing project row when project.created arrives with a new id for the same cwd", () => {

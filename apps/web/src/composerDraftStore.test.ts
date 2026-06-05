@@ -600,6 +600,19 @@ describe("composerDraftStore project draft thread mapping", () => {
     expect(useComposerDraftStore.getState().draftsByThreadId[threadId]?.prompt).toBe("keep me");
   });
 
+  it("removes stale project mappings when a draft thread moves projects", () => {
+    const store = useComposerDraftStore.getState();
+    store.setProjectDraftThreadId(projectId, threadId);
+    store.setProjectDraftThreadId(otherProjectId, threadId);
+
+    const state = useComposerDraftStore.getState();
+    expect(state.projectDraftThreadIdByProjectId).toEqual({
+      [otherProjectId]: threadId,
+    });
+    expect(state.getDraftThreadByProjectId(projectId)).toBeNull();
+    expect(state.getDraftThreadByProjectId(otherProjectId)?.threadId).toBe(threadId);
+  });
+
   it("clears draft registration independently", () => {
     const store = useComposerDraftStore.getState();
     store.setProjectDraftThreadId(projectId, threadId);

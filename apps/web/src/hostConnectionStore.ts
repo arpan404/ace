@@ -67,6 +67,48 @@ function removeConnectionMappings(
   };
 }
 
+function removeOwnershipConflicts(
+  ownershipByConnectionUrl: Record<string, ConnectionOwnership>,
+  normalizedConnectionUrl: string,
+  ownership: ConnectionOwnership,
+): Record<string, ConnectionOwnership> {
+  const projectIds = new Set(ownership.projectIds);
+  const threadIds = new Set(ownership.threadIds);
+  if (projectIds.size === 0 && threadIds.size === 0) {
+    return ownershipByConnectionUrl;
+  }
+
+  let changed = false;
+  const nextOwnershipByConnectionUrl: Record<string, ConnectionOwnership> = {};
+  for (const [connectionUrl, existingOwnership] of Object.entries(ownershipByConnectionUrl)) {
+    if (connectionUrl === normalizedConnectionUrl) {
+      nextOwnershipByConnectionUrl[connectionUrl] = existingOwnership;
+      continue;
+    }
+
+    const nextProjectIds = existingOwnership.projectIds.filter(
+      (projectId) => !projectIds.has(projectId),
+    );
+    const nextThreadIds = existingOwnership.threadIds.filter(
+      (threadId) => !threadIds.has(threadId),
+    );
+    if (
+      nextProjectIds.length !== existingOwnership.projectIds.length ||
+      nextThreadIds.length !== existingOwnership.threadIds.length
+    ) {
+      changed = true;
+      nextOwnershipByConnectionUrl[connectionUrl] = {
+        projectIds: nextProjectIds,
+        threadIds: nextThreadIds,
+      };
+      continue;
+    }
+    nextOwnershipByConnectionUrl[connectionUrl] = existingOwnership;
+  }
+
+  return changed ? nextOwnershipByConnectionUrl : ownershipByConnectionUrl;
+}
+
 export const useHostConnectionStore = create<HostConnectionState>((set, get) => ({
   projectConnectionById: {},
   threadConnectionById: {},
@@ -98,12 +140,17 @@ export const useHostConnectionStore = create<HostConnectionState>((set, get) => 
       for (const threadId of nextOwnership.threadIds) {
         nextThreadConnectionById[threadId] = normalizedConnectionUrl;
       }
+      const ownershipByConnectionUrl = removeOwnershipConflicts(
+        state.ownershipByConnectionUrl,
+        normalizedConnectionUrl,
+        nextOwnership,
+      );
 
       return {
         projectConnectionById: nextProjectConnectionById,
         threadConnectionById: nextThreadConnectionById,
         ownershipByConnectionUrl: {
-          ...state.ownershipByConnectionUrl,
+          ...ownershipByConnectionUrl,
           [normalizedConnectionUrl]: nextOwnership,
         },
       };
@@ -119,17 +166,23 @@ export const useHostConnectionStore = create<HostConnectionState>((set, get) => 
       const projectIds = existingOwnership.projectIds.includes(projectId)
         ? existingOwnership.projectIds
         : [...existingOwnership.projectIds, projectId];
+      const nextOwnership = {
+        ...existingOwnership,
+        projectIds,
+      };
+      const ownershipByConnectionUrl = removeOwnershipConflicts(
+        state.ownershipByConnectionUrl,
+        normalizedConnectionUrl,
+        nextOwnership,
+      );
       return {
         projectConnectionById: {
           ...state.projectConnectionById,
           [projectId]: normalizedConnectionUrl,
         },
         ownershipByConnectionUrl: {
-          ...state.ownershipByConnectionUrl,
-          [normalizedConnectionUrl]: {
-            ...existingOwnership,
-            projectIds,
-          },
+          ...ownershipByConnectionUrl,
+          [normalizedConnectionUrl]: nextOwnership,
         },
       };
     });
@@ -144,17 +197,23 @@ export const useHostConnectionStore = create<HostConnectionState>((set, get) => 
       const threadIds = existingOwnership.threadIds.includes(threadId)
         ? existingOwnership.threadIds
         : [...existingOwnership.threadIds, threadId];
+      const nextOwnership = {
+        ...existingOwnership,
+        threadIds,
+      };
+      const ownershipByConnectionUrl = removeOwnershipConflicts(
+        state.ownershipByConnectionUrl,
+        normalizedConnectionUrl,
+        nextOwnership,
+      );
       return {
         threadConnectionById: {
           ...state.threadConnectionById,
           [threadId]: normalizedConnectionUrl,
         },
         ownershipByConnectionUrl: {
-          ...state.ownershipByConnectionUrl,
-          [normalizedConnectionUrl]: {
-            ...existingOwnership,
-            threadIds,
-          },
+          ...ownershipByConnectionUrl,
+          [normalizedConnectionUrl]: nextOwnership,
         },
       };
     });
