@@ -728,7 +728,9 @@ export function deriveEnvironmentSessionProviderStatuses(
     ];
     const sideConversationCommands = session.capabilities.sideConversationCommands ?? [];
     if (sideConversationCommands.length > 0) {
-      detailLines.push(`Provider aliases: ${sideConversationCommands.join(", ")}`);
+      detailLines.push(
+        `Native provider mapping behind Ace /side: ${sideConversationCommands.join(", ")}`,
+      );
     }
     statuses.push({
       id: `${session.provider}:side-chat-capability`,

@@ -4536,7 +4536,7 @@ describe("deriveEnvironmentSessionProviderStatus", () => {
         status: "native",
         tone: "info",
         detail:
-          "Provider can start side chats by forking the active provider thread.\nProvider aliases: .side",
+          "Provider can start side chats by forking the active provider thread.\nNative provider mapping behind Ace /side: .side",
       },
       {
         id: "codex:thread-targeting-capability",
