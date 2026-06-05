@@ -587,6 +587,23 @@ it.layer(NodeServices.layer, { excludeTestServices: true })("TerminalManager", (
     }),
   );
 
+  it.effect("caps persisted history by character length for huge single-line output", () =>
+    Effect.gen(function* () {
+      const { manager, ptyAdapter } = yield* createManager();
+      yield* manager.open(openInput());
+      const process = ptyAdapter.processes[0];
+      expect(process).toBeDefined();
+      if (!process) return;
+
+      process.emitData(`${"x".repeat(1_100_000)}\n`);
+      yield* manager.close({ threadId: "thread-1" });
+
+      const reopened = yield* manager.open(openInput());
+      expect(reopened.history.length).toBeLessThanOrEqual(1_000_000);
+      expect(reopened.history.endsWith("\n")).toBe(true);
+    }),
+  );
+
   it.effect("compacts existing prompt-only duplicate history on open", () =>
     Effect.gen(function* () {
       const { manager, logsDir } = yield* createManager(10);
@@ -612,12 +629,13 @@ it.layer(NodeServices.layer, { excludeTestServices: true })("TerminalManager", (
       process.emitData("\u001b[32mok\u001b[0m ");
       process.emitData("\u001b]11;rgb:ffff/ffff/ffff\u0007");
       process.emitData("\u001b[1;1R");
+      process.emitData("x\u001b[999999999b");
       process.emitData("done\n");
 
       yield* manager.close({ threadId: "thread-1" });
 
       const reopened = yield* manager.open(openInput());
-      assert.equal(reopened.history, "prompt \u001b[32mok\u001b[0m done\n");
+      assert.equal(reopened.history, "prompt \u001b[32mok\u001b[0m xdone\n");
     }),
   );
 

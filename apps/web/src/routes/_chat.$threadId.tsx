@@ -124,9 +124,7 @@ function ChatThreadRouteView() {
     if (cachedHydratedThread) {
       threadHydrationFailureCountRef.current = 0;
       clearThreadHydrationRetry(threadHydrationRetryTimeoutRef, threadHydrationRetryAtRef);
-      startTransition(() => {
-        hydrateThreadFromReadModel(cachedHydratedThread);
-      });
+      hydrateThreadFromReadModel(cachedHydratedThread);
       return;
     }
 
@@ -144,9 +142,7 @@ function ChatThreadRouteView() {
         }
         threadHydrationFailureCountRef.current = 0;
         clearThreadHydrationRetry(threadHydrationRetryTimeoutRef, threadHydrationRetryAtRef);
-        startTransition(() => {
-          hydrateThreadFromReadModel(readModelThread);
-        });
+        hydrateThreadFromReadModel(readModelThread);
       } catch {
         if (!canceled) {
           const nextFailureCount = threadHydrationFailureCountRef.current + 1;

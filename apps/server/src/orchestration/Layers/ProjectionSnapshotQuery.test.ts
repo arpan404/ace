@@ -1,4 +1,5 @@
 import { CheckpointRef, EventId, MessageId, ProjectId, ThreadId, TurnId } from "@ace/contracts";
+import { DEFAULT_MAX_THREAD_ACTIVITIES } from "@ace/shared/orchestrationThreadActivities";
 import { assert, it } from "@effect/vitest";
 import { Effect, Layer, Option } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -992,6 +993,123 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           1,
         );
       }),
+  );
+
+  it.effect("caps hydrated thread activities to the client retention budget", () =>
+    Effect.gen(function* () {
+      const snapshotQuery = yield* ProjectionSnapshotQuery;
+      const sql = yield* SqlClient.SqlClient;
+      const threadId = ThreadId.makeUnsafe("thread-activity-cap");
+      const totalActivityCount = DEFAULT_MAX_THREAD_ACTIVITIES + 5;
+
+      yield* sql`DELETE FROM projection_projects`;
+      yield* sql`DELETE FROM projection_threads`;
+      yield* sql`DELETE FROM projection_thread_messages`;
+      yield* sql`DELETE FROM projection_thread_activities`;
+      yield* sql`DELETE FROM projection_thread_proposed_plans`;
+      yield* sql`DELETE FROM projection_thread_sessions`;
+      yield* sql`DELETE FROM projection_turns`;
+      yield* sql`DELETE FROM projection_state`;
+
+      yield* sql`
+        INSERT INTO projection_projects (
+          project_id,
+          title,
+          workspace_root,
+          default_model_selection_json,
+          scripts_json,
+          created_at,
+          updated_at,
+          deleted_at
+        )
+        VALUES (
+          'project-activity-cap',
+          'Activity Cap Project',
+          '/tmp/activity-cap',
+          '{"provider":"codex","model":"gpt-5-codex"}',
+          '[]',
+          '2026-03-04T00:00:00.000Z',
+          '2026-03-04T00:00:00.000Z',
+          NULL
+        )
+      `;
+
+      yield* sql`
+        INSERT INTO projection_threads (
+          thread_id,
+          project_id,
+          title,
+          model_selection_json,
+          runtime_mode,
+          interaction_mode,
+          branch,
+          worktree_path,
+          queued_composer_messages_json,
+          queued_steer_request_json,
+          latest_turn_id,
+          created_at,
+          updated_at,
+          archived_at,
+          deleted_at
+        )
+        VALUES (
+          ${threadId},
+          'project-activity-cap',
+          'Thread Activity Cap',
+          '{"provider":"codex","model":"gpt-5-codex"}',
+          'full-access',
+          'default',
+          NULL,
+          NULL,
+          '[]',
+          NULL,
+          NULL,
+          '2026-03-04T00:00:01.000Z',
+          '2026-03-04T00:00:01.000Z',
+          NULL,
+          NULL
+        )
+      `;
+
+      yield* Effect.forEach(
+        Array.from({ length: totalActivityCount }, (_, index) => index + 1),
+        (sequence) =>
+          sql`
+            INSERT INTO projection_thread_activities (
+              activity_id,
+              thread_id,
+              turn_id,
+              tone,
+              kind,
+              summary,
+              payload_json,
+              created_at,
+              sequence
+            )
+            VALUES (
+              ${`activity-${sequence}`},
+              ${threadId},
+              NULL,
+              'info',
+              'runtime.note',
+              ${`Activity ${sequence}`},
+              '{}',
+              ${`2026-03-04T00:${String(Math.floor(sequence / 60)).padStart(2, "0")}:${String(sequence % 60).padStart(2, "0")}.000Z`},
+              ${sequence}
+            )
+          `,
+        { discard: true },
+      );
+
+      const thread = Option.getOrThrow(yield* snapshotQuery.getThread(threadId));
+
+      assert.equal(thread.activities.length, DEFAULT_MAX_THREAD_ACTIVITIES);
+      assert.equal(
+        thread.activities[0]?.id,
+        `activity-${totalActivityCount - DEFAULT_MAX_THREAD_ACTIVITIES + 1}`,
+      );
+      assert.equal(thread.activities.at(-1)?.id, `activity-${totalActivityCount}`);
+    }),
   );
 
   it.effect(

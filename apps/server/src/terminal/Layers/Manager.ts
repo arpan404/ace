@@ -46,6 +46,7 @@ import {
 } from "../Services/PTY";
 
 const DEFAULT_HISTORY_LINE_LIMIT = 5_000;
+const DEFAULT_HISTORY_CHAR_LIMIT = 1_000_000;
 const DEFAULT_PERSIST_DEBOUNCE_MS = 40;
 const DEFAULT_SUBPROCESS_POLL_INTERVAL_MS = 1_000;
 const SUBPROCESS_POLL_CONCURRENCY = 8;
@@ -422,16 +423,29 @@ const defaultSubprocessChecker = Effect.fn("terminal.defaultSubprocessChecker")(
   return yield* checkPosixSubprocessActivity(terminalPid);
 });
 
-function capHistory(history: string, maxLines: number): string {
+function capHistoryByCharacters(history: string, maxChars: number): string {
+  if (history.length <= maxChars) {
+    return history;
+  }
+  return history.slice(history.length - maxChars);
+}
+
+function capHistory(
+  history: string,
+  maxLines: number,
+  maxChars = DEFAULT_HISTORY_CHAR_LIMIT,
+): string {
   if (history.length === 0) return history;
   const hasTrailingNewline = history.endsWith("\n");
   const lines = history.split("\n");
   if (hasTrailingNewline) {
     lines.pop();
   }
-  if (lines.length <= maxLines) return history;
-  const capped = lines.slice(lines.length - maxLines).join("\n");
-  return hasTrailingNewline ? `${capped}\n` : capped;
+  const lineCapped =
+    lines.length <= maxLines
+      ? history
+      : `${lines.slice(lines.length - maxLines).join("\n")}${hasTrailingNewline ? "\n" : ""}`;
+  return capHistoryByCharacters(lineCapped, maxChars);
 }
 
 function sanitizeTerminalHistoryString(history: string): string {
@@ -511,6 +525,9 @@ function isCsiFinalByte(codePoint: number): boolean {
 }
 
 function shouldStripCsiSequence(body: string, finalByte: string): boolean {
+  if (finalByte === "b") {
+    return true;
+  }
   if (finalByte === "n") {
     return true;
   }
@@ -518,6 +535,12 @@ function shouldStripCsiSequence(body: string, finalByte: string): boolean {
     return true;
   }
   if (finalByte === "c" && /^[>0-9;?]*$/.test(body)) {
+    return true;
+  }
+  if (
+    finalByte !== "m" &&
+    body.split(/[;:?]/g).some((part) => part.length > 0 && Number(part) > 10_000)
+  ) {
     return true;
   }
   return false;
@@ -1722,8 +1745,9 @@ export const makeTerminalManagerWithOptions = Effect.fn("makeTerminalManagerWith
             liveSession.title === null && liveSession.pendingInputCommandBuffer.length === 0
               ? collapseRepeatedPromptOnlyHistory(liveSession.history)
               : liveSession.history;
-          if (compactedLiveHistory !== liveSession.history) {
-            liveSession.history = compactedLiveHistory;
+          const cappedLiveHistory = capHistory(compactedLiveHistory, historyLineLimit);
+          if (cappedLiveHistory !== liveSession.history) {
+            liveSession.history = cappedLiveHistory;
             liveSession.pendingHistoryControlSequence = "";
             yield* persistHistory(
               liveSession.threadId,
