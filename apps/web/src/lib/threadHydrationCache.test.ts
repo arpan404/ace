@@ -107,6 +107,27 @@ describe("createThreadHydrationCache", () => {
     expect(fetchThread).toHaveBeenCalledTimes(1);
   });
 
+  it("clears in-flight hydration after a stalled request times out", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchThread = vi
+        .fn<() => Promise<OrchestrationReadModel["threads"][number]>>()
+        .mockReturnValueOnce(new Promise<OrchestrationReadModel["threads"][number]>(() => {}))
+        .mockResolvedValueOnce(makeThread());
+      const cache = createThreadHydrationCache(fetchThread, { hydrationTimeoutMs: 1_000 });
+
+      const stalledRequest = cache.hydrate(THREAD_ID);
+      const stalledRejection = expect(stalledRequest).rejects.toThrow("Thread hydration timed out");
+      await vi.advanceTimersByTimeAsync(1_000);
+      await stalledRejection;
+
+      await expect(cache.hydrate(THREAD_ID)).resolves.toMatchObject({ id: THREAD_ID });
+      expect(fetchThread).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("treats updatedAt mismatches as stale cache entries", async () => {
     const fetchThread = vi
       .fn<() => Promise<OrchestrationReadModel["threads"][number]>>()
@@ -164,7 +185,7 @@ describe("createThreadHydrationCache", () => {
     const cache = createThreadHydrationCache(fetchThread);
 
     cache.prefetch(THREAD_ID, { priority: "immediate" });
-    await Promise.resolve();
+    await cache.hydrate(THREAD_ID, { expectedUpdatedAt: NOW });
 
     expect(fetchThread).toHaveBeenCalledTimes(1);
     expect(cache.read(THREAD_ID, NOW)?.id).toBe(THREAD_ID);

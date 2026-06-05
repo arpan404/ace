@@ -1999,6 +1999,9 @@ function useChatViewComponent({
     (thread: Parameters<typeof hydrateThreadFromReadModel>[0]) => {
       directThreadHydrationFailureCountRef.current = 0;
       directThreadHydrationRequestTokenRef.current += 1;
+      if (directThreadHydrationInFlightRef.current === thread.id) {
+        directThreadHydrationInFlightRef.current = null;
+      }
       clearDirectThreadHydrationRetryTimeout();
       startTransition(() => {
         hydrateThreadFromReadModel(thread);
@@ -2110,7 +2113,12 @@ function useChatViewComponent({
     directThreadHydrationRequestTokenRef.current += 1;
     clearDirectThreadHydrationRetryTimeout();
     directThreadHydrationInFlightRef.current = null;
-  }, [clearDirectThreadHydrationRetryTimeout, serverThread?.id, serverThread?.updatedAt]);
+  }, [
+    clearDirectThreadHydrationRetryTimeout,
+    serverThread?.historyLoaded,
+    serverThread?.id,
+    serverThread?.updatedAt,
+  ]);
 
   useEffect(() => {
     if (!serverThread || serverThread.historyLoaded !== false) {
