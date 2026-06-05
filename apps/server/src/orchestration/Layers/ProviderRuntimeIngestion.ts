@@ -2950,7 +2950,7 @@ function subagentRuntimePayloadFields(payload: Record<string, unknown>): Record<
   return fields;
 }
 
-function sideConversationPayloadsFromActivity(
+function providerChildPayloadsFromActivity(
   activity: OrchestrationThreadActivity,
 ): ReadonlyArray<{ id: string; type?: string | undefined; name?: string | undefined }> {
   const payload = asRecord(activity.payload);
@@ -3011,20 +3011,17 @@ function sideConversationPayloadsFromActivity(
       continue;
     }
     const type = metadata.type;
-    if (!isProviderSideConversationType(type)) {
-      continue;
-    }
     seen.add(subagentId);
     routes.push({
       id: subagentId,
-      type,
+      type: type ?? "subagent",
       ...(metadata.name ? { name: metadata.name } : {}),
     });
   }
   return routes;
 }
 
-function findSideConversationRuntimeRoute(
+function findProviderChildRuntimeRoute(
   readModel: OrchestrationReadModel,
   runtimeThreadId: ThreadId,
 ): {
@@ -3033,7 +3030,7 @@ function findSideConversationRuntimeRoute(
 } | null {
   for (const thread of readModel.threads) {
     for (const activity of thread.activities) {
-      for (const subagent of sideConversationPayloadsFromActivity(activity)) {
+      for (const subagent of providerChildPayloadsFromActivity(activity)) {
         if (subagent.id === runtimeThreadId) {
           return { thread, subagent };
         }
@@ -3043,7 +3040,7 @@ function findSideConversationRuntimeRoute(
   return null;
 }
 
-function withSideConversationRuntimePayload(
+function withProviderChildRuntimePayload(
   event: ProviderRuntimeEvent,
   subagent: { id: string; type?: string | undefined; name?: string | undefined },
 ): ProviderRuntimeEvent {
@@ -3061,7 +3058,7 @@ function withSideConversationRuntimePayload(
         childProviderThreadId: subagent.id,
         subagent: {
           id: subagent.id,
-          type: subagent.type ?? "side chat",
+          type: subagent.type ?? "subagent",
           ...(subagent.name ? { name: subagent.name } : {}),
         },
       },
@@ -5094,17 +5091,20 @@ const make = Effect.fn("make")(function* () {
       yield* maybeTrimTransientRuntimeBuffers();
       const readModel = yield* orchestrationEngine.getReadModel();
       const directThread = readModel.threads.find((entry) => entry.id === rawEvent.threadId);
-      const sideRuntimeRoute =
+      const providerChildRuntimeRoute =
         directThread === undefined
-          ? findSideConversationRuntimeRoute(readModel, rawEvent.threadId)
+          ? findProviderChildRuntimeRoute(readModel, rawEvent.threadId)
           : null;
-      const thread = directThread ?? sideRuntimeRoute?.thread;
+      const thread = directThread ?? providerChildRuntimeRoute?.thread;
       if (!thread) return;
       const event =
-        sideRuntimeRoute !== null
-          ? withSideConversationRuntimePayload(rawEvent, sideRuntimeRoute.subagent)
+        providerChildRuntimeRoute !== null
+          ? withProviderChildRuntimePayload(rawEvent, providerChildRuntimeRoute.subagent)
           : rawEvent;
-      const isSideRuntimeEvent = sideRuntimeRoute !== null;
+      const isProviderChildRuntimeEvent = providerChildRuntimeRoute !== null;
+      const isSideRuntimeEvent =
+        isProviderChildRuntimeEvent &&
+        isProviderSideConversationType(providerChildRuntimeRoute.subagent.type);
 
       const now = event.createdAt;
       const eventTurnId = toTurnId(event.turnId);
@@ -5256,7 +5256,7 @@ const make = Effect.fn("make")(function* () {
                 ? null
                 : (thread.session?.lastError ?? null);
 
-        if (shouldApplyThreadLifecycle && !isSideRuntimeEvent) {
+        if (shouldApplyThreadLifecycle && !isProviderChildRuntimeEvent) {
           if (
             (event.type === "session.started" || event.type === "session.state.changed") &&
             eventProcessPid !== undefined
@@ -5312,7 +5312,7 @@ const make = Effect.fn("make")(function* () {
       const providerConfigOptions = providerConfigOptionsFromSessionConfigured(event);
       const providerCapabilityOverrides = providerCapabilitiesFromSessionConfigured(event);
       if (
-        !isSideRuntimeEvent &&
+        !isProviderChildRuntimeEvent &&
         (providerConfigOptions !== null ||
           providerCommands !== null ||
           providerCapabilityOverrides !== null)

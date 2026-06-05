@@ -2449,6 +2449,100 @@ describe("ProviderRuntimeIngestion", () => {
     ).toBe(false);
   });
 
+  it("routes later provider fleet child thread events back to the parent thread", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-fleet-array-route-created"),
+      provider: "githubCopilot",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-fleet-array-route"),
+      itemId: asItemId("fleet-array-route-created"),
+      payload: {
+        itemType: "collab_agent_tool_call",
+        status: "completed",
+        title: "Fleet",
+        detail: "Provider reported multiple fleet agents.",
+        data: {
+          agents: [
+            {
+              id: "copilot-fleet-route-agent-1",
+              displayName: "Explore",
+              role: "subagent",
+              model: "gpt-5-copilot",
+            },
+            {
+              id: "copilot-fleet-route-agent-2",
+              displayName: "Task",
+              role: "subagent",
+              model: "gpt-5-copilot",
+            },
+          ],
+        },
+      },
+    });
+
+    await waitForThread(harness.engine, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) => activity.id === "evt-fleet-array-route-created",
+      ),
+    );
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-fleet-array-route-second-message"),
+      provider: "githubCopilot",
+      createdAt: now,
+      threadId: asThreadId("copilot-fleet-route-agent-2"),
+      turnId: asTurnId("turn-fleet-array-route-second"),
+      itemId: asItemId("fleet-array-route-second-message"),
+      payload: {
+        itemType: "assistant_message",
+        status: "completed",
+        detail: "Second fleet agent stayed attached to the parent thread.",
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) =>
+          activity.kind === "task.progress" &&
+          activity.payload &&
+          typeof activity.payload === "object" &&
+          "detail" in activity.payload &&
+          activity.payload.detail === "Second fleet agent stayed attached to the parent thread.",
+      ),
+    );
+
+    const progress = thread.activities.find(
+      (activity: ProviderRuntimeTestActivity) =>
+        activity.kind === "task.progress" &&
+        activity.payload &&
+        typeof activity.payload === "object" &&
+        "detail" in activity.payload &&
+        activity.payload.detail === "Second fleet agent stayed attached to the parent thread.",
+    );
+    expect(progress?.payload).toMatchObject({
+      detail: "Second fleet agent stayed attached to the parent thread.",
+      data: {
+        childProviderThreadId: "copilot-fleet-route-agent-2",
+        subagent: {
+          id: "copilot-fleet-route-agent-2",
+          type: "subagent",
+          name: "Task",
+        },
+      },
+    });
+    expect(
+      thread.messages.some((message: ProviderRuntimeTestMessage) =>
+        message.text.includes("Second fleet agent stayed attached to the parent thread."),
+      ),
+    ).toBe(false);
+  });
+
   it("preserves provider task subagent metadata on task progress activities", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
