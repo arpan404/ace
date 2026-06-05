@@ -125,12 +125,12 @@ describe("providerCapabilities", () => {
       [".claude/agents/*.md", "~/.claude/agents/*.md"],
     );
     expect(defaultProviderIntegrationCapabilities("gemini").multiAgentMode).toBe("native");
-    expect(defaultProviderIntegrationCapabilities("gemini").multiAgentInvocationPrefixes).toEqual([
-      "@",
-    ]);
+    expect(defaultProviderIntegrationCapabilities("gemini").multiAgentInvocationPrefixes).toEqual(
+      [],
+    );
     expect(defaultProviderIntegrationCapabilities("gemini").multiAgentDefinitionPaths).toEqual([
-      ".gemini/agents/*.md",
-      "~/.gemini/agents/*.md",
+      ".gemini/agents",
+      "~/.gemini/agents",
     ]);
     expect(defaultProviderIntegrationCapabilities("githubCopilot").multiAgentMode).toBe("native");
     expect(
@@ -271,8 +271,8 @@ describe("providerCapabilities", () => {
     expect(
       resolveProviderIntegrationCapabilities("gemini", { sessionModelSwitch: "in-session" }),
     ).toMatchObject({
-      multiAgentInvocationPrefixes: ["@"],
-      multiAgentDefinitionPaths: [".gemini/agents/*.md", "~/.gemini/agents/*.md"],
+      multiAgentInvocationPrefixes: [],
+      multiAgentDefinitionPaths: [".gemini/agents", "~/.gemini/agents"],
     });
     expect(
       resolveProviderIntegrationCapabilities("gemini", {
