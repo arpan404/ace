@@ -5,6 +5,7 @@ import {
   resolveTerminalTabDropTarget,
   resolveTerminalSelectionActionPosition,
   shouldHandleTerminalSelectionMouseUp,
+  terminalFitSignature,
   terminalSelectionActionDelayForClickCount,
 } from "./ThreadTerminalDrawer";
 
@@ -39,6 +40,14 @@ describe("resolveTerminalGroupPaneRatios", () => {
 
   it("falls back to equal ratios when all stored ratios are invalid", () => {
     expect(resolveTerminalGroupPaneRatios([0, -1], 2)).toEqual([0.5, 0.5]);
+  });
+});
+
+describe("terminalFitSignature", () => {
+  it("includes both viewport pixels and terminal geometry", () => {
+    expect(terminalFitSignature({ width: 1200, height: 300, cols: 132, rows: 18 })).toBe(
+      "1200x300:132x18",
+    );
   });
 });
 

@@ -1,7 +1,11 @@
 import { ThreadId } from "@ace/contracts";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { selectThreadTerminalState, useTerminalStateStore } from "./terminalStateStore";
+import {
+  selectThreadTerminalPanelState,
+  selectThreadTerminalState,
+  useTerminalStateStore,
+} from "./terminalStateStore";
 
 const THREAD_ID = ThreadId.makeUnsafe("thread-1");
 
@@ -22,6 +26,7 @@ describe("terminalStateStore actions", () => {
       terminalSidebarWidth: 236,
       terminalSidebarDensity: "comfortable",
       terminalIds: ["default"],
+      terminalSessionIds: ["default", "right-default"],
       runningTerminalIds: [],
       activeTerminalId: "default",
       terminalGroups: [{ id: "group-default", terminalIds: ["default"] }],
@@ -31,6 +36,26 @@ describe("terminalStateStore actions", () => {
       terminalIconsById: {},
       terminalColorsById: {},
       splitRatiosByGroupId: { "group-default": [1] },
+      terminalPanelStateByPlacement: {
+        bottom: {
+          terminalOpen: false,
+          terminalHeight: 280,
+          terminalIds: ["default"],
+          activeTerminalId: "default",
+          terminalGroups: [{ id: "group-default", terminalIds: ["default"] }],
+          activeTerminalGroupId: "group-default",
+          splitRatiosByGroupId: { "group-default": [1] },
+        },
+        right: {
+          terminalOpen: false,
+          terminalHeight: 280,
+          terminalIds: ["right-default"],
+          activeTerminalId: "right-default",
+          terminalGroups: [{ id: "group-right-default", terminalIds: ["right-default"] }],
+          activeTerminalGroupId: "group-right-default",
+          splitRatiosByGroupId: { "group-right-default": [1] },
+        },
+      },
     });
   });
 
@@ -113,6 +138,137 @@ describe("terminalStateStore actions", () => {
       { id: "group-default", terminalIds: ["default"] },
       { id: "group-terminal-2", terminalIds: ["terminal-2"] },
     ]);
+  });
+
+  it("keeps right panel active and group layout separate from the bottom panel", () => {
+    const store = useTerminalStateStore.getState();
+    store.newTerminal(THREAD_ID, "bottom-terminal");
+    store.newTerminalForPanel(THREAD_ID, "right", "right-terminal");
+    store.setActiveTerminal(THREAD_ID, "default");
+    store.setActiveTerminalForPanel(THREAD_ID, "right", "right-terminal");
+    store.setTerminalGroupSplitRatiosForPanel(THREAD_ID, "right", "group-right-terminal", [1]);
+    store.setActiveTerminalForPanel(THREAD_ID, "right", "bottom-terminal");
+
+    const bottomState = selectThreadTerminalPanelState(
+      useTerminalStateStore.getState().terminalStateByThreadId,
+      THREAD_ID,
+      "bottom",
+    );
+    const rightState = selectThreadTerminalPanelState(
+      useTerminalStateStore.getState().terminalStateByThreadId,
+      THREAD_ID,
+      "right",
+    );
+
+    expect(bottomState.activeTerminalId).toBe("default");
+    expect(rightState.activeTerminalId).toBe("right-terminal");
+    expect(bottomState.activeTerminalGroupId).toBe("group-default");
+    expect(rightState.activeTerminalGroupId).toBe("group-right-terminal");
+  });
+
+  it("normalizes legacy panel state without panel terminal ids", () => {
+    useTerminalStateStore.setState({
+      terminalStateByThreadId: {
+        [THREAD_ID]: {
+          terminalOpen: false,
+          terminalHeight: 280,
+          terminalSidebarWidth: 236,
+          terminalSidebarDensity: "comfortable",
+          terminalIds: ["default"],
+          runningTerminalIds: [],
+          activeTerminalId: "default",
+          terminalGroups: [{ id: "group-default", terminalIds: ["default"] }],
+          activeTerminalGroupId: "group-default",
+          customTerminalTitlesById: {},
+          autoTerminalTitlesById: {},
+          terminalIconsById: {},
+          terminalColorsById: {},
+          splitRatiosByGroupId: { "group-default": [1] },
+          terminalPanelStateByPlacement: {
+            bottom: {
+              terminalOpen: false,
+              terminalHeight: 280,
+              activeTerminalId: "default",
+              terminalGroups: [{ id: "group-default", terminalIds: ["default"] }],
+              activeTerminalGroupId: "group-default",
+              splitRatiosByGroupId: { "group-default": [1] },
+            },
+            right: {
+              terminalOpen: false,
+              terminalHeight: 280,
+              activeTerminalId: "default",
+              terminalGroups: [{ id: "group-default", terminalIds: ["default"] }],
+              activeTerminalGroupId: "group-default",
+              splitRatiosByGroupId: { "group-default": [1] },
+            },
+          },
+        } as never,
+      },
+    });
+
+    const rightState = selectThreadTerminalPanelState(
+      useTerminalStateStore.getState().terminalStateByThreadId,
+      THREAD_ID,
+      "right",
+    );
+
+    expect(rightState.terminalIds).toEqual(["right-default"]);
+    expect(rightState.activeTerminalId).toBe("right-default");
+  });
+
+  it("returns a stable normalized snapshot for unchanged legacy state", () => {
+    useTerminalStateStore.setState({
+      terminalStateByThreadId: {
+        [THREAD_ID]: {
+          terminalOpen: false,
+          terminalHeight: 280,
+          terminalSidebarWidth: 236,
+          terminalSidebarDensity: "comfortable",
+          terminalIds: ["default"],
+          runningTerminalIds: [],
+          activeTerminalId: "default",
+          terminalGroups: [{ id: "group-default", terminalIds: ["default"] }],
+          activeTerminalGroupId: "group-default",
+          customTerminalTitlesById: {},
+          autoTerminalTitlesById: {},
+          terminalIconsById: {},
+          terminalColorsById: {},
+          splitRatiosByGroupId: { "group-default": [1] },
+          terminalPanelStateByPlacement: {
+            bottom: {
+              terminalOpen: false,
+              terminalHeight: 280,
+              activeTerminalId: "default",
+              terminalGroups: [{ id: "group-default", terminalIds: ["default"] }],
+              activeTerminalGroupId: "group-default",
+              splitRatiosByGroupId: { "group-default": [1] },
+            },
+            right: {
+              terminalOpen: false,
+              terminalHeight: 280,
+              activeTerminalId: "default",
+              terminalGroups: [{ id: "group-default", terminalIds: ["default"] }],
+              activeTerminalGroupId: "group-default",
+              splitRatiosByGroupId: { "group-default": [1] },
+            },
+          },
+        } as never,
+      },
+    });
+
+    const firstSnapshot = selectThreadTerminalState(
+      useTerminalStateStore.getState().terminalStateByThreadId,
+      THREAD_ID,
+    );
+    const secondSnapshot = selectThreadTerminalState(
+      useTerminalStateStore.getState().terminalStateByThreadId,
+      THREAD_ID,
+    );
+
+    expect(secondSnapshot).toBe(firstSnapshot);
+    expect(secondSnapshot.terminalPanelStateByPlacement.right.terminalIds).toBe(
+      firstSnapshot.terminalPanelStateByPlacement.right.terminalIds,
+    );
   });
 
   it("allows unlimited groups while keeping each group capped at four terminals", () => {

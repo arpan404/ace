@@ -588,6 +588,11 @@ label {
   background-color: var(--terminal-surface) !important;
 }
 
+.thread-terminal-drawer .xterm {
+  height: 100%;
+  width: 100%;
+}
+
 .thread-terminal-drawer .xterm .xterm-scrollable-element > .scrollbar > .slider {
   border-radius: 3px;
 }
