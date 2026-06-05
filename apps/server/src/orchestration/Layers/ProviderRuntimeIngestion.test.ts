@@ -2282,6 +2282,79 @@ describe("ProviderRuntimeIngestion", () => {
     ).toBe(false);
   });
 
+  it("keeps provider fleet agent array assistant messages out of the main transcript", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-fleet-agent-array-message-completed"),
+      provider: "githubCopilot",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-fleet-agent-array"),
+      itemId: asItemId("fleet-agent-array-message"),
+      payload: {
+        itemType: "assistant_message",
+        status: "completed",
+        title: "Fleet",
+        detail: "Provider fleet agent array result.",
+        data: {
+          agents: [
+            {
+              id: "copilot-fleet-agent-a",
+              displayName: "Explore",
+              role: "subagent",
+              model: "gpt-5-copilot",
+              response: "Explore result.",
+            },
+            {
+              id: "copilot-fleet-agent-b",
+              displayName: "Task",
+              role: "subagent",
+              model: "gpt-5-copilot",
+              response: "Task result.",
+            },
+          ],
+        },
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) =>
+          activity.kind === "task.progress" &&
+          activity.payload &&
+          typeof activity.payload === "object" &&
+          "detail" in activity.payload &&
+          activity.payload.detail === "Provider fleet agent array result.",
+      ),
+    );
+
+    const progress = thread.activities.find(
+      (activity: ProviderRuntimeTestActivity) =>
+        activity.kind === "task.progress" &&
+        activity.payload &&
+        typeof activity.payload === "object" &&
+        "detail" in activity.payload &&
+        activity.payload.detail === "Provider fleet agent array result.",
+    );
+    expect(progress?.payload).toMatchObject({
+      itemType: "assistant_message",
+      subagent: {
+        id: "copilot-fleet-agent-a",
+        displayName: "Explore",
+        role: "subagent",
+        model: "gpt-5-copilot",
+      },
+    });
+    expect(
+      thread.messages.some((message: ProviderRuntimeTestMessage) =>
+        message.text.includes("Provider fleet agent array result."),
+      ),
+    ).toBe(false);
+  });
+
   it("routes later provider side-chat array child thread events back to the parent thread", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();

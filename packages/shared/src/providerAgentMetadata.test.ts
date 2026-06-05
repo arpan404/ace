@@ -42,6 +42,24 @@ describe("providerAgentMetadata", () => {
     expect(providerAgentRecord({ child_conversations: [sideChat] })).toBe(sideChat);
   });
 
+  it("finds provider team and fleet subagent containers", () => {
+    const fleetAgent = {
+      id: "copilot-fleet-agent-1",
+      displayName: "Explore",
+      role: "subagent",
+    };
+    const taskAgent = {
+      sessionId: "gemini-task-agent-1",
+      name: "Generalist",
+      type: "subagent",
+    };
+
+    expect(providerAgentRecord({ fleet: [fleetAgent] })).toBe(fleetAgent);
+    expect(providerAgentRecord({ agentTeams: [fleetAgent] })).toBe(fleetAgent);
+    expect(providerAgentRecord({ taskAgents: [taskAgent] })).toBe(taskAgent);
+    expect(providerAgentRecord({ subtasks: [taskAgent] })).toBe(taskAgent);
+  });
+
   it("returns every provider child record from plural side-chat containers", () => {
     const firstSideChat = {
       threadId: "provider-side-thread-1",
@@ -61,6 +79,32 @@ describe("providerAgentMetadata", () => {
     expect(providerAgentRecords({ side_conversations: [firstSideChat, secondSideChat] })).toEqual([
       firstSideChat,
       secondSideChat,
+    ]);
+  });
+
+  it("returns every provider team and fleet subagent record", () => {
+    const firstAgent = {
+      id: "copilot-fleet-agent-1",
+      displayName: "Explore",
+      role: "subagent",
+    };
+    const secondAgent = {
+      id: "copilot-fleet-agent-2",
+      displayName: "Task",
+      role: "subagent",
+    };
+
+    expect(providerAgentRecords({ agents: [firstAgent, secondAgent] })).toEqual([
+      firstAgent,
+      secondAgent,
+    ]);
+    expect(providerAgentRecords({ agent_teams: [firstAgent, secondAgent] })).toEqual([
+      firstAgent,
+      secondAgent,
+    ]);
+    expect(providerAgentRecords({ tasks: [firstAgent, secondAgent] })).toEqual([
+      firstAgent,
+      secondAgent,
     ]);
   });
 

@@ -190,6 +190,25 @@ export function providerAgentRecord(
     firstRecord(record.subagent) ??
     firstRecord(record.subagents) ??
     firstRecord(record.agent) ??
+    firstRecord(record.agents) ??
+    firstRecord(record.teamAgent) ??
+    firstRecord(record.team_agent) ??
+    firstRecord(record.teamAgents) ??
+    firstRecord(record.team_agents) ??
+    firstRecord(record.agentTeam) ??
+    firstRecord(record.agent_team) ??
+    firstRecord(record.agentTeams) ??
+    firstRecord(record.agent_teams) ??
+    firstRecord(record.fleet) ??
+    firstRecord(record.fleets) ??
+    firstRecord(record.subtask) ??
+    firstRecord(record.subtasks) ??
+    firstRecord(record.taskAgent) ??
+    firstRecord(record.task_agent) ??
+    firstRecord(record.taskAgents) ??
+    firstRecord(record.task_agents) ??
+    firstRecord(record.task) ??
+    firstRecord(record.tasks) ??
     firstRecord(record.assignedAgent) ??
     firstRecord(record.assigned_agent) ??
     firstRecord(record.delegatedAgent) ??
@@ -234,6 +253,25 @@ export function providerAgentRecords(
     ...recordsFrom(record.subagent),
     ...recordsFrom(record.subagents),
     ...recordsFrom(record.agent),
+    ...recordsFrom(record.agents),
+    ...recordsFrom(record.teamAgent),
+    ...recordsFrom(record.team_agent),
+    ...recordsFrom(record.teamAgents),
+    ...recordsFrom(record.team_agents),
+    ...recordsFrom(record.agentTeam),
+    ...recordsFrom(record.agent_team),
+    ...recordsFrom(record.agentTeams),
+    ...recordsFrom(record.agent_teams),
+    ...recordsFrom(record.fleet),
+    ...recordsFrom(record.fleets),
+    ...recordsFrom(record.subtask),
+    ...recordsFrom(record.subtasks),
+    ...recordsFrom(record.taskAgent),
+    ...recordsFrom(record.task_agent),
+    ...recordsFrom(record.taskAgents),
+    ...recordsFrom(record.task_agents),
+    ...recordsFrom(record.task),
+    ...recordsFrom(record.tasks),
     ...recordsFrom(record.assignedAgent),
     ...recordsFrom(record.assigned_agent),
     ...recordsFrom(record.delegatedAgent),

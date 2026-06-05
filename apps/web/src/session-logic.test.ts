@@ -1713,6 +1713,52 @@ describe("deriveWorkLogEntries", () => {
     });
   });
 
+  it("derives multiple provider fleet subagent entries from one agent array payload", () => {
+    const entries = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "provider-fleet-agent-array-response",
+          turnId: "turn-provider-fleet-agent-array",
+          kind: "task.progress",
+          summary: "Fleet responses",
+          payload: {
+            itemType: "assistant_message",
+            detail: "Provider reported multiple fleet agents.",
+            data: {
+              agents: [
+                {
+                  id: "copilot-fleet-agent-a",
+                  displayName: "Explore",
+                  role: "subagent",
+                  response: "Explore result.",
+                },
+                {
+                  id: "copilot-fleet-agent-b",
+                  displayName: "Task",
+                  role: "subagent",
+                  response: "Task result.",
+                },
+              ],
+            },
+          },
+        }),
+      ],
+      undefined,
+    );
+
+    expect(entries).toHaveLength(2);
+    expect(entries.map((entry) => entry.subagentId)).toEqual([
+      "copilot-fleet-agent-a",
+      "copilot-fleet-agent-b",
+    ]);
+    expect(entries.map((entry) => entry.subagentName)).toEqual(["Explore", "Task"]);
+    expect(entries.map((entry) => entry.sideChatMessageRole)).toEqual(["assistant", "assistant"]);
+    expect(entries[1]).toMatchObject({
+      detail: "Task result.",
+      sideChatMessageText: "Task result.",
+    });
+  });
+
   it("derives provider side-chat ids from side conversation aliases", () => {
     const entries = deriveWorkLogEntries(
       [
