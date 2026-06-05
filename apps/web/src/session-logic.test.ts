@@ -4516,6 +4516,63 @@ describe("deriveEnvironmentSessionProviderStatus", () => {
     ).toBeNull();
   });
 
+  it("describes side chat, child-thread targeting, and goal controls separately", () => {
+    expect(
+      deriveEnvironmentSessionProviderStatuses({
+        provider: "codex",
+        updatedAt: "2026-02-23T00:00:10.500Z",
+        capabilities: {
+          sideConversationMode: "native-fork",
+          sideConversationCommands: [".side"],
+          providerThreadTargetingMode: "native",
+          goalControlMode: "native",
+        },
+      }),
+    ).toEqual([
+      {
+        id: "codex:side-chat-capability",
+        createdAt: "2026-02-23T00:00:10.500Z",
+        label: "Codex side chats",
+        status: "native",
+        tone: "info",
+        detail:
+          "Provider can start side chats by forking the active provider thread.\nProvider aliases: .side",
+      },
+      {
+        id: "codex:thread-targeting-capability",
+        createdAt: "2026-02-23T00:00:10.500Z",
+        label: "Codex child threads",
+        status: "native",
+        tone: "info",
+        detail: "Ace can send follow-up messages directly to provider-managed child threads.",
+      },
+      {
+        id: "codex:goal-control-capability",
+        createdAt: "2026-02-23T00:00:10.500Z",
+        label: "Codex goals",
+        status: "native",
+        tone: "info",
+        detail: "Provider exposes native goal create, update, pause, resume, and clear controls.",
+      },
+    ]);
+
+    expect(
+      deriveEnvironmentSessionProviderStatus({
+        provider: "githubCopilot",
+        updatedAt: "2026-02-23T00:00:10.750Z",
+        capabilities: { sideConversationMode: "replay-fork" },
+      }),
+    ).toEqual({
+      id: "githubCopilot:side-chat-capability",
+      createdAt: "2026-02-23T00:00:10.750Z",
+      label: "Copilot side chats",
+      status: "replay",
+      tone: "info",
+      detail:
+        "Ace can start side chats by replaying bounded parent context into a separate provider session.",
+    });
+  });
+
   it("describes active session hook capability separately from agents", () => {
     expect(
       deriveEnvironmentSessionProviderStatuses({

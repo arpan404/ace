@@ -651,6 +651,10 @@ export function deriveEnvironmentSessionProviderStatus(
           | Partial<
               Pick<
                 ProviderIntegrationCapabilities,
+                | "sideConversationMode"
+                | "sideConversationCommands"
+                | "providerThreadTargetingMode"
+                | "goalControlMode"
                 | "multiAgentMode"
                 | "multiAgentInvocationPrefixes"
                 | "multiAgentDefinitionPaths"
@@ -679,6 +683,10 @@ export function deriveEnvironmentSessionProviderStatuses(
           | Partial<
               Pick<
                 ProviderIntegrationCapabilities,
+                | "sideConversationMode"
+                | "sideConversationCommands"
+                | "providerThreadTargetingMode"
+                | "goalControlMode"
                 | "multiAgentMode"
                 | "multiAgentInvocationPrefixes"
                 | "multiAgentDefinitionPaths"
@@ -702,6 +710,65 @@ export function deriveEnvironmentSessionProviderStatuses(
   }
   const providerLabel = PROVIDER_DISPLAY_NAMES[session.provider] ?? session.provider;
   const statuses: EnvironmentProviderStatus[] = [];
+
+  const sideConversationMode = session.capabilities.sideConversationMode;
+  if (sideConversationMode) {
+    const status =
+      sideConversationMode === "native-fork"
+        ? "native"
+        : sideConversationMode === "replay-fork"
+          ? "replay"
+          : "unsupported";
+    const detailLines = [
+      sideConversationMode === "native-fork"
+        ? "Provider can start side chats by forking the active provider thread."
+        : sideConversationMode === "replay-fork"
+          ? "Ace can start side chats by replaying bounded parent context into a separate provider session."
+          : "Provider has not advertised side-chat support.",
+    ];
+    const sideConversationCommands = session.capabilities.sideConversationCommands ?? [];
+    if (sideConversationCommands.length > 0) {
+      detailLines.push(`Provider aliases: ${sideConversationCommands.join(", ")}`);
+    }
+    statuses.push({
+      id: `${session.provider}:side-chat-capability`,
+      createdAt: session.updatedAt,
+      label: `${providerLabel} side chats`,
+      status,
+      tone: sideConversationMode === "unsupported" ? "warning" : "info",
+      detail: detailLines.join("\n"),
+    });
+  }
+
+  const providerThreadTargetingMode = session.capabilities.providerThreadTargetingMode;
+  if (providerThreadTargetingMode) {
+    statuses.push({
+      id: `${session.provider}:thread-targeting-capability`,
+      createdAt: session.updatedAt,
+      label: `${providerLabel} child threads`,
+      status: providerThreadTargetingMode === "native" ? "native" : "unsupported",
+      tone: providerThreadTargetingMode === "unsupported" ? "warning" : "info",
+      detail:
+        providerThreadTargetingMode === "native"
+          ? "Ace can send follow-up messages directly to provider-managed child threads."
+          : "Provider has not advertised direct child-thread targeting.",
+    });
+  }
+
+  const goalControlMode = session.capabilities.goalControlMode;
+  if (goalControlMode) {
+    statuses.push({
+      id: `${session.provider}:goal-control-capability`,
+      createdAt: session.updatedAt,
+      label: `${providerLabel} goals`,
+      status: goalControlMode === "native" ? "native" : "unsupported",
+      tone: goalControlMode === "unsupported" ? "warning" : "info",
+      detail:
+        goalControlMode === "native"
+          ? "Provider exposes native goal create, update, pause, resume, and clear controls."
+          : "Provider has not advertised native goal controls.",
+    });
+  }
 
   if (multiAgentMode) {
     const status =
