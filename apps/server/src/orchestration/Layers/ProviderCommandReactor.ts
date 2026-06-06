@@ -1814,9 +1814,10 @@ const make = Effect.gen(function* () {
       const usesNativeSideConversation =
         capabilities?.sideConversationMode === "native-fork" ||
         capabilities?.sideConversationMode === "native-side-thread";
-      const replayTurns = usesNativeSideConversation
-        ? []
-        : buildSideConversationReplayTurns(thread);
+      const replayTurns =
+        capabilities?.sideConversationMode === "native-fork"
+          ? []
+          : buildSideConversationReplayTurns(thread);
       const forkSource = usesNativeSideConversation
         ? { threadId: event.payload.forkSourceThreadId }
         : undefined;

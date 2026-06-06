@@ -1693,6 +1693,79 @@ describe("ProviderCommandReactor", () => {
     });
   });
 
+  it("carries replay fallback context for native side-thread providers", async () => {
+    const harness = await createHarness({
+      threadModelSelection: {
+        provider: "cursor",
+        model: "cursor-gpt-5",
+      },
+      sideConversationMode: "native-side-thread",
+    });
+    const now = new Date().toISOString();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-side-thread-parent-turn"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("message-side-thread-parent-1"),
+          role: "user",
+          text: "We are reviewing native side-thread fallback behavior.",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+    await waitFor(() => harness.startSession.mock.calls.length === 1);
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    harness.startSession.mockClear();
+    harness.sendTurn.mockClear();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.subagent.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-side-thread-turn"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        subagentThreadId: "side:thread-1:question-native-side-thread",
+        forkSourceThreadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("message-side-thread-1"),
+          role: "user",
+          text: "explain the fallback context",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.startSession.mock.calls.length === 1);
+    const startInput = harness.startSession.mock.calls[0]?.[1] as
+      | {
+          forkSource?: { threadId: ThreadId };
+          replayTurns?: Array<{ prompt: string; assistantResponse?: string }>;
+        }
+      | undefined;
+    expect(startInput?.forkSource).toEqual({ threadId: ThreadId.makeUnsafe("thread-1") });
+    expect(startInput?.replayTurns?.[0]).toEqual({
+      prompt: "We are reviewing native side-thread fallback behavior.",
+      attachmentNames: [],
+    });
+    expect(startInput?.replayTurns?.[1]?.prompt).toContain(
+      "Record this read-only parent-thread context",
+    );
+    expect(startInput?.replayTurns?.[1]?.assistantResponse).toContain(
+      "Ace side chat parent context",
+    );
+    expect(startInput?.replayTurns?.[1]?.assistantResponse).not.toContain(
+      "[subagent.message.sent] User message: explain the fallback context",
+    );
+  });
+
   it("replays bounded parent context for replay-fork side conversations", async () => {
     const harness = await createHarness({
       threadModelSelection: {
