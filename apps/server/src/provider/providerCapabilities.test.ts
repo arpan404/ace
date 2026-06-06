@@ -237,6 +237,13 @@ describe("providerCapabilities", () => {
       "built-in: bash",
       "built-in: browser",
     ]);
+    expect(defaultProviderIntegrationCapabilities("cursor").multiAgentManagementCommands).toEqual([
+      "cursor-agent worker",
+      "cursor-agent create-chat",
+      "cursor-agent --worktree [name]",
+      "cursor-agent --plugin-dir <path>",
+      "cursor-agent --resume [chatId]",
+    ]);
     expect(defaultProviderIntegrationCapabilities("pi").multiAgentMode).toBe("agent-command");
     expect(defaultProviderIntegrationCapabilities("pi").multiAgentInvocationPrefixes).toEqual([
       "@",
