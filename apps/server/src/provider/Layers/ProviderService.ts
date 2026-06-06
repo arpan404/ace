@@ -1367,7 +1367,13 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
   );
 
   const getCapabilities: ProviderServiceShape["getCapabilities"] = (provider) =>
-    registry.getByProvider(provider).pipe(Effect.map((adapter) => adapter.capabilities));
+    registry
+      .getByProvider(provider)
+      .pipe(
+        Effect.map((adapter) =>
+          resolveProviderIntegrationCapabilities(provider, adapter.capabilities),
+        ),
+      );
 
   const rollbackConversation: ProviderServiceShape["rollbackConversation"] = Effect.fn(
     "rollbackConversation",

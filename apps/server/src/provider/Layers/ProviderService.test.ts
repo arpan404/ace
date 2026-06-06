@@ -684,6 +684,31 @@ it.effect(
 );
 
 routing.layer("ProviderServiceLive routing", (it) => {
+  it.effect("returns resolved provider integration capabilities", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService;
+
+      const capabilities = yield* provider.getCapabilities("cursor");
+
+      assert.equal(capabilities.sessionModelSwitch, "restart-session");
+      assert.equal(capabilities.sideConversationMode, "replay-fork");
+      assert.equal(capabilities.multiAgentMode, "agent-command");
+      assert.deepEqual(capabilities.multiAgentInvocationPrefixes, ["/"]);
+      assert.deepEqual(capabilities.multiAgentDefinitionPaths, [
+        ".cursor/agents",
+        ".claude/agents",
+        ".codex/agents",
+        "~/.cursor/agents",
+        "~/.claude/agents",
+        "~/.codex/agents",
+      ]);
+      assert.equal(capabilities.extensionMode, "local-discovery");
+      assert.equal(capabilities.mcpMode, "native");
+      assert.equal(capabilities.webAccessMode, "native");
+      assert.equal(capabilities.hostedSessionMode, "native");
+    }),
+  );
+
   it.effect("infers Cursor from modelSelection when provider is omitted", () =>
     Effect.gen(function* () {
       const provider = yield* ProviderService;
@@ -1309,9 +1334,19 @@ routing.layer("ProviderServiceLive routing", (it) => {
           sessionResumeMode: "native",
           sessionForkMode: "local-replay",
           sideConversationMode: "replay-fork",
+          sideConversationCommands: [],
           providerThreadTargetingMode: "unsupported",
           goalControlMode: "unsupported",
           multiAgentMode: "agent-command",
+          multiAgentInvocationPrefixes: ["/"],
+          multiAgentDefinitionPaths: [
+            ".cursor/agents",
+            ".claude/agents",
+            ".codex/agents",
+            "~/.cursor/agents",
+            "~/.claude/agents",
+            "~/.codex/agents",
+          ],
           hookMode: "unsupported",
           extensionMode: "local-discovery",
           mcpMode: "native",
