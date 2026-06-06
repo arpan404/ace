@@ -278,7 +278,11 @@ describe("provider command display", () => {
     expect(providerCommandDisplaySearchText(command)).toBe(
       "claude opus 4.5 gpt-5.2 read_file grep github-copilot release-review migration-audit team release engineering workflow release-readiness implement release plan custom-mcp command some-command",
     );
-    expect(providerCommandDisplayBadges(command)).toEqual(["2 models", "2 tools", "2 skills"]);
+    expect(providerCommandDisplayBadges(command)).toEqual([
+      "2 models",
+      "2 tools",
+      "Implement Release Plan",
+    ]);
   });
 
   it("shows provider delegation aliases as compact badges", () => {

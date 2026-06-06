@@ -365,6 +365,26 @@ export function providerCommandDisplayBadges(command: ProviderSlashCommand): str
   if (metadata.background === true) {
     badges.push("background");
   }
+  const thinking = firstProviderCommandMetadataString(
+    metadata.effort,
+    metadata.thinking,
+    metadata.thinkingLevel,
+    metadata.thoughtLevel,
+    metadata.thought_level,
+  );
+  if (thinking) {
+    badges.push(thinking);
+  }
+  const delegationAgents = providerCommandMetadataStringList(
+    metadata.agents ?? metadata.agentNames ?? metadata.handoffs,
+  );
+  if (delegationAgents.length > 0) {
+    badges.push(
+      delegationAgents.length === 1
+        ? (delegationAgents[0] ?? "agent")
+        : `${delegationAgents.length} agents`,
+    );
+  }
   const skills = providerCommandMetadataStringList(metadata.skills ?? metadata.skillNames);
   if (skills.length > 0) {
     badges.push(skills.length === 1 ? (skills[0] ?? "skill") : `${skills.length} skills`);
@@ -409,26 +429,6 @@ export function providerCommandDisplayBadges(command: ProviderSlashCommand): str
   }
   if (metadata.alwaysApply === true || metadata.always_apply === true) {
     badges.push("always");
-  }
-  const thinking = firstProviderCommandMetadataString(
-    metadata.effort,
-    metadata.thinking,
-    metadata.thinkingLevel,
-    metadata.thoughtLevel,
-    metadata.thought_level,
-  );
-  if (thinking) {
-    badges.push(thinking);
-  }
-  const delegationAgents = providerCommandMetadataStringList(
-    metadata.agents ?? metadata.agentNames ?? metadata.handoffs,
-  );
-  if (delegationAgents.length > 0) {
-    badges.push(
-      delegationAgents.length === 1
-        ? (delegationAgents[0] ?? "agent")
-        : `${delegationAgents.length} agents`,
-    );
   }
   return badges.slice(0, 3);
 }
