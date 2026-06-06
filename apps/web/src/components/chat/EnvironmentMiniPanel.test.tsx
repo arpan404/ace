@@ -480,7 +480,7 @@ describe("EnvironmentMiniPanel", () => {
     expect(markup).toContain("authentication error");
   });
 
-  it("renders actionable provider agent rows as composer action buttons", () => {
+  it("renders actionable provider agent rows in a separate agents group", () => {
     const markup = renderEnvironmentMiniPanel({
       providerStatuses: [
         {
@@ -500,7 +500,8 @@ describe("EnvironmentMiniPanel", () => {
       onProviderStatusAction: () => undefined,
     });
 
-    expect(markup).toContain("Provider");
+    expect(markup).toContain("Agents");
+    expect(markup).not.toContain("Provider");
     expect(markup).toContain("@reviewer");
     expect(markup).toContain("Review the current diff.");
     expect(markup).toContain('aria-label="Invoke @reviewer"');

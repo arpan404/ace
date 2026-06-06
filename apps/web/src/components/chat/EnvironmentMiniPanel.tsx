@@ -98,6 +98,7 @@ function EnvironmentPanelGroup(props: {
 
 type EnvironmentPanelGroupId =
   | "actions"
+  | "agents"
   | "environment"
   | "goal"
   | "mcp"
@@ -109,10 +110,11 @@ type EnvironmentPanelGroupId =
   | "subagents";
 type EnvironmentPanelGroupOpenState = Record<EnvironmentPanelGroupId, boolean>;
 
-const ENVIRONMENT_PANEL_GROUP_STORAGE_KEY = "ace:environment-mini-panel-groups:v7";
+const ENVIRONMENT_PANEL_GROUP_STORAGE_KEY = "ace:environment-mini-panel-groups:v8";
 
 const DEFAULT_ENVIRONMENT_PANEL_GROUP_OPEN_STATE: EnvironmentPanelGroupOpenState = {
   actions: false,
+  agents: true,
   environment: true,
   goal: true,
   mcp: true,
@@ -126,6 +128,7 @@ const DEFAULT_ENVIRONMENT_PANEL_GROUP_OPEN_STATE: EnvironmentPanelGroupOpenState
 
 const EnvironmentPanelGroupOpenStateSchema = Schema.Struct({
   actions: Schema.Boolean,
+  agents: Schema.Boolean,
   environment: Schema.Boolean,
   goal: Schema.Boolean,
   mcp: Schema.Boolean,
@@ -615,6 +618,10 @@ export const EnvironmentMiniPanel = forwardRef<
   const activeProjectScripts = props.activeProjectScripts;
   const mcpStatuses = props.mcpStatuses;
   const providerStatuses = props.providerStatuses;
+  const providerAgentStatuses = providerStatuses.filter((status) => status.action !== undefined);
+  const providerCapabilityStatuses = providerStatuses.filter(
+    (status) => status.action === undefined,
+  );
   const subagentThreads = props.subagentThreads;
   const { providerSubagentThreads, sideChatThreads } = partitionSubagentThreads(subagentThreads);
   const workspaceChangeStat = props.workspaceChangeStat;
@@ -767,14 +774,14 @@ export const EnvironmentMiniPanel = forwardRef<
           ) : null}
         </EnvironmentPanelGroup>
 
-        {providerStatuses.length > 0 ? (
+        {providerAgentStatuses.length > 0 ? (
           <EnvironmentPanelGroup
-            title="Provider"
-            open={resolveEnvironmentPanelGroupOpen(groupOpenState, "provider")}
-            onOpenChange={(open) => setGroupOpen("provider", open)}
+            title="Agents"
+            open={resolveEnvironmentPanelGroupOpen(groupOpenState, "agents")}
+            onOpenChange={(open) => setGroupOpen("agents", open)}
           >
             <div className="space-y-0.5">
-              {providerStatuses.map((status) => (
+              {providerAgentStatuses.map((status) => (
                 <EnvironmentProviderStatusRow
                   key={status.id}
                   status={status}
@@ -782,6 +789,20 @@ export const EnvironmentMiniPanel = forwardRef<
                     ? { onAction: props.onProviderStatusAction }
                     : {})}
                 />
+              ))}
+            </div>
+          </EnvironmentPanelGroup>
+        ) : null}
+
+        {providerCapabilityStatuses.length > 0 ? (
+          <EnvironmentPanelGroup
+            title="Provider"
+            open={resolveEnvironmentPanelGroupOpen(groupOpenState, "provider")}
+            onOpenChange={(open) => setGroupOpen("provider", open)}
+          >
+            <div className="space-y-0.5">
+              {providerCapabilityStatuses.map((status) => (
+                <EnvironmentProviderStatusRow key={status.id} status={status} />
               ))}
             </div>
           </EnvironmentPanelGroup>
