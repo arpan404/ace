@@ -83,6 +83,7 @@ const LEAN_THREAD_ACTIVITY_KINDS = new Set<Thread["activities"][number]["kind"]>
   "user-input.resolved",
   "provider.user-input.respond.failed",
 ]);
+type ThreadSessionState = NonNullable<Thread["session"]>;
 
 // ── Pure helpers ──────────────────────────────────────────────────────
 
@@ -356,6 +357,14 @@ function findLatestProposedPlanSummary(
   return latestPlan ? toLatestProposedPlanSummary(latestPlan) : null;
 }
 
+function threadHasActiveRuntime(thread: Pick<Thread, "latestTurn" | "session">): boolean {
+  return (
+    thread.latestTurn?.state === "running" ||
+    thread.session?.orchestrationStatus === "starting" ||
+    thread.session?.orchestrationStatus === "running"
+  );
+}
+
 function mapTurnDiffSummary(
   checkpoint: OrchestrationCheckpointSummary,
 ): Thread["turnDiffSummaries"][number] {
@@ -377,8 +386,16 @@ function mergeThreadPreservingHydratedHistory(
   incomingThread: Thread,
   preserveHydratedHistory = true,
 ): Thread {
+  const shouldPreserveExistingHydratedHistory =
+    existingThread !== undefined &&
+    existingThread.historyLoaded !== false &&
+    incomingThread.historyLoaded === false &&
+    (preserveHydratedHistory ||
+      threadHasActiveRuntime(existingThread) ||
+      threadHasActiveRuntime(incomingThread));
+
   if (
-    !preserveHydratedHistory ||
+    !shouldPreserveExistingHydratedHistory ||
     !existingThread ||
     existingThread.historyLoaded === false ||
     incomingThread.historyLoaded
@@ -421,8 +438,107 @@ function sessionsEqual(left: Thread["session"], right: Thread["session"]): boole
     left.activeTurnId === right.activeTurnId &&
     left.createdAt === right.createdAt &&
     left.updatedAt === right.updatedAt &&
-    left.lastError === right.lastError
+    left.lastError === right.lastError &&
+    providerCapabilitiesEqual(left.capabilities, right.capabilities) &&
+    sessionConfigOptionsEqual(left.configOptions, right.configOptions) &&
+    providerSlashCommandsEqual(left.commands, right.commands)
   );
+}
+
+function providerCapabilitiesEqual(
+  left: ThreadSessionState["capabilities"],
+  right: ThreadSessionState["capabilities"],
+): boolean {
+  if (left === right) {
+    return true;
+  }
+  if (!left || !right) {
+    return false;
+  }
+  return (
+    left.sessionModelSwitch === right.sessionModelSwitch &&
+    left.sessionModelOptionsSwitch === right.sessionModelOptionsSwitch &&
+    left.liveTurnDiffMode === right.liveTurnDiffMode &&
+    left.reviewChangesMode === right.reviewChangesMode &&
+    left.reviewSurface === right.reviewSurface &&
+    left.approvalRequestsMode === right.approvalRequestsMode &&
+    left.turnSteeringMode === right.turnSteeringMode &&
+    left.transcriptAuthority === right.transcriptAuthority &&
+    left.historyAuthority === right.historyAuthority &&
+    left.sessionResumeMode === right.sessionResumeMode &&
+    left.sessionForkMode === right.sessionForkMode
+  );
+}
+
+function providerSlashCommandsEqual(
+  left: ThreadSessionState["commands"],
+  right: ThreadSessionState["commands"],
+): boolean {
+  if (left === right) {
+    return true;
+  }
+  if (!left || !right || left.length !== right.length) {
+    return false;
+  }
+  for (let index = 0; index < left.length; index += 1) {
+    const leftCommand = left[index];
+    const rightCommand = right[index];
+    if (
+      !leftCommand ||
+      !rightCommand ||
+      leftCommand.name !== rightCommand.name ||
+      leftCommand.description !== rightCommand.description ||
+      leftCommand.inputHint !== rightCommand.inputHint ||
+      leftCommand.kind !== rightCommand.kind ||
+      leftCommand.promptPrefix !== rightCommand.promptPrefix
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function sessionConfigOptionsEqual(
+  left: ThreadSessionState["configOptions"],
+  right: ThreadSessionState["configOptions"],
+): boolean {
+  if (left === right) {
+    return true;
+  }
+  if (!left || !right || left.length !== right.length) {
+    return false;
+  }
+  for (let optionIndex = 0; optionIndex < left.length; optionIndex += 1) {
+    const leftOption = left[optionIndex];
+    const rightOption = right[optionIndex];
+    if (
+      !leftOption ||
+      !rightOption ||
+      leftOption.id !== rightOption.id ||
+      leftOption.name !== rightOption.name ||
+      leftOption.description !== rightOption.description ||
+      leftOption.category !== rightOption.category ||
+      leftOption.type !== rightOption.type ||
+      leftOption.currentValue !== rightOption.currentValue ||
+      leftOption.options.length !== rightOption.options.length
+    ) {
+      return false;
+    }
+    for (let valueIndex = 0; valueIndex < leftOption.options.length; valueIndex += 1) {
+      const leftValue = leftOption.options[valueIndex];
+      const rightValue = rightOption.options[valueIndex];
+      if (
+        !leftValue ||
+        !rightValue ||
+        leftValue.value !== rightValue.value ||
+        leftValue.name !== rightValue.name ||
+        leftValue.description !== rightValue.description
+      ) {
+        return false;
+      }
+    }
+  }
+  return true;
 }
 
 function latestTurnsEqual(left: Thread["latestTurn"], right: Thread["latestTurn"]): boolean {
@@ -943,6 +1059,41 @@ function buildThreadIdsByProjectIdPreserving(
   return previous as Record<string, ThreadId[]>;
 }
 
+function removeDismissedThreadErrorKeys(
+  dismissedThreadErrorKeysById: Readonly<Record<string, string>>,
+  threadIds: ReadonlySet<ThreadId>,
+): Record<string, string> {
+  if (threadIds.size === 0) {
+    return dismissedThreadErrorKeysById as Record<string, string>;
+  }
+  let changed = false;
+  const nextDismissedKeys = { ...dismissedThreadErrorKeysById };
+  for (const threadId of threadIds) {
+    if (Object.prototype.hasOwnProperty.call(nextDismissedKeys, threadId)) {
+      delete nextDismissedKeys[threadId];
+      changed = true;
+    }
+  }
+  return changed ? nextDismissedKeys : (dismissedThreadErrorKeysById as Record<string, string>);
+}
+
+function retainDismissedThreadErrorKeysForThreads(
+  dismissedThreadErrorKeysById: Readonly<Record<string, string>>,
+  threads: ReadonlyArray<Thread>,
+): Record<string, string> {
+  const retainedThreadIds = new Set(threads.map((thread) => thread.id));
+  let changed = false;
+  const nextDismissedKeys: Record<string, string> = {};
+  for (const [threadId, dismissalKey] of Object.entries(dismissedThreadErrorKeysById)) {
+    if (retainedThreadIds.has(threadId as ThreadId)) {
+      nextDismissedKeys[threadId] = dismissalKey;
+      continue;
+    }
+    changed = true;
+  }
+  return changed ? nextDismissedKeys : (dismissedThreadErrorKeysById as Record<string, string>);
+}
+
 function shouldRetainLeanThreadActivity(
   activity: Pick<Thread["activities"][number], "kind">,
 ): boolean {
@@ -974,14 +1125,7 @@ function shouldKeepHydratedThreadHistory(
     return true;
   }
 
-  if (thread.latestTurn?.state === "running") {
-    return true;
-  }
-
-  return (
-    thread.session?.orchestrationStatus === "starting" ||
-    thread.session?.orchestrationStatus === "running"
-  );
+  return threadHasActiveRuntime(thread);
 }
 
 export function pruneHydratedThreadHistories(
@@ -1414,7 +1558,36 @@ function applyProjectEvent(state: AppState, event: OrchestrationEvent): AppState
 
     case "project.deleted": {
       const projects = state.projects.filter((project) => project.id !== event.payload.projectId);
-      return projects.length === state.projects.length ? state : { ...state, projects };
+      if (projects.length === state.projects.length) {
+        return state;
+      }
+      const threads = state.threads.filter(
+        (thread) => thread.projectId !== event.payload.projectId,
+      );
+      const removedThreadIds = new Set(
+        state.threads
+          .filter((thread) => thread.projectId === event.payload.projectId)
+          .map((thread) => thread.id),
+      );
+      return {
+        ...state,
+        projects,
+        threads,
+        threadsById: buildThreadsById(threads),
+        sidebarThreadsById: buildSidebarThreadsByIdPreserving(
+          threads,
+          state.dismissedThreadErrorKeysById,
+          state.sidebarThreadsById,
+        ),
+        threadIdsByProjectId: buildThreadIdsByProjectIdPreserving(
+          threads,
+          state.threadIdsByProjectId,
+        ),
+        dismissedThreadErrorKeysById: removeDismissedThreadErrorKeys(
+          state.dismissedThreadErrorKeysById,
+          removedThreadIds,
+        ),
+      };
     }
 
     default:
@@ -1504,6 +1677,10 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
         threadsById: buildThreadsById(threads),
         sidebarThreadsById,
         threadIdsByProjectId,
+        dismissedThreadErrorKeysById: removeDismissedThreadErrorKeys(
+          state.dismissedThreadErrorKeysById,
+          new Set([event.payload.threadId]),
+        ),
       };
     }
 
@@ -1945,9 +2122,13 @@ export function syncServerReadModel(
     }
     threads.push(suppressDismissedThreadError(nextThread, state.dismissedThreadErrorKeysById));
   }
+  const dismissedThreadErrorKeysById = retainDismissedThreadErrorKeysForThreads(
+    state.dismissedThreadErrorKeysById,
+    threads,
+  );
   const sidebarThreadsById = buildSidebarThreadsByIdPreserving(
     threads,
-    state.dismissedThreadErrorKeysById,
+    dismissedThreadErrorKeysById,
     state.sidebarThreadsById,
   );
   const threadIdsByProjectId = buildThreadIdsByProjectIdPreserving(
@@ -1961,6 +2142,7 @@ export function syncServerReadModel(
     threadsById: buildThreadsById(threads),
     sidebarThreadsById,
     threadIdsByProjectId,
+    dismissedThreadErrorKeysById,
     bootstrapComplete: true,
   };
 }
@@ -2037,7 +2219,14 @@ function removeReadModelEntities(
   const projectIds = new Set(input.projectIds);
   const threadIds = new Set(input.threadIds);
   const projects = state.projects.filter((project) => !projectIds.has(project.id));
-  const threads = state.threads.filter((thread) => !threadIds.has(thread.id));
+  const removedThreadIds = new Set<ThreadId>();
+  const threads = state.threads.filter((thread) => {
+    const shouldRemove = projectIds.has(thread.projectId) || threadIds.has(thread.id);
+    if (shouldRemove) {
+      removedThreadIds.add(thread.id);
+    }
+    return !shouldRemove;
+  });
   return {
     ...state,
     projects,
@@ -2049,6 +2238,10 @@ function removeReadModelEntities(
       state.sidebarThreadsById,
     ),
     threadIdsByProjectId: buildThreadIdsByProjectIdPreserving(threads, state.threadIdsByProjectId),
+    dismissedThreadErrorKeysById: removeDismissedThreadErrorKeys(
+      state.dismissedThreadErrorKeysById,
+      removedThreadIds,
+    ),
   };
 }
 

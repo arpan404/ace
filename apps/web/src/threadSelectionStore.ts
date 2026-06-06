@@ -102,20 +102,18 @@ export const useThreadSelectionStore = create<ThreadSelectionStore>((set, get) =
   removeFromSelection: (threadIds) => {
     set((state) => {
       const toRemove = new Set(threadIds);
-      let changed = false;
+      const anchorRemoved = state.anchorThreadId !== null && toRemove.has(state.anchorThreadId);
+      let selectionChanged = false;
       const next = new Set<ThreadId>();
       for (const id of state.selectedThreadIds) {
         if (toRemove.has(id)) {
-          changed = true;
+          selectionChanged = true;
         } else {
           next.add(id);
         }
       }
-      if (!changed) return state;
-      const newAnchor =
-        state.anchorThreadId !== null && toRemove.has(state.anchorThreadId)
-          ? null
-          : state.anchorThreadId;
+      if (!selectionChanged && !anchorRemoved) return state;
+      const newAnchor = anchorRemoved ? null : state.anchorThreadId;
       return { selectedThreadIds: next, anchorThreadId: newAnchor };
     });
   },

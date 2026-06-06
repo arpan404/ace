@@ -252,6 +252,16 @@ describe("threadSelectionStore", () => {
       expect(useThreadSelectionStore.getState().anchorThreadId).toBeNull();
     });
 
+    it("clears anchor when an unselected anchor thread is removed", () => {
+      const store = useThreadSelectionStore.getState();
+      store.setAnchor(THREAD_B);
+      store.removeFromSelection([THREAD_B]);
+
+      const state = useThreadSelectionStore.getState();
+      expect(state.anchorThreadId).toBeNull();
+      expect(state.selectedThreadIds.size).toBe(0);
+    });
+
     it("preserves anchor when the anchor thread is not removed", () => {
       const store = useThreadSelectionStore.getState();
       store.toggleThread(THREAD_A);
