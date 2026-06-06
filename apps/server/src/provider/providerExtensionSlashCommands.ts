@@ -4396,6 +4396,18 @@ function frontmatterTomlStringField(toml: string, field: string): string | undef
   return value || undefined;
 }
 
+function frontmatterTomlStringArrayField(toml: string, field: string): string[] | undefined {
+  const match = new RegExp(`^${field}\\s*=\\s*\\[(?<value>[^\\]]*)\\]\\s*$`, "mu").exec(toml);
+  const rawValue = match?.groups?.value;
+  if (!rawValue) {
+    return undefined;
+  }
+  const values = [...rawValue.matchAll(/(?<quote>["'])(?<value>.*?)\k<quote>/gu)]
+    .map((item) => item.groups?.value?.trim())
+    .filter((value): value is string => Boolean(value));
+  return values.length > 0 ? values : undefined;
+}
+
 function geminiTomlCommandMetadata(prompt: string): Record<string, unknown> | undefined {
   const metadata = {
     provider: "gemini",
@@ -4739,6 +4751,10 @@ export function discoverCodexExtensionSlashCommands(
 
   const skillCommands = skillRoots.flatMap((root) => readSkillRoot(root));
   const customPromptCommands = readCodexCustomPromptRoot(path.join(codexHome, "prompts"));
+  const agentCommands = uniquePaths([
+    ...projectRoots.map((root) => path.join(root, ".codex", "agents")),
+    path.join(codexHome, "agents"),
+  ]).flatMap((root) => readCodexAgentRoot(root));
   const pluginCommands = pluginManifestFiles(
     path.join(codexHome, "plugins", "cache"),
     ".codex-plugin",
@@ -4749,7 +4765,58 @@ export function discoverCodexExtensionSlashCommands(
     }),
   );
 
-  return mergeProviderSlashCommands(skillCommands, customPromptCommands, pluginCommands);
+  return mergeProviderSlashCommands(
+    skillCommands,
+    agentCommands,
+    customPromptCommands,
+    pluginCommands,
+  );
+}
+
+function readCodexAgentRoot(root: string): ProviderSlashCommand[] {
+  if (!isDirectory(root)) {
+    return [];
+  }
+  return safeReadDir(root)
+    .map((entry) => path.join(root, entry))
+    .filter((file) => file.endsWith(".toml") && isRegularFile(file))
+    .map(readCodexAgentTomlCommand)
+    .filter((command): command is ProviderSlashCommand => command !== null);
+}
+
+function codexAgentTomlMetadata(toml: string): Record<string, unknown> {
+  const nicknameCandidates = frontmatterTomlStringArrayField(toml, "nickname_candidates");
+  const model = frontmatterTomlStringField(toml, "model");
+  const modelReasoningEffort = frontmatterTomlStringField(toml, "model_reasoning_effort");
+  const sandboxMode = frontmatterTomlStringField(toml, "sandbox_mode");
+  return {
+    provider: "codex",
+    source: "agent",
+    ...(model ? { model } : {}),
+    ...(modelReasoningEffort ? { modelReasoningEffort } : {}),
+    ...(sandboxMode ? { sandboxMode } : {}),
+    ...(nicknameCandidates ? { nicknameCandidates } : {}),
+  };
+}
+
+function readCodexAgentTomlCommand(file: string): ProviderSlashCommand | null {
+  const toml = safeReadFile(file);
+  if (!toml) {
+    return null;
+  }
+  const name = normalizeCommandName(frontmatterTomlStringField(toml, "name") ?? "");
+  const description = frontmatterTomlStringField(toml, "description");
+  const developerInstructions = frontmatterTomlStringField(toml, "developer_instructions");
+  if (!name || !description || !developerInstructions) {
+    return null;
+  }
+  return providerAgentSlashCommand({
+    name,
+    description,
+    promptPrefix: `@${name}`,
+    inputHint: "<prompt>",
+    metadata: codexAgentTomlMetadata(toml),
+  });
 }
 
 function discoverSkillRootSlashCommands(input: {

@@ -555,6 +555,34 @@ describe("providerExtensionSlashCommands", () => {
       await writeSkill(path.join(agentsHome, "skills"), "frontend-design", "Build UI");
       await writeSkill(path.join(codexHome, "skills"), "design-audit", "Audit UI");
       await writeSkill(path.join(codexHome, "skills", ".system"), "imagegen", "Generate images");
+      await mkdir(path.join(repo, ".codex", "agents"), { recursive: true });
+      await writeFile(
+        path.join(repo, ".codex", "agents", "reviewer.toml"),
+        [
+          'name = "reviewer"',
+          'description = "Review code with a Codex custom agent"',
+          'developer_instructions = """',
+          "Review code carefully.",
+          '"""',
+          'nickname_candidates = ["Atlas", "Delta"]',
+          'model = "gpt-5.4-mini"',
+          'model_reasoning_effort = "low"',
+          'sandbox_mode = "read-only"',
+        ].join("\n"),
+      );
+      await mkdir(path.join(codexHome, "agents"), { recursive: true });
+      await writeFile(
+        path.join(codexHome, "agents", "docs.toml"),
+        [
+          'name = "docs-writer"',
+          'description = "Draft documentation with a Codex custom agent"',
+          'developer_instructions = "Write docs."',
+        ].join("\n"),
+      );
+      await writeFile(
+        path.join(codexHome, "agents", "invalid.toml"),
+        ['name = "invalid"', 'description = "Missing instructions"'].join("\n"),
+      );
       await mkdir(path.join(codexHome, "prompts", "nested"), { recursive: true });
       await writeFile(
         path.join(codexHome, "prompts", "draftpr.md"),
@@ -627,6 +655,27 @@ describe("providerExtensionSlashCommands", () => {
             promptPrefix: "$imagegen",
           }),
           expect.objectContaining({
+            name: "reviewer",
+            kind: "agent",
+            promptPrefix: "@reviewer",
+            inputHint: "<prompt>",
+            description: "Review code with a Codex custom agent",
+            metadata: {
+              provider: "codex",
+              source: "agent",
+              nicknameCandidates: ["Atlas", "Delta"],
+              model: "gpt-5.4-mini",
+              modelReasoningEffort: "low",
+              sandboxMode: "read-only",
+            },
+          }),
+          expect.objectContaining({
+            name: "docs-writer",
+            kind: "agent",
+            promptPrefix: "@docs-writer",
+            description: "Draft documentation with a Codex custom agent",
+          }),
+          expect.objectContaining({
             name: "prompts:draftpr",
             kind: "provider",
             promptPrefix: "/prompts:draftpr",
@@ -647,6 +696,7 @@ describe("providerExtensionSlashCommands", () => {
       );
       expect(findCommand(commands, "browser-use:browser")).toBeUndefined();
       expect(findCommand(commands, "design-audit")?.description).toBe("Local audit UI");
+      expect(findCommand(commands, "invalid")).toBeUndefined();
       expect(findCommand(commands, "prompts:ignored")).toBeUndefined();
       const providerCommands = withProviderExtensionSlashCommands({
         providers: [
@@ -707,6 +757,11 @@ describe("providerExtensionSlashCommands", () => {
             name: "prompts:draftpr",
             kind: "provider",
             promptPrefix: "/prompts:draftpr",
+          }),
+          expect.objectContaining({
+            name: "reviewer",
+            kind: "agent",
+            promptPrefix: "@reviewer",
           }),
           expect.objectContaining({
             name: "browser-use",
