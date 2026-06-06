@@ -35,6 +35,23 @@ import { makeGitHubCopilotAdapterLive } from "./GitHubCopilotAdapter.ts";
 
 const mockedCreateGitHubCopilotClient = vi.mocked(createGitHubCopilotClient);
 const asThreadId = (value: string): ThreadId => ThreadId.makeUnsafe(value);
+const EXPECTED_GITHUB_COPILOT_MULTI_AGENT_CAPABILITIES = {
+  multiAgentMode: "native",
+  multiAgentInvocationPrefixes: ["@"],
+  multiAgentDefinitionPaths: [
+    ".github/agents/*.agent.md",
+    ".github/agents/*.md",
+    ".github/chatmodes/*.chatmode.md",
+    ".claude/agents",
+    "~/.copilot/agents/*.agent.md",
+    "~/.copilot/agents/*.md",
+    "~/.copilot/chatmodes/*.chatmode.md",
+    "~/.github-copilot/agents/*.agent.md",
+    "~/.github-copilot/agents/*.md",
+    "~/.github-copilot/chatmodes/*.chatmode.md",
+    "configured chat.agentFilesLocations",
+  ],
+} as const;
 
 type FakeStartConfig = SessionConfig;
 
@@ -264,6 +281,7 @@ layer("GitHubCopilotAdapterLive startSession", (it) => {
         sessionResumeMode: "native",
         sessionForkMode: "local-replay",
         sideConversationMode: "replay-fork",
+        ...EXPECTED_GITHUB_COPILOT_MULTI_AGENT_CAPABILITIES,
       });
 
       yield* adapter.stopSession(threadId);
@@ -310,6 +328,7 @@ layer("GitHubCopilotAdapterLive startSession", (it) => {
         sessionResumeMode: "native",
         sessionForkMode: "native",
         sideConversationMode: "native-fork",
+        ...EXPECTED_GITHUB_COPILOT_MULTI_AGENT_CAPABILITIES,
       });
 
       yield* adapter.stopSession(threadId);
@@ -357,6 +376,7 @@ layer("GitHubCopilotAdapterLive startSession", (it) => {
         sessionResumeMode: "native",
         sessionForkMode: "native",
         sideConversationMode: "native-fork",
+        ...EXPECTED_GITHUB_COPILOT_MULTI_AGENT_CAPABILITIES,
       });
 
       yield* adapter.stopSession(threadId);

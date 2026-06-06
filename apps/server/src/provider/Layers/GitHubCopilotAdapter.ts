@@ -164,17 +164,34 @@ function gitHubCopilotSessionForkFunction(
 }
 
 function gitHubCopilotProviderCapabilities(client: GitHubCopilotClientLike) {
-  return gitHubCopilotSessionForkFunction(client)
+  const forkCapabilities = gitHubCopilotSessionForkFunction(client)
     ? {
-        sessionResumeMode: "native" as const,
         sessionForkMode: "native" as const,
         sideConversationMode: "native-fork" as const,
       }
     : {
-        sessionResumeMode: "native" as const,
         sessionForkMode: "local-replay" as const,
         sideConversationMode: "replay-fork" as const,
       };
+  return {
+    sessionResumeMode: "native" as const,
+    ...forkCapabilities,
+    multiAgentMode: "native" as const,
+    multiAgentInvocationPrefixes: ["@"],
+    multiAgentDefinitionPaths: [
+      ".github/agents/*.agent.md",
+      ".github/agents/*.md",
+      ".github/chatmodes/*.chatmode.md",
+      ".claude/agents",
+      "~/.copilot/agents/*.agent.md",
+      "~/.copilot/agents/*.md",
+      "~/.copilot/chatmodes/*.chatmode.md",
+      "~/.github-copilot/agents/*.agent.md",
+      "~/.github-copilot/agents/*.md",
+      "~/.github-copilot/chatmodes/*.chatmode.md",
+      "configured chat.agentFilesLocations",
+    ],
+  };
 }
 
 interface PendingApproval {
