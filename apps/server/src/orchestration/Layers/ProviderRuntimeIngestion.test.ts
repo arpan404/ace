@@ -521,6 +521,12 @@ describe("ProviderRuntimeIngestion", () => {
             },
             agents: {
               supported: true,
+              invocationPrefixes: ["@", "/agent", "@"],
+              definitionPaths: [".cursor/agents/*.md"],
+              subagents: {
+                subagentPrefixes: ["@subagent"],
+                subagentPaths: ["~/.cursor/agents/*.md"],
+              },
             },
             hooks: {
               supported: true,
@@ -559,6 +565,10 @@ describe("ProviderRuntimeIngestion", () => {
         entry.session?.capabilities?.turnSteeringMode === "native" &&
         entry.session?.capabilities?.goalControlMode === "native" &&
         entry.session?.capabilities?.multiAgentMode === "native" &&
+        entry.session?.capabilities?.multiAgentInvocationPrefixes?.join(",") ===
+          "@,/agent,@subagent" &&
+        entry.session?.capabilities?.multiAgentDefinitionPaths?.join(",") ===
+          ".cursor/agents/*.md,~/.cursor/agents/*.md" &&
         entry.session?.capabilities?.hookMode === "native" &&
         entry.session?.capabilities?.extensionMode === "native" &&
         entry.session?.capabilities?.mcpMode === "native" &&
@@ -575,6 +585,15 @@ describe("ProviderRuntimeIngestion", () => {
     expect(thread.session?.capabilities?.turnSteeringMode).toBe("native");
     expect(thread.session?.capabilities?.goalControlMode).toBe("native");
     expect(thread.session?.capabilities?.multiAgentMode).toBe("native");
+    expect(thread.session?.capabilities?.multiAgentInvocationPrefixes).toEqual([
+      "@",
+      "/agent",
+      "@subagent",
+    ]);
+    expect(thread.session?.capabilities?.multiAgentDefinitionPaths).toEqual([
+      ".cursor/agents/*.md",
+      "~/.cursor/agents/*.md",
+    ]);
     expect(thread.session?.capabilities?.hookMode).toBe("native");
     expect(thread.session?.capabilities?.extensionMode).toBe("native");
     expect(thread.session?.capabilities?.mcpMode).toBe("native");

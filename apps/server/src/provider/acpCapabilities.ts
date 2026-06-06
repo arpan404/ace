@@ -101,28 +101,44 @@ function acpCapabilityRecords(initializeResult: unknown): ReadonlyArray<Record<s
 function nestedAgentCapabilityRecords(
   record: Record<string, unknown>,
 ): ReadonlyArray<Record<string, unknown>> {
-  return [
-    isRecord(record.multiAgent),
-    isRecord(record.multi_agent),
-    isRecord(record.multiAgents),
-    isRecord(record.multi_agents),
-    isRecord(record.agents),
-    isRecord(record.agent),
-    isRecord(record.customAgents),
-    isRecord(record.custom_agents),
-    isRecord(record.agentProfiles),
-    isRecord(record.agent_profiles),
-    isRecord(record.profiles),
-    isRecord(record.personas),
-    isRecord(record.assistants),
-    isRecord(record.chatModes),
-    isRecord(record.chat_modes),
-    isRecord(record.subagents),
-    isRecord(record.subAgents),
-    isRecord(record.sub_agents),
-    isRecord(record.handoffs),
-    isRecord(record.teams),
-  ].filter((entry): entry is Record<string, unknown> => entry !== null);
+  const nestedRecords: Record<string, unknown>[] = [];
+  const seen = new Set<Record<string, unknown>>();
+  const collect = (currentRecord: Record<string, unknown>) => {
+    const queue = [
+      isRecord(currentRecord.multiAgent),
+      isRecord(currentRecord.multi_agent),
+      isRecord(currentRecord.multiAgents),
+      isRecord(currentRecord.multi_agents),
+      isRecord(currentRecord.agents),
+      isRecord(currentRecord.agent),
+      isRecord(currentRecord.customAgents),
+      isRecord(currentRecord.custom_agents),
+      isRecord(currentRecord.agentProfiles),
+      isRecord(currentRecord.agent_profiles),
+      isRecord(currentRecord.profiles),
+      isRecord(currentRecord.personas),
+      isRecord(currentRecord.assistants),
+      isRecord(currentRecord.chatModes),
+      isRecord(currentRecord.chat_modes),
+      isRecord(currentRecord.subagents),
+      isRecord(currentRecord.subAgents),
+      isRecord(currentRecord.sub_agents),
+      isRecord(currentRecord.handoffs),
+      isRecord(currentRecord.teams),
+    ].filter((entry): entry is Record<string, unknown> => entry !== null);
+
+    for (const nested of queue) {
+      if (seen.has(nested)) {
+        continue;
+      }
+      seen.add(nested);
+      nestedRecords.push(nested);
+      collect(nested);
+    }
+  };
+
+  collect(record);
+  return nestedRecords;
 }
 
 function nestedSideConversationCapabilityRecords(

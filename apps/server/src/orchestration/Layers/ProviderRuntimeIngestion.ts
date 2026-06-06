@@ -60,6 +60,8 @@ import { ServerSettingsService } from "../../serverSettings.ts";
 import { updateProviderRuntimeIngestionCacheStats } from "../../runtimeProfile.ts";
 import { resolveProviderIntegrationCapabilities } from "../../provider/providerCapabilities.ts";
 import {
+  acpMultiAgentDefinitionPaths,
+  acpMultiAgentInvocationPrefixes,
   acpSideConversationCommands,
   hasAcpMultiAgentCapability,
   hasAcpProviderThreadTargetingCapability,
@@ -552,6 +554,7 @@ function providerCapabilitiesFromSessionConfigured(
     sessions?.multiAgentInvocationPrefixes,
     sessions?.agentInvocationPrefixes,
     sessions?.subagentInvocationPrefixes,
+    acpMultiAgentInvocationPrefixes({ capabilities }),
   );
   const multiAgentDefinitionPaths = normalizeProviderCapabilityStringList(
     capabilities.multiAgentDefinitionPaths,
@@ -583,6 +586,7 @@ function providerCapabilitiesFromSessionConfigured(
     sessions?.subagentDefinitionPaths,
     sessions?.agentFilesLocations,
     sessions?.chatModeFilesLocations,
+    acpMultiAgentDefinitionPaths({ capabilities }),
   );
   const hookMode =
     normalizeProviderCapabilityMode(
