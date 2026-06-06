@@ -400,6 +400,47 @@ function canResolveTimelineRowsInWorker(): boolean {
   );
 }
 
+export function resolveVisibleTimelineRows(input: {
+  readonly activeThreadId?: string | null;
+  readonly retainedRows: {
+    readonly activeThreadId: string;
+    readonly rows: ReadonlyArray<TimelineRow>;
+  } | null;
+  readonly resolvedAsyncRows: ReadonlyArray<TimelineRow> | null;
+  readonly shouldResolveAsync: boolean;
+  readonly syncRows: ReadonlyArray<TimelineRow>;
+}): { readonly loading: boolean; readonly rows: ReadonlyArray<TimelineRow> } {
+  if (!input.shouldResolveAsync) {
+    return {
+      loading: false,
+      rows: input.syncRows.length > 0 ? input.syncRows : EMPTY_TIMELINE_ROWS,
+    };
+  }
+
+  if (input.resolvedAsyncRows !== null) {
+    return {
+      loading: false,
+      rows: input.resolvedAsyncRows,
+    };
+  }
+
+  if (
+    input.activeThreadId &&
+    input.retainedRows?.activeThreadId === input.activeThreadId &&
+    input.retainedRows.rows.length > 0
+  ) {
+    return {
+      loading: false,
+      rows: input.retainedRows.rows,
+    };
+  }
+
+  return {
+    loading: true,
+    rows: EMPTY_TIMELINE_ROWS,
+  };
+}
+
 export function shouldRenderTimelineVirtualizedBuffer(input: {
   readonly virtualizedRowCount: number;
 }): boolean {
@@ -611,6 +652,7 @@ interface MessagesTimelineProps {
   getScrollContainer: () => HTMLDivElement | null;
   hideCompletedWorkMessages?: boolean;
   liveTimers?: boolean;
+  timelineCacheScope?: string | null;
   timelineEntries: ReturnType<typeof deriveTimelineEntries>;
   completionDividerBeforeEntryId: string | null;
   completionSummary: string | null;
@@ -658,6 +700,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   getScrollContainer,
   hideCompletedWorkMessages = false,
   liveTimers = true,
+  timelineCacheScope = null,
   timelineEntries,
   completionDividerBeforeEntryId,
   completionSummary,
@@ -768,6 +811,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       timelineEntries,
       activeTurnInProgress,
       activeTurnStartedAt,
+      ...(timelineCacheScope ? { cacheScopeKey: timelineCacheScope } : {}),
       completionDividerBeforeEntryId,
       completionSummary,
       hideCompletedWorkMessages,
@@ -777,6 +821,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     [
       activeTurnInProgress,
       timelineEntries,
+      timelineCacheScope,
       completionDividerBeforeEntryId,
       completionSummary,
       hideCompletedWorkMessages,
@@ -798,6 +843,10 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     readonly cacheKey: string;
     readonly rows: ReadonlyArray<TimelineRow>;
   } | null>(null);
+  const [retainedTimelineRows, setRetainedTimelineRows] = useState<{
+    readonly activeThreadId: string;
+    readonly rows: ReadonlyArray<TimelineRow>;
+  } | null>(null);
   const resolvedAsyncTimelineRows =
     asyncTimelineRows?.cacheKey === timelineRowsCacheKey ? asyncTimelineRows.rows : null;
   const shouldResolveTimelineRowsAsync = shouldResolveTimelineRowsInWorker && !cachedTimelineRows;
@@ -810,12 +859,13 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     }
     return measureRenderWork("chat.buildTimelineRows", () => buildTimelineRows(timelineRowsInput));
   }, [cachedTimelineRows, shouldResolveTimelineRowsAsync, timelineRowsInput]);
-  const rows = shouldResolveTimelineRowsAsync
-    ? (resolvedAsyncTimelineRows ?? EMPTY_TIMELINE_ROWS)
-    : syncTimelineRows.length > 0
-      ? syncTimelineRows
-      : EMPTY_TIMELINE_ROWS;
-  const timelineRowsLoading = shouldResolveTimelineRowsAsync && resolvedAsyncTimelineRows === null;
+  const { loading: timelineRowsLoading, rows } = resolveVisibleTimelineRows({
+    activeThreadId: activeThreadId ?? null,
+    retainedRows: retainedTimelineRows,
+    resolvedAsyncRows: resolvedAsyncTimelineRows,
+    shouldResolveAsync: shouldResolveTimelineRowsAsync,
+    syncRows: syncTimelineRows,
+  });
 
   useEffect(() => {
     if (cachedTimelineRows || shouldResolveTimelineRowsAsync) {
@@ -831,10 +881,25 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   ]);
 
   useEffect(() => {
-    setAsyncTimelineRows((current) =>
-      current?.cacheKey === timelineRowsCacheKey ? current : null,
+    if (!activeThreadId) {
+      setRetainedTimelineRows(null);
+      return;
+    }
+    setRetainedTimelineRows((current) =>
+      current?.activeThreadId === activeThreadId ? current : null,
     );
-  }, [timelineRowsCacheKey]);
+  }, [activeThreadId]);
+
+  useEffect(() => {
+    if (!activeThreadId || timelineRowsLoading || rows.length === 0) {
+      return;
+    }
+    setRetainedTimelineRows((current) =>
+      current?.activeThreadId === activeThreadId && current.rows === rows
+        ? current
+        : { activeThreadId, rows },
+    );
+  }, [activeThreadId, rows, timelineRowsLoading]);
 
   useEffect(() => {
     if (!shouldResolveTimelineRowsAsync) {

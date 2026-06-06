@@ -88,7 +88,6 @@ import {
   hasLiveTurn,
   hasActionableProposedPlan,
   isLatestTurnSettled,
-  formatElapsed,
 } from "../session-logic";
 import {
   isScrollContainerNearBottom,
@@ -203,6 +202,10 @@ import {
   deriveThreadActivityRenderState,
   deriveThreadTimelineRenderState,
 } from "~/lib/chat/threadRenderState";
+import {
+  buildThreadTimelineCacheScope,
+  deriveThreadCompletionSummary,
+} from "~/lib/chat/timelineCacheScope";
 import { THREAD_ROUTE_CONNECTION_SEARCH_PARAM } from "../lib/connectionRouting";
 import {
   selectThreadTerminalState,
@@ -3140,18 +3143,30 @@ function useChatViewComponent({
   }, [inferredCheckpointTurnCountByTurnId, turnDiffSummaryByAssistantMessageId]);
 
   const completionSummary = useMemo(() => {
-    if (!latestTurnSettled) return null;
-    if (!activeLatestTurn?.startedAt) return null;
-    if (!activeLatestTurn.completedAt) return null;
-
-    const elapsed = formatElapsed(activeLatestTurn.startedAt, activeLatestTurn.completedAt);
-    return elapsed ? `Worked for ${elapsed}` : null;
-  }, [activeLatestTurn?.completedAt, activeLatestTurn?.startedAt, latestTurnSettled]);
+    return deriveThreadCompletionSummary(activeLatestTurn, latestTurnSettled);
+  }, [activeLatestTurn, latestTurnSettled]);
   const completionDividerBeforeEntryId = useMemo(() => {
     if (!latestTurnSettled) return null;
     if (!completionSummary) return null;
     return deriveCompletionDividerBeforeEntryId(timelineEntries, activeLatestTurn);
   }, [activeLatestTurn, completionSummary, latestTurnSettled, timelineEntries]);
+  const timelineCacheScope = useMemo(() => {
+    return buildThreadTimelineCacheScope({
+      thread: activeThread,
+      timelineEntries,
+      timelineMessages,
+      timelineProposedPlans,
+      timelineWorkEntries,
+      turnDiffSummaries,
+    });
+  }, [
+    activeThread,
+    timelineEntries,
+    timelineMessages,
+    timelineProposedPlans,
+    timelineWorkEntries,
+    turnDiffSummaries,
+  ]);
   const gitCwd = activeProject
     ? projectScriptCwd({
         project: { cwd: activeProject.cwd },
@@ -9581,7 +9596,6 @@ function useChatViewComponent({
   const isLineageThread = Boolean(
     serverThread?.handoff ?? serverThread?.fork ?? activeThread?.handoff ?? activeThread?.fork,
   );
-  const activeThreadHistoryLoaded = activeThread?.historyLoaded;
   const activeThreadIdValue = activeThread?.id ?? "";
   const activeThreadMessagesLength = activeThread?.messages.length ?? 0;
   const activeThreadProvider = activeThread?.session?.provider;
@@ -9632,6 +9646,7 @@ function useChatViewComponent({
       hideCompletedWorkMessages,
       liveTimers: activeForSideEffects,
       getScrollContainer: getMessagesScrollContainer,
+      timelineCacheScope,
       timelineEntries,
       completionDividerBeforeEntryId,
       completionSummary,
@@ -9698,14 +9713,18 @@ function useChatViewComponent({
       revertTurnCountByUserMessageId,
       scheduleComposerFocus,
       targetMessageNavigation,
+      timelineCacheScope,
       timelineEntries,
       timestampFormat,
       turnDiffSummaryByAssistantMessageId,
     ],
   );
   const loadingNotice = useMemo(
-    () => (isThreadHistoryLoading ? <ThreadHistoryLoadingNotice /> : null),
-    [isThreadHistoryLoading],
+    () =>
+      isThreadHistoryLoading && activeThreadMessagesLength === 0 ? (
+        <ThreadHistoryLoadingNotice />
+      ) : null,
+    [activeThreadMessagesLength, isThreadHistoryLoading],
   );
   const environmentPanelCanUseInlineLayout = chatViewportSize.width >= 1120;
   const environmentPanelVisible = environmentPanelOpen && activeThread !== undefined;
@@ -9825,10 +9844,9 @@ function useChatViewComponent({
       onMessagesWheel,
       scrollMessagesToBottom,
       showScrollToBottom,
-      timelineKey: `${activeThreadIdValue}:${activeThreadHistoryLoaded === false ? "lean" : "hydrated"}`,
+      timelineKey: activeThreadIdValue,
     }),
     [
-      activeThreadHistoryLoaded,
       activeThreadIdValue,
       loadingNotice,
       messagesTimelineProps,

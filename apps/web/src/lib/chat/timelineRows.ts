@@ -170,6 +170,7 @@ export interface BuildTimelineRowsInput {
   readonly timelineEntries: ReadonlyArray<TimelineEntry>;
   readonly activeTurnInProgress: boolean;
   readonly activeTurnStartedAt: string | null;
+  readonly cacheScopeKey?: string;
   readonly completionDividerBeforeEntryId: string | null;
   readonly completionSummary: string | null;
   readonly hideCompletedWorkMessages?: boolean;

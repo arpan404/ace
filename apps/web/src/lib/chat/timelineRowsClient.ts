@@ -2,7 +2,11 @@ import TimelineRowsWorker from "../../workers/timelineRows.worker?worker";
 import { fnv1a32 } from "../diffRendering";
 import { LRUCache } from "../lruCache";
 import { registerMemoryPressureHandler, shouldBypassNonEssentialCaching } from "../memoryPressure";
-import { clampCacheBudgetBytes, clampCacheEntryCount } from "../resourceProfile";
+import {
+  clampCacheBudgetBytes,
+  clampCacheEntryCount,
+  shouldAvoidSpeculativeWork,
+} from "../resourceProfile";
 import {
   buildTimelineRows,
   estimateTimelineRowsCacheSize,
@@ -122,8 +126,8 @@ export function buildTimelineRowsCacheKey(input: BuildTimelineRowsInput): string
   const summary = input.completionSummary ?? "";
   const summaryHash = summary.length > 0 ? fnv1a32(summary).toString(36) : "0";
   return [
-    "timeline-rows:v6",
-    getTimelineEntryToken(input.timelineEntries),
+    "timeline-rows:v7",
+    input.cacheScopeKey ?? getTimelineEntryToken(input.timelineEntries),
     input.activeTurnInProgress ? "1" : "0",
     input.activeTurnStartedAt ?? "none",
     input.completionDividerBeforeEntryId ?? "none",
@@ -188,6 +192,9 @@ export function resolveTimelineRows(
 }
 
 export function prewarmTimelineRows(cacheKey: string, input: BuildTimelineRowsInput): void {
+  if (shouldBypassNonEssentialCaching() || shouldAvoidSpeculativeWork()) {
+    return;
+  }
   if (readCachedTimelineRows(cacheKey)) {
     return;
   }

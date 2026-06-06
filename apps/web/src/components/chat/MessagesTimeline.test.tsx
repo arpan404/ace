@@ -84,6 +84,93 @@ beforeAll(() => {
 });
 
 describe("MessagesTimeline", { timeout: 30_000 }, () => {
+  it("uses stable timeline row cache keys across equivalent remounted arrays", async () => {
+    const { buildTimelineRowsCacheKey } = await import("../../lib/chat/timelineRowsClient");
+    const makeInput = (timelineEntries: []) => ({
+      timelineEntries,
+      activeTurnInProgress: false,
+      activeTurnStartedAt: null,
+      cacheScopeKey: "thread:thread-1:hydrated:v1",
+      completionDividerBeforeEntryId: null,
+      completionSummary: null,
+      isWorking: false,
+    });
+
+    expect(buildTimelineRowsCacheKey(makeInput([]))).toBe(buildTimelineRowsCacheKey(makeInput([])));
+  });
+
+  it("separates timeline row cache keys when the thread content scope changes", async () => {
+    const { buildTimelineRowsCacheKey } = await import("../../lib/chat/timelineRowsClient");
+    const baseInput = {
+      timelineEntries: [],
+      activeTurnInProgress: false,
+      activeTurnStartedAt: null,
+      completionDividerBeforeEntryId: null,
+      completionSummary: null,
+      isWorking: false,
+    };
+
+    expect(
+      buildTimelineRowsCacheKey({
+        ...baseInput,
+        cacheScopeKey: "thread:thread-1:hydrated:v1",
+      }),
+    ).not.toBe(
+      buildTimelineRowsCacheKey({
+        ...baseInput,
+        cacheScopeKey: "thread:thread-1:hydrated:v2",
+      }),
+    );
+  });
+
+  it("keeps active thread rows visible while async row rebuilding is pending", async () => {
+    const { resolveVisibleTimelineRows } = await import("./MessagesTimeline");
+    const retainedRows = [
+      {
+        id: "previous-user-row",
+        kind: "message",
+      },
+    ] as unknown as ReturnType<typeof resolveVisibleTimelineRows>["rows"];
+
+    const result = resolveVisibleTimelineRows({
+      activeThreadId: "thread-1",
+      retainedRows: {
+        activeThreadId: "thread-1",
+        rows: retainedRows,
+      },
+      resolvedAsyncRows: null,
+      shouldResolveAsync: true,
+      syncRows: [],
+    });
+
+    expect(result.loading).toBe(false);
+    expect(result.rows).toBe(retainedRows);
+  });
+
+  it("shows the loading placeholder only when async row rebuilding has no retained active rows", async () => {
+    const { resolveVisibleTimelineRows } = await import("./MessagesTimeline");
+    const retainedRows = [
+      {
+        id: "other-thread-row",
+        kind: "message",
+      },
+    ] as unknown as ReturnType<typeof resolveVisibleTimelineRows>["rows"];
+
+    const result = resolveVisibleTimelineRows({
+      activeThreadId: "thread-1",
+      retainedRows: {
+        activeThreadId: "thread-2",
+        rows: retainedRows,
+      },
+      resolvedAsyncRows: null,
+      shouldResolveAsync: true,
+      syncRows: [],
+    });
+
+    expect(result.loading).toBe(true);
+    expect(result.rows).toHaveLength(0);
+  });
+
   it("renders terminal assistant output through markdown instead of forcing plain text", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
