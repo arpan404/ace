@@ -2806,12 +2806,15 @@ function useChatViewComponent({
     [threadActivities],
   );
   const environmentProviderStatuses = useMemo(() => {
-    const sessionProviderStatuses = deriveEnvironmentSessionProviderStatuses(activeThread?.session);
+    const sessionProviderStatuses = deriveEnvironmentSessionProviderStatuses(
+      activeThread?.session,
+      composerProviderCommands,
+    );
     const activityStatuses = deriveEnvironmentProviderStatuses(threadActivities);
     return sessionProviderStatuses.length > 0
       ? [...sessionProviderStatuses, ...activityStatuses]
       : activityStatuses;
-  }, [activeThread?.session, threadActivities]);
+  }, [activeThread?.session, composerProviderCommands, threadActivities]);
   const activeGeneratedWorkspaceSummary = useMemo(
     () => deriveLatestGeneratedWorkspaceSummary(threadActivities),
     [threadActivities],

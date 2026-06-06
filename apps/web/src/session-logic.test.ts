@@ -4506,6 +4506,69 @@ describe("deriveEnvironmentSessionProviderStatus", () => {
     });
   });
 
+  it("summarizes discovered provider agents separately from static capability metadata", () => {
+    expect(
+      deriveEnvironmentSessionProviderStatuses(
+        {
+          provider: "githubCopilot",
+          updatedAt: "2026-02-23T00:00:09.500Z",
+          capabilities: { multiAgentMode: "native" },
+        },
+        [
+          {
+            name: "reviewer",
+            kind: "agent",
+            promptPrefix: "@reviewer",
+            description: "Review the current diff.",
+          },
+          {
+            name: "reviewer",
+            kind: "agent",
+            promptPrefix: "@reviewer",
+            description: "Duplicate provider report.",
+          },
+          {
+            name: "planner",
+            kind: "provider",
+            promptPrefix: "@planner",
+          },
+          {
+            name: "docs",
+            kind: "skill",
+            promptPrefix: "$docs",
+          },
+          {
+            name: ".side",
+            kind: "agent",
+            promptPrefix: ".side",
+          },
+          {
+            name: "workspace-helper",
+            promptPrefix: "@workspace-helper",
+          },
+        ],
+      ),
+    ).toEqual([
+      {
+        id: "githubCopilot:multi-agent-capability",
+        createdAt: "2026-02-23T00:00:09.500Z",
+        label: "Copilot agents",
+        status: "native",
+        tone: "info",
+        detail: "Provider can run multi-agent delegation natively.",
+      },
+      {
+        id: "githubCopilot:discovered-agent-commands",
+        createdAt: "2026-02-23T00:00:09.500Z",
+        label: "Copilot discovered agents",
+        status: "1 agent",
+        tone: "info",
+        detail:
+          "Agents: @reviewer\nUse the composer command menu to invoke a provider agent without changing the active provider.",
+      },
+    ]);
+  });
+
   it("omits session provider status when capabilities are unavailable", () => {
     expect(deriveEnvironmentSessionProviderStatus(null)).toBeNull();
     expect(

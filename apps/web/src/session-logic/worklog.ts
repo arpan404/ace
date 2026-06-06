@@ -3,6 +3,7 @@ import {
   type OrchestrationThreadActivity,
   type ProviderIntegrationCapabilities,
   type ProviderKind,
+  type ProviderSlashCommand,
   type TurnId,
 } from "@ace/contracts";
 import {
@@ -15,7 +16,11 @@ import {
   hasProviderGoalLifecycleSignal,
   parseProviderGoalLifecycle,
 } from "@ace/shared/providerGoalLifecycle";
-import { isProviderSideConversationAlias } from "@ace/shared/providerSlashCommands";
+import {
+  isProviderSideConversationAlias,
+  normalizeProviderSlashCommandName,
+  providerSlashCommandExtensionKind,
+} from "@ace/shared/providerSlashCommands";
 
 import type {
   ActiveGoalState,
@@ -676,6 +681,62 @@ export function deriveEnvironmentSessionProviderStatus(
   return deriveEnvironmentSessionProviderStatuses(session)[0] ?? null;
 }
 
+function providerAgentCommandDisplayName(command: ProviderSlashCommand): string | null {
+  const name = normalizeProviderSlashCommandName(command.name);
+  if (!name || isProviderSideConversationAlias(name)) {
+    return null;
+  }
+  const commandKind =
+    command.kind === "agent" ? "agent" : providerSlashCommandExtensionKind(command, name);
+  if (commandKind !== "agent") {
+    return null;
+  }
+  const promptPrefix = command.promptPrefix?.trim();
+  if (promptPrefix && !isProviderSideConversationAlias(promptPrefix)) {
+    return promptPrefix;
+  }
+  return command.name.trim();
+}
+
+function deriveEnvironmentProviderAgentCommandStatus(input: {
+  commands: ReadonlyArray<ProviderSlashCommand>;
+  createdAt: string;
+  provider: ProviderKind;
+  providerLabel: string;
+}): EnvironmentProviderStatus | null {
+  const seen = new Set<string>();
+  const agentNames: string[] = [];
+  for (const command of input.commands) {
+    const name = providerAgentCommandDisplayName(command);
+    if (!name) {
+      continue;
+    }
+    const key = name.toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    agentNames.push(name);
+  }
+  if (agentNames.length === 0) {
+    return null;
+  }
+  const visibleNames = agentNames.slice(0, 5);
+  const hiddenCount = agentNames.length - visibleNames.length;
+  const noun = agentNames.length === 1 ? "agent" : "agents";
+  return {
+    id: `${input.provider}:discovered-agent-commands`,
+    createdAt: input.createdAt,
+    label: `${input.providerLabel} discovered agents`,
+    status: `${agentNames.length} ${noun}`,
+    tone: "info",
+    detail: [
+      `Agents: ${visibleNames.join(", ")}${hiddenCount > 0 ? `, +${hiddenCount} more` : ""}`,
+      "Use the composer command menu to invoke a provider agent without changing the active provider.",
+    ].join("\n"),
+  };
+}
+
 export function deriveEnvironmentSessionProviderStatuses(
   session:
     | {
@@ -704,6 +765,7 @@ export function deriveEnvironmentSessionProviderStatuses(
       }
     | null
     | undefined,
+  providerCommands: ReadonlyArray<ProviderSlashCommand> = [],
 ): EnvironmentProviderStatus[] {
   const multiAgentMode = session?.capabilities?.multiAgentMode;
   if (!session || !session.capabilities) {
@@ -804,6 +866,16 @@ export function deriveEnvironmentSessionProviderStatuses(
       tone: multiAgentMode === "unsupported" ? "warning" : "info",
       detail: detailLines.join("\n"),
     });
+  }
+
+  const discoveredAgentStatus = deriveEnvironmentProviderAgentCommandStatus({
+    commands: providerCommands,
+    createdAt: session.updatedAt,
+    provider: session.provider,
+    providerLabel,
+  });
+  if (discoveredAgentStatus) {
+    statuses.push(discoveredAgentStatus);
   }
 
   const hookMode = session.capabilities.hookMode;
