@@ -27,7 +27,6 @@ import { Cache, Cause, Duration, Effect, Layer, Option, Stream } from "effect";
 import { makeDrainableWorker } from "@ace/shared/DrainableWorker";
 import { appendCompactedThreadActivity } from "@ace/shared/orchestrationThreadActivities";
 import {
-  isProviderSideConversationAlias,
   mergeProviderSlashCommands,
   normalizeProviderSlashCommandName,
   providerFallbackSlashCommands,
@@ -1626,10 +1625,8 @@ function normalizeProviderCapabilityMode(
   return undefined;
 }
 
-function normalizeProviderSideConversationCommands(...values: ReadonlyArray<unknown>): string[] {
-  return normalizeProviderCapabilityStringList(...values).filter(
-    (command) => !isProviderSideConversationAlias(command),
-  );
+function normalizeProviderSideConversationCommands(..._values: ReadonlyArray<unknown>): string[] {
+  return [];
 }
 
 function normalizeProviderCapabilityStringList(...values: ReadonlyArray<unknown>): string[] {

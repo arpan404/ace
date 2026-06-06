@@ -311,22 +311,22 @@ describe("acpCapabilities", () => {
     ).toBe(false);
   });
 
-  it("uses provider side conversation aliases only as internal support signals", () => {
+  it("uses provider side conversation commands only as internal support signals", () => {
     expect(
       acpSideConversationCommands({
         agentCapabilities: {
-          sideConversationCommands: ["/btw", "/btw"],
+          sideConversationCommands: ["/btw", "/ask-side", "/btw"],
           sessionCapabilities: {
             sideChat: {
               commands: [".side"],
-              aliases: ["  /side  "],
+              aliases: ["  /side  ", "/provider-side"],
             },
           },
         },
         _meta: {
           capabilities: {
             sideThread: {
-              commandAliases: [".btw"],
+              commandAliases: [".btw", "/open-side-thread"],
             },
           },
         },
@@ -334,7 +334,7 @@ describe("acpCapabilities", () => {
     ).toEqual([]);
   });
 
-  it("does not extract generic ACP commands as side conversation aliases", () => {
+  it("does not expose generic ACP side commands as user-facing side commands", () => {
     expect(
       acpSideConversationCommands({
         capabilities: {

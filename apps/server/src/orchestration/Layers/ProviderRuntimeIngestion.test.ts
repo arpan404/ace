@@ -426,7 +426,7 @@ describe("ProviderRuntimeIngestion", () => {
           provider_capabilities: {
             forkMode: "native",
             sideMode: "nativeFork",
-            sideCommands: [".side", "/btw", ".side"],
+            sideCommands: [".side", "/btw", "/ask-side", ".side"],
             threadTargeting: "native",
             resumeMode: "native",
             steeringMode: "queuedMessage",
@@ -510,7 +510,7 @@ describe("ProviderRuntimeIngestion", () => {
             session: {
               sideChat: {
                 supported: true,
-                commands: ["/btw", ".side", "/btw"],
+                commands: ["/btw", ".side", "/ask-side", "/btw"],
               },
               loadSession: true,
               goalControl: true,

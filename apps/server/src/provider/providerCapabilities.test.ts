@@ -336,7 +336,7 @@ describe("providerCapabilities", () => {
     });
   });
 
-  it("filters provider side conversation aliases out of user-facing capabilities", () => {
+  it("filters provider side conversation commands out of user-facing capabilities", () => {
     expect(
       resolveProviderIntegrationCapabilities("codex", { sessionModelSwitch: "in-session" }),
     ).toMatchObject({
@@ -345,7 +345,7 @@ describe("providerCapabilities", () => {
     expect(
       resolveProviderIntegrationCapabilities("codex", {
         sessionModelSwitch: "in-session",
-        sideConversationCommands: [" /side ", ".side", "/btw", ".side", "  "],
+        sideConversationCommands: [" /side ", ".side", "/btw", "/ask-side", ".side", "  "],
       }),
     ).toMatchObject({
       sideConversationCommands: [],

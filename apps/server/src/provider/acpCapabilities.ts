@@ -1,5 +1,3 @@
-import { isProviderSideConversationAlias } from "@ace/shared/providerSlashCommands";
-
 function isRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -1337,57 +1335,8 @@ export function acpMultiAgentDefinitionPaths(initializeResult: unknown): string[
   return normalizedStringList(...values);
 }
 
-export function acpSideConversationCommands(initializeResult: unknown): string[] {
-  const values: unknown[] = [];
-  for (const record of acpCapabilityRecords(initializeResult)) {
-    values.push(
-      record.sideConversationCommands,
-      record.side_conversation_commands,
-      record.sideCommands,
-      record.side_commands,
-      record.sideChatCommands,
-      record.side_chat_commands,
-      record.sideConversationAliases,
-      record.side_conversation_aliases,
-      record.sideChatAliases,
-      record.side_chat_aliases,
-      record.sideAliases,
-      record.side_aliases,
-      record.btwCommands,
-      record.btw_commands,
-      record.btwAliases,
-      record.btw_aliases,
-    );
-    for (const nested of nestedSideConversationCapabilityRecords(record)) {
-      values.push(
-        nested.commands,
-        nested.commandAliases,
-        nested.command_aliases,
-        nested.aliases,
-        nested.promptPrefixes,
-        nested.prompt_prefixes,
-        nested.sideConversationCommands,
-        nested.side_conversation_commands,
-        nested.sideCommands,
-        nested.side_commands,
-        nested.sideChatCommands,
-        nested.side_chat_commands,
-        nested.sideConversationAliases,
-        nested.side_conversation_aliases,
-        nested.sideChatAliases,
-        nested.side_chat_aliases,
-        nested.sideAliases,
-        nested.side_aliases,
-        nested.btwCommands,
-        nested.btw_commands,
-        nested.btwAliases,
-        nested.btw_aliases,
-      );
-    }
-  }
-  return normalizedStringList(...values).filter(
-    (command) => !isProviderSideConversationAlias(command),
-  );
+export function acpSideConversationCommands(_initializeResult: unknown): string[] {
+  return [];
 }
 
 export function acpSideConversationMethods(initializeResult: unknown): string[] {

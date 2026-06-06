@@ -1,7 +1,5 @@
 import type { ProviderIntegrationCapabilities, ProviderKind } from "@ace/contracts";
 
-import { isProviderSideConversationAlias } from "./providerSlashCommands";
-
 type ProviderCapabilitiesOverride = Partial<ProviderIntegrationCapabilities>;
 
 const PROVIDER_INTEGRATION_CAPABILITIES: Record<ProviderKind, ProviderIntegrationCapabilities> = {
@@ -306,11 +304,9 @@ export function resolveProviderIntegrationCapabilities(
 }
 
 function normalizedProviderSideConversationCommands(
-  commands: ReadonlyArray<string>,
+  _commands: ReadonlyArray<string>,
 ): ReadonlyArray<string> {
-  return normalizedProviderCapabilityStringList(commands).filter(
-    (command) => !isProviderSideConversationAlias(command),
-  );
+  return [];
 }
 
 function normalizedProviderCapabilityStringList(
