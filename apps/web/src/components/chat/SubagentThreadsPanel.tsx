@@ -12,6 +12,7 @@ import {
   agentThreadsPanelTitle,
   deriveSubagentThreads,
   formatSideChatRequestForDisplay,
+  isEmptySideChatDraftPlaceholderEntry,
   resolveSubagentMainAgentMessage,
   type SubagentThread,
 } from "./subagentThreads";
@@ -185,6 +186,9 @@ export function SubagentWorkspacePanel(props: {
     const workEntries: WorkLogEntry[] = [];
     for (const entry of activeThread?.entries ?? []) {
       if (mainAgentMessageEntry && entry.id === mainAgentMessageEntry.id) {
+        continue;
+      }
+      if (isEmptySideChatDraftPlaceholderEntry(entry)) {
         continue;
       }
       if (entry.sideChatMessageRole && entry.sideChatMessageText) {

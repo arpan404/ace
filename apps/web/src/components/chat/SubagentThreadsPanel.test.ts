@@ -6,6 +6,7 @@ import type {
   canReplyToSubagentThread as canReplyToSubagentThreadType,
   deriveSubagentThreads as deriveSubagentThreadsType,
   formatSideChatRequestForDisplay as formatSideChatRequestForDisplayType,
+  isEmptySideChatDraftPlaceholderEntry as isEmptySideChatDraftPlaceholderEntryType,
   isSideChatThread as isSideChatThreadType,
   orderSubagentThreadsForHierarchy as orderSubagentThreadsForHierarchyType,
   partitionSubagentThreads as partitionSubagentThreadsType,
@@ -16,6 +17,7 @@ let agentThreadsPanelTitle: typeof agentThreadsPanelTitleType;
 let canReplyToSubagentThread: typeof canReplyToSubagentThreadType;
 let deriveSubagentThreads: typeof deriveSubagentThreadsType;
 let formatSideChatRequestForDisplay: typeof formatSideChatRequestForDisplayType;
+let isEmptySideChatDraftPlaceholderEntry: typeof isEmptySideChatDraftPlaceholderEntryType;
 let isSideChatThread: typeof isSideChatThreadType;
 let orderSubagentThreadsForHierarchy: typeof orderSubagentThreadsForHierarchyType;
 let partitionSubagentThreads: typeof partitionSubagentThreadsType;
@@ -48,6 +50,7 @@ beforeAll(async () => {
     canReplyToSubagentThread,
     deriveSubagentThreads,
     formatSideChatRequestForDisplay,
+    isEmptySideChatDraftPlaceholderEntry,
     isSideChatThread,
     orderSubagentThreadsForHierarchy,
     partitionSubagentThreads,
@@ -584,6 +587,26 @@ describe("deriveSubagentThreads", () => {
     expect(formatSideChatRequestForDisplay("Ultrathink:\n/side Explain the branch.")).toBe(
       "Explain the branch.",
     );
+  });
+
+  it("recognizes empty side-chat draft placeholders without hiding prompted drafts", () => {
+    const emptyDraft = workEntry({
+      id: "__ace_new_side_chat__:draft-empty",
+      label: "New side chat",
+      subagentId: "__ace_new_side_chat__:draft-empty",
+      subagentType: "side chat",
+    });
+    const promptedDraft = workEntry({
+      id: "__ace_new_side_chat__:draft-prompted",
+      label: "New side chat",
+      subagentId: "__ace_new_side_chat__:draft-prompted",
+      subagentType: "side chat",
+      sideChatMessageRole: "user",
+      sideChatMessageText: "Review the current provider context.",
+    });
+
+    expect(isEmptySideChatDraftPlaceholderEntry(emptyDraft)).toBe(true);
+    expect(isEmptySideChatDraftPlaceholderEntry(promptedDraft)).toBe(false);
   });
 
   it("allows replies only for side chats or natively targetable provider subagents", () => {

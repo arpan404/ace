@@ -1,7 +1,10 @@
 import type { ProviderIntegrationCapabilities, ProviderKind } from "@ace/contracts";
 import { isProviderSideConversationType } from "@ace/shared/providerAgentMetadata";
 
-import { stripAceSideChatCommand } from "../../lib/chat/sideChatDraft";
+import {
+  isNewSideChatDraftSubagentId,
+  stripAceSideChatCommand,
+} from "../../lib/chat/sideChatDraft";
 import { resolveSubagentIdentity } from "../../lib/subagentAdapters";
 import type { WorkLogEntry } from "../../session-logic/types";
 
@@ -160,6 +163,16 @@ export function formatSideChatRequestForDisplay(value: string): string {
   const normalized = aceCommandTitle.replace(/\s+/g, " ").trim();
   const providerAliasMatch = PROVIDER_SIDE_CHAT_DISPLAY_PREFIX_PATTERN.exec(normalized);
   return (providerAliasMatch?.[1]?.trim() || normalized).trim();
+}
+
+export function isEmptySideChatDraftPlaceholderEntry(entry: WorkLogEntry): boolean {
+  return Boolean(
+    entry.subagentId &&
+    isNewSideChatDraftSubagentId(entry.subagentId) &&
+    isProviderSideConversationType(entry.subagentType) &&
+    !entry.sideChatMessageText?.trim() &&
+    !entry.detail?.trim(),
+  );
 }
 
 function hashSubagentId(value: string): number {
