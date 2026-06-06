@@ -104,7 +104,13 @@ const CLAUDE_PROVIDER_CAPABILITIES = {
   sideConversationCommands: [],
   multiAgentMode: "native" as const,
   multiAgentInvocationPrefixes: ["@", "@agent-"],
-  multiAgentDefinitionPaths: [".claude/agents", "~/.claude/agents"],
+  multiAgentDefinitionPaths: [
+    ".claude/agents",
+    "~/.claude/agents",
+    "built-in: explore",
+    "built-in: plan",
+    "built-in: general-purpose",
+  ],
 };
 type ClaudeTextStreamKind = Extract<RuntimeContentStreamKind, "assistant_text" | "reasoning_text">;
 type ClaudeToolResultStreamKind = Extract<

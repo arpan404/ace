@@ -120,13 +120,22 @@ describe("providerCapabilities", () => {
     expect(defaultProviderIntegrationCapabilities("codex").multiAgentDefinitionPaths).toEqual([
       ".codex/agents",
       "~/.codex/agents",
+      "built-in: default",
+      "built-in: worker",
+      "built-in: explorer",
     ]);
     expect(defaultProviderIntegrationCapabilities("claudeAgent").multiAgentMode).toBe("native");
     expect(
       defaultProviderIntegrationCapabilities("claudeAgent").multiAgentInvocationPrefixes,
     ).toEqual(["@", "@agent-"]);
     expect(defaultProviderIntegrationCapabilities("claudeAgent").multiAgentDefinitionPaths).toEqual(
-      [".claude/agents", "~/.claude/agents"],
+      [
+        ".claude/agents",
+        "~/.claude/agents",
+        "built-in: explore",
+        "built-in: plan",
+        "built-in: general-purpose",
+      ],
     );
     expect(defaultProviderIntegrationCapabilities("gemini").multiAgentMode).toBe("native");
     expect(defaultProviderIntegrationCapabilities("gemini").multiAgentInvocationPrefixes).toEqual([
@@ -164,6 +173,13 @@ describe("providerCapabilities", () => {
       "~/.github-copilot/.github-private/agents/*.agent.md",
       "~/.github-copilot/.github-private/agents/*.md",
       "configured chat.agentFilesLocations",
+      "built-in: explore",
+      "built-in: task",
+      "built-in: general-purpose",
+      "built-in: code-review",
+      "built-in: research",
+      "built-in: rubber-duck",
+      "built-in: fleet",
     ]);
     expect(defaultProviderIntegrationCapabilities("opencode").multiAgentMode).toBe("native");
     expect(defaultProviderIntegrationCapabilities("opencode").multiAgentInvocationPrefixes).toEqual(
@@ -206,6 +222,19 @@ describe("providerCapabilities", () => {
       ".agents",
       "~/.pi/agent/agents",
       "~/.pi/agent/extensions/subagent/agents",
+      "built-in: scout",
+      "built-in: researcher",
+      "built-in: planner",
+      "built-in: worker",
+      "built-in: reviewer",
+      "built-in: debugger",
+      "built-in: verifier",
+      "built-in: security-auditor",
+      "built-in: docs-writer",
+      "built-in: refactorer",
+      "built-in: context-builder",
+      "built-in: oracle",
+      "built-in: delegate",
     ]);
   });
 

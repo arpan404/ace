@@ -198,6 +198,13 @@ function gitHubCopilotProviderCapabilities(client: GitHubCopilotClientLike) {
       "~/.github-copilot/.github-private/agents/*.agent.md",
       "~/.github-copilot/.github-private/agents/*.md",
       "configured chat.agentFilesLocations",
+      "built-in: explore",
+      "built-in: task",
+      "built-in: general-purpose",
+      "built-in: code-review",
+      "built-in: research",
+      "built-in: rubber-duck",
+      "built-in: fleet",
     ],
   };
 }

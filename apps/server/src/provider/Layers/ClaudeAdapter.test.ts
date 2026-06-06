@@ -330,6 +330,9 @@ describe("ClaudeAdapterLive", () => {
       assert.deepEqual(adapter.capabilities.multiAgentDefinitionPaths, [
         ".claude/agents",
         "~/.claude/agents",
+        "built-in: explore",
+        "built-in: plan",
+        "built-in: general-purpose",
       ]);
 
       const configuredFiber = yield* Stream.runHead(
@@ -356,7 +359,13 @@ describe("ClaudeAdapterLive", () => {
         sideConversationCommands: [],
         multiAgentMode: "native",
         multiAgentInvocationPrefixes: ["@", "@agent-"],
-        multiAgentDefinitionPaths: [".claude/agents", "~/.claude/agents"],
+        multiAgentDefinitionPaths: [
+          ".claude/agents",
+          "~/.claude/agents",
+          "built-in: explore",
+          "built-in: plan",
+          "built-in: general-purpose",
+        ],
       });
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),

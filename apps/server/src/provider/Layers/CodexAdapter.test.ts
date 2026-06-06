@@ -41,7 +41,13 @@ const EXPECTED_CODEX_PROVIDER_CAPABILITIES = {
   goalControlMode: "native",
   multiAgentMode: "native",
   multiAgentInvocationPrefixes: ["@"],
-  multiAgentDefinitionPaths: [".codex/agents", "~/.codex/agents"],
+  multiAgentDefinitionPaths: [
+    ".codex/agents",
+    "~/.codex/agents",
+    "built-in: default",
+    "built-in: worker",
+    "built-in: explorer",
+  ],
 } as const;
 
 class FakeCodexManager extends CodexAppServerManager {

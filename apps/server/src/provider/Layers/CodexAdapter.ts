@@ -76,7 +76,13 @@ const CODEX_PROVIDER_CAPABILITIES = {
   goalControlMode: "native" as const,
   multiAgentMode: "native" as const,
   multiAgentInvocationPrefixes: ["@"],
-  multiAgentDefinitionPaths: [".codex/agents", "~/.codex/agents"],
+  multiAgentDefinitionPaths: [
+    ".codex/agents",
+    "~/.codex/agents",
+    "built-in: default",
+    "built-in: worker",
+    "built-in: explorer",
+  ],
 };
 
 export interface CodexAdapterLiveOptions {
