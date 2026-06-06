@@ -286,6 +286,7 @@ interface GitHubCopilotSessionContext {
   readonly replayTurns: Array<TranscriptReplayTurn>;
   readonly customAgentNames: Set<string>;
   availableCommands: ReadonlyArray<ProviderSlashCommand>;
+  configOptions: ReadonlyArray<ProviderSessionConfigOption>;
   readonly unsubscribers: Array<() => void>;
   readonly sequenceTieBreakersByTimestampMs: Map<number, number>;
   nextFallbackSessionSequence: number;
@@ -1572,6 +1573,13 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
       return;
     }
     context.availableCommands = merged;
+    context.configOptions = [
+      ...context.configOptions.filter((option) => option.id !== "agent"),
+      discoverGitHubCopilotAgentConfigOption({
+        commands: merged,
+        ...(context.selectedAgentName ? { selectedAgent: context.selectedAgentName } : {}),
+      }),
+    ];
     const capabilities = gitHubCopilotProviderCapabilities(context.sdkClient);
     emitRuntimeEvent(
       makeBaseEvent(context, {
@@ -1580,6 +1588,7 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
         payload: {
           config: {
             availableCommands: merged,
+            configOptions: context.configOptions,
             capabilities,
           },
         },
@@ -3249,6 +3258,7 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
               .map((agent) => agent.name.toLowerCase()),
           ]),
           availableCommands,
+          configOptions,
           unsubscribers: [],
           sequenceTieBreakersByTimestampMs: new Map(),
           nextFallbackSessionSequence: 0,

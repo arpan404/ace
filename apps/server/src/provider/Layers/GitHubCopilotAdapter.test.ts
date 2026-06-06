@@ -1883,6 +1883,17 @@ layer("GitHubCopilotAdapterLive startSession", (it) => {
         availableCommands.some((command) => command.name === "hidden-agent"),
         false,
       );
+      const configOptions = (latest.payload.config.configOptions ??
+        []) as ReadonlyArray<ProviderSessionConfigOption>;
+      const agentOption = configOptions.find((option) => option.id === "agent");
+      assert.equal(
+        agentOption?.options.some((option) => option.value === "sdk-auditor"),
+        true,
+      );
+      assert.equal(
+        agentOption?.options.some((option) => option.value === "hidden-agent"),
+        false,
+      );
 
       yield* adapter.sendTurn({
         threadId,
