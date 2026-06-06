@@ -1001,6 +1001,11 @@ const make = Effect.gen(function* () {
       threadId: thread.id,
       messageId: steerMessage.id,
     });
+    yield* orchestrationEngine.dispatch({
+      type: "thread.queue.steer.clear",
+      commandId: serverCommandId("queue-clear-native-steer"),
+      threadId: thread.id,
+    });
     return true;
   });
 
