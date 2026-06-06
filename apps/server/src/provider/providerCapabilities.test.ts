@@ -121,13 +121,16 @@ describe("providerCapabilities", () => {
     );
     expect(defaultProviderIntegrationCapabilities("codex").multiAgentDefinitionPaths).toEqual([]);
     expect(defaultProviderIntegrationCapabilities("claudeAgent").multiAgentMode).toBe("native");
+    expect(
+      defaultProviderIntegrationCapabilities("claudeAgent").multiAgentInvocationPrefixes,
+    ).toEqual(["@", "@agent-"]);
     expect(defaultProviderIntegrationCapabilities("claudeAgent").multiAgentDefinitionPaths).toEqual(
       [".claude/agents", "~/.claude/agents"],
     );
     expect(defaultProviderIntegrationCapabilities("gemini").multiAgentMode).toBe("native");
-    expect(defaultProviderIntegrationCapabilities("gemini").multiAgentInvocationPrefixes).toEqual(
-      [],
-    );
+    expect(defaultProviderIntegrationCapabilities("gemini").multiAgentInvocationPrefixes).toEqual([
+      "@",
+    ]);
     expect(defaultProviderIntegrationCapabilities("gemini").multiAgentDefinitionPaths).toEqual([
       ".gemini/agents",
       "~/.gemini/agents",
@@ -297,7 +300,7 @@ describe("providerCapabilities", () => {
     expect(
       resolveProviderIntegrationCapabilities("gemini", { sessionModelSwitch: "in-session" }),
     ).toMatchObject({
-      multiAgentInvocationPrefixes: [],
+      multiAgentInvocationPrefixes: ["@"],
       multiAgentDefinitionPaths: [".gemini/agents", "~/.gemini/agents"],
     });
     expect(
