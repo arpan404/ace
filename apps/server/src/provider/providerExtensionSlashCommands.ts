@@ -1130,6 +1130,8 @@ function geminiAgentMetadata(markdown: string, source: "agent" | "remote-agent")
   const tools = frontmatterStringOrListField(markdown, "tools");
   const model = frontmatterField(markdown, "model");
   const temperature = frontmatterNumberField(markdown, "temperature");
+  const topP = frontmatterNumberFieldAny(markdown, ["topP", "top_p", "top-p"]);
+  const topK = frontmatterNumberFieldAny(markdown, ["topK", "top_k", "top-k"]);
   const maxTurns = frontmatterNumberFieldAny(markdown, ["max_turns", "maxTurns", "max-turns"]);
   const timeoutMins = frontmatterNumberFieldAny(markdown, [
     "timeout_mins",
@@ -1150,6 +1152,8 @@ function geminiAgentMetadata(markdown: string, source: "agent" | "remote-agent")
     ...(tools !== undefined ? { tools } : {}),
     ...(model ? { model } : {}),
     ...(temperature !== undefined ? { temperature } : {}),
+    ...(topP !== undefined ? { topP } : {}),
+    ...(topK !== undefined ? { topK } : {}),
     ...(maxTurns !== undefined ? { maxTurns } : {}),
     ...(timeoutMins !== undefined ? { timeoutMins } : {}),
     ...(mcpServers ? { mcpServers } : {}),

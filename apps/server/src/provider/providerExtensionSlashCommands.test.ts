@@ -1425,6 +1425,8 @@ describe("providerExtensionSlashCommands", () => {
           "tools: [read_file, grep_search]",
           "model: gemini-3-flash-preview",
           "temperature: 0.2",
+          "topP: 0.8",
+          "top_k: 40",
           "maxTurns: 10",
           "timeout_mins: 12",
           "mcpServers:",
@@ -1686,6 +1688,8 @@ describe("providerExtensionSlashCommands", () => {
               tools: ["read_file", "grep_search"],
               model: "gemini-3-flash-preview",
               temperature: 0.2,
+              topP: 0.8,
+              topK: 40,
               maxTurns: 10,
               timeoutMins: 12,
               mcpServers: {
