@@ -698,14 +698,16 @@ function providerAgentCommandDisplayName(command: ProviderSlashCommand): string 
   return command.name.trim();
 }
 
-function deriveEnvironmentProviderAgentCommandStatus(input: {
+function deriveEnvironmentProviderAgentCommandStatuses(input: {
   commands: ReadonlyArray<ProviderSlashCommand>;
   createdAt: string;
   provider: ProviderKind;
-  providerLabel: string;
-}): EnvironmentProviderStatus | null {
+}): EnvironmentProviderStatus[] {
   const seen = new Set<string>();
-  const agentNames: string[] = [];
+  const agentNames: Array<{
+    name: string;
+    description?: string;
+  }> = [];
   for (const command of input.commands) {
     const name = providerAgentCommandDisplayName(command);
     if (!name) {
@@ -716,25 +718,40 @@ function deriveEnvironmentProviderAgentCommandStatus(input: {
       continue;
     }
     seen.add(key);
-    agentNames.push(name);
+    agentNames.push({
+      name,
+      ...(command.description?.trim() ? { description: command.description.trim() } : {}),
+    });
   }
   if (agentNames.length === 0) {
-    return null;
+    return [];
   }
-  const visibleNames = agentNames.slice(0, 5);
-  const hiddenCount = agentNames.length - visibleNames.length;
-  const noun = agentNames.length === 1 ? "agent" : "agents";
-  return {
-    id: `${input.provider}:discovered-agent-commands`,
-    createdAt: input.createdAt,
-    label: `${input.providerLabel} discovered agents`,
-    status: `${agentNames.length} ${noun}`,
-    tone: "info",
-    detail: [
-      `Agents: ${visibleNames.join(", ")}${hiddenCount > 0 ? `, +${hiddenCount} more` : ""}`,
-      "Use the composer command menu to invoke a provider agent without changing the active provider.",
-    ].join("\n"),
-  };
+  const visibleAgents = agentNames.slice(0, 8);
+  const hiddenCount = agentNames.length - visibleAgents.length;
+  return visibleAgents.map((agent, index) => {
+    const detail =
+      index === visibleAgents.length - 1 && hiddenCount > 0
+        ? [
+            agent.description,
+            `+${hiddenCount} more provider agents available in the composer menu.`,
+          ]
+            .filter(Boolean)
+            .join("\n")
+        : agent.description;
+    return {
+      id: `${input.provider}:discovered-agent-command:${agent.name.toLowerCase()}`,
+      createdAt: input.createdAt,
+      label: agent.name,
+      status: "agent",
+      tone: "info",
+      ...(detail ? { detail } : {}),
+      action: {
+        kind: "composer-prompt",
+        label: `Invoke ${agent.name}`,
+        prompt: `${agent.name} `,
+      },
+    };
+  });
 }
 
 export function deriveEnvironmentSessionProviderStatuses(
@@ -868,14 +885,13 @@ export function deriveEnvironmentSessionProviderStatuses(
     });
   }
 
-  const discoveredAgentStatus = deriveEnvironmentProviderAgentCommandStatus({
+  const discoveredAgentStatuses = deriveEnvironmentProviderAgentCommandStatuses({
     commands: providerCommands,
     createdAt: session.updatedAt,
     provider: session.provider,
-    providerLabel,
   });
-  if (discoveredAgentStatus) {
-    statuses.push(discoveredAgentStatus);
+  if (discoveredAgentStatuses.length > 0) {
+    statuses.push(...discoveredAgentStatuses);
   }
 
   const hookMode = session.capabilities.hookMode;

@@ -479,4 +479,30 @@ describe("EnvironmentMiniPanel", () => {
     expect(markup).toContain("Claude auth");
     expect(markup).toContain("authentication error");
   });
+
+  it("renders actionable provider agent rows as composer action buttons", () => {
+    const markup = renderEnvironmentMiniPanel({
+      providerStatuses: [
+        {
+          id: "provider:copilot:agent-reviewer",
+          createdAt: "2026-06-02T00:00:00.000Z",
+          label: "@reviewer",
+          status: "agent",
+          tone: "info",
+          detail: "Review the current diff.",
+          action: {
+            kind: "composer-prompt",
+            label: "Invoke @reviewer",
+            prompt: "@reviewer ",
+          },
+        },
+      ],
+      onProviderStatusAction: () => undefined,
+    });
+
+    expect(markup).toContain("Provider");
+    expect(markup).toContain("@reviewer");
+    expect(markup).toContain("Review the current diff.");
+    expect(markup).toContain('aria-label="Invoke @reviewer"');
+  });
 });

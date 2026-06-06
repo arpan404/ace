@@ -350,9 +350,15 @@ function EnvironmentMcpStatusRow({ status }: { status: EnvironmentMcpStatus }) {
   );
 }
 
-function EnvironmentProviderStatusRow({ status }: { status: EnvironmentProviderStatus }) {
-  return (
-    <div className="flex min-h-7 items-center gap-2 px-2 py-0.5 text-[12px]">
+function EnvironmentProviderStatusRow({
+  onAction,
+  status,
+}: {
+  onAction?: (status: EnvironmentProviderStatus) => void;
+  status: EnvironmentProviderStatus;
+}) {
+  const content = (
+    <>
       <CircleAlertIcon
         className={cn(
           "size-3.5 shrink-0",
@@ -381,8 +387,21 @@ function EnvironmentProviderStatusRow({ status }: { status: EnvironmentProviderS
       >
         {status.status}
       </span>
-    </div>
+    </>
   );
+  if (status.action && onAction) {
+    return (
+      <button
+        type="button"
+        className="flex min-h-7 w-full items-center gap-2 rounded-lg px-2 py-0.5 text-left text-[12px] transition-colors hover:bg-accent hover:text-accent-foreground"
+        onClick={() => onAction(status)}
+        aria-label={status.action.label}
+      >
+        {content}
+      </button>
+    );
+  }
+  return <div className="flex min-h-7 items-center gap-2 px-2 py-0.5 text-[12px]">{content}</div>;
 }
 
 function hashSubagentIconSeed(value: string): number {
@@ -517,6 +536,7 @@ export const EnvironmentMiniPanel = forwardRef<
     onEditGoal: (objective: string) => void;
     onOpenDiffPanel: () => void;
     onOpenEnvironmentSettings: () => void;
+    onProviderStatusAction?: (status: EnvironmentProviderStatus) => void;
     onJumpToMessage: (messageId: string, target: PinnedMessageNavigationTarget) => void;
     onOpenSummaryPanel: () => void;
     onRunProjectScript: (script: ProjectScript) => void;
@@ -755,7 +775,13 @@ export const EnvironmentMiniPanel = forwardRef<
           >
             <div className="space-y-0.5">
               {providerStatuses.map((status) => (
-                <EnvironmentProviderStatusRow key={status.id} status={status} />
+                <EnvironmentProviderStatusRow
+                  key={status.id}
+                  status={status}
+                  {...(props.onProviderStatusAction
+                    ? { onAction: props.onProviderStatusAction }
+                    : {})}
+                />
               ))}
             </div>
           </EnvironmentPanelGroup>

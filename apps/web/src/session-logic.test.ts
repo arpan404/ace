@@ -4558,13 +4558,17 @@ describe("deriveEnvironmentSessionProviderStatus", () => {
         detail: "Provider can run multi-agent delegation natively.",
       },
       {
-        id: "githubCopilot:discovered-agent-commands",
+        id: "githubCopilot:discovered-agent-command:@reviewer",
         createdAt: "2026-02-23T00:00:09.500Z",
-        label: "Copilot discovered agents",
-        status: "1 agent",
+        label: "@reviewer",
+        status: "agent",
         tone: "info",
-        detail:
-          "Agents: @reviewer\nUse the composer command menu to invoke a provider agent without changing the active provider.",
+        detail: "Review the current diff.",
+        action: {
+          kind: "composer-prompt",
+          label: "Invoke @reviewer",
+          prompt: "@reviewer ",
+        },
       },
     ]);
   });

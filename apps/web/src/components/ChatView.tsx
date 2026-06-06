@@ -88,6 +88,7 @@ import {
   deriveEnvironmentSessionProviderStatuses,
   deriveActivePlanState,
   deriveLatestGeneratedWorkspaceSummary,
+  type EnvironmentProviderStatus,
   findSidebarProposedPlan,
   findLatestProposedPlan,
   hasLiveTurn,
@@ -4183,6 +4184,16 @@ function useChatViewComponent({
       };
     },
     [focusComposer],
+  );
+  const handleEnvironmentProviderStatusAction = useCallback(
+    (status: EnvironmentProviderStatus) => {
+      if (status.action?.kind !== "composer-prompt") {
+        return;
+      }
+      setPrompt(status.action.prompt);
+      scheduleComposerFocus();
+    },
+    [scheduleComposerFocus, setPrompt],
   );
   const toQueuedComposerCommandMessage = useCallback((message: QueuedComposerMessage) => {
     return {
@@ -10124,6 +10135,7 @@ function useChatViewComponent({
           }
           void navigate({ to: "/settings/environment" });
         },
+        onProviderStatusAction: handleEnvironmentProviderStatusAction,
         onOpenSummaryPanel: () => {
           setRightSidePanelMode("summary");
           setRightSidePanelVisible(true);

@@ -127,6 +127,11 @@ export interface EnvironmentProviderStatus {
   status: string;
   tone: "info" | "warning" | "error";
   detail?: string;
+  action?: {
+    kind: "composer-prompt";
+    label: string;
+    prompt: string;
+  };
 }
 
 export interface LatestProposedPlanState {
