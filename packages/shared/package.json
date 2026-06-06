@@ -88,6 +88,10 @@
       "types": "./src/providerSlashCommands.ts",
       "import": "./src/providerSlashCommands.ts"
     },
+    "./providerIntegrationCapabilities": {
+      "types": "./src/providerIntegrationCapabilities.ts",
+      "import": "./src/providerIntegrationCapabilities.ts"
+    },
     "./providerAgentMetadata": {
       "types": "./src/providerAgentMetadata.ts",
       "import": "./src/providerAgentMetadata.ts"

@@ -1,4 +1,10 @@
-import { ThreadId, type ProviderIntegrationCapabilities, type RuntimeMode } from "@ace/contracts";
+import {
+  ThreadId,
+  type ProviderIntegrationCapabilities,
+  type ProviderKind,
+  type RuntimeMode,
+} from "@ace/contracts";
+import { defaultProviderIntegrationCapabilities } from "@ace/shared/providerIntegrationCapabilities";
 
 export const NEW_SIDE_CHAT_THREAD_ID = "__ace_new_side_chat__";
 export const NEW_SIDE_CHAT_DRAFT_RUNTIME_MODE: RuntimeMode = "approval-required";
@@ -24,6 +30,18 @@ export function isAceSideConversationSupported(
   mode: ProviderIntegrationCapabilities["sideConversationMode"] | undefined,
 ): boolean {
   return mode === "native-fork" || mode === "replay-fork";
+}
+
+export function resolveAceSideConversationMode(input: {
+  readonly provider: ProviderKind | null | undefined;
+  readonly sessionMode?: ProviderIntegrationCapabilities["sideConversationMode"] | undefined;
+}): ProviderIntegrationCapabilities["sideConversationMode"] | undefined {
+  return (
+    input.sessionMode ??
+    (input.provider
+      ? defaultProviderIntegrationCapabilities(input.provider).sideConversationMode
+      : undefined)
+  );
 }
 
 export function stripAceSideChatCommand(text: string): string {

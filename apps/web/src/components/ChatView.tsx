@@ -25,6 +25,7 @@ import {
 } from "@ace/contracts";
 import * as Schema from "effect/Schema";
 import { buildProviderModelSelection } from "@ace/shared/model";
+import { defaultProviderIntegrationCapabilities } from "@ace/shared/providerIntegrationCapabilities";
 import {
   mergeProviderSlashCommands,
   providerFallbackSlashCommands,
@@ -216,6 +217,7 @@ import {
   isAceSideConversationSupported,
   newSideChatDraftThreadId,
   normalizeAceSideChatPromptText,
+  resolveAceSideConversationMode,
 } from "~/lib/chat/sideChatDraft";
 import { buildProviderAgentComposerPrompt } from "~/lib/chat/providerAgentPrompt";
 import { THREAD_ROUTE_CONNECTION_SEARCH_PARAM } from "../lib/connectionRouting";
@@ -2704,10 +2706,18 @@ function useChatViewComponent({
     providerStatuses,
     selectedProvider,
   ]);
-  const sideConversationMode = activeThread?.session?.capabilities?.sideConversationMode;
+  const sideConversationMode = resolveAceSideConversationMode({
+    provider: activeThread?.modelSelection.provider,
+    sessionMode: activeThread?.session?.capabilities?.sideConversationMode,
+  });
   const sideConversationSupported = isAceSideConversationSupported(sideConversationMode);
   const providerThreadTargetingMode =
-    activeThread?.session?.capabilities?.providerThreadTargetingMode ?? "unsupported";
+    activeThread?.session?.capabilities?.providerThreadTargetingMode ??
+    (activeThread
+      ? defaultProviderIntegrationCapabilities(activeThread.modelSelection.provider)
+          .providerThreadTargetingMode
+      : undefined) ??
+    "unsupported";
   const readCurrentSelectedPromptEffort = useCallback(() => {
     return getComposerProviderState({
       provider: selectedProvider,

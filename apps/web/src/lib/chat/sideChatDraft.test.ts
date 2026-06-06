@@ -8,6 +8,7 @@ import {
   newSideChatDraftThreadId,
   normalizeAceSideChatPromptText,
   parseAceSideChatCommand,
+  resolveAceSideConversationMode,
   stripAceSideChatCommand,
 } from "./sideChatDraft";
 
@@ -29,6 +30,21 @@ describe("sideChatDraft", () => {
     expect(isAceSideConversationSupported("replay-fork")).toBe(true);
     expect(isAceSideConversationSupported("unsupported")).toBe(false);
     expect(isAceSideConversationSupported(undefined)).toBe(false);
+  });
+
+  it("resolves Ace /side support from provider defaults before a session exists", () => {
+    expect(resolveAceSideConversationMode({ provider: "codex" })).toBe("native-fork");
+    expect(resolveAceSideConversationMode({ provider: "githubCopilot" })).toBe("replay-fork");
+    expect(resolveAceSideConversationMode({ provider: null })).toBeUndefined();
+  });
+
+  it("prefers live session side-chat capability over provider defaults", () => {
+    expect(
+      resolveAceSideConversationMode({
+        provider: "codex",
+        sessionMode: "unsupported",
+      }),
+    ).toBe("unsupported");
   });
 
   it("parses only the Ace-native side-chat command", () => {
