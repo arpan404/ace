@@ -26,28 +26,26 @@ function providerAttributeRecord(
   const resource = asRecord(record.resource);
   const span = asRecord(record.span);
   const event = asRecord(record.event);
-  return (
-    asRecord(record.attributes) ??
-    asRecord(record.attribute) ??
-    asRecord(metadata?.attributes) ??
-    asRecord(metadata?.attribute) ??
-    asRecord(record.otelAttributes) ??
-    asRecord(record.otel_attributes) ??
-    asRecord(record.telemetryAttributes) ??
-    asRecord(record.telemetry_attributes) ??
-    asRecord(record.resourceAttributes) ??
-    asRecord(record.resource_attributes) ??
-    asRecord(resource?.attributes) ??
-    asRecord(resource?.attribute) ??
-    asRecord(record.spanAttributes) ??
-    asRecord(record.span_attributes) ??
-    asRecord(span?.attributes) ??
-    asRecord(span?.attribute) ??
-    asRecord(record.eventAttributes) ??
-    asRecord(record.event_attributes) ??
-    asRecord(event?.attributes) ??
-    asRecord(event?.attribute)
-  );
+  const attributeRecords = [
+    asRecord(record.attributes) ?? asRecord(record.attribute),
+    asRecord(metadata?.attributes) ?? asRecord(metadata?.attribute),
+    asRecord(record.otelAttributes) ?? asRecord(record.otel_attributes),
+    asRecord(record.telemetryAttributes) ?? asRecord(record.telemetry_attributes),
+    asRecord(record.resourceAttributes) ?? asRecord(record.resource_attributes),
+    asRecord(resource?.attributes) ?? asRecord(resource?.attribute),
+    asRecord(record.spanAttributes) ?? asRecord(record.span_attributes),
+    asRecord(span?.attributes) ?? asRecord(span?.attribute),
+    asRecord(record.eventAttributes) ?? asRecord(record.event_attributes),
+    asRecord(event?.attributes) ?? asRecord(event?.attribute),
+  ].filter((item): item is Record<string, unknown> => item !== undefined);
+  if (attributeRecords.length === 0) {
+    return undefined;
+  }
+  const merged: Record<string, unknown> = {};
+  for (const attributes of attributeRecords.toReversed()) {
+    Object.assign(merged, attributes);
+  }
+  return merged;
 }
 
 function firstRecord(value: unknown): Record<string, unknown> | undefined {

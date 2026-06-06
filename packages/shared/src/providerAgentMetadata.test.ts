@@ -276,6 +276,42 @@ describe("providerAgentMetadata", () => {
     });
   });
 
+  it("merges split provider telemetry attribute bags by precedence", () => {
+    expect(
+      providerAgentMetadataFromRecord({
+        resource: {
+          attributes: {
+            "gen_ai.agent.id": "resource-agent",
+            "gen_ai.agent.role": "subagent",
+            "gen_ai.request.model": "resource-model",
+          },
+        },
+        span: {
+          attributes: {
+            "gen_ai.agent.name": "Span reviewer",
+            "gen_ai.agent.instructions": "Inspect the span-level task.",
+          },
+        },
+        metadata: {
+          attributes: {
+            "gen_ai.agent.id": "metadata-agent",
+            "gen_ai.agent.description": "Metadata description.",
+          },
+        },
+        attributes: {
+          "gen_ai.agent.name": "Top-level reviewer",
+        },
+      }),
+    ).toEqual({
+      id: "metadata-agent",
+      type: "subagent",
+      name: "Top-level reviewer",
+      model: "resource-model",
+      description: "Metadata description.",
+      prompt: "Inspect the span-level task.",
+    });
+  });
+
   it("normalizes modern provider custom agent profile and persona aliases", () => {
     expect(
       providerAgentMetadataFromRecord({
