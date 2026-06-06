@@ -499,27 +499,40 @@ function geminiProviderSlashCommands(
 function buildGeminiSessionConfigOptions(
   metadata: GeminiSessionMetadata,
 ): ReadonlyArray<ProviderSessionConfigOption> {
-  if (metadata.availableModes.length === 0) {
-    return [];
-  }
-  const currentValue = metadata.currentModeId ?? metadata.availableModes[0]?.id;
-  if (!currentValue) {
-    return [];
-  }
-  return [
-    {
+  const configOptions: ProviderSessionConfigOption[] = [];
+  const currentModeValue = metadata.currentModeId ?? metadata.availableModes[0]?.id;
+  if (metadata.availableModes.length > 0 && currentModeValue) {
+    configOptions.push({
       id: "mode",
       name: "Mode",
       category: "mode",
       type: "select",
-      currentValue,
+      currentValue: currentModeValue,
       options: metadata.availableModes.map((mode) => ({
         value: mode.id,
         name: mode.name ?? mode.id,
         ...(mode.description ? { description: mode.description } : {}),
       })),
-    },
-  ];
+    });
+  }
+
+  const currentModelValue = metadata.currentModelId ?? metadata.availableModels[0]?.modelId;
+  if (metadata.availableModels.length > 0 && currentModelValue) {
+    configOptions.push({
+      id: "model",
+      name: "Model",
+      category: "model",
+      type: "select",
+      currentValue: currentModelValue,
+      options: metadata.availableModels.map((model) => ({
+        value: model.modelId,
+        name: model.name ?? model.modelId,
+        ...(model.description ? { description: model.description } : {}),
+      })),
+    });
+  }
+
+  return configOptions;
 }
 
 function geminiSessionConfigSnapshot(metadata: GeminiSessionMetadata): Record<string, unknown> {

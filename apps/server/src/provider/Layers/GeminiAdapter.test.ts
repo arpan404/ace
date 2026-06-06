@@ -87,6 +87,11 @@ function geminiSessionResult(
   input?: {
     readonly currentModeId?: string;
     readonly currentModelId?: string;
+    readonly availableModels?: ReadonlyArray<{
+      readonly modelId: string;
+      readonly name?: string;
+      readonly description?: string;
+    }>;
   },
 ) {
   const currentModeId = input?.currentModeId ?? "default";
@@ -102,7 +107,9 @@ function geminiSessionResult(
     },
     models: {
       currentModelId,
-      availableModels: [{ modelId: currentModelId, name: "Gemini 2.5 Pro" }],
+      availableModels: input?.availableModels ?? [
+        { modelId: currentModelId, name: "Gemini 2.5 Pro" },
+      ],
     },
   };
 }
@@ -1258,8 +1265,19 @@ describe("GeminiAdapterLive startup", () => {
           case "session/new":
             return geminiSessionResult("gemini-session-selected-mode", {
               currentModeId: "yolo",
+              currentModelId: "gemini-2.5-flash",
+              availableModels: [
+                {
+                  modelId: "gemini-2.5-flash",
+                  name: "Gemini 2.5 Flash",
+                  description: "Fast Gemini model",
+                },
+                { modelId: "gemini-2.5-pro", name: "Gemini 2.5 Pro" },
+              ],
             });
           case "session/set_mode":
+            return {};
+          case "session/set_model":
             return {};
           default:
             throw new Error(`Unexpected Gemini ACP request: ${method}`);
@@ -1294,6 +1312,14 @@ describe("GeminiAdapterLive startup", () => {
           },
           { timeoutMs: 20_000 },
         );
+        expect(client.request).toHaveBeenCalledWith(
+          "session/set_model",
+          {
+            sessionId: "gemini-session-selected-mode",
+            modelId: "gemini-2.5-pro",
+          },
+          { timeoutMs: 20_000 },
+        );
 
         const firstEvent = await Effect.runPromise(Stream.runHead(adapter.streamEvents));
         expect(firstEvent._tag).toBe("Some");
@@ -1309,6 +1335,19 @@ describe("GeminiAdapterLive startup", () => {
               options: [
                 { value: "default", name: "Default" },
                 { value: "yolo", name: "YOLO" },
+              ],
+            },
+            {
+              id: "model",
+              category: "model",
+              currentValue: "gemini-2.5-flash",
+              options: [
+                {
+                  value: "gemini-2.5-flash",
+                  name: "Gemini 2.5 Flash",
+                  description: "Fast Gemini model",
+                },
+                { value: "gemini-2.5-pro", name: "Gemini 2.5 Pro" },
               ],
             },
           ],
