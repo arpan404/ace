@@ -385,6 +385,7 @@ function subagentFromLifecycle(
       result?.taskId,
       result?.task_id,
     );
+  const parentId = metadata.parentId;
   const type = metadata.type;
   const name = metadata.name;
   const description = metadata.description;
@@ -406,6 +407,7 @@ function subagentFromLifecycle(
   }
   return {
     ...(agentId ? { id: agentId } : {}),
+    ...(parentId ? { parentId } : {}),
     ...(type ? { type } : {}),
     ...(name ? { name } : {}),
     ...(description ? { description } : {}),

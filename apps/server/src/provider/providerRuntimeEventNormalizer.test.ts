@@ -892,6 +892,55 @@ describe("normalizeProviderRuntimeEvent", () => {
     });
   });
 
+  it("preserves provider parent thread linkage on side-chat metadata", () => {
+    const event = normalizeProviderRuntimeEvent(
+      lifecycleEvent({
+        itemType: "dynamic_tool_call",
+        title: "side_chat",
+        detail: "Open a nested side chat for implementation review.",
+        status: "completed",
+        data: {
+          tool_name: "side_chat",
+          sideConversation: {
+            id: "provider-side-thread-child",
+            parentThreadId: "provider-main-thread-1",
+            name: "Implementation side chat",
+            role: "side-chat",
+            model: "provider-model",
+            prompt: "Review implementation details without adding to the main thread.",
+          },
+        },
+      }),
+    );
+
+    expect(event.payload).toMatchObject({
+      itemType: "collab_agent_tool_call",
+      title: "Subagent task",
+      data: {
+        subagent: {
+          id: "provider-side-thread-child",
+          parentId: "provider-main-thread-1",
+          type: "side-chat",
+          name: "Implementation side chat",
+          model: "provider-model",
+          prompt: "Review implementation details without adding to the main thread.",
+        },
+        ace: {
+          normalized: true,
+          action: "collab-agent",
+          itemType: "collab_agent_tool_call",
+          subagent: {
+            id: "provider-side-thread-child",
+            parentId: "provider-main-thread-1",
+            type: "side-chat",
+            name: "Implementation side chat",
+            model: "provider-model",
+          },
+        },
+      },
+    });
+  });
+
   it("normalizes provider side-chat arrays as subagent metadata", () => {
     const event = normalizeProviderRuntimeEvent(
       lifecycleEvent({
