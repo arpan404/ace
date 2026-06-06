@@ -1973,6 +1973,128 @@ describe("providerExtensionSlashCommands", () => {
     }
   });
 
+  it("preserves Gemini agent override runtime metadata", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "ace-gemini-agent-overrides-"));
+    const geminiHome = path.join(root, "gemini-home");
+    const cwd = path.join(root, "repo");
+    try {
+      await mkdir(path.join(geminiHome), { recursive: true });
+      await mkdir(path.join(cwd, ".gemini", "agents"), { recursive: true });
+      await writeFile(
+        path.join(cwd, ".gemini", "agents", "security-auditor.md"),
+        [
+          "---",
+          "name: security-auditor",
+          "description: Find security defects",
+          "kind: local",
+          "---",
+          "",
+          "# Agent prompt",
+        ].join("\n"),
+      );
+      await writeFile(
+        path.join(geminiHome, "settings.json"),
+        JSON.stringify({
+          agents: {
+            overrides: {
+              browser_agent: {
+                enabled: true,
+                modelConfig: {
+                  model: "gemini-3-flash-preview",
+                  temperature: "0.1",
+                },
+                runConfig: {
+                  maxTurns: "6",
+                  timeoutMins: 3,
+                  tools: ["browser", "read_file"],
+                },
+              },
+              "security-auditor": {
+                modelConfig: {
+                  model: "gemini-3-pro-preview",
+                  topP: 0.8,
+                },
+              },
+            },
+          },
+        }),
+      );
+      await mkdir(path.join(cwd, ".gemini"), { recursive: true });
+      await writeFile(
+        path.join(cwd, ".gemini", "settings.json"),
+        JSON.stringify({
+          agents: {
+            overrides: {
+              "security-auditor": {
+                modelConfig: {
+                  model: "gemini-3-flash-preview",
+                },
+                runConfig: {
+                  max_turns: 10,
+                },
+              },
+            },
+          },
+        }),
+      );
+
+      const commands = withProviderExtensionSlashCommands({
+        providers: [
+          {
+            provider: "gemini",
+            enabled: true,
+            installed: true,
+            version: "1.0.0",
+            minimumVersion: null,
+            versionStatus: "ok",
+            status: "ready",
+            auth: { status: "authenticated" },
+            checkedAt: "2026-01-01T00:00:00.000Z",
+            models: [],
+          },
+        ],
+        cwd,
+        settings: {
+          ...DEFAULT_SERVER_SETTINGS,
+          providers: {
+            ...DEFAULT_SERVER_SETTINGS.providers,
+            gemini: {
+              ...DEFAULT_SERVER_SETTINGS.providers.gemini,
+              configDir: geminiHome,
+            },
+          },
+        },
+      })[0]?.commands;
+
+      expect(findCommand(commands ?? [], "browser_agent")).toMatchObject({
+        metadata: {
+          provider: "gemini",
+          source: "agent",
+          settingsOverride: true,
+          enabled: true,
+          model: "gemini-3-flash-preview",
+          temperature: 0.1,
+          maxTurns: 6,
+          timeoutMins: 3,
+          tools: ["browser", "read_file"],
+        },
+      });
+      expect(findCommand(commands ?? [], "security-auditor")).toMatchObject({
+        metadata: {
+          provider: "gemini",
+          source: "agent",
+          kind: "local",
+          settingsOverride: true,
+          model: "gemini-3-flash-preview",
+          topP: 0.8,
+          maxTurns: 10,
+        },
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("lets nearest Gemini workspace settings override parent workspace settings", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "ace-gemini-nested-settings-precedence-"));
     const geminiHome = path.join(root, "gemini-home");

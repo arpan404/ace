@@ -55,17 +55,23 @@ type GeminiExtensionManifest = {
   readonly description?: string;
 };
 
+type GeminiAgentOverride = {
+  readonly enabled?: unknown;
+  readonly model?: unknown;
+  readonly temperature?: unknown;
+  readonly tools?: unknown;
+  readonly modelConfig?: unknown;
+  readonly model_config?: unknown;
+  readonly runConfig?: unknown;
+  readonly run_config?: unknown;
+};
+
 type GeminiSettingsFile = {
   readonly experimental?: {
     readonly enableAgents?: unknown;
   };
   readonly agents?: {
-    readonly overrides?: Record<
-      string,
-      {
-        readonly enabled?: unknown;
-      }
-    >;
+    readonly overrides?: Record<string, GeminiAgentOverride>;
   };
   readonly extensions?: {
     readonly disabled?: unknown;
@@ -1524,10 +1530,12 @@ export function resolveGeminiAgentSettings(input: {
   readonly enabled: boolean;
   readonly disabledAgentNames: ReadonlySet<string>;
   readonly enabledAgentNames: ReadonlySet<string>;
+  readonly agentMetadataOverrides: ReadonlyMap<string, Record<string, unknown>>;
 } {
   let enabled = true;
   const disabledAgentNames = new Set<string>();
   const enabledAgentNames = new Set<string>();
+  const agentMetadataOverrides = new Map<string, Record<string, unknown>>();
   for (const settingsFile of geminiSettingsFiles(input)) {
     const settings = readGeminiSettingsFile(settingsFile);
     if (!settings) {
@@ -1541,16 +1549,24 @@ export function resolveGeminiAgentSettings(input: {
       if (!normalizedName) {
         continue;
       }
+      const normalizedKey = normalizedName.toLowerCase();
       if (override?.enabled === false) {
-        enabledAgentNames.delete(normalizedName.toLowerCase());
-        disabledAgentNames.add(normalizedName.toLowerCase());
+        enabledAgentNames.delete(normalizedKey);
+        disabledAgentNames.add(normalizedKey);
       } else if (override?.enabled === true) {
-        enabledAgentNames.add(normalizedName.toLowerCase());
-        disabledAgentNames.delete(normalizedName.toLowerCase());
+        enabledAgentNames.add(normalizedKey);
+        disabledAgentNames.delete(normalizedKey);
+      }
+      const metadata = geminiAgentOverrideMetadata(override);
+      if (metadata) {
+        agentMetadataOverrides.set(normalizedKey, {
+          ...(agentMetadataOverrides.get(normalizedKey) ?? {}),
+          ...metadata,
+        });
       }
     }
   }
-  return { enabled, disabledAgentNames, enabledAgentNames };
+  return { enabled, disabledAgentNames, enabledAgentNames, agentMetadataOverrides };
 }
 
 function geminiBuiltInSubagentCommandsForSettings(
@@ -1563,7 +1579,7 @@ function geminiBuiltInSubagentCommandsForSettings(
     (command) =>
       !settings.disabledAgentNames.has(command.name.toLowerCase()) &&
       (command.name !== "browser_agent" || settings.enabledAgentNames.has("browser_agent")),
-  );
+  ).map((command) => withGeminiAgentOverrideMetadata(command, settings));
 }
 
 export function geminiBuiltInSubagentCommands(input: {
@@ -1571,6 +1587,56 @@ export function geminiBuiltInSubagentCommands(input: {
   readonly home?: string | undefined;
 }): ReadonlyArray<ProviderSlashCommand> {
   return geminiBuiltInSubagentCommandsForSettings(resolveGeminiAgentSettings(input));
+}
+
+function recordFromUnknown(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+function firstStringFromUnknown(...values: ReadonlyArray<unknown>): string | undefined {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim().length > 0) {
+      return value.trim();
+    }
+  }
+  return undefined;
+}
+
+function firstNumberFromUnknown(...values: ReadonlyArray<unknown>): number | undefined {
+  for (const value of values) {
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
+    if (typeof value === "string" && value.trim().length > 0) {
+      const parsed = Number(value.trim());
+      if (Number.isFinite(parsed)) {
+        return parsed;
+      }
+    }
+  }
+  return undefined;
+}
+
+function stringOrStringArrayFromUnknown(value: unknown): string | string[] | undefined {
+  if (typeof value === "string" && value.trim().length > 0) {
+    const values = splitFrontmatterListValue(value);
+    if (values.length === 0) {
+      return undefined;
+    }
+    return values.length === 1 ? values[0] : values;
+  }
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  const values = value
+    .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+    .filter((entry) => entry.length > 0);
+  if (values.length === 0) {
+    return undefined;
+  }
+  return values.length === 1 ? values[0] : values;
 }
 
 function normalizedGeminiPathRulePath(value: string | undefined): string {
@@ -1639,18 +1705,96 @@ function applyGeminiAgentSettings(
   commands: ReadonlyArray<ProviderSlashCommand>,
   settings: ReturnType<typeof resolveGeminiAgentSettings>,
 ): ReadonlyArray<ProviderSlashCommand> {
-  if (settings.enabled && settings.disabledAgentNames.size === 0) {
+  if (
+    settings.enabled &&
+    settings.disabledAgentNames.size === 0 &&
+    settings.agentMetadataOverrides.size === 0
+  ) {
     return commands;
   }
-  return commands.filter((command) => {
-    if (command.kind !== "agent") {
-      return true;
-    }
-    if (!settings.enabled) {
-      return false;
-    }
-    return !settings.disabledAgentNames.has(command.name.toLowerCase());
-  });
+  return commands
+    .filter((command) => {
+      if (command.kind !== "agent") {
+        return true;
+      }
+      if (!settings.enabled) {
+        return false;
+      }
+      return !settings.disabledAgentNames.has(command.name.toLowerCase());
+    })
+    .map((command) =>
+      command.kind === "agent" ? withGeminiAgentOverrideMetadata(command, settings) : command,
+    );
+}
+
+function geminiAgentOverrideMetadata(
+  override: GeminiAgentOverride | undefined,
+): Record<string, unknown> | undefined {
+  if (!override || typeof override !== "object" || Array.isArray(override)) {
+    return undefined;
+  }
+  const record = override as Record<string, unknown>;
+  const modelConfig =
+    recordFromUnknown(record.modelConfig) ?? recordFromUnknown(record.model_config);
+  const runConfig = recordFromUnknown(record.runConfig) ?? recordFromUnknown(record.run_config);
+  const model = firstStringFromUnknown(record.model, modelConfig?.model, modelConfig?.modelName);
+  const temperature = firstNumberFromUnknown(record.temperature, modelConfig?.temperature);
+  const topP = firstNumberFromUnknown(
+    record.topP,
+    record.top_p,
+    modelConfig?.topP,
+    modelConfig?.top_p,
+  );
+  const topK = firstNumberFromUnknown(
+    record.topK,
+    record.top_k,
+    modelConfig?.topK,
+    modelConfig?.top_k,
+  );
+  const maxTurns = firstNumberFromUnknown(
+    record.maxTurns,
+    record.max_turns,
+    runConfig?.maxTurns,
+    runConfig?.max_turns,
+  );
+  const timeoutMins = firstNumberFromUnknown(
+    record.timeoutMins,
+    record.timeout_mins,
+    runConfig?.timeoutMins,
+    runConfig?.timeout_mins,
+  );
+  const tools = stringOrStringArrayFromUnknown(record.tools ?? runConfig?.tools);
+  const metadata = {
+    ...(typeof record.enabled === "boolean" ? { enabled: record.enabled } : {}),
+    ...(model ? { model } : {}),
+    ...(temperature !== undefined ? { temperature } : {}),
+    ...(topP !== undefined ? { topP } : {}),
+    ...(topK !== undefined ? { topK } : {}),
+    ...(maxTurns !== undefined ? { maxTurns } : {}),
+    ...(timeoutMins !== undefined ? { timeoutMins } : {}),
+    ...(tools !== undefined ? { tools } : {}),
+  };
+  return Object.keys(metadata).length > 0 ? metadata : undefined;
+}
+
+function withGeminiAgentOverrideMetadata(
+  command: ProviderSlashCommand,
+  settings: ReturnType<typeof resolveGeminiAgentSettings>,
+): ProviderSlashCommand {
+  const override = settings.agentMetadataOverrides.get(command.name.toLowerCase());
+  if (!override) {
+    return command;
+  }
+  return {
+    ...command,
+    metadata: {
+      ...(command.metadata ?? {}),
+      provider: "gemini",
+      ...(command.metadata?.source ? {} : { source: "agent" }),
+      settingsOverride: true,
+      ...override,
+    },
+  };
 }
 
 function readClaudeSettingsFile(file: string): ClaudeSettingsFile | null {
