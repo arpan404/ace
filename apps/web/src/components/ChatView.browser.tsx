@@ -3325,7 +3325,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("opens hidden provider side-chat aliases as Ace side-chat drafts", async () => {
+  it("does not open hidden provider side-chat aliases as Ace side-chat drafts", async () => {
     const sideDraftThreadId = `subagent:${THREAD_ID}:__ace_new_side_chat__` as ThreadId;
     useComposerDraftStore.getState().setPrompt(THREAD_ID, ".side Inspect Codex context");
 
@@ -3355,11 +3355,22 @@ describe("ChatView timeline estimator parity (full app)", () => {
               request._tag === ORCHESTRATION_WS_METHODS.dispatchCommand &&
               request.type === "thread.turn.start",
           );
-          expect(mainTurnStartRequest).toBeUndefined();
+          expect(mainTurnStartRequest).toBeDefined();
+          const messageText =
+            typeof mainTurnStartRequest === "object" &&
+            mainTurnStartRequest &&
+            "message" in mainTurnStartRequest &&
+            typeof mainTurnStartRequest.message === "object" &&
+            mainTurnStartRequest.message &&
+            "text" in mainTurnStartRequest.message &&
+            typeof mainTurnStartRequest.message.text === "string"
+              ? mainTurnStartRequest.message.text
+              : "";
+          expect(messageText).toBe(".side Inspect Codex context");
           const sourceDraft = useComposerDraftStore.getState().draftsByThreadId[THREAD_ID];
           expect(sourceDraft?.prompt ?? "").toBe("");
           const sideDraft = useComposerDraftStore.getState().draftsByThreadId[sideDraftThreadId];
-          expect(sideDraft?.prompt).toBe("Inspect Codex context");
+          expect(sideDraft).toBeUndefined();
         },
         { timeout: 8_000, interval: 16 },
       );
