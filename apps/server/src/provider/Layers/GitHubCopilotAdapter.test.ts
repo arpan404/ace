@@ -37,7 +37,7 @@ const mockedCreateGitHubCopilotClient = vi.mocked(createGitHubCopilotClient);
 const asThreadId = (value: string): ThreadId => ThreadId.makeUnsafe(value);
 const EXPECTED_GITHUB_COPILOT_MULTI_AGENT_CAPABILITIES = {
   multiAgentMode: "native",
-  multiAgentInvocationPrefixes: ["@"],
+  multiAgentInvocationPrefixes: ["@", "/fleet"],
   multiAgentDefinitionPaths: [
     ".github/agents/*.agent.md",
     ".github/agents/*.md",

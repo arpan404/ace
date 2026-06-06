@@ -177,7 +177,7 @@ function gitHubCopilotProviderCapabilities(client: GitHubCopilotClientLike) {
     sessionResumeMode: "native" as const,
     ...forkCapabilities,
     multiAgentMode: "native" as const,
-    multiAgentInvocationPrefixes: ["@"],
+    multiAgentInvocationPrefixes: ["@", "/fleet"],
     multiAgentDefinitionPaths: [
       ".github/agents/*.agent.md",
       ".github/agents/*.md",
