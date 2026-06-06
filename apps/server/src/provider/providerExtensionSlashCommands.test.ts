@@ -570,6 +570,14 @@ describe("providerExtensionSlashCommands", () => {
           'sandbox_mode = "read-only"',
         ].join("\n"),
       );
+      await writeFile(
+        path.join(repo, ".codex", "agents", "explorer.toml"),
+        [
+          'name = "explorer"',
+          'description = "Project-specific Codex explorer override"',
+          'developer_instructions = "Explore this project using local conventions."',
+        ].join("\n"),
+      );
       await mkdir(path.join(codexHome, "agents"), { recursive: true });
       await writeFile(
         path.join(codexHome, "agents", "docs.toml"),
@@ -676,6 +684,21 @@ describe("providerExtensionSlashCommands", () => {
             description: "Draft documentation with a Codex custom agent",
           }),
           expect.objectContaining({
+            name: "default",
+            kind: "agent",
+            promptPrefix: "@default",
+            metadata: {
+              provider: "codex",
+              source: "built-in-subagent",
+            },
+          }),
+          expect.objectContaining({
+            name: "worker",
+            kind: "agent",
+            promptPrefix: "@worker",
+            description: "Use Codex's built-in implementation and fixes subagent.",
+          }),
+          expect.objectContaining({
             name: "prompts:draftpr",
             kind: "provider",
             promptPrefix: "/prompts:draftpr",
@@ -696,6 +719,13 @@ describe("providerExtensionSlashCommands", () => {
       );
       expect(findCommand(commands, "browser-use:browser")).toBeUndefined();
       expect(findCommand(commands, "design-audit")?.description).toBe("Local audit UI");
+      expect(findCommand(commands, "explorer")?.description).toBe(
+        "Project-specific Codex explorer override",
+      );
+      expect(findCommand(commands, "explorer")?.metadata).toEqual({
+        provider: "codex",
+        source: "agent",
+      });
       expect(findCommand(commands, "invalid")).toBeUndefined();
       expect(findCommand(commands, "prompts:ignored")).toBeUndefined();
       const providerCommands = withProviderExtensionSlashCommands({
@@ -762,6 +792,11 @@ describe("providerExtensionSlashCommands", () => {
             name: "reviewer",
             kind: "agent",
             promptPrefix: "@reviewer",
+          }),
+          expect.objectContaining({
+            name: "worker",
+            kind: "agent",
+            promptPrefix: "@worker",
           }),
           expect.objectContaining({
             name: "browser-use",

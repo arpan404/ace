@@ -297,6 +297,39 @@ export const CURSOR_BUILT_IN_SUBAGENT_COMMANDS = [
   }),
 ] as const satisfies ReadonlyArray<ProviderSlashCommand>;
 
+export const CODEX_BUILT_IN_SUBAGENT_COMMANDS = [
+  providerAgentSlashCommand({
+    name: "default",
+    description: "Use Codex's built-in general-purpose fallback subagent.",
+    promptPrefix: "@default",
+    inputHint: "<prompt>",
+    metadata: {
+      provider: "codex",
+      source: "built-in-subagent",
+    },
+  }),
+  providerAgentSlashCommand({
+    name: "worker",
+    description: "Use Codex's built-in implementation and fixes subagent.",
+    promptPrefix: "@worker",
+    inputHint: "<prompt>",
+    metadata: {
+      provider: "codex",
+      source: "built-in-subagent",
+    },
+  }),
+  providerAgentSlashCommand({
+    name: "explorer",
+    description: "Use Codex's built-in read-heavy codebase exploration subagent.",
+    promptPrefix: "@explorer",
+    inputHint: "<prompt>",
+    metadata: {
+      provider: "codex",
+      source: "built-in-subagent",
+    },
+  }),
+] as const satisfies ReadonlyArray<ProviderSlashCommand>;
+
 export const PI_BUILT_IN_SUBAGENT_COMMANDS = [
   providerAgentSlashCommand({
     name: "scout",
@@ -4768,6 +4801,7 @@ export function discoverCodexExtensionSlashCommands(
   return mergeProviderSlashCommands(
     skillCommands,
     agentCommands,
+    CODEX_BUILT_IN_SUBAGENT_COMMANDS,
     customPromptCommands,
     pluginCommands,
   );
