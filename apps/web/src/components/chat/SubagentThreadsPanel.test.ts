@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { WorkLogEntry } from "../../session-logic/types";
+import type { agentThreadsPanelTitle as agentThreadsPanelTitleType } from "./SubagentThreadsPanel";
 import type {
   canReplyToSubagentThread as canReplyToSubagentThreadType,
   deriveSubagentThreads as deriveSubagentThreadsType,
@@ -11,6 +12,7 @@ import type {
   resolveSubagentMainAgentMessage as resolveSubagentMainAgentMessageType,
 } from "./subagentThreads";
 
+let agentThreadsPanelTitle: typeof agentThreadsPanelTitleType;
 let canReplyToSubagentThread: typeof canReplyToSubagentThreadType;
 let deriveSubagentThreads: typeof deriveSubagentThreadsType;
 let formatSideChatRequestForDisplay: typeof formatSideChatRequestForDisplayType;
@@ -41,6 +43,7 @@ beforeAll(async () => {
     setItem: vi.fn(),
     removeItem: vi.fn(),
   });
+  ({ agentThreadsPanelTitle } = await import("./SubagentThreadsPanel"));
   ({
     canReplyToSubagentThread,
     deriveSubagentThreads,
@@ -284,6 +287,36 @@ describe("deriveSubagentThreads", () => {
       providerSubagentThreads: [{ id: "agent-reviewer", label: "Reviewer" }],
       sideChatThreads: [{ id: "side:thread-1:first", label: "Explain the current branch." }],
     });
+  });
+
+  it("labels the compact panel by the visible thread mix", () => {
+    const sideThreads = deriveSubagentThreads(
+      [
+        workEntry({
+          id: "side-chat",
+          subagentId: "side:thread-1:first",
+          subagentType: "side chat",
+          sideChatMessageRole: "user",
+          sideChatMessageText: "Explain the current branch.",
+        }),
+      ],
+      "codex",
+    );
+    const subagentThreads = deriveSubagentThreads(
+      [
+        workEntry({
+          id: "provider-subagent",
+          subagentId: "agent-reviewer",
+          subagentName: "Reviewer",
+          subagentType: "code-reviewer",
+        }),
+      ],
+      "githubCopilot",
+    );
+
+    expect(agentThreadsPanelTitle(sideThreads)).toBe("Side chats");
+    expect(agentThreadsPanelTitle(subagentThreads)).toBe("Subagents");
+    expect(agentThreadsPanelTitle([...sideThreads, ...subagentThreads])).toBe("Agent chats");
   });
 
   it("keeps multiple provider child side chats with the same agent as distinct threads", () => {

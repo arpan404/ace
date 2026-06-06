@@ -11,6 +11,7 @@ import type { ChatMessage } from "../../types";
 import {
   deriveSubagentThreads,
   formatSideChatRequestForDisplay,
+  isSideChatThread,
   resolveSubagentMainAgentMessage,
   type SubagentThread,
 } from "./subagentThreads";
@@ -27,6 +28,19 @@ export function statusLabel(status: SubagentThread["status"]): string {
 
 export function formatSubagentSubtitle(thread: SubagentThread): string | null {
   return [thread.roleLabel, thread.model].filter(Boolean).join(" · ") || null;
+}
+
+export function agentThreadsPanelTitle(threads: ReadonlyArray<SubagentThread>): string {
+  const hasSideChats = threads.some(isSideChatThread);
+  const hasSubagents = threads.some((thread) => !isSideChatThread(thread));
+
+  if (hasSideChats && !hasSubagents) {
+    return "Side chats";
+  }
+  if (hasSideChats) {
+    return "Agent chats";
+  }
+  return "Subagents";
 }
 
 export function SubagentPersonaIcon(props: {
@@ -95,11 +109,14 @@ export function SubagentThreadsPanel(props: {
     return null;
   }
 
+  const panelTitle = agentThreadsPanelTitle(threads);
+  const PanelIcon = panelTitle === "Side chats" ? MessageSquareIcon : BotIcon;
+
   return (
     <section className="flex max-h-[45%] min-h-40 shrink-0 flex-col border-t border-border/70 bg-background">
       <header className="flex h-11 shrink-0 items-center gap-2 border-b border-border/60 px-3">
-        <BotIcon className="size-4 text-muted-foreground" />
-        <h2 className="min-w-0 flex-1 truncate text-sm font-medium">Subagents</h2>
+        <PanelIcon className="size-4 text-muted-foreground" />
+        <h2 className="min-w-0 flex-1 truncate text-sm font-medium">{panelTitle}</h2>
         <span className="text-xs tabular-nums text-muted-foreground">{threads.length}</span>
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
@@ -209,7 +226,7 @@ export function SubagentWorkspacePanel(props: {
     return (
       <section className="flex min-h-0 flex-1 flex-col bg-background">
         <div className="flex min-h-0 flex-1 items-center justify-center px-6 text-sm text-muted-foreground">
-          No subagent conversations yet.
+          No agent conversations yet.
         </div>
       </section>
     );
