@@ -506,6 +506,60 @@ describe("ProviderRuntimeIngestion", () => {
     expect(thread.session?.capabilities?.hostedSessionMode).toBe("local-bridge");
   });
 
+  it("applies provider runtime capability overrides from nested session capabilities", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "session.configured",
+      eventId: asEventId("evt-nested-session-capabilities"),
+      provider: "opencode",
+      threadId: asThreadId("thread-1"),
+      createdAt: now,
+      payload: {
+        config: {
+          capabilities: {
+            session: {
+              capabilities: {
+                multi_agent_mode: "agentCommand",
+                agent_invocation_prefixes: ["@task", "@task"],
+                agent_files: [".opencode/agent/*.md"],
+                subagent_files: [".opencode/subagent/*.md"],
+                agent_management_commands: ["/agent list"],
+                remote_agent_mode: "localBridge",
+                web_access_mode: "mcp-or-shell",
+                hosted_session_mode: "localBridge",
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const thread = await waitForThread(
+      harness.engine,
+      (entry) =>
+        entry.session?.providerName === "opencode" &&
+        entry.session?.capabilities?.multiAgentMode === "agent-command" &&
+        entry.session?.capabilities?.multiAgentDefinitionPaths?.join(",") ===
+          ".opencode/agent/*.md,.opencode/subagent/*.md" &&
+        entry.session?.capabilities?.remoteAgentMode === "local-bridge" &&
+        entry.session?.capabilities?.webAccessMode === "mcp-or-shell" &&
+        entry.session?.capabilities?.hostedSessionMode === "local-bridge",
+    );
+
+    expect(thread.session?.capabilities?.multiAgentMode).toBe("agent-command");
+    expect(thread.session?.capabilities?.multiAgentInvocationPrefixes).toEqual(["@task"]);
+    expect(thread.session?.capabilities?.multiAgentDefinitionPaths).toEqual([
+      ".opencode/agent/*.md",
+      ".opencode/subagent/*.md",
+    ]);
+    expect(thread.session?.capabilities?.multiAgentManagementCommands).toEqual(["/agent list"]);
+    expect(thread.session?.capabilities?.remoteAgentMode).toBe("local-bridge");
+    expect(thread.session?.capabilities?.webAccessMode).toBe("mcp-or-shell");
+    expect(thread.session?.capabilities?.hostedSessionMode).toBe("local-bridge");
+  });
+
   it("applies provider runtime capability overrides from boolean and nested capability advertisements", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
