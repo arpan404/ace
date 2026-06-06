@@ -22,6 +22,13 @@ import { PiAdapterLive } from "./PiAdapter.ts";
 
 const mockedStartPiRpcClient = vi.mocked(startPiRpcClient);
 const asThreadId = (value: string): ThreadId => ThreadId.makeUnsafe(value);
+const EXPECTED_PI_PROVIDER_CAPABILITIES = {
+  sessionForkMode: "local-replay",
+  sideConversationMode: "replay-fork",
+  multiAgentMode: "agent-command",
+  multiAgentInvocationPrefixes: [],
+  multiAgentDefinitionPaths: [],
+} as const;
 
 function collectEvents(
   adapter: PiAdapterShape,
@@ -163,8 +170,13 @@ describe("PiAdapterLive", () => {
 
     await withAdapter(async (adapter) => {
       try {
-        expect(adapter.capabilities.sessionForkMode).toBe("local-replay");
-        expect(adapter.capabilities.sideConversationMode).toBe("replay-fork");
+        expect({
+          sessionForkMode: adapter.capabilities.sessionForkMode,
+          sideConversationMode: adapter.capabilities.sideConversationMode,
+          multiAgentMode: adapter.capabilities.multiAgentMode,
+          multiAgentInvocationPrefixes: adapter.capabilities.multiAgentInvocationPrefixes,
+          multiAgentDefinitionPaths: adapter.capabilities.multiAgentDefinitionPaths,
+        }).toEqual(EXPECTED_PI_PROVIDER_CAPABILITIES);
 
         const configuredEventsPromise = collectEvents(
           adapter,
@@ -228,10 +240,9 @@ describe("PiAdapterLive", () => {
             },
           ]),
         );
-        expect(latestConfiguredEvent.payload.config.capabilities).toEqual({
-          sessionForkMode: "local-replay",
-          sideConversationMode: "replay-fork",
-        });
+        expect(latestConfiguredEvent.payload.config.capabilities).toEqual(
+          EXPECTED_PI_PROVIDER_CAPABILITIES,
+        );
         expect(latestConfiguredEvent.payload.config.configOptions).toEqual(
           expect.arrayContaining([
             expect.objectContaining({
@@ -992,10 +1003,9 @@ describe("PiAdapterLive", () => {
         expect(configuredEvent.payload.config.availableCommands).toEqual(
           expect.not.arrayContaining([expect.objectContaining({ kind: "provider" })]),
         );
-        expect(configuredEvent.payload.config.capabilities).toEqual({
-          sessionForkMode: "local-replay",
-          sideConversationMode: "replay-fork",
-        });
+        expect(configuredEvent.payload.config.capabilities).toEqual(
+          EXPECTED_PI_PROVIDER_CAPABILITIES,
+        );
 
         const warningMessages = (await warningEventsPromise).flatMap((event) =>
           event.type === "runtime.warning" ? [event.payload.message] : [],

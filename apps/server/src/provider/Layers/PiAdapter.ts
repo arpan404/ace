@@ -50,6 +50,9 @@ const MAX_TURN_ITEMS_PER_TURN = 512;
 const PI_PROVIDER_CAPABILITIES = {
   sessionForkMode: "local-replay" as const,
   sideConversationMode: "replay-fork" as const,
+  multiAgentMode: "agent-command" as const,
+  multiAgentInvocationPrefixes: [],
+  multiAgentDefinitionPaths: [],
 };
 const PI_PROPOSED_PLAN_START_REGEX = /<!--\s*ACE_PROPOSED_PLAN_START(?:\s*--\s*>?)?/i;
 const PI_PROPOSED_PLAN_END_REGEX = /<!--\s*ACE_PROPOSED_PLAN_END(?:\s*--\s*>?)?/i;
