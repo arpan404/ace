@@ -1511,7 +1511,8 @@ function geminiBuiltInSubagentCommandsForSettings(
   }
   return GEMINI_BUILT_IN_SUBAGENT_COMMANDS.filter(
     (command) =>
-      command.name !== "browser_agent" || settings.enabledAgentNames.has("browser_agent"),
+      !settings.disabledAgentNames.has(command.name.toLowerCase()) &&
+      (command.name !== "browser_agent" || settings.enabledAgentNames.has("browser_agent")),
   );
 }
 

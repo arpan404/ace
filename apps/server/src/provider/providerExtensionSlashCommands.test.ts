@@ -1718,6 +1718,7 @@ describe("providerExtensionSlashCommands", () => {
         JSON.stringify({
           agents: {
             overrides: {
+              codebase_investigator: { enabled: false },
               "security-auditor": { enabled: false },
               browser_agent: { enabled: false },
             },
@@ -1751,6 +1752,7 @@ describe("providerExtensionSlashCommands", () => {
           },
         },
       })[0]?.commands;
+      expect(findCommand(filteredProviderCommands ?? [], "codebase_investigator")).toBeUndefined();
       expect(findCommand(filteredProviderCommands ?? [], "security-auditor")).toBeUndefined();
       expect(findCommand(filteredProviderCommands ?? [], "browser_agent")).toBeUndefined();
       expect(findCommand(filteredProviderCommands ?? [], "review")).toEqual(
