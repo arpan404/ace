@@ -237,15 +237,39 @@ export function resolveProviderIntegrationCapabilities(
     sideConversationCommands: normalizedProviderSideConversationCommands(
       capabilities.sideConversationCommands ?? defaults.sideConversationCommands,
     ),
-    multiAgentInvocationPrefixes:
+    multiAgentInvocationPrefixes: normalizedProviderCapabilityStringList(
       capabilities.multiAgentInvocationPrefixes ?? defaults.multiAgentInvocationPrefixes,
-    multiAgentDefinitionPaths:
+    ),
+    multiAgentDefinitionPaths: normalizedProviderCapabilityStringList(
       capabilities.multiAgentDefinitionPaths ?? defaults.multiAgentDefinitionPaths,
+    ),
   };
 }
 
 function normalizedProviderSideConversationCommands(
   commands: ReadonlyArray<string>,
 ): ReadonlyArray<string> {
-  return commands.filter((command) => !isAceSideConversationCommand(command));
+  return normalizedProviderCapabilityStringList(commands).filter(
+    (command) => !isAceSideConversationCommand(command),
+  );
+}
+
+function normalizedProviderCapabilityStringList(
+  values: ReadonlyArray<string>,
+): ReadonlyArray<string> {
+  const normalized: string[] = [];
+  const seen = new Set<string>();
+  for (const value of values) {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      continue;
+    }
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    normalized.push(trimmed);
+  }
+  return normalized;
 }

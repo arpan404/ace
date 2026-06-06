@@ -289,7 +289,7 @@ describe("providerCapabilities", () => {
     expect(
       resolveProviderIntegrationCapabilities("codex", {
         sessionModelSwitch: "in-session",
-        sideConversationCommands: ["/side", ".side", "/btw"],
+        sideConversationCommands: [" /side ", ".side", "/btw", ".side", "  "],
       }),
     ).toMatchObject({
       sideConversationCommands: [".side", "/btw"],
@@ -306,12 +306,12 @@ describe("providerCapabilities", () => {
     expect(
       resolveProviderIntegrationCapabilities("gemini", {
         sessionModelSwitch: "in-session",
-        multiAgentInvocationPrefixes: ["/agent"],
-        multiAgentDefinitionPaths: ["custom/agents/*.md"],
+        multiAgentInvocationPrefixes: [" /agent ", "/AGENT", "  ", "@"],
+        multiAgentDefinitionPaths: [" custom/agents/*.md ", "custom/agents/*.md", ".gemini/agents"],
       }),
     ).toMatchObject({
-      multiAgentInvocationPrefixes: ["/agent"],
-      multiAgentDefinitionPaths: ["custom/agents/*.md"],
+      multiAgentInvocationPrefixes: ["/agent", "@"],
+      multiAgentDefinitionPaths: ["custom/agents/*.md", ".gemini/agents"],
     });
   });
 });
