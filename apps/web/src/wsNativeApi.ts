@@ -17,10 +17,10 @@ import { __resetWsRpcClientForTests, getWsRpcClient } from "./wsRpcClient";
 let instance: { api: NativeApi } | null = null;
 let disposeHandlerRegistered = false;
 
-export function __resetWsNativeApiForTests() {
+export async function __resetWsNativeApiForTests() {
   instance = null;
   disposeHandlerRegistered = false;
-  __resetWsRpcClientForTests();
+  await __resetWsRpcClientForTests();
   resetServerStateForTests();
 }
 

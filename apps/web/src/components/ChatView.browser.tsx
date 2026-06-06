@@ -1422,7 +1422,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
         return [];
       },
     });
-    __resetNativeApiForTests();
+    await __resetNativeApiForTests();
     await setViewport(DEFAULT_VIEWPORT);
     localStorage.clear();
     document.body.innerHTML = "";
@@ -1430,6 +1430,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
   });
 
   afterEach(async () => {
+    await __resetNativeApiForTests();
     await rpcHarness.disconnect();
     resetBrowserChatViewTestState();
     localStorage.clear();
