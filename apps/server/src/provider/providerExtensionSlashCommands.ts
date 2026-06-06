@@ -4201,11 +4201,11 @@ function readCursorMarkdownCommandRoot(
   return commands;
 }
 
-function readCursorRuleCommand(file: string): ProviderSlashCommand | null {
+function readCursorRuleCommand(root: string, file: string): ProviderSlashCommand | null {
   if (!file.endsWith(".mdc")) {
     return null;
   }
-  const ruleName = normalizeCommandName(path.basename(file, ".mdc"));
+  const ruleName = pathCommandSegment(path.relative(root, file.slice(0, -".mdc".length)));
   if (!ruleName) {
     return null;
   }
@@ -4224,18 +4224,26 @@ function readCursorRuleCommand(file: string): ProviderSlashCommand | null {
   });
 }
 
-function readCursorRuleRoot(root: string, depth = 0): ProviderSlashCommand[] {
-  if (!isDirectory(root)) {
+function readCursorRuleRoot(root: string): ProviderSlashCommand[] {
+  return readCursorRuleRootRecursive(root, root);
+}
+
+function readCursorRuleRootRecursive(
+  root: string,
+  currentRoot: string,
+  depth = 0,
+): ProviderSlashCommand[] {
+  if (!isDirectory(currentRoot)) {
     return [];
   }
   const commands: ProviderSlashCommand[] = [];
-  for (const entry of safeReadDir(root)) {
-    const entryPath = path.join(root, entry);
-    const command = readCursorRuleCommand(entryPath);
+  for (const entry of safeReadDir(currentRoot)) {
+    const entryPath = path.join(currentRoot, entry);
+    const command = readCursorRuleCommand(root, entryPath);
     if (command) {
       commands.push(command);
     } else if (depth < 4 && isDirectory(entryPath)) {
-      commands.push(...readCursorRuleRoot(entryPath, depth + 1));
+      commands.push(...readCursorRuleRootRecursive(root, entryPath, depth + 1));
     }
   }
   return commands;

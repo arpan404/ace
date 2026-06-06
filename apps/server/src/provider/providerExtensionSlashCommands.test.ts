@@ -2798,6 +2798,17 @@ describe("providerExtensionSlashCommands", () => {
           "Use the component conventions.",
         ].join("\n"),
       );
+      await mkdir(path.join(cwd, ".cursor", "rules", "backend"), { recursive: true });
+      await writeFile(
+        path.join(cwd, ".cursor", "rules", "backend", "component.mdc"),
+        [
+          "---",
+          "description: Backend component rule",
+          "---",
+          "",
+          "Use the backend component conventions.",
+        ].join("\n"),
+      );
       await mkdir(path.join(repo, "packages", "api", ".cursor", "rules"), { recursive: true });
       await writeFile(
         path.join(repo, "packages", "api", ".cursor", "rules", "backend.mdc"),
@@ -2945,15 +2956,21 @@ describe("providerExtensionSlashCommands", () => {
             },
           }),
           expect.objectContaining({
-            name: "rule:component",
+            name: "rule:frontend-component",
             kind: "skill",
-            promptPrefix: "@component",
+            promptPrefix: "@frontend-component",
             description: "Component rule",
             metadata: {
               provider: "cursor",
               source: "rule",
               globs: "**/*.tsx",
             },
+          }),
+          expect.objectContaining({
+            name: "rule:backend-component",
+            kind: "skill",
+            promptPrefix: "@backend-component",
+            description: "Backend component rule",
           }),
           expect.objectContaining({
             name: "rule:backend",
@@ -3063,9 +3080,14 @@ describe("providerExtensionSlashCommands", () => {
             promptPrefix: "@architecture",
           }),
           expect.objectContaining({
-            name: "rule:component",
+            name: "rule:frontend-component",
             kind: "skill",
-            promptPrefix: "@component",
+            promptPrefix: "@frontend-component",
+          }),
+          expect.objectContaining({
+            name: "rule:backend-component",
+            kind: "skill",
+            promptPrefix: "@backend-component",
           }),
           expect.objectContaining({
             name: "rule:agents",
