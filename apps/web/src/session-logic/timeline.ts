@@ -8,6 +8,7 @@ import {
   normalizeIntentToolLabel,
 } from "./shared";
 import { parseAceSideChatCommand } from "../lib/chat/sideChatDraft";
+import { isProviderSideConversationAlias } from "@ace/shared/providerSlashCommands";
 
 function compareCompatibleTimelineSequence(
   left: number | undefined,
@@ -171,7 +172,14 @@ export function filterMainTimelineWorkLogEntries(
 }
 
 export function isSideCommandMessage(message: ChatMessage): boolean {
-  return message.role === "user" && parseAceSideChatCommand(message.text) !== null;
+  if (message.role !== "user") {
+    return false;
+  }
+  if (parseAceSideChatCommand(message.text) !== null) {
+    return true;
+  }
+  const match = /^([./]\S+)(?:\s|$)/u.exec(message.text.trim());
+  return match ? isProviderSideConversationAlias(match[1] ?? "") : false;
 }
 
 export function filterMainTimelineMessages(messages: ReadonlyArray<ChatMessage>): ChatMessage[] {

@@ -3329,7 +3329,7 @@ describe("deriveTimelineEntries", () => {
     expect(entries.map((entry) => entry.id)).toEqual(["main-work"]);
   });
 
-  it("filters native /side command messages from the main thread timeline source", () => {
+  it("filters native /side and hidden provider side-chat alias messages from the main thread timeline source", () => {
     const entries = filterMainTimelineMessages([
       {
         id: MessageId.makeUnsafe("main-message"),
@@ -3368,12 +3368,7 @@ describe("deriveTimelineEntries", () => {
       },
     ]);
 
-    expect(entries.map((entry) => entry.id)).toEqual([
-      "main-message",
-      "codex-side-message",
-      "claude-side-message",
-      "normal-btw-message",
-    ]);
+    expect(entries.map((entry) => entry.id)).toEqual(["main-message", "normal-btw-message"]);
   });
 
   it("includes proposed plans alongside messages and work entries in chronological order", () => {
