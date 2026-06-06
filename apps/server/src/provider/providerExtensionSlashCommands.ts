@@ -3095,6 +3095,14 @@ function sanitizedGeminiRemoteAgentAuthMetadata(
       : typeof auth.tokenUrl === "string" && auth.tokenUrl.trim()
         ? auth.tokenUrl.trim()
         : undefined;
+  const clientId =
+    typeof auth.client_id === "string" && auth.client_id.trim()
+      ? auth.client_id.trim()
+      : typeof auth.clientId === "string" && auth.clientId.trim()
+        ? auth.clientId.trim()
+        : typeof auth["client-id"] === "string" && auth["client-id"].trim()
+          ? auth["client-id"].trim()
+          : undefined;
   return {
     type,
     ...(scheme ? { scheme } : {}),
@@ -3103,6 +3111,7 @@ function sanitizedGeminiRemoteAgentAuthMetadata(
     ...(location ? { location } : {}),
     ...(authorizationUrl ? { authorizationUrl } : {}),
     ...(tokenUrl ? { tokenUrl } : {}),
+    ...(clientId ? { clientId } : {}),
   };
 }
 
