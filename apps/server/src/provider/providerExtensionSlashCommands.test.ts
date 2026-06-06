@@ -89,6 +89,8 @@ async function writeAgentMarkdown(input: {
   readonly model?: string | undefined;
   readonly tools?: ReadonlyArray<string> | undefined;
   readonly allowedTools?: ReadonlyArray<string> | undefined;
+  readonly temperature?: number | undefined;
+  readonly maxSteps?: number | undefined;
   readonly permission?: Record<string, string | Record<string, string>> | undefined;
   readonly taskPermission?: Record<string, string> | undefined;
   readonly color?: string | undefined;
@@ -106,6 +108,8 @@ async function writeAgentMarkdown(input: {
       ...(input.model ? [`model: ${input.model}`] : []),
       ...(input.tools ? [`tools: [${input.tools.join(", ")}]`] : []),
       ...(input.allowedTools ? [`allowed-tools: [${input.allowedTools.join(", ")}]`] : []),
+      ...(input.temperature !== undefined ? [`temperature: ${input.temperature}`] : []),
+      ...(input.maxSteps !== undefined ? [`maxSteps: ${input.maxSteps}`] : []),
       ...(input.permission || input.taskPermission
         ? [
             "permission:",
@@ -3446,6 +3450,9 @@ describe("providerExtensionSlashCommands", () => {
         mode: "subagent",
         model: "anthropic/claude-sonnet-4-20250514",
         color: "accent",
+        tools: ["read", "grep", "bash"],
+        temperature: 0.2,
+        maxSteps: 12,
         permission: {
           read: "allow",
           bash: {
@@ -4569,6 +4576,9 @@ describe("providerExtensionSlashCommands", () => {
               mode: "subagent",
               model: "anthropic/claude-sonnet-4-20250514",
               color: "accent",
+              tools: ["read", "grep", "bash"],
+              temperature: 0.2,
+              maxSteps: 12,
               permission: {
                 read: "allow",
                 bash: {

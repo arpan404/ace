@@ -3074,6 +3074,53 @@ function normalizeOpenCodePermission(
     : undefined;
 }
 
+function openCodeToolsFromValue(
+  value: unknown,
+): Record<string, unknown> | string | string[] | undefined {
+  if (typeof value === "string") {
+    const values = splitFrontmatterListValue(value);
+    if (values.length === 0) {
+      return undefined;
+    }
+    return values.length === 1 ? values[0] : values;
+  }
+  if (Array.isArray(value)) {
+    const values = value
+      .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+      .filter((entry) => entry.length > 0);
+    if (values.length === 0) {
+      return undefined;
+    }
+    return values.length === 1 ? values[0] : values;
+  }
+  if (value && typeof value === "object") {
+    const normalized: Record<string, unknown> = {};
+    for (const [rawKey, rawNestedValue] of Object.entries(value as Record<string, unknown>)) {
+      const key = rawKey.trim();
+      if (!key) {
+        continue;
+      }
+      const nestedValue = normalizeOpenCodePermissionValue(rawNestedValue);
+      if (nestedValue !== undefined) {
+        normalized[key] = nestedValue;
+      }
+    }
+    return Object.keys(normalized).length > 0 ? normalized : undefined;
+  }
+  return undefined;
+}
+
+function openCodeNumberFromValue(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value.trim());
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+  return undefined;
+}
+
 function openCodeAgentMetadataFromRecord(
   agent: Record<string, unknown>,
 ): Record<string, unknown> | undefined {
@@ -3082,6 +3129,11 @@ function openCodeAgentMetadataFromRecord(
     typeof agent.model === "string" && agent.model.trim() ? agent.model.trim() : undefined;
   const color =
     typeof agent.color === "string" && agent.color.trim() ? agent.color.trim() : undefined;
+  const tools = openCodeToolsFromValue(agent.tools);
+  const temperature = openCodeNumberFromValue(agent.temperature);
+  const maxSteps = openCodeNumberFromValue(
+    agent.maxSteps ?? agent.max_steps ?? agent["max-steps"] ?? agent.steps,
+  );
   const permission =
     agent.permission && typeof agent.permission === "object" && !Array.isArray(agent.permission)
       ? (agent.permission as Record<string, unknown>)
@@ -3097,6 +3149,9 @@ function openCodeAgentMetadataFromRecord(
     ...(mode ? { mode } : {}),
     ...(model ? { model } : {}),
     ...(color ? { color } : {}),
+    ...(tools ? { tools } : {}),
+    ...(temperature !== undefined ? { temperature } : {}),
+    ...(maxSteps !== undefined ? { maxSteps } : {}),
     ...(normalizedPermission ? { permission: normalizedPermission } : {}),
     ...(taskPermission ? { taskPermission } : {}),
   };
@@ -3108,6 +3163,14 @@ function openCodeAgentMetadataFromMarkdown(markdown: string): Record<string, unk
     mode: frontmatterField(markdown, "mode"),
     model: frontmatterField(markdown, "model"),
     color: frontmatterField(markdown, "color"),
+    tools:
+      frontmatterStringOrListField(markdown, "tools") ??
+      frontmatterJsonObjectField(markdown, "tools") ??
+      frontmatterYamlObjectField(markdown, "tools"),
+    temperature: frontmatterNumberField(markdown, "temperature"),
+    maxSteps:
+      frontmatterNumberFieldAny(markdown, ["maxSteps", "max-steps", "max_steps"]) ??
+      frontmatterNumberField(markdown, "steps"),
     permission:
       frontmatterJsonObjectField(markdown, "permission") ??
       frontmatterYamlObjectField(markdown, "permission"),
