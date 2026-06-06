@@ -4779,6 +4779,25 @@ describe("deriveEnvironmentSessionProviderStatus", () => {
       detail:
         "Ace /side starts a separate side chat by replaying bounded parent context into a separate provider session.",
     });
+
+    expect(
+      deriveEnvironmentSessionProviderStatus({
+        provider: "cursor",
+        updatedAt: "2026-02-23T00:00:11.000Z",
+        capabilities: {
+          sideConversationMode: "native-side-thread",
+          sideConversationCommands: ["/ask-side"],
+        },
+      }),
+    ).toEqual({
+      id: "cursor:side-chat-capability",
+      createdAt: "2026-02-23T00:00:11.000Z",
+      label: "Cursor side chats",
+      status: "native",
+      tone: "info",
+      detail:
+        "Ace /side starts a separate side chat through this provider's native side-thread support.",
+    });
   });
 
   it("describes active session hook capability separately from agents", () => {
