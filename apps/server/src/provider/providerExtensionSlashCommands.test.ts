@@ -4278,6 +4278,7 @@ describe("providerExtensionSlashCommands", () => {
             metadata: {
               provider: "github-copilot",
               source: "agent",
+              displayName: "Release Manager",
               agents: ["security-auditor", "programmatic-researcher"],
               model: ["Claude Opus 4.5", "GPT-5.2"],
               tools: ["read_file", "grep"],

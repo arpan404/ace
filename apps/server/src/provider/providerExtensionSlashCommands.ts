@@ -5448,6 +5448,7 @@ function gitHubCopilotAgentCommandMetadata(
   const metadata = {
     provider: "github-copilot",
     source: "agent",
+    ...(agent.displayName !== undefined ? { displayName: agent.displayName } : {}),
     ...(agent.model !== undefined ? { model: agent.model } : {}),
     ...(agent.tools ? { tools: agent.tools } : {}),
     ...(agent.agents ? { agents: agent.agents } : {}),
