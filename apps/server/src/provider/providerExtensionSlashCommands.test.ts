@@ -616,6 +616,12 @@ describe("providerExtensionSlashCommands", () => {
           'model = "gpt-5.4-mini"',
           'model_reasoning_effort = "low"',
           'sandbox_mode = "read-only"',
+          "[mcp_servers.docs]",
+          'command = "docs-mcp"',
+          'args = ["--stdio"]',
+          "[skills.config]",
+          "enabled = true",
+          'roots = [".codex/skills", ".agents/skills"]',
         ].join("\n"),
       );
       await writeFile(
@@ -723,6 +729,16 @@ describe("providerExtensionSlashCommands", () => {
               model: "gpt-5.4-mini",
               modelReasoningEffort: "low",
               sandboxMode: "read-only",
+              mcpServers: {
+                docs: {
+                  command: "docs-mcp",
+                  args: ["--stdio"],
+                },
+              },
+              skillsConfig: {
+                enabled: true,
+                roots: [".codex/skills", ".agents/skills"],
+              },
             },
           }),
           expect.objectContaining({

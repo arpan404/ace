@@ -4546,6 +4546,51 @@ function frontmatterTomlStringArrayField(toml: string, field: string): string[] 
   return values.length > 0 ? values : undefined;
 }
 
+function frontmatterTomlTable(
+  toml: string,
+  tableName: string,
+): Record<string, unknown> | undefined {
+  const root: Record<string, unknown> = {};
+  let currentTablePath: string[] | null = null;
+  for (const rawLine of toml.split(/\r?\n/u)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) {
+      continue;
+    }
+    const tableMatch = /^\[(?<name>[A-Za-z0-9_.-]+)\]$/u.exec(line);
+    if (tableMatch?.groups) {
+      const name = tableMatch.groups.name ?? "";
+      currentTablePath =
+        name === tableName
+          ? []
+          : name.startsWith(`${tableName}.`)
+            ? name.slice(tableName.length + 1).split(".")
+            : null;
+      continue;
+    }
+    if (!currentTablePath) {
+      continue;
+    }
+    const fieldMatch = /^(?<key>[A-Za-z0-9_.-]+)\s*=\s*(?<value>.+)$/u.exec(line);
+    if (!fieldMatch?.groups) {
+      continue;
+    }
+    let target = root;
+    for (const segment of currentTablePath) {
+      const existing = target[segment];
+      if (!existing || typeof existing !== "object" || Array.isArray(existing)) {
+        const nested: Record<string, unknown> = {};
+        target[segment] = nested;
+        target = nested;
+      } else {
+        target = existing as Record<string, unknown>;
+      }
+    }
+    target[fieldMatch.groups.key ?? ""] = parseSimpleYamlValue(fieldMatch.groups.value ?? "");
+  }
+  return Object.keys(root).length > 0 ? root : undefined;
+}
+
 function geminiTomlCommandMetadata(prompt: string): Record<string, unknown> | undefined {
   const metadata = {
     provider: "gemini",
@@ -4934,12 +4979,16 @@ function codexAgentTomlMetadata(
   const model = frontmatterTomlStringField(toml, "model");
   const modelReasoningEffort = frontmatterTomlStringField(toml, "model_reasoning_effort");
   const sandboxMode = frontmatterTomlStringField(toml, "sandbox_mode");
+  const mcpServers = frontmatterTomlTable(toml, "mcp_servers");
+  const skillsConfig = frontmatterTomlTable(toml, "skills.config");
   return {
     ...baseMetadata,
     ...(model ? { model } : {}),
     ...(modelReasoningEffort ? { modelReasoningEffort } : {}),
     ...(sandboxMode ? { sandboxMode } : {}),
     ...(nicknameCandidates ? { nicknameCandidates } : {}),
+    ...(mcpServers ? { mcpServers } : {}),
+    ...(skillsConfig ? { skillsConfig } : {}),
   };
 }
 
