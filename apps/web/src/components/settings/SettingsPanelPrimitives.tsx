@@ -2,6 +2,7 @@ import { Undo2Icon } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import type { ServerProvider } from "@ace/contracts";
 
+import { APP_SETTINGS_FIELD_CLASS_NAME } from "../../lib/appChrome";
 import { formatRelativeTime } from "../../timestampFormat";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
@@ -10,7 +11,8 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 export const SETTINGS_NEUTRAL_ACTION_CLASS_NAME =
   "border-border/45 bg-foreground/[0.07] text-foreground hover:bg-foreground/[0.11] active:bg-foreground/[0.15]";
-export const SETTINGS_FIELD_SURFACE_CLASS_NAME = "border-border/45 bg-background/55 shadow-none";
+
+export const SETTINGS_FIELD_SURFACE_CLASS_NAME = APP_SETTINGS_FIELD_CLASS_NAME;
 export const SETTINGS_INLINE_DIVIDER_CLASS_NAME = "bg-transparent shadow-none";
 
 function maskEmailAddress(value: string): string {

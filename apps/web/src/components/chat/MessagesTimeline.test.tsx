@@ -536,7 +536,7 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
 
     expect(markup).toContain("Frontend Design");
     expect(markup).toContain("Browser Use");
-    expect(markup).toContain("bg-muted/70");
+    expect(markup).toContain("bg-muted/40");
     expect(markup).toContain("tabler-icon-stack-2");
     expect(markup).toContain("lucide-plug");
   });
@@ -679,7 +679,7 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(markup).toContain("directory");
     expect(markup).not.toContain("@src/checkpointing/Services");
     expect(markup).not.toContain("tabler-icon-stack-2");
-    expect(markup).toContain("bg-muted/50");
+    expect(markup).toContain("bg-muted/35");
     expect(markup).toContain("<img");
   });
 

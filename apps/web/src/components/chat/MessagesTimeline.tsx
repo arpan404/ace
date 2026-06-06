@@ -90,6 +90,7 @@ import {
   deriveDisplayedUserMessageState,
   type ParsedTerminalContextEntry,
 } from "~/lib/terminalContext";
+import { APP_WORKSPACE_INSET_CLASS_NAME } from "~/lib/appChrome";
 import { cn } from "~/lib/utils";
 import { measureRenderWork } from "~/lib/renderProfiling";
 import { type TimestampFormat } from "@ace/contracts/settings";
@@ -2172,7 +2173,10 @@ const ImageGenerationPlaceholderFrame = memo(function ImageGenerationPlaceholder
 }) {
   return (
     <div
-      className="image-generation-placeholder-frame relative mb-2.5 max-w-3xl overflow-hidden rounded-xl border border-border/55 bg-background/70"
+      className={cn(
+        APP_WORKSPACE_INSET_CLASS_NAME,
+        "image-generation-placeholder-frame relative mb-2.5 max-w-3xl overflow-hidden rounded-xl",
+      )}
       aria-label="Image generation in progress"
       data-image-generation-placeholder="true"
       style={imageGenerationFrameStyle(props.dimensions)}
@@ -2721,7 +2725,7 @@ function buildUserMessageInlineText(
             "inline-flex items-center gap-1 rounded-md px-1 py-px font-medium leading-[1.15]",
             providerCommandDisplay.kind === "goal"
               ? "border border-emerald-500/40 bg-emerald-500/12 text-emerald-700 dark:text-emerald-300"
-              : "border border-border/70 bg-muted/70 text-foreground/85",
+              : "border border-border/50 bg-muted/40 text-foreground/85",
           )}
         >
           <ProviderCommandIcon
@@ -3208,7 +3212,7 @@ const UserMessageTimelineRow = memo(function UserMessageTimelineRow(props: {
               {userImages.map((image: NonNullable<TimelineMessage["attachments"]>[number]) => (
                 <div
                   key={image.id}
-                  className="overflow-hidden rounded-xl border border-border/55 bg-background/90"
+                  className={cn(APP_WORKSPACE_INSET_CLASS_NAME, "overflow-hidden rounded-xl")}
                 >
                   {image.previewUrl ? (
                     <button
@@ -3260,7 +3264,7 @@ const UserMessageTimelineRow = memo(function UserMessageTimelineRow(props: {
                       type="button"
                       size="xs"
                       variant="outline"
-                      className="border-border/55 bg-background/55"
+                      className="glass-inset border-border/50"
                       disabled={props.isRevertingCheckpoint || props.isWorking}
                       onClick={() => props.onRevertUserMessage(props.message.id)}
                       aria-label={props.revertActionTitle}
@@ -3308,14 +3312,17 @@ const AssistantImageAttachmentFrame = memo(function AssistantImageAttachmentFram
 
   return (
     <div
-      className="inline-flex max-w-full justify-self-start overflow-hidden rounded-xl border border-border/55 bg-background/70"
+      className={cn(
+        APP_WORKSPACE_INSET_CLASS_NAME,
+        "inline-flex max-w-full justify-self-start overflow-hidden rounded-xl",
+      )}
       style={frameDimensions ? imageGenerationFrameStyle(frameDimensions) : undefined}
     >
       {props.image.previewUrl ? (
         <button
           type="button"
           className={cn(
-            "inline-flex max-w-full cursor-zoom-in items-start justify-start bg-background/55",
+            "inline-flex max-w-full cursor-zoom-in items-start justify-start glass-inset",
             frameDimensions ? "h-full" : "",
           )}
           aria-label={`Preview ${props.image.name}`}
@@ -3576,7 +3583,7 @@ const AssistantTurnFooter = memo(function AssistantTurnFooter(props: {
             text={props.copyText}
             size="icon-xs"
             variant="ghost"
-            className="text-muted-foreground/68 hover:bg-muted/45 hover:text-foreground"
+            className="text-muted-foreground/68 hover:bg-foreground/[0.05] hover:text-foreground"
           />
         </div>
       )}
@@ -3611,7 +3618,7 @@ const AssistantTurnFooter = memo(function AssistantTurnFooter(props: {
                     size="icon-xs"
                     variant="ghost"
                     className={cn(
-                      "text-muted-foreground/68 transition-all duration-200 hover:bg-muted/45 hover:text-foreground",
+                      "text-muted-foreground/68 transition-all duration-200 hover:bg-foreground/[0.05] hover:text-foreground",
                       props.isPinned && "text-foreground",
                     )}
                     onMouseDown={(event) => {
@@ -4303,7 +4310,7 @@ export const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
           )}
           {isDetailOpen && hasExpandableDetail && (
             <div
-              className="mt-1.5 max-w-full rounded-md bg-muted/35 px-3 py-2"
+              className={cn(APP_WORKSPACE_INSET_CLASS_NAME, "mt-1.5 max-w-full px-3 py-2")}
               data-work-detail-panel="true"
             >
               {detailText && (
@@ -4456,7 +4463,7 @@ const CommandWorkEntryRow = memo(function CommandWorkEntryRow(props: {
           {isOutputOpen && hasExpandableOutput && (
             <div
               className={cn(
-                "mt-2 max-w-full rounded-md bg-muted/45 px-3 py-2.5",
+                cn(APP_WORKSPACE_INSET_CLASS_NAME, "mt-2 max-w-full px-3 py-2.5"),
                 isNested && "-ml-6",
               )}
               data-command-output-panel="true"

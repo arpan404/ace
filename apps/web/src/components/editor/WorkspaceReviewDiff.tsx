@@ -11,6 +11,11 @@ import {
   type WorkspaceCodeComment,
 } from "~/lib/editor/workspaceDesigner";
 import { useWorkspaceCommentPlaceholder } from "~/lib/editor/workspaceCommentPlaceholders";
+import {
+  APP_FLOATING_CHIP_CLASS_NAME,
+  APP_FLOATING_TOOLBAR_CLASS_NAME,
+  APP_WORKSPACE_INSET_CLASS_NAME,
+} from "~/lib/appChrome";
 import { cn } from "~/lib/utils";
 
 type WorkspaceReviewDiffRenderMode = "stacked" | "split";
@@ -574,7 +579,7 @@ function WorkspaceReviewDiffHunkSeparator(props: {
   return (
     <div
       className={cn(
-        "grid min-h-7 items-center border-y border-border/55 bg-muted/18 text-[11px] text-muted-foreground/72",
+        "grid min-h-7 items-center border-y border-border/40 bg-muted/12 text-[11px] text-muted-foreground/72",
         props.split
           ? "grid-cols-[minmax(0,1fr)_minmax(0,1fr)]"
           : "grid-cols-[3.75rem_minmax(0,1fr)]",
@@ -738,7 +743,10 @@ function WorkspaceReviewDiffCommentButton(props: {
   return (
     <button
       type="button"
-      className="absolute top-1/2 left-1 z-10 flex size-5 -translate-y-1/2 items-center justify-center rounded-full border border-border/70 bg-background/95 text-muted-foreground/0 opacity-0 shadow-sm transition-[opacity,color,background-color,border-color] hover:border-foreground/18 hover:bg-foreground hover:text-background group-hover/review-line:text-muted-foreground/72 group-hover/review-line:opacity-100 focus-visible:text-muted-foreground/72 focus-visible:opacity-100"
+      className={cn(
+        APP_FLOATING_CHIP_CLASS_NAME,
+        "absolute top-1/2 left-1 z-10 flex size-5 -translate-y-1/2 text-muted-foreground/0 opacity-0 transition-[opacity,color,background-color,border-color] hover:border-foreground/18 hover:bg-foreground hover:text-background group-hover/review-line:text-muted-foreground/72 group-hover/review-line:opacity-100 focus-visible:text-muted-foreground/72 focus-visible:opacity-100",
+      )}
       aria-label="Add diff comment"
       onClick={(event) => {
         event.stopPropagation();
@@ -773,14 +781,17 @@ function WorkspaceReviewDiffCommentPopover(props: {
 
   return (
     <form
-      className="absolute top-1/2 left-12 z-30 flex h-11 w-[min(390px,calc(100vw-8rem))] -translate-y-1/2 items-center gap-2 rounded-full border border-foreground/16 bg-background/96 px-2 ring-1 ring-background/80 shadow-[0_18px_42px_rgba(0,0,0,0.22)] backdrop-blur-xl"
+      className={cn(
+        APP_FLOATING_TOOLBAR_CLASS_NAME,
+        "absolute top-1/2 left-12 z-30 flex h-11 w-[min(390px,calc(100vw-8rem))] -translate-y-1/2 items-center gap-2 rounded-full px-2",
+      )}
       onSubmit={(event) => {
         event.preventDefault();
         props.onSubmitComment();
       }}
     >
       <span
-        className="max-w-28 shrink-0 truncate rounded-full bg-muted/50 px-2 py-1 font-mono text-[10px] leading-none text-muted-foreground/78"
+        className="glass-inset max-w-28 shrink-0 truncate rounded-full border border-border/50 px-2 py-1 font-mono text-[10px] leading-none text-muted-foreground/78"
         title={`${props.commentTarget.relativePath}:${props.commentTarget.lineNumber}`}
       >
         {props.commentTarget.side === "deletion" ? "old" : "new"} L{props.commentTarget.lineNumber}
@@ -801,7 +812,7 @@ function WorkspaceReviewDiffCommentPopover(props: {
       />
       <button
         type="button"
-        className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground/62 hover:bg-muted/35 hover:text-foreground"
+        className="flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground/62 hover:bg-foreground/[0.05] hover:text-foreground"
         aria-label="Cancel comment"
         onClick={props.onCancelComment}
       >
@@ -809,7 +820,7 @@ function WorkspaceReviewDiffCommentPopover(props: {
       </button>
       <button
         type="submit"
-        className="flex size-8 shrink-0 items-center justify-center rounded-full bg-foreground text-background shadow-sm transition-colors hover:bg-foreground/88 disabled:pointer-events-none disabled:opacity-35"
+        className="flex size-8 shrink-0 items-center justify-center rounded-full bg-foreground text-background transition-colors hover:bg-foreground/88 disabled:pointer-events-none disabled:opacity-35"
         aria-label="Add comment"
         disabled={props.commentDraft.trim().length === 0}
       >
@@ -838,7 +849,7 @@ function WorkspaceReviewDiffInlineComments(props: {
         {props.comments.map((comment) => (
           <div
             key={comment.id}
-            className="flex min-w-0 items-start gap-2 rounded-md border border-border/45 bg-background/52 px-2 py-1.5"
+            className={cn(APP_WORKSPACE_INSET_CLASS_NAME, "flex min-w-0 items-start gap-2 px-2 py-1.5")}
           >
             <MessageSquarePlusIcon className="mt-0.5 size-3 shrink-0 text-muted-foreground/62" />
             <p className="min-w-0 flex-1 whitespace-pre-wrap font-sans text-[11px] leading-4 text-foreground/80">

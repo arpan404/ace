@@ -1,5 +1,6 @@
 import { MessageSquareIcon, Trash2Icon, XIcon } from "lucide-react";
 
+import { APP_BADGE_CLASS_NAME, APP_COMPOSER_INSET_PANEL_CLASS_NAME } from "~/lib/appChrome";
 import { cn } from "~/lib/utils";
 import { Button } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -23,18 +24,13 @@ export function ComposerPendingComments(props: {
   }
 
   return (
-    <section
-      className={cn(
-        "mb-3 overflow-hidden rounded-[14px] border border-border/60 bg-card",
-        props.className,
-      )}
-    >
+    <section className={cn("mb-3", APP_COMPOSER_INSET_PANEL_CLASS_NAME, props.className)}>
       <div className="flex items-center justify-between gap-2 border-b border-border/50 px-3 py-2">
         <div className="flex min-w-0 items-center gap-2">
           <span className="text-[10px] font-semibold tracking-[0.16em] text-muted-foreground/70 uppercase">
             Pending comments
           </span>
-          <span className="rounded-full border border-border/55 bg-background/85 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-foreground/75">
+          <span className={APP_BADGE_CLASS_NAME}>
             {props.comments.length}
           </span>
         </div>
@@ -63,7 +59,7 @@ export function ComposerPendingComments(props: {
             key={comment.id}
             className="grid min-h-[44px] grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 border-b border-border/50 px-3 py-1.5 last:border-b-0"
           >
-            <div className="flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border/60 bg-background/80 text-muted-foreground/70">
+            <div className="glass-inset flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border/50 text-muted-foreground/70">
               {comment.previewUrl ? (
                 <img
                   src={comment.previewUrl}

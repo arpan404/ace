@@ -9,36 +9,36 @@ import {
 } from "lucide-react";
 import { memo, type KeyboardEvent, type RefObject } from "react";
 
+import {
+  APP_INTERACTIVE_HOVER_CLASS_NAME,
+  APP_SETTINGS_FIELD_CLASS_NAME,
+} from "../../lib/appChrome";
 import type { Project } from "../../types";
+import { GLASS_FOOTER_CLASS_NAME } from "../ui/glass";
+import { Kbd } from "../ui/kbd";
 import { ProjectAvatar } from "../ProjectAvatar";
 import { CommandDialog, CommandDialogPopup } from "../ui/command";
 import type { SearchPaletteItem, SearchPaletteMode } from "./sidebarTypes";
 
 const SearchPaletteFooterHints = memo(function SearchPaletteFooterHints() {
   return (
-    <div className="flex items-center justify-between border-t border-border/40 bg-muted/30 px-4 py-2.5 text-muted-foreground text-xs gap-4">
+    <div
+      className={`flex items-center justify-between gap-4 px-4 py-2.5 text-xs text-muted-foreground ${GLASS_FOOTER_CLASS_NAME}`}
+    >
       <div className="flex flex-wrap items-center gap-4">
         <span className="inline-flex items-center gap-1.5">
           <span className="inline-flex gap-0.5">
-            <span className="rounded border border-border/50 bg-background/50 px-1.5 py-0.5 text-[10px] font-medium text-foreground/70">
-              ↑
-            </span>
-            <span className="rounded border border-border/50 bg-background/50 px-1.5 py-0.5 text-[10px] font-medium text-foreground/70">
-              ↓
-            </span>
+            <Kbd className="h-4.5 min-w-0 px-1.5 text-[10px]">↑</Kbd>
+            <Kbd className="h-4.5 min-w-0 px-1.5 text-[10px]">↓</Kbd>
           </span>
           <span className="font-medium">Navigate</span>
         </span>
         <span className="inline-flex items-center gap-1.5">
-          <span className="rounded border border-border/50 bg-background/50 px-2 py-0.5 text-[10px] font-medium text-foreground/70">
-            Enter
-          </span>
+          <Kbd className="h-4.5 min-w-0 px-2 text-[10px]">Enter</Kbd>
           <span className="font-medium">Select</span>
         </span>
         <span className="inline-flex items-center gap-1.5">
-          <span className="rounded border border-border/50 bg-background/50 px-1.5 py-0.5 text-[10px] font-medium text-foreground/70">
-            Esc
-          </span>
+          <Kbd className="h-4.5 min-w-0 px-1.5 text-[10px]">Esc</Kbd>
           <span className="font-medium">Close</span>
         </span>
       </div>
@@ -85,11 +85,11 @@ export const SidebarSearchPaletteDialog = memo(function SidebarSearchPaletteDial
   return (
     <CommandDialog open={props.open} onOpenChange={props.onOpenChange}>
       <CommandDialogPopup className="glass-surface flex max-h-[min(31.5rem,calc(100dvh-2rem))] w-[min(44rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-xl border p-0">
-        <div className="flex items-center gap-3 border-b border-border/40 bg-gradient-to-b from-popover/50 to-popover/20 px-4 py-3">
+        <div className="flex items-center gap-3 border-b border-border/40 px-4 py-3">
           {props.mode === "new-thread-project" ? (
             <button
               type="button"
-              className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-all hover:bg-accent/80 hover:text-foreground active:scale-95"
+              className={`inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-all active:scale-95 ${APP_INTERACTIVE_HOVER_CLASS_NAME}`}
               onClick={props.onBack}
               aria-label="Back to search"
             >
@@ -100,7 +100,7 @@ export const SidebarSearchPaletteDialog = memo(function SidebarSearchPaletteDial
           )}
           <input
             ref={props.inputRef}
-            className="h-9 min-w-0 flex-1 rounded-lg border border-border/50 bg-background/60 px-3 text-sm font-medium text-foreground placeholder:text-muted-foreground/50 transition-all focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/30"
+            className={`h-9 min-w-0 flex-1 rounded-lg px-3 text-sm font-medium text-foreground transition-all placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/30 ${APP_SETTINGS_FIELD_CLASS_NAME}`}
             placeholder={
               props.mode === "new-thread-project"
                 ? "Select project for a new thread..."
@@ -136,8 +136,8 @@ export const SidebarSearchPaletteDialog = memo(function SidebarSearchPaletteDial
                     data-search-palette-index={itemIndex}
                     className={`flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm font-medium transition-all duration-150 ${
                       isActive
-                        ? "bg-primary/15 text-foreground"
-                        : "text-foreground/80 hover:bg-accent/40 hover:text-foreground"
+                        ? "bg-foreground/[0.06] text-foreground"
+                        : "text-foreground/80 hover:bg-foreground/[0.04] hover:text-foreground"
                     }`}
                     onMouseMove={() => props.onHoverItem(item.id)}
                     onMouseDown={(event) => event.preventDefault()}
@@ -177,8 +177,8 @@ export const SidebarSearchPaletteDialog = memo(function SidebarSearchPaletteDial
                         data-search-palette-index={itemIndex}
                         className={`flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left transition-all duration-150 ${
                           isActive
-                            ? "bg-primary/15 text-foreground"
-                            : "text-foreground/80 hover:bg-accent/40 hover:text-foreground"
+                            ? "bg-foreground/[0.06] text-foreground"
+                            : "text-foreground/80 hover:bg-foreground/[0.04] hover:text-foreground"
                         }`}
                         onMouseMove={() => props.onHoverItem(item.id)}
                         onMouseDown={(event) => event.preventDefault()}
@@ -219,8 +219,8 @@ export const SidebarSearchPaletteDialog = memo(function SidebarSearchPaletteDial
                         data-search-palette-index={itemIndex}
                         className={`flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left transition-all duration-150 ${
                           isActive
-                            ? "bg-primary/15 text-foreground"
-                            : "text-foreground/80 hover:bg-accent/40 hover:text-foreground"
+                            ? "bg-foreground/[0.06] text-foreground"
+                            : "text-foreground/80 hover:bg-foreground/[0.04] hover:text-foreground"
                         }`}
                         onMouseMove={() => props.onHoverItem(item.id)}
                         onMouseDown={(event) => event.preventDefault()}

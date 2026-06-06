@@ -226,7 +226,7 @@ const ComposerCommandMenuItem = memo(function ComposerCommandMenuItem(props: {
       ) : null}
       {props.item.type === "slash-command" ? (
         props.item.command === "goal" ? (
-          <span className="inline-flex size-5 shrink-0 items-center justify-center rounded-full border border-border/70 bg-muted/70 text-muted-foreground/85">
+          <span className="glass-inset inline-flex size-5 shrink-0 items-center justify-center rounded-full border border-border/50 text-muted-foreground/85">
             <TargetIcon className="size-3.5" />
           </span>
         ) : (

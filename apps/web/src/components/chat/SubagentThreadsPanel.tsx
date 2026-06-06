@@ -100,7 +100,7 @@ export function SubagentThreadsPanel(props: {
           {threads.map((thread) => (
             <article
               key={thread.id}
-              className="overflow-hidden rounded-md border border-border/70 bg-card"
+              className="glass-inset overflow-hidden rounded-md border border-border/50"
             >
               <div className="flex items-center gap-2 border-b border-border/60 px-3 py-2">
                 <SubagentPersonaIcon status={thread.status} thread={thread} />

@@ -1,4 +1,8 @@
 import type { WorkspaceFindMatchSummary, WorkspaceFindState } from "~/lib/editor/workspaceFind";
+import {
+  APP_FLOATING_TOOLBAR_CLASS_NAME,
+  APP_SETTINGS_FIELD_CLASS_NAME,
+} from "~/lib/appChrome";
 import { cn } from "~/lib/utils";
 import {
   ArrowDownIcon,
@@ -128,7 +132,12 @@ function WorkspaceFindBar(props: WorkspaceFindBarProps) {
 
   return (
     <div className="pointer-events-none absolute top-2 right-3 z-30 flex w-[min(42rem,calc(100%-1.5rem))] justify-end">
-      <div className="pointer-events-auto grid max-w-full grid-cols-[minmax(12rem,1fr)_auto] gap-1.5 rounded-lg border border-border/70 bg-background/96 p-1.5 shadow-[0_18px_46px_rgba(0,0,0,0.22)] ring-1 ring-background/80 backdrop-blur-xl">
+      <div
+        className={cn(
+          APP_FLOATING_TOOLBAR_CLASS_NAME,
+          "pointer-events-auto grid max-w-full grid-cols-[minmax(12rem,1fr)_auto] gap-1.5 p-1.5",
+        )}
+      >
         <div className="grid min-w-0 grid-cols-1 gap-1">
           <div className="flex min-w-0 items-center gap-1">
             <input
@@ -137,7 +146,10 @@ function WorkspaceFindBar(props: WorkspaceFindBarProps) {
               onChange={(event) => props.onStateChange({ search: event.target.value })}
               onKeyDown={handleSearchKeyDown}
               placeholder="Find in file"
-              className="h-7 min-w-0 flex-1 rounded-md border border-border/60 bg-background/84 px-2 font-mono text-[12px] text-foreground outline-none placeholder:text-muted-foreground/55 focus:border-primary/45"
+              className={cn(
+                APP_SETTINGS_FIELD_CLASS_NAME,
+                "h-7 min-w-0 flex-1 rounded-md px-2 font-mono text-[12px] text-foreground outline-none placeholder:text-muted-foreground/55 focus:border-primary/45",
+              )}
             />
             <span className="min-w-10 shrink-0 rounded-md bg-foreground/6 px-1.5 py-1 text-center font-mono text-[10px] tabular-nums text-muted-foreground">
               {matchLabel}
@@ -150,7 +162,10 @@ function WorkspaceFindBar(props: WorkspaceFindBarProps) {
               onChange={(event) => props.onStateChange({ replace: event.target.value })}
               onKeyDown={handleReplaceKeyDown}
               placeholder="Replace"
-              className="h-7 min-w-0 rounded-md border border-border/60 bg-background/84 px-2 font-mono text-[12px] text-foreground outline-none placeholder:text-muted-foreground/55 focus:border-primary/45"
+              className={cn(
+                APP_SETTINGS_FIELD_CLASS_NAME,
+                "h-7 min-w-0 rounded-md px-2 font-mono text-[12px] text-foreground outline-none placeholder:text-muted-foreground/55 focus:border-primary/45",
+              )}
             />
           ) : null}
         </div>

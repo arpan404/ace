@@ -571,8 +571,8 @@ export function RightSidePanelTabStrip(props: {
     cn(
       "group/tab inline-flex h-8 min-w-max shrink-0 items-center gap-2 rounded-lg px-3 text-[13px] font-medium transition-all duration-200",
       active
-        ? "bg-accent text-accent-foreground shadow-sm shadow-black/5 ring-1 ring-border/50"
-        : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
+        ? "bg-accent text-accent-foreground ring-1 ring-border/45"
+        : "text-muted-foreground hover:bg-foreground/[0.05] hover:text-foreground",
       disabled &&
         "cursor-not-allowed opacity-45 hover:bg-transparent hover:text-muted-foreground ring-0 shadow-none",
     );

@@ -5,6 +5,7 @@ import type { VariantProps } from "class-variance-authority";
 import { Button } from "../ui/button";
 import { buttonVariants } from "../ui/buttonVariants";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
+import { APP_COMPOSER_CONTROL_CLASS_NAME } from "~/lib/appChrome";
 import { cn } from "~/lib/utils";
 import { PROVIDER_ICON_BY_PROVIDER, providerIconClassName } from "./providerIcons";
 
@@ -37,7 +38,7 @@ const HandoffMenuEntries = memo(function HandoffMenuEntries(props: {
         return (
           <MenuItem
             key={provider}
-            className="min-h-7 gap-2 px-2 text-sm text-foreground/90 data-highlighted:bg-muted/80"
+            className="min-h-7 gap-2 px-2 text-sm text-foreground/90"
             onClick={() => props.onSelect(provider, "best")}
           >
             <ProviderIcon
@@ -80,8 +81,8 @@ export const HandoffMenuButton = memo(function HandoffMenuButton(props: {
             className={
               props.triggerClassName ??
               (showLabel
-                ? "shrink-0 whitespace-nowrap rounded-[var(--control-radius)] px-2 text-muted-foreground/70 transition-colors duration-150 hover:bg-muted/70 hover:text-foreground/80 aria-expanded:bg-muted/70 aria-expanded:text-foreground/80"
-                : "shrink-0 rounded-[var(--control-radius)] text-muted-foreground/70 transition-colors duration-150 hover:bg-muted/70 hover:text-foreground/80 aria-expanded:bg-muted/70 aria-expanded:text-foreground/80")
+                ? cn(APP_COMPOSER_CONTROL_CLASS_NAME, "whitespace-nowrap px-2")
+                : APP_COMPOSER_CONTROL_CLASS_NAME)
             }
             disabled={props.disabled}
             aria-label="Handoff to another provider"

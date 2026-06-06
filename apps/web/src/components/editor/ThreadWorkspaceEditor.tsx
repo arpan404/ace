@@ -92,6 +92,11 @@ import {
   projectReadFileQueryOptions,
 } from "~/lib/projectReactQuery";
 import { withRpcRouteConnection } from "~/lib/connectionRouting";
+import {
+  APP_EDITOR_CHROME_HEADER_CLASS_NAME,
+  APP_SETTINGS_FIELD_CLASS_NAME,
+  APP_WORKSPACE_INSET_CLASS_NAME,
+} from "~/lib/appChrome";
 import { cn, randomUUID } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
 import { basenameOfPath } from "~/vscode-icons";
@@ -152,8 +157,10 @@ const WORKSPACE_CODE_SEARCH_EXAMPLE_QUERIES = [
   "re:.*\\.test\\.tsx$",
 ] as const;
 const WorkspaceCodeSearchRecentsSchema = Schema.Array(Schema.String);
-const WORKSPACE_SIDEBAR_SEARCH_INPUT_CLASS =
-  "h-8 rounded-md border-border/45 bg-background/62 text-[12px] shadow-none placeholder:text-muted-foreground/48 focus-within:border-primary/40 focus-within:bg-background/88 [&_[data-slot=input]]:h-full [&_[data-slot=input]]:pr-2 [&_[data-slot=input]]:pl-9 [&_[data-slot=input]]:leading-8";
+const WORKSPACE_SIDEBAR_SEARCH_INPUT_CLASS = cn(
+  APP_SETTINGS_FIELD_CLASS_NAME,
+  "h-8 rounded-md text-[12px] placeholder:text-muted-foreground/48 focus-within:border-primary/40 [&_[data-slot=input]]:h-full [&_[data-slot=input]]:pr-2 [&_[data-slot=input]]:pl-9 [&_[data-slot=input]]:leading-8",
+);
 const WORKSPACE_SIDEBAR_PRIMARY_MODE_BUTTON_CLASS =
   "relative flex size-8 items-center justify-center rounded-md bg-transparent outline-none transition-colors hover:text-foreground focus-visible:ring-1 focus-visible:ring-foreground/45";
 const WORKSPACE_SIDEBAR_PRIMARY_MODE_ICON_CLASS = "size-[19px] shrink-0 transition-colors";
@@ -161,7 +168,7 @@ const WORKSPACE_SIDEBAR_SECONDARY_BUTTON_CLASS =
   "size-7 shrink-0 rounded-md bg-transparent text-muted-foreground/58 hover:bg-transparent hover:text-foreground";
 const WORKSPACE_SIDEBAR_SECONDARY_ICON_CLASS = "size-[15px] shrink-0";
 const WORKSPACE_EDITOR_CHROME_PRIMARY_BUTTON_CLASS =
-  "size-[30px] rounded-lg text-muted-foreground/72 hover:bg-accent hover:text-foreground";
+  "size-[30px] rounded-lg text-muted-foreground/72 hover:bg-foreground/[0.05] hover:text-foreground";
 const WORKSPACE_EDITOR_CHROME_PRIMARY_ICON_CLASS = "size-[17px]";
 const WORKSPACE_EXPLORER_ROW_CLASS =
   "group flex h-[22px] w-full items-center gap-1.5 rounded-[2px] px-2 text-left text-[12px] outline-none transition-colors";
@@ -1079,7 +1086,7 @@ const InlineExplorerRow = memo(function InlineExplorerRow(props: {
             props.onCancel();
           }
         }}
-        className="h-6 rounded-md border-border/60 bg-background/90 px-1.5 shadow-none"
+        className={cn(APP_SETTINGS_FIELD_CLASS_NAME, "h-6 rounded-md px-1.5")}
         size="sm"
       />
     </div>
@@ -4036,7 +4043,12 @@ function useThreadWorkspaceEditorComponent(inputProps: {
         {explorerOpen ? (
           <>
             <aside className="flex min-h-0 min-w-0 flex-col border-r border-border/60 bg-[color-mix(in_srgb,var(--background)_97%,var(--muted)_3%)] text-foreground">
-              <div className="flex h-10 shrink-0 items-center gap-1 border-b border-border/45 bg-background/30 px-2">
+              <div
+                className={cn(
+                  "flex h-10 shrink-0 items-center gap-1 px-2",
+                  APP_EDITOR_CHROME_HEADER_CLASS_NAME,
+                )}
+              >
                 <div className="flex min-w-0 flex-1 items-center gap-1">
                   <div className="flex shrink-0 items-center gap-1">
                     {(
@@ -4361,7 +4373,12 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                     </div>
                   </div>
                   {trimmedCodeSearchQuery.length >= 2 ? (
-                    <div className="flex h-6 items-center gap-1.5 border-b border-border/35 bg-background/35 px-3 text-[10px] text-muted-foreground/70">
+                    <div
+                      className={cn(
+                        "flex h-6 items-center gap-1.5 px-3 text-[10px] text-muted-foreground/70",
+                        APP_EDITOR_CHROME_HEADER_CLASS_NAME,
+                      )}
+                    >
                       <span className="min-w-0 flex-1 truncate">
                         {codeSearchBusy ? "Searching" : "Matches"}
                       </span>
@@ -4455,7 +4472,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                             {Array.from({ length: 5 }, (_, index) => (
                               <div
                                 key={`code-search-pending-${index}`}
-                                className="space-y-1 rounded-md border border-border/35 bg-background/38 p-2"
+                                className={cn(APP_WORKSPACE_INSET_CLASS_NAME, "space-y-1 p-2")}
                               >
                                 <div className="h-3 w-3/4 rounded bg-foreground/6" />
                                 <div className="h-3 w-full rounded bg-foreground/4" />
@@ -4509,7 +4526,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                                             render={
                                               <button
                                                 type="button"
-                                                className="flex size-6 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-background/80 hover:text-foreground"
+                                                className="flex size-6 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-foreground/[0.05] hover:text-foreground"
                                                 onClick={() =>
                                                   handleSplitPane(activePane?.id, result.entry.path)
                                                 }
@@ -4526,7 +4543,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                                             render={
                                               <button
                                                 type="button"
-                                                className="flex size-6 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-background/80 hover:text-foreground"
+                                                className="flex size-6 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-foreground/[0.05] hover:text-foreground"
                                                 onClick={() => {
                                                   void handleSendCodeSearchResultToAgent(result);
                                                 }}
@@ -4543,7 +4560,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                                             render={
                                               <button
                                                 type="button"
-                                                className="flex size-6 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-background/80 hover:text-foreground"
+                                                className="flex size-6 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-foreground/[0.05] hover:text-foreground"
                                                 onClick={() => handleQueueCodeSearchResult(result)}
                                                 aria-label="Queue as context"
                                               />
@@ -4563,7 +4580,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                                           <button
                                             key={`${result.entry.path}:${snippet.lineNumber}:${snippet.text}`}
                                             type="button"
-                                            className="flex w-full gap-2 rounded px-1.5 py-0.5 text-left text-[11px] text-muted-foreground/82 transition-colors hover:bg-background/65 hover:text-foreground"
+                                            className="flex w-full gap-2 rounded px-1.5 py-0.5 text-left text-[11px] text-muted-foreground/82 transition-colors hover:bg-foreground/[0.04] hover:text-foreground"
                                             onClick={() =>
                                               handleOpenCodeSearchResult(result, snippet.lineNumber)
                                             }
@@ -4715,7 +4732,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                         {queuedWorkspaceContexts.map((entry) => (
                           <div
                             key={entry.id}
-                            className="rounded-md border border-border/45 bg-background/45 px-2 py-1.5"
+                            className={cn(APP_WORKSPACE_INSET_CLASS_NAME, "px-2 py-1.5")}
                           >
                             <div className="flex min-w-0 items-center gap-1.5">
                               <CircleDotIcon className="size-2.5 shrink-0 text-muted-foreground/52" />
@@ -4730,7 +4747,10 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                               {formatQueuedWorkspaceContextDetail(entry)}
                             </p>
                             <textarea
-                              className="mt-1.5 min-h-7 w-full resize-none rounded border border-border/45 bg-background/48 px-2 py-1 text-[10.5px] leading-4 text-foreground/82 outline-none placeholder:text-muted-foreground/42 focus:border-foreground/28 disabled:opacity-60"
+                              className={cn(
+                                APP_SETTINGS_FIELD_CLASS_NAME,
+                                "mt-1.5 min-h-7 w-full resize-none rounded px-2 py-1 text-[10.5px] leading-4 text-foreground/82 outline-none placeholder:text-muted-foreground/42 focus:border-foreground/28 disabled:opacity-60",
+                              )}
                               aria-label={`Review note for ${entry.context.relativePath}`}
                               value={entry.prompt}
                               onChange={(event) =>
@@ -4746,7 +4766,10 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                           <button
                             key={comment.id}
                             type="button"
-                            className="block w-full rounded-md border border-border/50 bg-background/48 p-2 text-left transition-colors hover:bg-accent/45"
+                            className={cn(
+                              APP_WORKSPACE_INSET_CLASS_NAME,
+                              "block w-full p-2 text-left transition-colors hover:bg-foreground/[0.04]",
+                            )}
                             onClick={() => handleOpenFile(comment.relativePath, false)}
                           >
                             <span className="block truncate text-[11px] font-semibold text-foreground">
@@ -4772,7 +4795,10 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                     (queuedWorkspaceContexts.length > 0 || unresolvedCodeComments.length > 0) ? (
                       <button
                         type="button"
-                        className="rounded-md border border-border/70 bg-background/70 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+                        className={cn(
+                          APP_WORKSPACE_INSET_CLASS_NAME,
+                          "px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-foreground/[0.05] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60",
+                        )}
                         onClick={() => {
                           void handleSendAllAgentNotes();
                         }}
@@ -4795,7 +4821,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                       {queuedWorkspaceContexts.map((entry) => (
                         <div
                           key={entry.id}
-                          className="overflow-hidden rounded-lg border border-border/50 bg-background/56"
+                          className={cn(APP_WORKSPACE_INSET_CLASS_NAME, "overflow-hidden rounded-lg")}
                         >
                           <div className="flex items-start gap-2 px-2 py-1.5">
                             <CircleDotIcon className="mt-1 size-3 text-muted-foreground/58" />
@@ -4812,7 +4838,10 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                                 </p>
                               </div>
                               <textarea
-                                className="mt-1.5 min-h-14 w-full resize-y rounded-md border border-border/50 bg-background/50 px-2 py-1.5 text-[11px] leading-4 text-foreground/84 outline-none placeholder:text-muted-foreground/42 focus:border-foreground/30 disabled:opacity-60"
+                                className={cn(
+                                  APP_SETTINGS_FIELD_CLASS_NAME,
+                                  "mt-1.5 min-h-14 w-full resize-y rounded-md px-2 py-1.5 text-[11px] leading-4 text-foreground/84 outline-none placeholder:text-muted-foreground/42 focus:border-foreground/30 disabled:opacity-60",
+                                )}
                                 aria-label={`Review note for ${entry.context.relativePath}`}
                                 value={entry.prompt}
                                 onChange={(event) =>
@@ -4858,7 +4887,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                       {unresolvedCodeComments.map((comment) => (
                         <div
                           key={comment.id}
-                          className="overflow-hidden rounded-xl border border-border/60 bg-background/72"
+                          className={cn(APP_WORKSPACE_INSET_CLASS_NAME, "overflow-hidden rounded-xl")}
                         >
                           <div className="flex items-start gap-2 border-l-2 border-primary/60 p-2">
                             <ClipboardListIcon className="mt-0.5 size-3.5 text-primary/80" />
@@ -4946,7 +4975,12 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                   </div>
                   {sidebarMode === "outline" && workspaceSymbols.length === 0 ? (
                     <div className="px-4 py-8 text-center text-xs text-muted-foreground">
-                      <div className="mx-auto mb-2 flex size-7 items-center justify-center rounded-md border border-border/70 bg-background/70">
+                      <div
+                        className={cn(
+                          APP_WORKSPACE_INSET_CLASS_NAME,
+                          "mx-auto mb-2 flex size-7 items-center justify-center",
+                        )}
+                      >
                         <ListTreeIcon className="size-4 text-muted-foreground/55" />
                       </div>
                       No symbols detected in open editor files.
@@ -4960,7 +4994,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                           <div
                             key={group.id}
                             className={cn(
-                              "overflow-hidden rounded-[8px] border border-border/65 bg-background/52",
+                              cn(APP_WORKSPACE_INSET_CLASS_NAME, "overflow-hidden rounded-[8px]"),
                               isActiveFile && "border-border bg-accent/40",
                             )}
                           >

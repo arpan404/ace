@@ -27,7 +27,11 @@ import {
   type RefObject,
 } from "react";
 
-import { APP_COMPOSER_CLASS_NAME, APP_COMPOSER_HEADER_CLASS_NAME } from "../../lib/appChrome";
+import {
+  APP_COMPOSER_CLASS_NAME,
+  APP_COMPOSER_HEADER_CLASS_NAME,
+  APP_WORKSPACE_INSET_CLASS_NAME,
+} from "../../lib/appChrome";
 import type { ComposerImageAttachment, ModelSelectionByProvider } from "../../composerDraftStore";
 import type { PendingUserInputDraftAnswer } from "../../pendingUserInput";
 import { cn } from "../../lib/utils";
@@ -549,13 +553,28 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
                       tags:
                     </p>
                     <div className="space-y-1">
-                      <div className="rounded-md border border-border/60 bg-muted/30 px-2 py-1 font-mono text-[11px] text-foreground/90">
+                      <div
+                        className={cn(
+                          APP_WORKSPACE_INSET_CLASS_NAME,
+                          "px-2 py-1 font-mono text-[11px] text-foreground/90",
+                        )}
+                      >
                         /issues #[issue_no] [message]
                       </div>
-                      <div className="rounded-md border border-border/60 bg-muted/30 px-2 py-1 font-mono text-[11px] text-foreground/90">
+                      <div
+                        className={cn(
+                          APP_WORKSPACE_INSET_CLASS_NAME,
+                          "px-2 py-1 font-mono text-[11px] text-foreground/90",
+                        )}
+                      >
                         /issues #123 #456 [message]
                       </div>
-                      <div className="rounded-md border border-border/60 bg-muted/30 px-2 py-1 font-mono text-[11px] text-foreground/90">
+                      <div
+                        className={cn(
+                          APP_WORKSPACE_INSET_CLASS_NAME,
+                          "px-2 py-1 font-mono text-[11px] text-foreground/90",
+                        )}
+                      >
                         /issues #123 Fix timeline jitter in chat view
                       </div>
                     </div>

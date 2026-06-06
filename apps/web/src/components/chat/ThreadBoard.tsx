@@ -220,7 +220,7 @@ function ThreadBoardDropPreview(props: { direction: ThreadBoardDropDirection }) 
       <div className="absolute inset-0 rounded-[inherit] border border-primary/28 bg-primary/[0.04]" />
       <m.div
         className={cn(
-          "absolute z-[31] rounded-[inherit] border border-primary/40 bg-primary/[0.12] shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.06)]",
+          "absolute z-[31] rounded-[inherit] border border-primary/35 bg-primary/[0.08]",
           props.direction === "left" || props.direction === "right"
             ? "top-0 bottom-0"
             : "left-0 right-0",
@@ -255,7 +255,7 @@ function ThreadBoardDropHint(props: { isSinglePane: boolean }) {
         exit={{ opacity: 0, y: -2 }}
         transition={transition}
       >
-        <div className="rounded-full border border-primary/25 bg-background/92 px-2.5 py-1 text-[10px] font-medium tracking-[0.12em] text-primary/80 uppercase backdrop-blur">
+        <div className="glass-surface glass-surface--compact rounded-full border border-primary/25 px-2.5 py-1 text-[10px] font-medium tracking-[0.12em] text-primary/80 uppercase">
           {props.isSinglePane ? "Drop to create split" : "Drop to add pane"}
         </div>
       </m.div>
@@ -525,7 +525,7 @@ const ThreadBoardPane = memo(function ThreadBoardPane(props: {
             "pointer-events-none absolute inset-0 z-[33] border transition-[border-color,box-shadow] ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none",
             "duration-300",
             isFocusedPane
-              ? "border-primary/36 shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.05)]"
+              ? "border-primary/40"
               : "border-border/35",
           )}
         />
