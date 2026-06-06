@@ -2850,6 +2850,20 @@ describe("providerExtensionSlashCommands", () => {
           "Verify changes and report results.",
         ].join("\n"),
       );
+      await writeFile(
+        path.join(repo, ".cursor", "agents", "background-planner.md"),
+        [
+          "---",
+          "name: background-planner",
+          "description: Plan work in the background.",
+          "model: composer-2",
+          "readOnly: true",
+          "isBackground: true",
+          "---",
+          "",
+          "Plan changes and report the recommended approach.",
+        ].join("\n"),
+      );
       await writeAgentMarkdown({
         root: path.join(repo, ".claude", "agents"),
         fileName: "security-auditor.md",
@@ -3009,6 +3023,19 @@ describe("providerExtensionSlashCommands", () => {
               provider: "cursor",
               source: "agent",
               model: "inherit",
+              readOnly: true,
+              isBackground: true,
+            },
+          }),
+          expect.objectContaining({
+            name: "background-planner",
+            kind: "agent",
+            promptPrefix: "/background-planner",
+            description: "Plan work in the background.",
+            metadata: {
+              provider: "cursor",
+              source: "agent",
+              model: "composer-2",
               readOnly: true,
               isBackground: true,
             },

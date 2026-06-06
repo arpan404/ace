@@ -1079,8 +1079,12 @@ function geminiAgentMetadata(markdown: string, source: "agent" | "remote-agent")
 
 function cursorAgentMetadata(markdown: string): Record<string, unknown> | undefined {
   const model = frontmatterField(markdown, "model");
-  const readOnly = frontmatterBooleanField(markdown, "read_only");
-  const isBackground = frontmatterBooleanField(markdown, "is_background");
+  const readOnly = frontmatterBooleanFieldAny(markdown, ["read_only", "readOnly", "read-only"]);
+  const isBackground = frontmatterBooleanFieldAny(markdown, [
+    "is_background",
+    "isBackground",
+    "is-background",
+  ]);
   const metadata = {
     provider: "cursor",
     source: "agent",
