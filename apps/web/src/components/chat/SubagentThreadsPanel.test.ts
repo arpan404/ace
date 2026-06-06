@@ -632,6 +632,51 @@ describe("deriveSubagentThreads", () => {
     expect(threads[0]?.status).toBe("completed");
   });
 
+  it("marks side-chat threads running when a later turn is in progress", () => {
+    const threads = deriveSubagentThreads([
+      workEntry({
+        id: "side-first-completed",
+        status: "completed",
+        subagentId: "side:thread-1:reopened",
+        subagentType: "side chat",
+        sideChatMessageRole: "assistant",
+        sideChatMessageText: "The first check is complete.",
+      }),
+      workEntry({
+        id: "side-second-running",
+        createdAt: "2026-06-02T00:00:01.000Z",
+        status: "inProgress",
+        subagentId: "side:thread-1:reopened",
+        subagentType: "side chat",
+        sideChatMessageRole: "user",
+        sideChatMessageText: "Keep watching the build.",
+      }),
+    ]);
+
+    expect(threads[0]?.status).toBe("running");
+  });
+
+  it("does not keep a recovered subagent failed after a later completed status", () => {
+    const threads = deriveSubagentThreads([
+      workEntry({
+        id: "failed-first",
+        status: "failed",
+        tone: "error",
+        subagentId: "agent-1",
+        subagentType: "code-reviewer",
+      }),
+      workEntry({
+        id: "completed-later",
+        createdAt: "2026-06-02T00:00:01.000Z",
+        status: "completed",
+        subagentId: "agent-1",
+        subagentType: "code-reviewer",
+      }),
+    ]);
+
+    expect(threads[0]?.status).toBe("completed");
+  });
+
   it("keeps provider-specific subagent types for non-Codex providers", () => {
     const threads = deriveSubagentThreads(
       [

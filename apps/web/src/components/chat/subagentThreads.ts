@@ -220,17 +220,20 @@ function resolveSubagentPersona(input: {
 }
 
 function resolveThreadStatus(entries: ReadonlyArray<WorkLogEntry>): SubagentThread["status"] {
-  if (entries.some((entry) => entry.status === "failed" || entry.tone === "error")) {
-    return "failed";
-  }
-  if (entries.some((entry) => entry.status === "completed")) {
-    return "completed";
-  }
   const latestStatus = entries
     .filter((entry) => entry.status)
     .toSorted((left, right) => right.createdAt.localeCompare(left.createdAt))[0]?.status;
   if (latestStatus === "inProgress") {
     return "running";
+  }
+  if (latestStatus === "completed") {
+    return "completed";
+  }
+  if (latestStatus === "failed") {
+    return "failed";
+  }
+  if (entries.some((entry) => entry.tone === "error")) {
+    return "failed";
   }
   return "completed";
 }
