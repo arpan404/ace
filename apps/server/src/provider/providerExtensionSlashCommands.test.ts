@@ -4654,6 +4654,11 @@ describe("providerExtensionSlashCommands", () => {
             promptPrefix: "@rubber-duck",
           }),
           expect.objectContaining({
+            name: "fleet",
+            kind: "agent",
+            promptPrefix: "/fleet",
+          }),
+          expect.objectContaining({
             name: "repo-skill",
             kind: "skill",
             promptPrefix: "/repo-skill",

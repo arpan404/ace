@@ -421,6 +421,12 @@ export const GITHUB_COPILOT_BUILT_IN_AGENT_COMMANDS = [
     promptPrefix: "@rubber-duck",
     inputHint: "<prompt>",
   }),
+  providerAgentSlashCommand({
+    name: "fleet",
+    description: "Split work across GitHub Copilot's parallel subagent fleet.",
+    promptPrefix: "/fleet",
+    inputHint: "<prompt>",
+  }),
 ] as const satisfies ReadonlyArray<ProviderSlashCommand>;
 
 const COMMAND_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,120}$/u;

@@ -136,7 +136,7 @@ describe("providerCapabilities", () => {
     expect(defaultProviderIntegrationCapabilities("githubCopilot").multiAgentMode).toBe("native");
     expect(
       defaultProviderIntegrationCapabilities("githubCopilot").multiAgentInvocationPrefixes,
-    ).toEqual(["@"]);
+    ).toEqual(["@", "/fleet"]);
     expect(
       defaultProviderIntegrationCapabilities("githubCopilot").multiAgentDefinitionPaths,
     ).toEqual([

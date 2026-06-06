@@ -158,7 +158,7 @@ const PROVIDER_INTEGRATION_CAPABILITIES: Record<ProviderKind, ProviderIntegratio
     providerThreadTargetingMode: "unsupported",
     goalControlMode: "unsupported",
     multiAgentMode: "native",
-    multiAgentInvocationPrefixes: ["@"],
+    multiAgentInvocationPrefixes: ["@", "/fleet"],
     multiAgentDefinitionPaths: [
       ".github/agents/*.agent.md",
       ".github/agents/*.md",
