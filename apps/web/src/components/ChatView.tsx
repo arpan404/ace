@@ -215,7 +215,9 @@ import {
   NEW_SIDE_CHAT_DRAFT_RUNTIME_MODE,
   NEW_SIDE_CHAT_THREAD_ID,
   isAceSideConversationSupported,
+  isNewSideChatDraftSubagentId,
   newSideChatDraftThreadId,
+  newSideChatDraftSubagentId,
   normalizeAceSideChatPromptText,
   resolveAceSideConversationMode,
 } from "~/lib/chat/sideChatDraft";
@@ -3080,117 +3082,155 @@ function useChatViewComponent({
   const [hiddenSubagentTabIds, setHiddenSubagentTabIds] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
-  const newSideChatDraftThreadIdValue = useMemo(
+  const [pendingNewSideChatDraftIds, setPendingNewSideChatDraftIds] = useState<
+    ReadonlyArray<string>
+  >(() => []);
+  const [activeNewSideChatDraftId, setActiveNewSideChatDraftId] = useState<string | null>(null);
+  const activeNewSideChatDraftThreadIdValue = useMemo(
     () =>
       newSideChatDraftThreadId({
         parentThreadId: activeThread?.id ?? threadId,
+        draftId: activeNewSideChatDraftId ?? NEW_SIDE_CHAT_THREAD_ID,
       }),
-    [activeThread?.id, threadId],
+    [activeNewSideChatDraftId, activeThread?.id, threadId],
   );
-  const newSideChatDraft = useComposerThreadDraft(newSideChatDraftThreadIdValue);
-  const newSideChatThread = useMemo<SubagentThread>(() => {
-    const pendingPrompt = normalizeAceSideChatPromptText(newSideChatDraft.prompt);
-    return {
-      id: NEW_SIDE_CHAT_THREAD_ID,
-      label: pendingPrompt || "New side chat",
-      persona: {
-        avatarClassName: "bg-sky-500/14 text-sky-500 ring-sky-500/24",
-        haloClassName: "bg-sky-500/14",
-        initials: "SC",
-        name: pendingPrompt || "New side chat",
-        pingClassName: "bg-sky-400",
-      },
-      roleLabel: "Side conversation",
-      status: "completed",
-      entries: [
-        {
-          id: NEW_SIDE_CHAT_THREAD_ID,
-          createdAt: "1970-01-01T00:00:00.000Z",
-          label: "New side chat",
-          tone: "tool",
-          subagentId: NEW_SIDE_CHAT_THREAD_ID,
-          subagentType: "side chat",
-          ...(pendingPrompt
-            ? {
-                sideChatMessageRole: "user" as const,
-                sideChatMessageText: pendingPrompt,
-              }
-            : {}),
-        },
-      ],
-    };
-  }, [newSideChatDraft.prompt]);
-  const subagentPanelThreads = useMemo(
+  const activeNewSideChatDraft = useComposerThreadDraft(activeNewSideChatDraftThreadIdValue);
+  const newSideChatThreads = useMemo<ReadonlyArray<SubagentThread>>(
     () =>
-      activeSubagentThreadId === NEW_SIDE_CHAT_THREAD_ID
-        ? [newSideChatThread, ...sideChatThreads, ...providerSubagentThreads]
-        : [...sideChatThreads, ...providerSubagentThreads],
-    [activeSubagentThreadId, newSideChatThread, providerSubagentThreads, sideChatThreads],
+      pendingNewSideChatDraftIds.map((draftId) => {
+        const draftThreadId = newSideChatDraftThreadId({
+          parentThreadId: activeThread?.id ?? threadId,
+          draftId,
+        });
+        const draft =
+          draftId === activeNewSideChatDraftId
+            ? activeNewSideChatDraft
+            : getComposerThreadDraft(draftThreadId);
+        const pendingPrompt = normalizeAceSideChatPromptText(draft.prompt);
+        return {
+          id: draftId,
+          label: pendingPrompt || "New side chat",
+          persona: {
+            avatarClassName: "bg-sky-500/14 text-sky-500 ring-sky-500/24",
+            haloClassName: "bg-sky-500/14",
+            initials: "SC",
+            name: pendingPrompt || "New side chat",
+            pingClassName: "bg-sky-400",
+          },
+          roleLabel: "Side conversation",
+          status: "completed",
+          entries: [
+            {
+              id: draftId,
+              createdAt: "1970-01-01T00:00:00.000Z",
+              label: "New side chat",
+              tone: "tool",
+              subagentId: draftId,
+              subagentType: "side chat",
+              ...(pendingPrompt
+                ? {
+                    sideChatMessageRole: "user" as const,
+                    sideChatMessageText: pendingPrompt,
+                  }
+                : {}),
+            },
+          ],
+        };
+      }),
+    [
+      activeNewSideChatDraft,
+      activeNewSideChatDraftId,
+      activeThread?.id,
+      pendingNewSideChatDraftIds,
+      threadId,
+    ],
+  );
+  const subagentPanelThreads = useMemo(
+    () => [...newSideChatThreads, ...sideChatThreads, ...providerSubagentThreads],
+    [newSideChatThreads, providerSubagentThreads, sideChatThreads],
   );
   const subagentTabThreads = useMemo(() => {
     const visibleThreads = [...sideChatThreads, ...providerSubagentThreads].filter(
       (thread) => !hiddenSubagentTabIds.has(thread.id),
     );
-    if (
-      activeSubagentThreadId === NEW_SIDE_CHAT_THREAD_ID &&
-      !hiddenSubagentTabIds.has(NEW_SIDE_CHAT_THREAD_ID)
-    ) {
-      return [newSideChatThread, ...visibleThreads];
-    }
-    return visibleThreads;
-  }, [
-    activeSubagentThreadId,
-    hiddenSubagentTabIds,
-    newSideChatThread,
-    providerSubagentThreads,
-    sideChatThreads,
-  ]);
+    const visibleNewSideChatThreads = newSideChatThreads.filter(
+      (thread) => !hiddenSubagentTabIds.has(thread.id),
+    );
+    return [...visibleNewSideChatThreads, ...visibleThreads];
+  }, [hiddenSubagentTabIds, newSideChatThreads, providerSubagentThreads, sideChatThreads]);
   const selectSubagentThread = useCallback(
-    (threadId: string) => {
+    (subagentThreadId: string) => {
       setHiddenSubagentTabIds((current) => {
-        if (!current.has(threadId)) return current;
+        if (!current.has(subagentThreadId)) return current;
         const next = new Set(current);
-        next.delete(threadId);
+        next.delete(subagentThreadId);
         return next;
       });
-      setActiveSubagentThreadId(threadId);
-      if (threadId !== NEW_SIDE_CHAT_THREAD_ID) {
-        appendRightPanelTabOrder(`subagent:${threadId}`);
-        appendBottomPanelTabOrder(`subagent:${threadId}`);
+      setActiveSubagentThreadId(subagentThreadId);
+      if (isNewSideChatDraftSubagentId(subagentThreadId)) {
+        setActiveNewSideChatDraftId(subagentThreadId);
+      } else {
+        setActiveNewSideChatDraftId(null);
       }
+      appendRightPanelTabOrder(`subagent:${subagentThreadId}`);
+      appendBottomPanelTabOrder(`subagent:${subagentThreadId}`);
     },
     [appendBottomPanelTabOrder, appendRightPanelTabOrder],
   );
   const closeSubagentTab = useCallback(
-    (threadId: string) => {
+    (subagentThreadId: string) => {
+      if (isNewSideChatDraftSubagentId(subagentThreadId)) {
+        setPendingNewSideChatDraftIds((current) => current.filter((id) => id !== subagentThreadId));
+        if (activeNewSideChatDraftId === subagentThreadId) {
+          setActiveNewSideChatDraftId(null);
+        }
+        clearComposerDraftContent(
+          newSideChatDraftThreadId({
+            parentThreadId: activeThread?.id ?? threadId,
+            draftId: subagentThreadId,
+          }),
+        );
+      }
       setHiddenSubagentTabIds((current) => {
-        if (current.has(threadId)) return current;
+        if (current.has(subagentThreadId)) return current;
         const next = new Set(current);
-        next.add(threadId);
+        next.add(subagentThreadId);
         return next;
       });
-      setRightPanelTabOrder((current) => removePanelTabOrder(current, `subagent:${threadId}`));
-      setBottomPanelTabOrder((current) => removePanelTabOrder(current, `subagent:${threadId}`));
-      if (activeSubagentThreadId !== threadId) {
+      setRightPanelTabOrder((current) =>
+        removePanelTabOrder(current, `subagent:${subagentThreadId}`),
+      );
+      setBottomPanelTabOrder((current) =>
+        removePanelTabOrder(current, `subagent:${subagentThreadId}`),
+      );
+      if (activeSubagentThreadId !== subagentThreadId) {
         return;
       }
       const nextThread = subagentPanelThreads.find(
-        (thread) => thread.id !== threadId && !hiddenSubagentTabIds.has(thread.id),
+        (thread) => thread.id !== subagentThreadId && !hiddenSubagentTabIds.has(thread.id),
       );
       if (nextThread) {
         setActiveSubagentThreadId(nextThread.id);
+        setActiveNewSideChatDraftId(
+          isNewSideChatDraftSubagentId(nextThread.id) ? nextThread.id : null,
+        );
         return;
       }
       setActiveSubagentThreadId(null);
+      setActiveNewSideChatDraftId(null);
       setRightSidePanelMode((current) => (current === "subagent" ? "summary" : current));
       setBottomPanelMode((current) => (current === "subagent" ? null : current));
     },
     [
+      activeNewSideChatDraftId,
       activeSubagentThreadId,
+      activeThread?.id,
+      clearComposerDraftContent,
       hiddenSubagentTabIds,
       setBottomPanelMode,
       setRightSidePanelMode,
       subagentPanelThreads,
+      threadId,
     ],
   );
   const environmentMiniPanelRef = useRef<HTMLElement | null>(null);
@@ -3200,7 +3240,7 @@ function useChatViewComponent({
     top: number;
   } | null>(null);
   useEffect(() => {
-    if (activeSubagentThreadId === NEW_SIDE_CHAT_THREAD_ID) {
+    if (activeSubagentThreadId && isNewSideChatDraftSubagentId(activeSubagentThreadId)) {
       return;
     }
     if (subagentPanelThreads.length === 0) {
@@ -3219,7 +3259,13 @@ function useChatViewComponent({
       !activeSubagentThreadId ||
       !subagentTabThreads.some((thread) => thread.id === activeSubagentThreadId)
     ) {
-      setActiveSubagentThreadId(subagentTabThreads[0]?.id ?? null);
+      const nextSubagentThreadId = subagentTabThreads[0]?.id ?? null;
+      setActiveSubagentThreadId(nextSubagentThreadId);
+      setActiveNewSideChatDraftId(
+        nextSubagentThreadId && isNewSideChatDraftSubagentId(nextSubagentThreadId)
+          ? nextSubagentThreadId
+          : null,
+      );
     }
   }, [activeSubagentThreadId, subagentPanelThreads.length, subagentTabThreads]);
   const activeThreadMessageIds = useMemo(
@@ -8616,10 +8662,16 @@ function useChatViewComponent({
       if (!activeThread) {
         return;
       }
-      const draftThreadId = newSideChatDraftThreadIdValue;
-      setActiveSubagentThreadId(NEW_SIDE_CHAT_THREAD_ID);
-      appendRightPanelTabOrder(`subagent:${NEW_SIDE_CHAT_THREAD_ID}`);
-      appendBottomPanelTabOrder(`subagent:${NEW_SIDE_CHAT_THREAD_ID}`);
+      const draftId = newSideChatDraftSubagentId();
+      const draftThreadId = newSideChatDraftThreadId({
+        parentThreadId: activeThread.id,
+        draftId,
+      });
+      setPendingNewSideChatDraftIds((current) => [draftId, ...current]);
+      setActiveNewSideChatDraftId(draftId);
+      setActiveSubagentThreadId(draftId);
+      appendRightPanelTabOrder(`subagent:${draftId}`);
+      appendBottomPanelTabOrder(`subagent:${draftId}`);
       setRightSidePanelMode("subagent");
       setRightSidePanelVisible(true);
       setComposerDraftRuntimeMode(draftThreadId, NEW_SIDE_CHAT_DRAFT_RUNTIME_MODE);
@@ -8636,7 +8688,6 @@ function useChatViewComponent({
       addComposerDraftImages,
       appendBottomPanelTabOrder,
       appendRightPanelTabOrder,
-      newSideChatDraftThreadIdValue,
       setComposerDraftRuntimeMode,
       setComposerDraftPrompt,
       setComposerDraftTerminalContexts,
@@ -10612,10 +10663,10 @@ function useChatViewComponent({
         promptForSendWithoutInlineMarkers,
         sendableTerminalContexts,
       );
-      const sideChatPromptText =
-        subagent.id === NEW_SIDE_CHAT_THREAD_ID
-          ? normalizeAceSideChatPromptText(textWithTerminalContext)
-          : textWithTerminalContext;
+      const isNewSideChatDraft = isNewSideChatDraftSubagentId(subagent.id);
+      const sideChatPromptText = isNewSideChatDraft
+        ? normalizeAceSideChatPromptText(textWithTerminalContext)
+        : textWithTerminalContext;
       const outgoingMessageText = formatOutgoingPrompt({
         provider: targetProvider,
         model: selectedModel,
@@ -10662,7 +10713,7 @@ function useChatViewComponent({
         });
       }
       const createdAt = new Date().toISOString();
-      if (subagent.id === NEW_SIDE_CHAT_THREAD_ID) {
+      if (isNewSideChatDraft) {
         const sideConversationId = TrimmedNonEmptyString.makeUnsafe(
           `side:${activeThread.id}:${crypto.randomUUID()}`,
         );
@@ -10686,8 +10737,18 @@ function useChatViewComponent({
             createdAt,
           });
           setActiveSubagentThreadId(sideConversationId);
+          setPendingNewSideChatDraftIds((current) => current.filter((id) => id !== subagent.id));
+          if (activeNewSideChatDraftId === subagent.id) {
+            setActiveNewSideChatDraftId(null);
+          }
           appendRightPanelTabOrder(`subagent:${sideConversationId}`);
           appendBottomPanelTabOrder(`subagent:${sideConversationId}`);
+          setRightPanelTabOrder((current) =>
+            removePanelTabOrder(current, `subagent:${subagent.id}`),
+          );
+          setBottomPanelTabOrder((current) =>
+            removePanelTabOrder(current, `subagent:${subagent.id}`),
+          );
           clearComposerDraftContent(draftThreadId);
           subagentComposerPanelsRef.current?.resetUi("");
         } catch (error) {
@@ -10734,6 +10795,7 @@ function useChatViewComponent({
     },
     [
       activeProject?.defaultModelSelection,
+      activeNewSideChatDraftId,
       activeThread,
       appendBottomPanelTabOrder,
       appendRightPanelTabOrder,
@@ -10751,7 +10813,7 @@ function useChatViewComponent({
         return null;
       }
       const canReply =
-        subagent.id === NEW_SIDE_CHAT_THREAD_ID ||
+        isNewSideChatDraftSubagentId(subagent.id) ||
         canReplyToSubagentThread(subagent, providerThreadTargetingMode);
       if (!canReply) {
         return null;

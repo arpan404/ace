@@ -14,8 +14,22 @@ const EMBEDDED_SIDE_CHAT_COMMAND_PATTERN = /\/side\s*/gi;
 
 export function newSideChatDraftThreadId(input: {
   readonly parentThreadId: ThreadId | string;
+  readonly draftId?: string | undefined;
 }): ThreadId {
-  return ThreadId.makeUnsafe(`subagent:${input.parentThreadId}:${NEW_SIDE_CHAT_THREAD_ID}`);
+  return ThreadId.makeUnsafe(
+    `subagent:${input.parentThreadId}:${input.draftId ?? NEW_SIDE_CHAT_THREAD_ID}`,
+  );
+}
+
+export function newSideChatDraftSubagentId(): string {
+  const id =
+    globalThis.crypto?.randomUUID?.() ??
+    `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  return `${NEW_SIDE_CHAT_THREAD_ID}:${id}`;
+}
+
+export function isNewSideChatDraftSubagentId(value: string): boolean {
+  return value === NEW_SIDE_CHAT_THREAD_ID || value.startsWith(`${NEW_SIDE_CHAT_THREAD_ID}:`);
 }
 
 export function parseAceSideChatCommand(text: string): { prompt: string } | null {

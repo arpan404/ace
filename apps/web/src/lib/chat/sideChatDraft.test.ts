@@ -5,7 +5,9 @@ import {
   NEW_SIDE_CHAT_DRAFT_RUNTIME_MODE,
   NEW_SIDE_CHAT_THREAD_ID,
   isAceSideConversationSupported,
+  isNewSideChatDraftSubagentId,
   newSideChatDraftThreadId,
+  newSideChatDraftSubagentId,
   normalizeAceSideChatPromptText,
   parseAceSideChatCommand,
   resolveAceSideConversationMode,
@@ -19,6 +21,23 @@ describe("sideChatDraft", () => {
         parentThreadId: ThreadId.makeUnsafe("thread-1"),
       }),
     ).toBe(`subagent:thread-1:${NEW_SIDE_CHAT_THREAD_ID}`);
+    expect(
+      newSideChatDraftThreadId({
+        parentThreadId: ThreadId.makeUnsafe("thread-1"),
+        draftId: "draft-1",
+      }),
+    ).toBe("subagent:thread-1:draft-1");
+  });
+
+  it("builds unique Ace-native side-chat draft subagent identities", () => {
+    const first = newSideChatDraftSubagentId();
+    const second = newSideChatDraftSubagentId();
+
+    expect(first).not.toBe(second);
+    expect(isNewSideChatDraftSubagentId(first)).toBe(true);
+    expect(isNewSideChatDraftSubagentId(second)).toBe(true);
+    expect(isNewSideChatDraftSubagentId(NEW_SIDE_CHAT_THREAD_ID)).toBe(true);
+    expect(isNewSideChatDraftSubagentId("side:thread-1:sent")).toBe(false);
   });
 
   it("defaults new Ace side-chat drafts to approval-required mode", () => {
