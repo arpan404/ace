@@ -5857,6 +5857,7 @@ describe("providerExtensionSlashCommands", () => {
         "arguments: [topic]",
         "tools: [search, read_file]",
         "model: GPT-5.2",
+        "context: fork",
         "metadata:",
         "  team: Docs",
       ]);
@@ -5932,6 +5933,7 @@ describe("providerExtensionSlashCommands", () => {
               arguments: ["topic"],
               tools: ["search", "read_file"],
               model: "GPT-5.2",
+              context: "fork",
               annotations: {
                 team: "Docs",
               },

@@ -3860,6 +3860,7 @@ function gitHubCopilotSkillMetadata(markdown: string): Record<string, unknown> |
   const argumentsList = frontmatterArgumentNames(markdown);
   const tools = frontmatterStringOrListField(markdown, "tools");
   const model = frontmatterStringOrListField(markdown, "model");
+  const context = frontmatterField(markdown, "context");
   const disableModelInvocation = frontmatterBooleanFieldAny(
     markdown,
     DISABLE_MODEL_INVOCATION_FRONTMATTER_FIELDS,
@@ -3875,6 +3876,7 @@ function gitHubCopilotSkillMetadata(markdown: string): Record<string, unknown> |
     ...(argumentsList ? { arguments: argumentsList } : {}),
     ...(tools !== undefined ? { tools } : {}),
     ...(model !== undefined ? { model } : {}),
+    ...(context ? { context } : {}),
     ...(disableModelInvocation !== undefined ? { disableModelInvocation } : {}),
     ...(userInvocable !== undefined ? { userInvocable } : {}),
     ...(annotations ? { annotations } : {}),
