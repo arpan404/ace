@@ -3599,11 +3599,12 @@ function readOpenCodeJsonConfigCommands(
 function readOpenCodeMarkdownCommand(
   file: string,
   subagentNames: ReadonlySet<string> = OPENCODE_BUILT_IN_SUBAGENT_NAMES,
+  commandNameOverride?: string,
 ): ProviderSlashCommand | null {
   if (!file.endsWith(".md")) {
     return null;
   }
-  const commandName = normalizeCommandName(path.basename(file, ".md"));
+  const commandName = commandNameOverride ?? normalizeCommandName(path.basename(file, ".md"));
   if (!commandName) {
     return null;
   }
@@ -3639,12 +3640,39 @@ function readOpenCodeMarkdownCommandRoot(
   root: string,
   subagentNames: ReadonlySet<string> = OPENCODE_BUILT_IN_SUBAGENT_NAMES,
 ): ProviderSlashCommand[] {
-  if (!isDirectory(root)) {
+  return readOpenCodeMarkdownCommandRootRecursive(root, root, subagentNames);
+}
+
+function readOpenCodeMarkdownCommandRootRecursive(
+  baseRoot: string,
+  currentRoot: string,
+  subagentNames: ReadonlySet<string>,
+  depth = 0,
+): ProviderSlashCommand[] {
+  if (!isDirectory(currentRoot) || depth > 4) {
     return [];
   }
-  return safeReadDir(root)
-    .map((entry) => readOpenCodeMarkdownCommand(path.join(root, entry), subagentNames))
-    .filter((command): command is ProviderSlashCommand => command !== null);
+  const commands: ProviderSlashCommand[] = [];
+  for (const entry of safeReadDir(currentRoot)) {
+    const entryPath = path.join(currentRoot, entry);
+    const commandName = openCodeMarkdownCommandName(baseRoot, entryPath);
+    const command = readOpenCodeMarkdownCommand(entryPath, subagentNames, commandName ?? undefined);
+    if (command) {
+      commands.push(command);
+    } else if (isDirectory(entryPath)) {
+      commands.push(
+        ...readOpenCodeMarkdownCommandRootRecursive(baseRoot, entryPath, subagentNames, depth + 1),
+      );
+    }
+  }
+  return commands;
+}
+
+function openCodeMarkdownCommandName(root: string, file: string): string | null {
+  if (!file.endsWith(".md")) {
+    return null;
+  }
+  return pathCommandSegment(path.relative(root, file.slice(0, -".md".length)));
 }
 
 function gitHubCopilotPromptCommandName(file: string): string | null {

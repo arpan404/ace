@@ -3715,6 +3715,18 @@ describe("providerExtensionSlashCommands", () => {
           "Use the hidden markdown subagent for $ARGUMENTS.",
         ].join("\n"),
       );
+      await mkdir(path.join(cwd, ".opencode", "commands", "review"), { recursive: true });
+      await writeFile(
+        path.join(cwd, ".opencode", "commands", "review", "security.md"),
+        [
+          "---",
+          "description: Review security in a nested OpenCode command",
+          "agent: review",
+          "---",
+          "",
+          "Review $ARGUMENTS for security issues.",
+        ].join("\n"),
+      );
       await mkdir(path.join(cwd, ".opencode", "command"), { recursive: true });
       await writeFile(
         path.join(cwd, ".opencode", "command", "legacy-review.md"),
@@ -3859,6 +3871,11 @@ describe("providerExtensionSlashCommands", () => {
       await writeFile(
         path.join(opencodeHome, "commands", "changelog.md"),
         "---\ndescription: Update the changelog\n---\n\nUpdate CHANGELOG.md for $ARGUMENTS.\n",
+      );
+      await mkdir(path.join(opencodeHome, "commands", "release"), { recursive: true });
+      await writeFile(
+        path.join(opencodeHome, "commands", "release", "notes.md"),
+        "---\ndescription: Draft nested release notes\n---\n\nDraft release notes for $ARGUMENTS.\n",
       );
       await mkdir(path.join(opencodeHome, "command"), { recursive: true });
       await writeFile(
@@ -4831,6 +4848,17 @@ describe("providerExtensionSlashCommands", () => {
             },
           }),
           expect.objectContaining({
+            name: "review-security",
+            kind: "agent",
+            description: "Review security in a nested OpenCode command",
+            promptPrefix: "/review-security",
+            metadata: {
+              provider: "opencode",
+              source: "command",
+              agent: "review",
+            },
+          }),
+          expect.objectContaining({
             name: "legacy-review",
             kind: "agent",
             description: "Legacy singular command path",
@@ -4841,6 +4869,12 @@ describe("providerExtensionSlashCommands", () => {
             kind: "provider",
             description: "Update the changelog",
             promptPrefix: "/changelog",
+          }),
+          expect.objectContaining({
+            name: "release-notes",
+            kind: "provider",
+            description: "Draft nested release notes",
+            promptPrefix: "/release-notes",
           }),
           expect.objectContaining({
             name: "legacy-global",
