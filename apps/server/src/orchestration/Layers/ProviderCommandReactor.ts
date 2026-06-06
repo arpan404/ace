@@ -17,7 +17,11 @@ import {
 import { Cache, Cause, Duration, Effect, Equal, Layer, Option, Schema, Stream } from "effect";
 import { makeDrainableWorker } from "@ace/shared/DrainableWorker";
 import { appendTerminalContextsToPrompt } from "@ace/shared/terminalContext";
-import { isProviderSideConversationType } from "@ace/shared/providerAgentMetadata";
+import {
+  isProviderSideConversationType,
+  providerAgentMetadataFromRecord,
+  providerAgentRecords,
+} from "@ace/shared/providerAgentMetadata";
 
 import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
 import { GitCore } from "../../git/Services/GitCore.ts";
@@ -493,6 +497,23 @@ function isSideConversationActivity(
     contextString(payload?.subagentType) ??
     contextString(payload?.subagent_type);
   if (isProviderSideConversationType(subagentType ?? undefined)) {
+    return true;
+  }
+  const item = asContextRecord(data?.item);
+  const providerChildRecords = [
+    ...providerAgentRecords(payload),
+    ...providerAgentRecords(data),
+    ...providerAgentRecords(item),
+  ];
+  if (
+    providerChildRecords.some((record) => {
+      const metadata = providerAgentMetadataFromRecord(record);
+      return (
+        isProviderSideConversationType(metadata.type) ||
+        isAceSideConversationThreadId(metadata.id, thread.id)
+      );
+    })
+  ) {
     return true;
   }
   const childProviderThreadId =

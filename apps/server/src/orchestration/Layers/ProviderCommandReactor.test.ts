@@ -1726,6 +1726,37 @@ describe("ProviderCommandReactor", () => {
 
     await Effect.runPromise(
       harness.engine.dispatch({
+        type: "thread.activity.append",
+        commandId: CommandId.makeUnsafe("cmd-side-replay-prior-provider-side-chat"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        activity: {
+          id: EventId.makeUnsafe("activity-side-replay-prior-provider-side-chat"),
+          tone: "info",
+          kind: "task.progress",
+          summary: "Side chat responses",
+          payload: {
+            itemType: "assistant_message",
+            detail: "Previous provider side-chat result that should stay isolated.",
+            data: {
+              sideChats: [
+                {
+                  threadId: "provider-side-chat-a",
+                  displayName: "Prior side chat",
+                  role: "side-chat",
+                  response: "Prior private side-chat answer.",
+                },
+              ],
+            },
+          },
+          turnId: null,
+          createdAt: now,
+        },
+        createdAt: now,
+      }),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
         type: "thread.subagent.turn.start",
         commandId: CommandId.makeUnsafe("cmd-side-replay-turn"),
         threadId: ThreadId.makeUnsafe("thread-1"),
@@ -1770,6 +1801,12 @@ describe("ProviderCommandReactor", () => {
     expect(startInput?.replayTurns?.[1]?.assistantResponse).toContain("Thread title: Thread");
     expect(startInput?.replayTurns?.[1]?.assistantResponse).not.toContain(
       "[subagent.message.sent] User message: summarize the replay context",
+    );
+    expect(startInput?.replayTurns?.[1]?.assistantResponse).not.toContain(
+      "Previous provider side-chat result that should stay isolated.",
+    );
+    expect(startInput?.replayTurns?.[1]?.assistantResponse).not.toContain(
+      "Prior private side-chat answer.",
     );
 
     const sendInput = harness.sendTurn.mock.calls[0]?.[0] as
