@@ -152,6 +152,11 @@ const USER_INVOCABLE_FRONTMATTER_FIELDS = [
   "user_invocable",
   "user_invokable",
 ] as const;
+const DISABLE_MODEL_INVOCATION_FRONTMATTER_FIELDS = [
+  "disable-model-invocation",
+  "disableModelInvocation",
+  "disable_model_invocation",
+] as const;
 
 type AgentReadOptions = {
   readonly nameFromFrontmatter?: boolean | undefined;
@@ -883,7 +888,10 @@ function claudeCommandMetadata(
   const argumentsList = frontmatterArgumentNames(markdown);
   const allowedTools = frontmatterStringOrListField(markdown, "allowed-tools");
   const model = frontmatterField(markdown, "model");
-  const disableModelInvocation = frontmatterBooleanField(markdown, "disable-model-invocation");
+  const disableModelInvocation = frontmatterBooleanFieldAny(
+    markdown,
+    DISABLE_MODEL_INVOCATION_FRONTMATTER_FIELDS,
+  );
   const context = frontmatterField(markdown, "context");
   const agent = frontmatterField(markdown, "agent");
   const hooks =
@@ -3728,11 +3736,10 @@ function gitHubCopilotSkillMetadata(markdown: string): Record<string, unknown> |
   const argumentsList = frontmatterArgumentNames(markdown);
   const tools = frontmatterStringOrListField(markdown, "tools");
   const model = frontmatterStringOrListField(markdown, "model");
-  const disableModelInvocation = frontmatterBooleanFieldAny(markdown, [
-    "disable-model-invocation",
-    "disableModelInvocation",
-    "disable_model_invocation",
-  ]);
+  const disableModelInvocation = frontmatterBooleanFieldAny(
+    markdown,
+    DISABLE_MODEL_INVOCATION_FRONTMATTER_FIELDS,
+  );
   const userInvocable = frontmatterBooleanFieldAny(markdown, USER_INVOCABLE_FRONTMATTER_FIELDS);
   const annotations = normalizeGitHubCopilotMetadata(
     frontmatterJsonObjectField(markdown, "metadata") ??

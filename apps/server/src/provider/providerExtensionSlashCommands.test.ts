@@ -900,6 +900,17 @@ describe("providerExtensionSlashCommands", () => {
           "Create a widget using $ARGUMENTS.",
         ].join("\n"),
       );
+      await writeFile(
+        path.join(cwd, ".claude", "commands", "frontend", "manual.md"),
+        [
+          "---",
+          "description: Manual-only frontend command",
+          "disableModelInvocation: true",
+          "---",
+          "",
+          "# Manual",
+        ].join("\n"),
+      );
       await writeSkill(path.join(claudeHome, "skills"), "claude-global", "Claude global skill");
       await mkdir(path.join(claudeHome, "commands"), { recursive: true });
       await writeFile(
@@ -987,6 +998,17 @@ describe("providerExtensionSlashCommands", () => {
             description: "Widget",
             promptPrefix: "/widget",
             inputHint: "[name] [variant]",
+          }),
+          expect.objectContaining({
+            name: "manual",
+            kind: "provider",
+            description: "Manual-only frontend command",
+            promptPrefix: "/manual",
+            metadata: {
+              provider: "claude",
+              source: "command",
+              disableModelInvocation: true,
+            },
           }),
           expect.objectContaining({
             name: "changelog",
