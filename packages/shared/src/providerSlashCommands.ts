@@ -1,4 +1,5 @@
 import type { ProviderKind, ProviderSlashCommand } from "@ace/contracts";
+import { providerAgentMetadataFromRecord, providerAgentRecord } from "./providerAgentMetadata";
 
 export type ProviderExtensionCommandKind = "skill" | "plugin" | "agent";
 
@@ -65,6 +66,129 @@ function normalizeProviderSlashCommandKind(value: unknown): ProviderSlashCommand
     : null;
 }
 
+function providerCommandMetadataRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+function normalizedMetadataText(value: unknown): string | null {
+  return typeof value === "string" && value.trim()
+    ? value
+        .trim()
+        .toLowerCase()
+        .replace(/^[./@$/]+/, "")
+        .replace(/[_\s]+/g, "-")
+    : null;
+}
+
+function providerCommandMetadataStringList(value: unknown): string[] {
+  if (typeof value === "string") {
+    return value.trim() ? [value.trim()] : [];
+  }
+  if (Array.isArray(value)) {
+    return value.flatMap((entry) => providerCommandMetadataStringList(entry));
+  }
+  const record = providerCommandMetadataRecord(value);
+  if (!record) {
+    return [];
+  }
+  const directName =
+    typeof record.name === "string" && record.name.trim()
+      ? record.name.trim()
+      : typeof record.id === "string" && record.id.trim()
+        ? record.id.trim()
+        : typeof record.label === "string" && record.label.trim()
+          ? record.label.trim()
+          : typeof record.value === "string" && record.value.trim()
+            ? record.value.trim()
+            : null;
+  if (directName) {
+    return [directName];
+  }
+  return Object.keys(record).filter(
+    (key) =>
+      ![
+        "$schema",
+        "additionalProperties",
+        "description",
+        "items",
+        "properties",
+        "required",
+        "title",
+        "type",
+      ].includes(key),
+  );
+}
+
+function providerSlashCommandMetadataIndicatesAgent(
+  metadata: Record<string, unknown> | undefined,
+): boolean {
+  if (!metadata) {
+    return false;
+  }
+
+  const source = normalizedMetadataText(metadata.source);
+  if (
+    source === "agent" ||
+    source === "subagent" ||
+    source === "sub-agent" ||
+    source === "custom-agent" ||
+    source === "selected-agent" ||
+    source === "selected-subagent" ||
+    source === "remote-agent" ||
+    source === "hosted-agent" ||
+    source === "cloud-agent" ||
+    source === "background-agent" ||
+    source === "web-agent" ||
+    source === "a2a-agent" ||
+    source === "agent-card" ||
+    source === "side-chat" ||
+    source === "side-conversation"
+  ) {
+    return true;
+  }
+
+  const mode = normalizedMetadataText(metadata.mode ?? metadata.agentMode ?? metadata.agent_mode);
+  if (mode === "agent" || mode === "subagent" || mode === "sub-agent") {
+    return true;
+  }
+
+  const kind = normalizedMetadataText(metadata.kind ?? metadata.agentKind ?? metadata.agent_kind);
+  if (
+    kind === "agent" ||
+    kind === "subagent" ||
+    kind === "sub-agent" ||
+    kind === "remote" ||
+    kind === "hosted" ||
+    kind === "cloud" ||
+    kind === "a2a"
+  ) {
+    return true;
+  }
+
+  const directAgents = providerCommandMetadataStringList(
+    metadata.agent ?? metadata.agentName ?? metadata.agent_name,
+  );
+  if (directAgents.length > 0) {
+    return true;
+  }
+
+  const directMetadata = providerAgentMetadataFromRecord(metadata);
+  if (directMetadata.id || directMetadata.name || directMetadata.type || directMetadata.prompt) {
+    return true;
+  }
+
+  const nestedAgentRecord = providerAgentRecord(metadata);
+  if (!nestedAgentRecord) {
+    return false;
+  }
+  const nestedMetadata = providerAgentMetadataFromRecord(nestedAgentRecord);
+  return Boolean(
+    nestedMetadata.id || nestedMetadata.name || nestedMetadata.type || nestedMetadata.prompt,
+  );
+}
+
 export function normalizeProviderSlashCommandName(value: string): string | null {
   const name = value.trim().replace(/^[/@$]+/, "");
   if (!name || /\s/.test(name)) {
@@ -89,6 +213,13 @@ export function providerSlashCommandExtensionKind(
   const declaredKind = normalizeProviderCommandKind(command.kind);
   if (declaredKind) {
     return declaredKind;
+  }
+
+  if (providerSlashCommandMetadataIndicatesAgent(command.metadata)) {
+    return "agent";
+  }
+  if (command.kind === "provider") {
+    return null;
   }
 
   const promptPrefix = command.promptPrefix?.trim();
@@ -133,7 +264,10 @@ function collectPluginCommandKeys(
       }
       const normalizedKind = normalizeProviderSlashCommandKind(candidate.kind);
       const inferredExtensionKind = providerSlashCommandExtensionKind(candidate, name);
-      const kind = normalizedKind ?? inferredExtensionKind;
+      const kind =
+        normalizedKind === "provider"
+          ? inferredExtensionKind
+          : (normalizedKind ?? inferredExtensionKind);
       if (kind === "plugin") {
         const pluginKey = comparableExtensionName(name);
         if (pluginKey) {
@@ -183,7 +317,10 @@ export function mergeProviderSlashCommands(
       }
       const normalizedKind = normalizeProviderSlashCommandKind(candidate.kind);
       const inferredExtensionKind = providerSlashCommandExtensionKind(candidate, name);
-      const kind = normalizedKind ?? inferredExtensionKind ?? undefined;
+      const kind =
+        normalizedKind === "provider"
+          ? (inferredExtensionKind ?? "provider")
+          : (normalizedKind ?? inferredExtensionKind ?? undefined);
       const promptPrefix =
         candidate.promptPrefix?.trim() ||
         (kind === "skill"

@@ -99,6 +99,56 @@ describe("providerSlashCommands", () => {
     ]);
   });
 
+  it("classifies provider-reported remote agents from metadata", () => {
+    expect(
+      mergeProviderSlashCommands([
+        {
+          name: "remote-reviewer",
+          kind: "provider",
+          description: "Review with a hosted agent",
+          promptPrefix: "@remote-reviewer",
+          metadata: {
+            provider: "gemini",
+            source: "remote-agent",
+            kind: "remote",
+            agentCardUrl: "https://example.com/.well-known/agent.json",
+          },
+        },
+        {
+          name: "a2a-planner",
+          kind: "provider",
+          promptPrefix: "@a2a-planner",
+          metadata: {
+            provider: "cursor",
+            a2aAgentName: "A2A Planner",
+          },
+        },
+      ]),
+    ).toEqual([
+      {
+        name: "remote-reviewer",
+        kind: "agent",
+        description: "Review with a hosted agent",
+        promptPrefix: "@remote-reviewer",
+        metadata: {
+          provider: "gemini",
+          source: "remote-agent",
+          kind: "remote",
+          agentCardUrl: "https://example.com/.well-known/agent.json",
+        },
+      },
+      {
+        name: "a2a-planner",
+        kind: "agent",
+        promptPrefix: "@a2a-planner",
+        metadata: {
+          provider: "cursor",
+          a2aAgentName: "A2A Planner",
+        },
+      },
+    ]);
+  });
+
   it("drops redundant primary plugin skills while keeping distinct plugin skills", () => {
     expect(
       mergeProviderSlashCommands([

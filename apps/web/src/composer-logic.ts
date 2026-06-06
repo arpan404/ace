@@ -269,13 +269,11 @@ function isProviderCommandSupportedInComposer(command: {
   readonly name: string;
   readonly promptPrefix?: string | undefined;
   readonly kind?: "provider" | "skill" | "plugin" | "agent" | undefined;
+  readonly metadata?: Record<string, unknown> | undefined;
 }): boolean {
   const normalizedName = normalizeSlashCommandName(command.name);
   if (normalizedName === "goal") {
     return true;
-  }
-  if (command.kind === "provider") {
-    return false;
   }
   return providerSlashCommandExtensionKind(command, normalizedName) !== null;
 }
@@ -286,6 +284,7 @@ export function parseProviderComposerSlashCommand(
     readonly name: string;
     readonly promptPrefix?: string | undefined;
     readonly kind?: "provider" | "skill" | "plugin" | "agent" | undefined;
+    readonly metadata?: Record<string, unknown> | undefined;
   }>,
 ): { commandName: string; args: string; promptText: string } | null {
   const match = /^\/(\S+)(?:\s+([\s\S]*))?$/i.exec(text.trim());

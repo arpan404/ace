@@ -142,9 +142,6 @@ export function isComposerVisibleProviderCommand(command: ProviderSlashCommand):
   ) {
     return false;
   }
-  if (command.kind === "provider") {
-    return false;
-  }
   return providerSlashCommandExtensionKind(command, normalizedName) !== null;
 }
 

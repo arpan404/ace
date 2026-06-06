@@ -538,6 +538,26 @@ describe("parseProviderComposerSlashCommand", () => {
     });
   });
 
+  it("rewrites provider-kind remote agents when metadata identifies them as agents", () => {
+    expect(
+      parseProviderComposerSlashCommand("/remote-reviewer inspect auth", [
+        {
+          name: "remote-reviewer",
+          kind: "provider",
+          promptPrefix: "@remote-reviewer",
+          metadata: {
+            source: "remote-agent",
+            agentCardUrl: "https://example.com/.well-known/agent.json",
+          },
+        },
+      ]),
+    ).toEqual({
+      commandName: "remote-reviewer",
+      args: "inspect auth",
+      promptText: "@remote-reviewer inspect auth",
+    });
+  });
+
   it("ignores unknown slash commands", () => {
     expect(parseProviderComposerSlashCommand("/unknown", providerCommands)).toBeNull();
   });

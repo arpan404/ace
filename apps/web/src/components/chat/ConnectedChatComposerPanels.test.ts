@@ -20,4 +20,18 @@ describe("ConnectedChatComposerPanels command visibility", () => {
       true,
     );
   });
+
+  it("keeps provider-kind remote agents visible when metadata identifies them as agents", () => {
+    expect(
+      isComposerVisibleProviderCommand({
+        name: "remote-reviewer",
+        kind: "provider",
+        promptPrefix: "@remote-reviewer",
+        metadata: {
+          source: "remote-agent",
+          agentCardUrl: "https://example.com/.well-known/agent.json",
+        },
+      }),
+    ).toBe(true);
+  });
 });
