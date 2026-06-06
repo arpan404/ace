@@ -193,6 +193,9 @@ describe("providerCapabilities", () => {
       "built-in: rubber-duck",
       "built-in: fleet",
     ]);
+    expect(
+      defaultProviderIntegrationCapabilities("githubCopilot").multiAgentManagementCommands,
+    ).toEqual(["/agent", "--agent <agent>", "/fleet", "/tasks", "/sidekicks"]);
     expect(defaultProviderIntegrationCapabilities("opencode").multiAgentMode).toBe("native");
     expect(defaultProviderIntegrationCapabilities("opencode").multiAgentInvocationPrefixes).toEqual(
       ["@"],

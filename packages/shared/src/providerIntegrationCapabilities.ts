@@ -239,7 +239,7 @@ const PROVIDER_INTEGRATION_CAPABILITIES: Record<ProviderKind, ProviderIntegratio
       "built-in: rubber-duck",
       "built-in: fleet",
     ],
-    multiAgentManagementCommands: [],
+    multiAgentManagementCommands: ["/agent", "--agent <agent>", "/fleet", "/tasks", "/sidekicks"],
     hookMode: "native",
     extensionMode: "native",
     mcpMode: "native",
