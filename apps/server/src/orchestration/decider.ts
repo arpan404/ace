@@ -792,7 +792,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       });
       const isSideConversation =
         command.forkSourceThreadId !== undefined ||
-        isAceSideConversationThreadId(command.subagentThreadId);
+        isAceSideConversationThreadId(command.subagentThreadId, command.threadId);
       const subagentMessageEvent: Omit<OrchestrationEvent, "sequence"> = {
         ...withEventBase({
           aggregateKind: "thread",

@@ -405,6 +405,44 @@ describe("decider project scripts", () => {
         },
       },
     });
+
+    const providerChildResult = await Effect.runPromise(
+      decideOrchestrationCommand({
+        command: {
+          type: "thread.subagent.turn.start",
+          commandId: CommandId.makeUnsafe("cmd-side-prefixed-provider-child-turn"),
+          threadId: ThreadId.makeUnsafe("thread-1"),
+          subagentThreadId: "side:provider-child",
+          message: {
+            messageId: asMessageId("message-side-prefixed-provider-child-1"),
+            role: "user",
+            text: "follow up in the provider child thread",
+            attachments: [],
+          },
+          runtimeMode: "approval-required",
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          createdAt: now,
+        },
+        readModel,
+      }),
+    );
+    const providerChildEvents = Array.isArray(providerChildResult)
+      ? providerChildResult
+      : [providerChildResult];
+    expect(providerChildEvents[0]?.type).toBe("thread.activity-appended");
+    if (providerChildEvents[0]?.type !== "thread.activity-appended") {
+      return;
+    }
+    expect(providerChildEvents[0].payload.activity).toMatchObject({
+      kind: "subagent.message.sent",
+      payload: {
+        childProviderThreadId: "side:provider-child",
+        subagent: {
+          id: "side:provider-child",
+          type: "subagent",
+        },
+      },
+    });
   });
 
   it("emits thread.runtime-mode-set from thread.runtime-mode.set", async () => {

@@ -475,7 +475,10 @@ function activityContextLine(activity: OrchestrationThread["activities"][number]
     : base;
 }
 
-function isSideConversationActivity(activity: OrchestrationThread["activities"][number]): boolean {
+function isSideConversationActivity(
+  thread: OrchestrationThread,
+  activity: OrchestrationThread["activities"][number],
+): boolean {
   const payload = asContextRecord(activity.payload);
   const subagent = asContextRecord(payload?.subagent);
   const data = asContextRecord(payload?.data);
@@ -497,7 +500,7 @@ function isSideConversationActivity(activity: OrchestrationThread["activities"][
     contextString(payload?.child_provider_thread_id) ??
     contextString(subagent?.id) ??
     contextString(dataSubagent?.id);
-  return isAceSideConversationThreadId(childProviderThreadId ?? undefined);
+  return isAceSideConversationThreadId(childProviderThreadId ?? undefined, thread.id);
 }
 
 function buildSideConversationContextReplayTurn(
@@ -527,7 +530,7 @@ function buildSideConversationContextReplayTurn(
   }
 
   const recentActivityLines = thread.activities
-    .filter((activity) => !isSideConversationActivity(activity))
+    .filter((activity) => !isSideConversationActivity(thread, activity))
     .slice(-SIDE_CONVERSATION_CONTEXT_RECENT_ACTIVITY_COUNT)
     .map(activityContextLine)
     .filter((line): line is string => line !== null);
@@ -1753,7 +1756,10 @@ const make = Effect.gen(function* () {
       threadId: event.payload.threadId,
       attachments: event.payload.attachments,
     });
-    const sideThreadId = isAceSideConversationThreadId(event.payload.subagentThreadId)
+    const sideThreadId = isAceSideConversationThreadId(
+      event.payload.subagentThreadId,
+      event.payload.threadId,
+    )
       ? ThreadId.makeUnsafe(event.payload.subagentThreadId)
       : null;
 
