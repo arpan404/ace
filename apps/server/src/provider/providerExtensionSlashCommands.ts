@@ -143,6 +143,16 @@ type SkillReadOptions = {
   readonly requireDescription?: boolean | undefined;
 };
 
+const SKILL_MANIFEST_FILES = ["SKILL.md", "skill.md"] as const;
+const USER_INVOCABLE_FRONTMATTER_FIELDS = [
+  "user-invocable",
+  "user-invokable",
+  "userInvocable",
+  "userInvokable",
+  "user_invocable",
+  "user_invokable",
+] as const;
+
 type AgentReadOptions = {
   readonly nameFromFrontmatter?: boolean | undefined;
   readonly requireNameFromFrontmatter?: boolean | undefined;
@@ -446,6 +456,16 @@ function safeReadFile(file: string): string | null {
   } catch {
     return null;
   }
+}
+
+function firstReadableSkillManifest(skillDir: string): string | null {
+  for (const fileName of SKILL_MANIFEST_FILES) {
+    const markdown = safeReadFile(path.join(skillDir, fileName));
+    if (markdown) {
+      return markdown;
+    }
+  }
+  return null;
 }
 
 function isDirectory(value: string): boolean {
@@ -1318,12 +1338,11 @@ function readSkillCommand(
   skillDir: string,
   options: SkillReadOptions = {},
 ): ProviderSlashCommand | null {
-  const skillFile = path.join(skillDir, "SKILL.md");
-  const markdown = safeReadFile(skillFile);
+  const markdown = firstReadableSkillManifest(skillDir);
   if (!markdown) {
     return null;
   }
-  if (frontmatterBooleanFieldAny(markdown, ["user-invocable", "user-invokable"]) === false) {
+  if (frontmatterBooleanFieldAny(markdown, USER_INVOCABLE_FRONTMATTER_FIELDS) === false) {
     return null;
   }
   const rawName =
@@ -1360,7 +1379,7 @@ function readMarkdownSkillCommand(
   if (!markdown) {
     return null;
   }
-  if (frontmatterBooleanFieldAny(markdown, ["user-invocable", "user-invokable"]) === false) {
+  if (frontmatterBooleanFieldAny(markdown, USER_INVOCABLE_FRONTMATTER_FIELDS) === false) {
     return null;
   }
   const rawName = frontmatterField(markdown, "name") ?? path.basename(file, ".md");
@@ -3681,8 +3700,12 @@ function gitHubCopilotSkillMetadata(markdown: string): Record<string, unknown> |
   const argumentsList = frontmatterArgumentNames(markdown);
   const tools = frontmatterStringOrListField(markdown, "tools");
   const model = frontmatterStringOrListField(markdown, "model");
-  const disableModelInvocation = frontmatterBooleanField(markdown, "disable-model-invocation");
-  const userInvocable = frontmatterBooleanFieldAny(markdown, ["user-invocable", "user-invokable"]);
+  const disableModelInvocation = frontmatterBooleanFieldAny(markdown, [
+    "disable-model-invocation",
+    "disableModelInvocation",
+    "disable_model_invocation",
+  ]);
+  const userInvocable = frontmatterBooleanFieldAny(markdown, USER_INVOCABLE_FRONTMATTER_FIELDS);
   const annotations = normalizeGitHubCopilotMetadata(
     frontmatterJsonObjectField(markdown, "metadata") ??
       frontmatterYamlObjectField(markdown, "metadata"),

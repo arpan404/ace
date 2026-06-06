@@ -5555,6 +5555,20 @@ describe("providerExtensionSlashCommands", () => {
       await writeSkill(path.join(repo, ".github", "skills"), "manual-only", "Manual-only skill", [
         "disable-model-invocation: true",
       ]);
+      await mkdir(path.join(repo, ".github", "skills", "lowercase-manifest"), { recursive: true });
+      await writeFile(
+        path.join(repo, ".github", "skills", "lowercase-manifest", "skill.md"),
+        [
+          "---",
+          "name: lowercase-manifest",
+          "description: Lowercase Copilot skill manifest",
+          "disableModelInvocation: true",
+          "userInvocable: true",
+          "---",
+          "",
+          "# Lowercase manifest",
+        ].join("\n"),
+      );
       await writeSkill(
         path.join(repo, ".github", "skills"),
         "background-only",
@@ -5566,6 +5580,12 @@ describe("providerExtensionSlashCommands", () => {
         "legacy-background-only",
         "Legacy spelling background skill",
         ["user-invokable: false"],
+      );
+      await writeSkill(
+        path.join(repo, ".github", "skills"),
+        "camel-background-only",
+        "Camel spelling background skill",
+        ["userInvocable: false"],
       );
       await writeSkill(path.join(repo, ".github", "skills"), "disabled", "Disabled skill", [
         "user-invocable: false",
@@ -5619,10 +5639,22 @@ describe("providerExtensionSlashCommands", () => {
               disableModelInvocation: true,
             },
           }),
+          expect.objectContaining({
+            name: "lowercase-manifest",
+            kind: "skill",
+            promptPrefix: "/lowercase-manifest",
+            metadata: {
+              provider: "github-copilot",
+              source: "skill",
+              disableModelInvocation: true,
+              userInvocable: true,
+            },
+          }),
         ]),
       );
       expect(findCommand(commands ?? [], "background-only")).toBeUndefined();
       expect(findCommand(commands ?? [], "legacy-background-only")).toBeUndefined();
+      expect(findCommand(commands ?? [], "camel-background-only")).toBeUndefined();
       expect(findCommand(commands ?? [], "disabled")).toBeUndefined();
     } finally {
       await rm(root, { recursive: true, force: true });
