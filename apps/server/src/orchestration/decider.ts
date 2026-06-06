@@ -785,7 +785,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.subagent.turn.start": {
-      yield* requireThread({
+      const targetThread = yield* requireThread({
         readModel,
         command,
         threadId: command.threadId,
@@ -793,6 +793,15 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       const isSideConversation =
         command.forkSourceThreadId !== undefined ||
         isAceSideConversationThreadId(command.subagentThreadId, command.threadId);
+      if (
+        isSideConversation &&
+        targetThread.session?.capabilities?.sideConversationMode === "unsupported"
+      ) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: "Thread session does not support side conversations.",
+        });
+      }
       const sideConversation = isSideConversation
         ? {
             id: command.subagentThreadId,

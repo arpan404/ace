@@ -10,7 +10,9 @@ import { describe, expect, it } from "vitest";
 import { Effect } from "effect";
 
 import { decideOrchestrationCommand } from "./decider.ts";
+import type { OrchestrationCommandInvariantError } from "./Errors.ts";
 import { createEmptyReadModel, projectEvent } from "./projector.ts";
+import { defaultProviderIntegrationCapabilities } from "../provider/providerCapabilities.ts";
 
 const asEventId = (value: string): EventId => EventId.makeUnsafe(value);
 const asProjectId = (value: string): ProjectId => ProjectId.makeUnsafe(value);
@@ -494,6 +496,121 @@ describe("decider project scripts", () => {
     expect(
       (providerChildEvents[0].payload.activity.payload as Record<string, unknown>).sideConversation,
     ).toBeUndefined();
+  });
+
+  it("rejects Ace side-chat commands before appending activity when the session is unsupported", async () => {
+    const now = new Date().toISOString();
+    const initial = createEmptyReadModel(now);
+    const withProject = await Effect.runPromise(
+      projectEvent(initial, {
+        sequence: 1,
+        eventId: asEventId("evt-project-create-side-unsupported"),
+        aggregateKind: "project",
+        aggregateId: asProjectId("project-1"),
+        type: "project.created",
+        occurredAt: now,
+        commandId: CommandId.makeUnsafe("cmd-project-create-side-unsupported"),
+        causationEventId: null,
+        correlationId: CommandId.makeUnsafe("cmd-project-create-side-unsupported"),
+        metadata: {},
+        payload: {
+          projectId: asProjectId("project-1"),
+          title: "Project",
+          workspaceRoot: "/tmp/project",
+          defaultModelSelection: null,
+          scripts: [],
+          createdAt: now,
+          updatedAt: now,
+        },
+      }),
+    );
+    const withThread = await Effect.runPromise(
+      projectEvent(withProject, {
+        sequence: 2,
+        eventId: asEventId("evt-thread-create-side-unsupported"),
+        aggregateKind: "thread",
+        aggregateId: ThreadId.makeUnsafe("thread-1"),
+        type: "thread.created",
+        occurredAt: now,
+        commandId: CommandId.makeUnsafe("cmd-thread-create-side-unsupported"),
+        causationEventId: null,
+        correlationId: CommandId.makeUnsafe("cmd-thread-create-side-unsupported"),
+        metadata: {},
+        payload: {
+          threadId: ThreadId.makeUnsafe("thread-1"),
+          projectId: asProjectId("project-1"),
+          title: "Thread",
+          modelSelection: {
+            provider: "codex",
+            model: "gpt-5-codex",
+          },
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          runtimeMode: "approval-required",
+          branch: null,
+          worktreePath: null,
+          createdAt: now,
+          updatedAt: now,
+        },
+      }),
+    );
+    const readModel = await Effect.runPromise(
+      projectEvent(withThread, {
+        sequence: 3,
+        eventId: asEventId("evt-thread-session-side-unsupported"),
+        aggregateKind: "thread",
+        aggregateId: ThreadId.makeUnsafe("thread-1"),
+        type: "thread.session-set",
+        occurredAt: now,
+        commandId: CommandId.makeUnsafe("cmd-thread-session-side-unsupported"),
+        causationEventId: null,
+        correlationId: CommandId.makeUnsafe("cmd-thread-session-side-unsupported"),
+        metadata: {},
+        payload: {
+          threadId: ThreadId.makeUnsafe("thread-1"),
+          session: {
+            threadId: ThreadId.makeUnsafe("thread-1"),
+            status: "ready",
+            providerName: "codex",
+            runtimeMode: "approval-required",
+            capabilities: {
+              ...defaultProviderIntegrationCapabilities("codex"),
+              sideConversationMode: "unsupported",
+            },
+            activeTurnId: null,
+            lastError: null,
+            updatedAt: now,
+          },
+        },
+      }),
+    );
+
+    await expect(
+      Effect.runPromise(
+        decideOrchestrationCommand({
+          command: {
+            type: "thread.subagent.turn.start",
+            commandId: CommandId.makeUnsafe("cmd-side-unsupported-turn"),
+            threadId: ThreadId.makeUnsafe("thread-1"),
+            subagentThreadId: "side:thread-1:question-unsupported",
+            forkSourceThreadId: ThreadId.makeUnsafe("thread-1"),
+            message: {
+              messageId: asMessageId("message-side-unsupported-1"),
+              role: "user",
+              text: "start an unsupported side chat",
+              attachments: [],
+            },
+            runtimeMode: "approval-required",
+            interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+            createdAt: now,
+          },
+          readModel,
+        }),
+      ),
+    ).rejects.toMatchObject({
+      _tag: "OrchestrationCommandInvariantError",
+      commandType: "thread.subagent.turn.start",
+      detail: "Thread session does not support side conversations.",
+    } satisfies Partial<OrchestrationCommandInvariantError>);
   });
 
   it("emits thread.runtime-mode-set from thread.runtime-mode.set", async () => {
