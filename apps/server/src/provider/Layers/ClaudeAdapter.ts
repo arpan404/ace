@@ -101,6 +101,10 @@ const ROLLBACK_BOOTSTRAP_MAX_CHARS = 24_000;
 const CLAUDE_PROVIDER_CAPABILITIES = {
   sessionForkMode: "native" as const,
   sideConversationMode: "native-fork" as const,
+  sideConversationCommands: ["/btw"],
+  multiAgentMode: "native" as const,
+  multiAgentInvocationPrefixes: ["@", "@agent-"],
+  multiAgentDefinitionPaths: [".claude/agents", "~/.claude/agents"],
 };
 type ClaudeTextStreamKind = Extract<RuntimeContentStreamKind, "assistant_text" | "reasoning_text">;
 type ClaudeToolResultStreamKind = Extract<
