@@ -10610,7 +10610,7 @@ function useChatViewComponent({
           transition={rightSidePanelLayoutTransition}
         >
           <m.div
-            className="flex h-full min-h-[44px] items-stretch overflow-hidden bg-sidebar [-webkit-app-region:no-drag] transform-gpu will-change-[transform,opacity]"
+            className="flex h-full min-h-[44px] items-stretch overflow-hidden border-b border-border/25 bg-background [-webkit-app-region:no-drag] transform-gpu will-change-[transform,opacity]"
             style={{
               ...dockedRightSidePanelSurfaceStyle,
               transformOrigin: "right center",
@@ -10633,7 +10633,7 @@ function useChatViewComponent({
         <m.div
           key="thread-right-side-panel-fullscreen-top-bar"
           className={cn(
-            "absolute inset-0 z-40 flex min-w-0 items-stretch overflow-hidden bg-sidebar [-webkit-app-region:no-drag]",
+            "absolute inset-0 z-40 flex min-w-0 items-stretch overflow-hidden border-b border-border/25 bg-background [-webkit-app-region:no-drag]",
             !rightSidePanelInteractive && "pointer-events-none select-none",
           )}
           initial={{ opacity: 0, y: -10 }}
@@ -10657,7 +10657,7 @@ function useChatViewComponent({
         {/* Persistent top bar — always visible regardless of workspace mode */}
         <div
           className={cn(
-            "relative flex shrink-0 items-stretch overflow-hidden bg-sidebar transition-[max-height,opacity] duration-200 ease-out after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-px after:bg-border/70",
+            "relative flex shrink-0 items-stretch overflow-hidden border-b border-border/25 bg-background transition-[max-height,opacity] duration-200 ease-out after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-px after:bg-border/70",
             isHeaderHidden ? "max-h-0 opacity-0" : "max-h-28 opacity-100",
           )}
         >

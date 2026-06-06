@@ -304,7 +304,7 @@ export function ComposerQueuedMessages(props: {
   return (
     <section
       className={cn(
-        "mb-3 overflow-hidden rounded-[14px] border border-border/60 bg-card",
+        "mb-3 overflow-hidden rounded-[var(--panel-radius)] border border-border/50 bg-muted/25",
         props.className,
       )}
     >

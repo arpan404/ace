@@ -8,6 +8,7 @@ import { ChevronDownIcon, ChevronsUpDownIcon, ChevronUpIcon } from "lucide-react
 import * as React from "react";
 
 import { useBoundaryDismissedOpen } from "./floatingBoundaryDismiss";
+import { GLASS_CONTROL_CLASS_NAME, GLASS_SURFACE_CLASS_NAME } from "~/components/ui/glass";
 import { cn } from "~/lib/utils";
 
 function Select<Value, Multiple extends boolean | undefined = false>({
@@ -35,7 +36,7 @@ const selectTriggerVariants = cva(
     variants: {
       variant: {
         default:
-          "w-full min-w-36 border-border/70 bg-background text-foreground pointer-coarse:after:absolute pointer-coarse:after:size-full pointer-coarse:after:min-h-11 focus-visible:border-ring aria-invalid:border-destructive/36 focus-visible:aria-invalid:border-destructive/64 dark:bg-input/20 [&_svg:not([class*='opacity-'])]:opacity-80",
+          "w-full min-w-36 text-foreground pointer-coarse:after:absolute pointer-coarse:after:size-full pointer-coarse:after:min-h-11 aria-invalid:border-destructive/36 focus-visible:aria-invalid:border-destructive/64 [&_svg:not([class*='opacity-'])]:opacity-80 supports-[backdrop-filter]:backdrop-blur-md",
         ghost:
           "border-transparent text-muted-foreground/70 focus-visible:ring-2 focus-visible:ring-ring data-pressed:bg-accent [:hover,[data-pressed]]:bg-accent [:hover,[data-pressed]]:text-foreground/80",
       },
@@ -74,7 +75,12 @@ function SelectButton({ className, size, variant, render, children, ...props }: 
         )}
       </>
     ),
-    className: cn(selectTriggerVariants({ size, variant }), "min-w-none", className),
+    className: cn(
+      selectTriggerVariants({ size, variant }),
+      variant === "default" && GLASS_CONTROL_CLASS_NAME,
+      "min-w-none",
+      className,
+    ),
     "data-slot": "select-button",
     type: typeValue,
   };
@@ -95,7 +101,11 @@ function SelectTrigger({
 }: SelectPrimitive.Trigger.Props & VariantProps<typeof selectTriggerVariants>) {
   return (
     <SelectPrimitive.Trigger
-      className={cn(selectTriggerVariants({ size, variant }), className)}
+      className={cn(
+        selectTriggerVariants({ size, variant }),
+        variant === "default" && GLASS_CONTROL_CLASS_NAME,
+        className,
+      )}
       data-slot="select-trigger"
       {...props}
     >
@@ -158,7 +168,12 @@ function SelectPopup({
           >
             <ChevronUpIcon className="relative size-4.5 sm:size-4" />
           </SelectPrimitive.ScrollUpArrow>
-          <div className="relative h-full min-w-(--anchor-width) rounded-md border border-border bg-popover">
+          <div
+            className={cn(
+              "relative h-full min-w-(--anchor-width) rounded-[var(--panel-radius)]",
+              GLASS_SURFACE_CLASS_NAME,
+            )}
+          >
             <SelectPrimitive.List
               className={cn("max-h-(--available-height) overflow-y-auto p-1", className)}
               data-slot="select-list"

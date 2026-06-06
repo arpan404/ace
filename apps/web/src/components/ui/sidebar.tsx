@@ -4,6 +4,7 @@ import { IconLayoutSidebar, IconLayoutSidebarFilled } from "@tabler/icons-react"
 import { cva, type VariantProps } from "class-variance-authority";
 import { LazyMotion, domAnimation, m, type MotionStyle } from "motion/react";
 import * as React from "react";
+import { APP_SIDEBAR_CLASS_NAME, APP_SHELL_CLASS_NAME } from "~/lib/appChrome";
 import { cn } from "~/lib/utils";
 import { Input } from "~/components/ui/input";
 import { Separator } from "~/components/ui/separator";
@@ -254,7 +255,8 @@ function Sidebar({
       <SidebarInstanceContext.Provider value={instanceContextValue}>
         <div
           className={cn(
-            "flex h-full w-(--sidebar-width) flex-col bg-sidebar text-sidebar-foreground",
+            "flex h-full w-(--sidebar-width) flex-col",
+            APP_SIDEBAR_CLASS_NAME,
             className,
           )}
           data-slot="sidebar"
@@ -272,10 +274,7 @@ function Sidebar({
       <SidebarInstanceContext.Provider value={instanceContextValue}>
         <Sheet onOpenChange={setOpenMobile} open={openMobile} {...props}>
           <SheetPopup
-            className={cn(
-              "w-(--sidebar-width) max-w-none bg-sidebar p-0 text-sidebar-foreground",
-              className,
-            )}
+            className={cn("w-(--sidebar-width) max-w-none p-0", APP_SIDEBAR_CLASS_NAME, className)}
             data-mobile="true"
             data-sidebar="sidebar"
             data-slot="sidebar"
@@ -336,7 +335,10 @@ function Sidebar({
             {...motionContainerProps}
           >
             <div
-              className="flex h-full w-full flex-col bg-sidebar group-data-[variant=floating]:rounded-lg group-data-[variant=floating]:border group-data-[variant=floating]:border-sidebar-border"
+              className={cn(
+                "flex h-full w-full flex-col group-data-[variant=floating]:rounded-lg group-data-[variant=floating]:border group-data-[variant=floating]:border-sidebar-border",
+                APP_SIDEBAR_CLASS_NAME,
+              )}
               data-sidebar="sidebar"
               data-slot="sidebar-inner"
             >
@@ -744,7 +746,8 @@ function SidebarInset({ className, ...props }: React.ComponentProps<"main">) {
   return (
     <main
       className={cn(
-        "relative flex min-w-0 w-full flex-1 flex-col bg-background",
+        "relative flex min-w-0 w-full flex-1 flex-col",
+        APP_SHELL_CLASS_NAME,
         "md:peer-data-[variant=inset]:peer-data-[state=collapsed]:ms-2 md:peer-data-[variant=inset]:m-2 md:peer-data-[variant=inset]:ms-0 md:peer-data-[variant=inset]:rounded-xl",
         className,
       )}

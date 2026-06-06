@@ -1,5 +1,6 @@
 import { Tooltip as TooltipPrimitive } from "@base-ui/react/tooltip";
 
+import { GLASS_TOOLTIP_CLASS_NAME } from "~/components/ui/glass";
 import { cn } from "~/lib/utils";
 
 const TooltipCreateHandle = TooltipPrimitive.createHandle;
@@ -38,7 +39,8 @@ function TooltipPopup({
       >
         <TooltipPrimitive.Popup
           className={cn(
-            "relative flex h-(--popup-height,auto) w-(--popup-width,auto) origin-(--transform-origin) text-balance rounded-md border border-border/72 bg-input text-foreground text-xs  transition-[width,height,scale,opacity] data-ending-style:scale-98 data-starting-style:scale-98 data-ending-style:opacity-0 data-starting-style:opacity-0 data-instant:duration-0",
+            "relative flex h-(--popup-height,auto) w-(--popup-width,auto) origin-(--transform-origin) text-balance rounded-[var(--chip-radius)] text-xs transition-[width,height,scale,opacity] data-ending-style:scale-98 data-starting-style:scale-98 data-ending-style:opacity-0 data-starting-style:opacity-0 data-instant:duration-0",
+            GLASS_TOOLTIP_CLASS_NAME,
             className,
           )}
           data-slot="tooltip-popup"

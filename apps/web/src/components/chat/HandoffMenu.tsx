@@ -93,7 +93,7 @@ export const HandoffMenuButton = memo(function HandoffMenuButton(props: {
       </MenuTrigger>
       <MenuPopup
         align="start"
-        className="min-w-40 border-border/70 bg-popover/95"
+        className="min-w-40"
         listClassName="p-1"
       >
         <HandoffMenuEntries

@@ -7,6 +7,7 @@ import {
   DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME,
   MAC_TITLEBAR_LEFT_INSET_STYLE,
 } from "../lib/desktopChrome";
+import { APP_HEADER_CLASS_NAME, APP_INTERACTIVE_HOVER_CLASS_NAME } from "../lib/appChrome";
 import { cn } from "../lib/utils";
 import { SidebarTrigger, useSidebar } from "./ui/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
@@ -19,8 +20,10 @@ interface AppPageTopBarProps {
   readonly showSidebarTrigger?: boolean;
 }
 
-const headerNavButtonClassName =
-  "inline-flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-sidebar-foreground/65 outline-none transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-ring/30 active:bg-sidebar-accent active:text-sidebar-accent-foreground";
+const headerNavButtonClassName = cn(
+  "inline-flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-[var(--chip-radius)] text-sidebar-foreground/65 outline-none focus-visible:ring-2 focus-visible:ring-ring/30",
+  APP_INTERACTIVE_HOVER_CLASS_NAME,
+);
 
 export function AppPageTopBar({
   children,
@@ -35,7 +38,8 @@ export function AppPageTopBar({
   return (
     <header
       className={cn(
-        "relative z-30 w-full shrink-0 border-b border-border/20 bg-sidebar",
+        "relative z-30 w-full shrink-0",
+        APP_HEADER_CLASS_NAME,
         isElectron
           ? cn(
               desktopDragRegion ? "drag-region" : "[-webkit-app-region:no-drag]",

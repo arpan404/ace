@@ -15,9 +15,10 @@ export const toggleVariants = cva(
         xs: "h-7 min-w-7 px-[calc(--spacing(1)-1px)] sm:h-6 sm:min-w-6 rounded-md",
       },
       variant: {
-        default: "border-transparent hover:bg-accent/50",
+        default:
+          "border-transparent hover:bg-foreground/[0.06] supports-[backdrop-filter]:hover:backdrop-blur-sm",
         outline:
-          "border-border/60 bg-transparent dark:bg-transparent dark:border-border/40 dark:data-pressed:bg-input/50 dark:hover:bg-accent/30",
+          "border-border/55 bg-background/35 supports-[backdrop-filter]:border-border/40 supports-[backdrop-filter]:bg-background/28 supports-[backdrop-filter]:backdrop-blur-md dark:supports-[backdrop-filter]:bg-transparent dark:border-border/40 dark:data-pressed:bg-input/45 dark:hover:bg-accent/35",
       },
     },
   },

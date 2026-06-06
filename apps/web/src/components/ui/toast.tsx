@@ -12,6 +12,7 @@ import {
   TriangleAlertIcon,
 } from "lucide-react";
 
+import { GLASS_SURFACE_CLASS_NAME, GLASS_TOOLTIP_CLASS_NAME } from "~/components/ui/glass";
 import { cn } from "~/lib/utils";
 import { buttonVariants } from "~/components/ui/buttonVariants";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
@@ -30,8 +31,10 @@ const anchoredToastManager = Toast.createToastManager<ThreadToastData>();
 type ToastId = ReturnType<typeof toastManager.add>;
 const threadToastVisibleTimeoutRemainingMs = new Map<ToastId, number>();
 
-const TOAST_SURFACE_CLASS_NAME =
-  "overflow-hidden rounded-md border border-border/65 bg-popover/96 text-popover-foreground shadow-[0_8px_22px_rgba(0,0,0,0.14)] outline outline-1 outline-background/45 backdrop-blur-xl";
+const TOAST_SURFACE_CLASS_NAME = cn(
+  "overflow-hidden rounded-[var(--panel-radius)]",
+  GLASS_SURFACE_CLASS_NAME,
+);
 const TOAST_CONTENT_CLASS_NAME =
   "pointer-events-auto flex flex-col gap-2 overflow-hidden px-3 py-2.5 text-xs";
 const TOAST_TITLE_CLASS_NAME =
@@ -39,7 +42,7 @@ const TOAST_TITLE_CLASS_NAME =
 const TOAST_DESCRIPTION_CLASS_NAME =
   "min-w-0 select-text break-words text-[11px] leading-4 text-muted-foreground/76";
 const TOAST_ACTION_CLASS_NAME =
-  "h-6 max-w-full shrink-0 self-start truncate rounded-md border-border/65 bg-background/70 px-2 text-xs font-medium leading-none text-foreground/88 shadow-none hover:bg-accent hover:text-accent-foreground";
+  "h-6 max-w-full shrink-0 self-start truncate rounded-[var(--chip-radius)] border-border/55 bg-background px-2 text-xs font-medium leading-none text-foreground/88 shadow-none hover:bg-accent hover:text-accent-foreground";
 const TOAST_STATUS_ICONS = {
   error: CircleAlertIcon,
   loading: LoaderCircleIcon,
@@ -470,7 +473,7 @@ function AnchoredToasts() {
               <Toast.Root
                 className={cn(
                   "relative text-balance border text-popover-foreground text-xs transition-[scale,opacity] data-ending-style:scale-98 data-starting-style:scale-98 data-ending-style:opacity-0 data-starting-style:opacity-0",
-                  tooltipStyle ? "rounded-md bg-popover" : TOAST_SURFACE_CLASS_NAME,
+                  tooltipStyle ? GLASS_TOOLTIP_CLASS_NAME : TOAST_SURFACE_CLASS_NAME,
                 )}
                 data-slot="toast-popup"
                 toast={toast}

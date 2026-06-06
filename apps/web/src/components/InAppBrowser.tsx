@@ -913,7 +913,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
           <>
             <div
               ref={browserToolbarRef}
-              className="flex h-12 min-w-0 items-center gap-2.5 border-b border-border bg-card px-3 sm:px-4"
+              className="flex h-12 min-w-0 items-center gap-2.5 border-b border-border/25 bg-background px-3 sm:px-4"
             >
               <div className="flex shrink-0 items-center gap-0.5">
                 <Tooltip>
@@ -1248,7 +1248,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                         align="end"
                         side="bottom"
                         sideOffset={8}
-                        className="min-w-[18.5rem] border-border/70 bg-popover/96  supports-[backdrop-filter]:bg-popover/92"
+                        className="min-w-[18.5rem]"
                       >
                         <div className="px-1.5 pb-1 pt-0.5">
                           <div className="flex items-center justify-between gap-3 rounded-xl border border-border/60 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--card)_96%,transparent),color-mix(in_srgb,var(--background)_90%,transparent))] px-3 py-2.5">

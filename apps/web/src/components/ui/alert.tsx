@@ -11,11 +11,15 @@ const alertVariants = cva(
     },
     variants: {
       variant: {
-        default: "bg-transparent dark:bg-input/32 [&>svg]:text-muted-foreground",
-        error: "border-destructive/32 bg-destructive/4 [&>svg]:text-destructive",
-        info: "border-info/32 bg-info/4 [&>svg]:text-info",
-        success: "border-success/32 bg-success/4 [&>svg]:text-success",
-        warning: "border-warning/32 bg-warning/4 [&>svg]:text-warning",
+        default:
+          "border-border/45 bg-background/35 supports-[backdrop-filter]:bg-background/28 supports-[backdrop-filter]:backdrop-blur-md dark:supports-[backdrop-filter]:bg-input/28 [&>svg]:text-muted-foreground",
+        error:
+          "border-destructive/35 bg-destructive/8 supports-[backdrop-filter]:bg-destructive/12 [&>svg]:text-destructive",
+        info: "border-info/35 bg-info/8 supports-[backdrop-filter]:bg-info/12 [&>svg]:text-info",
+        success:
+          "border-success/35 bg-success/8 supports-[backdrop-filter]:bg-success/12 [&>svg]:text-success",
+        warning:
+          "border-warning/35 bg-warning/8 supports-[backdrop-filter]:bg-warning/12 [&>svg]:text-warning",
       },
     },
   },

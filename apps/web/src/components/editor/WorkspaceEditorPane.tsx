@@ -1412,7 +1412,7 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
       }}
     >
       <div
-        className="flex h-9 shrink-0 items-center gap-1 overflow-hidden border-b border-border bg-card/78 px-1.5"
+        className="flex h-9 shrink-0 items-center gap-1 overflow-hidden border-b border-border/25 bg-background px-1.5"
         onDragLeave={(event) => {
           if (event.currentTarget.contains(event.relatedTarget as Node | null)) {
             return;

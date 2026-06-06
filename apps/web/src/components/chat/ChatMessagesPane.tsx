@@ -70,7 +70,7 @@ export const ChatMessagesPane = memo(function ChatMessagesPane({
             variant="outline"
             size="sm"
             onClick={() => scrollMessagesToBottom()}
-            className="pointer-events-auto rounded-full border-border/30 bg-background/95 text-foreground shadow-sm hover:bg-background hover:text-foreground active:bg-background"
+            className="pointer-events-auto rounded-full border border-border/40 bg-background text-foreground shadow-sm hover:bg-accent hover:text-accent-foreground"
             aria-label="Scroll to bottom"
           >
             <ChevronDownIcon className="size-3.5" />

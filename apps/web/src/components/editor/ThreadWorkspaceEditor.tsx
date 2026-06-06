@@ -12,8 +12,6 @@ import {
   IconFiles,
   IconArrowsDiagonalMinimize2,
   IconGitCompare,
-  IconLayoutSidebar,
-  IconLayoutSidebarFilled,
   IconSearch,
 } from "@tabler/icons-react";
 import { useDebouncedValue } from "@tanstack/react-pacer";
@@ -35,6 +33,8 @@ import {
   HashIcon,
   ListTreeIcon,
   MessageSquareTextIcon,
+  PanelLeftCloseIcon,
+  PanelLeftOpenIcon,
   SearchIcon,
   SquareArrowOutUpRightIcon,
 } from "lucide-react";
@@ -4026,7 +4026,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
   return (
     <div className="editor-render-island relative flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background text-foreground">
       <div
-        className="grid min-h-0 min-w-0 flex-1 bg-background"
+        className="grid min-h-0 min-w-0 flex-1 bg-transparent"
         style={{
           gridTemplateColumns: explorerOpen
             ? `minmax(240px, ${treeWidth}px) 4px minmax(0, 1fr)`
@@ -5195,12 +5195,14 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                                         }
                                       >
                                         {explorerOpen ? (
-                                          <IconLayoutSidebarFilled
+                                          <PanelLeftCloseIcon
                                             className={WORKSPACE_EDITOR_CHROME_PRIMARY_ICON_CLASS}
+                                            strokeWidth={2}
                                           />
                                         ) : (
-                                          <IconLayoutSidebar
+                                          <PanelLeftOpenIcon
                                             className={WORKSPACE_EDITOR_CHROME_PRIMARY_ICON_CLASS}
+                                            strokeWidth={2}
                                           />
                                         )}
                                       </TooltipTrigger>

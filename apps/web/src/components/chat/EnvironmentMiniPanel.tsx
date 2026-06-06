@@ -337,7 +337,7 @@ export const EnvironmentMiniPanel = forwardRef<
     <m.aside
       ref={ref}
       className={cn(
-        "pointer-events-auto z-50 w-[min(18.5rem,calc(100vw-1rem))] max-w-[calc(100vw-1rem)] overflow-y-auto rounded-2xl border border-border/70 bg-card/90 p-2 text-card-foreground shadow-lg backdrop-blur-xl sm:p-2.5",
+        "glass-surface pointer-events-auto z-50 w-[min(18.5rem,calc(100vw-1rem))] max-w-[calc(100vw-1rem)] overflow-y-auto rounded-[var(--panel-radius)] border p-2 text-popover-foreground sm:p-2.5",
         "[overflow-anchor:none]",
         props.layoutMode === "inline"
           ? "absolute top-3 right-3 max-h-[calc(100%_-_1.5rem)]"

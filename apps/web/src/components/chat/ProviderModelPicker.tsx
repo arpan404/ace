@@ -749,7 +749,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
             )}
           >
             {showProviderRail ? (
-              <div className="min-h-0 overflow-hidden border-r border-border/60 bg-muted/20 p-1">
+              <div className="glass-inset min-h-0 overflow-hidden border-r border-border/40 p-1">
                 <div
                   className="h-full space-y-0.5 overflow-y-auto overscroll-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
                   data-provider-model-picker-provider-rail="true"
@@ -800,7 +800,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
             ) : null}
 
             <div className="flex min-w-0 flex-col overflow-hidden">
-              <div className="border-b border-border/60 px-2.5 py-1.5">
+              <div className="border-b border-border/35 px-2.5 py-1.5">
                 <div className="flex min-w-0 items-center gap-1.5">
                   <PickerProviderIcon
                     aria-hidden="true"
@@ -848,8 +848,8 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
                   </Tooltip>
                 </div>
               </div>
-              <div className="border-b border-border/60 px-2.5 py-1.5">
-                <div className="flex h-7 items-center gap-1.5 rounded-[var(--control-radius)] border border-border/60 bg-background/50 px-2">
+              <div className="border-b border-border/35 px-2.5 py-1.5">
+                <div className="glass-inset flex h-7 items-center gap-1.5 rounded-[var(--control-radius)] border px-2">
                   <SearchIcon
                     aria-hidden="true"
                     className="size-3 shrink-0 text-muted-foreground"

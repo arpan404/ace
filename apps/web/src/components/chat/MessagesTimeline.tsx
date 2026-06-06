@@ -1858,7 +1858,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       {selectionPinTarget ? (
         <button
           type="button"
-          className="fixed z-[120] inline-flex h-7 items-center gap-1.5 rounded-full border border-border/70 bg-popover px-2.5 text-[11px] font-medium text-popover-foreground shadow-lg transition-colors hover:bg-accent hover:text-accent-foreground"
+          className="glass-surface glass-surface--compact fixed z-[120] inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-[11px] font-medium text-popover-foreground transition-colors hover:bg-accent/80 hover:text-accent-foreground"
           style={{ left: selectionPinTarget.left, top: selectionPinTarget.top }}
           onMouseDown={(event) => event.preventDefault()}
           onClick={pinSelectedAssistantText}
@@ -3202,7 +3202,7 @@ const UserMessageTimelineRow = memo(function UserMessageTimelineRow(props: {
         className="group relative max-w-[82%] p-0 sm:max-w-[72%]"
         data-user-message-bubble="true"
       >
-        <div className="relative rounded-2xl rounded-br-lg border border-border/40 bg-chat-bubble px-4 py-3 ">
+        <div className="relative rounded-2xl rounded-br-lg border border-border/40 bg-chat-bubble px-4 py-3">
           {userImages.length > 0 && (
             <div className="mb-2.5 grid max-w-105 grid-cols-2 gap-1.5">
               {userImages.map((image: NonNullable<TimelineMessage["attachments"]>[number]) => (

@@ -248,7 +248,7 @@ function ChatThreadRouteView() {
   }
 
   return (
-    <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
+    <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none text-foreground">
       <ThreadBoard threadId={threadId} connectionUrl={routeConnectionUrl ?? null} />
     </SidebarInset>
   );

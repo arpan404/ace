@@ -96,7 +96,7 @@ export function WorkspaceCommandPalette(props: {
 
   return (
     <CommandDialog open={props.open} onOpenChange={props.onOpenChange}>
-      <CommandDialogPopup className="flex max-h-[min(31.5rem,calc(100dvh-2rem))] w-[min(44rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-xl border border-border/50 bg-popover/98 p-0">
+      <CommandDialogPopup className="glass-surface flex max-h-[min(31.5rem,calc(100dvh-2rem))] w-[min(44rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-xl border p-0">
         <Command value={query} onValueChange={setQuery}>
           <CommandInput
             className="h-9 border-border/50 bg-background/60 text-sm font-medium has-focus-visible:border-primary/45 has-focus-visible:ring-1 has-focus-visible:ring-primary/25"

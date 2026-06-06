@@ -4,6 +4,11 @@ import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { XIcon } from "lucide-react";
 import { cn } from "~/lib/utils";
 import { Button } from "~/components/ui/button";
+import {
+  GLASS_BACKDROP_CLASS_NAME,
+  GLASS_FOOTER_CLASS_NAME,
+  GLASS_SURFACE_CLASS_NAME,
+} from "~/components/ui/glass";
 import { MODAL_LAYER_CLASS_NAME } from "~/components/ui/layers";
 import { ScrollArea } from "~/components/ui/scroll-area";
 
@@ -25,7 +30,8 @@ function DialogBackdrop({ className, ...props }: DialogPrimitive.Backdrop.Props)
   return (
     <DialogPrimitive.Backdrop
       className={cn(
-        "fixed inset-0 bg-black/42 backdrop-blur-[3px] transition-all duration-200 data-ending-style:opacity-0 data-starting-style:opacity-0",
+        "fixed inset-0 transition-all duration-200 data-ending-style:opacity-0 data-starting-style:opacity-0",
+        GLASS_BACKDROP_CLASS_NAME,
         MODAL_LAYER_CLASS_NAME,
         className,
       )}
@@ -67,7 +73,8 @@ function DialogPopup({
       >
         <DialogPrimitive.Popup
           className={cn(
-            "-translate-y-[calc(1.25rem*var(--nested-dialogs))] relative row-start-2 flex max-h-full min-h-0 w-full min-w-0 max-w-lg scale-[calc(1-0.1*var(--nested-dialogs))] flex-col rounded-[var(--panel-radius)] border border-border/72 bg-popover/96 text-popover-foreground opacity-[calc(1-0.1*var(--nested-dialogs))]  supports-[backdrop-filter]:bg-popover/88 supports-[backdrop-filter]:backdrop-blur-xl transition-[scale,opacity,translate] duration-200 ease-in-out will-change-transform data-nested:data-ending-style:translate-y-8 data-nested:data-starting-style:translate-y-8 data-nested-dialog-open:origin-top data-ending-style:scale-98 data-starting-style:scale-98 data-ending-style:opacity-0 data-starting-style:opacity-0",
+            "-translate-y-[calc(1.25rem*var(--nested-dialogs))] relative row-start-2 flex max-h-full min-h-0 w-full min-w-0 max-w-lg scale-[calc(1-0.1*var(--nested-dialogs))] flex-col rounded-[var(--panel-radius)] opacity-[calc(1-0.1*var(--nested-dialogs))] transition-[scale,opacity,translate] duration-200 ease-in-out will-change-transform data-nested:data-ending-style:translate-y-8 data-nested:data-starting-style:translate-y-8 data-nested-dialog-open:origin-top data-ending-style:scale-98 data-starting-style:scale-98 data-ending-style:opacity-0 data-starting-style:opacity-0",
+            GLASS_SURFACE_CLASS_NAME,
             bottomStickOnMobile &&
               "max-sm:max-w-none max-sm:rounded-t-[var(--panel-radius)] max-sm:rounded-b-none max-sm:border-x-0 max-sm:border-t max-sm:border-b-0 max-sm:opacity-[calc(1-min(var(--nested-dialogs),1))] max-sm:data-ending-style:translate-y-4 max-sm:data-starting-style:translate-y-4",
             className,
@@ -115,7 +122,7 @@ function DialogFooter({
     <div
       className={cn(
         "flex flex-col-reverse gap-2 px-5 sm:flex-row sm:justify-end sm:rounded-b-[calc(var(--panel-radius)-1px)] sm:px-6",
-        variant === "default" && "border-t bg-muted/28 py-4",
+        variant === "default" && cn(GLASS_FOOTER_CLASS_NAME, "py-4"),
         variant === "bare" &&
           "in-[[data-slot=dialog-popup]:has([data-slot=dialog-panel])]:pt-3 pt-4 pb-5 sm:pb-6",
         className,
