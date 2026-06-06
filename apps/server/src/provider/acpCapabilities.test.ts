@@ -273,6 +273,31 @@ describe("acpCapabilities", () => {
     ).toEqual(["conversation/side/thread", "session/side/thread"]);
   });
 
+  it("extracts callable ACP side conversation methods from nested capability objects", () => {
+    expect(
+      acpSideConversationMethods({
+        capabilities: {
+          sideThread: {
+            availableMethods: [
+              "session/new",
+              { method: "conversation/side/thread" },
+              { name: "session.side.thread" },
+            ],
+          },
+        },
+        _meta: {
+          capabilities: {
+            session: {
+              sideChat: {
+                methods: [{ path: "thread/side/thread" }],
+              },
+            },
+          },
+        },
+      }),
+    ).toEqual(["conversation/side/thread", "session/side/thread", "thread/side/thread"]);
+  });
+
   it("does not treat omitted or disabled side conversation capabilities as supported", () => {
     expect(hasAcpSideConversationCapability({ agentCapabilities: {} })).toBe(false);
     expect(

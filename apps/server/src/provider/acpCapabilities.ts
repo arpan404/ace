@@ -1357,7 +1357,13 @@ export function acpSideConversationMethods(initializeResult: unknown): string[] 
   const methods: string[] = [];
   const seen = new Set<string>();
   for (const record of acpCapabilityRecords(initializeResult)) {
-    for (const container of methodAndFeatureContainers(record)) {
+    const containers = [
+      ...methodAndFeatureContainers(record),
+      ...nestedSideConversationCapabilityRecords(record).flatMap((nested) =>
+        methodAndFeatureContainers(nested),
+      ),
+    ];
+    for (const container of containers) {
       for (const normalizedMethod of methodNames(container)) {
         const method = SIDE_CONVERSATION_METHOD_BY_NORMALIZED_NAME[normalizedMethod];
         if (!method || seen.has(method)) {
