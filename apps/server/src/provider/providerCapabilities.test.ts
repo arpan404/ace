@@ -280,7 +280,7 @@ describe("providerCapabilities", () => {
     });
   });
 
-  it("preserves default side conversation commands unless an adapter advertises aliases", () => {
+  it("preserves provider side conversation commands while filtering Ace /side", () => {
     expect(
       resolveProviderIntegrationCapabilities("codex", { sessionModelSwitch: "in-session" }),
     ).toMatchObject({
@@ -289,10 +289,10 @@ describe("providerCapabilities", () => {
     expect(
       resolveProviderIntegrationCapabilities("codex", {
         sessionModelSwitch: "in-session",
-        sideConversationCommands: ["/side"],
+        sideConversationCommands: ["/side", ".side", "/btw"],
       }),
     ).toMatchObject({
-      sideConversationCommands: ["/side"],
+      sideConversationCommands: [".side", "/btw"],
     });
   });
 

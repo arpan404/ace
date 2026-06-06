@@ -1,4 +1,5 @@
 import type { ProviderIntegrationCapabilities, ProviderKind } from "@ace/contracts";
+import { isAceSideConversationCommand } from "@ace/shared/providerSlashCommands";
 
 import type { ProviderAdapterCapabilities } from "./Services/ProviderAdapter.ts";
 
@@ -233,11 +234,18 @@ export function resolveProviderIntegrationCapabilities(
     sessionModelSwitch: capabilities.sessionModelSwitch ?? defaults.sessionModelSwitch,
     sessionModelOptionsSwitch:
       capabilities.sessionModelOptionsSwitch ?? defaults.sessionModelOptionsSwitch,
-    sideConversationCommands:
+    sideConversationCommands: normalizedProviderSideConversationCommands(
       capabilities.sideConversationCommands ?? defaults.sideConversationCommands,
+    ),
     multiAgentInvocationPrefixes:
       capabilities.multiAgentInvocationPrefixes ?? defaults.multiAgentInvocationPrefixes,
     multiAgentDefinitionPaths:
       capabilities.multiAgentDefinitionPaths ?? defaults.multiAgentDefinitionPaths,
   };
+}
+
+function normalizedProviderSideConversationCommands(
+  commands: ReadonlyArray<string>,
+): ReadonlyArray<string> {
+  return commands.filter((command) => !isAceSideConversationCommand(command));
 }

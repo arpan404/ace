@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  isAceSideConversationCommand,
   isProviderSideConversationAlias,
   mergeProviderSlashCommands,
   normalizeProviderSlashCommandName,
@@ -20,6 +21,10 @@ describe("providerSlashCommands", () => {
   });
 
   it("reserves provider-native side-chat aliases behind the Ace-native /side command", () => {
+    expect(isAceSideConversationCommand("/side")).toBe(true);
+    expect(isAceSideConversationCommand(" /SIDE ")).toBe(true);
+    expect(isAceSideConversationCommand(".side")).toBe(false);
+    expect(isAceSideConversationCommand("/btw")).toBe(false);
     expect(isProviderSideConversationAlias("/side")).toBe(true);
     expect(isProviderSideConversationAlias(".side")).toBe(true);
     expect(isProviderSideConversationAlias("btw")).toBe(true);

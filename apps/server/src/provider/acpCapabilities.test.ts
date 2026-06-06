@@ -250,7 +250,7 @@ describe("acpCapabilities", () => {
     ).toBe(false);
   });
 
-  it("extracts ACP side conversation command aliases from explicit side capability shapes", () => {
+  it("extracts provider side conversation aliases without claiming Ace /side", () => {
     expect(
       acpSideConversationCommands({
         agentCapabilities: {
@@ -270,7 +270,7 @@ describe("acpCapabilities", () => {
           },
         },
       }),
-    ).toEqual(["/btw", ".side", "/side", ".btw"]);
+    ).toEqual(["/btw", ".side", ".btw"]);
   });
 
   it("does not extract generic ACP commands as side conversation aliases", () => {

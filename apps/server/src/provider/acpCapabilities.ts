@@ -1,3 +1,5 @@
+import { isAceSideConversationCommand } from "@ace/shared/providerSlashCommands";
+
 function isRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -1099,5 +1101,7 @@ export function acpSideConversationCommands(initializeResult: unknown): string[]
       );
     }
   }
-  return normalizedStringList(...values);
+  return normalizedStringList(...values).filter(
+    (command) => !isAceSideConversationCommand(command),
+  );
 }

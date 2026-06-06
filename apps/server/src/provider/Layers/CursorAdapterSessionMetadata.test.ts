@@ -122,7 +122,7 @@ describe("CursorAdapterSessionMetadata", () => {
     }
   });
 
-  it("preserves ACP side conversation command aliases in capability snapshots", () => {
+  it("preserves provider side conversation aliases but keeps Ace /side owned by Ace", () => {
     const initialize = parseCursorInitializeState({
       agentCapabilities: {
         sessionCapabilities: {
@@ -137,11 +137,7 @@ describe("CursorAdapterSessionMetadata", () => {
         },
       },
     });
-    assert.deepEqual(initialize.agentCapabilities.sideConversationCommands, [
-      "/btw",
-      ".side",
-      "/side",
-    ]);
+    assert.deepEqual(initialize.agentCapabilities.sideConversationCommands, ["/btw", ".side"]);
 
     const metadata = buildCursorSessionMetadata({
       previous: EMPTY_CURSOR_SESSION_METADATA,
@@ -153,7 +149,7 @@ describe("CursorAdapterSessionMetadata", () => {
       sessionForkMode: "local-replay",
       sessionResumeMode: "local-replay",
       sideConversationMode: "replay-fork",
-      sideConversationCommands: ["/btw", ".side", "/side"],
+      sideConversationCommands: ["/btw", ".side"],
     });
   });
 

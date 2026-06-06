@@ -78,6 +78,10 @@ export function isProviderSideConversationAlias(value: string): boolean {
   return name === "side" || name === "btw";
 }
 
+export function isAceSideConversationCommand(value: string): boolean {
+  return value.trim().toLowerCase() === "/side";
+}
+
 export function providerSlashCommandExtensionKind(
   command: ProviderSlashCommand,
   normalizedName: string,
