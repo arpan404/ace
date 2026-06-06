@@ -383,6 +383,20 @@ describe("acpCapabilities", () => {
         },
       }),
     ).toBe(true);
+    expect(
+      hasAcpMultiAgentCapability({
+        customAgents: [{ id: "explore", name: "Explore" }],
+      }),
+    ).toBe(true);
+    expect(
+      hasAcpMultiAgentCapability({
+        _meta: {
+          capabilities: {
+            availableFeatures: [{ id: "assistant-profile" }],
+          },
+        },
+      }),
+    ).toBe(true);
   });
 
   it("does not treat omitted or disabled multi-agent capabilities as supported", () => {
@@ -398,6 +412,8 @@ describe("acpCapabilities", () => {
 
   it("extracts ACP multi-agent invocation prefixes and definition paths", () => {
     const initializeResult = {
+      agentProfileInvocationPrefixes: ["/profile"],
+      agentProfileDefinitionPaths: [".ace/profiles/*.md"],
       agentCapabilities: {
         subagents: {
           invocationPrefixes: ["@", "@"],
@@ -408,18 +424,45 @@ describe("acpCapabilities", () => {
       _meta: {
         capabilities: {
           agentInvocationPrefixes: ["/agent"],
+          personaInvocationPrefixes: ["/persona"],
+          chatModeInvocationPrefixes: ["/mode"],
           agentDefinitionPaths: ["~/.cursor/agents/*.md"],
+          personaDefinitionPaths: [".claude/personas/*.md"],
+          chatModeDefinitionPaths: [".gemini/chatmodes/*.md"],
           agentFilesLocations: ["configured chat.agentFilesLocations"],
         },
       },
     };
 
-    expect(acpMultiAgentInvocationPrefixes(initializeResult)).toEqual(["@", "/agent"]);
+    expect(acpMultiAgentInvocationPrefixes(initializeResult)).toEqual([
+      "/profile",
+      "@",
+      "/agent",
+      "/persona",
+      "/mode",
+    ]);
     expect(acpMultiAgentDefinitionPaths(initializeResult)).toEqual([
+      ".ace/profiles/*.md",
       ".cursor/agents/*.md",
       ".github/chatmodes/*.md",
       "~/.cursor/agents/*.md",
+      ".claude/personas/*.md",
+      ".gemini/chatmodes/*.md",
       "configured chat.agentFilesLocations",
     ]);
+  });
+
+  it("uses top-level ACP side-chat aliases only as internal support signals", () => {
+    expect(
+      hasAcpSideConversationCapability({
+        sideChatAliases: [".side"],
+      }),
+    ).toBe(true);
+    expect(
+      acpSideConversationCommands({
+        btwCommands: ["/btw"],
+        sideChatAliases: [".side", "/side"],
+      }),
+    ).toEqual([]);
   });
 });
