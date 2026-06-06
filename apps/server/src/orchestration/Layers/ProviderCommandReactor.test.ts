@@ -1691,6 +1691,17 @@ describe("ProviderCommandReactor", () => {
       provider: "claudeAgent",
       model: "claude-sonnet-4-5",
     });
+
+    const readModel = await Effect.runPromise(harness.engine.getReadModel());
+    const parentThread = readModel.threads.find((entry) => entry.id === "thread-1");
+    expect(parentThread?.messages.map((message) => message.text)).toEqual([
+      "We are reviewing the provider architecture.",
+    ]);
+    expect(
+      parentThread?.messages.some((message) =>
+        message.text.includes("explain the current architecture"),
+      ),
+    ).toBe(false);
   });
 
   it("carries replay fallback context for native side-thread providers", async () => {
