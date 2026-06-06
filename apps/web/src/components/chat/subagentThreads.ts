@@ -58,6 +58,23 @@ export function partitionSubagentThreads(threads: ReadonlyArray<SubagentThread>)
   return { providerSubagentThreads, sideChatThreads };
 }
 
+export function agentThreadsPanelTitle(threads: ReadonlyArray<SubagentThread>): string {
+  const hasSideChats = threads.some(isSideChatThread);
+  const hasSubagents = threads.some((thread) => !isSideChatThread(thread));
+
+  if (hasSideChats && !hasSubagents) {
+    return "Side chats";
+  }
+  if (hasSideChats) {
+    return "Agent chats";
+  }
+  return "Subagents";
+}
+
+export function agentThreadsAddTabLabel(threads: ReadonlyArray<SubagentThread>): string | null {
+  return threads.length > 0 ? agentThreadsPanelTitle(threads) : null;
+}
+
 export function canReplyToSubagentThread(
   thread: SubagentThread,
   providerThreadTargetingMode: ProviderIntegrationCapabilities["providerThreadTargetingMode"],

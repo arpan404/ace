@@ -40,7 +40,12 @@ import { DiffPanelHeaderSkeleton, DiffPanelLoadingState, DiffPanelShell } from "
 import { Menu, MenuItem, MenuPopup, MenuShortcut, MenuTrigger } from "../ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { EnvironmentSubagentIcon } from "./EnvironmentMiniPanel";
-import { orderSubagentThreadsForHierarchy, type SubagentThread } from "./subagentThreads";
+import {
+  agentThreadsAddTabLabel,
+  agentThreadsPanelTitle,
+  orderSubagentThreadsForHierarchy,
+  type SubagentThread,
+} from "./subagentThreads";
 
 const DiffPanel = lazy(() => import("../DiffPanel"));
 
@@ -290,6 +295,8 @@ function RightSidePanelAddTabMenu(props: {
   browserShortcutLabel: string | null;
   diffAvailable: boolean;
   editorShortcutLabel: string | null;
+  subagentAvailable: boolean;
+  subagentLabel: string | null;
   terminalNewShortcutLabel: string | null;
   terminalShortcutLabel: string | null;
   terminalOpen: boolean;
@@ -364,6 +371,17 @@ function RightSidePanelAddTabMenu(props: {
             </MenuShortcut>
           ) : null}
         </MenuItem>
+        {props.subagentAvailable && props.subagentLabel ? (
+          <MenuItem
+            onClick={() => {
+              props.onSelectMode("subagent");
+            }}
+            className="gap-2.5 py-1.5 text-[14px]"
+          >
+            <MessageSquareIcon className="size-4.5 opacity-70" strokeWidth={1.75} />
+            <span>{props.subagentLabel}</span>
+          </MenuItem>
+        ) : null}
         <MenuItem onClick={handleTerminalMenuClick} className="gap-2.5 py-1.5 text-[14px]">
           <TerminalIcon className="size-4.5 opacity-70" strokeWidth={1.75} />
           <span>Terminal</span>
@@ -587,6 +605,7 @@ export function RightSidePanelTabStrip(props: {
   const hasTerminalTabs = props.terminalOpen && props.terminalTabs.length > 0;
   const browserTabs = props.browserSession?.tabs ?? [];
   const hasBrowserTabs = browserTabs.length > 0;
+  const subagentTabLabel = agentThreadsAddTabLabel(props.subagentThreads);
   const hierarchicalSubagentThreads = hasSubagentTabs
     ? orderSubagentThreadsForHierarchy(props.subagentThreads)
     : [];
@@ -926,6 +945,8 @@ export function RightSidePanelTabStrip(props: {
               browserShortcutLabel={props.browserShortcutLabel}
               diffAvailable={props.diffAvailable}
               editorShortcutLabel={props.editorShortcutLabel}
+              subagentAvailable={props.subagentThreads.length > 0}
+              subagentLabel={subagentTabLabel}
               terminalNewShortcutLabel={props.terminalNewShortcutLabel}
               terminalShortcutLabel={props.terminalShortcutLabel}
               terminalOpen={props.terminalOpen}
@@ -946,6 +967,8 @@ export function RightSidePanelTabStrip(props: {
             browserShortcutLabel={props.browserShortcutLabel}
             diffAvailable={props.diffAvailable}
             editorShortcutLabel={props.editorShortcutLabel}
+            subagentAvailable={props.subagentThreads.length > 0}
+            subagentLabel={subagentTabLabel}
             terminalNewShortcutLabel={props.terminalNewShortcutLabel}
             terminalShortcutLabel={props.terminalShortcutLabel}
             terminalOpen={props.terminalOpen}

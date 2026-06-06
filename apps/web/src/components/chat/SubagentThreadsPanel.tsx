@@ -9,12 +9,14 @@ import { ScrollArea } from "../ui/scroll-area";
 import { MessagesTimeline } from "./MessagesTimeline";
 import type { ChatMessage } from "../../types";
 import {
+  agentThreadsPanelTitle,
   deriveSubagentThreads,
   formatSideChatRequestForDisplay,
-  isSideChatThread,
   resolveSubagentMainAgentMessage,
   type SubagentThread,
 } from "./subagentThreads";
+
+export { agentThreadsPanelTitle };
 
 export function statusLabel(status: SubagentThread["status"]): string {
   if (status === "running") {
@@ -28,19 +30,6 @@ export function statusLabel(status: SubagentThread["status"]): string {
 
 export function formatSubagentSubtitle(thread: SubagentThread): string | null {
   return [thread.roleLabel, thread.model].filter(Boolean).join(" · ") || null;
-}
-
-export function agentThreadsPanelTitle(threads: ReadonlyArray<SubagentThread>): string {
-  const hasSideChats = threads.some(isSideChatThread);
-  const hasSubagents = threads.some((thread) => !isSideChatThread(thread));
-
-  if (hasSideChats && !hasSubagents) {
-    return "Side chats";
-  }
-  if (hasSideChats) {
-    return "Agent chats";
-  }
-  return "Subagents";
 }
 
 export function SubagentPersonaIcon(props: {
