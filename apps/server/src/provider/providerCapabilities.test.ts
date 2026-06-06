@@ -133,8 +133,12 @@ describe("providerCapabilities", () => {
       "@",
     ]);
     expect(defaultProviderIntegrationCapabilities("gemini").multiAgentDefinitionPaths).toEqual([
-      ".gemini/agents",
-      "~/.gemini/agents",
+      ".gemini/agents/*.md",
+      "~/.gemini/agents/*.md",
+      "built-in: codebase_investigator",
+      "built-in: cli_help",
+      "built-in: generalist",
+      "built-in: browser_agent",
     ]);
     expect(defaultProviderIntegrationCapabilities("githubCopilot").multiAgentMode).toBe("native");
     expect(
@@ -316,17 +320,28 @@ describe("providerCapabilities", () => {
       resolveProviderIntegrationCapabilities("gemini", { sessionModelSwitch: "in-session" }),
     ).toMatchObject({
       multiAgentInvocationPrefixes: ["@"],
-      multiAgentDefinitionPaths: [".gemini/agents", "~/.gemini/agents"],
+      multiAgentDefinitionPaths: [
+        ".gemini/agents/*.md",
+        "~/.gemini/agents/*.md",
+        "built-in: codebase_investigator",
+        "built-in: cli_help",
+        "built-in: generalist",
+        "built-in: browser_agent",
+      ],
     });
     expect(
       resolveProviderIntegrationCapabilities("gemini", {
         sessionModelSwitch: "in-session",
         multiAgentInvocationPrefixes: [" /agent ", "/AGENT", "  ", "@"],
-        multiAgentDefinitionPaths: [" custom/agents/*.md ", "custom/agents/*.md", ".gemini/agents"],
+        multiAgentDefinitionPaths: [
+          " custom/agents/*.md ",
+          "custom/agents/*.md",
+          ".gemini/agents/*.md",
+        ],
       }),
     ).toMatchObject({
       multiAgentInvocationPrefixes: ["/agent", "@"],
-      multiAgentDefinitionPaths: ["custom/agents/*.md", ".gemini/agents"],
+      multiAgentDefinitionPaths: ["custom/agents/*.md", ".gemini/agents/*.md"],
     });
   });
 });
