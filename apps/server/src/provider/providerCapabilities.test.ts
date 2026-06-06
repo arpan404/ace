@@ -45,15 +45,13 @@ describe("providerCapabilities", () => {
     expect(defaultProviderIntegrationCapabilities("codex").sideConversationMode).toBe(
       "native-fork",
     );
-    expect(defaultProviderIntegrationCapabilities("codex").sideConversationCommands).toEqual([
-      ".side",
-    ]);
+    expect(defaultProviderIntegrationCapabilities("codex").sideConversationCommands).toEqual([]);
     expect(defaultProviderIntegrationCapabilities("claudeAgent").sideConversationMode).toBe(
       "native-fork",
     );
-    expect(defaultProviderIntegrationCapabilities("claudeAgent").sideConversationCommands).toEqual([
-      "/btw",
-    ]);
+    expect(defaultProviderIntegrationCapabilities("claudeAgent").sideConversationCommands).toEqual(
+      [],
+    );
     expect(defaultProviderIntegrationCapabilities("cursor").sideConversationMode).toBe(
       "replay-fork",
     );
@@ -280,11 +278,11 @@ describe("providerCapabilities", () => {
     });
   });
 
-  it("preserves provider side conversation commands while filtering Ace /side", () => {
+  it("filters provider side conversation aliases out of user-facing capabilities", () => {
     expect(
       resolveProviderIntegrationCapabilities("codex", { sessionModelSwitch: "in-session" }),
     ).toMatchObject({
-      sideConversationCommands: [".side"],
+      sideConversationCommands: [],
     });
     expect(
       resolveProviderIntegrationCapabilities("codex", {
@@ -292,7 +290,7 @@ describe("providerCapabilities", () => {
         sideConversationCommands: [" /side ", ".side", "/btw", ".side", "  "],
       }),
     ).toMatchObject({
-      sideConversationCommands: [".side", "/btw"],
+      sideConversationCommands: [],
     });
   });
 

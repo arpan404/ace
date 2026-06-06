@@ -71,7 +71,7 @@ const ROLLBACK_BOOTSTRAP_MAX_CHARS = 24_000;
 const CODEX_PROVIDER_CAPABILITIES = {
   sessionForkMode: "native" as const,
   sideConversationMode: "native-fork" as const,
-  sideConversationCommands: [".side"],
+  sideConversationCommands: [],
   providerThreadTargetingMode: "native" as const,
   goalControlMode: "native" as const,
   multiAgentMode: "native" as const,

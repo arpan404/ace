@@ -1,4 +1,4 @@
-import { isAceSideConversationCommand } from "@ace/shared/providerSlashCommands";
+import { isProviderSideConversationAlias } from "@ace/shared/providerSlashCommands";
 
 function isRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -1102,6 +1102,6 @@ export function acpSideConversationCommands(initializeResult: unknown): string[]
     }
   }
   return normalizedStringList(...values).filter(
-    (command) => !isAceSideConversationCommand(command),
+    (command) => !isProviderSideConversationAlias(command),
   );
 }

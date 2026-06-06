@@ -36,7 +36,7 @@ const asItemId = (value: string): ProviderItemId => ProviderItemId.makeUnsafe(va
 const EXPECTED_CODEX_PROVIDER_CAPABILITIES = {
   sessionForkMode: "native",
   sideConversationMode: "native-fork",
-  sideConversationCommands: [".side"],
+  sideConversationCommands: [],
   providerThreadTargetingMode: "native",
   goalControlMode: "native",
   multiAgentMode: "native",

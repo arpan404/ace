@@ -452,7 +452,7 @@ describe("ProviderRuntimeIngestion", () => {
         entry.session?.providerName === "gemini" &&
         entry.session?.capabilities?.sessionForkMode === "native" &&
         entry.session?.capabilities?.sideConversationMode === "native-fork" &&
-        entry.session?.capabilities?.sideConversationCommands?.join(",") === ".side,/btw" &&
+        entry.session?.capabilities?.sideConversationCommands?.length === 0 &&
         entry.session?.capabilities?.providerThreadTargetingMode === "native" &&
         entry.session?.capabilities?.sessionResumeMode === "native" &&
         entry.session?.capabilities?.turnSteeringMode === "queued-message" &&
@@ -471,7 +471,7 @@ describe("ProviderRuntimeIngestion", () => {
 
     expect(thread.session?.capabilities?.sessionForkMode).toBe("native");
     expect(thread.session?.capabilities?.sideConversationMode).toBe("native-fork");
-    expect(thread.session?.capabilities?.sideConversationCommands).toEqual([".side", "/btw"]);
+    expect(thread.session?.capabilities?.sideConversationCommands).toEqual([]);
     expect(thread.session?.capabilities?.providerThreadTargetingMode).toBe("native");
     expect(thread.session?.capabilities?.sessionResumeMode).toBe("native");
     expect(thread.session?.capabilities?.turnSteeringMode).toBe("queued-message");
@@ -552,7 +552,7 @@ describe("ProviderRuntimeIngestion", () => {
         entry.session?.providerName === "cursor" &&
         entry.session?.capabilities?.sessionForkMode === "native" &&
         entry.session?.capabilities?.sideConversationMode === "native-fork" &&
-        entry.session?.capabilities?.sideConversationCommands?.join(",") === "/btw,.side" &&
+        entry.session?.capabilities?.sideConversationCommands?.length === 0 &&
         entry.session?.capabilities?.providerThreadTargetingMode === "native" &&
         entry.session?.capabilities?.sessionResumeMode === "native" &&
         entry.session?.capabilities?.turnSteeringMode === "native" &&
@@ -568,7 +568,7 @@ describe("ProviderRuntimeIngestion", () => {
 
     expect(thread.session?.capabilities?.sessionForkMode).toBe("native");
     expect(thread.session?.capabilities?.sideConversationMode).toBe("native-fork");
-    expect(thread.session?.capabilities?.sideConversationCommands).toEqual(["/btw", ".side"]);
+    expect(thread.session?.capabilities?.sideConversationCommands).toEqual([]);
     expect(thread.session?.capabilities?.providerThreadTargetingMode).toBe("native");
     expect(thread.session?.capabilities?.sessionResumeMode).toBe("native");
     expect(thread.session?.capabilities?.turnSteeringMode).toBe("native");

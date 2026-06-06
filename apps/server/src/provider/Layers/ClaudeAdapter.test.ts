@@ -324,7 +324,7 @@ describe("ClaudeAdapterLive", () => {
       const adapter = yield* ClaudeAdapter;
       assert.equal(adapter.capabilities.sessionForkMode, "native");
       assert.equal(adapter.capabilities.sideConversationMode, "native-fork");
-      assert.deepEqual(adapter.capabilities.sideConversationCommands, ["/btw"]);
+      assert.deepEqual(adapter.capabilities.sideConversationCommands, []);
       assert.equal(adapter.capabilities.multiAgentMode, "native");
       assert.deepEqual(adapter.capabilities.multiAgentInvocationPrefixes, ["@", "@agent-"]);
       assert.deepEqual(adapter.capabilities.multiAgentDefinitionPaths, [
@@ -353,7 +353,7 @@ describe("ClaudeAdapterLive", () => {
       assert.deepEqual(configuredEvent.value.payload.config.capabilities, {
         sessionForkMode: "native",
         sideConversationMode: "native-fork",
-        sideConversationCommands: ["/btw"],
+        sideConversationCommands: [],
         multiAgentMode: "native",
         multiAgentInvocationPrefixes: ["@", "@agent-"],
         multiAgentDefinitionPaths: [".claude/agents", "~/.claude/agents"],

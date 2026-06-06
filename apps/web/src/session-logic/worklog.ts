@@ -15,6 +15,7 @@ import {
   hasProviderGoalLifecycleSignal,
   parseProviderGoalLifecycle,
 } from "@ace/shared/providerGoalLifecycle";
+import { isProviderSideConversationAlias } from "@ace/shared/providerSlashCommands";
 
 import type {
   ActiveGoalState,
@@ -726,7 +727,9 @@ export function deriveEnvironmentSessionProviderStatuses(
           ? "Ace /side starts a separate side chat by replaying bounded parent context into a separate provider session."
           : "Provider has not advertised side-chat support.",
     ];
-    const sideConversationCommands = session.capabilities.sideConversationCommands ?? [];
+    const sideConversationCommands = (session.capabilities.sideConversationCommands ?? []).filter(
+      (command) => !isProviderSideConversationAlias(command),
+    );
     if (sideConversationCommands.length > 0) {
       detailLines.push("Provider-specific side-chat aliases are handled internally.");
     }

@@ -137,7 +137,7 @@ describe("CursorAdapterSessionMetadata", () => {
         },
       },
     });
-    assert.deepEqual(initialize.agentCapabilities.sideConversationCommands, ["/btw", ".side"]);
+    assert.deepEqual(initialize.agentCapabilities.sideConversationCommands, []);
 
     const metadata = buildCursorSessionMetadata({
       previous: EMPTY_CURSOR_SESSION_METADATA,
@@ -149,7 +149,7 @@ describe("CursorAdapterSessionMetadata", () => {
       sessionForkMode: "local-replay",
       sessionResumeMode: "local-replay",
       sideConversationMode: "replay-fork",
-      sideConversationCommands: ["/btw", ".side"],
+      sideConversationCommands: [],
     });
   });
 

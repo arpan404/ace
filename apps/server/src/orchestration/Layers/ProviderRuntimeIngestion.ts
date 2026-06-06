@@ -27,6 +27,7 @@ import { Cache, Cause, Duration, Effect, Layer, Option, Stream } from "effect";
 import { makeDrainableWorker } from "@ace/shared/DrainableWorker";
 import { appendCompactedThreadActivity } from "@ace/shared/orchestrationThreadActivities";
 import {
+  isProviderSideConversationAlias,
   mergeProviderSlashCommands,
   normalizeProviderSlashCommandName,
   providerFallbackSlashCommands,
@@ -345,7 +346,7 @@ function providerCapabilitiesFromSessionConfigured(
     hasProviderCapabilityMethod(methodContainers, "side-conversation")
       ? "native-fork"
       : undefined);
-  const sideConversationCommands = normalizeProviderCapabilityStringList(
+  const sideConversationCommands = normalizeProviderSideConversationCommands(
     capabilities.sideConversationCommands,
     capabilities.side_conversation_commands,
     capabilities.sideCommands,
@@ -1616,6 +1617,12 @@ function normalizeProviderCapabilityMode(
     }
   }
   return undefined;
+}
+
+function normalizeProviderSideConversationCommands(...values: ReadonlyArray<unknown>): string[] {
+  return normalizeProviderCapabilityStringList(...values).filter(
+    (command) => !isProviderSideConversationAlias(command),
+  );
 }
 
 function normalizeProviderCapabilityStringList(...values: ReadonlyArray<unknown>): string[] {

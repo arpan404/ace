@@ -1139,7 +1139,7 @@ describe("GeminiAdapterLive startup", () => {
           sessionResumeMode: "local-replay",
           sessionForkMode: "local-replay",
           sideConversationMode: "native-fork",
-          sideConversationCommands: [".side"],
+          sideConversationCommands: [],
           multiAgentMode: "native",
           multiAgentInvocationPrefixes: ["@"],
           multiAgentDefinitionPaths: [".gemini/agents/*.md"],

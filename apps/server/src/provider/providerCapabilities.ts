@@ -1,5 +1,5 @@
 import type { ProviderIntegrationCapabilities, ProviderKind } from "@ace/contracts";
-import { isAceSideConversationCommand } from "@ace/shared/providerSlashCommands";
+import { isProviderSideConversationAlias } from "@ace/shared/providerSlashCommands";
 
 import type { ProviderAdapterCapabilities } from "./Services/ProviderAdapter.ts";
 
@@ -17,7 +17,7 @@ const PROVIDER_INTEGRATION_CAPABILITIES: Record<ProviderKind, ProviderIntegratio
     sessionResumeMode: "native",
     sessionForkMode: "native",
     sideConversationMode: "native-fork",
-    sideConversationCommands: [".side"],
+    sideConversationCommands: [],
     providerThreadTargetingMode: "native",
     goalControlMode: "native",
     multiAgentMode: "native",
@@ -43,7 +43,7 @@ const PROVIDER_INTEGRATION_CAPABILITIES: Record<ProviderKind, ProviderIntegratio
     sessionResumeMode: "native",
     sessionForkMode: "native",
     sideConversationMode: "native-fork",
-    sideConversationCommands: ["/btw"],
+    sideConversationCommands: [],
     providerThreadTargetingMode: "unsupported",
     goalControlMode: "unsupported",
     multiAgentMode: "native",
@@ -250,7 +250,7 @@ function normalizedProviderSideConversationCommands(
   commands: ReadonlyArray<string>,
 ): ReadonlyArray<string> {
   return normalizedProviderCapabilityStringList(commands).filter(
-    (command) => !isAceSideConversationCommand(command),
+    (command) => !isProviderSideConversationAlias(command),
   );
 }
 

@@ -4523,7 +4523,7 @@ describe("deriveEnvironmentSessionProviderStatus", () => {
         updatedAt: "2026-02-23T00:00:10.500Z",
         capabilities: {
           sideConversationMode: "native-fork",
-          sideConversationCommands: [".side"],
+          sideConversationCommands: [".side", "/btw"],
           providerThreadTargetingMode: "native",
           goalControlMode: "native",
         },
@@ -4536,7 +4536,7 @@ describe("deriveEnvironmentSessionProviderStatus", () => {
         status: "native",
         tone: "info",
         detail:
-          "Ace /side starts a separate side chat through this provider's native fork support.\nProvider-specific side-chat aliases are handled internally.",
+          "Ace /side starts a separate side chat through this provider's native fork support.",
       },
       {
         id: "codex:thread-targeting-capability",
