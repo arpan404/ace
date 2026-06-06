@@ -435,7 +435,10 @@ describe("ProviderRuntimeIngestion", () => {
             agentInvocationPrefixes: ["@", "/agent", "@"],
             agentDefinitionPaths: [".gemini/agents/*.md", "~/.gemini/agents/*.md"],
             agentFilesLocations: ["configured chat.agentFilesLocations"],
+            agentFiles: ["configured chat.agentFiles"],
             chatModeFilesLocations: [".github/chatmodes/*.md"],
+            chatModeFiles: ["configured chat.chatModeFiles"],
+            subagentFiles: [".claude/agents/*.md", ".gemini/agents/*.md"],
             agentManagementCommands: ["/agents list", "/agents reload", "/agents list"],
             hookMode: "native",
             extensionMode: "localDiscovery",
@@ -462,7 +465,7 @@ describe("ProviderRuntimeIngestion", () => {
         entry.session?.capabilities?.multiAgentMode === "agent-command" &&
         entry.session?.capabilities?.multiAgentInvocationPrefixes?.join(",") === "@,/agent" &&
         entry.session?.capabilities?.multiAgentDefinitionPaths?.join(",") ===
-          ".gemini/agents/*.md,~/.gemini/agents/*.md,configured chat.agentFilesLocations,.github/chatmodes/*.md" &&
+          ".gemini/agents/*.md,~/.gemini/agents/*.md,configured chat.agentFilesLocations,configured chat.agentFiles,.github/chatmodes/*.md,configured chat.chatModeFiles,.claude/agents/*.md" &&
         entry.session?.capabilities?.multiAgentManagementCommands?.join(",") ===
           "/agents list,/agents reload" &&
         entry.session?.capabilities?.hookMode === "native" &&
@@ -486,7 +489,10 @@ describe("ProviderRuntimeIngestion", () => {
       ".gemini/agents/*.md",
       "~/.gemini/agents/*.md",
       "configured chat.agentFilesLocations",
+      "configured chat.agentFiles",
       ".github/chatmodes/*.md",
+      "configured chat.chatModeFiles",
+      ".claude/agents/*.md",
     ]);
     expect(thread.session?.capabilities?.multiAgentManagementCommands).toEqual([
       "/agents list",
