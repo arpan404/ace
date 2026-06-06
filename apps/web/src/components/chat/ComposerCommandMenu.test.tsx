@@ -4,30 +4,30 @@ import { describe, expect, it, vi } from "vitest";
 import { ComposerCommandMenu } from "./ComposerCommandMenu";
 
 describe("ComposerCommandMenu", () => {
-  it("renders provider-native slash commands", () => {
+  it("renders the Ace-native side chat slash command", () => {
     const html = renderToStaticMarkup(
       <ComposerCommandMenu
         items={[
           {
-            id: "provider-slash:provider:side",
-            type: "provider-command",
+            id: "slash:side",
+            type: "slash-command",
             command: "side",
-            commandKind: "provider",
+            commandSource: "ace",
             label: "/side",
-            description: "Start an ephemeral side conversation - <prompt>",
+            description: "Open a side chat composer",
           },
         ]}
         resolvedTheme="dark"
         isLoading={false}
         triggerKind="slash-command"
-        activeItemId="provider-slash:provider:side"
+        activeItemId="slash:side"
         onHighlightedItemChange={vi.fn()}
         onSelect={vi.fn()}
       />,
     );
 
     expect(html).toContain("/side");
-    expect(html).toContain("Start an ephemeral side conversation");
+    expect(html).toContain("Open a side chat composer");
   });
 
   it("groups provider agent commands separately", () => {
