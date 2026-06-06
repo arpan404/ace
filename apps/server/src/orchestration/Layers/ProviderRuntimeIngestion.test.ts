@@ -436,6 +436,7 @@ describe("ProviderRuntimeIngestion", () => {
             agentDefinitionPaths: [".gemini/agents/*.md", "~/.gemini/agents/*.md"],
             agentFilesLocations: ["configured chat.agentFilesLocations"],
             chatModeFilesLocations: [".github/chatmodes/*.md"],
+            agentManagementCommands: ["/agents list", "/agents reload", "/agents list"],
             hookMode: "native",
             extensionMode: "localDiscovery",
             mcpMode: "native",
@@ -462,6 +463,8 @@ describe("ProviderRuntimeIngestion", () => {
         entry.session?.capabilities?.multiAgentInvocationPrefixes?.join(",") === "@,/agent" &&
         entry.session?.capabilities?.multiAgentDefinitionPaths?.join(",") ===
           ".gemini/agents/*.md,~/.gemini/agents/*.md,configured chat.agentFilesLocations,.github/chatmodes/*.md" &&
+        entry.session?.capabilities?.multiAgentManagementCommands?.join(",") ===
+          "/agents list,/agents reload" &&
         entry.session?.capabilities?.hookMode === "native" &&
         entry.session?.capabilities?.extensionMode === "local-discovery" &&
         entry.session?.capabilities?.mcpMode === "native" &&
@@ -484,6 +487,10 @@ describe("ProviderRuntimeIngestion", () => {
       "~/.gemini/agents/*.md",
       "configured chat.agentFilesLocations",
       ".github/chatmodes/*.md",
+    ]);
+    expect(thread.session?.capabilities?.multiAgentManagementCommands).toEqual([
+      "/agents list",
+      "/agents reload",
     ]);
     expect(thread.session?.capabilities?.hookMode).toBe("native");
     expect(thread.session?.capabilities?.extensionMode).toBe("local-discovery");
@@ -523,9 +530,11 @@ describe("ProviderRuntimeIngestion", () => {
               supported: true,
               invocationPrefixes: ["@", "/agent", "@"],
               definitionPaths: [".cursor/agents/*.md"],
+              managementCommands: ["/agents list", "/agents reload", "/agents list"],
               subagents: {
                 subagentPrefixes: ["@subagent"],
                 subagentPaths: ["~/.cursor/agents/*.md"],
+                subagentCommands: ["/agents enable <agent-name>"],
               },
             },
             hooks: {
@@ -569,6 +578,8 @@ describe("ProviderRuntimeIngestion", () => {
           "@,/agent,@subagent" &&
         entry.session?.capabilities?.multiAgentDefinitionPaths?.join(",") ===
           ".cursor/agents/*.md,~/.cursor/agents/*.md" &&
+        entry.session?.capabilities?.multiAgentManagementCommands?.join(",") ===
+          "/agents list,/agents reload,/agents enable <agent-name>" &&
         entry.session?.capabilities?.hookMode === "native" &&
         entry.session?.capabilities?.extensionMode === "native" &&
         entry.session?.capabilities?.mcpMode === "native" &&
@@ -593,6 +604,11 @@ describe("ProviderRuntimeIngestion", () => {
     expect(thread.session?.capabilities?.multiAgentDefinitionPaths).toEqual([
       ".cursor/agents/*.md",
       "~/.cursor/agents/*.md",
+    ]);
+    expect(thread.session?.capabilities?.multiAgentManagementCommands).toEqual([
+      "/agents list",
+      "/agents reload",
+      "/agents enable <agent-name>",
     ]);
     expect(thread.session?.capabilities?.hookMode).toBe("native");
     expect(thread.session?.capabilities?.extensionMode).toBe("native");

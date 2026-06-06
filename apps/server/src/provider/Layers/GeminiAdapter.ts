@@ -33,6 +33,7 @@ import { ServerSettingsService } from "../../serverSettings.ts";
 import {
   acpMultiAgentDefinitionPaths,
   acpMultiAgentInvocationPrefixes,
+  acpMultiAgentManagementCommands,
   acpSideConversationCommands,
   acpSideConversationMethods,
   hasAcpMultiAgentCapability,
@@ -466,6 +467,7 @@ type GeminiSessionMetadata = {
   readonly multiAgent: boolean;
   readonly multiAgentInvocationPrefixes: ReadonlyArray<string>;
   readonly multiAgentDefinitionPaths: ReadonlyArray<string>;
+  readonly multiAgentManagementCommands: ReadonlyArray<string>;
   builtInSubagentCommands: ReadonlyArray<ProviderSlashCommand>;
   availableCommands: ReadonlyArray<GeminiAvailableCommand>;
   availableModes: ReadonlyArray<GeminiMode>;
@@ -1128,6 +1130,7 @@ function normalizeInitializeResponse(value: unknown): GeminiSessionMetadata {
     multiAgent: hasAcpMultiAgentCapability(value),
     multiAgentInvocationPrefixes: acpMultiAgentInvocationPrefixes(value),
     multiAgentDefinitionPaths: acpMultiAgentDefinitionPaths(value),
+    multiAgentManagementCommands: acpMultiAgentManagementCommands(value),
     builtInSubagentCommands: [],
     availableCommands: normalizeAvailableCommands(record?.availableCommands),
     availableModes: [],
@@ -1146,6 +1149,7 @@ function geminiProviderCapabilities(
     | "multiAgent"
     | "multiAgentInvocationPrefixes"
     | "multiAgentDefinitionPaths"
+    | "multiAgentManagementCommands"
   >,
 ) {
   return {
@@ -1165,6 +1169,9 @@ function geminiProviderCapabilities(
       : {}),
     ...(metadata.multiAgentDefinitionPaths.length > 0
       ? { multiAgentDefinitionPaths: metadata.multiAgentDefinitionPaths }
+      : {}),
+    ...(metadata.multiAgentManagementCommands.length > 0
+      ? { multiAgentManagementCommands: metadata.multiAgentManagementCommands }
       : {}),
   };
 }

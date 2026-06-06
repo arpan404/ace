@@ -144,10 +144,18 @@ describe("providerCapabilities", () => {
     expect(defaultProviderIntegrationCapabilities("gemini").multiAgentDefinitionPaths).toEqual([
       ".gemini/agents/*.md",
       "~/.gemini/agents/*.md",
+      "~/.gemini/extensions/*/agents/*.md",
       "built-in: codebase_investigator",
       "built-in: cli_help",
       "built-in: generalist",
       "built-in: browser_agent",
+    ]);
+    expect(defaultProviderIntegrationCapabilities("gemini").multiAgentManagementCommands).toEqual([
+      "/agents list",
+      "/agents reload",
+      "/agents enable <agent-name>",
+      "/agents disable <agent-name>",
+      "/agents config <agent-name>",
     ]);
     expect(defaultProviderIntegrationCapabilities("githubCopilot").multiAgentMode).toBe("native");
     expect(
@@ -360,10 +368,18 @@ describe("providerCapabilities", () => {
       multiAgentDefinitionPaths: [
         ".gemini/agents/*.md",
         "~/.gemini/agents/*.md",
+        "~/.gemini/extensions/*/agents/*.md",
         "built-in: codebase_investigator",
         "built-in: cli_help",
         "built-in: generalist",
         "built-in: browser_agent",
+      ],
+      multiAgentManagementCommands: [
+        "/agents list",
+        "/agents reload",
+        "/agents enable <agent-name>",
+        "/agents disable <agent-name>",
+        "/agents config <agent-name>",
       ],
     });
     expect(
@@ -375,10 +391,12 @@ describe("providerCapabilities", () => {
           "custom/agents/*.md",
           ".gemini/agents/*.md",
         ],
+        multiAgentManagementCommands: [" /agents list ", "/agents LIST", "  ", "/agents reload"],
       }),
     ).toMatchObject({
       multiAgentInvocationPrefixes: ["/agent", "@"],
       multiAgentDefinitionPaths: ["custom/agents/*.md", ".gemini/agents/*.md"],
+      multiAgentManagementCommands: ["/agents list", "/agents reload"],
     });
   });
 });

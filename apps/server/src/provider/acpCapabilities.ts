@@ -1335,6 +1335,43 @@ export function acpMultiAgentDefinitionPaths(initializeResult: unknown): string[
   return normalizedStringList(...values);
 }
 
+export function acpMultiAgentManagementCommands(initializeResult: unknown): string[] {
+  const values: unknown[] = [];
+  for (const record of acpCapabilityRecords(initializeResult)) {
+    values.push(
+      record.multiAgentManagementCommands,
+      record.multi_agent_management_commands,
+      record.agentManagementCommands,
+      record.agent_management_commands,
+      record.subagentManagementCommands,
+      record.subagent_management_commands,
+      record.agentCommands,
+      record.agent_commands,
+      record.subagentCommands,
+      record.subagent_commands,
+      record.managementCommands,
+      record.management_commands,
+    );
+    for (const nested of nestedAgentCapabilityRecords(record)) {
+      values.push(
+        nested.multiAgentManagementCommands,
+        nested.multi_agent_management_commands,
+        nested.agentManagementCommands,
+        nested.agent_management_commands,
+        nested.subagentManagementCommands,
+        nested.subagent_management_commands,
+        nested.agentCommands,
+        nested.agent_commands,
+        nested.subagentCommands,
+        nested.subagent_commands,
+        nested.managementCommands,
+        nested.management_commands,
+      );
+    }
+  }
+  return normalizedStringList(...values);
+}
+
 export function acpSideConversationCommands(_initializeResult: unknown): string[] {
   return [];
 }

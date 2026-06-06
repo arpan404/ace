@@ -4480,6 +4480,7 @@ describe("deriveEnvironmentSessionProviderStatus", () => {
           multiAgentMode: "agent-command",
           multiAgentInvocationPrefixes: ["@", "/agent"],
           multiAgentDefinitionPaths: [".cursor/agents/*.md", "~/.cursor/agents/*.md"],
+          multiAgentManagementCommands: ["/agents list", "/agents reload"],
         },
       }),
     ).toEqual({
@@ -4489,7 +4490,7 @@ describe("deriveEnvironmentSessionProviderStatus", () => {
       status: "command",
       tone: "info",
       detail:
-        "Provider agents are available through command or mention routing.\nInvoke: @, /agent\nDefinitions: .cursor/agents/*.md, ~/.cursor/agents/*.md",
+        "Provider agents are available through command or mention routing.\nInvoke: @, /agent\nDefinitions: .cursor/agents/*.md, ~/.cursor/agents/*.md\nManage: /agents list, /agents reload",
     });
 
     expect(

@@ -26,6 +26,7 @@ describe("CursorAdapterSessionMetadata", () => {
         multiAgent: false,
         multiAgentInvocationPrefixes: [],
         multiAgentDefinitionPaths: [],
+        multiAgentManagementCommands: [],
         sideConversationCommands: [],
         sideConversationMethods: [],
         promptCapabilities: {
@@ -47,6 +48,7 @@ describe("CursorAdapterSessionMetadata", () => {
         multiAgent: false,
         multiAgentInvocationPrefixes: [],
         multiAgentDefinitionPaths: [],
+        multiAgentManagementCommands: [],
         sideConversationCommands: [],
         sideConversationMethods: [],
         promptCapabilities: {
@@ -403,12 +405,14 @@ describe("CursorAdapterSessionMetadata", () => {
           enabled: true,
           invocationPrefixes: ["@", "@"],
           definitionPaths: [".cursor/agents/*.md"],
+          managementCommands: ["/agents list"],
         },
       },
       _meta: {
         capabilities: {
           agentInvocationPrefixes: ["/agent"],
           agentDefinitionPaths: ["~/.cursor/agents/*.md"],
+          agentManagementCommands: ["/agents reload"],
         },
       },
     });
@@ -417,6 +421,10 @@ describe("CursorAdapterSessionMetadata", () => {
     assert.deepEqual(initialize.agentCapabilities.multiAgentDefinitionPaths, [
       ".cursor/agents/*.md",
       "~/.cursor/agents/*.md",
+    ]);
+    assert.deepEqual(initialize.agentCapabilities.multiAgentManagementCommands, [
+      "/agents list",
+      "/agents reload",
     ]);
 
     const metadata = buildCursorSessionMetadata({
@@ -432,6 +440,7 @@ describe("CursorAdapterSessionMetadata", () => {
       multiAgentMode: "native",
       multiAgentInvocationPrefixes: ["@", "/agent"],
       multiAgentDefinitionPaths: [".cursor/agents/*.md", "~/.cursor/agents/*.md"],
+      multiAgentManagementCommands: ["/agents list", "/agents reload"],
     });
   });
 

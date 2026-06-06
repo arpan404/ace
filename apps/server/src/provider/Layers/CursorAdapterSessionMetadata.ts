@@ -7,6 +7,7 @@ import type { ProviderSlashCommand } from "@ace/contracts";
 import {
   acpMultiAgentDefinitionPaths,
   acpMultiAgentInvocationPrefixes,
+  acpMultiAgentManagementCommands,
   acpSideConversationCommands,
   acpSideConversationMethods,
   hasAcpMultiAgentCapability,
@@ -49,6 +50,7 @@ export type CursorInitializeState = {
     readonly multiAgent: boolean;
     readonly multiAgentInvocationPrefixes: ReadonlyArray<string>;
     readonly multiAgentDefinitionPaths: ReadonlyArray<string>;
+    readonly multiAgentManagementCommands: ReadonlyArray<string>;
     readonly sideConversationCommands: ReadonlyArray<string>;
     readonly sideConversationMethods: ReadonlyArray<string>;
     readonly promptCapabilities: CursorPromptCapabilities;
@@ -130,6 +132,7 @@ export const EMPTY_CURSOR_INITIALIZE_STATE: CursorInitializeState = {
     multiAgent: false,
     multiAgentInvocationPrefixes: [],
     multiAgentDefinitionPaths: [],
+    multiAgentManagementCommands: [],
     sideConversationCommands: [],
     sideConversationMethods: [],
     promptCapabilities: EMPTY_CURSOR_PROMPT_CAPABILITIES,
@@ -217,6 +220,7 @@ export function parseCursorInitializeState(value: unknown): CursorInitializeStat
       multiAgent: hasAcpMultiAgentCapability(value),
       multiAgentInvocationPrefixes: acpMultiAgentInvocationPrefixes(value),
       multiAgentDefinitionPaths: acpMultiAgentDefinitionPaths(value),
+      multiAgentManagementCommands: acpMultiAgentManagementCommands(value),
       sideConversationCommands: acpSideConversationCommands(value),
       sideConversationMethods: acpSideConversationMethods(value),
       promptCapabilities: parseCursorPromptCapabilities(agentCapabilities?.promptCapabilities),
@@ -704,6 +708,12 @@ function cursorProviderCapabilities(metadata: CursorSessionMetadata) {
       ? {
           multiAgentDefinitionPaths:
             metadata.initialize.agentCapabilities.multiAgentDefinitionPaths,
+        }
+      : {}),
+    ...(metadata.initialize.agentCapabilities.multiAgentManagementCommands.length > 0
+      ? {
+          multiAgentManagementCommands:
+            metadata.initialize.agentCapabilities.multiAgentManagementCommands,
         }
       : {}),
     ...(metadata.initialize.agentCapabilities.sideConversationCommands.length > 0

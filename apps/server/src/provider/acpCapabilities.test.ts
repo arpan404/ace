@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   acpMultiAgentDefinitionPaths,
   acpMultiAgentInvocationPrefixes,
+  acpMultiAgentManagementCommands,
   acpSideConversationCommands,
   acpSideConversationMethods,
   hasAcpMultiAgentCapability,
@@ -514,6 +515,7 @@ describe("acpCapabilities", () => {
           invocationPrefixes: ["@", "@"],
           definitionPaths: [".cursor/agents/*.md"],
           chatModeFilesLocations: [".github/chatmodes/*.md"],
+          subagentCommands: ["/agents enable <agent-name>"],
         },
       },
       _meta: {
@@ -521,6 +523,7 @@ describe("acpCapabilities", () => {
           agentInvocationPrefixes: ["/agent"],
           personaInvocationPrefixes: ["/persona"],
           chatModeInvocationPrefixes: ["/mode"],
+          agentManagementCommands: ["/agents list", "/agents reload", "/agents list"],
           agentDefinitionPaths: ["~/.cursor/agents/*.md"],
           personaDefinitionPaths: [".claude/personas/*.md"],
           chatModeDefinitionPaths: [".gemini/chatmodes/*.md"],
@@ -544,6 +547,11 @@ describe("acpCapabilities", () => {
       ".claude/personas/*.md",
       ".gemini/chatmodes/*.md",
       "configured chat.agentFilesLocations",
+    ]);
+    expect(acpMultiAgentManagementCommands(initializeResult)).toEqual([
+      "/agents enable <agent-name>",
+      "/agents list",
+      "/agents reload",
     ]);
   });
 

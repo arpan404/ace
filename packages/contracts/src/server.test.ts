@@ -28,10 +28,12 @@ describe("ServerProvider", () => {
         sideConversationMode: "replay-fork",
         multiAgentMode: "native",
         multiAgentInvocationPrefixes: ["@", "/fleet"],
+        multiAgentManagementCommands: ["/agents list"],
       },
     });
 
     expect(parsed.capabilities?.sideConversationMode).toBe("replay-fork");
     expect(parsed.capabilities?.multiAgentInvocationPrefixes).toEqual(["@", "/fleet"]);
+    expect(parsed.capabilities?.multiAgentManagementCommands).toEqual(["/agents list"]);
   });
 });

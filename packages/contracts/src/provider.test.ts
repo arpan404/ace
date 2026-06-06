@@ -277,6 +277,7 @@ describe("ProviderIntegrationCapabilities", () => {
     expect(parsed.multiAgentMode).toBe("unsupported");
     expect(parsed.multiAgentInvocationPrefixes).toEqual([]);
     expect(parsed.multiAgentDefinitionPaths).toEqual([]);
+    expect(parsed.multiAgentManagementCommands).toEqual([]);
     expect(parsed.hookMode).toBe("unsupported");
     expect(parsed.extensionMode).toBe("unsupported");
     expect(parsed.mcpMode).toBe("unsupported");
@@ -299,6 +300,7 @@ describe("ProviderIntegrationCapabilities", () => {
       sideConversationCommands: ["/btw", ".side"],
       multiAgentInvocationPrefixes: ["@", "/agent"],
       multiAgentDefinitionPaths: [".github/agents/*.agent.md"],
+      multiAgentManagementCommands: ["/agents list"],
       hookMode: "native",
       extensionMode: "local-discovery",
       mcpMode: "native",
@@ -311,6 +313,7 @@ describe("ProviderIntegrationCapabilities", () => {
     expect(parsed.sideConversationCommands).toEqual(["/btw", ".side"]);
     expect(parsed.multiAgentInvocationPrefixes).toEqual(["@", "/agent"]);
     expect(parsed.multiAgentDefinitionPaths).toEqual([".github/agents/*.agent.md"]);
+    expect(parsed.multiAgentManagementCommands).toEqual(["/agents list"]);
     expect(parsed.hookMode).toBe("native");
     expect(parsed.extensionMode).toBe("local-discovery");
     expect(parsed.mcpMode).toBe("native");

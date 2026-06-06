@@ -75,6 +75,7 @@ function geminiInitializeResult(input?: {
             subagents: {
               invocationPrefixes: ["@"],
               definitionPaths: [".gemini/agents/*.md"],
+              managementCommands: ["/agents list", "/agents reload"],
             },
           }
         : {}),
@@ -1151,6 +1152,7 @@ describe("GeminiAdapterLive startup", () => {
           multiAgentMode: "native",
           multiAgentInvocationPrefixes: ["@"],
           multiAgentDefinitionPaths: [".gemini/agents/*.md"],
+          multiAgentManagementCommands: ["/agents list", "/agents reload"],
         });
       } finally {
         await Effect.runPromise(adapter.stopAll());

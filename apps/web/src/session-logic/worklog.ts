@@ -664,6 +664,7 @@ export function deriveEnvironmentSessionProviderStatus(
                 | "multiAgentMode"
                 | "multiAgentInvocationPrefixes"
                 | "multiAgentDefinitionPaths"
+                | "multiAgentManagementCommands"
                 | "hookMode"
                 | "extensionMode"
                 | "mcpMode"
@@ -769,6 +770,7 @@ export function deriveEnvironmentSessionProviderStatuses(
                 | "multiAgentMode"
                 | "multiAgentInvocationPrefixes"
                 | "multiAgentDefinitionPaths"
+                | "multiAgentManagementCommands"
                 | "hookMode"
                 | "extensionMode"
                 | "mcpMode"
@@ -875,6 +877,10 @@ export function deriveEnvironmentSessionProviderStatuses(
     const definitionPaths = session.capabilities.multiAgentDefinitionPaths ?? [];
     if (definitionPaths.length > 0) {
       detailLines.push(`Definitions: ${definitionPaths.join(", ")}`);
+    }
+    const managementCommands = session.capabilities.multiAgentManagementCommands ?? [];
+    if (managementCommands.length > 0) {
+      detailLines.push(`Manage: ${managementCommands.join(", ")}`);
     }
 
     statuses.push({

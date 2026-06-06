@@ -353,6 +353,7 @@ function createSnapshotForTargetUser(options: {
                   multiAgentMode: "native",
                   multiAgentInvocationPrefixes: [],
                   multiAgentDefinitionPaths: [],
+                  multiAgentManagementCommands: [],
                   hookMode: "native",
                   extensionMode: "native",
                   mcpMode: "native",

@@ -61,6 +61,7 @@ import { resolveProviderIntegrationCapabilities } from "../../provider/providerC
 import {
   acpMultiAgentDefinitionPaths,
   acpMultiAgentInvocationPrefixes,
+  acpMultiAgentManagementCommands,
   acpSideConversationCommands,
   hasAcpMultiAgentCapability,
   hasAcpProviderThreadTargetingCapability,
@@ -587,6 +588,31 @@ function providerCapabilitiesFromSessionConfigured(
     sessions?.chatModeFilesLocations,
     acpMultiAgentDefinitionPaths({ capabilities }),
   );
+  const multiAgentManagementCommands = normalizeProviderCapabilityStringList(
+    capabilities.multiAgentManagementCommands,
+    capabilities.multi_agent_management_commands,
+    capabilities.agentManagementCommands,
+    capabilities.agent_management_commands,
+    capabilities.subagentManagementCommands,
+    capabilities.subagent_management_commands,
+    capabilities.agentCommands,
+    capabilities.agent_commands,
+    capabilities.subagentCommands,
+    capabilities.subagent_commands,
+    sessionCapabilities?.multiAgentManagementCommands,
+    sessionCapabilities?.agentManagementCommands,
+    sessionCapabilities?.subagentManagementCommands,
+    sessionCapabilities?.agentCommands,
+    session?.multiAgentManagementCommands,
+    session?.agentManagementCommands,
+    session?.subagentManagementCommands,
+    session?.agentCommands,
+    sessions?.multiAgentManagementCommands,
+    sessions?.agentManagementCommands,
+    sessions?.subagentManagementCommands,
+    sessions?.agentCommands,
+    acpMultiAgentManagementCommands({ capabilities }),
+  );
   const hookMode =
     normalizeProviderCapabilityMode(
       "native",
@@ -893,6 +919,7 @@ function providerCapabilitiesFromSessionConfigured(
     multiAgentMode?: ProviderIntegrationCapabilities["multiAgentMode"];
     multiAgentInvocationPrefixes?: ProviderIntegrationCapabilities["multiAgentInvocationPrefixes"];
     multiAgentDefinitionPaths?: ProviderIntegrationCapabilities["multiAgentDefinitionPaths"];
+    multiAgentManagementCommands?: ProviderIntegrationCapabilities["multiAgentManagementCommands"];
     sideConversationCommands?: ProviderIntegrationCapabilities["sideConversationCommands"];
     hookMode?: ProviderIntegrationCapabilities["hookMode"];
     extensionMode?: ProviderIntegrationCapabilities["extensionMode"];
@@ -940,6 +967,9 @@ function providerCapabilitiesFromSessionConfigured(
   }
   if (multiAgentDefinitionPaths.length > 0) {
     overrides.multiAgentDefinitionPaths = multiAgentDefinitionPaths;
+  }
+  if (multiAgentManagementCommands.length > 0) {
+    overrides.multiAgentManagementCommands = multiAgentManagementCommands;
   }
   if (hookMode === "native" || hookMode === "unsupported") {
     overrides.hookMode = hookMode;
