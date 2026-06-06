@@ -3198,6 +3198,35 @@ describe("providerExtensionSlashCommands", () => {
         ].join("\n"),
       );
       await writeFile(
+        path.join(cwd, ".github", "agents", "target-list-specialist.agent.md"),
+        [
+          "---",
+          "description: Uses block-list target and current field aliases",
+          "target:",
+          "  - github-copilot",
+          "argumentHint: <topic>",
+          "disableModelInvocation: true",
+          "userInvocable: true",
+          "---",
+          "",
+          "Handle target-list Copilot agent tasks.",
+        ].join("\n"),
+      );
+      await writeFile(
+        path.join(cwd, ".github", "agents", "snake-target-specialist.agent.md"),
+        [
+          "---",
+          "description: Uses snake-case agent field aliases",
+          "targets: [github-copilot]",
+          "argument_hint: <subject>",
+          "disable_model_invocation: false",
+          "user_invocable: true",
+          "---",
+          "",
+          "Handle snake-case Copilot agent tasks.",
+        ].join("\n"),
+      );
+      await writeFile(
         path.join(cwd, ".github", "agents", "missing-description.agent.md"),
         [
           "---",
@@ -4121,6 +4150,26 @@ describe("providerExtensionSlashCommands", () => {
             description: "Allows automatic model invocation using the current Copilot field",
             prompt: "Use this agent automatically when its specialty applies.",
             infer: true,
+            disableModelInvocation: false,
+            target: ["github-copilot"],
+          },
+          {
+            name: "target-list-specialist",
+            description: "Uses block-list target and current field aliases",
+            argumentHint: "<topic>",
+            prompt: "Handle target-list Copilot agent tasks.",
+            infer: false,
+            userInvocable: true,
+            disableModelInvocation: true,
+            target: ["github-copilot"],
+          },
+          {
+            name: "snake-target-specialist",
+            description: "Uses snake-case agent field aliases",
+            argumentHint: "<subject>",
+            prompt: "Handle snake-case Copilot agent tasks.",
+            infer: true,
+            userInvocable: true,
             disableModelInvocation: false,
             target: ["github-copilot"],
           },

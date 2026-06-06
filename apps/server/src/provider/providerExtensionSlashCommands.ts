@@ -4917,11 +4917,15 @@ function isGitHubCopilotTarget(markdown: string): boolean {
 }
 
 function gitHubCopilotCustomAgentTarget(markdown: string): string[] | undefined {
-  const target = frontmatterField(markdown, "target");
-  if (!target) {
+  const target = frontmatterStringListField(markdown, "target");
+  const targetsValue =
+    target ??
+    frontmatterStringListField(markdown, "targets") ??
+    frontmatterStringListField(markdown, "applyTo");
+  if (!targetsValue) {
     return undefined;
   }
-  const targets = splitFrontmatterListValue(target)
+  const targets = targetsValue
     .map((entry) => entry.toLowerCase())
     .filter((entry) => entry.length > 0);
   return targets.length > 0 ? targets : undefined;
@@ -5066,11 +5070,22 @@ function gitHubCopilotCustomAgentInfer(markdown: string): boolean | undefined {
 }
 
 function gitHubCopilotCustomAgentDisableModelInvocation(markdown: string): boolean | undefined {
-  return frontmatterBooleanField(markdown, "disable-model-invocation");
+  return frontmatterBooleanFieldAny(markdown, [
+    "disable-model-invocation",
+    "disableModelInvocation",
+    "disable_model_invocation",
+  ]);
 }
 
 function gitHubCopilotCustomAgentUserInvocable(markdown: string): boolean | undefined {
-  return frontmatterBooleanFieldAny(markdown, ["user-invocable", "user-invokable"]);
+  return frontmatterBooleanFieldAny(markdown, [
+    "user-invocable",
+    "user-invokable",
+    "userInvocable",
+    "userInvokable",
+    "user_invocable",
+    "user_invokable",
+  ]);
 }
 
 function normalizeGitHubCopilotCustomAgentPrompt(prompt: string): string {
@@ -5267,7 +5282,11 @@ function readGitHubCopilotCustomAgent(
   if (!description) {
     return null;
   }
-  const argumentHint = frontmatterField(markdown, "argument-hint");
+  const argumentHint = frontmatterFieldAny(markdown, [
+    "argument-hint",
+    "argumentHint",
+    "argument_hint",
+  ]);
   const tools = frontmatterStringListField(markdown, "tools");
   const agents = frontmatterStringListField(markdown, "agents");
   const infer = gitHubCopilotCustomAgentInfer(markdown);
