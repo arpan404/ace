@@ -2862,6 +2862,17 @@ describe("providerExtensionSlashCommands", () => {
         name: "verifier",
         description: "Codex compatibility verifier.",
       });
+      await writeFile(
+        path.join(repo, ".codex", "agents", "codex-toml-reviewer.toml"),
+        [
+          'name = "codex-toml-reviewer"',
+          'description = "Codex TOML compatibility reviewer."',
+          'developer_instructions = "Review code through the Codex agent schema."',
+          'model = "gpt-5.4-mini"',
+          'model_reasoning_effort = "medium"',
+          'sandbox_mode = "read-only"',
+        ].join("\n"),
+      );
       await writeAgentMarkdown({
         root: path.join(cursorHome, "agents"),
         fileName: "release-reviewer.md",
@@ -3007,6 +3018,20 @@ describe("providerExtensionSlashCommands", () => {
             kind: "agent",
             promptPrefix: "/verifier",
             description: "Codex compatibility verifier.",
+          }),
+          expect.objectContaining({
+            name: "codex-toml-reviewer",
+            kind: "agent",
+            promptPrefix: "/codex-toml-reviewer",
+            description: "Codex TOML compatibility reviewer.",
+            metadata: {
+              provider: "cursor",
+              source: "agent",
+              format: "codex-agent-toml",
+              model: "gpt-5.4-mini",
+              modelReasoningEffort: "medium",
+              sandboxMode: "read-only",
+            },
           }),
           expect.objectContaining({
             name: "release-reviewer",

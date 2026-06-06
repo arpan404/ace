@@ -37,6 +37,13 @@ type ProviderCommandInput = {
   readonly resolveCodexGoalsFeatureEnabled?: typeof isCodexGoalsFeatureEnabled;
 };
 
+type CodexAgentTomlReadOptions = {
+  readonly promptPrefix?: ((agentName: string) => string) | undefined;
+  readonly metadata?:
+    | ((toml: string, defaultMetadata: Record<string, unknown>) => Record<string, unknown>)
+    | undefined;
+};
+
 type PluginManifest = {
   readonly name?: string;
   readonly description?: string;
@@ -4807,25 +4814,30 @@ export function discoverCodexExtensionSlashCommands(
   );
 }
 
-function readCodexAgentRoot(root: string): ProviderSlashCommand[] {
+function readCodexAgentRoot(
+  root: string,
+  options: CodexAgentTomlReadOptions = {},
+): ProviderSlashCommand[] {
   if (!isDirectory(root)) {
     return [];
   }
   return safeReadDir(root)
     .map((entry) => path.join(root, entry))
     .filter((file) => file.endsWith(".toml") && isRegularFile(file))
-    .map(readCodexAgentTomlCommand)
+    .map((file) => readCodexAgentTomlCommand(file, options))
     .filter((command): command is ProviderSlashCommand => command !== null);
 }
 
-function codexAgentTomlMetadata(toml: string): Record<string, unknown> {
+function codexAgentTomlMetadata(
+  toml: string,
+  baseMetadata: Record<string, unknown> = { provider: "codex", source: "agent" },
+): Record<string, unknown> {
   const nicknameCandidates = frontmatterTomlStringArrayField(toml, "nickname_candidates");
   const model = frontmatterTomlStringField(toml, "model");
   const modelReasoningEffort = frontmatterTomlStringField(toml, "model_reasoning_effort");
   const sandboxMode = frontmatterTomlStringField(toml, "sandbox_mode");
   return {
-    provider: "codex",
-    source: "agent",
+    ...baseMetadata,
     ...(model ? { model } : {}),
     ...(modelReasoningEffort ? { modelReasoningEffort } : {}),
     ...(sandboxMode ? { sandboxMode } : {}),
@@ -4833,7 +4845,10 @@ function codexAgentTomlMetadata(toml: string): Record<string, unknown> {
   };
 }
 
-function readCodexAgentTomlCommand(file: string): ProviderSlashCommand | null {
+function readCodexAgentTomlCommand(
+  file: string,
+  options: CodexAgentTomlReadOptions = {},
+): ProviderSlashCommand | null {
   const toml = safeReadFile(file);
   if (!toml) {
     return null;
@@ -4844,12 +4859,13 @@ function readCodexAgentTomlCommand(file: string): ProviderSlashCommand | null {
   if (!name || !description || !developerInstructions) {
     return null;
   }
+  const defaultMetadata = codexAgentTomlMetadata(toml);
   return providerAgentSlashCommand({
     name,
     description,
-    promptPrefix: `@${name}`,
+    promptPrefix: options.promptPrefix?.(name) ?? `@${name}`,
     inputHint: "<prompt>",
-    metadata: codexAgentTomlMetadata(toml),
+    metadata: options.metadata?.(toml, defaultMetadata) ?? defaultMetadata,
   });
 }
 
@@ -5183,19 +5199,33 @@ export function discoverCursorExtensionSlashCommands(input: {
   const userAgentsHome = input.agentsHome?.trim() || path.join(homedir(), ".agents");
   const projectRoots = ancestorDirsUntilGitRoot(input.cwd);
   const projectRoot = cursorProjectRoot(input.cwd);
+  const codexAgentRoots = [
+    ...projectRoots.map((root) => path.join(root, ".codex", "agents")),
+    path.join(codexHome, "agents"),
+  ];
   const agentCommands = mergeProviderSlashCommands(
     [
       ...projectRoots.map((root) => path.join(root, ".cursor", "agents")),
       ...projectRoots.map((root) => path.join(root, ".claude", "agents")),
-      ...projectRoots.map((root) => path.join(root, ".codex", "agents")),
+      ...codexAgentRoots,
       path.join(cursorHome, "agents"),
       path.join(claudeHome, "agents"),
-      path.join(codexHome, "agents"),
     ].flatMap((root) =>
       readAgentMarkdownRoot(root, {
         nameFromFrontmatter: true,
         promptPrefix: (agentName) => `/${agentName}`,
         metadata: cursorAgentMetadata,
+      }),
+    ),
+    codexAgentRoots.flatMap((root) =>
+      readCodexAgentRoot(root, {
+        promptPrefix: (agentName) => `/${agentName}`,
+        metadata: (toml, defaultMetadata) => ({
+          ...defaultMetadata,
+          provider: "cursor",
+          source: "agent",
+          format: "codex-agent-toml",
+        }),
       }),
     ),
   );
