@@ -313,7 +313,7 @@ describe("EnvironmentMiniPanel", () => {
         subagentThread(),
         subagentThread({
           id: "__ace_new_side_chat__",
-          label: "New side chat",
+          label: "Review the current provider context.",
           entries: [
             {
               id: "__ace_new_side_chat__",
@@ -322,6 +322,8 @@ describe("EnvironmentMiniPanel", () => {
               tone: "tool",
               subagentId: "__ace_new_side_chat__",
               subagentType: "side chat",
+              sideChatMessageRole: "user",
+              sideChatMessageText: "Review the current provider context.",
             },
           ],
         }),
@@ -329,7 +331,7 @@ describe("EnvironmentMiniPanel", () => {
     });
 
     expect(markup).toContain("Side chats");
-    expect(markup).toContain("New side chat");
+    expect(markup).toContain("Review the current provider context.");
     expect(markup).toContain("Subagents");
     expect(markup).toContain("Dewey");
   });

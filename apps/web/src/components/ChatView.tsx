@@ -184,6 +184,7 @@ import {
   getComposerThreadDraft,
   getComposerThreadDraftState,
   useComposerDraftStore,
+  useComposerThreadDraft,
 } from "../composerDraftStore";
 import {
   appendBrowserDesignContextToPrompt,
@@ -3041,15 +3042,24 @@ function useChatViewComponent({
   const [hiddenSubagentTabIds, setHiddenSubagentTabIds] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
-  const newSideChatThread = useMemo<SubagentThread>(
-    () => ({
+  const newSideChatDraftThreadIdValue = useMemo(
+    () =>
+      newSideChatDraftThreadId({
+        parentThreadId: activeThread?.id ?? threadId,
+      }),
+    [activeThread?.id, threadId],
+  );
+  const newSideChatDraft = useComposerThreadDraft(newSideChatDraftThreadIdValue);
+  const newSideChatThread = useMemo<SubagentThread>(() => {
+    const pendingPrompt = newSideChatDraft.prompt.trim();
+    return {
       id: NEW_SIDE_CHAT_THREAD_ID,
-      label: "New side chat",
+      label: pendingPrompt || "New side chat",
       persona: {
         avatarClassName: "bg-sky-500/14 text-sky-500 ring-sky-500/24",
         haloClassName: "bg-sky-500/14",
         initials: "SC",
-        name: "New side chat",
+        name: pendingPrompt || "New side chat",
         pingClassName: "bg-sky-400",
       },
       roleLabel: "Side conversation",
@@ -3062,11 +3072,16 @@ function useChatViewComponent({
           tone: "tool",
           subagentId: NEW_SIDE_CHAT_THREAD_ID,
           subagentType: "side chat",
+          ...(pendingPrompt
+            ? {
+                sideChatMessageRole: "user" as const,
+                sideChatMessageText: pendingPrompt,
+              }
+            : {}),
         },
       ],
-    }),
-    [],
-  );
+    };
+  }, [newSideChatDraft.prompt]);
   const subagentPanelThreads = useMemo(
     () =>
       activeSubagentThreadId === NEW_SIDE_CHAT_THREAD_ID
@@ -8541,9 +8556,7 @@ function useChatViewComponent({
       if (!activeThread) {
         return;
       }
-      const draftThreadId = newSideChatDraftThreadId({
-        parentThreadId: activeThread.id ?? threadId,
-      });
+      const draftThreadId = newSideChatDraftThreadIdValue;
       setActiveSubagentThreadId(NEW_SIDE_CHAT_THREAD_ID);
       appendRightPanelTabOrder(`subagent:${NEW_SIDE_CHAT_THREAD_ID}`);
       appendBottomPanelTabOrder(`subagent:${NEW_SIDE_CHAT_THREAD_ID}`);
@@ -8563,12 +8576,12 @@ function useChatViewComponent({
       addComposerDraftImages,
       appendBottomPanelTabOrder,
       appendRightPanelTabOrder,
+      newSideChatDraftThreadIdValue,
       setComposerDraftRuntimeMode,
       setComposerDraftPrompt,
       setComposerDraftTerminalContexts,
       setRightSidePanelMode,
       setRightSidePanelVisible,
-      threadId,
     ],
   );
 
