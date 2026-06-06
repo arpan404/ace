@@ -60,6 +60,29 @@ describe("providerAgentMetadata", () => {
     expect(providerAgentRecord({ subtasks: [taskAgent] })).toBe(taskAgent);
   });
 
+  it("finds modern provider custom agent and profile containers", () => {
+    const customAgent = {
+      custom_agent_id: "claude-security-reviewer",
+      custom_agent_name: "security-reviewer",
+      description: "Reviews auth and payment changes.",
+    };
+    const profile = {
+      profile_id: "opencode-docs",
+      profile_name: "Docs",
+      mode: "subagent",
+    };
+    const persona = {
+      personaId: "gemini-planner",
+      personaName: "Planner",
+      personaType: "planning",
+    };
+
+    expect(providerAgentRecord({ customAgents: [customAgent] })).toBe(customAgent);
+    expect(providerAgentRecord({ agent_profiles: [profile] })).toBe(profile);
+    expect(providerAgentRecord({ selectedPersona: persona })).toBe(persona);
+    expect(providerAgentRecord({ personas: [persona] })).toBe(persona);
+  });
+
   it("returns every provider child record from plural side-chat containers", () => {
     const firstSideChat = {
       threadId: "provider-side-thread-1",
@@ -103,6 +126,24 @@ describe("providerAgentMetadata", () => {
       secondAgent,
     ]);
     expect(providerAgentRecords({ tasks: [firstAgent, secondAgent] })).toEqual([
+      firstAgent,
+      secondAgent,
+    ]);
+  });
+
+  it("returns every modern provider custom agent and assistant record", () => {
+    const firstAgent = {
+      customAgentId: "github-reviewer",
+      customAgentName: "Reviewer",
+    };
+    const secondAgent = {
+      assistant_id: "cursor-docs",
+      assistantName: "Docs assistant",
+    };
+
+    expect(providerAgentRecords({ custom_agents: [firstAgent] })).toEqual([firstAgent]);
+    expect(providerAgentRecords({ assistants: [secondAgent] })).toEqual([secondAgent]);
+    expect(providerAgentRecords({ selectedProfiles: [firstAgent, secondAgent] })).toEqual([
       firstAgent,
       secondAgent,
     ]);
@@ -161,6 +202,56 @@ describe("providerAgentMetadata", () => {
       id: "github.copilot.default.task",
       type: "subagent",
       name: "Task",
+    });
+  });
+
+  it("normalizes modern provider custom agent profile and persona aliases", () => {
+    expect(
+      providerAgentMetadataFromRecord({
+        custom_agent_id: "security-reviewer",
+        custom_agent_name: "Security reviewer",
+        customAgentType: "reviewer",
+        model_id: "provider-sonnet",
+        details: "Checks sensitive changes.",
+        system_prompt: "Review for authentication and payment risks.",
+      }),
+    ).toEqual({
+      id: "security-reviewer",
+      type: "reviewer",
+      name: "Security reviewer",
+      model: "provider-sonnet",
+      description: "Checks sensitive changes.",
+      prompt: "Review for authentication and payment risks.",
+    });
+
+    expect(
+      mergeProviderAgentMetadata(
+        providerAgentLooseRecord({
+          id: "runtime-item-1",
+          type: "provider.event",
+          selected_profile_id: "docs-profile",
+          profile_name: "Docs",
+          profile_type: "subagent",
+          instructions_text: "Write concise API notes.",
+        }),
+      ),
+    ).toEqual({
+      id: "docs-profile",
+      type: "subagent",
+      name: "Docs",
+      prompt: "Write concise API notes.",
+    });
+
+    expect(
+      providerAgentMetadataFromRecord({
+        personaSlug: "planner",
+        personaName: "Planner",
+        assistant_type: "planning",
+      }),
+    ).toEqual({
+      id: "planner",
+      type: "planning",
+      name: "Planner",
     });
   });
 

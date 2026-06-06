@@ -47,6 +47,118 @@ function recordsFrom(value: unknown): Record<string, unknown>[] {
   });
 }
 
+const providerAgentContainerKeys = [
+  "subagent",
+  "subagents",
+  "sub_agent",
+  "sub_agents",
+  "agent",
+  "agents",
+  "customAgent",
+  "custom_agent",
+  "customAgents",
+  "custom_agents",
+  "selectedAgent",
+  "selected_agent",
+  "selectedAgents",
+  "selected_agents",
+  "selectedSubagent",
+  "selected_subagent",
+  "selectedSubagents",
+  "selected_subagents",
+  "assistant",
+  "assistants",
+  "selectedAssistant",
+  "selected_assistant",
+  "selectedAssistants",
+  "selected_assistants",
+  "persona",
+  "personas",
+  "selectedPersona",
+  "selected_persona",
+  "selectedPersonas",
+  "selected_personas",
+  "profile",
+  "profiles",
+  "selectedProfile",
+  "selected_profile",
+  "selectedProfiles",
+  "selected_profiles",
+  "agentProfile",
+  "agent_profile",
+  "agentProfiles",
+  "agent_profiles",
+  "teamAgent",
+  "team_agent",
+  "teamAgents",
+  "team_agents",
+  "agentTeam",
+  "agent_team",
+  "agentTeams",
+  "agent_teams",
+  "fleet",
+  "fleets",
+  "subtask",
+  "subtasks",
+  "taskAgent",
+  "task_agent",
+  "taskAgents",
+  "task_agents",
+  "task",
+  "tasks",
+  "assignedAgent",
+  "assigned_agent",
+  "delegatedAgent",
+  "delegated_agent",
+  "delegate",
+  "assignee",
+  "worker",
+  "childAgent",
+  "child_agent",
+  "childAgents",
+  "child_agents",
+  "childThread",
+  "child_thread",
+  "childThreads",
+  "child_threads",
+  "childSession",
+  "child_session",
+  "childSessions",
+  "child_sessions",
+  "childConversation",
+  "child_conversation",
+  "childConversations",
+  "child_conversations",
+  "sideChat",
+  "side_chat",
+  "sideChats",
+  "side_chats",
+  "sideConversation",
+  "side_conversation",
+  "sideConversations",
+  "side_conversations",
+] as const;
+
+function firstRecordFromKeys(
+  record: Record<string, unknown>,
+  keys: ReadonlyArray<string>,
+): Record<string, unknown> | undefined {
+  for (const key of keys) {
+    const item = firstRecord(record[key]);
+    if (item) {
+      return item;
+    }
+  }
+  return undefined;
+}
+
+function recordsFromKeys(
+  record: Record<string, unknown>,
+  keys: ReadonlyArray<string>,
+): ReadonlyArray<Record<string, unknown>> {
+  return keys.flatMap((key) => recordsFrom(record[key]));
+}
+
 function asTrimmedString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
@@ -186,61 +298,7 @@ export function providerAgentRecord(
   if (!record) {
     return undefined;
   }
-  return (
-    firstRecord(record.subagent) ??
-    firstRecord(record.subagents) ??
-    firstRecord(record.agent) ??
-    firstRecord(record.agents) ??
-    firstRecord(record.teamAgent) ??
-    firstRecord(record.team_agent) ??
-    firstRecord(record.teamAgents) ??
-    firstRecord(record.team_agents) ??
-    firstRecord(record.agentTeam) ??
-    firstRecord(record.agent_team) ??
-    firstRecord(record.agentTeams) ??
-    firstRecord(record.agent_teams) ??
-    firstRecord(record.fleet) ??
-    firstRecord(record.fleets) ??
-    firstRecord(record.subtask) ??
-    firstRecord(record.subtasks) ??
-    firstRecord(record.taskAgent) ??
-    firstRecord(record.task_agent) ??
-    firstRecord(record.taskAgents) ??
-    firstRecord(record.task_agents) ??
-    firstRecord(record.task) ??
-    firstRecord(record.tasks) ??
-    firstRecord(record.assignedAgent) ??
-    firstRecord(record.assigned_agent) ??
-    firstRecord(record.delegatedAgent) ??
-    firstRecord(record.delegated_agent) ??
-    firstRecord(record.delegate) ??
-    firstRecord(record.assignee) ??
-    firstRecord(record.worker) ??
-    firstRecord(record.childAgent) ??
-    firstRecord(record.child_agent) ??
-    firstRecord(record.childAgents) ??
-    firstRecord(record.child_agents) ??
-    firstRecord(record.childThread) ??
-    firstRecord(record.child_thread) ??
-    firstRecord(record.childThreads) ??
-    firstRecord(record.child_threads) ??
-    firstRecord(record.childSession) ??
-    firstRecord(record.child_session) ??
-    firstRecord(record.childSessions) ??
-    firstRecord(record.child_sessions) ??
-    firstRecord(record.childConversation) ??
-    firstRecord(record.child_conversation) ??
-    firstRecord(record.childConversations) ??
-    firstRecord(record.child_conversations) ??
-    firstRecord(record.sideChat) ??
-    firstRecord(record.side_chat) ??
-    firstRecord(record.sideChats) ??
-    firstRecord(record.side_chats) ??
-    firstRecord(record.sideConversation) ??
-    firstRecord(record.side_conversation) ??
-    firstRecord(record.sideConversations) ??
-    firstRecord(record.side_conversations)
-  );
+  return firstRecordFromKeys(record, providerAgentContainerKeys);
 }
 
 export function providerAgentRecords(
@@ -249,61 +307,7 @@ export function providerAgentRecords(
   if (!record) {
     return [];
   }
-  return [
-    ...recordsFrom(record.subagent),
-    ...recordsFrom(record.subagents),
-    ...recordsFrom(record.agent),
-    ...recordsFrom(record.agents),
-    ...recordsFrom(record.teamAgent),
-    ...recordsFrom(record.team_agent),
-    ...recordsFrom(record.teamAgents),
-    ...recordsFrom(record.team_agents),
-    ...recordsFrom(record.agentTeam),
-    ...recordsFrom(record.agent_team),
-    ...recordsFrom(record.agentTeams),
-    ...recordsFrom(record.agent_teams),
-    ...recordsFrom(record.fleet),
-    ...recordsFrom(record.fleets),
-    ...recordsFrom(record.subtask),
-    ...recordsFrom(record.subtasks),
-    ...recordsFrom(record.taskAgent),
-    ...recordsFrom(record.task_agent),
-    ...recordsFrom(record.taskAgents),
-    ...recordsFrom(record.task_agents),
-    ...recordsFrom(record.task),
-    ...recordsFrom(record.tasks),
-    ...recordsFrom(record.assignedAgent),
-    ...recordsFrom(record.assigned_agent),
-    ...recordsFrom(record.delegatedAgent),
-    ...recordsFrom(record.delegated_agent),
-    ...recordsFrom(record.delegate),
-    ...recordsFrom(record.assignee),
-    ...recordsFrom(record.worker),
-    ...recordsFrom(record.childAgent),
-    ...recordsFrom(record.child_agent),
-    ...recordsFrom(record.childAgents),
-    ...recordsFrom(record.child_agents),
-    ...recordsFrom(record.childThread),
-    ...recordsFrom(record.child_thread),
-    ...recordsFrom(record.childThreads),
-    ...recordsFrom(record.child_threads),
-    ...recordsFrom(record.childSession),
-    ...recordsFrom(record.child_session),
-    ...recordsFrom(record.childSessions),
-    ...recordsFrom(record.child_sessions),
-    ...recordsFrom(record.childConversation),
-    ...recordsFrom(record.child_conversation),
-    ...recordsFrom(record.childConversations),
-    ...recordsFrom(record.child_conversations),
-    ...recordsFrom(record.sideChat),
-    ...recordsFrom(record.side_chat),
-    ...recordsFrom(record.sideChats),
-    ...recordsFrom(record.side_chats),
-    ...recordsFrom(record.sideConversation),
-    ...recordsFrom(record.side_conversation),
-    ...recordsFrom(record.sideConversations),
-    ...recordsFrom(record.side_conversations),
-  ];
+  return recordsFromKeys(record, providerAgentContainerKeys);
 }
 
 export function providerAgentMetadataFromRecord(
@@ -319,6 +323,35 @@ export function providerAgentMetadataFromRecord(
     attributes?.["gen_ai.agent.id"],
     record.agentId,
     record.agent_id,
+    record.customAgentId,
+    record.custom_agent_id,
+    record.selectedAgentId,
+    record.selected_agent_id,
+    record.selectedSubagentId,
+    record.selected_subagent_id,
+    record.agentProfileId,
+    record.agent_profile_id,
+    record.selectedProfileId,
+    record.selected_profile_id,
+    record.profileId,
+    record.profile_id,
+    record.personaId,
+    record.persona_id,
+    record.selectedPersonaId,
+    record.selected_persona_id,
+    record.assistantId,
+    record.assistant_id,
+    record.selectedAssistantId,
+    record.selected_assistant_id,
+    record.agentSlug,
+    record.agent_slug,
+    record.profileSlug,
+    record.profile_slug,
+    record.personaSlug,
+    record.persona_slug,
+    record.assistantSlug,
+    record.assistant_slug,
+    record.slug,
     record.taskId,
     record.taskID,
     record.task_id,
@@ -404,6 +437,15 @@ export function providerAgentMetadataFromRecord(
     record.subagent_type,
     record.agentType,
     record.agent_type,
+    record.customAgentType,
+    record.custom_agent_type,
+    record.profileType,
+    record.profile_type,
+    record.personaType,
+    record.persona_type,
+    record.assistantType,
+    record.assistant_type,
+    record.mode,
   );
   const name = firstTrimmedString(
     record.name,
@@ -422,6 +464,16 @@ export function providerAgentMetadataFromRecord(
     record.agent_name,
     record.subagentName,
     record.subagent_name,
+    record.customAgentName,
+    record.custom_agent_name,
+    record.profileName,
+    record.profile_name,
+    record.personaName,
+    record.persona_name,
+    record.assistantName,
+    record.assistant_name,
+    record.title,
+    record.label,
   );
   const model = firstTrimmedString(
     record.model,
@@ -437,6 +489,7 @@ export function providerAgentMetadataFromRecord(
     record["gen_ai.agent.description"],
     attributes?.["gen_ai.agent.description"],
     record.summary,
+    record.details,
   );
   const prompt = firstTrimmedString(
     record.prompt,
@@ -444,6 +497,10 @@ export function providerAgentMetadataFromRecord(
     attributes?.["gen_ai.agent.prompt"],
     record["gen_ai.agent.instructions"],
     attributes?.["gen_ai.agent.instructions"],
+    record.systemPrompt,
+    record.system_prompt,
+    record.instructionsText,
+    record.instructions_text,
     record.instructions,
     record.instruction,
     record.message,
@@ -522,6 +579,35 @@ export function providerAgentLooseRecord(
     "gen_ai.response.model",
     "agentId",
     "agent_id",
+    "customAgentId",
+    "custom_agent_id",
+    "selectedAgentId",
+    "selected_agent_id",
+    "selectedSubagentId",
+    "selected_subagent_id",
+    "agentProfileId",
+    "agent_profile_id",
+    "selectedProfileId",
+    "selected_profile_id",
+    "profileId",
+    "profile_id",
+    "personaId",
+    "persona_id",
+    "selectedPersonaId",
+    "selected_persona_id",
+    "assistantId",
+    "assistant_id",
+    "selectedAssistantId",
+    "selected_assistant_id",
+    "agentSlug",
+    "agent_slug",
+    "profileSlug",
+    "profile_slug",
+    "personaSlug",
+    "persona_slug",
+    "assistantSlug",
+    "assistant_slug",
+    "slug",
     "subagentId",
     "subagent_id",
     "childProviderThreadId",
@@ -588,6 +674,15 @@ export function providerAgentLooseRecord(
     "subagent_type",
     "agentType",
     "agent_type",
+    "customAgentType",
+    "custom_agent_type",
+    "profileType",
+    "profile_type",
+    "personaType",
+    "persona_type",
+    "assistantType",
+    "assistant_type",
+    "mode",
     "agentDisplayName",
     "agent_display_name",
     "agentNickname",
@@ -596,12 +691,27 @@ export function providerAgentLooseRecord(
     "agent_name",
     "subagentName",
     "subagent_name",
+    "customAgentName",
+    "custom_agent_name",
+    "profileName",
+    "profile_name",
+    "personaName",
+    "persona_name",
+    "assistantName",
+    "assistant_name",
+    "title",
+    "label",
     "model",
     "modelId",
     "model_id",
     "description",
     "summary",
+    "details",
     "prompt",
+    "systemPrompt",
+    "system_prompt",
+    "instructionsText",
+    "instructions_text",
     "instructions",
     "instruction",
     "message",
