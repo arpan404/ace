@@ -211,6 +211,15 @@ describe("providerCapabilities", () => {
       "built-in: explore",
       "built-in: scout",
     ]);
+    expect(defaultProviderIntegrationCapabilities("opencode").multiAgentManagementCommands).toEqual(
+      [
+        "opencode agent list",
+        "opencode agent create",
+        "--agent <agent>",
+        "opencode github install",
+        "opencode github run",
+      ],
+    );
     expect(defaultProviderIntegrationCapabilities("cursor").multiAgentMode).toBe("agent-command");
     expect(defaultProviderIntegrationCapabilities("cursor").multiAgentInvocationPrefixes).toEqual([
       "/",
