@@ -3027,6 +3027,17 @@ describe("providerExtensionSlashCommands", () => {
           "Use the project architecture conventions.",
         ].join("\n"),
       );
+      await writeFile(
+        path.join(repo, ".cursor", "rules", "security.mdc"),
+        [
+          "---",
+          "description: Security always rule",
+          "alwaysApply: true",
+          "---",
+          "",
+          "Always apply security conventions.",
+        ].join("\n"),
+      );
       await mkdir(path.join(cwd, ".cursor", "rules", "frontend"), { recursive: true });
       await writeFile(
         path.join(cwd, ".cursor", "rules", "frontend", "component.mdc"),
@@ -3221,6 +3232,7 @@ describe("providerExtensionSlashCommands", () => {
               provider: "cursor",
               source: "rule",
               alwaysApply: false,
+              ruleType: "agent-requested",
             },
           }),
           expect.objectContaining({
@@ -3232,6 +3244,19 @@ describe("providerExtensionSlashCommands", () => {
               provider: "cursor",
               source: "rule",
               globs: "**/*.tsx",
+              ruleType: "auto-attached",
+            },
+          }),
+          expect.objectContaining({
+            name: "rule:security",
+            kind: "skill",
+            promptPrefix: "@security",
+            description: "Security always rule",
+            metadata: {
+              provider: "cursor",
+              source: "rule",
+              alwaysApply: true,
+              ruleType: "always",
             },
           }),
           expect.objectContaining({
@@ -3239,18 +3264,34 @@ describe("providerExtensionSlashCommands", () => {
             kind: "skill",
             promptPrefix: "@backend-component",
             description: "Backend component rule",
+            metadata: {
+              provider: "cursor",
+              source: "rule",
+              ruleType: "agent-requested",
+            },
           }),
           expect.objectContaining({
             name: "rule:backend",
             kind: "skill",
             promptPrefix: "@backend",
             description: "Backend package rule",
+            metadata: {
+              provider: "cursor",
+              source: "rule",
+              alwaysApply: false,
+              ruleType: "agent-requested",
+            },
           }),
           expect.objectContaining({
             name: "rule:global-context",
             kind: "skill",
             promptPrefix: "@global-context",
             description: "Global Context",
+            metadata: {
+              provider: "cursor",
+              source: "rule",
+              ruleType: "manual",
+            },
           }),
           expect.objectContaining({
             name: "rule:agents",
@@ -3260,6 +3301,7 @@ describe("providerExtensionSlashCommands", () => {
             metadata: {
               provider: "cursor",
               source: "rule",
+              ruleType: "manual",
             },
           }),
           expect.objectContaining({

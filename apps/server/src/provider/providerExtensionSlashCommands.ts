@@ -4477,11 +4477,23 @@ function readCursorPlainRuleFile(input: {
 function cursorRuleMetadata(markdown: string, source: "rule" | "command"): Record<string, unknown> {
   const globs = frontmatterStringOrListField(markdown, "globs");
   const alwaysApply = frontmatterBooleanField(markdown, "alwaysApply");
+  const description = frontmatterField(markdown, "description");
+  const ruleType =
+    source === "rule"
+      ? alwaysApply === true
+        ? "always"
+        : globs !== undefined
+          ? "auto-attached"
+          : description
+            ? "agent-requested"
+            : "manual"
+      : undefined;
   return {
     provider: "cursor",
     source,
     ...(globs !== undefined ? { globs } : {}),
     ...(alwaysApply !== undefined ? { alwaysApply } : {}),
+    ...(ruleType ? { ruleType } : {}),
   };
 }
 
