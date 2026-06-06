@@ -366,6 +366,20 @@ export function orderSubagentThreadsForHierarchy(
   return ordered;
 }
 
+export function resolveNextVisibleSubagentThreadAfterClose(input: {
+  readonly closingThreadId: string;
+  readonly hiddenThreadIds: ReadonlySet<string>;
+  readonly threads: ReadonlyArray<SubagentThread>;
+}): SubagentThread | null {
+  const nextHiddenThreadIds = new Set(input.hiddenThreadIds);
+  nextHiddenThreadIds.add(input.closingThreadId);
+  return (
+    input.threads.find(
+      (thread) => thread.id !== input.closingThreadId && !nextHiddenThreadIds.has(thread.id),
+    ) ?? null
+  );
+}
+
 export function resolveSubagentMainAgentMessage(thread: SubagentThread): WorkLogEntry | null {
   return (
     thread.entries.find(

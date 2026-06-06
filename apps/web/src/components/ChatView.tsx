@@ -265,6 +265,7 @@ import {
   canReplyToSubagentThread,
   deriveSubagentThreads,
   partitionSubagentThreads,
+  resolveNextVisibleSubagentThreadAfterClose,
   type SubagentThread,
 } from "./chat/subagentThreads";
 import { useChatViewProviderSelectionState } from "./chat/useChatViewModelState";
@@ -3179,6 +3180,8 @@ function useChatViewComponent({
   );
   const closeSubagentTab = useCallback(
     (subagentThreadId: string) => {
+      const nextHiddenSubagentTabIds = new Set(hiddenSubagentTabIds);
+      nextHiddenSubagentTabIds.add(subagentThreadId);
       if (isNewSideChatDraftSubagentId(subagentThreadId)) {
         setPendingNewSideChatDraftIds((current) => current.filter((id) => id !== subagentThreadId));
         if (activeNewSideChatDraftId === subagentThreadId) {
@@ -3206,9 +3209,11 @@ function useChatViewComponent({
       if (activeSubagentThreadId !== subagentThreadId) {
         return;
       }
-      const nextThread = subagentPanelThreads.find(
-        (thread) => thread.id !== subagentThreadId && !hiddenSubagentTabIds.has(thread.id),
-      );
+      const nextThread = resolveNextVisibleSubagentThreadAfterClose({
+        closingThreadId: subagentThreadId,
+        hiddenThreadIds: hiddenSubagentTabIds,
+        threads: subagentPanelThreads,
+      });
       if (nextThread) {
         setActiveSubagentThreadId(nextThread.id);
         setActiveNewSideChatDraftId(
@@ -10935,10 +10940,6 @@ function useChatViewComponent({
       composerModelOptions,
       composerProviderCommands,
       gitCwd,
-      handleDeleteGoal,
-      handleEditGoal,
-      handlePauseGoal,
-      handleResumeGoal,
       handleSubagentComposerSubmit,
       isConnecting,
       isGitRepo,

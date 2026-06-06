@@ -10,6 +10,7 @@ import type {
   isSideChatThread as isSideChatThreadType,
   orderSubagentThreadsForHierarchy as orderSubagentThreadsForHierarchyType,
   partitionSubagentThreads as partitionSubagentThreadsType,
+  resolveNextVisibleSubagentThreadAfterClose as resolveNextVisibleSubagentThreadAfterCloseType,
   resolveSubagentMainAgentMessage as resolveSubagentMainAgentMessageType,
 } from "./subagentThreads";
 
@@ -21,6 +22,7 @@ let isEmptySideChatDraftPlaceholderEntry: typeof isEmptySideChatDraftPlaceholder
 let isSideChatThread: typeof isSideChatThreadType;
 let orderSubagentThreadsForHierarchy: typeof orderSubagentThreadsForHierarchyType;
 let partitionSubagentThreads: typeof partitionSubagentThreadsType;
+let resolveNextVisibleSubagentThreadAfterClose: typeof resolveNextVisibleSubagentThreadAfterCloseType;
 let resolveSubagentMainAgentMessage: typeof resolveSubagentMainAgentMessageType;
 
 beforeAll(async () => {
@@ -54,6 +56,7 @@ beforeAll(async () => {
     isSideChatThread,
     orderSubagentThreadsForHierarchy,
     partitionSubagentThreads,
+    resolveNextVisibleSubagentThreadAfterClose,
     resolveSubagentMainAgentMessage,
   } = await import("./subagentThreads"));
 });
@@ -784,5 +787,53 @@ describe("deriveSubagentThreads", () => {
       label: "Code Reviewer",
       model: "claude-sonnet",
     });
+  });
+
+  it("selects the next visible subagent tab after closing the active tab", () => {
+    const visibleSideChat = {
+      id: "side:thread-1:visible",
+      label: "Visible side chat",
+      persona: {
+        avatarClassName: "",
+        haloClassName: "",
+        initials: "VS",
+        name: "Visible side chat",
+        pingClassName: "",
+      },
+      status: "completed" as const,
+      entries: [
+        workEntry({
+          id: "visible-side-chat-entry",
+          subagentId: "side:thread-1:visible",
+          subagentType: "side chat",
+        }),
+      ],
+    };
+    const hiddenSideChat = {
+      ...visibleSideChat,
+      id: "side:thread-1:hidden",
+      label: "Hidden side chat",
+    };
+    const closingThread = {
+      ...visibleSideChat,
+      id: "agent-closing",
+      label: "Closing agent",
+    };
+
+    expect(
+      resolveNextVisibleSubagentThreadAfterClose({
+        closingThreadId: closingThread.id,
+        hiddenThreadIds: new Set([hiddenSideChat.id]),
+        threads: [closingThread, hiddenSideChat, visibleSideChat],
+      })?.id,
+    ).toBe(visibleSideChat.id);
+
+    expect(
+      resolveNextVisibleSubagentThreadAfterClose({
+        closingThreadId: visibleSideChat.id,
+        hiddenThreadIds: new Set([hiddenSideChat.id]),
+        threads: [visibleSideChat, hiddenSideChat],
+      }),
+    ).toBeNull();
   });
 });
