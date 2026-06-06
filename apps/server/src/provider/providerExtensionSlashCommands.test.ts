@@ -296,6 +296,26 @@ describe("providerExtensionSlashCommands", () => {
           "Research safely without editing files.",
         ].join("\n"),
       );
+      await writeFile(
+        path.join(repo, ".claude", "agents", "snake-case-reviewer.md"),
+        [
+          "---",
+          "name: snake-case-reviewer",
+          "description: Review code with snake-case Claude agent metadata",
+          "allowed_tools: [Read, Grep]",
+          "disallowed_tools: [Write, Edit]",
+          "permission_mode: acceptEdits",
+          "mcp_servers:",
+          "  repo:",
+          "    command: repo-mcp",
+          "max_turns: 5",
+          "initial_prompt: Start by summarizing the files you will inspect.",
+          "is_background: true",
+          "---",
+          "",
+          "Review safely with snake-case fields.",
+        ].join("\n"),
+      );
 
       const commands = discoverClaudeExtensionSlashCommands({ cwd, home: claudeHome });
       const option = discoverClaudeAgentConfigOption({
@@ -330,6 +350,11 @@ describe("providerExtensionSlashCommands", () => {
             value: "safe-researcher",
             name: "safe-researcher",
             description: "Research agent with a constrained Claude Code profile",
+          }),
+          expect.objectContaining({
+            value: "snake-case-reviewer",
+            name: "snake-case-reviewer",
+            description: "Review code with snake-case Claude agent metadata",
           }),
         ]),
       );
@@ -380,6 +405,27 @@ describe("providerExtensionSlashCommands", () => {
             memory: {
               retain: "project-map",
             },
+          },
+        }),
+      );
+      expect(findCommand(commands, "snake-case-reviewer")).toEqual(
+        expect.objectContaining({
+          kind: "agent",
+          promptPrefix: "@agent-snake-case-reviewer",
+          metadata: {
+            provider: "claude",
+            source: "agent",
+            allowedTools: ["Read", "Grep"],
+            disallowedTools: ["Write", "Edit"],
+            permissionMode: "acceptEdits",
+            mcpServers: {
+              repo: {
+                command: "repo-mcp",
+              },
+            },
+            maxTurns: 5,
+            initialPrompt: "Start by summarizing the files you will inspect.",
+            background: true,
           },
         }),
       );

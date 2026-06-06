@@ -944,6 +944,19 @@ function frontmatterStringOrListField(
   return values.length === 1 ? values[0] : values;
 }
 
+function frontmatterStringOrListFieldAny(
+  markdown: string,
+  fields: ReadonlyArray<string>,
+): string | string[] | undefined {
+  for (const field of fields) {
+    const value = frontmatterStringOrListField(markdown, field);
+    if (value !== undefined) {
+      return value;
+    }
+  }
+  return undefined;
+}
+
 function frontmatterArgumentNames(markdown: string): string[] | undefined {
   const values = frontmatterStringListField(markdown, "arguments");
   if (!values || values.length === 0) {
@@ -1001,27 +1014,45 @@ function claudeCommandMetadata(
 
 function claudeAgentMetadata(markdown: string): Record<string, unknown> | undefined {
   const tools = frontmatterStringOrListField(markdown, "tools");
-  const allowedTools = frontmatterStringOrListField(markdown, "allowed-tools");
-  const disallowedTools =
-    frontmatterStringOrListField(markdown, "disallowedTools") ??
-    frontmatterStringOrListField(markdown, "disallowed-tools");
+  const allowedTools = frontmatterStringOrListFieldAny(markdown, [
+    "allowedTools",
+    "allowed-tools",
+    "allowed_tools",
+  ]);
+  const disallowedTools = frontmatterStringOrListFieldAny(markdown, [
+    "disallowedTools",
+    "disallowed-tools",
+    "disallowed_tools",
+  ]);
   const model = frontmatterField(markdown, "model");
-  const permissionMode =
-    frontmatterField(markdown, "permissionMode") ?? frontmatterField(markdown, "permission-mode");
+  const permissionMode = frontmatterFieldAny(markdown, [
+    "permissionMode",
+    "permission-mode",
+    "permission_mode",
+  ]);
   const mcpServers =
     frontmatterJsonObjectField(markdown, "mcpServers") ??
     frontmatterJsonObjectField(markdown, "mcp-servers") ??
+    frontmatterJsonObjectField(markdown, "mcp_servers") ??
     frontmatterYamlObjectField(markdown, "mcpServers") ??
-    frontmatterYamlObjectField(markdown, "mcp-servers");
+    frontmatterYamlObjectField(markdown, "mcp-servers") ??
+    frontmatterYamlObjectField(markdown, "mcp_servers");
   const hooks =
     frontmatterJsonObjectField(markdown, "hooks") ?? frontmatterYamlObjectField(markdown, "hooks");
-  const maxTurns =
-    frontmatterNumberField(markdown, "maxTurns") ?? frontmatterNumberField(markdown, "max-turns");
+  const maxTurns = frontmatterNumberFieldAny(markdown, ["maxTurns", "max-turns", "max_turns"]);
   const skills = frontmatterStringOrListField(markdown, "skills");
-  const initialPrompt =
-    frontmatterField(markdown, "initialPrompt") ?? frontmatterField(markdown, "initial-prompt");
+  const initialPrompt = frontmatterFieldAny(markdown, [
+    "initialPrompt",
+    "initial-prompt",
+    "initial_prompt",
+  ]);
   const effort = frontmatterField(markdown, "effort");
-  const background = frontmatterBooleanField(markdown, "background");
+  const background = frontmatterBooleanFieldAny(markdown, [
+    "background",
+    "isBackground",
+    "is-background",
+    "is_background",
+  ]);
   const isolation = frontmatterField(markdown, "isolation");
   const color = frontmatterField(markdown, "color");
   const memory =
