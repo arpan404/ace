@@ -83,6 +83,32 @@ describe("providerAgentMetadata", () => {
     expect(providerAgentRecord({ personas: [persona] })).toBe(persona);
   });
 
+  it("finds remote hosted and A2A agent containers", () => {
+    const remoteAgent = {
+      remoteAgentId: "remote-reviewer",
+      remoteAgentName: "Remote reviewer",
+      remoteAgentType: "remote-agent",
+    };
+    const hostedAgent = {
+      hosted_agent_id: "hosted-task",
+      hosted_agent_name: "Hosted task agent",
+      hosted_agent_type: "hosted-agent",
+    };
+    const a2aAgent = {
+      a2aAgentId: "a2a-runner",
+      a2aAgentName: "A2A runner",
+      a2aAgentType: "a2a-agent",
+    };
+
+    expect(providerAgentRecord({ remoteAgents: [remoteAgent] })).toBe(remoteAgent);
+    expect(providerAgentRecord({ hosted_agent: hostedAgent })).toBe(hostedAgent);
+    expect(providerAgentRecord({ a2aAgents: [a2aAgent] })).toBe(a2aAgent);
+    expect(providerAgentRecords({ agentCards: [remoteAgent, a2aAgent] })).toEqual([
+      remoteAgent,
+      a2aAgent,
+    ]);
+  });
+
   it("returns every provider child record from plural side-chat containers", () => {
     const firstSideChat = {
       threadId: "provider-side-thread-1",
@@ -252,6 +278,40 @@ describe("providerAgentMetadata", () => {
       id: "planner",
       type: "planning",
       name: "Planner",
+    });
+  });
+
+  it("normalizes remote hosted and A2A agent identity aliases", () => {
+    expect(
+      providerAgentMetadataFromRecord({
+        remote_agent_id: "remote-reviewer",
+        remote_agent_name: "Remote reviewer",
+        remote_agent_type: "remote-agent",
+        model_id: "provider-remote-model",
+        instructions_text: "Review the implementation remotely.",
+      }),
+    ).toEqual({
+      id: "remote-reviewer",
+      type: "remote-agent",
+      name: "Remote reviewer",
+      model: "provider-remote-model",
+      prompt: "Review the implementation remotely.",
+    });
+
+    expect(
+      mergeProviderAgentMetadata(
+        providerAgentLooseRecord({
+          id: "runtime-item-1",
+          type: "provider.event",
+          a2aAgentId: "a2a-runner",
+          a2aAgentName: "A2A runner",
+          a2aAgentType: "a2a-agent",
+        }),
+      ),
+    ).toEqual({
+      id: "a2a-runner",
+      type: "a2a-agent",
+      name: "A2A runner",
     });
   });
 
