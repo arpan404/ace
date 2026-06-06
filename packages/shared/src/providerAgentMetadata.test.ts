@@ -231,6 +231,51 @@ describe("providerAgentMetadata", () => {
     });
   });
 
+  it("normalizes nested provider telemetry agent attributes", () => {
+    expect(
+      providerAgentMetadataFromRecord({
+        eventName: "subagent.started",
+        resource: {
+          attributes: {
+            "gen_ai.agent.id": "github.copilot.default.explore",
+            "gen_ai.agent.parent_id": "main-thread-1",
+            "gen_ai.agent.name": "Explore",
+            "gen_ai.agent.role": "subagent",
+            "gen_ai.agent.instructions": "Inspect the repository structure.",
+            "gen_ai.request.model": "gpt-5-copilot",
+          },
+        },
+      }),
+    ).toEqual({
+      id: "github.copilot.default.explore",
+      parentId: "main-thread-1",
+      type: "subagent",
+      name: "Explore",
+      model: "gpt-5-copilot",
+      prompt: "Inspect the repository structure.",
+    });
+
+    expect(
+      mergeProviderAgentMetadata(
+        providerAgentLooseRecord({
+          type: "provider.lifecycle",
+          metadata: {
+            attributes: {
+              agentId: "provider-side-chat-1",
+              agentName: "Side reviewer",
+              agentRole: "side-chat",
+              sideConversationId: "side-conversation-1",
+            },
+          },
+        }),
+      ),
+    ).toEqual({
+      id: "side-conversation-1",
+      type: "side-chat",
+      name: "Side reviewer",
+    });
+  });
+
   it("normalizes modern provider custom agent profile and persona aliases", () => {
     expect(
       providerAgentMetadataFromRecord({

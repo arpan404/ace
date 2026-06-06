@@ -16,6 +16,40 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
     : undefined;
 }
 
+function providerAttributeRecord(
+  record: Record<string, unknown> | null | undefined,
+): Record<string, unknown> | undefined {
+  if (!record) {
+    return undefined;
+  }
+  const metadata = asRecord(record.metadata) ?? asRecord(record.meta);
+  const resource = asRecord(record.resource);
+  const span = asRecord(record.span);
+  const event = asRecord(record.event);
+  return (
+    asRecord(record.attributes) ??
+    asRecord(record.attribute) ??
+    asRecord(metadata?.attributes) ??
+    asRecord(metadata?.attribute) ??
+    asRecord(record.otelAttributes) ??
+    asRecord(record.otel_attributes) ??
+    asRecord(record.telemetryAttributes) ??
+    asRecord(record.telemetry_attributes) ??
+    asRecord(record.resourceAttributes) ??
+    asRecord(record.resource_attributes) ??
+    asRecord(resource?.attributes) ??
+    asRecord(resource?.attribute) ??
+    asRecord(record.spanAttributes) ??
+    asRecord(record.span_attributes) ??
+    asRecord(span?.attributes) ??
+    asRecord(span?.attribute) ??
+    asRecord(record.eventAttributes) ??
+    asRecord(record.event_attributes) ??
+    asRecord(event?.attributes) ??
+    asRecord(event?.attribute)
+  );
+}
+
 function firstRecord(value: unknown): Record<string, unknown> | undefined {
   const record = asRecord(value);
   if (record) {
@@ -344,7 +378,7 @@ export function providerAgentMetadataFromRecord(
   if (!record) {
     return {};
   }
-  const attributes = asRecord(record.attributes) ?? asRecord(record.attribute);
+  const attributes = providerAttributeRecord(record);
   const genericId = firstTrimmedString(
     record.id,
     record["gen_ai.agent.id"],
@@ -652,7 +686,7 @@ export function providerAgentLooseRecord(
     return undefined;
   }
   const loose: Record<string, unknown> = {};
-  const attributes = asRecord(record.attributes) ?? asRecord(record.attribute);
+  const attributes = providerAttributeRecord(record);
   for (const key of [
     "gen_ai.agent.id",
     "gen_ai.agent.parent_id",
