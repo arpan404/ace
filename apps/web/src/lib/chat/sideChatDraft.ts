@@ -34,10 +34,12 @@ export function isAceSideConversationSupported(
 
 export function resolveAceSideConversationMode(input: {
   readonly provider: ProviderKind | null | undefined;
+  readonly providerMode?: ProviderIntegrationCapabilities["sideConversationMode"] | undefined;
   readonly sessionMode?: ProviderIntegrationCapabilities["sideConversationMode"] | undefined;
 }): ProviderIntegrationCapabilities["sideConversationMode"] | undefined {
   return (
     input.sessionMode ??
+    input.providerMode ??
     (input.provider
       ? defaultProviderIntegrationCapabilities(input.provider).sideConversationMode
       : undefined)

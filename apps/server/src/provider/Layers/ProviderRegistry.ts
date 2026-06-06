@@ -35,6 +35,7 @@ import { PiProvider } from "../Services/PiProvider";
 import { ProviderRegistry, type ProviderRegistryShape } from "../Services/ProviderRegistry";
 import { ServerSettingsService } from "../../serverSettings";
 import { withStartupTiming } from "../../startupDiagnostics";
+import { resolveProviderIntegrationCapabilities } from "@ace/shared/providerIntegrationCapabilities";
 import { resolveProviderSettings } from "@ace/shared/providerInstances";
 
 const PROVIDER_LABEL_BY_KIND: Record<ProviderKind, string> = {
@@ -85,6 +86,7 @@ export function fallbackProviderSnapshot(
     checkedAt: new Date().toISOString(),
     message: `Failed to load ${PROVIDER_LABEL_BY_KIND[provider]} provider status.`,
     models: [],
+    capabilities: resolveProviderIntegrationCapabilities(provider),
   };
 }
 
@@ -101,6 +103,7 @@ function tagProviderSnapshot(
 ): ServerProvider {
   return {
     ...snapshot,
+    capabilities: resolveProviderIntegrationCapabilities(snapshot.provider, snapshot.capabilities),
     ...(input.providerInstanceId
       ? {
           providerInstanceId: input.providerInstanceId,

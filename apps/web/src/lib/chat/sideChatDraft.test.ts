@@ -47,6 +47,15 @@ describe("sideChatDraft", () => {
     ).toBe("unsupported");
   });
 
+  it("prefers provider status side-chat capability over provider defaults", () => {
+    expect(
+      resolveAceSideConversationMode({
+        provider: "codex",
+        providerMode: "replay-fork",
+      }),
+    ).toBe("replay-fork");
+  });
+
   it("parses only the Ace-native side-chat command", () => {
     expect(parseAceSideChatCommand(" /side ")).toEqual({ prompt: "" });
     expect(parseAceSideChatCommand("/side inspect provider context")).toEqual({

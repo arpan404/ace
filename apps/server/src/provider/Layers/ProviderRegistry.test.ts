@@ -31,6 +31,7 @@ import {
 } from "./CodexProvider";
 import { toClaudeServerProviderModel } from "../claudeCatalog";
 import { parseCodexDebugModelsOutput } from "../codexCatalog";
+import { MINIMUM_CODEX_CLI_VERSION } from "../codexCliVersion";
 import { checkClaudeProviderStatus, parseClaudeAuthStatusFromOutput } from "./ClaudeProvider";
 import {
   checkCursorProviderStatus,
@@ -410,7 +411,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
           assert.strictEqual(status.auth.status, "unknown");
           assert.strictEqual(
             status.message,
-            "Upgrade needed: Codex CLI v0.36.0 is below ace's minimum supported version v0.37.0. Upgrade Codex CLI and restart ace.",
+            `Upgrade needed: Codex CLI v0.36.0 is below ace's minimum supported version v${MINIMUM_CODEX_CLI_VERSION}. Upgrade Codex CLI and restart ace.`,
           );
         }).pipe(
           Effect.provide(
@@ -554,6 +555,8 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
         assert.strictEqual(snapshot.provider, "opencode");
         assert.strictEqual(snapshot.status, "error");
         assert.deepStrictEqual(snapshot.models, []);
+        assert.strictEqual(snapshot.capabilities?.sideConversationMode, "replay-fork");
+        assert.strictEqual(snapshot.capabilities?.providerThreadTargetingMode, "native");
       });
 
       it.effect("reruns codex health when codex provider settings change", () =>

@@ -2706,13 +2706,16 @@ function useChatViewComponent({
     providerStatuses,
     selectedProvider,
   ]);
+  const activeProviderStatusCapabilities = activeProviderStatus?.capabilities;
   const sideConversationMode = resolveAceSideConversationMode({
     provider: activeThread?.modelSelection.provider,
+    providerMode: activeProviderStatusCapabilities?.sideConversationMode,
     sessionMode: activeThread?.session?.capabilities?.sideConversationMode,
   });
   const sideConversationSupported = isAceSideConversationSupported(sideConversationMode);
   const providerThreadTargetingMode =
     activeThread?.session?.capabilities?.providerThreadTargetingMode ??
+    activeProviderStatusCapabilities?.providerThreadTargetingMode ??
     (activeThread
       ? defaultProviderIntegrationCapabilities(activeThread.modelSelection.provider)
           .providerThreadTargetingMode
@@ -2813,21 +2816,39 @@ function useChatViewComponent({
   );
   const activeGoal = useMemo(() => deriveActiveGoalState(threadActivities), [threadActivities]);
   const activeGoalControlsSupported =
-    activeThread?.session?.capabilities?.goalControlMode === "native";
+    (activeThread?.session?.capabilities?.goalControlMode ??
+      activeProviderStatusCapabilities?.goalControlMode) === "native";
   const mcpStatuses = useMemo(
     () => deriveEnvironmentMcpStatuses(threadActivities),
     [threadActivities],
   );
   const environmentProviderStatuses = useMemo(() => {
+    const providerStatusSession =
+      activeThread && activeProviderStatusCapabilities
+        ? {
+            provider: activeThread.modelSelection.provider,
+            capabilities: activeProviderStatusCapabilities,
+            updatedAt:
+              activeProviderStatus?.checkedAt ??
+              activeThread.updatedAt ??
+              new Date(0).toISOString(),
+          }
+        : null;
     const sessionProviderStatuses = deriveEnvironmentSessionProviderStatuses(
-      activeThread?.session,
+      activeThread?.session ?? providerStatusSession,
       composerProviderCommands,
     );
     const activityStatuses = deriveEnvironmentProviderStatuses(threadActivities);
     return sessionProviderStatuses.length > 0
       ? [...sessionProviderStatuses, ...activityStatuses]
       : activityStatuses;
-  }, [activeThread?.session, composerProviderCommands, threadActivities]);
+  }, [
+    activeProviderStatus?.checkedAt,
+    activeProviderStatusCapabilities,
+    activeThread,
+    composerProviderCommands,
+    threadActivities,
+  ]);
   const activeGeneratedWorkspaceSummary = useMemo(
     () => deriveLatestGeneratedWorkspaceSummary(threadActivities),
     [threadActivities],

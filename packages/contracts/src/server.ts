@@ -9,7 +9,12 @@ import {
 import { KeybindingRule, ResolvedKeybindingsConfig } from "./keybindings";
 import { EditorId } from "./editor";
 import { CursorModelMetadata, ModelCapabilities } from "./model";
-import { ProviderInstanceId, ProviderKind, ProviderSlashCommand } from "./orchestration";
+import {
+  ProviderInstanceId,
+  ProviderIntegrationCapabilities,
+  ProviderKind,
+  ProviderSlashCommand,
+} from "./orchestration";
 import { ServerSettings } from "./settings";
 import { ServerRelayStatus } from "./relay";
 
@@ -98,6 +103,7 @@ export const ServerProvider = Schema.Struct({
   checkedAt: IsoDateTime,
   message: Schema.optional(TrimmedNonEmptyString),
   models: Schema.Array(ServerProviderModel),
+  capabilities: Schema.optional(ProviderIntegrationCapabilities),
   commands: Schema.optional(Schema.Array(ProviderSlashCommand)),
   runtimes: Schema.optional(Schema.Array(ServerProviderRuntime)),
 });
