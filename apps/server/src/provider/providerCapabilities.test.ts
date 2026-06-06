@@ -114,10 +114,13 @@ describe("providerCapabilities", () => {
 
   it("declares provider multi-agent support without inferring from UI commands", () => {
     expect(defaultProviderIntegrationCapabilities("codex").multiAgentMode).toBe("native");
-    expect(defaultProviderIntegrationCapabilities("codex").multiAgentInvocationPrefixes).toEqual(
-      [],
-    );
-    expect(defaultProviderIntegrationCapabilities("codex").multiAgentDefinitionPaths).toEqual([]);
+    expect(defaultProviderIntegrationCapabilities("codex").multiAgentInvocationPrefixes).toEqual([
+      "@",
+    ]);
+    expect(defaultProviderIntegrationCapabilities("codex").multiAgentDefinitionPaths).toEqual([
+      ".codex/agents",
+      "~/.codex/agents",
+    ]);
     expect(defaultProviderIntegrationCapabilities("claudeAgent").multiAgentMode).toBe("native");
     expect(
       defaultProviderIntegrationCapabilities("claudeAgent").multiAgentInvocationPrefixes,
