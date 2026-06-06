@@ -3368,6 +3368,12 @@ function useChatViewComponent({
     },
     [activeGoal?.status, dispatchGoalUpdate],
   );
+  const handleCreateGoal = useCallback(
+    (objective: string) => {
+      void dispatchGoalUpdate({ objective, status: "active" });
+    },
+    [dispatchGoalUpdate],
+  );
   const handleDeleteGoal = useCallback(async () => {
     if (!activeThread) {
       return;
@@ -10127,6 +10133,7 @@ function useChatViewComponent({
         workspaceChangeStat,
         workspaceMode: headerWorkspaceMode,
         onAddProjectScript: saveProjectScript,
+        onCreateGoal: handleCreateGoal,
         onDeleteGoal: handleDeleteGoal,
         onDeleteProjectScript: deleteProjectScript,
         onEditGoal: handleEditGoal,

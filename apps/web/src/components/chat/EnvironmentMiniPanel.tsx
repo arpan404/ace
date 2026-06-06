@@ -233,18 +233,51 @@ function GoalControlButton(props: {
 }
 
 function EnvironmentGoalPanel(props: {
-  goal: ActiveGoalState;
+  goal: ActiveGoalState | null;
   goalControlsSupported: boolean;
+  onCreateGoal: (objective: string) => void;
   onDeleteGoal: () => void;
   onEditGoal: (objective: string) => void;
   onPauseGoal: () => void;
   onResumeGoal: () => void;
 }) {
   const [editing, setEditing] = useState(false);
-  const [draftObjective, setDraftObjective] = useState(props.goal.objective);
-  const usage = formatGoalUsage(props.goal);
+  const [draftObjective, setDraftObjective] = useState(props.goal?.objective ?? "");
+  const usage = props.goal ? formatGoalUsage(props.goal) : null;
   const trimmedDraft = draftObjective.trim();
-  const saveDisabled = trimmedDraft.length === 0 || trimmedDraft === props.goal.objective;
+  const saveDisabled =
+    trimmedDraft.length === 0 || (props.goal !== null && trimmedDraft === props.goal.objective);
+
+  if (!props.goal) {
+    if (!props.goalControlsSupported) {
+      return null;
+    }
+    return (
+      <div className="space-y-1.5 px-2 py-1">
+        <textarea
+          value={draftObjective}
+          onChange={(event) => setDraftObjective(event.target.value)}
+          className="min-h-20 w-full resize-none rounded-lg border border-border/65 bg-background/75 px-2.5 py-2 text-[12px] leading-5 outline-none transition-colors focus:border-ring/55 focus:ring-2 focus:ring-ring/10"
+          aria-label="Create goal objective"
+          placeholder="Set a long-running goal"
+        />
+        <div className="flex items-center justify-end gap-1">
+          <GoalControlButton
+            label="Start goal"
+            disabled={trimmedDraft.length === 0}
+            onClick={() => {
+              if (!trimmedDraft) return;
+              props.onCreateGoal(trimmedDraft);
+              setDraftObjective("");
+            }}
+          >
+            <PlayIcon className="size-3.5" />
+          </GoalControlButton>
+        </div>
+      </div>
+    );
+  }
+  const goal = props.goal;
 
   if (editing && props.goalControlsSupported) {
     return (
@@ -259,7 +292,7 @@ function EnvironmentGoalPanel(props: {
           <GoalControlButton
             label="Cancel edit"
             onClick={() => {
-              setDraftObjective(props.goal.objective);
+              setDraftObjective(goal.objective);
               setEditing(false);
             }}
           >
@@ -285,11 +318,9 @@ function EnvironmentGoalPanel(props: {
     <div className="px-2 py-1">
       <div className="flex min-w-0 items-start gap-2">
         <div className="min-w-0 flex-1">
-          <div className="line-clamp-3 text-[12px] leading-5 text-foreground">
-            {props.goal.objective}
-          </div>
+          <div className="line-clamp-3 text-[12px] leading-5 text-foreground">{goal.objective}</div>
           <div className="mt-1 flex min-w-0 items-center gap-2 text-[10px] uppercase tracking-wide text-muted-foreground">
-            <span>{props.goal.status}</span>
+            <span>{goal.status}</span>
             {usage ? (
               <span className="min-w-0 truncate normal-case tracking-normal">{usage}</span>
             ) : null}
@@ -297,7 +328,7 @@ function EnvironmentGoalPanel(props: {
         </div>
         {props.goalControlsSupported ? (
           <div className="flex shrink-0 items-center gap-0.5">
-            {props.goal.status === "paused" || props.goal.status === "completed" ? (
+            {goal.status === "paused" || goal.status === "completed" ? (
               <GoalControlButton label="Resume goal" onClick={props.onResumeGoal}>
                 <PlayIcon className="size-3.5" />
               </GoalControlButton>
@@ -309,7 +340,7 @@ function EnvironmentGoalPanel(props: {
             <GoalControlButton
               label="Edit goal"
               onClick={() => {
-                setDraftObjective(props.goal.objective);
+                setDraftObjective(goal.objective);
                 setEditing(true);
               }}
             >
@@ -534,6 +565,7 @@ export const EnvironmentMiniPanel = forwardRef<
     providerStatuses: ReadonlyArray<EnvironmentProviderStatus>;
     style?: MotionStyle;
     onAddProjectScript: (input: NewProjectScriptInput) => Promise<void>;
+    onCreateGoal: (objective: string) => void;
     onDeleteProjectScript: (scriptId: string) => Promise<void>;
     onDeleteGoal: () => void;
     onEditGoal: (objective: string) => void;
@@ -651,7 +683,7 @@ export const EnvironmentMiniPanel = forwardRef<
       {...(props.style ? { style: props.style } : {})}
     >
       <div className="space-y-0">
-        {activeGoal ? (
+        {activeGoal || props.activeGoalControlsSupported ? (
           <EnvironmentPanelGroup
             title="Goal"
             open={resolveEnvironmentPanelGroupOpen(groupOpenState, "goal")}
@@ -660,6 +692,7 @@ export const EnvironmentMiniPanel = forwardRef<
             <EnvironmentGoalPanel
               goal={activeGoal}
               goalControlsSupported={props.activeGoalControlsSupported}
+              onCreateGoal={props.onCreateGoal}
               onDeleteGoal={props.onDeleteGoal}
               onEditGoal={props.onEditGoal}
               onPauseGoal={props.onPauseGoal}

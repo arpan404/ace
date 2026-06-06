@@ -701,8 +701,6 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
           .filter(isComposerVisibleProviderCommand)
           .map((command) => normalizeSlashCommandName(command.name)),
       );
-      const slashTriggerAtPromptStart =
-        prompt.slice(0, composerTrigger.rangeStart).trim().length === 0;
       const planCommandSupported = providerCommandNames.has("plan");
       const interactionModeCommandItems =
         interactionMode === "plan"
@@ -750,22 +748,8 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
           description: "Switch response model for this thread",
         },
         ...interactionModeCommandItems,
-        ...(props.selectedProvider === "codex" &&
-        providerCommandNames.has("goal") &&
-        slashTriggerAtPromptStart
-          ? ([
-              {
-                id: "slash:goal",
-                type: "slash-command" as const,
-                command: "goal" as const,
-                commandSource: "ace" as const,
-                label: formatCommandDisplayLabel("goal"),
-                description: "Set or inspect the active long-running goal",
-              },
-            ] as const)
-          : []),
       ].filter((item) =>
-        item.command === "goal" || item.command === "plan" || item.command === "default"
+        item.command === "plan" || item.command === "default"
           ? true
           : !providerCommandNames.has(normalizeSlashCommandName(item.command)),
       );

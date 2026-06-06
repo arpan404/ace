@@ -108,6 +108,7 @@ function renderEnvironmentMiniPanel(
       mcpStatuses={[]}
       providerStatuses={[]}
       onAddProjectScript={() => Promise.resolve()}
+      onCreateGoal={() => undefined}
       onDeleteGoal={() => undefined}
       onDeleteProjectScript={() => Promise.resolve()}
       onEditGoal={() => undefined}
@@ -179,6 +180,7 @@ describe("EnvironmentMiniPanel", () => {
           mcpStatuses={[]}
           providerStatuses={[]}
           onAddProjectScript={() => Promise.resolve()}
+          onCreateGoal={() => undefined}
           onDeleteGoal={() => undefined}
           onDeleteProjectScript={() => Promise.resolve()}
           onEditGoal={() => undefined}
@@ -391,6 +393,27 @@ describe("EnvironmentMiniPanel", () => {
     expect(markup).toContain("Pause goal");
     expect(markup).toContain("Edit goal");
     expect(markup).toContain("Delete goal");
+  });
+
+  it("renders native goal creation controls when no goal is active", () => {
+    const markup = renderEnvironmentMiniPanel({
+      activeGoal: null,
+      activeGoalControlsSupported: true,
+    });
+
+    expect(markup).toContain("Goal");
+    expect(markup).toContain("Set a long-running goal");
+    expect(markup).toContain("Start goal");
+  });
+
+  it("does not render goal creation controls when native goal control is unsupported", () => {
+    const markup = renderEnvironmentMiniPanel({
+      activeGoal: null,
+      activeGoalControlsSupported: false,
+    });
+
+    expect(markup).not.toContain("Set a long-running goal");
+    expect(markup).not.toContain("Start goal");
   });
 
   it("shows completed goals as resumable goal panel state", () => {
