@@ -139,13 +139,16 @@ describe("providerCapabilities", () => {
     expect(
       defaultProviderIntegrationCapabilities("githubCopilot").multiAgentDefinitionPaths,
     ).toEqual([
-      ".github/agents",
-      ".github/chatmodes",
+      ".github/agents/*.agent.md",
+      ".github/agents/*.md",
+      ".github/chatmodes/*.chatmode.md",
       ".claude/agents",
-      "~/.copilot/agents",
-      "~/.copilot/chatmodes",
-      "~/.github-copilot/agents",
-      "~/.github-copilot/chatmodes",
+      "~/.copilot/agents/*.agent.md",
+      "~/.copilot/agents/*.md",
+      "~/.copilot/chatmodes/*.chatmode.md",
+      "~/.github-copilot/agents/*.agent.md",
+      "~/.github-copilot/agents/*.md",
+      "~/.github-copilot/chatmodes/*.chatmode.md",
       "configured chat.agentFilesLocations",
     ]);
     expect(defaultProviderIntegrationCapabilities("opencode").multiAgentMode).toBe("native");
@@ -155,8 +158,10 @@ describe("providerCapabilities", () => {
     expect(defaultProviderIntegrationCapabilities("opencode").multiAgentDefinitionPaths).toEqual([
       "opencode.json agent",
       "~/.config/opencode/opencode.json agent",
-      ".opencode/agents",
-      "~/.config/opencode/agents",
+      ".opencode/agent/*.md",
+      ".opencode/agents/*.md",
+      "~/.config/opencode/agent/*.md",
+      "~/.config/opencode/agents/*.md",
     ]);
     expect(defaultProviderIntegrationCapabilities("cursor").multiAgentMode).toBe("agent-command");
     expect(defaultProviderIntegrationCapabilities("cursor").multiAgentInvocationPrefixes).toEqual([
