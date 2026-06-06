@@ -1793,6 +1793,92 @@ describe("deriveWorkLogEntries", () => {
     });
   });
 
+  it("derives multiple provider child entries from generic child collections", () => {
+    const entries = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "provider-generic-children-response",
+          turnId: "turn-provider-generic-children",
+          kind: "task.progress",
+          summary: "Generic child responses",
+          payload: {
+            itemType: "assistant_message",
+            detail: "Provider reported generic children.",
+            data: {
+              children: [
+                {
+                  childProviderThreadId: "provider-child-thread-a",
+                  agentName: "Reviewer",
+                  agentRole: "subagent",
+                  response: "Reviewer result.",
+                },
+                {
+                  resource: {
+                    attributes: {
+                      "gen_ai.agent.id": "provider-child-thread-b",
+                      "gen_ai.agent.name": "Planner",
+                      "gen_ai.agent.role": "subagent",
+                    },
+                  },
+                  response: "Planner result.",
+                },
+                {
+                  type: "text",
+                  text: "Plain provider output.",
+                },
+              ],
+            },
+          },
+        }),
+      ],
+      undefined,
+    );
+
+    expect(entries).toHaveLength(2);
+    expect(entries.map((entry) => entry.subagentId)).toEqual([
+      "provider-child-thread-a",
+      "provider-child-thread-b",
+    ]);
+    expect(entries.map((entry) => entry.subagentName)).toEqual(["Reviewer", "Planner"]);
+    expect(entries.map((entry) => entry.sideChatMessageText)).toEqual([
+      "Reviewer result.",
+      "Planner result.",
+    ]);
+  });
+
+  it("derives a provider child entry from a single generic child collection record", () => {
+    const entries = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "provider-generic-single-child-response",
+          turnId: "turn-provider-generic-single-child",
+          kind: "task.progress",
+          summary: "Generic child response",
+          payload: {
+            itemType: "assistant_message",
+            detail: "Provider reported a generic child.",
+            data: {
+              children: [
+                {
+                  childProviderThreadId: "provider-child-thread-a",
+                  agentName: "Reviewer",
+                  agentRole: "subagent",
+                  response: "Reviewer result.",
+                },
+              ],
+            },
+          },
+        }),
+      ],
+      undefined,
+    );
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.subagentId).toBe("provider-child-thread-a");
+    expect(entries[0]?.subagentName).toBe("Reviewer");
+    expect(entries[0]?.sideChatMessageText).toBe("Reviewer result.");
+  });
+
   it("derives provider subagent metadata from telemetry attributes", () => {
     const entries = deriveWorkLogEntries(
       [

@@ -157,6 +157,34 @@ describe("providerAgentMetadata", () => {
     ]);
   });
 
+  it("returns agent-like records from generic provider child collections", () => {
+    const firstAgent = {
+      id: "child-agent-1",
+      agentName: "Reviewer",
+      agentRole: "subagent",
+    };
+    const ignoredOutput = {
+      type: "text",
+      text: "Plain model output without agent identity.",
+    };
+    const secondAgent = {
+      resource: {
+        attributes: {
+          "gen_ai.agent.id": "child-agent-2",
+          "gen_ai.agent.name": "Planner",
+          "gen_ai.agent.role": "subagent",
+        },
+      },
+    };
+
+    expect(
+      providerAgentRecords({
+        children: [firstAgent, ignoredOutput],
+        items: [ignoredOutput, secondAgent],
+      }),
+    ).toEqual([firstAgent, secondAgent]);
+  });
+
   it("returns every modern provider custom agent and assistant record", () => {
     const firstAgent = {
       customAgentId: "github-reviewer",

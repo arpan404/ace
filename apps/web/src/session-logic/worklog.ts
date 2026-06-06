@@ -1311,11 +1311,15 @@ function toProviderChildRecordEntries(
     ...providerAgentRecords(data),
     ...providerAgentRecords(item),
   ];
-  if (records.length <= 1 || !baseEntry.sideChatMessageText) {
+  const baseHasProviderChild = Boolean(
+    baseEntry.subagentId ?? baseEntry.subagentName ?? baseEntry.subagentType,
+  );
+  if (records.length === 0 || (records.length === 1 && baseHasProviderChild)) {
     return [baseEntry];
   }
-  const entries = [baseEntry];
-  for (const [recordIndex, record] of records.slice(1).entries()) {
+  const entries = baseHasProviderChild ? [baseEntry] : [];
+  const childRecords = baseHasProviderChild ? records.slice(1) : records;
+  for (const [recordIndex, record] of childRecords.entries()) {
     const metadata = mergeProviderAgentMetadata(
       record,
       providerAgentLooseRecord(record),
@@ -1335,7 +1339,7 @@ function toProviderChildRecordEntries(
     const { collapseKey: _collapseKey, ...baseWithoutCollapseKey } = baseEntry;
     const entry: DerivedWorkLogEntry = {
       ...baseWithoutCollapseKey,
-      id: `${baseEntry.id}:provider-child:${recordIndex + 1}`,
+      id: `${baseEntry.id}:provider-child:${baseHasProviderChild ? recordIndex + 1 : recordIndex}`,
       ...(detail ? { detail } : {}),
       ...(subagentId ? { subagentId } : {}),
       ...(metadata.parentId ? { subagentParentId: metadata.parentId } : {}),
@@ -1343,12 +1347,13 @@ function toProviderChildRecordEntries(
       ...(metadata.name ? { subagentName: metadata.name } : {}),
       ...(metadata.model ? { subagentModel: metadata.model } : {}),
       ...(metadata.transcriptPath ? { subagentTranscriptPath: metadata.transcriptPath } : {}),
-      sideChatMessageId: `${baseEntry.sideChatMessageId ?? baseEntry.id}:provider-child:${recordIndex + 1}`,
+      sideChatMessageId: `${baseEntry.sideChatMessageId ?? baseEntry.id}:provider-child:${baseHasProviderChild ? recordIndex + 1 : recordIndex}`,
+      sideChatMessageRole: baseEntry.sideChatMessageRole ?? "assistant",
       ...(detail ? { sideChatMessageText: detail } : {}),
     };
     entries.push(entry);
   }
-  return entries;
+  return entries.length > 0 ? entries : [baseEntry];
 }
 
 function collapseDerivedWorkLogEntries(

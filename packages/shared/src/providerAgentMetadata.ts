@@ -199,6 +199,22 @@ const providerAgentContainerKeys = [
   "side_conversations",
 ] as const;
 
+const providerAgentCandidateContainerKeys = [
+  "children",
+  "child_items",
+  "childItems",
+  "members",
+  "participants",
+  "participant",
+  "collaborators",
+  "collaborator",
+  "workers",
+  "routes",
+  "items",
+  "outputs",
+  "results",
+] as const;
+
 function firstRecordFromKeys(
   record: Record<string, unknown>,
   keys: ReadonlyArray<string>,
@@ -367,7 +383,17 @@ export function providerAgentRecords(
   if (!record) {
     return [];
   }
-  return recordsFromKeys(record, providerAgentContainerKeys);
+  const explicitRecords = recordsFromKeys(record, providerAgentContainerKeys);
+  const explicitSet = new Set(explicitRecords);
+  const candidateRecords = recordsFromKeys(record, providerAgentCandidateContainerKeys).filter(
+    (candidate) => !explicitSet.has(candidate) && providerAgentRecordHasIdentity(candidate),
+  );
+  return [...explicitRecords, ...candidateRecords];
+}
+
+function providerAgentRecordHasIdentity(record: Record<string, unknown>): boolean {
+  const metadata = mergeProviderAgentMetadata(record, providerAgentLooseRecord(record));
+  return Boolean(metadata.id || metadata.parentId || metadata.name);
 }
 
 export function providerAgentMetadataFromRecord(

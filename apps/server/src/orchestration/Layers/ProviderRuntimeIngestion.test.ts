@@ -2682,6 +2682,107 @@ describe("ProviderRuntimeIngestion", () => {
     ).toBe(false);
   });
 
+  it("routes later provider generic child thread events back to the parent thread", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-generic-children-route-created"),
+      provider: "githubCopilot",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-generic-children-route"),
+      itemId: asItemId("generic-children-route-created"),
+      payload: {
+        itemType: "collab_agent_tool_call",
+        status: "completed",
+        title: "Children",
+        detail: "Provider reported generic child agents.",
+        data: {
+          children: [
+            {
+              childProviderThreadId: "provider-generic-child-1",
+              agentName: "Reviewer",
+              agentRole: "subagent",
+            },
+            {
+              resource: {
+                attributes: {
+                  "gen_ai.agent.id": "provider-generic-child-2",
+                  "gen_ai.agent.name": "Planner",
+                  "gen_ai.agent.role": "subagent",
+                },
+              },
+            },
+            {
+              type: "text",
+              text: "Plain provider output.",
+            },
+          ],
+        },
+      },
+    });
+
+    await waitForThread(harness.engine, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) =>
+          activity.id === "evt-generic-children-route-created",
+      ),
+    );
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-generic-children-route-second-message"),
+      provider: "githubCopilot",
+      createdAt: now,
+      threadId: asThreadId("provider-generic-child-2"),
+      turnId: asTurnId("turn-generic-children-route-second"),
+      itemId: asItemId("generic-children-route-second-message"),
+      payload: {
+        itemType: "assistant_message",
+        status: "completed",
+        detail: "Generic child stayed attached to the parent thread.",
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) =>
+          activity.kind === "task.progress" &&
+          activity.payload &&
+          typeof activity.payload === "object" &&
+          "detail" in activity.payload &&
+          activity.payload.detail === "Generic child stayed attached to the parent thread.",
+      ),
+    );
+
+    const progress = thread.activities.find(
+      (activity: ProviderRuntimeTestActivity) =>
+        activity.kind === "task.progress" &&
+        activity.payload &&
+        typeof activity.payload === "object" &&
+        "detail" in activity.payload &&
+        activity.payload.detail === "Generic child stayed attached to the parent thread.",
+    );
+    expect(progress?.payload).toMatchObject({
+      detail: "Generic child stayed attached to the parent thread.",
+      data: {
+        childProviderThreadId: "provider-generic-child-2",
+        subagent: {
+          id: "provider-generic-child-2",
+          type: "subagent",
+          name: "Planner",
+        },
+      },
+    });
+    expect(
+      thread.messages.some((message: ProviderRuntimeTestMessage) =>
+        message.text.includes("Generic child stayed attached to the parent thread."),
+      ),
+    ).toBe(false);
+  });
+
   it("preserves provider task subagent metadata on task progress activities", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
