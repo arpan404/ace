@@ -133,13 +133,14 @@ function composerProviderCommandKind(command: ProviderSlashCommand): ComposerPro
   return extensionKind ?? "provider";
 }
 
-function isComposerVisibleProviderCommand(command: ProviderSlashCommand): boolean {
+export function isComposerVisibleProviderCommand(command: ProviderSlashCommand): boolean {
   const normalizedName = normalizeSlashCommandName(command.name);
-  if (!normalizedName || isProviderSideConversationAlias(normalizedName)) {
+  if (
+    !normalizedName ||
+    normalizedName === "goal" ||
+    isProviderSideConversationAlias(normalizedName)
+  ) {
     return false;
-  }
-  if (normalizedName === "goal") {
-    return true;
   }
   if (command.kind === "provider") {
     return false;
