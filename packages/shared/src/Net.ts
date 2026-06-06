@@ -67,7 +67,8 @@ export interface NetServiceShape {
   readonly canListenOnHost: (port: number, host: string) => Effect.Effect<boolean>;
 
   /**
-   * Checks loopback availability on both IPv4 and IPv6 localhost addresses.
+   * Checks whether a port is safe for local dev listeners by probing loopback
+   * and wildcard binds on both IPv4 and IPv6.
    */
   readonly isPortAvailableOnLoopback: (port: number) => Effect.Effect<boolean>;
 
@@ -167,11 +168,12 @@ export class NetService extends ServiceMap.Service<NetService, NetServiceShape>(
     return {
       canListenOnHost,
       isPortAvailableOnLoopback: (port) =>
-        Effect.zipWith(
+        Effect.all([
           canListenOnHost(port, "127.0.0.1"),
           canListenOnHost(port, "::1"),
-          (ipv4, ipv6) => ipv4 && ipv6,
-        ),
+          canListenOnHost(port, "0.0.0.0"),
+          canListenOnHost(port, "::"),
+        ]).pipe(Effect.map((availability) => availability.every(Boolean))),
       reserveLoopbackPort,
       findAvailablePort: (preferred) =>
         Effect.catch(tryReservePort(preferred), () => tryReservePort(0)),
