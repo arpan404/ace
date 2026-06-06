@@ -696,7 +696,7 @@ function providerAgentCommandDisplayName(command: ProviderSlashCommand): string 
   if (promptPrefix && !isProviderSideConversationAlias(promptPrefix)) {
     return promptPrefix;
   }
-  return command.name.trim();
+  return `@${name}`;
 }
 
 function deriveEnvironmentProviderAgentCommandStatuses(input: {

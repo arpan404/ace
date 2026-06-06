@@ -189,6 +189,33 @@ function providerSlashCommandMetadataIndicatesAgent(
   );
 }
 
+function providerSlashCommandScopedExtensionKind(
+  normalizedName: string,
+): ProviderExtensionCommandKind | null {
+  const [root, rest] = normalizedName.split(/[/:.]/u, 2);
+  if (!rest) {
+    return null;
+  }
+  const normalizedRoot = root?.toLowerCase();
+  if (normalizedRoot === "skill" || normalizedRoot === "skills") {
+    return "skill";
+  }
+  if (normalizedRoot === "plugin" || normalizedRoot === "plugins") {
+    return "plugin";
+  }
+  if (
+    normalizedRoot === "agent" ||
+    normalizedRoot === "agents" ||
+    normalizedRoot === "subagent" ||
+    normalizedRoot === "subagents" ||
+    normalizedRoot === "sub-agent" ||
+    normalizedRoot === "sub-agents"
+  ) {
+    return "agent";
+  }
+  return null;
+}
+
 export function normalizeProviderSlashCommandName(value: string): string | null {
   const name = value.trim().replace(/^[/@$]+/, "");
   if (!name || /\s/.test(name)) {
@@ -218,6 +245,10 @@ export function providerSlashCommandExtensionKind(
   if (providerSlashCommandMetadataIndicatesAgent(command.metadata)) {
     return "agent";
   }
+  const scopedKind = providerSlashCommandScopedExtensionKind(normalizedName);
+  if (scopedKind) {
+    return scopedKind;
+  }
   if (command.kind === "provider") {
     return null;
   }
@@ -230,17 +261,6 @@ export function providerSlashCommandExtensionKind(
     return command.kind === "agent" ? "agent" : "plugin";
   }
 
-  const [root, rest] = normalizedName.split(/[/:.]/u, 2);
-  if (!rest) {
-    return null;
-  }
-  const normalizedRoot = root?.toLowerCase();
-  if (normalizedRoot === "skill" || normalizedRoot === "skills") {
-    return "skill";
-  }
-  if (normalizedRoot === "plugin" || normalizedRoot === "plugins") {
-    return "plugin";
-  }
   return null;
 }
 

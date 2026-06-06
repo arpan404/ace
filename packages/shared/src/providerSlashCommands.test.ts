@@ -149,6 +149,47 @@ describe("providerSlashCommands", () => {
     ]);
   });
 
+  it("classifies scoped provider agent commands without extra metadata", () => {
+    expect(
+      mergeProviderSlashCommands([
+        {
+          name: "agent:reviewer",
+          kind: "provider",
+          description: "Review with a provider agent",
+        },
+        {
+          name: "agents/planner",
+          kind: "provider",
+          description: "Plan with a provider agent",
+        },
+        {
+          name: "subagent.explorer",
+          kind: "provider",
+          description: "Explore with a provider subagent",
+        },
+      ]),
+    ).toEqual([
+      {
+        name: "agent:reviewer",
+        kind: "agent",
+        description: "Review with a provider agent",
+        promptPrefix: "@agent:reviewer",
+      },
+      {
+        name: "agents/planner",
+        kind: "agent",
+        description: "Plan with a provider agent",
+        promptPrefix: "@agents/planner",
+      },
+      {
+        name: "subagent.explorer",
+        kind: "agent",
+        description: "Explore with a provider subagent",
+        promptPrefix: "@subagent.explorer",
+      },
+    ]);
+  });
+
   it("drops redundant primary plugin skills while keeping distinct plugin skills", () => {
     expect(
       mergeProviderSlashCommands([

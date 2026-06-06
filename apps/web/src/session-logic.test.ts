@@ -4570,6 +4570,11 @@ describe("deriveEnvironmentSessionProviderStatus", () => {
             promptPrefix: "@planner",
           },
           {
+            name: "agent:architect",
+            kind: "provider",
+            description: "Use the provider architecture agent.",
+          },
+          {
             name: "docs",
             kind: "skill",
             promptPrefix: "$docs",
@@ -4605,6 +4610,19 @@ describe("deriveEnvironmentSessionProviderStatus", () => {
           kind: "composer-prompt",
           label: "Invoke @reviewer",
           prompt: "@reviewer ",
+        },
+      },
+      {
+        id: "githubCopilot:discovered-agent-command:@agent:architect",
+        createdAt: "2026-02-23T00:00:09.500Z",
+        label: "@agent:architect",
+        status: "agent",
+        tone: "info",
+        detail: "Use the provider architecture agent.",
+        action: {
+          kind: "composer-prompt",
+          label: "Invoke @agent:architect",
+          prompt: "@agent:architect ",
         },
       },
     ]);
