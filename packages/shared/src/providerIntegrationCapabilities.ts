@@ -61,7 +61,7 @@ const PROVIDER_INTEGRATION_CAPABILITIES: Record<ProviderKind, ProviderIntegratio
       "built-in: plan",
       "built-in: general-purpose",
     ],
-    multiAgentManagementCommands: [],
+    multiAgentManagementCommands: ["claude agents", "--agent <agent>", "--agents <json>"],
     hookMode: "native",
     extensionMode: "native",
     mcpMode: "native",

@@ -137,6 +137,9 @@ describe("providerCapabilities", () => {
         "built-in: general-purpose",
       ],
     );
+    expect(
+      defaultProviderIntegrationCapabilities("claudeAgent").multiAgentManagementCommands,
+    ).toEqual(["claude agents", "--agent <agent>", "--agents <json>"]);
     expect(defaultProviderIntegrationCapabilities("gemini").multiAgentMode).toBe("native");
     expect(defaultProviderIntegrationCapabilities("gemini").multiAgentInvocationPrefixes).toEqual([
       "@",
