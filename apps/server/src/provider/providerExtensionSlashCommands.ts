@@ -3439,6 +3439,8 @@ function openCodeAgentMetadataFromRecord(
   agent: Record<string, unknown>,
 ): Record<string, unknown> | undefined {
   const mode = typeof agent.mode === "string" && agent.mode.trim() ? agent.mode.trim() : undefined;
+  const prompt =
+    typeof agent.prompt === "string" && agent.prompt.trim() ? agent.prompt.trim() : undefined;
   const model =
     typeof agent.model === "string" && agent.model.trim() ? agent.model.trim() : undefined;
   const color =
@@ -3446,6 +3448,7 @@ function openCodeAgentMetadataFromRecord(
   const tools = openCodeToolsFromValue(agent.tools);
   const temperature = openCodeNumberFromValue(agent.temperature);
   const topP = openCodeNumberFromValue(agent.topP ?? agent.top_p ?? agent["top-p"]);
+  const steps = openCodeNumberFromValue(agent.steps);
   const maxSteps = openCodeNumberFromValue(
     agent.maxSteps ?? agent.max_steps ?? agent["max-steps"] ?? agent.steps,
   );
@@ -3462,11 +3465,13 @@ function openCodeAgentMetadataFromRecord(
     provider: "opencode",
     source: "agent",
     ...(mode ? { mode } : {}),
+    ...(prompt ? { prompt } : {}),
     ...(model ? { model } : {}),
     ...(color ? { color } : {}),
     ...(tools ? { tools } : {}),
     ...(temperature !== undefined ? { temperature } : {}),
     ...(topP !== undefined ? { topP } : {}),
+    ...(steps !== undefined ? { steps } : {}),
     ...(maxSteps !== undefined ? { maxSteps } : {}),
     ...(normalizedPermission ? { permission: normalizedPermission } : {}),
     ...(taskPermission ? { taskPermission } : {}),
@@ -3477,6 +3482,7 @@ function openCodeAgentMetadataFromRecord(
 function openCodeAgentMetadataFromMarkdown(markdown: string): Record<string, unknown> | undefined {
   const metadata = openCodeAgentMetadataFromRecord({
     mode: frontmatterField(markdown, "mode"),
+    prompt: frontmatterField(markdown, "prompt"),
     model: frontmatterField(markdown, "model"),
     color: frontmatterField(markdown, "color"),
     tools:
@@ -3485,6 +3491,7 @@ function openCodeAgentMetadataFromMarkdown(markdown: string): Record<string, unk
       frontmatterYamlObjectField(markdown, "tools"),
     temperature: frontmatterNumberField(markdown, "temperature"),
     topP: frontmatterNumberFieldAny(markdown, ["topP", "top-p", "top_p"]),
+    steps: frontmatterNumberField(markdown, "steps"),
     maxSteps:
       frontmatterNumberFieldAny(markdown, ["maxSteps", "max-steps", "max_steps"]) ??
       frontmatterNumberField(markdown, "steps"),
@@ -3515,6 +3522,7 @@ function readOpenCodeJsonAgentCommands(file: string): ProviderSlashCommand[] {
         readonly disable?: unknown;
         readonly disabled?: unknown;
         readonly hidden?: unknown;
+        readonly prompt?: unknown;
         readonly model?: unknown;
         readonly color?: unknown;
         readonly permission?: unknown;

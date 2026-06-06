@@ -3938,6 +3938,19 @@ describe("providerExtensionSlashCommands", () => {
         path.join(cwd, ".opencode", "agents", "missing-description.md"),
         "---\nmode: subagent\n---\n\n# Missing description\n",
       );
+      await writeFile(
+        path.join(cwd, ".opencode", "agents", "quick-thinker.md"),
+        [
+          "---",
+          "description: Fast reasoning with limited iterations",
+          "mode: subagent",
+          "prompt: '{file:./prompts/quick-thinker.txt}'",
+          "steps: 5",
+          "---",
+          "",
+          "Use fast reasoning.",
+        ].join("\n"),
+      );
       await writeAgentMarkdown({
         root: path.join(cwd, ".opencode", "agents"),
         fileName: "disabled-helper.md",
@@ -4111,9 +4124,11 @@ describe("providerExtensionSlashCommands", () => {
             rootarchitect: {
               description: "Architect from project root config",
               mode: "subagent",
+              prompt: "{file:./prompts/architect.txt}",
               model: "opencode/gpt-5.1-codex",
               color: "#4ade80",
               "top-p": 0.7,
+              steps: 8,
               permission: {
                 read: "allow",
                 bash: {
@@ -5099,6 +5114,19 @@ describe("providerExtensionSlashCommands", () => {
             promptPrefix: "@legacy-scout",
           }),
           expect.objectContaining({
+            name: "quick-thinker",
+            kind: "agent",
+            promptPrefix: "@quick-thinker",
+            metadata: {
+              provider: "opencode",
+              source: "agent",
+              mode: "subagent",
+              prompt: "{file:./prompts/quick-thinker.txt}",
+              steps: 5,
+              maxSteps: 5,
+            },
+          }),
+          expect.objectContaining({
             name: "global-legacy",
             kind: "agent",
             promptPrefix: "@global-legacy",
@@ -5320,9 +5348,12 @@ describe("providerExtensionSlashCommands", () => {
               provider: "opencode",
               source: "agent",
               mode: "subagent",
+              prompt: "{file:./prompts/architect.txt}",
               model: "opencode/gpt-5.1-codex",
               color: "#4ade80",
               topP: 0.7,
+              steps: 8,
+              maxSteps: 8,
               permission: {
                 read: "allow",
                 bash: {
