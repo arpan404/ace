@@ -186,11 +186,16 @@ describe("providerCapabilities", () => {
     ]);
     expect(defaultProviderIntegrationCapabilities("cursor").multiAgentDefinitionPaths).toEqual([
       ".cursor/agents",
+      ".cursor/agents/*.md",
       ".claude/agents",
       ".codex/agents",
       "~/.cursor/agents",
+      "~/.cursor/agents/*.md",
       "~/.claude/agents",
       "~/.codex/agents",
+      "built-in: explore",
+      "built-in: bash",
+      "built-in: browser",
     ]);
     expect(defaultProviderIntegrationCapabilities("pi").multiAgentMode).toBe("agent-command");
     expect(defaultProviderIntegrationCapabilities("pi").multiAgentInvocationPrefixes).toEqual([
