@@ -913,6 +913,20 @@ async function waitForProductionStyles(): Promise<void> {
   );
 }
 
+function resetBrowserChatViewTestState(): void {
+  customWsRpcResolver = null;
+  wsRequests.length = 0;
+  useComposerDraftStore.setState({
+    draftsByThreadId: {},
+    draftThreadsByThreadId: {},
+    projectDraftThreadIdByProjectId: {},
+    stickyModelSelectionByProvider: {},
+    stickyActiveProvider: null,
+  });
+  useStore.getState().resetToInitialState();
+  useTerminalStateStore.setState({ terminalStateByThreadId: {} });
+}
+
 async function waitForElement<T extends Element>(
   query: () => T | null,
   errorMessage: string,
@@ -1412,25 +1426,13 @@ describe("ChatView timeline estimator parity (full app)", () => {
     await setViewport(DEFAULT_VIEWPORT);
     localStorage.clear();
     document.body.innerHTML = "";
-    wsRequests.length = 0;
-    customWsRpcResolver = null;
-    useComposerDraftStore.setState({
-      draftsByThreadId: {},
-      draftThreadsByThreadId: {},
-      projectDraftThreadIdByProjectId: {},
-      stickyModelSelectionByProvider: {},
-      stickyActiveProvider: null,
-    });
-    useStore.setState({
-      projects: [],
-      threads: [],
-      bootstrapComplete: false,
-    });
-    useTerminalStateStore.setState({ terminalStateByThreadId: {} });
+    resetBrowserChatViewTestState();
   });
 
-  afterEach(() => {
-    customWsRpcResolver = null;
+  afterEach(async () => {
+    await rpcHarness.disconnect();
+    resetBrowserChatViewTestState();
+    localStorage.clear();
     document.body.innerHTML = "";
   });
 
