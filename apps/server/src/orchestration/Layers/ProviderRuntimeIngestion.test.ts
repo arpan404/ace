@@ -679,11 +679,11 @@ describe("ProviderRuntimeIngestion", () => {
       harness.engine,
       (entry) =>
         entry.session?.providerName === "opencode" &&
-        entry.session?.capabilities?.sideConversationMode === "native-fork" &&
+        entry.session?.capabilities?.sideConversationMode === "native-side-thread" &&
         entry.session?.capabilities?.providerThreadTargetingMode === "native",
     );
 
-    expect(thread.session?.capabilities?.sideConversationMode).toBe("native-fork");
+    expect(thread.session?.capabilities?.sideConversationMode).toBe("native-side-thread");
     expect(thread.session?.capabilities?.providerThreadTargetingMode).toBe("native");
   });
 

@@ -41,6 +41,7 @@ const cursorInitializeResult = (input?: {
   readonly resumeSession?: boolean;
   readonly closeSession?: boolean;
   readonly forkSession?: boolean;
+  readonly sideConversationMethod?: boolean;
   readonly image?: boolean;
 }) => {
   const sessionCapabilities = {
@@ -50,6 +51,7 @@ const cursorInitializeResult = (input?: {
   };
   return {
     protocolVersion: 1,
+    ...(input?.sideConversationMethod ? { availableMethods: ["conversation/side/thread"] } : {}),
     authMethods: [{ id: "cursor_login", name: "Cursor Login" }],
     agentCapabilities: {
       loadSession: input?.loadSession ?? true,
@@ -806,6 +808,60 @@ describe("CursorAdapterLive", () => {
           sessionForkMode: "native",
           sideConversationMode: "native-fork",
         });
+      } finally {
+        await Effect.runPromise(adapter.stopAll());
+      }
+    });
+  });
+
+  it("starts side chats through a callable Cursor ACP side-thread method", async () => {
+    const requests: Array<{ method: string; params?: unknown }> = [];
+    const client = makeFakeCursorClient({
+      requestImpl: async (method, params) => {
+        requests.push({ method, params });
+        switch (method) {
+          case "initialize":
+            return cursorInitializeResult({ sideConversationMethod: true });
+          case "authenticate":
+            return {};
+          case "conversation/side/thread":
+            return cursorSessionResult("cursor-side-thread-session");
+          case "session/new":
+            return cursorSessionResult("cursor-fallback-session");
+          default:
+            throw new Error(`Unexpected Cursor ACP request: ${method}`);
+        }
+      },
+    });
+    mockedStartCursorAcpClient.mockReturnValue(client);
+
+    await withAdapter(async (adapter) => {
+      try {
+        await Effect.runPromise(
+          adapter.startSession({
+            provider: "cursor",
+            threadId: asThreadId("thread-cursor-side-thread"),
+            cwd: "/repo/cursor-side-thread",
+            forkSource: {
+              threadId: asThreadId("thread-cursor-parent"),
+              resumeCursor: { sessionId: "cursor-parent-session" },
+            },
+            runtimeMode: "full-access",
+          }),
+        );
+
+        expect(requests.map((request) => request.method)).toContain("conversation/side/thread");
+        expect(requests.map((request) => request.method)).not.toContain("session/new");
+        expect(requests).toContainEqual(
+          expect.objectContaining({
+            method: "conversation/side/thread",
+            params: expect.objectContaining({
+              sessionId: "cursor-parent-session",
+              sourceSessionId: "cursor-parent-session",
+              parentSessionId: "cursor-parent-session",
+            }),
+          }),
+        );
       } finally {
         await Effect.runPromise(adapter.stopAll());
       }

@@ -113,6 +113,7 @@ export type ProviderSessionForkMode = typeof ProviderSessionForkMode.Type;
 
 export const ProviderSideConversationMode = Schema.Literals([
   "native-fork",
+  "native-side-thread",
   "replay-fork",
   "unsupported",
 ]);

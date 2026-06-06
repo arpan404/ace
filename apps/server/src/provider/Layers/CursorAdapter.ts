@@ -2124,6 +2124,11 @@ export const CursorAdapterLive = Layer.effect(
               const canForkSession =
                 forkSourceSessionId !== undefined &&
                 context.metadata.initialize.agentCapabilities.forkSession;
+              const sideConversationMethod =
+                forkSourceSessionId !== undefined &&
+                !context.metadata.initialize.agentCapabilities.forkSession
+                  ? context.metadata.initialize.agentCapabilities.sideConversationMethods[0]
+                  : undefined;
               const canResumeSession =
                 resumeSessionId !== undefined &&
                 context.metadata.initialize.agentCapabilities.resumeSession;
@@ -2138,13 +2143,16 @@ export const CursorAdapterLive = Layer.effect(
                 | "session/fork"
                 | "session/resume"
                 | "session/load"
-                | "session/new" = canForkSession
+                | "session/new"
+                | string = canForkSession
                 ? "session/fork"
-                : canResumeSession
-                  ? "session/resume"
-                  : canLoadSession
-                    ? "session/load"
-                    : "session/new";
+                : sideConversationMethod
+                  ? sideConversationMethod
+                  : canResumeSession
+                    ? "session/resume"
+                    : canLoadSession
+                      ? "session/load"
+                      : "session/new";
               let sessionResult: Record<string, unknown> | undefined;
 
               if (canForkSession) {
@@ -2163,6 +2171,38 @@ export const CursorAdapterLive = Layer.effect(
                   await runPromise(
                     Effect.logWarning(
                       "cursor native fork failed; falling back to transcript replay",
+                      {
+                        threadId: input.threadId,
+                        sourceThreadId: input.forkSource?.threadId,
+                        cause: describeCursorAdapterCause(cause),
+                      },
+                    ),
+                  );
+                  sessionMethod = "session/new";
+                  sessionResult = asObject(
+                    await client.request("session/new", newSessionParams, {
+                      timeoutMs: ACP_CONTROL_TIMEOUT_MS,
+                    }),
+                  );
+                }
+              } else if (sideConversationMethod && forkSourceSessionId) {
+                try {
+                  sessionResult = asObject(
+                    await client.request(
+                      sideConversationMethod,
+                      {
+                        ...newSessionParams,
+                        sessionId: forkSourceSessionId,
+                        sourceSessionId: forkSourceSessionId,
+                        parentSessionId: forkSourceSessionId,
+                      },
+                      { timeoutMs: ACP_CONTROL_TIMEOUT_MS },
+                    ),
+                  );
+                } catch (cause) {
+                  await runPromise(
+                    Effect.logWarning(
+                      "cursor native side thread failed; falling back to transcript replay",
                       {
                         threadId: input.threadId,
                         sourceThreadId: input.forkSource?.threadId,

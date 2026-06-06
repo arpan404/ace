@@ -295,6 +295,7 @@ describe("ProviderIntegrationCapabilities", () => {
       turnSteeringMode: "queued-message",
       transcriptAuthority: "local",
       sessionResumeMode: "local-replay",
+      sideConversationMode: "native-side-thread",
       sideConversationCommands: ["/btw", ".side"],
       multiAgentInvocationPrefixes: ["@", "/agent"],
       multiAgentDefinitionPaths: [".github/agents/*.agent.md"],
@@ -306,6 +307,7 @@ describe("ProviderIntegrationCapabilities", () => {
       hostedSessionMode: "local-bridge",
     });
 
+    expect(parsed.sideConversationMode).toBe("native-side-thread");
     expect(parsed.sideConversationCommands).toEqual(["/btw", ".side"]);
     expect(parsed.multiAgentInvocationPrefixes).toEqual(["@", "/agent"]);
     expect(parsed.multiAgentDefinitionPaths).toEqual([".github/agents/*.agent.md"]);

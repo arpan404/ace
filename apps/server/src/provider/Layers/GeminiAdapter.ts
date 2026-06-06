@@ -34,6 +34,7 @@ import {
   acpMultiAgentDefinitionPaths,
   acpMultiAgentInvocationPrefixes,
   acpSideConversationCommands,
+  acpSideConversationMethods,
   hasAcpMultiAgentCapability,
   hasAcpSideConversationCapability,
   hasAcpSessionCloseCapability,
@@ -461,6 +462,7 @@ type GeminiSessionMetadata = {
   readonly forkSession: boolean;
   readonly sideConversation: boolean;
   readonly sideConversationCommands: ReadonlyArray<string>;
+  readonly sideConversationMethods: ReadonlyArray<string>;
   readonly multiAgent: boolean;
   readonly multiAgentInvocationPrefixes: ReadonlyArray<string>;
   readonly multiAgentDefinitionPaths: ReadonlyArray<string>;
@@ -1109,6 +1111,7 @@ function normalizeInitializeResponse(value: unknown): GeminiSessionMetadata {
     forkSession: hasAcpSessionForkCapability(value),
     sideConversation: hasAcpSideConversationCapability(value),
     sideConversationCommands: acpSideConversationCommands(value),
+    sideConversationMethods: acpSideConversationMethods(value),
     multiAgent: hasAcpMultiAgentCapability(value),
     multiAgentInvocationPrefixes: acpMultiAgentInvocationPrefixes(value),
     multiAgentDefinitionPaths: acpMultiAgentDefinitionPaths(value),
@@ -1126,6 +1129,7 @@ function geminiProviderCapabilities(
     | "resumeSession"
     | "sideConversation"
     | "sideConversationCommands"
+    | "sideConversationMethods"
     | "multiAgent"
     | "multiAgentInvocationPrefixes"
     | "multiAgentDefinitionPaths"
@@ -1133,15 +1137,12 @@ function geminiProviderCapabilities(
 ) {
   return {
     sessionResumeMode: metadata.resumeSession ? ("native" as const) : ("local-replay" as const),
-    ...(metadata.forkSession
-      ? {
-          sessionForkMode: "native" as const,
-          sideConversationMode: "native-fork" as const,
-        }
-      : {
-          sessionForkMode: "local-replay" as const,
-          sideConversationMode: "replay-fork" as const,
-        }),
+    sessionForkMode: metadata.forkSession ? ("native" as const) : ("local-replay" as const),
+    sideConversationMode: metadata.forkSession
+      ? ("native-fork" as const)
+      : metadata.sideConversationMethods.length > 0
+        ? ("native-side-thread" as const)
+        : ("replay-fork" as const),
     ...(metadata.sideConversationCommands.length > 0
       ? { sideConversationCommands: metadata.sideConversationCommands }
       : {}),
@@ -3050,11 +3051,15 @@ const makeGeminiAdapter = Effect.gen(function* () {
   ): Promise<{
     readonly sessionId: string;
     readonly metadata: GeminiSessionMetadata;
-    readonly method: "session/fork" | "session/resume" | "session/load" | "session/new";
+    readonly method: "session/fork" | "session/resume" | "session/load" | "session/new" | string;
   }> => {
     const resumeSessionId = readGeminiResumeCursor(input.resumeCursor);
     const forkSourceSessionId = readGeminiResumeCursor(input.forkSource?.resumeCursor);
     const canForkSession = forkSourceSessionId !== undefined && metadata.forkSession;
+    const sideConversationMethod =
+      forkSourceSessionId !== undefined && !metadata.forkSession
+        ? metadata.sideConversationMethods[0]
+        : undefined;
     const canResumeSession = resumeSessionId !== undefined && metadata.resumeSession;
     const canLoadSession = resumeSessionId !== undefined && metadata.loadSession;
     const newSessionParams = {
@@ -3063,11 +3068,13 @@ const makeGeminiAdapter = Effect.gen(function* () {
     };
 
     const execute = async (
-      method: "session/fork" | "session/resume" | "session/load" | "session/new",
+      method: "session/fork" | "session/resume" | "session/load" | "session/new" | string,
       params: {
         readonly cwd: string;
         readonly mcpServers: ReadonlyArray<GeminiAcpMcpServer>;
         readonly sessionId?: string;
+        readonly sourceSessionId?: string;
+        readonly parentSessionId?: string;
       },
     ) => {
       const result = await client.request(method, params, {
@@ -3092,11 +3099,13 @@ const makeGeminiAdapter = Effect.gen(function* () {
     };
 
     const executeWithAuthRetry = async (
-      method: "session/fork" | "session/resume" | "session/load" | "session/new",
+      method: "session/fork" | "session/resume" | "session/load" | "session/new" | string,
       params: {
         readonly cwd: string;
         readonly mcpServers: ReadonlyArray<GeminiAcpMcpServer>;
         readonly sessionId?: string;
+        readonly sourceSessionId?: string;
+        readonly parentSessionId?: string;
       },
     ) => {
       try {
@@ -3115,6 +3124,22 @@ const makeGeminiAdapter = Effect.gen(function* () {
         return await executeWithAuthRetry("session/fork", {
           ...newSessionParams,
           sessionId: forkSourceSessionId,
+        });
+      } catch (cause) {
+        if (!isMissingGeminiSessionError(cause)) {
+          throw cause;
+        }
+        return await executeWithAuthRetry("session/new", newSessionParams);
+      }
+    }
+
+    if (sideConversationMethod && forkSourceSessionId) {
+      try {
+        return await executeWithAuthRetry(sideConversationMethod, {
+          ...newSessionParams,
+          sessionId: forkSourceSessionId,
+          sourceSessionId: forkSourceSessionId,
+          parentSessionId: forkSourceSessionId,
         });
       } catch (cause) {
         if (!isMissingGeminiSessionError(cause)) {

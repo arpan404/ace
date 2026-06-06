@@ -4,6 +4,7 @@ import {
   acpMultiAgentDefinitionPaths,
   acpMultiAgentInvocationPrefixes,
   acpSideConversationCommands,
+  acpSideConversationMethods,
   hasAcpMultiAgentCapability,
   hasAcpProviderThreadTargetingCapability,
   hasAcpSideConversationCapability,
@@ -256,6 +257,20 @@ describe("acpCapabilities", () => {
         },
       }),
     ).toBe(true);
+  });
+
+  it("extracts callable ACP side conversation methods", () => {
+    expect(
+      acpSideConversationMethods({
+        availableMethods: [
+          "session/new",
+          "conversation/side/thread",
+          { method: "session/side/thread" },
+          { id: "conversation.side.thread" },
+          "conversation/side/thread",
+        ],
+      }),
+    ).toEqual(["conversation/side/thread", "session/side/thread"]);
   });
 
   it("does not treat omitted or disabled side conversation capabilities as supported", () => {

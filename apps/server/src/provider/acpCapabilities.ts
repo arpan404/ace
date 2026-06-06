@@ -219,6 +219,28 @@ const SIDE_CONVERSATION_METHODS = new Set([
   "conversation-side-thread",
 ]);
 
+const SIDE_CONVERSATION_METHOD_BY_NORMALIZED_NAME: Readonly<Record<string, string>> = {
+  "side-chat": "side/chat",
+  "side-conversation": "side/conversation",
+  "side-session": "side/session",
+  "side-thread": "side/thread",
+  "session-side": "session/side",
+  "session-side-chat": "session/side/chat",
+  "session-side-conversation": "session/side/conversation",
+  "session-side-session": "session/side/session",
+  "session-side-thread": "session/side/thread",
+  "thread-side": "thread/side",
+  "thread-side-chat": "thread/side/chat",
+  "thread-side-conversation": "thread/side/conversation",
+  "thread-side-session": "thread/side/session",
+  "thread-side-thread": "thread/side/thread",
+  "conversation-side": "conversation/side",
+  "conversation-side-chat": "conversation/side/chat",
+  "conversation-side-conversation": "conversation/side/conversation",
+  "conversation-side-session": "conversation/side/session",
+  "conversation-side-thread": "conversation/side/thread",
+};
+
 const SESSION_FORK_METHODS = new Set(["session-fork"]);
 const SESSION_RESUME_METHODS = new Set(["session-resume"]);
 const SESSION_CLOSE_METHODS = new Set(["session-close"]);
@@ -1329,4 +1351,22 @@ export function acpSideConversationCommands(initializeResult: unknown): string[]
   return normalizedStringList(...values).filter(
     (command) => !isProviderSideConversationAlias(command),
   );
+}
+
+export function acpSideConversationMethods(initializeResult: unknown): string[] {
+  const methods: string[] = [];
+  const seen = new Set<string>();
+  for (const record of acpCapabilityRecords(initializeResult)) {
+    for (const container of methodAndFeatureContainers(record)) {
+      for (const normalizedMethod of methodNames(container)) {
+        const method = SIDE_CONVERSATION_METHOD_BY_NORMALIZED_NAME[normalizedMethod];
+        if (!method || seen.has(method)) {
+          continue;
+        }
+        seen.add(method);
+        methods.push(method);
+      }
+    }
+  }
+  return methods;
 }

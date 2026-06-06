@@ -46,6 +46,7 @@ describe("sideChatDraft", () => {
 
   it("enables Ace /side only for explicit side-chat capability modes", () => {
     expect(isAceSideConversationSupported("native-fork")).toBe(true);
+    expect(isAceSideConversationSupported("native-side-thread")).toBe(true);
     expect(isAceSideConversationSupported("replay-fork")).toBe(true);
     expect(isAceSideConversationSupported("unsupported")).toBe(false);
     expect(isAceSideConversationSupported(undefined)).toBe(false);

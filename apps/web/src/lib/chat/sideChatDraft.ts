@@ -43,7 +43,7 @@ export function parseAceSideChatCommand(text: string): { prompt: string } | null
 export function isAceSideConversationSupported(
   mode: ProviderIntegrationCapabilities["sideConversationMode"] | undefined,
 ): boolean {
-  return mode === "native-fork" || mode === "replay-fork";
+  return mode === "native-fork" || mode === "native-side-thread" || mode === "replay-fork";
 }
 
 export function resolveAceSideConversationMode(input: {

@@ -41,6 +41,7 @@ function geminiInitializeResult(input?: {
   readonly closeSession?: boolean;
   readonly forkSession?: boolean;
   readonly sideConversation?: boolean;
+  readonly sideConversationMethod?: boolean;
   readonly multiAgent?: boolean;
   readonly forkSessionShape?: "nested-object" | "boolean" | "root-capability" | "session-dot";
 }) {
@@ -56,6 +57,7 @@ function geminiInitializeResult(input?: {
     ...(forkSessionShape === "root-capability" && input?.forkSession
       ? { capabilities: { sessionFork: "enabled" } }
       : {}),
+    ...(input?.sideConversationMethod ? { availableMethods: ["conversation/side/thread"] } : {}),
     agentCapabilities: {
       loadSession: true,
       ...(Object.keys(sessionCapabilities).length > 0 ? { sessionCapabilities } : {}),
@@ -1143,6 +1145,57 @@ describe("GeminiAdapterLive startup", () => {
           multiAgentInvocationPrefixes: ["@"],
           multiAgentDefinitionPaths: [".gemini/agents/*.md"],
         });
+      } finally {
+        await Effect.runPromise(adapter.stopAll());
+      }
+    });
+  });
+
+  it("starts side chats through a callable Gemini ACP side-thread method", async () => {
+    const requests: Array<{ method: string; params?: unknown }> = [];
+    const client = makeFakeGeminiClient({
+      requestImpl: async (method, params) => {
+        requests.push({ method, params });
+        switch (method) {
+          case "initialize":
+            return geminiInitializeResult({ sideConversationMethod: true });
+          case "session/new":
+            return geminiSessionResult("gemini-parent-session");
+          case "conversation/side/thread":
+            return geminiSessionResult("gemini-side-thread-session");
+          default:
+            throw new Error(`Unexpected Gemini ACP request: ${method}`);
+        }
+      },
+    });
+    mockedStartAcpClient.mockReturnValue(client);
+
+    await withAdapter(async (adapter) => {
+      try {
+        await Effect.runPromise(
+          adapter.startSession({
+            provider: "gemini",
+            threadId: asThreadId("thread-gemini-side-thread"),
+            cwd: "/repo/gemini-side-thread",
+            forkSource: {
+              threadId: asThreadId("thread-gemini-parent"),
+              resumeCursor: "gemini-parent-session",
+            },
+            runtimeMode: "approval-required",
+            interactionMode: "default",
+          }),
+        );
+
+        expect(requests).toContainEqual(
+          expect.objectContaining({
+            method: "conversation/side/thread",
+            params: expect.objectContaining({
+              sessionId: "gemini-parent-session",
+              sourceSessionId: "gemini-parent-session",
+              parentSessionId: "gemini-parent-session",
+            }),
+          }),
+        );
       } finally {
         await Effect.runPromise(adapter.stopAll());
       }

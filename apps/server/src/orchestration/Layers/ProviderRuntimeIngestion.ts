@@ -309,7 +309,7 @@ function providerCapabilitiesFromSessionConfigured(
     ) ?? (hasProviderCapabilityMethod(methodContainers, "session-fork") ? "native" : undefined);
   const sideConversationMode =
     normalizeProviderCapabilityMode(
-      "native-fork",
+      sessionForkMode === "native" ? "native-fork" : "native-side-thread",
       capabilities.sideConversationMode,
       capabilities.side_conversation_mode,
       capabilities.sideConversationMode,
@@ -344,7 +344,9 @@ function providerCapabilitiesFromSessionConfigured(
     ) ??
     (hasAcpSideConversationCapability({ capabilities }) ||
     hasProviderCapabilityMethod(methodContainers, "side-conversation")
-      ? "native-fork"
+      ? sessionForkMode === "native"
+        ? "native-fork"
+        : "native-side-thread"
       : undefined);
   const sideConversationCommands = normalizeProviderSideConversationCommands(
     capabilities.sideConversationCommands,
@@ -902,6 +904,7 @@ function providerCapabilitiesFromSessionConfigured(
   }
   if (
     sideConversationMode === "native-fork" ||
+    sideConversationMode === "native-side-thread" ||
     sideConversationMode === "replay-fork" ||
     sideConversationMode === "unsupported"
   ) {

@@ -794,7 +794,7 @@ export function deriveEnvironmentSessionProviderStatuses(
   const sideConversationMode = session.capabilities.sideConversationMode;
   if (sideConversationMode) {
     const status =
-      sideConversationMode === "native-fork"
+      sideConversationMode === "native-fork" || sideConversationMode === "native-side-thread"
         ? "native"
         : sideConversationMode === "replay-fork"
           ? "replay"
@@ -802,9 +802,11 @@ export function deriveEnvironmentSessionProviderStatuses(
     const detailLines = [
       sideConversationMode === "native-fork"
         ? "Ace /side starts a separate side chat through this provider's native fork support."
-        : sideConversationMode === "replay-fork"
-          ? "Ace /side starts a separate side chat by replaying bounded parent context into a separate provider session."
-          : "Provider has not advertised side-chat support.",
+        : sideConversationMode === "native-side-thread"
+          ? "Ace /side starts a separate side chat through this provider's native side-thread support."
+          : sideConversationMode === "replay-fork"
+            ? "Ace /side starts a separate side chat by replaying bounded parent context into a separate provider session."
+            : "Provider has not advertised side-chat support.",
     ];
     const sideConversationCommands = (session.capabilities.sideConversationCommands ?? []).filter(
       (command) => !isProviderSideConversationAlias(command),
@@ -1520,10 +1522,10 @@ function extractSubagentMetadata(payload: Record<string, unknown> | null): {
   const result = asRecord(data?.result);
   const metadata = mergeProviderAgentMetadata(
     subagent,
+    providerAgentLooseRecord(item),
+    providerAgentLooseRecord(data),
     providerAgentLooseRecord(payload),
     providerAgentLooseRecord(sideConversation),
-    providerAgentLooseRecord(data),
-    providerAgentLooseRecord(item),
     providerAgentLooseRecord(input),
     providerAgentLooseRecord(args),
     providerAgentLooseRecord(result),

@@ -27,6 +27,7 @@ describe("CursorAdapterSessionMetadata", () => {
         multiAgentInvocationPrefixes: [],
         multiAgentDefinitionPaths: [],
         sideConversationCommands: [],
+        sideConversationMethods: [],
         promptCapabilities: {
           image: true,
           audio: false,
@@ -47,6 +48,7 @@ describe("CursorAdapterSessionMetadata", () => {
         multiAgentInvocationPrefixes: [],
         multiAgentDefinitionPaths: [],
         sideConversationCommands: [],
+        sideConversationMethods: [],
         promptCapabilities: {
           image: true,
           audio: false,
@@ -138,6 +140,7 @@ describe("CursorAdapterSessionMetadata", () => {
       },
     });
     assert.deepEqual(initialize.agentCapabilities.sideConversationCommands, []);
+    assert.deepEqual(initialize.agentCapabilities.sideConversationMethods, []);
 
     const metadata = buildCursorSessionMetadata({
       previous: EMPTY_CURSOR_SESSION_METADATA,
@@ -149,7 +152,22 @@ describe("CursorAdapterSessionMetadata", () => {
       sessionForkMode: "local-replay",
       sessionResumeMode: "local-replay",
       sideConversationMode: "replay-fork",
-      sideConversationCommands: [],
+    });
+  });
+
+  it("reports native side-thread mode when ACP advertises a callable side method", () => {
+    const metadata = buildCursorSessionMetadata({
+      previous: EMPTY_CURSOR_SESSION_METADATA,
+      initialize: parseCursorInitializeState({
+        availableMethods: ["conversation/side/thread"],
+      }),
+      configOptions: [],
+    });
+
+    assert.deepEqual(cursorSessionMetadataSnapshot(metadata).capabilities, {
+      sessionForkMode: "local-replay",
+      sessionResumeMode: "local-replay",
+      sideConversationMode: "native-side-thread",
     });
   });
 

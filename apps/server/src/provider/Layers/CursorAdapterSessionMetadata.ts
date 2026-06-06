@@ -8,6 +8,7 @@ import {
   acpMultiAgentDefinitionPaths,
   acpMultiAgentInvocationPrefixes,
   acpSideConversationCommands,
+  acpSideConversationMethods,
   hasAcpMultiAgentCapability,
   hasAcpSessionCloseCapability,
   hasAcpSessionForkCapability,
@@ -49,6 +50,7 @@ export type CursorInitializeState = {
     readonly multiAgentInvocationPrefixes: ReadonlyArray<string>;
     readonly multiAgentDefinitionPaths: ReadonlyArray<string>;
     readonly sideConversationCommands: ReadonlyArray<string>;
+    readonly sideConversationMethods: ReadonlyArray<string>;
     readonly promptCapabilities: CursorPromptCapabilities;
   };
   readonly authMethods: ReadonlyArray<CursorAuthMethod>;
@@ -129,6 +131,7 @@ export const EMPTY_CURSOR_INITIALIZE_STATE: CursorInitializeState = {
     multiAgentInvocationPrefixes: [],
     multiAgentDefinitionPaths: [],
     sideConversationCommands: [],
+    sideConversationMethods: [],
     promptCapabilities: EMPTY_CURSOR_PROMPT_CAPABILITIES,
   },
   authMethods: [],
@@ -215,6 +218,7 @@ export function parseCursorInitializeState(value: unknown): CursorInitializeStat
       multiAgentInvocationPrefixes: acpMultiAgentInvocationPrefixes(value),
       multiAgentDefinitionPaths: acpMultiAgentDefinitionPaths(value),
       sideConversationCommands: acpSideConversationCommands(value),
+      sideConversationMethods: acpSideConversationMethods(value),
       promptCapabilities: parseCursorPromptCapabilities(agentCapabilities?.promptCapabilities),
     },
     authMethods: parseCursorAuthMethods(record?.authMethods),
@@ -679,15 +683,14 @@ function cursorProviderCapabilities(metadata: CursorSessionMetadata) {
     sessionResumeMode: metadata.initialize.agentCapabilities.resumeSession
       ? ("native" as const)
       : ("local-replay" as const),
-    ...(metadata.initialize.agentCapabilities.forkSession
-      ? {
-          sessionForkMode: "native" as const,
-          sideConversationMode: "native-fork" as const,
-        }
-      : {
-          sessionForkMode: "local-replay" as const,
-          sideConversationMode: "replay-fork" as const,
-        }),
+    sessionForkMode: metadata.initialize.agentCapabilities.forkSession
+      ? ("native" as const)
+      : ("local-replay" as const),
+    sideConversationMode: metadata.initialize.agentCapabilities.forkSession
+      ? ("native-fork" as const)
+      : metadata.initialize.agentCapabilities.sideConversationMethods.length > 0
+        ? ("native-side-thread" as const)
+        : ("replay-fork" as const),
     ...(metadata.initialize.agentCapabilities.multiAgent
       ? { multiAgentMode: "native" as const }
       : {}),
