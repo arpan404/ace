@@ -33,6 +33,16 @@ const asThreadId = (value: string): ThreadId => ThreadId.makeUnsafe(value);
 const asTurnId = (value: string): TurnId => TurnId.makeUnsafe(value);
 const asEventId = (value: string): EventId => EventId.makeUnsafe(value);
 const asItemId = (value: string): ProviderItemId => ProviderItemId.makeUnsafe(value);
+const EXPECTED_CODEX_PROVIDER_CAPABILITIES = {
+  sessionForkMode: "native",
+  sideConversationMode: "native-fork",
+  sideConversationCommands: [".side"],
+  providerThreadTargetingMode: "native",
+  goalControlMode: "native",
+  multiAgentMode: "native",
+  multiAgentInvocationPrefixes: [],
+  multiAgentDefinitionPaths: [],
+} as const;
 
 class FakeCodexManager extends CodexAppServerManager {
   public startSessionImpl = vi.fn(
@@ -417,12 +427,10 @@ goalFeatureLayer("CodexAdapterLive goal feature discovery", (it) => {
       }
       const availableCommands = ((events[1].payload.config as { availableCommands?: unknown })
         .availableCommands ?? []) as ReadonlyArray<{ name?: string }>;
-      assert.deepEqual((events[1].payload.config as { capabilities?: unknown }).capabilities, {
-        sessionForkMode: "native",
-        sideConversationMode: "native-fork",
-        providerThreadTargetingMode: "native",
-        goalControlMode: "native",
-      });
+      assert.deepEqual(
+        (events[1].payload.config as { capabilities?: unknown }).capabilities,
+        EXPECTED_CODEX_PROVIDER_CAPABILITIES,
+      );
       assert.equal(
         availableCommands.some((command) => command.name === "goal"),
         true,
@@ -757,8 +765,19 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
     () =>
       Effect.gen(function* () {
         const adapter = yield* CodexAdapter;
-        assert.equal(adapter.capabilities.sessionForkMode, "native");
-        assert.equal(adapter.capabilities.sideConversationMode, "native-fork");
+        assert.deepEqual(
+          {
+            sessionForkMode: adapter.capabilities.sessionForkMode,
+            sideConversationMode: adapter.capabilities.sideConversationMode,
+            sideConversationCommands: adapter.capabilities.sideConversationCommands,
+            providerThreadTargetingMode: adapter.capabilities.providerThreadTargetingMode,
+            goalControlMode: adapter.capabilities.goalControlMode,
+            multiAgentMode: adapter.capabilities.multiAgentMode,
+            multiAgentInvocationPrefixes: adapter.capabilities.multiAgentInvocationPrefixes,
+            multiAgentDefinitionPaths: adapter.capabilities.multiAgentDefinitionPaths,
+          },
+          EXPECTED_CODEX_PROVIDER_CAPABILITIES,
+        );
         const threadId = asThreadId("thread-session-configured");
         yield* adapter.startSession({
           provider: "codex",
@@ -798,12 +817,7 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
         ).availableCommands ?? []) as ReadonlyArray<{ name?: string }>;
         assert.deepEqual(
           (firstEvent.value.payload.config as { capabilities?: unknown }).capabilities,
-          {
-            sessionForkMode: "native",
-            sideConversationMode: "native-fork",
-            providerThreadTargetingMode: "native",
-            goalControlMode: "native",
-          },
+          EXPECTED_CODEX_PROVIDER_CAPABILITIES,
         );
         assert.equal(
           availableCommands.some((command) => command.name === "goal"),
@@ -845,12 +859,10 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
       }
       const availableCommands = ((events[1].payload.config as { availableCommands?: unknown })
         .availableCommands ?? []) as ReadonlyArray<{ name?: string }>;
-      assert.deepEqual((events[1].payload.config as { capabilities?: unknown }).capabilities, {
-        sessionForkMode: "native",
-        sideConversationMode: "native-fork",
-        providerThreadTargetingMode: "native",
-        goalControlMode: "native",
-      });
+      assert.deepEqual(
+        (events[1].payload.config as { capabilities?: unknown }).capabilities,
+        EXPECTED_CODEX_PROVIDER_CAPABILITIES,
+      );
       assert.equal(
         availableCommands.some((command) => command.name === "goal"),
         true,
