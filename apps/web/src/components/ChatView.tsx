@@ -216,6 +216,7 @@ import {
   newSideChatDraftThreadId,
   normalizeAceSideChatPromptText,
 } from "~/lib/chat/sideChatDraft";
+import { buildProviderAgentComposerPrompt } from "~/lib/chat/providerAgentPrompt";
 import { THREAD_ROUTE_CONNECTION_SEARCH_PARAM } from "../lib/connectionRouting";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
 import {
@@ -4190,7 +4191,13 @@ function useChatViewComponent({
       if (status.action?.kind !== "composer-prompt") {
         return;
       }
-      setPrompt(status.action.prompt);
+      const nextPrompt = buildProviderAgentComposerPrompt({
+        currentPrompt: promptRef.current,
+        invocationPrompt: status.action.prompt,
+      });
+      promptRef.current = nextPrompt;
+      setPrompt(nextPrompt);
+      composerPanelsRef.current?.resetUi(nextPrompt);
       scheduleComposerFocus();
     },
     [scheduleComposerFocus, setPrompt],
