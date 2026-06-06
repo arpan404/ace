@@ -267,6 +267,16 @@ describe("providerCapabilities", () => {
       "built-in: oracle",
       "built-in: delegate",
     ]);
+    expect(defaultProviderIntegrationCapabilities("pi").multiAgentManagementCommands).toEqual([
+      "pi install <source>",
+      "pi list",
+      "pi config",
+      "pi update [source|self|pi]",
+      "pi remove <source>",
+      "--extension <path>",
+      "--skill <path>",
+      "--prompt-template <path>",
+    ]);
   });
 
   it("declares provider hook support from documented native provider features", () => {
