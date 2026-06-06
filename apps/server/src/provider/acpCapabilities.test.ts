@@ -460,6 +460,40 @@ describe("acpCapabilities", () => {
     ).toBe(true);
   });
 
+  it("detects ACP multi-agent methods from nested capability objects", () => {
+    expect(
+      hasAcpMultiAgentCapability({
+        capabilities: {
+          agents: {
+            availableMethods: ["agent/delegate"],
+          },
+        },
+      }),
+    ).toBe(true);
+    expect(
+      hasAcpMultiAgentCapability({
+        _meta: {
+          capabilities: {
+            session: {
+              handoffs: {
+                methods: [{ path: "handoff/start" }],
+              },
+            },
+          },
+        },
+      }),
+    ).toBe(true);
+    expect(
+      hasAcpMultiAgentCapability({
+        agentCapabilities: {
+          subagents: {
+            supportedFeatures: [{ name: "subagent/start" }],
+          },
+        },
+      }),
+    ).toBe(true);
+  });
+
   it("does not treat omitted or disabled multi-agent capabilities as supported", () => {
     expect(hasAcpMultiAgentCapability({ agentCapabilities: {} })).toBe(false);
     expect(

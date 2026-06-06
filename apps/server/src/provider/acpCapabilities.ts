@@ -275,6 +275,12 @@ const MULTI_AGENT_METHODS = new Set([
   "agents",
   "agent-delegate",
   "agent-delegation",
+  "agent-delegations",
+  "agent-handoff",
+  "agent-handoffs",
+  "agent-run",
+  "agent-spawn",
+  "agent-start",
   "agent-profile",
   "agent-profiles",
   "agent-team",
@@ -295,14 +301,20 @@ const MULTI_AGENT_METHODS = new Set([
   "profiles",
   "team",
   "teams",
-  "agent-handoff",
-  "agent-handoffs",
   "handoff",
   "handoffs",
+  "handoff-create",
+  "handoff-start",
   "subagent",
   "subagents",
   "sub-agent",
   "sub-agents",
+  "subagent-run",
+  "subagent-spawn",
+  "subagent-start",
+  "sub-agent-run",
+  "sub-agent-spawn",
+  "sub-agent-start",
   "task-agent",
 ]);
 
@@ -1141,21 +1153,30 @@ export function hasAcpMultiAgentCapability(initializeResult: unknown): boolean {
     return true;
   }
 
-  return acpMethodContainers({
-    record,
-    rootCapabilities,
-    agentCapabilities,
-    rootSessionCapabilities,
-    agentSessionCapabilities,
-    rootSession,
-    agentSession,
-    agentSessions,
-    capabilitySession,
-    meta,
-    metaCapabilities,
-    metaSessionCapabilities,
-    metaSession,
-  }).some((container) => hasMethod(container, MULTI_AGENT_METHODS));
+  const containers = [
+    ...acpMethodContainers({
+      record,
+      rootCapabilities,
+      agentCapabilities,
+      rootSessionCapabilities,
+      agentSessionCapabilities,
+      rootSession,
+      agentSession,
+      agentSessions,
+      capabilitySession,
+      meta,
+      metaCapabilities,
+      metaSessionCapabilities,
+      metaSession,
+    }),
+    ...acpCapabilityRecords(initializeResult).flatMap((capabilityRecord) =>
+      nestedAgentCapabilityRecords(capabilityRecord).flatMap((nested) =>
+        methodAndFeatureContainers(nested),
+      ),
+    ),
+  ];
+
+  return containers.some((container) => hasMethod(container, MULTI_AGENT_METHODS));
 }
 
 export function acpMultiAgentInvocationPrefixes(initializeResult: unknown): string[] {
