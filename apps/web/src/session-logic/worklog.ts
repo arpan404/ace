@@ -721,16 +721,14 @@ export function deriveEnvironmentSessionProviderStatuses(
           : "unsupported";
     const detailLines = [
       sideConversationMode === "native-fork"
-        ? "Provider can start side chats by forking the active provider thread."
+        ? "Ace /side starts a separate side chat through this provider's native fork support."
         : sideConversationMode === "replay-fork"
-          ? "Ace can start side chats by replaying bounded parent context into a separate provider session."
+          ? "Ace /side starts a separate side chat by replaying bounded parent context into a separate provider session."
           : "Provider has not advertised side-chat support.",
     ];
     const sideConversationCommands = session.capabilities.sideConversationCommands ?? [];
     if (sideConversationCommands.length > 0) {
-      detailLines.push(
-        `Native provider mapping behind Ace /side: ${sideConversationCommands.join(", ")}`,
-      );
+      detailLines.push("Provider-specific side-chat aliases are handled internally.");
     }
     statuses.push({
       id: `${session.provider}:side-chat-capability`,

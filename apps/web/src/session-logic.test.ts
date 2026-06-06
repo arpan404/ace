@@ -4536,7 +4536,7 @@ describe("deriveEnvironmentSessionProviderStatus", () => {
         status: "native",
         tone: "info",
         detail:
-          "Provider can start side chats by forking the active provider thread.\nNative provider mapping behind Ace /side: .side",
+          "Ace /side starts a separate side chat through this provider's native fork support.\nProvider-specific side-chat aliases are handled internally.",
       },
       {
         id: "codex:thread-targeting-capability",
@@ -4569,7 +4569,7 @@ describe("deriveEnvironmentSessionProviderStatus", () => {
       status: "replay",
       tone: "info",
       detail:
-        "Ace can start side chats by replaying bounded parent context into a separate provider session.",
+        "Ace /side starts a separate side chat by replaying bounded parent context into a separate provider session.",
     });
   });
 
