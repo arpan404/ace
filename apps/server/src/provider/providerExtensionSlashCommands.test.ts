@@ -858,6 +858,32 @@ describe("providerExtensionSlashCommands", () => {
           }),
         ]),
       );
+      expect(
+        findCommand(
+          withProviderExtensionSlashCommands({
+            providers: [
+              {
+                provider: "gemini",
+                enabled: true,
+                installed: true,
+                version: "1.0.0",
+                minimumVersion: null,
+                versionStatus: "ok",
+                status: "ready",
+                auth: { status: "authenticated" },
+                checkedAt: "2026-01-01T00:00:00.000Z",
+                models: [],
+              },
+            ],
+            cwd,
+            settings: DEFAULT_SERVER_SETTINGS,
+          })[0]?.commands ?? [],
+          "codebase_investigator",
+        )?.metadata,
+      ).toEqual({
+        provider: "gemini",
+        source: "built-in-subagent",
+      });
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -1239,6 +1265,10 @@ describe("providerExtensionSlashCommands", () => {
       expect(findCommand(providerCommands ?? [], "explore")?.description).toBe(
         "Project Explore override",
       );
+      expect(findCommand(providerCommands ?? [], "plan")?.metadata).toEqual({
+        provider: "claude",
+        source: "built-in-subagent",
+      });
       await mkdir(path.join(cwd, ".claude"), { recursive: true });
       await writeFile(
         path.join(cwd, ".claude", "settings.json"),
@@ -2181,7 +2211,7 @@ describe("providerExtensionSlashCommands", () => {
       expect(findCommand(commands ?? [], "browser_agent")).toMatchObject({
         metadata: {
           provider: "gemini",
-          source: "agent",
+          source: "built-in-subagent",
           settingsOverride: true,
           enabled: true,
           model: "gemini-3-flash-preview",
@@ -2709,6 +2739,10 @@ describe("providerExtensionSlashCommands", () => {
       );
       expect(findCommand(commands, "skill:deploy")?.description).toBe("Project Pi deploy skill");
       expect(findCommand(commands, "oracle")).toBeUndefined();
+      expect(findCommand(commands, "verifier")?.metadata).toEqual({
+        provider: "pi",
+        source: "built-in-subagent",
+      });
       expect(findCommand(commands, "scout")?.description).not.toBe("Packaged Pi scout agent");
       expect(findCommand(commands, "review-loop")).toBeUndefined();
       expect(findCommand(commands, "skill:ignored")).toBeUndefined();
@@ -4860,6 +4894,10 @@ describe("providerExtensionSlashCommands", () => {
             name: "fleet",
             kind: "agent",
             promptPrefix: "/fleet",
+            metadata: {
+              provider: "github-copilot",
+              source: "built-in-subagent",
+            },
           }),
           expect.objectContaining({
             name: "repo-skill",
@@ -5275,6 +5313,10 @@ describe("providerExtensionSlashCommands", () => {
       expect(opencodeProviderCommands?.filter((command) => command.name === "scout")).toHaveLength(
         1,
       );
+      expect(findCommand(opencodeProviderCommands ?? [], "general")?.metadata).toEqual({
+        provider: "opencode",
+        source: "built-in-subagent",
+      });
       const configuredOpenCodeProviderCommands = withProviderExtensionSlashCommands({
         providers: [
           {

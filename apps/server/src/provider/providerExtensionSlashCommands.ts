@@ -223,26 +223,49 @@ export type GitHubCopilotCustomAgent = {
   readonly hooks?: Record<string, ReadonlyArray<Record<string, unknown>>>;
 };
 
+function providerBuiltInSubagentSlashCommand(input: {
+  readonly provider: string;
+  readonly name: string;
+  readonly description: string;
+  readonly promptPrefix: string;
+  readonly inputHint?: string | undefined;
+}): ProviderSlashCommand {
+  return providerAgentSlashCommand({
+    name: input.name,
+    description: input.description,
+    promptPrefix: input.promptPrefix,
+    inputHint: input.inputHint,
+    metadata: {
+      provider: input.provider,
+      source: "built-in-subagent",
+    },
+  });
+}
+
 export const GEMINI_BUILT_IN_SUBAGENT_COMMANDS = [
-  providerAgentSlashCommand({
+  providerBuiltInSubagentSlashCommand({
+    provider: "gemini",
     name: "codebase_investigator",
     description: "Analyze codebase structure, dependencies, and implementation details.",
     promptPrefix: "@codebase_investigator",
     inputHint: "<prompt>",
   }),
-  providerAgentSlashCommand({
+  providerBuiltInSubagentSlashCommand({
+    provider: "gemini",
     name: "cli_help",
     description: "Answer questions about Gemini CLI commands, configuration, and docs.",
     promptPrefix: "@cli_help",
     inputHint: "<prompt>",
   }),
-  providerAgentSlashCommand({
+  providerBuiltInSubagentSlashCommand({
+    provider: "gemini",
     name: "generalist",
     description: "Run a broad multi-step task in an isolated Gemini subagent context.",
     promptPrefix: "@generalist",
     inputHint: "<prompt>",
   }),
-  providerAgentSlashCommand({
+  providerBuiltInSubagentSlashCommand({
+    provider: "gemini",
     name: "browser_agent",
     description: "Run Gemini's browser automation subagent for web navigation tasks.",
     promptPrefix: "@browser_agent",
@@ -251,19 +274,22 @@ export const GEMINI_BUILT_IN_SUBAGENT_COMMANDS = [
 ] as const satisfies ReadonlyArray<ProviderSlashCommand>;
 
 export const OPENCODE_BUILT_IN_SUBAGENT_COMMANDS = [
-  providerAgentSlashCommand({
+  providerBuiltInSubagentSlashCommand({
+    provider: "opencode",
     name: "general",
     description: "Run a general-purpose OpenCode subagent for complex multi-step work.",
     promptPrefix: "@general",
     inputHint: "<prompt>",
   }),
-  providerAgentSlashCommand({
+  providerBuiltInSubagentSlashCommand({
+    provider: "opencode",
     name: "explore",
     description: "Run a read-only OpenCode subagent for fast codebase exploration.",
     promptPrefix: "@explore",
     inputHint: "<prompt>",
   }),
-  providerAgentSlashCommand({
+  providerBuiltInSubagentSlashCommand({
+    provider: "opencode",
     name: "scout",
     description: "Run an OpenCode subagent for external docs and dependency research.",
     promptPrefix: "@scout",
@@ -338,79 +364,92 @@ export const CODEX_BUILT_IN_SUBAGENT_COMMANDS = [
 ] as const satisfies ReadonlyArray<ProviderSlashCommand>;
 
 export const PI_BUILT_IN_SUBAGENT_COMMANDS = [
-  providerAgentSlashCommand({
+  providerBuiltInSubagentSlashCommand({
+    provider: "pi",
     name: "scout",
     description: "Run fast local codebase reconnaissance in a focused Pi child agent.",
     promptPrefix: "@scout",
     inputHint: "<prompt>",
   }),
-  providerAgentSlashCommand({
+  providerBuiltInSubagentSlashCommand({
+    provider: "pi",
     name: "researcher",
     description: "Research external docs and recent changes with sources in a Pi child agent.",
     promptPrefix: "@researcher",
     inputHint: "<prompt>",
   }),
-  providerAgentSlashCommand({
+  providerBuiltInSubagentSlashCommand({
+    provider: "pi",
     name: "planner",
     description: "Turn current context into a concrete implementation plan without editing.",
     promptPrefix: "@planner",
     inputHint: "<prompt>",
   }),
-  providerAgentSlashCommand({
+  providerBuiltInSubagentSlashCommand({
+    provider: "pi",
     name: "worker",
     description: "Implement an approved plan in a focused Pi child agent.",
     promptPrefix: "@worker",
     inputHint: "<prompt>",
   }),
-  providerAgentSlashCommand({
+  providerBuiltInSubagentSlashCommand({
+    provider: "pi",
     name: "reviewer",
     description: "Review code, tests, edge cases, and simplicity in a Pi child agent.",
     promptPrefix: "@reviewer",
     inputHint: "<prompt>",
   }),
-  providerAgentSlashCommand({
+  providerBuiltInSubagentSlashCommand({
+    provider: "pi",
     name: "debugger",
     description: "Investigate failures and regressions systematically in a Pi child agent.",
     promptPrefix: "@debugger",
     inputHint: "<prompt>",
   }),
-  providerAgentSlashCommand({
+  providerBuiltInSubagentSlashCommand({
+    provider: "pi",
     name: "verifier",
     description: "Run checks and report concrete verification evidence in a Pi child agent.",
     promptPrefix: "@verifier",
     inputHint: "<prompt>",
   }),
-  providerAgentSlashCommand({
+  providerBuiltInSubagentSlashCommand({
+    provider: "pi",
     name: "security-auditor",
     description: "Review trust boundaries and unsafe behavior in a Pi child agent.",
     promptPrefix: "@security-auditor",
     inputHint: "<prompt>",
   }),
-  providerAgentSlashCommand({
+  providerBuiltInSubagentSlashCommand({
+    provider: "pi",
     name: "docs-writer",
     description: "Draft documentation updates grounded in code and existing docs.",
     promptPrefix: "@docs-writer",
     inputHint: "<prompt>",
   }),
-  providerAgentSlashCommand({
+  providerBuiltInSubagentSlashCommand({
+    provider: "pi",
     name: "refactorer",
     description: "Perform behavior-preserving cleanup and simplification in a Pi child agent.",
     promptPrefix: "@refactorer",
     inputHint: "<prompt>",
   }),
-  providerAgentSlashCommand({
+  providerBuiltInSubagentSlashCommand({
+    provider: "pi",
     name: "context-builder",
     description: "Gather stronger planning context and handoff material in a Pi child agent.",
     promptPrefix: "@context-builder",
     inputHint: "<prompt>",
   }),
-  providerAgentSlashCommand({
+  providerBuiltInSubagentSlashCommand({
+    provider: "pi",
     name: "oracle",
     description: "Get an advisory second opinion before acting, without editing files.",
     promptPrefix: "@oracle",
     inputHint: "<prompt>",
   }),
-  providerAgentSlashCommand({
+  providerBuiltInSubagentSlashCommand({
+    provider: "pi",
     name: "delegate",
     description: "Run a lightweight general Pi child agent close to the parent session behavior.",
     promptPrefix: "@delegate",
@@ -419,19 +458,22 @@ export const PI_BUILT_IN_SUBAGENT_COMMANDS = [
 ] as const satisfies ReadonlyArray<ProviderSlashCommand>;
 
 export const CLAUDE_BUILT_IN_SUBAGENT_COMMANDS = [
-  providerAgentSlashCommand({
+  providerBuiltInSubagentSlashCommand({
+    provider: "claude",
     name: "explore",
     description: "Use Claude's read-only Explore subagent for fast codebase research.",
     promptPrefix: "@agent-explore",
     inputHint: "<prompt>",
   }),
-  providerAgentSlashCommand({
+  providerBuiltInSubagentSlashCommand({
+    provider: "claude",
     name: "plan",
     description: "Use Claude's Plan subagent for planning-oriented codebase research.",
     promptPrefix: "@agent-plan",
     inputHint: "<prompt>",
   }),
-  providerAgentSlashCommand({
+  providerBuiltInSubagentSlashCommand({
+    provider: "claude",
     name: "general-purpose",
     description: "Use Claude's general-purpose subagent for complex multi-step tasks.",
     promptPrefix: "@agent-general-purpose",
@@ -440,43 +482,50 @@ export const CLAUDE_BUILT_IN_SUBAGENT_COMMANDS = [
 ] as const satisfies ReadonlyArray<ProviderSlashCommand>;
 
 export const GITHUB_COPILOT_BUILT_IN_AGENT_COMMANDS = [
-  providerAgentSlashCommand({
+  providerBuiltInSubagentSlashCommand({
+    provider: "github-copilot",
     name: "explore",
     description: "Explore the codebase and gather implementation context with GitHub Copilot.",
     promptPrefix: "@explore",
     inputHint: "<prompt>",
   }),
-  providerAgentSlashCommand({
+  providerBuiltInSubagentSlashCommand({
+    provider: "github-copilot",
     name: "task",
     description: "Delegate a focused implementation task to GitHub Copilot.",
     promptPrefix: "@task",
     inputHint: "<prompt>",
   }),
-  providerAgentSlashCommand({
+  providerBuiltInSubagentSlashCommand({
+    provider: "github-copilot",
     name: "general-purpose",
     description: "Delegate broad multi-step work to GitHub Copilot general-purpose agent.",
     promptPrefix: "@general-purpose",
     inputHint: "<prompt>",
   }),
-  providerAgentSlashCommand({
+  providerBuiltInSubagentSlashCommand({
+    provider: "github-copilot",
     name: "code-review",
     description: "Run GitHub Copilot code-review agent on a change or code area.",
     promptPrefix: "@code-review",
     inputHint: "<prompt>",
   }),
-  providerAgentSlashCommand({
+  providerBuiltInSubagentSlashCommand({
+    provider: "github-copilot",
     name: "research",
     description: "Run GitHub Copilot's research agent for deep codebase and API research.",
     promptPrefix: "@research",
     inputHint: "<prompt>",
   }),
-  providerAgentSlashCommand({
+  providerBuiltInSubagentSlashCommand({
+    provider: "github-copilot",
     name: "rubber-duck",
     description: "Ask GitHub Copilot's rubber-duck agent for a second opinion on plans or changes.",
     promptPrefix: "@rubber-duck",
     inputHint: "<prompt>",
   }),
-  providerAgentSlashCommand({
+  providerBuiltInSubagentSlashCommand({
+    provider: "github-copilot",
     name: "fleet",
     description: "Split work across GitHub Copilot's parallel subagent fleet.",
     promptPrefix: "/fleet",
