@@ -94,6 +94,9 @@ const OPENCODE_MULTI_AGENT_CAPABILITIES = {
     ".opencode/agents/*.md",
     "~/.config/opencode/agent/*.md",
     "~/.config/opencode/agents/*.md",
+    "built-in: general",
+    "built-in: explore",
+    "built-in: scout",
   ],
 };
 

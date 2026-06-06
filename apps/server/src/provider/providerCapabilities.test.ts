@@ -176,6 +176,9 @@ describe("providerCapabilities", () => {
       ".opencode/agents/*.md",
       "~/.config/opencode/agent/*.md",
       "~/.config/opencode/agents/*.md",
+      "built-in: general",
+      "built-in: explore",
+      "built-in: scout",
     ]);
     expect(defaultProviderIntegrationCapabilities("cursor").multiAgentMode).toBe("agent-command");
     expect(defaultProviderIntegrationCapabilities("cursor").multiAgentInvocationPrefixes).toEqual([
