@@ -929,12 +929,60 @@ function frontmatterNumberField(markdown: string, field: string): number | undef
   return Number.isFinite(value) ? value : undefined;
 }
 
+function frontmatterFieldAny(markdown: string, fields: ReadonlyArray<string>): string | undefined {
+  for (const field of fields) {
+    const value = frontmatterField(markdown, field);
+    if (value) {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+function frontmatterNumberFieldAny(
+  markdown: string,
+  fields: ReadonlyArray<string>,
+): number | undefined {
+  for (const field of fields) {
+    const value = frontmatterNumberField(markdown, field);
+    if (value !== undefined) {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+function frontmatterBlockScalarFieldAny(
+  markdown: string,
+  fields: ReadonlyArray<string>,
+): string | undefined {
+  for (const field of fields) {
+    const value = frontmatterBlockScalarField(markdown, field);
+    if (value) {
+      return value;
+    }
+  }
+  return undefined;
+}
+
 function geminiAgentMetadata(markdown: string, source: "agent" | "remote-agent") {
   const kind = frontmatterField(markdown, "kind");
   const tools = frontmatterStringOrListField(markdown, "tools");
   const model = frontmatterField(markdown, "model");
   const temperature = frontmatterNumberField(markdown, "temperature");
-  const maxTurns = frontmatterNumberField(markdown, "max_turns");
+  const maxTurns = frontmatterNumberFieldAny(markdown, ["max_turns", "maxTurns", "max-turns"]);
+  const timeoutMins = frontmatterNumberFieldAny(markdown, [
+    "timeout_mins",
+    "timeoutMins",
+    "timeout-mins",
+  ]);
+  const mcpServers =
+    frontmatterJsonObjectField(markdown, "mcpServers") ??
+    frontmatterJsonObjectField(markdown, "mcp_servers") ??
+    frontmatterJsonObjectField(markdown, "mcp-servers") ??
+    frontmatterYamlObjectField(markdown, "mcpServers") ??
+    frontmatterYamlObjectField(markdown, "mcp_servers") ??
+    frontmatterYamlObjectField(markdown, "mcp-servers");
   const metadata = {
     provider: "gemini",
     source,
@@ -943,6 +991,8 @@ function geminiAgentMetadata(markdown: string, source: "agent" | "remote-agent")
     ...(model ? { model } : {}),
     ...(temperature !== undefined ? { temperature } : {}),
     ...(maxTurns !== undefined ? { maxTurns } : {}),
+    ...(timeoutMins !== undefined ? { timeoutMins } : {}),
+    ...(mcpServers ? { mcpServers } : {}),
   };
   return Object.keys(metadata).length > 2 ? metadata : undefined;
 }
@@ -2694,7 +2744,17 @@ function geminiRemoteAgentCommandFromEntry(
   if (entry.kind !== "remote" || typeof entry.name !== "string") {
     return null;
   }
-  if (typeof entry.agent_card_url !== "string" && typeof entry.agent_card_json !== "string") {
+  const agentCardUrl = stringEntryField(entry, [
+    "agent_card_url",
+    "agentCardUrl",
+    "agent-card-url",
+  ]);
+  const agentCardJson = stringEntryField(entry, [
+    "agent_card_json",
+    "agentCardJson",
+    "agent-card-json",
+  ]);
+  if (!agentCardUrl && !agentCardJson) {
     return null;
   }
   const agentName = normalizeCommandName(entry.name);
@@ -2704,8 +2764,8 @@ function geminiRemoteAgentCommandFromEntry(
   const description =
     typeof entry.description === "string"
       ? entry.description
-      : typeof entry.agent_card_url === "string"
-        ? `Remote Gemini A2A subagent at ${entry.agent_card_url}`
+      : agentCardUrl
+        ? `Remote Gemini A2A subagent at ${agentCardUrl}`
         : "Remote Gemini A2A subagent";
   const auth = sanitizedGeminiRemoteAgentAuthMetadata(entry.auth);
   return providerAgentSlashCommand({
@@ -2717,13 +2777,24 @@ function geminiRemoteAgentCommandFromEntry(
       provider: "gemini",
       source: "remote-agent",
       kind: "remote",
-      ...(typeof entry.agent_card_url === "string" ? { agentCardUrl: entry.agent_card_url } : {}),
-      ...(typeof entry.agent_card_json === "string"
-        ? { agentCardJson: entry.agent_card_json }
-        : {}),
+      ...(agentCardUrl ? { agentCardUrl } : {}),
+      ...(agentCardJson ? { agentCardJson } : {}),
       ...(auth ? { auth, authType: auth.type } : {}),
     },
   });
+}
+
+function stringEntryField(
+  entry: Record<string, unknown>,
+  keys: ReadonlyArray<string>,
+): string | undefined {
+  for (const key of keys) {
+    const value = entry[key];
+    if (typeof value === "string" && value.trim().length > 0) {
+      return value.trim();
+    }
+  }
+  return undefined;
 }
 
 function readGeminiRemoteAgentMarkdownCommands(file: string): ProviderSlashCommand[] {
@@ -2738,10 +2809,15 @@ function readGeminiRemoteAgentMarkdownCommands(file: string): ProviderSlashComma
     {
       kind: frontmatterField(markdown, "kind") ?? "",
       name: frontmatterField(markdown, "name") ?? "",
-      agent_card_url: frontmatterField(markdown, "agent_card_url") ?? "",
+      agent_card_url:
+        frontmatterFieldAny(markdown, ["agent_card_url", "agentCardUrl", "agent-card-url"]) ?? "",
       agent_card_json:
-        frontmatterBlockScalarField(markdown, "agent_card_json") ??
-        frontmatterField(markdown, "agent_card_json") ??
+        frontmatterBlockScalarFieldAny(markdown, [
+          "agent_card_json",
+          "agentCardJson",
+          "agent-card-json",
+        ]) ??
+        frontmatterFieldAny(markdown, ["agent_card_json", "agentCardJson", "agent-card-json"]) ??
         "",
       description: frontmatterField(markdown, "description") ?? "",
       auth:

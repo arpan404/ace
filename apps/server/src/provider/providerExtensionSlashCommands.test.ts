@@ -1169,7 +1169,13 @@ describe("providerExtensionSlashCommands", () => {
           "tools: [read_file, grep_search]",
           "model: gemini-3-flash-preview",
           "temperature: 0.2",
-          "max_turns: 10",
+          "maxTurns: 10",
+          "timeout_mins: 12",
+          "mcpServers:",
+          "  audit:",
+          "    command: node",
+          "    args:",
+          "      - audit-server.js",
           "---",
           "",
           "# Agent prompt",
@@ -1189,12 +1195,28 @@ describe("providerExtensionSlashCommands", () => {
         ].join("\n"),
       );
       await writeFile(
+        path.join(cwd, ".gemini", "agents", "remote-camel.md"),
+        [
+          "---",
+          "kind: remote",
+          "name: remote-camel",
+          "description: Uses camel-case remote A2A metadata",
+          "agentCardUrl: https://example.com/remote-camel/.well-known/agent.json",
+          "---",
+          "",
+          "Remote A2A agent configuration.",
+        ].join("\n"),
+      );
+      await writeFile(
         path.join(cwd, ".gemini", "agents", "remote-pack.md"),
         [
           "---",
           "- kind: remote",
           "  name: remote-architect",
           "  agent_card_url: https://example.com/remote-architect/.well-known/agent.json",
+          "- kind: remote",
+          "  name: remote-hyphen",
+          "  agent-card-url: https://example.com/remote-hyphen/.well-known/agent.json",
           "- kind: remote",
           "  name: remote-docs",
           '  agent_card_json: \'{ "protocolVersion": "0.3.0", "name": "Docs" }\'',
@@ -1408,6 +1430,13 @@ describe("providerExtensionSlashCommands", () => {
               model: "gemini-3-flash-preview",
               temperature: 0.2,
               maxTurns: 10,
+              timeoutMins: 12,
+              mcpServers: {
+                audit: {
+                  command: "node",
+                  args: ["audit-server.js"],
+                },
+              },
             },
           }),
           expect.objectContaining({
@@ -1429,11 +1458,36 @@ describe("providerExtensionSlashCommands", () => {
             }),
           }),
           expect.objectContaining({
+            name: "remote-camel",
+            kind: "agent",
+            promptPrefix: "@remote-camel",
+            description: "Uses camel-case remote A2A metadata",
+            metadata: expect.objectContaining({
+              provider: "gemini",
+              source: "remote-agent",
+              kind: "remote",
+              agentCardUrl: "https://example.com/remote-camel/.well-known/agent.json",
+            }),
+          }),
+          expect.objectContaining({
             name: "remote-architect",
             kind: "agent",
             promptPrefix: "@remote-architect",
             description:
               "Remote Gemini A2A subagent at https://example.com/remote-architect/.well-known/agent.json",
+          }),
+          expect.objectContaining({
+            name: "remote-hyphen",
+            kind: "agent",
+            promptPrefix: "@remote-hyphen",
+            description:
+              "Remote Gemini A2A subagent at https://example.com/remote-hyphen/.well-known/agent.json",
+            metadata: expect.objectContaining({
+              provider: "gemini",
+              source: "remote-agent",
+              kind: "remote",
+              agentCardUrl: "https://example.com/remote-hyphen/.well-known/agent.json",
+            }),
           }),
           expect.objectContaining({
             name: "remote-docs",
