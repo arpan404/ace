@@ -437,6 +437,38 @@ describe("deriveSubagentThreads", () => {
     ]);
   });
 
+  it("keeps side chats from the same provider agent separate by side conversation id", () => {
+    const threads = deriveSubagentThreads(
+      [
+        workEntry({
+          id: "same-agent-side-one",
+          subagentId: "side-conversation-review-api",
+          subagentName: "Reviewer",
+          subagentType: "side chat",
+          sideChatMessageRole: "user",
+          sideChatMessageText: "Review the API route.",
+        }),
+        workEntry({
+          id: "same-agent-side-two",
+          createdAt: "2026-06-02T00:00:01.000Z",
+          subagentId: "side-conversation-review-worker",
+          subagentName: "Reviewer",
+          subagentType: "side chat",
+          sideChatMessageRole: "user",
+          sideChatMessageText: "Review the worker route.",
+        }),
+      ],
+      "githubCopilot",
+    );
+
+    expect(threads).toHaveLength(2);
+    expect(threads.every(isSideChatThread)).toBe(true);
+    expect(threads.map((thread) => thread.id).toSorted()).toEqual([
+      "side-conversation-review-api",
+      "side-conversation-review-worker",
+    ]);
+  });
+
   it("does not merge provider subagent threads that share an agent name", () => {
     const threads = deriveSubagentThreads(
       [

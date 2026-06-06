@@ -317,7 +317,7 @@ export function providerAgentMetadataFromRecord(
     return {};
   }
   const attributes = asRecord(record.attributes) ?? asRecord(record.attribute);
-  const id = firstTrimmedString(
+  const genericId = firstTrimmedString(
     record.id,
     record["gen_ai.agent.id"],
     attributes?.["gen_ai.agent.id"],
@@ -398,6 +398,24 @@ export function providerAgentMetadataFromRecord(
     record.conversationId,
     record.conversation_id,
   );
+  const sideConversationId = firstTrimmedString(
+    record.providerSideConversationId,
+    record.provider_side_conversation_id,
+    record.providerSideChatId,
+    record.provider_side_chat_id,
+    record.sideConversationId,
+    record.side_conversation_id,
+    record.sideChatId,
+    record.side_chat_id,
+    record.childProviderConversationId,
+    record.child_provider_conversation_id,
+    record.childProviderConversationIds,
+    record.child_provider_conversation_ids,
+    record.providerConversationId,
+    record.provider_conversation_id,
+    record.conversationId,
+    record.conversation_id,
+  );
   const parentId = firstTrimmedString(
     record.parentId,
     record["gen_ai.agent.parent_id"],
@@ -447,6 +465,7 @@ export function providerAgentMetadataFromRecord(
     record.assistant_type,
     record.mode,
   );
+  const id = isProviderSideConversationType(type) ? (sideConversationId ?? genericId) : genericId;
   const name = firstTrimmedString(
     record.name,
     record["gen_ai.agent.name"],

@@ -312,6 +312,34 @@ describe("providerAgentMetadata", () => {
     });
   });
 
+  it("prefers side conversation ids over reusable agent ids for side-chat records", () => {
+    expect(
+      providerAgentMetadataFromRecord({
+        agentId: "reviewer",
+        sideConversationId: "side-conversation-review-api",
+        agentRole: "side-chat",
+        agentName: "Reviewer",
+      }),
+    ).toEqual({
+      id: "side-conversation-review-api",
+      type: "side-chat",
+      name: "Reviewer",
+    });
+
+    expect(
+      providerAgentMetadataFromRecord({
+        agentId: "reviewer",
+        sideConversationId: "side-conversation-ignored-for-subagent",
+        agentRole: "reviewer",
+        agentName: "Reviewer",
+      }),
+    ).toEqual({
+      id: "reviewer",
+      type: "reviewer",
+      name: "Reviewer",
+    });
+  });
+
   it("normalizes provider subagent transcript lifecycle aliases", () => {
     expect(
       providerAgentMetadataFromRecord({
