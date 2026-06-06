@@ -521,6 +521,13 @@ describe("ProviderRuntimeIngestion", () => {
           capabilities: {
             session: {
               capabilities: {
+                session_fork_mode: "native",
+                side_conversation_mode: "nativeFork",
+                side_commands: ["/btw", ".side"],
+                provider_thread_targeting_mode: "native",
+                session_resume_mode: "native",
+                turn_steering_mode: "queuedMessage",
+                goal_control_mode: "native",
                 multi_agent_mode: "agentCommand",
                 agent_invocation_prefixes: ["@task", "@task"],
                 agent_files: [".opencode/agent/*.md"],
@@ -540,6 +547,13 @@ describe("ProviderRuntimeIngestion", () => {
       harness.engine,
       (entry) =>
         entry.session?.providerName === "opencode" &&
+        entry.session?.capabilities?.sessionForkMode === "native" &&
+        entry.session?.capabilities?.sideConversationMode === "native-fork" &&
+        entry.session?.capabilities?.sideConversationCommands?.length === 0 &&
+        entry.session?.capabilities?.providerThreadTargetingMode === "native" &&
+        entry.session?.capabilities?.sessionResumeMode === "native" &&
+        entry.session?.capabilities?.turnSteeringMode === "queued-message" &&
+        entry.session?.capabilities?.goalControlMode === "native" &&
         entry.session?.capabilities?.multiAgentMode === "agent-command" &&
         entry.session?.capabilities?.multiAgentDefinitionPaths?.join(",") ===
           ".opencode/agent/*.md,.opencode/subagent/*.md" &&
@@ -548,6 +562,13 @@ describe("ProviderRuntimeIngestion", () => {
         entry.session?.capabilities?.hostedSessionMode === "local-bridge",
     );
 
+    expect(thread.session?.capabilities?.sessionForkMode).toBe("native");
+    expect(thread.session?.capabilities?.sideConversationMode).toBe("native-fork");
+    expect(thread.session?.capabilities?.sideConversationCommands).toEqual([]);
+    expect(thread.session?.capabilities?.providerThreadTargetingMode).toBe("native");
+    expect(thread.session?.capabilities?.sessionResumeMode).toBe("native");
+    expect(thread.session?.capabilities?.turnSteeringMode).toBe("queued-message");
+    expect(thread.session?.capabilities?.goalControlMode).toBe("native");
     expect(thread.session?.capabilities?.multiAgentMode).toBe("agent-command");
     expect(thread.session?.capabilities?.multiAgentInvocationPrefixes).toEqual(["@task"]);
     expect(thread.session?.capabilities?.multiAgentDefinitionPaths).toEqual([
