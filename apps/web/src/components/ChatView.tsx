@@ -213,6 +213,7 @@ import {
   NEW_SIDE_CHAT_DRAFT_RUNTIME_MODE,
   NEW_SIDE_CHAT_THREAD_ID,
   newSideChatDraftThreadId,
+  normalizeAceSideChatPromptText,
 } from "~/lib/chat/sideChatDraft";
 import { THREAD_ROUTE_CONNECTION_SEARCH_PARAM } from "../lib/connectionRouting";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
@@ -3051,7 +3052,7 @@ function useChatViewComponent({
   );
   const newSideChatDraft = useComposerThreadDraft(newSideChatDraftThreadIdValue);
   const newSideChatThread = useMemo<SubagentThread>(() => {
-    const pendingPrompt = newSideChatDraft.prompt.trim();
+    const pendingPrompt = normalizeAceSideChatPromptText(newSideChatDraft.prompt);
     return {
       id: NEW_SIDE_CHAT_THREAD_ID,
       label: pendingPrompt || "New side chat",
@@ -10550,12 +10551,16 @@ function useChatViewComponent({
         promptForSendWithoutInlineMarkers,
         sendableTerminalContexts,
       );
+      const sideChatPromptText =
+        subagent.id === NEW_SIDE_CHAT_THREAD_ID
+          ? normalizeAceSideChatPromptText(textWithTerminalContext)
+          : textWithTerminalContext;
       const outgoingMessageText = formatOutgoingPrompt({
         provider: targetProvider,
         model: selectedModel,
         models: sideProviderModels,
         effort: sideProviderState.promptEffort,
-        text: textWithTerminalContext,
+        text: sideChatPromptText,
       });
       let attachments: Array<{
         type: "image";
