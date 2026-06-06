@@ -1803,7 +1803,11 @@ describe("deriveWorkLogEntries", () => {
           summary: "Side chat message",
           payload: {
             detail: "Review this without polluting the parent context.",
-            sideConversationId: "provider-side-conversation-1",
+            sideConversation: {
+              id: "provider-side-conversation-1",
+              parentThreadId: "thread-parent-1",
+              type: "side chat",
+            },
             subagentType: "side chat",
             subagentName: "Context helper",
           },
@@ -1832,6 +1836,9 @@ describe("deriveWorkLogEntries", () => {
       "provider-side-conversation-1",
       "provider-side-conversation-1",
     ]);
+    expect(entries.find((entry) => entry.sideChatMessageRole === "user")?.subagentParentId).toBe(
+      "thread-parent-1",
+    );
     expect(entries.map((entry) => entry.sideChatMessageRole).toSorted()).toEqual([
       "assistant",
       "user",

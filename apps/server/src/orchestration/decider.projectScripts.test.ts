@@ -399,8 +399,56 @@ describe("decider project scripts", () => {
       payload: {
         detail: "follow up in the side chat",
         childProviderThreadId: "side:thread-1:question-1",
+        sideConversation: {
+          id: "side:thread-1:question-1",
+          parentThreadId: ThreadId.makeUnsafe("thread-1"),
+          type: "side chat",
+        },
         subagent: {
           id: "side:thread-1:question-1",
+          type: "side chat",
+        },
+      },
+    });
+
+    const sideStartResult = await Effect.runPromise(
+      decideOrchestrationCommand({
+        command: {
+          type: "thread.subagent.turn.start",
+          commandId: CommandId.makeUnsafe("cmd-side-start-turn"),
+          threadId: ThreadId.makeUnsafe("thread-1"),
+          subagentThreadId: "side:thread-1:question-2",
+          forkSourceThreadId: ThreadId.makeUnsafe("thread-1"),
+          message: {
+            messageId: asMessageId("message-side-start-1"),
+            role: "user",
+            text: "start a separate side chat",
+            attachments: [],
+          },
+          runtimeMode: "approval-required",
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          createdAt: now,
+        },
+        readModel,
+      }),
+    );
+    const sideStartEvents = Array.isArray(sideStartResult) ? sideStartResult : [sideStartResult];
+    expect(sideStartEvents[0]?.type).toBe("thread.activity-appended");
+    if (sideStartEvents[0]?.type !== "thread.activity-appended") {
+      return;
+    }
+    expect(sideStartEvents[0].payload.activity).toMatchObject({
+      kind: "subagent.message.sent",
+      payload: {
+        detail: "start a separate side chat",
+        sideConversation: {
+          id: "side:thread-1:question-2",
+          parentThreadId: ThreadId.makeUnsafe("thread-1"),
+          sourceThreadId: ThreadId.makeUnsafe("thread-1"),
+          type: "side chat",
+        },
+        subagent: {
+          id: "side:thread-1:question-2",
           type: "side chat",
         },
       },
@@ -443,6 +491,9 @@ describe("decider project scripts", () => {
         },
       },
     });
+    expect(
+      (providerChildEvents[0].payload.activity.payload as Record<string, unknown>).sideConversation,
+    ).toBeUndefined();
   });
 
   it("emits thread.runtime-mode-set from thread.runtime-mode.set", async () => {

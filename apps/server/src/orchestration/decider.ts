@@ -793,6 +793,16 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       const isSideConversation =
         command.forkSourceThreadId !== undefined ||
         isAceSideConversationThreadId(command.subagentThreadId, command.threadId);
+      const sideConversation = isSideConversation
+        ? {
+            id: command.subagentThreadId,
+            parentThreadId: command.threadId,
+            ...(command.forkSourceThreadId !== undefined
+              ? { sourceThreadId: command.forkSourceThreadId }
+              : {}),
+            type: "side chat",
+          }
+        : undefined;
       const subagentMessageEvent: Omit<OrchestrationEvent, "sequence"> = {
         ...withEventBase({
           aggregateKind: "thread",
@@ -816,6 +826,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
               runtimeMode: command.runtimeMode,
               interactionMode: command.interactionMode,
               childProviderThreadId: command.subagentThreadId,
+              ...(sideConversation ? { sideConversation } : {}),
               subagent: {
                 id: command.subagentThreadId,
                 type: isSideConversation ? "side chat" : "subagent",

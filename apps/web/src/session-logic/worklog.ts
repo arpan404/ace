@@ -1507,6 +1507,8 @@ function extractSubagentMetadata(payload: Record<string, unknown> | null): {
   const data = asRecord(payload?.data);
   const ace = asRecord(data?.ace);
   const aceSubagent = asRecord(ace?.subagent);
+  const sideConversation =
+    asRecord(payload?.sideConversation) ?? asRecord(payload?.side_conversation);
   const item = asRecord(data?.item);
   const subagent =
     providerAgentRecord(payload) ??
@@ -1519,6 +1521,7 @@ function extractSubagentMetadata(payload: Record<string, unknown> | null): {
   const metadata = mergeProviderAgentMetadata(
     subagent,
     providerAgentLooseRecord(payload),
+    providerAgentLooseRecord(sideConversation),
     providerAgentLooseRecord(data),
     providerAgentLooseRecord(item),
     providerAgentLooseRecord(input),
