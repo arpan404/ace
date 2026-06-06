@@ -18,6 +18,8 @@ export const ComposerPendingApprovalPanel = memo(function ComposerPendingApprova
         : approval.requestKind === "file-change"
           ? "File-change approval requested"
           : "Permission approval requested";
+  const sourceLabel =
+    approval.sourceThreadLabel ?? approval.sourceAgentName ?? approval.sourceThreadId ?? null;
 
   return (
     <div className="px-4 py-3.5 sm:px-5 sm:py-4">
@@ -36,6 +38,11 @@ export const ComposerPendingApprovalPanel = memo(function ComposerPendingApprova
           </span>
         ) : null}
       </div>
+      {sourceLabel ? (
+        <div className="mt-1 text-[12px] text-muted-foreground">
+          From <span className="font-medium text-foreground/85">{sourceLabel}</span>
+        </div>
+      ) : null}
     </div>
   );
 });

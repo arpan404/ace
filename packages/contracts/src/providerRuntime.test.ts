@@ -113,6 +113,32 @@ describe("ProviderRuntimeEvent", () => {
     expect(parsed.payload.answers.sandbox_mode).toBe("workspace-write");
   });
 
+  it("decodes approval request source metadata", () => {
+    const parsed = decodeRuntimeEvent({
+      type: "request.opened",
+      eventId: "event-request-source-1",
+      provider: "codex",
+      createdAt: "2026-02-28T00:00:02.500Z",
+      threadId: "thread-1",
+      requestId: "request-source-1",
+      payload: {
+        requestType: "command_execution_approval",
+        detail: "bun run lint",
+        sourceThreadId: "codex-child-thread-1",
+        sourceThreadLabel: "Noether Nullguard",
+        sourceAgentId: "reviewer",
+        sourceAgentName: "Noether Nullguard",
+      },
+    });
+
+    expect(parsed.type).toBe("request.opened");
+    if (parsed.type !== "request.opened") {
+      throw new Error("expected request.opened");
+    }
+    expect(parsed.payload.sourceThreadLabel).toBe("Noether Nullguard");
+    expect(parsed.payload.sourceAgentId).toBe("reviewer");
+  });
+
   it("rejects legacy message.delta type", () => {
     expect(() =>
       decodeRuntimeEvent({

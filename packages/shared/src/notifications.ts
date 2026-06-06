@@ -17,6 +17,7 @@ export interface AgentAttentionNotificationTitleInput {
 export interface ApprovalNotificationBodyInput {
   readonly requestKind: ApprovalNotificationRequestKind;
   readonly detail?: string | null;
+  readonly sourceLabel?: string | null;
   readonly maxLength?: number;
 }
 
@@ -140,10 +141,13 @@ export function buildAgentAttentionNotificationTitle(
 
 export function buildApprovalNotificationBody(input: ApprovalNotificationBodyInput): string {
   const detail = input.detail ? normalizeNotificationText(input.detail) : "";
+  const sourcePrefix = input.sourceLabel
+    ? `From ${normalizeNotificationText(input.sourceLabel)} - `
+    : "";
   const body =
     detail.length > 0
-      ? `${APPROVAL_BODY_LABEL_BY_KIND[input.requestKind]}: ${detail}`
-      : `Review the ${APPROVAL_FALLBACK_LABEL_BY_KIND[input.requestKind]} approval request.`;
+      ? `${sourcePrefix}${APPROVAL_BODY_LABEL_BY_KIND[input.requestKind]}: ${detail}`
+      : `${sourcePrefix}Review the ${APPROVAL_FALLBACK_LABEL_BY_KIND[input.requestKind]} approval request.`;
 
   return truncateNotificationText(body, input.maxLength ?? DEFAULT_NOTIFICATION_BODY_MAX_CHARS);
 }

@@ -1059,6 +1059,54 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
     }),
   );
 
+  it.effect("maps approval request source metadata from child agent routes", () =>
+    Effect.gen(function* () {
+      const adapter = yield* CodexAdapter;
+      const firstEventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
+
+      const event: ProviderEvent = {
+        id: asEventId("evt-subagent-approval"),
+        kind: "request",
+        provider: "codex",
+        threadId: asThreadId("thread-1"),
+        createdAt: new Date().toISOString(),
+        method: "item/commandExecution/requestApproval",
+        turnId: asTurnId("turn-1"),
+        requestId: ApprovalRequestId.makeUnsafe("req-subagent-approval"),
+        payload: {
+          threadId: "provider-thread-1",
+          turnId: "turn-1",
+          command: "bun run lint",
+          ace: {
+            childProviderThreadId: "codex-child-thread-1",
+            subagent: {
+              id: "reviewer",
+              name: "Noether Nullguard",
+              type: "reviewer",
+            },
+          },
+        },
+      };
+
+      lifecycleManager.emit("event", event);
+      const firstEvent = yield* Fiber.join(firstEventFiber);
+
+      assert.equal(firstEvent._tag, "Some");
+      if (firstEvent._tag !== "Some") {
+        return;
+      }
+      assert.equal(firstEvent.value.type, "request.opened");
+      if (firstEvent.value.type !== "request.opened") {
+        return;
+      }
+      assert.equal(firstEvent.value.payload.requestType, "command_execution_approval");
+      assert.equal(firstEvent.value.payload.sourceThreadId, "codex-child-thread-1");
+      assert.equal(firstEvent.value.payload.sourceThreadLabel, "Noether Nullguard");
+      assert.equal(firstEvent.value.payload.sourceAgentId, "reviewer");
+      assert.equal(firstEvent.value.payload.sourceAgentName, "Noether Nullguard");
+    }),
+  );
+
   it.effect("maps Codex hook lifecycle notifications", () =>
     Effect.gen(function* () {
       const adapter = yield* CodexAdapter;

@@ -527,6 +527,60 @@ function toRequestTypeFromKind(kind: unknown): CanonicalRequestType {
   }
 }
 
+function requestSourceFieldsFromPayload(payload: Record<string, unknown> | undefined): {
+  readonly sourceThreadId?: string;
+  readonly sourceThreadLabel?: string;
+  readonly sourceAgentId?: string;
+  readonly sourceAgentName?: string;
+} {
+  const ace = asObject(payload?.ace);
+  const data = asObject(payload?.data);
+  const subagent =
+    asObject(payload?.subagent) ??
+    asObject(payload?.agent) ??
+    asObject(ace?.subagent) ??
+    asObject(data?.subagent) ??
+    asObject(data?.agent);
+
+  const sourceAgentId =
+    asString(payload?.sourceAgentId) ??
+    asString(payload?.source_agent_id) ??
+    asString(subagent?.id) ??
+    asString(subagent?.agentId) ??
+    asString(subagent?.agent_id);
+  const sourceAgentName =
+    asString(payload?.sourceAgentName) ??
+    asString(payload?.source_agent_name) ??
+    asString(subagent?.name) ??
+    asString(subagent?.displayName) ??
+    asString(subagent?.display_name) ??
+    asString(subagent?.agentNickname) ??
+    asString(subagent?.agent_nickname) ??
+    asString(subagent?.nickname);
+  const sourceThreadId =
+    asString(payload?.sourceThreadId) ??
+    asString(payload?.source_thread_id) ??
+    asString(ace?.childProviderThreadId) ??
+    asString(ace?.sourceProviderThreadId) ??
+    asString(subagent?.threadId) ??
+    asString(subagent?.thread_id) ??
+    sourceAgentId;
+  const sourceThreadLabel =
+    asString(payload?.sourceThreadLabel) ??
+    asString(payload?.source_thread_label) ??
+    sourceAgentName ??
+    asString(subagent?.type) ??
+    asString(subagent?.agentType) ??
+    asString(subagent?.agent_type);
+
+  return {
+    ...(sourceThreadId ? { sourceThreadId } : {}),
+    ...(sourceThreadLabel ? { sourceThreadLabel } : {}),
+    ...(sourceAgentId ? { sourceAgentId } : {}),
+    ...(sourceAgentName ? { sourceAgentName } : {}),
+  };
+}
+
 function toRequestTypeFromResolvedPayload(
   payload: Record<string, unknown> | undefined,
 ): CanonicalRequestType {
@@ -881,6 +935,7 @@ function mapToRuntimeEvents(
 
     const detail =
       asString(payload?.command) ?? asString(payload?.reason) ?? asString(payload?.prompt);
+    const sourceFields = requestSourceFieldsFromPayload(payload);
     return [
       {
         ...runtimeEventBase(event, canonicalThreadId),
@@ -889,6 +944,7 @@ function mapToRuntimeEvents(
           requestType: toRequestTypeFromMethod(event.method),
           ...(detail ? { detail } : {}),
           ...(event.payload !== undefined ? { args: event.payload } : {}),
+          ...sourceFields,
         },
       },
     ];
@@ -896,6 +952,7 @@ function mapToRuntimeEvents(
 
   if (event.method === "item/requestApproval/decision" && event.requestId) {
     const decision = Schema.decodeUnknownSync(ProviderApprovalDecision)(payload?.decision);
+    const sourceFields = requestSourceFieldsFromPayload(payload);
     const requestType =
       event.requestKind !== undefined
         ? toRequestTypeFromKind(event.requestKind)
@@ -908,6 +965,7 @@ function mapToRuntimeEvents(
           requestType,
           ...(decision ? { decision } : {}),
           ...(event.payload !== undefined ? { resolution: event.payload } : {}),
+          ...sourceFields,
         },
       },
     ];
@@ -1401,6 +1459,7 @@ function mapToRuntimeEvents(
   }
 
   if (event.method === "serverRequest/resolved") {
+    const sourceFields = requestSourceFieldsFromPayload(payload);
     const requestType =
       toRequestTypeFromResolvedPayload(payload) !== "unknown"
         ? toRequestTypeFromResolvedPayload(payload)
@@ -1414,6 +1473,7 @@ function mapToRuntimeEvents(
         payload: {
           requestType,
           ...(event.payload !== undefined ? { resolution: event.payload } : {}),
+          ...sourceFields,
         },
       },
     ];

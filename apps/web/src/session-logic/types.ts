@@ -73,6 +73,10 @@ export interface PendingApproval {
   requestKind: "command" | "file-read" | "file-change" | "permission";
   createdAt: string;
   detail?: string;
+  sourceThreadId?: string;
+  sourceThreadLabel?: string;
+  sourceAgentId?: string;
+  sourceAgentName?: string;
 }
 
 export interface PendingUserInput {

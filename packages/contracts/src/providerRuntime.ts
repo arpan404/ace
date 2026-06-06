@@ -449,6 +449,10 @@ const RequestOpenedPayload = Schema.Struct({
   requestType: CanonicalRequestType,
   detail: Schema.optional(TrimmedNonEmptyStringSchema),
   args: Schema.optional(Schema.Unknown),
+  sourceThreadId: Schema.optional(TrimmedNonEmptyStringSchema),
+  sourceThreadLabel: Schema.optional(TrimmedNonEmptyStringSchema),
+  sourceAgentId: Schema.optional(TrimmedNonEmptyStringSchema),
+  sourceAgentName: Schema.optional(TrimmedNonEmptyStringSchema),
 });
 export type RequestOpenedPayload = typeof RequestOpenedPayload.Type;
 
@@ -456,6 +460,10 @@ const RequestResolvedPayload = Schema.Struct({
   requestType: CanonicalRequestType,
   decision: Schema.optional(TrimmedNonEmptyStringSchema),
   resolution: Schema.optional(Schema.Unknown),
+  sourceThreadId: Schema.optional(TrimmedNonEmptyStringSchema),
+  sourceThreadLabel: Schema.optional(TrimmedNonEmptyStringSchema),
+  sourceAgentId: Schema.optional(TrimmedNonEmptyStringSchema),
+  sourceAgentName: Schema.optional(TrimmedNonEmptyStringSchema),
 });
 export type RequestResolvedPayload = typeof RequestResolvedPayload.Type;
 

@@ -233,6 +233,11 @@ export function deriveAgentAttentionRequests(
         body: buildApprovalNotificationBody({
           requestKind: approval.requestKind,
           detail: approval.detail ?? null,
+          sourceLabel:
+            approval.sourceThreadLabel ??
+            approval.sourceAgentName ??
+            approval.sourceThreadId ??
+            null,
         }),
         deepLink,
       });

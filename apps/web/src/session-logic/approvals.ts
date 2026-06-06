@@ -99,6 +99,16 @@ export function derivePendingApprovals(
           ? requestKindFromRequestType(payload.requestType)
           : null;
     const detail = payload && typeof payload.detail === "string" ? payload.detail : undefined;
+    const sourceThreadId =
+      payload && typeof payload.sourceThreadId === "string" ? payload.sourceThreadId : undefined;
+    const sourceThreadLabel =
+      payload && typeof payload.sourceThreadLabel === "string"
+        ? payload.sourceThreadLabel
+        : undefined;
+    const sourceAgentId =
+      payload && typeof payload.sourceAgentId === "string" ? payload.sourceAgentId : undefined;
+    const sourceAgentName =
+      payload && typeof payload.sourceAgentName === "string" ? payload.sourceAgentName : undefined;
 
     if (activity.kind === "approval.requested" && requestId && requestKind) {
       openByRequestId.set(requestId, {
@@ -106,6 +116,10 @@ export function derivePendingApprovals(
         requestKind,
         createdAt: activity.createdAt,
         ...(detail ? { detail } : {}),
+        ...(sourceThreadId ? { sourceThreadId } : {}),
+        ...(sourceThreadLabel ? { sourceThreadLabel } : {}),
+        ...(sourceAgentId ? { sourceAgentId } : {}),
+        ...(sourceAgentName ? { sourceAgentName } : {}),
       });
       continue;
     }

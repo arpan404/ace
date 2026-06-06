@@ -90,6 +90,13 @@ describe("notification copy helpers", () => {
       }),
     ).toBe("Permission approval: Use Browser Use");
     expect(
+      buildApprovalNotificationBody({
+        requestKind: "command",
+        detail: "bun lint",
+        sourceLabel: "Noether Nullguard",
+      }),
+    ).toBe("From Noether Nullguard - Command approval: bun lint");
+    expect(
       buildUserInputNotificationBody({
         firstQuestion: "Which scope should I handle first?",
         questionCount: 2,

@@ -3298,6 +3298,20 @@ function requestKindFromCanonicalRequestType(
   }
 }
 
+function requestSourceActivityPayloadFields(
+  payload: Extract<
+    ProviderRuntimeEvent,
+    { type: "request.opened" | "request.resolved" }
+  >["payload"],
+): Record<string, unknown> {
+  return {
+    ...(payload.sourceThreadId ? { sourceThreadId: payload.sourceThreadId } : {}),
+    ...(payload.sourceThreadLabel ? { sourceThreadLabel: payload.sourceThreadLabel } : {}),
+    ...(payload.sourceAgentId ? { sourceAgentId: payload.sourceAgentId } : {}),
+    ...(payload.sourceAgentName ? { sourceAgentName: payload.sourceAgentName } : {}),
+  };
+}
+
 function goalLifecycleActivitiesFromLifecycleEvent(
   event: Extract<
     ProviderRuntimeEvent,
@@ -3384,6 +3398,7 @@ function runtimeEventToActivities(
             ...(requestKind ? { requestKind } : {}),
             requestType: event.payload.requestType,
             ...(event.payload.detail ? { detail: truncateDetail(event.payload.detail) } : {}),
+            ...requestSourceActivityPayloadFields(event.payload),
           },
           turnId: toTurnId(event.turnId) ?? null,
           ...maybeSequence,
@@ -3408,6 +3423,7 @@ function runtimeEventToActivities(
             ...(requestKind ? { requestKind } : {}),
             requestType: event.payload.requestType,
             ...(event.payload.decision ? { decision: event.payload.decision } : {}),
+            ...requestSourceActivityPayloadFields(event.payload),
           },
           turnId: toTurnId(event.turnId) ?? null,
           ...maybeSequence,

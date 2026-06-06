@@ -5419,6 +5419,53 @@ describe("ProviderRuntimeIngestion", () => {
     expect(resolvedPayload?.requestType).toBe("command_execution_approval");
   });
 
+  it("preserves provider approval source metadata for subagent requests", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "request.opened",
+      eventId: asEventId("evt-subagent-request-opened"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      requestId: ApprovalRequestId.makeUnsafe("req-subagent-open"),
+      payload: {
+        requestType: "command_execution_approval",
+        detail: "bun run lint",
+        sourceThreadId: "codex-child-thread-1",
+        sourceThreadLabel: "Noether Nullguard",
+        sourceAgentId: "reviewer",
+        sourceAgentName: "Noether Nullguard",
+      },
+    });
+
+    await waitForThread(harness.engine, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) => activity.id === "evt-subagent-request-opened",
+      ),
+    );
+
+    const readModel = await Effect.runPromise(harness.engine.getReadModel());
+    const thread = readModel.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
+    const requested = thread?.activities.find(
+      (activity: ProviderRuntimeTestActivity) => activity.id === "evt-subagent-request-opened",
+    );
+    const requestedPayload =
+      requested?.payload && typeof requested.payload === "object"
+        ? (requested.payload as Record<string, unknown>)
+        : undefined;
+
+    expect(requestedPayload).toMatchObject({
+      requestKind: "command",
+      requestType: "command_execution_approval",
+      sourceThreadId: "codex-child-thread-1",
+      sourceThreadLabel: "Noether Nullguard",
+      sourceAgentId: "reviewer",
+      sourceAgentName: "Noether Nullguard",
+    });
+  });
+
   it("maps generic runtime requests into permission approval activities", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();

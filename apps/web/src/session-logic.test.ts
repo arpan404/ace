@@ -127,6 +127,40 @@ describe("derivePendingApprovals", () => {
     ]);
   });
 
+  it("keeps approval source metadata for subagent approval banners", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "approval-open-source",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "approval.requested",
+        summary: "Command approval requested",
+        tone: "approval",
+        payload: {
+          requestId: "req-source",
+          requestType: "command_execution_approval",
+          detail: "bun run lint",
+          sourceThreadId: "codex-child-thread-1",
+          sourceThreadLabel: "Noether Nullguard",
+          sourceAgentId: "reviewer",
+          sourceAgentName: "Noether Nullguard",
+        },
+      }),
+    ];
+
+    expect(derivePendingApprovals(activities)).toEqual([
+      {
+        requestId: "req-source",
+        requestKind: "command",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        detail: "bun run lint",
+        sourceThreadId: "codex-child-thread-1",
+        sourceThreadLabel: "Noether Nullguard",
+        sourceAgentId: "reviewer",
+        sourceAgentName: "Noether Nullguard",
+      },
+    ]);
+  });
+
   it("clears stale pending approvals when provider reports unknown pending request", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({
