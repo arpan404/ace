@@ -1753,10 +1753,11 @@ export function discoverClaudeSdkAgentSlashCommands(input: {
   readonly cwd?: string | undefined;
   readonly home?: string | undefined;
 }): ReadonlyArray<ProviderSlashCommand> {
-  if (!Array.isArray(input.agents)) {
+  const entries = normalizeClaudeSdkAgentEntries(input.agents);
+  if (entries.length === 0) {
     return [];
   }
-  const commands = input.agents.flatMap((entry): ReadonlyArray<ProviderSlashCommand> => {
+  const commands = entries.flatMap((entry): ReadonlyArray<ProviderSlashCommand> => {
     if (typeof entry !== "object" || entry === null) {
       return [];
     }
@@ -1764,6 +1765,12 @@ export function discoverClaudeSdkAgentSlashCommands(input: {
       readonly name?: unknown;
       readonly description?: unknown;
       readonly model?: unknown;
+      readonly prompt?: unknown;
+      readonly tools?: unknown;
+      readonly allowedTools?: unknown;
+      readonly allowed_tools?: unknown;
+      readonly maxTurns?: unknown;
+      readonly max_turns?: unknown;
     };
     const name = normalizeCommandName(typeof record.name === "string" ? record.name : "");
     if (!name) {
@@ -1777,6 +1784,28 @@ export function discoverClaudeSdkAgentSlashCommands(input: {
       typeof record.model === "string" && record.model.trim().length > 0
         ? record.model.trim()
         : undefined;
+    const tools =
+      normalizeClaudeSdkStringList(record.tools) ??
+      normalizeClaudeSdkStringList(record.allowedTools) ??
+      normalizeClaudeSdkStringList(record.allowed_tools);
+    const prompt =
+      typeof record.prompt === "string" && record.prompt.trim().length > 0
+        ? record.prompt.trim()
+        : undefined;
+    const maxTurns =
+      typeof record.maxTurns === "number" && Number.isFinite(record.maxTurns)
+        ? record.maxTurns
+        : typeof record.max_turns === "number" && Number.isFinite(record.max_turns)
+          ? record.max_turns
+          : undefined;
+    const metadata = {
+      provider: "claude",
+      source: "sdk-agent",
+      ...(model ? { model } : {}),
+      ...(tools !== undefined ? { tools } : {}),
+      ...(prompt ? { prompt } : {}),
+      ...(maxTurns !== undefined ? { maxTurns } : {}),
+    };
     return [
       providerAgentSlashCommand({
         name,
@@ -1787,6 +1816,7 @@ export function discoverClaudeSdkAgentSlashCommands(input: {
             : {}),
         promptPrefix: `@${name}`,
         inputHint: "<prompt>",
+        metadata,
       }),
     ];
   });
@@ -1797,6 +1827,43 @@ export function discoverClaudeSdkAgentSlashCommands(input: {
       home: input.home,
     }),
   );
+}
+
+function normalizeClaudeSdkAgentEntries(agents: unknown): ReadonlyArray<Record<string, unknown>> {
+  if (Array.isArray(agents)) {
+    return agents.filter((entry): entry is Record<string, unknown> =>
+      Boolean(entry && typeof entry === "object" && !Array.isArray(entry)),
+    );
+  }
+  if (!agents || typeof agents !== "object" || Array.isArray(agents)) {
+    return [];
+  }
+  return Object.entries(agents as Record<string, unknown>).flatMap(([name, value]) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return [];
+    }
+    return [{ name, ...(value as Record<string, unknown>) }];
+  });
+}
+
+function normalizeClaudeSdkStringList(value: unknown): string | string[] | undefined {
+  if (typeof value === "string") {
+    const values = splitFrontmatterListValue(value);
+    if (values.length === 0) {
+      return undefined;
+    }
+    return values.length === 1 ? values[0] : values;
+  }
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  const values = value
+    .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+    .filter((entry) => entry.length > 0);
+  if (values.length === 0) {
+    return undefined;
+  }
+  return values.length === 1 ? values[0] : values;
 }
 
 function defaultClaudeOutputStyles(): ClaudeOutputStyle[] {

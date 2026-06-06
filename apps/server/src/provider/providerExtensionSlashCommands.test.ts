@@ -416,6 +416,9 @@ describe("providerExtensionSlashCommands", () => {
               name: "sdk-auditor",
               description: "Audit implementation details from the Claude SDK",
               model: "sonnet",
+              tools: ["Read", "Grep"],
+              prompt: "Audit the current implementation with SDK context.",
+              maxTurns: 6,
             },
             {
               name: "hidden-reviewer",
@@ -434,6 +437,49 @@ describe("providerExtensionSlashCommands", () => {
           description: "Audit implementation details from the Claude SDK Model: sonnet.",
           promptPrefix: "@sdk-auditor",
           inputHint: "<prompt>",
+          metadata: {
+            provider: "claude",
+            source: "sdk-agent",
+            model: "sonnet",
+            tools: ["Read", "Grep"],
+            prompt: "Audit the current implementation with SDK context.",
+            maxTurns: 6,
+          },
+        },
+      ]);
+
+      expect(
+        discoverClaudeSdkAgentSlashCommands({
+          cwd,
+          home: claudeHome,
+          agents: {
+            "sdk-docs": {
+              description: "Draft documentation from SDK agent config",
+              model: "haiku",
+              allowed_tools: "Read, Glob",
+              prompt: "Draft docs from the current context.",
+              max_turns: 4,
+            },
+            "hidden-reviewer": {
+              description: "Denied by Claude settings",
+            },
+          },
+        }),
+      ).toEqual([
+        {
+          name: "sdk-docs",
+          kind: "agent",
+          description: "Draft documentation from SDK agent config Model: haiku.",
+          promptPrefix: "@sdk-docs",
+          inputHint: "<prompt>",
+          metadata: {
+            provider: "claude",
+            source: "sdk-agent",
+            model: "haiku",
+            tools: ["Read", "Glob"],
+            prompt: "Draft docs from the current context.",
+            maxTurns: 4,
+          },
         },
       ]);
     } finally {
