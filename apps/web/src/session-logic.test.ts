@@ -4800,6 +4800,28 @@ describe("deriveEnvironmentSessionProviderStatus", () => {
     });
   });
 
+  it("does not show stale multi-agent metadata for unsupported provider agents", () => {
+    expect(
+      deriveEnvironmentSessionProviderStatus({
+        provider: "gemini",
+        updatedAt: "2026-02-23T00:00:11.500Z",
+        capabilities: {
+          multiAgentMode: "unsupported",
+          multiAgentInvocationPrefixes: ["@"],
+          multiAgentDefinitionPaths: [".gemini/agents/*.md"],
+          multiAgentManagementCommands: ["/agents list"],
+        },
+      }),
+    ).toEqual({
+      id: "gemini:multi-agent-capability",
+      createdAt: "2026-02-23T00:00:11.500Z",
+      label: "Gemini agents",
+      status: "unsupported",
+      tone: "warning",
+      detail: "Provider has not advertised multi-agent delegation.",
+    });
+  });
+
   it("describes active session hook capability separately from agents", () => {
     expect(
       deriveEnvironmentSessionProviderStatuses({

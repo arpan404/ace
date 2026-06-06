@@ -358,6 +358,20 @@ describe("providerCapabilities", () => {
     });
   });
 
+  it("clears multi-agent metadata when an adapter marks the capability unsupported", () => {
+    expect(
+      resolveProviderIntegrationCapabilities("gemini", {
+        sessionModelSwitch: "in-session",
+        multiAgentMode: "unsupported",
+      }),
+    ).toMatchObject({
+      multiAgentMode: "unsupported",
+      multiAgentInvocationPrefixes: [],
+      multiAgentDefinitionPaths: [],
+      multiAgentManagementCommands: [],
+    });
+  });
+
   it("preserves Pi defaults when adapter capabilities do not override them", () => {
     expect(
       resolveProviderIntegrationCapabilities("pi", { sessionModelSwitch: "in-session" }),

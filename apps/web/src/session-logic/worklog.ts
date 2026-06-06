@@ -863,15 +863,22 @@ export function deriveEnvironmentSessionProviderStatuses(
           ? "Provider agents are available through command or mention routing."
           : "Provider has not advertised multi-agent delegation.",
     ];
-    const invocationPrefixes = session.capabilities.multiAgentInvocationPrefixes ?? [];
+    const multiAgentMetadataEnabled = multiAgentMode !== "unsupported";
+    const invocationPrefixes = multiAgentMetadataEnabled
+      ? (session.capabilities.multiAgentInvocationPrefixes ?? [])
+      : [];
     if (invocationPrefixes.length > 0) {
       detailLines.push(`Invoke: ${invocationPrefixes.join(", ")}`);
     }
-    const definitionPaths = session.capabilities.multiAgentDefinitionPaths ?? [];
+    const definitionPaths = multiAgentMetadataEnabled
+      ? (session.capabilities.multiAgentDefinitionPaths ?? [])
+      : [];
     if (definitionPaths.length > 0) {
       detailLines.push(`Definitions: ${definitionPaths.join(", ")}`);
     }
-    const managementCommands = session.capabilities.multiAgentManagementCommands ?? [];
+    const managementCommands = multiAgentMetadataEnabled
+      ? (session.capabilities.multiAgentManagementCommands ?? [])
+      : [];
     if (managementCommands.length > 0) {
       detailLines.push(`Manage: ${managementCommands.join(", ")}`);
     }

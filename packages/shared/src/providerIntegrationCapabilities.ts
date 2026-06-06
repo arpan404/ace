@@ -321,6 +321,8 @@ export function resolveProviderIntegrationCapabilities(
   if (!capabilities) {
     return defaults;
   }
+  const multiAgentMode = capabilities.multiAgentMode ?? defaults.multiAgentMode;
+  const multiAgentMetadataEnabled = multiAgentMode !== "unsupported";
   return {
     ...defaults,
     ...capabilities,
@@ -330,15 +332,22 @@ export function resolveProviderIntegrationCapabilities(
     sideConversationCommands: normalizedProviderSideConversationCommands(
       capabilities.sideConversationCommands ?? defaults.sideConversationCommands,
     ),
-    multiAgentInvocationPrefixes: normalizedProviderCapabilityStringList(
-      capabilities.multiAgentInvocationPrefixes ?? defaults.multiAgentInvocationPrefixes,
-    ),
-    multiAgentDefinitionPaths: normalizedProviderCapabilityStringList(
-      capabilities.multiAgentDefinitionPaths ?? defaults.multiAgentDefinitionPaths,
-    ),
-    multiAgentManagementCommands: normalizedProviderCapabilityStringList(
-      capabilities.multiAgentManagementCommands ?? defaults.multiAgentManagementCommands,
-    ),
+    multiAgentMode,
+    multiAgentInvocationPrefixes: multiAgentMetadataEnabled
+      ? normalizedProviderCapabilityStringList(
+          capabilities.multiAgentInvocationPrefixes ?? defaults.multiAgentInvocationPrefixes,
+        )
+      : [],
+    multiAgentDefinitionPaths: multiAgentMetadataEnabled
+      ? normalizedProviderCapabilityStringList(
+          capabilities.multiAgentDefinitionPaths ?? defaults.multiAgentDefinitionPaths,
+        )
+      : [],
+    multiAgentManagementCommands: multiAgentMetadataEnabled
+      ? normalizedProviderCapabilityStringList(
+          capabilities.multiAgentManagementCommands ?? defaults.multiAgentManagementCommands,
+        )
+      : [],
   };
 }
 
