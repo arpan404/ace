@@ -26,8 +26,13 @@ const EXPECTED_PI_PROVIDER_CAPABILITIES = {
   sessionForkMode: "local-replay",
   sideConversationMode: "replay-fork",
   multiAgentMode: "agent-command",
-  multiAgentInvocationPrefixes: [],
-  multiAgentDefinitionPaths: [],
+  multiAgentInvocationPrefixes: ["@"],
+  multiAgentDefinitionPaths: [
+    ".pi/agents",
+    ".agents",
+    "~/.pi/agent/agents",
+    "~/.pi/agent/extensions/subagent/agents",
+  ],
 } as const;
 
 function collectEvents(

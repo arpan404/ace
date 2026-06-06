@@ -180,7 +180,15 @@ describe("providerCapabilities", () => {
       "~/.codex/agents",
     ]);
     expect(defaultProviderIntegrationCapabilities("pi").multiAgentMode).toBe("agent-command");
-    expect(defaultProviderIntegrationCapabilities("pi").multiAgentDefinitionPaths).toEqual([]);
+    expect(defaultProviderIntegrationCapabilities("pi").multiAgentInvocationPrefixes).toEqual([
+      "@",
+    ]);
+    expect(defaultProviderIntegrationCapabilities("pi").multiAgentDefinitionPaths).toEqual([
+      ".pi/agents",
+      ".agents",
+      "~/.pi/agent/agents",
+      "~/.pi/agent/extensions/subagent/agents",
+    ]);
   });
 
   it("declares provider hook support from documented native provider features", () => {
