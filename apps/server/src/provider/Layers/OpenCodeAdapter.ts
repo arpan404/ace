@@ -1229,6 +1229,66 @@ export function buildOpenCodeModeConfigOption(input: {
   };
 }
 
+export function buildOpenCodeModelConfigOption(input: {
+  readonly defaultModels: Readonly<Record<string, string>>;
+  readonly modelCatalog: OpenCodeConfigProvidersResponse | null;
+  readonly currentModelSlug: string;
+}): ProviderSessionConfigOption | undefined {
+  const defaultEntries = Object.entries(input.defaultModels)
+    .map(([providerId, modelId]) => {
+      const slug = `${providerId}/${modelId}`;
+      const provider = input.modelCatalog?.providers.find((entry) => entry.id === providerId);
+      const model = provider?.models[modelId];
+      return {
+        value: slug,
+        name: model?.name ?? slug,
+        ...(provider?.name ? { description: `${provider.name} default model.` } : {}),
+      };
+    })
+    .filter((entry) => entry.value.trim().length > 0);
+
+  const optionByValue = new Map(defaultEntries.map((entry) => [entry.value, entry]));
+  if (input.currentModelSlug.trim() && !optionByValue.has(input.currentModelSlug)) {
+    optionByValue.set(input.currentModelSlug, {
+      value: input.currentModelSlug,
+      name: input.currentModelSlug,
+    });
+  }
+  const options = [...optionByValue.values()];
+  if (options.length === 0) {
+    return undefined;
+  }
+  return {
+    id: "model",
+    name: "Model",
+    category: "model",
+    type: "select",
+    currentValue: input.currentModelSlug,
+    description: "OpenCode default provider model for this session.",
+    options,
+  };
+}
+
+function buildOpenCodeSessionConfigOptions(input: {
+  readonly currentModeId?: string | undefined;
+  readonly currentModelSlug: string;
+  readonly defaultModels: Readonly<Record<string, string>>;
+  readonly modelCatalog: OpenCodeConfigProvidersResponse | null;
+  readonly modes: ReadonlyArray<OpenCodeModeOption>;
+}): ReadonlyArray<ProviderSessionConfigOption> {
+  return [
+    buildOpenCodeModeConfigOption({
+      modes: input.modes,
+      currentModeId: input.currentModeId,
+    }),
+    buildOpenCodeModelConfigOption({
+      defaultModels: input.defaultModels,
+      modelCatalog: input.modelCatalog,
+      currentModelSlug: input.currentModelSlug,
+    }),
+  ].filter((option): option is ProviderSessionConfigOption => option !== undefined);
+}
+
 function selectedOpenCodeModeId(
   context: Pick<OpenCodeSessionContext, "availableModes" | "defaultModeId">,
   modelSelection: ModelSelection | undefined,
@@ -2498,9 +2558,12 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
             input.modelSelection && input.modelSelection.provider === PROVIDER
               ? input.modelSelection.model
               : DEFAULT_MODEL_BY_PROVIDER.opencode;
-          const modeConfigOption = buildOpenCodeModeConfigOption({
+          const configOptions = buildOpenCodeSessionConfigOptions({
             modes: modeOptions.modes,
             currentModeId: initialOpenCodeModeId(modeOptions, input.modelSelection),
+            currentModelSlug: model,
+            defaultModels,
+            modelCatalog: body,
           });
 
           const session: ProviderSession = {
@@ -2514,7 +2577,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
             resumeCursor: {
               sessionId: opencodeSessionId,
             },
-            ...(modeConfigOption ? { configOptions: [modeConfigOption] } : {}),
+            ...(configOptions.length > 0 ? { configOptions } : {}),
             createdAt,
             updatedAt: createdAt,
           };
@@ -2570,14 +2633,14 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
               payload: {
                 config: {
                   availableCommands,
-                  ...(modeConfigOption ? { configOptions: [modeConfigOption] } : {}),
+                  ...(configOptions.length > 0 ? { configOptions } : {}),
                   capabilities: openCodeProviderCapabilities(client),
                 },
               },
               raw: {
                 method: "command.list",
                 availableCommands,
-                ...(modeConfigOption ? { configOptions: [modeConfigOption] } : {}),
+                ...(configOptions.length > 0 ? { configOptions } : {}),
                 capabilities: openCodeProviderCapabilities(client),
               },
             }),
@@ -2657,9 +2720,12 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
         );
         const variant = resolveOpenCodeVariant(input.modelSelection);
         const modeId = selectedOpenCodeModeId(ctx, input.modelSelection);
-        const modeConfigOption = buildOpenCodeModeConfigOption({
+        const configOptions = buildOpenCodeSessionConfigOptions({
           modes: ctx.availableModes,
           currentModeId: modeId,
+          currentModelSlug: selectedModelSlug,
+          defaultModels: ctx.defaultModels,
+          modelCatalog: ctx.modelCatalog,
         });
 
         ctx.activeTurn = {
@@ -2683,7 +2749,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
           activeTurnId: turnId,
           updatedAt: isoNow(),
           model: selectedModelSlug,
-          ...(modeConfigOption ? { configOptions: [modeConfigOption] } : {}),
+          ...(configOptions.length > 0 ? { configOptions } : {}),
         };
 
         emit(

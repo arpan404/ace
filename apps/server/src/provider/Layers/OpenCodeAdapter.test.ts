@@ -4,6 +4,7 @@ import {
   appendOnlyDelta,
   buildOpenCodeChildSessionData,
   buildOpenCodeMcpToolsChangedStatus,
+  buildOpenCodeModelConfigOption,
   buildOpenCodeModeConfigOption,
   buildOpenCodeSubtaskData,
   buildOpenCodeThreadUsageSnapshot,
@@ -67,6 +68,85 @@ describe("buildOpenCodeModeConfigOption", () => {
         { value: "review", name: "review", description: "Review changes" },
       ],
     });
+  });
+});
+
+describe("buildOpenCodeModelConfigOption", () => {
+  it("builds a bounded model selector from OpenCode provider defaults", () => {
+    expect(
+      buildOpenCodeModelConfigOption({
+        currentModelSlug: "openai/gpt-5",
+        defaultModels: {
+          openai: "gpt-5",
+          anthropic: "claude-sonnet-4-6",
+        },
+        modelCatalog: {
+          default: {
+            openai: "gpt-5",
+            anthropic: "claude-sonnet-4-6",
+          },
+          providers: [
+            {
+              id: "openai",
+              name: "OpenAI",
+              env: ["OPENAI_API_KEY"],
+              models: {
+                "gpt-5": {
+                  id: "gpt-5",
+                  name: "GPT-5",
+                  release_date: "2026-01-01",
+                  attachment: true,
+                  reasoning: true,
+                  tool_call: true,
+                },
+              },
+            },
+            {
+              id: "anthropic",
+              name: "Anthropic",
+              env: ["ANTHROPIC_API_KEY"],
+              models: {
+                "claude-sonnet-4-6": {
+                  id: "claude-sonnet-4-6",
+                  name: "Claude Sonnet 4.6",
+                  release_date: "2026-01-01",
+                  attachment: true,
+                  reasoning: true,
+                  tool_call: true,
+                },
+              },
+            },
+          ],
+        },
+      }),
+    ).toEqual({
+      id: "model",
+      name: "Model",
+      category: "model",
+      type: "select",
+      currentValue: "openai/gpt-5",
+      description: "OpenCode default provider model for this session.",
+      options: [
+        { value: "openai/gpt-5", name: "GPT-5", description: "OpenAI default model." },
+        {
+          value: "anthropic/claude-sonnet-4-6",
+          name: "Claude Sonnet 4.6",
+          description: "Anthropic default model.",
+        },
+      ],
+    });
+  });
+
+  it("keeps a non-default active OpenCode model selectable", () => {
+    expect(
+      buildOpenCodeModelConfigOption({
+        currentModelSlug: "openai/gpt-5-codex",
+        defaultModels: {
+          openai: "gpt-5",
+        },
+        modelCatalog: null,
+      })?.options.map((option) => option.value),
+    ).toEqual(["openai/gpt-5", "openai/gpt-5-codex"]);
   });
 });
 

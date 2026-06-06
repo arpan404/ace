@@ -264,6 +264,10 @@ layer("OpenCodeAdapterLive session lifecycle", (it) => {
           inputHint: "<prompt>",
           kind: "agent",
           promptPrefix: "@general",
+          metadata: {
+            provider: "opencode",
+            source: "built-in-subagent",
+          },
         },
         {
           name: "explore",
@@ -271,6 +275,10 @@ layer("OpenCodeAdapterLive session lifecycle", (it) => {
           inputHint: "<prompt>",
           kind: "agent",
           promptPrefix: "@explore",
+          metadata: {
+            provider: "opencode",
+            source: "built-in-subagent",
+          },
         },
         {
           name: "scout",
@@ -278,6 +286,31 @@ layer("OpenCodeAdapterLive session lifecycle", (it) => {
           inputHint: "<prompt>",
           kind: "agent",
           promptPrefix: "@scout",
+          metadata: {
+            provider: "opencode",
+            source: "built-in-subagent",
+          },
+        },
+      ]);
+      assert.deepStrictEqual(configuredEvent.value.payload.config.configOptions, [
+        {
+          id: "model",
+          name: "Model",
+          category: "model",
+          type: "select",
+          currentValue: "auto",
+          description: "OpenCode default provider model for this session.",
+          options: [
+            {
+              value: "openai/gpt-5",
+              name: "GPT-5",
+              description: "OpenAI default model.",
+            },
+            {
+              value: "auto",
+              name: "auto",
+            },
+          ],
         },
       ]);
 
