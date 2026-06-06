@@ -9721,8 +9721,8 @@ function useChatViewComponent({
   );
   const loadingNotice = useMemo(
     () =>
-      isThreadHistoryLoading && activeThreadMessagesLength === 0 ? (
-        <ThreadHistoryLoadingNotice />
+      isThreadHistoryLoading ? (
+        <ThreadHistoryLoadingNotice variant={activeThreadMessagesLength > 0 ? "inline" : "empty"} />
       ) : null,
     [activeThreadMessagesLength, isThreadHistoryLoading],
   );

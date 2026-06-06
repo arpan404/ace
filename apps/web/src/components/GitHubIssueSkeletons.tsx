@@ -128,13 +128,25 @@ export function GitHubIssuePreviewHeaderSkeleton({ issueNumber }: { issueNumber:
   );
 }
 
-export function ThreadHistoryLoadingNotice() {
+export function ThreadHistoryLoadingNotice({
+  variant = "empty",
+}: {
+  variant?: "empty" | "inline";
+}) {
+  const isInline = variant === "inline";
   return (
-    <div className="sticky top-0 z-10 mb-3 flex justify-center">
-      <div className="inline-flex items-center gap-2 rounded-full border border-border/50 bg-card/95 px-3 py-1.5 text-[11px] text-muted-foreground  backdrop-blur-sm">
+    <div className={cn("sticky top-0 z-10 flex justify-center", isInline ? "mb-2" : "mb-3")}>
+      <div
+        className={cn(
+          "inline-flex items-center gap-2 rounded-full border border-border/50 bg-card/95 px-3 py-1.5 text-[11px] text-muted-foreground backdrop-blur-sm",
+          isInline ? "shadow-sm shadow-background/30" : "",
+        )}
+      >
         <Spinner className="size-3 text-primary" />
-        <span>Restoring conversation…</span>
-        <span className="hidden text-muted-foreground/70 sm:inline">syncing missing messages</span>
+        <span>{isInline ? "Restoring older messages…" : "Restoring conversation…"}</span>
+        <span className="hidden text-muted-foreground/70 sm:inline">
+          {isInline ? "showing recent messages now" : "syncing missing messages"}
+        </span>
       </div>
     </div>
   );

@@ -400,6 +400,34 @@ function canResolveTimelineRowsInWorker(): boolean {
   );
 }
 
+function TimelineRowsLoadingFallback() {
+  return (
+    <div
+      className="mx-auto flex h-full w-full max-w-3xl flex-col justify-start gap-6 px-1 py-8"
+      aria-label="Loading conversation"
+    >
+      <div className="flex justify-end">
+        <div className="w-[68%] max-w-2xl rounded-2xl border border-border/35 bg-card/45 p-4">
+          <div className="h-4 w-[92%] animate-pulse rounded-full bg-muted/40" />
+          <div className="mt-3 h-4 w-[72%] animate-pulse rounded-full bg-muted/30" />
+          <div className="mt-4 ml-auto h-3 w-24 animate-pulse rounded-full bg-muted/20" />
+        </div>
+      </div>
+      <div className="w-[76%] max-w-2xl rounded-2xl border border-border/25 bg-muted/10 p-4">
+        <div className="h-3.5 w-[34%] animate-pulse rounded-full bg-muted/35" />
+        <div className="mt-3 h-3.5 w-[88%] animate-pulse rounded-full bg-muted/30" />
+        <div className="mt-2 h-3.5 w-[63%] animate-pulse rounded-full bg-muted/25" />
+      </div>
+      <div className="flex justify-end">
+        <div className="w-[58%] max-w-xl rounded-2xl border border-border/30 bg-card/35 p-4">
+          <div className="h-4 w-[84%] animate-pulse rounded-full bg-muted/35" />
+          <div className="mt-3 h-4 w-[48%] animate-pulse rounded-full bg-muted/25" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function resolveVisibleTimelineRows(input: {
   readonly activeThreadId?: string | null;
   readonly retainedRows: {
@@ -1906,11 +1934,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   }
 
   if (timelineRowsLoading) {
-    return (
-      <div className="flex h-full items-center justify-center px-4">
-        <p className="text-sm text-muted-foreground/60">Loading conversation...</p>
-      </div>
-    );
+    return <TimelineRowsLoadingFallback />;
   }
 
   return (

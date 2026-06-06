@@ -10,7 +10,12 @@ type AppStartupScreenProps = {
 export function AppStartupScreen({ message }: AppStartupScreenProps) {
   return (
     <LazyMotion features={domAnimation}>
-      <div className="relative flex h-screen flex-col items-center justify-center overflow-hidden bg-background text-foreground">
+      <div
+        role="status"
+        aria-live="polite"
+        aria-label={message}
+        className="relative flex h-screen flex-col items-center justify-center overflow-hidden bg-background text-foreground"
+      >
         <m.div
           initial={{ opacity: 0, y: 6 }}
           animate={{ opacity: 1, y: 0 }}
@@ -24,14 +29,6 @@ export function AppStartupScreen({ message }: AppStartupScreenProps) {
           >
             ace
           </m.span>
-          <m.p
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.35, delay: 0.15 }}
-            className="mt-4 max-w-xs text-sm text-muted-foreground"
-          >
-            {message}
-          </m.p>
         </m.div>
 
         <m.div

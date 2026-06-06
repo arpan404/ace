@@ -13,6 +13,7 @@ import {
   isContextMenuPointerDown,
   orderItemsByPreferredIds,
   resolveProjectStatusIndicator,
+  resolveNearbyThreadIds,
   resolveSidebarNewThreadSeedContext,
   resolveSidebarNewThreadEnvMode,
   resolveSidebarNewThreadOptions,
@@ -420,6 +421,42 @@ describe("resolveAdjacentThreadId", () => {
         direction: "previous",
       }),
     ).toBeNull();
+  });
+});
+
+describe("resolveNearbyThreadIds", () => {
+  it("returns sidebar neighbors by proximity while preserving local chronological order", () => {
+    const threads = [
+      ThreadId.makeUnsafe("thread-1"),
+      ThreadId.makeUnsafe("thread-2"),
+      ThreadId.makeUnsafe("thread-3"),
+      ThreadId.makeUnsafe("thread-4"),
+      ThreadId.makeUnsafe("thread-5"),
+    ];
+
+    expect(
+      resolveNearbyThreadIds({
+        threadIds: threads,
+        currentThreadId: threads[2] ?? null,
+        limit: 4,
+      }),
+    ).toEqual([threads[1], threads[3], threads[0], threads[4]]);
+  });
+
+  it("prefetches from the start of the chronological list when no route thread is active", () => {
+    const threads = [
+      ThreadId.makeUnsafe("thread-1"),
+      ThreadId.makeUnsafe("thread-2"),
+      ThreadId.makeUnsafe("thread-3"),
+    ];
+
+    expect(
+      resolveNearbyThreadIds({
+        threadIds: threads,
+        currentThreadId: null,
+        limit: 2,
+      }),
+    ).toEqual([threads[0], threads[1]]);
   });
 });
 
