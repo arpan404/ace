@@ -3432,6 +3432,7 @@ function openCodeAgentMetadataFromRecord(
     typeof agent.color === "string" && agent.color.trim() ? agent.color.trim() : undefined;
   const tools = openCodeToolsFromValue(agent.tools);
   const temperature = openCodeNumberFromValue(agent.temperature);
+  const topP = openCodeNumberFromValue(agent.topP ?? agent.top_p ?? agent["top-p"]);
   const maxSteps = openCodeNumberFromValue(
     agent.maxSteps ?? agent.max_steps ?? agent["max-steps"] ?? agent.steps,
   );
@@ -3452,6 +3453,7 @@ function openCodeAgentMetadataFromRecord(
     ...(color ? { color } : {}),
     ...(tools ? { tools } : {}),
     ...(temperature !== undefined ? { temperature } : {}),
+    ...(topP !== undefined ? { topP } : {}),
     ...(maxSteps !== undefined ? { maxSteps } : {}),
     ...(normalizedPermission ? { permission: normalizedPermission } : {}),
     ...(taskPermission ? { taskPermission } : {}),
@@ -3469,6 +3471,7 @@ function openCodeAgentMetadataFromMarkdown(markdown: string): Record<string, unk
       frontmatterJsonObjectField(markdown, "tools") ??
       frontmatterYamlObjectField(markdown, "tools"),
     temperature: frontmatterNumberField(markdown, "temperature"),
+    topP: frontmatterNumberFieldAny(markdown, ["topP", "top-p", "top_p"]),
     maxSteps:
       frontmatterNumberFieldAny(markdown, ["maxSteps", "max-steps", "max_steps"]) ??
       frontmatterNumberField(markdown, "steps"),

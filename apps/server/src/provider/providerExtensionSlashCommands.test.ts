@@ -90,6 +90,7 @@ async function writeAgentMarkdown(input: {
   readonly tools?: ReadonlyArray<string> | undefined;
   readonly allowedTools?: ReadonlyArray<string> | undefined;
   readonly temperature?: number | undefined;
+  readonly topP?: number | undefined;
   readonly maxSteps?: number | undefined;
   readonly permission?: Record<string, string | Record<string, string>> | undefined;
   readonly taskPermission?: Record<string, string> | undefined;
@@ -109,6 +110,7 @@ async function writeAgentMarkdown(input: {
       ...(input.tools ? [`tools: [${input.tools.join(", ")}]`] : []),
       ...(input.allowedTools ? [`allowed-tools: [${input.allowedTools.join(", ")}]`] : []),
       ...(input.temperature !== undefined ? [`temperature: ${input.temperature}`] : []),
+      ...(input.topP !== undefined ? [`top_p: ${input.topP}`] : []),
       ...(input.maxSteps !== undefined ? [`maxSteps: ${input.maxSteps}`] : []),
       ...(input.permission || input.taskPermission
         ? [
@@ -3840,6 +3842,7 @@ describe("providerExtensionSlashCommands", () => {
         color: "accent",
         tools: ["read", "grep", "bash"],
         temperature: 0.2,
+        topP: 0.8,
         maxSteps: 12,
         permission: {
           read: "allow",
@@ -4046,6 +4049,7 @@ describe("providerExtensionSlashCommands", () => {
               mode: "subagent",
               model: "opencode/gpt-5.1-codex",
               color: "#4ade80",
+              "top-p": 0.7,
               permission: {
                 read: "allow",
                 bash: {
@@ -4992,6 +4996,7 @@ describe("providerExtensionSlashCommands", () => {
               color: "accent",
               tools: ["read", "grep", "bash"],
               temperature: 0.2,
+              topP: 0.8,
               maxSteps: 12,
               permission: {
                 read: "allow",
@@ -5252,6 +5257,7 @@ describe("providerExtensionSlashCommands", () => {
               mode: "subagent",
               model: "opencode/gpt-5.1-codex",
               color: "#4ade80",
+              topP: 0.7,
               permission: {
                 read: "allow",
                 bash: {
