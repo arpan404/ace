@@ -1761,6 +1761,11 @@ describe("ProviderCommandReactor", () => {
     expect(startInput?.replayTurns?.[1]?.assistantResponse).toContain(
       "Ace side chat parent context",
     );
+    expect(startInput?.replayTurns?.[1]?.assistantResponse).toContain("Provider: cursor");
+    expect(startInput?.replayTurns?.[1]?.assistantResponse).toContain("Model: cursor-gpt-5");
+    expect(startInput?.replayTurns?.[1]?.assistantResponse).toContain("Branch: none");
+    expect(startInput?.replayTurns?.[1]?.assistantResponse).toContain("Worktree path: none");
+    expect(startInput?.replayTurns?.[1]?.assistantResponse).toContain("Session status: ready");
     expect(startInput?.replayTurns?.[1]?.assistantResponse).not.toContain(
       "[subagent.message.sent] User message: explain the fallback context",
     );
@@ -1872,6 +1877,11 @@ describe("ProviderCommandReactor", () => {
       "Ace side chat parent context",
     );
     expect(startInput?.replayTurns?.[1]?.assistantResponse).toContain("Thread title: Thread");
+    expect(startInput?.replayTurns?.[1]?.assistantResponse).toContain("Provider: githubCopilot");
+    expect(startInput?.replayTurns?.[1]?.assistantResponse).toContain("Model: gpt-5-copilot");
+    expect(startInput?.replayTurns?.[1]?.assistantResponse).toContain("Branch: none");
+    expect(startInput?.replayTurns?.[1]?.assistantResponse).toContain("Worktree path: none");
+    expect(startInput?.replayTurns?.[1]?.assistantResponse).toContain("Session status: ready");
     expect(startInput?.replayTurns?.[1]?.assistantResponse).not.toContain(
       "[subagent.message.sent] User message: summarize the replay context",
     );

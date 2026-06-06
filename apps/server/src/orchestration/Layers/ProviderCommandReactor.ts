@@ -532,8 +532,13 @@ function buildSideConversationContextReplayTurn(
     [
       `Thread title: ${thread.title}`,
       `Thread id: ${thread.id}`,
+      `Provider: ${thread.modelSelection.provider}`,
+      `Model: ${thread.modelSelection.model}`,
       `Runtime mode: ${thread.runtimeMode}`,
       `Interaction mode: ${thread.interactionMode}`,
+      `Branch: ${thread.branch ?? "none"}`,
+      `Worktree path: ${thread.worktreePath ?? "none"}`,
+      `Session status: ${thread.session?.status ?? "none"}`,
       `Latest turn state: ${thread.latestTurn?.state ?? "none"}`,
     ].join("\n"),
   ];
