@@ -2257,7 +2257,7 @@ function useSidebarComponent() {
   const handleBoardThreadDragStart = useCallback(
     (
       thread: { connectionUrl: string | null; threadId: ThreadId },
-      event: DragEvent<HTMLAnchorElement>,
+      event: DragEvent<HTMLElement>,
     ) => {
       const dragThread = createThreadBoardDragThread({
         ...thread,
@@ -2376,7 +2376,7 @@ function useSidebarComponent() {
           event.dataTransfer.dropEffect = "copy";
           setBoardThreadDragOverTarget(targetKey);
         },
-        onDragStart: (event: DragEvent<HTMLAnchorElement>) => {
+        onDragStart: (event: DragEvent<HTMLElement>) => {
           handleBoardThreadDragStart(thread, event);
         },
         onDrop: (event: DragEvent<HTMLLIElement>) => {

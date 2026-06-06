@@ -224,7 +224,7 @@ export interface SidebarThreadRowProps {
     onDragEnd: () => void;
     onDragLeave: (event: DragEvent<HTMLLIElement>) => void;
     onDragOver: (event: DragEvent<HTMLLIElement>) => void;
-    onDragStart: (event: DragEvent<HTMLAnchorElement>) => void;
+    onDragStart: (event: DragEvent<HTMLElement>) => void;
     onDrop: (event: DragEvent<HTMLLIElement>) => void;
   } | null;
 }
@@ -302,7 +302,7 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
       }}
     >
       <SidebarMenuSubButton
-        render={<button type="button" />}
+        render={<div role="button" tabIndex={0} />}
         size="sm"
         isActive={isActive}
         data-testid={`thread-row-${thread.id}`}
