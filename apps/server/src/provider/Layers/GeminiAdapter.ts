@@ -31,6 +31,11 @@ import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import {
+  acpMultiAgentDefinitionPaths,
+  acpMultiAgentInvocationPrefixes,
+  acpSideConversationCommands,
+  hasAcpMultiAgentCapability,
+  hasAcpSideConversationCapability,
   hasAcpSessionCloseCapability,
   hasAcpSessionForkCapability,
   hasAcpSessionResumeCapability,
@@ -454,6 +459,11 @@ type GeminiSessionMetadata = {
   readonly resumeSession: boolean;
   readonly closeSession: boolean;
   readonly forkSession: boolean;
+  readonly sideConversation: boolean;
+  readonly sideConversationCommands: ReadonlyArray<string>;
+  readonly multiAgent: boolean;
+  readonly multiAgentInvocationPrefixes: ReadonlyArray<string>;
+  readonly multiAgentDefinitionPaths: ReadonlyArray<string>;
   builtInSubagentCommands: ReadonlyArray<ProviderSlashCommand>;
   availableCommands: ReadonlyArray<GeminiAvailableCommand>;
   availableModes: ReadonlyArray<GeminiMode>;
@@ -1097,6 +1107,11 @@ function normalizeInitializeResponse(value: unknown): GeminiSessionMetadata {
     resumeSession: hasAcpSessionResumeCapability(value),
     closeSession: hasAcpSessionCloseCapability(value),
     forkSession: hasAcpSessionForkCapability(value),
+    sideConversation: hasAcpSideConversationCapability(value),
+    sideConversationCommands: acpSideConversationCommands(value),
+    multiAgent: hasAcpMultiAgentCapability(value),
+    multiAgentInvocationPrefixes: acpMultiAgentInvocationPrefixes(value),
+    multiAgentDefinitionPaths: acpMultiAgentDefinitionPaths(value),
     builtInSubagentCommands: [],
     availableCommands: normalizeAvailableCommands(record?.availableCommands),
     availableModes: [],
@@ -1105,19 +1120,38 @@ function normalizeInitializeResponse(value: unknown): GeminiSessionMetadata {
 }
 
 function geminiProviderCapabilities(
-  metadata: Pick<GeminiSessionMetadata, "forkSession" | "resumeSession">,
+  metadata: Pick<
+    GeminiSessionMetadata,
+    | "forkSession"
+    | "resumeSession"
+    | "sideConversation"
+    | "sideConversationCommands"
+    | "multiAgent"
+    | "multiAgentInvocationPrefixes"
+    | "multiAgentDefinitionPaths"
+  >,
 ) {
   return {
     sessionResumeMode: metadata.resumeSession ? ("native" as const) : ("local-replay" as const),
-    ...(metadata.forkSession
+    ...(metadata.forkSession || metadata.sideConversation
       ? {
-          sessionForkMode: "native" as const,
+          sessionForkMode: metadata.forkSession ? ("native" as const) : ("local-replay" as const),
           sideConversationMode: "native-fork" as const,
         }
       : {
           sessionForkMode: "local-replay" as const,
           sideConversationMode: "replay-fork" as const,
         }),
+    ...(metadata.sideConversationCommands.length > 0
+      ? { sideConversationCommands: metadata.sideConversationCommands }
+      : {}),
+    ...(metadata.multiAgent ? { multiAgentMode: "native" as const } : {}),
+    ...(metadata.multiAgentInvocationPrefixes.length > 0
+      ? { multiAgentInvocationPrefixes: metadata.multiAgentInvocationPrefixes }
+      : {}),
+    ...(metadata.multiAgentDefinitionPaths.length > 0
+      ? { multiAgentDefinitionPaths: metadata.multiAgentDefinitionPaths }
+      : {}),
   };
 }
 

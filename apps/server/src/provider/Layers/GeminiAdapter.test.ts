@@ -40,6 +40,8 @@ function geminiInitializeResult(input?: {
   readonly resumeSession?: boolean;
   readonly closeSession?: boolean;
   readonly forkSession?: boolean;
+  readonly sideConversation?: boolean;
+  readonly multiAgent?: boolean;
   readonly forkSessionShape?: "nested-object" | "boolean" | "root-capability" | "session-dot";
 }) {
   const forkSessionShape = input?.forkSessionShape ?? "nested-object";
@@ -59,6 +61,21 @@ function geminiInitializeResult(input?: {
       ...(Object.keys(sessionCapabilities).length > 0 ? { sessionCapabilities } : {}),
       ...(input?.forkSession && forkSessionShape === "boolean" ? { forkSession: true } : {}),
       ...(input?.forkSession && forkSessionShape === "session-dot" ? { "session.fork": true } : {}),
+      ...(input?.sideConversation
+        ? {
+            sideChat: {
+              commands: [".side"],
+            },
+          }
+        : {}),
+      ...(input?.multiAgent
+        ? {
+            subagents: {
+              invocationPrefixes: ["@"],
+              definitionPaths: [".gemini/agents/*.md"],
+            },
+          }
+        : {}),
     },
   };
 }
@@ -1071,6 +1088,67 @@ describe("GeminiAdapterLive startup", () => {
       });
     },
   );
+
+  it("emits Gemini ACP side-chat and multi-agent capability metadata", async () => {
+    const client = makeFakeGeminiClient({
+      requestImpl: async (method) => {
+        switch (method) {
+          case "initialize":
+            return geminiInitializeResult({
+              sideConversation: true,
+              multiAgent: true,
+            });
+          case "session/new":
+            return geminiSessionResult("gemini-session-provider-capabilities");
+          default:
+            throw new Error(`Unexpected Gemini ACP request: ${method}`);
+        }
+      },
+    });
+    mockedStartAcpClient.mockReturnValue(client);
+
+    await withAdapter(async (adapter) => {
+      try {
+        const configuredPromise = Effect.runPromise(
+          Stream.runHead(
+            Stream.filter(adapter.streamEvents, (event) => event.type === "session.configured"),
+          ),
+        );
+
+        await Effect.runPromise(
+          adapter.startSession({
+            provider: "gemini",
+            threadId: asThreadId("thread-gemini-provider-capabilities"),
+            cwd: "/repo/gemini-provider-capabilities",
+            runtimeMode: "approval-required",
+            interactionMode: "default",
+          }),
+        );
+
+        const configuredEventOption = await configuredPromise;
+        expect(Option.isSome(configuredEventOption)).toBe(true);
+        if (!Option.isSome(configuredEventOption)) {
+          return;
+        }
+        const configuredEvent = configuredEventOption.value;
+        expect(configuredEvent.type).toBe("session.configured");
+        if (configuredEvent.type !== "session.configured") {
+          return;
+        }
+        expect(configuredEvent.payload.config.capabilities).toEqual({
+          sessionResumeMode: "local-replay",
+          sessionForkMode: "local-replay",
+          sideConversationMode: "native-fork",
+          sideConversationCommands: [".side"],
+          multiAgentMode: "native",
+          multiAgentInvocationPrefixes: ["@"],
+          multiAgentDefinitionPaths: [".gemini/agents/*.md"],
+        });
+      } finally {
+        await Effect.runPromise(adapter.stopAll());
+      }
+    });
+  });
 
   it("does not fail plan startup when launch approval mode is plan but ACP omits a plan mode", async () => {
     const client = makeFakeGeminiClient({
