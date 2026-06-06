@@ -75,8 +75,8 @@ const CODEX_PROVIDER_CAPABILITIES = {
   providerThreadTargetingMode: "native" as const,
   goalControlMode: "native" as const,
   multiAgentMode: "native" as const,
-  multiAgentInvocationPrefixes: [],
-  multiAgentDefinitionPaths: [],
+  multiAgentInvocationPrefixes: ["@"],
+  multiAgentDefinitionPaths: [".codex/agents", "~/.codex/agents"],
 };
 
 export interface CodexAdapterLiveOptions {

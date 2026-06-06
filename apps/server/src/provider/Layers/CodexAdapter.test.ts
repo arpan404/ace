@@ -40,8 +40,8 @@ const EXPECTED_CODEX_PROVIDER_CAPABILITIES = {
   providerThreadTargetingMode: "native",
   goalControlMode: "native",
   multiAgentMode: "native",
-  multiAgentInvocationPrefixes: [],
-  multiAgentDefinitionPaths: [],
+  multiAgentInvocationPrefixes: ["@"],
+  multiAgentDefinitionPaths: [".codex/agents", "~/.codex/agents"],
 } as const;
 
 class FakeCodexManager extends CodexAppServerManager {
