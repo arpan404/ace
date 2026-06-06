@@ -84,18 +84,35 @@ const isProviderAdapterValidationError = Schema.is(ProviderAdapterValidationErro
 const isProviderAdapterRequestError = Schema.is(ProviderAdapterRequestError);
 const isProviderAdapterSessionNotFoundError = Schema.is(ProviderAdapterSessionNotFoundError);
 
+const OPENCODE_MULTI_AGENT_CAPABILITIES = {
+  multiAgentMode: "native" as const,
+  multiAgentInvocationPrefixes: ["@"],
+  multiAgentDefinitionPaths: [
+    "opencode.json agent",
+    "~/.config/opencode/opencode.json agent",
+    ".opencode/agent/*.md",
+    ".opencode/agents/*.md",
+    "~/.config/opencode/agent/*.md",
+    "~/.config/opencode/agents/*.md",
+  ],
+};
+
 function openCodeProviderCapabilities(client: OpencodeClient) {
-  return typeof client.session.fork === "function"
-    ? {
-        sessionForkMode: "native" as const,
-        sideConversationMode: "native-fork" as const,
-        providerThreadTargetingMode: "native" as const,
-      }
-    : {
-        sessionForkMode: "local-replay" as const,
-        sideConversationMode: "replay-fork" as const,
-        providerThreadTargetingMode: "native" as const,
-      };
+  const forkCapabilities =
+    typeof client.session.fork === "function"
+      ? {
+          sessionForkMode: "native" as const,
+          sideConversationMode: "native-fork" as const,
+        }
+      : {
+          sessionForkMode: "local-replay" as const,
+          sideConversationMode: "replay-fork" as const,
+        };
+  return {
+    ...forkCapabilities,
+    providerThreadTargetingMode: "native" as const,
+    ...OPENCODE_MULTI_AGENT_CAPABILITIES,
+  };
 }
 
 type OpenCodeSessionContext = {
@@ -3003,6 +3020,7 @@ const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
       sessionForkMode: "local-replay",
       sideConversationMode: "replay-fork",
       providerThreadTargetingMode: "native",
+      ...OPENCODE_MULTI_AGENT_CAPABILITIES,
     },
     startSession,
     sendTurn,

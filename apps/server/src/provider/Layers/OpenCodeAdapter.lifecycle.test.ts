@@ -32,6 +32,18 @@ const mockedCreateOpenCodeSdkClient = vi.mocked(createOpenCodeSdkClient);
 const mockedStartOpenCodeServerIsolated = vi.mocked(startOpenCodeServerIsolated);
 
 const asThreadId = (value: string): ThreadId => ThreadId.makeUnsafe(value);
+const EXPECTED_OPENCODE_MULTI_AGENT_CAPABILITIES = {
+  multiAgentMode: "native",
+  multiAgentInvocationPrefixes: ["@"],
+  multiAgentDefinitionPaths: [
+    "opencode.json agent",
+    "~/.config/opencode/opencode.json agent",
+    ".opencode/agent/*.md",
+    ".opencode/agents/*.md",
+    "~/.config/opencode/agent/*.md",
+    "~/.config/opencode/agents/*.md",
+  ],
+} as const;
 
 function emptyStream(): AsyncIterable<unknown> {
   return {
@@ -196,6 +208,7 @@ layer("OpenCodeAdapterLive session lifecycle", (it) => {
         sessionForkMode: "local-replay",
         sideConversationMode: "replay-fork",
         providerThreadTargetingMode: "native",
+        ...EXPECTED_OPENCODE_MULTI_AGENT_CAPABILITIES,
       });
     }),
   );
@@ -242,6 +255,7 @@ layer("OpenCodeAdapterLive session lifecycle", (it) => {
         sessionForkMode: "local-replay",
         sideConversationMode: "replay-fork",
         providerThreadTargetingMode: "native",
+        ...EXPECTED_OPENCODE_MULTI_AGENT_CAPABILITIES,
       });
       assert.deepStrictEqual(configuredEvent.value.payload.config.availableCommands, [
         {
@@ -318,6 +332,7 @@ layer("OpenCodeAdapterLive session lifecycle", (it) => {
         sessionForkMode: "native",
         sideConversationMode: "native-fork",
         providerThreadTargetingMode: "native",
+        ...EXPECTED_OPENCODE_MULTI_AGENT_CAPABILITIES,
       });
 
       yield* adapter.stopSession(threadId);
