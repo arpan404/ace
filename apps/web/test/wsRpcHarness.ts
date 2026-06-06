@@ -62,6 +62,7 @@ export class BrowserWsRpcHarness {
   private client: BrowserWsClient | null = null;
   private scope: Scope.Closeable | null = null;
   private serverReady: Promise<RpcServerInstance> | null = null;
+  private pendingMessages: string[] = [];
   private resolveUnary: NonNullable<BrowserWsRpcHarnessOptions["resolveUnary"]> = () => ({});
   private getInitialStreamValues: NonNullable<
     BrowserWsRpcHarnessOptions["getInitialStreamValues"]
@@ -98,6 +99,7 @@ export class BrowserWsRpcHarness {
         RpcServer.makeNoSerialization(WsRpcGroup, this.makeServerOptions()),
       ).pipe(Effect.provide(this.makeLayer())),
     ) as Promise<RpcServerInstance>;
+    void this.flushPendingMessages();
   }
 
   async disconnect(): Promise<void> {
@@ -112,6 +114,7 @@ export class BrowserWsRpcHarness {
     this.streamPubSubs.clear();
     this.serverReady = null;
     this.client = null;
+    this.pendingMessages = [];
   }
 
   private initializeStreamPubSubs(): void {
@@ -123,8 +126,28 @@ export class BrowserWsRpcHarness {
   async onMessage(rawData: string): Promise<void> {
     const server = await this.serverReady;
     if (!server) {
-      throw new Error("RPC test server is not connected");
+      if (this.client) {
+        this.pendingMessages.push(rawData);
+      }
+      return;
     }
+    await this.writeMessage(server, rawData);
+  }
+
+  private async flushPendingMessages(): Promise<void> {
+    const server = await this.serverReady;
+    if (!server) {
+      return;
+    }
+    while (this.pendingMessages.length > 0) {
+      const message = this.pendingMessages.shift();
+      if (message !== undefined) {
+        await this.writeMessage(server, message);
+      }
+    }
+  }
+
+  private async writeMessage(server: RpcServerInstance, rawData: string): Promise<void> {
     const messages = this.parser.decode(rawData);
     await messages.reduce<Promise<void>>(
       (pending, message) =>

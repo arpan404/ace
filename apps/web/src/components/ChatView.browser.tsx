@@ -3265,7 +3265,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
   });
 
   it("opens /side as a side-chat draft with terminal context instead of sending the main thread", async () => {
-    const sideDraftThreadId = `subagent:${THREAD_ID}:__ace_new_side_chat__` as ThreadId;
     useComposerDraftStore.getState().setPrompt(THREAD_ID, "/side Inspect this failure");
     useComposerDraftStore.getState().addTerminalContext(
       THREAD_ID,
@@ -3308,14 +3307,18 @@ describe("ChatView timeline estimator parity (full app)", () => {
           const sourceDraft = useComposerDraftStore.getState().draftsByThreadId[THREAD_ID];
           expect(sourceDraft?.prompt ?? "").toBe("");
           expect(sourceDraft?.terminalContexts ?? []).toEqual([]);
-          const sideDraft = useComposerDraftStore.getState().draftsByThreadId[sideDraftThreadId];
+          const sideDraft = Object.entries(useComposerDraftStore.getState().draftsByThreadId).find(
+            ([draftThreadId, draft]) =>
+              draftThreadId.startsWith(`subagent:${THREAD_ID}:__ace_new_side_chat__:`) &&
+              draft.prompt.includes("Inspect this failure"),
+          )?.[1];
           expect(sideDraft?.prompt).toContain("Inspect this failure");
           expect(sideDraft?.terminalContexts.map((context) => context.id)).toEqual([
             "ctx-side-transfer",
           ]);
           expect(
             [...document.querySelectorAll<HTMLButtonElement>('button[aria-pressed="true"]')].some(
-              (button) => button.textContent?.includes("New side chat"),
+              (button) => button.textContent?.includes("Inspect this failure"),
             ),
           ).toBe(true);
         },
@@ -3327,7 +3330,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
   });
 
   it("does not open hidden provider side-chat aliases as Ace side-chat drafts", async () => {
-    const sideDraftThreadId = `subagent:${THREAD_ID}:__ace_new_side_chat__` as ThreadId;
     useComposerDraftStore.getState().setPrompt(THREAD_ID, ".side Inspect Codex context");
 
     const mounted = await mountChatView({
@@ -3370,8 +3372,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
           expect(messageText).toBe(".side Inspect Codex context");
           const sourceDraft = useComposerDraftStore.getState().draftsByThreadId[THREAD_ID];
           expect(sourceDraft?.prompt ?? "").toBe("");
-          const sideDraft = useComposerDraftStore.getState().draftsByThreadId[sideDraftThreadId];
-          expect(sideDraft).toBeUndefined();
+          expect(
+            Object.keys(useComposerDraftStore.getState().draftsByThreadId).some((draftThreadId) =>
+              draftThreadId.startsWith(`subagent:${THREAD_ID}:__ace_new_side_chat__:`),
+            ),
+          ).toBe(false);
         },
         { timeout: 8_000, interval: 16 },
       );
@@ -3381,7 +3386,6 @@ describe("ChatView timeline estimator parity (full app)", () => {
   });
 
   it("keeps a typed /side draft in the main composer when side chats are unsupported", async () => {
-    const sideDraftThreadId = `subagent:${THREAD_ID}:__ace_new_side_chat__` as ThreadId;
     useComposerDraftStore.getState().setPrompt(THREAD_ID, "/side Inspect unsupported provider");
 
     const mounted = await mountChatView({
@@ -3414,8 +3418,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
           expect(mainTurnStartRequest).toBeUndefined();
           const sourceDraft = useComposerDraftStore.getState().draftsByThreadId[THREAD_ID];
           expect(sourceDraft?.prompt).toBe("/side Inspect unsupported provider");
-          const sideDraft = useComposerDraftStore.getState().draftsByThreadId[sideDraftThreadId];
-          expect(sideDraft).toBeUndefined();
+          expect(
+            Object.keys(useComposerDraftStore.getState().draftsByThreadId).some((draftThreadId) =>
+              draftThreadId.startsWith(`subagent:${THREAD_ID}:__ace_new_side_chat__:`),
+            ),
+          ).toBe(false);
           expect(document.body.textContent).toContain("Side chat is unavailable");
         },
         { timeout: 8_000, interval: 16 },

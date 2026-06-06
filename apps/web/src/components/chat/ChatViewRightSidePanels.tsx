@@ -51,6 +51,28 @@ const DiffPanel = lazy(() => import("../DiffPanel"));
 
 type RightSidePanelMode = "browser" | "diff" | "editor" | "subagent" | "summary" | "terminal";
 
+function PanelTabCloseControl(props: { readonly label: string; readonly onClose: () => void }) {
+  return (
+    <span
+      className="absolute inset-0 inline-flex items-center justify-center rounded-full bg-muted-foreground/80 text-background opacity-0 transition-opacity hover:bg-foreground group-hover/tab:opacity-100"
+      aria-label={props.label}
+      role="button"
+      tabIndex={-1}
+      onPointerDown={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+      }}
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        props.onClose();
+      }}
+    >
+      <XIcon className="size-3.5" />
+    </span>
+  );
+}
+
 function FullscreenExpandChevronIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg
@@ -200,22 +222,10 @@ function RightSidePanelBrowserTab(props: {
       >
         <span className="relative inline-flex size-4.5 shrink-0 items-center justify-center">
           <GlobeIcon className="size-4.5 text-muted-foreground transition-opacity group-hover/tab:opacity-0" />
-          <button
-            type="button"
-            className="absolute inset-0 inline-flex items-center justify-center rounded-full bg-muted-foreground/80 text-background opacity-0 transition-opacity hover:bg-foreground group-hover/tab:opacity-100"
-            aria-label={`Close ${props.tab.title}`}
-            onPointerDown={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-            }}
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              props.onClose(props.tab.id);
-            }}
-          >
-            <XIcon className="size-3.5" />
-          </button>
+          <PanelTabCloseControl
+            label={`Close ${props.tab.title}`}
+            onClose={() => props.onClose(props.tab.id)}
+          />
         </span>
         <span className="max-w-48 truncate">{props.tab.title}</span>
       </TooltipTrigger>
@@ -765,22 +775,10 @@ export function RightSidePanelTabStrip(props: {
                         className="size-4.5 transition-opacity group-hover/tab:opacity-0"
                         thread={thread}
                       />
-                      <button
-                        type="button"
-                        className="absolute inset-0 inline-flex items-center justify-center rounded-full bg-muted-foreground/80 text-background opacity-0 transition-opacity hover:bg-foreground group-hover/tab:opacity-100"
-                        aria-label={`Close ${thread.label}`}
-                        onPointerDown={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                        }}
-                        onClick={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          props.onSubagentTabClose(thread.id);
-                        }}
-                      >
-                        <XIcon className="size-3.5" />
-                      </button>
+                      <PanelTabCloseControl
+                        label={`Close ${thread.label}`}
+                        onClose={() => props.onSubagentTabClose(thread.id)}
+                      />
                     </span>
                     <span className="truncate">{thread.label}</span>
                   </TooltipTrigger>
@@ -802,22 +800,7 @@ export function RightSidePanelTabStrip(props: {
                 >
                   <span className="relative inline-flex size-4.5 shrink-0 items-center justify-center">
                     <DiffIcon className="size-4.5 text-muted-foreground transition-opacity group-hover/tab:opacity-0" />
-                    <button
-                      type="button"
-                      className="absolute inset-0 inline-flex items-center justify-center rounded-full bg-muted-foreground/80 text-background opacity-0 transition-opacity hover:bg-foreground group-hover/tab:opacity-100"
-                      aria-label="Close review tab"
-                      onPointerDown={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                      }}
-                      onClick={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        props.onDiffClose();
-                      }}
-                    >
-                      <XIcon className="size-3.5" />
-                    </button>
+                    <PanelTabCloseControl label="Close review tab" onClose={props.onDiffClose} />
                   </span>
                   <span className="min-w-0 truncate text-left">Review</span>
                 </button>,
@@ -845,22 +828,10 @@ export function RightSidePanelTabStrip(props: {
                   >
                     <span className="relative inline-flex size-4.5 shrink-0 items-center justify-center">
                       <Code2Icon className="size-4.5 text-muted-foreground transition-opacity group-hover/tab:opacity-0" />
-                      <button
-                        type="button"
-                        className="absolute inset-0 inline-flex items-center justify-center rounded-full bg-muted-foreground/80 text-background opacity-0 transition-opacity hover:bg-foreground group-hover/tab:opacity-100"
-                        aria-label={`Close ${tab.label}`}
-                        onPointerDown={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                        }}
-                        onClick={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          props.onEditorTabClose(tab.id);
-                        }}
-                      >
-                        <XIcon className="size-3.5" />
-                      </button>
+                      <PanelTabCloseControl
+                        label={`Close ${tab.label}`}
+                        onClose={() => props.onEditorTabClose(tab.id)}
+                      />
                     </span>
                     <span className="min-w-0 truncate text-left">{tab.label}</span>
                   </TooltipTrigger>
@@ -887,25 +858,15 @@ export function RightSidePanelTabStrip(props: {
                 >
                   <span className="relative inline-flex size-4.5 shrink-0 items-center justify-center">
                     <TerminalIcon className="size-4.5 text-muted-foreground transition-opacity group-hover/tab:opacity-0" />
-                    <button
-                      type="button"
-                      className="absolute inset-0 inline-flex items-center justify-center rounded-full bg-muted-foreground/80 text-background opacity-0 transition-opacity hover:bg-foreground group-hover/tab:opacity-100"
-                      aria-label={`Close ${tab.label}`}
-                      onPointerDown={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                      }}
-                      onClick={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
+                    <PanelTabCloseControl
+                      label={`Close ${tab.label}`}
+                      onClose={() => {
                         if (props.terminalTabs.length <= 1) {
                           props.onTerminalClose();
                         }
                         props.onTerminalTabClose(tab.id);
                       }}
-                    >
-                      <XIcon className="size-3.5" />
-                    </button>
+                    />
                   </span>
                   <span className="min-w-0 truncate text-left">{tab.label}</span>
                   <span
