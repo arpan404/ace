@@ -515,6 +515,7 @@ describe("acpCapabilities", () => {
           invocationPrefixes: ["@", "@"],
           definitionPaths: [".cursor/agents/*.md"],
           chatModeFilesLocations: [".github/chatmodes/*.md"],
+          subagentFiles: [".cursor/subagents/*.md"],
           subagentCommands: ["/agents enable <agent-name>"],
         },
       },
@@ -528,6 +529,8 @@ describe("acpCapabilities", () => {
           personaDefinitionPaths: [".claude/personas/*.md"],
           chatModeDefinitionPaths: [".gemini/chatmodes/*.md"],
           agentFilesLocations: ["configured chat.agentFilesLocations"],
+          agentFiles: ["configured chat.agentFiles"],
+          chatModeFiles: ["configured chat.chatModeFiles"],
         },
       },
     };
@@ -543,10 +546,13 @@ describe("acpCapabilities", () => {
       ".ace/profiles/*.md",
       ".cursor/agents/*.md",
       ".github/chatmodes/*.md",
+      ".cursor/subagents/*.md",
       "~/.cursor/agents/*.md",
       ".claude/personas/*.md",
       ".gemini/chatmodes/*.md",
       "configured chat.agentFilesLocations",
+      "configured chat.agentFiles",
+      "configured chat.chatModeFiles",
     ]);
     expect(acpMultiAgentManagementCommands(initializeResult)).toEqual([
       "/agents enable <agent-name>",
