@@ -1,4 +1,4 @@
-import { ThreadId, type RuntimeMode } from "@ace/contracts";
+import { ThreadId, type ProviderIntegrationCapabilities, type RuntimeMode } from "@ace/contracts";
 
 export const NEW_SIDE_CHAT_THREAD_ID = "__ace_new_side_chat__";
 export const NEW_SIDE_CHAT_DRAFT_RUNTIME_MODE: RuntimeMode = "approval-required";
@@ -18,6 +18,12 @@ export function parseAceSideChatCommand(text: string): { prompt: string } | null
     return null;
   }
   return { prompt: normalizeAceSideChatPromptText(match[1] ?? "") };
+}
+
+export function isAceSideConversationSupported(
+  mode: ProviderIntegrationCapabilities["sideConversationMode"] | undefined,
+): boolean {
+  return mode === "native-fork" || mode === "replay-fork";
 }
 
 export function stripAceSideChatCommand(text: string): string {

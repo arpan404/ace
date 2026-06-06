@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   NEW_SIDE_CHAT_DRAFT_RUNTIME_MODE,
   NEW_SIDE_CHAT_THREAD_ID,
+  isAceSideConversationSupported,
   newSideChatDraftThreadId,
   normalizeAceSideChatPromptText,
   parseAceSideChatCommand,
@@ -21,6 +22,13 @@ describe("sideChatDraft", () => {
 
   it("defaults new Ace side-chat drafts to approval-required mode", () => {
     expect(NEW_SIDE_CHAT_DRAFT_RUNTIME_MODE).toBe("approval-required");
+  });
+
+  it("enables Ace /side only for explicit side-chat capability modes", () => {
+    expect(isAceSideConversationSupported("native-fork")).toBe(true);
+    expect(isAceSideConversationSupported("replay-fork")).toBe(true);
+    expect(isAceSideConversationSupported("unsupported")).toBe(false);
+    expect(isAceSideConversationSupported(undefined)).toBe(false);
   });
 
   it("parses only the Ace-native side-chat command", () => {

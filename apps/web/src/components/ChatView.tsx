@@ -213,6 +213,7 @@ import {
 import {
   NEW_SIDE_CHAT_DRAFT_RUNTIME_MODE,
   NEW_SIDE_CHAT_THREAD_ID,
+  isAceSideConversationSupported,
   newSideChatDraftThreadId,
   normalizeAceSideChatPromptText,
 } from "~/lib/chat/sideChatDraft";
@@ -2703,8 +2704,8 @@ function useChatViewComponent({
     providerStatuses,
     selectedProvider,
   ]);
-  const sideConversationSupported =
-    activeThread?.session?.capabilities?.sideConversationMode !== "unsupported";
+  const sideConversationMode = activeThread?.session?.capabilities?.sideConversationMode;
+  const sideConversationSupported = isAceSideConversationSupported(sideConversationMode);
   const providerThreadTargetingMode =
     activeThread?.session?.capabilities?.providerThreadTargetingMode ?? "unsupported";
   const readCurrentSelectedPromptEffort = useCallback(() => {
