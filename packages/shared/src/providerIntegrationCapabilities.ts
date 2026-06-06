@@ -99,6 +99,7 @@ const PROVIDER_INTEGRATION_CAPABILITIES: Record<ProviderKind, ProviderIntegratio
     multiAgentManagementCommands: [
       "/agents list",
       "/agents reload",
+      "/agents refresh",
       "/agents enable <agent-name>",
       "/agents disable <agent-name>",
       "/agents config <agent-name>",
