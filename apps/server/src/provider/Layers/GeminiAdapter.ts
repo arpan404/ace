@@ -1133,9 +1133,9 @@ function geminiProviderCapabilities(
 ) {
   return {
     sessionResumeMode: metadata.resumeSession ? ("native" as const) : ("local-replay" as const),
-    ...(metadata.forkSession || metadata.sideConversation
+    ...(metadata.forkSession
       ? {
-          sessionForkMode: metadata.forkSession ? ("native" as const) : ("local-replay" as const),
+          sessionForkMode: "native" as const,
           sideConversationMode: "native-fork" as const,
         }
       : {

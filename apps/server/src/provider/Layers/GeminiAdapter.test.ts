@@ -1089,7 +1089,7 @@ describe("GeminiAdapterLive startup", () => {
     },
   );
 
-  it("emits Gemini ACP side-chat and multi-agent capability metadata", async () => {
+  it("keeps Gemini ACP side-chat metadata on replay mode unless session fork is available", async () => {
     const client = makeFakeGeminiClient({
       requestImpl: async (method) => {
         switch (method) {
@@ -1138,8 +1138,7 @@ describe("GeminiAdapterLive startup", () => {
         expect(configuredEvent.payload.config.capabilities).toEqual({
           sessionResumeMode: "local-replay",
           sessionForkMode: "local-replay",
-          sideConversationMode: "native-fork",
-          sideConversationCommands: [],
+          sideConversationMode: "replay-fork",
           multiAgentMode: "native",
           multiAgentInvocationPrefixes: ["@"],
           multiAgentDefinitionPaths: [".gemini/agents/*.md"],
