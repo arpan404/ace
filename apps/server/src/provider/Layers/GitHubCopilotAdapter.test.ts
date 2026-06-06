@@ -10,7 +10,12 @@ import type {
   SessionEvent,
   SessionConfig,
 } from "@github/copilot-sdk";
-import { ApprovalRequestId, type ProviderSlashCommand, ThreadId } from "@ace/contracts";
+import {
+  ApprovalRequestId,
+  type ProviderSessionConfigOption,
+  type ProviderSlashCommand,
+  ThreadId,
+} from "@ace/contracts";
 import { assert, it } from "@effect/vitest";
 import { afterEach, vi } from "vitest";
 import { Effect, Fiber, Layer, Stream } from "effect";
@@ -814,6 +819,104 @@ layer("GitHubCopilotAdapterLive startSession", (it) => {
       }),
   );
 
+  it.effect("exposes advertised Copilot models as session config options", () =>
+    Effect.gen(function* () {
+      const fakeClient = makeFakeClient({
+        models: [
+          {
+            id: "gpt-5",
+            name: "GPT-5",
+            capabilities: {
+              supports: {
+                vision: false,
+                reasoningEffort: true,
+              },
+              limits: {
+                max_context_window_tokens: 200_000,
+              },
+            },
+          },
+          {
+            id: "claude-sonnet-4.5",
+            name: "Claude Sonnet 4.5",
+            capabilities: {
+              supports: {
+                vision: true,
+                reasoningEffort: false,
+              },
+              limits: {
+                max_context_window_tokens: 200_000,
+              },
+            },
+          },
+        ],
+      });
+      mockedCreateGitHubCopilotClient.mockResolvedValue(fakeClient);
+
+      const adapter = yield* GitHubCopilotAdapter;
+      const threadId = asThreadId("thread-copilot-model-options");
+      const configuredFiber = yield* Stream.runCollect(
+        Stream.take(
+          Stream.filter(
+            adapter.streamEvents,
+            (event) => event.threadId === threadId && event.type === "session.configured",
+          ),
+          1,
+        ),
+      ).pipe(Effect.forkChild);
+
+      yield* adapter.startSession({
+        provider: "githubCopilot",
+        threadId,
+        cwd: "/repo",
+        modelSelection: {
+          provider: "githubCopilot",
+          model: "claude-sonnet-4.5",
+        },
+        runtimeMode: "full-access",
+      });
+
+      const configuredEvents = Array.from(yield* Fiber.join(configuredFiber));
+      const configuredEvent = configuredEvents[0];
+      assert.equal(configuredEvent?.type, "session.configured");
+      if (configuredEvent?.type === "session.configured") {
+        const configOptions = (configuredEvent.payload.config.configOptions ??
+          []) as ReadonlyArray<ProviderSessionConfigOption>;
+        assert.deepEqual(
+          configOptions.find((option) => option.id === "model"),
+          {
+            id: "model",
+            name: "Model",
+            category: "model",
+            type: "select",
+            currentValue: "claude-sonnet-4.5",
+            options: [
+              {
+                value: "gpt-5",
+                name: "GPT-5",
+              },
+              {
+                value: "claude-sonnet-4.5",
+                name: "Claude Sonnet 4.5",
+              },
+            ],
+          },
+        );
+        assert.equal(
+          configOptions.some((option) => option.id === "agent"),
+          true,
+        );
+      }
+
+      assert.equal(
+        (fakeClient.listModels as unknown as { readonly mock: { readonly calls: unknown[] } }).mock
+          .calls.length,
+        1,
+      );
+      yield* adapter.stopSession(threadId);
+    }),
+  );
+
   it.effect("passes repository custom agents to Copilot session startup", () =>
     Effect.gen(function* () {
       const repo = yield* Effect.promise(() =>
@@ -1241,7 +1344,16 @@ layer("GitHubCopilotAdapterLive startSession", (it) => {
             },
           );
           assert.deepEqual(
-            availableCommands.find((command) => command.name === "explore"),
+            ((command) =>
+              command
+                ? {
+                    name: command.name,
+                    kind: command.kind,
+                    promptPrefix: command.promptPrefix,
+                    description: command.description,
+                    inputHint: command.inputHint,
+                  }
+                : undefined)(availableCommands.find((command) => command.name === "explore")),
             {
               name: "explore",
               kind: "agent",

@@ -7,6 +7,7 @@ import type {
   GetAuthStatusResponse,
   PermissionRequest,
   PermissionRequestResult,
+  ModelInfo,
   SessionConfig,
   SessionEvent,
 } from "@github/copilot-sdk";
@@ -21,6 +22,7 @@ import {
   type ProviderInteractionMode,
   type ProviderRuntimeEvent,
   type ProviderSession,
+  type ProviderSessionConfigOption,
   type ThreadTokenUsageSnapshot,
   type ProviderTurnStartResult,
   type ProviderUserInputAnswers,
@@ -191,6 +193,32 @@ function gitHubCopilotProviderCapabilities(client: GitHubCopilotClientLike) {
       "~/.github-copilot/chatmodes/*.chatmode.md",
       "configured chat.agentFilesLocations",
     ],
+  };
+}
+
+function buildGitHubCopilotModelConfigOption(input: {
+  readonly models: ReadonlyArray<ModelInfo>;
+  readonly selectedModel?: string | undefined;
+}): ProviderSessionConfigOption | undefined {
+  const options = input.models
+    .filter((model) => model.id.trim().length > 0 && model.name.trim().length > 0)
+    .map((model) => ({
+      value: model.id,
+      name: model.name,
+    }));
+  if (options.length === 0) {
+    return undefined;
+  }
+  return {
+    id: "model",
+    name: "Model",
+    category: "model",
+    type: "select",
+    currentValue:
+      input.selectedModel && options.some((option) => option.value === input.selectedModel)
+        ? input.selectedModel
+        : options[0]!.value,
+    options,
   };
 }
 
@@ -3076,7 +3104,7 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
       };
 
       try {
-        const availableModels = input.modelSelection?.model ? await sdkClient.listModels() : [];
+        const availableModels = await sdkClient.listModels().catch(() => []);
         const normalizedModelOptions = normalizeGitHubCopilotModelOptionsForModel(
           availableModels.find((model) => model.id === input.modelSelection?.model),
           input.modelSelection?.options,
@@ -3122,7 +3150,12 @@ const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function*
                   (agent) => agent.name.toLowerCase() === selectedAgent.toLowerCase(),
                 )?.name
             : undefined;
+        const modelConfigOption = buildGitHubCopilotModelConfigOption({
+          models: availableModels,
+          selectedModel: input.modelSelection?.model,
+        });
         const configOptions = [
+          ...(modelConfigOption ? [modelConfigOption] : []),
           discoverGitHubCopilotAgentConfigOption({
             commands: availableCommands,
             ...(selectedAgent ? { selectedAgent } : {}),
