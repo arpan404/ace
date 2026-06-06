@@ -96,6 +96,13 @@ describe("acpCapabilities", () => {
         },
       }),
     ).toBe(true);
+    expect(
+      hasAcpSessionForkCapability({
+        capabilities: {
+          methods: [{ method: "session/fork" }, { name: "session.prompt" }],
+        },
+      }),
+    ).toBe(true);
   });
 
   it("does not treat omitted or disabled fork capabilities as supported", () => {
@@ -137,6 +144,13 @@ describe("acpCapabilities", () => {
         availableMethods: ["session/new", "session.resume"],
       }),
     ).toBe(true);
+    expect(
+      hasAcpSessionResumeCapability({
+        capabilities: {
+          availableMethods: [{ method: "session/resume" }],
+        },
+      }),
+    ).toBe(true);
   });
 
   it("does not treat omitted or disabled resume capabilities as supported", () => {
@@ -176,6 +190,13 @@ describe("acpCapabilities", () => {
     expect(
       hasAcpSessionCloseCapability({
         availableMethods: ["session/new", "session.close"],
+      }),
+    ).toBe(true);
+    expect(
+      hasAcpSessionCloseCapability({
+        capabilities: {
+          methods: [{ path: "session/close" }],
+        },
       }),
     ).toBe(true);
   });

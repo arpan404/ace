@@ -146,27 +146,6 @@ function nestedSideConversationCapabilityRecords(
   ].filter((entry): entry is Record<string, unknown> => entry !== null);
 }
 
-function hasSessionForkMethod(value: unknown): boolean {
-  return stringList(value).some((entry) => {
-    const normalized = entry.trim().toLowerCase().replace(/_/g, "-");
-    return normalized === "session/fork" || normalized === "session.fork";
-  });
-}
-
-function hasSessionResumeMethod(value: unknown): boolean {
-  return stringList(value).some((entry) => {
-    const normalized = entry.trim().toLowerCase().replace(/_/g, "-");
-    return normalized === "session/resume" || normalized === "session.resume";
-  });
-}
-
-function hasSessionCloseMethod(value: unknown): boolean {
-  return stringList(value).some((entry) => {
-    const normalized = entry.trim().toLowerCase().replace(/_/g, "-");
-    return normalized === "session/close" || normalized === "session.close";
-  });
-}
-
 function normalizeMethodName(value: string): string {
   return value
     .trim()
@@ -239,6 +218,10 @@ const SIDE_CONVERSATION_METHODS = new Set([
   "conversation-side-session",
   "conversation-side-thread",
 ]);
+
+const SESSION_FORK_METHODS = new Set(["session-fork"]);
+const SESSION_RESUME_METHODS = new Set(["session-resume"]);
+const SESSION_CLOSE_METHODS = new Set(["session-close"]);
 
 const PROVIDER_THREAD_TARGETING_METHODS = new Set([
   "session-target",
@@ -431,7 +414,7 @@ export function hasAcpSessionForkCapability(initializeResult: unknown): boolean 
     agentSessionCapabilities,
     meta,
     metaCapabilities,
-  }).some(hasSessionForkMethod);
+  }).some((container) => hasMethod(container, SESSION_FORK_METHODS));
 }
 
 export function hasAcpSessionResumeCapability(initializeResult: unknown): boolean {
@@ -520,7 +503,7 @@ export function hasAcpSessionResumeCapability(initializeResult: unknown): boolea
     agentSessionCapabilities,
     meta,
     metaCapabilities,
-  }).some(hasSessionResumeMethod);
+  }).some((container) => hasMethod(container, SESSION_RESUME_METHODS));
 }
 
 export function hasAcpSessionCloseCapability(initializeResult: unknown): boolean {
@@ -609,7 +592,7 @@ export function hasAcpSessionCloseCapability(initializeResult: unknown): boolean
     agentSessionCapabilities,
     meta,
     metaCapabilities,
-  }).some(hasSessionCloseMethod);
+  }).some((container) => hasMethod(container, SESSION_CLOSE_METHODS));
 }
 
 export function hasAcpSideConversationCapability(initializeResult: unknown): boolean {
