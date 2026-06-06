@@ -29,7 +29,6 @@ import {
 
 import type { ComposerImageAttachment, ModelSelectionByProvider } from "../../composerDraftStore";
 import type { PendingUserInputDraftAnswer } from "../../pendingUserInput";
-import type { ActiveGoalState } from "../../session-logic";
 import { cn } from "../../lib/utils";
 import { ComposerPromptEditor, type ComposerPromptEditorHandle } from "../ComposerPromptEditor";
 import { Button } from "../ui/button";
@@ -142,7 +141,6 @@ interface ChatComposerPanelProps {
   readonly composerTerminalContexts: ComponentProps<
     typeof ComposerPromptEditor
   >["terminalContexts"];
-  readonly activeGoal: ActiveGoalState | null;
   readonly queuedComposerMessages: ComponentProps<typeof ComposerQueuedMessages>["messages"];
   readonly queuedSteerMessageId: ComponentProps<typeof ComposerQueuedMessages>["steerMessageId"];
   readonly canSendQueuedMessages: boolean;
@@ -226,10 +224,6 @@ interface ChatComposerPanelProps {
   readonly onReorderQueuedComposerMessages: ComponentProps<
     typeof ComposerQueuedMessages
   >["onReorder"];
-  readonly onDeleteGoal: () => void;
-  readonly onEditGoal: (objective: string) => void;
-  readonly onPauseGoal: () => void;
-  readonly onResumeGoal: () => void;
   readonly onSendQueuedComposerMessage: NonNullable<
     ComponentProps<typeof ComposerQueuedMessages>["onSend"]
   >;
