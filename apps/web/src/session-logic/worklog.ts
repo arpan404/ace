@@ -28,11 +28,34 @@ export interface ActivityVisibilitySettings {
 
 const MAX_WORK_LOG_TERMINAL_OUTPUT_CHARS = 16_000;
 
+const HIDDEN_WORK_LOG_ACTIVITY_KINDS = new Set([
+  "config.warning",
+  "context-compaction",
+  "context-window",
+  "context-window.updated",
+  "deprecation.notice",
+  "goal.cleared",
+  "goal.updated",
+  "runtime.warning",
+]);
+
+function isHiddenWorkLogActivity(activity: OrchestrationThreadActivity): boolean {
+  if (HIDDEN_WORK_LOG_ACTIVITY_KINDS.has(activity.kind)) {
+    return true;
+  }
+
+  const normalizedSummary = activity.summary.trim().toLowerCase();
+  return (
+    normalizedSummary === "context window updated" || normalizedSummary === "context compacted"
+  );
+}
+
 export function filterVisibleWorkLogActivities(
   activities: ReadonlyArray<OrchestrationThreadActivity>,
   _visibility: ActivityVisibilitySettings,
 ): ReadonlyArray<OrchestrationThreadActivity> {
-  return activities;
+  const visibleActivities = activities.filter((activity) => !isHiddenWorkLogActivity(activity));
+  return visibleActivities.length === activities.length ? activities : visibleActivities;
 }
 
 function ensureActivitiesOrdered(

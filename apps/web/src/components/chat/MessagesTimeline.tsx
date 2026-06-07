@@ -464,6 +464,13 @@ export function resolveVisibleTimelineRows(input: {
     };
   }
 
+  if (input.syncRows.length > 0) {
+    return {
+      loading: false,
+      rows: input.syncRows,
+    };
+  }
+
   if (
     input.activeThreadId &&
     input.retainedRows?.activeThreadId === input.activeThreadId &&
@@ -910,11 +917,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     if (cachedTimelineRows) {
       return cachedTimelineRows;
     }
-    if (shouldResolveTimelineRowsAsync) {
-      return EMPTY_TIMELINE_ROWS;
-    }
     return measureRenderWork("chat.buildTimelineRows", () => buildTimelineRows(timelineRowsInput));
-  }, [cachedTimelineRows, shouldResolveTimelineRowsAsync, timelineRowsInput]);
+  }, [cachedTimelineRows, timelineRowsInput]);
   const { loading: timelineRowsLoading, rows } = resolveVisibleTimelineRows({
     activeThreadId: activeThreadId ?? null,
     retainedRows: retainedTimelineRows,
@@ -924,17 +928,11 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   });
 
   useEffect(() => {
-    if (cachedTimelineRows || shouldResolveTimelineRowsAsync) {
+    if (cachedTimelineRows) {
       return;
     }
     writeCachedTimelineRows(timelineRowsCacheKey, timelineRowsInput, syncTimelineRows);
-  }, [
-    cachedTimelineRows,
-    shouldResolveTimelineRowsAsync,
-    syncTimelineRows,
-    timelineRowsCacheKey,
-    timelineRowsInput,
-  ]);
+  }, [cachedTimelineRows, syncTimelineRows, timelineRowsCacheKey, timelineRowsInput]);
 
   useEffect(() => {
     if (!activeThreadId) {

@@ -282,6 +282,28 @@ export function deriveHydratedThreadHistoryKeepIds(input: {
   return nextThreadIds;
 }
 
+export function deriveRecentlyVisitedThreadHistoryKeepIds(input: {
+  threadLastVisitedAtById: Readonly<Record<string, string>>;
+  activeThreadId?: ThreadId | null | undefined;
+  maxCount: number;
+}): ThreadId[] {
+  if (input.maxCount <= 0) {
+    return [];
+  }
+
+  return Object.entries(input.threadLastVisitedAtById)
+    .flatMap(([threadId, visitedAt]) => {
+      if (threadId === input.activeThreadId) {
+        return [];
+      }
+      const visitedAtMs = Date.parse(visitedAt);
+      return Number.isFinite(visitedAtMs) ? [{ threadId: threadId as ThreadId, visitedAtMs }] : [];
+    })
+    .toSorted((left, right) => right.visitedAtMs - left.visitedAtMs)
+    .slice(0, input.maxCount)
+    .map((entry) => entry.threadId);
+}
+
 export function threadHasStarted(thread: Thread | null | undefined): boolean {
   return Boolean(
     thread && (thread.latestTurn !== null || thread.messages.length > 0 || thread.session !== null),

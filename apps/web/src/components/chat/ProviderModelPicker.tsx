@@ -923,10 +923,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
         entriesDisabled={props.handoff.disabled}
         providers={props.handoff.providers}
         showLabel={false}
-        triggerClassName={cn(
-          APP_COMPOSER_CONTROL_CLASS_NAME,
-          props.compact ? "size-7" : "size-8",
-        )}
+        triggerClassName={cn(APP_COMPOSER_CONTROL_CLASS_NAME, props.compact ? "size-7" : "size-8")}
         triggerVariant={props.triggerVariant ?? "ghost"}
         onSelect={(provider, mode) => {
           props.handoff?.onSelect(provider, mode);

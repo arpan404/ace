@@ -165,11 +165,11 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(result.rows).toBe(retainedRows);
   });
 
-  it("shows the loading placeholder only when async row rebuilding has no retained active rows", async () => {
+  it("uses sync rows while async row caching is pending", async () => {
     const { resolveVisibleTimelineRows } = await import("./MessagesTimeline");
-    const retainedRows = [
+    const syncRows = [
       {
-        id: "other-thread-row",
+        id: "sync-row",
         kind: "message",
       },
     ] as unknown as ReturnType<typeof resolveVisibleTimelineRows>["rows"];
@@ -178,18 +178,18 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
       activeThreadId: "thread-1",
       retainedRows: {
         activeThreadId: "thread-2",
-        rows: retainedRows,
+        rows: [],
       },
       resolvedAsyncRows: null,
       shouldResolveAsync: true,
-      syncRows: [],
+      syncRows,
     });
 
-    expect(result.loading).toBe(true);
-    expect(result.rows).toHaveLength(0);
+    expect(result.loading).toBe(false);
+    expect(result.rows).toBe(syncRows);
   });
 
-  it("does not show the async loading skeleton while thread history is restoring", async () => {
+  it("does not show the async loading skeleton on cache misses or history restore", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const previousDocument = globalThis.document;
     const previousWindow = globalThis.window;
@@ -242,12 +242,12 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
         workspaceRoot: undefined,
       };
 
-      const skeletonMarkup = renderToStaticMarkup(<MessagesTimeline {...baseProps} />);
+      const cacheMissMarkup = renderToStaticMarkup(<MessagesTimeline {...baseProps} />);
       const restoringMarkup = renderToStaticMarkup(
         <MessagesTimeline {...baseProps} isThreadHistoryLoading />,
       );
 
-      expect(skeletonMarkup).toContain("Loading conversation");
+      expect(cacheMissMarkup).not.toContain("Loading conversation");
       expect(restoringMarkup).not.toContain("Loading conversation");
     } finally {
       vi.stubGlobal("document", previousDocument);

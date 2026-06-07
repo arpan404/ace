@@ -40,8 +40,7 @@ export const APP_COMPOSER_INSET_PANEL_CLASS_NAME =
 export const APP_COMPOSER_CONTROL_CLASS_NAME =
   "shrink-0 rounded-[var(--control-radius)] text-muted-foreground/70 transition-colors duration-150 hover:bg-foreground/[0.05] hover:text-foreground/85 aria-expanded:bg-foreground/[0.05] aria-expanded:text-foreground/85";
 
-export const APP_WORKSPACE_INSET_CLASS_NAME =
-  "rounded-md border border-border/35 glass-inset";
+export const APP_WORKSPACE_INSET_CLASS_NAME = "rounded-md border border-border/35 glass-inset";
 
 export const APP_FLOATING_CHIP_CLASS_NAME =
   "glass-surface glass-surface--compact rounded-full border text-popover-foreground";
