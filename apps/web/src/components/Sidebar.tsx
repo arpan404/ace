@@ -4153,7 +4153,7 @@ function useSidebarComponent() {
         }
         return prefetchThreadTimelineWindows({
           threadId,
-          totalItemsHint,
+          ...(totalItemsHint !== undefined ? { totalItemsHint } : {}),
           priority,
         }).catch((error) => {
           reportBackgroundError("Failed to prefetch thread timeline window.", error);

@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   primeThreadTimelineManifestFromReadModelThread,
   readCachedThreadTimelinePage,
+  readLoadedThreadTimelinePages,
   readTimelineRowHeight,
   useTimelineWindowStore,
   writeTimelineRowHeight,
@@ -111,6 +112,80 @@ describe("timelineWindowStore", () => {
       updatedAt: "scope-a",
     });
     expect(readTimelineRowHeight("row-height-key")).toBe(42);
+  });
+
+  it("keeps previously loaded ranges when newer pages advance thread updatedAt", () => {
+    const oldPage = {
+      threadId,
+      updatedAt: "2026-01-01T00:00:02.000Z",
+      totalItems: 4,
+      startIndex: 0,
+      endIndexExclusive: 2,
+      hasPrevious: false,
+      hasNext: true,
+      entries: [
+        {
+          kind: "activity" as const,
+          id: "activity-old-range",
+          createdAt: "2026-01-01T00:00:01.000Z",
+          index: 0,
+          turnId,
+          sequence: 1,
+        },
+      ],
+      messages: [],
+      activities: [
+        {
+          id: EventId.makeUnsafe("activity-old-range"),
+          tone: "tool" as const,
+          kind: "tool.completed",
+          summary: "Older tool call",
+          payload: {},
+          turnId,
+          sequence: 1,
+          createdAt: "2026-01-01T00:00:01.000Z",
+        },
+      ],
+      proposedPlans: [],
+    };
+    const newPage = {
+      threadId,
+      updatedAt: "2026-01-01T00:00:05.000Z",
+      totalItems: 5,
+      startIndex: 4,
+      endIndexExclusive: 5,
+      hasPrevious: true,
+      hasNext: false,
+      entries: [
+        {
+          kind: "message" as const,
+          id: "message-new-range",
+          createdAt: "2026-01-01T00:00:05.000Z",
+          index: 4,
+          turnId,
+          sequence: 5,
+        },
+      ],
+      messages: [
+        {
+          id: MessageId.makeUnsafe("message-new-range"),
+          role: "assistant" as const,
+          text: "Done",
+          turnId,
+          streaming: false,
+          sequence: 5,
+          createdAt: "2026-01-01T00:00:05.000Z",
+          updatedAt: "2026-01-01T00:00:05.000Z",
+        },
+      ],
+      activities: [],
+      proposedPlans: [],
+    };
+
+    useTimelineWindowStore.getState().primePage(oldPage);
+    useTimelineWindowStore.getState().primePage(newPage);
+
+    expect(readLoadedThreadTimelinePages(threadId)).toEqual([oldPage, newPage]);
   });
 
   it("can prime a manifest from a read-model thread without storing the full timeline in state", () => {

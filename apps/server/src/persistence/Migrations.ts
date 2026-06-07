@@ -46,6 +46,7 @@ import Migration0030 from "./Migrations/030_PairingSessionsRelayAuthKey.ts";
 import Migration0031 from "./Migrations/031_ProjectionThreadSessionCommands.ts";
 import Migration0032 from "./Migrations/032_ProjectionThreadSessionConfigOptions.ts";
 import Migration0033 from "./Migrations/033_ProjectionThreadsFork.ts";
+import Migration0034 from "./Migrations/034_ProjectionThreadTimelineEntries.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -91,6 +92,7 @@ export const migrationEntries = [
   [31, "ProjectionThreadSessionCommands", Migration0031],
   [32, "ProjectionThreadSessionConfigOptions", Migration0032],
   [33, "ProjectionThreadsFork", Migration0033],
+  [34, "ProjectionThreadTimelineEntries", Migration0034],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

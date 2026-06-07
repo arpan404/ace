@@ -8,6 +8,10 @@
  */
 import type {
   OrchestrationCheckpointSummary,
+  OrchestrationGetThreadTimelineManifestInput,
+  OrchestrationGetThreadTimelineManifestResult,
+  OrchestrationGetThreadTimelinePageInput,
+  OrchestrationGetThreadTimelinePageResult,
   OrchestrationGetSnapshotInput,
   OrchestrationProject,
   OrchestrationReadModel,
@@ -54,6 +58,26 @@ export interface ProjectionSnapshotQueryShape {
   readonly getThread: (
     threadId: ThreadId,
   ) => Effect.Effect<Option.Option<OrchestrationThread>, ProjectionRepositoryError>;
+
+  /**
+   * Read a sparse timeline page for a thread without hydrating the full thread history.
+   */
+  readonly getThreadTimelinePage: (
+    input: OrchestrationGetThreadTimelinePageInput,
+  ) => Effect.Effect<
+    Option.Option<OrchestrationGetThreadTimelinePageResult>,
+    ProjectionRepositoryError
+  >;
+
+  /**
+   * Read the timeline manifest needed to virtualize a thread without fetching rows.
+   */
+  readonly getThreadTimelineManifest: (
+    input: OrchestrationGetThreadTimelineManifestInput,
+  ) => Effect.Effect<
+    Option.Option<OrchestrationGetThreadTimelineManifestResult>,
+    ProjectionRepositoryError
+  >;
 
   /**
    * Read aggregate projection counts without hydrating the full read model.

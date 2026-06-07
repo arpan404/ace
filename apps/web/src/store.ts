@@ -20,10 +20,7 @@ import {
   derivePendingApprovals,
   derivePendingUserInputs,
 } from "./session-logic";
-import {
-  appendCompactedThreadActivity,
-  DEFAULT_MAX_THREAD_ACTIVITIES,
-} from "@ace/shared/orchestrationThreadActivities";
+import { appendCompactedThreadActivity } from "@ace/shared/orchestrationThreadActivities";
 import { compareSequenceThenCreatedAt } from "./lib/activityOrder";
 import {
   appendChatMessageStreamingTextState,
@@ -32,6 +29,7 @@ import {
 } from "./lib/chat/messageText";
 import { primeHydratedThreadCache } from "./lib/threadHydrationCache";
 import {
+  primeLiveThreadTimelineEntry,
   primeThreadTimelineManifestFromReadModelThread,
   useTimelineWindowStore,
 } from "./lib/chat/timelineWindowStore";
@@ -79,14 +77,6 @@ const EMPTY_THREAD_IDS: ThreadId[] = [];
 const EMPTY_SIDEBAR_THREAD_SUMMARIES: SidebarThreadSummary[] = [];
 const SIDEBAR_SUMMARY_TIMESTAMP_GRANULARITY_MS = 1_000;
 const threadLookupCache = new WeakMap<ReadonlyArray<Thread>, Map<ThreadId, Thread>>();
-const LEAN_THREAD_ACTIVITY_KINDS = new Set<Thread["activities"][number]["kind"]>([
-  "approval.requested",
-  "approval.resolved",
-  "provider.approval.respond.failed",
-  "user-input.requested",
-  "user-input.resolved",
-  "provider.user-input.respond.failed",
-]);
 type ThreadSessionState = NonNullable<Thread["session"]>;
 
 // ── Pure helpers ──────────────────────────────────────────────────────
@@ -1105,12 +1095,6 @@ function retainDismissedThreadErrorKeysForThreads(
   return changed ? nextDismissedKeys : (dismissedThreadErrorKeysById as Record<string, string>);
 }
 
-function shouldRetainLeanThreadActivity(
-  activity: Pick<Thread["activities"][number], "kind">,
-): boolean {
-  return LEAN_THREAD_ACTIVITY_KINDS.has(activity.kind);
-}
-
 function toLeanThread(thread: Thread): Thread {
   if (thread.historyLoaded === false) {
     return thread;
@@ -1123,7 +1107,6 @@ function toLeanThread(thread: Thread): Thread {
     latestProposedPlanSummary:
       thread.latestProposedPlanSummary ?? findLatestProposedPlanSummary(thread.proposedPlans),
     turnDiffSummaries: [],
-    activities: thread.activities.filter(shouldRetainLeanThreadActivity),
     historyLoaded: false,
   };
 }
@@ -1489,13 +1472,8 @@ function appendThreadActivities(
 ): Thread["activities"] {
   let nextActivities = thread.activities;
   for (const activity of activities) {
-    const shouldRetainActivity =
-      thread.historyLoaded !== false || shouldRetainLeanThreadActivity(activity);
-    if (!shouldRetainActivity) {
-      continue;
-    }
     nextActivities = appendCompactedThreadActivity(nextActivities, activity, {
-      maxEntries: DEFAULT_MAX_THREAD_ACTIVITIES,
+      maxEntries: Number.MAX_SAFE_INTEGER,
     });
   }
   return nextActivities;
@@ -1790,6 +1768,30 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
     }
 
     case "thread.message-sent": {
+      primeLiveThreadTimelineEntry({
+        threadId: event.payload.threadId,
+        updatedAt: event.occurredAt,
+        entry: {
+          kind: "message",
+          id: event.payload.messageId,
+          createdAt: event.payload.createdAt,
+          turnId: event.payload.turnId,
+          sequence: event.payload.sequence ?? event.sequence,
+        },
+        message: {
+          id: event.payload.messageId,
+          role: event.payload.role,
+          text: event.payload.text,
+          ...(event.payload.attachments !== undefined
+            ? { attachments: event.payload.attachments }
+            : {}),
+          turnId: event.payload.turnId,
+          streaming: event.payload.streaming,
+          sequence: event.payload.sequence ?? event.sequence,
+          createdAt: event.payload.createdAt,
+          updatedAt: event.payload.updatedAt,
+        },
+      });
       return updateThreadState(state, event.payload.threadId, (thread) => {
         const message = mapMessage(
           {
@@ -1940,6 +1942,17 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
     }
 
     case "thread.proposed-plan-upserted": {
+      primeLiveThreadTimelineEntry({
+        threadId: event.payload.threadId,
+        updatedAt: event.occurredAt,
+        entry: {
+          kind: "proposed-plan",
+          id: event.payload.proposedPlan.id,
+          createdAt: event.payload.proposedPlan.createdAt,
+          turnId: event.payload.proposedPlan.turnId,
+        },
+        proposedPlan: event.payload.proposedPlan,
+      });
       return updateThreadState(state, event.payload.threadId, (thread) => {
         const proposedPlan = mapProposedPlan(event.payload.proposedPlan);
         const proposedPlans =
@@ -2080,6 +2093,20 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
     }
 
     case "thread.activity-appended": {
+      primeLiveThreadTimelineEntry({
+        threadId: event.payload.threadId,
+        updatedAt: event.occurredAt,
+        entry: {
+          kind: "activity",
+          id: event.payload.activity.id,
+          createdAt: event.payload.activity.createdAt,
+          turnId: event.payload.activity.turnId,
+          ...(event.payload.activity.sequence !== undefined
+            ? { sequence: event.payload.activity.sequence }
+            : {}),
+        },
+        activity: event.payload.activity,
+      });
       return applyThreadActivityBatch(
         state,
         event.payload.threadId,

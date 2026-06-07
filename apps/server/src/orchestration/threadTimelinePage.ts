@@ -38,13 +38,24 @@ type TimelineSourceEntry =
       readonly value: OrchestrationProposedPlan;
     };
 
-function compareTimelineSourceEntries(left: TimelineSourceEntry, right: TimelineSourceEntry): number {
-  if (
-    left.sequence !== undefined &&
-    right.sequence !== undefined &&
-    left.sequence !== right.sequence
-  ) {
-    return left.sequence - right.sequence;
+function readTimelineSourceSequence(entry: TimelineSourceEntry): number | undefined {
+  switch (entry.kind) {
+    case "message":
+    case "activity":
+      return entry.sequence;
+    case "proposed-plan":
+      return undefined;
+  }
+}
+
+function compareTimelineSourceEntries(
+  left: TimelineSourceEntry,
+  right: TimelineSourceEntry,
+): number {
+  const leftSequence = readTimelineSourceSequence(left);
+  const rightSequence = readTimelineSourceSequence(right);
+  if (leftSequence !== undefined && rightSequence !== undefined && leftSequence !== rightSequence) {
+    return leftSequence - rightSequence;
   }
 
   const createdAtComparison = left.createdAt.localeCompare(right.createdAt);
@@ -107,13 +118,14 @@ function toReference(
   entry: TimelineSourceEntry,
   index: number,
 ): OrchestrationThreadTimelineEntryReference {
+  const sequence = readTimelineSourceSequence(entry);
   return {
     kind: entry.kind,
     id: entry.id,
     createdAt: entry.createdAt,
     index,
     ...(entry.turnId !== undefined ? { turnId: entry.turnId } : {}),
-    ...(entry.sequence !== undefined ? { sequence: entry.sequence } : {}),
+    ...(sequence !== undefined ? { sequence } : {}),
   };
 }
 

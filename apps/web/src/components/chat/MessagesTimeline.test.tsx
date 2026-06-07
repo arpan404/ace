@@ -189,6 +189,73 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(result.rows).toHaveLength(0);
   });
 
+  it("does not show the async loading skeleton while thread history is restoring", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const previousDocument = globalThis.document;
+    const previousWindow = globalThis.window;
+    const previousWorker = globalThis.Worker;
+    vi.stubGlobal("document", {
+      ...previousDocument,
+      createElement: () => ({}),
+    });
+    vi.stubGlobal("window", {
+      ...previousWindow,
+      localStorage: globalThis.localStorage,
+    });
+    vi.stubGlobal("Worker", class MockWorker {} as unknown as typeof Worker);
+    try {
+      const timelineEntries = Array.from({ length: 80 }, (_, index) => {
+        const createdAt = `2026-03-17T19:${String(12 + Math.floor(index / 60)).padStart(2, "0")}:${String(index % 60).padStart(2, "0")}.000Z`;
+        return {
+          id: `lean-user-${index + 1}`,
+          kind: "message" as const,
+          createdAt,
+          message: {
+            id: MessageId.makeUnsafe(`lean-user-${index + 1}`),
+            role: "user" as const,
+            text: `Lean row ${index + 1}`,
+            createdAt,
+            streaming: false,
+          },
+        };
+      });
+      const baseProps = {
+        hasMessages: true,
+        isWorking: false,
+        activeTurnInProgress: false,
+        activeTurnStartedAt: null,
+        getScrollContainer: () => null,
+        timelineEntries,
+        completionDividerBeforeEntryId: null,
+        completionSummary: null,
+        turnDiffSummaryByAssistantMessageId: new Map(),
+        expandedWorkGroups: {},
+        onToggleWorkGroup: () => {},
+        onOpenTurnDiff: () => {},
+        revertTurnCountByUserMessageId: new Map(),
+        onRevertUserMessage: () => {},
+        isRevertingCheckpoint: false,
+        onImageExpand: () => {},
+        markdownCwd: undefined,
+        resolvedTheme: "light" as const,
+        timestampFormat: "locale" as const,
+        workspaceRoot: undefined,
+      };
+
+      const skeletonMarkup = renderToStaticMarkup(<MessagesTimeline {...baseProps} />);
+      const restoringMarkup = renderToStaticMarkup(
+        <MessagesTimeline {...baseProps} isThreadHistoryLoading />,
+      );
+
+      expect(skeletonMarkup).toContain("Loading conversation");
+      expect(restoringMarkup).not.toContain("Loading conversation");
+    } finally {
+      vi.stubGlobal("document", previousDocument);
+      vi.stubGlobal("window", previousWindow);
+      vi.stubGlobal("Worker", previousWorker);
+    }
+  });
+
   it("renders terminal assistant output through markdown instead of forcing plain text", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(

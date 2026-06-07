@@ -51,6 +51,7 @@ import {
   OrchestrationGetSnapshotInput,
   OrchestrationGetThreadError,
   OrchestrationGetThreadInput,
+  OrchestrationGetThreadTimelineManifestInput,
   OrchestrationGetThreadTimelinePageInput,
   OrchestrationGetTurnDiffError,
   OrchestrationGetTurnDiffInput,
@@ -586,6 +587,15 @@ export const WsOrchestrationGetThreadTimelinePageRpc = Rpc.make(
   },
 );
 
+export const WsOrchestrationGetThreadTimelineManifestRpc = Rpc.make(
+  ORCHESTRATION_WS_METHODS.getThreadTimelineManifest,
+  {
+    payload: OrchestrationGetThreadTimelineManifestInput,
+    success: OrchestrationRpcSchemas.getThreadTimelineManifest.output,
+    error: OrchestrationGetThreadError,
+  },
+);
+
 export const WsOrchestrationDispatchCommandRpc = Rpc.make(
   ORCHESTRATION_WS_METHODS.dispatchCommand,
   {
@@ -719,6 +729,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsOrchestrationGetSnapshotRpc,
   WsOrchestrationGetThreadRpc,
   WsOrchestrationGetThreadTimelinePageRpc,
+  WsOrchestrationGetThreadTimelineManifestRpc,
   WsOrchestrationDispatchCommandRpc,
   WsOrchestrationGetTurnDiffRpc,
   WsOrchestrationGetFullThreadDiffRpc,

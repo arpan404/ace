@@ -161,11 +161,63 @@ describe("createReadModelSnapshotView", () => {
     expect(snapshot.threads).toHaveLength(2);
     for (const thread of snapshot.threads) {
       expect(thread.messages.map((message) => message.role)).toEqual(["user"]);
-      expect(thread.activities.map((activity) => activity.kind)).toEqual(["approval.requested"]);
+      expect(thread.activities.map((activity) => activity.kind)).toEqual([
+        "approval.requested",
+        "tool.progress",
+      ]);
       expect(thread.checkpoints).toEqual([]);
       expect(thread.proposedPlans).toEqual([]);
       expect(thread.latestProposedPlanSummary?.id).toBe(`${thread.id}-plan`);
     }
+  });
+
+  it("keeps only the latest user message in lean thread summaries", () => {
+    const readModel = makeReadModel();
+    const snapshot = createReadModelSnapshotView(
+      {
+        ...readModel,
+        threads: [
+          makeThread(THREAD_ONE_ID, {
+            messages: [
+              {
+                id: MessageId.makeUnsafe("thread-1-user-old"),
+                role: "user",
+                text: "Old user message",
+                turnId: TURN_ID,
+                streaming: false,
+                createdAt: "2026-04-05T00:00:00.000Z",
+                updatedAt: "2026-04-05T00:00:00.000Z",
+              },
+              {
+                id: MessageId.makeUnsafe("thread-1-assistant"),
+                role: "assistant",
+                text: "Assistant message",
+                turnId: TURN_ID,
+                streaming: false,
+                createdAt: "2026-04-05T00:00:01.000Z",
+                updatedAt: "2026-04-05T00:00:01.000Z",
+              },
+              {
+                id: MessageId.makeUnsafe("thread-1-user-latest"),
+                role: "user",
+                text: "Latest user message",
+                turnId: TURN_ID,
+                streaming: false,
+                createdAt: "2026-04-05T00:00:02.000Z",
+                updatedAt: "2026-04-05T00:00:02.000Z",
+              },
+            ],
+          }),
+        ],
+      },
+      {
+        hydrateThreadId: null,
+      },
+    );
+
+    expect(snapshot.threads[0]?.messages.map((message) => message.id)).toEqual([
+      "thread-1-user-latest",
+    ]);
   });
 
   it("keeps the requested thread fully hydrated and summarizes the others", () => {
@@ -189,10 +241,46 @@ describe("createReadModelSnapshotView", () => {
     expect(summarizedThread?.messages.map((message) => message.role)).toEqual(["user"]);
     expect(summarizedThread?.activities.map((activity) => activity.kind)).toEqual([
       "approval.requested",
+      "tool.progress",
     ]);
     expect(summarizedThread?.checkpoints).toEqual([]);
     expect(summarizedThread?.proposedPlans).toEqual([]);
     expect(summarizedThread?.latestProposedPlanSummary?.id).toBe(`${THREAD_TWO_ID}-plan`);
+  });
+
+  it("bounds activity rows only for lean thread summaries", () => {
+    const manyActivities = Array.from({ length: 40 }, (_, index) => ({
+      id: EventId.makeUnsafe(`thread-2-activity-${index + 1}`),
+      tone: "info" as const,
+      kind: "tool.progress",
+      summary: `Activity ${index + 1}`,
+      payload: {},
+      turnId: TURN_ID,
+      createdAt: `2026-04-05T00:00:${String(index).padStart(2, "0")}.000Z`,
+      sequence: index + 1,
+    }));
+    const readModel = makeReadModel();
+    const threadOneActivities = readModel.threads[0]?.activities ?? [];
+    const snapshot = createReadModelSnapshotView(
+      {
+        ...readModel,
+        threads: [
+          makeThread(THREAD_ONE_ID, { activities: threadOneActivities }),
+          makeThread(THREAD_TWO_ID, { activities: manyActivities }),
+        ],
+      },
+      {
+        hydrateThreadId: THREAD_ONE_ID,
+      },
+    );
+
+    const hydratedThread = snapshot.threads.find((thread) => thread.id === THREAD_ONE_ID);
+    const summarizedThread = snapshot.threads.find((thread) => thread.id === THREAD_TWO_ID);
+
+    expect(hydratedThread?.activities).toHaveLength(threadOneActivities.length);
+    expect(summarizedThread?.activities).toHaveLength(32);
+    expect(summarizedThread?.activities[0]?.id).toBe("thread-2-activity-9");
+    expect(summarizedThread?.activities.at(-1)?.id).toBe("thread-2-activity-40");
   });
 });
 

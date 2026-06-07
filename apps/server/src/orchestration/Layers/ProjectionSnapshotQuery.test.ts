@@ -1,5 +1,4 @@
 import { CheckpointRef, EventId, MessageId, ProjectId, ThreadId, TurnId } from "@ace/contracts";
-import { DEFAULT_MAX_THREAD_ACTIVITIES } from "@ace/shared/orchestrationThreadActivities";
 import { assert, it } from "@effect/vitest";
 import { Effect, Layer, Option } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -14,6 +13,97 @@ const asTurnId = (value: string): TurnId => TurnId.makeUnsafe(value);
 const asMessageId = (value: string): MessageId => MessageId.makeUnsafe(value);
 const asEventId = (value: string): EventId => EventId.makeUnsafe(value);
 const asCheckpointRef = (value: string): CheckpointRef => CheckpointRef.makeUnsafe(value);
+
+const rebuildTimelineEntriesForThread = (sql: SqlClient.SqlClient, threadId: string) =>
+  Effect.gen(function* () {
+    yield* sql`
+      DELETE FROM projection_thread_timeline_entries
+      WHERE thread_id = ${threadId}
+    `;
+    yield* sql`
+      INSERT INTO projection_thread_timeline_entries (
+        thread_id,
+        timeline_index,
+        kind,
+        source_id,
+        turn_id,
+        sequence,
+        created_at,
+        updated_at
+      )
+      WITH source_entries AS (
+        SELECT
+          thread_id,
+          'message' AS kind,
+          message_id AS source_id,
+          turn_id,
+          sequence,
+          created_at,
+          updated_at,
+          CASE
+            WHEN role = 'user' THEN 0
+            WHEN role = 'assistant' THEN 2
+            ELSE 1
+          END AS sort_priority
+        FROM projection_thread_messages
+        WHERE thread_id = ${threadId}
+        UNION ALL
+        SELECT
+          thread_id,
+          'activity' AS kind,
+          activity_id AS source_id,
+          turn_id,
+          sequence,
+          created_at,
+          created_at AS updated_at,
+          1 AS sort_priority
+        FROM projection_thread_activities
+        WHERE thread_id = ${threadId}
+        UNION ALL
+        SELECT
+          thread_id,
+          'proposed-plan' AS kind,
+          plan_id AS source_id,
+          turn_id,
+          NULL AS sequence,
+          created_at,
+          updated_at,
+          1 AS sort_priority
+        FROM projection_thread_proposed_plans
+        WHERE thread_id = ${threadId}
+      ),
+      indexed_entries AS (
+        SELECT
+          thread_id,
+          kind,
+          source_id,
+          turn_id,
+          sequence,
+          created_at,
+          updated_at,
+          ROW_NUMBER() OVER (
+            PARTITION BY thread_id
+            ORDER BY
+              created_at ASC,
+              CASE WHEN sequence IS NULL THEN 1 ELSE 0 END ASC,
+              sequence ASC,
+              sort_priority ASC,
+              source_id ASC
+          ) - 1 AS timeline_index
+        FROM source_entries
+      )
+      SELECT
+        thread_id,
+        timeline_index,
+        kind,
+        source_id,
+        turn_id,
+        sequence,
+        created_at,
+        updated_at
+      FROM indexed_entries
+    `;
+  });
 
 const projectionSnapshotLayer = it.layer(
   OrchestrationProjectionSnapshotQueryLive.pipe(Layer.provideMerge(SqlitePersistenceMemory)),
@@ -899,7 +989,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         assert.equal(leanThread1?.latestTurn?.turnId, asTurnId("turn-1"));
         assert.deepEqual(
           leanThread1?.activities.map((activity) => activity.id),
-          [asEventId("thread-1-approval")],
+          [asEventId("thread-1-approval"), asEventId("thread-1-runtime-note")],
         );
         assert.deepEqual(leanThread1?.checkpoints, []);
         assert.deepEqual(
@@ -919,6 +1009,9 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           createdAt: "2026-03-03T00:00:09.000Z",
           updatedAt: "2026-03-03T00:00:09.000Z",
         });
+
+        yield* rebuildTimelineEntriesForThread(sql, "thread-1");
+        yield* rebuildTimelineEntriesForThread(sql, "thread-2");
 
         const hydratedSnapshot = yield* snapshotQuery.getSnapshot({
           hydrateThreadId: ThreadId.makeUnsafe("thread-1"),
@@ -995,17 +1088,18 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       }),
   );
 
-  it.effect("caps hydrated thread activities to the client retention budget", () =>
+  it.effect("keeps hydrated thread activities unbounded for backend fetches", () =>
     Effect.gen(function* () {
       const snapshotQuery = yield* ProjectionSnapshotQuery;
       const sql = yield* SqlClient.SqlClient;
       const threadId = ThreadId.makeUnsafe("thread-activity-cap");
-      const totalActivityCount = DEFAULT_MAX_THREAD_ACTIVITIES + 5;
+      const totalActivityCount = 2_005;
 
       yield* sql`DELETE FROM projection_projects`;
       yield* sql`DELETE FROM projection_threads`;
       yield* sql`DELETE FROM projection_thread_messages`;
       yield* sql`DELETE FROM projection_thread_activities`;
+      yield* sql`DELETE FROM projection_thread_timeline_entries`;
       yield* sql`DELETE FROM projection_thread_proposed_plans`;
       yield* sql`DELETE FROM projection_thread_sessions`;
       yield* sql`DELETE FROM projection_turns`;
@@ -1101,14 +1195,35 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         { discard: true },
       );
 
+      const leanSnapshot = yield* snapshotQuery.getSnapshot({ hydrateThreadId: null });
+      const leanThread = leanSnapshot.threads.find((thread) => thread.id === threadId);
+      assert.equal(leanThread?.activities.length, 32);
+      assert.equal(leanThread?.activities[0]?.id, `activity-${totalActivityCount - 31}`);
+      assert.equal(leanThread?.activities.at(-1)?.id, `activity-${totalActivityCount}`);
+
+      yield* rebuildTimelineEntriesForThread(sql, threadId);
       const thread = Option.getOrThrow(yield* snapshotQuery.getThread(threadId));
 
-      assert.equal(thread.activities.length, DEFAULT_MAX_THREAD_ACTIVITIES);
-      assert.equal(
-        thread.activities[0]?.id,
-        `activity-${totalActivityCount - DEFAULT_MAX_THREAD_ACTIVITIES + 1}`,
-      );
+      assert.equal(thread.activities.length, totalActivityCount);
+      assert.equal(thread.activities[0]?.id, "activity-1");
       assert.equal(thread.activities.at(-1)?.id, `activity-${totalActivityCount}`);
+
+      const firstActivityPage = yield* snapshotQuery.getThreadTimelinePage({
+        threadId,
+        startIndex: 0,
+        limit: 1,
+      });
+      assert.equal(firstActivityPage._tag, "Some");
+      if (Option.isSome(firstActivityPage)) {
+        assert.deepEqual(
+          firstActivityPage.value.entries.map((entry) => `${entry.kind}:${entry.id}`),
+          ["activity:activity-1"],
+        );
+        assert.deepEqual(
+          firstActivityPage.value.activities.map((activity) => activity.id),
+          [asEventId("activity-1")],
+        );
+      }
     }),
   );
 
@@ -1396,6 +1511,533 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             },
           ],
         });
+      }
+    }),
+  );
+
+  it.effect("reads sparse thread timeline pages from projection tables", () =>
+    Effect.gen(function* () {
+      const snapshotQuery = yield* ProjectionSnapshotQuery;
+      const sql = yield* SqlClient.SqlClient;
+
+      yield* sql`DELETE FROM projection_thread_messages`;
+      yield* sql`DELETE FROM projection_thread_activities`;
+      yield* sql`DELETE FROM projection_thread_proposed_plans`;
+      yield* sql`DELETE FROM projection_thread_timeline_entries`;
+      yield* sql`DELETE FROM projection_threads`;
+      yield* sql`DELETE FROM projection_projects`;
+
+      yield* sql`
+        INSERT INTO projection_projects (
+          project_id,
+          title,
+          workspace_root,
+          default_model_selection_json,
+          scripts_json,
+          created_at,
+          updated_at,
+          deleted_at
+        )
+        VALUES (
+          'project-timeline-page',
+          'Timeline Project',
+          '/tmp/timeline-project',
+          '{"provider":"codex","model":"gpt-5-codex"}',
+          '[]',
+          '2026-04-01T00:00:00.000Z',
+          '2026-04-01T00:00:00.000Z',
+          NULL
+        )
+      `;
+
+      yield* sql`
+        INSERT INTO projection_threads (
+          thread_id,
+          project_id,
+          title,
+          model_selection_json,
+          runtime_mode,
+          interaction_mode,
+          branch,
+          worktree_path,
+          queued_composer_messages_json,
+          queued_steer_request_json,
+          latest_turn_id,
+          created_at,
+          updated_at,
+          archived_at,
+          deleted_at
+        )
+        VALUES (
+          'thread-timeline-page',
+          'project-timeline-page',
+          'Timeline Thread',
+          '{"provider":"codex","model":"gpt-5-codex"}',
+          'full-access',
+          'default',
+          NULL,
+          NULL,
+          '[]',
+          NULL,
+          NULL,
+          '2026-04-01T00:00:00.000Z',
+          '2026-04-01T00:00:10.000Z',
+          NULL,
+          NULL
+        )
+      `;
+
+      yield* sql`
+        INSERT INTO projection_thread_messages (
+          message_id,
+          thread_id,
+          turn_id,
+          role,
+          text,
+          is_streaming,
+          sequence,
+          created_at,
+          updated_at
+        )
+        VALUES
+          (
+            'message-user',
+            'thread-timeline-page',
+            'turn-timeline-page',
+            'user',
+            'Run checks',
+            0,
+            1,
+            '2026-04-01T00:00:01.000Z',
+            '2026-04-01T00:00:01.000Z'
+          ),
+          (
+            'message-assistant',
+            'thread-timeline-page',
+            'turn-timeline-page',
+            'assistant',
+            'Done',
+            0,
+            4,
+            '2026-04-01T00:00:04.000Z',
+            '2026-04-01T00:00:04.000Z'
+          )
+      `;
+
+      yield* sql`
+        INSERT INTO projection_thread_activities (
+          activity_id,
+          thread_id,
+          turn_id,
+          tone,
+          kind,
+          summary,
+          payload_json,
+          sequence,
+          created_at
+        )
+        VALUES
+          (
+            'activity-tool',
+            'thread-timeline-page',
+            'turn-timeline-page',
+            'tool',
+            'tool.completed',
+            'Run command',
+            '{"command":"bun lint"}',
+            2,
+            '2026-04-01T00:00:02.000Z'
+          ),
+          (
+            'activity-null-payload',
+            'thread-timeline-page',
+            'turn-timeline-page',
+            'tool',
+            'tool.completed',
+            'Run second command',
+            'null',
+            3,
+            '2026-04-01T00:00:02.500Z'
+          )
+      `;
+
+      yield* sql`
+        INSERT INTO projection_thread_proposed_plans (
+          plan_id,
+          thread_id,
+          turn_id,
+          plan_markdown,
+          implemented_at,
+          implementation_thread_id,
+          created_at,
+          updated_at
+        )
+        VALUES (
+          'plan-1',
+          'thread-timeline-page',
+          'turn-timeline-page',
+          'Plan',
+          NULL,
+          NULL,
+          '2026-04-01T00:00:03.000Z',
+          '2026-04-01T00:00:03.000Z'
+        )
+      `;
+
+      yield* rebuildTimelineEntriesForThread(sql, "thread-timeline-page");
+
+      const page = yield* snapshotQuery.getThreadTimelinePage({
+        threadId: ThreadId.makeUnsafe("thread-timeline-page"),
+        startIndex: 1,
+        limit: 3,
+      });
+      assert.equal(page._tag, "Some");
+      if (page._tag === "Some") {
+        assert.deepEqual(
+          page.value.entries.map((entry) => `${entry.kind}:${entry.id}`),
+          ["activity:activity-tool", "activity:activity-null-payload", "proposed-plan:plan-1"],
+        );
+        assert.equal(page.value.totalItems, 5);
+        assert.equal(page.value.startIndex, 1);
+        assert.equal(page.value.endIndexExclusive, 4);
+        assert.equal(page.value.hasPrevious, true);
+        assert.equal(page.value.hasNext, true);
+        assert.deepEqual(page.value.messages, []);
+        assert.deepEqual(
+          page.value.activities.map((activity) => activity.id),
+          [asEventId("activity-tool"), asEventId("activity-null-payload")],
+        );
+        assert.deepEqual(
+          page.value.activities.map((activity) => activity.payload),
+          [{ command: "bun lint" }, {}],
+        );
+        assert.deepEqual(
+          page.value.proposedPlans.map((plan) => plan.id),
+          ["plan-1"],
+        );
+      }
+
+      yield* sql`
+        DELETE FROM projection_thread_activities
+        WHERE activity_id = 'activity-null-payload'
+      `;
+      yield* sql`
+        UPDATE projection_threads
+        SET updated_at = '2026-04-01T00:00:11.000Z'
+        WHERE thread_id = 'thread-timeline-page'
+      `;
+      const orphanActivityPage = yield* snapshotQuery.getThreadTimelinePage({
+        threadId: ThreadId.makeUnsafe("thread-timeline-page"),
+        startIndex: 2,
+        limit: 1,
+      });
+      assert.equal(orphanActivityPage._tag, "Some");
+      if (orphanActivityPage._tag === "Some") {
+        assert.deepEqual(
+          orphanActivityPage.value.entries.map((entry) => `${entry.kind}:${entry.id}`),
+          ["activity:activity-null-payload"],
+        );
+        assert.deepEqual(orphanActivityPage.value.activities, [
+          {
+            id: asEventId("activity-null-payload"),
+            tone: "info",
+            kind: "activity",
+            summary: "Activity",
+            payload: {},
+            turnId: asTurnId("turn-timeline-page"),
+            sequence: 3,
+            createdAt: "2026-04-01T00:00:02.500Z",
+          },
+        ]);
+      }
+
+      const tailPage = yield* snapshotQuery.getThreadTimelinePage({
+        threadId: ThreadId.makeUnsafe("thread-timeline-page"),
+        startIndex: 99,
+        limit: 32,
+      });
+      assert.equal(tailPage._tag, "Some");
+      if (tailPage._tag === "Some") {
+        assert.equal(tailPage.value.startIndex, 5);
+        assert.equal(tailPage.value.endIndexExclusive, 5);
+        assert.equal(tailPage.value.hasPrevious, true);
+        assert.equal(tailPage.value.hasNext, false);
+        assert.deepEqual(tailPage.value.entries, []);
+      }
+    }),
+  );
+
+  it.effect("reads sparse thread timeline pages with interleaved event positions", () =>
+    Effect.gen(function* () {
+      const snapshotQuery = yield* ProjectionSnapshotQuery;
+      const sql = yield* SqlClient.SqlClient;
+      const threadId = ThreadId.makeUnsafe("thread-timeline-page");
+
+      yield* sql`DELETE FROM projection_projects`;
+      yield* sql`DELETE FROM projection_threads`;
+      yield* sql`DELETE FROM projection_thread_messages`;
+      yield* sql`DELETE FROM projection_thread_activities`;
+      yield* sql`DELETE FROM projection_thread_proposed_plans`;
+      yield* sql`DELETE FROM projection_thread_timeline_entries`;
+      yield* sql`DELETE FROM projection_turns`;
+
+      yield* sql`
+        INSERT INTO projection_projects (
+          project_id,
+          title,
+          workspace_root,
+          default_model_selection_json,
+          scripts_json,
+          created_at,
+          updated_at,
+          deleted_at
+        )
+        VALUES (
+          'project-timeline-page',
+          'Timeline Page Project',
+          '/tmp/timeline-page',
+          '{"provider":"codex","model":"gpt-5-codex"}',
+          '[]',
+          '2026-03-04T00:00:00.000Z',
+          '2026-03-04T00:00:00.000Z',
+          NULL
+        )
+      `;
+
+      yield* sql`
+        INSERT INTO projection_threads (
+          thread_id,
+          project_id,
+          title,
+          model_selection_json,
+          runtime_mode,
+          interaction_mode,
+          branch,
+          worktree_path,
+          queued_composer_messages_json,
+          queued_steer_request_json,
+          latest_turn_id,
+          created_at,
+          updated_at,
+          deleted_at
+        )
+        VALUES (
+          'thread-timeline-page',
+          'project-timeline-page',
+          'Timeline Page Thread',
+          '{"provider":"codex","model":"gpt-5-codex"}',
+          'full-access',
+          'default',
+          NULL,
+          NULL,
+          '[]',
+          NULL,
+          NULL,
+          '2026-03-04T00:00:00.000Z',
+          '2026-03-04T00:00:10.000Z',
+          NULL
+        )
+      `;
+
+      yield* sql`
+        INSERT INTO projection_thread_messages (
+          message_id,
+          thread_id,
+          turn_id,
+          role,
+          text,
+          is_streaming,
+          sequence,
+          created_at,
+          updated_at,
+          attachments_json
+        )
+        VALUES
+          (
+            'message-user',
+            'thread-timeline-page',
+            'turn-timeline-page',
+            'user',
+            'Run checks',
+            0,
+            1,
+            '2026-03-04T00:00:01.000Z',
+            '2026-03-04T00:00:01.000Z',
+            NULL
+          ),
+          (
+            'message-assistant',
+            'thread-timeline-page',
+            'turn-timeline-page',
+            'assistant',
+            'Done',
+            0,
+            4,
+            '2026-03-04T00:00:04.000Z',
+            '2026-03-04T00:00:04.000Z',
+            NULL
+          )
+      `;
+
+      yield* sql`
+        INSERT INTO projection_thread_activities (
+          activity_id,
+          thread_id,
+          turn_id,
+          tone,
+          kind,
+          summary,
+          payload_json,
+          created_at,
+          sequence
+        )
+        VALUES (
+          'activity-tool',
+          'thread-timeline-page',
+          'turn-timeline-page',
+          'tool',
+          'tool.completed',
+          'Run command',
+          '{}',
+          '2026-03-04T00:00:02.000Z',
+          2
+        )
+      `;
+
+      yield* sql`
+        INSERT INTO projection_thread_proposed_plans (
+          plan_id,
+          thread_id,
+          turn_id,
+          plan_markdown,
+          implemented_at,
+          implementation_thread_id,
+          created_at,
+          updated_at
+        )
+        VALUES (
+          'plan-timeline',
+          'thread-timeline-page',
+          'turn-timeline-page',
+          'Plan',
+          NULL,
+          NULL,
+          '2026-03-04T00:00:03.000Z',
+          '2026-03-04T00:00:03.000Z'
+        )
+      `;
+
+      yield* rebuildTimelineEntriesForThread(sql, "thread-timeline-page");
+
+      const page = yield* snapshotQuery.getThreadTimelinePage({
+        threadId,
+        startIndex: 1,
+        limit: 2,
+      });
+
+      assert.equal(page._tag, "Some");
+      if (Option.isSome(page)) {
+        assert.deepEqual(page.value, {
+          threadId,
+          updatedAt: "2026-03-04T00:00:10.000Z",
+          totalItems: 4,
+          startIndex: 1,
+          endIndexExclusive: 3,
+          hasPrevious: true,
+          hasNext: true,
+          entries: [
+            {
+              kind: "activity",
+              id: "activity-tool",
+              createdAt: "2026-03-04T00:00:02.000Z",
+              index: 1,
+              turnId: asTurnId("turn-timeline-page"),
+              sequence: 2,
+            },
+            {
+              kind: "proposed-plan",
+              id: "plan-timeline",
+              createdAt: "2026-03-04T00:00:03.000Z",
+              index: 2,
+              turnId: asTurnId("turn-timeline-page"),
+            },
+          ],
+          messages: [],
+          activities: [
+            {
+              id: asEventId("activity-tool"),
+              tone: "tool",
+              kind: "tool.completed",
+              summary: "Run command",
+              payload: {},
+              turnId: asTurnId("turn-timeline-page"),
+              sequence: 2,
+              createdAt: "2026-03-04T00:00:02.000Z",
+            },
+          ],
+          proposedPlans: [
+            {
+              id: "plan-timeline",
+              turnId: asTurnId("turn-timeline-page"),
+              planMarkdown: "Plan",
+              implementedAt: null,
+              implementationThreadId: null,
+              createdAt: "2026-03-04T00:00:03.000Z",
+              updatedAt: "2026-03-04T00:00:03.000Z",
+            },
+          ],
+        });
+      }
+
+      const cachedMessagePage = yield* snapshotQuery.getThreadTimelinePage({
+        threadId,
+        startIndex: 0,
+        limit: 1,
+      });
+      assert.equal(cachedMessagePage._tag, "Some");
+      if (Option.isSome(cachedMessagePage)) {
+        assert.deepEqual(
+          cachedMessagePage.value.messages.map((message) => message.text),
+          ["Run checks"],
+        );
+      }
+
+      yield* sql`
+        UPDATE projection_thread_messages
+        SET text = 'Run checks updated'
+        WHERE message_id = 'message-user'
+      `;
+
+      const unchangedUpdatedAtPage = yield* snapshotQuery.getThreadTimelinePage({
+        threadId,
+        startIndex: 0,
+        limit: 1,
+      });
+      assert.equal(unchangedUpdatedAtPage._tag, "Some");
+      if (Option.isSome(unchangedUpdatedAtPage)) {
+        assert.deepEqual(
+          unchangedUpdatedAtPage.value.messages.map((message) => message.text),
+          ["Run checks"],
+        );
+      }
+
+      yield* sql`
+        UPDATE projection_threads
+        SET updated_at = '2026-03-04T00:00:11.000Z'
+        WHERE thread_id = 'thread-timeline-page'
+      `;
+
+      const invalidatedPage = yield* snapshotQuery.getThreadTimelinePage({
+        threadId,
+        startIndex: 0,
+        limit: 1,
+      });
+      assert.equal(invalidatedPage._tag, "Some");
+      if (Option.isSome(invalidatedPage)) {
+        assert.deepEqual(
+          invalidatedPage.value.messages.map((message) => message.text),
+          ["Run checks updated"],
+        );
       }
     }),
   );

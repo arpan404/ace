@@ -822,7 +822,7 @@ describe("findSidebarProposedPlan", () => {
 });
 
 describe("deriveWorkLogEntries", () => {
-  it("omits tool started entries and keeps completed entries", () => {
+  it("collapses started and completed lifecycle entries for one tool call", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({
         id: "tool-complete",
@@ -840,6 +840,7 @@ describe("deriveWorkLogEntries", () => {
 
     const entries = deriveWorkLogEntries(activities, undefined);
     expect(entries.map((entry) => entry.id)).toEqual(["tool-complete"]);
+    expect(entries[0]?.status).toBe("completed");
   });
 
   it("surfaces runtime.error payload.message as work log detail", () => {
@@ -884,7 +885,7 @@ describe("deriveWorkLogEntries", () => {
     expect(entry?.detail).toContain("rate limit");
   });
 
-  it("omits task start and completion lifecycle entries", () => {
+  it("keeps task start and completion lifecycle entries", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({
         id: "task-start",
@@ -910,7 +911,11 @@ describe("deriveWorkLogEntries", () => {
     ];
 
     const entries = deriveWorkLogEntries(activities, undefined);
-    expect(entries.map((entry) => entry.id)).toEqual(["task-progress"]);
+    expect(entries.map((entry) => entry.id)).toEqual([
+      "task-start",
+      "task-progress",
+      "task-complete",
+    ]);
   });
 
   it("filters by turn id when provided", () => {
@@ -1070,7 +1075,7 @@ describe("deriveWorkLogEntries", () => {
     });
   });
 
-  it("omits checkpoint captured info entries", () => {
+  it("keeps checkpoint captured info entries", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({
         id: "checkpoint",
@@ -1088,10 +1093,10 @@ describe("deriveWorkLogEntries", () => {
     ];
 
     const entries = deriveWorkLogEntries(activities, undefined);
-    expect(entries.map((entry) => entry.id)).toEqual(["tool-complete"]);
+    expect(entries.map((entry) => entry.id)).toEqual(["checkpoint", "tool-complete"]);
   });
 
-  it("omits generated turn summary info entries", () => {
+  it("keeps generated turn summary info entries", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({
         id: "turn-summary",
@@ -1116,10 +1121,10 @@ describe("deriveWorkLogEntries", () => {
     ];
 
     const entries = deriveWorkLogEntries(activities, undefined);
-    expect(entries.map((entry) => entry.id)).toEqual(["tool-complete"]);
+    expect(entries.map((entry) => entry.id)).toEqual(["turn-summary", "tool-complete"]);
   });
 
-  it("omits ExitPlanMode lifecycle entries once the plan card is shown", () => {
+  it("collapses ExitPlanMode lifecycle entries once the plan card is shown", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({
         id: "exit-plan-updated",
@@ -1152,7 +1157,7 @@ describe("deriveWorkLogEntries", () => {
     ];
 
     const entries = deriveWorkLogEntries(activities, undefined);
-    expect(entries.map((entry) => entry.id)).toEqual(["real-work-log"]);
+    expect(entries.map((entry) => entry.id)).toEqual(["exit-plan-completed", "real-work-log"]);
   });
 
   it("orders work log by activity sequence when present", () => {
@@ -1260,7 +1265,7 @@ describe("deriveWorkLogEntries", () => {
     expect(entries[1]?.tone).toBe("thinking");
   });
 
-  it("collapses streamed reasoning updates for the same reasoning task", () => {
+  it("keeps streamed reasoning updates for the same reasoning task", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({
         id: "reasoning-progress-1",
@@ -1299,13 +1304,18 @@ describe("deriveWorkLogEntries", () => {
     ];
 
     const entries = deriveWorkLogEntries(activities, undefined);
-    expect(entries).toHaveLength(1);
-    expect(entries[0]).toMatchObject({
-      createdAt: "2026-02-23T00:00:01.000Z",
-      tone: "thinking",
-      detail:
-        "Inspecting package scripts. Running format and lint checks. Checks finished; ready to patch the timeline.",
-    });
+    expect(entries).toHaveLength(3);
+    expect(entries.map((entry) => entry.id)).toEqual([
+      "reasoning-progress-1",
+      "reasoning-progress-2",
+      "reasoning-complete",
+    ]);
+    expect(entries.map((entry) => entry.tone)).toEqual(["thinking", "thinking", "thinking"]);
+    expect(entries.map((entry) => entry.detail)).toEqual([
+      "Inspecting package scripts.",
+      "Running format and lint checks.",
+      "Checks finished; ready to patch the timeline.",
+    ]);
   });
 
   it("keeps empty terminal reasoning completion entries instead of dropping them", () => {
@@ -1333,7 +1343,7 @@ describe("deriveWorkLogEntries", () => {
     expect(entries[0]?.detail).toBeUndefined();
   });
 
-  it("accumulates token-like streamed reasoning fragments into readable text", () => {
+  it("keeps token-like streamed reasoning fragments as separate entries", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({
         id: "reasoning-token-1",
@@ -1372,8 +1382,12 @@ describe("deriveWorkLogEntries", () => {
 
     const entries = deriveWorkLogEntries(activities, undefined);
 
-    expect(entries).toHaveLength(1);
-    expect(entries[0]?.detail).toBe("Inspecting package.json before patching.");
+    expect(entries).toHaveLength(3);
+    expect(entries.map((entry) => entry.detail)).toEqual([
+      "Inspecting",
+      "package.json",
+      "before patching.",
+    ]);
   });
 
   it("keeps tool starts visible and collapses them into the final tool entry", () => {
@@ -1410,6 +1424,7 @@ describe("deriveWorkLogEntries", () => {
       createdAt: "2026-02-23T00:00:01.000Z",
       toolTitle: "Running format & checks",
       detail: "Formatting and checks completed successfully.",
+      status: "completed",
     });
   });
 
@@ -1742,6 +1757,7 @@ describe("deriveWorkLogEntries", () => {
       command: "sed -n 1,40p /tmp/app.ts",
       itemType: "dynamic_tool_call",
       toolTitle: "Tool call",
+      status: "completed",
     });
   });
 
@@ -1843,6 +1859,7 @@ describe("deriveWorkLogEntries", () => {
       "2026-02-23T00:00:03.000Z",
     ]);
     expect(entries.map((entry) => entry.detail)).toEqual(["README.md", "package.json"]);
+    expect(entries.map((entry) => entry.status)).toEqual(["completed", "completed"]);
   });
 
   it("collapses normalized command output deltas into the command row", () => {
@@ -1895,6 +1912,7 @@ describe("deriveWorkLogEntries", () => {
       command: "ls -la",
       terminalOutput: "total 8\ndrwxr-xr-x .\n",
       requestKind: "command",
+      status: "inProgress",
     });
   });
 
@@ -2042,6 +2060,7 @@ describe("deriveWorkLogEntries", () => {
 
     expect(entries).toHaveLength(1);
     expect(entries[0]?.id).toBe("a-complete-same-timestamp");
+    expect(entries[0]?.status).toBe("completed");
   });
 });
 
@@ -2681,7 +2700,7 @@ describe("deriveTimelineEntries", () => {
 });
 
 describe("deriveWorkLogEntries context window handling", () => {
-  it("excludes context window updates from the work log", () => {
+  it("keeps context window updates in the work log", () => {
     const entries = deriveWorkLogEntries(
       [
         makeActivity({
@@ -2702,8 +2721,8 @@ describe("deriveWorkLogEntries context window handling", () => {
       TurnId.makeUnsafe("turn-1"),
     );
 
-    expect(entries).toHaveLength(1);
-    expect(entries[0]?.label).toBe("Ran command");
+    expect(entries.map((entry) => entry.id)).toEqual(["context-1", "tool-1"]);
+    expect(entries[0]?.label).toBe("Context window updated");
   });
 
   it("keeps context compaction activities as normal work log entries", () => {
@@ -2798,7 +2817,7 @@ describe("deriveVisibleTurnDiffSummaryByAssistantMessageId", () => {
 });
 
 describe("filterVisibleWorkLogActivities", () => {
-  it("removes hidden tool and thinking activities when both visibility toggles are disabled", () => {
+  it("keeps tool and thinking activities when visibility toggles are disabled", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({
         id: "tool-complete",
@@ -2831,7 +2850,7 @@ describe("filterVisibleWorkLogActivities", () => {
       enableThinkingStreaming: false,
     });
 
-    expect(visible.map((activity) => activity.id)).toEqual(["runtime-warning"]);
+    expect(visible).toBe(activities);
   });
 
   it("returns the original array when both visibility toggles are enabled", () => {
@@ -3015,7 +3034,7 @@ describe("deriveVisibleWorkTurnId", () => {
     activeTurnId: TurnId.makeUnsafe("turn-2"),
   };
 
-  it("prefers the latest renderable work activity during running turn churn", () => {
+  it("prefers the latest visible work activity during running turn churn", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({
         id: "turn-1-tool",
@@ -3045,13 +3064,13 @@ describe("deriveVisibleWorkTurnId", () => {
       activities,
     );
 
-    expect(visibleTurnId).toBe(TurnId.makeUnsafe("turn-1"));
+    expect(visibleTurnId).toBe(TurnId.makeUnsafe("turn-2"));
     expect(deriveWorkLogEntries(activities, visibleTurnId).map((entry) => entry.id)).toEqual([
-      "turn-1-tool",
+      "turn-2-task-started",
     ]);
   });
 
-  it("falls back to the active session turn when no renderable work activity exists yet", () => {
+  it("uses the active session turn for visible current-turn activity", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({
         id: "turn-2-task-started",

@@ -461,13 +461,12 @@ export type OrchestrationGetThreadInput = typeof OrchestrationGetThreadInput.Typ
 export const OrchestrationGetThreadResult = OrchestrationThread;
 export type OrchestrationGetThreadResult = typeof OrchestrationGetThreadResult.Type;
 
-export const OrchestrationThreadTimelineEntryKind = Schema.Literals(
+export const OrchestrationThreadTimelineEntryKind = Schema.Literals([
   "message",
   "activity",
   "proposed-plan",
-);
-export type OrchestrationThreadTimelineEntryKind =
-  typeof OrchestrationThreadTimelineEntryKind.Type;
+]);
+export type OrchestrationThreadTimelineEntryKind = typeof OrchestrationThreadTimelineEntryKind.Type;
 
 export const OrchestrationThreadTimelineEntryReference = Schema.Struct({
   kind: OrchestrationThreadTimelineEntryKind,
@@ -487,6 +486,21 @@ export const OrchestrationGetThreadTimelinePageInput = Schema.Struct({
 });
 export type OrchestrationGetThreadTimelinePageInput =
   typeof OrchestrationGetThreadTimelinePageInput.Type;
+
+export const OrchestrationGetThreadTimelineManifestInput = Schema.Struct({
+  threadId: ThreadId,
+});
+export type OrchestrationGetThreadTimelineManifestInput =
+  typeof OrchestrationGetThreadTimelineManifestInput.Type;
+
+export const OrchestrationGetThreadTimelineManifestResult = Schema.Struct({
+  threadId: ThreadId,
+  updatedAt: IsoDateTime,
+  totalItems: NonNegativeInt,
+  tailStartIndex: NonNegativeInt,
+});
+export type OrchestrationGetThreadTimelineManifestResult =
+  typeof OrchestrationGetThreadTimelineManifestResult.Type;
 
 export const OrchestrationGetThreadTimelinePageResult = Schema.Struct({
   threadId: ThreadId,
@@ -542,6 +556,10 @@ export const OrchestrationRpcSchemas = {
   getThreadTimelinePage: {
     input: OrchestrationGetThreadTimelinePageInput,
     output: OrchestrationGetThreadTimelinePageResult,
+  },
+  getThreadTimelineManifest: {
+    input: OrchestrationGetThreadTimelineManifestInput,
+    output: OrchestrationGetThreadTimelineManifestResult,
   },
   dispatchCommand: {
     input: ClientOrchestrationCommand,

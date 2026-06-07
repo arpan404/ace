@@ -764,6 +764,7 @@ describe("store read model sync", () => {
     expect(completedThread?.turnDiffSummaries).toEqual([]);
     expect(completedThread?.activities.map((activity) => activity.kind)).toEqual([
       "approval.requested",
+      "tool.completed",
     ]);
     expect(runningThread?.historyLoaded).toBe(true);
     expect(runningThread?.messages).toHaveLength(2);
@@ -1913,6 +1914,7 @@ describe("incremental orchestration updates", () => {
     ]);
     expect(next.threads[0]?.turnDiffSummaries).toEqual([]);
     expect(next.threads[0]?.activities.map((activity) => activity.kind)).toEqual([
+      "tool.started",
       "approval.requested",
     ]);
     expect(next.threads[0]?.latestTurn?.state).toBe("completed");
