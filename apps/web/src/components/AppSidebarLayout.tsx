@@ -13,6 +13,7 @@ import { resolveShortcutCommand } from "../keybindings";
 import { useUiStateStore } from "../uiStateStore";
 import { useServerKeybindings } from "../rpc/serverState";
 import { isTerminalFocused } from "../lib/terminalFocus";
+import { APP_SIDEBAR_CLASS_NAME } from "../lib/appChrome";
 import ThreadSidebar from "./Sidebar";
 import { Sidebar, SidebarProvider, SidebarRail, useSidebar } from "./ui/sidebar";
 import { toastManager } from "./ui/toast";
@@ -235,7 +236,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
       <Sidebar
         side="left"
         collapsible="offcanvas"
-        className="border-r border-sidebar-border/50 bg-sidebar text-sidebar-foreground"
+        className={APP_SIDEBAR_CLASS_NAME}
         onClickCapture={(event) => {
           const target = event.target instanceof HTMLElement ? event.target : null;
           if (!target?.closest("button,a,[role='button'],[data-slot='sidebar-menu-button']")) {

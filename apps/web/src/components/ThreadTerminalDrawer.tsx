@@ -1210,10 +1210,10 @@ function SortableTerminalTab(props: {
             className={cn(
               "group/tab relative inline-flex h-8 min-w-0 max-w-56 shrink-0 touch-none cursor-default items-center gap-2 rounded-lg px-3 text-[13px] font-medium transition-all duration-200",
               props.active
-                ? "bg-accent text-accent-foreground shadow-sm shadow-black/5 ring-1 ring-border/50"
-                : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
+                ? "bg-accent text-accent-foreground ring-1 ring-border/45"
+                : "text-muted-foreground hover:bg-foreground/[0.05] hover:text-foreground",
               isDragging && "z-20 opacity-70",
-              isOver && !isDragging && "bg-muted/80",
+              isOver && !isDragging && "bg-foreground/[0.06]",
             )}
             onClick={(event) => {
               event.preventDefault();
@@ -1728,7 +1728,7 @@ export default memo(function ThreadTerminalDrawer({
                         "pointer-events-none absolute inset-x-0 top-0 z-10 flex h-7 items-center justify-between gap-2 border-b px-2 text-[11px] font-medium backdrop-blur",
                         terminalId === resolvedActiveTerminalId
                           ? "border-primary/25 bg-primary/8 text-foreground"
-                          : "border-border/35 bg-background/45 text-muted-foreground",
+                          : "glass-inset border-border/35 text-muted-foreground",
                       )}
                     >
                       <span className="min-w-0 truncate">{terminalLabel}</span>

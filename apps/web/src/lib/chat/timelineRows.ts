@@ -7,6 +7,7 @@ export type TimelineMessage = Extract<TimelineEntry, { kind: "message" }>["messa
 export type UserTimelineMessage = TimelineMessage & { role: "user" };
 export type AssistantTimelineMessage = TimelineMessage & { role: "assistant" };
 export type SystemTimelineMessage = TimelineMessage & { role: "system" };
+type TimelineTurnId = NonNullable<Extract<TimelineEntry, { kind: "intent" }>["turnId"]>;
 export type TimelineProposedPlan = Extract<
   TimelineEntry,
   { kind: "proposed-plan" }
@@ -18,6 +19,7 @@ export type TimelineMetaGroupEntry =
       kind: "intent";
       id: string;
       createdAt: string;
+      turnId?: TimelineTurnId | null;
       text: string;
     }
   | {
@@ -170,6 +172,7 @@ export interface BuildTimelineRowsInput {
   readonly timelineEntries: ReadonlyArray<TimelineEntry>;
   readonly activeTurnInProgress: boolean;
   readonly activeTurnStartedAt: string | null;
+  readonly cacheScopeKey?: string;
   readonly completionDividerBeforeEntryId: string | null;
   readonly completionSummary: string | null;
   readonly hideCompletedWorkMessages?: boolean;
@@ -573,6 +576,7 @@ type HiddenCompletedWorkAccumulator = {
   createdAt: string;
   startedAt: string;
   endedAt: string;
+  turnId: TimelineTurnId | null;
   entries: TimelineMetaGroupEntry[];
   detailRows: TimelineCompletedWorkDetailRow[];
   visibleDiagnosticRows: TimelineCompletedWorkDiagnosticRow[];
@@ -592,6 +596,34 @@ function latestIso(firstIso: string, secondIso: string): string {
     return firstIso;
   }
   return secondMs >= firstMs ? secondIso : firstIso;
+}
+
+function timelineTurnIdsMatch(left: TimelineTurnId | null, right: TimelineTurnId | null): boolean {
+  return left === right || left === null || right === null;
+}
+
+function metaEntryTurnId(entry: TimelineMetaGroupEntry): TimelineTurnId | null {
+  if (entry.kind === "intent") {
+    return entry.turnId ?? null;
+  }
+  return entry.workEntry.turnId ?? null;
+}
+
+function resolveMetaEntriesTurnId(
+  entries: ReadonlyArray<TimelineMetaGroupEntry>,
+): TimelineTurnId | null {
+  let resolvedTurnId: TimelineTurnId | null = null;
+  for (const entry of entries) {
+    const entryTurnId = metaEntryTurnId(entry);
+    if (entryTurnId === null) {
+      continue;
+    }
+    if (resolvedTurnId !== null && resolvedTurnId !== entryTurnId) {
+      return null;
+    }
+    resolvedTurnId = entryTurnId;
+  }
+  return resolvedTurnId;
 }
 
 function isGoalCommandMessageText(text: string): boolean {
@@ -663,19 +695,42 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
     enabled: input.enableGoalWorkingState,
   });
   const lastAssistantMessageIdByTurnId = new Map<string, string>();
+  const fallbackAssistantMessageIdsBySegment = new Map<number, string[]>();
+  const lastFallbackAssistantMessageIdBySegment = new Map<number, string>();
+  let fallbackTurnSegmentIndex = 0;
   for (const timelineEntry of input.timelineEntries) {
-    if (timelineEntry?.kind !== "message" || timelineEntry.message.role !== "assistant") {
+    if (timelineEntry?.kind !== "message") {
       continue;
     }
+    if (timelineEntry.message.role === "user") {
+      fallbackTurnSegmentIndex += 1;
+      continue;
+    }
+    if (timelineEntry.message.role !== "assistant") continue;
     const turnId = timelineEntry.message.turnId;
     if (turnId) {
       lastAssistantMessageIdByTurnId.set(turnId, timelineEntry.id);
       continue;
     }
-    terminalAssistantMessageIds.add(timelineEntry.id);
+    const segmentMessageIds = fallbackAssistantMessageIdsBySegment.get(fallbackTurnSegmentIndex);
+    if (segmentMessageIds) {
+      segmentMessageIds.push(timelineEntry.id);
+    } else {
+      fallbackAssistantMessageIdsBySegment.set(fallbackTurnSegmentIndex, [timelineEntry.id]);
+    }
+    lastFallbackAssistantMessageIdBySegment.set(fallbackTurnSegmentIndex, timelineEntry.id);
   }
   for (const messageId of lastAssistantMessageIdByTurnId.values()) {
     terminalAssistantMessageIds.add(messageId);
+  }
+  for (const messageId of lastFallbackAssistantMessageIdBySegment.values()) {
+    terminalAssistantMessageIds.add(messageId);
+  }
+  if (input.activeTurnInProgress) {
+    for (const messageId of fallbackAssistantMessageIdsBySegment.get(fallbackTurnSegmentIndex) ??
+      []) {
+      terminalAssistantMessageIds.add(messageId);
+    }
   }
   let seenLaterUserMessage = false;
   for (let index = input.timelineEntries.length - 1; index >= 0; index -= 1) {
@@ -723,6 +778,7 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
   let activeTurnPrimaryUserMessageIsGoalCommand = false;
   let pendingMetaRowId: string | null = null;
   let pendingMetaCreatedAt: string | null = null;
+  let pendingMetaTurnId: TimelineTurnId | null = null;
   let pendingMetaEntries: TimelineMetaGroupEntry[] = [];
   let pendingIntentEntries: Array<Extract<TimelineMetaGroupEntry, { kind: "intent" }>> = [];
   let activeLiveIntentText: string | null = null;
@@ -732,6 +788,7 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
     pendingMetaEntries = [];
     pendingMetaRowId = null;
     pendingMetaCreatedAt = null;
+    pendingMetaTurnId = null;
   };
 
   const appendPendingIntentEntriesToMeta = (preferredRowId: string | null) => {
@@ -745,6 +802,9 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
     if (!pendingMetaRowId) {
       pendingMetaRowId = preferredRowId ?? pendingIntentEntries[0]?.id ?? null;
     }
+    if (pendingMetaTurnId === null) {
+      pendingMetaTurnId = resolveMetaEntriesTurnId(pendingIntentEntries);
+    }
 
     pendingMetaEntries.push(...pendingIntentEntries);
     pendingIntentEntries = [];
@@ -754,16 +814,25 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
     id: string;
     startedAt: string;
     endedAt: string;
+    turnId: TimelineTurnId | null;
     hiddenMessageCount: number;
     hiddenThinkingCount: number;
     toolCallCount: number;
   }) => {
+    if (hiddenCompletedWork && !timelineTurnIdsMatch(hiddenCompletedWork.turnId, input.turnId)) {
+      flushHiddenCompletedWorkSummary({
+        startedAtFloor: null,
+        endedAt: null,
+      });
+    }
+
     if (!hiddenCompletedWork) {
       hiddenCompletedWork = {
         id: `completed-work-summary:${input.id}`,
         createdAt: input.startedAt,
         startedAt: input.startedAt,
         endedAt: input.endedAt,
+        turnId: input.turnId,
         entries: [],
         detailRows: [],
         visibleDiagnosticRows: [],
@@ -778,6 +847,7 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
     hiddenCompletedWork = {
       ...hiddenCompletedWork,
       endedAt: latestIso(hiddenCompletedWork.endedAt, input.endedAt),
+      turnId: hiddenCompletedWork.turnId ?? input.turnId,
       hiddenMessageCount: hiddenCompletedWork.hiddenMessageCount + input.hiddenMessageCount,
       hiddenThinkingCount: hiddenCompletedWork.hiddenThinkingCount + input.hiddenThinkingCount,
       toolCallCount: hiddenCompletedWork.toolCallCount + input.toolCallCount,
@@ -812,6 +882,7 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
       id: firstEntry.id,
       startedAt: firstEntry.createdAt,
       endedAt,
+      turnId: resolveMetaEntriesTurnId(entries),
       hiddenMessageCount: 0,
       hiddenThinkingCount: summary.thinkingCount,
       toolCallCount: summary.toolCount,
@@ -836,6 +907,7 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
       id: String(message.id),
       startedAt: message.createdAt,
       endedAt: message.completedAt ?? message.createdAt,
+      turnId: message.turnId ?? null,
       hiddenMessageCount: 1,
       hiddenThinkingCount: 0,
       toolCallCount: 0,
@@ -861,10 +933,10 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
     }
   };
 
-  const flushHiddenCompletedWorkSummary = (input: {
+  function flushHiddenCompletedWorkSummary(input: {
     startedAtFloor: string | null;
     endedAt: string | null;
-  }) => {
+  }): void {
     if (!hiddenCompletedWork) {
       return;
     }
@@ -890,6 +962,20 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
       toolCallCount: hiddenCompletedWork.toolCallCount,
     });
     hiddenCompletedWork = null;
+  }
+
+  const flushOrDiscardHiddenCompletedWorkAtBoundary = () => {
+    if (!hiddenCompletedWork) {
+      return;
+    }
+    if (lastMessageBoundaryAt === null) {
+      hiddenCompletedWork = null;
+      return;
+    }
+    flushHiddenCompletedWorkSummary({
+      startedAtFloor: lastMessageBoundaryAt,
+      endedAt: null,
+    });
   };
 
   const consumeLatestPendingIntentText = () => {
@@ -937,6 +1023,17 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
   };
 
   const pushPendingWorkEntry = (timelineEntry: Extract<TimelineEntry, { kind: "work" }>) => {
+    const workTurnId = timelineEntry.entry.turnId ?? null;
+    if (pendingIntentEntries.length > 0) {
+      const pendingIntentTurnId = resolveMetaEntriesTurnId(pendingIntentEntries);
+      if (!timelineTurnIdsMatch(pendingIntentTurnId, workTurnId)) {
+        flushPendingMetaEntries(timelineEntry.createdAt);
+      }
+    }
+    if (pendingMetaEntries.length > 0 && !timelineTurnIdsMatch(pendingMetaTurnId, workTurnId)) {
+      flushPendingMetaEntries(timelineEntry.createdAt);
+    }
+
     if (timelineEntry.id === liveWorkEntryId) {
       flushPendingMetaEntries(timelineEntry.createdAt, { includePendingIntents: false });
       const liveIntentText = consumeLatestPendingIntentText();
@@ -953,13 +1050,18 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
       if (pendingIntentEntries.length > 0) {
         pendingMetaEntries = [...pendingIntentEntries];
         pendingMetaCreatedAt = pendingIntentEntries[0]?.createdAt ?? timelineEntry.createdAt;
+        pendingMetaTurnId = resolveMetaEntriesTurnId(pendingIntentEntries) ?? workTurnId;
         pendingIntentEntries = [];
       } else {
         pendingMetaCreatedAt = timelineEntry.createdAt;
+        pendingMetaTurnId = workTurnId;
       }
       pendingMetaRowId = timelineEntry.id;
     } else {
       appendPendingIntentEntriesToMeta(pendingMetaRowId);
+      if (pendingMetaTurnId === null) {
+        pendingMetaTurnId = workTurnId;
+      }
     }
 
     pendingMetaEntries.push({
@@ -988,17 +1090,23 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
         kind: "intent",
         id: timelineEntry.id,
         createdAt: timelineEntry.createdAt,
+        turnId: timelineEntry.turnId ?? null,
         text: timelineEntry.text,
       });
       continue;
     }
 
-    flushPendingMetaEntries(timelineEntry.createdAt);
+    const pendingMetaNextEventCreatedAt =
+      timelineEntry.kind === "message" && timelineEntry.message.role === "user"
+        ? null
+        : timelineEntry.createdAt;
+    flushPendingMetaEntries(pendingMetaNextEventCreatedAt);
 
     if (timelineEntry.kind === "proposed-plan") {
       if (isEventInActiveTurn(timelineEntry.createdAt, activeTurnStartedAtMs)) {
         hasRenderableCurrentTurnOutput = true;
       }
+      flushOrDiscardHiddenCompletedWorkAtBoundary();
       nextRows.push({
         kind: "proposed-plan",
         id: timelineEntry.id,
@@ -1024,7 +1132,7 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
 
     const durationStart = messageDurationStartById.get(message.id) ?? message.createdAt;
     if (message.role === "user") {
-      hiddenCompletedWork = null;
+      flushOrDiscardHiddenCompletedWorkAtBoundary();
       lastMessageBoundaryAt = message.createdAt;
       if (
         Number.isNaN(activeTurnStartedAtMs) ||
@@ -1035,6 +1143,8 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
           activeTurnPrimaryUserMessageIsGoalCommand = isGoalCommandMessageText(message.text);
         }
       }
+    } else if (message.role === "system") {
+      flushOrDiscardHiddenCompletedWorkAtBoundary();
     }
 
     const messageCompletedAt = message.completedAt;

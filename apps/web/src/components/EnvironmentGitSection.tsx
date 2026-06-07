@@ -443,7 +443,7 @@ function EnvironmentGitActionMenuPortal({
     <div
       ref={popupRef}
       role="menu"
-      className="fixed z-[110] flex max-w-[calc(100vw-1rem)] rounded-[calc(var(--panel-radius)-2px)] border border-border/72 bg-popover/96 text-popover-foreground shadow-xl shadow-black/20 outline-none supports-[backdrop-filter]:bg-popover/88 supports-[backdrop-filter]:backdrop-blur-xl"
+      className="glass-surface fixed z-[110] flex max-w-[calc(100vw-1rem)] rounded-[calc(var(--panel-radius)-2px)] border text-popover-foreground outline-none"
       style={{
         left: position.left,
         maxHeight: position.maxHeight,

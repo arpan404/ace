@@ -10,6 +10,7 @@ import {
 import { memo, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
+import { APP_EDITOR_CHROME_HEADER_CLASS_NAME } from "~/lib/appChrome";
 import { Button } from "../ui/button";
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -67,7 +68,9 @@ function WorkspaceReviewPane(props: WorkspaceReviewPaneProps) {
 
   return (
     <section className="flex h-full min-h-0 min-w-0 flex-col bg-background">
-      <header className="flex h-9 shrink-0 items-center gap-3 border-b border-border/70 bg-background/88 px-3">
+      <header
+        className={`flex h-9 shrink-0 items-center gap-3 px-3 ${APP_EDITOR_CHROME_HEADER_CLASS_NAME}`}
+      >
         <div className="flex min-w-0 flex-1 items-baseline gap-2">
           <span
             className="truncate font-mono text-[12px] font-medium text-foreground/92"

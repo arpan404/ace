@@ -448,6 +448,51 @@ export function resolveAdjacentThreadId<T>(input: {
   return currentIndex < threadIds.length - 1 ? (threadIds[currentIndex + 1] ?? null) : null;
 }
 
+export function resolveNearbyThreadIds<T>(input: {
+  threadIds: readonly T[];
+  currentThreadId: T | null;
+  limit: number;
+  includeCurrent?: boolean;
+}): T[] {
+  const { currentThreadId, threadIds } = input;
+  const limit = Math.max(0, Math.trunc(input.limit));
+  if (limit === 0 || threadIds.length === 0) {
+    return [];
+  }
+
+  const currentIndex = currentThreadId === null ? -1 : threadIds.indexOf(currentThreadId);
+  if (currentIndex === -1) {
+    return threadIds.slice(0, limit);
+  }
+
+  const nearbyThreadIds: T[] = [];
+  if (input.includeCurrent === true) {
+    nearbyThreadIds.push(threadIds[currentIndex] as T);
+  }
+
+  for (let distance = 1; nearbyThreadIds.length < limit; distance += 1) {
+    const previousIndex = currentIndex - distance;
+    const nextIndex = currentIndex + distance;
+    const hasPrevious = previousIndex >= 0;
+    const hasNext = nextIndex < threadIds.length;
+
+    if (!hasPrevious && !hasNext) {
+      break;
+    }
+    if (hasPrevious) {
+      nearbyThreadIds.push(threadIds[previousIndex] as T);
+      if (nearbyThreadIds.length >= limit) {
+        break;
+      }
+    }
+    if (hasNext) {
+      nearbyThreadIds.push(threadIds[nextIndex] as T);
+    }
+  }
+
+  return nearbyThreadIds;
+}
+
 export function isContextMenuPointerDown(input: {
   button: number;
   ctrlKey: boolean;

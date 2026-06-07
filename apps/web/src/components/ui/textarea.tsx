@@ -4,6 +4,7 @@ import { Field as FieldPrimitive } from "@base-ui/react/field";
 import { mergeProps } from "@base-ui/react/merge-props";
 import type * as React from "react";
 
+import { GLASS_CONTROL_CLASS_NAME } from "~/components/ui/glass";
 import { cn } from "~/lib/utils";
 
 type TextareaProps = React.ComponentProps<"textarea"> & {
@@ -17,7 +18,10 @@ function Textarea({ className, size = "default", unstyled = false, ...props }: T
       className={
         cn(
           !unstyled &&
-            "relative inline-flex w-full rounded-[var(--control-radius)] border border-input bg-input text-base text-foreground transition-[border-color,background-color,box-shadow] has-focus-visible:has-aria-invalid:border-destructive/64 has-aria-invalid:border-destructive/36 has-focus-visible:border-ring has-focus-visible:bg-input/92 has-disabled:opacity-64 sm:text-sm dark:bg-input/36 dark:has-focus-visible:bg-input/54",
+            cn(
+              "relative inline-flex w-full rounded-[var(--control-radius)] text-base text-foreground has-focus-visible:has-aria-invalid:border-destructive/64 has-aria-invalid:border-destructive/36 has-disabled:opacity-64 sm:text-sm",
+              GLASS_CONTROL_CLASS_NAME,
+            ),
           className,
         ) || undefined
       }

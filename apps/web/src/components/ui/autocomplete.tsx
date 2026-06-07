@@ -3,6 +3,7 @@
 import { Autocomplete as AutocompletePrimitive } from "@base-ui/react/autocomplete";
 import { ChevronsUpDownIcon, XIcon } from "lucide-react";
 
+import { GLASS_SURFACE_CLASS_NAME } from "~/components/ui/glass";
 import { cn } from "~/lib/utils";
 import { Input } from "~/components/ui/input";
 import { ScrollArea } from "~/components/ui/scroll-area";
@@ -104,7 +105,8 @@ function AutocompletePopup({
       >
         <span
           className={cn(
-            "relative flex max-h-full min-w-(--anchor-width) max-w-(--available-width) origin-(--transform-origin) rounded-[var(--panel-radius)] border border-border/72 bg-popover/96  supports-[backdrop-filter]:bg-popover/88 supports-[backdrop-filter]:backdrop-blur-xl transition-[scale,opacity]",
+            "relative flex max-h-full min-w-(--anchor-width) max-w-(--available-width) origin-(--transform-origin) rounded-[var(--panel-radius)] transition-[scale,opacity]",
+            GLASS_SURFACE_CLASS_NAME,
             className,
           )}
         >

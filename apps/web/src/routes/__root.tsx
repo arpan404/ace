@@ -19,6 +19,7 @@ import { AgentAttentionNotificationBridge } from "../components/AgentAttentionNo
 import { AppStartupScreen } from "../components/AppStartupScreen";
 import { InAppBrowser, type InAppBrowserController } from "../components/InAppBrowser";
 import { RemoteAutoConnectBootstrap } from "../components/RemoteAutoConnectBootstrap";
+import { APP_ELEVATED_INSET_CLASS_NAME } from "../lib/appChrome";
 import { Button } from "../components/ui/button";
 import { AnchoredToastProvider, ToastProvider, toastManager } from "../components/ui/toast";
 import {
@@ -77,7 +78,7 @@ import { queueDesktopPairingLink } from "../lib/desktopPairingLinks";
 import { parseRelayConnectionUrl } from "@ace/shared/relay";
 import { shouldForwardDesktopNotificationOrchestrationEvent } from "@ace/shared/notifications";
 import { appendBrowserDesignContextToPrompt } from "../lib/terminalContext";
-import { newCommandId, newMessageId, randomUUID } from "../lib/utils";
+import { cn, newCommandId, newMessageId, randomUUID } from "../lib/utils";
 import {
   dispatchDetachedWindowReturnRequest,
   resolveDetachedWindowReturnThreadId,
@@ -699,7 +700,7 @@ function RootRouteErrorView({ error, reset }: ErrorComponentProps) {
     <div className="flex min-h-screen flex-col bg-background text-foreground">
       <main className="min-h-0 flex-1 overflow-y-auto">
         <section className="mx-auto flex min-h-screen w-full max-w-3xl flex-col justify-center px-5 py-10 sm:px-6">
-          <div className="min-w-0 rounded-[var(--panel-radius)] border border-border/55 bg-card/38 px-5 py-5 shadow-[0_1px_0_hsl(var(--foreground)/0.04)] sm:px-6 sm:py-6">
+          <div className={cn(APP_ELEVATED_INSET_CLASS_NAME, "min-w-0 px-5 py-5 sm:px-6 sm:py-6")}>
             <div className="min-w-0 border-b border-border/30 pb-7">
               <div className="flex items-center gap-2.5 text-foreground">
                 <span className="text-[15px] leading-none font-semibold tracking-tight">

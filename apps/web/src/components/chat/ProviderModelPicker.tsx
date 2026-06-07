@@ -14,6 +14,7 @@ import { Button } from "../ui/button";
 import { buttonVariants } from "../ui/buttonVariants";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { APP_COMPOSER_CONTROL_CLASS_NAME } from "~/lib/appChrome";
 import { cn } from "~/lib/utils";
 import { getProviderSnapshot } from "../../providerModels";
 import {
@@ -653,7 +654,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
                 type="button"
                 aria-label={`${favorited ? "Remove favorite" : "Favorite"} ${row.label}`}
                 className={cn(
-                  "me-0.5 inline-flex size-6 items-center justify-center rounded-[var(--chip-radius)] text-muted-foreground outline-none transition-colors hover:bg-background/70 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring",
+                  "me-0.5 inline-flex size-6 items-center justify-center rounded-[var(--chip-radius)] text-muted-foreground outline-none transition-colors hover:bg-foreground/[0.05] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring",
                   favorited ? "text-warning-foreground" : undefined,
                 )}
                 onClick={(event) => {
@@ -697,7 +698,8 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
             variant={props.triggerVariant ?? "ghost"}
             data-chat-provider-model-picker="true"
             className={cn(
-              "min-w-0 justify-start overflow-hidden rounded-[var(--control-radius)] whitespace-nowrap px-2 text-muted-foreground transition-colors duration-150 hover:text-foreground [&_svg]:mx-0",
+              APP_COMPOSER_CONTROL_CLASS_NAME,
+              "min-w-0 justify-start overflow-hidden whitespace-nowrap px-2 [&_svg]:mx-0",
               props.compact ? "max-w-42 shrink-0" : "max-w-56 shrink sm:max-w-72 sm:px-2.5",
               props.triggerClassName,
             )}
@@ -749,7 +751,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
             )}
           >
             {showProviderRail ? (
-              <div className="min-h-0 overflow-hidden border-r border-border/60 bg-muted/20 p-1">
+              <div className="glass-inset min-h-0 overflow-hidden border-r border-border/40 p-1">
                 <div
                   className="h-full space-y-0.5 overflow-y-auto overscroll-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
                   data-provider-model-picker-provider-rail="true"
@@ -800,7 +802,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
             ) : null}
 
             <div className="flex min-w-0 flex-col overflow-hidden">
-              <div className="border-b border-border/60 px-2.5 py-1.5">
+              <div className="border-b border-border/35 px-2.5 py-1.5">
                 <div className="flex min-w-0 items-center gap-1.5">
                   <PickerProviderIcon
                     aria-hidden="true"
@@ -848,8 +850,8 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
                   </Tooltip>
                 </div>
               </div>
-              <div className="border-b border-border/60 px-2.5 py-1.5">
-                <div className="flex h-7 items-center gap-1.5 rounded-[var(--control-radius)] border border-border/60 bg-background/50 px-2">
+              <div className="border-b border-border/35 px-2.5 py-1.5">
+                <div className="glass-inset flex h-7 items-center gap-1.5 rounded-[var(--control-radius)] border px-2">
                   <SearchIcon
                     aria-hidden="true"
                     className="size-3 shrink-0 text-muted-foreground"
@@ -922,7 +924,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
         providers={props.handoff.providers}
         showLabel={false}
         triggerClassName={cn(
-          "shrink-0 rounded-[var(--control-radius)] text-muted-foreground/70 transition-colors duration-150 hover:bg-muted/70 hover:text-foreground/80 aria-expanded:bg-muted/70 aria-expanded:text-foreground/80",
+          APP_COMPOSER_CONTROL_CLASS_NAME,
           props.compact ? "size-7" : "size-8",
         )}
         triggerVariant={props.triggerVariant ?? "ghost"}

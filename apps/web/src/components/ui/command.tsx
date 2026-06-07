@@ -15,6 +15,11 @@ import {
   AutocompleteList,
   AutocompleteSeparator,
 } from "~/components/ui/autocomplete";
+import {
+  GLASS_BACKDROP_CLASS_NAME,
+  GLASS_FOOTER_CLASS_NAME,
+  GLASS_SURFACE_CLASS_NAME,
+} from "~/components/ui/glass";
 import { MODAL_LAYER_CLASS_NAME } from "~/components/ui/layers";
 
 const CommandDialog = CommandDialogPrimitive.Root;
@@ -31,7 +36,8 @@ function CommandDialogBackdrop({ className, ...props }: CommandDialogPrimitive.B
   return (
     <CommandDialogPrimitive.Backdrop
       className={cn(
-        "fixed inset-0 bg-black/36 backdrop-blur-[3px] transition-all duration-200 data-ending-style:opacity-0 data-starting-style:opacity-0",
+        "fixed inset-0 transition-all duration-200 data-ending-style:opacity-0 data-starting-style:opacity-0",
+        GLASS_BACKDROP_CLASS_NAME,
         MODAL_LAYER_CLASS_NAME,
         className,
       )}
@@ -62,7 +68,8 @@ function CommandDialogPopup({ className, children, ...props }: CommandDialogPrim
       <CommandDialogViewport>
         <CommandDialogPrimitive.Popup
           className={cn(
-            "-translate-y-[calc(1.25rem*var(--nested-dialogs))] relative row-start-2 flex max-h-105 min-h-0 w-full min-w-0 max-w-xl scale-[calc(1-0.1*var(--nested-dialogs))] flex-col rounded-[var(--panel-radius)] border border-border/72 bg-popover/96 text-popover-foreground opacity-[calc(1-0.1*var(--nested-dialogs))]  supports-[backdrop-filter]:bg-popover/88 supports-[backdrop-filter]:backdrop-blur-xl outline-none transition-[scale,opacity,translate] duration-200 ease-in-out will-change-transform data-nested:data-ending-style:translate-y-8 data-nested:data-starting-style:translate-y-8 data-nested-dialog-open:origin-top data-ending-style:scale-98 data-starting-style:scale-98 data-ending-style:opacity-0 data-starting-style:opacity-0 **:data-[slot=scroll-area-viewport]:data-has-overflow-y:pe-1",
+            "-translate-y-[calc(1.25rem*var(--nested-dialogs))] relative row-start-2 flex max-h-105 min-h-0 w-full min-w-0 max-w-xl scale-[calc(1-0.1*var(--nested-dialogs))] flex-col rounded-[var(--panel-radius)] opacity-[calc(1-0.1*var(--nested-dialogs))] outline-none transition-[scale,opacity,translate] duration-200 ease-in-out will-change-transform data-nested:data-ending-style:translate-y-8 data-nested:data-starting-style:translate-y-8 data-nested-dialog-open:origin-top data-ending-style:scale-98 data-starting-style:scale-98 data-ending-style:opacity-0 data-starting-style:opacity-0 **:data-[slot=scroll-area-viewport]:data-has-overflow-y:pe-1",
+            GLASS_SURFACE_CLASS_NAME,
             className,
           )}
           data-slot="command-dialog-popup"
@@ -97,10 +104,10 @@ function CommandInput({
   ...props
 }: React.ComponentProps<typeof AutocompleteInput>) {
   return (
-    <div className="border-b border-border/55 bg-background/35 p-3">
+    <div className="border-b border-border/30 bg-muted/15 p-3 supports-[backdrop-filter]:bg-muted/8">
       <AutocompleteInput
         className={cn(
-          "border-border/60 bg-background/72 shadow-none before:hidden has-focus-visible:border-ring/60 has-focus-visible:ring-2 has-focus-visible:ring-ring/18 dark:bg-card/46",
+          "border-border/60 bg-background shadow-none before:hidden has-focus-visible:border-ring/60 has-focus-visible:ring-2 has-focus-visible:ring-ring/18 dark:bg-card/46",
           className,
         )}
         placeholder={placeholder}
@@ -197,7 +204,8 @@ function CommandFooter({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       className={cn(
-        "flex items-center justify-between gap-2 rounded-b-[calc(var(--panel-radius)-1px)] border-t border-border/55 bg-muted/20 px-4 py-2.5 text-muted-foreground text-xs sm:px-5 sm:py-3",
+        "flex items-center justify-between gap-2 rounded-b-[calc(var(--panel-radius)-1px)] px-4 py-2.5 text-muted-foreground text-xs sm:px-5 sm:py-3",
+        GLASS_FOOTER_CLASS_NAME,
         className,
       )}
       data-slot="command-footer"

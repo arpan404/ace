@@ -468,6 +468,113 @@ body {
     color 200ms ease;
 }
 
+:root {
+  --glass-blur: 20px;
+  --glass-saturate: 1.12;
+  --glass-surface: color-mix(in oklch, var(--popover) 84%, transparent);
+  --glass-surface-tooltip: color-mix(in oklch, var(--popover) 88%, transparent);
+  --glass-surface-panel: color-mix(in oklch, var(--popover) 91%, transparent);
+  --glass-surface-border: color-mix(in oklch, var(--border) 58%, transparent);
+  --glass-highlight: color-mix(in oklch, var(--border) 24%, transparent);
+  --glass-shadow: 0 16px 40px -24px color-mix(in oklch, var(--foreground) 10%, transparent);
+  --glass-backdrop: color-mix(in oklch, var(--background) 52%, transparent);
+}
+
+.dark {
+  --glass-blur: 18px;
+  --glass-saturate: 1.1;
+  --glass-surface: color-mix(in oklch, var(--popover) 90%, transparent);
+  --glass-surface-tooltip: color-mix(in oklch, var(--popover) 93%, transparent);
+  --glass-surface-panel: color-mix(in oklch, var(--popover) 95%, transparent);
+  --glass-surface-border: color-mix(in oklch, var(--border) 62%, transparent);
+  --glass-highlight: color-mix(in oklch, var(--border) 30%, transparent);
+  --glass-shadow: 0 16px 40px -24px oklch(0 0 0 / 0.42);
+  --glass-backdrop: color-mix(in oklch, var(--background) 65%, transparent);
+}
+
+.glass-surface {
+  background: var(--glass-surface) !important;
+  border-color: var(--glass-surface-border);
+  box-shadow: inset 0 1px 0 var(--glass-highlight), var(--glass-shadow);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+}
+
+.glass-surface--compact {
+  --glass-blur: 16px;
+}
+
+.glass-surface--tooltip {
+  --glass-blur: 20px;
+  --glass-saturate: 1.14;
+  background: var(--glass-surface-tooltip) !important;
+  box-shadow: none;
+}
+
+.glass-surface--panel {
+  --glass-blur: 22px;
+  --glass-saturate: 1.16;
+  background: var(--glass-surface-panel) !important;
+  box-shadow: none;
+}
+
+.dark .glass-surface--tooltip {
+  --glass-blur: 16px;
+  --glass-saturate: 1.08;
+}
+
+.dark .glass-surface--panel {
+  --glass-blur: 18px;
+  --glass-saturate: 1.1;
+}
+
+.glass-backdrop {
+  background: var(--glass-backdrop);
+  -webkit-backdrop-filter: blur(8px) saturate(1.05);
+  backdrop-filter: blur(8px) saturate(1.05);
+}
+
+.glass-inset {
+  background: color-mix(in oklch, var(--muted) 46%, transparent) !important;
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+}
+
+.dark .glass-inset {
+  background: color-mix(in oklch, var(--muted) 54%, transparent) !important;
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass-surface,
+  .glass-surface--tooltip,
+  .glass-surface--panel {
+    background: var(--popover) !important;
+  }
+
+  .glass-inset {
+    background: color-mix(in oklch, var(--background) 88%, var(--muted) 12%);
+  }
+
+  .glass-backdrop {
+    background: color-mix(in oklch, black 55%, transparent);
+  }
+}
+
+[data-slot="menu-popup"],
+[data-slot="select-popup"],
+[data-slot="autocomplete-popup"],
+[data-slot="combobox-popup"],
+[data-slot="dialog-popup"],
+[data-slot="sheet-popup"],
+[data-slot="command-dialog-popup"] {
+  isolation: isolate;
+}
+
+[data-slot="popover-popup"],
+[data-slot="tooltip-popup"] {
+  transform: translateZ(0);
+}
+
 html,
 body,
 #root {

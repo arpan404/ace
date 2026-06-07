@@ -1,10 +1,4 @@
-import {
-  IconArchive,
-  IconPin,
-  IconPinFilled,
-  IconPinnedOff,
-  IconTerminal,
-} from "@tabler/icons-react";
+import { IconArchive, IconPin, IconPinFilled, IconPinnedOff, IconTerminal } from "@tabler/icons-react";
 import {
   CircleAlertIcon,
   CircleCheckBig,

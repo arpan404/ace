@@ -1,5 +1,7 @@
 import { ChevronDownIcon } from "lucide-react";
 import { memo, type ComponentProps, type ReactNode, type Ref } from "react";
+import { cn } from "~/lib/utils";
+import { APP_FLOATING_CHIP_CLASS_NAME } from "~/lib/appChrome";
 import { Button } from "~/components/ui/button";
 import { ScrollArea } from "~/components/ui/scroll-area";
 
@@ -70,7 +72,10 @@ export const ChatMessagesPane = memo(function ChatMessagesPane({
             variant="outline"
             size="sm"
             onClick={() => scrollMessagesToBottom()}
-            className="pointer-events-auto rounded-full border-border/30 bg-background/95 text-foreground shadow-sm hover:bg-background hover:text-foreground active:bg-background"
+            className={cn(
+              APP_FLOATING_CHIP_CLASS_NAME,
+              "pointer-events-auto h-8 px-3 text-xs hover:bg-accent/80 hover:text-accent-foreground",
+            )}
             aria-label="Scroll to bottom"
           >
             <ChevronDownIcon className="size-3.5" />

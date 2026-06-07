@@ -337,12 +337,12 @@ export const EnvironmentMiniPanel = forwardRef<
     <m.aside
       ref={ref}
       className={cn(
-        "pointer-events-auto z-50 w-[min(18.5rem,calc(100vw-1rem))] max-w-[calc(100vw-1rem)] overflow-y-auto rounded-2xl border border-border/70 bg-card/90 p-2 text-card-foreground shadow-lg backdrop-blur-xl sm:p-2.5",
+        "glass-surface pointer-events-auto z-50 w-[min(18.5rem,calc(100vw-1rem))] max-w-[calc(100vw-1rem)] overflow-y-auto rounded-[var(--panel-radius)] border p-2 text-popover-foreground sm:p-2.5",
         "[overflow-anchor:none]",
         props.layoutMode === "inline"
           ? "absolute top-3 right-3 max-h-[calc(100%_-_1.5rem)]"
           : "fixed max-h-[min(42rem,calc(100vh-1rem))]",
-        props.layoutMode === "inline" ? "shadow-black/5" : "shadow-black/10",
+        "shadow-none",
       )}
       initial={{ opacity: 0, scale: 0.985, x: 22 }}
       animate={{ opacity: 1, scale: 1, x: 0 }}
@@ -564,7 +564,7 @@ export const EnvironmentMiniPanel = forwardRef<
           onOpenChange={(open) => setGroupOpen("notes", open)}
         >
           <div className="space-y-2 px-2 pt-0.5">
-            <div className="overflow-hidden rounded-xl border border-border/60 bg-background/70 shadow-[0_1px_0_hsl(var(--foreground)/0.04)] transition-colors focus-within:border-ring/45 focus-within:bg-background focus-within:ring-2 focus-within:ring-ring/10">
+            <div className="glass-inset overflow-hidden rounded-xl border border-border/50 transition-colors focus-within:border-ring/45 focus-within:ring-2 focus-within:ring-ring/10">
               <textarea
                 value={activeScratchPadNote?.body ?? ""}
                 onChange={(event) => updateActiveScratchPadBody(event.target.value)}

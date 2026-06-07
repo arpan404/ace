@@ -1,4 +1,9 @@
-import { type MessageId, type ProviderSlashCommand, type TurnId } from "@ace/contracts";
+import {
+  type MessageId,
+  type ProviderSlashCommand,
+  type ThreadId,
+  type TurnId,
+} from "@ace/contracts";
 import { IconStack2, IconTerminal } from "@tabler/icons-react";
 import {
   normalizeProviderSlashCommandName,
@@ -36,6 +41,12 @@ import {
   type MarkdownRenderAnalysisInput,
 } from "../../lib/chat/markdownRenderAnalysis";
 import { prewarmMarkdownRenderAnalysis } from "../../lib/chat/markdownRenderAnalysisClient";
+import {
+  prefetchThreadTimelineAroundLoadedWindow,
+  readTimelineRowHeight,
+  useTimelineWindowStore,
+  writeTimelineRowHeight,
+} from "../../lib/chat/timelineWindowStore";
 import { deriveTimelineEntries } from "../../session-logic";
 import { type TurnDiffSummary } from "../../types";
 import { summarizeTurnDiffStats } from "../../lib/turnDiffTree";
@@ -90,6 +101,7 @@ import {
   deriveDisplayedUserMessageState,
   type ParsedTerminalContextEntry,
 } from "~/lib/terminalContext";
+import { APP_WORKSPACE_INSET_CLASS_NAME } from "~/lib/appChrome";
 import { cn } from "~/lib/utils";
 import { measureRenderWork } from "~/lib/renderProfiling";
 import { type TimestampFormat } from "@ace/contracts/settings";
@@ -102,6 +114,7 @@ import {
   textContainsInlineTerminalContextLabels,
 } from "~/lib/chat/userMessageTerminalContexts";
 import {
+  buildTimelineWorkGroupSummaryProjection,
   buildTimelineRows,
   isCompletedAssistantMessageRow,
   isEventInActiveTurn,
@@ -131,7 +144,7 @@ import {
 import type { StuckTurnSnapshot } from "~/lib/reliability/stuckTurn";
 
 const ALWAYS_UNVIRTUALIZED_TAIL_ROWS = 8;
-const TIMELINE_VIRTUALIZER_OVERSCAN = 12;
+const TIMELINE_VIRTUALIZER_OVERSCAN = 8;
 const MAX_TIMELINE_ROW_HEIGHT_CACHE_ENTRIES = 4_096;
 const IMMEDIATE_ASSISTANT_MARKDOWN_TAIL_MESSAGES = 12;
 const ASSISTANT_MARKDOWN_IDLE_BATCH_SIZE = 2;
@@ -399,6 +412,75 @@ function canResolveTimelineRowsInWorker(): boolean {
   );
 }
 
+function TimelineRowsLoadingFallback() {
+  return (
+    <div
+      className="mx-auto flex h-full w-full max-w-3xl flex-col justify-start gap-6 px-1 py-8"
+      aria-label="Loading conversation"
+    >
+      <div className="flex justify-end">
+        <div className="w-[68%] max-w-2xl rounded-2xl border border-border/35 bg-card/45 p-4">
+          <div className="h-4 w-[92%] animate-pulse rounded-full bg-muted/40" />
+          <div className="mt-3 h-4 w-[72%] animate-pulse rounded-full bg-muted/30" />
+          <div className="mt-4 ml-auto h-3 w-24 animate-pulse rounded-full bg-muted/20" />
+        </div>
+      </div>
+      <div className="w-[76%] max-w-2xl rounded-2xl border border-border/25 bg-muted/10 p-4">
+        <div className="h-3.5 w-[34%] animate-pulse rounded-full bg-muted/35" />
+        <div className="mt-3 h-3.5 w-[88%] animate-pulse rounded-full bg-muted/30" />
+        <div className="mt-2 h-3.5 w-[63%] animate-pulse rounded-full bg-muted/25" />
+      </div>
+      <div className="flex justify-end">
+        <div className="w-[58%] max-w-xl rounded-2xl border border-border/30 bg-card/35 p-4">
+          <div className="h-4 w-[84%] animate-pulse rounded-full bg-muted/35" />
+          <div className="mt-3 h-4 w-[48%] animate-pulse rounded-full bg-muted/25" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function resolveVisibleTimelineRows(input: {
+  readonly activeThreadId?: string | null;
+  readonly retainedRows: {
+    readonly activeThreadId: string;
+    readonly rows: ReadonlyArray<TimelineRow>;
+  } | null;
+  readonly resolvedAsyncRows: ReadonlyArray<TimelineRow> | null;
+  readonly shouldResolveAsync: boolean;
+  readonly syncRows: ReadonlyArray<TimelineRow>;
+}): { readonly loading: boolean; readonly rows: ReadonlyArray<TimelineRow> } {
+  if (!input.shouldResolveAsync) {
+    return {
+      loading: false,
+      rows: input.syncRows.length > 0 ? input.syncRows : EMPTY_TIMELINE_ROWS,
+    };
+  }
+
+  if (input.resolvedAsyncRows !== null) {
+    return {
+      loading: false,
+      rows: input.resolvedAsyncRows,
+    };
+  }
+
+  if (
+    input.activeThreadId &&
+    input.retainedRows?.activeThreadId === input.activeThreadId &&
+    input.retainedRows.rows.length > 0
+  ) {
+    return {
+      loading: false,
+      rows: input.retainedRows.rows,
+    };
+  }
+
+  return {
+    loading: true,
+    rows: EMPTY_TIMELINE_ROWS,
+  };
+}
+
 export function shouldRenderTimelineVirtualizedBuffer(input: {
   readonly virtualizedRowCount: number;
 }): boolean {
@@ -567,7 +649,7 @@ function cancelAssistantMarkdownIdleCallback(handle: AssistantMarkdownIdleHandle
 function readCachedTimelineRowHeight(cacheKey: string): number | null {
   const cachedHeight = timelineRowHeightCache.get(cacheKey);
   if (cachedHeight === undefined) {
-    return null;
+    return readTimelineRowHeight(cacheKey);
   }
 
   timelineRowHeightCache.delete(cacheKey);
@@ -583,7 +665,18 @@ function writeCachedTimelineRowHeight(cacheKey: string, height: number): number 
       timelineRowHeightCache.delete(oldestCacheKey);
     }
   }
+  writeTimelineRowHeight(cacheKey, height);
   return height;
+}
+
+function measureTimelineRowElementHeight(
+  element: Element,
+  entry?: ResizeObserverEntry | undefined,
+): number {
+  const borderBoxSize = Array.isArray(entry?.borderBoxSize)
+    ? entry.borderBoxSize[0]
+    : entry?.borderBoxSize;
+  return Math.ceil(borderBoxSize?.blockSize ?? element.getBoundingClientRect().height);
 }
 
 function toTimelineWidthCacheKey(timelineWidthPx: number | null): string {
@@ -609,7 +702,9 @@ interface MessagesTimelineProps {
   backgroundMarkdownPrewarm?: boolean;
   getScrollContainer: () => HTMLDivElement | null;
   hideCompletedWorkMessages?: boolean;
+  isThreadHistoryLoading?: boolean;
   liveTimers?: boolean;
+  timelineCacheScope?: string | null;
   timelineEntries: ReturnType<typeof deriveTimelineEntries>;
   completionDividerBeforeEntryId: string | null;
   completionSummary: string | null;
@@ -656,7 +751,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   backgroundMarkdownPrewarm = true,
   getScrollContainer,
   hideCompletedWorkMessages = false,
+  isThreadHistoryLoading = false,
   liveTimers = true,
+  timelineCacheScope = null,
   timelineEntries,
   completionDividerBeforeEntryId,
   completionSummary,
@@ -767,6 +864,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       timelineEntries,
       activeTurnInProgress,
       activeTurnStartedAt,
+      ...(timelineCacheScope ? { cacheScopeKey: timelineCacheScope } : {}),
       completionDividerBeforeEntryId,
       completionSummary,
       hideCompletedWorkMessages,
@@ -776,6 +874,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     [
       activeTurnInProgress,
       timelineEntries,
+      timelineCacheScope,
       completionDividerBeforeEntryId,
       completionSummary,
       hideCompletedWorkMessages,
@@ -785,8 +884,11 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     ],
   );
   const shouldResolveTimelineRowsInWorker = useMemo(
-    () => canResolveTimelineRowsInWorker() && shouldWorkerizeTimelineRows(timelineRowsInput),
-    [timelineRowsInput],
+    () =>
+      !isThreadHistoryLoading &&
+      canResolveTimelineRowsInWorker() &&
+      shouldWorkerizeTimelineRows(timelineRowsInput),
+    [isThreadHistoryLoading, timelineRowsInput],
   );
   const timelineRowsCacheKey = useMemo(
     () => buildTimelineRowsCacheKey(timelineRowsInput),
@@ -795,6 +897,10 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const cachedTimelineRows = readCachedTimelineRows(timelineRowsCacheKey);
   const [asyncTimelineRows, setAsyncTimelineRows] = useState<{
     readonly cacheKey: string;
+    readonly rows: ReadonlyArray<TimelineRow>;
+  } | null>(null);
+  const [retainedTimelineRows, setRetainedTimelineRows] = useState<{
+    readonly activeThreadId: string;
     readonly rows: ReadonlyArray<TimelineRow>;
   } | null>(null);
   const resolvedAsyncTimelineRows =
@@ -809,12 +915,13 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     }
     return measureRenderWork("chat.buildTimelineRows", () => buildTimelineRows(timelineRowsInput));
   }, [cachedTimelineRows, shouldResolveTimelineRowsAsync, timelineRowsInput]);
-  const rows = shouldResolveTimelineRowsAsync
-    ? (resolvedAsyncTimelineRows ?? EMPTY_TIMELINE_ROWS)
-    : syncTimelineRows.length > 0
-      ? syncTimelineRows
-      : EMPTY_TIMELINE_ROWS;
-  const timelineRowsLoading = shouldResolveTimelineRowsAsync && resolvedAsyncTimelineRows === null;
+  const { loading: timelineRowsLoading, rows } = resolveVisibleTimelineRows({
+    activeThreadId: activeThreadId ?? null,
+    retainedRows: retainedTimelineRows,
+    resolvedAsyncRows: resolvedAsyncTimelineRows,
+    shouldResolveAsync: shouldResolveTimelineRowsAsync,
+    syncRows: syncTimelineRows,
+  });
 
   useEffect(() => {
     if (cachedTimelineRows || shouldResolveTimelineRowsAsync) {
@@ -830,10 +937,25 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   ]);
 
   useEffect(() => {
-    setAsyncTimelineRows((current) =>
-      current?.cacheKey === timelineRowsCacheKey ? current : null,
+    if (!activeThreadId) {
+      setRetainedTimelineRows(null);
+      return;
+    }
+    setRetainedTimelineRows((current) =>
+      current?.activeThreadId === activeThreadId ? current : null,
     );
-  }, [timelineRowsCacheKey]);
+  }, [activeThreadId]);
+
+  useEffect(() => {
+    if (!activeThreadId || timelineRowsLoading || rows.length === 0) {
+      return;
+    }
+    setRetainedTimelineRows((current) =>
+      current?.activeThreadId === activeThreadId && current.rows === rows
+        ? current
+        : { activeThreadId, rows },
+    );
+  }, [activeThreadId, rows, timelineRowsLoading]);
 
   useEffect(() => {
     if (!shouldResolveTimelineRowsAsync) {
@@ -969,7 +1091,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         if (
           nextRow?.kind !== "work" &&
           nextRow?.kind !== "work-group" &&
-          nextRow?.kind !== "intent"
+          nextRow?.kind !== "intent" &&
+          nextRow?.kind !== "completed-work-summary"
         ) {
           break;
         }
@@ -1092,11 +1215,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     (index: number) => virtualizedRows[index]?.id ?? index,
     [virtualizedRows],
   );
-  const measuredRowElementByIdRef = useRef(new Map<string, HTMLDivElement>());
-  const measuredRowVirtualIndexByIdRef = useRef(new Map<string, number>());
-  const measuredRowMeasurementFrameByIdRef = useRef(new Map<string, number>());
-  const measuredRowResizeObserverByIdRef = useRef(new Map<string, ResizeObserver>());
-  const measuredRowHeightByIdRef = useRef(new Map<string, number>());
   const estimateVirtualizedRowSize = useCallback(
     (index: number) =>
       estimateTimelineRowHeight(virtualizedRows[index], {
@@ -1105,15 +1223,35 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       }),
     [expandedWorkGroups, timelineWidthPx, virtualizedRows],
   );
+  const measureVirtualizedRowElement = useCallback(
+    (element: HTMLElement, entry?: ResizeObserverEntry | undefined) => {
+      const index = Number(element.dataset.index);
+      const height = measureTimelineRowElementHeight(element, entry);
+      const row = Number.isInteger(index) ? virtualizedRows[index] : undefined;
+      if (row && Number.isFinite(height) && height > 0) {
+        writeCachedTimelineRowHeight(
+          getTimelineRowHeightCacheKey(row, {
+            timelineWidthPx,
+            expandedWorkGroups,
+          }),
+          height,
+        );
+      }
+      return height;
+    },
+    [expandedWorkGroups, timelineWidthPx, virtualizedRows],
+  );
   const rowVirtualizer = useVirtualizer({
     count: virtualizedRows.length,
     estimateSize: estimateVirtualizedRowSize,
     getItemKey: getVirtualRowKey,
     getScrollElement: getScrollContainer,
     initialRect: { width: 0, height: TIMELINE_INITIAL_VIEWPORT_HEIGHT_PX },
+    measureElement: measureVirtualizedRowElement,
     overscan: TIMELINE_VIRTUALIZER_OVERSCAN,
     useAnimationFrameWithResizeObserver: true,
   });
+  const isTimelineScrolling = rowVirtualizer.isScrolling;
 
   const shouldUseVirtualizedBuffer = virtualizedRows.length > 0;
   const shouldPrioritizeAssistantMarkdown = shouldUseVirtualizedBuffer;
@@ -1145,6 +1283,44 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const shouldRenderVirtualizedBuffer = shouldRenderTimelineVirtualizedBuffer({
     virtualizedRowCount: virtualizedRows.length,
   });
+  useEffect(() => {
+    if (!activeThreadId || renderedVirtualItems.length === 0) {
+      return;
+    }
+    const firstVirtualItem = renderedVirtualItems[0];
+    const lastVirtualItem = renderedVirtualItems.at(-1);
+    if (!firstVirtualItem || !lastVirtualItem) {
+      return;
+    }
+    useTimelineWindowStore.getState().setActiveWindow(activeThreadId as ThreadId, {
+      startIndex: firstVirtualItem.index,
+      endIndexExclusive: lastVirtualItem.index + 1,
+      overscanStartIndex: firstVirtualItem.index,
+      overscanEndIndexExclusive: lastVirtualItem.index + 1,
+      updatedAt: timelineCacheScope,
+    });
+  }, [activeThreadId, renderedVirtualItems, timelineCacheScope]);
+  useEffect(() => {
+    if (!activeThreadId || renderedVirtualItems.length === 0 || rows.length === 0) {
+      return;
+    }
+    const firstVirtualItem = renderedVirtualItems[0];
+    const lastVirtualItem = renderedVirtualItems.at(-1);
+    if (!firstVirtualItem || !lastVirtualItem) {
+      return;
+    }
+    const edgeThreshold = Math.max(TIMELINE_VIRTUALIZER_OVERSCAN * 2, 16);
+    const isNearRenderedEdge =
+      firstVirtualItem.index <= edgeThreshold ||
+      rows.length - lastVirtualItem.index <= edgeThreshold;
+    if (!isNearRenderedEdge) {
+      return;
+    }
+    void prefetchThreadTimelineAroundLoadedWindow({
+      threadId: activeThreadId as ThreadId,
+      priority: "background",
+    }).catch(() => undefined);
+  }, [activeThreadId, renderedVirtualItems, rows.length]);
   useEffect(() => {
     if (!targetMessageNavigation) return;
     const targetMessageId = targetMessageNavigation.messageId;
@@ -1326,6 +1502,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       );
       return;
     }
+    if (isTimelineScrolling) {
+      return;
+    }
     const { allMessageIds, immediateMessageIds, mountedMessageIds } =
       assistantMarkdownPriorityRef.current;
     const validMessageIds = new Set(allMessageIds);
@@ -1356,12 +1535,17 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   }, [
     allAssistantMarkdownMessageIdKey,
     immediateAssistantMarkdownMessageIdKey,
+    isTimelineScrolling,
     mountedVirtualizedAssistantMarkdownMessageIdKey,
     shouldPrioritizeAssistantMarkdown,
   ]);
 
   useEffect(() => {
-    if (!shouldPrewarmAssistantMarkdown || pendingAssistantMarkdownMessageIdKey.length === 0) {
+    if (
+      isTimelineScrolling ||
+      !shouldPrewarmAssistantMarkdown ||
+      pendingAssistantMarkdownMessageIdKey.length === 0
+    ) {
       return;
     }
     if (typeof window === "undefined") {
@@ -1417,7 +1601,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         cancelAssistantMarkdownIdleCallback(idleHandle);
       }
     };
-  }, [pendingAssistantMarkdownMessageIdKey, shouldPrewarmAssistantMarkdown]);
+  }, [isTimelineScrolling, pendingAssistantMarkdownMessageIdKey, shouldPrewarmAssistantMarkdown]);
   useEffect(() => {
     if (!shouldPrewarmAssistantMarkdown || assistantMarkdownAnalysisPrewarmJobs.length === 0) {
       return;
@@ -1466,113 +1650,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     assistantMarkdownAnalysisPrewarmJobs,
     shouldPrewarmAssistantMarkdown,
   ]);
-  const scheduleMeasuredRowResize = useCallback(
-    (rowId: string, nextHeight: number) => {
-      const pendingFrameId = measuredRowMeasurementFrameByIdRef.current.get(rowId);
-      if (pendingFrameId !== undefined && typeof window !== "undefined") {
-        window.cancelAnimationFrame(pendingFrameId);
-        measuredRowMeasurementFrameByIdRef.current.delete(rowId);
-      }
-
-      const applyResize = () => {
-        const index = measuredRowVirtualIndexByIdRef.current.get(rowId);
-        if (index === undefined) {
-          return;
-        }
-        const cachedHeight = measuredRowHeightByIdRef.current.get(rowId);
-        if (cachedHeight === nextHeight) {
-          return;
-        }
-        measuredRowHeightByIdRef.current.set(rowId, nextHeight);
-        rowVirtualizer.resizeItem(index, nextHeight);
-      };
-
-      if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
-        const frameId = window.requestAnimationFrame(() => {
-          measuredRowMeasurementFrameByIdRef.current.delete(rowId);
-          applyResize();
-        });
-        measuredRowMeasurementFrameByIdRef.current.set(rowId, frameId);
-        return;
-      }
-      applyResize();
-    },
-    [rowVirtualizer],
-  );
-
-  const registerMeasuredRowElement = useCallback(
-    (rowId: string, index: number, element: HTMLDivElement | null) => {
-      measuredRowVirtualIndexByIdRef.current.set(rowId, index);
-
-      const pendingFrameId = measuredRowMeasurementFrameByIdRef.current.get(rowId);
-      if (pendingFrameId !== undefined && typeof window !== "undefined") {
-        window.cancelAnimationFrame(pendingFrameId);
-        measuredRowMeasurementFrameByIdRef.current.delete(rowId);
-      }
-
-      const observer = measuredRowResizeObserverByIdRef.current.get(rowId);
-      if (observer) {
-        observer.disconnect();
-        measuredRowResizeObserverByIdRef.current.delete(rowId);
-      }
-
-      if (!element) {
-        measuredRowElementByIdRef.current.delete(rowId);
-        measuredRowVirtualIndexByIdRef.current.delete(rowId);
-        measuredRowHeightByIdRef.current.delete(rowId);
-        return;
-      }
-
-      measuredRowElementByIdRef.current.set(rowId, element);
-
-      if (typeof ResizeObserver === "undefined") {
-        scheduleMeasuredRowResize(rowId, Math.ceil(element.offsetHeight));
-        return;
-      }
-
-      const resizeObserver = new ResizeObserver((entries) => {
-        const entry = entries[0];
-        if (!entry) {
-          return;
-        }
-        const borderBoxSize = Array.isArray(entry.borderBoxSize)
-          ? entry.borderBoxSize[0]
-          : entry.borderBoxSize;
-        const nextHeight = Math.ceil(borderBoxSize?.blockSize ?? entry.contentRect.height);
-        scheduleMeasuredRowResize(rowId, nextHeight);
-      });
-      resizeObserver.observe(element, { box: "border-box" });
-      measuredRowResizeObserverByIdRef.current.set(rowId, resizeObserver);
-    },
-    [scheduleMeasuredRowResize],
-  );
-
-  useEffect(() => {
-    const measuredRowMeasurementFrameById = measuredRowMeasurementFrameByIdRef.current;
-    const measuredRowResizeObserverById = measuredRowResizeObserverByIdRef.current;
-    const measuredRowElementById = measuredRowElementByIdRef.current;
-    const measuredRowVirtualIndexById = measuredRowVirtualIndexByIdRef.current;
-    const measuredRowHeightById = measuredRowHeightByIdRef.current;
-
-    return () => {
-      if (typeof window === "undefined") {
-        measuredRowMeasurementFrameById.clear();
-      } else {
-        for (const frameId of measuredRowMeasurementFrameById.values()) {
-          window.cancelAnimationFrame(frameId);
-        }
-      }
-      for (const observer of measuredRowResizeObserverById.values()) {
-        observer.disconnect();
-      }
-      measuredRowMeasurementFrameById.clear();
-      measuredRowResizeObserverById.clear();
-      measuredRowElementById.clear();
-      measuredRowVirtualIndexById.clear();
-      measuredRowHeightById.clear();
-    };
-  }, []);
-
   const buildRowContent = (row: TimelineRow, _rowIndex: number) => {
     const detachedAssistantFooter = assistantFooterByPlacementRowId.get(row.id) ?? null;
     return (
@@ -1640,7 +1717,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
               !shouldPrioritizeAssistantMarkdown ||
               row.message.streaming ||
               immediateAssistantMarkdownMessageIdSet.has(assistantMessageId) ||
-              mountedVirtualizedAssistantMarkdownMessageIdSet.has(assistantMessageId) ||
+              (!isTimelineScrolling &&
+                mountedVirtualizedAssistantMarkdownMessageIdSet.has(assistantMessageId)) ||
               renderedAssistantMarkdownMessageIds.has(assistantMessageId);
 
             return (
@@ -1840,11 +1918,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   }
 
   if (timelineRowsLoading) {
-    return (
-      <div className="flex h-full items-center justify-center px-4">
-        <p className="text-sm text-muted-foreground/60">Loading conversation...</p>
-      </div>
-    );
+    return <TimelineRowsLoadingFallback />;
   }
 
   return (
@@ -1858,7 +1932,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       {selectionPinTarget ? (
         <button
           type="button"
-          className="fixed z-[120] inline-flex h-7 items-center gap-1.5 rounded-full border border-border/70 bg-popover px-2.5 text-[11px] font-medium text-popover-foreground shadow-lg transition-colors hover:bg-accent hover:text-accent-foreground"
+          className="glass-surface glass-surface--compact fixed z-[120] inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-[11px] font-medium text-popover-foreground transition-colors hover:bg-accent/80 hover:text-accent-foreground"
           style={{ left: selectionPinTarget.left, top: selectionPinTarget.top }}
           onMouseDown={(event) => event.preventDefault()}
           onClick={pinSelectedAssistantText}
@@ -1882,11 +1956,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             return (
               <div
                 key={`row:${row.id}`}
-                ref={(element) => {
-                  registerMeasuredRowElement(row.id, virtualRow.index, element);
-                }}
+                ref={rowVirtualizer.measureElement}
                 data-index={virtualRow.index}
-                className="absolute top-0 left-0 w-full"
+                className="absolute top-0 left-0 flow-root w-full"
                 style={{ transform: `translateY(${virtualRow.start}px)` }}
               >
                 {buildRowContent(row, virtualRow.index)}
@@ -2172,7 +2244,10 @@ const ImageGenerationPlaceholderFrame = memo(function ImageGenerationPlaceholder
 }) {
   return (
     <div
-      className="image-generation-placeholder-frame relative mb-2.5 max-w-3xl overflow-hidden rounded-xl border border-border/55 bg-background/70"
+      className={cn(
+        APP_WORKSPACE_INSET_CLASS_NAME,
+        "image-generation-placeholder-frame relative mb-2.5 max-w-3xl overflow-hidden rounded-xl",
+      )}
       aria-label="Image generation in progress"
       data-image-generation-placeholder="true"
       style={imageGenerationFrameStyle(props.dimensions)}
@@ -2721,7 +2796,7 @@ function buildUserMessageInlineText(
             "inline-flex items-center gap-1 rounded-md px-1 py-px font-medium leading-[1.15]",
             providerCommandDisplay.kind === "goal"
               ? "border border-emerald-500/40 bg-emerald-500/12 text-emerald-700 dark:text-emerald-300"
-              : "border border-border/70 bg-muted/70 text-foreground/85",
+              : "border border-border/50 bg-muted/40 text-foreground/85",
           )}
         >
           <ProviderCommandIcon
@@ -3093,11 +3168,37 @@ const CompletedWorkSummaryTimelineRow = memo(function CompletedWorkSummaryTimeli
     return null;
   }
   const hasHiddenLogs = props.row.detailRows.length > 0;
+  const hiddenWorkSummary =
+    props.row.entries.length > 0
+      ? buildTimelineWorkGroupSummaryProjection(props.row.entries)
+      : null;
+  const summaryBreakdownParts = hiddenWorkSummary
+    ? summarizeWorkGroupBreakdownParts(hiddenWorkSummary, null, null)
+    : [];
+  const SummaryIcon = hiddenWorkSummary ? workGroupIcon(hiddenWorkSummary.iconKey) : Clock3Icon;
+  const summaryBreakdownText = summaryBreakdownParts.map((part) => part.text).join(" · ");
   const summaryContent = (
     <>
-      <Clock3Icon className="mt-1 size-3 shrink-0 text-muted-foreground/42 transition-colors group-hover/completed-work:text-muted-foreground/78" />
-      <span className="min-w-0 text-[12px] leading-5 text-muted-foreground/76 transition-colors group-hover/completed-work:text-foreground/86">
-        Worked for {elapsedLabel}
+      <SummaryIcon
+        className={cn(
+          "mt-1 size-3 shrink-0 transition-colors group-hover/completed-work:text-muted-foreground/78",
+          hiddenWorkSummary
+            ? metaToneTextClass(hiddenWorkSummary.surfaceTone)
+            : "text-muted-foreground/42",
+        )}
+      />
+      <span
+        className="flex min-w-0 flex-wrap items-center gap-x-1.5 text-[12px] leading-5 text-muted-foreground/76 transition-colors group-hover/completed-work:text-foreground/86"
+        data-completed-work-summary-breakdown={summaryBreakdownText || undefined}
+      >
+        {summaryBreakdownParts.map((part, index) => (
+          <Fragment key={`${props.row.id}:completed-work-summary:${part.key}`}>
+            {index > 0 && <span className="text-muted-foreground/36">·</span>}
+            <span className="min-w-0">{part.text}</span>
+          </Fragment>
+        ))}
+        {summaryBreakdownParts.length > 0 && <span className="text-muted-foreground/36">·</span>}
+        <span>Worked for {elapsedLabel}</span>
       </span>
       {hasHiddenLogs && (
         <ChevronDownIcon
@@ -3202,13 +3303,13 @@ const UserMessageTimelineRow = memo(function UserMessageTimelineRow(props: {
         className="group relative max-w-[82%] p-0 sm:max-w-[72%]"
         data-user-message-bubble="true"
       >
-        <div className="relative rounded-2xl rounded-br-lg border border-border/40 bg-chat-bubble px-4 py-3 ">
+        <div className="relative rounded-2xl rounded-br-lg border border-border/40 bg-chat-bubble px-4 py-3">
           {userImages.length > 0 && (
             <div className="mb-2.5 grid max-w-105 grid-cols-2 gap-1.5">
               {userImages.map((image: NonNullable<TimelineMessage["attachments"]>[number]) => (
                 <div
                   key={image.id}
-                  className="overflow-hidden rounded-xl border border-border/55 bg-background/90"
+                  className={cn(APP_WORKSPACE_INSET_CLASS_NAME, "overflow-hidden rounded-xl")}
                 >
                   {image.previewUrl ? (
                     <button
@@ -3260,7 +3361,7 @@ const UserMessageTimelineRow = memo(function UserMessageTimelineRow(props: {
                       type="button"
                       size="xs"
                       variant="outline"
-                      className="border-border/55 bg-background/55"
+                      className="glass-inset border-border/50"
                       disabled={props.isRevertingCheckpoint || props.isWorking}
                       onClick={() => props.onRevertUserMessage(props.message.id)}
                       aria-label={props.revertActionTitle}
@@ -3308,14 +3409,17 @@ const AssistantImageAttachmentFrame = memo(function AssistantImageAttachmentFram
 
   return (
     <div
-      className="inline-flex max-w-full justify-self-start overflow-hidden rounded-xl border border-border/55 bg-background/70"
+      className={cn(
+        APP_WORKSPACE_INSET_CLASS_NAME,
+        "inline-flex max-w-full justify-self-start overflow-hidden rounded-xl",
+      )}
       style={frameDimensions ? imageGenerationFrameStyle(frameDimensions) : undefined}
     >
       {props.image.previewUrl ? (
         <button
           type="button"
           className={cn(
-            "inline-flex max-w-full cursor-zoom-in items-start justify-start bg-background/55",
+            "inline-flex max-w-full cursor-zoom-in items-start justify-start glass-inset",
             frameDimensions ? "h-full" : "",
           )}
           aria-label={`Preview ${props.image.name}`}
@@ -3576,7 +3680,7 @@ const AssistantTurnFooter = memo(function AssistantTurnFooter(props: {
             text={props.copyText}
             size="icon-xs"
             variant="ghost"
-            className="text-muted-foreground/68 hover:bg-muted/45 hover:text-foreground"
+            className="text-muted-foreground/68 hover:bg-foreground/[0.05] hover:text-foreground"
           />
         </div>
       )}
@@ -3611,7 +3715,7 @@ const AssistantTurnFooter = memo(function AssistantTurnFooter(props: {
                     size="icon-xs"
                     variant="ghost"
                     className={cn(
-                      "text-muted-foreground/68 transition-all duration-200 hover:bg-muted/45 hover:text-foreground",
+                      "text-muted-foreground/68 transition-all duration-200 hover:bg-foreground/[0.05] hover:text-foreground",
                       props.isPinned && "text-foreground",
                     )}
                     onMouseDown={(event) => {
@@ -4303,7 +4407,7 @@ export const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
           )}
           {isDetailOpen && hasExpandableDetail && (
             <div
-              className="mt-1.5 max-w-full rounded-md bg-muted/35 px-3 py-2"
+              className={cn(APP_WORKSPACE_INSET_CLASS_NAME, "mt-1.5 max-w-full px-3 py-2")}
               data-work-detail-panel="true"
             >
               {detailText && (
@@ -4456,7 +4560,7 @@ const CommandWorkEntryRow = memo(function CommandWorkEntryRow(props: {
           {isOutputOpen && hasExpandableOutput && (
             <div
               className={cn(
-                "mt-2 max-w-full rounded-md bg-muted/45 px-3 py-2.5",
+                cn(APP_WORKSPACE_INSET_CLASS_NAME, "mt-2 max-w-full px-3 py-2.5"),
                 isNested && "-ml-6",
               )}
               data-command-output-panel="true"

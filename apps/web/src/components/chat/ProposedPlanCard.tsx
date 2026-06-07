@@ -128,7 +128,7 @@ export const ProposedPlanCard = memo(function ProposedPlanCard({
 
   return (
     <div
-      className="min-w-0 overflow-hidden border-border/20 border-y bg-background/20"
+      className="glass-inset min-w-0 overflow-hidden border-border/35 border-y"
       data-proposed-plan-thread="true"
     >
       <div className="flex min-w-0 items-center gap-2 border-border/15 border-b px-2.5 py-1.5">

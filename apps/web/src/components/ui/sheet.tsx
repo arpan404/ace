@@ -4,6 +4,11 @@ import { Dialog as SheetPrimitive } from "@base-ui/react/dialog";
 import { XIcon } from "lucide-react";
 import { cn } from "~/lib/utils";
 import { Button } from "~/components/ui/button";
+import {
+  GLASS_BACKDROP_CLASS_NAME,
+  GLASS_FOOTER_CLASS_NAME,
+  GLASS_SURFACE_CLASS_NAME,
+} from "~/components/ui/glass";
 import { MODAL_LAYER_CLASS_NAME } from "~/components/ui/layers";
 import { ScrollArea } from "~/components/ui/scroll-area";
 
@@ -23,7 +28,8 @@ function SheetBackdrop({ className, ...props }: SheetPrimitive.Backdrop.Props) {
   return (
     <SheetPrimitive.Backdrop
       className={cn(
-        "fixed inset-0 bg-black/36 backdrop-blur-[3px] transition-all duration-200 data-ending-style:opacity-0 data-starting-style:opacity-0",
+        "fixed inset-0 transition-all duration-200 data-ending-style:opacity-0 data-starting-style:opacity-0",
+        GLASS_BACKDROP_CLASS_NAME,
         MODAL_LAYER_CLASS_NAME,
         className,
       )}
@@ -80,7 +86,8 @@ function SheetPopup({
       <SheetViewport side={side} variant={variant}>
         <SheetPrimitive.Popup
           className={cn(
-            "relative flex max-h-full min-h-0 w-full min-w-0 flex-col border-border/72 bg-popover/96 text-popover-foreground supports-[backdrop-filter]:bg-popover/88 supports-[backdrop-filter]:backdrop-blur-xl transition-[opacity,translate] duration-200 ease-in-out will-change-transform data-ending-style:opacity-0 data-starting-style:opacity-0",
+            "relative flex max-h-full min-h-0 w-full min-w-0 flex-col transition-[opacity,translate] duration-200 ease-in-out will-change-transform data-ending-style:opacity-0 data-starting-style:opacity-0",
+            GLASS_SURFACE_CLASS_NAME,
             side === "bottom" &&
               "row-start-2 rounded-t-[var(--panel-radius)] border-t data-ending-style:translate-y-8 data-starting-style:translate-y-8",
             side === "top" &&
@@ -136,7 +143,7 @@ function SheetFooter({
     <div
       className={cn(
         "flex flex-col-reverse gap-2 px-5 sm:flex-row sm:justify-end sm:px-6",
-        variant === "default" && "border-t bg-muted/28 py-4",
+        variant === "default" && cn(GLASS_FOOTER_CLASS_NAME, "py-4"),
         variant === "bare" &&
           "in-[[data-slot=sheet-popup]:has([data-slot=sheet-panel])]:pt-3 pt-4 pb-5 sm:pb-6",
         className,

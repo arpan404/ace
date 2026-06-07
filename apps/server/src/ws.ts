@@ -8,6 +8,8 @@ import {
   OrchestrationDispatchCommandError,
   type OrchestrationEvent,
   type OrchestrationGetSnapshotInput,
+  type OrchestrationGetThreadTimelineManifestInput,
+  type OrchestrationGetThreadTimelinePageInput,
   type OrchestrationReadModel,
   type ProviderKind,
   type ServerProvider,
@@ -587,14 +589,18 @@ const WsRpcLayer = WsRpcGroup.toLayer(
           return yield* projectionSnapshotQuery.getSnapshot(input);
         }
 
-        const readModel = yield* orchestrationEngine.getReadModel();
-        const snapshot = snapshotViewCache.getSnapshot(readModel, input);
         const hydrateThreadId = input.hydrateThreadId ?? null;
+        const [readModel, hydratedThread] = yield* Effect.all([
+          orchestrationEngine.getReadModel(),
+          hydrateThreadId === null
+            ? Effect.succeed(Option.none<OrchestrationReadModel["threads"][number]>())
+            : projectionSnapshotQuery.getThread(hydrateThreadId),
+        ]);
+        const snapshot = snapshotViewCache.getSnapshot(readModel, input);
         if (hydrateThreadId === null) {
           return snapshot;
         }
 
-        const hydratedThread = yield* projectionSnapshotQuery.getThread(hydrateThreadId);
         return Option.match(hydratedThread, {
           onNone: () => snapshot,
           onSome: (thread) => replaceSnapshotThread(snapshot, hydrateThreadId, thread),
@@ -630,6 +636,54 @@ const WsRpcLayer = WsRpcGroup.toLayer(
               ? cause
               : new OrchestrationGetThreadError({
                   message: "Failed to load orchestration thread",
+                  cause,
+                }),
+          ),
+        ),
+      [ORCHESTRATION_WS_METHODS.getThreadTimelinePage]: (
+        input: OrchestrationGetThreadTimelinePageInput,
+      ) =>
+        projectionSnapshotQuery.getThreadTimelinePage(input).pipe(
+          Effect.flatMap((page) =>
+            Option.match(page, {
+              onNone: () =>
+                Effect.fail(
+                  new OrchestrationGetThreadError({
+                    message: `Thread '${input.threadId}' was not found.`,
+                  }),
+                ),
+              onSome: Effect.succeed,
+            }),
+          ),
+          Effect.mapError((cause) =>
+            Schema.is(OrchestrationGetThreadError)(cause)
+              ? cause
+              : new OrchestrationGetThreadError({
+                  message: "Failed to load orchestration thread timeline page",
+                  cause,
+                }),
+          ),
+        ),
+      [ORCHESTRATION_WS_METHODS.getThreadTimelineManifest]: (
+        input: OrchestrationGetThreadTimelineManifestInput,
+      ) =>
+        projectionSnapshotQuery.getThreadTimelineManifest(input).pipe(
+          Effect.flatMap((manifest) =>
+            Option.match(manifest, {
+              onNone: () =>
+                Effect.fail(
+                  new OrchestrationGetThreadError({
+                    message: `Thread '${input.threadId}' was not found.`,
+                  }),
+                ),
+              onSome: Effect.succeed,
+            }),
+          ),
+          Effect.mapError((cause) =>
+            Schema.is(OrchestrationGetThreadError)(cause)
+              ? cause
+              : new OrchestrationGetThreadError({
+                  message: "Failed to load orchestration thread timeline manifest",
                   cause,
                 }),
           ),

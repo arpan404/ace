@@ -54,6 +54,11 @@ import {
 } from "~/lib/editor/workspaceDesigner";
 import { useWorkspaceCommentPlaceholder } from "~/lib/editor/workspaceCommentPlaceholders";
 import { projectReadFileQueryOptions } from "~/lib/projectReactQuery";
+import {
+  APP_FLOATING_CHIP_CLASS_NAME,
+  APP_FLOATING_TOOLBAR_CLASS_NAME,
+  APP_WORKSPACE_INSET_CLASS_NAME,
+} from "~/lib/appChrome";
 import { cn } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
 import { basenameOfPath } from "~/vscode-icons";
@@ -1412,7 +1417,7 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
       }}
     >
       <div
-        className="flex h-9 shrink-0 items-center gap-1 overflow-hidden border-b border-border bg-card/78 px-1.5"
+        className="flex h-9 shrink-0 items-center gap-1 overflow-hidden border-b border-border/25 bg-background px-1.5"
         onDragLeave={(event) => {
           if (event.currentTarget.contains(event.relatedTarget as Node | null)) {
             return;
@@ -1497,7 +1502,7 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
                           className={cn(
                             "flex size-4 shrink-0 items-center justify-center rounded-md opacity-0 transition-opacity",
                             isActive ? "opacity-100" : "group-hover/tab:opacity-100",
-                            "hover:bg-background/70",
+                            "hover:bg-foreground/[0.05]",
                             isDirty ? "hidden group-hover/tab:flex" : "",
                           )}
                           onClick={(event) => {
@@ -1630,7 +1635,12 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
         ) : isBinaryPreviewMode && previewUrl ? (
           <div className="flex h-full min-h-0 flex-col">
             <div className="min-h-0 flex-1 overflow-auto p-4">
-              <div className="flex h-full min-h-[220px] items-center justify-center border border-border/60 bg-card/72">
+              <div
+                className={cn(
+                  APP_WORKSPACE_INSET_CLASS_NAME,
+                  "flex h-full min-h-[220px] items-center justify-center",
+                )}
+              >
                 {activePreviewKind === "image" ? (
                   <img
                     src={previewUrl}
@@ -1676,7 +1686,7 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
               </div>
             ) : (
               <div className="min-h-0 flex-1 overflow-auto p-4">
-                <div className="min-h-[220px] border border-border/60 bg-card/72 p-4">
+                <div className={cn(APP_WORKSPACE_INSET_CLASS_NAME, "min-h-[220px] p-4")}>
                   <MermaidDiagram
                     source={activeFileQuery.data.contents}
                     theme={props.resolvedTheme}
@@ -1728,7 +1738,7 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
               <Button
                 size="sm"
                 variant="ghost"
-                className="h-7 rounded-md px-2 text-muted-foreground/78 hover:bg-muted/45 hover:text-foreground"
+                className="h-7 rounded-md px-2 text-muted-foreground/78 hover:bg-foreground/[0.05] hover:text-foreground"
                 onClick={props.onRetryActiveFile}
               >
                 <RefreshCwIcon className="size-3.5" />
@@ -1793,7 +1803,10 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
                       render={
                         <button
                           type="button"
-                          className="inline-flex size-7 items-center justify-center rounded-full border border-border/70 bg-background/92 text-muted-foreground/75 shadow-sm backdrop-blur hover:bg-accent hover:text-foreground"
+                          className={cn(
+                            APP_FLOATING_CHIP_CLASS_NAME,
+                            "inline-flex size-7 items-center justify-center text-muted-foreground/75 hover:bg-accent/80 hover:text-foreground",
+                          )}
                           onClick={() =>
                             dispatchSelectionState({
                               type: "set-selection-actions-expanded",
@@ -1809,7 +1822,12 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
                     <TooltipPopup side="top">Selection actions</TooltipPopup>
                   </Tooltip>
                 ) : (
-                  <div className="flex h-12 w-[min(380px,calc(100vw-20px))] items-center gap-2 rounded-full border border-border/70 bg-background/95 px-2 shadow-[0_16px_38px_rgba(0,0,0,0.18)] backdrop-blur-xl">
+                  <div
+                    className={cn(
+                      APP_FLOATING_TOOLBAR_CLASS_NAME,
+                      "flex h-12 w-[min(380px,calc(100vw-20px))] items-center gap-2 rounded-full px-2",
+                    )}
+                  >
                     <input
                       ref={selectionCommentInputRef}
                       autoFocus
@@ -1843,7 +1861,7 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
                           render={
                             <button
                               type="button"
-                              className="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 disabled:opacity-40"
+                              className="inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-40"
                               disabled={
                                 commentDraft.trim().length === 0 || selectionCommentSubmitting
                               }
@@ -1868,7 +1886,7 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
       </div>
 
       {!isPreviewMode && problemsOpen ? (
-        <section className="shrink-0 border-t border-border bg-card/72">
+        <section className="glass-inset shrink-0 border-t border-border/45">
           <header className="flex h-8 items-center justify-between border-b border-border/70 bg-transparent px-3 text-[11px] text-muted-foreground">
             <span className="font-medium tracking-[0.08em] uppercase">Problems</span>
             <span className="px-1.5 py-px text-[10px] text-foreground/75">

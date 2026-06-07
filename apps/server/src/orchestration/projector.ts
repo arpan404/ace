@@ -1,8 +1,5 @@
 import type { OrchestrationEvent, OrchestrationReadModel, ThreadId } from "@ace/contracts";
-import {
-  appendCompactedThreadActivity,
-  DEFAULT_MAX_THREAD_ACTIVITIES,
-} from "@ace/shared/orchestrationThreadActivities";
+import { appendCompactedThreadActivity } from "@ace/shared/orchestrationThreadActivities";
 import {
   OrchestrationCheckpointSummary,
   OrchestrationMessage,
@@ -732,7 +729,7 @@ export function projectEvent(
           }
 
           const activities = appendCompactedThreadActivity(thread.activities, payload.activity, {
-            maxEntries: DEFAULT_MAX_THREAD_ACTIVITIES,
+            maxEntries: Number.MAX_SAFE_INTEGER,
           });
 
           return {

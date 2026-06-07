@@ -1,6 +1,7 @@
+import { GLASS_PANEL_CLASS_NAME } from "~/components/ui/glass";
 import { cn } from "~/lib/utils";
 import { type ContextWindowSnapshot, formatContextWindowTokens } from "~/lib/contextWindow";
-import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 function formatPercentage(value: number | null): string | null {
   if (value === null || !Number.isFinite(value)) {
@@ -60,11 +61,10 @@ export function ContextWindowMeter(props: { usage: ContextWindowSnapshot }) {
   ].filter((detail): detail is string => detail !== null);
 
   return (
-    <Popover>
-      <PopoverTrigger
-        openOnHover
+    <Tooltip>
+      <TooltipTrigger
         delay={150}
-        closeDelay={0}
+        closeDelay={80}
         render={
           <button
             type="button"
@@ -117,48 +117,56 @@ export function ContextWindowMeter(props: { usage: ContextWindowSnapshot }) {
           </button>
         }
       />
-      <PopoverPopup tooltipStyle side="top" align="end" className="w-max max-w-none px-3.5 py-2.5">
-        <div className="space-y-2 leading-tight">
-          <div className="text-[10px] font-semibold tracking-[0.12em] text-muted-foreground/60 uppercase">
+      <TooltipPopup
+        side="top"
+        align="end"
+        sideOffset={8}
+        className={cn(
+          GLASS_PANEL_CLASS_NAME,
+          "w-max max-w-72 rounded-[var(--panel-radius)] px-3 py-2.5 text-xs [&_[data-slot=tooltip-viewport]]:px-0 [&_[data-slot=tooltip-viewport]]:py-0",
+        )}
+      >
+        <div className="space-y-1.5 leading-tight">
+          <div className="text-[10px] font-semibold tracking-[0.12em] text-muted-foreground/70 uppercase">
             Context window
           </div>
           {usage.maxTokens !== null && usedPercentage ? (
-            <div className="whitespace-nowrap text-xs font-medium text-foreground">
-              <span className="text-primary/90">{usedPercentage}</span>
-              <span className="mx-1.5 text-muted-foreground/30">⋅</span>
+            <div className="whitespace-nowrap font-medium text-foreground">
+              <span className="text-primary">{usedPercentage}</span>
+              <span className="mx-1.5 text-muted-foreground/35">·</span>
               <span>{formatContextWindowTokens(usage.usedTokens)}</span>
-              <span className="text-muted-foreground/40">/</span>
+              <span className="text-muted-foreground/45">/</span>
               <span>{formatContextWindowTokens(usage.maxTokens ?? null)} context used</span>
             </div>
           ) : (
-            <div className="text-sm text-foreground">
+            <div className="text-foreground">
               Latest observed usage: {formatContextWindowTokens(usage.usedTokens)} tokens
             </div>
           )}
           {latestTurnDetails.length > 0 ? (
-            <div className="text-[11px] text-muted-foreground/70">
+            <div className="text-[11px] text-muted-foreground/75">
               Latest turn: {latestTurnDetails.join(" · ")}
             </div>
           ) : null}
           {latestMetaDetails.length > 0 ? (
-            <div className="text-[11px] text-muted-foreground/70">
+            <div className="text-[11px] text-muted-foreground/75">
               {latestMetaDetails.join(" · ")}
             </div>
           ) : null}
           {(usage.totalProcessedTokens ?? null) !== null &&
           (usage.totalProcessedTokens ?? 0) > usage.usedTokens ? (
-            <div className="text-[11px] text-muted-foreground/70">
+            <div className="text-[11px] text-muted-foreground/75">
               Total processed: {formatContextWindowTokens(usage.totalProcessedTokens ?? null)}{" "}
               tokens
             </div>
           ) : null}
           {usage.compactsAutomatically ? (
-            <div className="text-[11px] text-muted-foreground/70">
+            <div className="text-[11px] text-muted-foreground/75">
               Automatically compacts its context when needed.
             </div>
           ) : null}
         </div>
-      </PopoverPopup>
-    </Popover>
+      </TooltipPopup>
+    </Tooltip>
   );
 }

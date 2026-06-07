@@ -2,6 +2,7 @@ import { Undo2Icon } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import type { ServerProvider } from "@ace/contracts";
 
+import { APP_SETTINGS_FIELD_CLASS_NAME } from "../../lib/appChrome";
 import { formatRelativeTime } from "../../timestampFormat";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
@@ -10,7 +11,8 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 export const SETTINGS_NEUTRAL_ACTION_CLASS_NAME =
   "border-border/45 bg-foreground/[0.07] text-foreground hover:bg-foreground/[0.11] active:bg-foreground/[0.15]";
-export const SETTINGS_FIELD_SURFACE_CLASS_NAME = "border-border/45 bg-background/55 shadow-none";
+
+export const SETTINGS_FIELD_SURFACE_CLASS_NAME = APP_SETTINGS_FIELD_CLASS_NAME;
 export const SETTINGS_INLINE_DIVIDER_CLASS_NAME = "bg-transparent shadow-none";
 
 function maskEmailAddress(value: string): string {
@@ -343,7 +345,7 @@ export function SettingsPageContainer({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-5 sm:py-5 lg:px-8">
       <div className="mx-auto flex w-full max-w-[64rem] flex-col gap-6 pb-10 sm:gap-7">
-        <div className="flex flex-col gap-8 sm:gap-9 [&>section+section]:border-t [&>section+section]:border-border/24 [&>section+section]:pt-8 sm:[&>section+section]:pt-9 [&_[data-slot=input-control]]:border-border/45 [&_[data-slot=input-control]]:bg-background/55 [&_[data-slot=input-control]]:shadow-none [&_[data-slot=input]]:h-7 [&_[data-slot=input]]:px-2.5 [&_[data-slot=input]]:text-[12px] [&_[data-slot=input]]:leading-7 [&_[data-slot=select-button]]:rounded-[var(--control-radius)] [&_[data-slot=select-button]]:border-border/45 [&_[data-slot=select-button]]:bg-background/55 [&_[data-slot=select-button]]:shadow-none [&_[data-slot=switch][data-checked]]:border-border/45 [&_[data-slot=switch][data-checked]]:bg-foreground/55 [&_button[data-slot=button]:not([data-size^=icon])]:h-7 [&_button[data-slot=button]:not([data-size^=icon])]:px-2.5 [&_button[data-slot=button]:not([data-size^=icon])]:text-[12px] [&_button[data-slot=button][data-variant=default]]:border-border/45 [&_button[data-slot=button][data-variant=default]]:bg-foreground/[0.07] [&_button[data-slot=button][data-variant=default]]:text-foreground [&_button[data-slot=button][data-variant=default]]:hover:bg-foreground/[0.11] [&_button[data-slot=button][data-variant=default]]:active:bg-foreground/[0.15] [&_button[data-slot=button]]:rounded-[var(--control-radius)]">
+        <div className="flex flex-col gap-8 sm:gap-9 [&>section+section]:border-t [&>section+section]:border-border/38 [&>section+section]:pt-8 sm:[&>section+section]:pt-9 [&_[data-slot=input-control]]:border-border/45 [&_[data-slot=input-control]]:bg-background/55 [&_[data-slot=input-control]]:shadow-none [&_[data-slot=input]]:h-7 [&_[data-slot=input]]:px-2.5 [&_[data-slot=input]]:text-[12px] [&_[data-slot=input]]:leading-7 [&_[data-slot=select-button]]:rounded-[var(--control-radius)] [&_[data-slot=select-button]]:border-border/45 [&_[data-slot=select-button]]:bg-background/55 [&_[data-slot=select-button]]:shadow-none [&_[data-slot=switch][data-checked]]:border-border/45 [&_[data-slot=switch][data-checked]]:bg-foreground/55 [&_button[data-slot=button]:not([data-size^=icon])]:h-7 [&_button[data-slot=button]:not([data-size^=icon])]:px-2.5 [&_button[data-slot=button]:not([data-size^=icon])]:text-[12px] [&_button[data-slot=button][data-variant=default]]:border-border/45 [&_button[data-slot=button][data-variant=default]]:bg-foreground/[0.07] [&_button[data-slot=button][data-variant=default]]:text-foreground [&_button[data-slot=button][data-variant=default]]:hover:bg-foreground/[0.11] [&_button[data-slot=button][data-variant=default]]:active:bg-foreground/[0.15] [&_button[data-slot=button]]:rounded-[var(--control-radius)]">
           {children}
         </div>
       </div>

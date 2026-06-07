@@ -3,6 +3,7 @@
 import { Popover as PopoverPrimitive } from "@base-ui/react/popover";
 
 import { useBoundaryDismissedOpen } from "./floatingBoundaryDismiss";
+import { GLASS_SURFACE_CLASS_NAME, GLASS_TOOLTIP_CLASS_NAME } from "~/components/ui/glass";
 import { cn } from "~/lib/utils";
 
 const PopoverCreateHandle = PopoverPrimitive.createHandle;
@@ -61,7 +62,8 @@ function PopoverPopup({
       >
         <PopoverPrimitive.Popup
           className={cn(
-            "relative flex h-(--popup-height,auto) w-(--popup-width,auto) origin-(--transform-origin) rounded-[var(--panel-radius)] border border-border/72 bg-popover/96 text-popover-foreground  supports-[backdrop-filter]:bg-popover/88 supports-[backdrop-filter]:backdrop-blur-xl outline-none transition-[width,height,scale,opacity] has-data-[slot=calendar]:rounded-[var(--panel-radius)] data-starting-style:scale-98 data-starting-style:opacity-0",
+            "relative flex h-(--popup-height,auto) w-(--popup-width,auto) origin-(--transform-origin) rounded-[var(--panel-radius)] outline-none transition-[width,height,scale,opacity] has-data-[slot=calendar]:rounded-[var(--panel-radius)] data-starting-style:scale-98 data-starting-style:opacity-0",
+            tooltipStyle ? GLASS_TOOLTIP_CLASS_NAME : GLASS_SURFACE_CLASS_NAME,
             tooltipStyle && "w-fit text-balance rounded-[var(--chip-radius)] text-xs",
             className,
           )}

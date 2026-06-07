@@ -1,7 +1,9 @@
 import { Undo2Icon } from "lucide-react";
+import { cn } from "../../lib/utils";
 import { Outlet, useLocation, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 
+import { APP_SHELL_CLASS_NAME } from "../../lib/appChrome";
 import { AppPageTopBar } from "../AppPageTopBar";
 import { Button } from "../ui/button";
 import { SidebarInset } from "../ui/sidebar";
@@ -33,9 +35,11 @@ export function SettingsRouteLayout() {
   }, [navigate]);
 
   return (
-    <SidebarInset className="isolate h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background text-foreground">
-        <AppPageTopBar className="border-border/35 bg-sidebar/96">
+    <SidebarInset className="isolate h-dvh min-h-0 overflow-hidden overscroll-y-none text-foreground">
+      <div
+        className={cn("flex min-h-0 min-w-0 flex-1 flex-col text-foreground", APP_SHELL_CLASS_NAME)}
+      >
+        <AppPageTopBar>
           <div className="flex min-w-0 flex-1 items-center gap-2.5">
             <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
               <h1 className="min-w-0 shrink truncate text-[13px] leading-none font-semibold tracking-tight text-foreground">

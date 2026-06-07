@@ -26,47 +26,13 @@ export interface ActivityVisibilitySettings {
   readonly enableThinkingStreaming: boolean;
 }
 
-const THINKING_ACTIVITY_KINDS = new Set<OrchestrationThreadActivity["kind"]>([
-  "turn.plan.updated",
-  "task.started",
-  "task.progress",
-  "task.completed",
-  "reasoning.completed",
-]);
-
-const TOOL_ACTIVITY_KINDS = new Set<OrchestrationThreadActivity["kind"]>([
-  "tool.started",
-  "tool.updated",
-  "tool.completed",
-]);
 const MAX_WORK_LOG_TERMINAL_OUTPUT_CHARS = 16_000;
-
-function shouldHideWorkLogActivityForVisibility(
-  activity: OrchestrationThreadActivity,
-  visibility: ActivityVisibilitySettings,
-): boolean {
-  if (!visibility.enableThinkingStreaming && THINKING_ACTIVITY_KINDS.has(activity.kind)) {
-    return true;
-  }
-
-  if (!visibility.enableToolStreaming && TOOL_ACTIVITY_KINDS.has(activity.kind)) {
-    return true;
-  }
-
-  return false;
-}
 
 export function filterVisibleWorkLogActivities(
   activities: ReadonlyArray<OrchestrationThreadActivity>,
-  visibility: ActivityVisibilitySettings,
+  _visibility: ActivityVisibilitySettings,
 ): ReadonlyArray<OrchestrationThreadActivity> {
-  if (visibility.enableToolStreaming && visibility.enableThinkingStreaming) {
-    return activities;
-  }
-
-  return activities.filter(
-    (activity) => !shouldHideWorkLogActivityForVisibility(activity, visibility),
-  );
+  return activities;
 }
 
 function ensureActivitiesOrdered(
@@ -94,39 +60,11 @@ export function findLatestRenderableWorkTurnId(
     if (!activity) {
       continue;
     }
-    if (activity.turnId && isRenderableWorkLogActivity(activity)) {
+    if (activity.turnId) {
       return activity.turnId;
     }
   }
   return undefined;
-}
-
-function isRenderableWorkLogActivity(activity: OrchestrationThreadActivity): boolean {
-  if (activity.kind === "task.started" || activity.kind === "task.completed") {
-    return false;
-  }
-  if (activity.kind === "context-window.updated") {
-    return false;
-  }
-  if (activity.summary === "Checkpoint captured") {
-    return false;
-  }
-  if (activity.kind === "workspace.summary.generated") {
-    return false;
-  }
-  return !isPlanBoundaryToolActivity(activity);
-}
-
-function isPlanBoundaryToolActivity(activity: OrchestrationThreadActivity): boolean {
-  if (activity.kind !== "tool.updated" && activity.kind !== "tool.completed") {
-    return false;
-  }
-
-  const payload =
-    activity.payload && typeof activity.payload === "object"
-      ? (activity.payload as Record<string, unknown>)
-      : null;
-  return typeof payload?.detail === "string" && payload.detail.startsWith("ExitPlanMode:");
 }
 
 const RUNTIME_DETAIL_JSON_MAX = 4000;
@@ -155,8 +93,8 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   const rawChangedFileStats = extractChangedFileStats(payload);
   const title = extractToolTitle(payload);
   const embeddedIntentText = extractEmbeddedIntentText(payload);
-  const status = extractToolStatus(payload);
   const exitCode = extractToolExitCode(payload);
+  const status = extractToolStatus(payload) ?? inferToolLifecycleStatus(activity.kind, exitCode);
   const durationMs = extractToolDurationMs(payload);
   const subagent = extractSubagentMetadata(payload);
   const rawPayloadItemType =
@@ -165,6 +103,7 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
     id: activity.id,
     createdAt: activity.createdAt,
     ...(activity.sequence !== undefined ? { sequence: activity.sequence } : {}),
+    turnId: activity.turnId,
     label: sanitizeWorkLogText(activity.summary),
     tone:
       activity.kind === "task.progress" ||
@@ -366,21 +305,15 @@ function shouldCollapseToolLifecycleEntries(
   previous: DerivedWorkLogEntry,
   next: DerivedWorkLogEntry,
 ): boolean {
-  if (previous.collapseKey === undefined || previous.collapseKey !== next.collapseKey) {
-    return false;
-  }
-
-  if (previous.tone === "thinking" && next.tone === "thinking") {
-    return true;
-  }
-
   if (
     !isToolLifecycleActivityKind(previous.activityKind) ||
     !isToolLifecycleActivityKind(next.activityKind)
   ) {
     return false;
   }
-
+  if (!previous.collapseKey || previous.collapseKey !== next.collapseKey) {
+    return false;
+  }
   return previous.activityKind !== "tool.completed";
 }
 
@@ -564,6 +497,19 @@ function extractToolStatus(
   }
   if (itemStatus === "error") {
     return "failed";
+  }
+  return undefined;
+}
+
+function inferToolLifecycleStatus(
+  kind: OrchestrationThreadActivity["kind"],
+  exitCode: number | undefined,
+): WorkLogEntry["status"] | undefined {
+  if (kind === "tool.started" || kind === "tool.updated") {
+    return "inProgress";
+  }
+  if (kind === "tool.completed") {
+    return exitCode !== undefined && exitCode !== 0 ? "failed" : "completed";
   }
   return undefined;
 }
@@ -896,9 +842,6 @@ export function deriveWorkLogEntries(
   const entries: DerivedWorkLogEntry[] = [];
   for (const activity of ordered) {
     if (latestTurnId && activity.turnId !== latestTurnId) {
-      continue;
-    }
-    if (!isRenderableWorkLogActivity(activity)) {
       continue;
     }
     entries.push(toDerivedWorkLogEntry(activity));

@@ -27,6 +27,11 @@ import {
   type RefObject,
 } from "react";
 
+import {
+  APP_COMPOSER_CLASS_NAME,
+  APP_COMPOSER_HEADER_CLASS_NAME,
+  APP_WORKSPACE_INSET_CLASS_NAME,
+} from "../../lib/appChrome";
 import type { ComposerImageAttachment, ModelSelectionByProvider } from "../../composerDraftStore";
 import type { PendingUserInputDraftAnswer } from "../../pendingUserInput";
 import { cn } from "../../lib/utils";
@@ -501,20 +506,20 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
               "rounded-xl",
               isUltrathinkFrame
                 ? "border-0 bg-input transition-all duration-200 focus-within:ring-2 focus-within:ring-ring/40"
-                : "border border-border/25 bg-input transition-[border-color,box-shadow] duration-200 focus-within:border-transparent focus-within:ring-2 focus-within:ring-ring/40 focus-within:shadow-sm",
+                : APP_COMPOSER_CLASS_NAME,
               props.isDragOverComposer && "bg-primary/8",
               props.composerProviderState.composerSurfaceClassName,
             )}
           >
             {props.activePendingApproval ? (
-              <div className="rounded-t-[13px] border-b border-border bg-muted">
+              <div className={APP_COMPOSER_HEADER_CLASS_NAME}>
                 <ComposerPendingApprovalPanel
                   approval={props.activePendingApproval}
                   pendingCount={props.pendingApprovalsCount}
                 />
               </div>
             ) : props.showPlanFollowUpPrompt && props.planFollowUpId ? (
-              <div className="rounded-t-[13px] border-b border-border bg-muted">
+              <div className={APP_COMPOSER_HEADER_CLASS_NAME}>
                 <ComposerPlanFollowUpBanner
                   key={props.planFollowUpId}
                   planTitle={props.planFollowUpTitle}
@@ -542,19 +547,34 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
               ) : null}
               {props.showIssuesCommandExamplesPopover ? (
                 <div className="pointer-events-none absolute inset-x-0 bottom-full z-20 mb-2 px-1">
-                  <div className="rounded-lg border border-border bg-popover px-3 py-2 ">
+                  <div className="glass-surface rounded-lg border px-3 py-2">
                     <p className="mb-1 text-[11px] font-medium text-muted-foreground">
                       Use <span className="font-mono text-foreground">/issues</span> with issue
                       tags:
                     </p>
                     <div className="space-y-1">
-                      <div className="rounded-md border border-border/60 bg-muted/30 px-2 py-1 font-mono text-[11px] text-foreground/90">
+                      <div
+                        className={cn(
+                          APP_WORKSPACE_INSET_CLASS_NAME,
+                          "px-2 py-1 font-mono text-[11px] text-foreground/90",
+                        )}
+                      >
                         /issues #[issue_no] [message]
                       </div>
-                      <div className="rounded-md border border-border/60 bg-muted/30 px-2 py-1 font-mono text-[11px] text-foreground/90">
+                      <div
+                        className={cn(
+                          APP_WORKSPACE_INSET_CLASS_NAME,
+                          "px-2 py-1 font-mono text-[11px] text-foreground/90",
+                        )}
+                      >
                         /issues #123 #456 [message]
                       </div>
-                      <div className="rounded-md border border-border/60 bg-muted/30 px-2 py-1 font-mono text-[11px] text-foreground/90">
+                      <div
+                        className={cn(
+                          APP_WORKSPACE_INSET_CLASS_NAME,
+                          "px-2 py-1 font-mono text-[11px] text-foreground/90",
+                        )}
+                      >
                         /issues #123 Fix timeline jitter in chat view
                       </div>
                     </div>

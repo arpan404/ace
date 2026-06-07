@@ -8,7 +8,7 @@ function Switch({ className, ...props }: SwitchPrimitive.Root.Props) {
   return (
     <SwitchPrimitive.Root
       className={cn(
-        "inline-flex h-[calc(var(--thumb-size)+2px)] w-[calc(var(--thumb-size)*2-2px)] shrink-0 cursor-pointer items-center rounded-full border border-border/70 bg-muted/90 p-px shadow-inner outline-none transition-colors duration-200 [--thumb-size:--spacing(5)] focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background data-checked:border-primary/20 data-checked:bg-primary data-checked:shadow-none data-unchecked:border-border/70 data-unchecked:bg-muted/90 data-disabled:cursor-not-allowed data-disabled:opacity-64 dark:data-unchecked:border-border/45 dark:data-unchecked:bg-input/80 sm:[--thumb-size:--spacing(4)]",
+        "inline-flex h-[calc(var(--thumb-size)+2px)] w-[calc(var(--thumb-size)*2-2px)] shrink-0 cursor-pointer items-center rounded-full border border-border/55 bg-muted/65 p-px shadow-inner outline-none transition-colors duration-200 [--thumb-size:--spacing(5)] supports-[backdrop-filter]:border-border/42 supports-[backdrop-filter]:bg-muted/48 supports-[backdrop-filter]:backdrop-blur-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background data-checked:border-primary/25 data-checked:bg-primary/92 data-checked:shadow-none data-unchecked:border-border/55 data-unchecked:bg-muted/65 data-disabled:cursor-not-allowed data-disabled:opacity-64 dark:data-unchecked:border-border/40 dark:data-unchecked:supports-[backdrop-filter]:bg-input/55 sm:[--thumb-size:--spacing(4)]",
         className,
       )}
       data-slot="switch"

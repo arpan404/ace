@@ -37,6 +37,7 @@ export interface WorkLogEntry {
   id: string;
   createdAt: string;
   sequence?: number;
+  turnId?: TurnId | null;
   label: string;
   detail?: string;
   command?: string;
@@ -129,6 +130,7 @@ export type TimelineEntry =
       id: string;
       kind: "intent";
       createdAt: string;
+      turnId?: TurnId | null;
       text: string;
     }
   | {

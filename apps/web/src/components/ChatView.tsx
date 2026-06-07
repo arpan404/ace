@@ -9,6 +9,7 @@ import {
   type ProjectScript,
   type ProviderKind,
   type ProjectId,
+  type OrchestrationMessage,
   type ProviderApprovalDecision,
   type ServerProvider,
   PROVIDER_DISPLAY_NAMES,
@@ -88,7 +89,6 @@ import {
   hasLiveTurn,
   hasActionableProposedPlan,
   isLatestTurnSettled,
-  formatElapsed,
 } from "../session-logic";
 import {
   isScrollContainerNearBottom,
@@ -130,11 +130,7 @@ import {
   type Thread,
 } from "../types";
 import { isMemoryPressureAtLeast, subscribeToMemoryPressure } from "../lib/memoryPressure";
-import {
-  hydrateThreadFromCache,
-  readCachedHydratedThread,
-  resolveThreadHydrationRetryDelayMs,
-} from "../lib/threadHydrationCache";
+import { hydrateThreadFromCache, readCachedHydratedThread } from "../lib/threadHydrationCache";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useTheme } from "../hooks/useTheme";
 import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
@@ -203,6 +199,15 @@ import {
   deriveThreadActivityRenderState,
   deriveThreadTimelineRenderState,
 } from "~/lib/chat/threadRenderState";
+import {
+  buildThreadTimelineCacheScope,
+  deriveThreadCompletionSummary,
+} from "~/lib/chat/timelineCacheScope";
+import {
+  prefetchThreadTimelineWindows,
+  readLoadedThreadTimelinePages,
+  useTimelineWindowStore,
+} from "~/lib/chat/timelineWindowStore";
 import { THREAD_ROUTE_CONNECTION_SEARCH_PARAM } from "../lib/connectionRouting";
 import {
   selectThreadTerminalState,
@@ -480,6 +485,21 @@ const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnsw
 const EMPTY_QUEUED_COMPOSER_MESSAGES: Thread["queuedComposerMessages"] = [];
 const EMPTY_COMPOSER_MODEL_SELECTIONS: ModelSelectionByProvider = Object.freeze({});
 const EMPTY_PENDING_COMPOSER_COMMENTS: readonly PendingComposerComment[] = Object.freeze([]);
+
+function toChatMessageFromTimelinePage(message: OrchestrationMessage): ChatMessage {
+  return {
+    id: message.id,
+    role: message.role,
+    text: message.text,
+    ...(message.attachments
+      ? { attachments: message.attachments.map((attachment) => ({ ...attachment })) }
+      : {}),
+    turnId: message.turnId,
+    createdAt: message.createdAt,
+    ...(message.sequence !== undefined ? { sequence: message.sequence } : {}),
+    streaming: message.streaming,
+  };
+}
 const THREAD_SWITCH_SCROLL_SETTLE_DELAY_MS = 96;
 
 const SCRIPT_TERMINAL_COLS = 120;
@@ -1676,8 +1696,6 @@ function useChatViewComponent({
   const shouldAutoScrollRef = useRef(true);
   const previousThreadIdRef = useRef<ThreadId | null>(null);
   const directThreadHydrationInFlightRef = useRef<ThreadId | null>(null);
-  const directThreadHydrationFailureCountRef = useRef(0);
-  const directThreadHydrationRetryTimeoutRef = useRef<number | null>(null);
   const directThreadHydrationRequestTokenRef = useRef(0);
   const lastKnownScrollTopRef = useRef(0);
   const isPointerScrollActiveRef = useRef(false);
@@ -2020,6 +2038,7 @@ function useChatViewComponent({
   const diffOpen = rightSidePanelEnabled ? rightSidePanelDiffOpen : false;
   const rightSidePanelOpen = rightSidePanelEnabled && rightSidePanelVisible;
   const activeThreadId = activeThread?.id ?? null;
+  const timelinePageCacheRevision = useTimelineWindowStore((state) => state.pageCacheRevision);
   const activeLatestTurn = activeThread?.latestTurn ?? null;
   const sourceProposedPlanThreadId = activeLatestTurn?.sourceProposedPlan?.threadId ?? null;
   const sourcePlanThread = useThreadById(sourceProposedPlanThreadId);
@@ -2029,21 +2048,12 @@ function useChatViewComponent({
     trackedActiveThreadId === activeThreadId ? previousActiveThreadId : trackedActiveThreadId;
   const recentThreadHistoryThread = useThreadById(recentThreadHistoryKeepId);
   const recentThreadHistoryHydrationInFlightRef = useRef<ThreadId | null>(null);
-  const clearDirectThreadHydrationRetryTimeout = useCallback(() => {
-    if (directThreadHydrationRetryTimeoutRef.current === null) {
-      return;
-    }
-    window.clearTimeout(directThreadHydrationRetryTimeoutRef.current);
-    directThreadHydrationRetryTimeoutRef.current = null;
-  }, []);
   const syncHydratedThreadFromCache = useEffectEvent(
     (thread: Parameters<typeof hydrateThreadFromReadModel>[0]) => {
-      directThreadHydrationFailureCountRef.current = 0;
       directThreadHydrationRequestTokenRef.current += 1;
       if (directThreadHydrationInFlightRef.current === thread.id) {
         directThreadHydrationInFlightRef.current = null;
       }
-      clearDirectThreadHydrationRetryTimeout();
       hydrateThreadFromReadModel(thread);
     },
   );
@@ -2059,10 +2069,7 @@ function useChatViewComponent({
         syncHydratedThreadFromCache(cachedHydratedThread);
         return;
       }
-      if (
-        directThreadHydrationInFlightRef.current === thread.id ||
-        directThreadHydrationRetryTimeoutRef.current !== null
-      ) {
+      if (directThreadHydrationInFlightRef.current === thread.id) {
         return;
       }
 
@@ -2070,26 +2077,15 @@ function useChatViewComponent({
       directThreadHydrationInFlightRef.current = thread.id;
       void (async () => {
         try {
-          const readModelThread = await hydrateThreadFromCache(thread.id, {
-            expectedUpdatedAt: thread.updatedAt ?? null,
+          await prefetchThreadTimelineWindows({
+            threadId: thread.id,
+            priority: "immediate",
           });
           if (directThreadHydrationRequestTokenRef.current !== requestToken) {
             return;
           }
-          syncHydratedThreadFromCache(readModelThread);
         } catch {
-          if (directThreadHydrationRequestTokenRef.current !== requestToken) {
-            return;
-          }
-          const nextFailureCount = directThreadHydrationFailureCountRef.current + 1;
-          directThreadHydrationFailureCountRef.current = nextFailureCount;
-          clearDirectThreadHydrationRetryTimeout();
-          directThreadHydrationRetryTimeoutRef.current = window.setTimeout(() => {
-            if (directThreadHydrationRetryTimeoutRef.current !== null) {
-              directThreadHydrationRetryTimeoutRef.current = null;
-            }
-            attemptDirectThreadHydration(thread);
-          }, resolveThreadHydrationRetryDelayMs(nextFailureCount));
+          // The timeline renderer also requests ranges as needed; this prefetch is best effort.
         } finally {
           if (
             directThreadHydrationInFlightRef.current === thread.id &&
@@ -2148,16 +2144,9 @@ function useChatViewComponent({
   }, [activeThreadId, ownsGlobalSideEffects, trackActiveThread]);
 
   useEffect(() => {
-    directThreadHydrationFailureCountRef.current = 0;
     directThreadHydrationRequestTokenRef.current += 1;
-    clearDirectThreadHydrationRetryTimeout();
     directThreadHydrationInFlightRef.current = null;
-  }, [
-    clearDirectThreadHydrationRetryTimeout,
-    serverThread?.historyLoaded,
-    serverThread?.id,
-    serverThread?.updatedAt,
-  ]);
+  }, [serverThread?.historyLoaded, serverThread?.id, serverThread?.updatedAt]);
 
   useEffect(() => {
     if (!serverThread || serverThread.historyLoaded !== false) {
@@ -2165,10 +2154,6 @@ function useChatViewComponent({
     }
     attemptDirectThreadHydration(serverThread);
   }, [serverThread]);
-
-  useEffect(() => {
-    return clearDirectThreadHydrationRetryTimeout;
-  }, [clearDirectThreadHydrationRetryTimeout]);
 
   useEffect(() => {
     if (
@@ -3006,6 +2991,53 @@ function useChatViewComponent({
     }
     return [...serverMessagesWithPreviewHandoff, ...pendingMessages];
   }, [serverMessages, attachmentPreviewHandoffByMessageId, optimisticUserMessages]);
+  const sparsePageTimeline = useMemo(() => {
+    void timelinePageCacheRevision;
+    if (!isServerThread || !activeThreadId) {
+      return null;
+    }
+    const pages = readLoadedThreadTimelinePages(activeThreadId);
+    if (pages.length === 0) {
+      return null;
+    }
+
+    const messagesById = new Map(activeThreadMessages.map((message) => [message.id, message]));
+    const activitiesById = new Map(threadActivities.map((activity) => [activity.id, activity]));
+    const proposedPlansById = new Map(
+      (activeThread?.proposedPlans ?? []).map((proposedPlan) => [proposedPlan.id, proposedPlan]),
+    );
+
+    for (const page of pages) {
+      for (const message of page.messages) {
+        messagesById.set(message.id, toChatMessageFromTimelinePage(message));
+      }
+      for (const activity of page.activities) {
+        activitiesById.set(activity.id, activity);
+      }
+      for (const proposedPlan of page.proposedPlans) {
+        proposedPlansById.set(proposedPlan.id, proposedPlan);
+      }
+    }
+
+    const activities = [...activitiesById.values()];
+    const pageActivityState = deriveThreadActivityRenderState(
+      activities,
+      activityVisibilitySettings,
+    );
+    return {
+      messages: [...messagesById.values()],
+      proposedPlans: [...proposedPlansById.values()],
+      workEntries: pageActivityState.workLogEntries,
+    };
+  }, [
+    activeThread?.proposedPlans,
+    activeThreadId,
+    activeThreadMessages,
+    activityVisibilitySettings,
+    isServerThread,
+    threadActivities,
+    timelinePageCacheRevision,
+  ]);
   const handoffTimeline = useMemo(() => {
     if (!activeThread) {
       return {
@@ -3038,9 +3070,9 @@ function useChatViewComponent({
     isServerThread,
     workLogEntries,
   ]);
-  const timelineMessages = handoffTimeline.messages;
-  const timelineProposedPlans = handoffTimeline.proposedPlans;
-  const timelineWorkEntries = handoffTimeline.workEntries;
+  const timelineMessages = sparsePageTimeline?.messages ?? handoffTimeline.messages;
+  const timelineProposedPlans = sparsePageTimeline?.proposedPlans ?? handoffTimeline.proposedPlans;
+  const timelineWorkEntries = sparsePageTimeline?.workEntries ?? handoffTimeline.workEntries;
   const subagentProvider =
     activeThread?.session?.provider ?? activeThread?.modelSelection.provider ?? null;
   const subagentThreads = useMemo(
@@ -3140,18 +3172,30 @@ function useChatViewComponent({
   }, [inferredCheckpointTurnCountByTurnId, turnDiffSummaryByAssistantMessageId]);
 
   const completionSummary = useMemo(() => {
-    if (!latestTurnSettled) return null;
-    if (!activeLatestTurn?.startedAt) return null;
-    if (!activeLatestTurn.completedAt) return null;
-
-    const elapsed = formatElapsed(activeLatestTurn.startedAt, activeLatestTurn.completedAt);
-    return elapsed ? `Worked for ${elapsed}` : null;
-  }, [activeLatestTurn?.completedAt, activeLatestTurn?.startedAt, latestTurnSettled]);
+    return deriveThreadCompletionSummary(activeLatestTurn, latestTurnSettled);
+  }, [activeLatestTurn, latestTurnSettled]);
   const completionDividerBeforeEntryId = useMemo(() => {
     if (!latestTurnSettled) return null;
     if (!completionSummary) return null;
     return deriveCompletionDividerBeforeEntryId(timelineEntries, activeLatestTurn);
   }, [activeLatestTurn, completionSummary, latestTurnSettled, timelineEntries]);
+  const timelineCacheScope = useMemo(() => {
+    return buildThreadTimelineCacheScope({
+      thread: activeThread,
+      timelineEntries,
+      timelineMessages,
+      timelineProposedPlans,
+      timelineWorkEntries,
+      turnDiffSummaries,
+    });
+  }, [
+    activeThread,
+    timelineEntries,
+    timelineMessages,
+    timelineProposedPlans,
+    timelineWorkEntries,
+    turnDiffSummaries,
+  ]);
   const gitCwd = activeProject
     ? projectScriptCwd({
         project: { cwd: activeProject.cwd },
@@ -7189,6 +7233,7 @@ function useChatViewComponent({
 
   // Auto-scroll on new messages
   const messageCount = timelineMessages.length;
+  const timelineEntryCount = timelineEntries.length;
   const markMessagesAtBottom = useCallback(
     (scrollContainer: HTMLDivElement) => {
       lastKnownScrollTopRef.current = scrollContainer.scrollTop;
@@ -7231,6 +7276,10 @@ function useChatViewComponent({
       scrollMessagesToBottom();
     });
   }, [scrollMessagesToBottom]);
+  const stickToBottomBeforePaint = useCallback(() => {
+    cancelPendingStickToBottom();
+    scrollMessagesToBottom();
+  }, [cancelPendingStickToBottom, scrollMessagesToBottom]);
   const onMessagesClickCapture = useCallback(
     (event: React.MouseEvent<HTMLDivElement>) => {
       const scrollContainer = messagesScrollRef.current;
@@ -7399,11 +7448,11 @@ function useChatViewComponent({
     scheduleStickToBottom,
     setShowScrollToBottom,
   ]);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!activeForSideEffects) return;
     if (!shouldAutoScrollRef.current) return;
-    scheduleStickToBottom();
-  }, [activeForSideEffects, messageCount, scheduleStickToBottom]);
+    stickToBottomBeforePaint();
+  }, [activeForSideEffects, messageCount, stickToBottomBeforePaint, timelineEntryCount]);
   useEffect(() => {
     if (!activeForSideEffects) return;
     if (!liveTurnInProgress) return;
@@ -9581,7 +9630,6 @@ function useChatViewComponent({
   const isLineageThread = Boolean(
     serverThread?.handoff ?? serverThread?.fork ?? activeThread?.handoff ?? activeThread?.fork,
   );
-  const activeThreadHistoryLoaded = activeThread?.historyLoaded;
   const activeThreadIdValue = activeThread?.id ?? "";
   const activeThreadMessagesLength = activeThread?.messages.length ?? 0;
   const activeThreadProvider = activeThread?.session?.provider;
@@ -9630,8 +9678,10 @@ function useChatViewComponent({
       onOpenStuckTurnDiagnostics: () => openDiagnostics("thread"),
       backgroundMarkdownPrewarm: activeForSideEffects,
       hideCompletedWorkMessages,
+      isThreadHistoryLoading,
       liveTimers: activeForSideEffects,
       getScrollContainer: getMessagesScrollContainer,
+      timelineCacheScope,
       timelineEntries,
       completionDividerBeforeEntryId,
       completionSummary,
@@ -9698,14 +9748,18 @@ function useChatViewComponent({
       revertTurnCountByUserMessageId,
       scheduleComposerFocus,
       targetMessageNavigation,
+      timelineCacheScope,
       timelineEntries,
       timestampFormat,
       turnDiffSummaryByAssistantMessageId,
     ],
   );
   const loadingNotice = useMemo(
-    () => (isThreadHistoryLoading ? <ThreadHistoryLoadingNotice /> : null),
-    [isThreadHistoryLoading],
+    () =>
+      isThreadHistoryLoading && !sparsePageTimeline ? (
+        <ThreadHistoryLoadingNotice variant={activeThreadMessagesLength > 0 ? "inline" : "empty"} />
+      ) : null,
+    [activeThreadMessagesLength, isThreadHistoryLoading, sparsePageTimeline],
   );
   const environmentPanelCanUseInlineLayout = chatViewportSize.width >= 1120;
   const environmentPanelVisible = environmentPanelOpen && activeThread !== undefined;
@@ -9825,10 +9879,9 @@ function useChatViewComponent({
       onMessagesWheel,
       scrollMessagesToBottom,
       showScrollToBottom,
-      timelineKey: `${activeThreadIdValue}:${activeThreadHistoryLoaded === false ? "lean" : "hydrated"}`,
+      timelineKey: activeThreadIdValue,
     }),
     [
-      activeThreadHistoryLoaded,
       activeThreadIdValue,
       loadingNotice,
       messagesTimelineProps,
@@ -10610,7 +10663,7 @@ function useChatViewComponent({
           transition={rightSidePanelLayoutTransition}
         >
           <m.div
-            className="flex h-full min-h-[44px] items-stretch overflow-hidden bg-sidebar [-webkit-app-region:no-drag] transform-gpu will-change-[transform,opacity]"
+            className="flex h-full min-h-[44px] items-stretch overflow-hidden border-b border-border/25 bg-background [-webkit-app-region:no-drag] transform-gpu will-change-[transform,opacity]"
             style={{
               ...dockedRightSidePanelSurfaceStyle,
               transformOrigin: "right center",
@@ -10633,7 +10686,7 @@ function useChatViewComponent({
         <m.div
           key="thread-right-side-panel-fullscreen-top-bar"
           className={cn(
-            "absolute inset-0 z-40 flex min-w-0 items-stretch overflow-hidden bg-sidebar [-webkit-app-region:no-drag]",
+            "absolute inset-0 z-40 flex min-w-0 items-stretch overflow-hidden border-b border-border/25 bg-background [-webkit-app-region:no-drag]",
             !rightSidePanelInteractive && "pointer-events-none select-none",
           )}
           initial={{ opacity: 0, y: -10 }}
@@ -10657,7 +10710,7 @@ function useChatViewComponent({
         {/* Persistent top bar — always visible regardless of workspace mode */}
         <div
           className={cn(
-            "relative flex shrink-0 items-stretch overflow-hidden bg-sidebar transition-[max-height,opacity] duration-200 ease-out after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-px after:bg-border/70",
+            "relative flex shrink-0 items-stretch overflow-hidden border-b border-border/25 bg-background transition-[max-height,opacity] duration-200 ease-out after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-px after:bg-border/70",
             isHeaderHidden ? "max-h-0 opacity-0" : "max-h-28 opacity-100",
           )}
         >

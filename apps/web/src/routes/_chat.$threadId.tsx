@@ -5,11 +5,11 @@ import { startTransition, useCallback, useEffect, useRef } from "react";
 import { ThreadBoard } from "../components/chat/ThreadBoard";
 import { useComposerDraftStore } from "../composerDraftStore";
 import { type DiffRouteSearch, parseDiffRouteSearch } from "../diffRouteSearch";
+import { hydrateThreadFromCache, readCachedHydratedThread } from "../lib/threadHydrationCache";
 import {
-  hydrateThreadFromCache,
-  readCachedHydratedThread,
-  resolveThreadHydrationRetryDelayMs,
-} from "../lib/threadHydrationCache";
+  prefetchThreadTimelineWindows,
+  primeThreadTimelineManifestFromReadModelThread,
+} from "../lib/chat/timelineWindowStore";
 import { getThreadById, getThreadByIdFromState, useStore } from "../store";
 import { SidebarInset } from "~/components/ui/sidebar";
 import { getWsRpcClient } from "../wsRpcClient";
@@ -17,17 +17,6 @@ import { normalizeWsUrl } from "../lib/remoteHosts";
 import { THREAD_ROUTE_CONNECTION_SEARCH_PARAM } from "../lib/connectionRouting";
 import { useHostConnectionStore } from "../hostConnectionStore";
 import { resolveThreadLineageSourceThreadId } from "../lib/chat/handoff";
-
-function clearThreadHydrationRetry(
-  retryTimeoutRef: { current: ReturnType<typeof setTimeout> | null },
-  retryAtRef: { current: number | null },
-): void {
-  if (retryTimeoutRef.current !== null) {
-    clearTimeout(retryTimeoutRef.current);
-    retryTimeoutRef.current = null;
-  }
-  retryAtRef.current = null;
-}
 
 export interface ChatThreadRouteSearch extends DiffRouteSearch {
   readonly connection?: string;
@@ -69,9 +58,6 @@ function ChatThreadRouteView() {
   const routeThreadExists = threadExists || draftThreadExists;
   const threadHydrationInFlightRef = useRef<ThreadId | null>(null);
   const threadHydrationRequestIdRef = useRef(0);
-  const threadHydrationFailureCountRef = useRef(0);
-  const threadHydrationRetryAtRef = useRef<number | null>(null);
-  const threadHydrationRetryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cachedHydratedThread =
     serverThread?.historyLoaded === false && serverThread.updatedAt
       ? readCachedHydratedThread(threadId, serverThread.updatedAt)
@@ -86,8 +72,6 @@ function ChatThreadRouteView() {
   }, []);
 
   useEffect(() => {
-    threadHydrationFailureCountRef.current = 0;
-    clearThreadHydrationRetry(threadHydrationRetryTimeoutRef, threadHydrationRetryAtRef);
     threadHydrationInFlightRef.current = null;
     threadHydrationRequestIdRef.current += 1;
   }, [threadId]);
@@ -115,15 +99,21 @@ function ChatThreadRouteView() {
       !bootstrapComplete ||
       !serverThread ||
       serverThread.historyLoaded !== false ||
-      threadHydrationRetryAtRef.current !== null ||
       threadHydrationInFlightRef.current === threadId
     ) {
       return;
     }
 
     if (cachedHydratedThread) {
-      threadHydrationFailureCountRef.current = 0;
-      clearThreadHydrationRetry(threadHydrationRetryTimeoutRef, threadHydrationRetryAtRef);
+      primeThreadTimelineManifestFromReadModelThread(cachedHydratedThread);
+      void prefetchThreadTimelineWindows({
+        threadId,
+        totalItemsHint:
+          cachedHydratedThread.messages.length +
+          cachedHydratedThread.activities.length +
+          cachedHydratedThread.proposedPlans.length,
+        priority: "immediate",
+      }).catch(() => undefined);
       hydrateThreadFromReadModel(cachedHydratedThread);
       return;
     }
@@ -134,27 +124,15 @@ function ChatThreadRouteView() {
     threadHydrationInFlightRef.current = threadId;
     void (async () => {
       try {
-        const readModelThread = await hydrateThreadFromCache(threadId, {
-          expectedUpdatedAt: serverThread.updatedAt ?? null,
+        await prefetchThreadTimelineWindows({
+          threadId,
+          priority: "immediate",
         });
         if (canceled) {
           return;
         }
-        threadHydrationFailureCountRef.current = 0;
-        clearThreadHydrationRetry(threadHydrationRetryTimeoutRef, threadHydrationRetryAtRef);
-        hydrateThreadFromReadModel(readModelThread);
       } catch {
-        if (!canceled) {
-          const nextFailureCount = threadHydrationFailureCountRef.current + 1;
-          threadHydrationFailureCountRef.current = nextFailureCount;
-          const delayMs = resolveThreadHydrationRetryDelayMs(nextFailureCount);
-          clearThreadHydrationRetry(threadHydrationRetryTimeoutRef, threadHydrationRetryAtRef);
-          threadHydrationRetryAtRef.current = Date.now() + delayMs;
-          threadHydrationRetryTimeoutRef.current = setTimeout(() => {
-            clearThreadHydrationRetry(threadHydrationRetryTimeoutRef, threadHydrationRetryAtRef);
-            runThreadHydration();
-          }, delayMs);
-        }
+        // Timeline windows are opportunistic here; the visible timeline also fetches ranges on scroll.
       } finally {
         if (
           requestId === threadHydrationRequestIdRef.current &&
@@ -186,17 +164,9 @@ function ChatThreadRouteView() {
         if (state.kind !== "reconnected") {
           return;
         }
-        clearThreadHydrationRetry(threadHydrationRetryTimeoutRef, threadHydrationRetryAtRef);
         runThreadHydration();
       }),
     [runThreadHydration],
-  );
-
-  useEffect(
-    () => () => {
-      clearThreadHydrationRetry(threadHydrationRetryTimeoutRef, threadHydrationRetryAtRef);
-    },
-    [],
   );
 
   const lineageSourceThreadId = serverThread
@@ -248,7 +218,7 @@ function ChatThreadRouteView() {
   }
 
   return (
-    <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
+    <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none text-foreground">
       <ThreadBoard threadId={threadId} connectionUrl={routeConnectionUrl ?? null} />
     </SidebarInset>
   );

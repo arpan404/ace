@@ -6,6 +6,7 @@ import {
   type PendingUserInputDraftAnswer,
 } from "../../pendingUserInput";
 import { CheckIcon, ChevronLeftIcon, ChevronRightIcon, ListChecksIcon } from "lucide-react";
+import { APP_BADGE_CLASS_NAME, APP_COMPOSER_INSET_PANEL_CLASS_NAME } from "~/lib/appChrome";
 import { cn } from "~/lib/utils";
 import { Button } from "../ui/button";
 
@@ -131,17 +132,17 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
   }
 
   return (
-    <section className="overflow-hidden rounded-[14px] border border-border/60 bg-card">
+    <section className={APP_COMPOSER_INSET_PANEL_CLASS_NAME}>
       <div className="flex items-center justify-between gap-2 border-b border-border/50 px-3 py-2">
         <div className="flex items-center gap-2">
-          <span className="inline-flex size-5 shrink-0 items-center justify-center rounded-md border border-border/55 bg-background/80 text-muted-foreground/70">
+          <span className="glass-inset inline-flex size-5 shrink-0 items-center justify-center rounded-md border border-border/50 text-muted-foreground/70">
             <ListChecksIcon className="size-3" />
           </span>
           <span className="text-[10px] font-semibold tracking-[0.16em] text-muted-foreground/70 uppercase">
             Input request
           </span>
           {prompt.questions.length > 1 ? (
-            <span className="rounded-full border border-border/55 bg-background/85 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-foreground/75">
+            <span className={APP_BADGE_CLASS_NAME}>
               {questionIndex + 1}/{prompt.questions.length}
             </span>
           ) : null}
@@ -152,7 +153,7 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
               type="button"
               size="icon-xs"
               variant="ghost"
-              className="size-7 rounded-md text-muted-foreground/72 hover:bg-muted/35 hover:text-foreground disabled:opacity-35"
+              className="size-7 rounded-md text-muted-foreground/72 hover:bg-foreground/[0.05] hover:text-foreground disabled:opacity-35"
               onClick={onPrevious}
               disabled={isResponding || questionIndex === 0}
               aria-label="Previous question"
@@ -163,7 +164,7 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
               type="button"
               size="icon-xs"
               variant="ghost"
-              className="size-7 rounded-md text-muted-foreground/72 hover:bg-muted/35 hover:text-foreground disabled:opacity-35"
+              className="size-7 rounded-md text-muted-foreground/72 hover:bg-foreground/[0.05] hover:text-foreground disabled:opacity-35"
               onClick={onAdvance}
               disabled={isResponding || !progress.canAdvance}
               aria-label={progress.isLastQuestion ? "Submit answers" : "Next question"}
@@ -200,7 +201,7 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
                 "group flex w-full items-center gap-3 border-t border-border/50 px-3 py-2.5 text-left transition-all duration-200 first:border-t-0",
                 isSelected
                   ? "bg-primary/6 text-foreground"
-                  : "text-foreground/82 hover:bg-muted/35",
+                  : "text-foreground/82 hover:bg-foreground/[0.04]",
                 isResponding && "cursor-not-allowed opacity-50",
               )}
             >
@@ -210,7 +211,7 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
                     "flex size-5 shrink-0 items-center justify-center rounded-md border text-[11px] font-semibold tabular-nums transition-all duration-200",
                     isSelected
                       ? "border-primary/30 bg-primary/12 text-primary"
-                      : "border-border/55 bg-background/80 text-muted-foreground/55",
+                      : "glass-inset border-border/50 text-muted-foreground/55",
                   )}
                 >
                   {shortcutKey}

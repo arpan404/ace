@@ -9,25 +9,19 @@ const MAX_CACHED_SNAPSHOT_VIEWS = Math.max(
   4,
   Number.parseInt(process.env.ACE_SNAPSHOT_VIEW_CACHE_MAX_ENTRIES ?? "8", 10) || 8,
 );
-
-const SIDEBAR_ACTIVITY_KINDS = new Set<OrchestrationThread["activities"][number]["kind"]>([
-  "approval.requested",
-  "approval.resolved",
-  "provider.approval.respond.failed",
-  "user-input.requested",
-  "user-input.resolved",
-  "provider.user-input.respond.failed",
-]);
+const INITIAL_SNAPSHOT_ACTIVITY_LIMIT_PER_THREAD = 32;
 
 function shouldHydrateAllThreadHistory(input?: OrchestrationGetSnapshotInput): boolean {
   return input === undefined || !Object.prototype.hasOwnProperty.call(input, "hydrateThreadId");
 }
 
 function createSummaryThread(thread: OrchestrationThread): OrchestrationThread {
-  const summaryMessages = thread.messages.filter((message) => message.role === "user");
-  const summaryActivities = thread.activities.filter((activity) =>
-    SIDEBAR_ACTIVITY_KINDS.has(activity.kind),
-  );
+  const latestUserMessage = thread.messages.filter((message) => message.role === "user").at(-1);
+  const summaryMessages = latestUserMessage ? [latestUserMessage] : [];
+  const summaryActivities =
+    thread.activities.length > INITIAL_SNAPSHOT_ACTIVITY_LIMIT_PER_THREAD
+      ? thread.activities.slice(-INITIAL_SNAPSHOT_ACTIVITY_LIMIT_PER_THREAD)
+      : thread.activities;
 
   const messagesChanged = summaryMessages.length !== thread.messages.length;
   const activitiesChanged = summaryActivities.length !== thread.activities.length;
@@ -41,8 +35,8 @@ function createSummaryThread(thread: OrchestrationThread): OrchestrationThread {
   return {
     ...thread,
     messages: messagesChanged ? summaryMessages : thread.messages,
-    proposedPlans: proposedPlansChanged ? [] : thread.proposedPlans,
     activities: activitiesChanged ? summaryActivities : thread.activities,
+    proposedPlans: proposedPlansChanged ? [] : thread.proposedPlans,
     checkpoints: checkpointsChanged ? [] : thread.checkpoints,
   };
 }

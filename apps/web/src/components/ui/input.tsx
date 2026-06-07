@@ -3,6 +3,7 @@
 import { Input as InputPrimitive } from "@base-ui/react/input";
 import type * as React from "react";
 
+import { GLASS_CONTROL_CLASS_NAME } from "~/components/ui/glass";
 import { cn } from "~/lib/utils";
 
 type InputProps = Omit<InputPrimitive.Props & React.RefAttributes<HTMLInputElement>, "size"> & {
@@ -34,7 +35,10 @@ function Input({
       className={
         cn(
           !unstyled &&
-            "relative inline-flex w-full rounded-[var(--control-radius)] border border-border/60 bg-background/72 text-base text-foreground shadow-none transition-[border-color,background-color,box-shadow] has-focus-visible:has-aria-invalid:border-destructive/64 has-aria-invalid:border-destructive/36 has-focus-visible:border-ring has-focus-visible:bg-background/88 has-autofill:bg-foreground/4 has-disabled:opacity-64 sm:text-sm dark:bg-input/36 dark:has-autofill:bg-foreground/8 dark:has-focus-visible:bg-input/54",
+            cn(
+              "relative inline-flex w-full rounded-[var(--control-radius)] text-base text-foreground has-focus-visible:has-aria-invalid:border-destructive/64 has-aria-invalid:border-destructive/36 has-autofill:bg-foreground/4 has-disabled:opacity-64 sm:text-sm dark:has-autofill:bg-foreground/8",
+              GLASS_CONTROL_CLASS_NAME,
+            ),
           className,
         ) || undefined
       }

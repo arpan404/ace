@@ -152,7 +152,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
           </button>
         ) : (
           <div
-            className="flex size-7 items-center justify-center rounded-full border border-border/40 bg-muted/30 text-muted-foreground sm:size-7"
+            className="glass-inset flex size-7 items-center justify-center rounded-full border border-border/40 text-muted-foreground sm:size-7"
             aria-label="Sending current message"
           >
             <svg

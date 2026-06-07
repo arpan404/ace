@@ -21,16 +21,21 @@ const badgeVariants = cva(
         sm: "h-5 min-w-5 rounded-[.25rem] px-[calc(--spacing(1)-1px)] text-xs sm:h-4 sm:min-w-4 sm:text-[.625rem]",
       },
       variant: {
-        default: "border-primary/15 bg-primary/90 text-primary-foreground",
+        default:
+          "border-primary/20 bg-primary/88 text-primary-foreground supports-[backdrop-filter]:bg-primary/78 supports-[backdrop-filter]:backdrop-blur-sm",
         destructive:
-          "border-destructive/20 bg-destructive text-white [button&,a&]:hover:bg-destructive/90",
+          "border-destructive/25 bg-destructive/92 text-white supports-[backdrop-filter]:bg-destructive/82 supports-[backdrop-filter]:backdrop-blur-sm [button&,a&]:hover:bg-destructive/90",
         error:
-          "border-destructive/15 bg-destructive/8 text-destructive-foreground dark:bg-destructive/16",
-        info: "border-info/15 bg-info/8 text-info-foreground dark:bg-info/16",
-        outline: "border-border/60 bg-transparent text-foreground dark:border-border/40",
-        secondary: "border-transparent bg-secondary/70 text-secondary-foreground",
-        success: "border-success/15 bg-success/8 text-success-foreground dark:bg-success/16",
-        warning: "border-warning/15 bg-warning/8 text-warning-foreground dark:bg-warning/16",
+          "border-destructive/20 bg-destructive/10 text-destructive-foreground supports-[backdrop-filter]:bg-destructive/14 dark:bg-destructive/16",
+        info: "border-info/20 bg-info/10 text-info-foreground supports-[backdrop-filter]:bg-info/14 dark:bg-info/16",
+        outline:
+          "border-border/55 bg-background/35 text-foreground supports-[backdrop-filter]:border-border/40 supports-[backdrop-filter]:bg-background/28 supports-[backdrop-filter]:backdrop-blur-sm dark:border-border/40",
+        secondary:
+          "border-border/35 bg-secondary/58 text-secondary-foreground supports-[backdrop-filter]:bg-secondary/48 supports-[backdrop-filter]:backdrop-blur-sm",
+        success:
+          "border-success/20 bg-success/10 text-success-foreground supports-[backdrop-filter]:bg-success/14 dark:bg-success/16",
+        warning:
+          "border-warning/20 bg-warning/10 text-warning-foreground supports-[backdrop-filter]:bg-warning/14 dark:bg-warning/16",
       },
     },
   },

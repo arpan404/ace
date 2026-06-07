@@ -84,6 +84,178 @@ beforeAll(() => {
 });
 
 describe("MessagesTimeline", { timeout: 30_000 }, () => {
+  it("uses stable timeline row cache keys across equivalent remounted arrays", async () => {
+    const { buildTimelineRowsCacheKey } = await import("../../lib/chat/timelineRowsClient");
+    const makeInput = (timelineEntries: []) => ({
+      timelineEntries,
+      activeTurnInProgress: false,
+      activeTurnStartedAt: null,
+      cacheScopeKey: "thread:thread-1:hydrated:v1",
+      completionDividerBeforeEntryId: null,
+      completionSummary: null,
+      isWorking: false,
+    });
+
+    expect(buildTimelineRowsCacheKey(makeInput([]))).toBe(buildTimelineRowsCacheKey(makeInput([])));
+  });
+
+  it("versions timeline row cache keys by projection semantics", async () => {
+    const { buildTimelineRowsCacheKey } = await import("../../lib/chat/timelineRowsClient");
+    const { TIMELINE_ROWS_PROJECTION_VERSION } =
+      await import("../../lib/chat/timelineRowsProjection");
+
+    expect(
+      buildTimelineRowsCacheKey({
+        timelineEntries: [],
+        activeTurnInProgress: false,
+        activeTurnStartedAt: null,
+        cacheScopeKey: "thread:thread-1:hydrated:v1",
+        completionDividerBeforeEntryId: null,
+        completionSummary: null,
+        isWorking: false,
+      }),
+    ).toContain(`timeline-rows:v${String(TIMELINE_ROWS_PROJECTION_VERSION)}`);
+  });
+
+  it("separates timeline row cache keys when the thread content scope changes", async () => {
+    const { buildTimelineRowsCacheKey } = await import("../../lib/chat/timelineRowsClient");
+    const baseInput = {
+      timelineEntries: [],
+      activeTurnInProgress: false,
+      activeTurnStartedAt: null,
+      completionDividerBeforeEntryId: null,
+      completionSummary: null,
+      isWorking: false,
+    };
+
+    expect(
+      buildTimelineRowsCacheKey({
+        ...baseInput,
+        cacheScopeKey: "thread:thread-1:hydrated:v1",
+      }),
+    ).not.toBe(
+      buildTimelineRowsCacheKey({
+        ...baseInput,
+        cacheScopeKey: "thread:thread-1:hydrated:v2",
+      }),
+    );
+  });
+
+  it("keeps active thread rows visible while async row rebuilding is pending", async () => {
+    const { resolveVisibleTimelineRows } = await import("./MessagesTimeline");
+    const retainedRows = [
+      {
+        id: "previous-user-row",
+        kind: "message",
+      },
+    ] as unknown as ReturnType<typeof resolveVisibleTimelineRows>["rows"];
+
+    const result = resolveVisibleTimelineRows({
+      activeThreadId: "thread-1",
+      retainedRows: {
+        activeThreadId: "thread-1",
+        rows: retainedRows,
+      },
+      resolvedAsyncRows: null,
+      shouldResolveAsync: true,
+      syncRows: [],
+    });
+
+    expect(result.loading).toBe(false);
+    expect(result.rows).toBe(retainedRows);
+  });
+
+  it("shows the loading placeholder only when async row rebuilding has no retained active rows", async () => {
+    const { resolveVisibleTimelineRows } = await import("./MessagesTimeline");
+    const retainedRows = [
+      {
+        id: "other-thread-row",
+        kind: "message",
+      },
+    ] as unknown as ReturnType<typeof resolveVisibleTimelineRows>["rows"];
+
+    const result = resolveVisibleTimelineRows({
+      activeThreadId: "thread-1",
+      retainedRows: {
+        activeThreadId: "thread-2",
+        rows: retainedRows,
+      },
+      resolvedAsyncRows: null,
+      shouldResolveAsync: true,
+      syncRows: [],
+    });
+
+    expect(result.loading).toBe(true);
+    expect(result.rows).toHaveLength(0);
+  });
+
+  it("does not show the async loading skeleton while thread history is restoring", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const previousDocument = globalThis.document;
+    const previousWindow = globalThis.window;
+    const previousWorker = globalThis.Worker;
+    vi.stubGlobal("document", {
+      ...previousDocument,
+      createElement: () => ({}),
+    });
+    vi.stubGlobal("window", {
+      ...previousWindow,
+      localStorage: globalThis.localStorage,
+    });
+    vi.stubGlobal("Worker", class MockWorker {} as unknown as typeof Worker);
+    try {
+      const timelineEntries = Array.from({ length: 80 }, (_, index) => {
+        const createdAt = `2026-03-17T19:${String(12 + Math.floor(index / 60)).padStart(2, "0")}:${String(index % 60).padStart(2, "0")}.000Z`;
+        return {
+          id: `lean-user-${index + 1}`,
+          kind: "message" as const,
+          createdAt,
+          message: {
+            id: MessageId.makeUnsafe(`lean-user-${index + 1}`),
+            role: "user" as const,
+            text: `Lean row ${index + 1}`,
+            createdAt,
+            streaming: false,
+          },
+        };
+      });
+      const baseProps = {
+        hasMessages: true,
+        isWorking: false,
+        activeTurnInProgress: false,
+        activeTurnStartedAt: null,
+        getScrollContainer: () => null,
+        timelineEntries,
+        completionDividerBeforeEntryId: null,
+        completionSummary: null,
+        turnDiffSummaryByAssistantMessageId: new Map(),
+        expandedWorkGroups: {},
+        onToggleWorkGroup: () => {},
+        onOpenTurnDiff: () => {},
+        revertTurnCountByUserMessageId: new Map(),
+        onRevertUserMessage: () => {},
+        isRevertingCheckpoint: false,
+        onImageExpand: () => {},
+        markdownCwd: undefined,
+        resolvedTheme: "light" as const,
+        timestampFormat: "locale" as const,
+        workspaceRoot: undefined,
+      };
+
+      const skeletonMarkup = renderToStaticMarkup(<MessagesTimeline {...baseProps} />);
+      const restoringMarkup = renderToStaticMarkup(
+        <MessagesTimeline {...baseProps} isThreadHistoryLoading />,
+      );
+
+      expect(skeletonMarkup).toContain("Loading conversation");
+      expect(restoringMarkup).not.toContain("Loading conversation");
+    } finally {
+      vi.stubGlobal("document", previousDocument);
+      vi.stubGlobal("window", previousWindow);
+      vi.stubGlobal("Worker", previousWorker);
+    }
+  });
+
   it("renders terminal assistant output through markdown instead of forcing plain text", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
@@ -536,7 +708,7 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
 
     expect(markup).toContain("Frontend Design");
     expect(markup).toContain("Browser Use");
-    expect(markup).toContain("bg-muted/70");
+    expect(markup).toContain("bg-muted/40");
     expect(markup).toContain("tabler-icon-stack-2");
     expect(markup).toContain("lucide-plug");
   });
@@ -679,7 +851,7 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(markup).toContain("directory");
     expect(markup).not.toContain("@src/checkpointing/Services");
     expect(markup).not.toContain("tabler-icon-stack-2");
-    expect(markup).toContain("bg-accent/40");
+    expect(markup).toContain("bg-muted/35");
     expect(markup).toContain("<img");
   });
 
@@ -2749,9 +2921,98 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
 
     expect(markup).toContain('data-completed-work-summary="true"');
     expect(markup).toContain('aria-label="Show hidden work logs"');
+    expect(markup).toContain("Read 1 file");
     expect(markup).toContain("Worked for 4s");
     expect(markup).not.toContain("1 tool call");
     expect(markup).not.toContain("README.md");
+  });
+
+  it("collapses non-terminal assistant progress messages without turn ids when completed work is hidden", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        hasMessages
+        hideCompletedWorkMessages
+        isWorking={false}
+        activeTurnInProgress={false}
+        activeTurnStartedAt={null}
+        getScrollContainer={() => null}
+        timelineEntries={[
+          {
+            id: "user-legacy-progress",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:30.000Z",
+            message: {
+              id: MessageId.makeUnsafe("user-legacy-progress"),
+              role: "user",
+              text: "Do the thing.",
+              createdAt: "2026-03-17T19:12:30.000Z",
+              streaming: false,
+            },
+          },
+          {
+            id: "assistant-legacy-progress-1",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:31.000Z",
+            message: {
+              id: MessageId.makeUnsafe("assistant-legacy-progress-1"),
+              role: "assistant",
+              text: "I am inspecting the repo.",
+              createdAt: "2026-03-17T19:12:31.000Z",
+              completedAt: "2026-03-17T19:12:32.000Z",
+              streaming: false,
+            },
+          },
+          {
+            id: "assistant-legacy-progress-2",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:33.000Z",
+            message: {
+              id: MessageId.makeUnsafe("assistant-legacy-progress-2"),
+              role: "assistant",
+              text: "I am running the checks.",
+              createdAt: "2026-03-17T19:12:33.000Z",
+              completedAt: "2026-03-17T19:12:34.000Z",
+              streaming: false,
+            },
+          },
+          {
+            id: "assistant-legacy-final",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:35.000Z",
+            message: {
+              id: MessageId.makeUnsafe("assistant-legacy-final"),
+              role: "assistant",
+              text: "Done.",
+              createdAt: "2026-03-17T19:12:35.000Z",
+              completedAt: "2026-03-17T19:12:36.000Z",
+              streaming: false,
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        resolvedTheme="light"
+        timestampFormat="24-hour"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup).toContain('data-completed-work-summary="true"');
+    expect(markup).toContain('data-completed-work-summary-hidden-messages="2"');
+    expect(markup).not.toContain("I am inspecting the repo.");
+    expect(markup).not.toContain("I am running the checks.");
+    expect(markup).toContain("Done.");
+    expect(markup.match(/data-response-summary="true"/g) ?? []).toHaveLength(1);
   });
 
   it("keeps runtime diagnostics visible when completed work details are hidden", async () => {
@@ -3834,6 +4095,90 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(markup).toContain("Ran 1 command");
     expect(markup).toContain('data-assistant-turn-footer="true"');
     expect(markup.indexOf("Assistant text before work.")).toBeLessThan(
+      markup.indexOf("Ran 1 command"),
+    );
+    expect(markup.indexOf("Ran 1 command")).toBeLessThan(
+      markup.indexOf('data-assistant-turn-footer="true"'),
+    );
+    expect(markup.indexOf('data-response-summary="true"')).toBeLessThan(
+      markup.indexOf('aria-label="Fork conversation"'),
+    );
+  });
+
+  it("renders assistant footer after the hidden trailing work summary", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const turnId = TurnId.makeUnsafe("turn-footer-after-hidden-work");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        hasMessages
+        hideCompletedWorkMessages
+        isWorking={false}
+        activeTurnInProgress={false}
+        activeTurnStartedAt={null}
+        getScrollContainer={() => null}
+        timelineEntries={[
+          {
+            id: "user-before-hidden-trailing-work",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:30.000Z",
+            message: {
+              id: MessageId.makeUnsafe("user-before-hidden-trailing-work"),
+              role: "user",
+              text: "Do the thing.",
+              createdAt: "2026-03-17T19:12:30.000Z",
+              streaming: false,
+            },
+          },
+          {
+            id: "assistant-before-hidden-trailing-work",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:31.000Z",
+            message: {
+              id: MessageId.makeUnsafe("assistant-before-hidden-trailing-work"),
+              role: "assistant",
+              turnId,
+              text: "Assistant text before hidden work.",
+              createdAt: "2026-03-17T19:12:31.000Z",
+              completedAt: "2026-03-17T19:12:32.000Z",
+              streaming: false,
+            },
+          },
+          {
+            id: "hidden-work-after-assistant",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:33.000Z",
+            entry: {
+              id: "hidden-work-after-assistant",
+              createdAt: "2026-03-17T19:12:33.000Z",
+              label: "Run command",
+              toolTitle: "Run command",
+              tone: "tool",
+              requestKind: "command",
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        onForkConversation={() => {}}
+        resolvedTheme="light"
+        timestampFormat="24-hour"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup).toContain("Assistant text before hidden work.");
+    expect(markup).toContain("Ran 1 command");
+    expect(markup).toContain("Worked for 1s");
+    expect(markup.indexOf("Assistant text before hidden work.")).toBeLessThan(
       markup.indexOf("Ran 1 command"),
     );
     expect(markup.indexOf("Ran 1 command")).toBeLessThan(

@@ -23,6 +23,7 @@ import {
   stripDisplayedPlanMarkdown,
 } from "../proposedPlan";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
+import { APP_PANEL_CLASS_NAME } from "~/lib/appChrome";
 import { cn } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
 import ChatMarkdown from "./ChatMarkdown";
@@ -39,7 +40,7 @@ const PLAN_SUMMARY_DISCLOSURE_BUTTON_CLASS_NAME =
 
 function SummaryPanelSection({ children }: { children: ReactNode }) {
   return (
-    <section className="border-t border-border/55 px-4 py-4 first:border-t-0 sm:px-5">
+    <section className="border-t border-border/38 px-4 py-4 first:border-t-0 sm:px-5">
       {children}
     </section>
   );
@@ -379,7 +380,7 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
   ) : null;
 
   return (
-    <div className="flex min-h-0 flex-1 overflow-hidden bg-background">
+    <div className={cn("flex min-h-0 flex-1 overflow-hidden", APP_PANEL_CLASS_NAME)}>
       <section className="flex min-h-0 w-full min-w-0 flex-col overflow-hidden">
         <ScrollArea className="min-h-0 flex-1" data-plan-summary-scroll-container="true">
           <div className="flex min-h-full flex-col">

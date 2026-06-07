@@ -158,6 +158,40 @@ describe("orchestrationUiEvents", () => {
         }),
       ),
     ).toBe("animation-frame");
+
+    expect(
+      resolveOrchestrationUiEventFlushPriority(
+        makeEvent("thread.activity-appended", {
+          threadId,
+          activity: {
+            id: EventId.makeUnsafe("activity-completed"),
+            tone: "tool",
+            kind: "tool.completed",
+            summary: "Tool completed",
+            payload: {},
+            turnId,
+            createdAt: "2026-04-07T00:00:03.000Z",
+          },
+        }),
+      ),
+    ).toBe("microtask");
+
+    expect(
+      resolveOrchestrationUiEventFlushPriority(
+        makeEvent("thread.activity-appended", {
+          threadId,
+          activity: {
+            id: EventId.makeUnsafe("activity-error"),
+            tone: "error",
+            kind: "tool.updated",
+            summary: "Tool failed",
+            payload: {},
+            turnId,
+            createdAt: "2026-04-07T00:00:04.000Z",
+          },
+        }),
+      ),
+    ).toBe("microtask");
   });
 
   it("coalesces consecutive streamed tool output activity chunks", () => {

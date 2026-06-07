@@ -20,6 +20,11 @@ import { ArrowUpIcon, GripVerticalIcon, ImageIcon, PencilIcon, Trash2Icon } from
 import { type MessageId, type ModelSelection } from "@ace/contracts";
 import { useEffect, useMemo, useState } from "react";
 
+import {
+  APP_BADGE_CLASS_NAME,
+  APP_COMPOSER_INSET_PANEL_CLASS_NAME,
+  APP_INSET_BADGE_CLASS_NAME,
+} from "~/lib/appChrome";
 import { cn } from "~/lib/utils";
 import { Button } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -84,7 +89,7 @@ function SortableQueuedMessageRow(props: {
           <TooltipPopup side="top">Reorder queued message</TooltipPopup>
         </Tooltip>
         <span className="shrink-0 text-muted-foreground/62">↳</span>
-        <span className="shrink-0 rounded-sm border border-border/55 bg-background/80 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground/72">
+        <span className={cn("shrink-0", APP_INSET_BADGE_CLASS_NAME)}>
           {(() => {
             const persistedPosition =
               props.persistedPositionByMessageId.get(props.message.id) ?? props.index + 1;
@@ -99,12 +104,12 @@ function SortableQueuedMessageRow(props: {
         </span>
         <p className="truncate text-[13px] font-medium text-foreground/88">{preview}</p>
         {props.message.images.length > 0 ? (
-          <span className="inline-flex size-5 shrink-0 items-center justify-center rounded-md border border-border/55 bg-background/80 text-muted-foreground/70">
+          <span className="glass-inset inline-flex size-5 shrink-0 items-center justify-center rounded-md border border-border/50 text-muted-foreground/70">
             <ImageIcon className="size-3" />
           </span>
         ) : null}
         {props.message.terminalContexts.length > 0 ? (
-          <span className="inline-flex size-5 shrink-0 items-center justify-center rounded-md border border-border/55 bg-background/80 text-muted-foreground/70">
+          <span className="glass-inset inline-flex size-5 shrink-0 items-center justify-center rounded-md border border-border/50 text-muted-foreground/70">
             <IconTerminal className="size-3" />
           </span>
         ) : null}
@@ -144,7 +149,7 @@ function SortableQueuedMessageRow(props: {
                     "h-7 rounded-md px-2.5 text-[12px] font-medium transition-all duration-200",
                     isSteered
                       ? "animate-pulse border border-primary/35 bg-primary/12 text-primary hover:bg-primary/16"
-                      : "text-muted-foreground/80 hover:bg-muted/35 hover:text-foreground",
+                      : "text-muted-foreground/80 hover:bg-foreground/[0.04] hover:text-foreground",
                   )}
                   onClick={() => {
                     if (!isSteered) {
@@ -172,7 +177,7 @@ function SortableQueuedMessageRow(props: {
           type="button"
           size="icon-xs"
           variant="ghost"
-          className="size-7 rounded-md text-muted-foreground/70 hover:bg-muted/35 hover:text-foreground"
+          className="size-7 rounded-md text-muted-foreground/70 hover:bg-foreground/[0.04] hover:text-foreground"
           onClick={() => {
             props.onEdit(props.message.id);
           }}
@@ -302,18 +307,13 @@ export function ComposerQueuedMessages(props: {
   }
 
   return (
-    <section
-      className={cn(
-        "mb-3 overflow-hidden rounded-[14px] border border-border/60 bg-card",
-        props.className,
-      )}
-    >
+    <section className={cn("mb-3", APP_COMPOSER_INSET_PANEL_CLASS_NAME, props.className)}>
       <div className="flex items-center justify-between gap-2 border-b border-border/50 px-3 py-2">
         <div className="flex items-center gap-2">
           <span className="text-[10px] font-semibold tracking-[0.16em] text-muted-foreground/70 uppercase">
             Queue
           </span>
-          <span className="rounded-full border border-border/55 bg-background/85 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-foreground/75">
+          <span className={APP_BADGE_CLASS_NAME}>
             {props.messages.length}
           </span>
         </div>

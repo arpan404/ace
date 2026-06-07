@@ -1,10 +1,12 @@
 import { type ProjectId } from "@ace/contracts";
-import { ArrowRightIcon, HammerIcon, PlusIcon } from "lucide-react";
+import { ArrowRightIcon, PlusIcon } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 
 import { useHandleNewThread } from "~/hooks/useHandleNewThread";
 import { useSetting } from "~/hooks/useSettings";
+import { APP_WORKSPACE_CLASS_NAME } from "~/lib/appChrome";
 import { resolveSidebarNewThreadOptions } from "~/lib/sidebar";
+import { cn } from "~/lib/utils";
 import { useStore } from "~/store";
 
 import { AppPageTopBar } from "../AppPageTopBar";
@@ -48,7 +50,7 @@ export function NewThreadLanding() {
   }, [activeProjectId, defaultThreadEnvMode, handleNewThread]);
 
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background text-foreground">
+    <div className={cn("flex min-h-0 min-w-0 flex-1 flex-col", APP_WORKSPACE_CLASS_NAME)}>
       <AppPageTopBar>
         <div className="flex min-w-0 flex-1 items-center justify-between gap-2.5">
           <div className="flex min-w-0 flex-1 items-baseline gap-2.5">
@@ -67,49 +69,41 @@ export function NewThreadLanding() {
         </div>
       </AppPageTopBar>
 
-      <div className="relative flex flex-1 items-center justify-center overflow-x-hidden overflow-y-auto px-5 py-10 sm:px-10 sm:py-12">
-        <div className="pointer-events-none absolute inset-0 overflow-hidden">
-          <div className="absolute inset-0 bg-muted/5" />
-        </div>
-
-        <section className="relative flex w-full max-w-2xl flex-col items-center text-center">
-          <div className="mb-6 sm:mb-8">
-            <HammerIcon className="size-9 text-foreground/60 sm:size-10" aria-hidden="true" />
-          </div>
-          <h1 className="text-balance text-4xl font-semibold tracking-tight sm:text-6xl">
+      <div className="flex flex-1 items-center justify-center overflow-x-hidden overflow-y-auto px-5 py-10 sm:px-10 sm:py-12">
+        <section className="flex w-full max-w-xl flex-col items-center text-center">
+          <h1 className="text-balance text-3xl font-semibold tracking-tight text-foreground sm:text-5xl">
             Let's build
           </h1>
+          <p className="mt-3 max-w-md text-sm leading-relaxed text-muted-foreground">
+            {hasProjects
+              ? "Pick a project and start a new agent thread."
+              : "Add a project from the sidebar to get started."}
+          </p>
 
           {hasProjects ? (
             <>
               <ProjectContextSwitcher
                 activeProjectId={activeProjectId}
-                className="mt-4 max-w-full"
+                className="mt-6 max-w-full"
                 onSelectProject={setSelectedProjectId}
                 variant="hero"
               />
-              <div className="mt-7 flex w-full flex-wrap items-center justify-center gap-3 sm:mt-8">
+              <div className="mt-6 flex w-full flex-wrap items-center justify-center gap-3">
                 <Button
                   size="lg"
                   onClick={startNewThread}
-                  className="h-10.5 w-full rounded-[var(--control-radius)] px-4.5 text-sm sm:h-11 sm:w-auto sm:px-5"
+                  className="h-10 w-full px-4 text-sm sm:w-auto sm:px-5"
                 >
                   Start new thread
-                  <ArrowRightIcon className="size-4.5" />
+                  <ArrowRightIcon className="size-4" />
                 </Button>
               </div>
             </>
           ) : (
-            <>
-              <p className="mt-5 max-w-lg text-sm leading-relaxed text-muted-foreground/65">
-                Add a project from the sidebar to get started. Once a project is available, new
-                threads open with visible project context and a quick switcher.
-              </p>
-              <div className="mt-8 inline-flex items-center gap-2 rounded-[var(--control-radius)] border border-dashed border-border/50 bg-muted/20 px-4 py-2.5 text-sm text-muted-foreground">
-                <PlusIcon className="size-4" />
-                Use the Add project button in the sidebar.
-              </div>
-            </>
+            <div className="mt-8 inline-flex items-center gap-2 rounded-[var(--control-radius)] border border-dashed border-border/50 px-4 py-2.5 text-sm text-muted-foreground">
+              <PlusIcon className="size-4" />
+              Use the Add project button in the sidebar.
+            </div>
           )}
         </section>
       </div>

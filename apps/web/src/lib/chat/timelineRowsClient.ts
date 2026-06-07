@@ -2,13 +2,18 @@ import TimelineRowsWorker from "../../workers/timelineRows.worker?worker";
 import { fnv1a32 } from "../diffRendering";
 import { LRUCache } from "../lruCache";
 import { registerMemoryPressureHandler, shouldBypassNonEssentialCaching } from "../memoryPressure";
-import { clampCacheBudgetBytes, clampCacheEntryCount } from "../resourceProfile";
+import {
+  clampCacheBudgetBytes,
+  clampCacheEntryCount,
+  shouldAvoidSpeculativeWork,
+} from "../resourceProfile";
 import {
   buildTimelineRows,
   estimateTimelineRowsCacheSize,
   type BuildTimelineRowsInput,
   type TimelineRow,
 } from "./timelineRows";
+import { TIMELINE_ROWS_PROJECTION_VERSION } from "./timelineRowsProjection";
 
 const MAX_TIMELINE_ROWS_CACHE_ENTRIES = clampCacheEntryCount(128, {
   moderateCapEntries: 80,
@@ -22,12 +27,14 @@ const MAX_TIMELINE_ROWS_CACHE_MEMORY_BYTES = clampCacheBudgetBytes(64 * 1024 * 1
 interface TimelineRowsWorkerRequest {
   readonly requestId: number;
   readonly cacheKey: string;
+  readonly projectionVersion: number;
   readonly input: BuildTimelineRowsInput;
 }
 
 interface TimelineRowsWorkerSuccess {
   readonly requestId: number;
   readonly cacheKey: string;
+  readonly projectionVersion: number;
   readonly input: BuildTimelineRowsInput;
   readonly rows: ReadonlyArray<TimelineRow>;
 }
@@ -97,6 +104,14 @@ function getTimelineRowsWorker(): Worker | null {
         pending.reject(new Error(response.error));
         return;
       }
+      if (response.projectionVersion !== TIMELINE_ROWS_PROJECTION_VERSION) {
+        pending.reject(new Error("Timeline rows worker projection version mismatch."));
+        pendingTimelineRowsByRequestId.clear();
+        inflightTimelineRowsByCacheKey.clear();
+        worker.terminate();
+        timelineRowsWorker = undefined;
+        return;
+      }
       timelineRowsCache.set(
         response.cacheKey,
         response.rows,
@@ -122,8 +137,8 @@ export function buildTimelineRowsCacheKey(input: BuildTimelineRowsInput): string
   const summary = input.completionSummary ?? "";
   const summaryHash = summary.length > 0 ? fnv1a32(summary).toString(36) : "0";
   return [
-    "timeline-rows:v6",
-    getTimelineEntryToken(input.timelineEntries),
+    `timeline-rows:v${String(TIMELINE_ROWS_PROJECTION_VERSION)}`,
+    input.cacheScopeKey ?? getTimelineEntryToken(input.timelineEntries),
     input.activeTurnInProgress ? "1" : "0",
     input.activeTurnStartedAt ?? "none",
     input.completionDividerBeforeEntryId ?? "none",
@@ -177,6 +192,7 @@ export function resolveTimelineRows(
     worker["postMessage"]({
       requestId,
       cacheKey,
+      projectionVersion: TIMELINE_ROWS_PROJECTION_VERSION,
       input,
     } satisfies TimelineRowsWorkerRequest);
   }).finally(() => {
@@ -188,6 +204,9 @@ export function resolveTimelineRows(
 }
 
 export function prewarmTimelineRows(cacheKey: string, input: BuildTimelineRowsInput): void {
+  if (shouldBypassNonEssentialCaching() || shouldAvoidSpeculativeWork()) {
+    return;
+  }
   if (readCachedTimelineRows(cacheKey)) {
     return;
   }

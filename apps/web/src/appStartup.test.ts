@@ -34,6 +34,6 @@ describe("resolveAppStartupState", () => {
 describe("resolveAppStartupMessage", () => {
   it("returns user-facing messages for non-ready states", () => {
     expect(resolveAppStartupMessage("connecting", "ace")).toBe("Connecting to ace server...");
-    expect(resolveAppStartupMessage("bootstrapping", "ace")).toBe("Loading ace...");
+    expect(resolveAppStartupMessage("bootstrapping", "ace")).toBe("ace starting");
   });
 });
