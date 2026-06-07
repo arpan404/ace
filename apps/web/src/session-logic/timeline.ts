@@ -49,6 +49,15 @@ function extractReportIntentText(entry: WorkLogEntry): string | null {
   return null;
 }
 
+type TimelineWorkTurnId = NonNullable<WorkLogEntry["turnId"]>;
+
+function timelineWorkTurnIdsMatch(
+  left: TimelineWorkTurnId | null,
+  right: TimelineWorkTurnId | null,
+): boolean {
+  return left === right || left === null || right === null;
+}
+
 function compareTimelineEntriesByOrder(
   left: {
     timelineEntry: TimelineEntry;
@@ -78,10 +87,32 @@ function compareTimelineEntriesByOrder(
   if (orderComparison !== 0) {
     return orderComparison;
   }
-  if (left.timelineEntry.kind === "work" && right.timelineEntry.kind === "message") {
+  if (
+    left.timelineEntry.kind === "message" &&
+    left.timelineEntry.message.role === "user" &&
+    right.timelineEntry.kind === "work"
+  ) {
     return -1;
   }
-  if (left.timelineEntry.kind === "message" && right.timelineEntry.kind === "work") {
+  if (
+    left.timelineEntry.kind === "work" &&
+    right.timelineEntry.kind === "message" &&
+    right.timelineEntry.message.role === "user"
+  ) {
+    return 1;
+  }
+  if (
+    left.timelineEntry.kind === "work" &&
+    right.timelineEntry.kind === "message" &&
+    right.timelineEntry.message.role === "assistant"
+  ) {
+    return -1;
+  }
+  if (
+    left.timelineEntry.kind === "message" &&
+    left.timelineEntry.message.role === "assistant" &&
+    right.timelineEntry.kind === "work"
+  ) {
     return 1;
   }
 
@@ -166,6 +197,7 @@ export function deriveTimelineEntries(
   const normalizedEntries: TimelineEntry[] = [];
   let pendingIntentText: string | null = null;
   let pendingIntentFingerprint: string | null = null;
+  let pendingIntentTurnId: TimelineWorkTurnId | null = null;
   let previousIntentFingerprint: string | null = null;
 
   for (const { timelineEntry: entry } of rawEntries) {
@@ -178,17 +210,29 @@ export function deriveTimelineEntries(
             id: `intent:${entry.id}`,
             kind: "intent",
             createdAt: entry.createdAt,
+            turnId: entry.entry.turnId ?? null,
             text: intentText,
           });
         }
         pendingIntentText = intentText;
         pendingIntentFingerprint = nextIntentFingerprint;
+        pendingIntentTurnId = entry.entry.turnId ?? null;
         previousIntentFingerprint = nextIntentFingerprint;
       }
       continue;
     }
 
     if (entry.kind === "work" && pendingIntentText) {
+      const entryTurnId = entry.entry.turnId ?? null;
+      if (!timelineWorkTurnIdsMatch(pendingIntentTurnId, entryTurnId)) {
+        pendingIntentText = null;
+        pendingIntentFingerprint = null;
+        pendingIntentTurnId = null;
+        previousIntentFingerprint = null;
+        normalizedEntries.push(entry);
+        continue;
+      }
+
       if (entry.entry.tone === "tool") {
         const attachedIntentFingerprint =
           pendingIntentFingerprint ?? normalizeIntentComparisonText(pendingIntentText);
@@ -202,6 +246,7 @@ export function deriveTimelineEntries(
         pendingIntentText = null;
         previousIntentFingerprint = attachedIntentFingerprint;
         pendingIntentFingerprint = null;
+        pendingIntentTurnId = null;
         continue;
       }
 
@@ -217,6 +262,7 @@ export function deriveTimelineEntries(
           id: `intent:${entry.id}`,
           kind: "intent",
           createdAt: entry.createdAt,
+          turnId: entry.entry.turnId ?? null,
           text: embeddedIntentText,
         });
       }
@@ -231,6 +277,9 @@ export function deriveTimelineEntries(
       continue;
     }
 
+    pendingIntentText = null;
+    pendingIntentFingerprint = null;
+    pendingIntentTurnId = null;
     previousIntentFingerprint = null;
 
     normalizedEntries.push(entry);

@@ -1,8 +1,10 @@
 import { buildTimelineRows, type BuildTimelineRowsInput } from "../lib/chat/timelineRows";
+import { TIMELINE_ROWS_PROJECTION_VERSION } from "../lib/chat/timelineRowsProjection";
 
 interface TimelineRowsWorkerRequest {
   readonly requestId: number;
   readonly cacheKey: string;
+  readonly projectionVersion: number;
   readonly input: BuildTimelineRowsInput;
 }
 
@@ -13,6 +15,7 @@ addEventListener("message", (event: MessageEvent<TimelineRowsWorkerRequest>) => 
     self["postMessage"]({
       requestId: request.requestId,
       cacheKey: request.cacheKey,
+      projectionVersion: TIMELINE_ROWS_PROJECTION_VERSION,
       input: request.input,
       rows,
     });

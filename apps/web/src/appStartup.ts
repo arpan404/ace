@@ -20,7 +20,7 @@ export function resolveAppStartupMessage(state: AppStartupState, appDisplayName:
     case "connecting":
       return `Connecting to ${appDisplayName} server...`;
     case "bootstrapping":
-      return `Loading ${appDisplayName}...`;
+      return `${appDisplayName} starting`;
     case "ready":
       return `${appDisplayName} ready`;
   }

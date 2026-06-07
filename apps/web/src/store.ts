@@ -31,6 +31,10 @@ import {
   finalizeChatMessageText,
 } from "./lib/chat/messageText";
 import { primeHydratedThreadCache } from "./lib/threadHydrationCache";
+import {
+  primeThreadTimelineManifestFromReadModelThread,
+  useTimelineWindowStore,
+} from "./lib/chat/timelineWindowStore";
 import { resolveConnectionForThreadId } from "./lib/connectionRouting";
 import { resolveServerUrl } from "./lib/utils";
 import { type ChatMessage, type Project, type SidebarThreadSummary, type Thread } from "./types";
@@ -2119,6 +2123,10 @@ export function syncServerReadModel(
       continue;
     }
     const mappedThread = mapThread(thread, options);
+    primeThreadTimelineManifestFromReadModelThread(
+      thread,
+      mappedThread.historyLoaded === false ? "lean" : "hydrated",
+    );
     const nextThread = mergeThreadPreservingHydratedHistory(
       existingThreadsById.get(thread.id),
       mappedThread,
@@ -2173,6 +2181,10 @@ export function mergeServerReadModel(
     const nextThread = suppressDismissedThreadError(
       mapThread(thread, options),
       state.dismissedThreadErrorKeysById,
+    );
+    primeThreadTimelineManifestFromReadModelThread(
+      thread,
+      nextThread.historyLoaded === false ? "lean" : "hydrated",
     );
     if (options !== undefined && nextThread.historyLoaded !== false) {
       primeHydratedThreadCache(thread);
@@ -2231,6 +2243,7 @@ function removeReadModelEntities(
     const shouldRemove = projectIds.has(thread.projectId) || threadIds.has(thread.id);
     if (shouldRemove) {
       removedThreadIds.add(thread.id);
+      useTimelineWindowStore.getState().clearThread(thread.id);
     }
     return !shouldRemove;
   });
@@ -2262,6 +2275,7 @@ export function hydrateThreadFromReadModel(
   }
 
   primeHydratedThreadCache(readModelThread);
+  primeThreadTimelineManifestFromReadModelThread(readModelThread);
   const nextThread = { ...mapThread(readModelThread, options), historyLoaded: true };
   const existingThread = state.threads.find((thread) => thread.id === nextThread.id);
   const threads = existingThread
@@ -2500,7 +2514,10 @@ interface AppStore extends AppState {
 
 export const useStore = create<AppStore>((set) => ({
   ...initialState,
-  resetToInitialState: () => set(() => createInitialState()),
+  resetToInitialState: () => {
+    useTimelineWindowStore.getState().reset();
+    set(() => createInitialState());
+  },
   syncServerReadModel: (readModel, options) =>
     set((state) => syncServerReadModel(state, readModel, options)),
   mergeServerReadModel: (readModel, options) =>

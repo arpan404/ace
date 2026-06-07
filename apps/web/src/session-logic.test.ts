@@ -2180,6 +2180,33 @@ describe("deriveTimelineEntries", () => {
     expect(entries.map((entry) => entry.id)).toEqual(["work-tool", "assistant-complete"]);
   });
 
+  it("places user rows before same-timestamp work rows so events attach to the new turn", () => {
+    const entries = deriveTimelineEntries(
+      [
+        {
+          id: MessageId.makeUnsafe("user-new-turn"),
+          role: "user",
+          text: "Run checks",
+          createdAt: "2026-02-23T00:00:03.000Z",
+          sequence: 9,
+          streaming: false,
+        },
+      ],
+      [],
+      [
+        {
+          id: "work-tool",
+          createdAt: "2026-02-23T00:00:03.000Z",
+          sequence: 9,
+          label: "Run command",
+          tone: "tool",
+        },
+      ],
+    );
+
+    expect(entries.map((entry) => entry.id)).toEqual(["user-new-turn", "work-tool"]);
+  });
+
   it("orders mixed message and work rows by createdAt when their sequence domains differ", () => {
     const entries = deriveTimelineEntries(
       [
@@ -2241,6 +2268,92 @@ describe("deriveTimelineEntries", () => {
       entry: {
         intentText: "Running format and checks",
       },
+    });
+  });
+
+  it("does not attach report_intent metadata to a tool from another turn", () => {
+    const entries = deriveTimelineEntries(
+      [],
+      [],
+      [
+        {
+          id: "work-intent-turn-1",
+          createdAt: "2026-02-23T00:00:01.000Z",
+          turnId: TurnId.makeUnsafe("turn-report-intent-1"),
+          label: "Report Intent",
+          toolTitle: "Report Intent",
+          detail: "Inspecting the first turn",
+          tone: "tool",
+        },
+        {
+          id: "work-tool-turn-2",
+          createdAt: "2026-02-23T00:00:02.000Z",
+          turnId: TurnId.makeUnsafe("turn-report-intent-2"),
+          label: "Run command",
+          toolTitle: "Run command",
+          detail: "bun typecheck",
+          tone: "tool",
+        },
+      ],
+    );
+
+    expect(entries).toHaveLength(2);
+    expect(entries[0]).toMatchObject({
+      kind: "intent",
+      text: "Inspecting the first turn",
+      turnId: TurnId.makeUnsafe("turn-report-intent-1"),
+    });
+    expect(entries[1]).toMatchObject({
+      kind: "work",
+      id: "work-tool-turn-2",
+      entry: expect.not.objectContaining({
+        intentText: "Inspecting the first turn",
+      }),
+    });
+  });
+
+  it("does not carry report_intent metadata across a message boundary", () => {
+    const entries = deriveTimelineEntries(
+      [
+        {
+          id: MessageId.makeUnsafe("user-between-intent-and-tool"),
+          role: "user",
+          text: "Start the next turn",
+          createdAt: "2026-02-23T00:00:02.000Z",
+          streaming: false,
+        },
+      ],
+      [],
+      [
+        {
+          id: "work-intent-before-message",
+          createdAt: "2026-02-23T00:00:01.000Z",
+          label: "Report Intent",
+          toolTitle: "Report Intent",
+          detail: "Wrapping up the previous turn",
+          tone: "tool",
+        },
+        {
+          id: "work-tool-after-message",
+          createdAt: "2026-02-23T00:00:03.000Z",
+          label: "Run command",
+          toolTitle: "Run command",
+          detail: "bun lint",
+          tone: "tool",
+        },
+      ],
+    );
+
+    expect(entries.map((entry) => entry.id)).toEqual([
+      "intent:work-intent-before-message",
+      "user-between-intent-and-tool",
+      "work-tool-after-message",
+    ]);
+    expect(entries[2]).toMatchObject({
+      kind: "work",
+      entry: expect.not.objectContaining({
+        intentText: "Wrapping up the previous turn",
+      }),
     });
   });
 

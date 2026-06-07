@@ -7,6 +7,7 @@ import {
   IsoDateTime,
   MessageId,
   NonNegativeInt,
+  PositiveInt,
   ProjectId,
   ThreadId,
   TrimmedNonEmptyString,
@@ -33,6 +34,7 @@ import {
   OrchestrationCheckpointFile,
   OrchestrationCheckpointDiffSource,
   OrchestrationCheckpointStatus,
+  OrchestrationMessage,
   SourceProposedPlanReference,
   OrchestrationProposedPlan,
   OrchestrationReadModel,
@@ -459,6 +461,49 @@ export type OrchestrationGetThreadInput = typeof OrchestrationGetThreadInput.Typ
 export const OrchestrationGetThreadResult = OrchestrationThread;
 export type OrchestrationGetThreadResult = typeof OrchestrationGetThreadResult.Type;
 
+export const OrchestrationThreadTimelineEntryKind = Schema.Literals(
+  "message",
+  "activity",
+  "proposed-plan",
+);
+export type OrchestrationThreadTimelineEntryKind =
+  typeof OrchestrationThreadTimelineEntryKind.Type;
+
+export const OrchestrationThreadTimelineEntryReference = Schema.Struct({
+  kind: OrchestrationThreadTimelineEntryKind,
+  id: TrimmedNonEmptyString,
+  createdAt: IsoDateTime,
+  index: NonNegativeInt,
+  turnId: Schema.optional(Schema.NullOr(TurnId)),
+  sequence: Schema.optional(NonNegativeInt),
+});
+export type OrchestrationThreadTimelineEntryReference =
+  typeof OrchestrationThreadTimelineEntryReference.Type;
+
+export const OrchestrationGetThreadTimelinePageInput = Schema.Struct({
+  threadId: ThreadId,
+  startIndex: NonNegativeInt,
+  limit: PositiveInt,
+});
+export type OrchestrationGetThreadTimelinePageInput =
+  typeof OrchestrationGetThreadTimelinePageInput.Type;
+
+export const OrchestrationGetThreadTimelinePageResult = Schema.Struct({
+  threadId: ThreadId,
+  updatedAt: IsoDateTime,
+  totalItems: NonNegativeInt,
+  startIndex: NonNegativeInt,
+  endIndexExclusive: NonNegativeInt,
+  hasPrevious: Schema.Boolean,
+  hasNext: Schema.Boolean,
+  entries: Schema.Array(OrchestrationThreadTimelineEntryReference),
+  messages: Schema.Array(OrchestrationMessage),
+  activities: Schema.Array(OrchestrationThreadActivity),
+  proposedPlans: Schema.Array(OrchestrationProposedPlan),
+});
+export type OrchestrationGetThreadTimelinePageResult =
+  typeof OrchestrationGetThreadTimelinePageResult.Type;
+
 export const OrchestrationGetTurnDiffInput = TurnCountRange.mapFields(
   Struct.assign({ threadId: ThreadId }),
   { unsafePreserveChecks: true },
@@ -493,6 +538,10 @@ export const OrchestrationRpcSchemas = {
   getThread: {
     input: OrchestrationGetThreadInput,
     output: OrchestrationGetThreadResult,
+  },
+  getThreadTimelinePage: {
+    input: OrchestrationGetThreadTimelinePageInput,
+    output: OrchestrationGetThreadTimelinePageResult,
   },
   dispatchCommand: {
     input: ClientOrchestrationCommand,

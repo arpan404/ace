@@ -799,6 +799,187 @@ describe("timelineRows", () => {
     ).not.toContainEqual(expect.objectContaining({ id: "old-hidden-tool" }));
   });
 
+  it("keeps hidden trailing work before the next user message", () => {
+    const turnId = TurnId.makeUnsafe("turn-trailing-work");
+    const rows = buildTimelineRows({
+      timelineEntries: [
+        {
+          id: "user-first",
+          kind: "message",
+          createdAt: "2025-01-01T00:00:00.000Z",
+          message: {
+            id: MessageId.makeUnsafe("user-first"),
+            role: "user",
+            text: "run checks",
+            createdAt: "2025-01-01T00:00:00.000Z",
+            streaming: false,
+          },
+        },
+        {
+          id: "assistant-before-trailing-work",
+          kind: "message",
+          createdAt: "2025-01-01T00:00:01.000Z",
+          message: {
+            id: MessageId.makeUnsafe("assistant-before-trailing-work"),
+            role: "assistant",
+            turnId,
+            text: "Checks are running.",
+            createdAt: "2025-01-01T00:00:01.000Z",
+            completedAt: "2025-01-01T00:00:02.000Z",
+            streaming: false,
+          },
+        },
+        {
+          id: "trailing-tool",
+          kind: "work",
+          createdAt: "2025-01-01T00:00:03.000Z",
+          entry: {
+            id: "trailing-tool",
+            createdAt: "2025-01-01T00:00:03.000Z",
+            turnId,
+            label: "Run command",
+            requestKind: "command",
+            tone: "tool",
+          },
+        },
+        {
+          id: "user-second",
+          kind: "message",
+          createdAt: "2025-01-01T00:00:10.000Z",
+          message: {
+            id: MessageId.makeUnsafe("user-second"),
+            role: "user",
+            text: "continue",
+            createdAt: "2025-01-01T00:00:10.000Z",
+            streaming: false,
+          },
+        },
+      ],
+      activeTurnInProgress: false,
+      activeTurnStartedAt: null,
+      completionDividerBeforeEntryId: null,
+      completionSummary: null,
+      hideCompletedWorkMessages: true,
+      isWorking: false,
+    });
+
+    expect(rows.map((row) => row.id)).toEqual([
+      "user-first",
+      "assistant-before-trailing-work",
+      "completed-work-summary:trailing-tool",
+      "user-second",
+    ]);
+    expect(rows[2]).toMatchObject({
+      kind: "completed-work-summary",
+      startedAt: "2025-01-01T00:00:03.000Z",
+      endedAt: "2025-01-01T00:00:03.000Z",
+      entries: [
+        expect.objectContaining({
+          kind: "work",
+          id: "trailing-tool",
+        }),
+      ],
+    });
+  });
+
+  it("splits adjacent event groups when their turn ids differ", () => {
+    const firstTurnId = TurnId.makeUnsafe("turn-event-first");
+    const secondTurnId = TurnId.makeUnsafe("turn-event-second");
+    const rows = buildTimelineRows({
+      timelineEntries: [
+        {
+          id: "first-turn-tool",
+          kind: "work",
+          createdAt: "2025-01-01T00:00:01.000Z",
+          entry: {
+            id: "first-turn-tool",
+            createdAt: "2025-01-01T00:00:01.000Z",
+            turnId: firstTurnId,
+            label: "Read file",
+            tone: "tool",
+          },
+        },
+        {
+          id: "second-turn-tool",
+          kind: "work",
+          createdAt: "2025-01-01T00:00:02.000Z",
+          entry: {
+            id: "second-turn-tool",
+            createdAt: "2025-01-01T00:00:02.000Z",
+            turnId: secondTurnId,
+            label: "Run command",
+            tone: "tool",
+          },
+        },
+      ],
+      activeTurnInProgress: false,
+      activeTurnStartedAt: null,
+      completionDividerBeforeEntryId: null,
+      completionSummary: null,
+      isWorking: false,
+    });
+
+    expect(rows).toHaveLength(2);
+    expect(rows).toEqual([
+      expect.objectContaining({
+        kind: "work-group",
+        id: "first-turn-tool",
+        entries: [expect.objectContaining({ id: "first-turn-tool" })],
+      }),
+      expect.objectContaining({
+        kind: "work-group",
+        id: "second-turn-tool",
+        entries: [expect.objectContaining({ id: "second-turn-tool" })],
+      }),
+    ]);
+  });
+
+  it("splits pending intent groups from following tools when their turn ids differ", () => {
+    const firstTurnId = TurnId.makeUnsafe("turn-intent-first");
+    const secondTurnId = TurnId.makeUnsafe("turn-intent-second");
+    const rows = buildTimelineRows({
+      timelineEntries: [
+        {
+          id: "intent-first-turn",
+          kind: "intent",
+          createdAt: "2025-01-01T00:00:01.000Z",
+          turnId: firstTurnId,
+          text: "Inspecting the previous result",
+        },
+        {
+          id: "second-turn-tool",
+          kind: "work",
+          createdAt: "2025-01-01T00:00:02.000Z",
+          entry: {
+            id: "second-turn-tool",
+            createdAt: "2025-01-01T00:00:02.000Z",
+            turnId: secondTurnId,
+            label: "Run command",
+            tone: "tool",
+          },
+        },
+      ],
+      activeTurnInProgress: false,
+      activeTurnStartedAt: null,
+      completionDividerBeforeEntryId: null,
+      completionSummary: null,
+      isWorking: false,
+    });
+
+    expect(rows).toEqual([
+      expect.objectContaining({
+        kind: "work-group",
+        id: "intent-first-turn",
+        entries: [expect.objectContaining({ id: "intent-first-turn" })],
+      }),
+      expect.objectContaining({
+        kind: "work-group",
+        id: "second-turn-tool",
+        entries: [expect.objectContaining({ id: "second-turn-tool" })],
+      }),
+    ]);
+  });
+
   it("flushes trailing hidden completed work when no assistant message follows", () => {
     const rows = buildTimelineRows({
       timelineEntries: [

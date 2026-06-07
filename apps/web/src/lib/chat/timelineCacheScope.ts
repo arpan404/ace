@@ -72,6 +72,7 @@ function timelineEntryTailToken(entry: TimelineEntry | undefined): string {
     return [
       "work",
       entry.entry.id,
+      entry.entry.turnId ?? "no-turn",
       entry.entry.sequence ?? "no-seq",
       entry.entry.status ?? "no-status",
       entry.entry.exitCode ?? "no-exit",
@@ -122,6 +123,7 @@ export function buildThreadTimelineCacheScope(input: ThreadTimelineCacheScopeInp
     contentToken(lastMessage?.text),
     input.timelineWorkEntries.length,
     lastWorkEntry?.id ?? "none",
+    lastWorkEntry?.turnId ?? "none",
     lastWorkEntry?.createdAt ?? "none",
     lastWorkEntry?.status ?? "none",
     input.timelineProposedPlans.length,

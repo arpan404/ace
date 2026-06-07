@@ -1,7 +1,7 @@
-import { MessageId, ThreadId } from "@ace/contracts";
+import { MessageId, ThreadId, TurnId } from "@ace/contracts";
 import { describe, expect, it } from "vitest";
 
-import type { TimelineEntry } from "../../session-logic/types";
+import type { TimelineEntry, WorkLogEntry } from "../../session-logic/types";
 import type { ChatMessage, Thread } from "../../types";
 import { buildThreadTimelineCacheScope } from "./timelineCacheScope";
 
@@ -49,6 +49,32 @@ function makeScope(text: string): string | null {
   });
 }
 
+function makeWorkScope(turnId: string): string | null {
+  const workEntry = {
+    id: "work-cache-scope",
+    createdAt: "2026-03-17T19:12:31.000Z",
+    turnId: TurnId.makeUnsafe(turnId),
+    label: "Run command",
+    status: "completed",
+    tone: "tool",
+  } satisfies WorkLogEntry;
+  const timelineEntry = {
+    id: workEntry.id,
+    kind: "work",
+    createdAt: workEntry.createdAt,
+    entry: workEntry,
+  } satisfies TimelineEntry;
+
+  return buildThreadTimelineCacheScope({
+    thread: baseThread,
+    timelineEntries: [timelineEntry],
+    timelineMessages: [],
+    timelineProposedPlans: [],
+    timelineWorkEntries: [workEntry],
+    turnDiffSummaries: [],
+  });
+}
+
 describe("buildThreadTimelineCacheScope", () => {
   it("is stable across equivalent remounted timeline arrays", () => {
     expect(makeScope("Start the work.")).toBe(makeScope("Start the work."));
@@ -56,5 +82,9 @@ describe("buildThreadTimelineCacheScope", () => {
 
   it("changes when tail message content changes", () => {
     expect(makeScope("Start the work.")).not.toBe(makeScope("Start the work with tests."));
+  });
+
+  it("changes when tail work turn ownership changes", () => {
+    expect(makeWorkScope("turn-cache-scope-a")).not.toBe(makeWorkScope("turn-cache-scope-b"));
   });
 });

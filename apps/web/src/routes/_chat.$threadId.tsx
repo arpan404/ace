@@ -10,6 +10,10 @@ import {
   readCachedHydratedThread,
   resolveThreadHydrationRetryDelayMs,
 } from "../lib/threadHydrationCache";
+import {
+  prefetchThreadTimelineWindows,
+  primeThreadTimelineManifestFromReadModelThread,
+} from "../lib/chat/timelineWindowStore";
 import { getThreadById, getThreadByIdFromState, useStore } from "../store";
 import { SidebarInset } from "~/components/ui/sidebar";
 import { getWsRpcClient } from "../wsRpcClient";
@@ -124,6 +128,15 @@ function ChatThreadRouteView() {
     if (cachedHydratedThread) {
       threadHydrationFailureCountRef.current = 0;
       clearThreadHydrationRetry(threadHydrationRetryTimeoutRef, threadHydrationRetryAtRef);
+      primeThreadTimelineManifestFromReadModelThread(cachedHydratedThread);
+      void prefetchThreadTimelineWindows({
+        threadId,
+        totalItemsHint:
+          cachedHydratedThread.messages.length +
+          cachedHydratedThread.activities.length +
+          cachedHydratedThread.proposedPlans.length,
+        priority: "immediate",
+      }).catch(() => undefined);
       hydrateThreadFromReadModel(cachedHydratedThread);
       return;
     }
@@ -134,14 +147,21 @@ function ChatThreadRouteView() {
     threadHydrationInFlightRef.current = threadId;
     void (async () => {
       try {
-        const readModelThread = await hydrateThreadFromCache(threadId, {
-          expectedUpdatedAt: serverThread.updatedAt ?? null,
-        });
+        const [readModelThread] = await Promise.all([
+          hydrateThreadFromCache(threadId, {
+            expectedUpdatedAt: serverThread.updatedAt ?? null,
+          }),
+          prefetchThreadTimelineWindows({
+            threadId,
+            priority: "immediate",
+          }).catch(() => undefined),
+        ]);
         if (canceled) {
           return;
         }
         threadHydrationFailureCountRef.current = 0;
         clearThreadHydrationRetry(threadHydrationRetryTimeoutRef, threadHydrationRetryAtRef);
+        primeThreadTimelineManifestFromReadModelThread(readModelThread);
         hydrateThreadFromReadModel(readModelThread);
       } catch {
         if (!canceled) {

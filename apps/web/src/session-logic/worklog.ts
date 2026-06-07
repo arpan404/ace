@@ -165,6 +165,7 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
     id: activity.id,
     createdAt: activity.createdAt,
     ...(activity.sequence !== undefined ? { sequence: activity.sequence } : {}),
+    turnId: activity.turnId,
     label: sanitizeWorkLogText(activity.summary),
     tone:
       activity.kind === "task.progress" ||
