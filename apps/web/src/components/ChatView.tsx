@@ -835,6 +835,35 @@ async function waitForBrowserBridgeController<TResult>(options: {
 
 type QueuedComposerMessage = Thread["queuedComposerMessages"][number];
 
+interface ComposerDispatchFailureContext {
+  provider: ProviderKind;
+  model: string | null;
+  visiblePromptLength: number;
+  outgoingPromptLength: number;
+  imageCount: number;
+  imageBytes: number;
+  terminalContextCount: number;
+  terminalContextChars: number;
+}
+
+function formatComposerDispatchFailureMessage(
+  error: unknown,
+  context: ComposerDispatchFailureContext,
+): string {
+  const message = error instanceof Error ? error.message : String(error);
+  if (message === "Invalid string length") {
+    const providerLabel = PROVIDER_DISPLAY_NAMES[context.provider] ?? context.provider;
+    const modelLabel = context.model?.trim() || "default";
+    return [
+      "Failed to send because Ace hit a JavaScript string-size limit while preparing the turn.",
+      `Provider: ${providerLabel}; model: ${modelLabel}.`,
+      `Payload sizes: visible prompt ${String(context.visiblePromptLength)} chars, outgoing prompt ${String(context.outgoingPromptLength)} chars, images ${String(context.imageCount)} (${String(context.imageBytes)} bytes), terminal context ${String(context.terminalContextCount)} (${String(context.terminalContextChars)} chars).`,
+    ].join(" ");
+  }
+
+  return error instanceof Error ? error.message : "Failed to send message.";
+}
+
 function describeBrowserDesignCommentTarget(submission: BrowserDesignRequestSubmission): {
   targetLabel: string;
   detailLabel: string | null;
@@ -8060,6 +8089,19 @@ function useChatViewComponent({
         effort: submissionProviderState.promptEffort,
         text: messageTextForSend || IMAGE_ONLY_BOOTSTRAP_PROMPT,
       });
+      const failureContext: ComposerDispatchFailureContext = {
+        provider: submission.modelSelection.provider,
+        model: submission.modelSelection.model,
+        visiblePromptLength: strippedPrompt.length,
+        outgoingPromptLength: outgoingMessageText.length,
+        imageCount: composerImagesSnapshot.length,
+        imageBytes: composerImagesSnapshot.reduce((total, image) => total + image.sizeBytes, 0),
+        terminalContextCount: composerTerminalContextsSnapshot.length,
+        terminalContextChars: composerTerminalContextsSnapshot.reduce(
+          (total, context) => total + context.text.length,
+          0,
+        ),
+      };
       const turnAttachmentsPromise = Promise.all(
         composerImagesSnapshot.map(async (image) => ({
           type: "image" as const,
@@ -8238,17 +8280,6 @@ function useChatViewComponent({
         turnStartSucceeded = true;
       })().catch(async (err: unknown) => {
         const promptForRestore = options?.restorePrompt ?? promptForSend;
-        if (createdServerThreadForLocalDraft && !turnStartSucceeded) {
-          await api.orchestration
-            .dispatchCommand({
-              type: "thread.delete",
-              commandId: newCommandId(),
-              threadId: threadIdForSend,
-            })
-            .catch((cleanupErr: unknown) => {
-              reportBackgroundError("Failed to clean up thread after send failure.", cleanupErr);
-            });
-        }
         if (
           !turnStartSucceeded &&
           promptRef.current.length === 0 &&
@@ -8274,10 +8305,7 @@ function useChatViewComponent({
           composerPanelsRef.current?.resetUi(promptForRestore);
         }
         options?.onFailure?.();
-        setThreadError(
-          threadIdForSend,
-          err instanceof Error ? err.message : "Failed to send message.",
-        );
+        setThreadError(threadIdForSend, formatComposerDispatchFailureMessage(err, failureContext));
       });
       sendInFlightRef.current = false;
       if (!turnStartSucceeded) {

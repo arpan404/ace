@@ -839,6 +839,9 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             )
         `;
 
+        const largeActivityPayload = { blob: "x".repeat(20_000) };
+        const largeActivityPayloadJson = JSON.stringify(largeActivityPayload);
+
         yield* sql`
           INSERT INTO projection_thread_activities (
             activity_id,
@@ -870,7 +873,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
               'info',
               'runtime.note',
               'Provider running',
-              '{"stage":"running"}',
+              ${largeActivityPayloadJson},
               '2026-03-03T00:00:07.000Z',
               2
             ),
@@ -991,6 +994,10 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           leanThread1?.activities.map((activity) => activity.id),
           [asEventId("thread-1-approval"), asEventId("thread-1-runtime-note")],
         );
+        assert.deepEqual(
+          leanThread1?.activities.map((activity) => activity.payload),
+          [{ requestId: "approval-1", requestKind: "command" }, {}],
+        );
         assert.deepEqual(leanThread1?.checkpoints, []);
         assert.deepEqual(
           leanThread2?.messages.map((message) => message.id),
@@ -999,6 +1006,15 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         assert.deepEqual(
           leanThread2?.activities.map((activity) => activity.id),
           [asEventId("thread-2-user-input")],
+        );
+        assert.deepEqual(
+          leanThread2?.activities.map((activity) => activity.payload),
+          [
+            {
+              requestId: "user-input-1",
+              questions: [{ id: "q1", header: "Question", question: "Ready?", options: [] }],
+            },
+          ],
         );
         assert.deepEqual(leanThread2?.proposedPlans, []);
         assert.deepEqual(leanThread2?.latestProposedPlanSummary, {
@@ -1035,6 +1051,10 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         assert.deepEqual(
           hydratedThread1?.activities.map((activity) => activity.id),
           [asEventId("thread-1-approval"), asEventId("thread-1-runtime-note")],
+        );
+        assert.deepEqual(
+          hydratedThread1?.activities.map((activity) => activity.payload),
+          [{ requestId: "approval-1", requestKind: "command" }, largeActivityPayload],
         );
         assert.equal(hydratedThread1?.checkpoints.length, 1);
         assert.deepEqual(

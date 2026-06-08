@@ -158,6 +158,7 @@ const MAX_THREAD_TIMELINE_PAGE_CACHE_BYTES = 96 * 1024 * 1024;
 const DEFAULT_THREAD_TIMELINE_PAGE_SIZE = 128;
 const MAX_THREAD_TIMELINE_PAGE_SIZE = 4000;
 const INITIAL_SNAPSHOT_ACTIVITY_LIMIT_PER_THREAD = 32;
+const INITIAL_SNAPSHOT_ACTIVITY_PAYLOAD_MAX_BYTES = 16 * 1024;
 
 interface ThreadTimelinePageCacheEntry {
   readonly page: OrchestrationGetThreadTimelinePageResult;
@@ -990,7 +991,11 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           activity.tone,
           activity.kind,
           activity.summary,
-          activity.payload_json AS "payload",
+          CASE
+            WHEN length(activity.payload_json) <= ${INITIAL_SNAPSHOT_ACTIVITY_PAYLOAD_MAX_BYTES}
+              THEN activity.payload_json
+            ELSE '{}'
+          END AS "payload",
           activity.sequence,
           activity.created_at AS "createdAt"
         FROM projection_threads AS thread
