@@ -17,6 +17,7 @@ import {
   startTransition,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -171,6 +172,8 @@ const TIMELINE_BASE_PREFETCH_EDGE_ROWS = Math.max(TIMELINE_VIRTUALIZER_OVERSCAN 
 const ASSISTANT_MESSAGE_ROW_SELECTOR = '[data-message-role="assistant"][data-message-id]';
 const PINNED_SELECTION_TEXT_BLOCK_SELECTOR =
   "blockquote,div,h1,h2,h3,h4,h5,h6,li,ol,p,pre,section,table,tbody,td,tfoot,th,thead,tr,ul";
+const PREPENDED_TIMELINE_ROW_ANIMATION_LIMIT = 64;
+const PREPENDED_TIMELINE_ROW_ANIMATION_MS = 320;
 
 export function resolveTimelineScrollPrefetchLookaheadRows(velocityPxPerMs: number): number {
   const velocity = Math.max(0, Number.isFinite(velocityPxPerMs) ? velocityPxPerMs : 0);
@@ -258,6 +261,13 @@ type AssistantSelectionPinTarget = {
   text: string;
   top: number;
 };
+
+interface TimelinePrependAnchorSnapshot {
+  readonly firstRowId: string | null;
+  readonly rowCount: number;
+  readonly scrollHeight: number;
+  readonly scrollTop: number;
+}
 
 type TargetMessageNavigation = {
   messageId: string;
@@ -1000,6 +1010,55 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     shouldResolveAsync: shouldResolveTimelineRowsAsync,
     syncRows: syncTimelineRows,
   });
+  const prependAnchorSnapshotRef = useRef<TimelinePrependAnchorSnapshot | null>(null);
+  const prependedRowAnimationTimeoutRef = useRef<number | null>(null);
+  const [animatedPrependedRowIds, setAnimatedPrependedRowIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+
+  useLayoutEffect(() => {
+    const scrollContainer = getScrollContainer();
+    const previous = prependAnchorSnapshotRef.current;
+    if (scrollContainer && previous && previous.firstRowId && rows.length > previous.rowCount) {
+      const previousFirstRowNextIndex = rows.findIndex((row) => row.id === previous.firstRowId);
+      if (previousFirstRowNextIndex > 0) {
+        const scrollHeightDelta = scrollContainer.scrollHeight - previous.scrollHeight;
+        if (Number.isFinite(scrollHeightDelta) && scrollHeightDelta > 0) {
+          scrollContainer.scrollTop = Math.max(0, previous.scrollTop + scrollHeightDelta);
+        }
+
+        const animatedRowIds = new Set(
+          rows
+            .slice(0, Math.min(previousFirstRowNextIndex, PREPENDED_TIMELINE_ROW_ANIMATION_LIMIT))
+            .map((row) => row.id),
+        );
+        setAnimatedPrependedRowIds(animatedRowIds);
+        if (prependedRowAnimationTimeoutRef.current !== null) {
+          window.clearTimeout(prependedRowAnimationTimeoutRef.current);
+        }
+        prependedRowAnimationTimeoutRef.current = window.setTimeout(() => {
+          prependedRowAnimationTimeoutRef.current = null;
+          setAnimatedPrependedRowIds(new Set());
+        }, PREPENDED_TIMELINE_ROW_ANIMATION_MS);
+      }
+    }
+
+    prependAnchorSnapshotRef.current = {
+      firstRowId: rows[0]?.id ?? null,
+      rowCount: rows.length,
+      scrollHeight: scrollContainer?.scrollHeight ?? 0,
+      scrollTop: scrollContainer?.scrollTop ?? 0,
+    };
+  }, [getScrollContainer, rows]);
+
+  useEffect(
+    () => () => {
+      if (prependedRowAnimationTimeoutRef.current !== null) {
+        window.clearTimeout(prependedRowAnimationTimeoutRef.current);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     if (cachedTimelineRows) {
@@ -2027,6 +2086,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       ref={setTimelineRootElement}
       data-timeline-root="true"
       className="mx-auto w-full min-w-0 max-w-3xl overflow-x-hidden"
+      style={{ overflowAnchor: "none" }}
       onKeyUp={updateSelectionPinTarget}
       onMouseUp={updateSelectionPinTarget}
     >
@@ -2059,7 +2119,10 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                 key={`row:${row.id}`}
                 ref={rowVirtualizer.measureElement}
                 data-index={virtualRow.index}
-                className="absolute top-0 left-0 flow-root w-full"
+                className={cn(
+                  "absolute top-0 left-0 flow-root w-full",
+                  animatedPrependedRowIds.has(row.id) && "timeline-row-prepended",
+                )}
                 style={{ transform: `translateY(${virtualRow.start}px)` }}
               >
                 {buildRowContent(row, virtualRow.index)}
@@ -2069,11 +2132,21 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         </div>
       ) : (
         virtualizedRows.map((row, index) => (
-          <div key={`row:${row.id}`}>{buildRowContent(row, index)}</div>
+          <div
+            key={`row:${row.id}`}
+            className={cn(animatedPrependedRowIds.has(row.id) && "timeline-row-prepended")}
+          >
+            {buildRowContent(row, index)}
+          </div>
         ))
       )}
       {trailingRows.map((row, index) => (
-        <div key={`row:${row.id}`}>{buildRowContent(row, virtualizedRows.length + index)}</div>
+        <div
+          key={`row:${row.id}`}
+          className={cn(animatedPrependedRowIds.has(row.id) && "timeline-row-prepended")}
+        >
+          {buildRowContent(row, virtualizedRows.length + index)}
+        </div>
       ))}
     </div>
   );
