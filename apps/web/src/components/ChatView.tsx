@@ -205,6 +205,7 @@ import {
   deriveThreadActivityRenderState,
   deriveThreadTimelineRenderState,
 } from "~/lib/chat/threadRenderState";
+import { isPagedThreadTimelineUsable } from "~/lib/chat/pagedTimelineCompleteness";
 import {
   buildThreadTimelineCacheScope,
   deriveThreadCompletionSummary,
@@ -2935,10 +2936,21 @@ function useChatViewComponent({
       return null;
     }
 
+    const pagedMessages = activeThreadTimelinePages.flatMap((page) =>
+      page.messages.map(toPagedChatMessage),
+    );
+    if (
+      !isPagedThreadTimelineUsable({
+        latestTurn: activeThread.latestTurn,
+        leanMessages: activeThreadMessages,
+        pagedMessages,
+      })
+    ) {
+      return null;
+    }
+
     const messageById = new Map(
-      activeThreadTimelinePages.flatMap((page) =>
-        page.messages.map((message) => [String(message.id), toPagedChatMessage(message)] as const),
-      ),
+      pagedMessages.map((message) => [String(message.id), message] as const),
     );
     const activityById = new Map(
       activeThreadTimelinePages.flatMap((page) =>
@@ -3002,6 +3014,14 @@ function useChatViewComponent({
         historicalMessageIds: new Set<MessageId>(),
       };
     }
+    if (isThreadHistoryLoading) {
+      return {
+        messages: [],
+        proposedPlans: [],
+        workEntries: [],
+        historicalMessageIds: new Set<MessageId>(),
+      };
+    }
     if (!activeThread) {
       return {
         messages: activeThreadMessages,
@@ -3030,6 +3050,7 @@ function useChatViewComponent({
     activeThreadMessages,
     activityVisibilitySettings,
     handoffLineage,
+    isThreadHistoryLoading,
     isServerThread,
     pagedThreadTimeline,
     workLogEntries,

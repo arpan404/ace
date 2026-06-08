@@ -191,6 +191,31 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(result.rows).toBe(retainedRows);
   });
 
+  it("does not keep retained rows visible while thread history is loading", async () => {
+    const { resolveVisibleTimelineRows } = await import("./MessagesTimeline");
+    const retainedRows = [
+      {
+        id: "previous-user-row",
+        kind: "message",
+      },
+    ] as unknown as ReturnType<typeof resolveVisibleTimelineRows>["rows"];
+
+    const result = resolveVisibleTimelineRows({
+      activeThreadId: "thread-1",
+      retainedRows: {
+        activeThreadId: "thread-1",
+        rows: retainedRows,
+      },
+      retainRowsWhileLoading: false,
+      resolvedAsyncRows: null,
+      shouldResolveAsync: true,
+      syncRows: [],
+    });
+
+    expect(result.loading).toBe(true);
+    expect(result.rows).toEqual([]);
+  });
+
   it("uses sync rows while async row caching is pending", async () => {
     const { resolveVisibleTimelineRows } = await import("./MessagesTimeline");
     const syncRows = [
@@ -299,7 +324,7 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
 
     const markup = renderToStaticMarkup(<TimelineRowsLoadingFallback />);
 
-    expect(markup).toContain("Restoring conversation");
+    expect(markup).toContain("Fetching thread");
     expect(markup).not.toContain("animate-pulse");
     expect(markup).not.toContain("rounded-full bg-muted");
   });

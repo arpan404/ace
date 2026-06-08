@@ -451,7 +451,7 @@ export function TimelineRowsLoadingFallback() {
       aria-label="Loading conversation"
     >
       <div className="rounded-full border border-border/45 bg-card/80 px-3 py-1.5 text-[11px] text-muted-foreground shadow-sm shadow-background/20">
-        Restoring conversation…
+        Fetching thread…
       </div>
     </div>
   );
@@ -464,6 +464,7 @@ export function resolveVisibleTimelineRows(input: {
     readonly rows: ReadonlyArray<TimelineRow>;
   } | null;
   readonly resolvedAsyncRows: ReadonlyArray<TimelineRow> | null;
+  readonly retainRowsWhileLoading?: boolean;
   readonly shouldResolveAsync: boolean;
   readonly syncRows: ReadonlyArray<TimelineRow>;
 }): { readonly loading: boolean; readonly rows: ReadonlyArray<TimelineRow> } {
@@ -489,6 +490,7 @@ export function resolveVisibleTimelineRows(input: {
   }
 
   if (
+    input.retainRowsWhileLoading !== false &&
     input.activeThreadId &&
     input.retainedRows?.activeThreadId === input.activeThreadId &&
     input.retainedRows.rows.length > 0
@@ -939,6 +941,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const { loading: timelineRowsLoading, rows } = resolveVisibleTimelineRows({
     activeThreadId: activeThreadId ?? null,
     retainedRows: retainedTimelineRows,
+    retainRowsWhileLoading: !isThreadHistoryLoading,
     resolvedAsyncRows: resolvedAsyncTimelineRows,
     shouldResolveAsync: shouldResolveTimelineRowsAsync,
     syncRows: syncTimelineRows,
