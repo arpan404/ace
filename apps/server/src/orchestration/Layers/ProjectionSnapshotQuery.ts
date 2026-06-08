@@ -26,6 +26,7 @@ import {
   type OrchestrationSession,
   OrchestrationThread,
   OrchestrationThreadTimelineEntryKind,
+  type OrchestrationThreadTimelineEntryReference,
   type OrchestrationThreadActivity,
   ModelSelection,
   ProviderIntegrationCapabilities,
@@ -58,7 +59,6 @@ import { ProjectionThreadSession } from "../../persistence/Services/ProjectionTh
 import { ProjectionThread } from "../../persistence/Services/ProjectionThreads.ts";
 import { defaultProviderIntegrationCapabilities } from "../../provider/providerCapabilities.ts";
 import { ORCHESTRATION_PROJECTOR_NAMES } from "./ProjectionPipeline.ts";
-import { buildThreadTimelinePage } from "../threadTimelinePage.ts";
 import {
   ProjectionSnapshotQuery,
   type ProjectionSnapshotCounts,
@@ -153,9 +153,10 @@ const ProviderSessionRuntimeDbRowSchema = Schema.Struct({
 });
 type ProviderSessionRuntimeDbRow = Schema.Schema.Type<typeof ProviderSessionRuntimeDbRowSchema>;
 
-const MAX_THREAD_TIMELINE_PAGE_CACHE_ENTRIES = 256;
-const MAX_THREAD_TIMELINE_PAGE_CACHE_BYTES = 32 * 1024 * 1024;
+const MAX_THREAD_TIMELINE_PAGE_CACHE_ENTRIES = 128;
+const MAX_THREAD_TIMELINE_PAGE_CACHE_BYTES = 96 * 1024 * 1024;
 const DEFAULT_THREAD_TIMELINE_PAGE_SIZE = 128;
+const MAX_THREAD_TIMELINE_PAGE_SIZE = 4000;
 const INITIAL_SNAPSHOT_ACTIVITY_LIMIT_PER_THREAD = 32;
 
 interface ThreadTimelinePageCacheEntry {
@@ -207,6 +208,11 @@ const ProjectionStateDbRowSchema = ProjectionState;
 const ProjectionCountsRowSchema = Schema.Struct({
   projectCount: Schema.Number,
   threadCount: Schema.Number,
+});
+const ProjectionThreadTimelineManifestRowSchema = Schema.Struct({
+  threadId: ThreadId,
+  updatedAt: IsoDateTime,
+  totalItems: NonNegativeInt,
 });
 const WorkspaceRootLookupInput = Schema.Struct({
   workspaceRoot: Schema.String,
@@ -1010,14 +1016,23 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       `,
   });
 
-  const getThreadTimelineItemCount = SqlSchema.findOne({
+  const getThreadTimelineManifestRow = SqlSchema.findOneOption({
     Request: ThreadIdLookupInput,
-    Result: Schema.Struct({ totalItems: NonNegativeInt }),
+    Result: ProjectionThreadTimelineManifestRowSchema,
     execute: ({ threadId }) =>
       sql`
-        SELECT COUNT(*) AS "totalItems"
-        FROM projection_thread_timeline_entries
-        WHERE thread_id = ${threadId}
+        SELECT
+          thread.thread_id AS "threadId",
+          thread.updated_at AS "updatedAt",
+          (
+            SELECT COUNT(*)
+            FROM projection_thread_timeline_entries
+            WHERE thread_id = thread.thread_id
+          ) AS "totalItems"
+        FROM projection_threads AS thread
+        WHERE thread.thread_id = ${threadId}
+          AND thread.deleted_at IS NULL
+        LIMIT 1
       `,
   });
 
@@ -1026,101 +1041,98 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     Result: ProjectionThreadTimelinePageRowSchema,
     execute: (input) => {
       const startIndex = Math.max(0, Math.trunc(input.startIndex));
-      const limit = Math.min(256, Math.max(1, Math.trunc(input.limit)));
-      const endIndexExclusive = startIndex + limit;
+      const limit = Math.min(MAX_THREAD_TIMELINE_PAGE_SIZE, Math.max(1, Math.trunc(input.limit)));
       return sql`
+        WITH ordered_timeline AS (
+          SELECT
+            timeline_index,
+            kind,
+            source_id,
+            turn_id,
+            sequence,
+            created_at,
+            ROW_NUMBER() OVER (ORDER BY timeline_index ASC) - 1 AS timeline_position
+          FROM projection_thread_timeline_entries
+          WHERE thread_id = ${input.threadId}
+        ),
+        selected_timeline AS (
+          SELECT
+            timeline_index,
+            kind,
+            source_id,
+            turn_id,
+            sequence,
+            created_at,
+            timeline_position
+          FROM ordered_timeline
+          ORDER BY timeline_index ASC
+          LIMIT ${limit}
+          OFFSET ${startIndex}
+        ),
+        selected_turns AS (
+          SELECT DISTINCT turn_id
+          FROM selected_timeline
+          WHERE turn_id IS NOT NULL
+        ),
+        expanded_timeline AS (
+          SELECT
+            timeline_index,
+            kind,
+            source_id,
+            turn_id,
+            sequence,
+            created_at,
+            timeline_position
+          FROM ordered_timeline
+          WHERE timeline_position IN (SELECT timeline_position FROM selected_timeline)
+            OR turn_id IN (SELECT turn_id FROM selected_turns)
+        )
         SELECT
-          t.kind,
-          t.source_id AS id,
-          t.turn_id AS "turnId",
-          t.sequence,
-          t.created_at AS "createdAt",
-          t.timeline_index AS "timelineIndex",
+          expanded_timeline.kind,
+          expanded_timeline.source_id AS id,
+          expanded_timeline.turn_id AS "turnId",
+          expanded_timeline.sequence,
+          expanded_timeline.created_at AS "createdAt",
+          expanded_timeline.timeline_position AS "timelineIndex",
           (
             SELECT COUNT(*)
-            FROM projection_thread_timeline_entries
-            WHERE thread_id = ${input.threadId}
+            FROM projection_thread_timeline_entries AS counted_timeline
+            WHERE counted_timeline.thread_id = ${input.threadId}
           ) AS "totalItems",
-          m.role AS "messageRole",
-          m.text AS "messageText",
-          m.attachments_json AS "messageAttachments",
-          m.is_streaming AS "messageIsStreaming",
-          m.updated_at AS "messageUpdatedAt",
-          a.tone AS "activityTone",
-          a.kind AS "activityKind",
-          a.summary AS "activitySummary",
-          a.payload_json AS "activityPayload",
-          p.plan_markdown AS "planMarkdown",
-          p.implemented_at AS "planImplementedAt",
-          p.implementation_thread_id AS "planImplementationThreadId",
-          p.updated_at AS "planUpdatedAt"
-        FROM projection_thread_timeline_entries t
-        LEFT JOIN projection_thread_messages m
-          ON t.kind = 'message'
-          AND m.thread_id = t.thread_id
-          AND m.message_id = t.source_id
-        LEFT JOIN projection_thread_activities a
-          ON t.kind = 'activity'
-          AND a.thread_id = t.thread_id
-          AND a.activity_id = t.source_id
-        LEFT JOIN projection_thread_proposed_plans p
-          ON t.kind = 'proposed-plan'
-          AND p.thread_id = t.thread_id
-          AND p.plan_id = t.source_id
-        WHERE t.thread_id = ${input.threadId}
-          AND t.timeline_index >= ${startIndex}
-          AND t.timeline_index < ${endIndexExclusive}
-        ORDER BY t.timeline_index ASC
+          message.role AS "messageRole",
+          message.text AS "messageText",
+          message.attachments_json AS "messageAttachments",
+          message.is_streaming AS "messageIsStreaming",
+          message.updated_at AS "messageUpdatedAt",
+          activity.tone AS "activityTone",
+          activity.kind AS "activityKind",
+          activity.summary AS "activitySummary",
+          activity.payload_json AS "activityPayload",
+          proposed_plan.plan_markdown AS "planMarkdown",
+          proposed_plan.implemented_at AS "planImplementedAt",
+          proposed_plan.implementation_thread_id AS "planImplementationThreadId",
+          proposed_plan.updated_at AS "planUpdatedAt"
+        FROM expanded_timeline
+        LEFT JOIN projection_thread_messages AS message
+          ON expanded_timeline.kind = 'message'
+          AND message.thread_id = ${input.threadId}
+          AND message.message_id = expanded_timeline.source_id
+        LEFT JOIN projection_thread_activities AS activity
+          ON expanded_timeline.kind = 'activity'
+          AND activity.thread_id = ${input.threadId}
+          AND activity.activity_id = expanded_timeline.source_id
+        LEFT JOIN projection_thread_proposed_plans AS proposed_plan
+          ON expanded_timeline.kind = 'proposed-plan'
+          AND proposed_plan.thread_id = ${input.threadId}
+          AND proposed_plan.plan_id = expanded_timeline.source_id
+        WHERE (
+            message.message_id IS NOT NULL
+            OR activity.activity_id IS NOT NULL
+            OR proposed_plan.plan_id IS NOT NULL
+          )
+        ORDER BY expanded_timeline.timeline_position ASC
       `;
     },
-  });
-
-  const listThreadTimelineRowsByThread = SqlSchema.findAll({
-    Request: ThreadIdLookupInput,
-    Result: ProjectionThreadTimelinePageRowSchema,
-    execute: ({ threadId }) =>
-      sql`
-        SELECT
-          t.kind,
-          t.source_id AS id,
-          t.turn_id AS "turnId",
-          t.sequence,
-          t.created_at AS "createdAt",
-          t.timeline_index AS "timelineIndex",
-          (
-            SELECT COUNT(*)
-            FROM projection_thread_timeline_entries
-            WHERE thread_id = ${threadId}
-          ) AS "totalItems",
-          m.role AS "messageRole",
-          m.text AS "messageText",
-          m.attachments_json AS "messageAttachments",
-          m.is_streaming AS "messageIsStreaming",
-          m.updated_at AS "messageUpdatedAt",
-          a.tone AS "activityTone",
-          a.kind AS "activityKind",
-          a.summary AS "activitySummary",
-          a.payload_json AS "activityPayload",
-          p.plan_markdown AS "planMarkdown",
-          p.implemented_at AS "planImplementedAt",
-          p.implementation_thread_id AS "planImplementationThreadId",
-          p.updated_at AS "planUpdatedAt"
-        FROM projection_thread_timeline_entries t
-        LEFT JOIN projection_thread_messages m
-          ON t.kind = 'message'
-          AND m.thread_id = t.thread_id
-          AND m.message_id = t.source_id
-        LEFT JOIN projection_thread_activities a
-          ON t.kind = 'activity'
-          AND a.thread_id = t.thread_id
-          AND a.activity_id = t.source_id
-        LEFT JOIN projection_thread_proposed_plans p
-          ON t.kind = 'proposed-plan'
-          AND p.thread_id = t.thread_id
-          AND p.plan_id = t.source_id
-        WHERE t.thread_id = ${threadId}
-        ORDER BY t.timeline_index ASC
-      `,
   });
 
   const listThreadSessionRows = SqlSchema.findAll({
@@ -1923,19 +1935,22 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     input: OrchestrationGetThreadTimelineManifestInput,
   ) =>
     Effect.gen(function* () {
-      const thread = yield* getThread(input.threadId);
-      if (Option.isNone(thread)) {
+      const row = yield* getThreadTimelineManifestRow({ threadId: input.threadId }).pipe(
+        Effect.mapError(
+          toPersistenceSqlOrDecodeError(
+            "ProjectionSnapshotQuery.getThreadTimelineManifest:query",
+            "ProjectionSnapshotQuery.getThreadTimelineManifest:decodeRow",
+          ),
+        ),
+      );
+      if (Option.isNone(row)) {
         return Option.none<OrchestrationGetThreadTimelineManifestResult>();
       }
-      const totalItems =
-        thread.value.messages.length +
-        thread.value.activities.length +
-        thread.value.proposedPlans.length;
       const manifest = {
         threadId: input.threadId,
-        updatedAt: thread.value.updatedAt,
-        totalItems,
-        tailStartIndex: Math.max(0, totalItems - DEFAULT_THREAD_TIMELINE_PAGE_SIZE),
+        updatedAt: row.value.updatedAt,
+        totalItems: row.value.totalItems,
+        tailStartIndex: Math.max(0, row.value.totalItems - DEFAULT_THREAD_TIMELINE_PAGE_SIZE),
       };
       const decodedManifest = yield* decodeThreadTimelineManifest(manifest).pipe(
         Effect.mapError(
@@ -1949,16 +1964,82 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
 
   const getThreadTimelinePage: ProjectionSnapshotQueryShape["getThreadTimelinePage"] = (input) =>
     Effect.gen(function* () {
-      const thread = yield* getThread(input.threadId);
-      if (Option.isNone(thread)) {
+      const manifest = yield* getThreadTimelineManifest(input);
+      if (Option.isNone(manifest)) {
         return Option.none<OrchestrationGetThreadTimelinePageResult>();
       }
-      const page = buildThreadTimelinePage(thread.value, input);
+      const startIndex = Math.min(
+        Math.max(0, Math.trunc(input.startIndex)),
+        manifest.value.totalItems,
+      );
+      const limit = Math.min(MAX_THREAD_TIMELINE_PAGE_SIZE, Math.max(1, Math.trunc(input.limit)));
+      const cacheKey = buildThreadTimelinePageCacheKey({
+        threadId: input.threadId,
+        updatedAt: manifest.value.updatedAt,
+        startIndex,
+        limit,
+      });
+      const cachedPage = readThreadTimelinePageCache(threadTimelinePageCache, cacheKey);
+      if (cachedPage) {
+        return Option.some(cachedPage);
+      }
+      const rows = yield* listThreadTimelinePageRows({
+        threadId: input.threadId,
+        startIndex,
+        limit,
+      }).pipe(
+        Effect.mapError(
+          toPersistenceSqlOrDecodeError(
+            "ProjectionSnapshotQuery.getThreadTimelinePage:query",
+            "ProjectionSnapshotQuery.getThreadTimelinePage:decodeRows",
+          ),
+        ),
+      );
+      const content = collectTimelineContent(rows);
+      const entries: OrchestrationThreadTimelineEntryReference[] = rows.map((row) => ({
+        kind: row.kind,
+        id: row.id,
+        createdAt: row.createdAt,
+        index: row.timelineIndex,
+        ...(row.turnId !== null ? { turnId: row.turnId } : {}),
+        ...(row.sequence !== null ? { sequence: row.sequence } : {}),
+      }));
+      const firstEntryIndex = entries[0]?.index ?? startIndex;
+      const lastEntryIndex = entries.at(-1)?.index ?? firstEntryIndex - 1;
+      const pageStartIndex = Math.max(0, firstEntryIndex);
+      const pageEndIndexExclusive =
+        entries.length === 0
+          ? Math.min(manifest.value.totalItems, startIndex)
+          : Math.min(manifest.value.totalItems, lastEntryIndex + 1);
+      const page = {
+        threadId: input.threadId,
+        updatedAt: manifest.value.updatedAt,
+        totalItems: manifest.value.totalItems,
+        startIndex: pageStartIndex,
+        endIndexExclusive: pageEndIndexExclusive,
+        hasPrevious: pageStartIndex > 0,
+        hasNext: pageEndIndexExclusive < manifest.value.totalItems,
+        entries,
+        messages: content.messages,
+        activities: content.activities,
+        proposedPlans: content.proposedPlans,
+      };
       const decodedPage = yield* decodeThreadTimelinePage(page).pipe(
         Effect.mapError(
           toPersistenceDecodeError("ProjectionSnapshotQuery.getThreadTimelinePage:decodePage"),
         ),
       );
+      threadTimelinePageCacheSize = pruneThreadTimelinePageCacheForThread(
+        threadTimelinePageCache,
+        input.threadId,
+        manifest.value.updatedAt,
+      );
+      threadTimelinePageCacheSize = writeThreadTimelinePageCache({
+        cache: threadTimelinePageCache,
+        currentSize: threadTimelinePageCacheSize,
+        key: cacheKey,
+        page: decodedPage,
+      });
       return Option.some(decodedPage);
     });
 

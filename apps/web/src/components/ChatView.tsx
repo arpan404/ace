@@ -19,6 +19,7 @@ import {
   type TurnId,
   type KeybindingCommand,
   OrchestrationThreadActivity,
+  type OrchestrationMessage,
   ProviderInteractionMode,
   RuntimeMode,
   TerminalOpenInput,
@@ -129,11 +130,13 @@ import {
   type Thread,
 } from "../types";
 import { isMemoryPressureAtLeast, subscribeToMemoryPressure } from "../lib/memoryPressure";
+import { createChatMessageStreamingTextState } from "../lib/chat/messageText";
+import { hydrateThreadFromCache } from "../lib/threadHydrationCache";
 import {
-  hydrateThreadFromCache,
-  readCachedHydratedThread,
-  resolveThreadHydrationRetryDelayMs,
-} from "../lib/threadHydrationCache";
+  prefetchThreadTimelineWindows,
+  readLoadedThreadTimelinePages,
+  useTimelineWindowStore,
+} from "../lib/chat/timelineWindowStore";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useTheme } from "../hooks/useTheme";
 import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
@@ -866,6 +869,31 @@ const EMPTY_VISIBLE_BOARD_THREAD_IDS: readonly ThreadId[] = [];
 const EMPTY_THREAD_LAST_VISITED_AT_BY_ID: Readonly<Record<string, string>> = {};
 const RECENT_HYDRATED_THREAD_HISTORY_KEEP_COUNT = 8;
 
+function toPagedChatMessage(message: OrchestrationMessage): ChatMessage {
+  const attachments = message.attachments?.map((attachment) => ({
+    type: "image" as const,
+    id: attachment.id,
+    name: attachment.name,
+    mimeType: attachment.mimeType,
+    sizeBytes: attachment.sizeBytes,
+  }));
+
+  return {
+    id: message.id,
+    role: message.role,
+    text: message.streaming ? "" : message.text,
+    ...(message.streaming
+      ? { streamingTextState: createChatMessageStreamingTextState(message.text) }
+      : {}),
+    turnId: message.turnId,
+    createdAt: message.createdAt,
+    ...(message.sequence !== undefined ? { sequence: message.sequence } : {}),
+    streaming: message.streaming,
+    ...(message.streaming ? {} : { completedAt: message.updatedAt }),
+    ...(attachments && attachments.length > 0 ? { attachments } : {}),
+  };
+}
+
 type BrowserPanelInstance = {
   key: string;
   inAppBrowserProps: ComponentProps<typeof InAppBrowser>;
@@ -1342,6 +1370,9 @@ function useChatViewComponent({
   const activeThreadLastVisitedAt = useUiStateStore((store) =>
     ownsGlobalSideEffects ? store.threadLastVisitedAtById[threadId] : undefined,
   );
+  const timelinePageCacheRevision = useTimelineWindowStore((store) =>
+    ownsGlobalSideEffects ? store.pageCacheRevision : 0,
+  );
   const defaultThreadEnvMode = useSetting("defaultThreadEnvMode");
   const enableThinkingStreaming = useSetting("enableThinkingStreaming");
   const enableToolStreaming = useSetting("enableToolStreaming");
@@ -1685,10 +1716,6 @@ function useChatViewComponent({
   const messagesScrollRef = useRef<HTMLDivElement>(null);
   const shouldAutoScrollRef = useRef(true);
   const previousThreadIdRef = useRef<ThreadId | null>(null);
-  const directThreadHydrationInFlightRef = useRef<ThreadId | null>(null);
-  const directThreadHydrationRequestTokenRef = useRef(0);
-  const directThreadHydrationFailureCountRef = useRef(0);
-  const directThreadHydrationRetryTimeoutRef = useRef<number | null>(null);
   const lastKnownScrollTopRef = useRef(0);
   const isPointerScrollActiveRef = useRef(false);
   const lastTouchClientYRef = useRef<number | null>(null);
@@ -1992,7 +2019,7 @@ function useChatViewComponent({
   );
   const handoffMissingThreadId = handoffLineage?.missingThreadId ?? null;
   const handoffHasCycle = handoffLineage?.hasCycle ?? false;
-  const isThreadHistoryLoading = isServerThread && activeThread?.historyLoaded === false;
+  const isThreadHistoryLean = isServerThread && activeThread?.historyLoaded === false;
   const canCheckoutPullRequestIntoThread = isLocalDraftThread;
   const routeWorkspaceMode: ThreadWorkspaceMode =
     !splitPane && (rawSearch.mode === "editor" || rawSearch.mode === "split")
@@ -2039,76 +2066,15 @@ function useChatViewComponent({
     trackedActiveThreadId === activeThreadId ? previousActiveThreadId : trackedActiveThreadId;
   const recentThreadHistoryThread = useThreadById(recentThreadHistoryKeepId);
   const recentThreadHistoryHydrationInFlightRef = useRef<ThreadId | null>(null);
-  const clearDirectThreadHydrationRetryTimeout = useCallback(() => {
-    if (directThreadHydrationRetryTimeoutRef.current === null) {
-      return;
-    }
-    window.clearTimeout(directThreadHydrationRetryTimeoutRef.current);
-    directThreadHydrationRetryTimeoutRef.current = null;
-  }, []);
-  const syncHydratedThreadFromCache = useEffectEvent(
-    (thread: Parameters<typeof hydrateThreadFromReadModel>[0]) => {
-      directThreadHydrationRequestTokenRef.current += 1;
-      directThreadHydrationFailureCountRef.current = 0;
-      clearDirectThreadHydrationRetryTimeout();
-      if (directThreadHydrationInFlightRef.current === thread.id) {
-        directThreadHydrationInFlightRef.current = null;
-      }
-      hydrateThreadFromReadModel(thread);
-    },
-  );
   const attemptDirectThreadHydration = useEffectEvent(
     (thread: NonNullable<typeof serverThread>) => {
       if (thread.historyLoaded !== false) {
         return;
       }
-      const cachedHydratedThread = thread.updatedAt
-        ? readCachedHydratedThread(thread.id, thread.updatedAt)
-        : null;
-      if (cachedHydratedThread) {
-        syncHydratedThreadFromCache(cachedHydratedThread);
-        return;
-      }
-      if (
-        directThreadHydrationInFlightRef.current === thread.id ||
-        directThreadHydrationRetryTimeoutRef.current !== null
-      ) {
-        return;
-      }
-
-      const requestToken = ++directThreadHydrationRequestTokenRef.current;
-      directThreadHydrationInFlightRef.current = thread.id;
-      void (async () => {
-        try {
-          const readModelThread = await hydrateThreadFromCache(thread.id, {
-            expectedUpdatedAt: thread.updatedAt ?? null,
-          });
-          if (directThreadHydrationRequestTokenRef.current !== requestToken) {
-            return;
-          }
-          syncHydratedThreadFromCache(readModelThread);
-        } catch {
-          if (directThreadHydrationRequestTokenRef.current !== requestToken) {
-            return;
-          }
-          const nextFailureCount = directThreadHydrationFailureCountRef.current + 1;
-          directThreadHydrationFailureCountRef.current = nextFailureCount;
-          clearDirectThreadHydrationRetryTimeout();
-          directThreadHydrationRetryTimeoutRef.current = window.setTimeout(() => {
-            if (directThreadHydrationRetryTimeoutRef.current !== null) {
-              directThreadHydrationRetryTimeoutRef.current = null;
-            }
-            attemptDirectThreadHydration(thread);
-          }, resolveThreadHydrationRetryDelayMs(nextFailureCount));
-        } finally {
-          if (
-            directThreadHydrationInFlightRef.current === thread.id &&
-            directThreadHydrationRequestTokenRef.current === requestToken
-          ) {
-            directThreadHydrationInFlightRef.current = null;
-          }
-        }
-      })();
+      void prefetchThreadTimelineWindows({
+        threadId: thread.id,
+        priority: "immediate",
+      }).catch(() => undefined);
     },
   );
   const hydratedThreadHistoryKeepIds = useMemo<ThreadId[]>(
@@ -2166,18 +2132,6 @@ function useChatViewComponent({
   }, [activeThreadId, ownsGlobalSideEffects, trackActiveThread]);
 
   useEffect(() => {
-    directThreadHydrationRequestTokenRef.current += 1;
-    directThreadHydrationInFlightRef.current = null;
-    directThreadHydrationFailureCountRef.current = 0;
-    clearDirectThreadHydrationRetryTimeout();
-  }, [
-    clearDirectThreadHydrationRetryTimeout,
-    serverThread?.historyLoaded,
-    serverThread?.id,
-    serverThread?.updatedAt,
-  ]);
-
-  useEffect(() => {
     if (!serverThread || serverThread.historyLoaded !== false) {
       return;
     }
@@ -2194,17 +2148,6 @@ function useChatViewComponent({
       return;
     }
 
-    const cachedHydratedThread =
-      recentThreadHistoryThread.updatedAt === undefined
-        ? null
-        : readCachedHydratedThread(recentThreadHistoryKeepId, recentThreadHistoryThread.updatedAt);
-    if (cachedHydratedThread) {
-      startTransition(() => {
-        hydrateThreadFromReadModel(cachedHydratedThread);
-      });
-      return;
-    }
-
     if (recentThreadHistoryHydrationInFlightRef.current === recentThreadHistoryKeepId) {
       return;
     }
@@ -2213,18 +2156,13 @@ function useChatViewComponent({
     let canceled = false;
     void (async () => {
       try {
-        const readModelThread = await hydrateThreadFromCache(recentThreadHistoryKeepId, {
-          expectedUpdatedAt: recentThreadHistoryThread.updatedAt ?? null,
-        });
-        if (canceled) {
-          return;
-        }
-        startTransition(() => {
-          hydrateThreadFromReadModel(readModelThread);
+        await prefetchThreadTimelineWindows({
+          threadId: recentThreadHistoryKeepId,
+          priority: "background",
         });
       } catch (error) {
         if (!canceled) {
-          console.error("Failed to hydrate recent thread history", error);
+          console.error("Failed to prefetch recent thread timeline", error);
         }
       } finally {
         if (
@@ -2242,12 +2180,7 @@ function useChatViewComponent({
         recentThreadHistoryHydrationInFlightRef.current = null;
       }
     };
-  }, [
-    activeThreadId,
-    hydrateThreadFromReadModel,
-    recentThreadHistoryKeepId,
-    recentThreadHistoryThread,
-  ]);
+  }, [activeThreadId, recentThreadHistoryKeepId, recentThreadHistoryThread]);
 
   useEffect(() => {
     if (hydratedThreadHistoryKeepIds.length === 0) {
@@ -2298,17 +2231,6 @@ function useChatViewComponent({
       return;
     }
 
-    const cachedHydratedThread =
-      sourcePlanThread.updatedAt === undefined
-        ? null
-        : readCachedHydratedThread(sourceProposedPlanThreadId, sourcePlanThread.updatedAt);
-    if (cachedHydratedThread) {
-      startTransition(() => {
-        hydrateThreadFromReadModel(cachedHydratedThread);
-      });
-      return;
-    }
-
     if (sourcePlanHydrationInFlightRef.current === sourceProposedPlanThreadId) {
       return;
     }
@@ -2317,18 +2239,13 @@ function useChatViewComponent({
     let canceled = false;
     void (async () => {
       try {
-        const readModelThread = await hydrateThreadFromCache(sourceProposedPlanThreadId, {
-          expectedUpdatedAt: sourcePlanThread.updatedAt ?? null,
-        });
-        if (canceled) {
-          return;
-        }
-        startTransition(() => {
-          hydrateThreadFromReadModel(readModelThread);
+        await prefetchThreadTimelineWindows({
+          threadId: sourceProposedPlanThreadId,
+          priority: "background",
         });
       } catch (error) {
         if (!canceled) {
-          console.error("Failed to hydrate source proposed-plan thread", error);
+          console.error("Failed to prefetch source proposed-plan timeline", error);
         }
       } finally {
         if (!canceled && sourcePlanHydrationInFlightRef.current === sourceProposedPlanThreadId) {
@@ -2343,7 +2260,7 @@ function useChatViewComponent({
         sourcePlanHydrationInFlightRef.current = null;
       }
     };
-  }, [activeThread?.id, hydrateThreadFromReadModel, sourcePlanThread, sourceProposedPlanThreadId]);
+  }, [activeThread?.id, sourcePlanThread, sourceProposedPlanThreadId]);
 
   useEffect(() => {
     if (!activeThreadLineageSourceThreadId || !isServerThread || handoffHasCycle) {
@@ -2368,34 +2285,16 @@ function useChatViewComponent({
       if (handoffHydrationInFlightRef.current.has(threadIdToHydrate)) {
         continue;
       }
-      const cachedHydratedThread =
-        thread?.updatedAt === undefined
-          ? null
-          : readCachedHydratedThread(threadIdToHydrate, thread.updatedAt);
-      if (cachedHydratedThread) {
-        startTransition(() => {
-          if (!canceled) {
-            hydrateThreadFromReadModel(cachedHydratedThread);
-          }
-        });
-        continue;
-      }
-
       handoffHydrationInFlightRef.current.add(threadIdToHydrate);
       void (async () => {
         try {
-          const readModelThread = await hydrateThreadFromCache(threadIdToHydrate, {
-            expectedUpdatedAt: thread?.updatedAt ?? null,
-          });
-          if (canceled) {
-            return;
-          }
-          startTransition(() => {
-            hydrateThreadFromReadModel(readModelThread);
+          await prefetchThreadTimelineWindows({
+            threadId: threadIdToHydrate,
+            priority: "background",
           });
         } catch (error) {
           if (!canceled) {
-            console.error("Failed to hydrate handoff history", error);
+            console.error("Failed to prefetch handoff timeline", error);
           }
         } finally {
           handoffHydrationInFlightRef.current.delete(threadIdToHydrate);
@@ -2411,7 +2310,6 @@ function useChatViewComponent({
     handoffHasCycle,
     handoffMissingThreadId,
     lineageSourceThreadIds,
-    hydrateThreadFromReadModel,
     isServerThread,
   ]);
   const latestTurnSettled = isLatestTurnSettled(activeLatestTurn, activeThread?.session ?? null);
@@ -3026,7 +2924,84 @@ function useChatViewComponent({
     }
     return [...serverMessagesWithPreviewHandoff, ...pendingMessages];
   }, [serverMessages, attachmentPreviewHandoffByMessageId, optimisticUserMessages]);
+  const activeThreadTimelinePages = useMemo(() => {
+    void timelinePageCacheRevision;
+    return activeThread && isThreadHistoryLean
+      ? readLoadedThreadTimelinePages(activeThread.id)
+      : [];
+  }, [activeThread, isThreadHistoryLean, timelinePageCacheRevision]);
+  const pagedThreadTimeline = useMemo(() => {
+    if (!activeThread || !isThreadHistoryLean || activeThreadTimelinePages.length === 0) {
+      return null;
+    }
+
+    const messageById = new Map(
+      activeThreadTimelinePages.flatMap((page) =>
+        page.messages.map((message) => [String(message.id), toPagedChatMessage(message)] as const),
+      ),
+    );
+    const activityById = new Map(
+      activeThreadTimelinePages.flatMap((page) =>
+        page.activities.map((activity) => [String(activity.id), activity] as const),
+      ),
+    );
+    const proposedPlanById = new Map(
+      activeThreadTimelinePages.flatMap((page) =>
+        page.proposedPlans.map((proposedPlan) => [String(proposedPlan.id), proposedPlan] as const),
+      ),
+    );
+    const messages: ChatMessage[] = [];
+    const activities: OrchestrationThreadActivity[] = [];
+    const proposedPlans: Thread["proposedPlans"] = [];
+
+    for (const entry of activeThreadTimelinePages
+      .flatMap((page) => page.entries)
+      .toSorted((left, right) => left.index - right.index)) {
+      if (entry.kind === "message") {
+        const message = messageById.get(String(entry.id));
+        if (message && !messages.some((candidate) => candidate.id === message.id)) {
+          messages.push(message);
+        }
+      } else if (entry.kind === "activity") {
+        const activity = activityById.get(String(entry.id));
+        if (activity && !activities.some((candidate) => candidate.id === activity.id)) {
+          activities.push(activity);
+        }
+      } else {
+        const proposedPlan = proposedPlanById.get(String(entry.id));
+        if (proposedPlan && !proposedPlans.some((candidate) => candidate.id === proposedPlan.id)) {
+          proposedPlans.push(proposedPlan);
+        }
+      }
+    }
+
+    for (const message of activeThreadMessages) {
+      if (!messages.some((candidate) => candidate.id === message.id)) {
+        messages.push(message);
+      }
+    }
+
+    return {
+      messages,
+      proposedPlans,
+      workEntries: deriveThreadActivityRenderState(activities, activityVisibilitySettings)
+        .workLogEntries,
+    };
+  }, [
+    activeThread,
+    activeThreadMessages,
+    activeThreadTimelinePages,
+    activityVisibilitySettings,
+    isThreadHistoryLean,
+  ]);
+  const isThreadHistoryLoading = isThreadHistoryLean && pagedThreadTimeline === null;
   const handoffTimeline = useMemo(() => {
+    if (pagedThreadTimeline) {
+      return {
+        ...pagedThreadTimeline,
+        historicalMessageIds: new Set<MessageId>(),
+      };
+    }
     if (!activeThread) {
       return {
         messages: activeThreadMessages,
@@ -3056,6 +3031,7 @@ function useChatViewComponent({
     activityVisibilitySettings,
     handoffLineage,
     isServerThread,
+    pagedThreadTimeline,
     workLogEntries,
   ]);
   const timelineMessages = handoffTimeline.messages;

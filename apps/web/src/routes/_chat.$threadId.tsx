@@ -1,15 +1,11 @@
 import { ThreadId } from "@ace/contracts";
 import { createFileRoute, retainSearchParams, useNavigate } from "@tanstack/react-router";
-import { startTransition, useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 
 import { ThreadBoard } from "../components/chat/ThreadBoard";
 import { useComposerDraftStore } from "../composerDraftStore";
 import { type DiffRouteSearch, parseDiffRouteSearch } from "../diffRouteSearch";
-import { hydrateThreadFromCache, readCachedHydratedThread } from "../lib/threadHydrationCache";
-import {
-  prefetchThreadTimelineWindows,
-  primeThreadTimelineManifestFromReadModelThread,
-} from "../lib/chat/timelineWindowStore";
+import { prefetchThreadTimelineWindows } from "../lib/chat/timelineWindowStore";
 import { getThreadById, getThreadByIdFromState, useStore } from "../store";
 import { SidebarInset } from "~/components/ui/sidebar";
 import { getWsRpcClient } from "../wsRpcClient";
@@ -43,7 +39,6 @@ function parseChatThreadRouteSearch(search: Record<string, unknown>): ChatThread
 
 function ChatThreadRouteView() {
   const bootstrapComplete = useStore((store) => store.bootstrapComplete);
-  const hydrateThreadFromReadModel = useStore((store) => store.hydrateThreadFromReadModel);
   const navigate = useNavigate();
   const threadId = Route.useParams({
     select: (params) => ThreadId.makeUnsafe(params.threadId),
@@ -58,10 +53,6 @@ function ChatThreadRouteView() {
   const routeThreadExists = threadExists || draftThreadExists;
   const threadHydrationInFlightRef = useRef<ThreadId | null>(null);
   const threadHydrationRequestIdRef = useRef(0);
-  const cachedHydratedThread =
-    serverThread?.historyLoaded === false && serverThread.updatedAt
-      ? readCachedHydratedThread(threadId, serverThread.updatedAt)
-      : null;
   useEffect(() => {
     const preloadTimer = window.setTimeout(() => {
       void import("../components/DiffPanel");
@@ -104,20 +95,6 @@ function ChatThreadRouteView() {
       return;
     }
 
-    if (cachedHydratedThread) {
-      primeThreadTimelineManifestFromReadModelThread(cachedHydratedThread);
-      void prefetchThreadTimelineWindows({
-        threadId,
-        totalItemsHint:
-          cachedHydratedThread.messages.length +
-          cachedHydratedThread.activities.length +
-          cachedHydratedThread.proposedPlans.length,
-        priority: "immediate",
-      }).catch(() => undefined);
-      hydrateThreadFromReadModel(cachedHydratedThread);
-      return;
-    }
-
     let canceled = false;
     const requestId = threadHydrationRequestIdRef.current + 1;
     threadHydrationRequestIdRef.current = requestId;
@@ -152,7 +129,7 @@ function ChatThreadRouteView() {
         threadHydrationInFlightRef.current = null;
       }
     };
-  }, [bootstrapComplete, cachedHydratedThread, hydrateThreadFromReadModel, serverThread, threadId]);
+  }, [bootstrapComplete, serverThread, threadId]);
 
   useEffect(() => {
     runThreadHydration();
@@ -183,35 +160,24 @@ function ChatThreadRouteView() {
     if (sourceThread && sourceThread.historyLoaded !== false) {
       return;
     }
-    if (sourceThread?.updatedAt) {
-      const cached = readCachedHydratedThread(lineageSourceThreadId, sourceThread.updatedAt);
-      if (cached) {
-        startTransition(() => {
-          hydrateThreadFromReadModel(cached);
-        });
-        return;
-      }
-    }
     let canceled = false;
     void (async () => {
       try {
-        const readModelThread = await hydrateThreadFromCache(lineageSourceThreadId, {
-          expectedUpdatedAt: sourceThread?.updatedAt ?? null,
+        await prefetchThreadTimelineWindows({
+          threadId: lineageSourceThreadId,
+          priority: "background",
         });
         if (canceled) {
           return;
         }
-        startTransition(() => {
-          hydrateThreadFromReadModel(readModelThread);
-        });
       } catch (error) {
-        console.error("Failed to hydrate conversation source thread", error);
+        console.error("Failed to prefetch conversation source timeline", error);
       }
     })();
     return () => {
       canceled = true;
     };
-  }, [bootstrapComplete, lineageSourceThread, lineageSourceThreadId, hydrateThreadFromReadModel]);
+  }, [bootstrapComplete, lineageSourceThread, lineageSourceThreadId]);
 
   if (!bootstrapComplete || !routeThreadExists) {
     return null;
