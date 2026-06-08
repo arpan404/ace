@@ -9,10 +9,7 @@ import {
 } from "@ace/contracts";
 import { describe, expect, it } from "vitest";
 
-import {
-  createReadModelSnapshotView,
-  createReadModelSnapshotViewCache,
-} from "./readModelSnapshotView.ts";
+import { createReadModelSnapshotView } from "./readModelSnapshotView.ts";
 
 const NOW = "2026-04-05T00:00:00.000Z";
 const PROJECT_ID = ProjectId.makeUnsafe("project-1");
@@ -281,31 +278,5 @@ describe("createReadModelSnapshotView", () => {
     expect(summarizedThread?.activities).toHaveLength(32);
     expect(summarizedThread?.activities[0]?.id).toBe("thread-2-activity-9");
     expect(summarizedThread?.activities.at(-1)?.id).toBe("thread-2-activity-40");
-  });
-});
-
-describe("createReadModelSnapshotViewCache", () => {
-  it("reuses cached views for the same snapshot sequence and invalidates on new snapshots", () => {
-    const readModel = makeReadModel();
-    const cache = createReadModelSnapshotViewCache();
-
-    const firstLeanSnapshot = cache.getSnapshot(readModel, {
-      hydrateThreadId: null,
-    });
-    const secondLeanSnapshot = cache.getSnapshot(readModel, {
-      hydrateThreadId: null,
-    });
-
-    expect(secondLeanSnapshot).toBe(firstLeanSnapshot);
-
-    const nextReadModel = {
-      ...readModel,
-      snapshotSequence: readModel.snapshotSequence + 1,
-    };
-    const nextLeanSnapshot = cache.getSnapshot(nextReadModel, {
-      hydrateThreadId: null,
-    });
-
-    expect(nextLeanSnapshot).not.toBe(firstLeanSnapshot);
   });
 });

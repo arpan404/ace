@@ -1803,7 +1803,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
     }),
   );
 
-  it.effect("caches large backend timeline slices beyond the legacy 256-row cap", () =>
+  it.effect("reads large backend timeline slices without retaining stale pages", () =>
     Effect.gen(function* () {
       const snapshotQuery = yield* ProjectionSnapshotQuery;
       const sql = yield* SqlClient.SqlClient;
@@ -1930,14 +1930,14 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         WHERE message_id = 'message-large-0'
       `;
 
-      const cachedPage = yield* snapshotQuery.getThreadTimelinePage({
+      const refreshedPage = yield* snapshotQuery.getThreadTimelinePage({
         threadId,
         startIndex: 0,
         limit: 300,
       });
-      assert.equal(cachedPage._tag, "Some");
-      if (Option.isSome(cachedPage)) {
-        assert.equal(cachedPage.value.messages[0]?.text, "Large cached message 0");
+      assert.equal(refreshedPage._tag, "Some");
+      if (Option.isSome(refreshedPage)) {
+        assert.equal(refreshedPage.value.messages[0]?.text, "Large cached message updated");
       }
 
       yield* sql`
@@ -2158,15 +2158,15 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         );
       }
 
-      const cachedMessagePage = yield* snapshotQuery.getThreadTimelinePage({
+      const repeatedMessagePage = yield* snapshotQuery.getThreadTimelinePage({
         threadId,
         startIndex: 0,
         limit: 1,
       });
-      assert.equal(cachedMessagePage._tag, "Some");
-      if (Option.isSome(cachedMessagePage)) {
+      assert.equal(repeatedMessagePage._tag, "Some");
+      if (Option.isSome(repeatedMessagePage)) {
         assert.deepEqual(
-          cachedMessagePage.value.messages.map((message) => message.text),
+          repeatedMessagePage.value.messages.map((message) => message.text),
           ["Run checks", "Done"],
         );
       }
@@ -2177,16 +2177,16 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         WHERE message_id = 'message-user'
       `;
 
-      const unchangedUpdatedAtPage = yield* snapshotQuery.getThreadTimelinePage({
+      const refreshedUpdatedAtPage = yield* snapshotQuery.getThreadTimelinePage({
         threadId,
         startIndex: 0,
         limit: 1,
       });
-      assert.equal(unchangedUpdatedAtPage._tag, "Some");
-      if (Option.isSome(unchangedUpdatedAtPage)) {
+      assert.equal(refreshedUpdatedAtPage._tag, "Some");
+      if (Option.isSome(refreshedUpdatedAtPage)) {
         assert.deepEqual(
-          unchangedUpdatedAtPage.value.messages.map((message) => message.text),
-          ["Run checks", "Done"],
+          refreshedUpdatedAtPage.value.messages.map((message) => message.text),
+          ["Run checks updated", "Done"],
         );
       }
 
