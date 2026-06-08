@@ -1794,11 +1794,19 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       });
       assert.equal(tailPage._tag, "Some");
       if (tailPage._tag === "Some") {
-        assert.equal(tailPage.value.startIndex, 4);
+        assert.equal(tailPage.value.startIndex, 0);
         assert.equal(tailPage.value.endIndexExclusive, 4);
-        assert.equal(tailPage.value.hasPrevious, true);
+        assert.equal(tailPage.value.hasPrevious, false);
         assert.equal(tailPage.value.hasNext, false);
-        assert.deepEqual(tailPage.value.entries, []);
+        assert.deepEqual(
+          tailPage.value.entries.map((entry) => `${entry.kind}:${entry.id}`),
+          [
+            "message:message-user",
+            "activity:activity-tool",
+            "proposed-plan:plan-1",
+            "message:message-assistant",
+          ],
+        );
       }
     }),
   );
@@ -2155,6 +2163,43 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         assert.deepEqual(
           page.value.proposedPlans.map((plan) => plan.planMarkdown),
           ["Plan"],
+        );
+      }
+
+      yield* sql`
+        UPDATE projection_thread_timeline_entries
+        SET timeline_index = timeline_index + 10
+        WHERE thread_id = 'thread-timeline-page'
+      `;
+      yield* sql`
+        UPDATE projection_thread_timeline_entries
+        SET timeline_index = CASE source_id
+          WHEN 'message-assistant' THEN 0
+          WHEN 'plan-timeline' THEN 1
+          WHEN 'activity-tool' THEN 2
+          WHEN 'message-user' THEN 3
+          ELSE timeline_index
+        END
+        WHERE thread_id = 'thread-timeline-page'
+      `;
+
+      const chronologicalPage = yield* snapshotQuery.getThreadTimelinePage({
+        threadId,
+        startIndex: 0,
+        limit: 4,
+      });
+      assert.equal(chronologicalPage._tag, "Some");
+      if (Option.isSome(chronologicalPage)) {
+        assert.deepEqual(
+          chronologicalPage.value.entries.map(
+            (entry) => `${entry.index}:${entry.kind}:${entry.id}`,
+          ),
+          [
+            "0:message:message-user",
+            "1:activity:activity-tool",
+            "2:proposed-plan:plan-timeline",
+            "3:message:message-assistant",
+          ],
         );
       }
 

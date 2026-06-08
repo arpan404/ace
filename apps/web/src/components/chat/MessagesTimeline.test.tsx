@@ -83,6 +83,16 @@ beforeAll(() => {
   });
 });
 
+const makeTimelineVirtualItem = (index: number) =>
+  ({
+    end: (index + 1) * 100,
+    index,
+    key: index,
+    lane: 0,
+    size: 100,
+    start: index * 100,
+  }) as const;
+
 describe("MessagesTimeline", { timeout: 30_000 }, () => {
   it("derives timeline prefetch page size and direction from scroll speed", async () => {
     const { deriveTimelineScrollPrefetchRequest } = await import("./MessagesTimeline");
@@ -108,6 +118,37 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
         elapsedMs: 100,
       }),
     ).toMatchObject({ direction: "older", pageSize: 4_000 });
+  });
+
+  it("ignores leading history placeholders when deriving the rendered loaded window", async () => {
+    const { deriveTimelineRenderedWindowState } = await import("./MessagesTimeline");
+
+    expect(
+      deriveTimelineRenderedWindowState({
+        renderedVirtualItems: [
+          makeTimelineVirtualItem(0),
+          makeTimelineVirtualItem(1),
+          makeTimelineVirtualItem(2),
+        ],
+        virtualizedRows: [
+          {
+            createdAt: null,
+            height: 2_400,
+            id: "history-placeholder:25",
+            kind: "history-placeholder",
+          },
+          { id: "loaded-0", kind: "message" },
+          { id: "loaded-1", kind: "message" },
+        ] as unknown as Parameters<typeof deriveTimelineRenderedWindowState>[0]["virtualizedRows"],
+      }),
+    ).toMatchObject({
+      isLeadingHistoryPlaceholderRendered: true,
+      loadedEndIndexExclusive: 2,
+      loadedRowCount: 2,
+      loadedStartIndex: 0,
+      overscanLoadedEndIndexExclusive: 2,
+      overscanLoadedStartIndex: 0,
+    });
   });
 
   it("uses stable timeline row cache keys across equivalent remounted arrays", async () => {

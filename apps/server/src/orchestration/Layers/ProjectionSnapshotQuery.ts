@@ -946,15 +946,33 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       return sql`
         WITH ordered_timeline AS (
           SELECT
-            timeline_index,
-            kind,
-            source_id,
-            turn_id,
-            sequence,
-            created_at,
-            ROW_NUMBER() OVER (ORDER BY timeline_index ASC) - 1 AS timeline_position
+            timeline.timeline_index,
+            timeline.kind,
+            timeline.source_id,
+            timeline.turn_id,
+            timeline.sequence,
+            timeline.created_at,
+            ROW_NUMBER() OVER (
+              ORDER BY
+                timeline.created_at ASC,
+                CASE WHEN timeline.sequence IS NULL THEN 1 ELSE 0 END ASC,
+                timeline.sequence ASC,
+                CASE
+                  WHEN timeline.kind = 'message' AND timeline_message.role = 'user' THEN 0
+                  WHEN timeline.kind = 'message' AND timeline_message.role = 'assistant' THEN 2
+                  ELSE 1
+                END ASC,
+                timeline.kind ASC,
+                timeline.source_id ASC,
+                timeline.timeline_index ASC
+            ) - 1 AS timeline_position
           FROM projection_thread_timeline_entries
-          WHERE thread_id = ${input.threadId}
+            AS timeline
+          LEFT JOIN projection_thread_messages AS timeline_message
+            ON timeline.kind = 'message'
+            AND timeline_message.thread_id = ${input.threadId}
+            AND timeline_message.message_id = timeline.source_id
+          WHERE timeline.thread_id = ${input.threadId}
         ),
         selected_timeline AS (
           SELECT
@@ -966,7 +984,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             created_at,
             timeline_position
           FROM ordered_timeline
-          ORDER BY timeline_index ASC
+          ORDER BY timeline_position ASC
           LIMIT ${limit}
           OFFSET ${startIndex}
         ),
@@ -1869,11 +1887,12 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       if (Option.isNone(manifest)) {
         return Option.none<OrchestrationGetThreadTimelinePageResult>();
       }
-      const startIndex = Math.min(
-        Math.max(0, Math.trunc(input.startIndex)),
-        manifest.value.totalItems,
-      );
       const limit = Math.min(MAX_THREAD_TIMELINE_PAGE_SIZE, Math.max(1, Math.trunc(input.limit)));
+      const requestedStartIndex = Math.max(0, Math.trunc(input.startIndex));
+      const startIndex =
+        requestedStartIndex >= manifest.value.totalItems && manifest.value.totalItems > 0
+          ? Math.max(0, manifest.value.totalItems - limit)
+          : Math.min(requestedStartIndex, manifest.value.totalItems);
       const rows = yield* listThreadTimelinePageRows({
         threadId: input.threadId,
         startIndex,
