@@ -3205,21 +3205,9 @@ const CompletedWorkSummaryTimelineRow = memo(function CompletedWorkSummaryTimeli
     return null;
   }
   const hasHiddenLogs = props.row.detailRows.length > 0;
-  const hiddenWorkSummary =
-    props.row.entries.length > 0
-      ? buildTimelineWorkGroupSummaryProjection(props.row.entries)
-      : null;
-  const SummaryIcon = hiddenWorkSummary ? workGroupIcon(hiddenWorkSummary.iconKey) : Clock3Icon;
   const summaryContent = (
     <>
-      <SummaryIcon
-        className={cn(
-          "mt-1 size-3 shrink-0 transition-colors group-hover/completed-work:text-muted-foreground/78",
-          hiddenWorkSummary
-            ? metaToneTextClass(hiddenWorkSummary.surfaceTone)
-            : "text-muted-foreground/42",
-        )}
-      />
+      <Clock3Icon className="mt-1 size-3 shrink-0 text-muted-foreground/42 transition-colors group-hover/completed-work:text-muted-foreground/78" />
       <span
         className="flex min-w-0 flex-wrap items-center gap-x-1.5 text-[12px] leading-5 text-muted-foreground/76 transition-colors group-hover/completed-work:text-foreground/86"
         data-completed-work-summary-label="worked-for"

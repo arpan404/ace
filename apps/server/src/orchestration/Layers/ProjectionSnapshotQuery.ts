@@ -153,16 +153,10 @@ const ProviderSessionRuntimeDbRowSchema = Schema.Struct({
 });
 type ProviderSessionRuntimeDbRow = Schema.Schema.Type<typeof ProviderSessionRuntimeDbRowSchema>;
 
-const MAX_THREAD_TIMELINE_PAGE_CACHE_ENTRIES = 128;
-const MAX_THREAD_TIMELINE_PAGE_CACHE_BYTES = 96 * 1024 * 1024;
 const DEFAULT_THREAD_TIMELINE_PAGE_SIZE = 128;
 const MAX_THREAD_TIMELINE_PAGE_SIZE = 4000;
 const INITIAL_SNAPSHOT_ACTIVITY_LIMIT_PER_THREAD = 32;
-
-interface ThreadTimelinePageCacheEntry {
-  readonly page: OrchestrationGetThreadTimelinePageResult;
-  readonly approximateSize: number;
-}
+const INITIAL_SNAPSHOT_ACTIVITY_PAYLOAD_MAX_BYTES = 16 * 1024;
 
 function toLatestProposedPlanSummary(
   proposedPlan: OrchestrationProposedPlan,
@@ -375,101 +369,6 @@ function collectTimelineContent(rows: ReadonlyArray<ProjectionThreadTimelinePage
     activities,
     proposedPlans,
   };
-}
-
-function buildThreadTimelinePageCacheKey(input: {
-  readonly threadId: ThreadId;
-  readonly updatedAt: string;
-  readonly startIndex: number;
-  readonly limit: number;
-}): string {
-  return [
-    input.threadId,
-    input.updatedAt,
-    String(Math.max(0, Math.trunc(input.startIndex))),
-    String(Math.max(1, Math.trunc(input.limit))),
-  ].join(":");
-}
-
-function estimateThreadTimelinePageSize(page: OrchestrationGetThreadTimelinePageResult): number {
-  let size = 512 + page.entries.length * 96;
-  for (const message of page.messages) {
-    size += 256 + message.text.length * 2 + (message.attachments?.length ?? 0) * 256;
-  }
-  for (const activity of page.activities) {
-    size += 192 + activity.summary.length * 2;
-    if (typeof activity.payload === "string") {
-      size += Math.min(activity.payload.length, 16_384) * 2;
-    }
-  }
-  for (const proposedPlan of page.proposedPlans) {
-    size += 192 + Math.min(proposedPlan.planMarkdown.length, 24_576) * 2;
-  }
-  return Math.max(4_096, size);
-}
-
-function readThreadTimelinePageCache(
-  cache: Map<string, ThreadTimelinePageCacheEntry>,
-  key: string,
-): OrchestrationGetThreadTimelinePageResult | null {
-  const entry = cache.get(key);
-  if (!entry) {
-    return null;
-  }
-  cache.delete(key);
-  cache.set(key, entry);
-  return entry.page;
-}
-
-function pruneThreadTimelinePageCacheForThread(
-  cache: Map<string, ThreadTimelinePageCacheEntry>,
-  threadId: ThreadId,
-  updatedAt: string,
-): number {
-  let totalSize = 0;
-  const currentPrefix = `${threadId}:${updatedAt}:`;
-  const stalePrefix = `${threadId}:`;
-  for (const [key, entry] of cache) {
-    if (key.startsWith(stalePrefix) && !key.startsWith(currentPrefix)) {
-      cache.delete(key);
-      continue;
-    }
-    totalSize += entry.approximateSize;
-  }
-  return totalSize;
-}
-
-function writeThreadTimelinePageCache(input: {
-  readonly cache: Map<string, ThreadTimelinePageCacheEntry>;
-  readonly currentSize: number;
-  readonly key: string;
-  readonly page: OrchestrationGetThreadTimelinePageResult;
-}): number {
-  const approximateSize = estimateThreadTimelinePageSize(input.page);
-  const existing = input.cache.get(input.key);
-  let nextSize = input.currentSize - (existing?.approximateSize ?? 0);
-  if (existing) {
-    input.cache.delete(input.key);
-  }
-
-  while (
-    (input.cache.size >= MAX_THREAD_TIMELINE_PAGE_CACHE_ENTRIES ||
-      nextSize + approximateSize > MAX_THREAD_TIMELINE_PAGE_CACHE_BYTES) &&
-    input.cache.size > 0
-  ) {
-    const oldestKey = input.cache.keys().next().value;
-    if (oldestKey === undefined) {
-      break;
-    }
-    const oldestEntry = input.cache.get(oldestKey);
-    if (oldestEntry) {
-      nextSize -= oldestEntry.approximateSize;
-    }
-    input.cache.delete(oldestKey);
-  }
-
-  input.cache.set(input.key, { page: input.page, approximateSize });
-  return nextSize + approximateSize;
 }
 
 function toOrchestrationCheckpointSummary(
@@ -696,8 +595,6 @@ function resolveSnapshotHydrationMode(input?: OrchestrationGetSnapshotInput): {
 
 const makeProjectionSnapshotQuery = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
-  const threadTimelinePageCache = new Map<string, ThreadTimelinePageCacheEntry>();
-  let threadTimelinePageCacheSize = 0;
 
   const listProjectRows = SqlSchema.findAll({
     Request: Schema.Void,
@@ -990,7 +887,11 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           activity.tone,
           activity.kind,
           activity.summary,
-          activity.payload_json AS "payload",
+          CASE
+            WHEN length(activity.payload_json) <= ${INITIAL_SNAPSHOT_ACTIVITY_PAYLOAD_MAX_BYTES}
+              THEN activity.payload_json
+            ELSE '{}'
+          END AS "payload",
           activity.sequence,
           activity.created_at AS "createdAt"
         FROM projection_threads AS thread
@@ -1973,16 +1874,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         manifest.value.totalItems,
       );
       const limit = Math.min(MAX_THREAD_TIMELINE_PAGE_SIZE, Math.max(1, Math.trunc(input.limit)));
-      const cacheKey = buildThreadTimelinePageCacheKey({
-        threadId: input.threadId,
-        updatedAt: manifest.value.updatedAt,
-        startIndex,
-        limit,
-      });
-      const cachedPage = readThreadTimelinePageCache(threadTimelinePageCache, cacheKey);
-      if (cachedPage) {
-        return Option.some(cachedPage);
-      }
       const rows = yield* listThreadTimelinePageRows({
         threadId: input.threadId,
         startIndex,
@@ -2029,17 +1920,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           toPersistenceDecodeError("ProjectionSnapshotQuery.getThreadTimelinePage:decodePage"),
         ),
       );
-      threadTimelinePageCacheSize = pruneThreadTimelinePageCacheForThread(
-        threadTimelinePageCache,
-        input.threadId,
-        manifest.value.updatedAt,
-      );
-      threadTimelinePageCacheSize = writeThreadTimelinePageCache({
-        cache: threadTimelinePageCache,
-        currentSize: threadTimelinePageCacheSize,
-        key: cacheKey,
-        page: decodedPage,
-      });
       return Option.some(decodedPage);
     });
 

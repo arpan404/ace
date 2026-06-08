@@ -33,13 +33,24 @@ const HIDDEN_WORK_LOG_ACTIVITY_KINDS = new Set([
   "context-compaction",
   "context-window",
   "context-window.updated",
+  "checkpoint.captured",
   "deprecation.notice",
   "goal.cleared",
   "goal.updated",
   "runtime.warning",
 ]);
 
+function isCheckpointCapturedActivity(activity: OrchestrationThreadActivity): boolean {
+  return (
+    activity.kind === "checkpoint.captured" ||
+    activity.summary.trim().toLowerCase() === "checkpoint captured"
+  );
+}
+
 function isHiddenWorkLogActivity(activity: OrchestrationThreadActivity): boolean {
+  if (isCheckpointCapturedActivity(activity)) {
+    return true;
+  }
   if (HIDDEN_WORK_LOG_ACTIVITY_KINDS.has(activity.kind)) {
     return true;
   }
@@ -864,6 +875,9 @@ export function deriveWorkLogEntries(
   const ordered = ensureActivitiesOrdered(activities);
   const entries: DerivedWorkLogEntry[] = [];
   for (const activity of ordered) {
+    if (isCheckpointCapturedActivity(activity)) {
+      continue;
+    }
     if (latestTurnId && activity.turnId !== latestTurnId) {
       continue;
     }

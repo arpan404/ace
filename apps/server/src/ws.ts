@@ -59,7 +59,7 @@ import { GitManager } from "./git/Services/GitManager";
 import { Keybindings } from "./keybindings";
 import { Open, resolveAvailableEditors } from "./open";
 import { normalizeDispatchCommand } from "./orchestration/Normalizer";
-import { createReadModelSnapshotViewCache } from "./orchestration/readModelSnapshotView";
+import { createReadModelSnapshotView } from "./orchestration/readModelSnapshotView";
 import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine";
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
 import { ProviderRegistry } from "./provider/Services/ProviderRegistry";
@@ -451,7 +451,6 @@ const WsRpcLayer = WsRpcGroup.toLayer(
     const workspaceEditor = yield* WorkspaceEditor;
     const workspaceFileEventsOption = yield* Effect.serviceOption(WorkspaceFileEvents);
     const workspaceFileSystem = yield* WorkspaceFileSystem;
-    const snapshotViewCache = createReadModelSnapshotViewCache();
 
     const loadServerConfig = Effect.gen(function* () {
       const keybindingsConfig = yield* keybindings.loadConfigState;
@@ -596,7 +595,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
             ? Effect.succeed(Option.none<OrchestrationReadModel["threads"][number]>())
             : projectionSnapshotQuery.getThread(hydrateThreadId),
         ]);
-        const snapshot = snapshotViewCache.getSnapshot(readModel, input);
+        const snapshot = createReadModelSnapshotView(readModel, input);
         if (hydrateThreadId === null) {
           return snapshot;
         }

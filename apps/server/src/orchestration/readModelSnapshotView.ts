@@ -3,12 +3,6 @@ import type {
   OrchestrationReadModel,
   OrchestrationThread,
 } from "@ace/contracts";
-import { updateSnapshotViewCacheStats } from "../runtimeProfile";
-
-const MAX_CACHED_SNAPSHOT_VIEWS = Math.max(
-  4,
-  Number.parseInt(process.env.ACE_SNAPSHOT_VIEW_CACHE_MAX_ENTRIES ?? "8", 10) || 8,
-);
 const INITIAL_SNAPSHOT_ACTIVITY_LIMIT_PER_THREAD = 32;
 
 function shouldHydrateAllThreadHistory(input?: OrchestrationGetSnapshotInput): boolean {
@@ -41,34 +35,6 @@ function createSummaryThread(thread: OrchestrationThread): OrchestrationThread {
   };
 }
 
-function snapshotViewCacheKey(input?: OrchestrationGetSnapshotInput): string {
-  if (shouldHydrateAllThreadHistory(input)) {
-    return "full";
-  }
-  const hydrateThreadId = input?.hydrateThreadId ?? null;
-  if (hydrateThreadId === null) {
-    return "lean";
-  }
-  return `thread:${hydrateThreadId}`;
-}
-
-function evictOldestCacheEntry(cache: Map<string, OrchestrationReadModel>): void {
-  const oldestKey = cache.keys().next().value;
-  if (oldestKey !== undefined) {
-    cache.delete(oldestKey);
-  }
-}
-
-function promoteCacheEntry(
-  cache: Map<string, OrchestrationReadModel>,
-  key: string,
-  value: OrchestrationReadModel,
-): OrchestrationReadModel {
-  cache.delete(key);
-  cache.set(key, value);
-  return value;
-}
-
 export function createReadModelSnapshotView(
   readModel: OrchestrationReadModel,
   input?: OrchestrationGetSnapshotInput,
@@ -98,53 +64,5 @@ export function createReadModelSnapshotView(
   return {
     ...readModel,
     threads,
-  };
-}
-
-export interface ReadModelSnapshotViewCache {
-  readonly getSnapshot: (
-    readModel: OrchestrationReadModel,
-    input?: OrchestrationGetSnapshotInput,
-  ) => OrchestrationReadModel;
-  readonly clear: () => void;
-}
-
-export function createReadModelSnapshotViewCache(
-  maxEntries = MAX_CACHED_SNAPSHOT_VIEWS,
-): ReadModelSnapshotViewCache {
-  let cachedSnapshotSequence = -1;
-  const cache = new Map<string, OrchestrationReadModel>();
-  updateSnapshotViewCacheStats({
-    maxEntries: Math.max(1, maxEntries),
-    currentEntries: 0,
-  });
-
-  return {
-    getSnapshot: (readModel, input) => {
-      if (cachedSnapshotSequence !== readModel.snapshotSequence) {
-        cache.clear();
-        cachedSnapshotSequence = readModel.snapshotSequence;
-        updateSnapshotViewCacheStats({ currentEntries: cache.size });
-      }
-
-      const key = snapshotViewCacheKey(input);
-      const cached = cache.get(key);
-      if (cached) {
-        return promoteCacheEntry(cache, key, cached);
-      }
-
-      const snapshotView = createReadModelSnapshotView(readModel, input);
-      if (cache.size >= Math.max(1, maxEntries)) {
-        evictOldestCacheEntry(cache);
-      }
-      cache.set(key, snapshotView);
-      updateSnapshotViewCacheStats({ currentEntries: cache.size });
-      return snapshotView;
-    },
-    clear: () => {
-      cache.clear();
-      cachedSnapshotSequence = -1;
-      updateSnapshotViewCacheStats({ currentEntries: 0 });
-    },
   };
 }

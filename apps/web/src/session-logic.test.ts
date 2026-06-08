@@ -1075,11 +1075,19 @@ describe("deriveWorkLogEntries", () => {
     });
   });
 
-  it("keeps checkpoint captured info entries", () => {
+  it("hides checkpoint captured info entries", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({
         id: "checkpoint",
         createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "checkpoint.captured",
+        summary: "Checkpoint captured",
+        tone: "info",
+      }),
+      makeActivity({
+        id: "legacy-checkpoint",
+        createdAt: "2026-02-23T00:00:01.500Z",
+        kind: "runtime.note",
         summary: "Checkpoint captured",
         tone: "info",
       }),
@@ -1093,7 +1101,7 @@ describe("deriveWorkLogEntries", () => {
     ];
 
     const entries = deriveWorkLogEntries(activities, undefined);
-    expect(entries.map((entry) => entry.id)).toEqual(["checkpoint", "tool-complete"]);
+    expect(entries.map((entry) => entry.id)).toEqual(["tool-complete"]);
   });
 
   it("keeps generated turn summary info entries", () => {
