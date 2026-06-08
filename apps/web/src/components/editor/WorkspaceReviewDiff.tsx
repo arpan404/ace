@@ -849,7 +849,10 @@ function WorkspaceReviewDiffInlineComments(props: {
         {props.comments.map((comment) => (
           <div
             key={comment.id}
-            className={cn(APP_WORKSPACE_INSET_CLASS_NAME, "flex min-w-0 items-start gap-2 px-2 py-1.5")}
+            className={cn(
+              APP_WORKSPACE_INSET_CLASS_NAME,
+              "flex min-w-0 items-start gap-2 px-2 py-1.5",
+            )}
           >
             <MessageSquarePlusIcon className="mt-0.5 size-3 shrink-0 text-muted-foreground/62" />
             <p className="min-w-0 flex-1 whitespace-pre-wrap font-sans text-[11px] leading-4 text-foreground/80">

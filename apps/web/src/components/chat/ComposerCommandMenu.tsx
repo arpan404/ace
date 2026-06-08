@@ -149,10 +149,7 @@ export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
         );
       }}
     >
-      <div
-        ref={listRef}
-        className="glass-surface relative overflow-hidden rounded-lg border"
-      >
+      <div ref={listRef} className="glass-surface relative overflow-hidden rounded-lg border">
         <CommandList className="max-h-64">
           {sections.map((section) => (
             <CommandGroup key={section.id}>

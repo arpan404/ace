@@ -9,7 +9,6 @@ import {
   type ProjectScript,
   type ProviderKind,
   type ProjectId,
-  type OrchestrationMessage,
   type ProviderApprovalDecision,
   type ServerProvider,
   PROVIDER_DISPLAY_NAMES,
@@ -20,6 +19,7 @@ import {
   type TurnId,
   type KeybindingCommand,
   OrchestrationThreadActivity,
+  type OrchestrationMessage,
   ProviderInteractionMode,
   RuntimeMode,
   TerminalOpenInput,
@@ -130,7 +130,13 @@ import {
   type Thread,
 } from "../types";
 import { isMemoryPressureAtLeast, subscribeToMemoryPressure } from "../lib/memoryPressure";
-import { hydrateThreadFromCache, readCachedHydratedThread } from "../lib/threadHydrationCache";
+import { createChatMessageStreamingTextState } from "../lib/chat/messageText";
+import { hydrateThreadFromCache } from "../lib/threadHydrationCache";
+import {
+  prefetchThreadTimelineWindows,
+  readLoadedThreadTimelinePages,
+  useTimelineWindowStore,
+} from "../lib/chat/timelineWindowStore";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useTheme } from "../hooks/useTheme";
 import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
@@ -199,15 +205,11 @@ import {
   deriveThreadActivityRenderState,
   deriveThreadTimelineRenderState,
 } from "~/lib/chat/threadRenderState";
+import { isPagedThreadTimelineUsable } from "~/lib/chat/pagedTimelineCompleteness";
 import {
   buildThreadTimelineCacheScope,
   deriveThreadCompletionSummary,
 } from "~/lib/chat/timelineCacheScope";
-import {
-  prefetchThreadTimelineWindows,
-  readLoadedThreadTimelinePages,
-  useTimelineWindowStore,
-} from "~/lib/chat/timelineWindowStore";
 import { THREAD_ROUTE_CONNECTION_SEARCH_PARAM } from "../lib/connectionRouting";
 import {
   selectThreadTerminalState,
@@ -269,6 +271,7 @@ import {
   collectUserMessageBlobPreviewUrls,
   deriveComposerSendState,
   deriveHydratedThreadHistoryKeepIds,
+  deriveRecentlyVisitedThreadHistoryKeepIds,
   deriveQueuedComposerMessageDraftForEditing,
   formatOutgoingPrompt,
   queuedComposerImageToDraftAttachment,
@@ -486,20 +489,6 @@ const EMPTY_QUEUED_COMPOSER_MESSAGES: Thread["queuedComposerMessages"] = [];
 const EMPTY_COMPOSER_MODEL_SELECTIONS: ModelSelectionByProvider = Object.freeze({});
 const EMPTY_PENDING_COMPOSER_COMMENTS: readonly PendingComposerComment[] = Object.freeze([]);
 
-function toChatMessageFromTimelinePage(message: OrchestrationMessage): ChatMessage {
-  return {
-    id: message.id,
-    role: message.role,
-    text: message.text,
-    ...(message.attachments
-      ? { attachments: message.attachments.map((attachment) => ({ ...attachment })) }
-      : {}),
-    turnId: message.turnId,
-    createdAt: message.createdAt,
-    ...(message.sequence !== undefined ? { sequence: message.sequence } : {}),
-    streaming: message.streaming,
-  };
-}
 const THREAD_SWITCH_SCROLL_SETTLE_DELAY_MS = 96;
 
 const SCRIPT_TERMINAL_COLS = 120;
@@ -878,6 +867,33 @@ interface ChatViewProps {
 }
 
 const EMPTY_VISIBLE_BOARD_THREAD_IDS: readonly ThreadId[] = [];
+const EMPTY_THREAD_LAST_VISITED_AT_BY_ID: Readonly<Record<string, string>> = {};
+const RECENT_HYDRATED_THREAD_HISTORY_KEEP_COUNT = 8;
+
+function toPagedChatMessage(message: OrchestrationMessage): ChatMessage {
+  const attachments = message.attachments?.map((attachment) => ({
+    type: "image" as const,
+    id: attachment.id,
+    name: attachment.name,
+    mimeType: attachment.mimeType,
+    sizeBytes: attachment.sizeBytes,
+  }));
+
+  return {
+    id: message.id,
+    role: message.role,
+    text: message.streaming ? "" : message.text,
+    ...(message.streaming
+      ? { streamingTextState: createChatMessageStreamingTextState(message.text) }
+      : {}),
+    turnId: message.turnId,
+    createdAt: message.createdAt,
+    ...(message.sequence !== undefined ? { sequence: message.sequence } : {}),
+    streaming: message.streaming,
+    ...(message.streaming ? {} : { completedAt: message.updatedAt }),
+    ...(attachments && attachments.length > 0 ? { attachments } : {}),
+  };
+}
 
 type BrowserPanelInstance = {
   key: string;
@@ -1349,8 +1365,14 @@ function useChatViewComponent({
   const previousActiveThreadId = useUiStateStore((store) =>
     ownsGlobalSideEffects ? store.previousActiveThreadId : null,
   );
+  const threadLastVisitedAtById = useUiStateStore((store) =>
+    ownsGlobalSideEffects ? store.threadLastVisitedAtById : EMPTY_THREAD_LAST_VISITED_AT_BY_ID,
+  );
   const activeThreadLastVisitedAt = useUiStateStore((store) =>
     ownsGlobalSideEffects ? store.threadLastVisitedAtById[threadId] : undefined,
+  );
+  const timelinePageCacheRevision = useTimelineWindowStore((store) =>
+    ownsGlobalSideEffects ? store.pageCacheRevision : 0,
   );
   const defaultThreadEnvMode = useSetting("defaultThreadEnvMode");
   const enableThinkingStreaming = useSetting("enableThinkingStreaming");
@@ -1695,8 +1717,6 @@ function useChatViewComponent({
   const messagesScrollRef = useRef<HTMLDivElement>(null);
   const shouldAutoScrollRef = useRef(true);
   const previousThreadIdRef = useRef<ThreadId | null>(null);
-  const directThreadHydrationInFlightRef = useRef<ThreadId | null>(null);
-  const directThreadHydrationRequestTokenRef = useRef(0);
   const lastKnownScrollTopRef = useRef(0);
   const isPointerScrollActiveRef = useRef(false);
   const lastTouchClientYRef = useRef<number | null>(null);
@@ -2000,7 +2020,7 @@ function useChatViewComponent({
   );
   const handoffMissingThreadId = handoffLineage?.missingThreadId ?? null;
   const handoffHasCycle = handoffLineage?.hasCycle ?? false;
-  const isThreadHistoryLoading = isServerThread && activeThread?.historyLoaded === false;
+  const isThreadHistoryLean = isServerThread && activeThread?.historyLoaded === false;
   const canCheckoutPullRequestIntoThread = isLocalDraftThread;
   const routeWorkspaceMode: ThreadWorkspaceMode =
     !splitPane && (rawSearch.mode === "editor" || rawSearch.mode === "split")
@@ -2038,7 +2058,6 @@ function useChatViewComponent({
   const diffOpen = rightSidePanelEnabled ? rightSidePanelDiffOpen : false;
   const rightSidePanelOpen = rightSidePanelEnabled && rightSidePanelVisible;
   const activeThreadId = activeThread?.id ?? null;
-  const timelinePageCacheRevision = useTimelineWindowStore((state) => state.pageCacheRevision);
   const activeLatestTurn = activeThread?.latestTurn ?? null;
   const sourceProposedPlanThreadId = activeLatestTurn?.sourceProposedPlan?.threadId ?? null;
   const sourcePlanThread = useThreadById(sourceProposedPlanThreadId);
@@ -2048,53 +2067,15 @@ function useChatViewComponent({
     trackedActiveThreadId === activeThreadId ? previousActiveThreadId : trackedActiveThreadId;
   const recentThreadHistoryThread = useThreadById(recentThreadHistoryKeepId);
   const recentThreadHistoryHydrationInFlightRef = useRef<ThreadId | null>(null);
-  const syncHydratedThreadFromCache = useEffectEvent(
-    (thread: Parameters<typeof hydrateThreadFromReadModel>[0]) => {
-      directThreadHydrationRequestTokenRef.current += 1;
-      if (directThreadHydrationInFlightRef.current === thread.id) {
-        directThreadHydrationInFlightRef.current = null;
-      }
-      hydrateThreadFromReadModel(thread);
-    },
-  );
   const attemptDirectThreadHydration = useEffectEvent(
     (thread: NonNullable<typeof serverThread>) => {
       if (thread.historyLoaded !== false) {
         return;
       }
-      const cachedHydratedThread = thread.updatedAt
-        ? readCachedHydratedThread(thread.id, thread.updatedAt)
-        : null;
-      if (cachedHydratedThread) {
-        syncHydratedThreadFromCache(cachedHydratedThread);
-        return;
-      }
-      if (directThreadHydrationInFlightRef.current === thread.id) {
-        return;
-      }
-
-      const requestToken = ++directThreadHydrationRequestTokenRef.current;
-      directThreadHydrationInFlightRef.current = thread.id;
-      void (async () => {
-        try {
-          await prefetchThreadTimelineWindows({
-            threadId: thread.id,
-            priority: "immediate",
-          });
-          if (directThreadHydrationRequestTokenRef.current !== requestToken) {
-            return;
-          }
-        } catch {
-          // The timeline renderer also requests ranges as needed; this prefetch is best effort.
-        } finally {
-          if (
-            directThreadHydrationInFlightRef.current === thread.id &&
-            directThreadHydrationRequestTokenRef.current === requestToken
-          ) {
-            directThreadHydrationInFlightRef.current = null;
-          }
-        }
-      })();
+      void prefetchThreadTimelineWindows({
+        threadId: thread.id,
+        priority: "immediate",
+      }).catch(() => undefined);
     },
   );
   const hydratedThreadHistoryKeepIds = useMemo<ThreadId[]>(
@@ -2104,13 +2085,21 @@ function useChatViewComponent({
         sourceProposedPlanThreadId,
         previousThreadId: recentThreadHistoryKeepId,
         lineageSourceThreadIds,
-        additionalThreadIds: visibleBoardThreadIds,
+        additionalThreadIds: [
+          ...visibleBoardThreadIds,
+          ...deriveRecentlyVisitedThreadHistoryKeepIds({
+            activeThreadId,
+            threadLastVisitedAtById,
+            maxCount: RECENT_HYDRATED_THREAD_HISTORY_KEEP_COUNT,
+          }),
+        ],
       }),
     [
       activeThreadId,
       recentThreadHistoryKeepId,
       sourceProposedPlanThreadId,
       lineageSourceThreadIds,
+      threadLastVisitedAtById,
       visibleBoardThreadIds,
     ],
   );
@@ -2144,11 +2133,6 @@ function useChatViewComponent({
   }, [activeThreadId, ownsGlobalSideEffects, trackActiveThread]);
 
   useEffect(() => {
-    directThreadHydrationRequestTokenRef.current += 1;
-    directThreadHydrationInFlightRef.current = null;
-  }, [serverThread?.historyLoaded, serverThread?.id, serverThread?.updatedAt]);
-
-  useEffect(() => {
     if (!serverThread || serverThread.historyLoaded !== false) {
       return;
     }
@@ -2165,17 +2149,6 @@ function useChatViewComponent({
       return;
     }
 
-    const cachedHydratedThread =
-      recentThreadHistoryThread.updatedAt === undefined
-        ? null
-        : readCachedHydratedThread(recentThreadHistoryKeepId, recentThreadHistoryThread.updatedAt);
-    if (cachedHydratedThread) {
-      startTransition(() => {
-        hydrateThreadFromReadModel(cachedHydratedThread);
-      });
-      return;
-    }
-
     if (recentThreadHistoryHydrationInFlightRef.current === recentThreadHistoryKeepId) {
       return;
     }
@@ -2184,18 +2157,13 @@ function useChatViewComponent({
     let canceled = false;
     void (async () => {
       try {
-        const readModelThread = await hydrateThreadFromCache(recentThreadHistoryKeepId, {
-          expectedUpdatedAt: recentThreadHistoryThread.updatedAt ?? null,
-        });
-        if (canceled) {
-          return;
-        }
-        startTransition(() => {
-          hydrateThreadFromReadModel(readModelThread);
+        await prefetchThreadTimelineWindows({
+          threadId: recentThreadHistoryKeepId,
+          priority: "background",
         });
       } catch (error) {
         if (!canceled) {
-          console.error("Failed to hydrate recent thread history", error);
+          console.error("Failed to prefetch recent thread timeline", error);
         }
       } finally {
         if (
@@ -2213,12 +2181,7 @@ function useChatViewComponent({
         recentThreadHistoryHydrationInFlightRef.current = null;
       }
     };
-  }, [
-    activeThreadId,
-    hydrateThreadFromReadModel,
-    recentThreadHistoryKeepId,
-    recentThreadHistoryThread,
-  ]);
+  }, [activeThreadId, recentThreadHistoryKeepId, recentThreadHistoryThread]);
 
   useEffect(() => {
     if (hydratedThreadHistoryKeepIds.length === 0) {
@@ -2269,17 +2232,6 @@ function useChatViewComponent({
       return;
     }
 
-    const cachedHydratedThread =
-      sourcePlanThread.updatedAt === undefined
-        ? null
-        : readCachedHydratedThread(sourceProposedPlanThreadId, sourcePlanThread.updatedAt);
-    if (cachedHydratedThread) {
-      startTransition(() => {
-        hydrateThreadFromReadModel(cachedHydratedThread);
-      });
-      return;
-    }
-
     if (sourcePlanHydrationInFlightRef.current === sourceProposedPlanThreadId) {
       return;
     }
@@ -2288,18 +2240,13 @@ function useChatViewComponent({
     let canceled = false;
     void (async () => {
       try {
-        const readModelThread = await hydrateThreadFromCache(sourceProposedPlanThreadId, {
-          expectedUpdatedAt: sourcePlanThread.updatedAt ?? null,
-        });
-        if (canceled) {
-          return;
-        }
-        startTransition(() => {
-          hydrateThreadFromReadModel(readModelThread);
+        await prefetchThreadTimelineWindows({
+          threadId: sourceProposedPlanThreadId,
+          priority: "background",
         });
       } catch (error) {
         if (!canceled) {
-          console.error("Failed to hydrate source proposed-plan thread", error);
+          console.error("Failed to prefetch source proposed-plan timeline", error);
         }
       } finally {
         if (!canceled && sourcePlanHydrationInFlightRef.current === sourceProposedPlanThreadId) {
@@ -2314,7 +2261,7 @@ function useChatViewComponent({
         sourcePlanHydrationInFlightRef.current = null;
       }
     };
-  }, [activeThread?.id, hydrateThreadFromReadModel, sourcePlanThread, sourceProposedPlanThreadId]);
+  }, [activeThread?.id, sourcePlanThread, sourceProposedPlanThreadId]);
 
   useEffect(() => {
     if (!activeThreadLineageSourceThreadId || !isServerThread || handoffHasCycle) {
@@ -2339,34 +2286,16 @@ function useChatViewComponent({
       if (handoffHydrationInFlightRef.current.has(threadIdToHydrate)) {
         continue;
       }
-      const cachedHydratedThread =
-        thread?.updatedAt === undefined
-          ? null
-          : readCachedHydratedThread(threadIdToHydrate, thread.updatedAt);
-      if (cachedHydratedThread) {
-        startTransition(() => {
-          if (!canceled) {
-            hydrateThreadFromReadModel(cachedHydratedThread);
-          }
-        });
-        continue;
-      }
-
       handoffHydrationInFlightRef.current.add(threadIdToHydrate);
       void (async () => {
         try {
-          const readModelThread = await hydrateThreadFromCache(threadIdToHydrate, {
-            expectedUpdatedAt: thread?.updatedAt ?? null,
-          });
-          if (canceled) {
-            return;
-          }
-          startTransition(() => {
-            hydrateThreadFromReadModel(readModelThread);
+          await prefetchThreadTimelineWindows({
+            threadId: threadIdToHydrate,
+            priority: "background",
           });
         } catch (error) {
           if (!canceled) {
-            console.error("Failed to hydrate handoff history", error);
+            console.error("Failed to prefetch handoff timeline", error);
           }
         } finally {
           handoffHydrationInFlightRef.current.delete(threadIdToHydrate);
@@ -2382,7 +2311,6 @@ function useChatViewComponent({
     handoffHasCycle,
     handoffMissingThreadId,
     lineageSourceThreadIds,
-    hydrateThreadFromReadModel,
     isServerThread,
   ]);
   const latestTurnSettled = isLatestTurnSettled(activeLatestTurn, activeThread?.session ?? null);
@@ -2619,6 +2547,12 @@ function useChatViewComponent({
     },
     [activeProject, openOrReuseProjectDraftThread],
   );
+
+  useEffect(() => {
+    if (!activeForSideEffects) return;
+    if (!serverThread?.id) return;
+    markThreadVisited(serverThread.id);
+  }, [activeForSideEffects, markThreadVisited, serverThread?.id]);
 
   useEffect(() => {
     if (!activeForSideEffects) return;
@@ -2991,54 +2925,103 @@ function useChatViewComponent({
     }
     return [...serverMessagesWithPreviewHandoff, ...pendingMessages];
   }, [serverMessages, attachmentPreviewHandoffByMessageId, optimisticUserMessages]);
-  const sparsePageTimeline = useMemo(() => {
+  const activeThreadTimelinePages = useMemo(() => {
     void timelinePageCacheRevision;
-    if (!isServerThread || !activeThreadId) {
+    return activeThread && isThreadHistoryLean
+      ? readLoadedThreadTimelinePages(activeThread.id)
+      : [];
+  }, [activeThread, isThreadHistoryLean, timelinePageCacheRevision]);
+  const pagedThreadTimeline = useMemo(() => {
+    if (!activeThread || !isThreadHistoryLean || activeThreadTimelinePages.length === 0) {
       return null;
     }
-    const pages = readLoadedThreadTimelinePages(activeThreadId);
-    if (pages.length === 0) {
+
+    const pagedMessages = activeThreadTimelinePages.flatMap((page) =>
+      page.messages.map(toPagedChatMessage),
+    );
+    if (
+      !isPagedThreadTimelineUsable({
+        latestTurn: activeThread.latestTurn,
+        leanMessages: activeThreadMessages,
+        pagedMessages,
+      })
+    ) {
       return null;
     }
 
-    const messagesById = new Map(activeThreadMessages.map((message) => [message.id, message]));
-    const activitiesById = new Map(threadActivities.map((activity) => [activity.id, activity]));
-    const proposedPlansById = new Map(
-      (activeThread?.proposedPlans ?? []).map((proposedPlan) => [proposedPlan.id, proposedPlan]),
+    const messageById = new Map(
+      pagedMessages.map((message) => [String(message.id), message] as const),
     );
+    const activityById = new Map(
+      activeThreadTimelinePages.flatMap((page) =>
+        page.activities.map((activity) => [String(activity.id), activity] as const),
+      ),
+    );
+    const proposedPlanById = new Map(
+      activeThreadTimelinePages.flatMap((page) =>
+        page.proposedPlans.map((proposedPlan) => [String(proposedPlan.id), proposedPlan] as const),
+      ),
+    );
+    const messages: ChatMessage[] = [];
+    const activities: OrchestrationThreadActivity[] = [];
+    const proposedPlans: Thread["proposedPlans"] = [];
 
-    for (const page of pages) {
-      for (const message of page.messages) {
-        messagesById.set(message.id, toChatMessageFromTimelinePage(message));
-      }
-      for (const activity of page.activities) {
-        activitiesById.set(activity.id, activity);
-      }
-      for (const proposedPlan of page.proposedPlans) {
-        proposedPlansById.set(proposedPlan.id, proposedPlan);
+    for (const entry of activeThreadTimelinePages
+      .flatMap((page) => page.entries)
+      .toSorted((left, right) => left.index - right.index)) {
+      if (entry.kind === "message") {
+        const message = messageById.get(String(entry.id));
+        if (message && !messages.some((candidate) => candidate.id === message.id)) {
+          messages.push(message);
+        }
+      } else if (entry.kind === "activity") {
+        const activity = activityById.get(String(entry.id));
+        if (activity && !activities.some((candidate) => candidate.id === activity.id)) {
+          activities.push(activity);
+        }
+      } else {
+        const proposedPlan = proposedPlanById.get(String(entry.id));
+        if (proposedPlan && !proposedPlans.some((candidate) => candidate.id === proposedPlan.id)) {
+          proposedPlans.push(proposedPlan);
+        }
       }
     }
 
-    const activities = [...activitiesById.values()];
-    const pageActivityState = deriveThreadActivityRenderState(
-      activities,
-      activityVisibilitySettings,
-    );
+    for (const message of activeThreadMessages) {
+      if (!messages.some((candidate) => candidate.id === message.id)) {
+        messages.push(message);
+      }
+    }
+
     return {
-      messages: [...messagesById.values()],
-      proposedPlans: [...proposedPlansById.values()],
-      workEntries: pageActivityState.workLogEntries,
+      messages,
+      proposedPlans,
+      workEntries: deriveThreadActivityRenderState(activities, activityVisibilitySettings)
+        .workLogEntries,
     };
   }, [
-    activeThread?.proposedPlans,
-    activeThreadId,
+    activeThread,
     activeThreadMessages,
+    activeThreadTimelinePages,
     activityVisibilitySettings,
-    isServerThread,
-    threadActivities,
-    timelinePageCacheRevision,
+    isThreadHistoryLean,
   ]);
+  const isThreadHistoryLoading = isThreadHistoryLean && pagedThreadTimeline === null;
   const handoffTimeline = useMemo(() => {
+    if (pagedThreadTimeline) {
+      return {
+        ...pagedThreadTimeline,
+        historicalMessageIds: new Set<MessageId>(),
+      };
+    }
+    if (isThreadHistoryLoading) {
+      return {
+        messages: [],
+        proposedPlans: [],
+        workEntries: [],
+        historicalMessageIds: new Set<MessageId>(),
+      };
+    }
     if (!activeThread) {
       return {
         messages: activeThreadMessages,
@@ -3067,12 +3050,14 @@ function useChatViewComponent({
     activeThreadMessages,
     activityVisibilitySettings,
     handoffLineage,
+    isThreadHistoryLoading,
     isServerThread,
+    pagedThreadTimeline,
     workLogEntries,
   ]);
-  const timelineMessages = sparsePageTimeline?.messages ?? handoffTimeline.messages;
-  const timelineProposedPlans = sparsePageTimeline?.proposedPlans ?? handoffTimeline.proposedPlans;
-  const timelineWorkEntries = sparsePageTimeline?.workEntries ?? handoffTimeline.workEntries;
+  const timelineMessages = handoffTimeline.messages;
+  const timelineProposedPlans = handoffTimeline.proposedPlans;
+  const timelineWorkEntries = handoffTimeline.workEntries;
   const subagentProvider =
     activeThread?.session?.provider ?? activeThread?.modelSelection.provider ?? null;
   const subagentThreads = useMemo(
@@ -9756,10 +9741,10 @@ function useChatViewComponent({
   );
   const loadingNotice = useMemo(
     () =>
-      isThreadHistoryLoading && !sparsePageTimeline ? (
+      isThreadHistoryLoading ? (
         <ThreadHistoryLoadingNotice variant={activeThreadMessagesLength > 0 ? "inline" : "empty"} />
       ) : null,
-    [activeThreadMessagesLength, isThreadHistoryLoading, sparsePageTimeline],
+    [activeThreadMessagesLength, isThreadHistoryLoading],
   );
   const environmentPanelCanUseInlineLayout = chatViewportSize.width >= 1120;
   const environmentPanelVisible = environmentPanelOpen && activeThread !== undefined;

@@ -22,14 +22,14 @@ export class LRUCache<T> {
     return entry.value;
   }
 
-  set(key: string, value: T, approximateSize: number): void {
+  set(key: string, value: T, approximateSize: number, protectedKeys?: ReadonlySet<string>): void {
     const existing = this.cache.get(key);
     if (existing) {
       this.totalSize -= existing.approximateSize;
       this.cache.delete(key);
     }
 
-    this.evictIfNeeded(approximateSize);
+    this.evictIfNeeded(approximateSize, protectedKeys);
     this.cache.set(key, { value, approximateSize });
     this.totalSize += approximateSize;
   }
@@ -44,12 +44,19 @@ export class LRUCache<T> {
     this.cache.set(key, entry);
   }
 
-  private evictIfNeeded(incomingSize: number): void {
+  private evictIfNeeded(incomingSize: number, protectedKeys?: ReadonlySet<string>): void {
     while (
       (this.cache.size >= this.maxEntries || this.totalSize + incomingSize > this.maxMemoryBytes) &&
       this.cache.size > 0
     ) {
-      const oldestKey = this.cache.keys().next().value;
+      let oldestKey: string | undefined;
+      for (const key of this.cache.keys()) {
+        if (!protectedKeys?.has(key)) {
+          oldestKey = key;
+          break;
+        }
+      }
+      oldestKey ??= this.cache.keys().next().value;
       if (oldestKey === undefined) {
         break;
       }

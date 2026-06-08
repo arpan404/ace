@@ -143,10 +143,7 @@ export function ThreadHistoryLoadingNotice({
         )}
       >
         <Spinner className="size-3 text-primary" />
-        <span>{isInline ? "Restoring older messages…" : "Restoring conversation…"}</span>
-        <span className="hidden text-muted-foreground/70 sm:inline">
-          {isInline ? "showing recent messages now" : "syncing missing messages"}
-        </span>
+        <span>Fetching thread…</span>
       </div>
     </div>
   );

@@ -524,9 +524,7 @@ const ThreadBoardPane = memo(function ThreadBoardPane(props: {
           className={cn(
             "pointer-events-none absolute inset-0 z-[33] border transition-[border-color,box-shadow] ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none",
             "duration-300",
-            isFocusedPane
-              ? "border-primary/40"
-              : "border-border/35",
+            isFocusedPane ? "border-primary/40" : "border-border/35",
           )}
         />
       ) : null}

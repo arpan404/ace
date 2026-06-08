@@ -495,7 +495,9 @@ body {
 .glass-surface {
   background: var(--glass-surface) !important;
   border-color: var(--glass-surface-border);
-  box-shadow: inset 0 1px 0 var(--glass-highlight), var(--glass-shadow);
+  box-shadow:
+    inset 0 1px 0 var(--glass-highlight),
+    var(--glass-shadow);
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
   backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
 }

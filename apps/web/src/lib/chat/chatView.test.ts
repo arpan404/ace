@@ -10,6 +10,7 @@ import {
   appendHiddenBrowserDesignContextFromOriginalPrompt,
   deriveComposerSendState,
   deriveHydratedThreadHistoryKeepIds,
+  deriveRecentlyVisitedThreadHistoryKeepIds,
   deriveQueuedComposerMessageDraftForEditing,
   formatQueuedComposerMessagePreview,
   hasServerAcknowledgedLocalDispatch,
@@ -303,6 +304,26 @@ describe("deriveHydratedThreadHistoryKeepIds", () => {
         additionalThreadIds: [boardThreadId],
       }),
     ).toEqual([]);
+  });
+});
+
+describe("deriveRecentlyVisitedThreadHistoryKeepIds", () => {
+  it("keeps a bounded newest-first set and excludes the active thread", () => {
+    const activeThreadId = ThreadId.makeUnsafe("thread-active");
+
+    expect(
+      deriveRecentlyVisitedThreadHistoryKeepIds({
+        activeThreadId,
+        maxCount: 2,
+        threadLastVisitedAtById: {
+          [activeThreadId]: "2026-03-29T00:00:05.000Z",
+          "thread-old": "2026-03-29T00:00:01.000Z",
+          "thread-new": "2026-03-29T00:00:04.000Z",
+          "thread-invalid": "not-a-date",
+          "thread-mid": "2026-03-29T00:00:03.000Z",
+        },
+      }),
+    ).toEqual([ThreadId.makeUnsafe("thread-new"), ThreadId.makeUnsafe("thread-mid")]);
   });
 });
 

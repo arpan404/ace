@@ -84,6 +84,32 @@ beforeAll(() => {
 });
 
 describe("MessagesTimeline", { timeout: 30_000 }, () => {
+  it("derives timeline prefetch page size and direction from scroll speed", async () => {
+    const { deriveTimelineScrollPrefetchRequest } = await import("./MessagesTimeline");
+
+    expect(
+      deriveTimelineScrollPrefetchRequest({
+        currentScrollTop: 30,
+        previousScrollTop: 0,
+        elapsedMs: 100,
+      }),
+    ).toMatchObject({ direction: "both", pageSize: 100 });
+    expect(
+      deriveTimelineScrollPrefetchRequest({
+        currentScrollTop: 500,
+        previousScrollTop: 0,
+        elapsedMs: 100,
+      }),
+    ).toMatchObject({ direction: "newer", pageSize: 1_000 });
+    expect(
+      deriveTimelineScrollPrefetchRequest({
+        currentScrollTop: 0,
+        previousScrollTop: 1_200,
+        elapsedMs: 100,
+      }),
+    ).toMatchObject({ direction: "older", pageSize: 4_000 });
+  });
+
   it("uses stable timeline row cache keys across equivalent remounted arrays", async () => {
     const { buildTimelineRowsCacheKey } = await import("../../lib/chat/timelineRowsClient");
     const makeInput = (timelineEntries: []) => ({
@@ -165,11 +191,36 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(result.rows).toBe(retainedRows);
   });
 
-  it("shows the loading placeholder only when async row rebuilding has no retained active rows", async () => {
+  it("does not keep retained rows visible while thread history is loading", async () => {
     const { resolveVisibleTimelineRows } = await import("./MessagesTimeline");
     const retainedRows = [
       {
-        id: "other-thread-row",
+        id: "previous-user-row",
+        kind: "message",
+      },
+    ] as unknown as ReturnType<typeof resolveVisibleTimelineRows>["rows"];
+
+    const result = resolveVisibleTimelineRows({
+      activeThreadId: "thread-1",
+      retainedRows: {
+        activeThreadId: "thread-1",
+        rows: retainedRows,
+      },
+      retainRowsWhileLoading: false,
+      resolvedAsyncRows: null,
+      shouldResolveAsync: true,
+      syncRows: [],
+    });
+
+    expect(result.loading).toBe(true);
+    expect(result.rows).toEqual([]);
+  });
+
+  it("uses sync rows while async row caching is pending", async () => {
+    const { resolveVisibleTimelineRows } = await import("./MessagesTimeline");
+    const syncRows = [
+      {
+        id: "sync-row",
         kind: "message",
       },
     ] as unknown as ReturnType<typeof resolveVisibleTimelineRows>["rows"];
@@ -178,18 +229,18 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
       activeThreadId: "thread-1",
       retainedRows: {
         activeThreadId: "thread-2",
-        rows: retainedRows,
+        rows: [],
       },
       resolvedAsyncRows: null,
       shouldResolveAsync: true,
-      syncRows: [],
+      syncRows,
     });
 
-    expect(result.loading).toBe(true);
-    expect(result.rows).toHaveLength(0);
+    expect(result.loading).toBe(false);
+    expect(result.rows).toBe(syncRows);
   });
 
-  it("does not show the async loading skeleton while thread history is restoring", async () => {
+  it("does not show the async loading skeleton on cache misses or history restore", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const previousDocument = globalThis.document;
     const previousWindow = globalThis.window;
@@ -242,18 +293,40 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
         workspaceRoot: undefined,
       };
 
-      const skeletonMarkup = renderToStaticMarkup(<MessagesTimeline {...baseProps} />);
+      const cacheMissMarkup = renderToStaticMarkup(<MessagesTimeline {...baseProps} />);
       const restoringMarkup = renderToStaticMarkup(
         <MessagesTimeline {...baseProps} isThreadHistoryLoading />,
       );
 
-      expect(skeletonMarkup).toContain("Loading conversation");
+      expect(cacheMissMarkup).not.toContain("Loading conversation");
       expect(restoringMarkup).not.toContain("Loading conversation");
     } finally {
       vi.stubGlobal("document", previousDocument);
       vi.stubGlobal("window", previousWindow);
       vi.stubGlobal("Worker", previousWorker);
     }
+  });
+
+  it("shows deferred assistant markdown as readable plain text instead of skeleton bars", async () => {
+    const { AssistantMarkdownDeferredPreview } = await import("./MessagesTimeline");
+
+    const markup = renderToStaticMarkup(
+      <AssistantMarkdownDeferredPreview text="**Deferred markdown 20**" />,
+    );
+
+    expect(markup).toContain('data-assistant-markdown-deferred-preview="true"');
+    expect(markup).toContain("**Deferred markdown 20**");
+    expect(markup).not.toContain("data-assistant-markdown-pending");
+  });
+
+  it("does not render fake message skeletons while timeline rows are loading", async () => {
+    const { TimelineRowsLoadingFallback } = await import("./MessagesTimeline");
+
+    const markup = renderToStaticMarkup(<TimelineRowsLoadingFallback />);
+
+    expect(markup).toContain("Fetching thread");
+    expect(markup).not.toContain("animate-pulse");
+    expect(markup).not.toContain("rounded-full bg-muted");
   });
 
   it("renders terminal assistant output through markdown instead of forcing plain text", async () => {
@@ -2921,8 +2994,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
 
     expect(markup).toContain('data-completed-work-summary="true"');
     expect(markup).toContain('aria-label="Show hidden work logs"');
-    expect(markup).toContain("Read 1 file");
     expect(markup).toContain("Worked for 4s");
+    expect(markup).not.toContain("Read 1 file");
     expect(markup).not.toContain("1 tool call");
     expect(markup).not.toContain("README.md");
   });
@@ -4176,12 +4249,12 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     );
 
     expect(markup).toContain("Assistant text before hidden work.");
-    expect(markup).toContain("Ran 1 command");
     expect(markup).toContain("Worked for 1s");
+    expect(markup).not.toContain("Ran 1 command");
     expect(markup.indexOf("Assistant text before hidden work.")).toBeLessThan(
-      markup.indexOf("Ran 1 command"),
+      markup.indexOf("Worked for 1s"),
     );
-    expect(markup.indexOf("Ran 1 command")).toBeLessThan(
+    expect(markup.indexOf("Worked for 1s")).toBeLessThan(
       markup.indexOf('data-assistant-turn-footer="true"'),
     );
     expect(markup.indexOf('data-response-summary="true"')).toBeLessThan(

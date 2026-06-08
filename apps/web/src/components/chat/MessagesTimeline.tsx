@@ -44,6 +44,8 @@ import { prewarmMarkdownRenderAnalysis } from "../../lib/chat/markdownRenderAnal
 import {
   prefetchThreadTimelineAroundLoadedWindow,
   readTimelineRowHeight,
+  resolveTimelineScrollPrefetchPageSize,
+  type TimelinePrefetchDirection,
   useTimelineWindowStore,
   writeTimelineRowHeight,
 } from "../../lib/chat/timelineWindowStore";
@@ -165,9 +167,39 @@ const EMPTY_MESSAGE_TURN_COUNT_MAP = new Map<MessageId, number>();
 const IMAGE_GENERATION_PORTRAIT_FRAME_MAX_HEIGHT_VH = 42;
 const SELECTION_PIN_BUTTON_WIDTH_PX = 92;
 const SELECTION_PIN_BUTTON_HEIGHT_PX = 32;
+const TIMELINE_DIRECTIONAL_PREFETCH_MIN_VELOCITY_PX_PER_MS = 0.75;
 const ASSISTANT_MESSAGE_ROW_SELECTOR = '[data-message-role="assistant"][data-message-id]';
 const PINNED_SELECTION_TEXT_BLOCK_SELECTOR =
   "blockquote,div,h1,h2,h3,h4,h5,h6,li,ol,p,pre,section,table,tbody,td,tfoot,th,thead,tr,ul";
+
+export function deriveTimelineScrollPrefetchRequest(input: {
+  readonly currentScrollTop: number;
+  readonly previousScrollTop: number;
+  readonly elapsedMs: number;
+}): {
+  readonly direction: TimelinePrefetchDirection;
+  readonly pageSize: number;
+  readonly velocityPxPerMs: number;
+} {
+  const deltaScrollTop = Number.isFinite(input.previousScrollTop)
+    ? input.currentScrollTop - input.previousScrollTop
+    : 0;
+  const elapsedMs = Math.max(1, Number.isFinite(input.elapsedMs) ? input.elapsedMs : 1);
+  const velocityPxPerMs = Math.abs(deltaScrollTop) / elapsedMs;
+  const direction =
+    velocityPxPerMs >= TIMELINE_DIRECTIONAL_PREFETCH_MIN_VELOCITY_PX_PER_MS
+      ? deltaScrollTop < 0
+        ? "older"
+        : deltaScrollTop > 0
+          ? "newer"
+          : "both"
+      : "both";
+  return {
+    direction,
+    pageSize: resolveTimelineScrollPrefetchPageSize(velocityPxPerMs),
+    velocityPxPerMs,
+  };
+}
 
 type AssistantSelectionPinTarget = {
   left: number;
@@ -412,29 +444,14 @@ function canResolveTimelineRowsInWorker(): boolean {
   );
 }
 
-function TimelineRowsLoadingFallback() {
+export function TimelineRowsLoadingFallback() {
   return (
     <div
-      className="mx-auto flex h-full w-full max-w-3xl flex-col justify-start gap-6 px-1 py-8"
+      className="mx-auto flex h-full w-full max-w-3xl items-center justify-center px-4 py-8"
       aria-label="Loading conversation"
     >
-      <div className="flex justify-end">
-        <div className="w-[68%] max-w-2xl rounded-2xl border border-border/35 bg-card/45 p-4">
-          <div className="h-4 w-[92%] animate-pulse rounded-full bg-muted/40" />
-          <div className="mt-3 h-4 w-[72%] animate-pulse rounded-full bg-muted/30" />
-          <div className="mt-4 ml-auto h-3 w-24 animate-pulse rounded-full bg-muted/20" />
-        </div>
-      </div>
-      <div className="w-[76%] max-w-2xl rounded-2xl border border-border/25 bg-muted/10 p-4">
-        <div className="h-3.5 w-[34%] animate-pulse rounded-full bg-muted/35" />
-        <div className="mt-3 h-3.5 w-[88%] animate-pulse rounded-full bg-muted/30" />
-        <div className="mt-2 h-3.5 w-[63%] animate-pulse rounded-full bg-muted/25" />
-      </div>
-      <div className="flex justify-end">
-        <div className="w-[58%] max-w-xl rounded-2xl border border-border/30 bg-card/35 p-4">
-          <div className="h-4 w-[84%] animate-pulse rounded-full bg-muted/35" />
-          <div className="mt-3 h-4 w-[48%] animate-pulse rounded-full bg-muted/25" />
-        </div>
+      <div className="rounded-full border border-border/45 bg-card/80 px-3 py-1.5 text-[11px] text-muted-foreground shadow-sm shadow-background/20">
+        Fetching thread…
       </div>
     </div>
   );
@@ -447,6 +464,7 @@ export function resolveVisibleTimelineRows(input: {
     readonly rows: ReadonlyArray<TimelineRow>;
   } | null;
   readonly resolvedAsyncRows: ReadonlyArray<TimelineRow> | null;
+  readonly retainRowsWhileLoading?: boolean;
   readonly shouldResolveAsync: boolean;
   readonly syncRows: ReadonlyArray<TimelineRow>;
 }): { readonly loading: boolean; readonly rows: ReadonlyArray<TimelineRow> } {
@@ -464,7 +482,15 @@ export function resolveVisibleTimelineRows(input: {
     };
   }
 
+  if (input.syncRows.length > 0) {
+    return {
+      loading: false,
+      rows: input.syncRows,
+    };
+  }
+
   if (
+    input.retainRowsWhileLoading !== false &&
     input.activeThreadId &&
     input.retainedRows?.activeThreadId === input.activeThreadId &&
     input.retainedRows.rows.length > 0
@@ -910,31 +936,23 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     if (cachedTimelineRows) {
       return cachedTimelineRows;
     }
-    if (shouldResolveTimelineRowsAsync) {
-      return EMPTY_TIMELINE_ROWS;
-    }
     return measureRenderWork("chat.buildTimelineRows", () => buildTimelineRows(timelineRowsInput));
-  }, [cachedTimelineRows, shouldResolveTimelineRowsAsync, timelineRowsInput]);
+  }, [cachedTimelineRows, timelineRowsInput]);
   const { loading: timelineRowsLoading, rows } = resolveVisibleTimelineRows({
     activeThreadId: activeThreadId ?? null,
     retainedRows: retainedTimelineRows,
+    retainRowsWhileLoading: !isThreadHistoryLoading,
     resolvedAsyncRows: resolvedAsyncTimelineRows,
     shouldResolveAsync: shouldResolveTimelineRowsAsync,
     syncRows: syncTimelineRows,
   });
 
   useEffect(() => {
-    if (cachedTimelineRows || shouldResolveTimelineRowsAsync) {
+    if (cachedTimelineRows) {
       return;
     }
     writeCachedTimelineRows(timelineRowsCacheKey, timelineRowsInput, syncTimelineRows);
-  }, [
-    cachedTimelineRows,
-    shouldResolveTimelineRowsAsync,
-    syncTimelineRows,
-    timelineRowsCacheKey,
-    timelineRowsInput,
-  ]);
+  }, [cachedTimelineRows, syncTimelineRows, timelineRowsCacheKey, timelineRowsInput]);
 
   useEffect(() => {
     if (!activeThreadId) {
@@ -1252,6 +1270,10 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     useAnimationFrameWithResizeObserver: true,
   });
   const isTimelineScrolling = rowVirtualizer.isScrolling;
+  const timelineScrollSampleRef = useRef({
+    scrollTop: Number.NaN,
+    sampledAt: 0,
+  });
 
   const shouldUseVirtualizedBuffer = virtualizedRows.length > 0;
   const shouldPrioritizeAssistantMarkdown = shouldUseVirtualizedBuffer;
@@ -1310,17 +1332,32 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       return;
     }
     const edgeThreshold = Math.max(TIMELINE_VIRTUALIZER_OVERSCAN * 2, 16);
-    const isNearRenderedEdge =
-      firstVirtualItem.index <= edgeThreshold ||
-      rows.length - lastVirtualItem.index <= edgeThreshold;
+    const isNearOlderEdge = firstVirtualItem.index <= edgeThreshold;
+    const isNearNewerEdge = rows.length - lastVirtualItem.index <= edgeThreshold;
+    const isNearRenderedEdge = isNearOlderEdge || isNearNewerEdge;
     if (!isNearRenderedEdge) {
       return;
     }
+    const scrollContainer = getScrollContainer();
+    const now = Date.now();
+    const currentScrollTop = scrollContainer?.scrollTop ?? 0;
+    const previousSample = timelineScrollSampleRef.current;
+    const prefetchRequest = deriveTimelineScrollPrefetchRequest({
+      currentScrollTop,
+      previousScrollTop: previousSample.scrollTop,
+      elapsedMs: now - previousSample.sampledAt,
+    });
+    timelineScrollSampleRef.current = {
+      scrollTop: currentScrollTop,
+      sampledAt: now,
+    };
     void prefetchThreadTimelineAroundLoadedWindow({
       threadId: activeThreadId as ThreadId,
       priority: "background",
+      pageSize: prefetchRequest.pageSize,
+      direction: prefetchRequest.direction,
     }).catch(() => undefined);
-  }, [activeThreadId, renderedVirtualItems, rows.length]);
+  }, [activeThreadId, getScrollContainer, renderedVirtualItems, rows.length]);
   useEffect(() => {
     if (!targetMessageNavigation) return;
     const targetMessageId = targetMessageNavigation.messageId;
@@ -3172,11 +3209,7 @@ const CompletedWorkSummaryTimelineRow = memo(function CompletedWorkSummaryTimeli
     props.row.entries.length > 0
       ? buildTimelineWorkGroupSummaryProjection(props.row.entries)
       : null;
-  const summaryBreakdownParts = hiddenWorkSummary
-    ? summarizeWorkGroupBreakdownParts(hiddenWorkSummary, null, null)
-    : [];
   const SummaryIcon = hiddenWorkSummary ? workGroupIcon(hiddenWorkSummary.iconKey) : Clock3Icon;
-  const summaryBreakdownText = summaryBreakdownParts.map((part) => part.text).join(" · ");
   const summaryContent = (
     <>
       <SummaryIcon
@@ -3189,15 +3222,8 @@ const CompletedWorkSummaryTimelineRow = memo(function CompletedWorkSummaryTimeli
       />
       <span
         className="flex min-w-0 flex-wrap items-center gap-x-1.5 text-[12px] leading-5 text-muted-foreground/76 transition-colors group-hover/completed-work:text-foreground/86"
-        data-completed-work-summary-breakdown={summaryBreakdownText || undefined}
+        data-completed-work-summary-label="worked-for"
       >
-        {summaryBreakdownParts.map((part, index) => (
-          <Fragment key={`${props.row.id}:completed-work-summary:${part.key}`}>
-            {index > 0 && <span className="text-muted-foreground/36">·</span>}
-            <span className="min-w-0">{part.text}</span>
-          </Fragment>
-        ))}
-        {summaryBreakdownParts.length > 0 && <span className="text-muted-foreground/36">·</span>}
         <span>Worked for {elapsedLabel}</span>
       </span>
       {hasHiddenLogs && (
@@ -3385,17 +3411,18 @@ const UserMessageTimelineRow = memo(function UserMessageTimelineRow(props: {
   );
 });
 
-const AssistantMarkdownPendingPlaceholder = memo(function AssistantMarkdownPendingPlaceholder() {
-  return (
-    <div
-      className="space-y-2 py-1 text-[13px] text-muted-foreground/58"
-      data-assistant-markdown-pending="true"
-    >
-      <div className="h-3.5 w-2/3 rounded bg-muted-foreground/9" />
-      <div className="h-3.5 w-1/2 rounded bg-muted-foreground/7" />
-    </div>
-  );
-});
+export const AssistantMarkdownDeferredPreview = memo(
+  function AssistantMarkdownDeferredPreview(props: { readonly text: string }) {
+    return (
+      <div
+        className="chat-markdown-deferred-preview w-full min-w-0 wrap-break-word whitespace-pre-wrap text-[13px] leading-[1.55] text-foreground/80"
+        data-assistant-markdown-deferred-preview="true"
+      >
+        {props.text}
+      </div>
+    );
+  },
+);
 
 const AssistantImageAttachmentFrame = memo(function AssistantImageAttachmentFrame(props: {
   readonly generationDimensions: AssistantImageGenerationPlaceholder | null;
@@ -3559,7 +3586,7 @@ const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(pr
                 : {})}
             />
           ) : (
-            <AssistantMarkdownPendingPlaceholder />
+            <AssistantMarkdownDeferredPreview text={messageText} />
           )}
         </div>
       )}

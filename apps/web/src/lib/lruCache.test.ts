@@ -40,4 +40,15 @@ describe("LRUCache", () => {
     expect(cache.get("b")).toBe("B");
     expect(cache.get("c")).toBe("C");
   });
+
+  it("evicts unprotected entries before protected visible entries", () => {
+    const cache = new LRUCache<string>(10, 25);
+    cache.set("tail", "TAIL", 10);
+    cache.set("older", "OLDER", 10);
+    cache.set("newer", "NEWER", 10, new Set(["tail"]));
+
+    expect(cache.get("tail")).toBe("TAIL");
+    expect(cache.get("older")).toBeNull();
+    expect(cache.get("newer")).toBe("NEWER");
+  });
 });
