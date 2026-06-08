@@ -27,7 +27,10 @@ import {
   __resetThreadHydrationCacheForTests,
   readCachedHydratedThread,
 } from "./lib/threadHydrationCache";
-import { getChatMessageFullText } from "./lib/chat/messageText";
+import {
+  createChatMessageStreamingTextState,
+  getChatMessageFullText,
+} from "./lib/chat/messageText";
 import { DEFAULT_INTERACTION_MODE, DEFAULT_RUNTIME_MODE, type Thread } from "./types";
 
 beforeEach(() => {
@@ -944,6 +947,146 @@ describe("store read model sync", () => {
     expect(next.threads[0]?.session?.commands).toEqual([
       { name: "review", description: "New review command" },
     ]);
+  });
+
+  it("preserves newer live assistant text when a stale hydrated snapshot arrives", () => {
+    const threadId = ThreadId.makeUnsafe("thread-stale-hydration");
+    const turnId = TurnId.makeUnsafe("turn-stale-hydration");
+    const assistantMessageId = MessageId.makeUnsafe("assistant-stale-hydration");
+    const state = makeState(
+      makeThread({
+        id: threadId,
+        historyLoaded: true,
+        messages: [
+          {
+            id: MessageId.makeUnsafe("user-stale-hydration"),
+            role: "user",
+            text: "Investigate",
+            turnId,
+            streaming: false,
+            sequence: 1,
+            createdAt: "2026-02-27T00:00:00.000Z",
+          },
+          {
+            id: assistantMessageId,
+            role: "assistant",
+            text: "",
+            streamingTextState: createChatMessageStreamingTextState(
+              "I checked contracts and adapters.",
+            ),
+            turnId,
+            streaming: true,
+            sequence: 3,
+            createdAt: "2026-02-27T00:00:01.000Z",
+          },
+        ],
+      }),
+    );
+
+    const readModelThread = makeReadModelThread({
+      id: threadId,
+      messages: [
+        {
+          id: MessageId.makeUnsafe("user-stale-hydration"),
+          role: "user",
+          text: "Investigate",
+          turnId,
+          streaming: false,
+          sequence: 1,
+          createdAt: "2026-02-27T00:00:00.000Z",
+          updatedAt: "2026-02-27T00:00:00.000Z",
+        },
+        {
+          id: assistantMessageId,
+          role: "assistant",
+          text: "I checked",
+          turnId,
+          streaming: true,
+          sequence: 2,
+          createdAt: "2026-02-27T00:00:01.000Z",
+          updatedAt: "2026-02-27T00:00:01.000Z",
+        },
+      ],
+    });
+
+    const next = hydrateThreadFromReadModel(state, readModelThread);
+    const assistantMessage = next.threads[0]?.messages.find(
+      (message) => message.id === assistantMessageId,
+    );
+
+    expect(assistantMessage?.streaming).toBe(true);
+    expect(getChatMessageFullText(assistantMessage!)).toBe("I checked contracts and adapters.");
+  });
+
+  it("does not let snapshot sync shrink accumulated live assistant text", () => {
+    const threadId = ThreadId.makeUnsafe("thread-stale-sync");
+    const turnId = TurnId.makeUnsafe("turn-stale-sync");
+    const assistantMessageId = MessageId.makeUnsafe("assistant-stale-sync");
+    const state = makeState(
+      makeThread({
+        id: threadId,
+        historyLoaded: true,
+        messages: [
+          {
+            id: MessageId.makeUnsafe("user-stale-sync"),
+            role: "user",
+            text: "Investigate",
+            turnId,
+            streaming: false,
+            sequence: 1,
+            createdAt: "2026-02-27T00:00:00.000Z",
+          },
+          {
+            id: assistantMessageId,
+            role: "assistant",
+            text: "",
+            streamingTextState: createChatMessageStreamingTextState(
+              "I found one concrete lead already.",
+            ),
+            turnId,
+            streaming: true,
+            sequence: 3,
+            createdAt: "2026-02-27T00:00:01.000Z",
+          },
+        ],
+      }),
+    );
+
+    const next = syncServerReadModel(
+      state,
+      makeReadModel(
+        makeReadModelThread({
+          id: threadId,
+          messages: [
+            {
+              id: MessageId.makeUnsafe("user-stale-sync"),
+              role: "user",
+              text: "Investigate",
+              turnId,
+              streaming: false,
+              sequence: 1,
+              createdAt: "2026-02-27T00:00:00.000Z",
+              updatedAt: "2026-02-27T00:00:00.000Z",
+            },
+            {
+              id: assistantMessageId,
+              role: "assistant",
+              text: "I found one",
+              turnId,
+              streaming: true,
+              sequence: 2,
+              createdAt: "2026-02-27T00:00:01.000Z",
+              updatedAt: "2026-02-27T00:00:01.000Z",
+            },
+          ],
+        }),
+      ),
+    );
+    const assistantMessage = next.threads[0]?.messages.find(
+      (message) => message.id === assistantMessageId,
+    );
+
+    expect(getChatMessageFullText(assistantMessage!)).toBe("I found one concrete lead already.");
   });
 
   it("derives sidebar proposed-plan state from latestProposedPlanSummary for lean threads", () => {
