@@ -327,6 +327,65 @@ describe("timelineRows", () => {
     });
   });
 
+  it("keeps consecutive assistant goal progress messages visible when completed work is hidden", () => {
+    const rows = buildTimelineRows({
+      timelineEntries: [
+        {
+          id: "user-goal-progress-visible",
+          kind: "message",
+          createdAt: "2025-01-01T00:00:00.000Z",
+          message: {
+            id: MessageId.makeUnsafe("user-goal-progress-visible"),
+            role: "user",
+            text: "/goal Ship the feature",
+            createdAt: "2025-01-01T00:00:00.000Z",
+            streaming: false,
+          },
+        },
+        {
+          id: "assistant-goal-progress-1",
+          kind: "message",
+          createdAt: "2025-01-01T00:00:05.000Z",
+          message: {
+            id: MessageId.makeUnsafe("assistant-goal-progress-1"),
+            role: "assistant",
+            text: "I found the first issue.",
+            createdAt: "2025-01-01T00:00:05.000Z",
+            completedAt: "2025-01-01T00:00:10.000Z",
+            streaming: false,
+          },
+        },
+        {
+          id: "assistant-goal-progress-2",
+          kind: "message",
+          createdAt: "2025-01-01T00:00:15.000Z",
+          message: {
+            id: MessageId.makeUnsafe("assistant-goal-progress-2"),
+            role: "assistant",
+            text: "I am applying the fix.",
+            createdAt: "2025-01-01T00:00:15.000Z",
+            completedAt: "2025-01-01T00:00:20.000Z",
+            streaming: false,
+          },
+        },
+      ],
+      activeTurnInProgress: true,
+      activeTurnStartedAt: "2025-01-01T00:00:21.000Z",
+      completionDividerBeforeEntryId: null,
+      completionSummary: null,
+      enableGoalWorkingState: true,
+      hideCompletedWorkMessages: true,
+      isWorking: true,
+    });
+
+    expect(
+      rows
+        .filter((row) => row.kind === "message" && row.message.role === "assistant")
+        .map((row) => row.id),
+    ).toEqual(["assistant-goal-progress-1", "assistant-goal-progress-2"]);
+    expect(rows.some((row) => row.kind === "completed-work-summary")).toBe(false);
+  });
+
   it("stops showing the goal working activity after Codex reports goal completion", () => {
     const rows = buildTimelineRows({
       timelineEntries: [

@@ -1715,22 +1715,16 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       if (page._tag === "Some") {
         assert.deepEqual(
           page.value.entries.map((entry) => `${entry.kind}:${entry.id}`),
-          [
-            "message:message-user",
-            "activity:activity-tool",
-            "activity:activity-null-payload",
-            "proposed-plan:plan-1",
-            "message:message-assistant",
-          ],
+          ["activity:activity-tool", "activity:activity-null-payload", "proposed-plan:plan-1"],
         );
         assert.equal(page.value.totalItems, 5);
-        assert.equal(page.value.startIndex, 0);
-        assert.equal(page.value.endIndexExclusive, 5);
-        assert.equal(page.value.hasPrevious, false);
-        assert.equal(page.value.hasNext, false);
+        assert.equal(page.value.startIndex, 1);
+        assert.equal(page.value.endIndexExclusive, 4);
+        assert.equal(page.value.hasPrevious, true);
+        assert.equal(page.value.hasNext, true);
         assert.deepEqual(
           page.value.messages.map((message) => message.text),
-          ["Run checks", "Done"],
+          [],
         );
         assert.deepEqual(
           page.value.activities.map((activity) => activity.id),
@@ -1770,16 +1764,12 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       if (deletedSourcePage._tag === "Some") {
         assert.deepEqual(
           deletedSourcePage.value.entries.map((entry) => `${entry.kind}:${entry.id}`),
-          [
-            "message:message-user",
-            "activity:activity-tool",
-            "proposed-plan:plan-1",
-            "message:message-assistant",
-          ],
+          ["proposed-plan:plan-1"],
         );
+        assert.equal(deletedSourcePage.value.hasNext, true);
         assert.deepEqual(
           deletedSourcePage.value.activities.map((activity) => activity.id),
-          [asEventId("activity-tool")],
+          [],
         );
         assert.deepEqual(
           deletedSourcePage.value.proposedPlans.map((plan) => plan.id),
@@ -1794,11 +1784,19 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       });
       assert.equal(tailPage._tag, "Some");
       if (tailPage._tag === "Some") {
-        assert.equal(tailPage.value.startIndex, 4);
-        assert.equal(tailPage.value.endIndexExclusive, 4);
-        assert.equal(tailPage.value.hasPrevious, true);
+        assert.equal(tailPage.value.startIndex, 0);
+        assert.equal(tailPage.value.endIndexExclusive, 5);
+        assert.equal(tailPage.value.hasPrevious, false);
         assert.equal(tailPage.value.hasNext, false);
-        assert.deepEqual(tailPage.value.entries, []);
+        assert.deepEqual(
+          tailPage.value.entries.map((entry) => `${entry.kind}:${entry.id}`),
+          [
+            "message:message-user",
+            "activity:activity-tool",
+            "proposed-plan:plan-1",
+            "message:message-assistant",
+          ],
+        );
       }
     }),
   );
@@ -2131,22 +2129,17 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         assert.equal(page.value.threadId, threadId);
         assert.equal(page.value.updatedAt, "2026-03-04T00:00:10.000Z");
         assert.equal(page.value.totalItems, 4);
-        assert.equal(page.value.startIndex, 0);
-        assert.equal(page.value.endIndexExclusive, 4);
-        assert.equal(page.value.hasPrevious, false);
-        assert.equal(page.value.hasNext, false);
+        assert.equal(page.value.startIndex, 1);
+        assert.equal(page.value.endIndexExclusive, 3);
+        assert.equal(page.value.hasPrevious, true);
+        assert.equal(page.value.hasNext, true);
         assert.deepEqual(
           page.value.entries.map((entry) => `${entry.kind}:${entry.id}`),
-          [
-            "message:message-user",
-            "activity:activity-tool",
-            "proposed-plan:plan-timeline",
-            "message:message-assistant",
-          ],
+          ["activity:activity-tool", "proposed-plan:plan-timeline"],
         );
         assert.deepEqual(
           page.value.messages.map((message) => message.text),
-          ["Run checks", "Done"],
+          [],
         );
         assert.deepEqual(
           page.value.activities.map((activity) => activity.summary),
@@ -2155,6 +2148,24 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         assert.deepEqual(
           page.value.proposedPlans.map((plan) => plan.planMarkdown),
           ["Plan"],
+        );
+      }
+
+      const indexedPage = yield* snapshotQuery.getThreadTimelinePage({
+        threadId,
+        startIndex: 0,
+        limit: 4,
+      });
+      assert.equal(indexedPage._tag, "Some");
+      if (Option.isSome(indexedPage)) {
+        assert.deepEqual(
+          indexedPage.value.entries.map((entry) => `${entry.index}:${entry.kind}:${entry.id}`),
+          [
+            "0:message:message-user",
+            "1:activity:activity-tool",
+            "2:proposed-plan:plan-timeline",
+            "3:message:message-assistant",
+          ],
         );
       }
 
@@ -2167,7 +2178,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       if (Option.isSome(repeatedMessagePage)) {
         assert.deepEqual(
           repeatedMessagePage.value.messages.map((message) => message.text),
-          ["Run checks", "Done"],
+          ["Run checks"],
         );
       }
 
@@ -2186,7 +2197,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       if (Option.isSome(refreshedUpdatedAtPage)) {
         assert.deepEqual(
           refreshedUpdatedAtPage.value.messages.map((message) => message.text),
-          ["Run checks updated", "Done"],
+          ["Run checks updated"],
         );
       }
 
@@ -2205,13 +2216,13 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       if (Option.isSome(invalidatedPage)) {
         assert.deepEqual(
           invalidatedPage.value.messages.map((message) => message.text),
-          ["Run checks updated", "Done"],
+          ["Run checks updated"],
         );
       }
     }),
   );
 
-  it.effect("expands sparse timeline pages to include complete turn context", () =>
+  it.effect("keeps sparse timeline pages bounded to the requested indexed slice", () =>
     Effect.gen(function* () {
       const snapshotQuery = yield* ProjectionSnapshotQuery;
       const sql = yield* SqlClient.SqlClient;
@@ -2359,22 +2370,18 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       assert.equal(page._tag, "Some");
       if (Option.isSome(page)) {
         assert.equal(page.value.startIndex, 0);
-        assert.equal(page.value.endIndexExclusive, 3);
+        assert.equal(page.value.endIndexExclusive, 1);
         assert.deepEqual(
           page.value.entries.map((entry) => `${entry.kind}:${entry.id}`),
-          [
-            "message:message-complete-user",
-            "activity:activity-complete-tool",
-            "message:message-complete-assistant",
-          ],
+          ["message:message-complete-user"],
         );
         assert.deepEqual(
           page.value.messages.map((message) => message.text),
-          ["Ask", "Answer"],
+          ["Ask"],
         );
         assert.deepEqual(
           page.value.activities.map((activity) => activity.summary),
-          ["Ran command"],
+          [],
         );
       }
     }),

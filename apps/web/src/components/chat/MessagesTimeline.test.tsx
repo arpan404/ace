@@ -83,6 +83,16 @@ beforeAll(() => {
   });
 });
 
+const makeTimelineVirtualItem = (index: number) =>
+  ({
+    end: (index + 1) * 100,
+    index,
+    key: index,
+    lane: 0,
+    size: 100,
+    start: index * 100,
+  }) as const;
+
 describe("MessagesTimeline", { timeout: 30_000 }, () => {
   it("derives timeline prefetch page size and direction from scroll speed", async () => {
     const { deriveTimelineScrollPrefetchRequest } = await import("./MessagesTimeline");
@@ -93,21 +103,69 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
         previousScrollTop: 0,
         elapsedMs: 100,
       }),
-    ).toMatchObject({ direction: "both", pageSize: 100 });
+    ).toMatchObject({ direction: "both", lookaheadRows: 16, olderPageCount: 1, pageSize: 100 });
     expect(
       deriveTimelineScrollPrefetchRequest({
         currentScrollTop: 500,
         previousScrollTop: 0,
         elapsedMs: 100,
       }),
-    ).toMatchObject({ direction: "newer", pageSize: 1_000 });
+    ).toMatchObject({
+      direction: "newer",
+      lookaheadRows: 256,
+      olderPageCount: 5,
+      pageSize: 1_000,
+    });
     expect(
       deriveTimelineScrollPrefetchRequest({
         currentScrollTop: 0,
         previousScrollTop: 1_200,
         elapsedMs: 100,
       }),
-    ).toMatchObject({ direction: "older", pageSize: 4_000 });
+    ).toMatchObject({
+      direction: "older",
+      lookaheadRows: 1_024,
+      olderPageCount: 12,
+      pageSize: 4_000,
+    });
+  });
+
+  it("derives rendered window state from loaded rows only", async () => {
+    const { deriveTimelineRenderedWindowState } = await import("./MessagesTimeline");
+
+    expect(
+      deriveTimelineRenderedWindowState({
+        renderedVirtualItems: [
+          makeTimelineVirtualItem(2),
+          makeTimelineVirtualItem(3),
+          makeTimelineVirtualItem(4),
+        ],
+        virtualizedRows: [
+          { id: "loaded-0", kind: "message" },
+          { id: "loaded-1", kind: "message" },
+          { id: "loaded-2", kind: "message" },
+          { id: "loaded-3", kind: "message" },
+          { id: "loaded-4", kind: "message" },
+        ] as unknown as Parameters<typeof deriveTimelineRenderedWindowState>[0]["virtualizedRows"],
+      }),
+    ).toMatchObject({
+      loadedEndIndexExclusive: 5,
+      loadedRowCount: 5,
+      loadedStartIndex: 2,
+      overscanLoadedEndIndexExclusive: 5,
+      overscanLoadedStartIndex: 2,
+    });
+  });
+
+  it("returns null when no loaded rows are rendered", async () => {
+    const { deriveTimelineRenderedWindowState } = await import("./MessagesTimeline");
+
+    expect(
+      deriveTimelineRenderedWindowState({
+        renderedVirtualItems: [],
+        virtualizedRows: [],
+      }),
+    ).toBeNull();
   });
 
   it("uses stable timeline row cache keys across equivalent remounted arrays", async () => {
@@ -214,6 +272,30 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
 
     expect(result.loading).toBe(true);
     expect(result.rows).toEqual([]);
+  });
+
+  it("keeps active thread rows visible while paged history is loading", async () => {
+    const { resolveVisibleTimelineRows } = await import("./MessagesTimeline");
+    const retainedRows = [
+      {
+        id: "previous-user-row",
+        kind: "message",
+      },
+    ] as unknown as ReturnType<typeof resolveVisibleTimelineRows>["rows"];
+
+    const result = resolveVisibleTimelineRows({
+      activeThreadId: "thread-1",
+      retainedRows: {
+        activeThreadId: "thread-1",
+        rows: retainedRows,
+      },
+      resolvedAsyncRows: null,
+      shouldResolveAsync: false,
+      syncRows: [],
+    });
+
+    expect(result.loading).toBe(false);
+    expect(result.rows).toBe(retainedRows);
   });
 
   it("uses sync rows while async row caching is pending", async () => {

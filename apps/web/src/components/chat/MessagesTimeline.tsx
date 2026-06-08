@@ -17,6 +17,7 @@ import {
   startTransition,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -42,8 +43,8 @@ import {
 } from "../../lib/chat/markdownRenderAnalysis";
 import { prewarmMarkdownRenderAnalysis } from "../../lib/chat/markdownRenderAnalysisClient";
 import {
-  prefetchThreadTimelineAroundLoadedWindow,
   readTimelineRowHeight,
+  prefetchThreadTimelineAroundLoadedWindow,
   resolveTimelineScrollPrefetchPageSize,
   type TimelinePrefetchDirection,
   useTimelineWindowStore,
@@ -116,7 +117,6 @@ import {
   textContainsInlineTerminalContextLabels,
 } from "~/lib/chat/userMessageTerminalContexts";
 import {
-  buildTimelineWorkGroupSummaryProjection,
   buildTimelineRows,
   isCompletedAssistantMessageRow,
   isEventInActiveTurn,
@@ -168,9 +168,32 @@ const IMAGE_GENERATION_PORTRAIT_FRAME_MAX_HEIGHT_VH = 42;
 const SELECTION_PIN_BUTTON_WIDTH_PX = 92;
 const SELECTION_PIN_BUTTON_HEIGHT_PX = 32;
 const TIMELINE_DIRECTIONAL_PREFETCH_MIN_VELOCITY_PX_PER_MS = 0.75;
+const TIMELINE_BASE_PREFETCH_EDGE_ROWS = Math.max(TIMELINE_VIRTUALIZER_OVERSCAN * 2, 16);
 const ASSISTANT_MESSAGE_ROW_SELECTOR = '[data-message-role="assistant"][data-message-id]';
 const PINNED_SELECTION_TEXT_BLOCK_SELECTOR =
   "blockquote,div,h1,h2,h3,h4,h5,h6,li,ol,p,pre,section,table,tbody,td,tfoot,th,thead,tr,ul";
+const PREPENDED_TIMELINE_ROW_ANIMATION_LIMIT = 64;
+const PREPENDED_TIMELINE_ROW_ANIMATION_MS = 320;
+
+export function resolveTimelineScrollPrefetchLookaheadRows(velocityPxPerMs: number): number {
+  const velocity = Math.max(0, Number.isFinite(velocityPxPerMs) ? velocityPxPerMs : 0);
+  if (velocity < 0.75) return TIMELINE_BASE_PREFETCH_EDGE_ROWS;
+  if (velocity < 1.5) return 64;
+  if (velocity < 3) return 128;
+  if (velocity < 6) return 256;
+  if (velocity < 10) return 512;
+  return 1_024;
+}
+
+export function resolveTimelineScrollPrefetchPageCount(velocityPxPerMs: number): number {
+  const velocity = Math.max(0, Number.isFinite(velocityPxPerMs) ? velocityPxPerMs : 0);
+  if (velocity < 0.75) return 1;
+  if (velocity < 1.5) return 2;
+  if (velocity < 3) return 3;
+  if (velocity < 6) return 5;
+  if (velocity < 10) return 8;
+  return 12;
+}
 
 export function deriveTimelineScrollPrefetchRequest(input: {
   readonly currentScrollTop: number;
@@ -178,6 +201,8 @@ export function deriveTimelineScrollPrefetchRequest(input: {
   readonly elapsedMs: number;
 }): {
   readonly direction: TimelinePrefetchDirection;
+  readonly lookaheadRows: number;
+  readonly olderPageCount: number;
   readonly pageSize: number;
   readonly velocityPxPerMs: number;
 } {
@@ -196,8 +221,37 @@ export function deriveTimelineScrollPrefetchRequest(input: {
       : "both";
   return {
     direction,
+    lookaheadRows: resolveTimelineScrollPrefetchLookaheadRows(velocityPxPerMs),
+    olderPageCount: resolveTimelineScrollPrefetchPageCount(velocityPxPerMs),
     pageSize: resolveTimelineScrollPrefetchPageSize(velocityPxPerMs),
     velocityPxPerMs,
+  };
+}
+
+export type TimelineRenderedWindowState = {
+  readonly loadedEndIndexExclusive: number;
+  readonly loadedRowCount: number;
+  readonly loadedStartIndex: number;
+  readonly overscanLoadedEndIndexExclusive: number;
+  readonly overscanLoadedStartIndex: number;
+};
+
+export function deriveTimelineRenderedWindowState(input: {
+  readonly renderedVirtualItems: readonly VirtualItem[];
+  readonly virtualizedRows: ReadonlyArray<TimelineRow>;
+}): TimelineRenderedWindowState | null {
+  const firstVirtualItem = input.renderedVirtualItems[0];
+  const lastVirtualItem = input.renderedVirtualItems.at(-1);
+  if (!firstVirtualItem || !lastVirtualItem) {
+    return null;
+  }
+
+  return {
+    loadedEndIndexExclusive: lastVirtualItem.index + 1,
+    loadedRowCount: input.virtualizedRows.length,
+    loadedStartIndex: firstVirtualItem.index,
+    overscanLoadedEndIndexExclusive: lastVirtualItem.index + 1,
+    overscanLoadedStartIndex: firstVirtualItem.index,
   };
 }
 
@@ -207,6 +261,13 @@ type AssistantSelectionPinTarget = {
   text: string;
   top: number;
 };
+
+interface TimelinePrependAnchorSnapshot {
+  readonly firstRowId: string | null;
+  readonly rowCount: number;
+  readonly scrollHeight: number;
+  readonly scrollTop: number;
+}
 
 type TargetMessageNavigation = {
   messageId: string;
@@ -468,10 +529,18 @@ export function resolveVisibleTimelineRows(input: {
   readonly shouldResolveAsync: boolean;
   readonly syncRows: ReadonlyArray<TimelineRow>;
 }): { readonly loading: boolean; readonly rows: ReadonlyArray<TimelineRow> } {
+  const retainedRows =
+    input.retainRowsWhileLoading !== false &&
+    input.activeThreadId &&
+    input.retainedRows?.activeThreadId === input.activeThreadId &&
+    input.retainedRows.rows.length > 0
+      ? input.retainedRows.rows
+      : null;
+
   if (!input.shouldResolveAsync) {
     return {
       loading: false,
-      rows: input.syncRows.length > 0 ? input.syncRows : EMPTY_TIMELINE_ROWS,
+      rows: input.syncRows.length > 0 ? input.syncRows : (retainedRows ?? EMPTY_TIMELINE_ROWS),
     };
   }
 
@@ -489,15 +558,10 @@ export function resolveVisibleTimelineRows(input: {
     };
   }
 
-  if (
-    input.retainRowsWhileLoading !== false &&
-    input.activeThreadId &&
-    input.retainedRows?.activeThreadId === input.activeThreadId &&
-    input.retainedRows.rows.length > 0
-  ) {
+  if (retainedRows) {
     return {
       loading: false,
-      rows: input.retainedRows.rows,
+      rows: retainedRows,
     };
   }
 
@@ -941,11 +1005,60 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const { loading: timelineRowsLoading, rows } = resolveVisibleTimelineRows({
     activeThreadId: activeThreadId ?? null,
     retainedRows: retainedTimelineRows,
-    retainRowsWhileLoading: !isThreadHistoryLoading,
+    retainRowsWhileLoading: true,
     resolvedAsyncRows: resolvedAsyncTimelineRows,
     shouldResolveAsync: shouldResolveTimelineRowsAsync,
     syncRows: syncTimelineRows,
   });
+  const prependAnchorSnapshotRef = useRef<TimelinePrependAnchorSnapshot | null>(null);
+  const prependedRowAnimationTimeoutRef = useRef<number | null>(null);
+  const [animatedPrependedRowIds, setAnimatedPrependedRowIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+
+  useLayoutEffect(() => {
+    const scrollContainer = getScrollContainer();
+    const previous = prependAnchorSnapshotRef.current;
+    if (scrollContainer && previous && previous.firstRowId && rows.length > previous.rowCount) {
+      const previousFirstRowNextIndex = rows.findIndex((row) => row.id === previous.firstRowId);
+      if (previousFirstRowNextIndex > 0) {
+        const scrollHeightDelta = scrollContainer.scrollHeight - previous.scrollHeight;
+        if (Number.isFinite(scrollHeightDelta) && scrollHeightDelta > 0) {
+          scrollContainer.scrollTop = Math.max(0, previous.scrollTop + scrollHeightDelta);
+        }
+
+        const animatedRowIds = new Set(
+          rows
+            .slice(0, Math.min(previousFirstRowNextIndex, PREPENDED_TIMELINE_ROW_ANIMATION_LIMIT))
+            .map((row) => row.id),
+        );
+        setAnimatedPrependedRowIds(animatedRowIds);
+        if (prependedRowAnimationTimeoutRef.current !== null) {
+          window.clearTimeout(prependedRowAnimationTimeoutRef.current);
+        }
+        prependedRowAnimationTimeoutRef.current = window.setTimeout(() => {
+          prependedRowAnimationTimeoutRef.current = null;
+          setAnimatedPrependedRowIds(new Set());
+        }, PREPENDED_TIMELINE_ROW_ANIMATION_MS);
+      }
+    }
+
+    prependAnchorSnapshotRef.current = {
+      firstRowId: rows[0]?.id ?? null,
+      rowCount: rows.length,
+      scrollHeight: scrollContainer?.scrollHeight ?? 0,
+      scrollTop: scrollContainer?.scrollTop ?? 0,
+    };
+  }, [getScrollContainer, rows]);
+
+  useEffect(
+    () => () => {
+      if (prependedRowAnimationTimeoutRef.current !== null) {
+        window.clearTimeout(prependedRowAnimationTimeoutRef.current);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     if (cachedTimelineRows) {
@@ -1302,40 +1415,34 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     virtualizedRows.length,
   ]);
   const renderedVirtualItems = virtualItems.length > 0 ? virtualItems : fallbackVirtualItems;
+  const renderedWindowState = useMemo(
+    () =>
+      deriveTimelineRenderedWindowState({
+        renderedVirtualItems,
+        virtualizedRows,
+      }),
+    [renderedVirtualItems, virtualizedRows],
+  );
   const shouldRenderVirtualizedBuffer = shouldRenderTimelineVirtualizedBuffer({
     virtualizedRowCount: virtualizedRows.length,
   });
   useEffect(() => {
-    if (!activeThreadId || renderedVirtualItems.length === 0) {
+    if (!activeThreadId || !renderedWindowState) {
       return;
     }
-    const firstVirtualItem = renderedVirtualItems[0];
-    const lastVirtualItem = renderedVirtualItems.at(-1);
-    if (!firstVirtualItem || !lastVirtualItem) {
+    if (renderedWindowState.loadedEndIndexExclusive <= renderedWindowState.loadedStartIndex) {
       return;
     }
     useTimelineWindowStore.getState().setActiveWindow(activeThreadId as ThreadId, {
-      startIndex: firstVirtualItem.index,
-      endIndexExclusive: lastVirtualItem.index + 1,
-      overscanStartIndex: firstVirtualItem.index,
-      overscanEndIndexExclusive: lastVirtualItem.index + 1,
+      startIndex: renderedWindowState.loadedStartIndex,
+      endIndexExclusive: renderedWindowState.loadedEndIndexExclusive,
+      overscanStartIndex: renderedWindowState.overscanLoadedStartIndex,
+      overscanEndIndexExclusive: renderedWindowState.overscanLoadedEndIndexExclusive,
       updatedAt: timelineCacheScope,
     });
-  }, [activeThreadId, renderedVirtualItems, timelineCacheScope]);
+  }, [activeThreadId, renderedWindowState, timelineCacheScope]);
   useEffect(() => {
-    if (!activeThreadId || renderedVirtualItems.length === 0 || rows.length === 0) {
-      return;
-    }
-    const firstVirtualItem = renderedVirtualItems[0];
-    const lastVirtualItem = renderedVirtualItems.at(-1);
-    if (!firstVirtualItem || !lastVirtualItem) {
-      return;
-    }
-    const edgeThreshold = Math.max(TIMELINE_VIRTUALIZER_OVERSCAN * 2, 16);
-    const isNearOlderEdge = firstVirtualItem.index <= edgeThreshold;
-    const isNearNewerEdge = rows.length - lastVirtualItem.index <= edgeThreshold;
-    const isNearRenderedEdge = isNearOlderEdge || isNearNewerEdge;
-    if (!isNearRenderedEdge) {
+    if (!activeThreadId || !renderedWindowState || rows.length === 0) {
       return;
     }
     const scrollContainer = getScrollContainer();
@@ -1351,13 +1458,29 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       scrollTop: currentScrollTop,
       sampledAt: now,
     };
+    const edgeThreshold = Math.max(TIMELINE_BASE_PREFETCH_EDGE_ROWS, prefetchRequest.lookaheadRows);
+    const isNearOlderEdge = renderedWindowState.loadedStartIndex <= edgeThreshold;
+    const isNearNewerEdge =
+      renderedWindowState.loadedRowCount - renderedWindowState.loadedEndIndexExclusive <=
+      edgeThreshold;
+    const isNearRenderedEdge = isNearOlderEdge || isNearNewerEdge;
+    if (!isNearRenderedEdge) {
+      return;
+    }
+    const direction =
+      isNearOlderEdge && !isNearNewerEdge
+        ? "older"
+        : isNearNewerEdge && !isNearOlderEdge
+          ? "newer"
+          : prefetchRequest.direction;
     void prefetchThreadTimelineAroundLoadedWindow({
       threadId: activeThreadId as ThreadId,
-      priority: "background",
+      priority: prefetchRequest.direction === "older" ? "immediate" : "background",
       pageSize: prefetchRequest.pageSize,
-      direction: prefetchRequest.direction,
+      olderPageCount: direction === "older" ? prefetchRequest.olderPageCount : 1,
+      direction,
     }).catch(() => undefined);
-  }, [activeThreadId, getScrollContainer, renderedVirtualItems, rows.length]);
+  }, [activeThreadId, getScrollContainer, renderedWindowState, rows.length]);
   useEffect(() => {
     if (!targetMessageNavigation) return;
     const targetMessageId = targetMessageNavigation.messageId;
@@ -1963,6 +2086,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       ref={setTimelineRootElement}
       data-timeline-root="true"
       className="mx-auto w-full min-w-0 max-w-3xl overflow-x-hidden"
+      style={{ overflowAnchor: "none" }}
       onKeyUp={updateSelectionPinTarget}
       onMouseUp={updateSelectionPinTarget}
     >
@@ -1995,7 +2119,10 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                 key={`row:${row.id}`}
                 ref={rowVirtualizer.measureElement}
                 data-index={virtualRow.index}
-                className="absolute top-0 left-0 flow-root w-full"
+                className={cn(
+                  "absolute top-0 left-0 flow-root w-full",
+                  animatedPrependedRowIds.has(row.id) && "timeline-row-prepended",
+                )}
                 style={{ transform: `translateY(${virtualRow.start}px)` }}
               >
                 {buildRowContent(row, virtualRow.index)}
@@ -2005,11 +2132,21 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         </div>
       ) : (
         virtualizedRows.map((row, index) => (
-          <div key={`row:${row.id}`}>{buildRowContent(row, index)}</div>
+          <div
+            key={`row:${row.id}`}
+            className={cn(animatedPrependedRowIds.has(row.id) && "timeline-row-prepended")}
+          >
+            {buildRowContent(row, index)}
+          </div>
         ))
       )}
       {trailingRows.map((row, index) => (
-        <div key={`row:${row.id}`}>{buildRowContent(row, virtualizedRows.length + index)}</div>
+        <div
+          key={`row:${row.id}`}
+          className={cn(animatedPrependedRowIds.has(row.id) && "timeline-row-prepended")}
+        >
+          {buildRowContent(row, virtualizedRows.length + index)}
+        </div>
       ))}
     </div>
   );

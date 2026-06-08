@@ -22,7 +22,7 @@ import {
 
 const DEFAULT_TIMELINE_PAGE_SIZE = 100;
 const INITIAL_TIMELINE_PAGE_SIZE = 50;
-const TIMELINE_OPEN_BACKGROUND_BATCH_SIZES = [50, 100] as const;
+const TIMELINE_OPEN_BACKGROUND_BATCH_SIZES = [250, 500, 1_000] as const;
 const MAX_LOADED_TIMELINE_RANGES_PER_THREAD = 24;
 const MAX_DYNAMIC_TIMELINE_PAGE_SIZE = 4_000;
 const MAX_TIMELINE_PAGE_CACHE_ENTRIES = clampCacheEntryCount(96, {
@@ -127,10 +127,12 @@ function buildTimelinePageCacheKey(input: {
   readonly updatedAt?: string | null;
   readonly startIndex: number;
   readonly limit: number;
+  readonly anchor?: OrchestrationGetThreadTimelinePageInput["anchor"];
 }): string {
   return [
     input.threadId,
     input.updatedAt ?? "latest",
+    input.anchor ?? "index",
     String(Math.max(0, Math.trunc(input.startIndex))),
     String(Math.max(1, Math.trunc(input.limit))),
   ].join(":");
@@ -392,6 +394,7 @@ export function readCachedThreadTimelinePage(input: {
   readonly updatedAt?: string | null;
   readonly startIndex: number;
   readonly limit: number;
+  readonly anchor?: OrchestrationGetThreadTimelinePageInput["anchor"];
 }): OrchestrationGetThreadTimelinePageResult | null {
   const direct = timelinePageCache.get(buildTimelinePageCacheKey(input));
   if (direct) {
@@ -400,13 +403,20 @@ export function readCachedThreadTimelinePage(input: {
   if (input.updatedAt !== undefined && input.updatedAt !== null) {
     return null;
   }
-  const endIndexExclusive = input.startIndex + input.limit;
+  const manifest = useTimelineWindowStore.getState().manifestsByThreadId[input.threadId];
+  const startIndex =
+    input.anchor === "tail" && manifest
+      ? Math.max(0, manifest.totalItems - input.limit)
+      : input.startIndex;
+  const endIndexExclusive =
+    input.anchor === "tail" && manifest
+      ? Math.min(manifest.totalItems, startIndex + input.limit)
+      : startIndex + input.limit;
   const range = useTimelineWindowStore
     .getState()
     .loadedRangesByThreadId[input.threadId]?.find(
       (candidate) =>
-        candidate.startIndex === input.startIndex &&
-        candidate.endIndexExclusive === endIndexExclusive,
+        candidate.startIndex === startIndex && candidate.endIndexExclusive === endIndexExclusive,
     );
   return range ? timelinePageCache.get(range.cacheKey) : null;
 }
@@ -532,19 +542,24 @@ export async function ensureThreadTimelineRange(input: {
     limit: endIndexExclusive - startIndex,
     priority,
   });
+  const requests: Promise<OrchestrationGetThreadTimelinePageResult>[] = [];
   for (let pageStart = startIndex; pageStart < endIndexExclusive; pageStart += pageSize) {
-    await fetchThreadTimelinePage({
-      threadId: input.threadId,
-      startIndex: pageStart,
-      limit: Math.min(pageSize, endIndexExclusive - pageStart),
-    });
+    requests.push(
+      fetchThreadTimelinePage({
+        threadId: input.threadId,
+        startIndex: pageStart,
+        limit: Math.min(pageSize, endIndexExclusive - pageStart),
+      }),
+    );
   }
+  await Promise.all(requests);
 }
 
 export async function prefetchThreadTimelineAroundLoadedWindow(input: {
   readonly threadId: ThreadId;
   readonly priority?: "background" | "immediate";
   readonly pageSize?: number;
+  readonly olderPageCount?: number;
   readonly direction?: TimelinePrefetchDirection;
 }): Promise<void> {
   const priority = input.priority ?? "background";
@@ -552,6 +567,11 @@ export async function prefetchThreadTimelineAroundLoadedWindow(input: {
     return;
   }
   const pageSize = normalizeTimelinePageSize(input.pageSize ?? DEFAULT_TIMELINE_PAGE_SIZE);
+  const requestedOlderPageCount = input.olderPageCount ?? 1;
+  const olderPageCount = Math.max(
+    1,
+    Math.trunc(Number.isFinite(requestedOlderPageCount) ? requestedOlderPageCount : 1),
+  );
   const direction = input.direction ?? "both";
   const state = useTimelineWindowStore.getState();
   const manifest = state.manifestsByThreadId[input.threadId];
@@ -570,7 +590,7 @@ export async function prefetchThreadTimelineAroundLoadedWindow(input: {
   const lastRange = sortedRanges.at(-1);
   const requests: Promise<void>[] = [];
   if ((direction === "older" || direction === "both") && firstRange && firstRange.startIndex > 0) {
-    const previousStartIndex = Math.max(0, firstRange.startIndex - pageSize);
+    const previousStartIndex = Math.max(0, firstRange.startIndex - pageSize * olderPageCount);
     requests.push(
       ensureThreadTimelineRange({
         threadId: input.threadId,
@@ -669,24 +689,22 @@ export async function prefetchThreadTimelineWindows(input: {
   }
 
   const pageSize = normalizeTimelinePageSize(input.pageSize ?? INITIAL_TIMELINE_PAGE_SIZE);
-  const manifest =
-    input.totalItemsHint === undefined || input.totalItemsHint === null
-      ? await fetchThreadTimelineManifest({ threadId: input.threadId }).catch(() => null)
-      : null;
-  const totalItemsHint = input.totalItemsHint ?? manifest?.totalItems ?? null;
+  const totalItemsHint = input.totalItemsHint ?? null;
   const tailStartIndex =
     typeof totalItemsHint === "number" ? Math.max(0, totalItemsHint - pageSize) : 0;
-  useTimelineWindowStore.getState().enqueuePrefetch(input.threadId, {
-    startIndex: tailStartIndex,
-    limit: pageSize,
-    priority,
-  });
-
-  const tailPage = await fetchThreadTimelinePage({
-    threadId: input.threadId,
-    startIndex: tailStartIndex,
-    limit: pageSize,
-  });
+  const tailPage =
+    typeof totalItemsHint === "number"
+      ? await fetchThreadTimelinePage({
+          threadId: input.threadId,
+          startIndex: tailStartIndex,
+          limit: pageSize,
+        })
+      : await fetchThreadTimelinePage({
+          threadId: input.threadId,
+          startIndex: 0,
+          limit: pageSize,
+          anchor: "tail",
+        });
 
   void prefetchOlderThreadTimelineBatches({
     threadId: input.threadId,

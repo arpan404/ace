@@ -26,6 +26,7 @@ import {
   appendChatMessageStreamingTextState,
   createChatMessageStreamingTextState,
   finalizeChatMessageText,
+  getChatMessageFullText,
 } from "./lib/chat/messageText";
 import { primeHydratedThreadCache } from "./lib/threadHydrationCache";
 import {
@@ -198,7 +199,7 @@ function normalizeModelSelection<T extends { provider: ProviderKind; model: stri
 }
 
 function mapProjectScripts(scripts: ReadonlyArray<Project["scripts"][number]>): Project["scripts"] {
-  return scripts.map((script) => ({ ...script, env: { ...(script.env ?? {}) } }));
+  return scripts.map((script) => ({ ...script, env: script.env ? { ...script.env } : {} }));
 }
 
 function mapSession(session: OrchestrationSession): Thread["session"] {
@@ -281,6 +282,67 @@ function mapMessage(message: OrchestrationMessage, connectionUrl?: string): Chat
     ...(message.streaming ? {} : { completedAt: message.updatedAt }),
     ...(attachments && attachments.length > 0 ? { attachments } : {}),
   };
+}
+
+function isIncomingMessageOlder(existing: ChatMessage, incoming: ChatMessage): boolean {
+  return (
+    existing.sequence !== undefined &&
+    incoming.sequence !== undefined &&
+    incoming.sequence < existing.sequence
+  );
+}
+
+function mergeMessagePreservingLiveText(existing: ChatMessage, incoming: ChatMessage): ChatMessage {
+  if (isIncomingMessageOlder(existing, incoming)) {
+    return existing;
+  }
+
+  if (existing.role !== "assistant" || incoming.role !== "assistant") {
+    return incoming;
+  }
+
+  const existingText = getChatMessageFullText(existing);
+  const incomingText = getChatMessageFullText(incoming);
+  if (existingText.length === 0 || incomingText.length >= existingText.length) {
+    return incoming;
+  }
+
+  if (
+    incoming.streaming ||
+    existing.streaming ||
+    incoming.sequence === undefined ||
+    existing.sequence === undefined ||
+    incoming.sequence <= existing.sequence
+  ) {
+    return existing;
+  }
+
+  return incoming;
+}
+
+function mergeMessagesPreservingLiveText(
+  existingMessages: ReadonlyArray<ChatMessage>,
+  incomingMessages: ReadonlyArray<ChatMessage>,
+): ChatMessage[] {
+  if (existingMessages.length === 0) {
+    return [...incomingMessages];
+  }
+
+  const existingById = new Map(existingMessages.map((message) => [message.id, message] as const));
+  const incomingIds = new Set(incomingMessages.map((message) => message.id));
+  const messages = incomingMessages.map((message) => {
+    const existingMessage = existingById.get(message.id);
+    return existingMessage ? mergeMessagePreservingLiveText(existingMessage, message) : message;
+  });
+
+  for (const existingMessage of existingMessages) {
+    if (incomingIds.has(existingMessage.id)) {
+      continue;
+    }
+    messages.push(existingMessage);
+  }
+
+  return messages.toSorted(compareSequenceThenCreatedAt).slice(-MAX_THREAD_MESSAGES);
 }
 
 function mapQueuedComposerMessage(
@@ -394,9 +456,18 @@ function mergeThreadPreservingHydratedHistory(
     existingThread.historyLoaded === false ||
     incomingThread.historyLoaded
   ) {
-    return existingThread && threadsRenderEquivalent(existingThread, incomingThread)
-      ? existingThread
+    const mergedThread = existingThread
+      ? {
+          ...incomingThread,
+          messages: mergeMessagesPreservingLiveText(
+            existingThread.messages,
+            incomingThread.messages,
+          ),
+        }
       : incomingThread;
+    return existingThread && threadsRenderEquivalent(existingThread, mergedThread)
+      ? existingThread
+      : mergedThread;
   }
   const mergedThread = {
     ...incomingThread,
@@ -2303,8 +2374,14 @@ export function hydrateThreadFromReadModel(
 
   primeHydratedThreadCache(readModelThread);
   primeThreadTimelineManifestFromReadModelThread(readModelThread);
-  const nextThread = { ...mapThread(readModelThread, options), historyLoaded: true };
-  const existingThread = state.threads.find((thread) => thread.id === nextThread.id);
+  const mappedThread = { ...mapThread(readModelThread, options), historyLoaded: true };
+  const existingThread = state.threads.find((thread) => thread.id === mappedThread.id);
+  const nextThread = existingThread
+    ? {
+        ...mappedThread,
+        messages: mergeMessagesPreservingLiveText(existingThread.messages, mappedThread.messages),
+      }
+    : mappedThread;
   const threads = existingThread
     ? state.threads.map((thread) => (thread.id === nextThread.id ? nextThread : thread))
     : [...state.threads, nextThread];

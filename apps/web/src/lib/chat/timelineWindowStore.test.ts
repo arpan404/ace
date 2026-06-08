@@ -268,16 +268,10 @@ describe("timelineWindowStore", () => {
     });
   });
 
-  it("loads latest 50 first, then older 50 and 100 in background", async () => {
-    nativeApiMock.getThreadTimelineManifest.mockResolvedValue({
-      threadId,
-      updatedAt: "2026-01-01T00:00:02.000Z",
-      totalItems: 240,
-      tailStartIndex: 112,
-    });
+  it("loads latest 50 first with a tail anchor, then warms a larger older batch in background", async () => {
     nativeApiMock.getThreadTimelinePage.mockImplementation(async (input) =>
       makeTimelinePage({
-        startIndex: input.startIndex,
+        startIndex: input.anchor === "tail" ? 190 : input.startIndex,
         limit: input.limit,
         totalItems: 240,
       }),
@@ -285,23 +279,41 @@ describe("timelineWindowStore", () => {
 
     await prefetchThreadTimelineWindows({ threadId, priority: "immediate" });
 
+    expect(nativeApiMock.getThreadTimelineManifest).not.toHaveBeenCalled();
     expect(nativeApiMock.getThreadTimelinePage.mock.calls[0]?.[0]).toMatchObject({
-      startIndex: 190,
+      anchor: "tail",
+      startIndex: 0,
       limit: 50,
     });
 
     for (let attempt = 0; attempt < 10; attempt += 1) {
-      if (nativeApiMock.getThreadTimelinePage.mock.calls.length >= 3) {
+      if (nativeApiMock.getThreadTimelinePage.mock.calls.length >= 2) {
         break;
       }
       await new Promise((resolve) => setTimeout(resolve, 0));
     }
 
     expect(nativeApiMock.getThreadTimelinePage.mock.calls.map((call) => call[0])).toEqual([
-      expect.objectContaining({ startIndex: 190, limit: 50 }),
-      expect.objectContaining({ startIndex: 140, limit: 50 }),
-      expect.objectContaining({ startIndex: 40, limit: 100 }),
+      expect.objectContaining({ anchor: "tail", startIndex: 0, limit: 50 }),
+      expect.objectContaining({ startIndex: 0, limit: 190 }),
     ]);
+  });
+
+  it("reuses the loaded tail page for repeated tail-anchor prefetches", async () => {
+    nativeApiMock.getThreadTimelinePage.mockImplementation(async (input) =>
+      makeTimelinePage({
+        startIndex: input.anchor === "tail" ? 190 : input.startIndex,
+        limit: input.limit,
+        totalItems: 240,
+      }),
+    );
+
+    await prefetchThreadTimelineWindows({ threadId, priority: "immediate" });
+    await prefetchThreadTimelineWindows({ threadId, priority: "immediate" });
+
+    expect(
+      nativeApiMock.getThreadTimelinePage.mock.calls.filter((call) => call[0].anchor === "tail"),
+    ).toHaveLength(1);
   });
 
   it("loads one exact 100-entry slice around the current window on scroll", async () => {
@@ -352,6 +364,37 @@ describe("timelineWindowStore", () => {
 
     expect(nativeApiMock.getThreadTimelinePage.mock.calls.map((call) => call[0])).toEqual([
       expect.objectContaining({ startIndex: 8_950, limit: 1_000 }),
+    ]);
+  });
+
+  it("can fetch multiple older pages around the loaded window in one request cycle", async () => {
+    nativeApiMock.getThreadTimelinePage.mockImplementation(async (input) =>
+      makeTimelinePage({
+        startIndex: input.startIndex,
+        limit: input.limit,
+        totalItems: 10_000,
+      }),
+    );
+    useTimelineWindowStore.getState().primePage(
+      makeTimelinePage({
+        startIndex: 9_950,
+        limit: 50,
+        totalItems: 10_000,
+      }),
+    );
+
+    await prefetchThreadTimelineAroundLoadedWindow({
+      threadId,
+      priority: "immediate",
+      pageSize: 500,
+      olderPageCount: 3,
+      direction: "older",
+    });
+
+    expect(nativeApiMock.getThreadTimelinePage.mock.calls.map((call) => call[0])).toEqual([
+      expect.objectContaining({ startIndex: 8_450, limit: 500 }),
+      expect.objectContaining({ startIndex: 8_950, limit: 500 }),
+      expect.objectContaining({ startIndex: 9_450, limit: 500 }),
     ]);
   });
 

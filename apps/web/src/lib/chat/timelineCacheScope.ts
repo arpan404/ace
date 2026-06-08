@@ -8,6 +8,7 @@ import {
 import type { TimelineEntry, WorkLogEntry } from "../../session-logic/types";
 import type { ChatMessage, ProposedPlan, Thread, TurnDiffSummary } from "../../types";
 import { fnv1a32 } from "../diffRendering";
+import { getChatMessageFullText } from "./messageText";
 import {
   deriveThreadActivityRenderState,
   deriveThreadTimelineRenderState,
@@ -53,6 +54,10 @@ function contentToken(value: string | null | undefined): string {
   return `${value.length}:${fnv1a32(sample).toString(36)}`;
 }
 
+function messageContentToken(message: ChatMessage | null | undefined): string {
+  return contentToken(message ? getChatMessageFullText(message) : null);
+}
+
 function timelineEntryTailToken(entry: TimelineEntry | undefined): string {
   if (!entry) {
     return "none";
@@ -65,7 +70,7 @@ function timelineEntryTailToken(entry: TimelineEntry | undefined): string {
       entry.message.streaming ? "streaming" : "complete",
       entry.message.sequence ?? "no-seq",
       entry.message.completedAt ?? "no-completed",
-      contentToken(entry.message.text),
+      messageContentToken(entry.message),
     ].join("/");
   }
   if (entry.kind === "work") {
@@ -120,7 +125,7 @@ export function buildThreadTimelineCacheScope(input: ThreadTimelineCacheScopeInp
     lastMessage?.id ?? "none",
     lastMessage?.createdAt ?? "none",
     lastMessage?.completedAt ?? "none",
-    contentToken(lastMessage?.text),
+    messageContentToken(lastMessage),
     input.timelineWorkEntries.length,
     lastWorkEntry?.id ?? "none",
     lastWorkEntry?.turnId ?? "none",

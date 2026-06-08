@@ -4,6 +4,7 @@ import {
   AUTO_SCROLL_BOTTOM_THRESHOLD_PX,
   isScrollContainerNearBottom,
   resolveAutoScrollOnScroll,
+  resolveTimelinePrependScrollAnchor,
   shouldPreserveInteractionAnchorOnClick,
   scrollContainerToBottom,
 } from "./chat-scroll";
@@ -170,6 +171,65 @@ describe("resolveAutoScrollOnScroll", () => {
       cancelPendingStickToBottom: false,
       scheduleStickToBottom: false,
     });
+  });
+});
+
+describe("resolveTimelinePrependScrollAnchor", () => {
+  it("preserves the viewport anchor when older timeline rows are prepended", () => {
+    expect(
+      resolveTimelinePrependScrollAnchor({
+        previousThreadId: "thread-1",
+        currentThreadId: "thread-1",
+        previousEntryCount: 4,
+        currentEntryCount: 8,
+        previousFirstEntryKey: "message:older-loaded",
+        currentFirstEntryKey: "message:first-loaded",
+        previousLastEntryKey: "message:latest",
+        currentLastEntryKey: "message:latest",
+        previousScrollHeight: 1_000,
+        currentScrollHeight: 1_460,
+        previousScrollTop: 320,
+        shouldAutoScroll: false,
+      }),
+    ).toEqual({ kind: "preserve-anchor", scrollTop: 780 });
+  });
+
+  it("sticks to bottom when older timeline rows prepend while auto-scroll is active", () => {
+    expect(
+      resolveTimelinePrependScrollAnchor({
+        previousThreadId: "thread-1",
+        currentThreadId: "thread-1",
+        previousEntryCount: 4,
+        currentEntryCount: 8,
+        previousFirstEntryKey: "message:older-loaded",
+        currentFirstEntryKey: "message:first-loaded",
+        previousLastEntryKey: "message:latest",
+        currentLastEntryKey: "message:latest",
+        previousScrollHeight: 1_000,
+        currentScrollHeight: 1_460,
+        previousScrollTop: 320,
+        shouldAutoScroll: true,
+      }),
+    ).toEqual({ kind: "stick-to-bottom" });
+  });
+
+  it("does nothing when newer timeline rows are appended", () => {
+    expect(
+      resolveTimelinePrependScrollAnchor({
+        previousThreadId: "thread-1",
+        currentThreadId: "thread-1",
+        previousEntryCount: 4,
+        currentEntryCount: 5,
+        previousFirstEntryKey: "message:first-loaded",
+        currentFirstEntryKey: "message:first-loaded",
+        previousLastEntryKey: "message:latest",
+        currentLastEntryKey: "message:new-latest",
+        previousScrollHeight: 1_000,
+        currentScrollHeight: 1_140,
+        previousScrollTop: 320,
+        shouldAutoScroll: false,
+      }),
+    ).toEqual({ kind: "none" });
   });
 });
 

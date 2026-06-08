@@ -21,7 +21,7 @@ describe("isPagedThreadTimelineUsable", () => {
     ).toBe(true);
   });
 
-  it("blocks settled paged history until the latest assistant message is fetched", () => {
+  it("allows settled paged history before the latest assistant message is fetched", () => {
     expect(
       isPagedThreadTimelineUsable({
         latestTurn: {
@@ -39,7 +39,7 @@ describe("isPagedThreadTimelineUsable", () => {
           },
         ],
       }),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("allows settled paged history when the latest assistant message is present", () => {
@@ -63,7 +63,7 @@ describe("isPagedThreadTimelineUsable", () => {
     ).toBe(true);
   });
 
-  it("blocks completed latest-turn lean user fallback until a matching assistant is fetched", () => {
+  it("allows completed latest-turn lean user fallback before a matching assistant is fetched", () => {
     expect(
       isPagedThreadTimelineUsable({
         latestTurn: {
@@ -86,7 +86,7 @@ describe("isPagedThreadTimelineUsable", () => {
           },
         ],
       }),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("allows completed latest-turn lean user fallback once a matching assistant is fetched", () => {

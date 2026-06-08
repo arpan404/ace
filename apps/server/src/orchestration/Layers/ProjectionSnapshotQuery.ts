@@ -124,6 +124,7 @@ const ProjectionThreadTimelinePageRowSchema = Schema.Struct({
   messageAttachments: Schema.NullOr(Schema.fromJsonString(Schema.Array(ChatAttachment))),
   messageIsStreaming: Schema.NullOr(Schema.Number),
   messageUpdatedAt: Schema.NullOr(IsoDateTime),
+  threadUpdatedAt: IsoDateTime,
   activityTone: Schema.NullOr(Schema.String),
   activityKind: Schema.NullOr(Schema.String),
   activitySummary: Schema.NullOr(Schema.String),
@@ -926,7 +927,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           thread.thread_id AS "threadId",
           thread.updated_at AS "updatedAt",
           (
-            SELECT COUNT(*)
+            SELECT COALESCE(MAX(timeline_index) + 1, 0)
             FROM projection_thread_timeline_entries
             WHERE thread_id = thread.thread_id
           ) AS "totalItems"
@@ -943,63 +944,136 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     execute: (input) => {
       const startIndex = Math.max(0, Math.trunc(input.startIndex));
       const limit = Math.min(MAX_THREAD_TIMELINE_PAGE_SIZE, Math.max(1, Math.trunc(input.limit)));
-      return sql`
-        WITH ordered_timeline AS (
+      if (input.anchor === "tail") {
+        return sql`
+          WITH thread_meta AS (
+            SELECT
+              thread.thread_id,
+              thread.updated_at AS thread_updated_at,
+              (
+                SELECT COALESCE(MAX(timeline_index) + 1, 0)
+                FROM projection_thread_timeline_entries
+                WHERE thread_id = thread.thread_id
+              ) AS total_items
+            FROM projection_threads AS thread
+            WHERE thread.thread_id = ${input.threadId}
+              AND thread.deleted_at IS NULL
+            LIMIT 1
+          ),
+          candidate_timeline AS (
+            SELECT
+              timeline.timeline_index,
+              timeline.kind,
+              timeline.source_id,
+              timeline.turn_id,
+              timeline.sequence,
+              timeline.created_at,
+              thread_meta.total_items,
+              thread_meta.thread_updated_at
+            FROM projection_thread_timeline_entries AS timeline
+            CROSS JOIN thread_meta
+            WHERE timeline.thread_id = ${input.threadId}
+            ORDER BY timeline.timeline_index DESC
+            LIMIT ${limit}
+          ),
+          selected_timeline AS (
+            SELECT
+              timeline_index,
+              kind,
+              source_id,
+              turn_id,
+              sequence,
+              created_at,
+              total_items,
+              thread_updated_at
+            FROM candidate_timeline
+            ORDER BY timeline_index ASC
+          )
           SELECT
-            timeline_index,
-            kind,
-            source_id,
-            turn_id,
-            sequence,
-            created_at,
-            ROW_NUMBER() OVER (ORDER BY timeline_index ASC) - 1 AS timeline_position
-          FROM projection_thread_timeline_entries
-          WHERE thread_id = ${input.threadId}
+            selected_timeline.kind,
+            selected_timeline.source_id AS id,
+            selected_timeline.turn_id AS "turnId",
+            selected_timeline.sequence,
+            selected_timeline.created_at AS "createdAt",
+            selected_timeline.timeline_index AS "timelineIndex",
+            selected_timeline.total_items AS "totalItems",
+            selected_timeline.thread_updated_at AS "threadUpdatedAt",
+            message.role AS "messageRole",
+            message.text AS "messageText",
+            message.attachments_json AS "messageAttachments",
+            message.is_streaming AS "messageIsStreaming",
+            message.updated_at AS "messageUpdatedAt",
+            activity.tone AS "activityTone",
+            activity.kind AS "activityKind",
+            activity.summary AS "activitySummary",
+            activity.payload_json AS "activityPayload",
+            proposed_plan.plan_markdown AS "planMarkdown",
+            proposed_plan.implemented_at AS "planImplementedAt",
+            proposed_plan.implementation_thread_id AS "planImplementationThreadId",
+            proposed_plan.updated_at AS "planUpdatedAt"
+          FROM selected_timeline
+          LEFT JOIN projection_thread_messages AS message
+            ON selected_timeline.kind = 'message'
+            AND message.thread_id = ${input.threadId}
+            AND message.message_id = selected_timeline.source_id
+          LEFT JOIN projection_thread_activities AS activity
+            ON selected_timeline.kind = 'activity'
+            AND activity.thread_id = ${input.threadId}
+            AND activity.activity_id = selected_timeline.source_id
+          LEFT JOIN projection_thread_proposed_plans AS proposed_plan
+            ON selected_timeline.kind = 'proposed-plan'
+            AND proposed_plan.thread_id = ${input.threadId}
+            AND proposed_plan.plan_id = selected_timeline.source_id
+          WHERE (
+              message.message_id IS NOT NULL
+              OR activity.activity_id IS NOT NULL
+              OR proposed_plan.plan_id IS NOT NULL
+            )
+          ORDER BY selected_timeline.timeline_index ASC
+        `;
+      }
+      return sql`
+        WITH thread_meta AS (
+          SELECT
+            thread.thread_id,
+            thread.updated_at AS thread_updated_at,
+            (
+              SELECT COALESCE(MAX(timeline_index) + 1, 0)
+              FROM projection_thread_timeline_entries
+              WHERE thread_id = thread.thread_id
+            ) AS total_items
+          FROM projection_threads AS thread
+          WHERE thread.thread_id = ${input.threadId}
+            AND thread.deleted_at IS NULL
+          LIMIT 1
         ),
         selected_timeline AS (
           SELECT
-            timeline_index,
-            kind,
-            source_id,
-            turn_id,
-            sequence,
-            created_at,
-            timeline_position
-          FROM ordered_timeline
-          ORDER BY timeline_index ASC
+            timeline.timeline_index,
+            timeline.kind,
+            timeline.source_id,
+            timeline.turn_id,
+            timeline.sequence,
+            timeline.created_at,
+            thread_meta.total_items,
+            thread_meta.thread_updated_at
+          FROM projection_thread_timeline_entries
+            AS timeline
+          CROSS JOIN thread_meta
+          WHERE timeline.thread_id = ${input.threadId}
+            AND timeline.timeline_index >= ${startIndex}
+          ORDER BY timeline.timeline_index ASC
           LIMIT ${limit}
-          OFFSET ${startIndex}
-        ),
-        selected_turns AS (
-          SELECT DISTINCT turn_id
-          FROM selected_timeline
-          WHERE turn_id IS NOT NULL
-        ),
-        expanded_timeline AS (
-          SELECT
-            timeline_index,
-            kind,
-            source_id,
-            turn_id,
-            sequence,
-            created_at,
-            timeline_position
-          FROM ordered_timeline
-          WHERE timeline_position IN (SELECT timeline_position FROM selected_timeline)
-            OR turn_id IN (SELECT turn_id FROM selected_turns)
         )
         SELECT
-          expanded_timeline.kind,
-          expanded_timeline.source_id AS id,
-          expanded_timeline.turn_id AS "turnId",
-          expanded_timeline.sequence,
-          expanded_timeline.created_at AS "createdAt",
-          expanded_timeline.timeline_position AS "timelineIndex",
-          (
-            SELECT COUNT(*)
-            FROM projection_thread_timeline_entries AS counted_timeline
-            WHERE counted_timeline.thread_id = ${input.threadId}
-          ) AS "totalItems",
+          selected_timeline.kind,
+          selected_timeline.source_id AS id,
+          selected_timeline.turn_id AS "turnId",
+          selected_timeline.sequence,
+          selected_timeline.created_at AS "createdAt",
+          selected_timeline.timeline_index AS "timelineIndex",
+          selected_timeline.total_items AS "totalItems",
+          selected_timeline.thread_updated_at AS "threadUpdatedAt",
           message.role AS "messageRole",
           message.text AS "messageText",
           message.attachments_json AS "messageAttachments",
@@ -1013,25 +1087,25 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           proposed_plan.implemented_at AS "planImplementedAt",
           proposed_plan.implementation_thread_id AS "planImplementationThreadId",
           proposed_plan.updated_at AS "planUpdatedAt"
-        FROM expanded_timeline
+        FROM selected_timeline
         LEFT JOIN projection_thread_messages AS message
-          ON expanded_timeline.kind = 'message'
+          ON selected_timeline.kind = 'message'
           AND message.thread_id = ${input.threadId}
-          AND message.message_id = expanded_timeline.source_id
+          AND message.message_id = selected_timeline.source_id
         LEFT JOIN projection_thread_activities AS activity
-          ON expanded_timeline.kind = 'activity'
+          ON selected_timeline.kind = 'activity'
           AND activity.thread_id = ${input.threadId}
-          AND activity.activity_id = expanded_timeline.source_id
+          AND activity.activity_id = selected_timeline.source_id
         LEFT JOIN projection_thread_proposed_plans AS proposed_plan
-          ON expanded_timeline.kind = 'proposed-plan'
+          ON selected_timeline.kind = 'proposed-plan'
           AND proposed_plan.thread_id = ${input.threadId}
-          AND proposed_plan.plan_id = expanded_timeline.source_id
+          AND proposed_plan.plan_id = selected_timeline.source_id
         WHERE (
             message.message_id IS NOT NULL
             OR activity.activity_id IS NOT NULL
             OR proposed_plan.plan_id IS NOT NULL
           )
-        ORDER BY expanded_timeline.timeline_position ASC
+        ORDER BY selected_timeline.timeline_index ASC
       `;
     },
   });
@@ -1865,19 +1939,29 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
 
   const getThreadTimelinePage: ProjectionSnapshotQueryShape["getThreadTimelinePage"] = (input) =>
     Effect.gen(function* () {
-      const manifest = yield* getThreadTimelineManifest(input);
-      if (Option.isNone(manifest)) {
-        return Option.none<OrchestrationGetThreadTimelinePageResult>();
-      }
-      const startIndex = Math.min(
-        Math.max(0, Math.trunc(input.startIndex)),
-        manifest.value.totalItems,
-      );
       const limit = Math.min(MAX_THREAD_TIMELINE_PAGE_SIZE, Math.max(1, Math.trunc(input.limit)));
+      const isTailPageRequest = input.anchor === "tail";
+      let manifestValue: OrchestrationGetThreadTimelineManifestResult | null = null;
+      if (!isTailPageRequest) {
+        const manifest = yield* getThreadTimelineManifest(input);
+        if (Option.isNone(manifest)) {
+          return Option.none<OrchestrationGetThreadTimelinePageResult>();
+        }
+        manifestValue = manifest.value;
+      }
+      const requestedStartIndex = Math.max(0, Math.trunc(input.startIndex));
+      const startIndex = isTailPageRequest
+        ? 0
+        : manifestValue &&
+            requestedStartIndex >= manifestValue.totalItems &&
+            manifestValue.totalItems > 0
+          ? Math.max(0, manifestValue.totalItems - limit)
+          : Math.min(requestedStartIndex, manifestValue?.totalItems ?? requestedStartIndex);
       const rows = yield* listThreadTimelinePageRows({
         threadId: input.threadId,
         startIndex,
         limit,
+        ...(isTailPageRequest ? { anchor: "tail" as const } : {}),
       }).pipe(
         Effect.mapError(
           toPersistenceSqlOrDecodeError(
@@ -1886,6 +1970,31 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           ),
         ),
       );
+      if (isTailPageRequest && rows.length === 0) {
+        const fallbackManifest = yield* getThreadTimelineManifest(input);
+        if (Option.isNone(fallbackManifest)) {
+          return Option.none<OrchestrationGetThreadTimelinePageResult>();
+        }
+        const emptyPage = {
+          threadId: input.threadId,
+          updatedAt: fallbackManifest.value.updatedAt,
+          totalItems: fallbackManifest.value.totalItems,
+          startIndex: 0,
+          endIndexExclusive: 0,
+          hasPrevious: false,
+          hasNext: false,
+          entries: [],
+          messages: [],
+          activities: [],
+          proposedPlans: [],
+        };
+        const decodedEmptyPage = yield* decodeThreadTimelinePage(emptyPage).pipe(
+          Effect.mapError(
+            toPersistenceDecodeError("ProjectionSnapshotQuery.getThreadTimelinePage:decodePage"),
+          ),
+        );
+        return Option.some(decodedEmptyPage);
+      }
       const content = collectTimelineContent(rows);
       const entries: OrchestrationThreadTimelineEntryReference[] = rows.map((row) => ({
         kind: row.kind,
@@ -1897,19 +2006,22 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       }));
       const firstEntryIndex = entries[0]?.index ?? startIndex;
       const lastEntryIndex = entries.at(-1)?.index ?? firstEntryIndex - 1;
+      const totalItems = manifestValue?.totalItems ?? rows[0]?.totalItems ?? 0;
+      const updatedAt =
+        manifestValue?.updatedAt ?? rows[0]?.threadUpdatedAt ?? new Date(0).toISOString();
       const pageStartIndex = Math.max(0, firstEntryIndex);
       const pageEndIndexExclusive =
         entries.length === 0
-          ? Math.min(manifest.value.totalItems, startIndex)
-          : Math.min(manifest.value.totalItems, lastEntryIndex + 1);
+          ? Math.min(totalItems, startIndex)
+          : Math.min(totalItems, lastEntryIndex + 1);
       const page = {
         threadId: input.threadId,
-        updatedAt: manifest.value.updatedAt,
-        totalItems: manifest.value.totalItems,
+        updatedAt,
+        totalItems,
         startIndex: pageStartIndex,
         endIndexExclusive: pageEndIndexExclusive,
         hasPrevious: pageStartIndex > 0,
-        hasNext: pageEndIndexExclusive < manifest.value.totalItems,
+        hasNext: pageEndIndexExclusive < totalItems,
         entries,
         messages: content.messages,
         activities: content.activities,

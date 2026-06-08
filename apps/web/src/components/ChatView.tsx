@@ -93,6 +93,7 @@ import {
 import {
   isScrollContainerNearBottom,
   resolveAutoScrollOnScroll,
+  resolveTimelinePrependScrollAnchor,
   shouldPreserveInteractionAnchorOnClick,
   scrollContainerToBottom,
 } from "../chat-scroll";
@@ -490,6 +491,12 @@ const EMPTY_COMPOSER_MODEL_SELECTIONS: ModelSelectionByProvider = Object.freeze(
 const EMPTY_PENDING_COMPOSER_COMMENTS: readonly PendingComposerComment[] = Object.freeze([]);
 
 const THREAD_SWITCH_SCROLL_SETTLE_DELAY_MS = 96;
+
+function timelineEntryAnchorKey(
+  entry: { readonly id: unknown; readonly kind: string } | undefined,
+): string {
+  return entry ? `${entry.kind}:${String(entry.id)}` : "none";
+}
 
 const SCRIPT_TERMINAL_COLS = 120;
 const SCRIPT_TERMINAL_ROWS = 30;
@@ -1747,6 +1754,14 @@ function useChatViewComponent({
   const shouldAutoScrollRef = useRef(true);
   const previousThreadIdRef = useRef<ThreadId | null>(null);
   const lastKnownScrollTopRef = useRef(0);
+  const timelinePrependAnchorMetricsRef = useRef<{
+    entryCount: number;
+    firstEntryKey: string;
+    lastEntryKey: string;
+    scrollHeight: number;
+    scrollTop: number;
+    threadId: string | null;
+  } | null>(null);
   const isPointerScrollActiveRef = useRef(false);
   const lastTouchClientYRef = useRef<number | null>(null);
   const pendingUserScrollUpIntentRef = useRef(false);
@@ -7248,6 +7263,8 @@ function useChatViewComponent({
   // Auto-scroll on new messages
   const messageCount = timelineMessages.length;
   const timelineEntryCount = timelineEntries.length;
+  const firstTimelineEntryKey = timelineEntryAnchorKey(timelineEntries[0]);
+  const lastTimelineEntryKey = timelineEntryAnchorKey(timelineEntries.at(-1));
   const markMessagesAtBottom = useCallback(
     (scrollContainer: HTMLDivElement) => {
       lastKnownScrollTopRef.current = scrollContainer.scrollTop;
@@ -7425,6 +7442,60 @@ function useChatViewComponent({
       cancelPendingInteractionAnchorAdjustment();
     };
   }, [cancelPendingInteractionAnchorAdjustment, cancelPendingStickToBottom]);
+  useLayoutEffect(() => {
+    const scrollContainer = messagesScrollRef.current;
+    if (!activeForSideEffects || !scrollContainer) {
+      timelinePrependAnchorMetricsRef.current = null;
+      return;
+    }
+
+    const currentThreadId = activeThread?.id ?? null;
+    const previousMetrics = timelinePrependAnchorMetricsRef.current;
+    const currentMetrics = {
+      entryCount: timelineEntryCount,
+      firstEntryKey: firstTimelineEntryKey,
+      lastEntryKey: lastTimelineEntryKey,
+      scrollHeight: scrollContainer.scrollHeight,
+      scrollTop: scrollContainer.scrollTop,
+      threadId: currentThreadId,
+    };
+
+    if (previousMetrics) {
+      const decision = resolveTimelinePrependScrollAnchor({
+        previousThreadId: previousMetrics.threadId,
+        currentThreadId,
+        previousEntryCount: previousMetrics.entryCount,
+        currentEntryCount: currentMetrics.entryCount,
+        previousFirstEntryKey: previousMetrics.firstEntryKey,
+        currentFirstEntryKey: currentMetrics.firstEntryKey,
+        previousLastEntryKey: previousMetrics.lastEntryKey,
+        currentLastEntryKey: currentMetrics.lastEntryKey,
+        previousScrollHeight: previousMetrics.scrollHeight,
+        currentScrollHeight: currentMetrics.scrollHeight,
+        previousScrollTop: previousMetrics.scrollTop,
+        shouldAutoScroll: shouldAutoScrollRef.current,
+      });
+
+      if (decision.kind === "stick-to-bottom") {
+        scrollMessagesToBottom();
+        currentMetrics.scrollTop = scrollContainer.scrollTop;
+      } else if (decision.kind === "preserve-anchor") {
+        scrollContainer.scrollTop = decision.scrollTop;
+        lastKnownScrollTopRef.current = scrollContainer.scrollTop;
+        currentMetrics.scrollTop = scrollContainer.scrollTop;
+      }
+    }
+
+    timelinePrependAnchorMetricsRef.current = currentMetrics;
+  }, [
+    activeForSideEffects,
+    activeThread?.id,
+    firstTimelineEntryKey,
+    lastTimelineEntryKey,
+    scrollMessagesToBottom,
+    timelineEntryCount,
+    timelinePageCacheRevision,
+  ]);
   useLayoutEffect(() => {
     if (!activeForSideEffects) return;
     const nextThreadId = activeThread?.id ?? null;

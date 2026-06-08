@@ -1152,6 +1152,7 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
     if (
       input.hideCompletedWorkMessages === true &&
       message.role === "assistant" &&
+      !goalState.active &&
       !message.streaming &&
       !terminalAssistantMessageIds.has(timelineEntry.id) &&
       !(input.activeTurnInProgress && messageIsInActiveTurn)
