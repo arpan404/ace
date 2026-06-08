@@ -136,13 +136,6 @@ export type TimelineWorkingRow = {
   intentText: string | null;
 };
 
-export type TimelineHistoryPlaceholderRow = {
-  kind: "history-placeholder";
-  id: string;
-  createdAt: null;
-  height: number;
-};
-
 export type TimelineWorkLogRow = TimelineWorkRow | TimelineWorkGroupRow | TimelineIntentRow;
 
 export type TimelineCompletedWorkDetailRow = TimelineWorkLogRow | TimelineMessageRow;
@@ -169,8 +162,7 @@ export type TimelineRow =
   | TimelineWorkLogRow
   | TimelineMessageRow
   | TimelineProposedPlanRow
-  | TimelineWorkingRow
-  | TimelineHistoryPlaceholderRow;
+  | TimelineWorkingRow;
 
 export type AssistantTimelineMessageRow = TimelineMessageRow & {
   message: AssistantTimelineMessage;

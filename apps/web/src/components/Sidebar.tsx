@@ -173,11 +173,7 @@ import type {
   RemoteSidebarProjectEntry,
   RemoteSidebarThreadEntry,
 } from "./sidebar/sidebarTypes";
-import {
-  hydrateThreadFromCache,
-  prefetchHydratedThread,
-  readCachedHydratedThread,
-} from "../lib/threadHydrationCache";
+import { hydrateThreadFromCache, readCachedHydratedThread } from "../lib/threadHydrationCache";
 import { buildThreadTimelineRowsInput } from "../lib/chat/timelineCacheScope";
 import { buildTimelineRowsCacheKey, prewarmTimelineRows } from "../lib/chat/timelineRowsClient";
 import {
@@ -247,10 +243,10 @@ const REMOTE_HOST_INITIAL_RESOLVE_DELAY_MS = 1_500;
 const REMOTE_SIDEBAR_SNAPSHOT_FETCH_CONCURRENCY = 2;
 const REMOTE_SNAPSHOT_BACKGROUND_MERGE_TIMEOUT_MS = 600;
 const SIDEBAR_THREAD_PREFETCH_WINDOW = 14;
-const SIDEBAR_THREAD_PREFETCH_STORE_HYDRATE_COUNT = 4;
+const SIDEBAR_THREAD_PREFETCH_STORE_HYDRATE_COUNT = 0;
 const SIDEBAR_THREAD_PREFETCH_CONCURRENCY = 4;
 const SIDEBAR_MOUNTED_THREAD_PREFETCH_LIMIT = 24;
-const SIDEBAR_MOUNTED_THREAD_STORE_HYDRATE_COUNT = 6;
+const SIDEBAR_MOUNTED_THREAD_STORE_HYDRATE_COUNT = 0;
 
 type SplitContextMenuState = {
   position: { x: number; y: number };
@@ -4190,7 +4186,11 @@ function useSidebarComponent() {
           cached.messages.length + cached.activities.length + cached.proposedPlans.length,
         );
       }
-      if (shouldHydrateStore || shouldPrewarmRows) {
+      if (shouldPrewarmRows && !shouldHydrateStore) {
+        return prefetchSparseTimelineWindow(null);
+      }
+
+      if (shouldHydrateStore) {
         let request = threadHistoryPrefetchByThreadIdRef.current.get(threadId);
         if (!request) {
           request = hydrateThreadFromCache(threadId, { expectedUpdatedAt });
@@ -4222,11 +4222,7 @@ function useSidebarComponent() {
           });
         return Promise.all([threadHydrationRequest, timelineWindowRequest]).then(() => undefined);
       }
-      prefetchHydratedThread(threadId, {
-        expectedUpdatedAt,
-        priority,
-      });
-      return prefetchSparseTimelineWindow(null);
+      return Promise.resolve();
     },
     [prewarmReadModelThreadTimelineRows, prewarmThreadTimelineRows, readSidebarThreadSummary],
   );
@@ -4273,7 +4269,7 @@ function useSidebarComponent() {
         });
       } else {
         prefetchThreadHistory(threadId, {
-          hydrateStore: true,
+          hydrateStore: false,
           prewarmRows: true,
           priority: "immediate",
         });
@@ -4315,7 +4311,7 @@ function useSidebarComponent() {
         });
       } else {
         prefetchThreadHistory(threadId, {
-          hydrateStore: true,
+          hydrateStore: false,
           prewarmRows: true,
           priority: "immediate",
         });
@@ -4370,7 +4366,7 @@ function useSidebarComponent() {
         });
       } else {
         prefetchThreadHistory(threadId, {
-          hydrateStore: true,
+          hydrateStore: false,
           prewarmRows: true,
           priority: "immediate",
         });

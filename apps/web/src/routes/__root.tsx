@@ -458,15 +458,15 @@ function DetachedThreadSnapshotBootstrap(props: {
     runAsyncTask(
       (async () => {
         const snapshot = connectionUrl
-          ? await getRouteRpcClient(connectionUrl).orchestration.getSnapshot({
-              hydrateThreadId: threadId,
-            })
-          : await readNativeApi()?.orchestration.getSnapshot({ hydrateThreadId: threadId });
+          ? await getRouteRpcClient(connectionUrl).orchestration.getSnapshot(
+              LEAN_SNAPSHOT_RECOVERY_INPUT,
+            )
+          : await readNativeApi()?.orchestration.getSnapshot(LEAN_SNAPSHOT_RECOVERY_INPUT);
         if (!snapshot || disposed) {
           return;
         }
         mergeServerReadModel(snapshot, {
-          hydrateThreadId: threadId,
+          hydrateThreadId: LEAN_SNAPSHOT_RECOVERY_INPUT.hydrateThreadId,
           ...(connectionUrl ? { connectionUrl } : {}),
         });
       })(),

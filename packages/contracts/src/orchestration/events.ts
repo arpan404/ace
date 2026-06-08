@@ -483,6 +483,7 @@ export const OrchestrationGetThreadTimelinePageInput = Schema.Struct({
   threadId: ThreadId,
   startIndex: NonNegativeInt,
   limit: PositiveInt,
+  anchor: Schema.optional(Schema.Literals(["tail"])),
 });
 export type OrchestrationGetThreadTimelinePageInput =
   typeof OrchestrationGetThreadTimelinePageInput.Type;

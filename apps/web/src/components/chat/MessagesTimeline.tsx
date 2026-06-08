@@ -42,8 +42,8 @@ import {
 } from "../../lib/chat/markdownRenderAnalysis";
 import { prewarmMarkdownRenderAnalysis } from "../../lib/chat/markdownRenderAnalysisClient";
 import {
-  prefetchThreadTimelineAroundLoadedWindow,
   readTimelineRowHeight,
+  prefetchThreadTimelineAroundLoadedWindow,
   resolveTimelineScrollPrefetchPageSize,
   type TimelinePrefetchDirection,
   useTimelineWindowStore,
@@ -155,8 +155,6 @@ const ASSISTANT_MARKDOWN_FALLBACK_DELAY_MS = 80;
 const TIMELINE_WIDTH_RESIZE_DEBOUNCE_MS = 96;
 const TIMELINE_INITIAL_VIEWPORT_HEIGHT_PX = 720;
 const TIMELINE_FALLBACK_VIRTUAL_RANGE_MIN_ROWS = TIMELINE_VIRTUALIZER_OVERSCAN * 2 + 8;
-const TIMELINE_PLACEHOLDER_PREFETCH_PAGE_SIZE = 500;
-const TIMELINE_UNLOADED_ROW_ESTIMATE_PX = 96;
 const EMPTY_TIMELINE_ROWS: ReadonlyArray<TimelineRow> = [];
 const EMPTY_PROVIDER_COMMANDS: ReadonlyArray<ProviderSlashCommand> = [];
 const ASSISTANT_IMAGE_GENERATION_MESSAGE_ID_REGEX =
@@ -169,9 +167,30 @@ const IMAGE_GENERATION_PORTRAIT_FRAME_MAX_HEIGHT_VH = 42;
 const SELECTION_PIN_BUTTON_WIDTH_PX = 92;
 const SELECTION_PIN_BUTTON_HEIGHT_PX = 32;
 const TIMELINE_DIRECTIONAL_PREFETCH_MIN_VELOCITY_PX_PER_MS = 0.75;
+const TIMELINE_BASE_PREFETCH_EDGE_ROWS = Math.max(TIMELINE_VIRTUALIZER_OVERSCAN * 2, 16);
 const ASSISTANT_MESSAGE_ROW_SELECTOR = '[data-message-role="assistant"][data-message-id]';
 const PINNED_SELECTION_TEXT_BLOCK_SELECTOR =
   "blockquote,div,h1,h2,h3,h4,h5,h6,li,ol,p,pre,section,table,tbody,td,tfoot,th,thead,tr,ul";
+
+export function resolveTimelineScrollPrefetchLookaheadRows(velocityPxPerMs: number): number {
+  const velocity = Math.max(0, Number.isFinite(velocityPxPerMs) ? velocityPxPerMs : 0);
+  if (velocity < 0.75) return TIMELINE_BASE_PREFETCH_EDGE_ROWS;
+  if (velocity < 1.5) return 64;
+  if (velocity < 3) return 128;
+  if (velocity < 6) return 256;
+  if (velocity < 10) return 512;
+  return 1_024;
+}
+
+export function resolveTimelineScrollPrefetchPageCount(velocityPxPerMs: number): number {
+  const velocity = Math.max(0, Number.isFinite(velocityPxPerMs) ? velocityPxPerMs : 0);
+  if (velocity < 0.75) return 1;
+  if (velocity < 1.5) return 2;
+  if (velocity < 3) return 3;
+  if (velocity < 6) return 5;
+  if (velocity < 10) return 8;
+  return 12;
+}
 
 export function deriveTimelineScrollPrefetchRequest(input: {
   readonly currentScrollTop: number;
@@ -179,6 +198,8 @@ export function deriveTimelineScrollPrefetchRequest(input: {
   readonly elapsedMs: number;
 }): {
   readonly direction: TimelinePrefetchDirection;
+  readonly lookaheadRows: number;
+  readonly olderPageCount: number;
   readonly pageSize: number;
   readonly velocityPxPerMs: number;
 } {
@@ -197,13 +218,14 @@ export function deriveTimelineScrollPrefetchRequest(input: {
       : "both";
   return {
     direction,
+    lookaheadRows: resolveTimelineScrollPrefetchLookaheadRows(velocityPxPerMs),
+    olderPageCount: resolveTimelineScrollPrefetchPageCount(velocityPxPerMs),
     pageSize: resolveTimelineScrollPrefetchPageSize(velocityPxPerMs),
     velocityPxPerMs,
   };
 }
 
 export type TimelineRenderedWindowState = {
-  readonly isLeadingHistoryPlaceholderRendered: boolean;
   readonly loadedEndIndexExclusive: number;
   readonly loadedRowCount: number;
   readonly loadedStartIndex: number;
@@ -215,27 +237,18 @@ export function deriveTimelineRenderedWindowState(input: {
   readonly renderedVirtualItems: readonly VirtualItem[];
   readonly virtualizedRows: ReadonlyArray<TimelineRow>;
 }): TimelineRenderedWindowState | null {
-  const leadingPlaceholderRowCount =
-    input.virtualizedRows[0]?.kind === "history-placeholder" ? 1 : 0;
-  const loadedVirtualItems = input.renderedVirtualItems.filter(
-    (item) => input.virtualizedRows[item.index]?.kind !== "history-placeholder",
-  );
-  const firstLoadedVirtualItem = loadedVirtualItems[0];
-  const lastLoadedVirtualItem = loadedVirtualItems.at(-1);
-  if (!firstLoadedVirtualItem || !lastLoadedVirtualItem) {
+  const firstVirtualItem = input.renderedVirtualItems[0];
+  const lastVirtualItem = input.renderedVirtualItems.at(-1);
+  if (!firstVirtualItem || !lastVirtualItem) {
     return null;
   }
-  const toLoadedIndex = (index: number) => Math.max(0, index - leadingPlaceholderRowCount);
 
   return {
-    isLeadingHistoryPlaceholderRendered: input.renderedVirtualItems.some(
-      (item) => input.virtualizedRows[item.index]?.kind === "history-placeholder",
-    ),
-    loadedEndIndexExclusive: toLoadedIndex(lastLoadedVirtualItem.index) + 1,
-    loadedRowCount: Math.max(0, input.virtualizedRows.length - leadingPlaceholderRowCount),
-    loadedStartIndex: toLoadedIndex(firstLoadedVirtualItem.index),
-    overscanLoadedEndIndexExclusive: toLoadedIndex(lastLoadedVirtualItem.index) + 1,
-    overscanLoadedStartIndex: toLoadedIndex(firstLoadedVirtualItem.index),
+    loadedEndIndexExclusive: lastVirtualItem.index + 1,
+    loadedRowCount: input.virtualizedRows.length,
+    loadedStartIndex: firstVirtualItem.index,
+    overscanLoadedEndIndexExclusive: lastVirtualItem.index + 1,
+    overscanLoadedStartIndex: firstVirtualItem.index,
   };
 }
 
@@ -506,10 +519,18 @@ export function resolveVisibleTimelineRows(input: {
   readonly shouldResolveAsync: boolean;
   readonly syncRows: ReadonlyArray<TimelineRow>;
 }): { readonly loading: boolean; readonly rows: ReadonlyArray<TimelineRow> } {
+  const retainedRows =
+    input.retainRowsWhileLoading !== false &&
+    input.activeThreadId &&
+    input.retainedRows?.activeThreadId === input.activeThreadId &&
+    input.retainedRows.rows.length > 0
+      ? input.retainedRows.rows
+      : null;
+
   if (!input.shouldResolveAsync) {
     return {
       loading: false,
-      rows: input.syncRows.length > 0 ? input.syncRows : EMPTY_TIMELINE_ROWS,
+      rows: input.syncRows.length > 0 ? input.syncRows : (retainedRows ?? EMPTY_TIMELINE_ROWS),
     };
   }
 
@@ -527,15 +548,10 @@ export function resolveVisibleTimelineRows(input: {
     };
   }
 
-  if (
-    input.retainRowsWhileLoading !== false &&
-    input.activeThreadId &&
-    input.retainedRows?.activeThreadId === input.activeThreadId &&
-    input.retainedRows.rows.length > 0
-  ) {
+  if (retainedRows) {
     return {
       loading: false,
-      rows: input.retainedRows.rows,
+      rows: retainedRows,
     };
   }
 
@@ -767,7 +783,6 @@ interface MessagesTimelineProps {
   getScrollContainer: () => HTMLDivElement | null;
   hideCompletedWorkMessages?: boolean;
   isThreadHistoryLoading?: boolean;
-  leadingHistoryPlaceholderCount?: number;
   liveTimers?: boolean;
   timelineCacheScope?: string | null;
   timelineEntries: ReturnType<typeof deriveTimelineEntries>;
@@ -817,7 +832,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   getScrollContainer,
   hideCompletedWorkMessages = false,
   isThreadHistoryLoading = false,
-  leadingHistoryPlaceholderCount = 0,
   liveTimers = true,
   timelineCacheScope = null,
   timelineEntries,
@@ -978,30 +992,14 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     }
     return measureRenderWork("chat.buildTimelineRows", () => buildTimelineRows(timelineRowsInput));
   }, [cachedTimelineRows, timelineRowsInput]);
-  const { loading: timelineRowsLoading, rows: resolvedRows } = resolveVisibleTimelineRows({
+  const { loading: timelineRowsLoading, rows } = resolveVisibleTimelineRows({
     activeThreadId: activeThreadId ?? null,
     retainedRows: retainedTimelineRows,
-    retainRowsWhileLoading: !isThreadHistoryLoading,
+    retainRowsWhileLoading: true,
     resolvedAsyncRows: resolvedAsyncTimelineRows,
     shouldResolveAsync: shouldResolveTimelineRowsAsync,
     syncRows: syncTimelineRows,
   });
-  const rows = useMemo<ReadonlyArray<TimelineRow>>(() => {
-    const placeholderCount = Math.max(0, Math.trunc(leadingHistoryPlaceholderCount));
-    if (placeholderCount === 0 || resolvedRows.length === 0) {
-      return resolvedRows;
-    }
-
-    return [
-      {
-        kind: "history-placeholder",
-        id: `history-placeholder:${placeholderCount}`,
-        createdAt: null,
-        height: placeholderCount * TIMELINE_UNLOADED_ROW_ESTIMATE_PX,
-      },
-      ...resolvedRows,
-    ];
-  }, [leadingHistoryPlaceholderCount, resolvedRows]);
 
   useEffect(() => {
     if (cachedTimelineRows) {
@@ -1373,6 +1371,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     if (!activeThreadId || !renderedWindowState) {
       return;
     }
+    if (renderedWindowState.loadedEndIndexExclusive <= renderedWindowState.loadedStartIndex) {
+      return;
+    }
     useTimelineWindowStore.getState().setActiveWindow(activeThreadId as ThreadId, {
       startIndex: renderedWindowState.loadedStartIndex,
       endIndexExclusive: renderedWindowState.loadedEndIndexExclusive,
@@ -1383,17 +1384,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   }, [activeThreadId, renderedWindowState, timelineCacheScope]);
   useEffect(() => {
     if (!activeThreadId || !renderedWindowState || rows.length === 0) {
-      return;
-    }
-    const edgeThreshold = Math.max(TIMELINE_VIRTUALIZER_OVERSCAN * 2, 16);
-    const isNearOlderEdge =
-      renderedWindowState.isLeadingHistoryPlaceholderRendered ||
-      renderedWindowState.loadedStartIndex <= edgeThreshold;
-    const isNearNewerEdge =
-      renderedWindowState.loadedRowCount - renderedWindowState.loadedEndIndexExclusive <=
-      edgeThreshold;
-    const isNearRenderedEdge = isNearOlderEdge || isNearNewerEdge;
-    if (!isNearRenderedEdge) {
       return;
     }
     const scrollContainer = getScrollContainer();
@@ -1409,21 +1399,26 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       scrollTop: currentScrollTop,
       sampledAt: now,
     };
+    const edgeThreshold = Math.max(TIMELINE_BASE_PREFETCH_EDGE_ROWS, prefetchRequest.lookaheadRows);
+    const isNearOlderEdge = renderedWindowState.loadedStartIndex <= edgeThreshold;
+    const isNearNewerEdge =
+      renderedWindowState.loadedRowCount - renderedWindowState.loadedEndIndexExclusive <=
+      edgeThreshold;
+    const isNearRenderedEdge = isNearOlderEdge || isNearNewerEdge;
+    if (!isNearRenderedEdge) {
+      return;
+    }
     const direction =
-      renderedWindowState.isLeadingHistoryPlaceholderRendered ||
-      (isNearOlderEdge && !isNearNewerEdge)
+      isNearOlderEdge && !isNearNewerEdge
         ? "older"
         : isNearNewerEdge && !isNearOlderEdge
           ? "newer"
           : prefetchRequest.direction;
     void prefetchThreadTimelineAroundLoadedWindow({
       threadId: activeThreadId as ThreadId,
-      priority: renderedWindowState.isLeadingHistoryPlaceholderRendered
-        ? "immediate"
-        : "background",
-      pageSize: renderedWindowState.isLeadingHistoryPlaceholderRendered
-        ? TIMELINE_PLACEHOLDER_PREFETCH_PAGE_SIZE
-        : prefetchRequest.pageSize,
+      priority: prefetchRequest.direction === "older" ? "immediate" : "background",
+      pageSize: prefetchRequest.pageSize,
+      olderPageCount: direction === "older" ? prefetchRequest.olderPageCount : 1,
       direction,
     }).catch(() => undefined);
   }, [activeThreadId, getScrollContainer, renderedWindowState, rows.length]);
@@ -1757,16 +1752,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     shouldPrewarmAssistantMarkdown,
   ]);
   const buildRowContent = (row: TimelineRow, _rowIndex: number) => {
-    if (row.kind === "history-placeholder") {
-      return (
-        <div
-          aria-hidden="true"
-          data-history-placeholder="true"
-          style={{ height: `${row.height}px` }}
-        />
-      );
-    }
-
     const detachedAssistantFooter = assistantFooterByPlacementRowId.get(row.id) ?? null;
     return (
       <div
@@ -2415,9 +2400,6 @@ function estimateTimelineRowHeight(
 
   let height: number;
   switch (row.kind) {
-    case "history-placeholder":
-      height = row.height;
-      break;
     case "completed-work-summary":
       height = 42 + estimateVisibleCompletedWorkDiagnosticRowsHeight(row.visibleDiagnosticRows);
       break;
@@ -2513,8 +2495,6 @@ function getTimelineRowHeightCacheKey(
 
   const widthCacheKey = toTimelineWidthCacheKey(input.timelineWidthPx);
   switch (row.kind) {
-    case "history-placeholder":
-      return `history-placeholder:${row.height}`;
     case "completed-work-summary":
       return `completed-work-summary:${row.id}:${row.startedAt}:${row.endedAt}:${row.detailRows.length}:${row.toolCallCount}:${row.hiddenThinkingCount}:${row.hiddenMessageCount}:${row.visibleDiagnosticCacheKey}`;
     case "message": {

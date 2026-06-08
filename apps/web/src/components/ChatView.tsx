@@ -2975,20 +2975,6 @@ function useChatViewComponent({
       ? readLoadedThreadTimelinePages(activeThread.id)
       : [];
   }, [activeThread, isThreadHistoryLean, timelinePageCacheRevision]);
-  const leadingHistoryPlaceholderCount = useMemo(() => {
-    if (!isThreadHistoryLean || activeThreadTimelinePages.length === 0) {
-      return 0;
-    }
-
-    let firstLoadedIndex = Number.POSITIVE_INFINITY;
-    for (const page of activeThreadTimelinePages) {
-      for (const entry of page.entries) {
-        firstLoadedIndex = Math.min(firstLoadedIndex, entry.index);
-      }
-    }
-
-    return Number.isFinite(firstLoadedIndex) ? Math.max(0, firstLoadedIndex) : 0;
-  }, [activeThreadTimelinePages, isThreadHistoryLean]);
   const pagedThreadTimeline = useMemo(() => {
     if (!activeThread || !isThreadHistoryLean || activeThreadTimelinePages.length === 0) {
       return null;
@@ -9777,7 +9763,6 @@ function useChatViewComponent({
       backgroundMarkdownPrewarm: activeForSideEffects,
       hideCompletedWorkMessages,
       isThreadHistoryLoading,
-      leadingHistoryPlaceholderCount,
       liveTimers: activeForSideEffects,
       getScrollContainer: getMessagesScrollContainer,
       timelineCacheScope,
@@ -9830,7 +9815,6 @@ function useChatViewComponent({
       handoffInFlight,
       isRevertingCheckpoint,
       isThreadHistoryLoading,
-      leadingHistoryPlaceholderCount,
       isWorking,
       latestTurnSettled,
       getMessagesScrollContainer,
