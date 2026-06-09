@@ -57,7 +57,6 @@ import { TraitsPicker } from "../chat/TraitsPicker";
 import { isElectron } from "../../env";
 import { useAppearancePrefs } from "../../appearancePrefs";
 import { DEFAULT_THEME_PRESET } from "../../themePresets";
-import { ThemePresetPicker } from "./ThemePresetPicker";
 import { useTheme } from "../../hooks/useTheme";
 import { useSettings, useUpdateSettings } from "../../hooks/useSettings";
 import { useThreadActions } from "../../hooks/useThreadActions";
@@ -121,13 +120,20 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { ProjectAvatar } from "../ProjectAvatar";
 import type { Project, Thread } from "../../types";
 import { ProviderSettingsSection, type ProviderCard } from "./ProviderSettingsSection";
+import { ThemePresetPicker } from "./ThemePresetPicker";
 import { PROVIDER_SETTINGS } from "./settingsProviderConfig";
 import { KeybindingsSettingsEditor } from "./KeybindingsSettingsEditor";
 import {
+  SETTINGS_CARD_BODY_CLASS_NAME,
+  SETTINGS_CARD_CLASS_NAME,
+  SETTINGS_LIST_ROW_CLASS_NAME,
+  SETTINGS_ROW_INSET_CLASS_NAME,
   SettingsChoiceGroup,
   SettingsPageContainer,
+  SettingsPageHeader,
   SettingsRow,
   SettingsSection,
+  SettingsInsetPanel,
   SettingResetButton,
   getProviderSummary,
   getProviderVersionLabel,
@@ -500,7 +506,7 @@ function AboutVersionTitle() {
   return (
     <span className="inline-flex items-center gap-2">
       <span>Version</span>
-      <code className="text-[11px] font-medium text-muted-foreground">{APP_VERSION}</code>
+      <code className="text-xs font-medium text-muted-foreground">{APP_VERSION}</code>
     </span>
   );
 }
@@ -649,7 +655,7 @@ function AboutCliInstallTitle() {
   return (
     <span className="inline-flex items-center gap-2">
       <span>Command line</span>
-      <code className="text-[11px] font-medium text-muted-foreground">ace</code>
+      <code className="text-xs font-medium text-muted-foreground">ace</code>
     </span>
   );
 }
@@ -747,7 +753,7 @@ function AboutCliInstallSection() {
       {cliInstallState.commandPath ? (
         <div className="space-y-0.5">
           <span className="block">Command shim</span>
-          <code className="block break-all font-mono text-[11px] text-foreground">
+          <code className="block break-all font-mono text-xs text-foreground">
             {cliInstallState.commandPath}
           </code>
         </div>
@@ -756,7 +762,7 @@ function AboutCliInstallSection() {
         <div className="space-y-0.5">
           <span className="block">PATH targets</span>
           {cliInstallState.pathTargets.map((target) => (
-            <code key={target} className="block break-all font-mono text-[11px] text-foreground">
+            <code key={target} className="block break-all font-mono text-xs text-foreground">
               {target}
             </code>
           ))}
@@ -1477,7 +1483,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                     }
                   }}
                 >
-                  <SelectTrigger className="w-full sm:w-40" aria-label="Theme preference">
+                  <SelectTrigger className="w-full" aria-label="Theme preference">
                     <SelectValue>
                       {THEME_OPTIONS.find((option) => option.value === theme)?.label ?? "System"}
                     </SelectValue>
@@ -1532,7 +1538,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                     }
                   }}
                 >
-                  <SelectTrigger className="w-full sm:w-56" aria-label="UI font">
+                  <SelectTrigger className="w-full" aria-label="UI font">
                     <SelectValue>
                       {UI_FONT_FAMILY_OPTIONS.find((o) => o.value === settings.uiFontFamily)
                         ?.label ?? "UI font"}
@@ -1571,7 +1577,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                     }
                   }}
                 >
-                  <SelectTrigger className="w-full sm:w-56" aria-label="Monospace font">
+                  <SelectTrigger className="w-full" aria-label="Monospace font">
                     <SelectValue>
                       {UI_MONO_FONT_OPTIONS.find((o) => o.value === settings.uiMonoFontFamily)
                         ?.label ?? "Monospace font"}
@@ -1608,7 +1614,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                     }
                   }}
                 >
-                  <SelectTrigger className="w-full sm:w-56" aria-label="Text size">
+                  <SelectTrigger className="w-full" aria-label="Text size">
                     <SelectValue>
                       {UI_FONT_SIZE_OPTIONS.find((o) => o.value === settings.uiFontSizeScale)
                         ?.label ?? "Text size"}
@@ -1619,7 +1625,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                       <SelectItem hideIndicator key={option.value} value={option.value}>
                         <span className="flex flex-col gap-0.5">
                           <span>{option.label}</span>
-                          <span className="text-[11px] font-normal text-muted-foreground">
+                          <span className="text-xs font-normal text-muted-foreground">
                             {option.description}
                           </span>
                         </span>
@@ -1650,7 +1656,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                     }
                   }}
                 >
-                  <SelectTrigger className="w-full sm:w-44" aria-label="Letter spacing">
+                  <SelectTrigger className="w-full" aria-label="Letter spacing">
                     <SelectValue>
                       {UI_LETTER_SPACING_OPTIONS.find((o) => o.value === settings.uiLetterSpacing)
                         ?.label ?? "Letter spacing"}
@@ -1691,7 +1697,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                     }
                   }}
                 >
-                  <SelectTrigger className="w-full sm:w-40" aria-label="Timestamp format">
+                  <SelectTrigger className="w-full" aria-label="Timestamp format">
                     <SelectValue>{TIMESTAMP_FORMAT_LABELS[settings.timestampFormat]}</SelectValue>
                   </SelectTrigger>
                   <SelectPopup align="end" alignItemWithTrigger={false}>
@@ -1735,7 +1741,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                     }
                   }}
                 >
-                  <SelectTrigger className="w-full sm:w-44" aria-label="Default thread mode">
+                  <SelectTrigger className="w-full" aria-label="Default thread mode">
                     <SelectValue>
                       {settings.defaultThreadEnvMode === "worktree" ? "New worktree" : "Local"}
                     </SelectValue>
@@ -1778,7 +1784,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                   }}
                 >
                   <SelectTrigger
-                    className="w-full sm:w-44"
+                    className="w-full"
                     aria-label="Workspace editor opening mode"
                   >
                     <SelectValue>
@@ -1815,7 +1821,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
               }
               control={
                 <Input
-                  className="w-full sm:w-72"
+                  className="w-full"
                   value={settings.addProjectBaseDirectory}
                   onChange={(event) => {
                     updateSettings({ addProjectBaseDirectory: event.target.value });
@@ -2327,7 +2333,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                     }
                   }}
                 >
-                  <SelectTrigger className="w-full sm:w-40" aria-label="Editor line numbers">
+                  <SelectTrigger className="w-full" aria-label="Editor line numbers">
                     <SelectValue>{settings.editorLineNumbers}</SelectValue>
                   </SelectTrigger>
                   <SelectPopup align="end" alignItemWithTrigger={false}>
@@ -2349,7 +2355,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
               title="Language server tools"
               status={
                 lspToolsError ? (
-                  <span className="text-[11px] text-destructive">{lspToolsError}</span>
+                  <span className="text-xs text-destructive">{lspToolsError}</span>
                 ) : null
               }
               control={
@@ -2380,11 +2386,11 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
             >
               <div className="mt-3 space-y-3">
                 <div className="py-2">
-                  <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+                  <div className="flex flex-col gap-2">
                     <div className="relative min-w-0">
                       <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground/55" />
                       <Input
-                        className="pl-8"
+                        className="w-full pl-8"
                         value={lspCatalogQuery}
                         onChange={(event) =>
                           dispatchLspState({
@@ -2418,7 +2424,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                     >
                       <SelectTrigger
                         size="sm"
-                        className="w-full lg:w-44"
+                        className="w-full"
                         aria-label="Language server category filter"
                       >
                         <SelectValue>{lspCatalogCategoryLabel}</SelectValue>
@@ -2439,7 +2445,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
 
                 <div>
                   {filteredLspCatalogTools.length === 0 ? (
-                    <div className="px-4 py-8 text-center text-[12px] text-muted-foreground/62">
+                    <div className="px-4 py-8 text-center text-sm text-muted-foreground/62">
                       No language servers match this filter.
                     </div>
                   ) : (
@@ -2448,15 +2454,16 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                         const isWorking = isInstallingCustomLsp && lspInstallTargetId === tool.id;
                         const versionLabel = resolveLspToolVersionLabel(tool);
                         return (
-                          <div
-                            key={tool.id}
-                            className="grid gap-2 px-0.5 py-2.5 transition-colors hover:bg-foreground/[0.012] sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center"
-                          >
-                            <div className="min-w-0 truncate text-[13px] font-medium text-foreground/92">
-                              {tool.label}
-                            </div>
-                            <div className="justify-self-start text-[11px] font-medium text-muted-foreground/62 sm:justify-self-end">
-                              {versionLabel}
+                          <div key={tool.id} className={SETTINGS_LIST_ROW_CLASS_NAME}>
+                            <div className="flex min-w-0 items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="truncate text-[13px] font-medium text-foreground">
+                                  {tool.label}
+                                </div>
+                                <div className="mt-0.5 text-xs text-muted-foreground">
+                                  {versionLabel}
+                                </div>
+                              </div>
                             </div>
                             <Button
                               size="sm"
@@ -2467,7 +2474,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                                   : installCatalogTool(tool)
                               }
                               disabled={isInstallingCustomLsp}
-                              className="justify-self-start sm:justify-self-end"
+                              className="w-full"
                             >
                               {isWorking
                                 ? tool.installed
@@ -2487,10 +2494,10 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                 {lspCustomTools.length > 0 ? (
                   <div>
                     <div className="py-2">
-                      <div className="text-[12px] font-medium text-foreground/90">
+                      <div className="text-sm font-medium text-foreground/90">
                         Custom servers
                       </div>
-                      <div className="text-[11px] text-muted-foreground/60">
+                      <div className="text-xs text-muted-foreground/60">
                         Saved package definitions outside the curated catalog.
                       </div>
                     </div>
@@ -2498,7 +2505,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                       {lspCustomTools.map((tool) => (
                         <div
                           key={tool.id}
-                          className="grid gap-3 px-0.5 py-3 transition-colors hover:bg-foreground/[0.012] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
+                          className={SETTINGS_LIST_ROW_CLASS_NAME}
                         >
                           <div className="min-w-0 space-y-1">
                             <div className="flex min-w-0 flex-wrap items-center gap-1.5">
@@ -2512,7 +2519,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                                 {LSP_INSTALLER_LABELS[tool.installer]}
                               </Badge>
                             </div>
-                            <p className="text-[12px] leading-relaxed text-muted-foreground/68">
+                            <p className="text-sm leading-relaxed text-muted-foreground/68">
                               {tool.description}
                             </p>
                           </div>
@@ -2532,10 +2539,10 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                 <div>
                   <div className="flex flex-col gap-2 py-2.5 sm:flex-row sm:items-center sm:justify-between">
                     <div className="min-w-0">
-                      <div className="text-[12px] font-medium text-foreground/90">
+                      <div className="text-sm font-medium text-foreground/90">
                         Register custom server
                       </div>
-                      <div className="text-[11px] text-muted-foreground/60">
+                      <div className="text-xs text-muted-foreground/60">
                         Add package-backed language servers with explicit file associations.
                       </div>
                     </div>
@@ -2574,10 +2581,10 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                           </Button>
                         ))}
                       </div>
-                      <div className="grid gap-2 sm:grid-cols-2">
+                      <div className="flex flex-col gap-3">
                         <label
                           htmlFor="lsp-custom-package"
-                          className="grid gap-1 text-[11px] font-medium text-muted-foreground/72"
+                          className="grid gap-1 text-xs font-medium text-muted-foreground/72"
                         >
                           Package
                           <Input
@@ -2602,7 +2609,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                         </label>
                         <label
                           htmlFor="lsp-custom-command"
-                          className="grid gap-1 text-[11px] font-medium text-muted-foreground/72"
+                          className="grid gap-1 text-xs font-medium text-muted-foreground/72"
                         >
                           Command
                           <Input
@@ -2619,7 +2626,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                         </label>
                         <label
                           htmlFor="lsp-custom-label"
-                          className="grid gap-1 text-[11px] font-medium text-muted-foreground/72"
+                          className="grid gap-1 text-xs font-medium text-muted-foreground/72"
                         >
                           Display label
                           <Input
@@ -2636,7 +2643,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                         </label>
                         <label
                           htmlFor="lsp-custom-args"
-                          className="grid gap-1 text-[11px] font-medium text-muted-foreground/72"
+                          className="grid gap-1 text-xs font-medium text-muted-foreground/72"
                         >
                           Args
                           <Input
@@ -2653,7 +2660,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                         </label>
                         <label
                           htmlFor="lsp-custom-language-ids"
-                          className="grid gap-1 text-[11px] font-medium text-muted-foreground/72"
+                          className="grid gap-1 text-xs font-medium text-muted-foreground/72"
                         >
                           Language IDs
                           <Input
@@ -2670,7 +2677,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                         </label>
                         <label
                           htmlFor="lsp-custom-file-extensions"
-                          className="grid gap-1 text-[11px] font-medium text-muted-foreground/72"
+                          className="grid gap-1 text-xs font-medium text-muted-foreground/72"
                         >
                           File extensions
                           <Input
@@ -2687,7 +2694,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                         </label>
                         <label
                           htmlFor="lsp-custom-file-names"
-                          className="grid gap-1 text-[11px] font-medium text-muted-foreground/72 sm:col-span-2"
+                          className="grid gap-1 text-xs font-medium text-muted-foreground/72 sm:col-span-2"
                         >
                           File names
                           <Input
@@ -2744,7 +2751,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
           >
             <SettingsChoiceGroup
               label="Search engine"
-              className="max-w-xs"
+              className="w-full"
               options={BROWSER_SEARCH_ENGINE_OPTIONS}
               value={settings.browserSearchEngine}
               onValueChange={(browserSearchEngine) => updateSettings({ browserSearchEngine })}
@@ -2774,7 +2781,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                   min={1}
                   max={BROWSER_MAX_MOUNTED_INSTANCES_LIMIT}
                   step={1}
-                  className="w-full sm:w-24"
+                  className="w-full"
                   aria-label="Maximum mounted browser instances"
                   value={String(settings.browserMaxMountedInstances)}
                   onChange={(event) => {
@@ -2909,7 +2916,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
           >
             <SettingsChoiceGroup
               label="Summary generation"
-              className="max-w-sm"
+              className="w-full"
               options={WORKSPACE_SUMMARY_GENERATION_MODE_OPTIONS}
               value={settings.workspaceSummaryGenerationMode}
               onValueChange={(workspaceSummaryGenerationMode) =>
@@ -2944,7 +2951,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                     type="number"
                     min={1}
                     step={1}
-                    className="w-full sm:w-28"
+                    className="w-full"
                     aria-label="Maximum open provider CLI sessions"
                     value={String(settings.providerCliMaxOpen)}
                     onChange={(event) => {
@@ -2985,7 +2992,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                     type="number"
                     min={1}
                     step={1}
-                    className="w-full sm:w-28"
+                    className="w-full"
                     aria-label="Provider CLI idle timeout in seconds"
                     value={String(settings.providerCliIdleTtlSeconds)}
                     onChange={(event) => {
@@ -3046,7 +3053,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
               control={
                 <Input
                   type="password"
-                  className="w-full sm:w-72"
+                  className="w-full"
                   value={settings.gitSshKeyPassphrase}
                   onChange={(event) => {
                     updateSettings({ gitSshKeyPassphrase: event.target.value });
@@ -3083,7 +3090,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                     type="number"
                     min={1}
                     step={1}
-                    className="w-full sm:w-28"
+                    className="w-full"
                     aria-label="Thread cache memory budget in megabytes"
                     value={String(settings.threadHydrationCacheMemoryMb)}
                     onChange={(event) => {
@@ -3486,29 +3493,22 @@ function ProjectWorktreeSetupEditor({ project }: { readonly project: Project }) 
       : { label: "Not saved", variant: "outline" as const };
 
   return (
-    <div className="py-3">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2 text-[12px] font-medium text-foreground/85">
-            <WrenchIcon className="size-3.5 text-muted-foreground" />
-            Worktree setup
-            {setupScript ? (
-              <Badge variant="outline" size="sm" className="text-[10px]">
-                automatic
-              </Badge>
-            ) : null}
-            {hasEnv ? (
-              <Badge variant="outline" size="sm" className="text-[10px]">
-                {formatCountLabel(Object.keys(setupScript?.env ?? {}).length, "env var")}
-              </Badge>
-            ) : null}
-            <Badge variant={setupStatus.variant} size="sm" className="text-[10px]">
-              {setupStatus.label}
+    <div className={SETTINGS_ROW_INSET_CLASS_NAME}>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-1.5">
+          {setupScript ? (
+            <Badge variant="outline" size="sm" className="text-[10px]">
+              automatic
             </Badge>
-          </div>
-          <p className="mt-1 text-[11px] text-muted-foreground/60">
-            Runs after a new worktree is created. Use it for install, bootstrap, or generated files.
-          </p>
+          ) : null}
+          {hasEnv ? (
+            <Badge variant="outline" size="sm" className="text-[10px]">
+              {formatCountLabel(Object.keys(setupScript?.env ?? {}).length, "env var")}
+            </Badge>
+          ) : null}
+          <Badge variant={setupStatus.variant} size="sm" className="text-[10px]">
+            {setupStatus.label}
+          </Badge>
         </div>
         <div className="flex shrink-0 gap-2">
           {setupScript ? (
@@ -3533,24 +3533,24 @@ function ProjectWorktreeSetupEditor({ project }: { readonly project: Project }) 
           </Button>
         </div>
       </div>
-      <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
+      <div className="mt-3 flex flex-col gap-4">
         <div className="space-y-1.5">
-          <label className="text-[11px] font-medium text-muted-foreground">Command</label>
+          <label className="text-xs font-medium text-muted-foreground">Command</label>
           <Textarea
             value={command}
             placeholder="bun install"
             size="sm"
-            className="font-mono text-[12px]"
+            className="font-mono text-sm"
             onChange={(event) => setCommand(event.target.value)}
           />
         </div>
         <div className="grid gap-3">
           <div className="space-y-1.5">
-            <label className="text-[11px] font-medium text-muted-foreground">Env file</label>
+            <label className="text-xs font-medium text-muted-foreground">Env file</label>
             <Input
               value={envFilePath}
               placeholder=".env"
-              className="font-mono text-[12px]"
+              className="font-mono text-sm"
               onChange={(event) => setEnvFilePath(event.target.value)}
             />
             <p className="text-[10px] text-muted-foreground/60">
@@ -3558,12 +3558,12 @@ function ProjectWorktreeSetupEditor({ project }: { readonly project: Project }) 
             </p>
           </div>
           <div className="space-y-1.5">
-            <label className="text-[11px] font-medium text-muted-foreground">Environment</label>
+            <label className="text-xs font-medium text-muted-foreground">Environment</label>
             <Textarea
               value={envText}
               placeholder={"NODE_ENV=development\nAPI_BASE_URL=http://localhost:3000"}
               size="sm"
-              className="font-mono text-[12px]"
+              className="font-mono text-sm"
               onChange={(event) => setEnvText(event.target.value)}
             />
             <p className="text-[10px] text-muted-foreground/60">
@@ -3573,7 +3573,7 @@ function ProjectWorktreeSetupEditor({ project }: { readonly project: Project }) 
         </div>
       </div>
       {validationError ? (
-        <div className="mt-2 text-[11px] text-destructive">{validationError}</div>
+        <div className="mt-2 text-xs text-destructive">{validationError}</div>
       ) : null}
     </div>
   );
@@ -3897,40 +3897,33 @@ function ProjectEnvironmentWorktrees({
   ]);
 
   return (
-    <div id={`project-environment-${project.id}`} className="min-w-0">
-      <div className="flex min-w-0 flex-wrap items-end justify-between gap-3 px-1 pb-2 sm:px-0">
-        <div className="min-w-0 space-y-1.5">
-          <h2 className="flex min-w-0 items-center gap-2 text-[18px] leading-6 font-semibold tracking-normal text-foreground">
+    <div id={`project-environment-${project.id}`} className="flex min-w-0 flex-col gap-5 sm:gap-6">
+      <SettingsPageHeader
+        pageLabel={
+          <span className="flex min-w-0 items-center gap-2">
             <Button
               type="button"
               size="icon-xs"
               variant="ghost"
-              className="size-5 shrink-0 text-muted-foreground/70 hover:text-foreground"
+              className="size-6 shrink-0 text-muted-foreground/65 hover:text-foreground"
               onClick={() => void navigate({ to: "/settings/environment" })}
               aria-label="Back to projects"
             >
               <ArrowLeftIcon className="size-3.5" />
             </Button>
             <span className="min-w-0 truncate">{project.name}</span>
-          </h2>
-          <p className="max-w-3xl text-[12px] leading-relaxed text-muted-foreground/60">
-            Configure this project's worktree setup command, environment variables, and cleanup.
-          </p>
-        </div>
-        <Button
-          type="button"
-          size="icon-sm"
-          variant="outline"
-          disabled={branchesQuery.isFetching}
-          onClick={() => void branchesQuery.refetch()}
-          aria-label="Refresh worktrees"
-        >
-          <RefreshCwIcon className={cn("size-3.5", branchesQuery.isFetching && "animate-spin")} />
-        </Button>
-      </div>
-      <ProjectWorktreeSetupEditor project={project} />
+          </span>
+        }
+      />
 
-      <div className="py-3">
+      <SettingsSection
+        title="Worktree setup"
+        description="Runs after a new worktree is created. Use it for install, bootstrap, or generated files."
+      >
+        <ProjectWorktreeSetupEditor project={project} />
+      </SettingsSection>
+
+      <SettingsSection title="Credentials">
         <SettingsRow
           title="SSH key passphrase"
           description="Overrides the global Git SSH key passphrase for this project and its worktrees."
@@ -3948,7 +3941,7 @@ function ProjectEnvironmentWorktrees({
           control={
             <Input
               type="password"
-              className="w-full sm:w-72"
+              className="w-full"
               value={projectSshKeyPassphrase}
               onChange={(event) => updateProjectSshKeyPassphrase(event.target.value)}
               placeholder={
@@ -3961,21 +3954,26 @@ function ProjectEnvironmentWorktrees({
             />
           }
         />
-      </div>
+      </SettingsSection>
 
-      <div className="py-3">
-        <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(22rem,32rem)] lg:items-start">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 text-[13px] font-semibold text-foreground/92">
-              <FolderGit2Icon className="size-3.5 text-muted-foreground" />
-              Manage worktrees
-            </div>
-            <p className="mt-1 text-[11px] text-muted-foreground/60">
-              Delete unused local worktrees and their linked chats. Active agent worktrees stay
-              locked.
-            </p>
-          </div>
-          <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_8.5rem_8.5rem]">
+      <SettingsSection
+        title="Manage worktrees"
+        description="Delete unused local worktrees and their linked chats. Active agent worktrees stay locked."
+        headerAction={
+          <Button
+            type="button"
+            size="icon-sm"
+            variant="outline"
+            disabled={branchesQuery.isFetching}
+            onClick={() => void branchesQuery.refetch()}
+            aria-label="Refresh worktrees"
+          >
+            <RefreshCwIcon className={cn("size-3.5", branchesQuery.isFetching && "animate-spin")} />
+          </Button>
+        }
+      >
+        <div className={SETTINGS_ROW_INSET_CLASS_NAME}>
+          <div className="flex min-w-0 flex-col gap-3">
             <label className="min-w-0 space-y-1">
               <span className="block text-[10px] font-medium text-muted-foreground/58">Search</span>
               <span className="relative block">
@@ -4028,7 +4026,7 @@ function ProjectEnvironmentWorktrees({
         </div>
 
         {branchesQuery.isError ? (
-          <div className="mt-3 text-[11px] text-destructive">
+          <div className="mt-3 text-xs text-destructive">
             {branchesQuery.error instanceof Error
               ? branchesQuery.error.message
               : "Unable to load worktrees for this project."}
@@ -4036,22 +4034,22 @@ function ProjectEnvironmentWorktrees({
         ) : null}
 
         {branchesQuery.isLoading ? (
-          <div className="mt-3 inline-flex items-center gap-2 text-[11px] text-muted-foreground/60">
+          <div className="mt-3 inline-flex items-center gap-2 text-xs text-muted-foreground/60">
             <Spinner className="size-3" />
             Loading worktree inventory
           </div>
         ) : worktrees.length === 0 ? (
-          <div className="mt-3 text-[11px] text-muted-foreground/60">
+          <div className="mt-3 text-xs text-muted-foreground/60">
             No additional worktrees detected.
           </div>
         ) : visibleWorktrees.length === 0 ? (
-          <div className="mt-3 text-[11px] text-muted-foreground/60">
+          <div className="mt-3 text-xs text-muted-foreground/60">
             No worktrees match the current search and filter.
           </div>
         ) : (
           <>
             <div className="mt-3 flex min-w-0 flex-wrap items-center justify-between gap-2 border-y border-border/20 py-2">
-              <label className="inline-flex min-w-0 items-center gap-2 text-[11px] text-muted-foreground/70">
+              <label className="inline-flex min-w-0 items-center gap-2 text-xs text-muted-foreground/70">
                 <Checkbox
                   checked={allVisibleSelectableSelected}
                   disabled={visibleSelectableWorktrees.length === 0}
@@ -4065,7 +4063,7 @@ function ProjectEnvironmentWorktrees({
                     : ""}
                 </span>
               </label>
-              <div className="flex min-w-0 flex-wrap items-center gap-2 text-[11px] text-muted-foreground/62">
+              <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs text-muted-foreground/62">
                 <span>{formatCountLabel(selectedWorktrees.length, "selected")}</span>
                 {selectedWorktrees.length > 0 ? (
                   <>
@@ -4107,10 +4105,7 @@ function ProjectEnvironmentWorktrees({
                 return (
                   <div
                     key={worktree.path}
-                    className={cn(
-                      "grid gap-3 px-0.5 py-3 transition-colors hover:bg-foreground/[0.012] lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center",
-                      isSelected && "bg-foreground/[0.018]",
-                    )}
+                    className={cn(SETTINGS_LIST_ROW_CLASS_NAME, isSelected && "bg-foreground/[0.03]")}
                   >
                     <div className="flex min-w-0 items-start gap-2.5">
                       <Checkbox
@@ -4125,7 +4120,7 @@ function ProjectEnvironmentWorktrees({
                       <FolderGit2Icon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground/55" />
                       <div className="min-w-0 space-y-1">
                         <div className="flex min-w-0 flex-wrap items-center gap-2">
-                          <span className="truncate text-[12px] font-medium text-foreground/90">
+                          <span className="truncate text-sm font-medium text-foreground/90">
                             {worktree.displayName}
                           </span>
                           {isActive ? (
@@ -4134,10 +4129,10 @@ function ProjectEnvironmentWorktrees({
                             </Badge>
                           ) : null}
                         </div>
-                        <div className="truncate font-mono text-[11px] text-muted-foreground/50">
+                        <div className="truncate font-mono text-xs text-muted-foreground/50">
                           {worktree.path}
                         </div>
-                        <div className="flex min-w-0 flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground/60">
+                        <div className="flex min-w-0 flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground/60">
                           <span>{formatCountLabel(worktree.branchNames.length, "branch")}</span>
                           <span>{formatCountLabel(relatedChatCount, "linked chat")}</span>
                           <span className="inline-flex items-center gap-1">
@@ -4153,8 +4148,8 @@ function ProjectEnvironmentWorktrees({
                         </div>
                       </div>
                     </div>
-                    <div className="flex min-w-0 items-center gap-3 justify-self-start text-[11px] text-muted-foreground/62 lg:justify-self-end">
-                      <span className="inline-flex min-w-18 items-center justify-end gap-1 tabular-nums">
+                    <div className="flex min-w-0 items-center justify-between gap-3 text-xs text-muted-foreground">
+                      <span className="inline-flex items-center gap-1 tabular-nums">
                         <HardDriveIcon className="size-3" />
                         {stats ? formatStorageBytes(stats.sizeBytes) : "Storage"}
                         {isStorageRefreshing ? <Spinner className="size-3" /> : null}
@@ -4201,17 +4196,17 @@ function ProjectEnvironmentWorktrees({
         )}
 
         {worktrees.length > 0 ? (
-          <div className="mt-5 border-t border-border/24 pt-4">
-            <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+          <div className="mt-5 border-t border-border/40 px-4 pt-4 sm:px-5">
+            <div className="flex flex-col gap-4">
               <div className="min-w-0">
                 <div className="flex items-center gap-2 text-[13px] font-semibold text-foreground/92">
                   <Trash2Icon className="size-3.5 text-muted-foreground" />
                   Cleanup
                 </div>
-                <p className="mt-1 text-[11px] text-muted-foreground/60">
+                <p className="mt-1 text-xs text-muted-foreground/60">
                   Remove inactive worktrees by age. Active agent worktrees are excluded.
                 </p>
-                <div className="mt-2 flex min-w-0 flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted-foreground/62">
+                <div className="mt-2 flex min-w-0 flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground/62">
                   <span>{formatCountLabel(cleanupCandidates.length, "candidate")}</span>
                   <span>{formatStorageBytes(cleanupStorageBytes)}</span>
                   <span>{formatCountLabel(cleanupLinkedChatCount, "linked chat")}</span>
@@ -4265,7 +4260,7 @@ function ProjectEnvironmentWorktrees({
             </div>
           </div>
         ) : null}
-      </div>
+      </SettingsSection>
     </div>
   );
 }
@@ -4389,7 +4384,7 @@ export function EnvironmentSettingsPanel() {
                   onChange={(event) => setProjectSearch(event.target.value)}
                 />
               </div>
-              <div className="flex min-w-0 flex-wrap items-center gap-3 text-[11px] text-muted-foreground/60 sm:justify-end">
+              <div className="flex min-w-0 flex-wrap items-center gap-3 text-xs text-muted-foreground/60 sm:justify-end">
                 <Select
                   value={projectFilter}
                   onValueChange={(value) => setProjectFilter(value as EnvironmentProjectFilter)}
@@ -4534,7 +4529,7 @@ function EnvironmentProjectRow({
   return (
     <button
       type="button"
-      className="group grid w-full gap-3 px-1 py-3 text-left transition-colors hover:bg-foreground/[0.018] sm:grid-cols-[auto_minmax(0,1fr)_auto_auto] sm:items-center"
+      className="group flex w-full items-start gap-3 px-4 py-3.5 text-left transition-colors hover:bg-foreground/[0.03] sm:px-5"
       onClick={() =>
         void navigate({
           to: "/settings/project-environment/$projectId",
@@ -4542,30 +4537,30 @@ function EnvironmentProjectRow({
         })
       }
     >
-      <ProjectAvatar project={project} />
-      <div className="min-w-0">
+      <ProjectAvatar project={project} className="mt-0.5 shrink-0" />
+      <div className="min-w-0 flex-1">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <span className="truncate text-[13px] font-medium text-foreground/90">
+          <span className="truncate text-[13px] font-medium text-foreground">
             {project.name}
           </span>
-          {setupScript ? <span className="text-[11px] text-muted-foreground/60">setup</span> : null}
+          {setupScript ? <span className="text-xs text-muted-foreground">setup</span> : null}
           {environmentCount > 0 ? (
-            <span className="text-[11px] text-muted-foreground/60">{environmentCount} env</span>
+            <span className="text-xs text-muted-foreground">{environmentCount} env</span>
           ) : null}
         </div>
-        <div className="mt-0.5 truncate text-[11px] text-muted-foreground/55">{project.cwd}</div>
+        <div className="mt-0.5 truncate text-xs text-muted-foreground">{project.cwd}</div>
+        <div className="mt-2 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+          <span className="inline-flex items-center gap-1.5">
+            <span>{worktreeCountLabel}</span>
+            {isLoadingWorktrees ? <Spinner className="size-3" /> : null}
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <span>{storageLabel}</span>
+            {isRefreshingStorage ? <Spinner className="size-3" /> : null}
+          </span>
+        </div>
       </div>
-      <div className="col-start-2 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-[11px] font-medium text-muted-foreground/65 sm:col-start-auto sm:justify-self-end">
-        <span className="inline-flex items-center gap-1.5">
-          <span>{worktreeCountLabel}</span>
-          {isLoadingWorktrees ? <Spinner className="size-3 text-muted-foreground/60" /> : null}
-        </span>
-        <span className="inline-flex items-center gap-1.5">
-          <span>{storageLabel}</span>
-          {isRefreshingStorage ? <Spinner className="size-3 text-muted-foreground/60" /> : null}
-        </span>
-      </div>
-      <ArrowRightIcon className="col-start-2 size-3.5 text-muted-foreground/45 transition-colors group-hover:text-muted-foreground/75 sm:col-start-auto sm:justify-self-end" />
+      <ArrowRightIcon className="mt-1 size-4 shrink-0 text-muted-foreground/50 transition-colors group-hover:text-foreground/70" />
     </button>
   );
 }
@@ -4583,7 +4578,6 @@ export function ProjectEnvironmentSettingsPanel({ projectId }: { readonly projec
         <SettingsSection
           title="Project environment"
           description="This project is no longer available."
-          icon={<GitForkIcon className="size-3.5" />}
           headerAction={
             <Button
               type="button"
@@ -4764,12 +4758,10 @@ export function ArchivedThreadsPanel() {
           </Empty>
         </SettingsSection>
       ) : (
-        <section className="min-w-0">
-          <div className="flex min-w-0 items-center justify-between gap-3 px-0 pb-2">
-            <h2 className="min-w-0 truncate text-[18px] leading-6 font-semibold tracking-normal text-foreground">
-              <span className="min-w-0 truncate">Archived</span>
-            </h2>
-            {archivedGroups.length > 1 ? (
+        <SettingsSection
+          title="Archived items"
+          headerAction={
+            archivedGroups.length > 1 ? (
               <Tooltip>
                 <TooltipTrigger
                   render={
@@ -4778,7 +4770,7 @@ export function ArchivedThreadsPanel() {
                       aria-label={
                         allGroupsExpanded ? "Collapse all projects" : "Expand all projects"
                       }
-                      className="inline-flex size-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-accent hover:text-foreground"
+                      className="inline-flex size-8 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
                       onClick={() => setAllGroupsOpen(!allGroupsExpanded)}
                     />
                   }
@@ -4793,9 +4785,10 @@ export function ArchivedThreadsPanel() {
                   {allGroupsExpanded ? "Collapse all" : "Expand all"}
                 </TooltipPopup>
               </Tooltip>
-            ) : null}
-          </div>
-          <div className="min-w-0 space-y-1.5">
+            ) : null
+          }
+        >
+          <div className="min-w-0 space-y-0 px-2 py-2 sm:px-3">
             {archivedGroups.map((group) => {
               const project = group.project;
               const isOpen = openGroupIds[project.id] !== false;
@@ -4821,7 +4814,7 @@ export function ArchivedThreadsPanel() {
                       project={project}
                       className="size-3.5 rounded-[4px] opacity-70"
                     />
-                    <h3 className="min-w-0 flex-1 truncate text-[12px] font-medium text-foreground/84">
+                    <h3 className="min-w-0 flex-1 truncate text-sm font-medium text-foreground/84">
                       {project.name}
                     </h3>
                     {project.archivedAt !== null ? (
@@ -4842,9 +4835,9 @@ export function ArchivedThreadsPanel() {
                     <CollapsibleContent>
                       <div className="mt-0.5 space-y-0.5 pl-6">
                         {project.archivedAt !== null ? (
-                          <div className="grid min-h-7 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-md px-2 py-0.5 transition-colors hover:bg-muted/14">
+                          <div className="flex min-h-8 flex-col gap-2 rounded-lg px-2 py-2 transition-colors hover:bg-muted/20 sm:flex-row sm:items-center sm:justify-between">
                             <div className="min-w-0">
-                              <h4 className="truncate text-[12px] font-medium text-foreground/82">
+                              <h4 className="truncate text-sm font-medium text-foreground/82">
                                 Project archive
                               </h4>
                               <p className="truncate text-[10px] text-muted-foreground/50">
@@ -4882,7 +4875,7 @@ export function ArchivedThreadsPanel() {
                         {group.threads.map((thread) => (
                           <div
                             key={thread.id}
-                            className="grid min-h-7 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-md px-2 py-0.5 transition-colors hover:bg-muted/14"
+                            className="flex min-h-8 flex-col gap-2 rounded-lg px-2 py-2 transition-colors hover:bg-muted/20 sm:flex-row sm:items-center sm:justify-between"
                             onContextMenu={(event) => {
                               event.preventDefault();
                               void handleArchivedThreadContextMenu(thread.id, {
@@ -4892,7 +4885,7 @@ export function ArchivedThreadsPanel() {
                             }}
                           >
                             <div className="min-w-0">
-                              <h4 className="truncate text-[12px] font-medium text-foreground/84">
+                              <h4 className="truncate text-sm font-medium text-foreground/84">
                                 {thread.title}
                               </h4>
                               <p className="truncate text-[10px] text-muted-foreground/50">
@@ -4928,7 +4921,7 @@ export function ArchivedThreadsPanel() {
               );
             })}
           </div>
-        </section>
+        </SettingsSection>
       )}
     </SettingsPageContainer>
   );

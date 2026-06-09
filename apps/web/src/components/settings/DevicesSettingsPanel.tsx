@@ -2,9 +2,7 @@ import {
   CheckCircle2Icon,
   CircleOffIcon,
   CopyIcon,
-  LaptopIcon,
   QrCodeIcon,
-  ScanLineIcon,
   ShieldAlertIcon,
   Trash2Icon,
   XIcon,
@@ -71,22 +69,28 @@ import { Input } from "../ui/input";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { Switch } from "../ui/switch";
 import { toastManager } from "../ui/toast";
-import { SettingsPageContainer } from "./SettingsPanelPrimitives";
+import {
+  SettingsPageContainer,
+  SettingsRow,
+  SettingsSection,
+} from "./SettingsPanelPrimitives";
+import { SETTINGS_ROW_STATUS_CLASS, SETTINGS_COMPACT_ACTION_BUTTON_CLASS } from "./settingsUi";
 
-const SETTINGS_INLINE_PANEL_CLASS_NAME = "bg-transparent shadow-none";
-const SETTINGS_INLINE_PANEL_MUTED_CLASS_NAME = "bg-transparent shadow-none";
 const SETTINGS_POPOVER_TRIGGER_CLASS_NAME =
-  "inline-flex h-7 items-center gap-1 rounded-[var(--control-radius)] border border-border/45 bg-background/58 px-2 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-foreground/[0.04] hover:text-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30";
+  "inline-flex h-8 items-center gap-1.5 rounded-[var(--control-radius)] border border-border/45 bg-background/60 px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-foreground/[0.04] hover:text-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30";
 const SETTINGS_NATIVE_SELECT_CLASS_NAME =
-  "h-7 rounded-[var(--control-radius)] border border-border/45 bg-background/58 px-2 text-[12px] text-foreground outline-none transition-[border-color,background-color,box-shadow] focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30";
+  "h-8 rounded-[var(--control-radius)] border border-border/45 bg-background/60 px-2.5 text-sm text-foreground outline-none transition-[border-color,background-color,box-shadow] focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30";
 const SETTINGS_NEUTRAL_ACTION_BUTTON_CLASS_NAME =
   "border-border/50 bg-foreground/[0.08] text-foreground hover:bg-foreground/[0.12] active:bg-foreground/[0.16]";
-const SETTINGS_NEUTRAL_SWITCH_CLASS_NAME =
-  "data-checked:border-border/45 data-checked:bg-foreground/55";
-const DEVICE_SUBPANEL_CLASS_NAME =
-  "px-0 py-3 transition-colors duration-150 hover:bg-foreground/[0.012]";
-const DEVICE_ACTION_GROUP_CLASS_NAME = "flex flex-wrap items-center gap-2";
-const DEVICE_META_TEXT_CLASS_NAME = "text-[11px] leading-relaxed text-muted-foreground/62";
+const DEVICE_ACTION_BUTTON_CLASS_NAME = SETTINGS_COMPACT_ACTION_BUTTON_CLASS;
+const DEVICE_NEUTRAL_ACTION_BUTTON_CLASS_NAME = cn(
+  SETTINGS_COMPACT_ACTION_BUTTON_CLASS,
+  SETTINGS_NEUTRAL_ACTION_BUTTON_CLASS_NAME,
+);
+const DEVICE_ACTION_GROUP_CLASS_NAME = "flex flex-wrap items-center gap-1.5";
+const DEVICE_META_TEXT_CLASS_NAME = SETTINGS_ROW_STATUS_CLASS;
+const DEVICE_INSET_PANEL_CLASS_NAME = "overflow-hidden rounded-[var(--control-radius)] border border-border/35 glass-inset";
+const DEVICE_INSET_PANEL_MUTED_CLASS_NAME = "overflow-hidden rounded-[var(--control-radius)] border border-border/30 bg-muted/10";
 
 interface HostDraftState {
   readonly name: string;
@@ -292,34 +296,22 @@ const URL_MODE_MAX_HOSTS = 1;
 function DeviceSection({
   title,
   description,
-  icon,
   actions,
   children,
 }: {
   title: string;
   description?: ReactNode;
-  icon: ReactNode;
   actions?: ReactNode;
   children: ReactNode;
 }) {
   return (
-    <section className="min-w-0">
-      <div className="flex min-w-0 flex-col gap-2.5 px-1 pb-4 sm:flex-row sm:items-end sm:justify-between sm:px-0">
-        <div className="min-w-0 space-y-1.5">
-          <h2 className="flex min-w-0 items-center gap-2 text-[18px] leading-6 font-semibold tracking-normal text-foreground">
-            <span className="shrink-0 text-muted-foreground/65">{icon}</span>
-            <span className="min-w-0 truncate">{title}</span>
-          </h2>
-          {description ? (
-            <p className="max-w-3xl text-[12px] leading-relaxed text-muted-foreground/60">
-              {description}
-            </p>
-          ) : null}
-        </div>
-        {actions ? <div className={DEVICE_ACTION_GROUP_CLASS_NAME}>{actions}</div> : null}
-      </div>
-      <div className="-mx-2 space-y-1 text-card-foreground sm:-mx-3">{children}</div>
-    </section>
+    <SettingsSection
+      title={title}
+      description={description}
+      headerAction={actions ? <div className={DEVICE_ACTION_GROUP_CLASS_NAME}>{actions}</div> : null}
+    >
+      {children}
+    </SettingsSection>
   );
 }
 
@@ -336,19 +328,22 @@ function DeviceSubPanel({
   children: ReactNode;
   className?: string;
 }) {
+  const rowProps = {
+    title,
+    ...(typeof description === "string" ? { description } : {}),
+    ...(actions
+      ? { control: <div className={DEVICE_ACTION_GROUP_CLASS_NAME}>{actions}</div> }
+      : {}),
+    ...(className ? { controlClassName: className } : {}),
+  };
+
   return (
-    <div className={cn(DEVICE_SUBPANEL_CLASS_NAME, className)}>
-      <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0 space-y-1">
-          <h3 className="text-[13.5px] leading-snug font-semibold tracking-normal text-foreground/92">
-            {title}
-          </h3>
-          {description ? <p className={DEVICE_META_TEXT_CLASS_NAME}>{description}</p> : null}
-        </div>
-        {actions ? <div className={DEVICE_ACTION_GROUP_CLASS_NAME}>{actions}</div> : null}
-      </div>
+    <SettingsRow {...rowProps}>
+      {typeof description !== "string" && description ? (
+        <p className={cn(DEVICE_META_TEXT_CLASS_NAME, "mt-1")}>{description}</p>
+      ) : null}
       <div className="min-w-0 pt-3">{children}</div>
-    </div>
+    </SettingsRow>
   );
 }
 
@@ -362,7 +357,7 @@ function DeviceStatusBadge({
   return (
     <span
       className={cn(
-        "inline-flex h-5 w-fit max-w-full shrink-0 items-center gap-1 self-start rounded-[var(--control-radius)] border px-1.5 text-[10px] font-medium",
+        "inline-flex h-5 w-fit max-w-full shrink-0 items-center gap-1 self-start rounded-[var(--control-radius)] border px-1.5 text-[10px] font-medium uppercase tracking-wide",
         tone === "neutral" && "border-border/40 bg-background/42 text-muted-foreground",
         tone === "info" && "border-border/45 bg-foreground/[0.08] text-foreground/82",
         tone === "success" && "border-success/30 bg-success/10 text-success-foreground",
@@ -1386,45 +1381,15 @@ function useDevicesSettingsPanelComponent() {
 
   return (
     <SettingsPageContainer>
-      <div className="grid gap-2.5 sm:grid-cols-3">
-        <div className={`${SETTINGS_INLINE_PANEL_MUTED_CLASS_NAME} px-3 py-2`}>
-          <div className="text-[10px] font-semibold tracking-[0.12em] text-muted-foreground/55 uppercase">
-            Host role
-          </div>
-          <div className="mt-1 flex items-center gap-1.5 text-[13px] font-medium text-foreground/88">
-            <LaptopIcon className="size-3.5 text-muted-foreground/65" />
-            Main host
-          </div>
-        </div>
-        <div className={`${SETTINGS_INLINE_PANEL_MUTED_CLASS_NAME} px-3 py-2`}>
-          <div className="text-[10px] font-semibold tracking-[0.12em] text-muted-foreground/55 uppercase">
-            Relay
-          </div>
-          <div className="mt-1">
-            <DeviceStatusBadge tone={remoteRelaySettings.enabled ? "success" : "neutral"}>
-              {remoteRelaySettings.enabled ? "Enabled" : "Disabled"}
-            </DeviceStatusBadge>
-          </div>
-        </div>
-        <div className={`${SETTINGS_INLINE_PANEL_MUTED_CLASS_NAME} px-3 py-2`}>
-          <div className="text-[10px] font-semibold tracking-[0.12em] text-muted-foreground/55 uppercase">
-            Remote hosts
-          </div>
-          <div className="mt-1 text-[13px] font-medium text-foreground/88">
-            {connectedHostIds.length}/{hosts.length} connected
-          </div>
-        </div>
-      </div>
-
       <DeviceSection
         title="Local host"
         description="Share this machine through a pairing link or direct host URL."
-        icon={<LaptopIcon className="size-3.5" />}
         actions={
           <>
             <Button
               size="xs"
               variant="outline"
+              className={DEVICE_ACTION_BUTTON_CLASS_NAME}
               onClick={() => void refreshLocalEndpoint()}
               disabled={refreshingLocalEndpoint}
             >
@@ -1433,6 +1398,7 @@ function useDevicesSettingsPanelComponent() {
             <Button
               size="xs"
               variant="outline"
+              className={DEVICE_ACTION_BUTTON_CLASS_NAME}
               onClick={() => void connectLocalHost()}
               disabled={connectingHostId !== null}
             >
@@ -1441,26 +1407,27 @@ function useDevicesSettingsPanelComponent() {
             <Button
               size="xs"
               variant="outline"
+              className={DEVICE_ACTION_BUTTON_CLASS_NAME}
               onClick={() => copyToClipboard(localShareConnectionUrl, { label: "Host URL" })}
             >
-              <CopyIcon className="size-3.5" />
+              <CopyIcon className="size-3" />
               Copy URL
             </Button>
           </>
         }
       >
-        <div className="space-y-3 p-3 sm:p-4">
-          <div className={`${SETTINGS_INLINE_PANEL_MUTED_CLASS_NAME} px-3 py-2.5`}>
+        <div className="space-y-0">
+          <div className={`${DEVICE_INSET_PANEL_MUTED_CLASS_NAME} px-3 py-2.5`}>
             <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
               <div className="min-w-0">
                 <div className="text-[13px] font-medium text-foreground/88">Local endpoint</div>
-                <div className="mt-1 break-all font-mono text-[11px] text-foreground">
+                <div className="mt-1 break-all font-mono text-xs text-foreground">
                   {localAdvertisedWsUrl}
                 </div>
               </div>
               <DeviceStatusBadge tone="info">Main host</DeviceStatusBadge>
             </div>
-            <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground/62">
+            <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground/62">
               <span>
                 {localDeviceConnection.authToken
                   ? "Host auth token enabled"
@@ -1483,6 +1450,7 @@ function useDevicesSettingsPanelComponent() {
                   <Button
                     size="xs"
                     variant="outline"
+                    className={DEVICE_ACTION_BUTTON_CLASS_NAME}
                     onClick={() => void revokePairingLink()}
                     disabled={revokingPairingLink}
                   >
@@ -1491,7 +1459,7 @@ function useDevicesSettingsPanelComponent() {
                 ) : null}
                 <Button
                   size="xs"
-                  className={SETTINGS_NEUTRAL_ACTION_BUTTON_CLASS_NAME}
+                  className={DEVICE_NEUTRAL_ACTION_BUTTON_CLASS_NAME}
                   onClick={() => void createPairingLink()}
                   disabled={creatingPairingLink || !remoteRelaySettings.enabled}
                 >
@@ -1516,20 +1484,21 @@ function useDevicesSettingsPanelComponent() {
               <div className="mt-3 space-y-2">
                 <div className="flex min-w-0 flex-wrap items-center gap-2">
                   <code
-                    className={`${SETTINGS_INLINE_PANEL_MUTED_CLASS_NAME} max-w-full break-all px-2 py-1 text-[10px]`}
+                    className={`${DEVICE_INSET_PANEL_MUTED_CLASS_NAME} max-w-full break-all px-2 py-1 text-[10px]`}
                   >
                     {maskPairingLinkForDisplay(pairingLink.connectionString)}
                   </code>
                   <Button
                     size="xs"
                     variant="outline"
+                    className={DEVICE_ACTION_BUTTON_CLASS_NAME}
                     onClick={() =>
                       copyToClipboard(pairingLink.connectionString, {
                         label: "Pairing link",
                       })
                     }
                   >
-                    <CopyIcon className="size-3.5" />
+                    <CopyIcon className="size-3" />
                     Copy link
                   </Button>
                   <Popover>
@@ -1538,7 +1507,7 @@ function useDevicesSettingsPanelComponent() {
                       QR
                     </PopoverTrigger>
                     <PopoverPopup side="bottom" align="end" className="w-fit p-2">
-                      <div className={`${SETTINGS_INLINE_PANEL_CLASS_NAME} w-fit p-2`}>
+                      <div className={`${DEVICE_INSET_PANEL_CLASS_NAME} w-fit p-2`}>
                         {pairingLink.qrDataUrl ? (
                           <img
                             src={pairingLink.qrDataUrl}
@@ -1555,7 +1524,7 @@ function useDevicesSettingsPanelComponent() {
                 </div>
                 {pairingSessionStatus ? (
                   <div
-                    className={`${SETTINGS_INLINE_PANEL_MUTED_CLASS_NAME} px-2 py-1.5 text-[11px] text-muted-foreground`}
+                    className={`${DEVICE_INSET_PANEL_MUTED_CLASS_NAME} px-2 py-1.5 text-xs text-muted-foreground`}
                   >
                     {pairingSessionStatus.status === "waiting-claim"
                       ? "Waiting for a device to claim this pairing link."
@@ -1580,6 +1549,7 @@ function useDevicesSettingsPanelComponent() {
                 <Button
                   size="xs"
                   variant="outline"
+                  className={DEVICE_ACTION_BUTTON_CLASS_NAME}
                   onClick={() => {
                     updateSettings({
                       remoteRelay: {
@@ -1594,7 +1564,7 @@ function useDevicesSettingsPanelComponent() {
                 </Button>
                 <Button
                   size="xs"
-                  className={SETTINGS_NEUTRAL_ACTION_BUTTON_CLASS_NAME}
+                  className={DEVICE_NEUTRAL_ACTION_BUTTON_CLASS_NAME}
                   onClick={saveRelaySettings}
                 >
                   Save relay
@@ -1605,11 +1575,10 @@ function useDevicesSettingsPanelComponent() {
             <div className="space-y-3">
               <label
                 htmlFor="remote-relay-enabled"
-                className={`${SETTINGS_INLINE_PANEL_CLASS_NAME} flex h-9 items-center gap-2 px-3 text-[12px] text-muted-foreground`}
+                className={`${DEVICE_INSET_PANEL_CLASS_NAME} flex h-9 items-center gap-2 px-3 text-sm text-muted-foreground`}
               >
                 <Switch
                   id="remote-relay-enabled"
-                  className={SETTINGS_NEUTRAL_SWITCH_CLASS_NAME}
                   checked={remoteRelaySettings.enabled}
                   onCheckedChange={toggleRemoteRelayEnabled}
                 />
@@ -1628,11 +1597,10 @@ function useDevicesSettingsPanelComponent() {
                 />
                 <label
                   htmlFor="remote-relay-allow-local-ws"
-                  className={`${SETTINGS_INLINE_PANEL_CLASS_NAME} flex h-9 w-fit items-center gap-2 px-2.5 text-[12px] text-muted-foreground`}
+                  className={`${DEVICE_INSET_PANEL_CLASS_NAME} flex h-9 w-fit items-center gap-2 px-2.5 text-sm text-muted-foreground`}
                 >
                   <Switch
                     id="remote-relay-allow-local-ws"
-                    className={SETTINGS_NEUTRAL_SWITCH_CLASS_NAME}
                     checked={remoteRelaySettings.allowInsecureLocalUrls}
                     onCheckedChange={toggleInsecureRelayUrls}
                   />
@@ -1640,7 +1608,7 @@ function useDevicesSettingsPanelComponent() {
                 </label>
               </div>
               <div
-                className={`${SETTINGS_INLINE_PANEL_MUTED_CLASS_NAME} px-3 py-2 text-[12px] text-muted-foreground`}
+                className={`${DEVICE_INSET_PANEL_MUTED_CLASS_NAME} px-3 py-2 text-sm text-muted-foreground`}
               >
                 {!remoteRelaySettings.enabled ? (
                   "Remote relay is disabled."
@@ -1662,7 +1630,7 @@ function useDevicesSettingsPanelComponent() {
                   {relayRegistrations.map((registration) => (
                     <div
                       key={registration.relayUrl}
-                      className={`${SETTINGS_INLINE_PANEL_MUTED_CLASS_NAME} flex min-w-0 flex-wrap items-center gap-2 px-2.5 py-2 text-[12px]`}
+                      className={`${DEVICE_INSET_PANEL_MUTED_CLASS_NAME} flex min-w-0 flex-wrap items-center gap-2 px-2.5 py-2 text-sm`}
                     >
                       {registration.status === "connected" ? (
                         <CheckCircle2Icon className="size-3.5 text-success-foreground" />
@@ -1699,6 +1667,7 @@ function useDevicesSettingsPanelComponent() {
               <Button
                 size="xs"
                 variant="outline"
+                className={DEVICE_ACTION_BUTTON_CLASS_NAME}
                 onClick={() => void refreshPairedSessions()}
                 disabled={refreshingPairedSessions}
               >
@@ -1708,7 +1677,7 @@ function useDevicesSettingsPanelComponent() {
           >
             {pairedSessions.length === 0 ? (
               <div
-                className={`${SETTINGS_INLINE_PANEL_MUTED_CLASS_NAME} px-3 py-2 text-[12px] text-muted-foreground`}
+                className={`${DEVICE_INSET_PANEL_MUTED_CLASS_NAME} px-3 py-2 text-sm text-muted-foreground`}
               >
                 No paired devices yet.
               </div>
@@ -1717,13 +1686,13 @@ function useDevicesSettingsPanelComponent() {
                 {pairedSessions.map((session) => (
                   <div
                     key={session.sessionId}
-                    className={`${SETTINGS_INLINE_PANEL_MUTED_CLASS_NAME} flex min-w-0 flex-col gap-2 px-2.5 py-2 sm:flex-row sm:items-center`}
+                    className={`${DEVICE_INSET_PANEL_MUTED_CLASS_NAME} flex min-w-0 flex-col gap-2 px-2.5 py-2 sm:flex-row sm:items-center`}
                   >
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-[13px] font-medium text-foreground/90">
                         {session.requesterName ?? "Unnamed device"}
                       </div>
-                      <div className="truncate text-[11px] text-muted-foreground">
+                      <div className="truncate text-xs text-muted-foreground">
                         {session.name}
                       </div>
                     </div>
@@ -1746,7 +1715,7 @@ function useDevicesSettingsPanelComponent() {
                               ? "Rejected"
                               : "Expired"}
                     </DeviceStatusBadge>
-                    <span className="text-[11px] text-muted-foreground">
+                    <span className="text-xs text-muted-foreground">
                       {session.resolvedAt
                         ? `Updated ${formatRelativeTimeLabel(session.resolvedAt)}`
                         : `Created ${formatRelativeTimeLabel(session.createdAt)}`}
@@ -1754,6 +1723,7 @@ function useDevicesSettingsPanelComponent() {
                     <Button
                       size="xs"
                       variant="outline"
+                      className={DEVICE_ACTION_BUTTON_CLASS_NAME}
                       onClick={() => void revokePairedSession(session)}
                       disabled={Boolean(revokingPairedSessionIds[session.sessionId])}
                     >
@@ -1774,14 +1744,18 @@ function useDevicesSettingsPanelComponent() {
             ? "Save devices you want to connect to from this workspace."
             : "Web mode supports one remote host entry."
         }
-        icon={<ScanLineIcon className="size-3.5" />}
         actions={
-          <Button size="xs" variant="outline" onClick={() => void refreshHostAvailability()}>
+          <Button
+            size="xs"
+            variant="outline"
+            className={DEVICE_ACTION_BUTTON_CLASS_NAME}
+            onClick={() => void refreshHostAvailability()}
+          >
             Refresh status
           </Button>
         }
       >
-        <div className="space-y-3 p-3 sm:p-4">
+        <div className="space-y-0">
           <DeviceSubPanel
             title={editingHostId ? "Edit host" : "Add host"}
             description={
@@ -1792,14 +1766,19 @@ function useDevicesSettingsPanelComponent() {
             actions={
               <>
                 {editingHostId ? (
-                  <Button size="xs" variant="outline" onClick={clearHostDraft}>
-                    <XIcon className="size-3.5" />
+                  <Button
+                    size="xs"
+                    variant="outline"
+                    className={DEVICE_ACTION_BUTTON_CLASS_NAME}
+                    onClick={clearHostDraft}
+                  >
+                    <XIcon className="size-3" />
                     Cancel
                   </Button>
                 ) : null}
                 <Button
                   size="xs"
-                  className={SETTINGS_NEUTRAL_ACTION_BUTTON_CLASS_NAME}
+                  className={DEVICE_NEUTRAL_ACTION_BUTTON_CLASS_NAME}
                   onClick={() => void addRemoteHost()}
                   disabled={importingHost}
                 >
@@ -1830,7 +1809,7 @@ function useDevicesSettingsPanelComponent() {
               />
               <div className="flex flex-wrap items-center gap-2">
                 <label
-                  className={`${SETTINGS_INLINE_PANEL_CLASS_NAME} flex h-9 items-center gap-1.5 px-2 text-[12px] text-muted-foreground`}
+                  className={`${DEVICE_INSET_PANEL_CLASS_NAME} flex h-9 items-center gap-1.5 px-2 text-sm text-muted-foreground`}
                 >
                   <span>Icon</span>
                   <select
@@ -1852,7 +1831,7 @@ function useDevicesSettingsPanelComponent() {
                   </select>
                 </label>
                 <label
-                  className={`${SETTINGS_INLINE_PANEL_CLASS_NAME} flex h-9 items-center gap-1.5 px-2 text-[12px] text-muted-foreground`}
+                  className={`${DEVICE_INSET_PANEL_CLASS_NAME} flex h-9 items-center gap-1.5 px-2 text-sm text-muted-foreground`}
                 >
                   <span>Color</span>
                   <select
@@ -1874,7 +1853,7 @@ function useDevicesSettingsPanelComponent() {
                   </select>
                 </label>
                 <div
-                  className={`${SETTINGS_INLINE_PANEL_MUTED_CLASS_NAME} inline-flex h-9 min-w-0 items-center gap-1.5 px-2 text-[12px] text-muted-foreground`}
+                  className={`${DEVICE_INSET_PANEL_MUTED_CLASS_NAME} inline-flex h-9 min-w-0 items-center gap-1.5 px-2 text-sm text-muted-foreground`}
                 >
                   <span>Preview</span>
                   <ProjectGlyphIcon
@@ -1898,7 +1877,7 @@ function useDevicesSettingsPanelComponent() {
             </div>
             {hosts.length === 0 ? (
               <div
-                className={`${SETTINGS_INLINE_PANEL_MUTED_CLASS_NAME} px-3 py-2 text-[12px] text-muted-foreground`}
+                className={`${DEVICE_INSET_PANEL_MUTED_CLASS_NAME} px-3 py-2 text-sm text-muted-foreground`}
               >
                 {desktopMode ? "No remote hosts saved yet." : "No remote host saved yet."}
               </div>
@@ -1919,7 +1898,7 @@ function useDevicesSettingsPanelComponent() {
                 return (
                   <div
                     key={host.id}
-                    className={`${SETTINGS_INLINE_PANEL_MUTED_CLASS_NAME} flex min-w-0 flex-col gap-2 px-3 py-2.5 sm:flex-row sm:items-center`}
+                    className={`${DEVICE_INSET_PANEL_MUTED_CLASS_NAME} flex min-w-0 flex-col gap-2 px-3 py-2.5 sm:flex-row sm:items-center`}
                   >
                     <ProjectGlyphIcon
                       icon={{
@@ -1955,22 +1934,24 @@ function useDevicesSettingsPanelComponent() {
                           </DeviceStatusBadge>
                         )}
                       </div>
-                      <div className="mt-1 min-w-0 break-words text-[11px] text-muted-foreground/62">
+                      <div className="mt-1 min-w-0 break-words text-xs text-muted-foreground/62">
                         {description}
                       </div>
-                      <div className="mt-0.5 text-[11px] text-muted-foreground/52">
+                      <div className="mt-0.5 text-xs text-muted-foreground/52">
                         Last connected:{" "}
                         {host.lastConnectedAt
                           ? formatRelativeTimeLabel(host.lastConnectedAt)
                           : "never"}
                       </div>
                     </div>
-                    <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+                    <div className="flex flex-wrap items-center gap-1.5 sm:justify-end">
                       <Button
                         size="xs"
                         variant={isConnected ? "outline" : "default"}
                         className={
-                          !isConnected ? SETTINGS_NEUTRAL_ACTION_BUTTON_CLASS_NAME : undefined
+                          isConnected
+                            ? DEVICE_ACTION_BUTTON_CLASS_NAME
+                            : DEVICE_NEUTRAL_ACTION_BUTTON_CLASS_NAME
                         }
                         onClick={() =>
                           isConnected ? void disconnectHost(host) : void connectHost(host)
@@ -1988,6 +1969,7 @@ function useDevicesSettingsPanelComponent() {
                       <Button
                         size="xs"
                         variant="outline"
+                        className={DEVICE_ACTION_BUTTON_CLASS_NAME}
                         onClick={() => void checkHostAvailability(host)}
                         disabled={checkingHostId !== null || connectingHostId !== null}
                       >
@@ -1996,6 +1978,7 @@ function useDevicesSettingsPanelComponent() {
                       <Button
                         size="xs"
                         variant="outline"
+                        className={DEVICE_ACTION_BUTTON_CLASS_NAME}
                         onClick={() => startEditingHost(host)}
                         disabled={checkingHostId !== null || connectingHostId !== null}
                       >
@@ -2004,14 +1987,20 @@ function useDevicesSettingsPanelComponent() {
                       <Button
                         size="xs"
                         variant="outline"
+                        className={DEVICE_ACTION_BUTTON_CLASS_NAME}
                         onClick={() =>
                           copyToClipboard(connectionString, { label: "Connection string" })
                         }
                       >
                         Copy string
                       </Button>
-                      <Button size="xs" variant="destructive" onClick={() => void removeHost(host)}>
-                        <Trash2Icon className="size-3.5" />
+                      <Button
+                        size="xs"
+                        variant="destructive"
+                        className={DEVICE_ACTION_BUTTON_CLASS_NAME}
+                        onClick={() => void removeHost(host)}
+                      >
+                        <Trash2Icon className="size-3" />
                         Remove
                       </Button>
                     </div>

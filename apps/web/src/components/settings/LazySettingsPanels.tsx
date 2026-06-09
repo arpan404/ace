@@ -2,34 +2,22 @@ import { lazy, Suspense, type ComponentType } from "react";
 import type { ProjectId } from "@ace/contracts";
 
 import { Skeleton } from "../ui/skeleton";
-import { SettingsPageContainer, SettingsSection } from "./SettingsPanelPrimitives";
+import { SettingsPageContainer, SettingsRow, SettingsSection } from "./SettingsPanelPrimitives";
 
-const SETTINGS_PANEL_LOADING_ROW_KEYS = [
-  "general",
-  "chat",
-  "browser",
-  "editor",
-  "advanced",
-] as const;
+const SETTINGS_PANEL_LOADING_ROW_KEYS = ["general", "chat", "browser", "editor"] as const;
 
 function SettingsPanelLoadingState() {
   return (
     <SettingsPageContainer>
       <SettingsSection title="Loading">
-        <div className="space-y-1">
-          {SETTINGS_PANEL_LOADING_ROW_KEYS.map((rowKey) => (
-            <div
-              key={rowKey}
-              className="grid gap-2 rounded-[var(--control-radius)] px-3 py-3 sm:px-4 md:grid-cols-[minmax(0,1fr)_10rem] md:items-center md:gap-4"
-            >
-              <div className="min-w-0 space-y-1.5">
-                <Skeleton className="h-3.5 w-40 max-w-full" />
-                <Skeleton className="h-3 w-full max-w-xl" />
-              </div>
-              <Skeleton className="h-7 w-full md:w-40" />
-            </div>
-          ))}
-        </div>
+        {SETTINGS_PANEL_LOADING_ROW_KEYS.map((rowKey) => (
+          <SettingsRow
+            key={rowKey}
+            title={<Skeleton className="h-4 w-32" />}
+            description="Loading settings"
+            control={<Skeleton className="h-8 w-full sm:w-44" />}
+          />
+        ))}
       </SettingsSection>
     </SettingsPageContainer>
   );

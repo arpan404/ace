@@ -1,16 +1,16 @@
 import { createRoot, type Root } from "react-dom/client";
-import { CircleAlertIcon } from "lucide-react";
 
-import { Button } from "./components/ui/button";
 import {
   AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogHeader,
-  AlertDialogMedia,
   AlertDialogTitle,
 } from "./components/ui/alert-dialog";
+import { MODAL_DETAIL_CLASS_NAME } from "./components/ui/modalUi";
 
 interface PendingConfirmRequest {
   readonly id: number;
@@ -100,22 +100,16 @@ function flushConfirmDialog(): void {
         }
       }}
     >
-      <AlertDialogContent key={activeRequest.id} className="gap-4">
+      <AlertDialogContent key={activeRequest.id}>
         <AlertDialogHeader>
-          <AlertDialogMedia className="bg-warning/12 text-warning">
-            <CircleAlertIcon />
-          </AlertDialogMedia>
           <AlertDialogTitle>{title}</AlertDialogTitle>
           {description && description.length > 0 ? (
-            <AlertDialogDescription className="max-w-[32ch]">{description}</AlertDialogDescription>
+            <AlertDialogDescription>{description}</AlertDialogDescription>
           ) : null}
           {details.length > 0 ? (
-            <div className="mt-2 grid gap-1.5 text-xs text-muted-foreground sm:col-start-2">
+            <div className="mt-3 grid gap-1.5">
               {details.map((detail) => (
-                <div
-                  key={detail}
-                  className="rounded-[var(--control-radius)] border border-border/55 bg-muted/35 px-2 py-1.5"
-                >
+                <div key={detail} className={MODAL_DETAIL_CLASS_NAME}>
                   {detail}
                 </div>
               ))}
@@ -123,10 +117,8 @@ function flushConfirmDialog(): void {
           ) : null}
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <Button variant="outline" onClick={() => settle(false)}>
-            Cancel
-          </Button>
-          <Button onClick={() => settle(true)}>Confirm</Button>
+          <AlertDialogCancel onClick={() => settle(false)}>Cancel</AlertDialogCancel>
+          <AlertDialogAction onClick={() => settle(true)}>Confirm</AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>,

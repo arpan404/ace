@@ -62,12 +62,12 @@ export const THEME_PRESET_OPTIONS: ReadonlyArray<{
   {
     id: "glass",
     label: "Glass",
-    description: "Neutral frosted layers: white or charcoal bases with soft gray glass.",
+    description: "Frosted neutral chrome: soft gray canvas, white panels, monochrome accents.",
     preview: {
-      panel: "oklch(0.24 0 0)",
-      panelDeep: "oklch(0.15 0 0)",
-      accent: "oklch(0.8 0 0)",
-      accentMuted: "oklch(0.66 0 0)",
+      panel: "oklch(0.975 0 0)",
+      panelDeep: "oklch(0.955 0 0)",
+      accent: "oklch(0.88 0 0)",
+      accentMuted: "oklch(0.62 0 0)",
     },
   },
   /* ── Accents ── */

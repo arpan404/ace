@@ -558,6 +558,88 @@ body {
   --glass-saturate: 1.1;
 }
 
+[data-theme-preset="glass"] {
+  --glass-blur: 24px;
+  --glass-saturate: 1.16;
+  --glass-surface: color-mix(in oklch, var(--popover) 82%, transparent);
+  --glass-surface-tooltip: color-mix(in oklch, var(--popover) 88%, transparent);
+  --glass-surface-panel: color-mix(in oklch, var(--popover) 92%, transparent);
+  --glass-surface-border: color-mix(in oklch, var(--foreground) 7%, transparent);
+  --glass-highlight: transparent;
+  --glass-shadow: 0 16px 40px -24px color-mix(in oklch, var(--foreground) 6%, transparent);
+  --glass-backdrop: color-mix(in oklch, var(--background) 55%, transparent);
+}
+
+[data-theme-preset="glass"] *:focus-visible,
+[data-theme-preset="glass"] *:focus-within {
+  --tw-ring-color: color-mix(in oklch, var(--foreground) 10%, transparent);
+  outline-color: color-mix(in oklch, var(--foreground) 10%, transparent);
+}
+
+[data-theme-preset="glass"] body {
+  background-color: var(--background);
+  background-image: var(--bg-glow);
+  background-attachment: fixed;
+}
+
+[data-theme-preset="glass"] [data-sidebar="sidebar"] {
+  background: hsl(var(--sidebar) / 0.78) !important;
+  border-color: hsl(var(--sidebar-border) / 0.35) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(1.16);
+  backdrop-filter: blur(24px) saturate(1.16);
+}
+
+[data-theme-preset="glass"] [data-slot="sidebar-inset"] {
+  background: var(--card);
+  box-shadow: inset 1px 0 0 color-mix(in oklch, var(--foreground) 5%, transparent);
+}
+
+.dark[data-theme-preset="glass"] {
+  --glass-blur: 32px;
+  --glass-saturate: 1.22;
+  --glass-surface: color-mix(in oklch, var(--popover) 58%, transparent);
+  --glass-surface-tooltip: color-mix(in oklch, var(--popover) 64%, transparent);
+  --glass-surface-panel: color-mix(in oklch, var(--popover) 68%, transparent);
+  --glass-surface-border: color-mix(in oklch, var(--foreground) 6%, transparent);
+  --glass-highlight: transparent;
+  --glass-shadow: 0 28px 60px -30px oklch(0 0 0 / 0.45);
+  --glass-backdrop: color-mix(in oklch, var(--background) 62%, transparent);
+}
+
+.dark[data-theme-preset="glass"] *:focus-visible,
+.dark[data-theme-preset="glass"] *:focus-within {
+  --tw-ring-color: color-mix(in oklch, var(--foreground) 8%, transparent);
+  outline-color: color-mix(in oklch, var(--foreground) 8%, transparent);
+}
+
+.dark[data-theme-preset="glass"] body {
+  background-color: var(--background);
+  background-image: var(--bg-glow);
+  background-attachment: fixed;
+}
+
+.dark[data-theme-preset="glass"] [data-sidebar="sidebar"] {
+  background: hsl(var(--sidebar) / 0.97) !important;
+  border-color: hsl(var(--sidebar-border) / 0.42) !important;
+}
+
+.dark[data-theme-preset="glass"] [data-slot="sidebar-inset"] {
+  background: color-mix(in oklch, var(--card) 90%, transparent);
+  box-shadow: inset 1px 0 0 color-mix(in oklch, var(--foreground) 4%, transparent);
+  -webkit-backdrop-filter: blur(32px) saturate(1.22);
+  backdrop-filter: blur(32px) saturate(1.22);
+}
+
+.dark[data-theme-preset="glass"] .glass-surface {
+  box-shadow: var(--glass-shadow);
+}
+
+.dark[data-theme-preset="glass"] .glass-surface--tooltip,
+.dark[data-theme-preset="glass"] .glass-surface--panel {
+  --glass-blur: 26px;
+  --glass-saturate: 1.2;
+}
+
 .glass-backdrop {
   background: var(--glass-backdrop);
   -webkit-backdrop-filter: blur(8px) saturate(1.05);
@@ -572,6 +654,20 @@ body {
 
 .dark .glass-inset {
   background: color-mix(in oklch, var(--muted) 54%, transparent) !important;
+}
+
+[data-theme-preset="glass"] .glass-inset {
+  background: color-mix(in oklch, var(--card) 88%, transparent) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(1.14);
+  backdrop-filter: blur(16px) saturate(1.14);
+  box-shadow: none;
+}
+
+.dark[data-theme-preset="glass"] .glass-inset {
+  background: color-mix(in oklch, var(--popover) 52%, transparent) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(1.2);
+  backdrop-filter: blur(20px) saturate(1.2);
+  box-shadow: none;
 }
 
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {

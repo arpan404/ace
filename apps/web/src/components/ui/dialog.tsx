@@ -5,10 +5,14 @@ import { XIcon } from "lucide-react";
 import { cn } from "~/lib/utils";
 import { Button } from "~/components/ui/button";
 import {
-  GLASS_BACKDROP_CLASS_NAME,
-  GLASS_FOOTER_CLASS_NAME,
-  GLASS_SURFACE_CLASS_NAME,
-} from "~/components/ui/glass";
+  MODAL_BACKDROP_CLASS_NAME,
+  MODAL_BODY_CLASS_NAME,
+  MODAL_DESCRIPTION_CLASS_NAME,
+  MODAL_DIALOG_TITLE_CLASS_NAME,
+  MODAL_FOOTER_CLASS_NAME,
+  MODAL_HEADER_CLASS_NAME,
+  MODAL_SURFACE_CLASS_NAME,
+} from "~/components/ui/modalUi";
 import { MODAL_LAYER_CLASS_NAME } from "~/components/ui/layers";
 import { ScrollArea } from "~/components/ui/scroll-area";
 
@@ -31,7 +35,7 @@ function DialogBackdrop({ className, ...props }: DialogPrimitive.Backdrop.Props)
     <DialogPrimitive.Backdrop
       className={cn(
         "fixed inset-0 transition-all duration-200 data-ending-style:opacity-0 data-starting-style:opacity-0",
-        GLASS_BACKDROP_CLASS_NAME,
+        MODAL_BACKDROP_CLASS_NAME,
         MODAL_LAYER_CLASS_NAME,
         className,
       )}
@@ -73,8 +77,8 @@ function DialogPopup({
       >
         <DialogPrimitive.Popup
           className={cn(
-            "-translate-y-[calc(1.25rem*var(--nested-dialogs))] relative row-start-2 flex max-h-full min-h-0 w-full min-w-0 max-w-lg scale-[calc(1-0.1*var(--nested-dialogs))] flex-col rounded-[var(--panel-radius)] opacity-[calc(1-0.1*var(--nested-dialogs))] transition-[scale,opacity,translate] duration-200 ease-in-out will-change-transform data-nested:data-ending-style:translate-y-8 data-nested:data-starting-style:translate-y-8 data-nested-dialog-open:origin-top data-ending-style:scale-98 data-starting-style:scale-98 data-ending-style:opacity-0 data-starting-style:opacity-0",
-            GLASS_SURFACE_CLASS_NAME,
+            "-translate-y-[calc(1.25rem*var(--nested-dialogs))] relative row-start-2 flex max-h-full min-h-0 w-full min-w-0 max-w-lg scale-[calc(1-0.1*var(--nested-dialogs))] flex-col overflow-hidden opacity-[calc(1-0.1*var(--nested-dialogs))] transition-[scale,opacity,translate] duration-200 ease-in-out will-change-transform data-nested:data-ending-style:translate-y-8 data-nested:data-starting-style:translate-y-8 data-nested-dialog-open:origin-top data-ending-style:scale-98 data-starting-style:scale-98 data-ending-style:opacity-0 data-starting-style:opacity-0",
+            MODAL_SURFACE_CLASS_NAME,
             bottomStickOnMobile &&
               "max-sm:max-w-none max-sm:rounded-t-[var(--panel-radius)] max-sm:rounded-b-none max-sm:border-x-0 max-sm:border-t max-sm:border-b-0 max-sm:opacity-[calc(1-min(var(--nested-dialogs),1))] max-sm:data-ending-style:translate-y-4 max-sm:data-starting-style:translate-y-4",
             className,
@@ -86,8 +90,8 @@ function DialogPopup({
           {showCloseButton && (
             <DialogPrimitive.Close
               aria-label="Close"
-              className="absolute end-3 top-3"
-              render={<Button size="icon-sm" variant="ghost" />}
+              className="absolute end-2.5 top-2.5"
+              render={<Button size="icon-sm" variant="ghost" className="text-muted-foreground/70" />}
             >
               <XIcon />
             </DialogPrimitive.Close>
@@ -102,7 +106,8 @@ function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       className={cn(
-        "flex flex-col gap-2 p-5 sm:p-6 in-[[data-slot=dialog-popup]:has([data-slot=dialog-panel])]:pb-3 max-sm:pb-4",
+        MODAL_HEADER_CLASS_NAME,
+        "pe-10 in-[[data-slot=dialog-popup]:has([data-slot=dialog-panel])]:pb-3 max-sm:pb-3",
         className,
       )}
       data-slot="dialog-header"
@@ -121,10 +126,9 @@ function DialogFooter({
   return (
     <div
       className={cn(
-        "flex flex-col-reverse gap-2 px-5 sm:flex-row sm:justify-end sm:rounded-b-[calc(var(--panel-radius)-1px)] sm:px-6",
-        variant === "default" && cn(GLASS_FOOTER_CLASS_NAME, "py-4"),
+        variant === "default" && MODAL_FOOTER_CLASS_NAME,
         variant === "bare" &&
-          "in-[[data-slot=dialog-popup]:has([data-slot=dialog-panel])]:pt-3 pt-4 pb-5 sm:pb-6",
+          "flex flex-col-reverse gap-2 px-5 pt-3 pb-5 sm:flex-row sm:justify-end sm:px-6 sm:pb-6 in-[[data-slot=dialog-popup]:has([data-slot=dialog-panel])]:pt-3",
         className,
       )}
       data-slot="dialog-footer"
@@ -136,7 +140,7 @@ function DialogFooter({
 function DialogTitle({ className, ...props }: DialogPrimitive.Title.Props) {
   return (
     <DialogPrimitive.Title
-      className={cn("font-heading text-[1.05rem] font-semibold leading-none", className)}
+      className={cn(MODAL_DIALOG_TITLE_CLASS_NAME, className)}
       data-slot="dialog-title"
       {...props}
     />
@@ -146,7 +150,7 @@ function DialogTitle({ className, ...props }: DialogPrimitive.Title.Props) {
 function DialogDescription({ className, ...props }: DialogPrimitive.Description.Props) {
   return (
     <DialogPrimitive.Description
-      className={cn("text-muted-foreground text-sm", className)}
+      className={cn(MODAL_DESCRIPTION_CLASS_NAME, className)}
       data-slot="dialog-description"
       {...props}
     />
@@ -162,7 +166,8 @@ function DialogPanel({
     <ScrollArea scrollFade={scrollFade}>
       <div
         className={cn(
-          "p-5 sm:p-6 in-[[data-slot=dialog-popup]:has([data-slot=dialog-header])]:pt-1 in-[[data-slot=dialog-popup]:has([data-slot=dialog-footer]:not(.border-t))]:pb-1",
+          MODAL_BODY_CLASS_NAME,
+          "pb-5 in-[[data-slot=dialog-popup]:has([data-slot=dialog-header])]:pt-0 in-[[data-slot=dialog-popup]:has([data-slot=dialog-footer]:not(.border-t))]:pb-4",
           className,
         )}
         data-slot="dialog-panel"

@@ -5,10 +5,14 @@ import { XIcon } from "lucide-react";
 import { cn } from "~/lib/utils";
 import { Button } from "~/components/ui/button";
 import {
-  GLASS_BACKDROP_CLASS_NAME,
-  GLASS_FOOTER_CLASS_NAME,
-  GLASS_SURFACE_CLASS_NAME,
-} from "~/components/ui/glass";
+  MODAL_BACKDROP_CLASS_NAME,
+  MODAL_BODY_CLASS_NAME,
+  MODAL_DESCRIPTION_CLASS_NAME,
+  MODAL_DIALOG_TITLE_CLASS_NAME,
+  MODAL_FOOTER_CLASS_NAME,
+  MODAL_HEADER_CLASS_NAME,
+  MODAL_SURFACE_CLASS_NAME,
+} from "~/components/ui/modalUi";
 import { MODAL_LAYER_CLASS_NAME } from "~/components/ui/layers";
 import { ScrollArea } from "~/components/ui/scroll-area";
 
@@ -29,7 +33,7 @@ function SheetBackdrop({ className, ...props }: SheetPrimitive.Backdrop.Props) {
     <SheetPrimitive.Backdrop
       className={cn(
         "fixed inset-0 transition-all duration-200 data-ending-style:opacity-0 data-starting-style:opacity-0",
-        GLASS_BACKDROP_CLASS_NAME,
+        MODAL_BACKDROP_CLASS_NAME,
         MODAL_LAYER_CLASS_NAME,
         className,
       )}
@@ -87,7 +91,7 @@ function SheetPopup({
         <SheetPrimitive.Popup
           className={cn(
             "relative flex max-h-full min-h-0 w-full min-w-0 flex-col transition-[opacity,translate] duration-200 ease-in-out will-change-transform data-ending-style:opacity-0 data-starting-style:opacity-0",
-            GLASS_SURFACE_CLASS_NAME,
+            MODAL_SURFACE_CLASS_NAME,
             side === "bottom" &&
               "row-start-2 rounded-t-[var(--panel-radius)] border-t data-ending-style:translate-y-8 data-starting-style:translate-y-8",
             side === "top" &&
@@ -108,7 +112,7 @@ function SheetPopup({
             <SheetPrimitive.Close
               aria-label="Close"
               className="absolute end-3 top-3"
-              render={<Button size="icon-sm" variant="ghost" />}
+              render={<Button size="icon-sm" variant="ghost" className="text-muted-foreground/70" />}
             >
               <XIcon />
             </SheetPrimitive.Close>
@@ -123,7 +127,8 @@ function SheetHeader({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       className={cn(
-        "flex flex-col gap-2 p-5 sm:p-6 in-[[data-slot=sheet-popup]:has([data-slot=sheet-panel])]:pb-3 max-sm:pb-4",
+        MODAL_HEADER_CLASS_NAME,
+        "pe-10 in-[[data-slot=sheet-popup]:has([data-slot=sheet-panel])]:pb-3 max-sm:pb-3",
         className,
       )}
       data-slot="sheet-header"
@@ -143,7 +148,7 @@ function SheetFooter({
     <div
       className={cn(
         "flex flex-col-reverse gap-2 px-5 sm:flex-row sm:justify-end sm:px-6",
-        variant === "default" && cn(GLASS_FOOTER_CLASS_NAME, "py-4"),
+        variant === "default" && MODAL_FOOTER_CLASS_NAME,
         variant === "bare" &&
           "in-[[data-slot=sheet-popup]:has([data-slot=sheet-panel])]:pt-3 pt-4 pb-5 sm:pb-6",
         className,
@@ -157,7 +162,7 @@ function SheetFooter({
 function SheetTitle({ className, ...props }: SheetPrimitive.Title.Props) {
   return (
     <SheetPrimitive.Title
-      className={cn("font-heading font-semibold text-xl leading-none", className)}
+      className={cn(MODAL_DIALOG_TITLE_CLASS_NAME, className)}
       data-slot="sheet-title"
       {...props}
     />
@@ -167,7 +172,7 @@ function SheetTitle({ className, ...props }: SheetPrimitive.Title.Props) {
 function SheetDescription({ className, ...props }: SheetPrimitive.Description.Props) {
   return (
     <SheetPrimitive.Description
-      className={cn("text-muted-foreground text-sm", className)}
+      className={cn(MODAL_DESCRIPTION_CLASS_NAME, className)}
       data-slot="sheet-description"
       {...props}
     />
@@ -183,7 +188,8 @@ function SheetPanel({
     <ScrollArea scrollFade={scrollFade}>
       <div
         className={cn(
-          "p-5 sm:p-6 in-[[data-slot=sheet-popup]:has([data-slot=sheet-header])]:pt-1 in-[[data-slot=sheet-popup]:has([data-slot=sheet-footer]:not(.border-t))]:pb-1",
+          MODAL_BODY_CLASS_NAME,
+          "pb-5 in-[[data-slot=sheet-popup]:has([data-slot=sheet-header])]:pt-0 in-[[data-slot=sheet-popup]:has([data-slot=sheet-footer]:not(.border-t))]:pb-4",
           className,
         )}
         data-slot="sheet-panel"
