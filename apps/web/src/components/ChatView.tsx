@@ -135,7 +135,7 @@ import { createChatMessageStreamingTextState } from "../lib/chat/messageText";
 import { hydrateThreadFromCache } from "../lib/threadHydrationCache";
 import {
   prefetchThreadTimelineWindows,
-  readLoadedThreadTimelinePages,
+  readLoadedThreadTimelineProjection,
   hydrateThreadTimelineCacheFromStorage,
   ThreadTimelineOpenPrefetchHandle,
   startThreadTimelineOpenPrefetch,
@@ -2998,52 +2998,43 @@ function useChatViewComponent({
     }
     return [...serverMessagesWithPreviewHandoff, ...pendingMessages];
   }, [serverMessages, attachmentPreviewHandoffByMessageId, optimisticUserMessages]);
-  const activeThreadTimelinePages = useMemo(() => {
+  const activeThreadTimelineProjection = useMemo(() => {
+    if (activeThreadTimelineRanges === null) {
+      return null;
+    }
     return activeThread && isThreadHistoryMetadataOnly
-      ? readLoadedThreadTimelinePages(activeThread.id)
-      : [];
+      ? readLoadedThreadTimelineProjection(activeThread.id)
+      : null;
   }, [activeThread, isThreadHistoryMetadataOnly, activeThreadTimelineRanges]);
   const activeThreadTimelineIndexByEntryId = useMemo(() => {
-    if (!isThreadHistoryMetadataOnly || activeThreadTimelinePages.length === 0) {
-      return null;
-    }
-
-    const indexByEntryId = new Map<string, number>();
-    for (const page of activeThreadTimelinePages) {
-      for (const entry of page.entries) {
-        const entryId = String(entry.id);
-        if (!indexByEntryId.has(entryId)) {
-          indexByEntryId.set(entryId, entry.index);
-        }
-      }
-    }
-    return indexByEntryId;
-  }, [activeThreadTimelinePages, isThreadHistoryMetadataOnly]);
+    return activeThreadTimelineProjection?.timelineIndexByEntryId ?? null;
+  }, [activeThreadTimelineProjection]);
   const pagedThreadTimeline = useMemo(() => {
-    if (!activeThread || !isThreadHistoryMetadataOnly || activeThreadTimelinePages.length === 0) {
+    if (
+      !activeThread ||
+      !isThreadHistoryMetadataOnly ||
+      activeThreadTimelineProjection === null ||
+      activeThreadTimelineProjection.timelineEntries.length === 0
+    ) {
       return null;
     }
 
-    const pagedMessages: ChatMessage[] = [];
+    const pagedMessages: ChatMessage[] = activeThreadTimelineProjection.timelineMessages.map(
+      (message) => toPagedChatMessage(message),
+    );
     const messageById = new Map<string, ChatMessage>();
-    const activityById = new Map<string, OrchestrationThreadActivity>();
-    const proposedPlanById = new Map<string, Thread["proposedPlans"][number]>();
-    const entries: OrchestrationThreadTimelineEntryReference[] = [];
-
-    for (const page of activeThreadTimelinePages) {
-      for (const message of page.messages) {
-        const pagedMessage = toPagedChatMessage(message);
-        pagedMessages.push(pagedMessage);
-        messageById.set(String(pagedMessage.id), pagedMessage);
-      }
-      for (const activity of page.activities) {
-        activityById.set(String(activity.id), activity);
-      }
-      for (const proposedPlan of page.proposedPlans) {
-        proposedPlanById.set(String(proposedPlan.id), proposedPlan);
-      }
-      entries.push(...page.entries);
+    for (const message of pagedMessages) {
+      messageById.set(String(message.id), message);
     }
+    const activityById = new Map<string, OrchestrationThreadActivity>();
+    for (const activity of activeThreadTimelineProjection.timelineActivities) {
+      activityById.set(String(activity.id), activity);
+    }
+    const proposedPlanById = new Map<string, Thread["proposedPlans"][number]>();
+    for (const proposedPlan of activeThreadTimelineProjection.timelineProposedPlans) {
+      proposedPlanById.set(String(proposedPlan.id), proposedPlan);
+    }
+    const entries = activeThreadTimelineProjection.timelineEntries;
 
     if (
       !isPagedThreadTimelineUsable({
@@ -3062,7 +3053,6 @@ function useChatViewComponent({
     const seenActivityIds = new Set<string>();
     const seenProposedPlanIds = new Set<string>();
 
-    entries.sort((left, right) => left.index - right.index);
     for (const entry of entries) {
       if (entry.kind === "message") {
         const message = messageById.get(String(entry.id));
@@ -3105,7 +3095,7 @@ function useChatViewComponent({
   }, [
     activeThread,
     activeThreadMessages,
-    activeThreadTimelinePages,
+    activeThreadTimelineProjection,
     activityVisibilitySettings,
     isThreadHistoryMetadataOnly,
   ]);

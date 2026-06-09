@@ -1,9 +1,11 @@
 import { type OrchestrationGetThreadTimelinePageResult, type ThreadId } from "@ace/contracts";
+import type { TimelineRow } from "./timelineRows";
 
 const TIMELINE_STORAGE_DB_NAME = "ace-thread-timeline-cache";
-const TIMELINE_STORAGE_DB_VERSION = 1;
+const TIMELINE_STORAGE_DB_VERSION = 2;
 const TIMELINE_THREAD_METADATA_STORE_NAME = "thread-manifests";
 const TIMELINE_PAGE_STORE_NAME = "timeline-pages";
+const TIMELINE_ROWS_STORE_NAME = "timeline-rows";
 
 const TIMELINE_CACHE_STORAGE_KEY = "ace:timeline-cache:v1";
 
@@ -40,6 +42,7 @@ type SerializedThreadTimelineCache = TimelineThreadMetadataRecord;
 
 const memoryFallbackThreadMetadata = new Map<string, string>();
 const memoryFallbackPages = new Map<string, OrchestrationGetThreadTimelinePageResult>();
+const memoryFallbackRows = new Map<string, ReadonlyArray<TimelineRow>>();
 
 let openDatabasePromise: Promise<IDBDatabase | null> | null = null;
 
@@ -193,6 +196,9 @@ function openTimelineStorageDatabase(): Promise<IDBDatabase | null> {
         if (!database.objectStoreNames.contains(TIMELINE_PAGE_STORE_NAME)) {
           database.createObjectStore(TIMELINE_PAGE_STORE_NAME);
         }
+        if (!database.objectStoreNames.contains(TIMELINE_ROWS_STORE_NAME)) {
+          database.createObjectStore(TIMELINE_ROWS_STORE_NAME);
+        }
       };
       request.onsuccess = () => {
         const database = request.result;
@@ -250,6 +256,11 @@ async function readAllValuesFromStore<T>(
   }
   if (typeof window === "undefined") {
     for (const key of keys) {
+      const fallbackRows = memoryFallbackRows.get(key);
+      if (fallbackRows && storeName === TIMELINE_ROWS_STORE_NAME) {
+        next.set(key, fallbackRows as T);
+        continue;
+      }
       const raw = memoryFallbackPages.get(key);
       if (raw && isTimelinePageRecord(raw)) {
         next.set(key, raw as T);
@@ -276,6 +287,10 @@ async function readAllValuesFromStore<T>(
         const request = store.get(key);
         request.onsuccess = () => {
           const result = request.result;
+          if (storeName === TIMELINE_ROWS_STORE_NAME) {
+            next.set(key, result as T);
+            return;
+          }
           if (result && isTimelinePageRecord(result)) {
             next.set(key, result as T);
           }
@@ -286,6 +301,38 @@ async function readAllValuesFromStore<T>(
       transaction.onabort = () => resolve(next);
     } catch {
       resolve(next);
+    }
+  });
+}
+
+async function readAllKeysFromStore(storeName: string): Promise<string[]> {
+  const keys: string[] = [];
+  if (typeof window === "undefined") {
+    return keys;
+  }
+  const database = await openTimelineStorageDatabase();
+  if (!database) {
+    return keys;
+  }
+
+  return new Promise((resolve) => {
+    try {
+      const transaction = database.transaction(storeName, "readonly");
+      const request = transaction.objectStore(storeName).openKeyCursor();
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (cursor) {
+          keys.push(String(cursor.primaryKey));
+          cursor.continue();
+          return;
+        }
+        resolve(keys);
+      };
+      request.onerror = () => resolve(keys);
+      transaction.oncomplete = () => resolve(keys);
+      transaction.onabort = () => resolve(keys);
+    } catch {
+      resolve(keys);
     }
   });
 }
@@ -309,6 +356,9 @@ async function writeValueToStore<T>(storeName: string, key: string, value: T): P
     if (storeName === TIMELINE_PAGE_STORE_NAME) {
       memoryFallbackPages.set(key, value as OrchestrationGetThreadTimelinePageResult);
     }
+    if (storeName === TIMELINE_ROWS_STORE_NAME) {
+      memoryFallbackRows.set(key, value as ReadonlyArray<TimelineRow>);
+    }
     return;
   }
 
@@ -324,6 +374,9 @@ async function writeValueToStore<T>(storeName: string, key: string, value: T): P
       if (storeName === TIMELINE_PAGE_STORE_NAME) {
         memoryFallbackPages.set(key, value as OrchestrationGetThreadTimelinePageResult);
       }
+      if (storeName === TIMELINE_ROWS_STORE_NAME) {
+        memoryFallbackRows.set(key, value as ReadonlyArray<TimelineRow>);
+      }
       resolve();
     }
   });
@@ -335,6 +388,9 @@ async function deleteValueFromStore(storeName: string, key: string): Promise<voi
   }
   if (storeName === TIMELINE_PAGE_STORE_NAME) {
     memoryFallbackPages.delete(key);
+  }
+  if (storeName === TIMELINE_ROWS_STORE_NAME) {
+    memoryFallbackRows.delete(key);
   }
 
   const database = await openTimelineStorageDatabase();
@@ -395,6 +451,7 @@ export async function writePersistedThreadTimelineCache(
     .filter((cacheKey) => !nextKeys.has(cacheKey));
   for (const cacheKey of keysToDelete) {
     await deleteThreadTimelinePage(cacheKey);
+    await deletePersistedTimelineRows(cacheKey);
   }
 }
 
@@ -403,9 +460,56 @@ export async function clearPersistedThreadTimelineCache(threadId: ThreadId): Pro
   if (snapshot) {
     for (const range of snapshot.ranges) {
       await deleteThreadTimelinePage(range.cacheKey);
+      await deletePersistedTimelineRows(range.cacheKey);
     }
   }
   await deleteValueFromStore(TIMELINE_THREAD_METADATA_STORE_NAME, String(threadId));
+}
+
+export async function clearAllPersistedTimelineCaches(): Promise<void> {
+  memoryFallbackThreadMetadata.clear();
+  memoryFallbackPages.clear();
+  memoryFallbackRows.clear();
+
+  const database = await openTimelineStorageDatabase();
+  if (!database) {
+    return;
+  }
+
+  const stores: string[] = [];
+  if (database.objectStoreNames.contains(TIMELINE_THREAD_METADATA_STORE_NAME)) {
+    stores.push(TIMELINE_THREAD_METADATA_STORE_NAME);
+  }
+  if (database.objectStoreNames.contains(TIMELINE_PAGE_STORE_NAME)) {
+    stores.push(TIMELINE_PAGE_STORE_NAME);
+  }
+  if (database.objectStoreNames.contains(TIMELINE_ROWS_STORE_NAME)) {
+    stores.push(TIMELINE_ROWS_STORE_NAME);
+  }
+
+  if (stores.length === 0) {
+    return;
+  }
+
+  try {
+    await new Promise<void>((resolve) => {
+      const transaction = database.transaction(stores, "readwrite");
+      for (const storeName of stores) {
+        transaction.objectStore(storeName).clear();
+      }
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => resolve();
+      transaction.onabort = () => resolve();
+    });
+    return;
+  } catch {
+    for (const storeName of stores) {
+      const keys = await readAllKeysFromStore(storeName);
+      for (const key of keys) {
+        await deleteValueFromStore(storeName, key);
+      }
+    }
+  }
 }
 
 export async function writePersistedThreadTimelinePage(
@@ -429,6 +533,37 @@ export async function readPersistedThreadTimelinePages(
     TIMELINE_PAGE_STORE_NAME,
     normalizedKeys,
   );
+}
+
+export async function readPersistedTimelineRows(
+  cacheKey: string,
+): Promise<ReadonlyArray<TimelineRow> | null> {
+  const memoryValue = memoryFallbackRows.get(cacheKey);
+  if (memoryValue) {
+    return memoryValue;
+  }
+  const raw = await readValueFromStore<unknown>(TIMELINE_ROWS_STORE_NAME, cacheKey);
+  if (!Array.isArray(raw)) {
+    return null;
+  }
+  return raw as ReadonlyArray<TimelineRow>;
+}
+
+export async function writePersistedTimelineRows(
+  cacheKey: string,
+  rows: ReadonlyArray<TimelineRow>,
+): Promise<void> {
+  if (!cacheKey) {
+    return;
+  }
+  await writeValueToStore(TIMELINE_ROWS_STORE_NAME, cacheKey, [...rows]);
+}
+
+export async function deletePersistedTimelineRows(cacheKey: string): Promise<void> {
+  if (!cacheKey) {
+    return;
+  }
+  await deleteValueFromStore(TIMELINE_ROWS_STORE_NAME, cacheKey);
 }
 
 export async function deleteThreadTimelinePage(cacheKey: string): Promise<void> {

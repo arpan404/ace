@@ -120,6 +120,25 @@ interface TimelineWindowState {
   readonly reset: () => void;
 }
 
+interface TimelineWindowThreadPageProjection {
+  readonly pageRangesSignature: string;
+  readonly pages: readonly OrchestrationGetThreadTimelinePageResult[];
+  readonly timelineEntries: readonly OrchestrationThreadTimelineEntryReference[];
+  readonly timelineMessages: readonly OrchestrationMessage[];
+  readonly timelineActivities: readonly OrchestrationThreadActivity[];
+  readonly timelineProposedPlans: readonly OrchestrationProposedPlan[];
+  readonly timelineIndexByEntryId: Map<string, number>;
+}
+
+export interface ReadonlyTimelineWindowThreadPageProjection {
+  readonly pages: TimelineWindowThreadPageProjection["pages"];
+  readonly timelineEntries: TimelineWindowThreadPageProjection["timelineEntries"];
+  readonly timelineMessages: TimelineWindowThreadPageProjection["timelineMessages"];
+  readonly timelineActivities: TimelineWindowThreadPageProjection["timelineActivities"];
+  readonly timelineProposedPlans: TimelineWindowThreadPageProjection["timelineProposedPlans"];
+  readonly timelineIndexByEntryId: TimelineWindowThreadPageProjection["timelineIndexByEntryId"];
+}
+
 const timelinePageCache = new LRUCache<OrchestrationGetThreadTimelinePageResult>(
   MAX_TIMELINE_PAGE_CACHE_ENTRIES,
   MAX_TIMELINE_PAGE_CACHE_MEMORY_BYTES,
@@ -131,6 +150,13 @@ const rowHeightCache = new LRUCache<number>(
 const inFlightPageByKey = new Map<string, Promise<OrchestrationGetThreadTimelinePageResult>>();
 const timelineCacheWriteDebounceByThreadId = new Map<ThreadId, ReturnType<typeof setTimeout>>();
 const timelineCacheHydrationPromiseByThreadId = new Map<string, Promise<void>>();
+const timelineWindowProjectionByThreadId = new Map<
+  ThreadId,
+  {
+    readonly pageRangesSignature: string;
+    readonly projection: ReadonlyTimelineWindowThreadPageProjection;
+  }
+>();
 
 function toPersistedTimelineRange(range: TimelineLoadedRange) {
   return {
@@ -187,6 +213,109 @@ export interface ThreadTimelineOpenPrefetchHandle {
 }
 
 const openPrefetchJobsByThreadId = new Map<string, ThreadTimelineOpenPrefetchJob>();
+
+function buildTimelineThreadPageRangesSignature(ranges: readonly TimelineLoadedRange[]): string {
+  if (ranges.length === 0) {
+    return "ranges:none";
+  }
+  return ranges
+    .map(
+      (range) =>
+        `${range.startIndex}:${range.endIndexExclusive}:${range.updatedAt}:${range.cacheKey}`,
+    )
+    .join("|");
+}
+
+function buildTimelineWindowThreadPageProjection(
+  loadedRanges: readonly TimelineLoadedRange[],
+): ReadonlyTimelineWindowThreadPageProjection {
+  const pages: OrchestrationGetThreadTimelinePageResult[] = [];
+  for (const range of loadedRanges) {
+    const page = timelinePageCache.get(range.cacheKey);
+    if (page) {
+      pages.push(page);
+    }
+  }
+
+  const timelineEntries: OrchestrationThreadTimelineEntryReference[] = [];
+  const timelineMessagesById = new Map<string, OrchestrationMessage>();
+  const timelineActivitiesById = new Map<string, OrchestrationThreadActivity>();
+  const timelineProposedPlansById = new Map<string, OrchestrationProposedPlan>();
+
+  for (const page of pages) {
+    timelineEntries.push(...page.entries);
+    for (const message of page.messages) {
+      timelineMessagesById.set(String(message.id), message);
+    }
+    for (const activity of page.activities) {
+      timelineActivitiesById.set(String(activity.id), activity);
+    }
+    for (const proposedPlan of page.proposedPlans) {
+      timelineProposedPlansById.set(String(proposedPlan.id), proposedPlan);
+    }
+  }
+
+  const sortedTimelineEntries = timelineEntries.toSorted((left, right) => left.index - right.index);
+  const timelineIndexByEntryId = new Map<string, number>();
+  const dedupedTimelineEntries: OrchestrationThreadTimelineEntryReference[] = [];
+  const dedupedTimelineEntriesById = new Set<string>();
+  const timelineMessages: OrchestrationMessage[] = [];
+  const timelineActivities: OrchestrationThreadActivity[] = [];
+  const timelineProposedPlans: OrchestrationProposedPlan[] = [];
+  const seenMessageIds = new Set<string>();
+  const seenActivityIds = new Set<string>();
+  const seenProposedPlanIds = new Set<string>();
+
+  for (const entry of sortedTimelineEntries) {
+    const entryKey = `${String(entry.kind)}:${String(entry.id)}`;
+    if (dedupedTimelineEntriesById.has(entryKey)) {
+      continue;
+    }
+    dedupedTimelineEntriesById.add(entryKey);
+    dedupedTimelineEntries.push(entry);
+    timelineIndexByEntryId.set(entryKey, entry.index);
+
+    if (entry.kind === "message") {
+      const message = timelineMessagesById.get(String(entry.id));
+      const messageId = message ? String(message.id) : null;
+      if (message && messageId && !seenMessageIds.has(messageId)) {
+        seenMessageIds.add(messageId);
+        timelineMessages.push(message);
+      }
+      continue;
+    }
+
+    if (entry.kind === "activity") {
+      const activity = timelineActivitiesById.get(String(entry.id));
+      const activityId = activity ? String(activity.id) : null;
+      if (activity && activityId && !seenActivityIds.has(activityId)) {
+        seenActivityIds.add(activityId);
+        timelineActivities.push(activity);
+      }
+      continue;
+    }
+
+    const proposedPlan = timelineProposedPlansById.get(String(entry.id));
+    const proposedPlanId = proposedPlan ? String(proposedPlan.id) : null;
+    if (proposedPlan && proposedPlanId && !seenProposedPlanIds.has(proposedPlanId)) {
+      seenProposedPlanIds.add(proposedPlanId);
+      timelineProposedPlans.push(proposedPlan);
+    }
+  }
+
+  return {
+    pages,
+    timelineEntries: dedupedTimelineEntries,
+    timelineMessages,
+    timelineActivities,
+    timelineProposedPlans,
+    timelineIndexByEntryId,
+  } satisfies ReadonlyTimelineWindowThreadPageProjection;
+}
+
+function invalidateThreadTimelineWindowProjection(threadId: ThreadId): void {
+  timelineWindowProjectionByThreadId.delete(threadId);
+}
 
 export type TimelinePrefetchDirection = "older" | "newer" | "both";
 
@@ -438,6 +567,7 @@ function primeTimelinePagesIntoState(
 
   for (const touchedThreadId of touchedThreadIds) {
     schedulePersistedThreadTimelineCacheWrite(touchedThreadId);
+    invalidateThreadTimelineWindowProjection(touchedThreadId);
   }
 
   return {
@@ -613,6 +743,8 @@ export const useTimelineWindowStore = create<TimelineWindowState>((set) => ({
       delete activeWindowByThreadId[threadId];
       delete fetchStateByThreadId[threadId];
       delete prefetchQueueByThreadId[threadId];
+
+      invalidateThreadTimelineWindowProjection(threadId);
       return {
         ...state,
         manifestsByThreadId,
@@ -623,6 +755,7 @@ export const useTimelineWindowStore = create<TimelineWindowState>((set) => ({
       };
     }),
   reset: () => {
+    timelineWindowProjectionByThreadId.clear();
     for (const timeoutId of timelineCacheWriteDebounceByThreadId.values()) {
       clearTimeout(timeoutId);
     }
@@ -746,23 +879,31 @@ export async function hydrateThreadTimelineCacheFromStorage(threadId: ThreadId):
 export function readLoadedThreadTimelinePages(
   threadId: ThreadId,
 ): ReadonlyArray<OrchestrationGetThreadTimelinePageResult> {
-  const state = useTimelineWindowStore.getState();
-  return (state.loadedRangesByThreadId[threadId] ?? [])
-    .toSorted((left, right) => left.startIndex - right.startIndex)
-    .flatMap((range) => {
-      const page = timelinePageCache.get(range.cacheKey);
-      return page ? [page] : [];
-    });
+  return readLoadedThreadTimelineProjection(threadId)?.pages ?? [];
 }
 
-function readLoadedThreadTimelineEntryIndexes(threadId: ThreadId): Map<string, number> {
-  const indexes = new Map<string, number>();
-  for (const page of readLoadedThreadTimelinePages(threadId)) {
-    for (const entry of page.entries) {
-      indexes.set(`${entry.kind}:${entry.id}`, entry.index);
-    }
+export function readLoadedThreadTimelineProjection(
+  threadId: ThreadId,
+): ReadonlyTimelineWindowThreadPageProjection | null {
+  const state = useTimelineWindowStore.getState();
+  const loadedRanges = state.loadedRangesByThreadId[threadId] ?? [];
+  if (loadedRanges.length === 0) {
+    timelineWindowProjectionByThreadId.delete(threadId);
+    return null;
   }
-  return indexes;
+
+  const pageRangesSignature = buildTimelineThreadPageRangesSignature(loadedRanges);
+  const cachedProjection = timelineWindowProjectionByThreadId.get(threadId);
+  if (cachedProjection?.pageRangesSignature === pageRangesSignature) {
+    return cachedProjection.projection;
+  }
+
+  const projection = buildTimelineWindowThreadPageProjection(loadedRanges);
+  timelineWindowProjectionByThreadId.set(threadId, {
+    pageRangesSignature,
+    projection,
+  });
+  return projection;
 }
 
 export function writeTimelineRowHeight(cacheKey: string, height: number): void {
@@ -934,19 +1075,46 @@ export async function fetchThreadTimelinePages(
   const batchReads = [...batchEntriesByThreadId.values()].map(async (entries) => {
     const threadId = entries[0]!.input.threadId;
     useTimelineWindowStore.getState().beginPageFetches(threadId, entries.length);
+    const pageRequests = entries.map(
+      (entry): OrchestrationGetThreadTimelinePageRangeInput => ({
+        startIndex: entry.input.startIndex,
+        limit: entry.input.limit,
+        ...(entry.input.anchor !== undefined ? { anchor: entry.input.anchor } : {}),
+      }),
+    );
     try {
-      const pages = await runTimelinePageFetchWithRetry("getThreadTimelinePages", () =>
-        ensureNativeApi().orchestration.getThreadTimelinePages({
-          threadId,
-          pages: entries.map(
-            (entry): OrchestrationGetThreadTimelinePageRangeInput => ({
-              startIndex: entry.input.startIndex,
-              limit: entry.input.limit,
-              ...(entry.input.anchor !== undefined ? { anchor: entry.input.anchor } : {}),
-            }),
+      const nativeApi = ensureNativeApi().orchestration;
+      let pages: OrchestrationGetThreadTimelinePageResult[] | null = null;
+      if (entries.length === 1) {
+        const page = await runTimelinePageFetchWithRetry("getThreadTimelinePage", () =>
+          nativeApi.getThreadTimelinePage(entries[0]!.input),
+        );
+        pages = [page];
+      } else {
+        const batchPages = await runTimelinePageFetchWithRetry("getThreadTimelinePages", () =>
+          nativeApi.getThreadTimelinePages({ threadId, pages: pageRequests }),
+        );
+        if (Array.isArray(batchPages) && batchPages.length === entries.length) {
+          pages = [...batchPages];
+        }
+      }
+
+      if (!pages) {
+        pages = await Promise.all(
+          pageRequests.map((pageRequest) =>
+            runTimelinePageFetchWithRetry("getThreadTimelinePage", () =>
+              nativeApi.getThreadTimelinePage({
+                threadId,
+                ...pageRequest,
+              }),
+            ),
           ),
-        }),
-      );
+        );
+      }
+
+      if (entries.length === 1 && pages[0] === undefined) {
+        throw new Error(`Timeline fetch returned no page for request.`);
+      }
       if (pages.length !== entries.length) {
         throw new Error(
           `Timeline batch returned ${pages.length} pages for ${entries.length} requests.`,
@@ -1120,7 +1288,8 @@ export async function prefetchThreadTimelineAroundLoadedWindow(input: {
 export function primeLiveThreadTimelineEntry(input: PrimeLiveThreadTimelineEntryInput): void {
   const state = useTimelineWindowStore.getState();
   const manifest = state.manifestsByThreadId[input.threadId];
-  const loadedIndexes = readLoadedThreadTimelineEntryIndexes(input.threadId);
+  const loadedIndexes =
+    readLoadedThreadTimelineProjection(input.threadId)?.timelineIndexByEntryId ?? new Map();
   const entryKey = `${input.entry.kind}:${input.entry.id}`;
   const existingIndex = loadedIndexes.get(entryKey);
   const nextIndex = existingIndex ?? manifest?.totalItems ?? 0;

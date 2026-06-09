@@ -14,6 +14,7 @@ import {
   type TimelineRow,
 } from "./timelineRows";
 import { TIMELINE_ROWS_PROJECTION_VERSION } from "./timelineRowsProjection";
+import { readPersistedTimelineRows, writePersistedTimelineRows } from "./threadTimelineStorage";
 
 const MAX_TIMELINE_ROWS_CACHE_ENTRIES = clampCacheEntryCount(128, {
   moderateCapEntries: 80,
@@ -52,6 +53,10 @@ const timelineRowsCache = new LRUCache<ReadonlyArray<TimelineRow>>(
   MAX_TIMELINE_ROWS_CACHE_MEMORY_BYTES,
 );
 const inflightTimelineRowsByCacheKey = new Map<string, Promise<ReadonlyArray<TimelineRow>>>();
+const inflightTimelineRowsStorageByCacheKey = new Map<
+  string,
+  Promise<ReadonlyArray<TimelineRow> | null>
+>();
 const pendingTimelineRowsByRequestId = new Map<
   number,
   {
@@ -71,6 +76,7 @@ registerMemoryPressureHandler({
   release: () => {
     timelineRowsCache.clear();
     inflightTimelineRowsByCacheKey.clear();
+    inflightTimelineRowsStorageByCacheKey.clear();
     pendingTimelineRowsByRequestId.clear();
     timelineRowsWorker?.terminate();
     timelineRowsWorker = undefined;
@@ -117,6 +123,7 @@ function getTimelineRowsWorker(): Worker | null {
         response.rows,
         estimateTimelineRowsCacheSize(response.input, response.rows),
       );
+      void writePersistedTimelineRows(response.cacheKey, response.rows);
       pending.resolve(response.rows);
     });
     worker.addEventListener("error", (event) => {
@@ -161,8 +168,34 @@ export function writeCachedTimelineRows(
 ): ReadonlyArray<TimelineRow> {
   if (!shouldBypassNonEssentialCaching()) {
     timelineRowsCache.set(cacheKey, rows, estimateTimelineRowsCacheSize(input, rows));
+    void writePersistedTimelineRows(cacheKey, rows);
   }
   return rows;
+}
+
+async function readPersistedTimelineRowsForCacheKey(
+  cacheKey: string,
+): Promise<ReadonlyArray<TimelineRow> | null> {
+  const existing = inflightTimelineRowsStorageByCacheKey.get(cacheKey);
+  if (existing) {
+    return existing;
+  }
+
+  const promise = (async () => {
+    if (!cacheKey) {
+      return null;
+    }
+    const persistedRows = await readPersistedTimelineRows(cacheKey);
+    if (!persistedRows) {
+      return null;
+    }
+    return persistedRows;
+  })();
+
+  inflightTimelineRowsStorageByCacheKey.set(cacheKey, promise);
+  return promise.finally(() => {
+    inflightTimelineRowsStorageByCacheKey.delete(cacheKey);
+  });
 }
 
 export function resolveTimelineRows(
@@ -179,28 +212,34 @@ export function resolveTimelineRows(
     return inflight;
   }
 
-  const worker = getTimelineRowsWorker();
-  if (!worker || shouldBypassNonEssentialCaching()) {
-    const rows = buildTimelineRows(input);
-    writeCachedTimelineRows(cacheKey, input, rows);
-    return Promise.resolve(rows);
-  }
+  const promise = (async () => {
+    const persistedRows = await readPersistedTimelineRowsForCacheKey(cacheKey);
+    if (persistedRows) {
+      return writeCachedTimelineRows(cacheKey, input, persistedRows);
+    }
 
-  const requestId = nextTimelineRowsRequestId++;
-  const promise = new Promise<ReadonlyArray<TimelineRow>>((resolve, reject) => {
-    pendingTimelineRowsByRequestId.set(requestId, { resolve, reject });
-    worker["postMessage"]({
-      requestId,
-      cacheKey,
-      projectionVersion: TIMELINE_ROWS_PROJECTION_VERSION,
-      input,
-    } satisfies TimelineRowsWorkerRequest);
-  }).finally(() => {
-    inflightTimelineRowsByCacheKey.delete(cacheKey);
-  });
+    const worker = getTimelineRowsWorker();
+    if (!worker || shouldBypassNonEssentialCaching()) {
+      const rows = buildTimelineRows(input);
+      return writeCachedTimelineRows(cacheKey, input, rows);
+    }
+
+    const requestId = nextTimelineRowsRequestId++;
+    return new Promise<ReadonlyArray<TimelineRow>>((resolve, reject) => {
+      pendingTimelineRowsByRequestId.set(requestId, { resolve, reject });
+      worker["postMessage"]({
+        requestId,
+        cacheKey,
+        projectionVersion: TIMELINE_ROWS_PROJECTION_VERSION,
+        input,
+      } satisfies TimelineRowsWorkerRequest);
+    });
+  })();
 
   inflightTimelineRowsByCacheKey.set(cacheKey, promise);
-  return promise;
+  return promise.finally(() => {
+    inflightTimelineRowsByCacheKey.delete(cacheKey);
+  });
 }
 
 export function prewarmTimelineRows(cacheKey: string, input: BuildTimelineRowsInput): void {
