@@ -200,7 +200,7 @@ import {
   routeOrchestrationGetSnapshotFromRemote,
   unregisterRemoteRoute,
 } from "../lib/remoteWsRouter";
-import { LEAN_SNAPSHOT_RECOVERY_INPUT } from "../bootstrapRecovery";
+import { METADATA_SNAPSHOT_RECOVERY_INPUT } from "../bootstrapRecovery";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { useSetting, useUpdateSettings } from "~/hooks/useSettings";
 import { useServerKeybindings, useServerProviders } from "../rpc/serverState";
@@ -2830,7 +2830,7 @@ function useSidebarComponent() {
     const store = useStore.getState();
     for (const [connectionUrl, snapshot] of merges) {
       store.mergeServerReadModel(snapshot, {
-        ...LEAN_SNAPSHOT_RECOVERY_INPUT,
+        ...METADATA_SNAPSHOT_RECOVERY_INPUT,
         connectionUrl,
       });
     }
@@ -2930,7 +2930,7 @@ function useSidebarComponent() {
           try {
             const snapshot = (await routeOrchestrationGetSnapshotFromRemote(
               connectionUrl,
-              LEAN_SNAPSHOT_RECOVERY_INPUT,
+              METADATA_SNAPSHOT_RECOVERY_INPUT,
             )) as OrchestrationReadModel;
             const previousSequence =
               remoteSnapshotSequenceByConnectionRef.current.get(connectionUrl);
@@ -4151,9 +4151,11 @@ function useSidebarComponent() {
           threadId,
           ...(totalItemsHint !== undefined ? { totalItemsHint } : {}),
           priority,
-        }).catch((error) => {
-          reportBackgroundError("Failed to prefetch thread timeline window.", error);
-        });
+        })
+          .then(() => undefined)
+          .catch((error) => {
+            reportBackgroundError("Failed to prefetch thread timeline window.", error);
+          });
       };
       const storeThread = useStore.getState().threadsById?.[threadId];
       if (

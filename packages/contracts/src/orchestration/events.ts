@@ -488,6 +488,23 @@ export const OrchestrationGetThreadTimelinePageInput = Schema.Struct({
 export type OrchestrationGetThreadTimelinePageInput =
   typeof OrchestrationGetThreadTimelinePageInput.Type;
 
+export const OrchestrationGetThreadTimelinePageRangeInput = Schema.Struct({
+  startIndex: NonNegativeInt,
+  limit: PositiveInt,
+  anchor: Schema.optional(Schema.Literals(["tail"])),
+});
+export type OrchestrationGetThreadTimelinePageRangeInput =
+  typeof OrchestrationGetThreadTimelinePageRangeInput.Type;
+
+export const OrchestrationGetThreadTimelinePagesInput = Schema.Struct({
+  threadId: ThreadId,
+  pages: Schema.Array(OrchestrationGetThreadTimelinePageRangeInput)
+    .check(Schema.isMinLength(1))
+    .check(Schema.isMaxLength(8)),
+});
+export type OrchestrationGetThreadTimelinePagesInput =
+  typeof OrchestrationGetThreadTimelinePagesInput.Type;
+
 export const OrchestrationGetThreadTimelineManifestInput = Schema.Struct({
   threadId: ThreadId,
 });
@@ -518,6 +535,12 @@ export const OrchestrationGetThreadTimelinePageResult = Schema.Struct({
 });
 export type OrchestrationGetThreadTimelinePageResult =
   typeof OrchestrationGetThreadTimelinePageResult.Type;
+
+export const OrchestrationGetThreadTimelinePagesResult = Schema.Array(
+  OrchestrationGetThreadTimelinePageResult,
+);
+export type OrchestrationGetThreadTimelinePagesResult =
+  typeof OrchestrationGetThreadTimelinePagesResult.Type;
 
 export const OrchestrationGetTurnDiffInput = TurnCountRange.mapFields(
   Struct.assign({ threadId: ThreadId }),
@@ -557,6 +580,10 @@ export const OrchestrationRpcSchemas = {
   getThreadTimelinePage: {
     input: OrchestrationGetThreadTimelinePageInput,
     output: OrchestrationGetThreadTimelinePageResult,
+  },
+  getThreadTimelinePages: {
+    input: OrchestrationGetThreadTimelinePagesInput,
+    output: OrchestrationGetThreadTimelinePagesResult,
   },
   getThreadTimelineManifest: {
     input: OrchestrationGetThreadTimelineManifestInput,

@@ -99,6 +99,8 @@ import type {
   OrchestrationGetThreadTimelineManifestResult,
   OrchestrationGetThreadTimelinePageInput,
   OrchestrationGetThreadTimelinePageResult,
+  OrchestrationGetThreadTimelinePagesInput,
+  OrchestrationGetThreadTimelinePagesResult,
   OrchestrationGetFullThreadDiffInput,
   OrchestrationGetFullThreadDiffResult,
   OrchestrationGetTurnDiffInput,
@@ -577,6 +579,9 @@ export interface NativeApi {
     getThreadTimelinePage: (
       input: OrchestrationGetThreadTimelinePageInput,
     ) => Promise<OrchestrationGetThreadTimelinePageResult>;
+    getThreadTimelinePages: (
+      input: OrchestrationGetThreadTimelinePagesInput,
+    ) => Promise<OrchestrationGetThreadTimelinePagesResult>;
     getThreadTimelineManifest: (
       input: OrchestrationGetThreadTimelineManifestInput,
     ) => Promise<OrchestrationGetThreadTimelineManifestResult>;

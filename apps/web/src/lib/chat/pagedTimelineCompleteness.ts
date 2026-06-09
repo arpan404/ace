@@ -7,7 +7,7 @@ export function isPagedThreadTimelineUsable(input: {
     OrchestrationLatestTurn,
     "assistantMessageId" | "completedAt" | "state" | "turnId"
   > | null;
-  readonly leanMessages: ReadonlyArray<Pick<ChatMessage, "role" | "turnId">>;
+  readonly snapshotMessages: ReadonlyArray<Pick<ChatMessage, "role" | "turnId">>;
   readonly pagedMessages: ReadonlyArray<Pick<ChatMessage, "id" | "role" | "turnId">>;
 }): boolean {
   void input;

@@ -152,6 +152,23 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
       `;
       assert.deepEqual(messageRows, [{ messageId: "message-1", text: "hello" }]);
 
+      const timelineRows = yield* sql<{
+        readonly kind: string;
+        readonly sourceId: string;
+        readonly timelineIndex: number;
+      }>`
+        SELECT
+          kind,
+          source_id AS "sourceId",
+          timeline_index AS "timelineIndex"
+        FROM projection_thread_timeline_entries
+        WHERE thread_id = 'thread-1'
+        ORDER BY timeline_index ASC
+      `;
+      assert.deepEqual(timelineRows, [
+        { kind: "message", sourceId: "message-1", timelineIndex: 0 },
+      ]);
+
       const stateRows = yield* sql<{
         readonly projector: string;
         readonly lastAppliedSequence: number;

@@ -124,6 +124,12 @@
 }
 
 @layer components {
+  .timeline-row-render-cache {
+    contain: layout paint style;
+    content-visibility: auto;
+    contain-intrinsic-size: auto var(--timeline-row-estimated-height, 96px);
+  }
+
   .timeline-row-prepended {
     animation: timeline-prepended-row-in 320ms cubic-bezier(0.2, 0, 0, 1) both;
   }

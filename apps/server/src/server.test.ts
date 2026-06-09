@@ -2439,7 +2439,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
   );
 
   it.effect(
-    "routes websocket rpc orchestration.getSnapshot through the in-memory lean view and targeted hydration",
+    "routes websocket rpc orchestration.getSnapshot without targeted hydration side effects",
     () =>
       Effect.gen(function* () {
         const now = new Date().toISOString();
@@ -2534,44 +2534,52 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             },
           ],
         };
-        const leanSnapshotFixture: OrchestrationReadModel = {
+        const metadataSnapshot: OrchestrationReadModel = {
           ...snapshot,
           threads: [
             {
               ...snapshot.threads[0]!,
-              messages: [snapshot.threads[0]!.messages[0]!],
-              activities: [snapshot.threads[0]!.activities[0]!],
+              messages: [],
+              activities: [],
+              proposedPlans: [],
               checkpoints: [],
             },
           ],
         };
+        const snapshotInputs: unknown[] = [];
+        let getThreadCallCount = 0;
 
         yield* buildAppUnderTest({
           layers: {
             orchestrationEngine: {
-              getReadModel: () => Effect.succeed(leanSnapshotFixture),
+              getReadModel: () => Effect.succeed(metadataSnapshot),
             },
             projectionSnapshotQuery: {
-              getSnapshot: () => Effect.die("unexpected full snapshot query"),
+              getSnapshot: (input) =>
+                Effect.sync(() => {
+                  snapshotInputs.push(input);
+                  return metadataSnapshot;
+                }),
               getThread: (requestedThreadId) =>
-                Effect.succeed(
-                  requestedThreadId === threadId
+                Effect.sync(() => {
+                  getThreadCallCount += 1;
+                  return requestedThreadId === threadId
                     ? Option.some(snapshot.threads[0]!)
-                    : Option.none(),
-                ),
+                    : Option.none();
+                }),
             },
           },
         });
 
         const wsUrl = yield* getWsServerUrl("/ws");
-        const leanSnapshot = yield* Effect.scoped(
+        const firstSnapshot = yield* Effect.scoped(
           withWsRpcClient(wsUrl, (client) =>
             client[ORCHESTRATION_WS_METHODS.getSnapshot]({
               hydrateThreadId: null,
             }),
           ),
         );
-        const hydratedSnapshot = yield* Effect.scoped(
+        const targetedSnapshot = yield* Effect.scoped(
           withWsRpcClient(wsUrl, (client) =>
             client[ORCHESTRATION_WS_METHODS.getSnapshot]({
               hydrateThreadId: threadId,
@@ -2586,25 +2594,17 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           ),
         );
 
-        assert.deepEqual(
-          leanSnapshot.threads[0]?.messages.map((message) => message.role),
-          ["user"],
-        );
-        assert.deepEqual(
-          leanSnapshot.threads[0]?.activities.map((activity) => activity.kind),
-          ["approval.requested"],
-        );
-        assert.equal(leanSnapshot.threads[0]?.checkpoints.length, 0);
-
-        assert.deepEqual(
-          hydratedSnapshot.threads[0]?.messages.map((message) => message.role),
-          ["user", "assistant"],
-        );
-        assert.deepEqual(
-          hydratedSnapshot.threads[0]?.activities.map((activity) => activity.kind),
-          ["approval.requested", "tool.progress"],
-        );
-        assert.equal(hydratedSnapshot.threads[0]?.checkpoints.length, 1);
+        assert.deepEqual(snapshotInputs, [
+          { hydrateThreadId: null },
+          { hydrateThreadId: threadId },
+        ]);
+        assert.equal(getThreadCallCount, 1);
+        assert.deepEqual(firstSnapshot.threads[0]?.messages, []);
+        assert.deepEqual(firstSnapshot.threads[0]?.activities, []);
+        assert.equal(firstSnapshot.threads[0]?.checkpoints.length, 0);
+        assert.deepEqual(targetedSnapshot.threads[0]?.messages, []);
+        assert.deepEqual(targetedSnapshot.threads[0]?.activities, []);
+        assert.equal(targetedSnapshot.threads[0]?.checkpoints.length, 0);
         assert.deepEqual(
           targetedThread.messages.map((message) => message.role),
           ["user", "assistant"],

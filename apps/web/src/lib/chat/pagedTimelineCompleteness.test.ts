@@ -15,7 +15,7 @@ describe("isPagedThreadTimelineUsable", () => {
           state: "running",
           turnId,
         },
-        leanMessages: [],
+        snapshotMessages: [],
         pagedMessages: [],
       }),
     ).toBe(true);
@@ -30,7 +30,7 @@ describe("isPagedThreadTimelineUsable", () => {
           state: "completed",
           turnId,
         },
-        leanMessages: [],
+        snapshotMessages: [],
         pagedMessages: [
           {
             id: MessageId.makeUnsafe("user-1"),
@@ -51,7 +51,7 @@ describe("isPagedThreadTimelineUsable", () => {
           state: "completed",
           turnId,
         },
-        leanMessages: [],
+        snapshotMessages: [],
         pagedMessages: [
           {
             id: MessageId.makeUnsafe("assistant-1"),
@@ -63,7 +63,7 @@ describe("isPagedThreadTimelineUsable", () => {
     ).toBe(true);
   });
 
-  it("allows completed latest-turn lean user fallback before a matching assistant is fetched", () => {
+  it("allows completed latest-turn snapshot user fallback before a matching assistant is fetched", () => {
     expect(
       isPagedThreadTimelineUsable({
         latestTurn: {
@@ -72,7 +72,7 @@ describe("isPagedThreadTimelineUsable", () => {
           state: "completed",
           turnId,
         },
-        leanMessages: [
+        snapshotMessages: [
           {
             role: "user",
             turnId,
@@ -89,7 +89,7 @@ describe("isPagedThreadTimelineUsable", () => {
     ).toBe(true);
   });
 
-  it("allows completed latest-turn lean user fallback once a matching assistant is fetched", () => {
+  it("allows completed latest-turn snapshot user fallback once a matching assistant is fetched", () => {
     expect(
       isPagedThreadTimelineUsable({
         latestTurn: {
@@ -98,7 +98,7 @@ describe("isPagedThreadTimelineUsable", () => {
           state: "completed",
           turnId,
         },
-        leanMessages: [
+        snapshotMessages: [
           {
             role: "user",
             turnId,

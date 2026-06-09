@@ -103,7 +103,7 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
         previousScrollTop: 0,
         elapsedMs: 100,
       }),
-    ).toMatchObject({ direction: "both", lookaheadRows: 16, olderPageCount: 1, pageSize: 100 });
+    ).toMatchObject({ direction: "both", lookaheadRows: 32, olderPageCount: 1, pageSize: 100 });
     expect(
       deriveTimelineScrollPrefetchRequest({
         currentScrollTop: 500,
@@ -114,7 +114,7 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
       direction: "newer",
       lookaheadRows: 256,
       olderPageCount: 5,
-      pageSize: 1_000,
+      pageSize: 500,
     });
     expect(
       deriveTimelineScrollPrefetchRequest({
@@ -126,7 +126,7 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
       direction: "older",
       lookaheadRows: 1_024,
       olderPageCount: 12,
-      pageSize: 4_000,
+      pageSize: 500,
     });
   });
 
@@ -157,6 +157,50 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     });
   });
 
+  it("maps rendered row windows back to global timeline indexes", async () => {
+    const { deriveGlobalTimelineRenderedWindowState, deriveTimelineRenderedWindowState } =
+      await import("./MessagesTimeline");
+    const rows = [
+      {
+        id: "entry-5000",
+        kind: "message",
+      },
+      {
+        id: "completed-work-summary:entry-5001",
+        kind: "completed-work-summary",
+        entries: [{ id: "entry-5001" }, { id: "entry-5002" }],
+        detailRows: [],
+        visibleDiagnosticRows: [],
+      },
+      {
+        id: "entry-5003",
+        kind: "message",
+      },
+    ] as unknown as Parameters<typeof deriveGlobalTimelineRenderedWindowState>[0]["rows"];
+    const renderedWindowState = deriveTimelineRenderedWindowState({
+      renderedVirtualItems: [makeTimelineVirtualItem(1), makeTimelineVirtualItem(2)],
+      virtualizedRows: rows,
+    });
+
+    expect(
+      deriveGlobalTimelineRenderedWindowState({
+        renderedWindowState,
+        rows,
+        timelineIndexByEntryId: new Map([
+          ["entry-5000", 5_000],
+          ["entry-5001", 5_001],
+          ["entry-5002", 5_002],
+          ["entry-5003", 5_003],
+        ]),
+      }),
+    ).toMatchObject({
+      loadedEndIndexExclusive: 5_004,
+      loadedStartIndex: 5_001,
+      overscanLoadedEndIndexExclusive: 5_004,
+      overscanLoadedStartIndex: 5_001,
+    });
+  });
+
   it("returns null when no loaded rows are rendered", async () => {
     const { deriveTimelineRenderedWindowState } = await import("./MessagesTimeline");
 
@@ -166,6 +210,24 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
         virtualizedRows: [],
       }),
     ).toBeNull();
+  });
+
+  it("derives a rendered window for underfilled unvirtualized timelines", async () => {
+    const { deriveTimelineRenderedWindowState } = await import("./MessagesTimeline");
+
+    expect(
+      deriveTimelineRenderedWindowState({
+        renderedVirtualItems: [],
+        totalRowCount: 2,
+        virtualizedRows: [],
+      }),
+    ).toEqual({
+      loadedEndIndexExclusive: 2,
+      loadedRowCount: 2,
+      loadedStartIndex: 0,
+      overscanLoadedEndIndexExclusive: 2,
+      overscanLoadedStartIndex: 0,
+    });
   });
 
   it("uses stable timeline row cache keys across equivalent remounted arrays", async () => {
@@ -340,13 +402,13 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
       const timelineEntries = Array.from({ length: 80 }, (_, index) => {
         const createdAt = `2026-03-17T19:${String(12 + Math.floor(index / 60)).padStart(2, "0")}:${String(index % 60).padStart(2, "0")}.000Z`;
         return {
-          id: `lean-user-${index + 1}`,
+          id: `metadata-user-${index + 1}`,
           kind: "message" as const,
           createdAt,
           message: {
-            id: MessageId.makeUnsafe(`lean-user-${index + 1}`),
+            id: MessageId.makeUnsafe(`metadata-user-${index + 1}`),
             role: "user" as const,
-            text: `Lean row ${index + 1}`,
+            text: `Metadata row ${index + 1}`,
             createdAt,
             streaming: false,
           },
@@ -409,6 +471,53 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(markup).toContain("Fetching thread");
     expect(markup).not.toContain("animate-pulse");
     expect(markup).not.toContain("rounded-full bg-muted");
+  });
+
+  it("shows fetching state without replacing already rendered rows", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        hasMessages
+        isWorking={false}
+        activeTurnInProgress={false}
+        activeTurnStartedAt={null}
+        getScrollContainer={() => null}
+        isThreadHistoryFetching
+        timelineEntries={[
+          {
+            id: "loaded-user",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:30.000Z",
+            message: {
+              id: MessageId.makeUnsafe("loaded-user"),
+              role: "user",
+              text: "Already loaded",
+              createdAt: "2026-03-17T19:12:30.000Z",
+              streaming: false,
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        resolvedTheme="light"
+        timestampFormat="locale"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup).toContain("Already loaded");
+    expect(markup).toContain("Fetching thread");
+    expect(markup).toContain('data-thread-timeline-fetching="true"');
+    expect(markup).not.toContain("Loading conversation");
   });
 
   it("renders terminal assistant output through markdown instead of forcing plain text", async () => {

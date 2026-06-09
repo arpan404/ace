@@ -55,6 +55,14 @@ export const ListProjectionThreadTimelinePageInput = Schema.Struct({
 export type ListProjectionThreadTimelinePageInput =
   typeof ListProjectionThreadTimelinePageInput.Type;
 
+export const ProjectionThreadTimelineCompleteness = Schema.Struct({
+  timelineCount: NonNegativeInt,
+  timelineSpan: NonNegativeInt,
+  indexedSourceCount: NonNegativeInt,
+  sourceCount: NonNegativeInt,
+});
+export type ProjectionThreadTimelineCompleteness = typeof ProjectionThreadTimelineCompleteness.Type;
+
 export interface ProjectionThreadTimelineEntryRepositoryShape {
   readonly upsertSourceEntry: (
     input: UpsertProjectionThreadTimelineEntryInput,
@@ -71,6 +79,9 @@ export interface ProjectionThreadTimelineEntryRepositoryShape {
   readonly countByThreadId: (
     input: ThreadTimelineThreadInput,
   ) => Effect.Effect<number, ProjectionRepositoryError>;
+  readonly getCompletenessByThreadId: (
+    input: ThreadTimelineThreadInput,
+  ) => Effect.Effect<ProjectionThreadTimelineCompleteness, ProjectionRepositoryError>;
   readonly listPage: (
     input: ListProjectionThreadTimelinePageInput,
   ) => Effect.Effect<ReadonlyArray<ProjectionThreadTimelineEntry>, ProjectionRepositoryError>;

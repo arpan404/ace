@@ -12,6 +12,8 @@ import type {
   OrchestrationGetThreadTimelineManifestResult,
   OrchestrationGetThreadTimelinePageInput,
   OrchestrationGetThreadTimelinePageResult,
+  OrchestrationGetThreadTimelinePagesInput,
+  OrchestrationGetThreadTimelinePagesResult,
   OrchestrationGetSnapshotInput,
   OrchestrationProject,
   OrchestrationReadModel,
@@ -66,6 +68,16 @@ export interface ProjectionSnapshotQueryShape {
     input: OrchestrationGetThreadTimelinePageInput,
   ) => Effect.Effect<
     Option.Option<OrchestrationGetThreadTimelinePageResult>,
+    ProjectionRepositoryError
+  >;
+
+  /**
+   * Read several sparse timeline pages for one thread in one backend request.
+   */
+  readonly getThreadTimelinePages: (
+    input: OrchestrationGetThreadTimelinePagesInput,
+  ) => Effect.Effect<
+    Option.Option<OrchestrationGetThreadTimelinePagesResult>,
     ProjectionRepositoryError
   >;
 

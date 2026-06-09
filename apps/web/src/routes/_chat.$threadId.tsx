@@ -5,7 +5,10 @@ import { useCallback, useEffect, useRef } from "react";
 import { ThreadBoard } from "../components/chat/ThreadBoard";
 import { useComposerDraftStore } from "../composerDraftStore";
 import { type DiffRouteSearch, parseDiffRouteSearch } from "../diffRouteSearch";
-import { prefetchThreadTimelineWindows } from "../lib/chat/timelineWindowStore";
+import {
+  prefetchThreadTimelineWindows,
+  startThreadTimelineOpenPrefetch,
+} from "../lib/chat/timelineWindowStore";
 import { getThreadById, getThreadByIdFromState, useStore } from "../store";
 import { SidebarInset } from "~/components/ui/sidebar";
 import { getWsRpcClient } from "../wsRpcClient";
@@ -99,12 +102,13 @@ function ChatThreadRouteView() {
     const requestId = threadHydrationRequestIdRef.current + 1;
     threadHydrationRequestIdRef.current = requestId;
     threadHydrationInFlightRef.current = threadId;
+    const prefetch = startThreadTimelineOpenPrefetch({
+      threadId,
+      priority: "immediate",
+    });
     void (async () => {
       try {
-        await prefetchThreadTimelineWindows({
-          threadId,
-          priority: "immediate",
-        });
+        await prefetch.done;
         if (canceled) {
           return;
         }
@@ -122,6 +126,9 @@ function ChatThreadRouteView() {
 
     return () => {
       canceled = true;
+      // The route owns the active-open timeline prefetch. Stop between page requests on switch.
+      // In-flight RPCs are allowed to finish and stay cached.
+      prefetch.stop();
       if (
         requestId === threadHydrationRequestIdRef.current &&
         threadHydrationInFlightRef.current === threadId
@@ -132,7 +139,7 @@ function ChatThreadRouteView() {
   }, [bootstrapComplete, serverThread, threadId]);
 
   useEffect(() => {
-    runThreadHydration();
+    return runThreadHydration();
   }, [runThreadHydration]);
 
   useEffect(
