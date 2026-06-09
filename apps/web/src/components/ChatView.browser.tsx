@@ -1806,7 +1806,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("keeps recent long-thread histories hydrated across quick toggles", async () => {
+  it("keeps recent long-thread timeline pages available across quick toggles", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
       snapshot: createSnapshotWithTwoScrollableThreads(),
@@ -1827,7 +1827,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
           const primaryThread = useStore
             .getState()
             .threads.find((thread) => thread.id === THREAD_ID);
-          expect(primaryThread?.historyLoaded).toBe(true);
+          expect(primaryThread?.historyLoaded).toBe(false);
         },
         { timeout: 4_000, interval: 16 },
       );
@@ -1846,7 +1846,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
           const secondaryThread = useStore
             .getState()
             .threads.find((thread) => thread.id === SECOND_THREAD_ID);
-          expect(secondaryThread?.historyLoaded).toBe(true);
+          expect(secondaryThread?.historyLoaded).toBe(false);
         },
         { timeout: 4_000, interval: 16 },
       );

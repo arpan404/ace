@@ -12,7 +12,10 @@ import { Throttler } from "@tanstack/react-pacer";
 import { CheckIcon, ChevronDownIcon, CopyIcon, RefreshCwIcon, RotateCcwIcon } from "lucide-react";
 
 import { resolveAppStartupMessage, resolveAppStartupState } from "../appStartup";
-import { LEAN_SNAPSHOT_RECOVERY_INPUT, resolveWelcomeBootstrapPlan } from "../bootstrapRecovery";
+import {
+  METADATA_SNAPSHOT_RECOVERY_INPUT,
+  resolveWelcomeBootstrapPlan,
+} from "../bootstrapRecovery";
 import { APP_BASE_NAME } from "../branding";
 import { AppSidebarLayout } from "../components/AppSidebarLayout";
 import { AgentAttentionNotificationBridge } from "../components/AgentAttentionNotificationBridge";
@@ -79,6 +82,7 @@ import { parseRelayConnectionUrl } from "@ace/shared/relay";
 import { shouldForwardDesktopNotificationOrchestrationEvent } from "@ace/shared/notifications";
 import { appendBrowserDesignContextToPrompt } from "../lib/terminalContext";
 import { cn, newCommandId, newMessageId, randomUUID } from "../lib/utils";
+import { clearAllPersistedTimelineCaches } from "../lib/chat/threadTimelineStorage";
 import {
   dispatchDetachedWindowReturnRequest,
   resolveDetachedWindowReturnThreadId,
@@ -87,6 +91,25 @@ import {
 const DetachedThreadWorkspaceEditor = lazy(
   () => import("../components/editor/ThreadWorkspaceEditor"),
 );
+
+function wasPageReloaded(): boolean {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  const navigationEntries =
+    typeof window.performance?.getEntriesByType === "function"
+      ? window.performance.getEntriesByType("navigation")
+      : [];
+  const latestNavigation = navigationEntries[0];
+  if (latestNavigation !== undefined && "type" in latestNavigation) {
+    return latestNavigation.type === "reload";
+  }
+
+  const legacyType = (window.performance as { navigation?: { type?: number } } | undefined)
+    ?.navigation?.type;
+  return legacyType === 1;
+}
 
 export const Route = createRootRouteWithContext<{
   queryClient: QueryClient;
@@ -136,6 +159,7 @@ function RootRouteView() {
 function MainRootRouteView() {
   const bootstrapComplete = useStore((store) => store.bootstrapComplete);
   const reliabilityUxEnabled = useSetting("reliabilityUxEnabled");
+  const [hasClearedTimelineCaches, setHasClearedTimelineCaches] = useState(!wasPageReloaded());
   const [remoteBootstrapSettled, setRemoteBootstrapSettled] = useState(
     import.meta.env.MODE === "test",
   );
@@ -147,6 +171,23 @@ function MainRootRouteView() {
   const handleRemoteBootstrapSettled = useCallback(() => {
     setRemoteBootstrapSettled(true);
   }, []);
+
+  useEffect(() => {
+    if (hasClearedTimelineCaches) {
+      return;
+    }
+    let isMounted = true;
+    void clearAllPersistedTimelineCaches()
+      .catch(() => undefined)
+      .finally(() => {
+        if (isMounted) {
+          setHasClearedTimelineCaches(true);
+        }
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, [hasClearedTimelineCaches]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -201,7 +242,7 @@ function MainRootRouteView() {
         key={`remote-bootstrap-${String(wsHostEpoch)}`}
         onSettled={handleRemoteBootstrapSettled}
       />
-      {!remoteBootstrapSettled || startupState === "connecting" ? (
+      {!hasClearedTimelineCaches || !remoteBootstrapSettled || startupState === "connecting" ? (
         <AppStartupScreen
           state={startupStateForDisplay}
           message={resolveAppStartupMessage(startupStateForDisplay, APP_BASE_NAME)}
@@ -451,7 +492,6 @@ function DetachedThreadSnapshotBootstrap(props: {
     if (!props.threadId) {
       return;
     }
-    const threadId = ThreadId.makeUnsafe(props.threadId);
     const connectionUrl = props.connectionUrl?.trim() || null;
     let disposed = false;
 
@@ -459,14 +499,14 @@ function DetachedThreadSnapshotBootstrap(props: {
       (async () => {
         const snapshot = connectionUrl
           ? await getRouteRpcClient(connectionUrl).orchestration.getSnapshot(
-              LEAN_SNAPSHOT_RECOVERY_INPUT,
+              METADATA_SNAPSHOT_RECOVERY_INPUT,
             )
-          : await readNativeApi()?.orchestration.getSnapshot(LEAN_SNAPSHOT_RECOVERY_INPUT);
+          : await readNativeApi()?.orchestration.getSnapshot(METADATA_SNAPSHOT_RECOVERY_INPUT);
         if (!snapshot || disposed) {
           return;
         }
         mergeServerReadModel(snapshot, {
-          hydrateThreadId: LEAN_SNAPSHOT_RECOVERY_INPUT.hydrateThreadId,
+          hydrateThreadId: METADATA_SNAPSHOT_RECOVERY_INPUT.hydrateThreadId,
           ...(connectionUrl ? { connectionUrl } : {}),
         });
       })(),
@@ -1253,12 +1293,12 @@ function useEventRouterLifecycle() {
         return;
       }
       const phase = beginLoadPhase("snapshot", `Running snapshot recovery (${reason})`, {
-        hydrateThreadId: LEAN_SNAPSHOT_RECOVERY_INPUT.hydrateThreadId,
+        hydrateThreadId: METADATA_SNAPSHOT_RECOVERY_INPUT.hydrateThreadId,
       });
 
       try {
         const snapshot = await localRpcClient.orchestration.getSnapshot(
-          LEAN_SNAPSHOT_RECOVERY_INPUT,
+          METADATA_SNAPSHOT_RECOVERY_INPUT,
         );
         if (!disposed) {
           const localOwnership = useHostConnectionStore.getState().getOwnership(localConnectionUrl);
@@ -1267,7 +1307,7 @@ function useEventRouterLifecycle() {
           }
           useHostConnectionStore.getState().upsertSnapshotOwnership(localConnectionUrl, snapshot);
           mergeServerReadModel(snapshot, {
-            ...LEAN_SNAPSHOT_RECOVERY_INPUT,
+            ...METADATA_SNAPSHOT_RECOVERY_INPUT,
             connectionUrl: localConnectionUrl,
           });
           reconcileSnapshotDerivedState();

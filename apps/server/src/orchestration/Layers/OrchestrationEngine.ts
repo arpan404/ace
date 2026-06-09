@@ -145,19 +145,23 @@ const makeOrchestrationEngine = Effect.gen(function* () {
       if (thread.proposedPlans.some((entry) => entry.id === planId)) {
         return;
       }
-      if (thread.proposedPlans.length > 0) {
+
+      const hydratedThread = yield* projectionSnapshotQuery.getThread(threadId);
+      if (Option.isNone(hydratedThread)) {
         return;
       }
 
-      const snapshot = yield* projectionSnapshotQuery.getSnapshot({
-        hydrateThreadId: threadId,
-      });
-      const hydratedThread = snapshot.threads.find((entry) => entry.id === threadId);
-      if (!hydratedThread) {
-        return;
-      }
-
-      readModel = snapshot;
+      const nextUpdatedAt =
+        readModel.updatedAt.localeCompare(hydratedThread.value.updatedAt) >= 0
+          ? readModel.updatedAt
+          : hydratedThread.value.updatedAt;
+      readModel = {
+        ...readModel,
+        threads: readModel.threads.map((entry) =>
+          entry.id === threadId ? hydratedThread.value : entry,
+        ),
+        updatedAt: nextUpdatedAt,
+      };
     });
 
   const processEnvelope = (envelope: CommandEnvelope): Effect.Effect<void> => {

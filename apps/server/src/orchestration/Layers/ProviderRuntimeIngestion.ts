@@ -2953,10 +2953,8 @@ const make = Effect.fn("make")(function* () {
   });
 
   const getHydratedThread = Effect.fnUntraced(function* (threadId: ThreadId) {
-    const snapshot = yield* projectionSnapshotQuery.getSnapshot({
-      hydrateThreadId: threadId,
-    });
-    return snapshot.threads.find((entry) => entry.id === threadId);
+    const thread = yield* projectionSnapshotQuery.getThread(threadId);
+    return Option.getOrUndefined(thread);
   });
 
   const getSourceProposedPlanReferenceForAcceptedTurnStart = Effect.fnUntraced(function* (

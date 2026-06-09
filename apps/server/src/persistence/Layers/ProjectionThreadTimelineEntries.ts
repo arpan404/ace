@@ -7,6 +7,7 @@ import { toPersistenceSqlError } from "../Errors.ts";
 import {
   DeleteProjectionThreadTimelineSourceInput,
   ListProjectionThreadTimelinePageInput,
+  ProjectionThreadTimelineCompleteness,
   ProjectionThreadTimelineEntry,
   ProjectionThreadTimelineEntryRepository,
   type ProjectionThreadTimelineEntryRepositoryShape,
@@ -202,6 +203,61 @@ const makeProjectionThreadTimelineEntryRepository = Effect.gen(function* () {
     `,
   });
 
+  const getProjectionThreadTimelineCompleteness = SqlSchema.findOne({
+    Request: ThreadTimelineThreadInput,
+    Result: ProjectionThreadTimelineCompleteness,
+    execute: ({ threadId }) => sql`
+      SELECT
+        (
+          SELECT COUNT(*)
+          FROM projection_thread_timeline_entries
+          WHERE thread_id = ${threadId}
+        ) AS "timelineCount",
+        (
+          SELECT COALESCE(MAX(timeline_index) + 1, 0)
+          FROM projection_thread_timeline_entries
+          WHERE thread_id = ${threadId}
+        ) AS "timelineSpan",
+        (
+          SELECT COUNT(*)
+          FROM projection_thread_timeline_entries AS timeline
+          LEFT JOIN projection_thread_messages AS message
+            ON timeline.kind = 'message'
+            AND message.thread_id = ${threadId}
+            AND message.message_id = timeline.source_id
+          LEFT JOIN projection_thread_activities AS activity
+            ON timeline.kind = 'activity'
+            AND activity.thread_id = ${threadId}
+            AND activity.activity_id = timeline.source_id
+          LEFT JOIN projection_thread_proposed_plans AS proposed_plan
+            ON timeline.kind = 'proposed-plan'
+            AND proposed_plan.thread_id = ${threadId}
+            AND proposed_plan.plan_id = timeline.source_id
+          WHERE timeline.thread_id = ${threadId}
+            AND (
+              message.message_id IS NOT NULL
+              OR activity.activity_id IS NOT NULL
+              OR proposed_plan.plan_id IS NOT NULL
+            )
+        ) AS "indexedSourceCount",
+        (
+          (
+            SELECT COUNT(*)
+            FROM projection_thread_messages
+            WHERE thread_id = ${threadId}
+          ) + (
+            SELECT COUNT(*)
+            FROM projection_thread_activities
+            WHERE thread_id = ${threadId}
+          ) + (
+            SELECT COUNT(*)
+            FROM projection_thread_proposed_plans
+            WHERE thread_id = ${threadId}
+          )
+        ) AS "sourceCount"
+    `,
+  });
+
   const listProjectionThreadTimelineRows = SqlSchema.findAll({
     Request: ListProjectionThreadTimelinePageInput,
     Result: ProjectionThreadTimelineEntryDbRowSchema,
@@ -266,6 +322,16 @@ const makeProjectionThreadTimelineEntryRepository = Effect.gen(function* () {
       Effect.map((row) => row.count),
     );
 
+  const getCompletenessByThreadId: ProjectionThreadTimelineEntryRepositoryShape["getCompletenessByThreadId"] =
+    (input) =>
+      getProjectionThreadTimelineCompleteness(input).pipe(
+        Effect.mapError(
+          toPersistenceSqlError(
+            "ProjectionThreadTimelineEntryRepository.getCompletenessByThreadId:query",
+          ),
+        ),
+      );
+
   const listPage: ProjectionThreadTimelineEntryRepositoryShape["listPage"] = (input) =>
     listProjectionThreadTimelineRows(input).pipe(
       Effect.mapError(
@@ -280,6 +346,7 @@ const makeProjectionThreadTimelineEntryRepository = Effect.gen(function* () {
     deleteBySource,
     rebuildThread,
     countByThreadId,
+    getCompletenessByThreadId,
     listPage,
   } satisfies ProjectionThreadTimelineEntryRepositoryShape;
 });

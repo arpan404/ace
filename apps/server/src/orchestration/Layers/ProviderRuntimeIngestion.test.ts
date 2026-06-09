@@ -15,7 +15,7 @@ import {
   ThreadId,
   TurnId,
 } from "@ace/contracts";
-import { Effect, Exit, Layer, ManagedRuntime, PubSub, Scope, Stream } from "effect";
+import { Effect, Exit, Layer, ManagedRuntime, Option, PubSub, Scope, Stream } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -289,9 +289,7 @@ describe("ProviderRuntimeIngestion", () => {
       );
     const readProjectedThread = (threadId: ThreadId = asThreadId("thread-1")) =>
       runtime!.runPromise(
-        projectionSnapshotQuery
-          .getSnapshot({ hydrateThreadId: threadId })
-          .pipe(Effect.map((snapshot) => snapshot.threads.find((entry) => entry.id === threadId))),
+        projectionSnapshotQuery.getThread(threadId).pipe(Effect.map(Option.getOrUndefined)),
       );
 
     const createdAt = new Date().toISOString();

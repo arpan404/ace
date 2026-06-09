@@ -165,6 +165,9 @@ export interface WsRpcClient {
     readonly getThreadTimelinePage: RpcUnaryMethod<
       typeof ORCHESTRATION_WS_METHODS.getThreadTimelinePage
     >;
+    readonly getThreadTimelinePages: RpcUnaryMethod<
+      typeof ORCHESTRATION_WS_METHODS.getThreadTimelinePages
+    >;
     readonly getThreadTimelineManifest: RpcUnaryMethod<
       typeof ORCHESTRATION_WS_METHODS.getThreadTimelineManifest
     >;
@@ -366,6 +369,10 @@ export function createWsRpcClient(transport: RpcTransportLike = new WsTransport(
       getThreadTimelinePage: (input) =>
         transport.request((client) =>
           client[ORCHESTRATION_WS_METHODS.getThreadTimelinePage](input),
+        ),
+      getThreadTimelinePages: (input) =>
+        transport.request((client) =>
+          client[ORCHESTRATION_WS_METHODS.getThreadTimelinePages](input),
         ),
       getThreadTimelineManifest: (input) =>
         transport.request((client) =>

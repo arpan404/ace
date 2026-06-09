@@ -1,9 +1,23 @@
-import { EventId, MessageId, ProjectId, ThreadId, TurnId } from "@ace/contracts";
+import {
+  EventId,
+  MessageId,
+  type OrchestrationGetThreadTimelinePageRangeInput,
+  ProjectId,
+  ThreadId,
+  TurnId,
+} from "@ace/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const nativeApiMock = vi.hoisted(() => ({
   getThreadTimelineManifest: vi.fn(),
   getThreadTimelinePage: vi.fn(),
+  getThreadTimelinePages: vi.fn(),
+}));
+const storageMock = vi.hoisted(() => ({
+  readPersistedThreadTimelineCache: vi.fn(),
+  readPersistedThreadTimelinePages: vi.fn(),
+  writePersistedThreadTimelineCache: vi.fn(),
+  writePersistedThreadTimelinePage: vi.fn(),
 }));
 
 vi.mock("../../nativeApi", () => ({
@@ -11,16 +25,32 @@ vi.mock("../../nativeApi", () => ({
     orchestration: nativeApiMock,
   }),
 }));
+vi.mock("./threadTimelineStorage", () => ({
+  readPersistedThreadTimelineCache: storageMock.readPersistedThreadTimelineCache,
+  readPersistedThreadTimelinePages: storageMock.readPersistedThreadTimelinePages,
+  writePersistedThreadTimelineCache: storageMock.writePersistedThreadTimelineCache,
+  writePersistedThreadTimelinePage: storageMock.writePersistedThreadTimelinePage,
+  clearPersistedThreadTimelineCache: vi.fn(),
+  readAllPersistedTimelineCacheKeysForStorage: vi.fn(),
+}));
 
 import {
   ensureThreadTimelineRange,
+  fetchThreadTimelinePages,
   prefetchThreadTimelineAroundLoadedWindow,
   prefetchThreadTimelineWindows,
+  hydrateThreadTimelineCacheFromStorage,
   primeThreadTimelineManifestFromReadModelThread,
   readCachedThreadTimelinePage,
   readLoadedThreadTimelinePages,
   readTimelineRowHeight,
   resolveTimelineScrollPrefetchPageSize,
+  startThreadTimelineOpenPrefetch,
+  TIMELINE_FETCH_STATE_STALE_MS,
+  TIMELINE_PAGE_CLIENT_BATCH_LIMIT,
+  TIMELINE_PAGE_FETCH_RETRY_BASE_DELAY_MS,
+  TIMELINE_PAGE_RPC_BATCH_LIMIT,
+  TIMELINE_PAGE_FETCH_TIMEOUT_MS,
   useTimelineWindowStore,
   writeTimelineRowHeight,
 } from "./timelineWindowStore";
@@ -29,9 +59,15 @@ const threadId = ThreadId.makeUnsafe("thread-window-store");
 const turnId = TurnId.makeUnsafe("turn-window-store");
 
 afterEach(() => {
+  vi.useRealTimers();
   useTimelineWindowStore.getState().reset();
   nativeApiMock.getThreadTimelineManifest.mockReset();
   nativeApiMock.getThreadTimelinePage.mockReset();
+  nativeApiMock.getThreadTimelinePages.mockReset();
+  storageMock.readPersistedThreadTimelineCache.mockReset();
+  storageMock.readPersistedThreadTimelinePages.mockReset();
+  storageMock.writePersistedThreadTimelineCache.mockReset();
+  storageMock.writePersistedThreadTimelinePage.mockReset();
 });
 
 function makeTimelinePage(input: {
@@ -55,16 +91,28 @@ function makeTimelinePage(input: {
   };
 }
 
+function mockTimelinePagesBatch(totalItems: number) {
+  nativeApiMock.getThreadTimelinePages.mockImplementation(async (input) =>
+    input.pages.map((page: OrchestrationGetThreadTimelinePageRangeInput) =>
+      makeTimelinePage({
+        startIndex: page.anchor === "tail" ? Math.max(0, totalItems - page.limit) : page.startIndex,
+        limit: page.limit,
+        totalItems,
+      }),
+    ),
+  );
+}
+
 describe("timelineWindowStore", () => {
   it("maps scroll velocity to exponential prefetch page sizes", () => {
     expect(resolveTimelineScrollPrefetchPageSize(0)).toBe(100);
     expect(resolveTimelineScrollPrefetchPageSize(0.74)).toBe(100);
     expect(resolveTimelineScrollPrefetchPageSize(0.75)).toBe(250);
     expect(resolveTimelineScrollPrefetchPageSize(1.5)).toBe(500);
-    expect(resolveTimelineScrollPrefetchPageSize(3)).toBe(1_000);
-    expect(resolveTimelineScrollPrefetchPageSize(6)).toBe(2_000);
-    expect(resolveTimelineScrollPrefetchPageSize(10)).toBe(4_000);
-    expect(resolveTimelineScrollPrefetchPageSize(100)).toBe(4_000);
+    expect(resolveTimelineScrollPrefetchPageSize(3)).toBe(500);
+    expect(resolveTimelineScrollPrefetchPageSize(6)).toBe(500);
+    expect(resolveTimelineScrollPrefetchPageSize(10)).toBe(500);
+    expect(resolveTimelineScrollPrefetchPageSize(100)).toBe(500);
   });
 
   it("stores manifests and bounded page metadata separately from page bodies", () => {
@@ -295,7 +343,306 @@ describe("timelineWindowStore", () => {
 
     expect(nativeApiMock.getThreadTimelinePage.mock.calls.map((call) => call[0])).toEqual([
       expect.objectContaining({ anchor: "tail", startIndex: 0, limit: 50 }),
-      expect.objectContaining({ startIndex: 0, limit: 190 }),
+      expect.objectContaining({ startIndex: 90, limit: 100 }),
+      expect.objectContaining({ startIndex: 0, limit: 90 }),
+    ]);
+  });
+
+  it("continues fetching older open-thread pages until the timeline reaches the top", async () => {
+    nativeApiMock.getThreadTimelinePage.mockImplementation(async (input) =>
+      makeTimelinePage({
+        startIndex: input.anchor === "tail" ? 950 : input.startIndex,
+        limit: input.limit,
+        totalItems: 1_000,
+      }),
+    );
+    mockTimelinePagesBatch(1_000);
+
+    const prefetch = startThreadTimelineOpenPrefetch({
+      threadId,
+      priority: "immediate",
+      batchSizes: [100, 200, 4_000],
+      delayMs: 0,
+    });
+    await prefetch.done;
+    prefetch.stop();
+
+    expect(nativeApiMock.getThreadTimelinePage.mock.calls.map((call) => call[0])).toEqual([
+      expect.objectContaining({ anchor: "tail", startIndex: 0, limit: 50 }),
+      expect.objectContaining({ startIndex: 850, limit: 100 }),
+      expect.objectContaining({ startIndex: 650, limit: 200 }),
+      expect.objectContaining({ startIndex: 150, limit: 500 }),
+      expect.objectContaining({ startIndex: 0, limit: 150 }),
+    ]);
+    expect(nativeApiMock.getThreadTimelinePages).not.toHaveBeenCalled();
+  });
+
+  it("hydrates timeline cache from storage", async () => {
+    const cachedPage = makeTimelinePage({
+      startIndex: 0,
+      limit: 100,
+      totalItems: 200,
+    });
+    const cacheKey = `${threadId}:2026-01-01T00:00:02.000Z:index:0:100`;
+    storageMock.readPersistedThreadTimelineCache.mockResolvedValue({
+      manifest: {
+        threadId,
+        updatedAt: cachedPage.updatedAt,
+        totalItems: 200,
+        tailStartIndex: 100,
+        source: "metadata",
+      },
+      ranges: [
+        {
+          startIndex: 0,
+          endIndexExclusive: 100,
+          cacheKey,
+          updatedAt: cachedPage.updatedAt,
+        },
+      ],
+      lastPersistedAt: Date.now(),
+    });
+    storageMock.readPersistedThreadTimelinePages.mockResolvedValue(
+      new Map([[cacheKey, cachedPage]]),
+    );
+
+    await hydrateThreadTimelineCacheFromStorage(threadId);
+
+    expect(storageMock.readPersistedThreadTimelineCache).toHaveBeenCalledWith(threadId);
+    expect(storageMock.readPersistedThreadTimelinePages).toHaveBeenCalledWith([cacheKey]);
+    expect(readLoadedThreadTimelinePages(threadId)).toEqual([cachedPage]);
+  });
+
+  it("persists fetched pages to storage", async () => {
+    vi.useFakeTimers();
+    nativeApiMock.getThreadTimelinePage.mockImplementation(async (input) =>
+      makeTimelinePage({
+        startIndex: input.startIndex,
+        limit: input.limit,
+        totalItems: 1_000,
+      }),
+    );
+
+    await fetchThreadTimelinePages([
+      { threadId, startIndex: 700, limit: 100 },
+      { threadId, startIndex: 800, limit: 100 },
+    ]);
+    await vi.advanceTimersByTimeAsync(250);
+
+    expect(storageMock.writePersistedThreadTimelinePage).toHaveBeenCalledTimes(2);
+    expect(storageMock.writePersistedThreadTimelineCache).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
+  });
+
+  it("continues open-thread background fetching after the retained range cap is full", async () => {
+    nativeApiMock.getThreadTimelinePage.mockImplementation(async (input) =>
+      makeTimelinePage({
+        startIndex: input.anchor === "tail" ? 9_950 : input.startIndex,
+        limit: input.limit,
+        totalItems: 10_000,
+      }),
+    );
+    mockTimelinePagesBatch(10_000);
+
+    const prefetch = startThreadTimelineOpenPrefetch({
+      threadId,
+      priority: "immediate",
+      batchSizes: [100],
+      delayMs: 0,
+    });
+    await prefetch.done;
+    prefetch.stop();
+
+    const pageRequests = nativeApiMock.getThreadTimelinePage.mock.calls
+      .map((call) => call[0])
+      .filter((request) => request.anchor !== "tail");
+    const ranges = useTimelineWindowStore.getState().loadedRangesByThreadId[threadId] ?? [];
+    expect(pageRequests.length).toBe(100);
+    expect(ranges).toHaveLength(101);
+    expect(ranges[0]).toMatchObject({ startIndex: 0, endIndexExclusive: 50 });
+    expect(ranges.at(-1)).toMatchObject({ startIndex: 9_950, endIndexExclusive: 10_000 });
+  });
+
+  it("commits fetched page batches in bounded client chunks", async () => {
+    mockTimelinePagesBatch(1_000);
+    nativeApiMock.getThreadTimelinePage.mockImplementation(async (input) =>
+      makeTimelinePage({
+        startIndex: input.startIndex,
+        limit: input.limit,
+        totalItems: 1_000,
+      }),
+    );
+
+    const revisionBefore = useTimelineWindowStore.getState().pageCacheRevision;
+    await fetchThreadTimelinePages([
+      { threadId, startIndex: 700, limit: 100 },
+      { threadId, startIndex: 800, limit: 100 },
+      { threadId, startIndex: 900, limit: 100 },
+    ]);
+
+    expect(nativeApiMock.getThreadTimelinePages).toHaveBeenCalledTimes(1);
+    expect(nativeApiMock.getThreadTimelinePage).toHaveBeenCalledTimes(1);
+    expect(useTimelineWindowStore.getState().pageCacheRevision).toBe(revisionBefore + 2);
+    expect(readLoadedThreadTimelinePages(threadId).map((page) => page.startIndex)).toEqual([
+      700, 800, 900,
+    ]);
+  });
+
+  it("splits page batches so RPC payloads stay below the client ingest limit", async () => {
+    mockTimelinePagesBatch(100_000);
+
+    const requests = Array.from({ length: 12 }, (_, index) => ({
+      threadId,
+      startIndex: 50_000 + index * 4_000,
+      limit: 4_000,
+    }));
+    await fetchThreadTimelinePages(requests);
+
+    expect(nativeApiMock.getThreadTimelinePages).toHaveBeenCalledTimes(6);
+    expect(
+      nativeApiMock.getThreadTimelinePages.mock.calls.every(
+        (call) =>
+          call[0].pages.length <= TIMELINE_PAGE_CLIENT_BATCH_LIMIT &&
+          call[0].pages.length <= TIMELINE_PAGE_RPC_BATCH_LIMIT &&
+          call[0].pages.every(
+            (page: OrchestrationGetThreadTimelinePageRangeInput) => page.limit <= 500,
+          ),
+      ),
+    ).toBe(true);
+    expect(
+      nativeApiMock.getThreadTimelinePages.mock.calls.map((call) => call[0].pages.length),
+    ).toEqual([2, 2, 2, 2, 2, 2]);
+  });
+
+  it("tracks in-flight page batch fetches per thread", async () => {
+    let resolveBatch!: () => void;
+    nativeApiMock.getThreadTimelinePages.mockImplementation(async (input) => {
+      await new Promise<void>((resolve) => {
+        resolveBatch = resolve;
+      });
+      return input.pages.map((page: OrchestrationGetThreadTimelinePageRangeInput) =>
+        makeTimelinePage({
+          startIndex: page.startIndex,
+          limit: page.limit,
+          totalItems: 1_000,
+        }),
+      );
+    });
+
+    const fetchPromise = fetchThreadTimelinePages([
+      { threadId, startIndex: 700, limit: 100 },
+      { threadId, startIndex: 800, limit: 100 },
+    ]);
+    await Promise.resolve();
+
+    expect(useTimelineWindowStore.getState().fetchStateByThreadId[threadId]?.inFlightCount).toBe(2);
+
+    resolveBatch();
+    await fetchPromise;
+
+    expect(useTimelineWindowStore.getState().fetchStateByThreadId[threadId]?.inFlightCount).toBe(0);
+  });
+
+  it("expires stale in-flight page fetch state", () => {
+    useTimelineWindowStore.getState().beginPageFetches(threadId, 2);
+    const startedAt = useTimelineWindowStore.getState().fetchStateByThreadId[threadId]?.startedAt;
+    expect(startedAt).toEqual(expect.any(Number));
+
+    useTimelineWindowStore
+      .getState()
+      .expireStalePageFetches(threadId, startedAt! + TIMELINE_FETCH_STATE_STALE_MS + 1);
+
+    expect(useTimelineWindowStore.getState().fetchStateByThreadId[threadId]).toMatchObject({
+      inFlightCount: 0,
+    });
+  });
+
+  it("retries timed-out page batches and clears in-flight state", async () => {
+    vi.useFakeTimers();
+    nativeApiMock.getThreadTimelinePages
+      .mockImplementationOnce(() => new Promise(() => {}))
+      .mockImplementationOnce(async (input) =>
+        input.pages.map((page: OrchestrationGetThreadTimelinePageRangeInput) =>
+          makeTimelinePage({
+            startIndex: page.startIndex,
+            limit: page.limit,
+            totalItems: 1_000,
+          }),
+        ),
+      );
+
+    const fetchPromise = fetchThreadTimelinePages([
+      { threadId, startIndex: 700, limit: 100 },
+      { threadId, startIndex: 800, limit: 100 },
+    ]);
+    await Promise.resolve();
+
+    expect(useTimelineWindowStore.getState().fetchStateByThreadId[threadId]?.inFlightCount).toBe(2);
+
+    await vi.advanceTimersByTimeAsync(TIMELINE_PAGE_FETCH_TIMEOUT_MS);
+    await vi.advanceTimersByTimeAsync(TIMELINE_PAGE_FETCH_RETRY_BASE_DELAY_MS);
+    await fetchPromise;
+
+    expect(nativeApiMock.getThreadTimelinePages).toHaveBeenCalledTimes(2);
+    expect(useTimelineWindowStore.getState().fetchStateByThreadId[threadId]?.inFlightCount).toBe(0);
+  });
+
+  it("clears in-flight state after exhausted page batch retries", async () => {
+    vi.useFakeTimers();
+    nativeApiMock.getThreadTimelinePages.mockImplementation(() => new Promise(() => {}));
+
+    const fetchPromise = fetchThreadTimelinePages([
+      { threadId, startIndex: 700, limit: 100 },
+      { threadId, startIndex: 800, limit: 100 },
+    ]);
+    const fetchRejection = expect(fetchPromise).rejects.toThrow("getThreadTimelinePages timed out");
+    await Promise.resolve();
+
+    expect(useTimelineWindowStore.getState().fetchStateByThreadId[threadId]?.inFlightCount).toBe(2);
+
+    await vi.advanceTimersByTimeAsync(TIMELINE_PAGE_FETCH_TIMEOUT_MS);
+    await vi.advanceTimersByTimeAsync(TIMELINE_PAGE_FETCH_RETRY_BASE_DELAY_MS);
+    await vi.advanceTimersByTimeAsync(TIMELINE_PAGE_FETCH_TIMEOUT_MS);
+    await vi.advanceTimersByTimeAsync(TIMELINE_PAGE_FETCH_RETRY_BASE_DELAY_MS * 2);
+    await vi.advanceTimersByTimeAsync(TIMELINE_PAGE_FETCH_TIMEOUT_MS);
+
+    await fetchRejection;
+    expect(nativeApiMock.getThreadTimelinePages).toHaveBeenCalledTimes(3);
+    expect(useTimelineWindowStore.getState().fetchStateByThreadId[threadId]?.inFlightCount).toBe(0);
+  });
+
+  it("dedupes retained open-thread prefetch jobs for the same thread", async () => {
+    nativeApiMock.getThreadTimelinePage.mockImplementation(async (input) =>
+      makeTimelinePage({
+        startIndex: input.anchor === "tail" ? 950 : input.startIndex,
+        limit: input.limit,
+        totalItems: 1_000,
+      }),
+    );
+
+    const firstPrefetch = startThreadTimelineOpenPrefetch({
+      threadId,
+      priority: "immediate",
+      batchSizes: [1_000],
+      delayMs: 0,
+    });
+    const secondPrefetch = startThreadTimelineOpenPrefetch({
+      threadId,
+      priority: "immediate",
+      batchSizes: [1_000],
+      delayMs: 0,
+    });
+    await Promise.all([firstPrefetch.done, secondPrefetch.done]);
+    firstPrefetch.stop();
+    secondPrefetch.stop();
+
+    expect(
+      nativeApiMock.getThreadTimelinePage.mock.calls.filter((call) => call[0].anchor === "tail"),
+    ).toHaveLength(1);
+    expect(nativeApiMock.getThreadTimelinePage.mock.calls.map((call) => call[0])).toEqual([
+      expect.objectContaining({ anchor: "tail", startIndex: 0, limit: 50 }),
+      expect.objectContaining({ startIndex: 450, limit: 500 }),
+      expect.objectContaining({ startIndex: 0, limit: 450 }),
     ]);
   });
 
@@ -358,23 +705,17 @@ describe("timelineWindowStore", () => {
     await prefetchThreadTimelineAroundLoadedWindow({
       threadId,
       priority: "immediate",
-      pageSize: 1_000,
+      pageSize: 250,
       direction: "older",
     });
 
     expect(nativeApiMock.getThreadTimelinePage.mock.calls.map((call) => call[0])).toEqual([
-      expect.objectContaining({ startIndex: 8_950, limit: 1_000 }),
+      expect.objectContaining({ startIndex: 9_700, limit: 250 }),
     ]);
   });
 
   it("can fetch multiple older pages around the loaded window in one request cycle", async () => {
-    nativeApiMock.getThreadTimelinePage.mockImplementation(async (input) =>
-      makeTimelinePage({
-        startIndex: input.startIndex,
-        limit: input.limit,
-        totalItems: 10_000,
-      }),
-    );
+    mockTimelinePagesBatch(10_000);
     useTimelineWindowStore.getState().primePage(
       makeTimelinePage({
         startIndex: 9_950,
@@ -391,14 +732,44 @@ describe("timelineWindowStore", () => {
       direction: "older",
     });
 
-    expect(nativeApiMock.getThreadTimelinePage.mock.calls.map((call) => call[0])).toEqual([
-      expect.objectContaining({ startIndex: 8_450, limit: 500 }),
-      expect.objectContaining({ startIndex: 8_950, limit: 500 }),
-      expect.objectContaining({ startIndex: 9_450, limit: 500 }),
-    ]);
+    expect(nativeApiMock.getThreadTimelinePages).toHaveBeenCalledWith({
+      threadId,
+      pages: [
+        expect.objectContaining({ startIndex: 8_950, limit: 500 }),
+        expect.objectContaining({ startIndex: 9_450, limit: 500 }),
+      ],
+    });
   });
 
-  it("caps dynamic slices at 4000 and splits only larger caller ranges", async () => {
+  it("caps high-velocity older prefetches by entry budget", async () => {
+    mockTimelinePagesBatch(100_000);
+    useTimelineWindowStore.getState().primePage(
+      makeTimelinePage({
+        startIndex: 97_331,
+        limit: 50,
+        totalItems: 100_000,
+      }),
+    );
+
+    await prefetchThreadTimelineAroundLoadedWindow({
+      threadId,
+      priority: "immediate",
+      pageSize: 4_000,
+      olderPageCount: 12,
+      direction: "older",
+    });
+
+    expect(nativeApiMock.getThreadTimelinePages).toHaveBeenCalledTimes(1);
+    expect(nativeApiMock.getThreadTimelinePages).toHaveBeenCalledWith({
+      threadId,
+      pages: [
+        expect.objectContaining({ startIndex: 96_331, limit: 500 }),
+        expect.objectContaining({ startIndex: 96_831, limit: 500 }),
+      ],
+    });
+  });
+
+  it("caps dynamic slices at 500 before fetching older ranges", async () => {
     nativeApiMock.getThreadTimelinePage.mockImplementation(async (input) =>
       makeTimelinePage({
         startIndex: input.startIndex,
@@ -422,11 +793,12 @@ describe("timelineWindowStore", () => {
     });
 
     expect(nativeApiMock.getThreadTimelinePage.mock.calls.map((call) => call[0])).toEqual([
-      expect.objectContaining({ startIndex: 5_000, limit: 4_000 }),
+      expect.objectContaining({ startIndex: 8_500, limit: 500 }),
     ]);
   });
 
-  it("splits explicit ranges only when they exceed the 4000 request cap", async () => {
+  it("splits explicit ranges by the 500-entry request cap", async () => {
+    mockTimelinePagesBatch(10_000);
     nativeApiMock.getThreadTimelinePage.mockImplementation(async (input) =>
       makeTimelinePage({
         startIndex: input.startIndex,
@@ -443,27 +815,90 @@ describe("timelineWindowStore", () => {
       priority: "immediate",
     });
 
-    expect(nativeApiMock.getThreadTimelinePage.mock.calls.map((call) => call[0])).toEqual([
-      expect.objectContaining({ startIndex: 1_000, limit: 4_000 }),
+    expect(nativeApiMock.getThreadTimelinePage).toHaveBeenCalledWith(
       expect.objectContaining({ startIndex: 5_000, limit: 500 }),
-    ]);
+    );
+    expect(nativeApiMock.getThreadTimelinePages).toHaveBeenCalledWith({
+      threadId,
+      pages: [
+        expect.objectContaining({ startIndex: 1_000, limit: 500 }),
+        expect.objectContaining({ startIndex: 1_500, limit: 500 }),
+      ],
+    });
   });
 
-  it("caps loaded ranges per thread so huge scrollback never renders every page", () => {
-    for (let pageIndex = 0; pageIndex < 30; pageIndex += 1) {
+  it("preserves every loaded range while rendering stays virtualized", () => {
+    for (let pageIndex = 0; pageIndex < 60; pageIndex += 1) {
       useTimelineWindowStore.getState().primePage(
         makeTimelinePage({
           startIndex: pageIndex * 100,
           limit: 100,
-          totalItems: 3_000,
+          totalItems: 6_000,
         }),
       );
     }
 
     const ranges = useTimelineWindowStore.getState().loadedRangesByThreadId[threadId] ?? [];
-    expect(ranges).toHaveLength(24);
-    expect(ranges[0]).toMatchObject({ startIndex: 600, endIndexExclusive: 700 });
-    expect(ranges.at(-1)).toMatchObject({ startIndex: 2_900, endIndexExclusive: 3_000 });
+    expect(ranges).toHaveLength(60);
+    expect(ranges[0]).toMatchObject({ startIndex: 0, endIndexExclusive: 100 });
+    expect(ranges.at(-1)).toMatchObject({ startIndex: 5_900, endIndexExclusive: 6_000 });
+  });
+
+  it("uses the active window even when it stores a timeline cache scope", () => {
+    useTimelineWindowStore.getState().setActiveWindow(threadId, {
+      startIndex: 200,
+      endIndexExclusive: 300,
+      overscanStartIndex: 100,
+      overscanEndIndexExclusive: 400,
+      updatedAt: "thread:thread-window-store:hydrated:v2",
+    });
+
+    for (let pageIndex = 0; pageIndex < 60; pageIndex += 1) {
+      useTimelineWindowStore.getState().primePage(
+        makeTimelinePage({
+          startIndex: pageIndex * 100,
+          limit: 100,
+          totalItems: 6_000,
+        }),
+      );
+    }
+
+    const ranges = useTimelineWindowStore.getState().loadedRangesByThreadId[threadId] ?? [];
+    expect(ranges).toHaveLength(60);
+    expect(ranges[0]).toMatchObject({ startIndex: 0, endIndexExclusive: 100 });
+    expect(ranges.some((range) => range.startIndex === 200)).toBe(true);
+  });
+
+  it("keeps newly fetched older pages from being immediately pruned", () => {
+    for (let pageIndex = 0; pageIndex < 60; pageIndex += 1) {
+      useTimelineWindowStore.getState().primePage(
+        makeTimelinePage({
+          startIndex: pageIndex * 100,
+          limit: 100,
+          totalItems: 6_000,
+        }),
+      );
+    }
+    useTimelineWindowStore.getState().setActiveWindow(threadId, {
+      startIndex: 5_900,
+      endIndexExclusive: 6_000,
+      overscanStartIndex: 5_800,
+      overscanEndIndexExclusive: 6_000,
+      updatedAt: "thread:thread-window-store:hydrated:v2",
+    });
+
+    useTimelineWindowStore.getState().primePage(
+      makeTimelinePage({
+        startIndex: 0,
+        limit: 100,
+        totalItems: 6_000,
+      }),
+    );
+
+    const ranges = useTimelineWindowStore.getState().loadedRangesByThreadId[threadId] ?? [];
+    expect(ranges).toHaveLength(60);
+    expect(ranges[0]).toMatchObject({ startIndex: 0, endIndexExclusive: 100 });
+    expect(ranges.at(-1)).toMatchObject({ startIndex: 5_900, endIndexExclusive: 6_000 });
   });
 
   it("keeps the visible tail when background loading many older ultra-large ranges", () => {
@@ -482,7 +917,7 @@ describe("timelineWindowStore", () => {
       updatedAt: "2026-01-01T00:00:02.000Z",
     });
 
-    for (let pageIndex = 0; pageIndex < 30; pageIndex += 1) {
+    for (let pageIndex = 0; pageIndex < 60; pageIndex += 1) {
       useTimelineWindowStore.getState().primePage(
         makeTimelinePage({
           startIndex: pageIndex * 100,
@@ -493,7 +928,8 @@ describe("timelineWindowStore", () => {
     }
 
     const ranges = useTimelineWindowStore.getState().loadedRangesByThreadId[threadId] ?? [];
-    expect(ranges).toHaveLength(24);
+    expect(ranges).toHaveLength(61);
+    expect(ranges[0]).toMatchObject({ startIndex: 0, endIndexExclusive: 100 });
     expect(ranges.at(-1)).toMatchObject({ startIndex: 9_900, endIndexExclusive: 10_000 });
     expect(readLoadedThreadTimelinePages(threadId).at(-1)).toMatchObject({
       startIndex: 9_900,

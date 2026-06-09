@@ -212,6 +212,8 @@ export function createWsNativeApi(): NativeApi {
       getThread: (input) => resolveRpcClientForInput(input).orchestration.getThread(input),
       getThreadTimelinePage: (input) =>
         resolveRpcClientForInput(input).orchestration.getThreadTimelinePage(input),
+      getThreadTimelinePages: (input) =>
+        resolveRpcClientForInput(input).orchestration.getThreadTimelinePages(input),
       getThreadTimelineManifest: (input) =>
         resolveRpcClientForInput(input).orchestration.getThreadTimelineManifest(input),
       dispatchCommand: async (input) => {

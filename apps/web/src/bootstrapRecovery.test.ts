@@ -1,7 +1,7 @@
 import { ProjectId, ThreadId } from "@ace/contracts";
 import { describe, expect, it } from "vitest";
 
-import { LEAN_SNAPSHOT_RECOVERY_INPUT, resolveWelcomeBootstrapPlan } from "./bootstrapRecovery";
+import { METADATA_SNAPSHOT_RECOVERY_INPUT, resolveWelcomeBootstrapPlan } from "./bootstrapRecovery";
 
 const projectId = ProjectId.makeUnsafe("project-1");
 const threadId = ThreadId.makeUnsafe("thread-1");
@@ -14,8 +14,8 @@ const payload = {
 } as const;
 
 describe("bootstrapRecovery", () => {
-  it("always requests a lean snapshot during recovery", () => {
-    expect(LEAN_SNAPSHOT_RECOVERY_INPUT).toEqual({
+  it("always requests a metadata snapshot during recovery", () => {
+    expect(METADATA_SNAPSHOT_RECOVERY_INPUT).toEqual({
       hydrateThreadId: null,
     });
   });

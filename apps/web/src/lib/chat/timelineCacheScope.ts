@@ -112,7 +112,7 @@ export function buildThreadTimelineCacheScope(input: ThreadTimelineCacheScopeInp
   return [
     "thread",
     thread.id,
-    thread.historyLoaded === false ? "lean" : "hydrated",
+    thread.historyLoaded === false ? "metadata" : "hydrated",
     thread.updatedAt ?? "none",
     thread.latestTurn?.turnId ?? "no-turn",
     thread.latestTurn?.state ?? "no-state",

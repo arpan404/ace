@@ -7,13 +7,11 @@ import {
   type GitManagerServiceError,
   OrchestrationDispatchCommandError,
   type OrchestrationEvent,
-  type OrchestrationGetSnapshotInput,
   type OrchestrationGetThreadTimelineManifestInput,
   type OrchestrationGetThreadTimelinePageInput,
-  type OrchestrationReadModel,
+  type OrchestrationGetThreadTimelinePagesInput,
   type ProviderKind,
   type ServerProvider,
-  type ThreadId,
   OrchestrationGetFullThreadDiffError,
   OrchestrationGetSnapshotError,
   OrchestrationGetThreadError,
@@ -59,7 +57,6 @@ import { GitManager } from "./git/Services/GitManager";
 import { Keybindings } from "./keybindings";
 import { Open, resolveAvailableEditors } from "./open";
 import { normalizeDispatchCommand } from "./orchestration/Normalizer";
-import { createReadModelSnapshotView } from "./orchestration/readModelSnapshotView";
 import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine";
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
 import { ProviderRegistry } from "./provider/Services/ProviderRegistry";
@@ -264,37 +261,6 @@ function selectDueProviderForRefresh(
   const oldestDueProviders = dueProviders.filter((provider) => provider.dueAt === oldestDueAt);
   const selectedIndex = Math.floor(Math.random() * oldestDueProviders.length);
   return oldestDueProviders[selectedIndex]?.provider ?? null;
-}
-
-function hasExplicitSnapshotHydrationMode(
-  input: OrchestrationGetSnapshotInput | undefined,
-): input is OrchestrationGetSnapshotInput & { readonly hydrateThreadId: ThreadId | null } {
-  return input !== undefined && Object.prototype.hasOwnProperty.call(input, "hydrateThreadId");
-}
-
-function replaceSnapshotThread(
-  snapshot: OrchestrationReadModel,
-  threadId: OrchestrationReadModel["threads"][number]["id"],
-  nextThread: OrchestrationReadModel["threads"][number],
-): OrchestrationReadModel {
-  const threadIndex = snapshot.threads.findIndex((thread) => thread.id === threadId);
-  if (threadIndex === -1) {
-    return snapshot;
-  }
-  if (snapshot.threads[threadIndex] === nextThread) {
-    return snapshot;
-  }
-
-  const threads = snapshot.threads.slice();
-  threads[threadIndex] = nextThread;
-  return {
-    ...snapshot,
-    threads,
-    updatedAt:
-      snapshot.updatedAt.localeCompare(nextThread.updatedAt) >= 0
-        ? snapshot.updatedAt
-        : nextThread.updatedAt,
-  };
 }
 
 async function getDirectorySizeBytes(path: string): Promise<WorktreeSizeStats> {
@@ -582,33 +548,9 @@ const WsRpcLayer = WsRpcGroup.toLayer(
         Stream.filter(() => isCurrentWsClientSession(input.clientSessionId, input.connectionId)),
       );
 
-    const loadSnapshot = (input?: OrchestrationGetSnapshotInput) =>
-      Effect.gen(function* () {
-        if (!hasExplicitSnapshotHydrationMode(input)) {
-          return yield* projectionSnapshotQuery.getSnapshot(input);
-        }
-
-        const hydrateThreadId = input.hydrateThreadId ?? null;
-        const [readModel, hydratedThread] = yield* Effect.all([
-          orchestrationEngine.getReadModel(),
-          hydrateThreadId === null
-            ? Effect.succeed(Option.none<OrchestrationReadModel["threads"][number]>())
-            : projectionSnapshotQuery.getThread(hydrateThreadId),
-        ]);
-        const snapshot = createReadModelSnapshotView(readModel, input);
-        if (hydrateThreadId === null) {
-          return snapshot;
-        }
-
-        return Option.match(hydratedThread, {
-          onNone: () => snapshot,
-          onSome: (thread) => replaceSnapshotThread(snapshot, hydrateThreadId, thread),
-        });
-      });
-
     return WsRpcGroup.of({
       [ORCHESTRATION_WS_METHODS.getSnapshot]: (input) =>
-        loadSnapshot(input).pipe(
+        projectionSnapshotQuery.getSnapshot(input).pipe(
           Effect.mapError(
             (cause) =>
               new OrchestrationGetSnapshotError({
@@ -659,6 +601,30 @@ const WsRpcLayer = WsRpcGroup.toLayer(
               ? cause
               : new OrchestrationGetThreadError({
                   message: "Failed to load orchestration thread timeline page",
+                  cause,
+                }),
+          ),
+        ),
+      [ORCHESTRATION_WS_METHODS.getThreadTimelinePages]: (
+        input: OrchestrationGetThreadTimelinePagesInput,
+      ) =>
+        projectionSnapshotQuery.getThreadTimelinePages(input).pipe(
+          Effect.flatMap((pages) =>
+            Option.match(pages, {
+              onNone: () =>
+                Effect.fail(
+                  new OrchestrationGetThreadError({
+                    message: `Thread '${input.threadId}' was not found.`,
+                  }),
+                ),
+              onSome: Effect.succeed,
+            }),
+          ),
+          Effect.mapError((cause) =>
+            Schema.is(OrchestrationGetThreadError)(cause)
+              ? cause
+              : new OrchestrationGetThreadError({
+                  message: "Failed to load orchestration thread timeline pages",
                   cause,
                 }),
           ),

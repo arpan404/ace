@@ -1,24 +1,38 @@
 import type {
   OrchestrationGetSnapshotInput,
+  OrchestrationProposedPlan,
   OrchestrationReadModel,
   OrchestrationThread,
 } from "@ace/contracts";
-const INITIAL_SNAPSHOT_ACTIVITY_LIMIT_PER_THREAD = 32;
 
-function shouldHydrateAllThreadHistory(input?: OrchestrationGetSnapshotInput): boolean {
-  return input === undefined || !Object.prototype.hasOwnProperty.call(input, "hydrateThreadId");
+function toLatestProposedPlanSummary(
+  proposedPlan: OrchestrationProposedPlan,
+): OrchestrationThread["latestProposedPlanSummary"] {
+  return {
+    id: proposedPlan.id,
+    turnId: proposedPlan.turnId,
+    implementedAt: proposedPlan.implementedAt,
+    implementationThreadId: proposedPlan.implementationThreadId,
+    createdAt: proposedPlan.createdAt,
+    updatedAt: proposedPlan.updatedAt,
+  };
 }
 
-function createSummaryThread(thread: OrchestrationThread): OrchestrationThread {
-  const latestUserMessage = thread.messages.filter((message) => message.role === "user").at(-1);
-  const summaryMessages = latestUserMessage ? [latestUserMessage] : [];
-  const summaryActivities =
-    thread.activities.length > INITIAL_SNAPSHOT_ACTIVITY_LIMIT_PER_THREAD
-      ? thread.activities.slice(-INITIAL_SNAPSHOT_ACTIVITY_LIMIT_PER_THREAD)
-      : thread.activities;
+function findLatestProposedPlanSummary(
+  proposedPlans: ReadonlyArray<OrchestrationProposedPlan>,
+): OrchestrationThread["latestProposedPlanSummary"] {
+  const latestPlan = [...proposedPlans]
+    .toSorted(
+      (left, right) =>
+        left.updatedAt.localeCompare(right.updatedAt) || left.id.localeCompare(right.id),
+    )
+    .at(-1);
+  return latestPlan ? toLatestProposedPlanSummary(latestPlan) : null;
+}
 
-  const messagesChanged = summaryMessages.length !== thread.messages.length;
-  const activitiesChanged = summaryActivities.length !== thread.activities.length;
+function createSnapshotThread(thread: OrchestrationThread): OrchestrationThread {
+  const messagesChanged = thread.messages.length > 0;
+  const activitiesChanged = thread.activities.length > 0;
   const checkpointsChanged = thread.checkpoints.length > 0;
   const proposedPlansChanged = thread.proposedPlans.length > 0;
 
@@ -28,29 +42,23 @@ function createSummaryThread(thread: OrchestrationThread): OrchestrationThread {
 
   return {
     ...thread,
-    messages: messagesChanged ? summaryMessages : thread.messages,
-    activities: activitiesChanged ? summaryActivities : thread.activities,
-    proposedPlans: proposedPlansChanged ? [] : thread.proposedPlans,
-    checkpoints: checkpointsChanged ? [] : thread.checkpoints,
+    messages: [],
+    activities: [],
+    proposedPlans: [],
+    latestProposedPlanSummary:
+      thread.latestProposedPlanSummary ?? findLatestProposedPlanSummary(thread.proposedPlans),
+    checkpoints: [],
   };
 }
 
 export function createReadModelSnapshotView(
   readModel: OrchestrationReadModel,
-  input?: OrchestrationGetSnapshotInput,
+  _input?: OrchestrationGetSnapshotInput,
 ): OrchestrationReadModel {
-  if (shouldHydrateAllThreadHistory(input)) {
-    return readModel;
-  }
-
-  const hydrateThreadId = input?.hydrateThreadId ?? null;
   let changed = false;
 
   const threads = readModel.threads.map((thread) => {
-    if (hydrateThreadId !== null && thread.id === hydrateThreadId) {
-      return thread;
-    }
-    const summaryThread = createSummaryThread(thread);
+    const summaryThread = createSnapshotThread(thread);
     if (summaryThread !== thread) {
       changed = true;
     }

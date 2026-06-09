@@ -793,11 +793,8 @@ export interface SnapshotSyncOptions {
   connectionUrl?: string;
 }
 
-function resolveThreadHistoryLoaded(threadId: ThreadId, options?: SnapshotSyncOptions): boolean {
-  if (options === undefined || !Object.prototype.hasOwnProperty.call(options, "hydrateThreadId")) {
-    return true;
-  }
-  return options.hydrateThreadId !== null && options.hydrateThreadId === threadId;
+function resolveThreadHistoryLoaded(_threadId: ThreadId, _options?: SnapshotSyncOptions): boolean {
+  return false;
 }
 
 function mapThread(thread: OrchestrationThread, options?: SnapshotSyncOptions): Thread {
@@ -1166,17 +1163,18 @@ function retainDismissedThreadErrorKeysForThreads(
   return changed ? nextDismissedKeys : (dismissedThreadErrorKeysById as Record<string, string>);
 }
 
-function toLeanThread(thread: Thread): Thread {
+function toMetadataOnlyThread(thread: Thread): Thread {
   if (thread.historyLoaded === false) {
     return thread;
   }
 
   return {
     ...thread,
-    messages: thread.messages.filter((message) => message.role === "user"),
+    messages: [],
     proposedPlans: [],
     latestProposedPlanSummary:
       thread.latestProposedPlanSummary ?? findLatestProposedPlanSummary(thread.proposedPlans),
+    activities: [],
     turnDiffSummaries: [],
     historyLoaded: false,
   };
@@ -1207,11 +1205,11 @@ export function pruneHydratedThreadHistories(
       return thread;
     }
 
-    const leanThread = toLeanThread(thread);
-    if (leanThread !== thread) {
+    const metadataThread = toMetadataOnlyThread(thread);
+    if (metadataThread !== thread) {
       changed = true;
     }
-    return leanThread;
+    return metadataThread;
   });
 
   if (!changed) {
@@ -2223,7 +2221,7 @@ export function syncServerReadModel(
     const mappedThread = mapThread(thread, options);
     primeThreadTimelineManifestFromReadModelThread(
       thread,
-      mappedThread.historyLoaded === false ? "lean" : "hydrated",
+      mappedThread.historyLoaded === false ? "metadata" : "hydrated",
     );
     const nextThread = mergeThreadPreservingHydratedHistory(
       existingThreadsById.get(thread.id),
@@ -2282,7 +2280,7 @@ export function mergeServerReadModel(
     );
     primeThreadTimelineManifestFromReadModelThread(
       thread,
-      nextThread.historyLoaded === false ? "lean" : "hydrated",
+      nextThread.historyLoaded === false ? "metadata" : "hydrated",
     );
     if (options !== undefined && nextThread.historyLoaded !== false) {
       primeHydratedThreadCache(thread);

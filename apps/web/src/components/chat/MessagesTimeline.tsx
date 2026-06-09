@@ -146,7 +146,7 @@ import {
 import type { StuckTurnSnapshot } from "~/lib/reliability/stuckTurn";
 
 const ALWAYS_UNVIRTUALIZED_TAIL_ROWS = 8;
-const TIMELINE_VIRTUALIZER_OVERSCAN = 8;
+const TIMELINE_VIRTUALIZER_OVERSCAN = 16;
 const MAX_TIMELINE_ROW_HEIGHT_CACHE_ENTRIES = 4_096;
 const IMMEDIATE_ASSISTANT_MARKDOWN_TAIL_MESSAGES = 12;
 const ASSISTANT_MARKDOWN_IDLE_BATCH_SIZE = 2;
@@ -170,10 +170,14 @@ const SELECTION_PIN_BUTTON_HEIGHT_PX = 32;
 const TIMELINE_DIRECTIONAL_PREFETCH_MIN_VELOCITY_PX_PER_MS = 0.75;
 const TIMELINE_BASE_PREFETCH_EDGE_ROWS = Math.max(TIMELINE_VIRTUALIZER_OVERSCAN * 2, 16);
 const ASSISTANT_MESSAGE_ROW_SELECTOR = '[data-message-role="assistant"][data-message-id]';
+const COMPLETED_WORK_SUMMARY_ROW_ID_PREFIX = "completed-work-summary:";
 const PINNED_SELECTION_TEXT_BLOCK_SELECTOR =
   "blockquote,div,h1,h2,h3,h4,h5,h6,li,ol,p,pre,section,table,tbody,td,tfoot,th,thead,tr,ul";
 const PREPENDED_TIMELINE_ROW_ANIMATION_LIMIT = 64;
 const PREPENDED_TIMELINE_ROW_ANIMATION_MS = 320;
+const PREPENDED_TIMELINE_SCROLL_PRESERVE_FRAMES = 8;
+const TIMELINE_ROW_ID_SELECTOR = "[data-timeline-row-id]";
+const TIMELINE_ROW_RENDER_INTRINSIC_MIN_HEIGHT_PX = 40;
 
 export function resolveTimelineScrollPrefetchLookaheadRows(velocityPxPerMs: number): number {
   const velocity = Math.max(0, Number.isFinite(velocityPxPerMs) ? velocityPxPerMs : 0);
@@ -237,12 +241,23 @@ export type TimelineRenderedWindowState = {
 };
 
 export function deriveTimelineRenderedWindowState(input: {
+  readonly totalRowCount?: number;
   readonly renderedVirtualItems: readonly VirtualItem[];
   readonly virtualizedRows: ReadonlyArray<TimelineRow>;
 }): TimelineRenderedWindowState | null {
   const firstVirtualItem = input.renderedVirtualItems[0];
   const lastVirtualItem = input.renderedVirtualItems.at(-1);
   if (!firstVirtualItem || !lastVirtualItem) {
+    const totalRowCount = Math.max(0, Math.trunc(input.totalRowCount ?? 0));
+    if (input.virtualizedRows.length === 0 && totalRowCount > 0) {
+      return {
+        loadedEndIndexExclusive: totalRowCount,
+        loadedRowCount: totalRowCount,
+        loadedStartIndex: 0,
+        overscanLoadedEndIndexExclusive: totalRowCount,
+        overscanLoadedStartIndex: 0,
+      };
+    }
     return null;
   }
 
@@ -255,6 +270,156 @@ export function deriveTimelineRenderedWindowState(input: {
   };
 }
 
+function addTimelineRowCandidateId(ids: string[], id: string | null | undefined): void {
+  if (!id) {
+    return;
+  }
+  ids.push(id);
+  if (id.startsWith(COMPLETED_WORK_SUMMARY_ROW_ID_PREFIX)) {
+    ids.push(id.slice(COMPLETED_WORK_SUMMARY_ROW_ID_PREFIX.length));
+  }
+}
+
+function collectTimelineRowCandidateIds(row: TimelineRow): readonly string[] {
+  const ids: string[] = [];
+  addTimelineRowCandidateId(ids, row.id);
+  if (row.kind === "completed-work-summary") {
+    for (const entry of row.entries) {
+      addTimelineRowCandidateId(ids, entry.id);
+    }
+    for (const detailRow of row.detailRows) {
+      addTimelineRowCandidateId(ids, detailRow.id);
+      if (detailRow.kind === "work-group") {
+        for (const entry of detailRow.entries) {
+          addTimelineRowCandidateId(ids, entry.id);
+        }
+      }
+    }
+    for (const diagnosticRow of row.visibleDiagnosticRows) {
+      addTimelineRowCandidateId(ids, diagnosticRow.id);
+    }
+  } else if (row.kind === "work-group") {
+    for (const entry of row.entries) {
+      addTimelineRowCandidateId(ids, entry.id);
+    }
+  }
+  return ids;
+}
+
+function resolveTimelineRowGlobalIndexRange(
+  row: TimelineRow,
+  timelineIndexByEntryId: ReadonlyMap<string, number>,
+): { readonly endIndexExclusive: number; readonly startIndex: number } | null {
+  let startIndex = Number.POSITIVE_INFINITY;
+  let endIndexExclusive = Number.NEGATIVE_INFINITY;
+  for (const candidateId of collectTimelineRowCandidateIds(row)) {
+    const index = timelineIndexByEntryId.get(candidateId);
+    if (index === undefined) {
+      continue;
+    }
+    startIndex = Math.min(startIndex, index);
+    endIndexExclusive = Math.max(endIndexExclusive, index + 1);
+  }
+  if (!Number.isFinite(startIndex) || !Number.isFinite(endIndexExclusive)) {
+    return null;
+  }
+  return { startIndex, endIndexExclusive };
+}
+
+function resolveTimelineRowsGlobalIndexRange(input: {
+  readonly endIndexExclusive: number;
+  readonly rows: ReadonlyArray<TimelineRow>;
+  readonly startIndex: number;
+  readonly timelineIndexByEntryId: ReadonlyMap<string, number>;
+}): { readonly endIndexExclusive: number; readonly startIndex: number } | null {
+  const startIndex = Math.min(input.rows.length, Math.max(0, Math.trunc(input.startIndex)));
+  const endIndexExclusive = Math.min(
+    input.rows.length,
+    Math.max(startIndex, Math.trunc(input.endIndexExclusive)),
+  );
+  if (endIndexExclusive <= startIndex) {
+    return null;
+  }
+
+  let firstRange: { readonly endIndexExclusive: number; readonly startIndex: number } | null = null;
+  for (let rowIndex = startIndex; rowIndex < endIndexExclusive; rowIndex += 1) {
+    const row = input.rows[rowIndex];
+    if (!row) {
+      continue;
+    }
+    firstRange = resolveTimelineRowGlobalIndexRange(row, input.timelineIndexByEntryId);
+    if (firstRange) {
+      break;
+    }
+  }
+  if (!firstRange) {
+    return null;
+  }
+
+  let lastRange = firstRange;
+  for (let rowIndex = endIndexExclusive - 1; rowIndex >= startIndex; rowIndex -= 1) {
+    const row = input.rows[rowIndex];
+    if (!row) {
+      continue;
+    }
+    const range = resolveTimelineRowGlobalIndexRange(row, input.timelineIndexByEntryId);
+    if (range) {
+      lastRange = range;
+      break;
+    }
+  }
+
+  const globalStartIndex = Math.min(firstRange.startIndex, lastRange.startIndex);
+  const globalEndIndexExclusive = Math.max(
+    firstRange.endIndexExclusive,
+    lastRange.endIndexExclusive,
+  );
+  if (globalEndIndexExclusive <= globalStartIndex) {
+    return null;
+  }
+  return {
+    startIndex: globalStartIndex,
+    endIndexExclusive: globalEndIndexExclusive,
+  };
+}
+
+export function deriveGlobalTimelineRenderedWindowState(input: {
+  readonly renderedWindowState: TimelineRenderedWindowState | null;
+  readonly rows: ReadonlyArray<TimelineRow>;
+  readonly timelineIndexByEntryId?: ReadonlyMap<string, number> | null;
+}): TimelineRenderedWindowState | null {
+  if (!input.renderedWindowState) {
+    return null;
+  }
+  if (!input.timelineIndexByEntryId) {
+    return input.renderedWindowState;
+  }
+  const loadedRange = resolveTimelineRowsGlobalIndexRange({
+    rows: input.rows,
+    startIndex: input.renderedWindowState.loadedStartIndex,
+    endIndexExclusive: input.renderedWindowState.loadedEndIndexExclusive,
+    timelineIndexByEntryId: input.timelineIndexByEntryId,
+  });
+  if (!loadedRange) {
+    return null;
+  }
+  const overscanRange =
+    resolveTimelineRowsGlobalIndexRange({
+      rows: input.rows,
+      startIndex: input.renderedWindowState.overscanLoadedStartIndex,
+      endIndexExclusive: input.renderedWindowState.overscanLoadedEndIndexExclusive,
+      timelineIndexByEntryId: input.timelineIndexByEntryId,
+    }) ?? loadedRange;
+
+  return {
+    loadedEndIndexExclusive: loadedRange.endIndexExclusive,
+    loadedRowCount: input.renderedWindowState.loadedRowCount,
+    loadedStartIndex: loadedRange.startIndex,
+    overscanLoadedEndIndexExclusive: overscanRange.endIndexExclusive,
+    overscanLoadedStartIndex: overscanRange.startIndex,
+  };
+}
+
 type AssistantSelectionPinTarget = {
   left: number;
   messageId: string;
@@ -264,6 +429,9 @@ type AssistantSelectionPinTarget = {
 
 interface TimelinePrependAnchorSnapshot {
   readonly firstRowId: string | null;
+  readonly lastRowId: string | null;
+  readonly topAnchoredRowId: string | null;
+  readonly topAnchoredRowRelativeTop: number;
   readonly rowCount: number;
   readonly scrollHeight: number;
   readonly scrollTop: number;
@@ -509,13 +677,100 @@ export function TimelineRowsLoadingFallback() {
   return (
     <div
       className="mx-auto flex h-full w-full max-w-3xl items-center justify-center px-4 py-8"
-      aria-label="Loading conversation"
+      aria-label="Fetching thread"
     >
       <div className="rounded-full border border-border/45 bg-card/80 px-3 py-1.5 text-[11px] text-muted-foreground shadow-sm shadow-background/20">
         Fetching thread…
       </div>
     </div>
   );
+}
+
+export function TimelineRowsFetchingIndicator() {
+  return (
+    <div
+      className="pointer-events-none sticky top-2 z-20 flex h-0 justify-center overflow-visible"
+      aria-live="polite"
+      data-scroll-anchor-ignore
+      data-thread-timeline-fetching="true"
+    >
+      <div className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/92 px-3 py-1.5 text-[11px] text-muted-foreground shadow-lg shadow-background/40 backdrop-blur">
+        <span className="size-3 rounded-full border-2 border-primary/30 border-t-primary animate-spin" />
+        Fetching thread…
+      </div>
+    </div>
+  );
+}
+
+function readTimelinePrependAnchorSnapshot(
+  rows: ReadonlyArray<TimelineRow>,
+  scrollContainer: HTMLElement,
+): TimelinePrependAnchorSnapshot {
+  const firstRowId = rows[0]?.id ?? null;
+  const lastRowId = rows.at(-1)?.id ?? null;
+  const rowElements = [...scrollContainer.querySelectorAll<HTMLElement>(TIMELINE_ROW_ID_SELECTOR)];
+  const containerRect = scrollContainer.getBoundingClientRect();
+  const firstAnchoredRowElement =
+    rowElements.find((element) => {
+      const rect = element.getBoundingClientRect();
+      return rect.bottom > containerRect.top + 1 && rect.top < containerRect.bottom - 1;
+    }) ?? rowElements[0];
+  const firstAnchoredRowRect = firstAnchoredRowElement?.getBoundingClientRect();
+  const topAnchoredRowRelativeTop = firstAnchoredRowRect
+    ? firstAnchoredRowRect.top - containerRect.top
+    : 0;
+  return {
+    firstRowId,
+    lastRowId,
+    topAnchoredRowId: firstAnchoredRowElement?.dataset.timelineRowId ?? null,
+    topAnchoredRowRelativeTop: Number.isFinite(topAnchoredRowRelativeTop)
+      ? topAnchoredRowRelativeTop
+      : 0,
+    rowCount: rows.length,
+    scrollHeight: scrollContainer.scrollHeight,
+    scrollTop: scrollContainer.scrollTop,
+  };
+}
+
+function findMountedTimelineRowElement(
+  scrollContainer: HTMLElement,
+  rowId: string,
+): HTMLElement | null {
+  const rowElements = [...scrollContainer.querySelectorAll<HTMLElement>(TIMELINE_ROW_ID_SELECTOR)];
+  for (const element of rowElements) {
+    if (element.dataset.timelineRowId === rowId) {
+      return element;
+    }
+  }
+  return null;
+}
+
+function resolveTimelineTopAnchoredScrollTop(
+  input: {
+    readonly rowId: string | null;
+    readonly rowRelativeTop: number;
+  },
+  scrollContainer: HTMLElement,
+): number | null {
+  if (!input.rowId) {
+    return null;
+  }
+  const anchorRowElement = findMountedTimelineRowElement(scrollContainer, input.rowId);
+  if (!anchorRowElement) {
+    return null;
+  }
+  const containerRect = scrollContainer.getBoundingClientRect();
+  const anchorRowRect = anchorRowElement.getBoundingClientRect();
+  const containerRelativeTop = anchorRowRect.top - containerRect.top;
+  if (!Number.isFinite(containerRelativeTop)) {
+    return null;
+  }
+  const nextScrollTop = scrollContainer.scrollTop + (containerRelativeTop - input.rowRelativeTop);
+  if (!Number.isFinite(nextScrollTop)) {
+    return null;
+  }
+  const maxScrollTop = Math.max(0, scrollContainer.scrollHeight - scrollContainer.clientHeight);
+  return Math.min(Math.max(0, nextScrollTop), maxScrollTop);
 }
 
 export function resolveVisibleTimelineRows(input: {
@@ -792,10 +1047,12 @@ interface MessagesTimelineProps {
   backgroundMarkdownPrewarm?: boolean;
   getScrollContainer: () => HTMLDivElement | null;
   hideCompletedWorkMessages?: boolean;
+  isThreadHistoryFetching?: boolean;
   isThreadHistoryLoading?: boolean;
   liveTimers?: boolean;
   timelineCacheScope?: string | null;
   timelineEntries: ReturnType<typeof deriveTimelineEntries>;
+  timelineIndexByEntryId?: ReadonlyMap<string, number> | null;
   completionDividerBeforeEntryId: string | null;
   completionSummary: string | null;
   turnDiffSummaryByAssistantMessageId: Map<MessageId, TurnDiffSummary>;
@@ -841,10 +1098,12 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   backgroundMarkdownPrewarm = true,
   getScrollContainer,
   hideCompletedWorkMessages = false,
+  isThreadHistoryFetching = false,
   isThreadHistoryLoading = false,
   liveTimers = true,
   timelineCacheScope = null,
   timelineEntries,
+  timelineIndexByEntryId = null,
   completionDividerBeforeEntryId,
   completionSummary,
   turnDiffSummaryByAssistantMessageId,
@@ -974,11 +1233,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     ],
   );
   const shouldResolveTimelineRowsInWorker = useMemo(
-    () =>
-      !isThreadHistoryLoading &&
-      canResolveTimelineRowsInWorker() &&
-      shouldWorkerizeTimelineRows(timelineRowsInput),
-    [isThreadHistoryLoading, timelineRowsInput],
+    () => canResolveTimelineRowsInWorker() && shouldWorkerizeTimelineRows(timelineRowsInput),
+    [timelineRowsInput],
   );
   const timelineRowsCacheKey = useMemo(
     () => buildTimelineRowsCacheKey(timelineRowsInput),
@@ -1000,8 +1256,11 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     if (cachedTimelineRows) {
       return cachedTimelineRows;
     }
+    if (shouldResolveTimelineRowsAsync) {
+      return EMPTY_TIMELINE_ROWS;
+    }
     return measureRenderWork("chat.buildTimelineRows", () => buildTimelineRows(timelineRowsInput));
-  }, [cachedTimelineRows, timelineRowsInput]);
+  }, [cachedTimelineRows, shouldResolveTimelineRowsAsync, timelineRowsInput]);
   const { loading: timelineRowsLoading, rows } = resolveVisibleTimelineRows({
     activeThreadId: activeThreadId ?? null,
     retainedRows: retainedTimelineRows,
@@ -1011,6 +1270,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     syncRows: syncTimelineRows,
   });
   const prependAnchorSnapshotRef = useRef<TimelinePrependAnchorSnapshot | null>(null);
+  const prependAnchorCorrectionFrameRef = useRef<number | null>(null);
   const prependedRowAnimationTimeoutRef = useRef<number | null>(null);
   const [animatedPrependedRowIds, setAnimatedPrependedRowIds] = useState<ReadonlySet<string>>(
     () => new Set(),
@@ -1019,40 +1279,159 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   useLayoutEffect(() => {
     const scrollContainer = getScrollContainer();
     const previous = prependAnchorSnapshotRef.current;
-    if (scrollContainer && previous && previous.firstRowId && rows.length > previous.rowCount) {
-      const previousFirstRowNextIndex = rows.findIndex((row) => row.id === previous.firstRowId);
-      if (previousFirstRowNextIndex > 0) {
+    if (!scrollContainer) {
+      prependAnchorSnapshotRef.current = null;
+      return;
+    }
+
+    if (!previous || !previous.firstRowId) {
+      prependAnchorSnapshotRef.current = readTimelinePrependAnchorSnapshot(rows, scrollContainer);
+      return;
+    }
+
+    const previousFirstRowId = previous.firstRowId;
+    const previousLastRowId = previous.lastRowId;
+    const currentFirstRowId = rows[0]?.id ?? null;
+    const currentLastRowId = rows.at(-1)?.id ?? null;
+    const previousFirstRowCurrentIndex = rows.findIndex((row) => row.id === previousFirstRowId);
+    const isPrepend =
+      previousFirstRowId !== null &&
+      previousFirstRowCurrentIndex > 0 &&
+      rows.length >= previous.rowCount;
+    const isHeightRefinementPass =
+      rows.length === previous.rowCount &&
+      previousFirstRowId !== null &&
+      previousLastRowId !== null &&
+      currentFirstRowId === previousFirstRowId &&
+      currentLastRowId === previousLastRowId;
+    if (!isPrepend && !isHeightRefinementPass) {
+      prependAnchorSnapshotRef.current = readTimelinePrependAnchorSnapshot(rows, scrollContainer);
+      return;
+    }
+    const topAnchoredScrollTop = resolveTimelineTopAnchoredScrollTop(
+      {
+        rowId: previous.topAnchoredRowId,
+        rowRelativeTop: previous.topAnchoredRowRelativeTop,
+      },
+      scrollContainer,
+    );
+
+    if (isPrepend) {
+      if (topAnchoredScrollTop !== null) {
+        scrollContainer.scrollTop = topAnchoredScrollTop;
+      } else {
         const scrollHeightDelta = scrollContainer.scrollHeight - previous.scrollHeight;
         if (Number.isFinite(scrollHeightDelta) && scrollHeightDelta > 0) {
-          scrollContainer.scrollTop = Math.max(0, previous.scrollTop + scrollHeightDelta);
+          const maxScrollTop = Math.max(
+            0,
+            scrollContainer.scrollHeight - scrollContainer.clientHeight,
+          );
+          const nextScrollTop = Math.min(
+            Math.max(0, previous.scrollTop + scrollHeightDelta),
+            maxScrollTop,
+          );
+          scrollContainer.scrollTop = nextScrollTop;
         }
-
-        const animatedRowIds = new Set(
-          rows
-            .slice(0, Math.min(previousFirstRowNextIndex, PREPENDED_TIMELINE_ROW_ANIMATION_LIMIT))
-            .map((row) => row.id),
-        );
-        setAnimatedPrependedRowIds(animatedRowIds);
-        if (prependedRowAnimationTimeoutRef.current !== null) {
-          window.clearTimeout(prependedRowAnimationTimeoutRef.current);
+      }
+    } else if (isHeightRefinementPass) {
+      if (topAnchoredScrollTop !== null) {
+        scrollContainer.scrollTop = topAnchoredScrollTop;
+      } else {
+        const scrollHeightDelta = scrollContainer.scrollHeight - previous.scrollHeight;
+        if (Number.isFinite(scrollHeightDelta) && scrollHeightDelta > 0) {
+          const nextScrollTop = Math.min(
+            Math.max(0, previous.scrollTop + scrollHeightDelta),
+            Math.max(0, scrollContainer.scrollHeight - scrollContainer.clientHeight),
+          );
+          scrollContainer.scrollTop = nextScrollTop;
         }
-        prependedRowAnimationTimeoutRef.current = window.setTimeout(() => {
-          prependedRowAnimationTimeoutRef.current = null;
-          setAnimatedPrependedRowIds(new Set());
-        }, PREPENDED_TIMELINE_ROW_ANIMATION_MS);
       }
     }
 
-    prependAnchorSnapshotRef.current = {
-      firstRowId: rows[0]?.id ?? null,
-      rowCount: rows.length,
-      scrollHeight: scrollContainer?.scrollHeight ?? 0,
-      scrollTop: scrollContainer?.scrollTop ?? 0,
+    if (prependAnchorCorrectionFrameRef.current !== null) {
+      window.cancelAnimationFrame(prependAnchorCorrectionFrameRef.current);
+    }
+
+    const shouldRefine = isPrepend || isHeightRefinementPass;
+    let remainingFrames = PREPENDED_TIMELINE_SCROLL_PRESERVE_FRAMES;
+    let previousScrollHeight = scrollContainer.scrollHeight;
+    let expectedScrollTop =
+      isPrepend || isHeightRefinementPass ? scrollContainer.scrollTop : previous.scrollTop;
+    const runCorrectionFrame = () => {
+      remainingFrames -= 1;
+      if (remainingFrames <= 0 || !scrollContainer.isConnected) {
+        prependAnchorCorrectionFrameRef.current = null;
+        return;
+      }
+      const topAnchoredScrollTopAfterLayout = resolveTimelineTopAnchoredScrollTop(
+        {
+          rowId: previous.topAnchoredRowId,
+          rowRelativeTop: previous.topAnchoredRowRelativeTop,
+        },
+        scrollContainer,
+      );
+      if (topAnchoredScrollTopAfterLayout !== null) {
+        expectedScrollTop = topAnchoredScrollTopAfterLayout;
+        scrollContainer.scrollTop = expectedScrollTop;
+        previousScrollHeight = scrollContainer.scrollHeight;
+        if (shouldRefine) {
+          prependAnchorCorrectionFrameRef.current =
+            window.requestAnimationFrame(runCorrectionFrame);
+        } else {
+          prependAnchorCorrectionFrameRef.current = null;
+        }
+        return;
+      }
+      const scrollHeightDelta = scrollContainer.scrollHeight - previousScrollHeight;
+      if (scrollHeightDelta > 0 && Number.isFinite(scrollHeightDelta)) {
+        expectedScrollTop = Math.min(
+          Math.max(0, expectedScrollTop + scrollHeightDelta),
+          Math.max(0, scrollContainer.scrollHeight - scrollContainer.clientHeight),
+        );
+        scrollContainer.scrollTop = expectedScrollTop;
+      }
+
+      previousScrollHeight = scrollContainer.scrollHeight;
+
+      if (!shouldRefine) {
+        prependAnchorCorrectionFrameRef.current = null;
+        return;
+      }
+      prependAnchorCorrectionFrameRef.current = window.requestAnimationFrame(runCorrectionFrame);
     };
+
+    if (shouldRefine) {
+      prependAnchorCorrectionFrameRef.current = window.requestAnimationFrame(runCorrectionFrame);
+    }
+
+    if (isPrepend) {
+      const previousTopRowsAdded = previousFirstRowCurrentIndex;
+      const newRowsAdded = Math.max(0, previousTopRowsAdded);
+      const animatedRowIds = new Set(
+        rows
+          .slice(0, Math.min(newRowsAdded, PREPENDED_TIMELINE_ROW_ANIMATION_LIMIT))
+          .map((row) => row.id),
+      );
+      setAnimatedPrependedRowIds(animatedRowIds);
+      if (prependedRowAnimationTimeoutRef.current !== null) {
+        window.clearTimeout(prependedRowAnimationTimeoutRef.current);
+      }
+      prependedRowAnimationTimeoutRef.current = window.setTimeout(() => {
+        prependedRowAnimationTimeoutRef.current = null;
+        setAnimatedPrependedRowIds(new Set());
+      }, PREPENDED_TIMELINE_ROW_ANIMATION_MS);
+    }
+
+    prependAnchorSnapshotRef.current = scrollContainer
+      ? readTimelinePrependAnchorSnapshot(rows, scrollContainer)
+      : null;
   }, [getScrollContainer, rows]);
 
   useEffect(
     () => () => {
+      if (prependAnchorCorrectionFrameRef.current !== null) {
+        window.cancelAnimationFrame(prependAnchorCorrectionFrameRef.current);
+      }
       if (prependedRowAnimationTimeoutRef.current !== null) {
         window.clearTimeout(prependedRowAnimationTimeoutRef.current);
       }
@@ -1061,11 +1440,17 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   );
 
   useEffect(() => {
-    if (cachedTimelineRows) {
+    if (cachedTimelineRows || shouldResolveTimelineRowsAsync || syncTimelineRows.length === 0) {
       return;
     }
     writeCachedTimelineRows(timelineRowsCacheKey, timelineRowsInput, syncTimelineRows);
-  }, [cachedTimelineRows, syncTimelineRows, timelineRowsCacheKey, timelineRowsInput]);
+  }, [
+    cachedTimelineRows,
+    shouldResolveTimelineRowsAsync,
+    syncTimelineRows,
+    timelineRowsCacheKey,
+    timelineRowsInput,
+  ]);
 
   useEffect(() => {
     if (!activeThreadId) {
@@ -1419,28 +1804,43 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     () =>
       deriveTimelineRenderedWindowState({
         renderedVirtualItems,
+        totalRowCount: rows.length,
         virtualizedRows,
       }),
-    [renderedVirtualItems, virtualizedRows],
+    [renderedVirtualItems, rows.length, virtualizedRows],
+  );
+  const renderedWindowIndexRows =
+    shouldUseVirtualizedBuffer || renderedVirtualItems.length > 0 ? virtualizedRows : rows;
+  const globalRenderedWindowState = useMemo(
+    () =>
+      deriveGlobalTimelineRenderedWindowState({
+        renderedWindowState,
+        rows: renderedWindowIndexRows,
+        timelineIndexByEntryId,
+      }),
+    [renderedWindowIndexRows, renderedWindowState, timelineIndexByEntryId],
   );
   const shouldRenderVirtualizedBuffer = shouldRenderTimelineVirtualizedBuffer({
     virtualizedRowCount: virtualizedRows.length,
   });
   useEffect(() => {
-    if (!activeThreadId || !renderedWindowState) {
+    if (!activeThreadId || !globalRenderedWindowState) {
       return;
     }
-    if (renderedWindowState.loadedEndIndexExclusive <= renderedWindowState.loadedStartIndex) {
+    if (
+      globalRenderedWindowState.loadedEndIndexExclusive <=
+      globalRenderedWindowState.loadedStartIndex
+    ) {
       return;
     }
     useTimelineWindowStore.getState().setActiveWindow(activeThreadId as ThreadId, {
-      startIndex: renderedWindowState.loadedStartIndex,
-      endIndexExclusive: renderedWindowState.loadedEndIndexExclusive,
-      overscanStartIndex: renderedWindowState.overscanLoadedStartIndex,
-      overscanEndIndexExclusive: renderedWindowState.overscanLoadedEndIndexExclusive,
+      startIndex: globalRenderedWindowState.loadedStartIndex,
+      endIndexExclusive: globalRenderedWindowState.loadedEndIndexExclusive,
+      overscanStartIndex: globalRenderedWindowState.overscanLoadedStartIndex,
+      overscanEndIndexExclusive: globalRenderedWindowState.overscanLoadedEndIndexExclusive,
       updatedAt: timelineCacheScope,
     });
-  }, [activeThreadId, renderedWindowState, timelineCacheScope]);
+  }, [activeThreadId, globalRenderedWindowState, timelineCacheScope]);
   useEffect(() => {
     if (!activeThreadId || !renderedWindowState || rows.length === 0) {
       return;
@@ -2026,6 +2426,24 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       </div>
     );
   };
+  const buildRowRenderCacheStyle = useCallback(
+    (row: TimelineRow, style: CSSProperties = {}): CSSProperties => {
+      const intrinsicHeight = Math.max(
+        TIMELINE_ROW_RENDER_INTRINSIC_MIN_HEIGHT_PX,
+        Math.ceil(
+          estimateTimelineRowHeight(row, {
+            timelineWidthPx,
+            expandedWorkGroups,
+          }),
+        ),
+      );
+      return {
+        ...style,
+        "--timeline-row-estimated-height": `${intrinsicHeight}px`,
+      } as CSSProperties;
+    },
+    [expandedWorkGroups, timelineWidthPx],
+  );
 
   if (!hasMessages && !isWorking) {
     const showConversationStarters =
@@ -2077,9 +2495,12 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     );
   }
 
-  if (timelineRowsLoading) {
+  if (timelineRowsLoading && rows.length === 0) {
     return <TimelineRowsLoadingFallback />;
   }
+
+  const showFetchingIndicator =
+    rows.length > 0 && (isThreadHistoryFetching || isThreadHistoryLoading || timelineRowsLoading);
 
   return (
     <div
@@ -2090,6 +2511,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       onKeyUp={updateSelectionPinTarget}
       onMouseUp={updateSelectionPinTarget}
     >
+      {showFetchingIndicator ? <TimelineRowsFetchingIndicator /> : null}
       {selectionPinTarget ? (
         <button
           type="button"
@@ -2119,11 +2541,14 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                 key={`row:${row.id}`}
                 ref={rowVirtualizer.measureElement}
                 data-index={virtualRow.index}
+                data-timeline-row-id={row.id}
                 className={cn(
-                  "absolute top-0 left-0 flow-root w-full",
+                  "timeline-row-render-cache absolute top-0 left-0 flow-root w-full",
                   animatedPrependedRowIds.has(row.id) && "timeline-row-prepended",
                 )}
-                style={{ transform: `translateY(${virtualRow.start}px)` }}
+                style={buildRowRenderCacheStyle(row, {
+                  transform: `translateY(${virtualRow.start}px)`,
+                })}
               >
                 {buildRowContent(row, virtualRow.index)}
               </div>
@@ -2134,7 +2559,12 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         virtualizedRows.map((row, index) => (
           <div
             key={`row:${row.id}`}
-            className={cn(animatedPrependedRowIds.has(row.id) && "timeline-row-prepended")}
+            data-timeline-row-id={row.id}
+            className={cn(
+              "timeline-row-render-cache",
+              animatedPrependedRowIds.has(row.id) && "timeline-row-prepended",
+            )}
+            style={buildRowRenderCacheStyle(row)}
           >
             {buildRowContent(row, index)}
           </div>
@@ -2143,7 +2573,12 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       {trailingRows.map((row, index) => (
         <div
           key={`row:${row.id}`}
-          className={cn(animatedPrependedRowIds.has(row.id) && "timeline-row-prepended")}
+          data-timeline-row-id={row.id}
+          className={cn(
+            "timeline-row-render-cache",
+            animatedPrependedRowIds.has(row.id) && "timeline-row-prepended",
+          )}
+          style={buildRowRenderCacheStyle(row)}
         >
           {buildRowContent(row, virtualizedRows.length + index)}
         </div>
