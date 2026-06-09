@@ -3279,6 +3279,54 @@ function formatStorageBytes(sizeBytes: number): string {
   return `${value.toFixed(digits)} ${units[unitIndex]}`;
 }
 
+function shortenProjectPath(path: string): string {
+  const normalized = path.replace(/\/+$/, "");
+  const parts = normalized.split("/").filter(Boolean);
+  if (parts.length <= 3) {
+    return normalized;
+  }
+  return `…/${parts.slice(-3).join("/")}`;
+}
+
+function getProjectPathDisambiguator(path: string): string | null {
+  const aceMatch = path.match(/\/(ace-[a-z0-9]+)\//i);
+  if (aceMatch?.[1]) {
+    return aceMatch[1];
+  }
+  const parts = path.split("/").filter(Boolean);
+  if (parts.length >= 2) {
+    return parts[parts.length - 2] ?? null;
+  }
+  return null;
+}
+
+function buildDuplicateProjectNameSet(projects: readonly Project[]): ReadonlySet<string> {
+  const counts = new Map<string, number>();
+  for (const project of projects) {
+    counts.set(project.name, (counts.get(project.name) ?? 0) + 1);
+  }
+  return new Set(
+    Array.from(counts.entries())
+      .filter(([, count]) => count > 1)
+      .map(([name]) => name),
+  );
+}
+
+function formatEnvironmentProjectPathLine(
+  project: Project,
+  duplicateNames: ReadonlySet<string>,
+): string {
+  const shortenedPath = shortenProjectPath(project.cwd);
+  if (!duplicateNames.has(project.name)) {
+    return shortenedPath;
+  }
+  const disambiguator = getProjectPathDisambiguator(project.cwd);
+  if (!disambiguator) {
+    return shortenedPath;
+  }
+  return `${disambiguator} · ${shortenedPath}`;
+}
+
 function getWorktreeActivityTimeMs(
   worktree: EnvironmentWorktreeEntry,
   stats: EnvironmentWorktreeStats | undefined,
@@ -4347,6 +4395,10 @@ export function EnvironmentSettingsPanel() {
     });
   }, [activeLocalProjects, projectFilter, projectMetricsById, projectSearch, projectSort]);
   const hasActiveFilter = projectFilter !== "all" || projectSort !== "name" || projectSearch.trim();
+  const duplicateProjectNames = useMemo(
+    () => buildDuplicateProjectNameSet(activeLocalProjects),
+    [activeLocalProjects],
+  );
 
   const clearProjectControls = useCallback(() => {
     setProjectSearch("");
@@ -4373,33 +4425,30 @@ export function EnvironmentSettingsPanel() {
             </EmptyHeader>
           </Empty>
         ) : (
-          <div>
-            <div className="flex flex-col gap-2 py-2.5 sm:flex-row sm:items-center sm:justify-between">
-              <div className="relative w-full sm:max-w-md">
+          <div className="space-y-3">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <div className="relative min-w-0 flex-1 sm:max-w-xs">
                 <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground/55" />
                 <Input
                   value={projectSearch}
                   placeholder="Search projects"
                   className="h-8 pl-8"
+                  aria-label="Search projects"
                   onChange={(event) => setProjectSearch(event.target.value)}
                 />
               </div>
-              <div className="flex min-w-0 flex-wrap items-center gap-3 text-xs text-muted-foreground/60 sm:justify-end">
+              <div className="flex shrink-0 flex-wrap items-center gap-2 sm:justify-end">
                 <Select
                   value={projectFilter}
                   onValueChange={(value) => setProjectFilter(value as EnvironmentProjectFilter)}
                 >
-                  <div className="flex items-center gap-1.5">
-                    <span className="font-medium text-muted-foreground/55">Filter</span>
-                    <SelectTrigger
-                      aria-label="Filter projects"
-                      className="w-36"
-                      size="sm"
-                      variant="ghost"
-                    >
-                      <SelectValue>{ENVIRONMENT_PROJECT_FILTER_LABELS[projectFilter]}</SelectValue>
-                    </SelectTrigger>
-                  </div>
+                  <SelectTrigger
+                    aria-label="Filter projects"
+                    className="h-8 w-[8.75rem]"
+                    size="default"
+                  >
+                    <SelectValue>{ENVIRONMENT_PROJECT_FILTER_LABELS[projectFilter]}</SelectValue>
+                  </SelectTrigger>
                   <SelectPopup>
                     {(
                       [
@@ -4419,17 +4468,13 @@ export function EnvironmentSettingsPanel() {
                   value={projectSort}
                   onValueChange={(value) => setProjectSort(value as EnvironmentProjectSort)}
                 >
-                  <div className="flex items-center gap-1.5">
-                    <span className="font-medium text-muted-foreground/55">Sort</span>
-                    <SelectTrigger
-                      aria-label="Sort projects"
-                      className="w-40"
-                      size="sm"
-                      variant="ghost"
-                    >
-                      <SelectValue>{ENVIRONMENT_PROJECT_SORT_LABELS[projectSort]}</SelectValue>
-                    </SelectTrigger>
-                  </div>
+                  <SelectTrigger
+                    aria-label="Sort projects"
+                    className="h-8 w-[8.75rem]"
+                    size="default"
+                  >
+                    <SelectValue>{ENVIRONMENT_PROJECT_SORT_LABELS[projectSort]}</SelectValue>
+                  </SelectTrigger>
                   <SelectPopup>
                     {(
                       [
@@ -4446,12 +4491,22 @@ export function EnvironmentSettingsPanel() {
                   </SelectPopup>
                 </Select>
                 {hasActiveFilter ? (
-                  <Button type="button" size="xs" variant="ghost" onClick={clearProjectControls}>
+                  <Button type="button" size="sm" variant="ghost" onClick={clearProjectControls}>
                     Reset
                   </Button>
                 ) : null}
               </div>
             </div>
+
+            <div className="flex items-center justify-between gap-3 text-[11px] text-muted-foreground/60">
+              <span>
+                {filteredProjects.length} project{filteredProjects.length === 1 ? "" : "s"}
+              </span>
+              {duplicateProjectNames.size > 0 ? (
+                <span>Duplicate names show a worktree id in the path</span>
+              ) : null}
+            </div>
+
             {filteredProjects.length === 0 ? (
               <Empty className="py-10">
                 <EmptyHeader>
@@ -4463,17 +4518,16 @@ export function EnvironmentSettingsPanel() {
                 </EmptyHeader>
               </Empty>
             ) : (
-              <div className="space-y-1.5">
-                {filteredProjects.map((project) => {
-                  return (
-                    <EnvironmentProjectRow
-                      key={project.id}
-                      project={project}
-                      onMetricsChange={updateProjectMetrics}
-                    />
-                  );
-                })}
-              </div>
+              <SettingsInsetPanel className="overflow-hidden">
+                {filteredProjects.map((project) => (
+                  <EnvironmentProjectRow
+                    key={project.id}
+                    duplicateNames={duplicateProjectNames}
+                    project={project}
+                    onMetricsChange={updateProjectMetrics}
+                  />
+                ))}
+              </SettingsInsetPanel>
             )}
           </div>
         )}
@@ -4483,9 +4537,11 @@ export function EnvironmentSettingsPanel() {
 }
 
 function EnvironmentProjectRow({
+  duplicateNames,
   onMetricsChange,
   project,
 }: {
+  readonly duplicateNames: ReadonlySet<string>;
   readonly onMetricsChange: (projectId: ProjectId, metrics: EnvironmentProjectMetrics) => void;
   readonly project: Project;
 }) {
@@ -4515,21 +4571,22 @@ function EnvironmentProjectRow({
     });
   }, [onMetricsChange, project.id, setupScript, totalStorageBytes, worktreePaths.length]);
   const worktreeCountLabel = branchesQuery.isError
-    ? "Worktrees unavailable"
+    ? "Unavailable"
     : formatCountLabel(worktreePaths.length, "worktree");
   const isLoadingWorktrees = branchesQuery.isLoading;
   const storageLabel =
     worktreePaths.length === 0
       ? "0 B"
       : !statsQuery.data
-        ? "Calculating storage"
+        ? "…"
         : formatStorageBytes(totalStorageBytes);
   const isRefreshingStorage = worktreePaths.length > 0 && statsQuery.isFetching;
+  const pathLine = formatEnvironmentProjectPathLine(project, duplicateNames);
 
   return (
     <button
       type="button"
-      className="group flex w-full items-start gap-3 px-4 py-3.5 text-left transition-colors hover:bg-foreground/[0.03] sm:px-5"
+      className="group flex w-full items-center gap-2.5 border-b border-border/40 px-3 py-2.5 text-left transition-colors last:border-b-0 hover:bg-foreground/[0.03]"
       onClick={() =>
         void navigate({
           to: "/settings/project-environment/$projectId",
@@ -4537,30 +4594,44 @@ function EnvironmentProjectRow({
         })
       }
     >
-      <ProjectAvatar project={project} className="mt-0.5 shrink-0" />
+      <ProjectAvatar project={project} className="size-7 shrink-0" />
       <div className="min-w-0 flex-1">
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <span className="truncate text-[13px] font-medium text-foreground">
-            {project.name}
-          </span>
-          {setupScript ? <span className="text-xs text-muted-foreground">setup</span> : null}
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="truncate text-[13px] font-medium text-foreground">{project.name}</span>
+          {setupScript ? (
+            <span className="shrink-0 rounded-full border border-border/40 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+              setup
+            </span>
+          ) : null}
           {environmentCount > 0 ? (
-            <span className="text-xs text-muted-foreground">{environmentCount} env</span>
+            <span className="shrink-0 rounded-full border border-border/40 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+              {environmentCount} env
+            </span>
           ) : null}
         </div>
-        <div className="mt-0.5 truncate text-xs text-muted-foreground">{project.cwd}</div>
-        <div className="mt-2 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-          <span className="inline-flex items-center gap-1.5">
-            <span>{worktreeCountLabel}</span>
-            {isLoadingWorktrees ? <Spinner className="size-3" /> : null}
+        <p className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground/70">{pathLine}</p>
+        <div className="mt-1.5 flex flex-wrap items-center gap-1.5 sm:hidden">
+          <span className="inline-flex items-center gap-1 rounded-full border border-border/40 px-1.5 py-0.5 text-[10px] tabular-nums text-muted-foreground">
+            {worktreeCountLabel}
+            {isLoadingWorktrees ? <Spinner className="size-2.5" /> : null}
           </span>
-          <span className="inline-flex items-center gap-1.5">
-            <span>{storageLabel}</span>
-            {isRefreshingStorage ? <Spinner className="size-3" /> : null}
+          <span className="inline-flex items-center gap-1 rounded-full border border-border/40 px-1.5 py-0.5 text-[10px] tabular-nums text-muted-foreground">
+            {storageLabel}
+            {isRefreshingStorage ? <Spinner className="size-2.5" /> : null}
           </span>
         </div>
       </div>
-      <ArrowRightIcon className="mt-1 size-4 shrink-0 text-muted-foreground/50 transition-colors group-hover:text-foreground/70" />
+      <div className="hidden shrink-0 items-center gap-1.5 sm:flex">
+        <span className="inline-flex items-center gap-1 rounded-full border border-border/40 px-1.5 py-0.5 text-[10px] tabular-nums text-muted-foreground">
+          {worktreeCountLabel}
+          {isLoadingWorktrees ? <Spinner className="size-2.5" /> : null}
+        </span>
+        <span className="inline-flex items-center gap-1 rounded-full border border-border/40 px-1.5 py-0.5 text-[10px] tabular-nums text-muted-foreground">
+          {storageLabel}
+          {isRefreshingStorage ? <Spinner className="size-2.5" /> : null}
+        </span>
+      </div>
+      <ArrowRightIcon className="size-3.5 shrink-0 text-muted-foreground/45 transition-colors group-hover:text-foreground/70" />
     </button>
   );
 }

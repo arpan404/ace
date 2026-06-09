@@ -17,7 +17,7 @@ export function SettingsContentHeader({
   action?: ReactNode;
 }) {
   return (
-    <AppPageTopBar>
+    <AppPageTopBar contentClassName="px-3.5 sm:px-4">
       <div className="flex min-w-0 w-full flex-1 items-center justify-between gap-4">
         <h1 className={cn(SETTINGS_PAGE_TITLE_CLASS, "min-w-0 [-webkit-app-region:no-drag]")}>
           <span className={SETTINGS_HEADER_ROOT_CLASS}>Settings</span>
