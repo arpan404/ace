@@ -108,7 +108,7 @@ function AlertDialogMedia({ className, ...props }: React.ComponentProps<"div">) 
     <div
       data-slot="alert-dialog-media"
       className={cn(
-        "mb-3 inline-flex size-7 items-center justify-center rounded-[var(--control-radius)] border border-border/20 bg-muted/15 text-muted-foreground *:[svg:not([class*='size-'])]:size-3.5",
+        "mb-3 inline-flex size-7 items-center justify-center rounded-[var(--control-radius)] border border-border/40 bg-muted/15 text-muted-foreground *:[svg:not([class*='size-'])]:size-3.5",
         className,
       )}
       {...props}
@@ -142,7 +142,11 @@ function AlertDialogDescription({
   );
 }
 
-function AlertDialogAction({ className, size = "sm", ...props }: React.ComponentProps<typeof Button>) {
+function AlertDialogAction({
+  className,
+  size = "sm",
+  ...props
+}: React.ComponentProps<typeof Button>) {
   return (
     <Button
       data-slot="alert-dialog-action"

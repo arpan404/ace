@@ -2,6 +2,7 @@ import { ArrowLeftIcon } from "lucide-react";
 import { useNavigate } from "@tanstack/react-router";
 
 import { cn } from "../../lib/utils";
+import { Button } from "../ui/button";
 import {
   SidebarContent,
   SidebarFooter,
@@ -60,14 +61,15 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
       </SidebarContent>
 
       <SidebarFooter className="border-t border-sidebar-border/40 p-2">
-        <button
+        <Button
           type="button"
+          variant="ghost"
           className={SETTINGS_SIDEBAR_BACK_CLASS}
           onClick={() => void navigate({ to: "/", replace: true })}
         >
           <ArrowLeftIcon className="size-3.5 shrink-0 opacity-60" strokeWidth={2} />
           <span>Back to app</span>
-        </button>
+        </Button>
       </SidebarFooter>
     </>
   );

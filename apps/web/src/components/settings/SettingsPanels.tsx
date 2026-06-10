@@ -105,12 +105,6 @@ import {
   type AgentAttentionNotificationSettingKey,
 } from "../../lib/notificationSettings";
 import { showBrowserNotification } from "../../lib/browserNotifications";
-import { Button } from "../ui/button";
-import { Badge } from "../ui/badge";
-import { Checkbox } from "../ui/checkbox";
-import { Collapsible, CollapsibleContent } from "../ui/collapsible";
-import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../ui/empty";
-import { Input } from "../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Spinner } from "../ui/spinner";
 import { Switch } from "../ui/switch";
@@ -124,11 +118,22 @@ import { ThemePresetPicker } from "./ThemePresetPicker";
 import { PROVIDER_SETTINGS } from "./settingsProviderConfig";
 import { KeybindingsSettingsEditor } from "./KeybindingsSettingsEditor";
 import {
+  SETTINGS_FIELD_CLASS,
+  SETTINGS_LIST_ROW_BUTTON_CLASS,
+  SETTINGS_SELECT_TRIGGER_CLASS,
+} from "./settingsUi";
+import { Button } from "../ui/button";
+import { Badge } from "../ui/badge";
+import { Checkbox } from "../ui/checkbox";
+import { Collapsible, CollapsibleContent } from "../ui/collapsible";
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../ui/empty";
+import {
   SETTINGS_CARD_BODY_CLASS_NAME,
   SETTINGS_CARD_CLASS_NAME,
   SETTINGS_LIST_ROW_CLASS_NAME,
   SETTINGS_ROW_INSET_CLASS_NAME,
   SettingsChoiceGroup,
+  SettingsInput,
   SettingsPageContainer,
   SettingsPageHeader,
   SettingsRow,
@@ -1483,7 +1488,10 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                     }
                   }}
                 >
-                  <SelectTrigger className="w-full" aria-label="Theme preference">
+                  <SelectTrigger
+                    className={SETTINGS_SELECT_TRIGGER_CLASS}
+                    aria-label="Theme preference"
+                  >
                     <SelectValue>
                       {THEME_OPTIONS.find((option) => option.value === theme)?.label ?? "System"}
                     </SelectValue>
@@ -1538,7 +1546,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                     }
                   }}
                 >
-                  <SelectTrigger className="w-full" aria-label="UI font">
+                  <SelectTrigger className={SETTINGS_SELECT_TRIGGER_CLASS} aria-label="UI font">
                     <SelectValue>
                       {UI_FONT_FAMILY_OPTIONS.find((o) => o.value === settings.uiFontFamily)
                         ?.label ?? "UI font"}
@@ -1577,7 +1585,10 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                     }
                   }}
                 >
-                  <SelectTrigger className="w-full" aria-label="Monospace font">
+                  <SelectTrigger
+                    className={SETTINGS_SELECT_TRIGGER_CLASS}
+                    aria-label="Monospace font"
+                  >
                     <SelectValue>
                       {UI_MONO_FONT_OPTIONS.find((o) => o.value === settings.uiMonoFontFamily)
                         ?.label ?? "Monospace font"}
@@ -1614,7 +1625,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                     }
                   }}
                 >
-                  <SelectTrigger className="w-full" aria-label="Text size">
+                  <SelectTrigger className={SETTINGS_SELECT_TRIGGER_CLASS} aria-label="Text size">
                     <SelectValue>
                       {UI_FONT_SIZE_OPTIONS.find((o) => o.value === settings.uiFontSizeScale)
                         ?.label ?? "Text size"}
@@ -1656,7 +1667,10 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                     }
                   }}
                 >
-                  <SelectTrigger className="w-full" aria-label="Letter spacing">
+                  <SelectTrigger
+                    className={SETTINGS_SELECT_TRIGGER_CLASS}
+                    aria-label="Letter spacing"
+                  >
                     <SelectValue>
                       {UI_LETTER_SPACING_OPTIONS.find((o) => o.value === settings.uiLetterSpacing)
                         ?.label ?? "Letter spacing"}
@@ -1697,7 +1711,10 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                     }
                   }}
                 >
-                  <SelectTrigger className="w-full" aria-label="Timestamp format">
+                  <SelectTrigger
+                    className={SETTINGS_SELECT_TRIGGER_CLASS}
+                    aria-label="Timestamp format"
+                  >
                     <SelectValue>{TIMESTAMP_FORMAT_LABELS[settings.timestampFormat]}</SelectValue>
                   </SelectTrigger>
                   <SelectPopup align="end" alignItemWithTrigger={false}>
@@ -1741,7 +1758,10 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                     }
                   }}
                 >
-                  <SelectTrigger className="w-full" aria-label="Default thread mode">
+                  <SelectTrigger
+                    className={SETTINGS_SELECT_TRIGGER_CLASS}
+                    aria-label="Default thread mode"
+                  >
                     <SelectValue>
                       {settings.defaultThreadEnvMode === "worktree" ? "New worktree" : "Local"}
                     </SelectValue>
@@ -1784,7 +1804,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                   }}
                 >
                   <SelectTrigger
-                    className="w-full"
+                    className={SETTINGS_SELECT_TRIGGER_CLASS}
                     aria-label="Workspace editor opening mode"
                   >
                     <SelectValue>
@@ -1820,7 +1840,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                 ) : null
               }
               control={
-                <Input
+                <SettingsInput
                   className="w-full"
                   value={settings.addProjectBaseDirectory}
                   onChange={(event) => {
@@ -2333,7 +2353,10 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                     }
                   }}
                 >
-                  <SelectTrigger className="w-full" aria-label="Editor line numbers">
+                  <SelectTrigger
+                    className={SETTINGS_SELECT_TRIGGER_CLASS}
+                    aria-label="Editor line numbers"
+                  >
                     <SelectValue>{settings.editorLineNumbers}</SelectValue>
                   </SelectTrigger>
                   <SelectPopup align="end" alignItemWithTrigger={false}>
@@ -2389,7 +2412,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                   <div className="flex flex-col gap-2">
                     <div className="relative min-w-0">
                       <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground/55" />
-                      <Input
+                      <SettingsInput
                         className="w-full pl-8"
                         value={lspCatalogQuery}
                         onChange={(event) =>
@@ -2424,7 +2447,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                     >
                       <SelectTrigger
                         size="sm"
-                        className="w-full"
+                        className={SETTINGS_SELECT_TRIGGER_CLASS}
                         aria-label="Language server category filter"
                       >
                         <SelectValue>{lspCatalogCategoryLabel}</SelectValue>
@@ -2454,16 +2477,17 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                         const isWorking = isInstallingCustomLsp && lspInstallTargetId === tool.id;
                         const versionLabel = resolveLspToolVersionLabel(tool);
                         return (
-                          <div key={tool.id} className={SETTINGS_LIST_ROW_CLASS_NAME}>
-                            <div className="flex min-w-0 items-start justify-between gap-3">
-                              <div className="min-w-0">
-                                <div className="truncate text-[13px] font-medium text-foreground">
-                                  {tool.label}
-                                </div>
-                                <div className="mt-0.5 text-xs text-muted-foreground">
-                                  {versionLabel}
-                                </div>
-                              </div>
+                          <div
+                            key={tool.id}
+                            className={cn(SETTINGS_LIST_ROW_CLASS_NAME, "flex items-center gap-3")}
+                          >
+                            <div className="flex min-w-0 flex-1 items-baseline gap-2">
+                              <span className="truncate text-[13px] font-medium text-foreground">
+                                {tool.label}
+                              </span>
+                              <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">
+                                {versionLabel}
+                              </span>
                             </div>
                             <Button
                               size="sm"
@@ -2474,7 +2498,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                                   : installCatalogTool(tool)
                               }
                               disabled={isInstallingCustomLsp}
-                              className="w-full"
+                              className="shrink-0"
                             >
                               {isWorking
                                 ? tool.installed
@@ -2494,9 +2518,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                 {lspCustomTools.length > 0 ? (
                   <div>
                     <div className="py-2">
-                      <div className="text-sm font-medium text-foreground/90">
-                        Custom servers
-                      </div>
+                      <div className="text-sm font-medium text-foreground/90">Custom servers</div>
                       <div className="text-xs text-muted-foreground/60">
                         Saved package definitions outside the curated catalog.
                       </div>
@@ -2505,9 +2527,12 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                       {lspCustomTools.map((tool) => (
                         <div
                           key={tool.id}
-                          className={SETTINGS_LIST_ROW_CLASS_NAME}
+                          className={cn(
+                            SETTINGS_LIST_ROW_CLASS_NAME,
+                            "flex items-start justify-between gap-3",
+                          )}
                         >
-                          <div className="min-w-0 space-y-1">
+                          <div className="min-w-0 flex-1 space-y-1">
                             <div className="flex min-w-0 flex-wrap items-center gap-1.5">
                               <div className="min-w-0 truncate text-[13px] font-medium text-foreground/92">
                                 {tool.label}
@@ -2526,6 +2551,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                           <Button
                             size="sm"
                             variant="outline"
+                            className="shrink-0"
                             onClick={() => seedCustomLspForm(tool)}
                           >
                             Edit copy
@@ -2587,7 +2613,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                           className="grid gap-1 text-xs font-medium text-muted-foreground/72"
                         >
                           Package
-                          <Input
+                          <SettingsInput
                             id="lsp-custom-package"
                             value={lspCustomForm.packageName}
                             onChange={(event) =>
@@ -2612,7 +2638,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                           className="grid gap-1 text-xs font-medium text-muted-foreground/72"
                         >
                           Command
-                          <Input
+                          <SettingsInput
                             id="lsp-custom-command"
                             value={lspCustomForm.command}
                             onChange={(event) =>
@@ -2629,7 +2655,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                           className="grid gap-1 text-xs font-medium text-muted-foreground/72"
                         >
                           Display label
-                          <Input
+                          <SettingsInput
                             id="lsp-custom-label"
                             value={lspCustomForm.label}
                             onChange={(event) =>
@@ -2646,7 +2672,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                           className="grid gap-1 text-xs font-medium text-muted-foreground/72"
                         >
                           Args
-                          <Input
+                          <SettingsInput
                             id="lsp-custom-args"
                             value={lspCustomForm.args}
                             onChange={(event) =>
@@ -2663,7 +2689,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                           className="grid gap-1 text-xs font-medium text-muted-foreground/72"
                         >
                           Language IDs
-                          <Input
+                          <SettingsInput
                             id="lsp-custom-language-ids"
                             value={lspCustomForm.languageIds}
                             onChange={(event) =>
@@ -2680,7 +2706,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                           className="grid gap-1 text-xs font-medium text-muted-foreground/72"
                         >
                           File extensions
-                          <Input
+                          <SettingsInput
                             id="lsp-custom-file-extensions"
                             value={lspCustomForm.fileExtensions}
                             onChange={(event) =>
@@ -2697,7 +2723,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                           className="grid gap-1 text-xs font-medium text-muted-foreground/72 sm:col-span-2"
                         >
                           File names
-                          <Input
+                          <SettingsInput
                             id="lsp-custom-file-names"
                             value={lspCustomForm.fileNames}
                             onChange={(event) =>
@@ -2776,7 +2802,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
             }
             control={
               <div className="flex items-center gap-2">
-                <Input
+                <SettingsInput
                   type="number"
                   min={1}
                   max={BROWSER_MAX_MOUNTED_INSTANCES_LIMIT}
@@ -2842,8 +2868,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                     gemini: settings.providers.gemini.instances,
                     opencode: settings.providers.opencode.instances,
                   }}
-                  triggerVariant="outline"
-                  triggerClassName="h-8 min-w-0 max-w-none shrink-0 px-3 text-[13px] text-foreground/90 hover:text-foreground"
+                  triggerSurface="settings"
                   onProviderModelChange={(provider, model, providerInstanceId) => {
                     updateSettings({
                       textGenerationModelSelection: resolveAppModelSelectionState(
@@ -2873,8 +2898,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                   onPromptChange={() => {}}
                   modelOptions={textGenModelOptions}
                   allowPromptInjectedEffort={false}
-                  triggerVariant="outline"
-                  triggerClassName="h-8 min-w-0 max-w-none shrink-0 px-3 text-[13px] text-foreground/90 hover:text-foreground"
+                  triggerSurface="settings"
                   onModelOptionsChange={(nextOptions) => {
                     updateSettings({
                       textGenerationModelSelection: resolveAppModelSelectionState(
@@ -2947,7 +2971,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
               }
               control={
                 <div className="flex items-center gap-2">
-                  <Input
+                  <SettingsInput
                     type="number"
                     min={1}
                     step={1}
@@ -2988,7 +3012,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
               }
               control={
                 <div className="flex items-center gap-2">
-                  <Input
+                  <SettingsInput
                     type="number"
                     min={1}
                     step={1}
@@ -3051,7 +3075,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
               }
               status={settings.gitSshKeyPassphrase.trim().length > 0 ? "Configured" : "Not set"}
               control={
-                <Input
+                <SettingsInput
                   type="password"
                   className="w-full"
                   value={settings.gitSshKeyPassphrase}
@@ -3086,7 +3110,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
               }
               control={
                 <div className="flex items-center gap-2">
-                  <Input
+                  <SettingsInput
                     type="number"
                     min={1}
                     step={1}
@@ -3312,19 +3336,22 @@ function buildDuplicateProjectNameSet(projects: readonly Project[]): ReadonlySet
   );
 }
 
-function formatEnvironmentProjectPathLine(
+function formatEnvironmentProjectPathLine(project: Project): string {
+  return shortenProjectPath(project.cwd);
+}
+
+function formatEnvironmentProjectDisplayName(
   project: Project,
   duplicateNames: ReadonlySet<string>,
 ): string {
-  const shortenedPath = shortenProjectPath(project.cwd);
   if (!duplicateNames.has(project.name)) {
-    return shortenedPath;
+    return project.name;
   }
   const disambiguator = getProjectPathDisambiguator(project.cwd);
   if (!disambiguator) {
-    return shortenedPath;
+    return project.name;
   }
-  return `${disambiguator} · ${shortenedPath}`;
+  return `${project.name} · ${disambiguator}`;
 }
 
 function getWorktreeActivityTimeMs(
@@ -3595,7 +3622,7 @@ function ProjectWorktreeSetupEditor({ project }: { readonly project: Project }) 
         <div className="grid gap-3">
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-muted-foreground">Env file</label>
-            <Input
+            <SettingsInput
               value={envFilePath}
               placeholder=".env"
               className="font-mono text-sm"
@@ -3987,7 +4014,7 @@ function ProjectEnvironmentWorktrees({
           }
           status={hasProjectSshKeyPassphrase ? "Configured" : "Using global"}
           control={
-            <Input
+            <SettingsInput
               type="password"
               className="w-full"
               value={projectSshKeyPassphrase}
@@ -4026,7 +4053,7 @@ function ProjectEnvironmentWorktrees({
               <span className="block text-[10px] font-medium text-muted-foreground/58">Search</span>
               <span className="relative block">
                 <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground/55" />
-                <Input
+                <SettingsInput
                   value={worktreeSearch}
                   placeholder="Name, path, branch"
                   className="h-8 pl-8"
@@ -4040,7 +4067,7 @@ function ProjectEnvironmentWorktrees({
                 value={worktreeFilter}
                 onValueChange={(value) => setWorktreeFilter(value as EnvironmentWorktreeFilter)}
               >
-                <SelectTrigger size="sm" className="w-full">
+                <SelectTrigger size="sm" className={SETTINGS_SELECT_TRIGGER_CLASS}>
                   <SelectValue>{ENVIRONMENT_WORKTREE_FILTER_LABELS[worktreeFilter]}</SelectValue>
                 </SelectTrigger>
                 <SelectPopup align="end" alignItemWithTrigger={false}>
@@ -4058,7 +4085,7 @@ function ProjectEnvironmentWorktrees({
                 value={worktreeSort}
                 onValueChange={(value) => setWorktreeSort(value as EnvironmentWorktreeSort)}
               >
-                <SelectTrigger size="sm" className="w-full">
+                <SelectTrigger size="sm" className={SETTINGS_SELECT_TRIGGER_CLASS}>
                   <SelectValue>{ENVIRONMENT_WORKTREE_SORT_LABELS[worktreeSort]}</SelectValue>
                 </SelectTrigger>
                 <SelectPopup align="end" alignItemWithTrigger={false}>
@@ -4153,7 +4180,10 @@ function ProjectEnvironmentWorktrees({
                 return (
                   <div
                     key={worktree.path}
-                    className={cn(SETTINGS_LIST_ROW_CLASS_NAME, isSelected && "bg-foreground/[0.03]")}
+                    className={cn(
+                      SETTINGS_LIST_ROW_CLASS_NAME,
+                      isSelected && "bg-foreground/[0.03]",
+                    )}
                   >
                     <div className="flex min-w-0 items-start gap-2.5">
                       <Checkbox
@@ -4275,7 +4305,7 @@ function ProjectEnvironmentWorktrees({
                     value={cleanupAge}
                     onValueChange={(value) => setCleanupAge(value as EnvironmentWorktreeCleanupAge)}
                   >
-                    <SelectTrigger size="sm" className="w-full">
+                    <SelectTrigger size="sm" className={SETTINGS_SELECT_TRIGGER_CLASS}>
                       <SelectValue>
                         {ENVIRONMENT_WORKTREE_CLEANUP_AGE_LABELS[cleanupAge]}
                       </SelectValue>
@@ -4425,11 +4455,11 @@ export function EnvironmentSettingsPanel() {
             </EmptyHeader>
           </Empty>
         ) : (
-          <div className="space-y-3">
+          <div className="min-w-0 space-y-4 py-3.5">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
               <div className="relative min-w-0 flex-1 sm:max-w-xs">
                 <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground/55" />
-                <Input
+                <SettingsInput
                   value={projectSearch}
                   placeholder="Search projects"
                   className="h-8 pl-8"
@@ -4444,7 +4474,7 @@ export function EnvironmentSettingsPanel() {
                 >
                   <SelectTrigger
                     aria-label="Filter projects"
-                    className="h-8 w-[8.75rem]"
+                    className={cn(SETTINGS_FIELD_CLASS, "w-[8.75rem]")}
                     size="default"
                   >
                     <SelectValue>{ENVIRONMENT_PROJECT_FILTER_LABELS[projectFilter]}</SelectValue>
@@ -4470,7 +4500,7 @@ export function EnvironmentSettingsPanel() {
                 >
                   <SelectTrigger
                     aria-label="Sort projects"
-                    className="h-8 w-[8.75rem]"
+                    className={cn(SETTINGS_FIELD_CLASS, "w-[8.75rem]")}
                     size="default"
                   >
                     <SelectValue>{ENVIRONMENT_PROJECT_SORT_LABELS[projectSort]}</SelectValue>
@@ -4498,12 +4528,12 @@ export function EnvironmentSettingsPanel() {
               </div>
             </div>
 
-            <div className="flex items-center justify-between gap-3 text-[11px] text-muted-foreground/60">
+            <div className="flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
               <span>
                 {filteredProjects.length} project{filteredProjects.length === 1 ? "" : "s"}
               </span>
               {duplicateProjectNames.size > 0 ? (
-                <span>Duplicate names show a worktree id in the path</span>
+                <span className="text-right">Duplicate names include a worktree id</span>
               ) : null}
             </div>
 
@@ -4518,7 +4548,7 @@ export function EnvironmentSettingsPanel() {
                 </EmptyHeader>
               </Empty>
             ) : (
-              <SettingsInsetPanel className="overflow-hidden">
+              <div className="flex flex-col gap-3">
                 {filteredProjects.map((project) => (
                   <EnvironmentProjectRow
                     key={project.id}
@@ -4527,7 +4557,7 @@ export function EnvironmentSettingsPanel() {
                     onMetricsChange={updateProjectMetrics}
                   />
                 ))}
-              </SettingsInsetPanel>
+              </div>
             )}
           </div>
         )}
@@ -4581,12 +4611,17 @@ function EnvironmentProjectRow({
         ? "…"
         : formatStorageBytes(totalStorageBytes);
   const isRefreshingStorage = worktreePaths.length > 0 && statsQuery.isFetching;
-  const pathLine = formatEnvironmentProjectPathLine(project, duplicateNames);
+  const pathLine = formatEnvironmentProjectPathLine(project);
+  const displayName = formatEnvironmentProjectDisplayName(project, duplicateNames);
 
   return (
-    <button
+    <Button
       type="button"
-      className="group flex w-full items-center gap-2.5 border-b border-border/40 px-3 py-2.5 text-left transition-colors last:border-b-0 hover:bg-foreground/[0.03]"
+      variant="ghost"
+      className={cn(
+        SETTINGS_LIST_ROW_BUTTON_CLASS,
+        "!h-auto w-full justify-start rounded-lg px-3.5 !py-3.5 font-normal whitespace-normal hover:bg-foreground/[0.03] active:bg-foreground/[0.05]",
+      )}
       onClick={() =>
         void navigate({
           to: "/settings/project-environment/$projectId",
@@ -4594,23 +4629,34 @@ function EnvironmentProjectRow({
         })
       }
     >
-      <ProjectAvatar project={project} className="size-7 shrink-0" />
-      <div className="min-w-0 flex-1">
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="truncate text-[13px] font-medium text-foreground">{project.name}</span>
-          {setupScript ? (
-            <span className="shrink-0 rounded-full border border-border/40 px-1.5 py-0.5 text-[10px] text-muted-foreground">
-              setup
-            </span>
-          ) : null}
-          {environmentCount > 0 ? (
-            <span className="shrink-0 rounded-full border border-border/40 px-1.5 py-0.5 text-[10px] text-muted-foreground">
-              {environmentCount} env
-            </span>
-          ) : null}
+      <div className="grid w-full min-w-0 grid-cols-[1.25rem_minmax(0,1fr)] items-start gap-x-4 gap-y-1.5 sm:grid-cols-[1.25rem_minmax(0,1fr)_7.5rem_5.5rem_1.25rem] sm:items-start">
+        <ProjectAvatar project={project} className="mt-1 size-4 shrink-0" />
+        <div className="min-w-0">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="truncate text-sm font-semibold text-foreground">{displayName}</span>
+            {setupScript ? (
+              <span className="shrink-0 rounded-full border border-border/40 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                setup
+              </span>
+            ) : null}
+            {environmentCount > 0 ? (
+              <span className="shrink-0 rounded-full border border-border/40 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                {environmentCount} env
+              </span>
+            ) : null}
+          </div>
+          <p className="mt-1 truncate font-mono text-[11px] text-muted-foreground/60">{pathLine}</p>
         </div>
-        <p className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground/70">{pathLine}</p>
-        <div className="mt-1.5 flex flex-wrap items-center gap-1.5 sm:hidden">
+        <span className="hidden items-center justify-end gap-1 text-xs tabular-nums text-muted-foreground sm:inline-flex mt-0.5">
+          {worktreeCountLabel}
+          {isLoadingWorktrees ? <Spinner className="size-2.5" /> : null}
+        </span>
+        <span className="hidden items-center justify-end gap-1 text-xs tabular-nums text-muted-foreground sm:inline-flex mt-0.5">
+          {storageLabel}
+          {isRefreshingStorage ? <Spinner className="size-2.5" /> : null}
+        </span>
+        <ArrowRightIcon className="hidden size-4 shrink-0 text-muted-foreground/55 transition-colors group-hover/button:text-foreground/75 sm:block mt-0.5" />
+        <div className="col-span-2 flex flex-wrap items-center gap-1.5 sm:hidden">
           <span className="inline-flex items-center gap-1 rounded-full border border-border/40 px-1.5 py-0.5 text-[10px] tabular-nums text-muted-foreground">
             {worktreeCountLabel}
             {isLoadingWorktrees ? <Spinner className="size-2.5" /> : null}
@@ -4621,18 +4667,7 @@ function EnvironmentProjectRow({
           </span>
         </div>
       </div>
-      <div className="hidden shrink-0 items-center gap-1.5 sm:flex">
-        <span className="inline-flex items-center gap-1 rounded-full border border-border/40 px-1.5 py-0.5 text-[10px] tabular-nums text-muted-foreground">
-          {worktreeCountLabel}
-          {isLoadingWorktrees ? <Spinner className="size-2.5" /> : null}
-        </span>
-        <span className="inline-flex items-center gap-1 rounded-full border border-border/40 px-1.5 py-0.5 text-[10px] tabular-nums text-muted-foreground">
-          {storageLabel}
-          {isRefreshingStorage ? <Spinner className="size-2.5" /> : null}
-        </span>
-      </div>
-      <ArrowRightIcon className="size-3.5 shrink-0 text-muted-foreground/45 transition-colors group-hover:text-foreground/70" />
-    </button>
+    </Button>
   );
 }
 
@@ -4836,12 +4871,13 @@ export function ArchivedThreadsPanel() {
               <Tooltip>
                 <TooltipTrigger
                   render={
-                    <button
+                    <Button
                       type="button"
+                      variant="ghost"
+                      size="icon-sm"
                       aria-label={
                         allGroupsExpanded ? "Collapse all projects" : "Expand all projects"
                       }
-                      className="inline-flex size-8 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
                       onClick={() => setAllGroupsOpen(!allGroupsExpanded)}
                     />
                   }
@@ -4868,9 +4904,13 @@ export function ArchivedThreadsPanel() {
 
               return (
                 <div key={project.id} className="min-w-0 py-1">
-                  <button
+                  <Button
                     type="button"
-                    className="group flex h-7 w-full items-center gap-1.5 rounded-md px-2 text-left transition-colors duration-150 hover:bg-muted/20"
+                    variant="ghost"
+                    className={cn(
+                      SETTINGS_LIST_ROW_BUTTON_CLASS,
+                      "!h-9 w-full justify-start gap-2.5 px-2.5 hover:bg-muted/20",
+                    )}
                     aria-expanded={isOpen}
                     onClick={() => setGroupOpen(project.id, !isOpen)}
                   >
@@ -4897,7 +4937,7 @@ export function ArchivedThreadsPanel() {
                       {formatCountLabel(archivedItemCount, "item")} ·{" "}
                       {formatCountLabel(group.threads.length, "thread")}
                     </span>
-                  </button>
+                  </Button>
 
                   <Collapsible
                     open={isOpen}

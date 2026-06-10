@@ -5,6 +5,8 @@ import type { ServerProvider } from "@ace/contracts";
 import { formatRelativeTime } from "../../timestampFormat";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
+import { Input } from "../ui/input";
+import type { ComponentProps } from "react";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Switch } from "../ui/switch";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -18,6 +20,7 @@ import {
   SETTINGS_CONTROL_SURFACE_CLASS_NAMES,
   SETTINGS_FIELD_CLASS,
   SETTINGS_FIELD_CONTROL_CLASS,
+  SETTINGS_SELECT_TRIGGER_CLASS,
   SETTINGS_GROUP_CLASS_NAME,
   SETTINGS_HEADER_PAGE_CLASS,
   SETTINGS_HEADER_ROOT_CLASS,
@@ -39,10 +42,16 @@ import {
 } from "./settingsUi";
 
 export const SETTINGS_NEUTRAL_ACTION_CLASS_NAME =
-  "border-border/45 bg-foreground/[0.06] text-foreground hover:bg-foreground/[0.10] active:bg-foreground/[0.14]";
+  "border-border/40 bg-foreground/[0.06] text-foreground hover:bg-foreground/[0.10] active:bg-foreground/[0.14]";
 
 export const SETTINGS_FIELD_SURFACE_CLASS_NAME = SETTINGS_FIELD_CLASS;
 export const SETTINGS_INLINE_DIVIDER_CLASS_NAME = "bg-transparent shadow-none";
+
+type SettingsInputProps = ComponentProps<typeof Input>;
+
+export function SettingsInput({ className, ...props }: SettingsInputProps) {
+  return <Input className={cn(SETTINGS_FIELD_CLASS, className)} {...props} />;
+}
 
 export { SETTINGS_GROUP_CLASS_NAME } from "./settingsUi";
 export const SETTINGS_ROW_INSET_CLASS_NAME = SETTINGS_ROW_CLASS;
@@ -323,8 +332,7 @@ export function SettingsRow({
   tone?: "default" | "warning" | "danger";
   children?: ReactNode;
 }) {
-  const useCompactLayout =
-    layout ?? (control && !children ? isCompactControl(control) : false);
+  const useCompactLayout = layout ?? (control && !children ? isCompactControl(control) : false);
 
   const label = (
     <div className="min-w-0 flex-1">
@@ -401,7 +409,7 @@ export function SettingsChoiceGroup<TValue extends string>({
     >
       <SelectTrigger
         size="default"
-        className={cn("w-full", SETTINGS_FIELD_CLASS, className)}
+        className={cn(SETTINGS_SELECT_TRIGGER_CLASS, className)}
         aria-label={label}
       >
         <SelectValue>
@@ -478,13 +486,7 @@ export function SettingsInsetPanel({
   muted?: boolean;
 }) {
   return (
-    <div
-      className={cn(
-        SETTINGS_INSET_PANEL_CLASS,
-        muted && "bg-muted/10",
-        className,
-      )}
-    >
+    <div className={cn(SETTINGS_INSET_PANEL_CLASS, muted && "bg-muted/10", className)}>
       {children}
     </div>
   );

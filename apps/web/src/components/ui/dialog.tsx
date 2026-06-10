@@ -91,7 +91,9 @@ function DialogPopup({
             <DialogPrimitive.Close
               aria-label="Close"
               className="absolute end-2.5 top-2.5"
-              render={<Button size="icon-sm" variant="ghost" className="text-muted-foreground/70" />}
+              render={
+                <Button size="icon-sm" variant="ghost" className="text-muted-foreground/70" />
+              }
             >
               <XIcon />
             </DialogPrimitive.Close>

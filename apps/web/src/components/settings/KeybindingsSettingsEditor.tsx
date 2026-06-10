@@ -19,9 +19,8 @@ import {
   type KeybindingCommandDefinition,
 } from "~/lib/keybindingRegistry";
 import { applyKeybindingsUpdated, useServerKeybindings } from "~/rpc/serverState";
-import { SettingsRow, SettingsSection } from "./SettingsPanelPrimitives";
+import { SettingsInput, SettingsRow, SettingsSection } from "./SettingsPanelPrimitives";
 import { Button } from "../ui/button";
-import { Input } from "../ui/input";
 import { toastManager } from "../ui/toast";
 
 type DraftShortcutByCommand = Partial<Record<StaticKeybindingCommand, KeybindingShortcut | null>>;
@@ -397,7 +396,7 @@ function KeybindingsSettingsEditorContent(props: {
                 description={definition.description}
                 status={collision ? <span className="text-destructive">{collision}</span> : null}
                 control={
-                  <Input
+                  <SettingsInput
                     value={label}
                     placeholder="Press shortcut"
                     readOnly

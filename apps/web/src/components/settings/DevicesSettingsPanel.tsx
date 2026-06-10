@@ -65,23 +65,23 @@ import { PROJECT_ICON_COLOR_OPTIONS, PROJECT_ICON_OPTIONS } from "../projectAvat
 import { ProjectGlyphIcon } from "../ProjectAvatar";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
-import { Input } from "../ui/input";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
+import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Switch } from "../ui/switch";
 import { toastManager } from "../ui/toast";
 import {
+  SettingsInput,
   SettingsPageContainer,
   SettingsRow,
   SettingsSection,
 } from "./SettingsPanelPrimitives";
-import { SETTINGS_ROW_STATUS_CLASS, SETTINGS_COMPACT_ACTION_BUTTON_CLASS } from "./settingsUi";
-
-const SETTINGS_POPOVER_TRIGGER_CLASS_NAME =
-  "inline-flex h-8 items-center gap-1.5 rounded-[var(--control-radius)] border border-border/45 bg-background/60 px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-foreground/[0.04] hover:text-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30";
-const SETTINGS_NATIVE_SELECT_CLASS_NAME =
-  "h-8 rounded-[var(--control-radius)] border border-border/45 bg-background/60 px-2.5 text-sm text-foreground outline-none transition-[border-color,background-color,box-shadow] focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30";
+import {
+  SETTINGS_FIELD_CLASS,
+  SETTINGS_ROW_STATUS_CLASS,
+  SETTINGS_COMPACT_ACTION_BUTTON_CLASS,
+} from "./settingsUi";
 const SETTINGS_NEUTRAL_ACTION_BUTTON_CLASS_NAME =
-  "border-border/50 bg-foreground/[0.08] text-foreground hover:bg-foreground/[0.12] active:bg-foreground/[0.16]";
+  "border-border/40 bg-foreground/[0.08] text-foreground hover:bg-foreground/[0.12] active:bg-foreground/[0.16]";
 const DEVICE_ACTION_BUTTON_CLASS_NAME = SETTINGS_COMPACT_ACTION_BUTTON_CLASS;
 const DEVICE_NEUTRAL_ACTION_BUTTON_CLASS_NAME = cn(
   SETTINGS_COMPACT_ACTION_BUTTON_CLASS,
@@ -89,8 +89,10 @@ const DEVICE_NEUTRAL_ACTION_BUTTON_CLASS_NAME = cn(
 );
 const DEVICE_ACTION_GROUP_CLASS_NAME = "flex flex-wrap items-center gap-1.5";
 const DEVICE_META_TEXT_CLASS_NAME = SETTINGS_ROW_STATUS_CLASS;
-const DEVICE_INSET_PANEL_CLASS_NAME = "overflow-hidden rounded-[var(--control-radius)] border border-border/35 glass-inset";
-const DEVICE_INSET_PANEL_MUTED_CLASS_NAME = "overflow-hidden rounded-[var(--control-radius)] border border-border/30 bg-muted/10";
+const DEVICE_INSET_PANEL_CLASS_NAME =
+  "overflow-hidden rounded-[var(--control-radius)] border border-border/40 glass-inset";
+const DEVICE_INSET_PANEL_MUTED_CLASS_NAME =
+  "overflow-hidden rounded-[var(--control-radius)] border border-border/40 bg-muted/10";
 
 interface HostDraftState {
   readonly name: string;
@@ -308,7 +310,9 @@ function DeviceSection({
     <SettingsSection
       title={title}
       description={description}
-      headerAction={actions ? <div className={DEVICE_ACTION_GROUP_CLASS_NAME}>{actions}</div> : null}
+      headerAction={
+        actions ? <div className={DEVICE_ACTION_GROUP_CLASS_NAME}>{actions}</div> : null
+      }
     >
       {children}
     </SettingsSection>
@@ -1469,7 +1473,7 @@ function useDevicesSettingsPanelComponent() {
             }
           >
             <div className="max-w-xl">
-              <Input
+              <SettingsInput
                 value={pairingLabel}
                 onChange={(event) => {
                   dispatchPanelState({
@@ -1502,7 +1506,19 @@ function useDevicesSettingsPanelComponent() {
                     Copy link
                   </Button>
                   <Popover>
-                    <PopoverTrigger className={SETTINGS_POPOVER_TRIGGER_CLASS_NAME}>
+                    <PopoverTrigger
+                      render={
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className={cn(
+                            SETTINGS_FIELD_CLASS,
+                            "h-8 gap-1.5 px-2.5 text-xs font-medium text-muted-foreground hover:text-foreground",
+                          )}
+                        />
+                      }
+                    >
                       <QrCodeIcon className="size-3.5" />
                       QR
                     </PopoverTrigger>
@@ -1585,7 +1601,7 @@ function useDevicesSettingsPanelComponent() {
                 <span>Enable remote relay</span>
               </label>
               <div className="grid gap-2">
-                <Input
+                <SettingsInput
                   value={relayUrlDraft}
                   onChange={(event) =>
                     dispatchPanelState({
@@ -1692,9 +1708,7 @@ function useDevicesSettingsPanelComponent() {
                       <div className="truncate text-[13px] font-medium text-foreground/90">
                         {session.requesterName ?? "Unnamed device"}
                       </div>
-                      <div className="truncate text-xs text-muted-foreground">
-                        {session.name}
-                      </div>
+                      <div className="truncate text-xs text-muted-foreground">{session.name}</div>
                     </div>
                     <DeviceStatusBadge
                       tone={
@@ -1788,7 +1802,7 @@ function useDevicesSettingsPanelComponent() {
             }
           >
             <div className="grid gap-2">
-              <Input
+              <SettingsInput
                 value={hostDraft.name}
                 onChange={(event) => {
                   const value = event.currentTarget.value;
@@ -1796,7 +1810,7 @@ function useDevicesSettingsPanelComponent() {
                 }}
                 placeholder="Device name"
               />
-              <Input
+              <SettingsInput
                 value={hostDraft.connection}
                 onChange={(event) => {
                   const value = event.currentTarget.value;
@@ -1812,45 +1826,63 @@ function useDevicesSettingsPanelComponent() {
                   className={`${DEVICE_INSET_PANEL_CLASS_NAME} flex h-9 items-center gap-1.5 px-2 text-sm text-muted-foreground`}
                 >
                   <span>Icon</span>
-                  <select
-                    className={SETTINGS_NATIVE_SELECT_CLASS_NAME}
+                  <Select
                     value={hostDraft.iconGlyph ?? "folder"}
-                    onChange={(event) => {
-                      const value = event.currentTarget.value as RemoteHostInstance["iconGlyph"];
+                    onValueChange={(value) => {
+                      if (value === null) return;
                       dispatchPanelState({
                         type: "update-host-draft",
-                        hostDraft: { iconGlyph: value },
+                        hostDraft: {
+                          iconGlyph: value as RemoteHostInstance["iconGlyph"],
+                        },
                       });
                     }}
                   >
-                    {PROJECT_ICON_OPTIONS.map((option) => (
-                      <option key={option.glyph} value={option.glyph}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
+                    <SelectTrigger
+                      className={cn("w-auto min-w-28", SETTINGS_FIELD_CLASS)}
+                      aria-label="Host icon"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectPopup>
+                      {PROJECT_ICON_OPTIONS.map((option) => (
+                        <SelectItem key={option.glyph} value={option.glyph}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectPopup>
+                  </Select>
                 </label>
                 <label
                   className={`${DEVICE_INSET_PANEL_CLASS_NAME} flex h-9 items-center gap-1.5 px-2 text-sm text-muted-foreground`}
                 >
                   <span>Color</span>
-                  <select
-                    className={SETTINGS_NATIVE_SELECT_CLASS_NAME}
+                  <Select
                     value={hostDraft.iconColor ?? "slate"}
-                    onChange={(event) => {
-                      const value = event.currentTarget.value as RemoteHostInstance["iconColor"];
+                    onValueChange={(value) => {
+                      if (value === null) return;
                       dispatchPanelState({
                         type: "update-host-draft",
-                        hostDraft: { iconColor: value },
+                        hostDraft: {
+                          iconColor: value as RemoteHostInstance["iconColor"],
+                        },
                       });
                     }}
                   >
-                    {PROJECT_ICON_COLOR_OPTIONS.map((option) => (
-                      <option key={option.color} value={option.color}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
+                    <SelectTrigger
+                      className={cn("w-auto min-w-28", SETTINGS_FIELD_CLASS)}
+                      aria-label="Host icon color"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectPopup>
+                      {PROJECT_ICON_COLOR_OPTIONS.map((option) => (
+                        <SelectItem key={option.color} value={option.color}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectPopup>
+                  </Select>
                 </label>
                 <div
                   className={`${DEVICE_INSET_PANEL_MUTED_CLASS_NAME} inline-flex h-9 min-w-0 items-center gap-1.5 px-2 text-sm text-muted-foreground`}
