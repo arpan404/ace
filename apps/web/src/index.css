@@ -686,6 +686,28 @@ body {
   }
 }
 
+.proposed-plan-card-fade {
+  --plan-card-fade-bg: color-mix(in oklch, var(--muted) 46%, var(--background));
+  background: linear-gradient(
+    to top,
+    var(--plan-card-fade-bg) 0%,
+    color-mix(in oklch, var(--plan-card-fade-bg) 82%, transparent) 50%,
+    transparent 100%
+  );
+}
+
+.dark .proposed-plan-card-fade {
+  --plan-card-fade-bg: color-mix(in oklch, var(--muted) 54%, var(--background));
+}
+
+[data-theme-preset="glass"] .proposed-plan-card-fade {
+  --plan-card-fade-bg: color-mix(in oklch, var(--card) 88%, var(--background));
+}
+
+.dark[data-theme-preset="glass"] .proposed-plan-card-fade {
+  --plan-card-fade-bg: color-mix(in oklch, var(--popover) 52%, var(--background));
+}
+
 [data-slot="menu-popup"],
 [data-slot="select-popup"],
 [data-slot="autocomplete-popup"],
