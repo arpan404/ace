@@ -1336,6 +1336,14 @@ function useEventRouterLifecycle() {
         schedulePendingDomainEventFlush(resolveOrchestrationUiEventFlushPriority(event));
         return;
       }
+      if (action === "defer") {
+        // Full snapshot recovery can be slow for large threads. Live domain events
+        // are still self-contained enough to update the UI immediately; the
+        // snapshot/replay path will reconcile durable history afterward.
+        pendingDomainEvents.push(event);
+        schedulePendingDomainEventFlush(resolveOrchestrationUiEventFlushPriority(event));
+        return;
+      }
       if (action === "recover") {
         logLoadDiagnostic({
           phase: "replay",

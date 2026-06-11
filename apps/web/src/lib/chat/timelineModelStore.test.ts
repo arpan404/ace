@@ -215,6 +215,80 @@ describe("timelineModelStore", () => {
     ]);
   });
 
+  it("can flush optimistic user rows synchronously", async () => {
+    const { primeLiveTimelineRow } = await import("./timelineModelStore");
+
+    primeLiveTimelineRow(
+      {
+        threadId,
+        updatedAt: "2026-01-01T00:00:02.000Z",
+        entry: {
+          kind: "message",
+          id: messageId,
+          createdAt: "2026-01-01T00:00:01.000Z",
+          turnId,
+          sequence: 1,
+        },
+        message: {
+          id: messageId,
+          role: "user",
+          text: "Run this now",
+          turnId,
+          streaming: false,
+          sequence: 1,
+          createdAt: "2026-01-01T00:00:01.000Z",
+          updatedAt: "2026-01-01T00:00:02.000Z",
+        },
+      },
+      { flush: "sync" },
+    );
+
+    expect(readTimelineRowsProjection(threadId).messages.map((message) => message.text)).toEqual([
+      "Run this now",
+    ]);
+    expect(useTimelineModelStore.getState().rowIdsByThreadId[threadId]).toEqual([
+      "message:message-row-store",
+    ]);
+  });
+
+  it("removes rolled back optimistic rows", async () => {
+    const { primeLiveTimelineRow, removeLiveTimelineRow } = await import("./timelineModelStore");
+
+    primeLiveTimelineRow(
+      {
+        threadId,
+        updatedAt: "2026-01-01T00:00:02.000Z",
+        entry: {
+          kind: "message",
+          id: messageId,
+          createdAt: "2026-01-01T00:00:01.000Z",
+          turnId,
+          sequence: 1,
+        },
+        message: {
+          id: messageId,
+          role: "user",
+          text: "Rollback me",
+          turnId,
+          streaming: false,
+          sequence: 1,
+          createdAt: "2026-01-01T00:00:01.000Z",
+          updatedAt: "2026-01-01T00:00:02.000Z",
+        },
+      },
+      { flush: "sync" },
+    );
+
+    removeLiveTimelineRow({
+      threadId,
+      kind: "message",
+      id: String(messageId),
+    });
+
+    expect(readTimelineRowsProjection(threadId).messages).toEqual([]);
+    expect(useTimelineModelStore.getState().rowIdsByThreadId[threadId]).toEqual([]);
+  });
+
   it("projects bounded placeholder windows for large unloaded timelines", () => {
     useTimelineModelStore.getState().primeMetadata({
       threadId,

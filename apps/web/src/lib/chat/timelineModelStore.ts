@@ -15,6 +15,7 @@ import { LRUCache } from "../lruCache";
 import { clampCacheEntryCount } from "../resourceProfile";
 
 const DEFAULT_TIMELINE_TAIL_WINDOW_ROWS = 100;
+const TIMELINE_ROWS_SNAPSHOT_RPC_TIMEOUT_MS = 10_000;
 const MAX_ROW_HEIGHT_CACHE_ENTRIES = clampCacheEntryCount(32_000, {
   moderateCapEntries: 16_000,
   constrainedCapEntries: 8_000,
@@ -94,6 +95,10 @@ interface PrimeLiveTimelineRowInput {
   readonly proposedPlan?: OrchestrationProposedPlan;
 }
 
+interface PrimeLiveTimelineRowOptions {
+  readonly flush?: "frame" | "sync";
+}
+
 interface TimelineModelState {
   readonly metadataByThreadId: Record<string, TimelineRowsMetadata>;
   readonly rowIdsByThreadId: Record<string, readonly string[]>;
@@ -129,6 +134,20 @@ const inFlightRowsSnapshotByThreadId = new Map<
 const projectionCacheByThreadId = new Map<string, TimelineRowsProjectionCacheEntry>();
 const liveTimelineRowPatchQueue = new Map<string, PrimeLiveTimelineRowInput>();
 let liveTimelineRowPatchFrame: number | null = null;
+
+function createTimelineRowsSnapshotTimeout(threadId: ThreadId): Promise<never> {
+  return new Promise((_, reject) => {
+    globalThis.setTimeout(() => {
+      reject(
+        new Error(
+          `Timed out loading timeline snapshot for thread ${String(
+            threadId,
+          )} after ${String(TIMELINE_ROWS_SNAPSHOT_RPC_TIMEOUT_MS)}ms.`,
+        ),
+      );
+    }, TIMELINE_ROWS_SNAPSHOT_RPC_TIMEOUT_MS);
+  });
+}
 
 function rowKey(threadId: ThreadId, rowId: string): string {
   return `${threadId}:${rowId}`;
@@ -555,6 +574,31 @@ export async function fetchThreadTimelineRowsSnapshot(
   }
 
   useTimelineModelStore.getState().beginFetches(threadId, 1);
+  const rpcPromise = ensureNativeApi().orchestration.getThreadTimelineRowsSnapshot({ threadId });
+  const hydratedSnapshotPromise = rpcPromise.then((snapshot) => {
+    useTimelineModelStore.getState().primeSnapshot(snapshot);
+    return snapshot;
+  });
+  void hydratedSnapshotPromise.catch(() => undefined);
+  const promise = Promise.race([
+    hydratedSnapshotPromise,
+    createTimelineRowsSnapshotTimeout(threadId),
+  ]).finally(() => {
+    inFlightRowsSnapshotByThreadId.delete(threadId);
+    useTimelineModelStore.getState().finishFetches(threadId, 1);
+  });
+  inFlightRowsSnapshotByThreadId.set(threadId, promise);
+  return promise;
+}
+
+export function hydrateThreadTimelineRowsSnapshotInBackground(threadId: ThreadId): void {
+  const existing = inFlightRowsSnapshotByThreadId.get(threadId);
+  if (existing) {
+    void existing.catch(() => undefined);
+    return;
+  }
+
+  useTimelineModelStore.getState().beginFetches(threadId, 1);
   const promise = ensureNativeApi()
     .orchestration.getThreadTimelineRowsSnapshot({ threadId })
     .then((snapshot) => {
@@ -566,7 +610,7 @@ export async function fetchThreadTimelineRowsSnapshot(
       useTimelineModelStore.getState().finishFetches(threadId, 1);
     });
   inFlightRowsSnapshotByThreadId.set(threadId, promise);
-  return promise;
+  void promise.catch(() => undefined);
 }
 
 export interface ThreadTimelineRowsOpenPrefetchHandle {
@@ -717,8 +761,16 @@ export function readTimelineRowsWindowProjection(input: {
   };
 }
 
-export function primeLiveTimelineRow(input: PrimeLiveTimelineRowInput): void {
+export function primeLiveTimelineRow(
+  input: PrimeLiveTimelineRowInput,
+  options: PrimeLiveTimelineRowOptions = {},
+): void {
   const queueKey = `${input.threadId}:${input.entry.kind}:${String(input.entry.id)}`;
+  if (options.flush === "sync") {
+    liveTimelineRowPatchQueue.delete(queueKey);
+    applyLiveTimelineRowPatches([input]);
+    return;
+  }
   liveTimelineRowPatchQueue.set(queueKey, input);
   if (liveTimelineRowPatchFrame !== null) {
     return;
@@ -733,6 +785,62 @@ export function primeLiveTimelineRow(input: PrimeLiveTimelineRowInput): void {
     const patches = [...liveTimelineRowPatchQueue.values()];
     liveTimelineRowPatchQueue.clear();
     applyLiveTimelineRowPatches(patches);
+  });
+}
+
+export function removeLiveTimelineRow(input: {
+  readonly threadId: ThreadId;
+  readonly kind: OrchestrationThreadTimelineEntryReference["kind"];
+  readonly id: string;
+}): void {
+  const rowId = rowIdForSource(input.kind, input.id);
+  const rowStoreKey = rowKey(input.threadId, rowId);
+  const queueKey = `${input.threadId}:${input.kind}:${input.id}`;
+  liveTimelineRowPatchQueue.delete(queueKey);
+  useTimelineModelStore.setState((state) => {
+    const previousRowIds = state.rowIdsByThreadId[input.threadId] ?? [];
+    if (!previousRowIds.includes(rowId) && state.rowsById[rowStoreKey] === undefined) {
+      return state;
+    }
+
+    const nextRowIds = previousRowIds.filter((existingRowId) => existingRowId !== rowId);
+    const { [rowStoreKey]: _removedRow, ...nextRowsById } = state.rowsById;
+    const previousMetadata = state.metadataByThreadId[input.threadId];
+    const nextMetadata = previousMetadata
+      ? {
+          ...previousMetadata,
+          totalRows: nextRowIds.length,
+          tailStartRowIndex: Math.max(0, nextRowIds.length - DEFAULT_TIMELINE_TAIL_WINDOW_ROWS),
+          updatedAt: new Date().toISOString(),
+        }
+      : undefined;
+
+    const nextMessagesById =
+      input.kind === "message"
+        ? (({ [input.id]: _removedMessage, ...remaining }) => remaining)(state.messagesById)
+        : state.messagesById;
+    const nextActivitiesById =
+      input.kind === "activity"
+        ? (({ [input.id]: _removedActivity, ...remaining }) => remaining)(state.activitiesById)
+        : state.activitiesById;
+    const nextProposedPlansById =
+      input.kind === "proposed-plan"
+        ? (({ [input.id]: _removedPlan, ...remaining }) => remaining)(state.proposedPlansById)
+        : state.proposedPlansById;
+
+    return {
+      ...state,
+      metadataByThreadId: nextMetadata
+        ? { ...state.metadataByThreadId, [input.threadId]: nextMetadata }
+        : state.metadataByThreadId,
+      rowIdsByThreadId: { ...state.rowIdsByThreadId, [input.threadId]: nextRowIds },
+      rowsById: nextRowsById,
+      messagesById: nextMessagesById,
+      activitiesById: nextActivitiesById,
+      proposedPlansById: nextProposedPlansById,
+      revisionByThreadId: bumpThreadRevision(state, input.threadId),
+      revision: state.revision + 1,
+    };
   });
 }
 

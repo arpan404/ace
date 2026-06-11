@@ -18,6 +18,8 @@ import {
   TrimmedNonEmptyString,
   type TurnId,
   type KeybindingCommand,
+  type OrchestrationMessage,
+  type OrchestrationTimelineRow,
   OrchestrationThreadActivity,
   ProviderInteractionMode,
   RuntimeMode,
@@ -132,11 +134,12 @@ import {
 } from "../types";
 import { isMemoryPressureAtLeast, subscribeToMemoryPressure } from "../lib/memoryPressure";
 import { hydrateThreadFromCache } from "../lib/threadHydrationCache";
+import { getChatMessageFullText } from "../lib/chat/messageText";
 import {
+  primeLiveTimelineRow,
+  removeLiveTimelineRow,
   readTimelineRowsProjection,
-  startThreadTimelineRowsOpenPrefetch,
   prefetchThreadTimelineRowsSnapshot,
-  ThreadTimelineRowsOpenPrefetchHandle,
   useTimelineModelStore,
 } from "../lib/chat/timelineModelStore";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
@@ -209,10 +212,12 @@ import {
   deriveTurnDiffSummaryByAssistantMessageId,
 } from "~/lib/chat/threadRenderState";
 import {
+  buildNativeTimelineRows,
   deriveNativeCompletionDividerBeforeRowId,
   type NativeTimelineRowsInput,
 } from "~/lib/chat/nativeTimelineRows";
 import {
+  createNativeTimelineRowsCacheKey,
   readCachedNativeTimelineRows,
   resolveNativeTimelineRows,
 } from "~/lib/chat/nativeTimelineRowsClient";
@@ -908,7 +913,115 @@ interface ChatViewProps {
 const EMPTY_VISIBLE_BOARD_THREAD_IDS: readonly ThreadId[] = [];
 const EMPTY_THREAD_LAST_VISITED_AT_BY_ID: Readonly<Record<string, string>> = {};
 const EMPTY_TIMELINE_ROW_IDS: readonly string[] = [];
+const SYNCHRONOUS_LIVE_TIMELINE_ROW_LIMIT = 256;
 const RECENT_HYDRATED_THREAD_HISTORY_KEEP_COUNT = 8;
+
+function toOptimisticOrchestrationMessage(message: ChatMessage): OrchestrationMessage {
+  return {
+    id: message.id,
+    role: message.role,
+    text: getChatMessageFullText(message),
+    turnId: message.turnId ?? null,
+    streaming: message.streaming,
+    ...(message.sequence !== undefined ? { sequence: message.sequence } : {}),
+    createdAt: message.createdAt,
+    updatedAt: message.completedAt ?? message.createdAt,
+  };
+}
+
+function primeOptimisticUserTimelineRow(input: {
+  readonly threadId: ThreadId;
+  readonly message: ChatMessage;
+}): void {
+  const orchestrationMessage = toOptimisticOrchestrationMessage(input.message);
+  primeLiveTimelineRow(
+    {
+      threadId: input.threadId,
+      updatedAt: orchestrationMessage.updatedAt,
+      entry: {
+        kind: "message",
+        id: String(orchestrationMessage.id),
+        createdAt: orchestrationMessage.createdAt,
+        turnId: orchestrationMessage.turnId,
+        ...(orchestrationMessage.sequence !== undefined
+          ? { sequence: orchestrationMessage.sequence }
+          : {}),
+      },
+      message: orchestrationMessage,
+    },
+    { flush: "sync" },
+  );
+}
+
+function removeOptimisticUserTimelineRow(input: {
+  readonly threadId: ThreadId;
+  readonly messageId: MessageId;
+}): void {
+  removeLiveTimelineRow({
+    threadId: input.threadId,
+    kind: "message",
+    id: String(input.messageId),
+  });
+}
+
+function appendOptimisticUserMessagesToNativeTimeline(input: {
+  readonly rows: ReadonlyArray<OrchestrationTimelineRow>;
+  readonly messages: ReadonlyArray<OrchestrationMessage>;
+  readonly optimisticUserMessages: ReadonlyArray<ChatMessage>;
+}): {
+  readonly rows: ReadonlyArray<OrchestrationTimelineRow>;
+  readonly messages: ReadonlyArray<OrchestrationMessage>;
+} {
+  if (input.optimisticUserMessages.length === 0) {
+    return { rows: input.rows, messages: input.messages };
+  }
+
+  const existingMessageIds = new Set(input.messages.map((message) => String(message.id)));
+  const optimisticMessages = input.optimisticUserMessages
+    .filter((message) => !existingMessageIds.has(String(message.id)))
+    .map(toOptimisticOrchestrationMessage);
+  if (optimisticMessages.length === 0) {
+    return { rows: input.rows, messages: input.messages };
+  }
+
+  const nextRows = [...input.rows];
+  let nextSourceIndex =
+    nextRows.reduce((maxIndex, row) => Math.max(maxIndex, row.endSourceIndexExclusive), 0) || 0;
+  for (const message of optimisticMessages) {
+    const rowId = `message:${String(message.id)}`;
+    nextRows.push({
+      id: rowId,
+      kind: "message",
+      createdAt: message.createdAt,
+      updatedAt: message.updatedAt,
+      contentVersion: [
+        "optimistic",
+        String(message.id),
+        message.updatedAt,
+        String(message.text.length),
+      ].join(":"),
+      startSourceIndex: nextSourceIndex,
+      endSourceIndexExclusive: nextSourceIndex + 1,
+      ...(message.turnId !== undefined ? { turnId: message.turnId } : {}),
+      sourceRefs: [
+        {
+          kind: "message",
+          id: String(message.id),
+          createdAt: message.createdAt,
+          sourceIndex: nextSourceIndex,
+          ...(message.turnId !== undefined ? { turnId: message.turnId } : {}),
+          ...(message.sequence !== undefined ? { sequence: message.sequence } : {}),
+        },
+      ],
+    });
+    nextSourceIndex += 1;
+  }
+
+  return {
+    rows: nextRows,
+    messages: [...input.messages, ...optimisticMessages],
+  };
+}
 
 function timelineEntryStickKey(entry: TimelineEntry | undefined): string {
   if (!entry) {
@@ -2185,30 +2298,6 @@ function useChatViewComponent({
   }, [activeThreadId, ownsGlobalSideEffects, trackActiveThread]);
 
   useEffect(() => {
-    if (!serverThread || serverThread.historyLoaded !== false || !ownsGlobalSideEffects) {
-      return;
-    }
-    let prefetchHandle: ThreadTimelineRowsOpenPrefetchHandle | null = null;
-    let isCanceled = false;
-
-    void (async () => {
-      if (isCanceled) {
-        return;
-      }
-      prefetchHandle = startThreadTimelineRowsOpenPrefetch({
-        threadId: serverThread.id,
-        priority: "immediate",
-      });
-      await prefetchHandle.done.catch(() => undefined);
-    })();
-
-    return () => {
-      isCanceled = true;
-      prefetchHandle?.stop();
-    };
-  }, [serverThread, ownsGlobalSideEffects]);
-
-  useEffect(() => {
     if (
       !recentThreadHistoryKeepId ||
       recentThreadHistoryKeepId === activeThreadId ||
@@ -3115,14 +3204,24 @@ function useChatViewComponent({
     });
   }, [activeLatestTurn, activeThreadTimelineProjection, completionSummary, latestTurnSettled]);
   const nativeTimelineRowsInput = useMemo<NativeTimelineRowsInput | null>(() => {
-    if (!activeThreadTimelineProjection || !isThreadHistoryMetadataOnly) {
+    if (!isThreadHistoryMetadataOnly) {
       return null;
     }
+    const baseRows = activeThreadTimelineProjection?.rows ?? [];
+    const baseMessages = activeThreadTimelineProjection?.messages ?? [];
+    if (baseRows.length === 0 && optimisticUserMessages.length === 0) {
+      return null;
+    }
+    const timelineWithOptimisticMessages = appendOptimisticUserMessagesToNativeTimeline({
+      rows: baseRows,
+      messages: baseMessages,
+      optimisticUserMessages,
+    });
     return {
-      rows: activeThreadTimelineProjection.rows,
-      messages: activeThreadTimelineProjection.messages,
-      activities: activeThreadTimelineProjection.activities,
-      proposedPlans: activeThreadTimelineProjection.proposedPlans,
+      rows: timelineWithOptimisticMessages.rows,
+      messages: timelineWithOptimisticMessages.messages,
+      activities: activeThreadTimelineProjection?.activities ?? [],
+      proposedPlans: activeThreadTimelineProjection?.proposedPlans ?? [],
       activeTurnInProgress: isWorking || !latestTurnSettled,
       activeTurnStartedAt: activeWorkStartedAt,
       completionDividerBeforeEntryId: nativeCompletionDividerBeforeEntryId,
@@ -3137,6 +3236,7 @@ function useChatViewComponent({
     isWorking,
     latestTurnSettled,
     nativeCompletionDividerBeforeEntryId,
+    optimisticUserMessages,
     turnDiffSummaryByAssistantMessageId,
   ]);
   const nativeTurnDiffSummaryKey = useMemo(
@@ -3145,24 +3245,21 @@ function useChatViewComponent({
   );
   const nativeTimelineRowsThreadId = activeThread?.id ?? null;
   const nativeTimelineRowsInputKey = useMemo(() => {
-    if (
-      !nativeTimelineRowsInput ||
-      !activeThreadTimelineCompleteSnapshot ||
-      !nativeTimelineRowsThreadId
-    ) {
+    if (!nativeTimelineRowsInput) {
       return null;
     }
-    return [
-      nativeTimelineRowsThreadId,
-      activeThreadTimelineCompleteSnapshot.revision,
-      activeThreadTimelineRevision,
-      activeThreadTimelineCompleteSnapshot.totalRows,
-      isWorking || !latestTurnSettled ? "running" : "settled",
-      activeWorkStartedAt ?? "",
-      nativeCompletionDividerBeforeEntryId ?? "",
-      completionSummary ?? "",
-      nativeTurnDiffSummaryKey,
-    ].join("\0");
+    return createNativeTimelineRowsCacheKey({
+      threadId: nativeTimelineRowsThreadId,
+      snapshotRevision: activeThreadTimelineCompleteSnapshot?.revision ?? null,
+      snapshotTotalRows: activeThreadTimelineCompleteSnapshot?.totalRows ?? null,
+      threadRevision: activeThreadTimelineRevision,
+      rowCount: nativeTimelineRowsInput.rows.length,
+      isActiveTurnRunning: isWorking || !latestTurnSettled,
+      activeTurnStartedAt: activeWorkStartedAt,
+      completionDividerBeforeEntryId: nativeCompletionDividerBeforeEntryId,
+      completionSummary,
+      turnDiffSummaryKey: nativeTurnDiffSummaryKey,
+    });
   }, [
     activeThreadTimelineCompleteSnapshot,
     activeThreadTimelineRevision,
@@ -3180,8 +3277,23 @@ function useChatViewComponent({
     readonly rows: ReadonlyArray<TimelineRow>;
   } | null>(null);
   const cachedNativeTimelineRows = readCachedNativeTimelineRows(nativeTimelineRowsInputKey);
+  const shouldBuildNativeTimelineRowsSynchronously =
+    nativeTimelineRowsInput !== null &&
+    nativeTimelineRowsInputKey !== null &&
+    (activeThreadTimelineCompleteSnapshot === null ||
+      (isWorking && nativeTimelineRowsInput.rows.length <= SYNCHRONOUS_LIVE_TIMELINE_ROW_LIMIT));
+  const synchronousNativeTimelineRows = useMemo<ReadonlyArray<TimelineRow> | null>(() => {
+    if (!shouldBuildNativeTimelineRowsSynchronously || !nativeTimelineRowsInput) {
+      return null;
+    }
+    return buildNativeTimelineRows(nativeTimelineRowsInput);
+  }, [nativeTimelineRowsInput, shouldBuildNativeTimelineRowsSynchronously]);
   useEffect(() => {
     if (!nativeTimelineRowsInput || !nativeTimelineRowsInputKey) {
+      setResolvedNativeTimelineRows(null);
+      return;
+    }
+    if (shouldBuildNativeTimelineRowsSynchronously) {
       setResolvedNativeTimelineRows(null);
       return;
     }
@@ -3216,13 +3328,19 @@ function useChatViewComponent({
     return () => {
       canceled = true;
     };
-  }, [nativeTimelineRowsInput, nativeTimelineRowsInputKey]);
+  }, [
+    nativeTimelineRowsInput,
+    nativeTimelineRowsInputKey,
+    shouldBuildNativeTimelineRowsSynchronously,
+  ]);
   const nativeTimelineRowsOverride =
+    synchronousNativeTimelineRows ??
     cachedNativeTimelineRows ??
     (resolvedNativeTimelineRows?.key === nativeTimelineRowsInputKey
       ? resolvedNativeTimelineRows.rows
       : null);
   const nativeTimelineRowsLoading =
+    !shouldBuildNativeTimelineRowsSynchronously &&
     nativeTimelineRowsInput !== null &&
     nativeTimelineRowsInputKey !== null &&
     cachedNativeTimelineRows === null &&
@@ -8264,17 +8382,19 @@ function useChatViewComponent({
 
       sendInFlightRef.current = true;
       beginLocalDispatch({ preparingWorktree: Boolean(baseBranchForWorktree) });
-      setOptimisticUserMessages((existing) => [
-        ...existing,
-        {
-          id: messageIdForSend,
-          role: "user",
-          text: outgoingMessageText,
-          ...(optimisticAttachments.length > 0 ? { attachments: optimisticAttachments } : {}),
-          createdAt: messageCreatedAt,
-          streaming: false,
-        },
-      ]);
+      const optimisticUserMessage: ChatMessage = {
+        id: messageIdForSend,
+        role: "user",
+        text: outgoingMessageText,
+        ...(optimisticAttachments.length > 0 ? { attachments: optimisticAttachments } : {}),
+        createdAt: messageCreatedAt,
+        streaming: false,
+      };
+      setOptimisticUserMessages((existing) => [...existing, optimisticUserMessage]);
+      primeOptimisticUserTimelineRow({
+        threadId: threadIdForSend,
+        message: optimisticUserMessage,
+      });
       shouldAutoScrollRef.current = true;
       forceStickToBottom();
 
@@ -8435,6 +8555,10 @@ function useChatViewComponent({
             }
             const next = existing.filter((message) => message.id !== messageIdForSend);
             return next.length === existing.length ? existing : next;
+          });
+          removeOptimisticUserTimelineRow({
+            threadId: threadIdForSend,
+            messageId: messageIdForSend,
           });
           promptRef.current = promptForRestore;
           setPrompt(promptForRestore);
@@ -9126,16 +9250,18 @@ function useChatViewComponent({
       sendInFlightRef.current = true;
       beginLocalDispatch({ preparingWorktree: false });
       setThreadError(threadIdForSend, null);
-      setOptimisticUserMessages((existing) => [
-        ...existing,
-        {
-          id: messageIdForSend,
-          role: "user",
-          text: outgoingMessageText,
-          createdAt: messageCreatedAt,
-          streaming: false,
-        },
-      ]);
+      const optimisticUserMessage: ChatMessage = {
+        id: messageIdForSend,
+        role: "user",
+        text: outgoingMessageText,
+        createdAt: messageCreatedAt,
+        streaming: false,
+      };
+      setOptimisticUserMessages((existing) => [...existing, optimisticUserMessage]);
+      primeOptimisticUserTimelineRow({
+        threadId: threadIdForSend,
+        message: optimisticUserMessage,
+      });
       shouldAutoScrollRef.current = true;
       forceStickToBottom();
 
@@ -9187,6 +9313,10 @@ function useChatViewComponent({
         setOptimisticUserMessages((existing) =>
           existing.filter((message) => message.id !== messageIdForSend),
         );
+        removeOptimisticUserTimelineRow({
+          threadId: threadIdForSend,
+          messageId: messageIdForSend,
+        });
         setThreadError(
           threadIdForSend,
           err instanceof Error ? err.message : "Failed to send plan follow-up.",

@@ -23,6 +23,40 @@ const pendingRequests = new Map<number, PendingNativeTimelineRowsRequest>();
 const MAX_NATIVE_TIMELINE_ROWS_CACHE_ENTRIES = 8;
 const nativeTimelineRowsCache = new Map<string, TimelineRow[]>();
 
+export interface NativeTimelineRowsCacheKeyInput {
+  readonly activeTurnStartedAt: string | null;
+  readonly completionDividerBeforeEntryId: string | null;
+  readonly completionSummary: string | null;
+  readonly isActiveTurnRunning: boolean;
+  readonly rowCount: number;
+  readonly snapshotRevision: string | null;
+  readonly snapshotTotalRows: number | null;
+  readonly threadId: string | null;
+  readonly threadRevision: number;
+  readonly turnDiffSummaryKey: string;
+}
+
+export function createNativeTimelineRowsCacheKey(
+  input: NativeTimelineRowsCacheKeyInput,
+): string | null {
+  if (!input.threadId || input.rowCount <= 0) {
+    return null;
+  }
+
+  return [
+    input.threadId,
+    input.snapshotRevision ?? "live",
+    input.threadRevision,
+    input.snapshotTotalRows ?? input.rowCount,
+    input.rowCount,
+    input.isActiveTurnRunning ? "running" : "settled",
+    input.activeTurnStartedAt ?? "",
+    input.completionDividerBeforeEntryId ?? "",
+    input.completionSummary ?? "",
+    input.turnDiffSummaryKey,
+  ].join("\0");
+}
+
 function canUseNativeTimelineRowsWorker(): boolean {
   return typeof Worker !== "undefined" && typeof window !== "undefined";
 }

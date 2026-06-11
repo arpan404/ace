@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   clearCachedNativeTimelineRows,
+  createNativeTimelineRowsCacheKey,
   readCachedNativeTimelineRows,
   resolveNativeTimelineRows,
 } from "./nativeTimelineRowsClient";
@@ -58,6 +59,54 @@ afterEach(() => {
 });
 
 describe("nativeTimelineRowsClient", () => {
+  it("creates a cache key for live rows before a complete snapshot exists", () => {
+    const firstKey = createNativeTimelineRowsCacheKey({
+      threadId: "thread-live-only",
+      snapshotRevision: null,
+      snapshotTotalRows: null,
+      threadRevision: 1,
+      rowCount: 1,
+      isActiveTurnRunning: true,
+      activeTurnStartedAt: "2026-01-01T00:00:01.000Z",
+      completionDividerBeforeEntryId: null,
+      completionSummary: null,
+      turnDiffSummaryKey: "",
+    });
+    const secondKey = createNativeTimelineRowsCacheKey({
+      threadId: "thread-live-only",
+      snapshotRevision: null,
+      snapshotTotalRows: null,
+      threadRevision: 2,
+      rowCount: 1,
+      isActiveTurnRunning: true,
+      activeTurnStartedAt: "2026-01-01T00:00:01.000Z",
+      completionDividerBeforeEntryId: null,
+      completionSummary: null,
+      turnDiffSummaryKey: "",
+    });
+
+    expect(firstKey).not.toBeNull();
+    expect(firstKey).toContain("live");
+    expect(secondKey).not.toBe(firstKey);
+  });
+
+  it("does not create a cache key before any timeline rows exist", () => {
+    expect(
+      createNativeTimelineRowsCacheKey({
+        threadId: "thread-live-only",
+        snapshotRevision: null,
+        snapshotTotalRows: null,
+        threadRevision: 1,
+        rowCount: 0,
+        isActiveTurnRunning: true,
+        activeTurnStartedAt: null,
+        completionDividerBeforeEntryId: null,
+        completionSummary: null,
+        turnDiffSummaryKey: "",
+      }),
+    ).toBeNull();
+  });
+
   it("reuses cached render rows for an unchanged snapshot key", async () => {
     vi.stubGlobal("Worker", undefined);
     const message = createMessage();

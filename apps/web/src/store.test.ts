@@ -27,6 +27,7 @@ import {
   __resetThreadHydrationCacheForTests,
   readCachedHydratedThread,
 } from "./lib/threadHydrationCache";
+import { readTimelineRowsProjection, useTimelineModelStore } from "./lib/chat/timelineModelStore";
 import {
   createChatMessageStreamingTextState,
   getChatMessageFullText,
@@ -36,6 +37,7 @@ import { DEFAULT_INTERACTION_MODE, DEFAULT_RUNTIME_MODE, type Thread } from "./t
 beforeEach(() => {
   __resetThreadHydrationCacheForTests();
   useStore.getState().resetToInitialState();
+  useTimelineModelStore.getState().reset();
 });
 
 function makeThread(overrides: Partial<Thread> = {}): Thread {
@@ -1798,6 +1800,58 @@ describe("incremental orchestration updates", () => {
 
     expect(completed.sidebarThreadsById).not.toBe(sidebarAfterFirstChunk);
     expect(completed.sidebarThreadsById[threadId]?.latestTurn?.state).toBe("completed");
+  });
+
+  it("projects assistant messages into timeline rows for metadata-only threads", async () => {
+    const threadId = ThreadId.makeUnsafe("thread-metadata-live-assistant");
+    const messageId = MessageId.makeUnsafe("message-metadata-live-assistant");
+    const turnId = TurnId.makeUnsafe("turn-metadata-live-assistant");
+    const state = makeState(
+      makeThread({
+        id: threadId,
+        historyLoaded: false,
+        latestTurn: {
+          turnId,
+          state: "running",
+          requestedAt: "2026-02-27T00:00:00.000Z",
+          startedAt: "2026-02-27T00:00:00.000Z",
+          completedAt: null,
+          assistantMessageId: null,
+        },
+      }),
+    );
+
+    const next = applyOrchestrationEvent(
+      state,
+      makeEvent(
+        "thread.message-sent",
+        {
+          threadId,
+          messageId,
+          role: "assistant",
+          text: "streamed assistant text",
+          turnId,
+          streaming: true,
+          createdAt: "2026-02-27T00:00:01.000Z",
+          updatedAt: "2026-02-27T00:00:01.000Z",
+        },
+        {
+          sequence: 2,
+          occurredAt: "2026-02-27T00:00:01.000Z",
+        },
+      ),
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(next.threads[0]?.messages).toEqual([]);
+    expect(next.threads[0]?.latestTurn?.state).toBe("running");
+    expect(readTimelineRowsProjection(threadId).messages.map((message) => message.text)).toEqual([
+      "streamed assistant text",
+    ]);
+    expect(readTimelineRowsProjection(threadId).rowIds).toEqual([
+      "message:message-metadata-live-assistant",
+    ]);
   });
 
   it("does not replace sidebar summaries for sub-second tool activity churn", () => {

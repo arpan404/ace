@@ -49,6 +49,30 @@ describe("createOrchestrationRecoveryCoordinator", () => {
     });
   });
 
+  it("can mark live events while snapshot recovery is still in flight", () => {
+    const coordinator = createOrchestrationRecoveryCoordinator();
+
+    expect(coordinator.beginSnapshotRecovery("bootstrap")).toBe(true);
+    expect(coordinator.classifyDomainEvent(4)).toBe("defer");
+    expect(coordinator.markEventBatchApplied([{ sequence: 4 }])).toEqual([{ sequence: 4 }]);
+    expect(coordinator.getState()).toMatchObject({
+      latestSequence: 4,
+      highestObservedSequence: 4,
+      bootstrapped: false,
+      inFlight: {
+        kind: "snapshot",
+        reason: "bootstrap",
+      },
+    });
+
+    expect(coordinator.completeSnapshotRecovery(3)).toBe(true);
+    expect(coordinator.getState()).toMatchObject({
+      latestSequence: 4,
+      bootstrapped: true,
+      inFlight: null,
+    });
+  });
+
   it("requests another replay when deferred events arrive during replay recovery", () => {
     const coordinator = createOrchestrationRecoveryCoordinator();
 

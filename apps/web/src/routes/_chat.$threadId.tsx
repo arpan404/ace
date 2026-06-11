@@ -93,6 +93,9 @@ function ChatThreadRouteView() {
       !bootstrapComplete ||
       !serverThread ||
       serverThread.historyLoaded !== false ||
+      serverThread.latestTurn?.state === "running" ||
+      serverThread.session?.orchestrationStatus === "running" ||
+      serverThread.session?.status === "running" ||
       threadHydrationInFlightRef.current === threadId
     ) {
       return;
