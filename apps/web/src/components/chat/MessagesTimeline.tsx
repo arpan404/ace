@@ -3946,11 +3946,11 @@ const AssistantMessageTurnDiffSummary = memo(function AssistantMessageTurnDiffSu
 
   return (
     <div
-      className="min-w-0 overflow-hidden border-border/20 border-y"
+      className="glass-inset min-w-0 overflow-hidden rounded-[var(--panel-radius)] border border-border/36 bg-background/28"
       data-turn-diff-summary="true"
     >
-      <div className="flex min-w-0 items-center gap-2 border-border/15 border-b px-2 py-1.5">
-        <span className="min-w-0 truncate font-mono text-[10px] leading-4 font-medium tracking-[0.16em] text-muted-foreground/72 uppercase">
+      <div className="flex min-w-0 items-center gap-2 border-border/24 border-b bg-muted/[0.08] px-3 py-2">
+        <span className="min-w-0 truncate font-mono text-[10px] leading-4 font-medium tracking-[0.16em] text-muted-foreground/76 uppercase">
           Changed files ({checkpointFiles.length})
         </span>
         {hasNonZeroStat(summaryStat) && (
@@ -3967,7 +3967,7 @@ const AssistantMessageTurnDiffSummary = memo(function AssistantMessageTurnDiffSu
           type="button"
           size="xs"
           variant="ghost"
-          className="h-5 rounded-sm px-1.5 text-[11px] font-normal text-muted-foreground/62 hover:bg-foreground/[0.045] hover:text-foreground"
+          className="h-6 rounded-[var(--control-radius)] px-2 text-[11px] font-normal text-muted-foreground/64 hover:bg-foreground/[0.05] hover:text-foreground"
           onClick={() => props.onOpenTurnDiff(props.turnSummary.turnId, checkpointFiles[0]?.path)}
         >
           <FileDiffIcon aria-hidden="true" className="mr-1 size-3.5" />
@@ -3983,7 +3983,7 @@ const AssistantMessageTurnDiffSummary = memo(function AssistantMessageTurnDiffSu
                       type="button"
                       size="icon-xs"
                       variant="ghost"
-                      className="size-5 rounded-sm border-0 bg-transparent text-muted-foreground/66 shadow-none hover:bg-foreground/[0.055] hover:text-foreground"
+                      className="size-6 rounded-[var(--control-radius)] border-0 bg-transparent text-muted-foreground/66 shadow-none hover:bg-foreground/[0.055] hover:text-foreground"
                       disabled={props.isRevertingCheckpoint || props.isWorking}
                       onClick={props.onRevert}
                       aria-label={props.revertActionTitle}
@@ -4006,7 +4006,7 @@ const AssistantMessageTurnDiffSummary = memo(function AssistantMessageTurnDiffSu
                       size="icon-xs"
                       variant="ghost"
                       data-scroll-anchor-ignore
-                      className="size-5 rounded-sm border-0 bg-transparent text-muted-foreground/66 shadow-none hover:bg-foreground/[0.055] hover:text-foreground"
+                      className="size-6 rounded-[var(--control-radius)] border-0 bg-transparent text-muted-foreground/66 shadow-none hover:bg-foreground/[0.055] hover:text-foreground"
                       onClick={() => props.onToggleAllDirectories(props.turnSummary.turnId)}
                       aria-label={props.allDirectoriesExpanded ? "Collapse all" : "Expand all"}
                     />
@@ -4026,7 +4026,7 @@ const AssistantMessageTurnDiffSummary = memo(function AssistantMessageTurnDiffSu
           </div>
         )}
       </div>
-      <div className="px-1.5 py-1">
+      <div className="px-2 py-2">
         <ChangedFilesTree
           key={`changed-files-tree:${props.turnSummary.turnId}`}
           turnId={props.turnSummary.turnId}

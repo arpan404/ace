@@ -64,11 +64,11 @@ function EnvironmentPanelGroup(props: {
   trailing?: ReactNode;
 }) {
   return (
-    <section className="border-t border-border/45 py-1.5 first:border-t-0 first:pt-0">
+    <section className="border-t border-border/40 py-1.5 first:border-t-0 first:pt-0">
       <div className="flex min-h-7 items-center gap-1 px-2">
         <button
           type="button"
-          className="-ml-1 inline-flex min-w-0 items-center gap-1 rounded-md px-1 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground transition-colors hover:text-foreground"
+          className="-ml-1 inline-flex min-w-0 items-center gap-1 rounded-[var(--control-radius)] px-1.5 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground transition-colors hover:bg-foreground/[0.035] hover:text-foreground"
           onClick={() => props.onOpenChange(!props.open)}
           aria-expanded={props.open}
         >
@@ -367,7 +367,7 @@ export const EnvironmentMiniPanel = forwardRef<
     <m.aside
       ref={ref}
       className={cn(
-        "glass-surface pointer-events-auto z-50 w-[min(18.5rem,calc(100vw-1rem))] max-w-[calc(100vw-1rem)] overflow-y-auto rounded-[var(--panel-radius)] border p-2 text-popover-foreground sm:p-2.5",
+        "glass-surface pointer-events-auto z-50 w-[min(18.5rem,calc(100vw-1rem))] max-w-[calc(100vw-1rem)] overflow-y-auto rounded-[var(--panel-radius)] border border-border/42 p-2 text-popover-foreground sm:p-2.5",
         "[overflow-anchor:none]",
         props.layoutMode === "inline"
           ? "absolute top-3 right-3 max-h-[calc(100%_-_1.5rem)]"
@@ -393,7 +393,7 @@ export const EnvironmentMiniPanel = forwardRef<
                 <button
                   key={`${step.status}-${step.step}`}
                   type="button"
-                  className="flex min-h-7 w-full items-center gap-2 rounded-lg px-2 py-0.5 text-left text-[13px] leading-snug text-muted-foreground transition-colors hover:bg-accent/55 hover:text-foreground"
+                  className="flex min-h-7 w-full items-center gap-2 rounded-[var(--control-radius)] px-2 py-0.5 text-left text-[13px] leading-snug text-muted-foreground transition-colors hover:bg-accent/55 hover:text-foreground"
                   onClick={props.onOpenSummaryPanel}
                 >
                   <ProgressStepMarker status={step.status} />
@@ -424,7 +424,7 @@ export const EnvironmentMiniPanel = forwardRef<
                     type="button"
                     variant="ghost"
                     size="icon"
-                    className="-mr-1 size-7 shrink-0 rounded-full bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground"
+                    className="-mr-1 size-7 shrink-0 rounded-[var(--control-radius)] bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground"
                     onClick={props.onOpenEnvironmentSettings}
                     aria-label="Open environment settings"
                   />
@@ -438,7 +438,7 @@ export const EnvironmentMiniPanel = forwardRef<
         >
           <button
             type="button"
-            className="flex min-h-8 w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-[12px] transition-colors hover:bg-accent/60 hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-60"
+            className="flex min-h-8 w-full items-center gap-2 rounded-[var(--control-radius)] px-2 py-1 text-left text-[12px] transition-colors hover:bg-accent/60 hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-60"
             disabled={!props.isGitRepo}
             onClick={props.onOpenDiffPanel}
           >
@@ -486,7 +486,7 @@ export const EnvironmentMiniPanel = forwardRef<
           ) : props.gitCwd ? (
             <button
               type="button"
-              className="flex min-h-8 w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-[12px] transition-colors hover:bg-accent/60 hover:text-accent-foreground"
+              className="flex min-h-8 w-full items-center gap-2 rounded-[var(--control-radius)] px-2 py-1 text-left text-[12px] transition-colors hover:bg-accent/60 hover:text-accent-foreground"
               disabled={initMutation.isPending}
               onClick={handleGitInit}
             >
@@ -513,7 +513,7 @@ export const EnvironmentMiniPanel = forwardRef<
                 <div key={message.id} className="flex min-h-7 items-center gap-2">
                   <button
                     type="button"
-                    className="inline-flex size-4 shrink-0 items-center justify-center rounded-[4px] border border-muted-foreground/50 text-foreground transition-colors hover:text-foreground"
+                    className="inline-flex size-4 shrink-0 items-center justify-center rounded-[calc(var(--control-radius)-3px)] border border-muted-foreground/50 text-foreground transition-colors hover:text-foreground"
                     onClick={() =>
                       setPinnedMessages((current) =>
                         togglePinnedMessageChecked(current, message.id),
@@ -545,7 +545,7 @@ export const EnvironmentMiniPanel = forwardRef<
                   </button>
                   <button
                     type="button"
-                    className="inline-flex size-5 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 transition-colors hover:text-foreground"
+                    className="inline-flex size-5 shrink-0 items-center justify-center rounded-[calc(var(--control-radius)-2px)] text-muted-foreground/70 transition-colors hover:bg-foreground/[0.04] hover:text-foreground"
                     onClick={() =>
                       setPinnedMessages((current) => removePinnedMessageById(current, message.id))
                     }
@@ -588,7 +588,7 @@ export const EnvironmentMiniPanel = forwardRef<
                 <button
                   key={thread.id}
                   type="button"
-                  className="group/subagent flex min-h-8 w-full items-center gap-1.5 rounded-lg px-2 py-1 text-left text-[12px] transition-colors hover:bg-accent hover:text-accent-foreground"
+                  className="group/subagent flex min-h-8 w-full items-center gap-1.5 rounded-[var(--control-radius)] px-2 py-1 text-left text-[12px] transition-colors hover:bg-accent hover:text-accent-foreground"
                   onClick={() => {
                     props.onSelectSubagentThread(thread.id);
                     props.onSubagentPanelOpen();
@@ -608,7 +608,7 @@ export const EnvironmentMiniPanel = forwardRef<
           onOpenChange={(open) => setGroupOpen("notes", open)}
         >
           <div className="space-y-2 px-2 pt-0.5">
-            <div className="glass-inset overflow-hidden rounded-xl border border-border/50 transition-colors focus-within:border-ring/45 focus-within:ring-2 focus-within:ring-ring/10">
+            <div className="glass-inset overflow-hidden rounded-[var(--control-radius)] border border-border/50 transition-colors focus-within:border-ring/45 focus-within:ring-2 focus-within:ring-ring/10">
               <textarea
                 value={activeScratchPadNote?.body ?? ""}
                 onChange={(event) => updateActiveScratchPadBody(event.target.value)}

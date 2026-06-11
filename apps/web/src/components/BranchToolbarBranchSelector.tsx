@@ -529,7 +529,7 @@ export function BranchToolbarBranchSelector({
         render={<Button variant="ghost" size={isEnvironmentPresentation ? "default" : "xs"} />}
         className={
           isEnvironmentPresentation
-            ? "min-h-8 w-full justify-start gap-2 rounded-lg px-2 py-1 text-[13px] font-normal text-foreground hover:bg-accent hover:text-accent-foreground"
+            ? "min-h-8 w-full justify-start gap-2 rounded-[var(--control-radius)] px-2 py-1 text-[13px] font-normal text-foreground hover:bg-accent hover:text-accent-foreground"
             : "text-muted-foreground/70 hover:text-foreground/80"
         }
         disabled={isBranchListLoading || isBranchActionPending}
@@ -560,7 +560,7 @@ export function BranchToolbarBranchSelector({
         sideOffset={isEnvironmentPresentation ? 6 : 4}
         className={
           isEnvironmentPresentation
-            ? "glass-surface w-[var(--button-width)] max-w-[calc(100vw-1rem)] overflow-hidden rounded-2xl border"
+            ? "glass-surface w-[var(--button-width)] max-w-[calc(100vw-1rem)] overflow-hidden rounded-[var(--panel-radius)] border"
             : "w-80"
         }
       >
@@ -572,7 +572,7 @@ export function BranchToolbarBranchSelector({
           <ComboboxInput
             className={
               isEnvironmentPresentation
-                ? "[&_input]:font-sans rounded-xl border-border/50 bg-background/45 text-[13px] has-focus-visible:border-border/70 has-focus-visible:bg-background/65"
+                ? "[&_input]:font-sans rounded-[var(--control-radius)] border-border/50 bg-background/45 text-[13px] has-focus-visible:border-border/70 has-focus-visible:bg-background/65"
                 : "[&_input]:font-sans rounded-md"
             }
             inputClassName="ring-0"
@@ -604,7 +604,10 @@ export function BranchToolbarBranchSelector({
           trimmedBranchQuery={trimmedBranchQuery}
           virtualBranchRows={virtualBranchRows}
           {...(isEnvironmentPresentation
-            ? { itemClassName: "min-h-9 rounded-xl px-2 text-[13px] data-selected:bg-accent/45" }
+            ? {
+                itemClassName:
+                  "min-h-9 rounded-[var(--control-radius)] px-2 text-[13px] data-selected:bg-accent/45",
+              }
             : {})}
         />
       </ComboboxPopup>
