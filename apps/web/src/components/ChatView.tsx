@@ -505,9 +505,9 @@ const EMPTY_COMPOSER_MODEL_SELECTIONS: ModelSelectionByProvider = Object.freeze(
 const EMPTY_PENDING_COMPOSER_COMMENTS: readonly PendingComposerComment[] = Object.freeze([]);
 
 const THREAD_SWITCH_SCROLL_SETTLE_DELAY_MS = 96;
-const INITIAL_THREAD_BOTTOM_PIN_MAX_MS = 2_500;
-const INITIAL_THREAD_BOTTOM_PIN_MIN_MS = 320;
-const INITIAL_THREAD_BOTTOM_PIN_STABLE_FRAMES = 8;
+const INITIAL_THREAD_BOTTOM_PIN_MAX_MS = 4_500;
+const INITIAL_THREAD_BOTTOM_PIN_MIN_MS = 900;
+const INITIAL_THREAD_BOTTOM_PIN_STABLE_FRAMES = 20;
 
 const SCRIPT_TERMINAL_COLS = 120;
 const SCRIPT_TERMINAL_ROWS = 30;
@@ -1884,6 +1884,7 @@ function useChatViewComponent({
   const previousThreadIdRef = useRef<ThreadId | null>(null);
   const pendingInitialBottomScrollThreadIdRef = useRef<ThreadId | null>(null);
   const pendingInitialBottomPinFrameRef = useRef<number | null>(null);
+  const pendingInitialBottomPinResizeObserverRef = useRef<ResizeObserver | null>(null);
   const lastKnownScrollTopRef = useRef(0);
   const isPointerScrollActiveRef = useRef(false);
   const lastTouchClientYRef = useRef<number | null>(null);
@@ -7578,6 +7579,8 @@ function useChatViewComponent({
   }, []);
   const cancelInitialBottomPin = useCallback(() => {
     pendingInitialBottomScrollThreadIdRef.current = null;
+    pendingInitialBottomPinResizeObserverRef.current?.disconnect();
+    pendingInitialBottomPinResizeObserverRef.current = null;
     const pendingFrame = pendingInitialBottomPinFrameRef.current;
     if (pendingFrame === null) return;
     pendingInitialBottomPinFrameRef.current = null;
@@ -7618,6 +7621,8 @@ function useChatViewComponent({
         pendingInitialBottomPinFrameRef.current = null;
         window.cancelAnimationFrame(pendingFrame);
       }
+      pendingInitialBottomPinResizeObserverRef.current?.disconnect();
+      pendingInitialBottomPinResizeObserverRef.current = null;
 
       shouldAutoScrollRef.current = true;
       setShowScrollToBottom(false);
@@ -7627,19 +7632,40 @@ function useChatViewComponent({
       let lastScrollHeight = -1;
       let stableFrameCount = 0;
       let frameId: number | null = null;
+      const canKeepBottomPinned = () =>
+        previousThreadIdRef.current === activeThreadId &&
+        shouldAutoScrollRef.current &&
+        !pendingUserScrollUpIntentRef.current &&
+        !isPointerScrollActiveRef.current;
+      const pinCurrentBottom = () => {
+        const scrollContainer = messagesScrollRef.current;
+        if (!scrollContainer || !canKeepBottomPinned()) {
+          return;
+        }
+        scrollMessagesToBottom();
+      };
+      if (typeof ResizeObserver !== "undefined") {
+        const resizeObserver = new ResizeObserver(pinCurrentBottom);
+        const scrollContainer = messagesScrollRef.current;
+        if (scrollContainer) {
+          resizeObserver.observe(scrollContainer);
+          const contentElement = scrollContainer.firstElementChild;
+          if (contentElement instanceof Element) {
+            resizeObserver.observe(contentElement);
+          }
+        }
+        pendingInitialBottomPinResizeObserverRef.current = resizeObserver;
+      }
       const keepBottomPinnedThroughHydration = () => {
         const scrollContainer = messagesScrollRef.current;
         if (!scrollContainer) {
           frameId = null;
           return;
         }
-        if (
-          previousThreadIdRef.current !== activeThreadId ||
-          !shouldAutoScrollRef.current ||
-          pendingUserScrollUpIntentRef.current ||
-          isPointerScrollActiveRef.current
-        ) {
+        if (!canKeepBottomPinned()) {
           pendingInitialBottomPinFrameRef.current = null;
+          pendingInitialBottomPinResizeObserverRef.current?.disconnect();
+          pendingInitialBottomPinResizeObserverRef.current = null;
           return;
         }
 
@@ -7662,6 +7688,8 @@ function useChatViewComponent({
             stableFrameCount >= INITIAL_THREAD_BOTTOM_PIN_STABLE_FRAMES)
         ) {
           pendingInitialBottomPinFrameRef.current = null;
+          pendingInitialBottomPinResizeObserverRef.current?.disconnect();
+          pendingInitialBottomPinResizeObserverRef.current = null;
           return;
         }
 
