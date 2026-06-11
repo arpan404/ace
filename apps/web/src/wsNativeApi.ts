@@ -210,12 +210,8 @@ export function createWsNativeApi(): NativeApi {
     orchestration: {
       getSnapshot: (input) => resolveRpcClientForInput(input).orchestration.getSnapshot(input),
       getThread: (input) => resolveRpcClientForInput(input).orchestration.getThread(input),
-      getThreadTimelinePage: (input) =>
-        resolveRpcClientForInput(input).orchestration.getThreadTimelinePage(input),
-      getThreadTimelinePages: (input) =>
-        resolveRpcClientForInput(input).orchestration.getThreadTimelinePages(input),
-      getThreadTimelineManifest: (input) =>
-        resolveRpcClientForInput(input).orchestration.getThreadTimelineManifest(input),
+      getThreadTimelineRowsSnapshot: (input) =>
+        resolveRpcClientForInput(input).orchestration.getThreadTimelineRowsSnapshot(input),
       dispatchCommand: async (input) => {
         const connectionUrl = resolveConnectionForInput(input);
         const response =

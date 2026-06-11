@@ -1,4 +1,5 @@
 export const AUTO_SCROLL_BOTTOM_THRESHOLD_PX = 64;
+export const SCROLL_TO_BOTTOM_BUTTON_THRESHOLD_PX = 160;
 const AUTO_SCROLL_DISABLE_UP_DELTA_PX = 1;
 
 interface ScrollPosition {
@@ -41,6 +42,10 @@ export function isScrollContainerNearBottom(
   return distanceFromBottom <= threshold;
 }
 
+export function shouldShowScrollToBottomButton(position: ScrollPosition): boolean {
+  return !isScrollContainerNearBottom(position, SCROLL_TO_BOTTOM_BUTTON_THRESHOLD_PX);
+}
+
 export interface AutoScrollOnScrollInput {
   shouldAutoScroll: boolean;
   isNearBottom: boolean;
@@ -74,8 +79,7 @@ export interface TimelinePrependScrollAnchorInput {
 
 export type TimelinePrependScrollAnchorDecision =
   | { kind: "none" }
-  | { kind: "preserve-anchor"; scrollTop: number }
-  | { kind: "stick-to-bottom" };
+  | { kind: "preserve-anchor"; scrollTop: number };
 
 export function shouldPreserveInteractionAnchorOnClick(clickDetail: number): boolean {
   return clickDetail === 0;
@@ -104,10 +108,6 @@ export function resolveTimelinePrependScrollAnchor(
     return { kind: "none" };
   }
 
-  if (input.shouldAutoScroll) {
-    return { kind: "stick-to-bottom" };
-  }
-
   return {
     kind: "preserve-anchor",
     scrollTop: input.previousScrollTop + heightDelta,
@@ -118,6 +118,14 @@ export function resolveAutoScrollOnScroll(
   input: AutoScrollOnScrollInput,
 ): AutoScrollOnScrollDecision {
   if (!input.shouldAutoScroll) {
+    if (input.hasPendingUserScrollUpIntent || input.isPointerScrollActive) {
+      return {
+        shouldAutoScroll: false,
+        clearPendingUserScrollUpIntent: !input.isNearBottom,
+        cancelPendingStickToBottom: true,
+        scheduleStickToBottom: false,
+      };
+    }
     if (input.isNearBottom) {
       return {
         shouldAutoScroll: true,

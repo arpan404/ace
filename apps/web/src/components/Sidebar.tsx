@@ -63,7 +63,7 @@ import {
   DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME,
   MAC_TITLEBAR_LEFT_INSET_STYLE,
 } from "../lib/desktopChrome";
-import { mapThreadFromReadModel, useStore } from "../store";
+import { useStore } from "../store";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
 import { useUiStateStore } from "../uiStateStore";
 import {
@@ -174,12 +174,10 @@ import type {
   RemoteSidebarThreadEntry,
 } from "./sidebar/sidebarTypes";
 import { hydrateThreadFromCache, readCachedHydratedThread } from "../lib/threadHydrationCache";
-import { buildThreadTimelineRowsInput } from "../lib/chat/timelineCacheScope";
-import { buildTimelineRowsCacheKey, prewarmTimelineRows } from "../lib/chat/timelineRowsClient";
 import {
-  prefetchThreadTimelineWindows,
-  primeThreadTimelineManifestFromReadModelThread,
-} from "../lib/chat/timelineWindowStore";
+  prefetchThreadTimelineRowsSnapshot,
+  primeThreadTimelineRowsMetadataFromReadModelThread,
+} from "../lib/chat/timelineModelStore";
 import { shouldAvoidSpeculativeWork } from "../lib/resourceProfile";
 import { describeHostConnection } from "@ace/shared/hostConnections";
 import {
@@ -204,7 +202,7 @@ import { METADATA_SNAPSHOT_RECOVERY_INPUT } from "../bootstrapRecovery";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { useSetting, useUpdateSettings } from "~/hooks/useSettings";
 import { useServerKeybindings, useServerProviders } from "../rpc/serverState";
-import type { Project, SidebarThreadSummary, Thread } from "../types";
+import type { Project, SidebarThreadSummary } from "../types";
 import { useHostConnectionStore } from "../hostConnectionStore";
 import {
   resolveConnectionForThreadId,
@@ -247,6 +245,8 @@ const SIDEBAR_THREAD_PREFETCH_STORE_HYDRATE_COUNT = 0;
 const SIDEBAR_THREAD_PREFETCH_CONCURRENCY = 4;
 const SIDEBAR_MOUNTED_THREAD_PREFETCH_LIMIT = 24;
 const SIDEBAR_MOUNTED_THREAD_STORE_HYDRATE_COUNT = 0;
+const SIDEBAR_SPECULATIVE_PREFETCH_IDLE_TIMEOUT_MS = 2_500;
+const SIDEBAR_SPECULATIVE_PREFETCH_FALLBACK_DELAY_MS = 900;
 
 type SplitContextMenuState = {
   position: { x: number; y: number };
@@ -1110,6 +1110,38 @@ async function mapWithConcurrencyLimit<TInput, TResult>(
   return results;
 }
 
+function scheduleSidebarSpeculativePrefetch(callback: () => void): () => void {
+  let cancelled = false;
+  const run = () => {
+    if (!cancelled) {
+      callback();
+    }
+  };
+  const idleWindow = window as Window & {
+    readonly requestIdleCallback?: (
+      callback: (deadline: IdleDeadline) => void,
+      options?: { timeout?: number },
+    ) => number;
+    readonly cancelIdleCallback?: (handle: number) => void;
+  };
+
+  if (typeof idleWindow.requestIdleCallback === "function") {
+    const handle = idleWindow.requestIdleCallback(run, {
+      timeout: SIDEBAR_SPECULATIVE_PREFETCH_IDLE_TIMEOUT_MS,
+    });
+    return () => {
+      cancelled = true;
+      idleWindow.cancelIdleCallback?.(handle);
+    };
+  }
+
+  const timeoutId = window.setTimeout(run, SIDEBAR_SPECULATIVE_PREFETCH_FALLBACK_DELAY_MS);
+  return () => {
+    cancelled = true;
+    window.clearTimeout(timeoutId);
+  };
+}
+
 function remoteProjectKey(connectionUrl: string, projectId: ProjectId): string {
   return `${connectionUrl}::${projectId}`;
 }
@@ -1619,6 +1651,25 @@ const SidebarRemoteProjectItem = memo(function SidebarRemoteProjectItem({
     ThreadId.makeUnsafe(thread.id),
   );
   const shouldRenderThreadPanel = projectExpanded;
+  const { prefetchThreadHistory } = threadRowSharedProps;
+
+  useEffect(() => {
+    if (!projectExpanded || visibleThreads.length === 0) {
+      return;
+    }
+    return scheduleSidebarSpeculativePrefetch(() => {
+      const hostStore = useHostConnectionStore.getState();
+      for (const thread of visibleThreads) {
+        const threadId = ThreadId.makeUnsafe(thread.id);
+        hostStore.upsertThreadOwnership(connectionUrl, threadId);
+        void prefetchThreadHistory(threadId, {
+          hydrateStore: false,
+          prewarmRows: true,
+          priority: "background",
+        });
+      }
+    });
+  }, [connectionUrl, prefetchThreadHistory, projectExpanded, visibleThreads]);
 
   return (
     <>
@@ -1834,9 +1885,6 @@ function useSidebarComponent() {
   const confirmThreadArchive = useSetting("confirmThreadArchive");
   const confirmThreadDelete = useSetting("confirmThreadDelete");
   const defaultThreadEnvMode = useSetting("defaultThreadEnvMode");
-  const enableThinkingStreaming = useSetting("enableThinkingStreaming");
-  const enableToolStreaming = useSetting("enableToolStreaming");
-  const hideCompletedWorkMessages = useSetting("hideCompletedWorkMessages");
   const sidebarProjectSortOrder = useSetting("sidebarProjectSortOrder");
   const sidebarThreadSortOrder = useSetting("sidebarThreadSortOrder");
   const { updateSettings } = useUpdateSettings();
@@ -4074,55 +4122,6 @@ function useSidebarComponent() {
     ],
   );
 
-  const prewarmThreadTimelineRows = useCallback(
-    (thread: Thread, options?: { readonly priority?: "background" | "immediate" }) => {
-      const runPrewarm = () => {
-        try {
-          const { input } = buildThreadTimelineRowsInput(thread, {
-            enableGoalWorkingState:
-              (thread.session?.provider ?? thread.modelSelection.provider) === "codex",
-            hideCompletedWorkMessages,
-            visibility: {
-              enableThinkingStreaming,
-              enableToolStreaming,
-            },
-          });
-          prewarmTimelineRows(buildTimelineRowsCacheKey(input), input);
-        } catch (error) {
-          reportBackgroundError("Failed to prewarm thread timeline rows.", error);
-        }
-      };
-
-      if (options?.priority === "immediate") {
-        runPrewarm();
-        return;
-      }
-
-      if (typeof window === "undefined") {
-        runPrewarm();
-        return;
-      }
-
-      if (typeof window.requestIdleCallback === "function") {
-        window.requestIdleCallback(runPrewarm, { timeout: 350 });
-        return;
-      }
-
-      window.setTimeout(runPrewarm, 0);
-    },
-    [enableThinkingStreaming, enableToolStreaming, hideCompletedWorkMessages],
-  );
-
-  const prewarmReadModelThreadTimelineRows = useCallback(
-    (
-      readModelThread: OrchestrationReadModel["threads"][number],
-      options?: { readonly priority?: "background" | "immediate" },
-    ) => {
-      prewarmThreadTimelineRows(mapThreadFromReadModel(readModelThread), options);
-    },
-    [prewarmThreadTimelineRows],
-  );
-
   const prefetchThreadHistory = useCallback(
     (
       threadId: ThreadId,
@@ -4143,18 +4142,14 @@ function useSidebarComponent() {
         return Promise.resolve();
       }
       const expectedUpdatedAt = thread.updatedAt ?? null;
-      const prefetchSparseTimelineWindow = (totalItemsHint?: number | null) => {
+      const prefetchTimelineSnapshot = () => {
         if (!shouldPrewarmRows) {
           return Promise.resolve();
         }
-        return prefetchThreadTimelineWindows({
-          threadId,
-          ...(totalItemsHint !== undefined ? { totalItemsHint } : {}),
-          priority,
-        })
+        return prefetchThreadTimelineRowsSnapshot({ threadId })
           .then(() => undefined)
           .catch((error) => {
-            reportBackgroundError("Failed to prefetch thread timeline window.", error);
+            reportBackgroundError("Failed to prefetch thread timeline snapshot.", error);
           });
       };
       const storeThread = useStore.getState().threadsById?.[threadId];
@@ -4163,33 +4158,21 @@ function useSidebarComponent() {
         storeThread.historyLoaded !== false &&
         (expectedUpdatedAt === null || storeThread.updatedAt === expectedUpdatedAt)
       ) {
-        if (shouldPrewarmRows) {
-          prewarmThreadTimelineRows(storeThread, { priority });
-        }
-        return prefetchSparseTimelineWindow(
-          storeThread.messages.length +
-            storeThread.activities.length +
-            storeThread.proposedPlans.length,
-        );
+        return prefetchTimelineSnapshot();
       }
 
       const cached = readCachedHydratedThread(threadId, expectedUpdatedAt);
       if (cached) {
-        primeThreadTimelineManifestFromReadModelThread(cached);
-        if (shouldPrewarmRows) {
-          prewarmReadModelThreadTimelineRows(cached, { priority });
-        }
+        primeThreadTimelineRowsMetadataFromReadModelThread(cached);
         if (shouldHydrateStore) {
           startTransition(() => {
             useStore.getState().hydrateThreadFromReadModel(cached);
           });
         }
-        return prefetchSparseTimelineWindow(
-          cached.messages.length + cached.activities.length + cached.proposedPlans.length,
-        );
+        return prefetchTimelineSnapshot();
       }
       if (shouldPrewarmRows && !shouldHydrateStore) {
-        return prefetchSparseTimelineWindow(null);
+        return prefetchTimelineSnapshot();
       }
 
       if (shouldHydrateStore) {
@@ -4206,13 +4189,10 @@ function useSidebarComponent() {
             .catch(() => undefined);
         }
 
-        const timelineWindowRequest = prefetchSparseTimelineWindow(null);
+        const timelineSnapshotRequest = prefetchTimelineSnapshot();
         const threadHydrationRequest = request
           .then((readModelThread) => {
-            primeThreadTimelineManifestFromReadModelThread(readModelThread);
-            if (shouldPrewarmRows) {
-              prewarmReadModelThreadTimelineRows(readModelThread, { priority });
-            }
+            primeThreadTimelineRowsMetadataFromReadModelThread(readModelThread);
             if (shouldHydrateStore) {
               startTransition(() => {
                 useStore.getState().hydrateThreadFromReadModel(readModelThread);
@@ -4222,11 +4202,11 @@ function useSidebarComponent() {
           .catch((error) => {
             reportBackgroundError("Failed to prefetch thread history.", error);
           });
-        return Promise.all([threadHydrationRequest, timelineWindowRequest]).then(() => undefined);
+        return Promise.all([threadHydrationRequest, timelineSnapshotRequest]).then(() => undefined);
       }
       return Promise.resolve();
     },
-    [prewarmReadModelThreadTimelineRows, prewarmThreadTimelineRows, readSidebarThreadSummary],
+    [readSidebarThreadSummary],
   );
 
   const handleThreadClick = useCallback(
@@ -4265,7 +4245,7 @@ function useSidebarComponent() {
       const thread = readSidebarThreadSummary(threadId);
       const cached = thread ? readCachedHydratedThread(threadId, thread.updatedAt ?? null) : null;
       if (cached) {
-        prewarmReadModelThreadTimelineRows(cached, { priority: "immediate" });
+        primeThreadTimelineRowsMetadataFromReadModelThread(cached);
         startTransition(() => {
           useStore.getState().hydrateThreadFromReadModel(cached);
         });
@@ -4293,7 +4273,6 @@ function useSidebarComponent() {
       localDeviceConnectionUrl,
       navigate,
       prefetchThreadHistory,
-      prewarmReadModelThreadTimelineRows,
       rangeSelectTo,
       readSidebarThreadSummary,
       selectedThreadIds.size,
@@ -4307,7 +4286,7 @@ function useSidebarComponent() {
       const thread = readSidebarThreadSummary(threadId);
       const cached = thread ? readCachedHydratedThread(threadId, thread.updatedAt ?? null) : null;
       if (cached) {
-        prewarmReadModelThreadTimelineRows(cached, { priority: "immediate" });
+        primeThreadTimelineRowsMetadataFromReadModelThread(cached);
         startTransition(() => {
           useStore.getState().hydrateThreadFromReadModel(cached);
         });
@@ -4338,7 +4317,6 @@ function useSidebarComponent() {
       clearSelection,
       navigate,
       prefetchThreadHistory,
-      prewarmReadModelThreadTimelineRows,
       readSidebarThreadSummary,
       selectedThreadIds.size,
       setSelectionAnchor,
@@ -4362,7 +4340,7 @@ function useSidebarComponent() {
       const thread = readSidebarThreadSummary(threadId);
       const cached = thread ? readCachedHydratedThread(threadId, thread.updatedAt ?? null) : null;
       if (cached) {
-        prewarmReadModelThreadTimelineRows(cached, { priority: "immediate" });
+        primeThreadTimelineRowsMetadataFromReadModelThread(cached);
         startTransition(() => {
           useStore.getState().hydrateThreadFromReadModel(cached);
         });
@@ -4391,7 +4369,6 @@ function useSidebarComponent() {
       navigate,
       navigateToThread,
       prefetchThreadHistory,
-      prewarmReadModelThreadTimelineRows,
       readSidebarThreadSummary,
       selectedThreadIds.size,
       setSelectionAnchor,
@@ -5462,24 +5439,27 @@ function useSidebarComponent() {
     }
 
     let cancelled = false;
-    void mapWithConcurrencyLimit(
-      threadIdsToPrefetch,
-      SIDEBAR_THREAD_PREFETCH_CONCURRENCY,
-      async (threadId, index) => {
-        if (cancelled) {
-          return;
-        }
-        const shouldHydrateStore = index < SIDEBAR_MOUNTED_THREAD_STORE_HYDRATE_COUNT;
-        await prefetchThreadHistory(threadId, {
-          hydrateStore: shouldHydrateStore,
-          prewarmRows: true,
-          priority: shouldHydrateStore ? "immediate" : "background",
-        });
-      },
-    );
+    const cancelScheduledPrefetch = scheduleSidebarSpeculativePrefetch(() => {
+      void mapWithConcurrencyLimit(
+        threadIdsToPrefetch,
+        SIDEBAR_THREAD_PREFETCH_CONCURRENCY,
+        async (threadId, index) => {
+          if (cancelled) {
+            return;
+          }
+          const shouldHydrateStore = index < SIDEBAR_MOUNTED_THREAD_STORE_HYDRATE_COUNT;
+          await prefetchThreadHistory(threadId, {
+            hydrateStore: shouldHydrateStore,
+            prewarmRows: true,
+            priority: shouldHydrateStore ? "immediate" : "background",
+          });
+        },
+      );
+    });
 
     return () => {
       cancelled = true;
+      cancelScheduledPrefetch();
     };
   }, [mountedSidebarThreadPrefetchKey, prefetchThreadHistory]);
 
@@ -5940,24 +5920,27 @@ function useSidebarComponent() {
     }
 
     let cancelled = false;
-    void mapWithConcurrencyLimit(
-      nearbyThreadIds,
-      SIDEBAR_THREAD_PREFETCH_CONCURRENCY,
-      async (nearbyThreadId, index) => {
-        if (cancelled) {
-          return;
-        }
-        const shouldHydrateStore = index < SIDEBAR_THREAD_PREFETCH_STORE_HYDRATE_COUNT;
-        await prefetchThreadHistory(nearbyThreadId, {
-          hydrateStore: shouldHydrateStore,
-          prewarmRows: true,
-          priority: shouldHydrateStore ? "immediate" : "background",
-        });
-      },
-    );
+    const cancelScheduledPrefetch = scheduleSidebarSpeculativePrefetch(() => {
+      void mapWithConcurrencyLimit(
+        nearbyThreadIds,
+        SIDEBAR_THREAD_PREFETCH_CONCURRENCY,
+        async (nearbyThreadId, index) => {
+          if (cancelled) {
+            return;
+          }
+          const shouldHydrateStore = index < SIDEBAR_THREAD_PREFETCH_STORE_HYDRATE_COUNT;
+          await prefetchThreadHistory(nearbyThreadId, {
+            hydrateStore: shouldHydrateStore,
+            prewarmRows: true,
+            priority: shouldHydrateStore ? "immediate" : "background",
+          });
+        },
+      );
+    });
 
     return () => {
       cancelled = true;
+      cancelScheduledPrefetch();
     };
   }, [orderedSidebarThreadIds, prefetchThreadHistory, routeThreadId]);
 

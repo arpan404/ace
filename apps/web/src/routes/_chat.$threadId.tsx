@@ -6,9 +6,9 @@ import { ThreadBoard } from "../components/chat/ThreadBoard";
 import { useComposerDraftStore } from "../composerDraftStore";
 import { type DiffRouteSearch, parseDiffRouteSearch } from "../diffRouteSearch";
 import {
-  prefetchThreadTimelineWindows,
-  startThreadTimelineOpenPrefetch,
-} from "../lib/chat/timelineWindowStore";
+  prefetchThreadTimelineRowsSnapshot,
+  startThreadTimelineRowsOpenPrefetch,
+} from "../lib/chat/timelineModelStore";
 import { getThreadById, getThreadByIdFromState, useStore } from "../store";
 import { SidebarInset } from "~/components/ui/sidebar";
 import { getWsRpcClient } from "../wsRpcClient";
@@ -102,7 +102,7 @@ function ChatThreadRouteView() {
     const requestId = threadHydrationRequestIdRef.current + 1;
     threadHydrationRequestIdRef.current = requestId;
     threadHydrationInFlightRef.current = threadId;
-    const prefetch = startThreadTimelineOpenPrefetch({
+    const prefetch = startThreadTimelineRowsOpenPrefetch({
       threadId,
       priority: "immediate",
     });
@@ -113,7 +113,7 @@ function ChatThreadRouteView() {
           return;
         }
       } catch {
-        // Timeline windows are opportunistic here; the visible timeline also fetches ranges on scroll.
+        // Full timeline snapshots are opportunistic here; active view recovery can retry on reconnect.
       } finally {
         if (
           requestId === threadHydrationRequestIdRef.current &&
@@ -126,8 +126,7 @@ function ChatThreadRouteView() {
 
     return () => {
       canceled = true;
-      // The route owns the active-open timeline prefetch. Stop between page requests on switch.
-      // In-flight RPCs are allowed to finish and stay cached.
+      // The route owns the active-open timeline snapshot. In-flight RPCs may finish and stay cached.
       prefetch.stop();
       if (
         requestId === threadHydrationRequestIdRef.current &&
@@ -170,10 +169,7 @@ function ChatThreadRouteView() {
     let canceled = false;
     void (async () => {
       try {
-        await prefetchThreadTimelineWindows({
-          threadId: lineageSourceThreadId,
-          priority: "background",
-        });
+        await prefetchThreadTimelineRowsSnapshot({ threadId: lineageSourceThreadId });
         if (canceled) {
           return;
         }

@@ -51,9 +51,7 @@ import {
   OrchestrationGetSnapshotInput,
   OrchestrationGetThreadError,
   OrchestrationGetThreadInput,
-  OrchestrationGetThreadTimelineManifestInput,
-  OrchestrationGetThreadTimelinePageInput,
-  OrchestrationGetThreadTimelinePagesInput,
+  OrchestrationGetThreadTimelineRowsSnapshotInput,
   OrchestrationGetTurnDiffError,
   OrchestrationGetTurnDiffInput,
   OrchestrationReplayEventsError,
@@ -579,29 +577,11 @@ export const WsOrchestrationGetThreadRpc = Rpc.make(ORCHESTRATION_WS_METHODS.get
   error: OrchestrationGetThreadError,
 });
 
-export const WsOrchestrationGetThreadTimelinePageRpc = Rpc.make(
-  ORCHESTRATION_WS_METHODS.getThreadTimelinePage,
+export const WsOrchestrationGetThreadTimelineRowsSnapshotRpc = Rpc.make(
+  ORCHESTRATION_WS_METHODS.getThreadTimelineRowsSnapshot,
   {
-    payload: OrchestrationGetThreadTimelinePageInput,
-    success: OrchestrationRpcSchemas.getThreadTimelinePage.output,
-    error: OrchestrationGetThreadError,
-  },
-);
-
-export const WsOrchestrationGetThreadTimelinePagesRpc = Rpc.make(
-  ORCHESTRATION_WS_METHODS.getThreadTimelinePages,
-  {
-    payload: OrchestrationGetThreadTimelinePagesInput,
-    success: OrchestrationRpcSchemas.getThreadTimelinePages.output,
-    error: OrchestrationGetThreadError,
-  },
-);
-
-export const WsOrchestrationGetThreadTimelineManifestRpc = Rpc.make(
-  ORCHESTRATION_WS_METHODS.getThreadTimelineManifest,
-  {
-    payload: OrchestrationGetThreadTimelineManifestInput,
-    success: OrchestrationRpcSchemas.getThreadTimelineManifest.output,
+    payload: OrchestrationGetThreadTimelineRowsSnapshotInput,
+    success: OrchestrationRpcSchemas.getThreadTimelineRowsSnapshot.output,
     error: OrchestrationGetThreadError,
   },
 );
@@ -738,9 +718,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsSubscribeServerLifecycleRpc,
   WsOrchestrationGetSnapshotRpc,
   WsOrchestrationGetThreadRpc,
-  WsOrchestrationGetThreadTimelinePageRpc,
-  WsOrchestrationGetThreadTimelinePagesRpc,
-  WsOrchestrationGetThreadTimelineManifestRpc,
+  WsOrchestrationGetThreadTimelineRowsSnapshotRpc,
   WsOrchestrationDispatchCommandRpc,
   WsOrchestrationGetTurnDiffRpc,
   WsOrchestrationGetFullThreadDiffRpc,

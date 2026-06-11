@@ -2,10 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   AUTO_SCROLL_BOTTOM_THRESHOLD_PX,
+  SCROLL_TO_BOTTOM_BUTTON_THRESHOLD_PX,
   isScrollContainerNearBottom,
   resolveAutoScrollOnScroll,
   resolveTimelinePrependScrollAnchor,
   shouldPreserveInteractionAnchorOnClick,
+  shouldShowScrollToBottomButton,
   scrollContainerToBottom,
 } from "./chat-scroll";
 
@@ -68,6 +70,29 @@ describe("isScrollContainerNearBottom", () => {
   });
 });
 
+describe("shouldShowScrollToBottomButton", () => {
+  it("hides the button when the viewport is close enough to the bottom", () => {
+    expect(
+      shouldShowScrollToBottomButton({
+        scrollTop: 460,
+        clientHeight: 400,
+        scrollHeight: 1_000,
+      }),
+    ).toBe(false);
+    expect(SCROLL_TO_BOTTOM_BUTTON_THRESHOLD_PX).toBeGreaterThan(AUTO_SCROLL_BOTTOM_THRESHOLD_PX);
+  });
+
+  it("shows the button only when the user is meaningfully away from the bottom", () => {
+    expect(
+      shouldShowScrollToBottomButton({
+        scrollTop: 420,
+        clientHeight: 400,
+        scrollHeight: 1_000,
+      }),
+    ).toBe(true);
+  });
+});
+
 describe("scrollContainerToBottom", () => {
   it("jumps directly to the bottom by default", () => {
     const scrollTo = vi.fn();
@@ -108,13 +133,31 @@ describe("resolveAutoScrollOnScroll", () => {
         isNearBottom: true,
         currentScrollTop: 540,
         previousScrollTop: 560,
-        hasPendingUserScrollUpIntent: true,
+        hasPendingUserScrollUpIntent: false,
         isPointerScrollActive: false,
       }),
     ).toEqual({
       shouldAutoScroll: true,
       clearPendingUserScrollUpIntent: true,
       cancelPendingStickToBottom: false,
+      scheduleStickToBottom: false,
+    });
+  });
+
+  it("does not re-enable auto-scroll while upward intent is still pending near bottom", () => {
+    expect(
+      resolveAutoScrollOnScroll({
+        shouldAutoScroll: false,
+        isNearBottom: true,
+        currentScrollTop: 540,
+        previousScrollTop: 560,
+        hasPendingUserScrollUpIntent: true,
+        isPointerScrollActive: false,
+      }),
+    ).toEqual({
+      shouldAutoScroll: false,
+      clearPendingUserScrollUpIntent: false,
+      cancelPendingStickToBottom: true,
       scheduleStickToBottom: false,
     });
   });
@@ -194,7 +237,7 @@ describe("resolveTimelinePrependScrollAnchor", () => {
     ).toEqual({ kind: "preserve-anchor", scrollTop: 780 });
   });
 
-  it("sticks to bottom when older timeline rows prepend while auto-scroll is active", () => {
+  it("preserves the viewport anchor when older timeline rows prepend while auto-scroll is active", () => {
     expect(
       resolveTimelinePrependScrollAnchor({
         previousThreadId: "thread-1",
@@ -210,7 +253,7 @@ describe("resolveTimelinePrependScrollAnchor", () => {
         previousScrollTop: 320,
         shouldAutoScroll: true,
       }),
-    ).toEqual({ kind: "stick-to-bottom" });
+    ).toEqual({ kind: "preserve-anchor", scrollTop: 780 });
   });
 
   it("does nothing when newer timeline rows are appended", () => {

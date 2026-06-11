@@ -6,7 +6,6 @@ import * as SqlSchema from "effect/unstable/sql/SqlSchema";
 import { toPersistenceSqlError } from "../Errors.ts";
 import {
   DeleteProjectionThreadTimelineSourceInput,
-  ListProjectionThreadTimelinePageInput,
   ProjectionThreadTimelineCompleteness,
   ProjectionThreadTimelineEntry,
   ProjectionThreadTimelineEntryRepository,
@@ -259,9 +258,9 @@ const makeProjectionThreadTimelineEntryRepository = Effect.gen(function* () {
   });
 
   const listProjectionThreadTimelineRows = SqlSchema.findAll({
-    Request: ListProjectionThreadTimelinePageInput,
+    Request: ThreadTimelineThreadInput,
     Result: ProjectionThreadTimelineEntryDbRowSchema,
-    execute: ({ threadId, startIndex, limit }) => sql`
+    execute: ({ threadId }) => sql`
       SELECT
         thread_id AS "threadId",
         timeline_index AS "timelineIndex",
@@ -273,8 +272,6 @@ const makeProjectionThreadTimelineEntryRepository = Effect.gen(function* () {
         updated_at AS "updatedAt"
       FROM projection_thread_timeline_entries
       WHERE thread_id = ${threadId}
-        AND timeline_index >= ${startIndex}
-        AND timeline_index < ${startIndex + limit}
       ORDER BY timeline_index ASC
     `,
   });
@@ -332,10 +329,10 @@ const makeProjectionThreadTimelineEntryRepository = Effect.gen(function* () {
         ),
       );
 
-  const listPage: ProjectionThreadTimelineEntryRepositoryShape["listPage"] = (input) =>
+  const listByThreadId: ProjectionThreadTimelineEntryRepositoryShape["listByThreadId"] = (input) =>
     listProjectionThreadTimelineRows(input).pipe(
       Effect.mapError(
-        toPersistenceSqlError("ProjectionThreadTimelineEntryRepository.listPage:query"),
+        toPersistenceSqlError("ProjectionThreadTimelineEntryRepository.listByThreadId:query"),
       ),
       Effect.map((rows) => rows.map(toProjectionThreadTimelineEntry)),
     );
@@ -347,7 +344,7 @@ const makeProjectionThreadTimelineEntryRepository = Effect.gen(function* () {
     rebuildThread,
     countByThreadId,
     getCompletenessByThreadId,
-    listPage,
+    listByThreadId,
   } satisfies ProjectionThreadTimelineEntryRepositoryShape;
 });
 

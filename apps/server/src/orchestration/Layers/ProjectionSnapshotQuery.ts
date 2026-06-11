@@ -1,15 +1,9 @@
 import {
   ChatAttachment,
-  EventId,
   IsoDateTime,
   MessageId,
   NonNegativeInt,
-  OrchestrationGetThreadTimelineManifestInput,
-  OrchestrationGetThreadTimelineManifestResult,
-  OrchestrationGetThreadTimelinePageInput,
-  OrchestrationGetThreadTimelinePageResult,
-  OrchestrationGetThreadTimelinePagesInput,
-  OrchestrationGetThreadTimelinePagesResult,
+  OrchestrationGetThreadTimelineRowsSnapshotInput,
   OrchestrationMessageRole,
   OrchestrationCheckpointFile,
   ProviderSessionRuntimeStatus,
@@ -20,6 +14,7 @@ import {
   ProjectScript,
   TurnId,
   type OrchestrationCheckpointSummary,
+  type OrchestrationGetThreadTimelineRowsSnapshotResult,
   type OrchestrationLatestTurn,
   type OrchestrationMessage,
   type OrchestrationProposedPlan,
@@ -27,7 +22,8 @@ import {
   type OrchestrationSession,
   OrchestrationThread,
   OrchestrationThreadTimelineEntryKind,
-  type OrchestrationThreadTimelineEntryReference,
+  type OrchestrationTimelineRow,
+  type OrchestrationTimelineRowSourceReference,
   type OrchestrationThreadActivity,
   ModelSelection,
   ProviderIntegrationCapabilities,
@@ -71,15 +67,6 @@ import {
 
 const decodeReadModel = Schema.decodeUnknownEffect(OrchestrationReadModel);
 const decodeThread = Schema.decodeUnknownEffect(OrchestrationThread);
-const decodeThreadTimelineManifest = Schema.decodeUnknownEffect(
-  OrchestrationGetThreadTimelineManifestResult,
-);
-const decodeThreadTimelinePage = Schema.decodeUnknownEffect(
-  OrchestrationGetThreadTimelinePageResult,
-);
-const decodeThreadTimelinePages = Schema.decodeUnknownEffect(
-  OrchestrationGetThreadTimelinePagesResult,
-);
 const ProjectionProjectDbRowSchema = ProjectionProject.mapFields(
   Struct.assign({
     defaultModelSelection: Schema.NullOr(Schema.fromJsonString(ModelSelection)),
@@ -117,7 +104,7 @@ const ProjectionThreadActivityDbRowSchema = ProjectionThreadActivity.mapFields(
     sequence: Schema.NullOr(NonNegativeInt),
   }),
 );
-const ProjectionThreadTimelinePageRowSchema = Schema.Struct({
+const ProjectionThreadTimelineSourceRowSchema = Schema.Struct({
   kind: OrchestrationThreadTimelineEntryKind,
   id: Schema.String,
   turnId: Schema.NullOr(TurnId),
@@ -140,12 +127,9 @@ const ProjectionThreadTimelinePageRowSchema = Schema.Struct({
   planImplementationThreadId: Schema.NullOr(ThreadId),
   planUpdatedAt: Schema.NullOr(IsoDateTime),
 });
-type ProjectionThreadTimelinePageRow = Schema.Schema.Type<
-  typeof ProjectionThreadTimelinePageRowSchema
+type ProjectionThreadTimelineSourceRow = Schema.Schema.Type<
+  typeof ProjectionThreadTimelineSourceRowSchema
 >;
-type MutableTimelineEntryReference = {
-  -readonly [Key in keyof OrchestrationThreadTimelineEntryReference]: OrchestrationThreadTimelineEntryReference[Key];
-};
 const ProjectionThreadSessionDbRowSchema = ProjectionThreadSession.mapFields(
   Struct.assign({
     capabilities: Schema.NullOr(Schema.fromJsonString(ProviderIntegrationCapabilities)),
@@ -162,10 +146,6 @@ const ProviderSessionRuntimeDbRowSchema = Schema.Struct({
   runtimePayload: Schema.NullOr(Schema.fromJsonString(Schema.Unknown)),
 });
 type ProviderSessionRuntimeDbRow = Schema.Schema.Type<typeof ProviderSessionRuntimeDbRowSchema>;
-
-const DEFAULT_THREAD_TIMELINE_PAGE_SIZE = 128;
-const MAX_THREAD_TIMELINE_PAGE_SIZE = 500;
-const MAX_THREAD_TIMELINE_BATCH_CONCURRENCY = 4;
 
 function toLatestProposedPlanSummary(
   proposedPlan: OrchestrationProposedPlan,
@@ -212,11 +192,16 @@ const ProjectionCountsRowSchema = Schema.Struct({
   projectCount: Schema.Number,
   threadCount: Schema.Number,
 });
-const ProjectionThreadTimelineManifestRowSchema = Schema.Struct({
+const ProjectionThreadTimelineSnapshotMetadataRowSchema = Schema.Struct({
   threadId: ThreadId,
   updatedAt: IsoDateTime,
   totalItems: NonNegativeInt,
 });
+interface ThreadTimelineSnapshotMetadata {
+  readonly threadId: ThreadId;
+  readonly updatedAt: string;
+  readonly totalItems: number;
+}
 const WorkspaceRootLookupInput = Schema.Struct({
   workspaceRoot: Schema.String,
 });
@@ -282,102 +267,165 @@ function toOrchestrationThreadActivity(
   };
 }
 
-function toTimelinePageMessage(
-  row: Schema.Schema.Type<typeof ProjectionThreadTimelinePageRowSchema>,
-): OrchestrationMessage | null {
-  if (row.kind !== "message" || row.messageRole === null || row.messageText === null) {
-    return null;
+function timelineRowUpdatedAt(row: ProjectionThreadTimelineSourceRow): string {
+  if (row.kind === "message") {
+    return row.messageUpdatedAt ?? row.createdAt;
   }
-  return {
-    id: MessageId.makeUnsafe(row.id),
-    role: row.messageRole,
-    text: row.messageText,
-    ...(row.messageAttachments !== null ? { attachments: row.messageAttachments } : {}),
-    turnId: row.turnId,
-    streaming: Boolean(row.messageIsStreaming),
-    ...(row.sequence !== null ? { sequence: row.sequence } : {}),
-    createdAt: row.createdAt,
-    updatedAt: row.messageUpdatedAt ?? row.createdAt,
-  };
+  if (row.kind === "proposed-plan") {
+    return row.planUpdatedAt ?? row.createdAt;
+  }
+  return row.threadUpdatedAt > row.createdAt ? row.threadUpdatedAt : row.createdAt;
 }
 
-function toTimelinePageActivity(
-  row: Schema.Schema.Type<typeof ProjectionThreadTimelinePageRowSchema>,
-): OrchestrationThreadActivity | null {
-  if (row.kind !== "activity") {
-    return null;
+function timelineRowKindForSource(
+  row: ProjectionThreadTimelineSourceRow,
+): OrchestrationTimelineRow["kind"] {
+  if (row.kind === "message") {
+    return "message";
   }
-  const tone =
-    row.activityTone === "tool" ||
-    row.activityTone === "approval" ||
-    row.activityTone === "error" ||
-    row.activityTone === "info"
-      ? row.activityTone
-      : "info";
-  const kind =
-    row.activityKind && row.activityKind.trim().length > 0 ? row.activityKind : "activity";
-  const summary =
-    row.activitySummary && row.activitySummary.trim().length > 0 ? row.activitySummary : "Activity";
-  return {
-    id: EventId.makeUnsafe(row.id),
-    tone,
-    kind,
-    summary,
-    payload: row.activityPayload ?? {},
-    turnId: row.turnId,
-    ...(row.sequence !== null ? { sequence: row.sequence } : {}),
-    createdAt: row.createdAt,
-  };
+  if (row.kind === "proposed-plan") {
+    return "proposed-plan";
+  }
+  return "work";
 }
 
-function toTimelinePageProposedPlan(
-  row: Schema.Schema.Type<typeof ProjectionThreadTimelinePageRowSchema>,
-): OrchestrationProposedPlan | null {
-  if (row.kind !== "proposed-plan" || row.planMarkdown === null || row.planUpdatedAt === null) {
-    return null;
+function timelineRowIdForSource(row: ProjectionThreadTimelineSourceRow): string {
+  if (row.kind === "proposed-plan") {
+    return `proposed-plan:${row.id}`;
   }
+  return `${row.kind}:${row.id}`;
+}
+
+function timelineRowContentVersion(row: ProjectionThreadTimelineSourceRow): string {
+  const updatedAt = timelineRowUpdatedAt(row);
+  const textLength =
+    row.kind === "message"
+      ? (row.messageText?.length ?? 0)
+      : row.kind === "activity"
+        ? (row.activitySummary?.length ?? 0) +
+          (typeof row.activityPayload === "string" ? row.activityPayload.length : 0)
+        : (row.planMarkdown?.length ?? 0);
+  return `v1:${row.kind}:${row.id}:${updatedAt}:${String(textLength)}`;
+}
+
+function toTimelineRowSourceReference(
+  row: ProjectionThreadTimelineSourceRow,
+): OrchestrationTimelineRowSourceReference {
   return {
+    kind: row.kind,
     id: row.id,
-    turnId: row.turnId,
-    planMarkdown: row.planMarkdown,
-    implementedAt: row.planImplementedAt,
-    implementationThreadId: row.planImplementationThreadId,
     createdAt: row.createdAt,
-    updatedAt: row.planUpdatedAt,
+    sourceIndex: row.timelineIndex,
+    ...(row.turnId !== null ? { turnId: row.turnId } : {}),
+    ...(row.sequence !== null ? { sequence: row.sequence } : {}),
   };
 }
 
-function collectTimelineContent(rows: ReadonlyArray<ProjectionThreadTimelinePageRow>): {
-  readonly messages: ReadonlyArray<OrchestrationMessage>;
-  readonly activities: ReadonlyArray<OrchestrationThreadActivity>;
-  readonly proposedPlans: ReadonlyArray<OrchestrationProposedPlan>;
-} {
-  const messages: OrchestrationMessage[] = [];
-  const activities: OrchestrationThreadActivity[] = [];
-  const proposedPlans: OrchestrationProposedPlan[] = [];
-
-  for (const row of rows) {
-    const message = toTimelinePageMessage(row);
-    if (message) {
-      messages.push(message);
-      continue;
-    }
-    const activity = toTimelinePageActivity(row);
-    if (activity) {
-      activities.push(activity);
-      continue;
-    }
-    const proposedPlan = toTimelinePageProposedPlan(row);
-    if (proposedPlan) {
-      proposedPlans.push(proposedPlan);
-    }
-  }
-
+function toTimelineRenderRow(row: ProjectionThreadTimelineSourceRow): OrchestrationTimelineRow {
+  const updatedAt = timelineRowUpdatedAt(row);
   return {
-    messages,
-    activities,
-    proposedPlans,
+    id: timelineRowIdForSource(row),
+    kind: timelineRowKindForSource(row),
+    createdAt: row.createdAt,
+    updatedAt,
+    contentVersion: timelineRowContentVersion(row),
+    startSourceIndex: row.timelineIndex,
+    endSourceIndexExclusive: row.timelineIndex + 1,
+    ...(row.turnId !== null ? { turnId: row.turnId } : {}),
+    sourceRefs: [toTimelineRowSourceReference(row)],
   };
+}
+
+function toTimelineRenderRowsFromSourceEntries(
+  entries: ReadonlyArray<{
+    readonly kind: OrchestrationThreadTimelineEntryKind;
+    readonly sourceId: string;
+    readonly turnId: TurnId | null;
+    readonly sequence?: number | undefined;
+    readonly createdAt: string;
+    readonly timelineIndex: number;
+  }>,
+  input: {
+    readonly messagesById: ReadonlyMap<string, OrchestrationMessage>;
+    readonly activitiesById: ReadonlyMap<string, OrchestrationThreadActivity>;
+    readonly proposedPlansById: ReadonlyMap<string, OrchestrationProposedPlan>;
+    readonly threadUpdatedAt: string;
+    readonly totalItems: number;
+  },
+): OrchestrationTimelineRow[] {
+  const rows: OrchestrationTimelineRow[] = [];
+  for (const entry of entries) {
+    const sourceRow = {
+      kind: entry.kind,
+      id: entry.sourceId,
+      turnId: entry.turnId ?? null,
+      sequence: entry.sequence ?? null,
+      createdAt: entry.createdAt,
+      timelineIndex: entry.timelineIndex,
+      totalItems: input.totalItems,
+      threadUpdatedAt: input.threadUpdatedAt,
+      messageRole: null,
+      messageText: null,
+      messageAttachments: null,
+      messageIsStreaming: null,
+      messageUpdatedAt: null,
+      activityTone: null,
+      activityKind: null,
+      activitySummary: null,
+      activityPayload: null,
+      planMarkdown: null,
+      planImplementedAt: null,
+      planImplementationThreadId: null,
+      planUpdatedAt: null,
+    } satisfies ProjectionThreadTimelineSourceRow;
+
+    if (entry.kind === "message") {
+      const message = input.messagesById.get(entry.sourceId);
+      rows.push(
+        toTimelineRenderRow({
+          ...sourceRow,
+          messageRole: message?.role ?? null,
+          messageText: message?.text ?? null,
+          messageAttachments: message?.attachments ?? null,
+          messageIsStreaming: message ? (message.streaming ? 1 : 0) : null,
+          messageUpdatedAt: message?.updatedAt ?? null,
+        }),
+      );
+      continue;
+    }
+    if (entry.kind === "activity") {
+      const activity = input.activitiesById.get(entry.sourceId);
+      rows.push(
+        toTimelineRenderRow({
+          ...sourceRow,
+          activityTone: activity?.tone ?? null,
+          activityKind: activity?.kind ?? null,
+          activitySummary: activity?.summary ?? null,
+          activityPayload: activity?.payload ?? null,
+        }),
+      );
+      continue;
+    }
+    const proposedPlan = input.proposedPlansById.get(entry.sourceId);
+    rows.push(
+      toTimelineRenderRow({
+        ...sourceRow,
+        planMarkdown: proposedPlan?.planMarkdown ?? null,
+        planImplementedAt: proposedPlan?.implementedAt ?? null,
+        planImplementationThreadId: proposedPlan?.implementationThreadId ?? null,
+        planUpdatedAt: proposedPlan?.updatedAt ?? null,
+      }),
+    );
+  }
+  return rows;
+}
+
+function timelineRowsRevision(input: {
+  readonly threadId: string;
+  readonly updatedAt: string;
+  readonly totalItems: number;
+}): string {
+  return `timeline-rows:v1:${input.threadId}:${input.updatedAt}:${String(input.totalItems)}`;
 }
 
 function toOrchestrationCheckpointSummary(
@@ -696,7 +744,11 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           updated_at AS "updatedAt"
         FROM projection_thread_messages
         WHERE thread_id = ${threadId}
-        ORDER BY created_at ASC, message_id ASC
+        ORDER BY
+          created_at ASC,
+          CASE WHEN sequence IS NULL THEN 1 ELSE 0 END ASC,
+          sequence ASC,
+          message_id ASC
       `,
   });
 
@@ -772,9 +824,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       `,
   });
 
-  const getThreadTimelineManifestRow = SqlSchema.findOneOption({
+  const getThreadTimelineSnapshotMetadataRow = SqlSchema.findOneOption({
     Request: ThreadIdLookupInput,
-    Result: ProjectionThreadTimelineManifestRowSchema,
+    Result: ProjectionThreadTimelineSnapshotMetadataRowSchema,
     execute: ({ threadId }) =>
       sql`
         SELECT
@@ -790,178 +842,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           AND thread.deleted_at IS NULL
         LIMIT 1
       `,
-  });
-
-  const listThreadTimelinePageRows = SqlSchema.findAll({
-    Request: OrchestrationGetThreadTimelinePageInput,
-    Result: ProjectionThreadTimelinePageRowSchema,
-    execute: (input) => {
-      const startIndex = Math.max(0, Math.trunc(input.startIndex));
-      const limit = Math.min(MAX_THREAD_TIMELINE_PAGE_SIZE, Math.max(1, Math.trunc(input.limit)));
-      if (input.anchor === "tail") {
-        return sql`
-          WITH thread_meta AS (
-            SELECT
-              thread.thread_id,
-              thread.updated_at AS thread_updated_at,
-              (
-                SELECT COALESCE(MAX(timeline_index) + 1, 0)
-                FROM projection_thread_timeline_entries
-                WHERE thread_id = thread.thread_id
-              ) AS total_items
-            FROM projection_threads AS thread
-            WHERE thread.thread_id = ${input.threadId}
-              AND thread.deleted_at IS NULL
-            LIMIT 1
-          ),
-          candidate_timeline AS (
-            SELECT
-              timeline.timeline_index,
-              timeline.kind,
-              timeline.source_id,
-              timeline.turn_id,
-              timeline.sequence,
-              timeline.created_at,
-              thread_meta.total_items,
-              thread_meta.thread_updated_at
-            FROM projection_thread_timeline_entries AS timeline
-            CROSS JOIN thread_meta
-            WHERE timeline.thread_id = ${input.threadId}
-            ORDER BY timeline.timeline_index DESC
-            LIMIT ${limit}
-          ),
-          selected_timeline AS (
-            SELECT
-              timeline_index,
-              kind,
-              source_id,
-              turn_id,
-              sequence,
-              created_at,
-              total_items,
-              thread_updated_at
-            FROM candidate_timeline
-            ORDER BY timeline_index ASC
-          )
-          SELECT
-            selected_timeline.kind,
-            selected_timeline.source_id AS id,
-            selected_timeline.turn_id AS "turnId",
-            selected_timeline.sequence,
-            selected_timeline.created_at AS "createdAt",
-            selected_timeline.timeline_index AS "timelineIndex",
-            selected_timeline.total_items AS "totalItems",
-            selected_timeline.thread_updated_at AS "threadUpdatedAt",
-            message.role AS "messageRole",
-            message.text AS "messageText",
-            message.attachments_json AS "messageAttachments",
-            message.is_streaming AS "messageIsStreaming",
-            message.updated_at AS "messageUpdatedAt",
-            activity.tone AS "activityTone",
-            activity.kind AS "activityKind",
-            activity.summary AS "activitySummary",
-            activity.payload_json AS "activityPayload",
-            proposed_plan.plan_markdown AS "planMarkdown",
-            proposed_plan.implemented_at AS "planImplementedAt",
-            proposed_plan.implementation_thread_id AS "planImplementationThreadId",
-            proposed_plan.updated_at AS "planUpdatedAt"
-          FROM selected_timeline
-          LEFT JOIN projection_thread_messages AS message
-            ON selected_timeline.kind = 'message'
-            AND message.thread_id = ${input.threadId}
-            AND message.message_id = selected_timeline.source_id
-          LEFT JOIN projection_thread_activities AS activity
-            ON selected_timeline.kind = 'activity'
-            AND activity.thread_id = ${input.threadId}
-            AND activity.activity_id = selected_timeline.source_id
-          LEFT JOIN projection_thread_proposed_plans AS proposed_plan
-            ON selected_timeline.kind = 'proposed-plan'
-            AND proposed_plan.thread_id = ${input.threadId}
-            AND proposed_plan.plan_id = selected_timeline.source_id
-          WHERE (
-              message.message_id IS NOT NULL
-              OR activity.activity_id IS NOT NULL
-              OR proposed_plan.plan_id IS NOT NULL
-            )
-          ORDER BY selected_timeline.timeline_index ASC
-        `;
-      }
-      return sql`
-        WITH thread_meta AS (
-          SELECT
-            thread.thread_id,
-            thread.updated_at AS thread_updated_at,
-            (
-              SELECT COALESCE(MAX(timeline_index) + 1, 0)
-              FROM projection_thread_timeline_entries
-              WHERE thread_id = thread.thread_id
-            ) AS total_items
-          FROM projection_threads AS thread
-          WHERE thread.thread_id = ${input.threadId}
-            AND thread.deleted_at IS NULL
-          LIMIT 1
-        ),
-        selected_timeline AS (
-          SELECT
-            timeline.timeline_index,
-            timeline.kind,
-            timeline.source_id,
-            timeline.turn_id,
-            timeline.sequence,
-            timeline.created_at,
-            thread_meta.total_items,
-            thread_meta.thread_updated_at
-          FROM projection_thread_timeline_entries
-            AS timeline
-          CROSS JOIN thread_meta
-          WHERE timeline.thread_id = ${input.threadId}
-            AND timeline.timeline_index >= ${startIndex}
-          ORDER BY timeline.timeline_index ASC
-          LIMIT ${limit}
-        )
-        SELECT
-          selected_timeline.kind,
-          selected_timeline.source_id AS id,
-          selected_timeline.turn_id AS "turnId",
-          selected_timeline.sequence,
-          selected_timeline.created_at AS "createdAt",
-          selected_timeline.timeline_index AS "timelineIndex",
-          selected_timeline.total_items AS "totalItems",
-          selected_timeline.thread_updated_at AS "threadUpdatedAt",
-          message.role AS "messageRole",
-          message.text AS "messageText",
-          message.attachments_json AS "messageAttachments",
-          message.is_streaming AS "messageIsStreaming",
-          message.updated_at AS "messageUpdatedAt",
-          activity.tone AS "activityTone",
-          activity.kind AS "activityKind",
-          activity.summary AS "activitySummary",
-          activity.payload_json AS "activityPayload",
-          proposed_plan.plan_markdown AS "planMarkdown",
-          proposed_plan.implemented_at AS "planImplementedAt",
-          proposed_plan.implementation_thread_id AS "planImplementationThreadId",
-          proposed_plan.updated_at AS "planUpdatedAt"
-        FROM selected_timeline
-        LEFT JOIN projection_thread_messages AS message
-          ON selected_timeline.kind = 'message'
-          AND message.thread_id = ${input.threadId}
-          AND message.message_id = selected_timeline.source_id
-        LEFT JOIN projection_thread_activities AS activity
-          ON selected_timeline.kind = 'activity'
-          AND activity.thread_id = ${input.threadId}
-          AND activity.activity_id = selected_timeline.source_id
-        LEFT JOIN projection_thread_proposed_plans AS proposed_plan
-          ON selected_timeline.kind = 'proposed-plan'
-          AND proposed_plan.thread_id = ${input.threadId}
-          AND proposed_plan.plan_id = selected_timeline.source_id
-        WHERE (
-            message.message_id IS NOT NULL
-            OR activity.activity_id IS NOT NULL
-            OR proposed_plan.plan_id IS NOT NULL
-          )
-        ORDER BY selected_timeline.timeline_index ASC
-      `;
-    },
   });
 
   const listThreadSessionRows = SqlSchema.findAll({
@@ -1599,179 +1479,106 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     yield* projectionThreadTimelineEntryRepository.rebuildThread({ threadId });
   });
 
-  const readThreadTimelineManifestAfterEntriesCurrent = (
-    input: OrchestrationGetThreadTimelineManifestInput,
-  ) =>
+  const readThreadTimelineSnapshotMetadataAfterEntriesCurrent = (threadId: ThreadId) =>
     Effect.gen(function* () {
-      const row = yield* getThreadTimelineManifestRow({ threadId: input.threadId }).pipe(
+      const row = yield* getThreadTimelineSnapshotMetadataRow({ threadId }).pipe(
         Effect.mapError(
           toPersistenceSqlOrDecodeError(
-            "ProjectionSnapshotQuery.getThreadTimelineManifest:query",
-            "ProjectionSnapshotQuery.getThreadTimelineManifest:decodeRow",
+            "ProjectionSnapshotQuery.getThreadTimelineRowsSnapshot:metadataQuery",
+            "ProjectionSnapshotQuery.getThreadTimelineRowsSnapshot:metadataDecodeRow",
           ),
         ),
       );
       if (Option.isNone(row)) {
-        return Option.none<OrchestrationGetThreadTimelineManifestResult>();
+        return Option.none<ThreadTimelineSnapshotMetadata>();
       }
-      const manifest = {
-        threadId: input.threadId,
+      return Option.some({
+        threadId,
         updatedAt: row.value.updatedAt,
         totalItems: row.value.totalItems,
-        tailStartIndex: Math.max(0, row.value.totalItems - DEFAULT_THREAD_TIMELINE_PAGE_SIZE),
-      };
-      const decodedManifest = yield* decodeThreadTimelineManifest(manifest).pipe(
-        Effect.mapError(
-          toPersistenceDecodeError(
-            "ProjectionSnapshotQuery.getThreadTimelineManifest:decodeManifest",
-          ),
-        ),
-      );
-      return Option.some(decodedManifest);
-    });
-
-  const getThreadTimelineManifest: ProjectionSnapshotQueryShape["getThreadTimelineManifest"] = (
-    input: OrchestrationGetThreadTimelineManifestInput,
-  ) =>
-    Effect.gen(function* () {
-      yield* ensureThreadTimelineEntriesCurrent(input.threadId);
-      return yield* readThreadTimelineManifestAfterEntriesCurrent(input);
-    });
-
-  const readThreadTimelinePageAfterEntriesCurrent = (
-    input: OrchestrationGetThreadTimelinePageInput,
-    manifestValue: OrchestrationGetThreadTimelineManifestResult,
-  ) =>
-    Effect.gen(function* () {
-      const limit = Math.min(MAX_THREAD_TIMELINE_PAGE_SIZE, Math.max(1, Math.trunc(input.limit)));
-      const isTailPageRequest = input.anchor === "tail";
-      const requestedStartIndex = Math.max(0, Math.trunc(input.startIndex));
-      const startIndex = isTailPageRequest
-        ? 0
-        : requestedStartIndex >= manifestValue.totalItems && manifestValue.totalItems > 0
-          ? Math.max(0, manifestValue.totalItems - limit)
-          : Math.min(requestedStartIndex, manifestValue.totalItems);
-      const rows = yield* listThreadTimelinePageRows({
-        threadId: input.threadId,
-        startIndex,
-        limit,
-        ...(isTailPageRequest ? { anchor: "tail" as const } : {}),
-      }).pipe(
-        Effect.mapError(
-          toPersistenceSqlOrDecodeError(
-            "ProjectionSnapshotQuery.getThreadTimelinePage:query",
-            "ProjectionSnapshotQuery.getThreadTimelinePage:decodeRows",
-          ),
-        ),
-      );
-      if (isTailPageRequest && rows.length === 0) {
-        const emptyPage = {
-          threadId: input.threadId,
-          updatedAt: manifestValue.updatedAt,
-          totalItems: manifestValue.totalItems,
-          startIndex: 0,
-          endIndexExclusive: 0,
-          hasPrevious: false,
-          hasNext: false,
-          entries: [],
-          messages: [],
-          activities: [],
-          proposedPlans: [],
-        };
-        const decodedEmptyPage = yield* decodeThreadTimelinePage(emptyPage).pipe(
-          Effect.mapError(
-            toPersistenceDecodeError("ProjectionSnapshotQuery.getThreadTimelinePage:decodePage"),
-          ),
-        );
-        return decodedEmptyPage;
-      }
-      const content = collectTimelineContent(rows);
-      const entries: OrchestrationThreadTimelineEntryReference[] = rows.map((row) => {
-        const entry: MutableTimelineEntryReference = {
-          kind: row.kind,
-          id: row.id,
-          createdAt: row.createdAt,
-          index: row.timelineIndex,
-        };
-        if (row.turnId !== null) {
-          entry.turnId = row.turnId;
-        }
-        if (row.sequence !== null) {
-          entry.sequence = row.sequence;
-        }
-        return entry;
       });
-      const firstEntryIndex = entries[0]?.index ?? startIndex;
-      const lastEntryIndex = entries.at(-1)?.index ?? firstEntryIndex - 1;
-      const totalItems = manifestValue.totalItems;
-      const updatedAt = manifestValue.updatedAt;
-      const pageStartIndex = Math.max(0, firstEntryIndex);
-      const pageEndIndexExclusive =
-        entries.length === 0
-          ? Math.min(totalItems, startIndex)
-          : Math.min(totalItems, lastEntryIndex + 1);
-      const page = {
-        threadId: input.threadId,
-        updatedAt,
-        totalItems,
-        startIndex: pageStartIndex,
-        endIndexExclusive: pageEndIndexExclusive,
-        hasPrevious: pageStartIndex > 0,
-        hasNext: pageEndIndexExclusive < totalItems,
-        entries,
-        messages: content.messages,
-        activities: content.activities,
-        proposedPlans: content.proposedPlans,
-      };
-      const decodedPage = yield* decodeThreadTimelinePage(page).pipe(
-        Effect.mapError(
-          toPersistenceDecodeError("ProjectionSnapshotQuery.getThreadTimelinePage:decodePage"),
-        ),
-      );
-      return decodedPage;
     });
 
-  const getThreadTimelinePage: ProjectionSnapshotQueryShape["getThreadTimelinePage"] = (input) =>
-    Effect.gen(function* () {
-      yield* ensureThreadTimelineEntriesCurrent(input.threadId);
-      const manifest = yield* readThreadTimelineManifestAfterEntriesCurrent(input);
-      if (Option.isNone(manifest)) {
-        return Option.none<OrchestrationGetThreadTimelinePageResult>();
-      }
-      const page = yield* readThreadTimelinePageAfterEntriesCurrent(input, manifest.value);
-      return Option.some(page);
-    });
-
-  const getThreadTimelinePages: ProjectionSnapshotQueryShape["getThreadTimelinePages"] = (
-    input: OrchestrationGetThreadTimelinePagesInput,
-  ) =>
-    Effect.gen(function* () {
-      yield* ensureThreadTimelineEntriesCurrent(input.threadId);
-      const manifest = yield* readThreadTimelineManifestAfterEntriesCurrent(input);
-      if (Option.isNone(manifest)) {
-        return Option.none<OrchestrationGetThreadTimelinePagesResult>();
-      }
-      const pages = yield* Effect.all(
-        input.pages.map((pageInput) =>
-          readThreadTimelinePageAfterEntriesCurrent(
-            {
-              threadId: input.threadId,
-              startIndex: pageInput.startIndex,
-              limit: pageInput.limit,
-              ...(pageInput.anchor !== undefined ? { anchor: pageInput.anchor } : {}),
-            },
-            manifest.value,
-          ),
-        ),
-        { concurrency: MAX_THREAD_TIMELINE_BATCH_CONCURRENCY },
-      );
-      const decodedPages = yield* decodeThreadTimelinePages(pages).pipe(
-        Effect.mapError(
-          toPersistenceDecodeError("ProjectionSnapshotQuery.getThreadTimelinePages:decodePages"),
-        ),
-      );
-      return Option.some(decodedPages);
-    });
+  const getThreadTimelineRowsSnapshot: ProjectionSnapshotQueryShape["getThreadTimelineRowsSnapshot"] =
+    (input: OrchestrationGetThreadTimelineRowsSnapshotInput) =>
+      Effect.gen(function* () {
+        yield* ensureThreadTimelineEntriesCurrent(input.threadId);
+        const [metadata, sourceEntries, messageRows, activityRows, proposedPlanRows] =
+          yield* Effect.all(
+            [
+              readThreadTimelineSnapshotMetadataAfterEntriesCurrent(input.threadId),
+              projectionThreadTimelineEntryRepository.listByThreadId({
+                threadId: input.threadId,
+              }),
+              listThreadMessageRowsByThread({ threadId: input.threadId }).pipe(
+                Effect.mapError(
+                  toPersistenceSqlOrDecodeError(
+                    "ProjectionSnapshotQuery.getThreadTimelineRowsSnapshot:listMessages:query",
+                    "ProjectionSnapshotQuery.getThreadTimelineRowsSnapshot:listMessages:decodeRows",
+                  ),
+                ),
+              ),
+              listThreadActivityRowsByThread({ threadId: input.threadId }).pipe(
+                Effect.mapError(
+                  toPersistenceSqlOrDecodeError(
+                    "ProjectionSnapshotQuery.getThreadTimelineRowsSnapshot:listActivities:query",
+                    "ProjectionSnapshotQuery.getThreadTimelineRowsSnapshot:listActivities:decodeRows",
+                  ),
+                ),
+              ),
+              listThreadProposedPlanRowsByThread({ threadId: input.threadId }).pipe(
+                Effect.mapError(
+                  toPersistenceSqlOrDecodeError(
+                    "ProjectionSnapshotQuery.getThreadTimelineRowsSnapshot:listProposedPlans:query",
+                    "ProjectionSnapshotQuery.getThreadTimelineRowsSnapshot:listProposedPlans:decodeRows",
+                  ),
+                ),
+              ),
+            ] as const,
+            { concurrency: 5 },
+          );
+        if (Option.isNone(metadata)) {
+          return Option.none<OrchestrationGetThreadTimelineRowsSnapshotResult>();
+        }
+        const metadataValue = metadata.value;
+        const messages = messageRows.map(toOrchestrationMessage);
+        const activities = activityRows.map(toOrchestrationThreadActivity);
+        const proposedPlans = proposedPlanRows.map(toOrchestrationProposedPlan);
+        const messagesById = new Map<string, OrchestrationMessage>();
+        for (const message of messages) {
+          messagesById.set(String(message.id), message);
+        }
+        const activitiesById = new Map<string, OrchestrationThreadActivity>();
+        for (const activity of activities) {
+          activitiesById.set(String(activity.id), activity);
+        }
+        const proposedPlansById = new Map<string, OrchestrationProposedPlan>();
+        for (const proposedPlan of proposedPlans) {
+          proposedPlansById.set(String(proposedPlan.id), proposedPlan);
+        }
+        const rows = toTimelineRenderRowsFromSourceEntries(sourceEntries, {
+          messagesById,
+          activitiesById,
+          proposedPlansById,
+          threadUpdatedAt: metadataValue.updatedAt,
+          totalItems: metadataValue.totalItems,
+        });
+        const snapshot = {
+          threadId: input.threadId,
+          revision: timelineRowsRevision({
+            threadId: input.threadId,
+            updatedAt: metadataValue.updatedAt,
+            totalItems: metadataValue.totalItems,
+          }),
+          updatedAt: metadataValue.updatedAt,
+          totalRows: metadataValue.totalItems,
+          rows,
+          messages,
+          activities,
+          proposedPlans,
+        } satisfies OrchestrationGetThreadTimelineRowsSnapshotResult;
+        return Option.some(snapshot);
+      });
 
   const getCounts: ProjectionSnapshotQueryShape["getCounts"] = () =>
     readProjectionCounts(undefined).pipe(
@@ -1863,9 +1670,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
   return {
     getSnapshot,
     getThread,
-    getThreadTimelinePage,
-    getThreadTimelinePages,
-    getThreadTimelineManifest,
+    getThreadTimelineRowsSnapshot,
     getCounts,
     getActiveProjectByWorkspaceRoot,
     getFirstActiveThreadIdByProjectId,

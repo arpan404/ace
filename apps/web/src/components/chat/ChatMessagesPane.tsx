@@ -1,5 +1,5 @@
 import { ChevronDownIcon } from "lucide-react";
-import { memo, type ComponentProps, type ReactNode, type Ref } from "react";
+import { memo, type ComponentProps, type Ref } from "react";
 import { cn } from "~/lib/utils";
 import { APP_FLOATING_CHIP_CLASS_NAME } from "~/lib/appChrome";
 import { Button } from "~/components/ui/button";
@@ -10,7 +10,6 @@ import { MessagesTimeline } from "./MessagesTimeline";
 type MessagesContainerProps = ComponentProps<"div">;
 
 export const ChatMessagesPane = memo(function ChatMessagesPane({
-  loadingNotice,
   messagesContainerRef,
   messagesTimelineProps,
   onMessagesClickCapture,
@@ -26,7 +25,6 @@ export const ChatMessagesPane = memo(function ChatMessagesPane({
   showScrollToBottom,
   timelineKey,
 }: {
-  loadingNotice?: ReactNode;
   messagesContainerRef: Ref<HTMLDivElement>;
   messagesTimelineProps: ComponentProps<typeof MessagesTimeline>;
   onMessagesClickCapture: MessagesContainerProps["onClickCapture"];
@@ -61,7 +59,6 @@ export const ChatMessagesPane = memo(function ChatMessagesPane({
           onTouchCancel: onMessagesTouchEnd,
         }}
       >
-        {loadingNotice}
         <MessagesTimeline key={timelineKey} {...messagesTimelineProps} />
       </ScrollArea>
 

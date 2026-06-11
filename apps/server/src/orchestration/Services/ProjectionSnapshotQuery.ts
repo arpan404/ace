@@ -8,12 +8,8 @@
  */
 import type {
   OrchestrationCheckpointSummary,
-  OrchestrationGetThreadTimelineManifestInput,
-  OrchestrationGetThreadTimelineManifestResult,
-  OrchestrationGetThreadTimelinePageInput,
-  OrchestrationGetThreadTimelinePageResult,
-  OrchestrationGetThreadTimelinePagesInput,
-  OrchestrationGetThreadTimelinePagesResult,
+  OrchestrationGetThreadTimelineRowsSnapshotInput,
+  OrchestrationGetThreadTimelineRowsSnapshotResult,
   OrchestrationGetSnapshotInput,
   OrchestrationProject,
   OrchestrationReadModel,
@@ -62,32 +58,12 @@ export interface ProjectionSnapshotQueryShape {
   ) => Effect.Effect<Option.Option<OrchestrationThread>, ProjectionRepositoryError>;
 
   /**
-   * Read a sparse timeline page for a thread without hydrating the full thread history.
+   * Read the complete server-rendered row timeline for one thread in a single request.
    */
-  readonly getThreadTimelinePage: (
-    input: OrchestrationGetThreadTimelinePageInput,
+  readonly getThreadTimelineRowsSnapshot: (
+    input: OrchestrationGetThreadTimelineRowsSnapshotInput,
   ) => Effect.Effect<
-    Option.Option<OrchestrationGetThreadTimelinePageResult>,
-    ProjectionRepositoryError
-  >;
-
-  /**
-   * Read several sparse timeline pages for one thread in one backend request.
-   */
-  readonly getThreadTimelinePages: (
-    input: OrchestrationGetThreadTimelinePagesInput,
-  ) => Effect.Effect<
-    Option.Option<OrchestrationGetThreadTimelinePagesResult>,
-    ProjectionRepositoryError
-  >;
-
-  /**
-   * Read the timeline manifest needed to virtualize a thread without fetching rows.
-   */
-  readonly getThreadTimelineManifest: (
-    input: OrchestrationGetThreadTimelineManifestInput,
-  ) => Effect.Effect<
-    Option.Option<OrchestrationGetThreadTimelineManifestResult>,
+    Option.Option<OrchestrationGetThreadTimelineRowsSnapshotResult>,
     ProjectionRepositoryError
   >;
 

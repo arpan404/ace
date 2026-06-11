@@ -1,20 +1,8 @@
-import {
-  deriveActiveWorkStartedAt,
-  deriveCompletionDividerBeforeEntryId,
-  formatElapsed,
-  hasLiveTurn,
-  isLatestTurnSettled,
-} from "../../session-logic";
+import { formatElapsed, isLatestTurnSettled } from "../../session-logic";
 import type { TimelineEntry, WorkLogEntry } from "../../session-logic/types";
 import type { ChatMessage, ProposedPlan, Thread, TurnDiffSummary } from "../../types";
 import { fnv1a32 } from "../diffRendering";
 import { getChatMessageFullText } from "./messageText";
-import {
-  deriveThreadActivityRenderState,
-  deriveThreadTimelineRenderState,
-  type ThreadActivityVisibilitySettings,
-} from "./threadRenderState";
-import type { BuildTimelineRowsInput } from "./timelineRows";
 
 type TimelineCacheThread = Pick<
   Thread,
@@ -28,17 +16,6 @@ interface ThreadTimelineCacheScopeInput {
   readonly timelineProposedPlans: ReadonlyArray<ProposedPlan>;
   readonly timelineWorkEntries: ReadonlyArray<WorkLogEntry>;
   readonly turnDiffSummaries: ReadonlyArray<TurnDiffSummary>;
-}
-
-interface ThreadTimelineRowsInputOptions {
-  readonly enableGoalWorkingState: boolean;
-  readonly hideCompletedWorkMessages: boolean;
-  readonly visibility: ThreadActivityVisibilitySettings;
-}
-
-interface ThreadTimelineRowsInputResult {
-  readonly input: BuildTimelineRowsInput;
-  readonly timelineEntries: ReadonlyArray<TimelineEntry>;
 }
 
 const CONTENT_TOKEN_SAMPLE_CHARS = 512;
@@ -150,47 +127,4 @@ export function deriveThreadCompletionSummary(
 
   const elapsed = formatElapsed(latestTurn.startedAt, latestTurn.completedAt);
   return elapsed ? `Worked for ${elapsed}` : null;
-}
-
-export function buildThreadTimelineRowsInput(
-  thread: Thread,
-  options: ThreadTimelineRowsInputOptions,
-): ThreadTimelineRowsInputResult {
-  const activityState = deriveThreadActivityRenderState(thread.activities, options.visibility);
-  const timelineState = deriveThreadTimelineRenderState({
-    messages: thread.messages,
-    proposedPlans: thread.proposedPlans,
-    workLogEntries: activityState.workLogEntries,
-    turnDiffSummaries: thread.turnDiffSummaries,
-  });
-  const latestTurnSettled = isLatestTurnSettled(thread.latestTurn, thread.session);
-  const isWorking = hasLiveTurn(thread.latestTurn, thread.session);
-  const completionSummary = deriveThreadCompletionSummary(thread.latestTurn, latestTurnSettled);
-  const completionDividerBeforeEntryId =
-    latestTurnSettled && completionSummary
-      ? deriveCompletionDividerBeforeEntryId(timelineState.timelineEntries, thread.latestTurn)
-      : null;
-  const cacheScopeKey = buildThreadTimelineCacheScope({
-    thread,
-    timelineEntries: timelineState.timelineEntries,
-    timelineMessages: thread.messages,
-    timelineProposedPlans: thread.proposedPlans,
-    timelineWorkEntries: activityState.workLogEntries,
-    turnDiffSummaries: thread.turnDiffSummaries,
-  });
-
-  return {
-    input: {
-      timelineEntries: timelineState.timelineEntries,
-      activeTurnInProgress: isWorking || !latestTurnSettled,
-      activeTurnStartedAt: deriveActiveWorkStartedAt(thread.latestTurn, thread.session, null),
-      ...(cacheScopeKey ? { cacheScopeKey } : {}),
-      completionDividerBeforeEntryId,
-      completionSummary,
-      hideCompletedWorkMessages: options.hideCompletedWorkMessages,
-      isWorking,
-      enableGoalWorkingState: options.enableGoalWorkingState,
-    },
-    timelineEntries: timelineState.timelineEntries,
-  };
 }

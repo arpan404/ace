@@ -162,14 +162,8 @@ export interface WsRpcClient {
       input?: Parameters<NativeApi["orchestration"]["getSnapshot"]>[0],
     ) => ReturnType<NativeApi["orchestration"]["getSnapshot"]>;
     readonly getThread: RpcUnaryMethod<typeof ORCHESTRATION_WS_METHODS.getThread>;
-    readonly getThreadTimelinePage: RpcUnaryMethod<
-      typeof ORCHESTRATION_WS_METHODS.getThreadTimelinePage
-    >;
-    readonly getThreadTimelinePages: RpcUnaryMethod<
-      typeof ORCHESTRATION_WS_METHODS.getThreadTimelinePages
-    >;
-    readonly getThreadTimelineManifest: RpcUnaryMethod<
-      typeof ORCHESTRATION_WS_METHODS.getThreadTimelineManifest
+    readonly getThreadTimelineRowsSnapshot: RpcUnaryMethod<
+      typeof ORCHESTRATION_WS_METHODS.getThreadTimelineRowsSnapshot
     >;
     readonly dispatchCommand: RpcUnaryMethod<typeof ORCHESTRATION_WS_METHODS.dispatchCommand>;
     readonly getTurnDiff: RpcUnaryMethod<typeof ORCHESTRATION_WS_METHODS.getTurnDiff>;
@@ -366,17 +360,9 @@ export function createWsRpcClient(transport: RpcTransportLike = new WsTransport(
         transport.request((client) => client[ORCHESTRATION_WS_METHODS.getSnapshot](input ?? {})),
       getThread: (input) =>
         transport.request((client) => client[ORCHESTRATION_WS_METHODS.getThread](input)),
-      getThreadTimelinePage: (input) =>
+      getThreadTimelineRowsSnapshot: (input) =>
         transport.request((client) =>
-          client[ORCHESTRATION_WS_METHODS.getThreadTimelinePage](input),
-        ),
-      getThreadTimelinePages: (input) =>
-        transport.request((client) =>
-          client[ORCHESTRATION_WS_METHODS.getThreadTimelinePages](input),
-        ),
-      getThreadTimelineManifest: (input) =>
-        transport.request((client) =>
-          client[ORCHESTRATION_WS_METHODS.getThreadTimelineManifest](input),
+          client[ORCHESTRATION_WS_METHODS.getThreadTimelineRowsSnapshot](input),
         ),
       dispatchCommand: (input) =>
         transport.request((client) => client[ORCHESTRATION_WS_METHODS.dispatchCommand](input)),

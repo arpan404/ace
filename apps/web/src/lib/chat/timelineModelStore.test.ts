@@ -1,0 +1,523 @@
+import { MessageId, ThreadId, TurnId, type OrchestrationReadModel } from "@ace/contracts";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+const nativeApiMock = vi.hoisted(() => ({
+  getThreadTimelineRowsSnapshot: vi.fn(),
+}));
+
+vi.mock("../../nativeApi", () => ({
+  ensureNativeApi: () => ({
+    orchestration: nativeApiMock,
+  }),
+}));
+
+import {
+  fetchThreadTimelineRowsSnapshot,
+  isThreadTimelineRowsFullyHydrated,
+  readTimelineRow,
+  readTimelineRowsProjection,
+  readTimelineRowsWindowProjection,
+  primeThreadTimelineRowsMetadataFromReadModelThreads,
+  useTimelineModelStore,
+} from "./timelineModelStore";
+
+const threadId = ThreadId.makeUnsafe("thread-row-store");
+const otherThreadId = ThreadId.makeUnsafe("thread-row-store-other");
+const turnId = TurnId.makeUnsafe("turn-row-store");
+const messageId = MessageId.makeUnsafe("message-row-store");
+const otherMessageId = MessageId.makeUnsafe("message-row-store-other");
+
+function readModelThreadForMetadata(input: {
+  readonly id: ThreadId;
+  readonly updatedAt: string;
+  readonly messageCount?: number;
+}): OrchestrationReadModel["threads"][number] {
+  return {
+    id: input.id,
+    updatedAt: input.updatedAt,
+    messages: Array.from({ length: input.messageCount ?? 0 }, (_, index) => ({
+      id: MessageId.makeUnsafe(`metadata-message-${input.id}-${String(index)}`),
+      role: "assistant" as const,
+      text: `Message ${String(index)}`,
+      turnId: null,
+      streaming: false,
+      sequence: index,
+      createdAt: input.updatedAt,
+      updatedAt: input.updatedAt,
+    })),
+    activities: [],
+    proposedPlans: [],
+  } as unknown as OrchestrationReadModel["threads"][number];
+}
+
+afterEach(() => {
+  useTimelineModelStore.getState().reset();
+  nativeApiMock.getThreadTimelineRowsSnapshot.mockReset();
+});
+
+describe("timelineModelStore", () => {
+  it("batches read-model thread metadata priming into one store write", () => {
+    const initialRevision = useTimelineModelStore.getState().revision;
+    primeThreadTimelineRowsMetadataFromReadModelThreads([
+      readModelThreadForMetadata({
+        id: threadId,
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        messageCount: 2,
+      }),
+      readModelThreadForMetadata({
+        id: otherThreadId,
+        updatedAt: "2026-01-01T00:00:01.000Z",
+        messageCount: 1,
+      }),
+    ]);
+
+    const stateAfterBatch = useTimelineModelStore.getState();
+    expect(stateAfterBatch.revision).toBe(initialRevision + 1);
+    expect(stateAfterBatch.metadataByThreadId[threadId]?.totalRows).toBe(2);
+    expect(stateAfterBatch.metadataByThreadId[otherThreadId]?.totalRows).toBe(1);
+
+    primeThreadTimelineRowsMetadataFromReadModelThreads([
+      readModelThreadForMetadata({
+        id: threadId,
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        messageCount: 2,
+      }),
+      readModelThreadForMetadata({
+        id: otherThreadId,
+        updatedAt: "2026-01-01T00:00:01.000Z",
+        messageCount: 1,
+      }),
+    ]);
+
+    expect(useTimelineModelStore.getState().revision).toBe(stateAfterBatch.revision);
+  });
+
+  it("primes local snapshot metadata without deriving timeline rows", () => {
+    useTimelineModelStore.getState().primeMetadata({
+      threadId,
+      revision: "rev:1",
+      updatedAt: "2026-01-01T00:00:02.000Z",
+      totalRows: 10_000,
+      tailStartRowIndex: 9_900,
+    });
+
+    const state = useTimelineModelStore.getState();
+    expect(state.metadataByThreadId[threadId]?.totalRows).toBe(10_000);
+    expect(state.rowIdsByThreadId[threadId]).toBeUndefined();
+    expect(readTimelineRowsProjection(threadId).messages).toEqual([]);
+    expect(nativeApiMock.getThreadTimelineRowsSnapshot).not.toHaveBeenCalled();
+  });
+
+  it("patches a single streaming row in place by row id", () => {
+    vi.useFakeTimers();
+    useTimelineModelStore.getState().patchRow(threadId, {
+      id: "message:message-row-store",
+      kind: "message",
+      createdAt: "2026-01-01T00:00:01.000Z",
+      updatedAt: "2026-01-01T00:00:02.000Z",
+      contentVersion: "chunk:1",
+      startSourceIndex: 0,
+      endSourceIndexExclusive: 1,
+      turnId,
+      sourceRefs: [
+        {
+          kind: "message",
+          id: "message-row-store",
+          createdAt: "2026-01-01T00:00:01.000Z",
+          sourceIndex: 0,
+          turnId,
+          sequence: 1,
+        },
+      ],
+    });
+    useTimelineModelStore.getState().patchRow(threadId, {
+      id: "message:message-row-store",
+      kind: "message",
+      createdAt: "2026-01-01T00:00:01.000Z",
+      updatedAt: "2026-01-01T00:00:03.000Z",
+      contentVersion: "chunk:2",
+      startSourceIndex: 0,
+      endSourceIndexExclusive: 1,
+      turnId,
+      sourceRefs: [
+        {
+          kind: "message",
+          id: "message-row-store",
+          createdAt: "2026-01-01T00:00:01.000Z",
+          sourceIndex: 0,
+          turnId,
+          sequence: 1,
+        },
+      ],
+    });
+
+    expect(useTimelineModelStore.getState().rowIdsByThreadId[threadId]).toEqual([
+      "message:message-row-store",
+    ]);
+    expect(readTimelineRow(threadId, "message:message-row-store")?.contentVersion).toBe("chunk:2");
+  });
+
+  it("coalesces live streaming row patches per frame", async () => {
+    vi.useFakeTimers();
+    const { primeLiveTimelineRow } = await import("./timelineModelStore");
+
+    primeLiveTimelineRow({
+      threadId,
+      updatedAt: "2026-01-01T00:00:02.000Z",
+      entry: {
+        kind: "message",
+        id: messageId,
+        createdAt: "2026-01-01T00:00:01.000Z",
+        turnId,
+        sequence: 1,
+      },
+      message: {
+        id: messageId,
+        role: "assistant",
+        text: "Hel",
+        turnId,
+        streaming: true,
+        sequence: 1,
+        createdAt: "2026-01-01T00:00:01.000Z",
+        updatedAt: "2026-01-01T00:00:02.000Z",
+      },
+    });
+    primeLiveTimelineRow({
+      threadId,
+      updatedAt: "2026-01-01T00:00:03.000Z",
+      entry: {
+        kind: "message",
+        id: messageId,
+        createdAt: "2026-01-01T00:00:01.000Z",
+        turnId,
+        sequence: 1,
+      },
+      message: {
+        id: messageId,
+        role: "assistant",
+        text: "Hello",
+        turnId,
+        streaming: true,
+        sequence: 1,
+        createdAt: "2026-01-01T00:00:01.000Z",
+        updatedAt: "2026-01-01T00:00:03.000Z",
+      },
+    });
+
+    expect(readTimelineRowsProjection(threadId).messages).toEqual([]);
+    await vi.advanceTimersByTimeAsync(16);
+
+    expect(readTimelineRowsProjection(threadId).messages.map((message) => message.text)).toEqual([
+      "Hello",
+    ]);
+    expect(useTimelineModelStore.getState().rowIdsByThreadId[threadId]).toEqual([
+      "message:message-row-store",
+    ]);
+  });
+
+  it("projects bounded placeholder windows for large unloaded timelines", () => {
+    useTimelineModelStore.getState().primeMetadata({
+      threadId,
+      revision: "rev:1m",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      totalRows: 1_000_000,
+      tailStartRowIndex: 999_900,
+    });
+
+    const windowProjection = readTimelineRowsWindowProjection({
+      threadId,
+      startRowIndex: 500_000,
+      endRowIndexExclusive: 500_050,
+    });
+
+    expect(windowProjection.totalRows).toBe(1_000_000);
+    expect(windowProjection.slots).toHaveLength(50);
+    expect(windowProjection.slots.every((slot) => slot.kind === "placeholder")).toBe(true);
+  });
+
+  it("hydrates all thread timeline rows in one snapshot and reuses it", async () => {
+    nativeApiMock.getThreadTimelineRowsSnapshot.mockResolvedValue({
+      threadId,
+      revision: "rev:snapshot",
+      updatedAt: "2026-01-01T00:00:02.000Z",
+      totalRows: 2,
+      rows: [
+        {
+          id: "message:user-row-store",
+          kind: "message",
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+          contentVersion: "v1:message:user-row-store:1",
+          startSourceIndex: 0,
+          endSourceIndexExclusive: 1,
+          turnId,
+          sourceRefs: [
+            {
+              kind: "message",
+              id: "user-row-store",
+              createdAt: "2026-01-01T00:00:00.000Z",
+              sourceIndex: 0,
+              turnId,
+              sequence: 0,
+            },
+          ],
+        },
+        {
+          id: "message:message-row-store",
+          kind: "message",
+          createdAt: "2026-01-01T00:00:01.000Z",
+          updatedAt: "2026-01-01T00:00:02.000Z",
+          contentVersion: "v1:message:message-row-store:2",
+          startSourceIndex: 1,
+          endSourceIndexExclusive: 2,
+          turnId,
+          sourceRefs: [
+            {
+              kind: "message",
+              id: "message-row-store",
+              createdAt: "2026-01-01T00:00:01.000Z",
+              sourceIndex: 1,
+              turnId,
+              sequence: 1,
+            },
+          ],
+        },
+      ],
+      messages: [
+        {
+          id: MessageId.makeUnsafe("user-row-store"),
+          role: "user",
+          text: "Hi",
+          turnId,
+          streaming: false,
+          sequence: 0,
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        },
+        {
+          id: messageId,
+          role: "assistant",
+          text: "Hello",
+          turnId,
+          streaming: false,
+          sequence: 1,
+          createdAt: "2026-01-01T00:00:01.000Z",
+          updatedAt: "2026-01-01T00:00:02.000Z",
+        },
+      ],
+      activities: [],
+      proposedPlans: [],
+    });
+
+    await fetchThreadTimelineRowsSnapshot(threadId);
+    await fetchThreadTimelineRowsSnapshot(threadId);
+
+    expect(nativeApiMock.getThreadTimelineRowsSnapshot).toHaveBeenCalledTimes(1);
+    expect(isThreadTimelineRowsFullyHydrated(threadId)).toBe(true);
+    expect(readTimelineRowsProjection(threadId).rowIds).toEqual([
+      "message:user-row-store",
+      "message:message-row-store",
+    ]);
+    expect(readTimelineRowsProjection(threadId).messages.map((message) => message.text)).toEqual([
+      "Hi",
+      "Hello",
+    ]);
+  });
+
+  it("reuses timeline rows projections until row or source entities change", () => {
+    useTimelineModelStore.getState().primeSnapshot({
+      threadId,
+      revision: "rev:cached-projection",
+      updatedAt: "2026-01-01T00:00:02.000Z",
+      totalRows: 1,
+      rows: [
+        {
+          id: "message:message-row-store",
+          kind: "message",
+          createdAt: "2026-01-01T00:00:01.000Z",
+          updatedAt: "2026-01-01T00:00:02.000Z",
+          contentVersion: "snapshot:1",
+          startSourceIndex: 0,
+          endSourceIndexExclusive: 1,
+          turnId,
+          sourceRefs: [
+            {
+              kind: "message",
+              id: "message-row-store",
+              createdAt: "2026-01-01T00:00:01.000Z",
+              sourceIndex: 0,
+              turnId,
+              sequence: 1,
+            },
+          ],
+        },
+      ],
+      messages: [
+        {
+          id: messageId,
+          role: "assistant",
+          text: "Loaded",
+          turnId,
+          streaming: false,
+          sequence: 1,
+          createdAt: "2026-01-01T00:00:01.000Z",
+          updatedAt: "2026-01-01T00:00:02.000Z",
+        },
+      ],
+      activities: [],
+      proposedPlans: [],
+    });
+
+    const firstProjection = readTimelineRowsProjection(threadId);
+    const secondProjection = readTimelineRowsProjection(threadId);
+    expect(secondProjection).toBe(firstProjection);
+
+    useTimelineModelStore.getState().primeSnapshot({
+      threadId: otherThreadId,
+      revision: "rev:other-thread",
+      updatedAt: "2026-01-01T00:00:04.000Z",
+      totalRows: 1,
+      rows: [
+        {
+          id: "message:message-row-store-other",
+          kind: "message",
+          createdAt: "2026-01-01T00:00:04.000Z",
+          updatedAt: "2026-01-01T00:00:04.000Z",
+          contentVersion: "other:1",
+          startSourceIndex: 0,
+          endSourceIndexExclusive: 1,
+          turnId,
+          sourceRefs: [
+            {
+              kind: "message",
+              id: "message-row-store-other",
+              createdAt: "2026-01-01T00:00:04.000Z",
+              sourceIndex: 0,
+              turnId,
+              sequence: 1,
+            },
+          ],
+        },
+      ],
+      messages: [
+        {
+          id: otherMessageId,
+          role: "assistant",
+          text: "Other loaded",
+          turnId,
+          streaming: false,
+          sequence: 1,
+          createdAt: "2026-01-01T00:00:04.000Z",
+          updatedAt: "2026-01-01T00:00:04.000Z",
+        },
+      ],
+      activities: [],
+      proposedPlans: [],
+    });
+
+    const afterUnrelatedThreadHydration = readTimelineRowsProjection(threadId);
+    expect(afterUnrelatedThreadHydration).toBe(firstProjection);
+
+    useTimelineModelStore.getState().patchRow(threadId, {
+      id: "message:message-row-store",
+      kind: "message",
+      createdAt: "2026-01-01T00:00:01.000Z",
+      updatedAt: "2026-01-01T00:00:03.000Z",
+      contentVersion: "snapshot:2",
+      startSourceIndex: 0,
+      endSourceIndexExclusive: 1,
+      turnId,
+      sourceRefs: [
+        {
+          kind: "message",
+          id: "message-row-store",
+          createdAt: "2026-01-01T00:00:01.000Z",
+          sourceIndex: 0,
+          turnId,
+          sequence: 1,
+        },
+      ],
+    });
+
+    const changedProjection = readTimelineRowsProjection(threadId);
+    expect(changedProjection).not.toBe(firstProjection);
+    expect(changedProjection.rows[0]?.contentVersion).toBe("snapshot:2");
+  });
+
+  it("recovers replayed live rows without duplicating hydrated snapshot rows", async () => {
+    vi.useFakeTimers();
+    useTimelineModelStore.getState().primeSnapshot({
+      threadId,
+      revision: "rev:replay",
+      updatedAt: "2026-01-01T00:00:02.000Z",
+      totalRows: 1,
+      rows: [
+        {
+          id: "message:message-row-store",
+          kind: "message",
+          createdAt: "2026-01-01T00:00:01.000Z",
+          updatedAt: "2026-01-01T00:00:02.000Z",
+          contentVersion: "snapshot:1",
+          startSourceIndex: 0,
+          endSourceIndexExclusive: 1,
+          turnId,
+          sourceRefs: [
+            {
+              kind: "message",
+              id: "message-row-store",
+              createdAt: "2026-01-01T00:00:01.000Z",
+              sourceIndex: 0,
+              turnId,
+              sequence: 1,
+            },
+          ],
+        },
+      ],
+      messages: [
+        {
+          id: messageId,
+          role: "assistant",
+          text: "Loaded",
+          turnId,
+          streaming: false,
+          sequence: 1,
+          createdAt: "2026-01-01T00:00:01.000Z",
+          updatedAt: "2026-01-01T00:00:02.000Z",
+        },
+      ],
+      activities: [],
+      proposedPlans: [],
+    });
+
+    const { primeLiveTimelineRow } = await import("./timelineModelStore");
+    primeLiveTimelineRow({
+      threadId,
+      updatedAt: "2026-01-01T00:00:03.000Z",
+      entry: {
+        kind: "message",
+        id: messageId,
+        createdAt: "2026-01-01T00:00:01.000Z",
+        turnId,
+        sequence: 1,
+      },
+      message: {
+        id: messageId,
+        role: "assistant",
+        text: "Recovered",
+        turnId,
+        streaming: false,
+        sequence: 1,
+        createdAt: "2026-01-01T00:00:01.000Z",
+        updatedAt: "2026-01-01T00:00:03.000Z",
+      },
+    });
+    await vi.advanceTimersByTimeAsync(16);
+
+    expect(useTimelineModelStore.getState().rowIdsByThreadId[threadId]).toEqual([
+      "message:message-row-store",
+    ]);
+    expect(readTimelineRowsProjection(threadId).messages.map((message) => message.text)).toEqual([
+      "Recovered",
+    ]);
+  });
+});

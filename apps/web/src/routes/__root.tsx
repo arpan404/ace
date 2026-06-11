@@ -82,7 +82,6 @@ import { parseRelayConnectionUrl } from "@ace/shared/relay";
 import { shouldForwardDesktopNotificationOrchestrationEvent } from "@ace/shared/notifications";
 import { appendBrowserDesignContextToPrompt } from "../lib/terminalContext";
 import { cn, newCommandId, newMessageId, randomUUID } from "../lib/utils";
-import { clearAllPersistedTimelineCaches } from "../lib/chat/threadTimelineStorage";
 import {
   dispatchDetachedWindowReturnRequest,
   resolveDetachedWindowReturnThreadId,
@@ -91,25 +90,6 @@ import {
 const DetachedThreadWorkspaceEditor = lazy(
   () => import("../components/editor/ThreadWorkspaceEditor"),
 );
-
-function wasPageReloaded(): boolean {
-  if (typeof window === "undefined") {
-    return false;
-  }
-
-  const navigationEntries =
-    typeof window.performance?.getEntriesByType === "function"
-      ? window.performance.getEntriesByType("navigation")
-      : [];
-  const latestNavigation = navigationEntries[0];
-  if (latestNavigation !== undefined && "type" in latestNavigation) {
-    return latestNavigation.type === "reload";
-  }
-
-  const legacyType = (window.performance as { navigation?: { type?: number } } | undefined)
-    ?.navigation?.type;
-  return legacyType === 1;
-}
 
 export const Route = createRootRouteWithContext<{
   queryClient: QueryClient;
@@ -159,7 +139,6 @@ function RootRouteView() {
 function MainRootRouteView() {
   const bootstrapComplete = useStore((store) => store.bootstrapComplete);
   const reliabilityUxEnabled = useSetting("reliabilityUxEnabled");
-  const [hasClearedTimelineCaches, setHasClearedTimelineCaches] = useState(!wasPageReloaded());
   const [remoteBootstrapSettled, setRemoteBootstrapSettled] = useState(
     import.meta.env.MODE === "test",
   );
@@ -171,23 +150,6 @@ function MainRootRouteView() {
   const handleRemoteBootstrapSettled = useCallback(() => {
     setRemoteBootstrapSettled(true);
   }, []);
-
-  useEffect(() => {
-    if (hasClearedTimelineCaches) {
-      return;
-    }
-    let isMounted = true;
-    void clearAllPersistedTimelineCaches()
-      .catch(() => undefined)
-      .finally(() => {
-        if (isMounted) {
-          setHasClearedTimelineCaches(true);
-        }
-      });
-    return () => {
-      isMounted = false;
-    };
-  }, [hasClearedTimelineCaches]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -242,7 +204,7 @@ function MainRootRouteView() {
         key={`remote-bootstrap-${String(wsHostEpoch)}`}
         onSettled={handleRemoteBootstrapSettled}
       />
-      {!hasClearedTimelineCaches || !remoteBootstrapSettled || startupState === "connecting" ? (
+      {!remoteBootstrapSettled || startupState === "connecting" ? (
         <AppStartupScreen
           state={startupStateForDisplay}
           message={resolveAppStartupMessage(startupStateForDisplay, APP_BASE_NAME)}

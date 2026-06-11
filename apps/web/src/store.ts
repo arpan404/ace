@@ -30,10 +30,11 @@ import {
 } from "./lib/chat/messageText";
 import { primeHydratedThreadCache } from "./lib/threadHydrationCache";
 import {
-  primeLiveThreadTimelineEntry,
-  primeThreadTimelineManifestFromReadModelThread,
-  useTimelineWindowStore,
-} from "./lib/chat/timelineWindowStore";
+  primeLiveTimelineRow,
+  primeThreadTimelineRowsMetadataFromReadModelThread,
+  primeThreadTimelineRowsMetadataFromReadModelThreads,
+  useTimelineModelStore,
+} from "./lib/chat/timelineModelStore";
 import { resolveConnectionForThreadId } from "./lib/connectionRouting";
 import { resolveServerUrl } from "./lib/utils";
 import { type ChatMessage, type Project, type SidebarThreadSummary, type Thread } from "./types";
@@ -1837,7 +1838,7 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
     }
 
     case "thread.message-sent": {
-      primeLiveThreadTimelineEntry({
+      primeLiveTimelineRow({
         threadId: event.payload.threadId,
         updatedAt: event.occurredAt,
         entry: {
@@ -2011,7 +2012,7 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
     }
 
     case "thread.proposed-plan-upserted": {
-      primeLiveThreadTimelineEntry({
+      primeLiveTimelineRow({
         threadId: event.payload.threadId,
         updatedAt: event.occurredAt,
         entry: {
@@ -2162,7 +2163,7 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
     }
 
     case "thread.activity-appended": {
-      primeLiveThreadTimelineEntry({
+      primeLiveTimelineRow({
         threadId: event.payload.threadId,
         updatedAt: event.occurredAt,
         entry: {
@@ -2214,15 +2215,13 @@ export function syncServerReadModel(
   }
   const projects = preserveProjectArrayIdentity(state.projects, nextProjects);
   const threads: AppState["threads"] = [];
+  const timelineMetadataThreads: Array<OrchestrationReadModel["threads"][number]> = [];
   for (const thread of readModel.threads) {
     if (thread.deletedAt !== null) {
       continue;
     }
     const mappedThread = mapThread(thread, options);
-    primeThreadTimelineManifestFromReadModelThread(
-      thread,
-      mappedThread.historyLoaded === false ? "metadata" : "hydrated",
-    );
+    timelineMetadataThreads.push(thread);
     const nextThread = mergeThreadPreservingHydratedHistory(
       existingThreadsById.get(thread.id),
       mappedThread,
@@ -2233,6 +2232,7 @@ export function syncServerReadModel(
     }
     threads.push(suppressDismissedThreadError(nextThread, state.dismissedThreadErrorKeysById));
   }
+  primeThreadTimelineRowsMetadataFromReadModelThreads(timelineMetadataThreads);
   const dismissedThreadErrorKeysById = retainDismissedThreadErrorKeysForThreads(
     state.dismissedThreadErrorKeysById,
     threads,
@@ -2270,6 +2270,7 @@ export function mergeServerReadModel(
     }
   }
   const incomingThreads: AppState["threads"] = [];
+  const timelineMetadataThreads: Array<OrchestrationReadModel["threads"][number]> = [];
   for (const thread of readModel.threads) {
     if (thread.deletedAt !== null) {
       continue;
@@ -2278,15 +2279,13 @@ export function mergeServerReadModel(
       mapThread(thread, options),
       state.dismissedThreadErrorKeysById,
     );
-    primeThreadTimelineManifestFromReadModelThread(
-      thread,
-      nextThread.historyLoaded === false ? "metadata" : "hydrated",
-    );
+    timelineMetadataThreads.push(thread);
     if (options !== undefined && nextThread.historyLoaded !== false) {
       primeHydratedThreadCache(thread);
     }
     incomingThreads.push(nextThread);
   }
+  primeThreadTimelineRowsMetadataFromReadModelThreads(timelineMetadataThreads);
 
   const projectsById = new Map(state.projects.map((project) => [project.id, project] as const));
   for (const project of incomingProjects) {
@@ -2339,7 +2338,7 @@ function removeReadModelEntities(
     const shouldRemove = projectIds.has(thread.projectId) || threadIds.has(thread.id);
     if (shouldRemove) {
       removedThreadIds.add(thread.id);
-      useTimelineWindowStore.getState().clearThread(thread.id);
+      useTimelineModelStore.getState().clearThread(thread.id);
     }
     return !shouldRemove;
   });
@@ -2371,7 +2370,7 @@ export function hydrateThreadFromReadModel(
   }
 
   primeHydratedThreadCache(readModelThread);
-  primeThreadTimelineManifestFromReadModelThread(readModelThread);
+  primeThreadTimelineRowsMetadataFromReadModelThread(readModelThread);
   const mappedThread = { ...mapThread(readModelThread, options), historyLoaded: true };
   const existingThread = state.threads.find((thread) => thread.id === mappedThread.id);
   const nextThread = existingThread
@@ -2617,7 +2616,7 @@ interface AppStore extends AppState {
 export const useStore = create<AppStore>((set) => ({
   ...initialState,
   resetToInitialState: () => {
-    useTimelineWindowStore.getState().reset();
+    useTimelineModelStore.getState().reset();
     set(() => createInitialState());
   },
   syncServerReadModel: (readModel, options) =>

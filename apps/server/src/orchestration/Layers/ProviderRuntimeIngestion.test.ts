@@ -2331,6 +2331,35 @@ describe("ProviderRuntimeIngestion", () => {
     });
   });
 
+  it("ignores empty reasoning item completions", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-empty-reasoning-complete"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-empty-reasoning"),
+      itemId: asItemId("reasoning-empty"),
+      payload: {
+        itemType: "reasoning",
+        status: "completed",
+        title: "Reasoning",
+        data: {
+          content: "   ",
+        },
+      },
+    });
+
+    await harness.drain();
+    const persistence = await harness.readActivityPersistence();
+
+    expect(persistence.activityEventCount).toBe(0);
+    expect(persistence.projectionRows).toEqual([]);
+  });
+
   it("projects reasoning deltas into streamed progress activities", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();

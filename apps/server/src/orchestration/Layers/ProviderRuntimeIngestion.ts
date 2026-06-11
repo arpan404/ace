@@ -381,7 +381,7 @@ function truncateActivityText(value: string, limit: number): string {
 }
 
 function hasRenderableReasoningText(value: string | undefined): value is string {
-  return typeof value === "string" && value.length > 0;
+  return typeof value === "string" && value.trim().length > 0;
 }
 
 function normalizeProposedPlanMarkdown(planMarkdown: string | undefined): string | undefined {
@@ -1853,6 +1853,9 @@ function runtimeEventToActivities(
           return [];
         }
         const detail = extractReasoningDetail(event);
+        if (!detail) {
+          return [];
+        }
         return [
           {
             id: event.eventId,
@@ -1863,7 +1866,7 @@ function runtimeEventToActivities(
             payload: {
               taskId: reasoningTaskIdFromEvent(event),
               itemType: event.payload.itemType,
-              ...(detail ? { detail } : {}),
+              detail,
               ...(event.payload.data !== undefined ? { data: event.payload.data } : {}),
             },
             turnId: toTurnId(event.turnId) ?? null,

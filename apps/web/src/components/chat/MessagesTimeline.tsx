@@ -43,13 +43,11 @@ import {
 } from "../../lib/chat/markdownRenderAnalysis";
 import { prewarmMarkdownRenderAnalysis } from "../../lib/chat/markdownRenderAnalysisClient";
 import {
-  readTimelineRowHeight,
-  prefetchThreadTimelineAroundLoadedWindow,
-  resolveTimelineScrollPrefetchPageSize,
-  type TimelinePrefetchDirection,
-  useTimelineWindowStore,
-  writeTimelineRowHeight,
-} from "../../lib/chat/timelineWindowStore";
+  prefetchThreadTimelineRowsSnapshot,
+  readTimelineModelRowHeight,
+  useTimelineModelStore,
+  writeTimelineModelRowHeight,
+} from "../../lib/chat/timelineModelStore";
 import { deriveTimelineEntries } from "../../session-logic";
 import { type TurnDiffSummary } from "../../types";
 import { summarizeTurnDiffStats } from "../../lib/turnDiffTree";
@@ -106,7 +104,6 @@ import {
 } from "~/lib/terminalContext";
 import { APP_WORKSPACE_INSET_CLASS_NAME } from "~/lib/appChrome";
 import { cn } from "~/lib/utils";
-import { measureRenderWork } from "~/lib/renderProfiling";
 import { type TimestampFormat } from "@ace/contracts/settings";
 import { formatTimestamp } from "../../timestampFormat";
 import { basenameOfPath, inferEntryKindFromPath } from "../../vscode-icons";
@@ -117,10 +114,8 @@ import {
   textContainsInlineTerminalContextLabels,
 } from "~/lib/chat/userMessageTerminalContexts";
 import {
-  buildTimelineRows,
   isCompletedAssistantMessageRow,
   isEventInActiveTurn,
-  shouldWorkerizeTimelineRows,
   type AssistantTimelineMessage,
   type BuildTimelineRowsInput,
   type TimelineCompletedWorkDiagnosticRow,
@@ -137,26 +132,24 @@ import {
   type TimelineWorkLogRow,
   type UserTimelineMessage,
 } from "~/lib/chat/timelineRows";
-import {
-  buildTimelineRowsCacheKey,
-  readCachedTimelineRows,
-  resolveTimelineRows,
-  writeCachedTimelineRows,
-} from "~/lib/chat/timelineRowsClient";
 import type { StuckTurnSnapshot } from "~/lib/reliability/stuckTurn";
+import { useTimelineRowsController } from "./useTimelineRowsController";
+import { TimelineViewport } from "./TimelineViewport";
 
 const ALWAYS_UNVIRTUALIZED_TAIL_ROWS = 8;
 const TIMELINE_VIRTUALIZER_OVERSCAN = 16;
 const MAX_TIMELINE_ROW_HEIGHT_CACHE_ENTRIES = 4_096;
 const IMMEDIATE_ASSISTANT_MARKDOWN_TAIL_MESSAGES = 12;
 const ASSISTANT_MARKDOWN_IDLE_BATCH_SIZE = 2;
+const ASSISTANT_MARKDOWN_PENDING_LOOKBACK_ROWS = 256;
+const ASSISTANT_MARKDOWN_PENDING_MESSAGE_LIMIT = 64;
+const MAX_RENDERED_ASSISTANT_MARKDOWN_MESSAGE_IDS = 512;
 const DEFAULT_TURN_DIFF_DIRECTORIES_EXPANDED = false;
 const ASSISTANT_MARKDOWN_IDLE_TIMEOUT_MS = 600;
 const ASSISTANT_MARKDOWN_FALLBACK_DELAY_MS = 80;
 const TIMELINE_WIDTH_RESIZE_DEBOUNCE_MS = 96;
 const TIMELINE_INITIAL_VIEWPORT_HEIGHT_PX = 720;
 const TIMELINE_FALLBACK_VIRTUAL_RANGE_MIN_ROWS = TIMELINE_VIRTUALIZER_OVERSCAN * 2 + 8;
-const EMPTY_TIMELINE_ROWS: ReadonlyArray<TimelineRow> = [];
 const EMPTY_PROVIDER_COMMANDS: ReadonlyArray<ProviderSlashCommand> = [];
 const ASSISTANT_IMAGE_GENERATION_MESSAGE_ID_REGEX =
   /^assistant:image:(?<width>\d{2,5})x(?<height>\d{2,5}):/u;
@@ -173,8 +166,6 @@ const ASSISTANT_MESSAGE_ROW_SELECTOR = '[data-message-role="assistant"][data-mes
 const COMPLETED_WORK_SUMMARY_ROW_ID_PREFIX = "completed-work-summary:";
 const PINNED_SELECTION_TEXT_BLOCK_SELECTOR =
   "blockquote,div,h1,h2,h3,h4,h5,h6,li,ol,p,pre,section,table,tbody,td,tfoot,th,thead,tr,ul";
-const PREPENDED_TIMELINE_ROW_ANIMATION_LIMIT = 64;
-const PREPENDED_TIMELINE_ROW_ANIMATION_MS = 320;
 const PREPENDED_TIMELINE_SCROLL_PRESERVE_FRAMES = 8;
 const TIMELINE_ROW_ID_SELECTOR = "[data-timeline-row-id]";
 const TIMELINE_ROW_RENDER_INTRINSIC_MIN_HEIGHT_PX = 40;
@@ -189,25 +180,15 @@ export function resolveTimelineScrollPrefetchLookaheadRows(velocityPxPerMs: numb
   return 1_024;
 }
 
-export function resolveTimelineScrollPrefetchPageCount(velocityPxPerMs: number): number {
-  const velocity = Math.max(0, Number.isFinite(velocityPxPerMs) ? velocityPxPerMs : 0);
-  if (velocity < 0.75) return 1;
-  if (velocity < 1.5) return 2;
-  if (velocity < 3) return 3;
-  if (velocity < 6) return 5;
-  if (velocity < 10) return 8;
-  return 12;
-}
+type TimelineScrollPrefetchDirection = "older" | "newer" | "both";
 
 export function deriveTimelineScrollPrefetchRequest(input: {
   readonly currentScrollTop: number;
   readonly previousScrollTop: number;
   readonly elapsedMs: number;
 }): {
-  readonly direction: TimelinePrefetchDirection;
+  readonly direction: TimelineScrollPrefetchDirection;
   readonly lookaheadRows: number;
-  readonly olderPageCount: number;
-  readonly pageSize: number;
   readonly velocityPxPerMs: number;
 } {
   const deltaScrollTop = Number.isFinite(input.previousScrollTop)
@@ -226,8 +207,6 @@ export function deriveTimelineScrollPrefetchRequest(input: {
   return {
     direction,
     lookaheadRows: resolveTimelineScrollPrefetchLookaheadRows(velocityPxPerMs),
-    olderPageCount: resolveTimelineScrollPrefetchPageCount(velocityPxPerMs),
-    pageSize: resolveTimelineScrollPrefetchPageSize(velocityPxPerMs),
     velocityPxPerMs,
   };
 }
@@ -664,12 +643,12 @@ function InlineTooltip(props: {
   );
 }
 
-function canResolveTimelineRowsInWorker(): boolean {
+function TimelineRowsFetchingPill() {
   return (
-    typeof window !== "undefined" &&
-    typeof document !== "undefined" &&
-    typeof Worker !== "undefined" &&
-    typeof document.createElement === "function"
+    <div className="inline-flex items-center gap-2 rounded-full bg-background/80 px-3 py-1.5 text-[11px] text-muted-foreground shadow-lg shadow-background/30 backdrop-blur">
+      <span className="size-3 rounded-full border-2 border-primary/30 border-t-primary animate-spin" />
+      Loading thread...
+    </div>
   );
 }
 
@@ -677,27 +656,9 @@ export function TimelineRowsLoadingFallback() {
   return (
     <div
       className="mx-auto flex h-full w-full max-w-3xl items-center justify-center px-4 py-8"
-      aria-label="Fetching thread"
+      aria-label="Loading thread"
     >
-      <div className="rounded-full border border-border/45 bg-card/80 px-3 py-1.5 text-[11px] text-muted-foreground shadow-sm shadow-background/20">
-        Fetching thread…
-      </div>
-    </div>
-  );
-}
-
-export function TimelineRowsFetchingIndicator() {
-  return (
-    <div
-      className="pointer-events-none sticky top-2 z-20 flex h-0 justify-center overflow-visible"
-      aria-live="polite"
-      data-scroll-anchor-ignore
-      data-thread-timeline-fetching="true"
-    >
-      <div className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/92 px-3 py-1.5 text-[11px] text-muted-foreground shadow-lg shadow-background/40 backdrop-blur">
-        <span className="size-3 rounded-full border-2 border-primary/30 border-t-primary animate-spin" />
-        Fetching thread…
-      </div>
+      <TimelineRowsFetchingPill />
     </div>
   );
 }
@@ -771,59 +732,6 @@ function resolveTimelineTopAnchoredScrollTop(
   }
   const maxScrollTop = Math.max(0, scrollContainer.scrollHeight - scrollContainer.clientHeight);
   return Math.min(Math.max(0, nextScrollTop), maxScrollTop);
-}
-
-export function resolveVisibleTimelineRows(input: {
-  readonly activeThreadId?: string | null;
-  readonly retainedRows: {
-    readonly activeThreadId: string;
-    readonly rows: ReadonlyArray<TimelineRow>;
-  } | null;
-  readonly resolvedAsyncRows: ReadonlyArray<TimelineRow> | null;
-  readonly retainRowsWhileLoading?: boolean;
-  readonly shouldResolveAsync: boolean;
-  readonly syncRows: ReadonlyArray<TimelineRow>;
-}): { readonly loading: boolean; readonly rows: ReadonlyArray<TimelineRow> } {
-  const retainedRows =
-    input.retainRowsWhileLoading !== false &&
-    input.activeThreadId &&
-    input.retainedRows?.activeThreadId === input.activeThreadId &&
-    input.retainedRows.rows.length > 0
-      ? input.retainedRows.rows
-      : null;
-
-  if (!input.shouldResolveAsync) {
-    return {
-      loading: false,
-      rows: input.syncRows.length > 0 ? input.syncRows : (retainedRows ?? EMPTY_TIMELINE_ROWS),
-    };
-  }
-
-  if (input.resolvedAsyncRows !== null) {
-    return {
-      loading: false,
-      rows: input.resolvedAsyncRows,
-    };
-  }
-
-  if (input.syncRows.length > 0) {
-    return {
-      loading: false,
-      rows: input.syncRows,
-    };
-  }
-
-  if (retainedRows) {
-    return {
-      loading: false,
-      rows: retainedRows,
-    };
-  }
-
-  return {
-    loading: true,
-    rows: EMPTY_TIMELINE_ROWS,
-  };
 }
 
 export function shouldRenderTimelineVirtualizedBuffer(input: {
@@ -994,7 +902,7 @@ function cancelAssistantMarkdownIdleCallback(handle: AssistantMarkdownIdleHandle
 function readCachedTimelineRowHeight(cacheKey: string): number | null {
   const cachedHeight = timelineRowHeightCache.get(cacheKey);
   if (cachedHeight === undefined) {
-    return readTimelineRowHeight(cacheKey);
+    return readTimelineModelRowHeight(cacheKey);
   }
 
   timelineRowHeightCache.delete(cacheKey);
@@ -1010,7 +918,7 @@ function writeCachedTimelineRowHeight(cacheKey: string, height: number): number 
       timelineRowHeightCache.delete(oldestCacheKey);
     }
   }
-  writeTimelineRowHeight(cacheKey, height);
+  writeTimelineModelRowHeight(cacheKey, height);
   return height;
 }
 
@@ -1047,11 +955,11 @@ interface MessagesTimelineProps {
   backgroundMarkdownPrewarm?: boolean;
   getScrollContainer: () => HTMLDivElement | null;
   hideCompletedWorkMessages?: boolean;
-  isThreadHistoryFetching?: boolean;
-  isThreadHistoryLoading?: boolean;
   liveTimers?: boolean;
   timelineCacheScope?: string | null;
   timelineEntries: ReturnType<typeof deriveTimelineEntries>;
+  timelineRowsLoading?: boolean;
+  timelineRowsOverride?: ReadonlyArray<TimelineRow> | null;
   timelineIndexByEntryId?: ReadonlyMap<string, number> | null;
   completionDividerBeforeEntryId: string | null;
   completionSummary: string | null;
@@ -1098,11 +1006,11 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   backgroundMarkdownPrewarm = true,
   getScrollContainer,
   hideCompletedWorkMessages = false,
-  isThreadHistoryFetching = false,
-  isThreadHistoryLoading = false,
   liveTimers = true,
   timelineCacheScope = null,
   timelineEntries,
+  timelineRowsLoading: externalTimelineRowsLoading = false,
+  timelineRowsOverride = null,
   timelineIndexByEntryId = null,
   completionDividerBeforeEntryId,
   completionSummary,
@@ -1232,49 +1140,20 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       enableGoalWorkingState,
     ],
   );
-  const shouldResolveTimelineRowsInWorker = useMemo(
-    () => canResolveTimelineRowsInWorker() && shouldWorkerizeTimelineRows(timelineRowsInput),
-    [timelineRowsInput],
-  );
-  const timelineRowsCacheKey = useMemo(
-    () => buildTimelineRowsCacheKey(timelineRowsInput),
-    [timelineRowsInput],
-  );
-  const cachedTimelineRows = readCachedTimelineRows(timelineRowsCacheKey);
-  const [asyncTimelineRows, setAsyncTimelineRows] = useState<{
-    readonly cacheKey: string;
-    readonly rows: ReadonlyArray<TimelineRow>;
-  } | null>(null);
-  const [retainedTimelineRows, setRetainedTimelineRows] = useState<{
-    readonly activeThreadId: string;
-    readonly rows: ReadonlyArray<TimelineRow>;
-  } | null>(null);
-  const resolvedAsyncTimelineRows =
-    asyncTimelineRows?.cacheKey === timelineRowsCacheKey ? asyncTimelineRows.rows : null;
-  const shouldResolveTimelineRowsAsync = shouldResolveTimelineRowsInWorker && !cachedTimelineRows;
-  const syncTimelineRows = useMemo<ReadonlyArray<TimelineRow>>(() => {
-    if (cachedTimelineRows) {
-      return cachedTimelineRows;
+  const isTimelineSnapshotLoading = useTimelineModelStore((state) => {
+    if (!activeThreadId) {
+      return false;
     }
-    if (shouldResolveTimelineRowsAsync) {
-      return EMPTY_TIMELINE_ROWS;
-    }
-    return measureRenderWork("chat.buildTimelineRows", () => buildTimelineRows(timelineRowsInput));
-  }, [cachedTimelineRows, shouldResolveTimelineRowsAsync, timelineRowsInput]);
-  const { loading: timelineRowsLoading, rows } = resolveVisibleTimelineRows({
+    return (state.fetchStateByThreadId[activeThreadId]?.inFlightCount ?? 0) > 0;
+  });
+  const { loading: timelineRowsLoading, rows } = useTimelineRowsController({
     activeThreadId: activeThreadId ?? null,
-    retainedRows: retainedTimelineRows,
-    retainRowsWhileLoading: true,
-    resolvedAsyncRows: resolvedAsyncTimelineRows,
-    shouldResolveAsync: shouldResolveTimelineRowsAsync,
-    syncRows: syncTimelineRows,
+    loading: isTimelineSnapshotLoading || externalTimelineRowsLoading,
+    preResolvedRows: timelineRowsOverride,
+    timelineRowsInput,
   });
   const prependAnchorSnapshotRef = useRef<TimelinePrependAnchorSnapshot | null>(null);
   const prependAnchorCorrectionFrameRef = useRef<number | null>(null);
-  const prependedRowAnimationTimeoutRef = useRef<number | null>(null);
-  const [animatedPrependedRowIds, setAnimatedPrependedRowIds] = useState<ReadonlySet<string>>(
-    () => new Set(),
-  );
 
   useLayoutEffect(() => {
     const scrollContainer = getScrollContainer();
@@ -1404,24 +1283,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       prependAnchorCorrectionFrameRef.current = window.requestAnimationFrame(runCorrectionFrame);
     }
 
-    if (isPrepend) {
-      const previousTopRowsAdded = previousFirstRowCurrentIndex;
-      const newRowsAdded = Math.max(0, previousTopRowsAdded);
-      const animatedRowIds = new Set(
-        rows
-          .slice(0, Math.min(newRowsAdded, PREPENDED_TIMELINE_ROW_ANIMATION_LIMIT))
-          .map((row) => row.id),
-      );
-      setAnimatedPrependedRowIds(animatedRowIds);
-      if (prependedRowAnimationTimeoutRef.current !== null) {
-        window.clearTimeout(prependedRowAnimationTimeoutRef.current);
-      }
-      prependedRowAnimationTimeoutRef.current = window.setTimeout(() => {
-        prependedRowAnimationTimeoutRef.current = null;
-        setAnimatedPrependedRowIds(new Set());
-      }, PREPENDED_TIMELINE_ROW_ANIMATION_MS);
-    }
-
     prependAnchorSnapshotRef.current = scrollContainer
       ? readTimelinePrependAnchorSnapshot(rows, scrollContainer)
       : null;
@@ -1432,78 +1293,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       if (prependAnchorCorrectionFrameRef.current !== null) {
         window.cancelAnimationFrame(prependAnchorCorrectionFrameRef.current);
       }
-      if (prependedRowAnimationTimeoutRef.current !== null) {
-        window.clearTimeout(prependedRowAnimationTimeoutRef.current);
-      }
     },
     [],
   );
-
-  useEffect(() => {
-    if (cachedTimelineRows || shouldResolveTimelineRowsAsync || syncTimelineRows.length === 0) {
-      return;
-    }
-    writeCachedTimelineRows(timelineRowsCacheKey, timelineRowsInput, syncTimelineRows);
-  }, [
-    cachedTimelineRows,
-    shouldResolveTimelineRowsAsync,
-    syncTimelineRows,
-    timelineRowsCacheKey,
-    timelineRowsInput,
-  ]);
-
-  useEffect(() => {
-    if (!activeThreadId) {
-      setRetainedTimelineRows(null);
-      return;
-    }
-    setRetainedTimelineRows((current) =>
-      current?.activeThreadId === activeThreadId ? current : null,
-    );
-  }, [activeThreadId]);
-
-  useEffect(() => {
-    if (!activeThreadId || timelineRowsLoading || rows.length === 0) {
-      return;
-    }
-    setRetainedTimelineRows((current) =>
-      current?.activeThreadId === activeThreadId && current.rows === rows
-        ? current
-        : { activeThreadId, rows },
-    );
-  }, [activeThreadId, rows, timelineRowsLoading]);
-
-  useEffect(() => {
-    if (!shouldResolveTimelineRowsAsync) {
-      return;
-    }
-    let canceled = false;
-    resolveTimelineRows(timelineRowsCacheKey, timelineRowsInput)
-      .then((resolvedRows) => {
-        if (canceled) {
-          return;
-        }
-        startTransition(() => {
-          setAsyncTimelineRows({ cacheKey: timelineRowsCacheKey, rows: resolvedRows });
-        });
-      })
-      .catch(() => {
-        const fallbackRows = writeCachedTimelineRows(
-          timelineRowsCacheKey,
-          timelineRowsInput,
-          buildTimelineRows(timelineRowsInput),
-        );
-        if (canceled) {
-          return;
-        }
-        startTransition(() => {
-          setAsyncTimelineRows({ cacheKey: timelineRowsCacheKey, rows: fallbackRows });
-        });
-      });
-    return () => {
-      canceled = true;
-    };
-  }, [shouldResolveTimelineRowsAsync, timelineRowsCacheKey, timelineRowsInput]);
 
   const latestForkableAssistantMessageId = useMemo(() => {
     for (let index = rows.length - 1; index >= 0; index -= 1) {
@@ -1740,8 +1532,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     [expandedWorkGroups, timelineWidthPx, virtualizedRows],
   );
   const measureVirtualizedRowElement = useCallback(
-    (element: HTMLElement, entry?: ResizeObserverEntry | undefined) => {
-      const index = Number(element.dataset.index);
+    (element: Element, entry?: ResizeObserverEntry | undefined) => {
+      const htmlElement = element as HTMLElement;
+      const index = Number(htmlElement.dataset.index);
       const height = measureTimelineRowElementHeight(element, entry);
       const row = Number.isInteger(index) ? virtualizedRows[index] : undefined;
       if (row && Number.isFinite(height) && height > 0) {
@@ -1833,12 +1626,12 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     ) {
       return;
     }
-    useTimelineWindowStore.getState().setActiveWindow(activeThreadId as ThreadId, {
-      startIndex: globalRenderedWindowState.loadedStartIndex,
-      endIndexExclusive: globalRenderedWindowState.loadedEndIndexExclusive,
-      overscanStartIndex: globalRenderedWindowState.overscanLoadedStartIndex,
-      overscanEndIndexExclusive: globalRenderedWindowState.overscanLoadedEndIndexExclusive,
-      updatedAt: timelineCacheScope,
+    useTimelineModelStore.getState().setActiveWindow(activeThreadId as ThreadId, {
+      startRowIndex: globalRenderedWindowState.loadedStartIndex,
+      endRowIndexExclusive: globalRenderedWindowState.loadedEndIndexExclusive,
+      overscanStartRowIndex: globalRenderedWindowState.overscanLoadedStartIndex,
+      overscanEndRowIndexExclusive: globalRenderedWindowState.overscanLoadedEndIndexExclusive,
+      revision: timelineCacheScope,
     });
   }, [activeThreadId, globalRenderedWindowState, timelineCacheScope]);
   useEffect(() => {
@@ -1867,18 +1660,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     if (!isNearRenderedEdge) {
       return;
     }
-    const direction =
-      isNearOlderEdge && !isNearNewerEdge
-        ? "older"
-        : isNearNewerEdge && !isNearOlderEdge
-          ? "newer"
-          : prefetchRequest.direction;
-    void prefetchThreadTimelineAroundLoadedWindow({
+    void prefetchThreadTimelineRowsSnapshot({
       threadId: activeThreadId as ThreadId,
-      priority: prefetchRequest.direction === "older" ? "immediate" : "background",
-      pageSize: prefetchRequest.pageSize,
-      olderPageCount: direction === "older" ? prefetchRequest.olderPageCount : 1,
-      direction,
     }).catch(() => undefined);
   }, [activeThreadId, getScrollContainer, renderedWindowState, rows.length]);
   useEffect(() => {
@@ -1993,21 +1776,14 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     () => new Set(immediateAssistantMarkdownMessageIds),
     [immediateAssistantMarkdownMessageIds],
   );
-  const allAssistantMarkdownMessageIds = useMemo(() => {
-    const messageIds: string[] = [];
-    for (const row of rows) {
-      if (isCompletedAssistantMessageRow(row)) {
-        messageIds.push(String(row.message.id));
-      }
-    }
-    return messageIds;
-  }, [rows]);
   const pendingAssistantMarkdownMessageIds = useMemo(
     () =>
       shouldPrewarmAssistantMarkdown
         ? derivePendingAssistantMarkdownMessageIdsBottomUp(rows, {
             firstUnvirtualizedRowIndex,
             immediateMessageIds: immediateAssistantMarkdownMessageIdSet,
+            maxMessageIds: ASSISTANT_MARKDOWN_PENDING_MESSAGE_LIMIT,
+            maxRows: ASSISTANT_MARKDOWN_PENDING_LOOKBACK_ROWS,
             mountedMessageIds: mountedVirtualizedAssistantMarkdownMessageIdSet,
             renderedMessageIds: renderedAssistantMarkdownMessageIds,
           })
@@ -2021,35 +1797,49 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       shouldPrewarmAssistantMarkdown,
     ],
   );
+  const assistantMarkdownPrewarmRows = useMemo(
+    () =>
+      shouldPrewarmAssistantMarkdown
+        ? collectAssistantMarkdownPrewarmRows(rows, {
+            firstUnvirtualizedRowIndex,
+            renderedVirtualItems,
+            virtualizedRows,
+          })
+        : [],
+    [
+      firstUnvirtualizedRowIndex,
+      renderedVirtualItems,
+      rows,
+      shouldPrewarmAssistantMarkdown,
+      virtualizedRows,
+    ],
+  );
   const assistantMarkdownAnalysisPrewarmJobs = useMemo(() => {
     if (!shouldPrewarmAssistantMarkdown) {
       return [];
     }
     return buildAssistantMarkdownAnalysisPrewarmJobs({
-      rows,
+      rows: assistantMarkdownPrewarmRows,
       immediateMessageIds: immediateAssistantMarkdownMessageIds,
       pendingMessageIds: pendingAssistantMarkdownMessageIds,
     });
   }, [
+    assistantMarkdownPrewarmRows,
     immediateAssistantMarkdownMessageIds,
     pendingAssistantMarkdownMessageIds,
-    rows,
     shouldPrewarmAssistantMarkdown,
   ]);
-  const allAssistantMarkdownMessageIdKey = allAssistantMarkdownMessageIds.join("\0");
   const immediateAssistantMarkdownMessageIdKey = immediateAssistantMarkdownMessageIds.join("\0");
   const pendingAssistantMarkdownMessageIdKey = pendingAssistantMarkdownMessageIds.join("\0");
   const assistantMarkdownAnalysisPrewarmJobKey = assistantMarkdownAnalysisPrewarmJobs
     .map((job) => job.cacheKey)
     .join("\0");
   const assistantMarkdownPriorityRef = useRef({
-    allMessageIds: allAssistantMarkdownMessageIds,
     immediateMessageIds: immediateAssistantMarkdownMessageIds,
     mountedMessageIds: mountedVirtualizedAssistantMarkdownMessageIds,
     pendingMessageIds: pendingAssistantMarkdownMessageIds,
   });
   assistantMarkdownPriorityRef.current = {
-    allMessageIds: allAssistantMarkdownMessageIds,
     immediateMessageIds: immediateAssistantMarkdownMessageIds,
     mountedMessageIds: mountedVirtualizedAssistantMarkdownMessageIds,
     pendingMessageIds: pendingAssistantMarkdownMessageIds,
@@ -2065,38 +1855,31 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     if (isTimelineScrolling) {
       return;
     }
-    const { allMessageIds, immediateMessageIds, mountedMessageIds } =
+    const { immediateMessageIds, mountedMessageIds, pendingMessageIds } =
       assistantMarkdownPriorityRef.current;
-    const validMessageIds = new Set(allMessageIds);
+    const priorityMessageIds = [...immediateMessageIds, ...mountedMessageIds, ...pendingMessageIds];
     setRenderedAssistantMarkdownMessageIds((current) => {
-      let changed = false;
       const next = new Set<string>();
+      for (const messageId of priorityMessageIds) {
+        if (!next.has(messageId)) {
+          next.add(messageId);
+        }
+      }
       for (const messageId of current) {
-        if (!validMessageIds.has(messageId)) {
-          changed = true;
-          continue;
-        }
-        next.add(messageId);
-      }
-      for (const messageId of immediateMessageIds) {
         if (!next.has(messageId)) {
-          changed = true;
           next.add(messageId);
         }
-      }
-      for (const messageId of mountedMessageIds) {
-        if (!next.has(messageId)) {
-          changed = true;
-          next.add(messageId);
+        if (next.size >= MAX_RENDERED_ASSISTANT_MARKDOWN_MESSAGE_IDS) {
+          break;
         }
       }
-      return changed ? next : current;
+      return areStringSetsEqual(next, current) ? current : next;
     });
   }, [
-    allAssistantMarkdownMessageIdKey,
     immediateAssistantMarkdownMessageIdKey,
     isTimelineScrolling,
     mountedVirtualizedAssistantMarkdownMessageIdKey,
+    pendingAssistantMarkdownMessageIdKey,
     shouldPrioritizeAssistantMarkdown,
   ]);
 
@@ -2499,9 +2282,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     return <TimelineRowsLoadingFallback />;
   }
 
-  const showFetchingIndicator =
-    rows.length > 0 && (isThreadHistoryFetching || isThreadHistoryLoading || timelineRowsLoading);
-
   return (
     <div
       ref={setTimelineRootElement}
@@ -2511,7 +2291,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       onKeyUp={updateSelectionPinTarget}
       onMouseUp={updateSelectionPinTarget}
     >
-      {showFetchingIndicator ? <TimelineRowsFetchingIndicator /> : null}
       {selectionPinTarget ? (
         <button
           type="button"
@@ -2525,64 +2304,16 @@ export const MessagesTimeline = memo(function MessagesTimeline({
           Pin
         </button>
       ) : null}
-      {shouldRenderVirtualizedBuffer ? (
-        <div
-          data-virtualizer-buffer="true"
-          className="relative"
-          style={{ height: `${virtualizedBufferHeight}px` }}
-        >
-          {renderedVirtualItems.map((virtualRow) => {
-            const row = virtualizedRows[virtualRow.index];
-            if (!row) {
-              return null;
-            }
-            return (
-              <div
-                key={`row:${row.id}`}
-                ref={rowVirtualizer.measureElement}
-                data-index={virtualRow.index}
-                data-timeline-row-id={row.id}
-                className={cn(
-                  "timeline-row-render-cache absolute top-0 left-0 flow-root w-full",
-                  animatedPrependedRowIds.has(row.id) && "timeline-row-prepended",
-                )}
-                style={buildRowRenderCacheStyle(row, {
-                  transform: `translateY(${virtualRow.start}px)`,
-                })}
-              >
-                {buildRowContent(row, virtualRow.index)}
-              </div>
-            );
-          })}
-        </div>
-      ) : (
-        virtualizedRows.map((row, index) => (
-          <div
-            key={`row:${row.id}`}
-            data-timeline-row-id={row.id}
-            className={cn(
-              "timeline-row-render-cache",
-              animatedPrependedRowIds.has(row.id) && "timeline-row-prepended",
-            )}
-            style={buildRowRenderCacheStyle(row)}
-          >
-            {buildRowContent(row, index)}
-          </div>
-        ))
-      )}
-      {trailingRows.map((row, index) => (
-        <div
-          key={`row:${row.id}`}
-          data-timeline-row-id={row.id}
-          className={cn(
-            "timeline-row-render-cache",
-            animatedPrependedRowIds.has(row.id) && "timeline-row-prepended",
-          )}
-          style={buildRowRenderCacheStyle(row)}
-        >
-          {buildRowContent(row, virtualizedRows.length + index)}
-        </div>
-      ))}
+      <TimelineViewport
+        buildRowContent={buildRowContent}
+        buildRowRenderCacheStyle={buildRowRenderCacheStyle}
+        measureVirtualizedRowElement={rowVirtualizer.measureElement}
+        renderedVirtualItems={renderedVirtualItems}
+        shouldRenderVirtualizedBuffer={shouldRenderVirtualizedBuffer}
+        trailingRows={trailingRows}
+        virtualizedBufferHeight={virtualizedBufferHeight}
+        virtualizedRows={virtualizedRows}
+      />
     </div>
   );
 });
@@ -2716,12 +2447,23 @@ export function derivePendingAssistantMarkdownMessageIdsBottomUp(
   input: {
     firstUnvirtualizedRowIndex: number;
     immediateMessageIds: ReadonlySet<string>;
+    maxMessageIds?: number;
+    maxRows?: number;
     mountedMessageIds: ReadonlySet<string>;
     renderedMessageIds: ReadonlySet<string>;
   },
 ): string[] {
   const messageIds: string[] = [];
-  for (let index = input.firstUnvirtualizedRowIndex - 1; index >= 0; index -= 1) {
+  const maxRows = Math.max(0, Math.trunc(input.maxRows ?? Number.POSITIVE_INFINITY));
+  const maxMessageIds = Math.max(0, Math.trunc(input.maxMessageIds ?? Number.POSITIVE_INFINITY));
+  const minIndexExclusive =
+    Number.isFinite(maxRows) && maxRows > 0
+      ? Math.max(0, input.firstUnvirtualizedRowIndex - maxRows)
+      : 0;
+  for (let index = input.firstUnvirtualizedRowIndex - 1; index >= minIndexExclusive; index -= 1) {
+    if (messageIds.length >= maxMessageIds) {
+      break;
+    }
     const row = rows[index];
     if (!row || !isCompletedAssistantMessageRow(row)) {
       continue;
@@ -2737,6 +2479,47 @@ export function derivePendingAssistantMarkdownMessageIdsBottomUp(
     messageIds.push(messageId);
   }
   return messageIds;
+}
+
+function collectAssistantMarkdownPrewarmRows(
+  rows: ReadonlyArray<TimelineRow>,
+  input: {
+    readonly firstUnvirtualizedRowIndex: number;
+    readonly renderedVirtualItems: readonly VirtualItem[];
+    readonly virtualizedRows: ReadonlyArray<TimelineRow>;
+  },
+): TimelineRow[] {
+  const rowById = new Map<string, TimelineRow>();
+  for (const virtualItem of input.renderedVirtualItems) {
+    const row = input.virtualizedRows[virtualItem.index];
+    if (row) {
+      rowById.set(row.id, row);
+    }
+  }
+
+  const pendingLookbackStartIndex = Math.max(
+    0,
+    input.firstUnvirtualizedRowIndex - ASSISTANT_MARKDOWN_PENDING_LOOKBACK_ROWS,
+  );
+  for (let index = pendingLookbackStartIndex; index < rows.length; index += 1) {
+    const row = rows[index];
+    if (row) {
+      rowById.set(row.id, row);
+    }
+  }
+  return [...rowById.values()];
+}
+
+function areStringSetsEqual(left: ReadonlySet<string>, right: ReadonlySet<string>): boolean {
+  if (left.size !== right.size) {
+    return false;
+  }
+  for (const value of left) {
+    if (!right.has(value)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 export function deriveFirstUnvirtualizedTimelineRowIndex(

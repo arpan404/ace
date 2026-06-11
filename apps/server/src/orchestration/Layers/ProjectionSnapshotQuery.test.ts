@@ -1141,20 +1141,19 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       assert.equal(thread.activities[0]?.id, "activity-1");
       assert.equal(thread.activities.at(-1)?.id, `activity-${totalActivityCount}`);
 
-      const firstActivityPage = yield* snapshotQuery.getThreadTimelinePage({
-        threadId,
-        startIndex: 0,
-        limit: 1,
-      });
-      assert.equal(firstActivityPage._tag, "Some");
-      if (Option.isSome(firstActivityPage)) {
+      const timelineSnapshot = yield* snapshotQuery.getThreadTimelineRowsSnapshot({ threadId });
+      assert.equal(timelineSnapshot._tag, "Some");
+      if (Option.isSome(timelineSnapshot)) {
+        assert.equal(timelineSnapshot.value.totalRows, totalActivityCount);
         assert.deepEqual(
-          firstActivityPage.value.entries.map((entry) => `${entry.kind}:${entry.id}`),
-          ["activity:activity-1"],
+          timelineSnapshot.value.rows
+            .slice(0, 2)
+            .map((row) => `${row.startSourceIndex}:${row.kind}:${row.id}`),
+          ["0:work:activity:activity-1", "1:work:activity:activity-2"],
         );
         assert.deepEqual(
-          firstActivityPage.value.activities.map((activity) => activity.id),
-          [asEventId("activity-1")],
+          timelineSnapshot.value.activities.slice(0, 2).map((activity) => activity.id),
+          [asEventId("activity-1"), asEventId("activity-2")],
         );
       }
     }),
@@ -1448,7 +1447,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
     }),
   );
 
-  it.effect("reads sparse thread timeline pages from projection tables", () =>
+  it.effect("reads complete thread timeline snapshots from projection tables", () =>
     Effect.gen(function* () {
       const snapshotQuery = yield* ProjectionSnapshotQuery;
       const sql = yield* SqlClient.SqlClient;
@@ -1619,36 +1618,32 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
 
       yield* rebuildTimelineEntriesForThread(sql, "thread-timeline-page");
 
-      const page = yield* snapshotQuery.getThreadTimelinePage({
+      const snapshot = yield* snapshotQuery.getThreadTimelineRowsSnapshot({
         threadId: ThreadId.makeUnsafe("thread-timeline-page"),
-        startIndex: 1,
-        limit: 3,
       });
-      assert.equal(page._tag, "Some");
-      if (page._tag === "Some") {
+      assert.equal(snapshot._tag, "Some");
+      if (Option.isSome(snapshot)) {
+        assert.equal(snapshot.value.totalRows, 5);
         assert.deepEqual(
-          page.value.entries.map((entry) => `${entry.kind}:${entry.id}`),
-          ["activity:activity-tool", "activity:activity-null-payload", "proposed-plan:plan-1"],
-        );
-        assert.equal(page.value.totalItems, 5);
-        assert.equal(page.value.startIndex, 1);
-        assert.equal(page.value.endIndexExclusive, 4);
-        assert.equal(page.value.hasPrevious, true);
-        assert.equal(page.value.hasNext, true);
-        assert.deepEqual(
-          page.value.messages.map((message) => message.text),
-          [],
+          snapshot.value.rows.map((row) => `${row.startSourceIndex}:${row.kind}:${row.id}`),
+          [
+            "0:message:message:message-user",
+            "1:work:activity:activity-tool",
+            "2:work:activity:activity-null-payload",
+            "3:proposed-plan:proposed-plan:plan-1",
+            "4:message:message:message-assistant",
+          ],
         );
         assert.deepEqual(
-          page.value.activities.map((activity) => activity.id),
+          snapshot.value.messages.map((message) => message.text),
+          ["Run checks", "Done"],
+        );
+        assert.deepEqual(
+          snapshot.value.activities.map((activity) => activity.id),
           [asEventId("activity-tool"), asEventId("activity-null-payload")],
         );
         assert.deepEqual(
-          page.value.activities.map((activity) => activity.payload),
-          [{ command: "bun lint" }, {}],
-        );
-        assert.deepEqual(
-          page.value.proposedPlans.map((plan) => plan.id),
+          snapshot.value.proposedPlans.map((plan) => plan.id),
           ["plan-1"],
         );
       }
@@ -1668,53 +1663,31 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         SET updated_at = '2026-04-01T00:00:11.000Z'
         WHERE thread_id = 'thread-timeline-page'
       `;
-      const deletedSourcePage = yield* snapshotQuery.getThreadTimelinePage({
+      const repairedSnapshot = yield* snapshotQuery.getThreadTimelineRowsSnapshot({
         threadId: ThreadId.makeUnsafe("thread-timeline-page"),
-        startIndex: 2,
-        limit: 1,
       });
-      assert.equal(deletedSourcePage._tag, "Some");
-      if (deletedSourcePage._tag === "Some") {
+      assert.equal(repairedSnapshot._tag, "Some");
+      if (Option.isSome(repairedSnapshot)) {
+        assert.equal(repairedSnapshot.value.totalRows, 4);
+        assert.equal(repairedSnapshot.value.updatedAt, "2026-04-01T00:00:11.000Z");
         assert.deepEqual(
-          deletedSourcePage.value.entries.map((entry) => `${entry.kind}:${entry.id}`),
-          ["proposed-plan:plan-1"],
-        );
-        assert.equal(deletedSourcePage.value.hasNext, true);
-        assert.deepEqual(
-          deletedSourcePage.value.activities.map((activity) => activity.id),
-          [],
-        );
-        assert.deepEqual(
-          deletedSourcePage.value.proposedPlans.map((plan) => plan.id),
-          ["plan-1"],
-        );
-      }
-
-      const tailPage = yield* snapshotQuery.getThreadTimelinePage({
-        threadId: ThreadId.makeUnsafe("thread-timeline-page"),
-        startIndex: 99,
-        limit: 32,
-      });
-      assert.equal(tailPage._tag, "Some");
-      if (tailPage._tag === "Some") {
-        assert.equal(tailPage.value.startIndex, 0);
-        assert.equal(tailPage.value.endIndexExclusive, 4);
-        assert.equal(tailPage.value.hasPrevious, false);
-        assert.equal(tailPage.value.hasNext, false);
-        assert.deepEqual(
-          tailPage.value.entries.map((entry) => `${entry.kind}:${entry.id}`),
+          repairedSnapshot.value.rows.map((row) => `${row.startSourceIndex}:${row.kind}:${row.id}`),
           [
-            "message:message-user",
-            "activity:activity-tool",
-            "proposed-plan:plan-1",
-            "message:message-assistant",
+            "0:message:message:message-user",
+            "1:work:activity:activity-tool",
+            "2:proposed-plan:proposed-plan:plan-1",
+            "3:message:message:message-assistant",
           ],
+        );
+        assert.deepEqual(
+          repairedSnapshot.value.activities.map((activity) => activity.id),
+          [asEventId("activity-tool")],
         );
       }
     }),
   );
 
-  it.effect("reads large backend timeline slices without retaining stale pages", () =>
+  it.effect("reads large backend timeline snapshots without stale rows", () =>
     Effect.gen(function* () {
       const snapshotQuery = yield* ProjectionSnapshotQuery;
       const sql = yield* SqlClient.SqlClient;
@@ -1819,20 +1792,16 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       `;
       yield* rebuildTimelineEntriesForThread(sql, "thread-large-cached-page");
 
-      const page = yield* snapshotQuery.getThreadTimelinePage({
-        threadId,
-        startIndex: 0,
-        limit: 300,
-      });
-      assert.equal(page._tag, "Some");
-      if (Option.isSome(page)) {
-        assert.equal(page.value.totalItems, 300);
-        assert.equal(page.value.entries.length, 300);
-        assert.equal(page.value.messages.length, 300);
-        assert.equal(page.value.endIndexExclusive, 300);
-        assert.equal(page.value.hasNext, false);
-        assert.equal(page.value.messages[0]?.text, "Large cached message 0");
-        assert.equal(page.value.messages.at(-1)?.text, "Large cached message 299");
+      const snapshot = yield* snapshotQuery.getThreadTimelineRowsSnapshot({ threadId });
+      assert.equal(snapshot._tag, "Some");
+      if (Option.isSome(snapshot)) {
+        assert.equal(snapshot.value.totalRows, 300);
+        assert.equal(snapshot.value.rows.length, 300);
+        assert.equal(snapshot.value.messages.length, 300);
+        assert.equal(snapshot.value.rows[0]?.id, "message:message-large-0");
+        assert.equal(snapshot.value.rows.at(-1)?.id, "message:message-large-299");
+        assert.equal(snapshot.value.messages[0]?.text, "Large cached message 0");
+        assert.equal(snapshot.value.messages.at(-1)?.text, "Large cached message 299");
       }
 
       yield* sql`
@@ -1841,14 +1810,10 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         WHERE message_id = 'message-large-0'
       `;
 
-      const refreshedPage = yield* snapshotQuery.getThreadTimelinePage({
-        threadId,
-        startIndex: 0,
-        limit: 300,
-      });
-      assert.equal(refreshedPage._tag, "Some");
-      if (Option.isSome(refreshedPage)) {
-        assert.equal(refreshedPage.value.messages[0]?.text, "Large cached message updated");
+      const refreshedSnapshot = yield* snapshotQuery.getThreadTimelineRowsSnapshot({ threadId });
+      assert.equal(refreshedSnapshot._tag, "Some");
+      if (Option.isSome(refreshedSnapshot)) {
+        assert.equal(refreshedSnapshot.value.messages[0]?.text, "Large cached message updated");
       }
 
       yield* sql`
@@ -1857,19 +1822,15 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         WHERE thread_id = 'thread-large-cached-page'
       `;
 
-      const invalidatedPage = yield* snapshotQuery.getThreadTimelinePage({
-        threadId,
-        startIndex: 0,
-        limit: 300,
-      });
-      assert.equal(invalidatedPage._tag, "Some");
-      if (Option.isSome(invalidatedPage)) {
-        assert.equal(invalidatedPage.value.messages[0]?.text, "Large cached message updated");
+      const invalidatedSnapshot = yield* snapshotQuery.getThreadTimelineRowsSnapshot({ threadId });
+      assert.equal(invalidatedSnapshot._tag, "Some");
+      if (Option.isSome(invalidatedSnapshot)) {
+        assert.equal(invalidatedSnapshot.value.messages[0]?.text, "Large cached message updated");
       }
     }),
   );
 
-  it.effect("reads sparse thread timeline pages with interleaved event positions", () =>
+  it.effect("reads complete timeline snapshots with interleaved event positions", () =>
     Effect.gen(function* () {
       const snapshotQuery = yield* ProjectionSnapshotQuery;
       const sql = yield* SqlClient.SqlClient;
@@ -2029,10 +1990,21 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         )
       `;
 
-      const manifest = yield* snapshotQuery.getThreadTimelineManifest({ threadId });
-      assert.equal(manifest._tag, "Some");
-      if (Option.isSome(manifest)) {
-        assert.equal(manifest.value.totalItems, 4);
+      const initialSnapshot = yield* snapshotQuery.getThreadTimelineRowsSnapshot({ threadId });
+      assert.equal(initialSnapshot._tag, "Some");
+      if (Option.isSome(initialSnapshot)) {
+        assert.equal(initialSnapshot.value.threadId, threadId);
+        assert.equal(initialSnapshot.value.updatedAt, "2026-03-04T00:00:10.000Z");
+        assert.equal(initialSnapshot.value.totalRows, 4);
+        assert.deepEqual(
+          initialSnapshot.value.rows.map((row) => `${row.startSourceIndex}:${row.kind}:${row.id}`),
+          [
+            "0:message:message:message-user",
+            "1:work:activity:activity-tool",
+            "2:proposed-plan:proposed-plan:plan-timeline",
+            "3:message:message:message-assistant",
+          ],
+        );
       }
 
       const repairedTimelineRows = yield* sql<{ readonly count: number }>`
@@ -2046,22 +2018,17 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         DELETE FROM projection_thread_timeline_entries
         WHERE thread_id = 'thread-timeline-page'
       `;
-      const tailPage = yield* snapshotQuery.getThreadTimelinePage({
-        threadId,
-        startIndex: 0,
-        limit: 4,
-        anchor: "tail",
-      });
-      assert.equal(tailPage._tag, "Some");
-      if (Option.isSome(tailPage)) {
-        assert.equal(tailPage.value.totalItems, 4);
+      const rebuiltSnapshot = yield* snapshotQuery.getThreadTimelineRowsSnapshot({ threadId });
+      assert.equal(rebuiltSnapshot._tag, "Some");
+      if (Option.isSome(rebuiltSnapshot)) {
+        assert.equal(rebuiltSnapshot.value.totalRows, 4);
         assert.deepEqual(
-          tailPage.value.entries.map((entry) => `${entry.kind}:${entry.id}`),
+          rebuiltSnapshot.value.rows.map((row) => `${row.startSourceIndex}:${row.kind}:${row.id}`),
           [
-            "message:message-user",
-            "activity:activity-tool",
-            "proposed-plan:plan-timeline",
-            "message:message-assistant",
+            "0:message:message:message-user",
+            "1:work:activity:activity-tool",
+            "2:proposed-plan:proposed-plan:plan-timeline",
+            "3:message:message:message-assistant",
           ],
         );
       }
@@ -2073,102 +2040,46 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           AND kind = 'activity'
           AND source_id = 'activity-tool'
       `;
-      const staleReferencePage = yield* snapshotQuery.getThreadTimelinePage({
-        threadId,
-        startIndex: 1,
-        limit: 1,
-      });
-      assert.equal(staleReferencePage._tag, "Some");
-      if (Option.isSome(staleReferencePage)) {
+      const repairedSnapshot = yield* snapshotQuery.getThreadTimelineRowsSnapshot({ threadId });
+      assert.equal(repairedSnapshot._tag, "Some");
+      if (Option.isSome(repairedSnapshot)) {
+        assert.equal(repairedSnapshot.value.threadId, threadId);
+        assert.equal(repairedSnapshot.value.revision.includes("thread-timeline-page:"), true);
+        assert.equal(repairedSnapshot.value.updatedAt, "2026-03-04T00:00:10.000Z");
+        assert.equal(repairedSnapshot.value.totalRows, 4);
         assert.deepEqual(
-          staleReferencePage.value.entries.map((entry) => `${entry.kind}:${entry.id}`),
-          ["activity:activity-tool"],
-        );
-      }
-
-      const page = yield* snapshotQuery.getThreadTimelinePage({
-        threadId,
-        startIndex: 1,
-        limit: 2,
-      });
-
-      assert.equal(page._tag, "Some");
-      if (Option.isSome(page)) {
-        assert.equal(page.value.threadId, threadId);
-        assert.equal(page.value.updatedAt, "2026-03-04T00:00:10.000Z");
-        assert.equal(page.value.totalItems, 4);
-        assert.equal(page.value.startIndex, 1);
-        assert.equal(page.value.endIndexExclusive, 3);
-        assert.equal(page.value.hasPrevious, true);
-        assert.equal(page.value.hasNext, true);
-        assert.deepEqual(
-          page.value.entries.map((entry) => `${entry.kind}:${entry.id}`),
-          ["activity:activity-tool", "proposed-plan:plan-timeline"],
+          repairedSnapshot.value.rows.map((row) => `${row.startSourceIndex}:${row.kind}:${row.id}`),
+          [
+            "0:message:message:message-user",
+            "1:work:activity:activity-tool",
+            "2:proposed-plan:proposed-plan:plan-timeline",
+            "3:message:message:message-assistant",
+          ],
         );
         assert.deepEqual(
-          page.value.messages.map((message) => message.text),
-          [],
+          repairedSnapshot.value.rows.map((row) =>
+            row.sourceRefs.map(
+              (sourceRef) => `${sourceRef.sourceIndex}:${sourceRef.kind}:${sourceRef.id}`,
+            ),
+          ),
+          [
+            ["0:message:message-user"],
+            ["1:activity:activity-tool"],
+            ["2:proposed-plan:plan-timeline"],
+            ["3:message:message-assistant"],
+          ],
         );
         assert.deepEqual(
-          page.value.activities.map((activity) => activity.summary),
+          repairedSnapshot.value.messages.map((message) => message.text),
+          ["Run checks", "Done"],
+        );
+        assert.deepEqual(
+          repairedSnapshot.value.activities.map((activity) => activity.summary),
           ["Run command"],
         );
         assert.deepEqual(
-          page.value.proposedPlans.map((plan) => plan.planMarkdown),
+          repairedSnapshot.value.proposedPlans.map((plan) => plan.planMarkdown),
           ["Plan"],
-        );
-      }
-
-      const batchPages = yield* snapshotQuery.getThreadTimelinePages({
-        threadId,
-        pages: [
-          { startIndex: 0, limit: 1 },
-          { startIndex: 1, limit: 2 },
-          { startIndex: 0, limit: 2, anchor: "tail" },
-        ],
-      });
-      assert.equal(batchPages._tag, "Some");
-      if (Option.isSome(batchPages)) {
-        assert.deepEqual(
-          batchPages.value.map((batchPage) =>
-            batchPage.entries.map((entry) => `${entry.kind}:${entry.id}`),
-          ),
-          [
-            ["message:message-user"],
-            ["activity:activity-tool", "proposed-plan:plan-timeline"],
-            ["proposed-plan:plan-timeline", "message:message-assistant"],
-          ],
-        );
-      }
-
-      const indexedPage = yield* snapshotQuery.getThreadTimelinePage({
-        threadId,
-        startIndex: 0,
-        limit: 4,
-      });
-      assert.equal(indexedPage._tag, "Some");
-      if (Option.isSome(indexedPage)) {
-        assert.deepEqual(
-          indexedPage.value.entries.map((entry) => `${entry.index}:${entry.kind}:${entry.id}`),
-          [
-            "0:message:message-user",
-            "1:activity:activity-tool",
-            "2:proposed-plan:plan-timeline",
-            "3:message:message-assistant",
-          ],
-        );
-      }
-
-      const repeatedMessagePage = yield* snapshotQuery.getThreadTimelinePage({
-        threadId,
-        startIndex: 0,
-        limit: 1,
-      });
-      assert.equal(repeatedMessagePage._tag, "Some");
-      if (Option.isSome(repeatedMessagePage)) {
-        assert.deepEqual(
-          repeatedMessagePage.value.messages.map((message) => message.text),
-          ["Run checks"],
         );
       }
 
@@ -2178,16 +2089,12 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         WHERE message_id = 'message-user'
       `;
 
-      const refreshedUpdatedAtPage = yield* snapshotQuery.getThreadTimelinePage({
-        threadId,
-        startIndex: 0,
-        limit: 1,
-      });
-      assert.equal(refreshedUpdatedAtPage._tag, "Some");
-      if (Option.isSome(refreshedUpdatedAtPage)) {
+      const refreshedSnapshot = yield* snapshotQuery.getThreadTimelineRowsSnapshot({ threadId });
+      assert.equal(refreshedSnapshot._tag, "Some");
+      if (Option.isSome(refreshedSnapshot)) {
         assert.deepEqual(
-          refreshedUpdatedAtPage.value.messages.map((message) => message.text),
-          ["Run checks updated"],
+          refreshedSnapshot.value.messages.map((message) => message.text),
+          ["Run checks updated", "Done"],
         );
       }
 
@@ -2197,181 +2104,13 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         WHERE thread_id = 'thread-timeline-page'
       `;
 
-      const invalidatedPage = yield* snapshotQuery.getThreadTimelinePage({
-        threadId,
-        startIndex: 0,
-        limit: 1,
-      });
-      assert.equal(invalidatedPage._tag, "Some");
-      if (Option.isSome(invalidatedPage)) {
+      const invalidatedSnapshot = yield* snapshotQuery.getThreadTimelineRowsSnapshot({ threadId });
+      assert.equal(invalidatedSnapshot._tag, "Some");
+      if (Option.isSome(invalidatedSnapshot)) {
+        assert.equal(invalidatedSnapshot.value.updatedAt, "2026-03-04T00:00:11.000Z");
         assert.deepEqual(
-          invalidatedPage.value.messages.map((message) => message.text),
-          ["Run checks updated"],
-        );
-      }
-    }),
-  );
-
-  it.effect("keeps sparse timeline pages bounded to the requested indexed slice", () =>
-    Effect.gen(function* () {
-      const snapshotQuery = yield* ProjectionSnapshotQuery;
-      const sql = yield* SqlClient.SqlClient;
-      const threadId = ThreadId.makeUnsafe("thread-complete-turn-page");
-
-      yield* sql`DELETE FROM projection_projects`;
-      yield* sql`DELETE FROM projection_threads`;
-      yield* sql`DELETE FROM projection_thread_messages`;
-      yield* sql`DELETE FROM projection_thread_activities`;
-      yield* sql`DELETE FROM projection_thread_proposed_plans`;
-      yield* sql`DELETE FROM projection_thread_timeline_entries`;
-      yield* sql`DELETE FROM projection_turns`;
-
-      yield* sql`
-        INSERT INTO projection_projects (
-          project_id,
-          title,
-          workspace_root,
-          default_model_selection_json,
-          scripts_json,
-          created_at,
-          updated_at,
-          deleted_at
-        )
-        VALUES (
-          'project-complete-turn-page',
-          'Complete Turn Page Project',
-          '/tmp/complete-turn-page',
-          '{"provider":"codex","model":"gpt-5-codex"}',
-          '[]',
-          '2026-06-01T00:00:00.000Z',
-          '2026-06-01T00:00:00.000Z',
-          NULL
-        )
-      `;
-
-      yield* sql`
-        INSERT INTO projection_threads (
-          thread_id,
-          project_id,
-          title,
-          model_selection_json,
-          runtime_mode,
-          interaction_mode,
-          branch,
-          worktree_path,
-          queued_composer_messages_json,
-          queued_steer_request_json,
-          latest_turn_id,
-          created_at,
-          updated_at,
-          deleted_at
-        )
-        VALUES (
-          'thread-complete-turn-page',
-          'project-complete-turn-page',
-          'Complete Turn Page Thread',
-          '{"provider":"codex","model":"gpt-5-codex"}',
-          'full-access',
-          'default',
-          NULL,
-          NULL,
-          '[]',
-          NULL,
-          NULL,
-          '2026-06-01T00:00:00.000Z',
-          '2026-06-01T00:00:10.000Z',
-          NULL
-        )
-      `;
-
-      yield* sql`
-        INSERT INTO projection_thread_messages (
-          message_id,
-          thread_id,
-          turn_id,
-          role,
-          text,
-          is_streaming,
-          sequence,
-          created_at,
-          updated_at,
-          attachments_json
-        )
-        VALUES
-          (
-            'message-complete-user',
-            'thread-complete-turn-page',
-            'turn-complete-page',
-            'user',
-            'Ask',
-            0,
-            1,
-            '2026-06-01T00:00:01.000Z',
-            '2026-06-01T00:00:01.000Z',
-            NULL
-          ),
-          (
-            'message-complete-assistant',
-            'thread-complete-turn-page',
-            'turn-complete-page',
-            'assistant',
-            'Answer',
-            0,
-            3,
-            '2026-06-01T00:00:03.000Z',
-            '2026-06-01T00:00:03.000Z',
-            NULL
-          )
-      `;
-
-      yield* sql`
-        INSERT INTO projection_thread_activities (
-          activity_id,
-          thread_id,
-          turn_id,
-          tone,
-          kind,
-          summary,
-          payload_json,
-          created_at,
-          sequence
-        )
-        VALUES (
-          'activity-complete-tool',
-          'thread-complete-turn-page',
-          'turn-complete-page',
-          'tool',
-          'tool.completed',
-          'Ran command',
-          '{}',
-          '2026-06-01T00:00:02.000Z',
-          2
-        )
-      `;
-
-      yield* rebuildTimelineEntriesForThread(sql, "thread-complete-turn-page");
-
-      const page = yield* snapshotQuery.getThreadTimelinePage({
-        threadId,
-        startIndex: 0,
-        limit: 1,
-      });
-
-      assert.equal(page._tag, "Some");
-      if (Option.isSome(page)) {
-        assert.equal(page.value.startIndex, 0);
-        assert.equal(page.value.endIndexExclusive, 1);
-        assert.deepEqual(
-          page.value.entries.map((entry) => `${entry.kind}:${entry.id}`),
-          ["message:message-complete-user"],
-        );
-        assert.deepEqual(
-          page.value.messages.map((message) => message.text),
-          ["Ask"],
-        );
-        assert.deepEqual(
-          page.value.activities.map((activity) => activity.summary),
-          [],
+          invalidatedSnapshot.value.messages.map((message) => message.text),
+          ["Run checks updated", "Done"],
         );
       }
     }),

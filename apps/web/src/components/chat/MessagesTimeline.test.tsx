@@ -94,7 +94,7 @@ const makeTimelineVirtualItem = (index: number) =>
   }) as const;
 
 describe("MessagesTimeline", { timeout: 30_000 }, () => {
-  it("derives timeline prefetch page size and direction from scroll speed", async () => {
+  it("derives timeline snapshot prefetch direction from scroll speed", async () => {
     const { deriveTimelineScrollPrefetchRequest } = await import("./MessagesTimeline");
 
     expect(
@@ -103,7 +103,7 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
         previousScrollTop: 0,
         elapsedMs: 100,
       }),
-    ).toMatchObject({ direction: "both", lookaheadRows: 32, olderPageCount: 1, pageSize: 100 });
+    ).toMatchObject({ direction: "both", lookaheadRows: 32 });
     expect(
       deriveTimelineScrollPrefetchRequest({
         currentScrollTop: 500,
@@ -113,8 +113,6 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     ).toMatchObject({
       direction: "newer",
       lookaheadRows: 256,
-      olderPageCount: 5,
-      pageSize: 500,
     });
     expect(
       deriveTimelineScrollPrefetchRequest({
@@ -125,8 +123,6 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     ).toMatchObject({
       direction: "older",
       lookaheadRows: 1_024,
-      olderPageCount: 12,
-      pageSize: 500,
     });
   });
 
@@ -230,65 +226,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     });
   });
 
-  it("uses stable timeline row cache keys across equivalent remounted arrays", async () => {
-    const { buildTimelineRowsCacheKey } = await import("../../lib/chat/timelineRowsClient");
-    const makeInput = (timelineEntries: []) => ({
-      timelineEntries,
-      activeTurnInProgress: false,
-      activeTurnStartedAt: null,
-      cacheScopeKey: "thread:thread-1:hydrated:v1",
-      completionDividerBeforeEntryId: null,
-      completionSummary: null,
-      isWorking: false,
-    });
-
-    expect(buildTimelineRowsCacheKey(makeInput([]))).toBe(buildTimelineRowsCacheKey(makeInput([])));
-  });
-
-  it("versions timeline row cache keys by projection semantics", async () => {
-    const { buildTimelineRowsCacheKey } = await import("../../lib/chat/timelineRowsClient");
-    const { TIMELINE_ROWS_PROJECTION_VERSION } =
-      await import("../../lib/chat/timelineRowsProjection");
-
-    expect(
-      buildTimelineRowsCacheKey({
-        timelineEntries: [],
-        activeTurnInProgress: false,
-        activeTurnStartedAt: null,
-        cacheScopeKey: "thread:thread-1:hydrated:v1",
-        completionDividerBeforeEntryId: null,
-        completionSummary: null,
-        isWorking: false,
-      }),
-    ).toContain(`timeline-rows:v${String(TIMELINE_ROWS_PROJECTION_VERSION)}`);
-  });
-
-  it("separates timeline row cache keys when the thread content scope changes", async () => {
-    const { buildTimelineRowsCacheKey } = await import("../../lib/chat/timelineRowsClient");
-    const baseInput = {
-      timelineEntries: [],
-      activeTurnInProgress: false,
-      activeTurnStartedAt: null,
-      completionDividerBeforeEntryId: null,
-      completionSummary: null,
-      isWorking: false,
-    };
-
-    expect(
-      buildTimelineRowsCacheKey({
-        ...baseInput,
-        cacheScopeKey: "thread:thread-1:hydrated:v1",
-      }),
-    ).not.toBe(
-      buildTimelineRowsCacheKey({
-        ...baseInput,
-        cacheScopeKey: "thread:thread-1:hydrated:v2",
-      }),
-    );
-  });
-
-  it("keeps active thread rows visible while async row rebuilding is pending", async () => {
-    const { resolveVisibleTimelineRows } = await import("./MessagesTimeline");
+  it("keeps active thread rows visible while rows are temporarily empty", async () => {
+    const { resolveVisibleTimelineRows } = await import("./useTimelineRowsController");
     const retainedRows = [
       {
         id: "previous-user-row",
@@ -302,8 +241,6 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
         activeThreadId: "thread-1",
         rows: retainedRows,
       },
-      resolvedAsyncRows: null,
-      shouldResolveAsync: true,
       syncRows: [],
     });
 
@@ -311,8 +248,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(result.rows).toBe(retainedRows);
   });
 
-  it("does not keep retained rows visible while thread history is loading", async () => {
-    const { resolveVisibleTimelineRows } = await import("./MessagesTimeline");
+  it("can opt out of retaining previous rows", async () => {
+    const { resolveVisibleTimelineRows } = await import("./useTimelineRowsController");
     const retainedRows = [
       {
         id: "previous-user-row",
@@ -327,17 +264,15 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
         rows: retainedRows,
       },
       retainRowsWhileLoading: false,
-      resolvedAsyncRows: null,
-      shouldResolveAsync: true,
       syncRows: [],
     });
 
-    expect(result.loading).toBe(true);
+    expect(result.loading).toBe(false);
     expect(result.rows).toEqual([]);
   });
 
-  it("keeps active thread rows visible while paged history is loading", async () => {
-    const { resolveVisibleTimelineRows } = await import("./MessagesTimeline");
+  it("keeps active thread rows visible while snapshot hydration catches up", async () => {
+    const { resolveVisibleTimelineRows } = await import("./useTimelineRowsController");
     const retainedRows = [
       {
         id: "previous-user-row",
@@ -347,12 +282,11 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
 
     const result = resolveVisibleTimelineRows({
       activeThreadId: "thread-1",
+      loading: true,
       retainedRows: {
         activeThreadId: "thread-1",
         rows: retainedRows,
       },
-      resolvedAsyncRows: null,
-      shouldResolveAsync: false,
       syncRows: [],
     });
 
@@ -360,8 +294,22 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(result.rows).toBe(retainedRows);
   });
 
-  it("uses sync rows while async row caching is pending", async () => {
-    const { resolveVisibleTimelineRows } = await import("./MessagesTimeline");
+  it("shows loading while an empty thread snapshot is in flight", async () => {
+    const { resolveVisibleTimelineRows } = await import("./useTimelineRowsController");
+
+    const result = resolveVisibleTimelineRows({
+      activeThreadId: "thread-1",
+      loading: true,
+      retainedRows: null,
+      syncRows: [],
+    });
+
+    expect(result.loading).toBe(true);
+    expect(result.rows).toEqual([]);
+  });
+
+  it("uses sync rows before retained rows", async () => {
+    const { resolveVisibleTimelineRows } = await import("./useTimelineRowsController");
     const syncRows = [
       {
         id: "sync-row",
@@ -375,8 +323,6 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
         activeThreadId: "thread-2",
         rows: [],
       },
-      resolvedAsyncRows: null,
-      shouldResolveAsync: true,
       syncRows,
     });
 
@@ -397,7 +343,12 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
       ...previousWindow,
       localStorage: globalThis.localStorage,
     });
-    vi.stubGlobal("Worker", class MockWorker {} as unknown as typeof Worker);
+    vi.stubGlobal(
+      "Worker",
+      class MockWorker {
+        terminate(): void {}
+      } as unknown as typeof Worker,
+    );
     try {
       const timelineEntries = Array.from({ length: 80 }, (_, index) => {
         const createdAt = `2026-03-17T19:${String(12 + Math.floor(index / 60)).padStart(2, "0")}:${String(index % 60).padStart(2, "0")}.000Z`;
@@ -438,12 +389,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
       };
 
       const cacheMissMarkup = renderToStaticMarkup(<MessagesTimeline {...baseProps} />);
-      const restoringMarkup = renderToStaticMarkup(
-        <MessagesTimeline {...baseProps} isThreadHistoryLoading />,
-      );
 
       expect(cacheMissMarkup).not.toContain("Loading conversation");
-      expect(restoringMarkup).not.toContain("Loading conversation");
     } finally {
       vi.stubGlobal("document", previousDocument);
       vi.stubGlobal("window", previousWindow);
@@ -468,12 +415,12 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
 
     const markup = renderToStaticMarkup(<TimelineRowsLoadingFallback />);
 
-    expect(markup).toContain("Fetching thread");
+    expect(markup).toContain("Loading thread...");
     expect(markup).not.toContain("animate-pulse");
     expect(markup).not.toContain("rounded-full bg-muted");
   });
 
-  it("shows fetching state without replacing already rendered rows", async () => {
+  it("does not show thread fetching chrome over already rendered rows", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
@@ -482,7 +429,6 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
         activeTurnInProgress={false}
         activeTurnStartedAt={null}
         getScrollContainer={() => null}
-        isThreadHistoryFetching
         timelineEntries={[
           {
             id: "loaded-user",
@@ -515,8 +461,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     );
 
     expect(markup).toContain("Already loaded");
-    expect(markup).toContain("Fetching thread");
-    expect(markup).toContain('data-thread-timeline-fetching="true"');
+    expect(markup).not.toContain("Loading thread...");
+    expect(markup).not.toContain('data-thread-timeline-fetching="true"');
     expect(markup).not.toContain("Loading conversation");
   });
 

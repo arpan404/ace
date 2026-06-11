@@ -1,11 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { MessageId, TurnId } from "@ace/contracts";
 
-import {
-  buildTimelineRows,
-  isCompletedAssistantMessageRow,
-  shouldWorkerizeTimelineRows,
-} from "./timelineRows";
+import { buildTimelineRows, isCompletedAssistantMessageRow } from "./timelineRows";
 import { createMarkedProviderCommandToken } from "../../composer-editor-mentions";
 import type { TimelineEntry } from "../../session-logic/types";
 
@@ -1154,39 +1150,5 @@ describe("timelineRows", () => {
       }),
     );
     expect(rows).toHaveLength(2);
-  });
-
-  it("workerizes large settled timelines only", () => {
-    expect(
-      shouldWorkerizeTimelineRows({
-        timelineEntries: Array.from({ length: 80 }, (_, index) => ({
-          id: `message-${index}`,
-          kind: "message" as const,
-          createdAt: "2025-01-01T00:00:00.000Z",
-          message: {
-            id: MessageId.makeUnsafe(`message-${index}`),
-            role: "assistant" as const,
-            text: "x".repeat(1000),
-            createdAt: "2025-01-01T00:00:00.000Z",
-            streaming: false,
-          },
-        })),
-        activeTurnInProgress: false,
-        activeTurnStartedAt: null,
-        completionDividerBeforeEntryId: null,
-        completionSummary: null,
-        isWorking: false,
-      }),
-    ).toBe(true);
-    expect(
-      shouldWorkerizeTimelineRows({
-        timelineEntries: [],
-        activeTurnInProgress: true,
-        activeTurnStartedAt: "2025-01-01T00:00:00.000Z",
-        completionDividerBeforeEntryId: null,
-        completionSummary: null,
-        isWorking: true,
-      }),
-    ).toBe(false);
   });
 });
