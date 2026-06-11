@@ -7,6 +7,7 @@ import {
   IsoDateTime,
   MessageId,
   NonNegativeInt,
+  PositiveInt,
   ProjectId,
   ThreadId,
   TrimmedNonEmptyString,
@@ -531,6 +532,30 @@ export const OrchestrationGetThreadTimelineRowsSnapshotResult = Schema.Struct({
 export type OrchestrationGetThreadTimelineRowsSnapshotResult =
   typeof OrchestrationGetThreadTimelineRowsSnapshotResult.Type;
 
+export const OrchestrationGetThreadTimelineRowsSnapshotChunkInput = Schema.Struct({
+  threadId: ThreadId,
+  startRowIndex: NonNegativeInt,
+  limit: PositiveInt,
+});
+export type OrchestrationGetThreadTimelineRowsSnapshotChunkInput =
+  typeof OrchestrationGetThreadTimelineRowsSnapshotChunkInput.Type;
+
+export const OrchestrationGetThreadTimelineRowsSnapshotChunkResult = Schema.Struct({
+  threadId: ThreadId,
+  revision: TrimmedNonEmptyString,
+  updatedAt: IsoDateTime,
+  totalRows: NonNegativeInt,
+  startRowIndex: NonNegativeInt,
+  endRowIndexExclusive: NonNegativeInt,
+  isComplete: Schema.Boolean,
+  rows: Schema.Array(OrchestrationTimelineRow),
+  messages: Schema.Array(OrchestrationMessage),
+  activities: Schema.Array(OrchestrationThreadActivity),
+  proposedPlans: Schema.Array(OrchestrationProposedPlan),
+});
+export type OrchestrationGetThreadTimelineRowsSnapshotChunkResult =
+  typeof OrchestrationGetThreadTimelineRowsSnapshotChunkResult.Type;
+
 export const OrchestrationGetTurnDiffInput = TurnCountRange.mapFields(
   Struct.assign({ threadId: ThreadId }),
   { unsafePreserveChecks: true },
@@ -569,6 +594,10 @@ export const OrchestrationRpcSchemas = {
   getThreadTimelineRowsSnapshot: {
     input: OrchestrationGetThreadTimelineRowsSnapshotInput,
     output: OrchestrationGetThreadTimelineRowsSnapshotResult,
+  },
+  getThreadTimelineRowsSnapshotChunk: {
+    input: OrchestrationGetThreadTimelineRowsSnapshotChunkInput,
+    output: OrchestrationGetThreadTimelineRowsSnapshotChunkResult,
   },
   dispatchCommand: {
     input: ClientOrchestrationCommand,

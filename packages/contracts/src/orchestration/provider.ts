@@ -22,6 +22,7 @@ export const ORCHESTRATION_WS_METHODS = {
   getSnapshot: "orchestration.getSnapshot",
   getThread: "orchestration.getThread",
   getThreadTimelineRowsSnapshot: "orchestration.getThreadTimelineRowsSnapshot",
+  getThreadTimelineRowsSnapshotChunk: "orchestration.getThreadTimelineRowsSnapshotChunk",
   dispatchCommand: "orchestration.dispatchCommand",
   getTurnDiff: "orchestration.getTurnDiff",
   getFullThreadDiff: "orchestration.getFullThreadDiff",
