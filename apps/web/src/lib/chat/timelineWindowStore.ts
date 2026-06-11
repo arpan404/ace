@@ -553,11 +553,15 @@ function primeTimelinePagesIntoState(
     };
     const nextRanges = mergeLoadedRange(loadedRangesByThreadId[page.threadId] ?? [], nextRange);
     loadedRangesByThreadId[page.threadId] = nextRanges;
+    // Never let totalItems regress: live-primed entries may have pushed the count
+    // beyond what a stale server page or hydrated page reports.
+    const previousManifestTotal = manifestsByThreadId[page.threadId]?.totalItems ?? 0;
+    const clampedTotalItems = Math.max(previousManifestTotal, page.totalItems);
     manifestsByThreadId[page.threadId] = {
       threadId: page.threadId,
       updatedAt: page.updatedAt,
-      totalItems: page.totalItems,
-      tailStartIndex: Math.max(0, page.totalItems - DEFAULT_TIMELINE_PAGE_SIZE),
+      totalItems: clampedTotalItems,
+      tailStartIndex: Math.max(0, clampedTotalItems - DEFAULT_TIMELINE_PAGE_SIZE),
       source: "page",
     };
     timelinePageCache.set(cacheKey, page, estimateTimelinePageSize(page));
@@ -841,10 +845,9 @@ export async function hydrateThreadTimelineCacheFromStorage(threadId: ThreadId):
       stateManifest,
     });
 
-    if (
-      !canApplyPersistedManifest &&
-      (state.loadedRangesByThreadId[normalizedThreadId] ?? []).length > 0
-    ) {
+    // When live data has already arrived (ranges exist from primeLiveThreadTimelineEntry),
+    // skip storage hydration entirely to avoid overwriting fresh pages with stale ones.
+    if ((state.loadedRangesByThreadId[normalizedThreadId] ?? []).length > 0) {
       return;
     }
 
@@ -852,6 +855,15 @@ export async function hydrateThreadTimelineCacheFromStorage(threadId: ThreadId):
     const persistedPages = await readPersistedThreadTimelinePages(
       ranges.map((range) => range.cacheKey),
     );
+
+    // Re-check after async read: live events may have arrived while we were reading from storage.
+    if (
+      (useTimelineWindowStore.getState().loadedRangesByThreadId[normalizedThreadId] ?? []).length >
+      0
+    ) {
+      return;
+    }
+
     const pages = ranges
       .map((range) => persistedPages.get(range.cacheKey))
       .filter((page): page is OrchestrationGetThreadTimelinePageResult => page !== undefined);

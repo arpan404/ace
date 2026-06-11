@@ -1,19 +1,6 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
-import { lazy, Suspense } from "react";
 
-const LazySettingsRouteLayout = lazy(() =>
-  import("../components/settings/SettingsRouteLayout").then((module) => ({
-    default: module.SettingsRouteLayout,
-  })),
-);
-
-function SettingsRouteLayout() {
-  return (
-    <Suspense fallback={null}>
-      <LazySettingsRouteLayout />
-    </Suspense>
-  );
-}
+import { SettingsRouteLayout } from "../components/settings/SettingsRouteLayout";
 
 export const Route = createFileRoute("/settings")({
   beforeLoad: ({ location }) => {

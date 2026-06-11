@@ -12,10 +12,12 @@ import {
   CheckSquareIcon,
   ChevronDownIcon,
   FileDiffIcon,
+  GitBranchPlusIcon,
   SettingsIcon,
   XIcon,
 } from "lucide-react";
 import { m, type MotionStyle } from "motion/react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import BranchToolbar from "../BranchToolbar";
 import EnvironmentGitSection from "../EnvironmentGitSection";
@@ -30,6 +32,8 @@ import { Skeleton } from "../ui/skeleton";
 import { Spinner } from "../ui/spinner";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
+import { gitInitMutationOptions } from "~/lib/gitReactQuery";
+import { toastManager } from "../ui/toast";
 import {
   createScratchPadNote,
   EMPTY_SCRATCH_PAD_COLLECTION,
@@ -264,6 +268,32 @@ export const EnvironmentMiniPanel = forwardRef<
   }
 >(function EnvironmentMiniPanel(props, ref) {
   const activeThreadId = String(props.activeThreadId);
+  const queryClient = useQueryClient();
+  const initMutation = useMutation(
+    gitInitMutationOptions({
+      connectionUrl: props.branchToolbarProps?.connectionUrl ?? null,
+      cwd: props.gitCwd,
+      queryClient,
+    }),
+  );
+
+  const handleGitInit = () => {
+    const threadToastData = props.activeThreadId ? { threadId: props.activeThreadId } : undefined;
+    const promise = initMutation.mutateAsync();
+    toastManager.promise(promise, {
+      loading: { title: "Initializing Git repository...", data: threadToastData },
+      success: () => ({
+        title: "Git initialized",
+        description: "Git repository was successfully initialized in this workspace.",
+        data: threadToastData,
+      }),
+      error: (err) => ({
+        title: "Failed to initialize Git",
+        description: err instanceof Error ? err.message : "An error occurred.",
+        data: threadToastData,
+      }),
+    });
+  };
   const [groupOpenState, setGroupOpenState] = useLocalStorage<
     EnvironmentPanelGroupOpenState,
     EnvironmentPanelGroupOpenState
@@ -454,7 +484,21 @@ export const EnvironmentMiniPanel = forwardRef<
               onWorkspaceModeChange={props.onWorkspaceModeChange}
             />
           ) : props.gitCwd ? (
-            <Skeleton className="mx-2 h-8 rounded-lg" />
+            <button
+              type="button"
+              className="flex min-h-8 w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-[12px] transition-colors hover:bg-accent/60 hover:text-accent-foreground"
+              disabled={initMutation.isPending}
+              onClick={handleGitInit}
+            >
+              {initMutation.isPending ? (
+                <Spinner className="size-3.5" />
+              ) : (
+                <GitBranchPlusIcon className="size-3.5 text-muted-foreground" />
+              )}
+              <span className="min-w-0 flex-1">
+                {initMutation.isPending ? "Initializing Git..." : "Initialize Git"}
+              </span>
+            </button>
           ) : null}
         </EnvironmentPanelGroup>
 
