@@ -324,7 +324,7 @@
   --sidebar-border: 0 0% 17%;
   --sidebar-accent: 0 0% 13%;
   --sidebar-accent-foreground: 0 0% 94%;
-  --background: oklch(0.13 0 0);
+  --background: oklch(0.175 0 0);
   --foreground: oklch(0.905 0 0);
   --card: oklch(0.215 0 0 / 0.62);
   --card-foreground: oklch(0.905 0 0);
@@ -344,10 +344,10 @@
   --info: oklch(0.92 0 0);
   --info-foreground: oklch(0.72 0 0);
   --bg-glow:
-    radial-gradient(circle at 18% 14%, oklch(0.24 0 0 / 0.28), transparent 46%),
-    radial-gradient(circle at 82% 10%, oklch(0.2 0 0 / 0.2), transparent 42%),
-    radial-gradient(ellipse 130% 85% at 50% 105%, oklch(0.16 0 0 / 0.16), transparent 55%),
-    linear-gradient(165deg, oklch(0.155 0 0), oklch(0.115 0 0));
+    radial-gradient(circle at 18% 14%, oklch(0.28 0 0 / 0.28), transparent 46%),
+    radial-gradient(circle at 82% 10%, oklch(0.24 0 0 / 0.2), transparent 42%),
+    radial-gradient(ellipse 130% 85% at 50% 105%, oklch(0.2 0 0 / 0.16), transparent 55%),
+    linear-gradient(165deg, oklch(0.195 0 0), oklch(0.16 0 0));
   --pill: oklch(0.22 0 0 / 0.68);
   --pill-border: oklch(0.34 0 0 / 0.24);
   --chat-bubble: oklch(0.24 0 0 / 0.72);
