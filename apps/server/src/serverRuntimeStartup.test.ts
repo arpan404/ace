@@ -54,6 +54,39 @@ it.effect("enqueueCommand fails queued work when readiness fails", () =>
   ),
 );
 
+it.effect("enqueueCommand rejects excess work while startup is pending", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const previousCapacity = process.env.ACE_STARTUP_COMMAND_QUEUE_CAPACITY;
+      process.env.ACE_STARTUP_COMMAND_QUEUE_CAPACITY = "1";
+
+      try {
+        const commandGate = yield* makeCommandGate;
+
+        const firstQueuedCommand = yield* commandGate
+          .enqueueCommand(Effect.void)
+          .pipe(Effect.forkScoped);
+        yield* Effect.yieldNow;
+
+        const rejected = yield* Effect.flip(commandGate.enqueueCommand(Effect.void));
+        assert.equal(
+          rejected.message,
+          "Server startup command queue is full (1). Try again after startup completes.",
+        );
+
+        yield* commandGate.signalCommandReady;
+        yield* Fiber.join(firstQueuedCommand);
+      } finally {
+        if (previousCapacity === undefined) {
+          delete process.env.ACE_STARTUP_COMMAND_QUEUE_CAPACITY;
+        } else {
+          process.env.ACE_STARTUP_COMMAND_QUEUE_CAPACITY = previousCapacity;
+        }
+      }
+    }),
+  ),
+);
+
 it.effect("launchStartupHeartbeat does not block the caller while counts are loading", () =>
   Effect.scoped(
     Effect.gen(function* () {
@@ -64,6 +97,7 @@ it.effect("launchStartupHeartbeat does not block the caller while counts are loa
           getSnapshot: () => Effect.die("unused"),
           getThread: () => Effect.succeed(Option.none()),
           getThreadTimelineRowsSnapshot: () => Effect.succeed(Option.none()),
+          getThreadTimelineRowsSnapshotChunk: () => Effect.succeed(Option.none()),
           getCounts: () =>
             Deferred.await(releaseCounts).pipe(
               Effect.as({

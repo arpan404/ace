@@ -163,4 +163,44 @@ describe("EventNdjsonLogger", () => {
       }
     }),
   );
+
+  it.effect("evicts idle thread writers without dropping later writes", () =>
+    Effect.gen(function* () {
+      const previousMaxOpen = process.env.ACE_EVENT_LOG_MAX_OPEN_THREAD_WRITERS;
+      process.env.ACE_EVENT_LOG_MAX_OPEN_THREAD_WRITERS = "1";
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "ace-provider-log-"));
+      const basePath = path.join(tempDir, "provider-native.ndjson");
+
+      try {
+        const logger = yield* makeEventNdjsonLogger(basePath, { stream: "native" });
+        assert.notEqual(logger, undefined);
+        if (!logger) {
+          return;
+        }
+
+        yield* logger.write({ id: "evt-thread-1-a" }, ThreadId.makeUnsafe("thread-1"));
+        yield* logger.write({ id: "evt-thread-2" }, ThreadId.makeUnsafe("thread-2"));
+        yield* logger.write({ id: "evt-thread-1-b" }, ThreadId.makeUnsafe("thread-1"));
+        yield* logger.close();
+
+        const threadOneLines = fs
+          .readFileSync(path.join(tempDir, "thread-1.log"), "utf8")
+          .trim()
+          .split("\n")
+          .map((line) => parseLogLine(line));
+        assert.deepEqual(
+          threadOneLines.map((line) => line.payload),
+          ['{"id":"evt-thread-1-a"}', '{"id":"evt-thread-1-b"}'],
+        );
+        assert.equal(fs.existsSync(path.join(tempDir, "thread-2.log")), true);
+      } finally {
+        if (previousMaxOpen === undefined) {
+          delete process.env.ACE_EVENT_LOG_MAX_OPEN_THREAD_WRITERS;
+        } else {
+          process.env.ACE_EVENT_LOG_MAX_OPEN_THREAD_WRITERS = previousMaxOpen;
+        }
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    }),
+  );
 });

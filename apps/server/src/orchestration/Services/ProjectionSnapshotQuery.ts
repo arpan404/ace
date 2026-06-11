@@ -8,6 +8,8 @@
  */
 import type {
   OrchestrationCheckpointSummary,
+  OrchestrationGetThreadTimelineRowsSnapshotChunkInput,
+  OrchestrationGetThreadTimelineRowsSnapshotChunkResult,
   OrchestrationGetThreadTimelineRowsSnapshotInput,
   OrchestrationGetThreadTimelineRowsSnapshotResult,
   OrchestrationGetSnapshotInput,
@@ -51,7 +53,7 @@ export interface ProjectionSnapshotQueryShape {
   ) => Effect.Effect<OrchestrationReadModel, ProjectionRepositoryError>;
 
   /**
-   * Read a single fully hydrated active thread.
+   * Read a single thread with UI presentation history only.
    */
   readonly getThread: (
     threadId: ThreadId,
@@ -64,6 +66,16 @@ export interface ProjectionSnapshotQueryShape {
     input: OrchestrationGetThreadTimelineRowsSnapshotInput,
   ) => Effect.Effect<
     Option.Option<OrchestrationGetThreadTimelineRowsSnapshotResult>,
+    ProjectionRepositoryError
+  >;
+
+  /**
+   * Read a normalized UI row slice for one thread.
+   */
+  readonly getThreadTimelineRowsSnapshotChunk: (
+    input: OrchestrationGetThreadTimelineRowsSnapshotChunkInput,
+  ) => Effect.Effect<
+    Option.Option<OrchestrationGetThreadTimelineRowsSnapshotChunkResult>,
     ProjectionRepositoryError
   >;
 

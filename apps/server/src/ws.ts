@@ -7,6 +7,7 @@ import {
   type GitManagerServiceError,
   OrchestrationDispatchCommandError,
   type OrchestrationEvent,
+  type OrchestrationGetThreadTimelineRowsSnapshotChunkInput,
   type OrchestrationGetThreadTimelineRowsSnapshotInput,
   type ProviderKind,
   type ServerProvider,
@@ -55,6 +56,13 @@ import { GitManager } from "./git/Services/GitManager";
 import { Keybindings } from "./keybindings";
 import { Open, resolveAvailableEditors } from "./open";
 import { normalizeDispatchCommand } from "./orchestration/Normalizer";
+import {
+  sanitizeOrchestrationEventForClient,
+  sanitizeReadModelForClient,
+  sanitizeThreadForClient,
+  sanitizeTimelineRowsSnapshotChunkForClient,
+  sanitizeTimelineRowsSnapshotForClient,
+} from "./orchestration/publicPresentation";
 import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine";
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
 import { ProviderRegistry } from "./provider/Services/ProviderRegistry";
@@ -549,6 +557,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
     return WsRpcGroup.of({
       [ORCHESTRATION_WS_METHODS.getSnapshot]: (input) =>
         projectionSnapshotQuery.getSnapshot(input).pipe(
+          Effect.map(sanitizeReadModelForClient),
           Effect.mapError(
             (cause) =>
               new OrchestrationGetSnapshotError({
@@ -567,7 +576,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
                     message: `Thread '${input.threadId}' was not found.`,
                   }),
                 ),
-              onSome: Effect.succeed,
+              onSome: (value) => Effect.succeed(sanitizeThreadForClient(value)),
             }),
           ),
           Effect.mapError((cause) =>
@@ -591,7 +600,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
                     message: `Thread '${input.threadId}' was not found.`,
                   }),
                 ),
-              onSome: Effect.succeed,
+              onSome: (value) => Effect.succeed(sanitizeTimelineRowsSnapshotForClient(value)),
             }),
           ),
           Effect.mapError((cause) =>
@@ -599,6 +608,30 @@ const WsRpcLayer = WsRpcGroup.toLayer(
               ? cause
               : new OrchestrationGetThreadError({
                   message: "Failed to load orchestration thread timeline rows snapshot",
+                  cause,
+                }),
+          ),
+        ),
+      [ORCHESTRATION_WS_METHODS.getThreadTimelineRowsSnapshotChunk]: (
+        input: OrchestrationGetThreadTimelineRowsSnapshotChunkInput,
+      ) =>
+        projectionSnapshotQuery.getThreadTimelineRowsSnapshotChunk(input).pipe(
+          Effect.flatMap((snapshot) =>
+            Option.match(snapshot, {
+              onNone: () =>
+                Effect.fail(
+                  new OrchestrationGetThreadError({
+                    message: `Thread '${input.threadId}' was not found.`,
+                  }),
+                ),
+              onSome: (value) => Effect.succeed(sanitizeTimelineRowsSnapshotChunkForClient(value)),
+            }),
+          ),
+          Effect.mapError((cause) =>
+            Schema.is(OrchestrationGetThreadError)(cause)
+              ? cause
+              : new OrchestrationGetThreadError({
+                  message: "Failed to load orchestration thread timeline rows snapshot chunk",
                   cause,
                 }),
           ),
@@ -643,7 +676,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
             clamp(input.fromSequenceExclusive, { maximum: Number.MAX_SAFE_INTEGER, minimum: 0 }),
           ),
         ).pipe(
-          Effect.map((events) => Array.from(events)),
+          Effect.map((events) => Array.from(events).map(sanitizeOrchestrationEventForClient)),
           Effect.mapError(
             (cause) =>
               new OrchestrationReplayEventsError({
@@ -664,7 +697,9 @@ const WsRpcLayer = WsRpcGroup.toLayer(
               Effect.catch(() => Effect.succeed([] as Array<OrchestrationEvent>)),
             );
             const replayStream = Stream.fromIterable(replayEvents);
-            const source = Stream.merge(replayStream, orchestrationEngine.streamDomainEvents);
+            const source = Stream.merge(replayStream, orchestrationEngine.streamDomainEvents).pipe(
+              Stream.map(sanitizeOrchestrationEventForClient),
+            );
             type SequenceState = {
               readonly nextSequence: number;
               readonly pendingBySequence: Map<number, OrchestrationEvent>;

@@ -136,6 +136,7 @@ describe("OrchestrationEngine", () => {
           getSnapshot: () => Effect.succeed(projectionSnapshot),
           getThread: () => Effect.succeed(Option.none()),
           getThreadTimelineRowsSnapshot: () => Effect.succeed(Option.none()),
+          getThreadTimelineRowsSnapshotChunk: () => Effect.succeed(Option.none()),
           getCounts: () => Effect.succeed({ projectCount: 1, threadCount: 1 }),
           getActiveProjectByWorkspaceRoot: () => Effect.succeed(Option.none()),
           getFirstActiveThreadIdByProjectId: () => Effect.succeed(Option.none()),
