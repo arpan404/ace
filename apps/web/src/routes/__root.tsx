@@ -70,7 +70,10 @@ import {
   coalesceOrchestrationUiEvents,
   resolveOrchestrationUiEventFlushPriority,
 } from "../orchestrationUiEvents";
-import { createOrchestrationRecoveryCoordinator } from "../orchestrationRecovery";
+import {
+  canUseSnapshotAsAuthoritative,
+  createOrchestrationRecoveryCoordinator,
+} from "../orchestrationRecovery";
 import { useEffectEvent } from "../hooks/useEffectEvent";
 import { resetWsRpcClient } from "../wsRpcClient";
 import { useDesktopCliInstallState } from "../lib/desktopCliInstallReactQuery";
@@ -1263,11 +1266,20 @@ function useEventRouterLifecycle() {
           METADATA_SNAPSHOT_RECOVERY_INPUT,
         );
         if (!disposed) {
+          const recoveryStateBeforeMerge = recovery.getState();
+          const canReplaceWithSnapshot = canUseSnapshotAsAuthoritative(
+            recoveryStateBeforeMerge,
+            snapshot.snapshotSequence,
+          );
           const localOwnership = useHostConnectionStore.getState().getOwnership(localConnectionUrl);
-          if (localOwnership) {
+          if (localOwnership && canReplaceWithSnapshot) {
             removeReadModelEntities(localOwnership);
           }
-          useHostConnectionStore.getState().upsertSnapshotOwnership(localConnectionUrl, snapshot);
+          if (canReplaceWithSnapshot) {
+            useHostConnectionStore.getState().upsertSnapshotOwnership(localConnectionUrl, snapshot);
+          } else {
+            useHostConnectionStore.getState().mergeSnapshotOwnership(localConnectionUrl, snapshot);
+          }
           mergeServerReadModel(snapshot, {
             ...METADATA_SNAPSHOT_RECOVERY_INPUT,
             connectionUrl: localConnectionUrl,
@@ -1276,6 +1288,8 @@ function useEventRouterLifecycle() {
           phase.success("Snapshot recovery applied", {
             reason,
             snapshotSequence: snapshot.snapshotSequence,
+            latestAppliedSequence: recoveryStateBeforeMerge.latestSequence,
+            authoritative: canReplaceWithSnapshot,
             projectCount: snapshot.projects.length,
             threadCount: snapshot.threads.length,
           });

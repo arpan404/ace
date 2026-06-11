@@ -66,6 +66,7 @@ describe("nativeTimelineRowsClient", () => {
       snapshotTotalRows: null,
       threadRevision: 1,
       rowCount: 1,
+      rowContentKey: "message:1:v1",
       isActiveTurnRunning: true,
       activeTurnStartedAt: "2026-01-01T00:00:01.000Z",
       completionDividerBeforeEntryId: null,
@@ -78,6 +79,7 @@ describe("nativeTimelineRowsClient", () => {
       snapshotTotalRows: null,
       threadRevision: 2,
       rowCount: 1,
+      rowContentKey: "message:1:v1",
       isActiveTurnRunning: true,
       activeTurnStartedAt: "2026-01-01T00:00:01.000Z",
       completionDividerBeforeEntryId: null,
@@ -98,6 +100,7 @@ describe("nativeTimelineRowsClient", () => {
         snapshotTotalRows: null,
         threadRevision: 1,
         rowCount: 0,
+        rowContentKey: "",
         isActiveTurnRunning: true,
         activeTurnStartedAt: null,
         completionDividerBeforeEntryId: null,
@@ -105,6 +108,33 @@ describe("nativeTimelineRowsClient", () => {
         turnDiffSummaryKey: "",
       }),
     ).toBeNull();
+  });
+
+  it("changes the cache key when same-count row content changes", () => {
+    const baseInput = {
+      threadId: "thread-live-only",
+      snapshotRevision: "snapshot:1",
+      snapshotTotalRows: 2,
+      threadRevision: 4,
+      rowCount: 2,
+      isActiveTurnRunning: true,
+      activeTurnStartedAt: "2026-01-01T00:00:01.000Z",
+      completionDividerBeforeEntryId: null,
+      completionSummary: null,
+      turnDiffSummaryKey: "",
+    };
+
+    const firstKey = createNativeTimelineRowsCacheKey({
+      ...baseInput,
+      rowContentKey: "message:1:v1\0message:2:optimistic",
+    });
+    const secondKey = createNativeTimelineRowsCacheKey({
+      ...baseInput,
+      rowContentKey: "message:1:v1\0message:2:server-stream",
+    });
+
+    expect(firstKey).not.toBeNull();
+    expect(secondKey).not.toBe(firstKey);
   });
 
   it("reuses cached render rows for an unchanged snapshot key", async () => {

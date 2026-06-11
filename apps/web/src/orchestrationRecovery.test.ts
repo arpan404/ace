@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { createOrchestrationRecoveryCoordinator } from "./orchestrationRecovery";
+import {
+  canUseSnapshotAsAuthoritative,
+  createOrchestrationRecoveryCoordinator,
+} from "./orchestrationRecovery";
 
 describe("createOrchestrationRecoveryCoordinator", () => {
   it("defers live events until bootstrap completes and then requests replay", () => {
@@ -71,6 +74,17 @@ describe("createOrchestrationRecoveryCoordinator", () => {
       bootstrapped: true,
       inFlight: null,
     });
+  });
+
+  it("does not treat older snapshots as authoritative after live events are applied", () => {
+    const coordinator = createOrchestrationRecoveryCoordinator();
+
+    coordinator.beginSnapshotRecovery("bootstrap");
+    coordinator.classifyDomainEvent(4);
+    coordinator.markEventBatchApplied([{ sequence: 4 }]);
+
+    expect(canUseSnapshotAsAuthoritative(coordinator.getState(), 3)).toBe(false);
+    expect(canUseSnapshotAsAuthoritative(coordinator.getState(), 4)).toBe(true);
   });
 
   it("requests another replay when deferred events arrive during replay recovery", () => {

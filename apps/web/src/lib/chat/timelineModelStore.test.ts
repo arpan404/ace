@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const nativeApiMock = vi.hoisted(() => ({
   getThreadTimelineRowsSnapshot: vi.fn(),
+  getThreadTimelineRowsSnapshotChunk: vi.fn(),
 }));
 
 vi.mock("../../nativeApi", () => ({
@@ -53,6 +54,7 @@ function readModelThreadForMetadata(input: {
 afterEach(() => {
   useTimelineModelStore.getState().reset();
   nativeApiMock.getThreadTimelineRowsSnapshot.mockReset();
+  nativeApiMock.getThreadTimelineRowsSnapshotChunk.mockReset();
 });
 
 describe("timelineModelStore", () => {
@@ -249,6 +251,72 @@ describe("timelineModelStore", () => {
     expect(useTimelineModelStore.getState().rowIdsByThreadId[threadId]).toEqual([
       "message:message-row-store",
     ]);
+  });
+
+  it("appends live rows after existing metadata-only history", async () => {
+    const { primeLiveTimelineRow } = await import("./timelineModelStore");
+    const secondMessageId = MessageId.makeUnsafe("message-row-store-second");
+
+    useTimelineModelStore.getState().primeMetadata({
+      threadId,
+      revision: "rev:metadata-only",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      totalRows: 10,
+      tailStartRowIndex: 0,
+    });
+
+    primeLiveTimelineRow(
+      {
+        threadId,
+        updatedAt: "2026-01-01T00:00:02.000Z",
+        entry: {
+          kind: "message",
+          id: messageId,
+          createdAt: "2026-01-01T00:00:01.000Z",
+          turnId,
+          sequence: 11,
+        },
+        message: {
+          id: messageId,
+          role: "assistant",
+          text: "First live row",
+          turnId,
+          streaming: true,
+          sequence: 11,
+          createdAt: "2026-01-01T00:00:01.000Z",
+          updatedAt: "2026-01-01T00:00:02.000Z",
+        },
+      },
+      { flush: "sync" },
+    );
+    primeLiveTimelineRow(
+      {
+        threadId,
+        updatedAt: "2026-01-01T00:00:03.000Z",
+        entry: {
+          kind: "message",
+          id: secondMessageId,
+          createdAt: "2026-01-01T00:00:02.000Z",
+          turnId,
+          sequence: 12,
+        },
+        message: {
+          id: secondMessageId,
+          role: "assistant",
+          text: "Second live row",
+          turnId,
+          streaming: true,
+          sequence: 12,
+          createdAt: "2026-01-01T00:00:02.000Z",
+          updatedAt: "2026-01-01T00:00:03.000Z",
+        },
+      },
+      { flush: "sync" },
+    );
+
+    const projection = readTimelineRowsProjection(threadId);
+    expect(projection.rows.map((row) => row.startSourceIndex)).toEqual([10, 11]);
+    expect(useTimelineModelStore.getState().metadataByThreadId[threadId]?.totalRows).toBe(12);
   });
 
   it("removes rolled back optimistic rows", async () => {

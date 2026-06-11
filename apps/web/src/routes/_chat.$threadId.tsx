@@ -10,6 +10,11 @@ import {
   startThreadTimelineRowsOpenPrefetch,
 } from "../lib/chat/timelineModelStore";
 import { getThreadById, getThreadByIdFromState, useStore } from "../store";
+import { hydrateThreadFromCache } from "../lib/threadHydrationCache";
+import {
+  ACTIVE_THREAD_HYDRATION_FALLBACK_DELAY_MS,
+  shouldHydrateActiveThreadFromReadModelFallback,
+} from "../lib/chat/activeThreadHydration";
 import { SidebarInset } from "~/components/ui/sidebar";
 import { getWsRpcClient } from "../wsRpcClient";
 import { normalizeWsUrl } from "../lib/remoteHosts";
@@ -92,10 +97,7 @@ function ChatThreadRouteView() {
     if (
       !bootstrapComplete ||
       !serverThread ||
-      serverThread.historyLoaded !== false ||
-      serverThread.latestTurn?.state === "running" ||
-      serverThread.session?.orchestrationStatus === "running" ||
-      serverThread.session?.status === "running" ||
+      !shouldHydrateActiveThreadFromReadModelFallback(serverThread) ||
       threadHydrationInFlightRef.current === threadId
     ) {
       return;
@@ -109,6 +111,38 @@ function ChatThreadRouteView() {
       threadId,
       priority: "immediate",
     });
+    let fallbackTimer: number | null = window.setTimeout(() => {
+      fallbackTimer = null;
+      if (canceled || requestId !== threadHydrationRequestIdRef.current) {
+        return;
+      }
+
+      const currentThread = getThreadByIdFromState(useStore.getState(), threadId);
+      if (!shouldHydrateActiveThreadFromReadModelFallback(currentThread)) {
+        return;
+      }
+
+      void (async () => {
+        try {
+          const readModelThread = await hydrateThreadFromCache(threadId, {
+            expectedUpdatedAt: currentThread.updatedAt ?? null,
+          });
+          if (canceled || requestId !== threadHydrationRequestIdRef.current) {
+            return;
+          }
+          useStore
+            .getState()
+            .hydrateThreadFromReadModel(
+              readModelThread,
+              routeConnectionUrl ? { connectionUrl: routeConnectionUrl } : undefined,
+            );
+        } catch (error) {
+          if (!canceled) {
+            console.error("Failed to hydrate active thread fallback", error);
+          }
+        }
+      })();
+    }, ACTIVE_THREAD_HYDRATION_FALLBACK_DELAY_MS);
     void (async () => {
       try {
         await prefetch.done;
@@ -118,6 +152,10 @@ function ChatThreadRouteView() {
       } catch {
         // Full timeline snapshots are opportunistic here; active view recovery can retry on reconnect.
       } finally {
+        if (fallbackTimer !== null) {
+          window.clearTimeout(fallbackTimer);
+          fallbackTimer = null;
+        }
         if (
           requestId === threadHydrationRequestIdRef.current &&
           threadHydrationInFlightRef.current === threadId
@@ -131,6 +169,10 @@ function ChatThreadRouteView() {
       canceled = true;
       // The route owns the active-open timeline snapshot. In-flight RPCs may finish and stay cached.
       prefetch.stop();
+      if (fallbackTimer !== null) {
+        window.clearTimeout(fallbackTimer);
+        fallbackTimer = null;
+      }
       if (
         requestId === threadHydrationRequestIdRef.current &&
         threadHydrationInFlightRef.current === threadId
@@ -138,7 +180,7 @@ function ChatThreadRouteView() {
         threadHydrationInFlightRef.current = null;
       }
     };
-  }, [bootstrapComplete, serverThread, threadId]);
+  }, [bootstrapComplete, routeConnectionUrl, serverThread, threadId]);
 
   useEffect(() => {
     return runThreadHydration();

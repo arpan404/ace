@@ -15,6 +15,7 @@ import { LRUCache } from "../lruCache";
 import { clampCacheEntryCount } from "../resourceProfile";
 
 const DEFAULT_TIMELINE_TAIL_WINDOW_ROWS = 100;
+const BACKGROUND_TIMELINE_ROWS_PREFETCH_DELAY_MS = 750;
 const TIMELINE_ROWS_SNAPSHOT_RPC_TIMEOUT_MS = 10_000;
 const MAX_ROW_HEIGHT_CACHE_ENTRIES = clampCacheEntryCount(32_000, {
   moderateCapEntries: 16_000,
@@ -134,6 +135,17 @@ const inFlightRowsSnapshotByThreadId = new Map<
 const projectionCacheByThreadId = new Map<string, TimelineRowsProjectionCacheEntry>();
 const liveTimelineRowPatchQueue = new Map<string, PrimeLiveTimelineRowInput>();
 let liveTimelineRowPatchFrame: number | null = null;
+
+function cancelLiveTimelineRowPatchFrame(): void {
+  if (liveTimelineRowPatchFrame !== null) {
+    if (typeof globalThis.cancelAnimationFrame === "function") {
+      globalThis.cancelAnimationFrame(liveTimelineRowPatchFrame);
+    }
+    globalThis.clearTimeout(liveTimelineRowPatchFrame);
+    liveTimelineRowPatchFrame = null;
+  }
+  liveTimelineRowPatchQueue.clear();
+}
 
 function createTimelineRowsSnapshotTimeout(threadId: ThreadId): Promise<never> {
   return new Promise((_, reject) => {
@@ -457,6 +469,7 @@ export const useTimelineModelStore = create<TimelineModelState>((set) => ({
     rowHeightCache.clear();
     inFlightRowsSnapshotByThreadId.clear();
     projectionCacheByThreadId.clear();
+    cancelLiveTimelineRowPatchFrame();
     set(createInitialTimelineModelState());
   },
 }));
@@ -634,7 +647,9 @@ export function startThreadTimelineRowsOpenPrefetch(input: {
   let canceled = false;
   const done = (async () => {
     if (input.priority !== "immediate") {
-      await new Promise((resolve) => globalThis.setTimeout(resolve, 0));
+      await new Promise((resolve) =>
+        globalThis.setTimeout(resolve, BACKGROUND_TIMELINE_ROWS_PREFETCH_DELAY_MS),
+      );
     }
     if (canceled) {
       return;
@@ -860,12 +875,16 @@ function applyLiveTimelineRowPatchToState(
   const previousMetadata = state.metadataByThreadId[input.threadId];
   const rowId = rowIdForSource(input.entry.kind, String(input.entry.id));
   const previousRow = state.rowsById[rowKey(input.threadId, rowId)];
-  const sourceIndex =
-    previousRow?.startSourceIndex ??
-    previousMetadata?.totalRows ??
-    state.rowIdsByThreadId[input.threadId]?.length ??
-    input.entry.sequence ??
-    0;
+  const threadRowIds = state.rowIdsByThreadId[input.threadId] ?? [];
+  let nextSourceIndex = previousMetadata?.totalRows ?? 0;
+  for (const existingRowId of threadRowIds) {
+    const existingRow = state.rowsById[rowKey(input.threadId, existingRowId)];
+    if (!existingRow) {
+      continue;
+    }
+    nextSourceIndex = Math.max(nextSourceIndex, existingRow.endSourceIndexExclusive);
+  }
+  const sourceIndex = previousRow?.startSourceIndex ?? nextSourceIndex;
   const row: OrchestrationTimelineRow = {
     id: rowId,
     kind: rowKindForSourceKind(input.entry.kind),
@@ -895,9 +914,12 @@ function applyLiveTimelineRowPatchToState(
       },
     ],
   };
-  const threadRowIds = state.rowIdsByThreadId[input.threadId] ?? [];
   const nextThreadRowIds = threadRowIds.includes(rowId) ? threadRowIds : [...threadRowIds, rowId];
-  const nextTotalRows = Math.max(previousMetadata?.totalRows ?? 0, nextThreadRowIds.length);
+  const nextTotalRows = Math.max(
+    previousMetadata?.totalRows ?? 0,
+    row.endSourceIndexExclusive,
+    nextThreadRowIds.length,
+  );
   const previousCompleteSnapshot = state.completeSnapshotByThreadId[input.threadId];
 
   return {
@@ -930,13 +952,25 @@ function applyLiveTimelineRowPatchToState(
       [rowKey(input.threadId, row.id)]: row,
     },
     messagesById: input.message
-      ? { ...state.messagesById, [String(input.message.id)]: input.message }
+      ? {
+          ...state.messagesById,
+          [String(input.message.id)]: chooseFreshestMessage(
+            state.messagesById[String(input.message.id)],
+            input.message,
+          ),
+        }
       : state.messagesById,
     activitiesById: input.activity
       ? { ...state.activitiesById, [String(input.activity.id)]: input.activity }
       : state.activitiesById,
     proposedPlansById: input.proposedPlan
-      ? { ...state.proposedPlansById, [String(input.proposedPlan.id)]: input.proposedPlan }
+      ? {
+          ...state.proposedPlansById,
+          [String(input.proposedPlan.id)]: chooseFreshestProposedPlan(
+            state.proposedPlansById[String(input.proposedPlan.id)],
+            input.proposedPlan,
+          ),
+        }
       : state.proposedPlansById,
     revisionByThreadId: bumpThreadRevision(state, input.threadId),
     revision: state.revision + 1,

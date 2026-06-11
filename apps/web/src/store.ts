@@ -21,6 +21,7 @@ import {
   derivePendingUserInputs,
 } from "./session-logic";
 import { appendCompactedThreadActivity } from "@ace/shared/orchestrationThreadActivities";
+import { compactActivityForClient } from "@ace/shared/orchestrationActivityPresentation";
 import { compareSequenceThenCreatedAt } from "./lib/activityOrder";
 import {
   appendChatMessageStreamingTextState,
@@ -259,8 +260,11 @@ function suppressDismissedThreadError(
   };
 }
 
-function mapMessage(message: OrchestrationMessage, connectionUrl?: string): ChatMessage {
-  const attachments = message.attachments?.map((attachment) => ({
+function mapMessageAttachments(
+  attachments: OrchestrationMessage["attachments"],
+  connectionUrl?: string,
+) {
+  return attachments?.map((attachment) => ({
     type: "image" as const,
     id: attachment.id,
     name: attachment.name,
@@ -268,6 +272,10 @@ function mapMessage(message: OrchestrationMessage, connectionUrl?: string): Chat
     sizeBytes: attachment.sizeBytes,
     previewUrl: toAttachmentPreviewUrl(attachmentPreviewRoutePath(attachment.id), connectionUrl),
   }));
+}
+
+function mapTimelineMessage(message: OrchestrationMessage, connectionUrl?: string): ChatMessage {
+  const attachments = mapMessageAttachments(message.attachments, connectionUrl);
 
   return {
     id: message.id,
@@ -281,6 +289,20 @@ function mapMessage(message: OrchestrationMessage, connectionUrl?: string): Chat
     ...(message.sequence !== undefined ? { sequence: message.sequence } : {}),
     streaming: message.streaming,
     ...(message.streaming ? {} : { completedAt: message.updatedAt }),
+    ...(attachments && attachments.length > 0 ? { attachments } : {}),
+  };
+}
+
+function mapOrchestrationMessageForClient(
+  message: OrchestrationMessage,
+  connectionUrl?: string,
+): OrchestrationMessage {
+  const attachments = message.attachments?.map((attachment) => ({
+    ...attachment,
+    previewUrl: toAttachmentPreviewUrl(attachmentPreviewRoutePath(attachment.id), connectionUrl),
+  }));
+  return {
+    ...message,
     ...(attachments && attachments.length > 0 ? { attachments } : {}),
   };
 }
@@ -809,7 +831,7 @@ function mapThread(thread: OrchestrationThread, options?: SnapshotSyncOptions): 
     runtimeMode: thread.runtimeMode,
     interactionMode: thread.interactionMode,
     session: thread.session ? mapSession(thread.session) : null,
-    messages: thread.messages.map((message) => mapMessage(message, threadConnectionUrl)),
+    messages: thread.messages.map((message) => mapTimelineMessage(message, threadConnectionUrl)),
     proposedPlans: thread.proposedPlans.map(mapProposedPlan),
     latestProposedPlanSummary: mapLatestProposedPlanSummary(thread.latestProposedPlanSummary),
     error: resolveSessionVisibleError(thread.session),
@@ -1549,6 +1571,25 @@ function appendThreadActivities(
   return nextActivities;
 }
 
+function primeThreadActivityTimelineRow(input: {
+  readonly threadId: ThreadId;
+  readonly activity: Thread["activities"][number];
+  readonly updatedAt: string;
+}): void {
+  primeLiveTimelineRow({
+    threadId: input.threadId,
+    updatedAt: input.updatedAt,
+    entry: {
+      kind: "activity",
+      id: input.activity.id,
+      createdAt: input.activity.createdAt,
+      turnId: input.activity.turnId,
+      ...(input.activity.sequence !== undefined ? { sequence: input.activity.sequence } : {}),
+    },
+    activity: input.activity,
+  });
+}
+
 function applyThreadActivityBatch(
   state: AppState,
   threadId: ThreadId,
@@ -1563,6 +1604,27 @@ function applyThreadActivityBatch(
     activities: appendThreadActivities(thread, activities),
     updatedAt,
   }));
+}
+
+function compactSettledTurnActivities(thread: Thread, turnId: string, updatedAt: string): Thread {
+  let changed = false;
+  const activities = thread.activities.map((activity) => {
+    if (activity.turnId === null || String(activity.turnId) !== turnId) {
+      return activity;
+    }
+    const compacted = compactActivityForClient(activity);
+    if (compacted !== activity) {
+      changed = true;
+      primeThreadActivityTimelineRow({
+        threadId: thread.id,
+        activity: compacted,
+        updatedAt,
+      });
+    }
+    return compacted;
+  });
+
+  return changed ? { ...thread, activities } : thread;
 }
 
 function applyProjectEvent(state: AppState, event: OrchestrationEvent): AppState | null {
@@ -1838,6 +1900,20 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
     }
 
     case "thread.message-sent": {
+      const connectionUrl = resolveConnectionForThreadId(event.payload.threadId);
+      const orchestrationMessage = {
+        id: event.payload.messageId,
+        role: event.payload.role,
+        text: event.payload.text,
+        ...(event.payload.attachments !== undefined
+          ? { attachments: event.payload.attachments }
+          : {}),
+        turnId: event.payload.turnId,
+        streaming: event.payload.streaming,
+        sequence: event.payload.sequence ?? event.sequence,
+        createdAt: event.payload.createdAt,
+        updatedAt: event.payload.updatedAt,
+      } satisfies OrchestrationMessage;
       primeLiveTimelineRow({
         threadId: event.payload.threadId,
         updatedAt: event.occurredAt,
@@ -1848,37 +1924,10 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
           turnId: event.payload.turnId,
           sequence: event.payload.sequence ?? event.sequence,
         },
-        message: {
-          id: event.payload.messageId,
-          role: event.payload.role,
-          text: event.payload.text,
-          ...(event.payload.attachments !== undefined
-            ? { attachments: event.payload.attachments }
-            : {}),
-          turnId: event.payload.turnId,
-          streaming: event.payload.streaming,
-          sequence: event.payload.sequence ?? event.sequence,
-          createdAt: event.payload.createdAt,
-          updatedAt: event.payload.updatedAt,
-        },
+        message: mapOrchestrationMessageForClient(orchestrationMessage, connectionUrl),
       });
       return updateThreadState(state, event.payload.threadId, (thread) => {
-        const message = mapMessage(
-          {
-            id: event.payload.messageId,
-            role: event.payload.role,
-            text: event.payload.text,
-            ...(event.payload.attachments !== undefined
-              ? { attachments: event.payload.attachments }
-              : {}),
-            turnId: event.payload.turnId,
-            streaming: event.payload.streaming,
-            sequence: event.payload.sequence ?? event.sequence,
-            createdAt: event.payload.createdAt,
-            updatedAt: event.payload.updatedAt,
-          },
-          resolveConnectionForThreadId(event.payload.threadId),
-        );
+        const message = mapTimelineMessage(orchestrationMessage, connectionUrl);
         const existingMessageIndex = thread.messages.findIndex((entry) => entry.id === message.id);
         const existingMessage =
           existingMessageIndex >= 0 ? thread.messages[existingMessageIndex] : undefined;
@@ -1969,13 +2018,19 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
                 assistantMessageId: event.payload.messageId,
               })
             : thread.latestTurn;
-        return {
+        const nextThread = {
           ...thread,
           messages: cappedMessages,
           turnDiffSummaries,
           latestTurn,
           updatedAt: event.occurredAt,
         };
+        return event.payload.role === "assistant" &&
+          event.payload.turnId !== null &&
+          latestTurn?.turnId === event.payload.turnId &&
+          latestTurn.state !== "running"
+          ? compactSettledTurnActivities(nextThread, String(event.payload.turnId), event.occurredAt)
+          : nextThread;
       });
     }
 
@@ -2099,12 +2154,17 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
                 sourceProposedPlan: thread.pendingSourceProposedPlan,
               })
             : thread.latestTurn;
-        return {
+        const nextThread = {
           ...thread,
           turnDiffSummaries,
           latestTurn,
           updatedAt: event.occurredAt,
         };
+        return compactSettledTurnActivities(
+          nextThread,
+          String(event.payload.turnId),
+          event.occurredAt,
+        );
       });
     }
 
@@ -2163,19 +2223,10 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
     }
 
     case "thread.activity-appended": {
-      primeLiveTimelineRow({
+      primeThreadActivityTimelineRow({
         threadId: event.payload.threadId,
-        updatedAt: event.occurredAt,
-        entry: {
-          kind: "activity",
-          id: event.payload.activity.id,
-          createdAt: event.payload.activity.createdAt,
-          turnId: event.payload.activity.turnId,
-          ...(event.payload.activity.sequence !== undefined
-            ? { sequence: event.payload.activity.sequence }
-            : {}),
-        },
         activity: event.payload.activity,
+        updatedAt: event.occurredAt,
       });
       return applyThreadActivityBatch(
         state,
@@ -2448,6 +2499,11 @@ export function applyOrchestrationEvents(
     const threadId = event.payload.threadId;
     const activities = [event.payload.activity];
     let updatedAt = event.occurredAt;
+    primeThreadActivityTimelineRow({
+      threadId,
+      activity: event.payload.activity,
+      updatedAt: event.occurredAt,
+    });
     let nextIndex = index + 1;
     while (nextIndex < events.length) {
       const nextEvent = events[nextIndex];
@@ -2459,6 +2515,11 @@ export function applyOrchestrationEvents(
       }
       activities.push(nextEvent.payload.activity);
       updatedAt = nextEvent.occurredAt;
+      primeThreadActivityTimelineRow({
+        threadId,
+        activity: nextEvent.payload.activity,
+        updatedAt: nextEvent.occurredAt,
+      });
       nextIndex += 1;
     }
 

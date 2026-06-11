@@ -9,7 +9,7 @@ import {
   type OrchestrationEvent,
   type OrchestrationReadModel,
 } from "@ace/contracts";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   applyOrchestrationEvent,
@@ -38,6 +38,10 @@ beforeEach(() => {
   __resetThreadHydrationCacheForTests();
   useStore.getState().resetToInitialState();
   useTimelineModelStore.getState().reset();
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 function makeThread(overrides: Partial<Thread> = {}): Thread {
@@ -393,6 +397,41 @@ describe("store read model sync", () => {
     expect(next.threads[0]?.messages[0]?.attachments?.[0]?.previewUrl).toBe(
       "https://remote.example/attachments/attachment-1?token=test-token",
     );
+  });
+
+  it("maps attachment preview URLs when priming live timeline rows", async () => {
+    vi.useFakeTimers();
+    const threadId = ThreadId.makeUnsafe("thread-live-attachment");
+    const initialState = makeState(makeThread({ id: threadId }));
+
+    applyOrchestrationEvent(
+      initialState,
+      makeEvent("thread.message-sent", {
+        threadId,
+        messageId: MessageId.makeUnsafe("message-live-attachment"),
+        role: "user",
+        text: "See image",
+        turnId: null,
+        streaming: false,
+        createdAt: "2026-02-27T00:00:00.000Z",
+        updatedAt: "2026-02-27T00:00:00.000Z",
+        attachments: [
+          {
+            id: "attachment-live-1" as never,
+            name: "image.png",
+            type: "image",
+            mimeType: "image/png",
+            sizeBytes: 10,
+          },
+        ],
+      }),
+    );
+    await vi.advanceTimersByTimeAsync(16);
+
+    expect(readTimelineRowsProjection(threadId).messages[0]?.attachments?.[0]).toMatchObject({
+      name: "image.png",
+      previewUrl: "/attachments/attachment-live-1",
+    });
   });
 
   it("maps queued composer state from the read model", () => {
@@ -2140,7 +2179,7 @@ describe("incremental orchestration updates", () => {
     ]);
   });
 
-  it("preserves activity semantics when consecutive same-thread activity events are batched", () => {
+  it("preserves activity semantics when consecutive same-thread activity events are batched", async () => {
     const thread = makeThread();
     const state = makeState(thread);
     const events = [
@@ -2198,6 +2237,11 @@ describe("incremental orchestration updates", () => {
 
     expect(batched.threads[0]?.activities).toEqual(sequential.threads[0]?.activities);
     expect(batched.threads[0]?.updatedAt).toBe("2026-02-27T00:00:02.000Z");
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(readTimelineRowsProjection(thread.id).activities.map((activity) => activity.id)).toEqual(
+      ["tool-started", "tool-output"],
+    );
   });
 
   it("applies replay batches in sequence and updates session state", () => {

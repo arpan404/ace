@@ -28,6 +28,7 @@ export interface NativeTimelineRowsCacheKeyInput {
   readonly completionDividerBeforeEntryId: string | null;
   readonly completionSummary: string | null;
   readonly isActiveTurnRunning: boolean;
+  readonly rowContentKey: string;
   readonly rowCount: number;
   readonly snapshotRevision: string | null;
   readonly snapshotTotalRows: number | null;
@@ -49,6 +50,7 @@ export function createNativeTimelineRowsCacheKey(
     input.threadRevision,
     input.snapshotTotalRows ?? input.rowCount,
     input.rowCount,
+    input.rowContentKey,
     input.isActiveTurnRunning ? "running" : "settled",
     input.activeTurnStartedAt ?? "",
     input.completionDividerBeforeEntryId ?? "",
