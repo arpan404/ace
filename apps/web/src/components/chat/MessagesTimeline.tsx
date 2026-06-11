@@ -1166,25 +1166,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         continue;
       }
 
-      let placementIndex = index;
-      for (let nextIndex = index + 1; nextIndex < rows.length; nextIndex += 1) {
-        const nextRow = rows[nextIndex];
-        if (
-          nextRow?.kind !== "work" &&
-          nextRow?.kind !== "work-group" &&
-          nextRow?.kind !== "intent" &&
-          nextRow?.kind !== "completed-work-summary"
-        ) {
-          break;
-        }
-        placementIndex = nextIndex;
-      }
-
-      const placementRow = rows[placementIndex];
-      if (!placementRow) {
-        continue;
-      }
-      footerByRowId.set(placementRow.id, {
+      footerByRowId.set(row.id, {
         copyText,
         isPinned,
         isForkConversationDisabled,
@@ -1850,6 +1832,16 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                   showCopyAction={false}
                   timestampFormat={timestampFormat}
                 />
+                {detachedAssistantFooter && (
+                  <AssistantTurnFooter
+                    copyText={detachedAssistantFooter.copyText}
+                    isPinned={detachedAssistantFooter.isPinned}
+                    onForkConversation={detachedAssistantFooter.onForkConversation}
+                    isForkConversationDisabled={detachedAssistantFooter.isForkConversationDisabled}
+                    onTogglePinnedMessage={detachedAssistantFooter.onTogglePinnedMessage}
+                    timing={detachedAssistantFooter.timing}
+                  />
+                )}
                 {shouldShowTurnSummary && (
                   <div className="mt-2.5 max-w-3xl">
                     <AssistantMessageTurnDiffSummary
@@ -1962,7 +1954,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             ) : null}
           </div>
         )}
-        {detachedAssistantFooter && (
+        {detachedAssistantFooter && row.kind !== "message" && (
           <AssistantTurnFooter
             copyText={detachedAssistantFooter.copyText}
             isPinned={detachedAssistantFooter.isPinned}

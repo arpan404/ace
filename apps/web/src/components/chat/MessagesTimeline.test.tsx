@@ -2723,8 +2723,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(markup.indexOf("Updated the timeline rendering.")).toBeLessThan(
       markup.indexOf("Changed files (2)"),
     );
-    expect(markup.indexOf("Changed files (2)")).toBeLessThan(
-      markup.indexOf('data-response-summary="true"'),
+    expect(markup.indexOf('data-response-summary="true"')).toBeLessThan(
+      markup.indexOf("Changed files (2)"),
     );
   });
 
@@ -4244,7 +4244,7 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     );
   });
 
-  it("renders assistant footer after trailing work rows for the turn", async () => {
+  it("renders assistant footer before trailing work rows for the turn", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const turnId = TurnId.makeUnsafe("turn-footer-after-work");
     const markup = renderToStaticMarkup(
@@ -4305,17 +4305,17 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(markup).toContain("Ran 1 command");
     expect(markup).toContain('data-assistant-turn-footer="true"');
     expect(markup.indexOf("Assistant text before work.")).toBeLessThan(
-      markup.indexOf("Ran 1 command"),
-    );
-    expect(markup.indexOf("Ran 1 command")).toBeLessThan(
       markup.indexOf('data-assistant-turn-footer="true"'),
+    );
+    expect(markup.indexOf('data-assistant-turn-footer="true"')).toBeLessThan(
+      markup.indexOf("Ran 1 command"),
     );
     expect(markup.indexOf('data-response-summary="true"')).toBeLessThan(
       markup.indexOf('aria-label="Fork conversation"'),
     );
   });
 
-  it("renders assistant footer after the hidden trailing work summary", async () => {
+  it("renders assistant footer before the hidden trailing work summary", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const turnId = TurnId.makeUnsafe("turn-footer-after-hidden-work");
     const markup = renderToStaticMarkup(
@@ -4389,10 +4389,10 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(markup).toContain("Worked for 1s");
     expect(markup).not.toContain("Ran 1 command");
     expect(markup.indexOf("Assistant text before hidden work.")).toBeLessThan(
-      markup.indexOf("Worked for 1s"),
-    );
-    expect(markup.indexOf("Worked for 1s")).toBeLessThan(
       markup.indexOf('data-assistant-turn-footer="true"'),
+    );
+    expect(markup.indexOf('data-assistant-turn-footer="true"')).toBeLessThan(
+      markup.indexOf("Worked for 1s"),
     );
     expect(markup.indexOf('data-response-summary="true"')).toBeLessThan(
       markup.indexOf('aria-label="Fork conversation"'),
