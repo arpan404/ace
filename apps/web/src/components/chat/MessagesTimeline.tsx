@@ -102,7 +102,7 @@ import {
   deriveDisplayedUserMessageState,
   type ParsedTerminalContextEntry,
 } from "~/lib/terminalContext";
-import { APP_WORKSPACE_INSET_CLASS_NAME } from "~/lib/appChrome";
+import { APP_USER_BUBBLE_CLASS_NAME, APP_WORKSPACE_INSET_CLASS_NAME } from "~/lib/appChrome";
 import { cn } from "~/lib/utils";
 import { type TimestampFormat } from "@ace/contracts/settings";
 import { formatTimestamp } from "../../timestampFormat";
@@ -3446,7 +3446,7 @@ const UserMessageTimelineRow = memo(function UserMessageTimelineRow(props: {
         className="group relative max-w-[82%] p-0 sm:max-w-[72%]"
         data-user-message-bubble="true"
       >
-        <div className="relative rounded-2xl rounded-br-lg border border-border/40 bg-chat-bubble px-4 py-3">
+        <div className={cn(APP_USER_BUBBLE_CLASS_NAME, "relative")}>
           {userImages.length > 0 && (
             <div className="mb-2.5 grid max-w-105 grid-cols-2 gap-1.5">
               {userImages.map((image: NonNullable<TimelineMessage["attachments"]>[number]) => (

@@ -96,7 +96,7 @@ export const APP_COMPOSER_HEADER_CLASS_NAME =
   "rounded-t-[calc(var(--panel-radius)-2px)] border-b border-border/40 bg-muted/25";
 
 export const APP_USER_BUBBLE_CLASS_NAME =
-  "rounded-2xl rounded-br-lg border border-border/40 bg-chat-bubble px-4 py-3";
+  "rounded-2xl rounded-br-lg border border-border/40 glass-inset px-4 py-3";
 
 export const APP_CHIP_CLASS_NAME =
   "rounded-[var(--chip-radius)] border border-border/40 bg-muted/35";

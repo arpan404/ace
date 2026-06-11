@@ -866,7 +866,7 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(markup).toContain("tabler-icon-terminal");
     expect(markup).toContain("yoo what&#x27;s ");
     expect(markup).toContain('data-user-message-bubble="true"');
-    expect(markup).toContain("bg-chat-bubble");
+    expect(markup).toContain("glass-inset");
     expect(markup).toContain("rounded-2xl");
     expect(markup).not.toContain("translate-y-[38%] rotate-45");
     expect(markup).not.toContain('data-thread-row="true"');
