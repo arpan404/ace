@@ -4315,7 +4315,7 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     );
   });
 
-  it("renders assistant footer before the hidden trailing work summary", async () => {
+  it("hoists hidden trailing work summary above the terminal assistant footer", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const turnId = TurnId.makeUnsafe("turn-footer-after-hidden-work");
     const markup = renderToStaticMarkup(
@@ -4388,11 +4388,11 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(markup).toContain("Assistant text before hidden work.");
     expect(markup).toContain("Worked for 1s");
     expect(markup).not.toContain("Ran 1 command");
+    expect(markup.indexOf("Worked for 1s")).toBeLessThan(
+      markup.indexOf("Assistant text before hidden work."),
+    );
     expect(markup.indexOf("Assistant text before hidden work.")).toBeLessThan(
       markup.indexOf('data-assistant-turn-footer="true"'),
-    );
-    expect(markup.indexOf('data-assistant-turn-footer="true"')).toBeLessThan(
-      markup.indexOf("Worked for 1s"),
     );
     expect(markup.indexOf('data-response-summary="true"')).toBeLessThan(
       markup.indexOf('aria-label="Fork conversation"'),

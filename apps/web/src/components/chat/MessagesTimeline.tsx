@@ -1188,6 +1188,37 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     supportsForkConversation,
     timestampFormat,
   ]);
+  const trailingCompletedWorkSummaryByAssistantRowId = useMemo(() => {
+    const summaryByAssistantRowId = new Map<
+      string,
+      Extract<TimelineRow, { kind: "completed-work-summary" }>
+    >();
+    for (let index = 1; index < rows.length; index += 1) {
+      const row = rows[index];
+      if (row?.kind !== "completed-work-summary") {
+        continue;
+      }
+      const previousRow = rows[index - 1];
+      if (
+        previousRow?.kind !== "message" ||
+        !isAssistantTimelineMessage(previousRow.message) ||
+        !(previousRow.isAssistantTurnTerminal ?? false)
+      ) {
+        continue;
+      }
+      summaryByAssistantRowId.set(previousRow.id, row);
+    }
+    return summaryByAssistantRowId;
+  }, [rows]);
+  const hoistedCompletedWorkSummaryRowIds = useMemo(
+    () =>
+      new Set(
+        [...trailingCompletedWorkSummaryByAssistantRowId.values()].map((summaryRow) => {
+          return summaryRow.id;
+        }),
+      ),
+    [trailingCompletedWorkSummaryByAssistantRowId],
+  );
 
   const activeTurnStartedAtMs =
     activeTurnInProgress && activeTurnStartedAt ? Date.parse(activeTurnStartedAt) : Number.NaN;
@@ -1750,6 +1781,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   ]);
   const buildRowContent = (row: TimelineRow, _rowIndex: number) => {
     const detachedAssistantFooter = assistantFooterByPlacementRowId.get(row.id) ?? null;
+    if (row.kind === "completed-work-summary" && hoistedCompletedWorkSummaryRowIds.has(row.id)) {
+      return null;
+    }
     return (
       <div
         className="group/timeline relative pb-3 transition-colors data-[pinned-message-target=true]:rounded-xl data-[pinned-message-target=true]:bg-accent/20 data-[pinned-message-target=true]:ring-1 data-[pinned-message-target=true]:ring-primary/35"
@@ -1814,6 +1848,19 @@ export const MessagesTimeline = memo(function MessagesTimeline({
 
             return (
               <div className="min-w-0">
+                {(() => {
+                  const trailingCompletedWorkSummary =
+                    trailingCompletedWorkSummaryByAssistantRowId.get(row.id) ?? null;
+                  return trailingCompletedWorkSummary ? (
+                    <div className="mb-2">
+                      <CompletedWorkSummaryTimelineRow
+                        row={trailingCompletedWorkSummary}
+                        expandedWorkGroups={expandedWorkGroups}
+                        onToggleWorkGroup={onToggleWorkGroup}
+                      />
+                    </div>
+                  ) : null;
+                })()}
                 <AssistantMessageTimelineRow
                   durationStart={row.durationStart}
                   isAssistantTurnTerminal={row.isAssistantTurnTerminal ?? false}
