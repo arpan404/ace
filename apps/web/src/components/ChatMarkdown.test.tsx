@@ -1,7 +1,18 @@
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createChatMessageStreamingTextState } from "../lib/chat/messageText";
+
+const getSharedHighlighterMock = vi.hoisted(() =>
+  vi.fn(async () => ({
+    codeToHtml: (code: string) => `<pre class="mock-highlight">${code}</pre>`,
+  })),
+);
+
+vi.mock("@pierre/diffs", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@pierre/diffs")>()),
+  getSharedHighlighter: getSharedHighlighterMock,
+}));
 
 vi.mock("../hooks/useTheme", () => ({
   useTheme: () => ({
@@ -18,6 +29,10 @@ vi.mock("../nativeApi", () => ({
 import ChatMarkdown from "./ChatMarkdown";
 
 describe("ChatMarkdown", () => {
+  beforeEach(() => {
+    getSharedHighlighterMock.mockClear();
+  });
+
   it("renders assistant markdown while streaming", () => {
     const markup = renderToStaticMarkup(
       <ChatMarkdown text={"**bold**\n\n- item"} cwd={undefined} isStreaming />,
@@ -53,6 +68,17 @@ describe("ChatMarkdown", () => {
     expect(markup).toContain("chat-markdown-codeblock");
     expect(markup).toContain("Use this exact prompt");
     expect(markup).not.toContain("```text");
+  });
+
+  it("does not create Shiki highlighter promises during render", () => {
+    const markup = renderToStaticMarkup(
+      <ChatMarkdown text={"```ts\nconst answer = 42;\n```"} cwd={undefined} />,
+    );
+
+    expect(markup).toContain("chat-markdown-codeblock");
+    expect(markup).toContain("const answer = 42;");
+    expect(markup).not.toContain("mock-highlight");
+    expect(getSharedHighlighterMock).not.toHaveBeenCalled();
   });
 
   it("renders mermaid code fences with the diagram renderer", () => {

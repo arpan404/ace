@@ -30,6 +30,18 @@ describe("LRUCache", () => {
     expect(cache.get("c")).toBe("C");
   });
 
+  it("peeks without promoting entries", () => {
+    const cache = new LRUCache<string>(2, 1_000);
+    cache.set("a", "A", 10);
+    cache.set("b", "B", 10);
+    expect(cache.peek("a")).toBe("A");
+
+    cache.set("c", "C", 10);
+    expect(cache.get("a")).toBeNull();
+    expect(cache.get("b")).toBe("B");
+    expect(cache.get("c")).toBe("C");
+  });
+
   it("evicts by memory budget", () => {
     const cache = new LRUCache<string>(10, 25);
     cache.set("a", "A", 10);
