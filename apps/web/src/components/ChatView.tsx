@@ -927,6 +927,7 @@ function toOptimisticOrchestrationMessage(message: ChatMessage): OrchestrationMe
     turnId: message.turnId ?? null,
     streaming: message.streaming,
     ...(message.sequence !== undefined ? { sequence: message.sequence } : {}),
+    ...(message.attachments !== undefined ? { attachments: message.attachments } : {}),
     createdAt: message.createdAt,
     updatedAt: message.completedAt ?? message.createdAt,
   };

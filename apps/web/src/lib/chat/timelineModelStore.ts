@@ -218,13 +218,76 @@ function bumpThreadRevision(state: TimelineModelState, threadId: ThreadId): Reco
   };
 }
 
+type TimelineMessageAttachment = NonNullable<OrchestrationMessage["attachments"]>[number] & {
+  readonly previewUrl?: string;
+};
+
+function attachmentPreviewRoutePath(attachmentId: string): string {
+  return `/attachments/${encodeURIComponent(attachmentId)}`;
+}
+
+function normalizeTimelineMessageAttachments(
+  attachments: OrchestrationMessage["attachments"],
+): OrchestrationMessage["attachments"] {
+  if (!attachments || attachments.length === 0) {
+    return attachments;
+  }
+  return attachments.map((attachment) => {
+    const previewUrl = (attachment as TimelineMessageAttachment).previewUrl;
+    if (previewUrl) {
+      return attachment;
+    }
+    return {
+      ...attachment,
+      previewUrl: attachmentPreviewRoutePath(String(attachment.id)),
+    };
+  }) as OrchestrationMessage["attachments"];
+}
+
+function mergeTimelineMessageAttachments(
+  existing: OrchestrationMessage["attachments"],
+  incoming: OrchestrationMessage["attachments"],
+): OrchestrationMessage["attachments"] {
+  const normalizedIncoming = normalizeTimelineMessageAttachments(incoming);
+  if (!normalizedIncoming || normalizedIncoming.length === 0) {
+    return normalizedIncoming;
+  }
+  if (!existing || existing.length === 0) {
+    return normalizedIncoming;
+  }
+
+  const existingById = new Map(
+    existing.map((attachment) => [String(attachment.id), attachment as TimelineMessageAttachment]),
+  );
+  return normalizedIncoming.map((attachment) => {
+    const incomingAttachment = attachment as TimelineMessageAttachment;
+    if (incomingAttachment.previewUrl) {
+      return attachment;
+    }
+    const existingAttachment = existingById.get(String(attachment.id));
+    if (!existingAttachment?.previewUrl) {
+      return attachment;
+    }
+    return {
+      ...attachment,
+      previewUrl: existingAttachment.previewUrl,
+    };
+  }) as OrchestrationMessage["attachments"];
+}
+
+function normalizeTimelineMessage(message: OrchestrationMessage): OrchestrationMessage {
+  const attachments = normalizeTimelineMessageAttachments(message.attachments);
+  return attachments && attachments.length > 0 ? { ...message, attachments } : message;
+}
+
 function chooseFreshestMessage(
   existing: OrchestrationMessage | undefined,
   incoming: OrchestrationMessage,
 ): OrchestrationMessage {
   if (!existing) {
-    return incoming;
+    return normalizeTimelineMessage(incoming);
   }
+  const normalizedIncoming = normalizeTimelineMessage(incoming);
   const updatedAtComparison = existing.updatedAt.localeCompare(incoming.updatedAt);
   if (updatedAtComparison > 0) {
     return existing;
@@ -236,7 +299,13 @@ function chooseFreshestMessage(
   ) {
     return existing;
   }
-  return incoming;
+  const attachments = mergeTimelineMessageAttachments(
+    existing.attachments,
+    normalizedIncoming.attachments,
+  );
+  return attachments && attachments.length > 0
+    ? { ...normalizedIncoming, attachments }
+    : normalizedIncoming;
 }
 
 function chooseFreshestProposedPlan(

@@ -253,6 +253,86 @@ describe("timelineModelStore", () => {
     ]);
   });
 
+  it("preserves image previews when a server echo replaces an optimistic user row", async () => {
+    const { primeLiveTimelineRow } = await import("./timelineModelStore");
+    const attachmentId = "attachment-row-store";
+
+    primeLiveTimelineRow(
+      {
+        threadId,
+        updatedAt: "2026-01-01T00:00:02.000Z",
+        entry: {
+          kind: "message",
+          id: messageId,
+          createdAt: "2026-01-01T00:00:01.000Z",
+          turnId,
+          sequence: 1,
+        },
+        message: {
+          id: messageId,
+          role: "user",
+          text: "Attached image",
+          turnId,
+          streaming: false,
+          sequence: 1,
+          createdAt: "2026-01-01T00:00:01.000Z",
+          updatedAt: "2026-01-01T00:00:02.000Z",
+          attachments: [
+            {
+              type: "image",
+              id: attachmentId,
+              name: "image.png",
+              mimeType: "image/png",
+              sizeBytes: 123,
+              previewUrl: "blob:local-preview",
+            },
+          ] as unknown as NonNullable<
+            OrchestrationReadModel["threads"][number]["messages"][number]["attachments"]
+          >,
+        },
+      },
+      { flush: "sync" },
+    );
+    primeLiveTimelineRow(
+      {
+        threadId,
+        updatedAt: "2026-01-01T00:00:03.000Z",
+        entry: {
+          kind: "message",
+          id: messageId,
+          createdAt: "2026-01-01T00:00:01.000Z",
+          turnId,
+          sequence: 1,
+        },
+        message: {
+          id: messageId,
+          role: "user",
+          text: "Attached image",
+          turnId,
+          streaming: false,
+          sequence: 1,
+          createdAt: "2026-01-01T00:00:01.000Z",
+          updatedAt: "2026-01-01T00:00:03.000Z",
+          attachments: [
+            {
+              type: "image",
+              id: attachmentId,
+              name: "image.png",
+              mimeType: "image/png",
+              sizeBytes: 123,
+            },
+          ],
+        },
+      },
+      { flush: "sync" },
+    );
+
+    expect(readTimelineRowsProjection(threadId).messages[0]?.attachments?.[0]).toMatchObject({
+      id: attachmentId,
+      previewUrl: "/attachments/attachment-row-store",
+    });
+  });
+
   it("appends live rows after existing metadata-only history", async () => {
     const { primeLiveTimelineRow } = await import("./timelineModelStore");
     const secondMessageId = MessageId.makeUnsafe("message-row-store-second");
