@@ -95,7 +95,6 @@ import {
 import {
   isScrollContainerNearBottom,
   resolveAutoScrollOnScroll,
-  shouldPreserveInteractionAnchorOnClick,
   shouldShowScrollToBottomButton,
   scrollContainerToBottom,
 } from "../chat-scroll";
@@ -139,7 +138,7 @@ import {
   primeLiveTimelineRow,
   removeLiveTimelineRow,
   readTimelineRowsProjection,
-  prefetchThreadTimelineRowsSnapshot,
+  startThreadTimelineRowsOpenPrefetch,
   useTimelineModelStore,
 } from "../lib/chat/timelineModelStore";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
@@ -221,6 +220,7 @@ import {
   readCachedNativeTimelineRows,
   resolveNativeTimelineRows,
 } from "~/lib/chat/nativeTimelineRowsClient";
+import { shouldBuildNativeTimelineRowsOnMainThread } from "~/lib/chat/nativeTimelineRowsScheduling";
 import type { TimelineRow } from "~/lib/chat/timelineRows";
 import {
   buildThreadTimelineCacheScope,
@@ -505,6 +505,9 @@ const EMPTY_COMPOSER_MODEL_SELECTIONS: ModelSelectionByProvider = Object.freeze(
 const EMPTY_PENDING_COMPOSER_COMMENTS: readonly PendingComposerComment[] = Object.freeze([]);
 
 const THREAD_SWITCH_SCROLL_SETTLE_DELAY_MS = 96;
+const INITIAL_THREAD_BOTTOM_PIN_MAX_MS = 2_500;
+const INITIAL_THREAD_BOTTOM_PIN_MIN_MS = 320;
+const INITIAL_THREAD_BOTTOM_PIN_STABLE_FRAMES = 8;
 
 const SCRIPT_TERMINAL_COLS = 120;
 const SCRIPT_TERMINAL_ROWS = 30;
@@ -913,7 +916,7 @@ interface ChatViewProps {
 const EMPTY_VISIBLE_BOARD_THREAD_IDS: readonly ThreadId[] = [];
 const EMPTY_THREAD_LAST_VISITED_AT_BY_ID: Readonly<Record<string, string>> = {};
 const EMPTY_TIMELINE_ROW_IDS: readonly string[] = [];
-const SYNCHRONOUS_LIVE_TIMELINE_ROW_LIMIT = 256;
+const NATIVE_TIMELINE_ROWS_CONTENT_KEY_TAIL_ROWS = 32;
 const RECENT_HYDRATED_THREAD_HISTORY_KEEP_COUNT = 8;
 
 function toOptimisticOrchestrationMessage(message: ChatMessage): OrchestrationMessage {
@@ -1878,16 +1881,13 @@ function useChatViewComponent({
   const messagesScrollRef = useRef<HTMLDivElement>(null);
   const shouldAutoScrollRef = useRef(true);
   const previousThreadIdRef = useRef<ThreadId | null>(null);
+  const pendingInitialBottomScrollThreadIdRef = useRef<ThreadId | null>(null);
+  const pendingInitialBottomPinFrameRef = useRef<number | null>(null);
   const lastKnownScrollTopRef = useRef(0);
   const isPointerScrollActiveRef = useRef(false);
   const lastTouchClientYRef = useRef<number | null>(null);
   const pendingUserScrollUpIntentRef = useRef(false);
   const pendingAutoScrollFrameRef = useRef<number | null>(null);
-  const pendingInteractionAnchorRef = useRef<{
-    element: HTMLElement;
-    top: number;
-  } | null>(null);
-  const pendingInteractionAnchorFrameRef = useRef<number | null>(null);
   const composerImagesRef = useRef<ComposerImageAttachment[]>([]);
   const attachmentPreviewHandoffByMessageIdRef = useRef<Record<string, string[]>>({});
   const attachmentPreviewHandoffTimeoutByMessageIdRef = useRef<Record<string, number>>({});
@@ -2313,9 +2313,13 @@ function useChatViewComponent({
 
     recentThreadHistoryHydrationInFlightRef.current = recentThreadHistoryKeepId;
     let canceled = false;
+    const prefetch = startThreadTimelineRowsOpenPrefetch({
+      threadId: recentThreadHistoryKeepId,
+      priority: "background",
+    });
     void (async () => {
       try {
-        await prefetchThreadTimelineRowsSnapshot({ threadId: recentThreadHistoryKeepId });
+        await prefetch.done;
       } catch (error) {
         if (!canceled) {
           console.error("Failed to prefetch recent thread timeline", error);
@@ -2332,6 +2336,7 @@ function useChatViewComponent({
 
     return () => {
       canceled = true;
+      prefetch.stop();
       if (recentThreadHistoryHydrationInFlightRef.current === recentThreadHistoryKeepId) {
         recentThreadHistoryHydrationInFlightRef.current = null;
       }
@@ -2393,9 +2398,13 @@ function useChatViewComponent({
 
     sourcePlanHydrationInFlightRef.current = sourceProposedPlanThreadId;
     let canceled = false;
+    const prefetch = startThreadTimelineRowsOpenPrefetch({
+      threadId: sourceProposedPlanThreadId,
+      priority: "background",
+    });
     void (async () => {
       try {
-        await prefetchThreadTimelineRowsSnapshot({ threadId: sourceProposedPlanThreadId });
+        await prefetch.done;
       } catch (error) {
         if (!canceled) {
           console.error("Failed to prefetch source proposed-plan timeline", error);
@@ -2409,6 +2418,7 @@ function useChatViewComponent({
 
     return () => {
       canceled = true;
+      prefetch.stop();
       if (sourcePlanHydrationInFlightRef.current === sourceProposedPlanThreadId) {
         sourcePlanHydrationInFlightRef.current = null;
       }
@@ -2429,31 +2439,44 @@ function useChatViewComponent({
     if (handoffMissingThreadId) {
       pendingThreadIds.add(handoffMissingThreadId);
     }
+    const handoffHydrationInFlight = handoffHydrationInFlightRef.current;
+    const prefetches: Array<ReturnType<typeof startThreadTimelineRowsOpenPrefetch>> = [];
 
     for (const threadIdToHydrate of pendingThreadIds) {
       const thread = getThreadById(useStore.getState().threads, threadIdToHydrate);
       if (thread && thread.historyLoaded !== false) {
         continue;
       }
-      if (handoffHydrationInFlightRef.current.has(threadIdToHydrate)) {
+      if (handoffHydrationInFlight.has(threadIdToHydrate)) {
         continue;
       }
-      handoffHydrationInFlightRef.current.add(threadIdToHydrate);
+      handoffHydrationInFlight.add(threadIdToHydrate);
+      const prefetch = startThreadTimelineRowsOpenPrefetch({
+        threadId: threadIdToHydrate,
+        priority: "background",
+      });
+      prefetches.push(prefetch);
       void (async () => {
         try {
-          await prefetchThreadTimelineRowsSnapshot({ threadId: threadIdToHydrate });
+          await prefetch.done;
         } catch (error) {
           if (!canceled) {
             console.error("Failed to prefetch handoff timeline", error);
           }
         } finally {
-          handoffHydrationInFlightRef.current.delete(threadIdToHydrate);
+          handoffHydrationInFlight.delete(threadIdToHydrate);
         }
       })();
     }
 
     return () => {
       canceled = true;
+      for (const prefetch of prefetches) {
+        prefetch.stop();
+      }
+      for (const threadIdToHydrate of pendingThreadIds) {
+        handoffHydrationInFlight.delete(threadIdToHydrate);
+      }
     };
   }, [
     activeThreadLineageSourceThreadId,
@@ -3243,6 +3266,15 @@ function useChatViewComponent({
     () => [...turnDiffSummaryByAssistantMessageId.keys()].join("\0"),
     [turnDiffSummaryByAssistantMessageId],
   );
+  const nativeTimelineRowsContentKey = useMemo(() => {
+    if (!nativeTimelineRowsInput) {
+      return "";
+    }
+    return nativeTimelineRowsInput.rows
+      .slice(-NATIVE_TIMELINE_ROWS_CONTENT_KEY_TAIL_ROWS)
+      .map((row) => [row.id, row.contentVersion, row.updatedAt].join(":"))
+      .join("\0");
+  }, [nativeTimelineRowsInput]);
   const nativeTimelineRowsThreadId = activeThread?.id ?? null;
   const nativeTimelineRowsInputKey = useMemo(() => {
     if (!nativeTimelineRowsInput) {
@@ -3254,6 +3286,7 @@ function useChatViewComponent({
       snapshotTotalRows: activeThreadTimelineCompleteSnapshot?.totalRows ?? null,
       threadRevision: activeThreadTimelineRevision,
       rowCount: nativeTimelineRowsInput.rows.length,
+      rowContentKey: nativeTimelineRowsContentKey,
       isActiveTurnRunning: isWorking || !latestTurnSettled,
       activeTurnStartedAt: activeWorkStartedAt,
       completionDividerBeforeEntryId: nativeCompletionDividerBeforeEntryId,
@@ -3268,6 +3301,7 @@ function useChatViewComponent({
     isWorking,
     latestTurnSettled,
     nativeCompletionDividerBeforeEntryId,
+    nativeTimelineRowsContentKey,
     nativeTimelineRowsInput,
     nativeTimelineRowsThreadId,
     nativeTurnDiffSummaryKey,
@@ -3280,8 +3314,10 @@ function useChatViewComponent({
   const shouldBuildNativeTimelineRowsSynchronously =
     nativeTimelineRowsInput !== null &&
     nativeTimelineRowsInputKey !== null &&
-    (activeThreadTimelineCompleteSnapshot === null ||
-      (isWorking && nativeTimelineRowsInput.rows.length <= SYNCHRONOUS_LIVE_TIMELINE_ROW_LIMIT));
+    shouldBuildNativeTimelineRowsOnMainThread({
+      hasCompleteSnapshot: activeThreadTimelineCompleteSnapshot !== null,
+      rowCount: nativeTimelineRowsInput.rows.length,
+    });
   const synchronousNativeTimelineRows = useMemo<ReadonlyArray<TimelineRow> | null>(() => {
     if (!shouldBuildNativeTimelineRowsSynchronously || !nativeTimelineRowsInput) {
       return null;
@@ -7497,6 +7533,8 @@ function useChatViewComponent({
     }
     return ["legacy", timelineEntryStickKey(timelineEntries.at(-1))].join(":");
   }, [activeThreadTimelineProjection, timelineEntries]);
+  const timelineHydratedRowCount =
+    activeThreadTimelineProjection?.rows.length ?? timelineEntries.length;
   const markMessagesAtBottom = useCallback(
     (scrollContainer: HTMLDivElement) => {
       lastKnownScrollTopRef.current = scrollContainer.scrollTop;
@@ -7526,10 +7564,11 @@ function useChatViewComponent({
     pendingAutoScrollFrameRef.current = null;
     window.cancelAnimationFrame(pendingFrame);
   }, []);
-  const cancelPendingInteractionAnchorAdjustment = useCallback(() => {
-    const pendingFrame = pendingInteractionAnchorFrameRef.current;
+  const cancelInitialBottomPin = useCallback(() => {
+    pendingInitialBottomScrollThreadIdRef.current = null;
+    const pendingFrame = pendingInitialBottomPinFrameRef.current;
     if (pendingFrame === null) return;
-    pendingInteractionAnchorFrameRef.current = null;
+    pendingInitialBottomPinFrameRef.current = null;
     window.cancelAnimationFrame(pendingFrame);
   }, []);
   const scheduleStickToBottom = useCallback(() => {
@@ -7543,46 +7582,6 @@ function useChatViewComponent({
     cancelPendingStickToBottom();
     scrollMessagesToBottom();
   }, [cancelPendingStickToBottom, scrollMessagesToBottom]);
-  const onMessagesClickCapture = useCallback(
-    (event: React.MouseEvent<HTMLDivElement>) => {
-      const scrollContainer = messagesScrollRef.current;
-      if (!scrollContainer || !(event.target instanceof Element)) return;
-      if (!shouldPreserveInteractionAnchorOnClick(event.detail)) {
-        pendingInteractionAnchorRef.current = null;
-        cancelPendingInteractionAnchorAdjustment();
-        return;
-      }
-
-      const trigger = event.target.closest<HTMLElement>(
-        "button, summary, [role='button'], [data-scroll-anchor-target]",
-      );
-      if (!trigger || !scrollContainer.contains(trigger)) return;
-      if (trigger.closest("[data-scroll-anchor-ignore]")) return;
-
-      pendingInteractionAnchorRef.current = {
-        element: trigger,
-        top: trigger.getBoundingClientRect().top,
-      };
-
-      cancelPendingInteractionAnchorAdjustment();
-      pendingInteractionAnchorFrameRef.current = window.requestAnimationFrame(() => {
-        pendingInteractionAnchorFrameRef.current = null;
-        const anchor = pendingInteractionAnchorRef.current;
-        pendingInteractionAnchorRef.current = null;
-        const activeScrollContainer = messagesScrollRef.current;
-        if (!anchor || !activeScrollContainer) return;
-        if (!anchor.element.isConnected || !activeScrollContainer.contains(anchor.element)) return;
-
-        const nextTop = anchor.element.getBoundingClientRect().top;
-        const delta = nextTop - anchor.top;
-        if (Math.abs(delta) < 0.5) return;
-
-        activeScrollContainer.scrollTop += delta;
-        lastKnownScrollTopRef.current = activeScrollContainer.scrollTop;
-      });
-    },
-    [cancelPendingInteractionAnchorAdjustment],
-  );
   const forceStickToBottom = useCallback(
     (jumpImmediately = false) => {
       cancelPendingStickToBottom();
@@ -7620,6 +7619,7 @@ function useChatViewComponent({
     }
     if (autoScrollDecision.cancelPendingStickToBottom) {
       cancelPendingStickToBottom();
+      cancelInitialBottomPin();
     }
     if (autoScrollDecision.scheduleStickToBottom) {
       // Keep following output when layout shifts move the viewport slightly off-bottom.
@@ -7628,20 +7628,26 @@ function useChatViewComponent({
 
     setShowScrollToBottom(shouldShowScrollToBottomButton(scrollContainer));
     lastKnownScrollTopRef.current = currentScrollTop;
-  }, [cancelPendingStickToBottom, scheduleStickToBottom, setShowScrollToBottom]);
+  }, [
+    cancelInitialBottomPin,
+    cancelPendingStickToBottom,
+    scheduleStickToBottom,
+    setShowScrollToBottom,
+  ]);
   const onMessagesWheel = useCallback(
     (event: React.WheelEvent<HTMLDivElement>) => {
       if (event.deltaY < 0) {
         shouldAutoScrollRef.current = false;
         pendingUserScrollUpIntentRef.current = true;
         cancelPendingStickToBottom();
+        cancelInitialBottomPin();
         const scrollContainer = messagesScrollRef.current;
         setShowScrollToBottom(
           scrollContainer ? shouldShowScrollToBottomButton(scrollContainer) : true,
         );
       }
     },
-    [cancelPendingStickToBottom, setShowScrollToBottom],
+    [cancelInitialBottomPin, cancelPendingStickToBottom, setShowScrollToBottom],
   );
   const onMessagesPointerDown = useCallback((_event: React.PointerEvent<HTMLDivElement>) => {
     isPointerScrollActiveRef.current = true;
@@ -7666,6 +7672,7 @@ function useChatViewComponent({
         shouldAutoScrollRef.current = false;
         pendingUserScrollUpIntentRef.current = true;
         cancelPendingStickToBottom();
+        cancelInitialBottomPin();
         const scrollContainer = messagesScrollRef.current;
         setShowScrollToBottom(
           scrollContainer ? shouldShowScrollToBottomButton(scrollContainer) : true,
@@ -7673,7 +7680,7 @@ function useChatViewComponent({
       }
       lastTouchClientYRef.current = touch.clientY;
     },
-    [cancelPendingStickToBottom, setShowScrollToBottom],
+    [cancelInitialBottomPin, cancelPendingStickToBottom, setShowScrollToBottom],
   );
   const onMessagesTouchEnd = useCallback((_event: React.TouchEvent<HTMLDivElement>) => {
     lastTouchClientYRef.current = null;
@@ -7681,9 +7688,9 @@ function useChatViewComponent({
   useEffect(() => {
     return () => {
       cancelPendingStickToBottom();
-      cancelPendingInteractionAnchorAdjustment();
+      cancelInitialBottomPin();
     };
-  }, [cancelPendingInteractionAnchorAdjustment, cancelPendingStickToBottom]);
+  }, [cancelInitialBottomPin, cancelPendingStickToBottom]);
   useLayoutEffect(() => {
     if (!activeForSideEffects) return;
     const nextThreadId = activeThread?.id ?? null;
@@ -7692,20 +7699,25 @@ function useChatViewComponent({
       previousThreadIdRef.current !== null && previousThreadIdRef.current !== nextThreadId;
     previousThreadIdRef.current = nextThreadId;
     cancelPendingStickToBottom();
-    cancelPendingInteractionAnchorAdjustment();
-    pendingInteractionAnchorRef.current = null;
     pendingUserScrollUpIntentRef.current = false;
     isPointerScrollActiveRef.current = false;
     lastTouchClientYRef.current = null;
     lastKnownScrollTopRef.current = messagesScrollRef.current?.scrollTop ?? 0;
     shouldAutoScrollRef.current = true;
+    pendingInitialBottomScrollThreadIdRef.current = nextThreadId;
     setShowScrollToBottom(false);
     forceStickToBottom(jumpImmediately);
 
     const timeout = window.setTimeout(() => {
       const scrollContainer = messagesScrollRef.current;
       if (!scrollContainer) return;
-      if (!shouldAutoScrollRef.current || pendingUserScrollUpIntentRef.current) return;
+      if (
+        !shouldAutoScrollRef.current ||
+        pendingUserScrollUpIntentRef.current ||
+        isPointerScrollActiveRef.current
+      ) {
+        return;
+      }
       if (isScrollContainerNearBottom(scrollContainer)) return;
       scheduleStickToBottom();
     }, THREAD_SWITCH_SCROLL_SETTLE_DELAY_MS);
@@ -7716,7 +7728,6 @@ function useChatViewComponent({
   }, [
     activeForSideEffects,
     activeThread?.id,
-    cancelPendingInteractionAnchorAdjustment,
     cancelPendingStickToBottom,
     forceStickToBottom,
     scheduleStickToBottom,
@@ -7724,13 +7735,93 @@ function useChatViewComponent({
   ]);
   useLayoutEffect(() => {
     if (!activeForSideEffects) return;
+    const activeThreadId = activeThread?.id ?? null;
+    if (!activeThreadId || pendingInitialBottomScrollThreadIdRef.current !== activeThreadId) {
+      return;
+    }
+    if (timelineHydratedRowCount <= 0) {
+      return;
+    }
+    if (pendingUserScrollUpIntentRef.current) {
+      pendingInitialBottomScrollThreadIdRef.current = null;
+      return;
+    }
+
+    pendingInitialBottomScrollThreadIdRef.current = null;
+    shouldAutoScrollRef.current = true;
+    setShowScrollToBottom(false);
+    forceStickToBottom(true);
+
+    const startedAtMs = performance.now();
+    let lastScrollHeight = -1;
+    let stableFrameCount = 0;
+    let frameId: number | null = null;
+    const keepBottomPinnedThroughHydration = () => {
+      const scrollContainer = messagesScrollRef.current;
+      if (!scrollContainer) {
+        frameId = null;
+        return;
+      }
+      if (
+        previousThreadIdRef.current !== activeThreadId ||
+        !shouldAutoScrollRef.current ||
+        pendingUserScrollUpIntentRef.current ||
+        isPointerScrollActiveRef.current
+      ) {
+        pendingInitialBottomPinFrameRef.current = null;
+        return;
+      }
+
+      scrollMessagesToBottom();
+
+      const elapsedMs = performance.now() - startedAtMs;
+      if (Math.abs(scrollContainer.scrollHeight - lastScrollHeight) < 1) {
+        stableFrameCount += 1;
+      } else {
+        stableFrameCount = 0;
+        lastScrollHeight = scrollContainer.scrollHeight;
+      }
+
+      if (
+        elapsedMs >= INITIAL_THREAD_BOTTOM_PIN_MAX_MS ||
+        (elapsedMs >= INITIAL_THREAD_BOTTOM_PIN_MIN_MS &&
+          stableFrameCount >= INITIAL_THREAD_BOTTOM_PIN_STABLE_FRAMES)
+      ) {
+        pendingInitialBottomPinFrameRef.current = null;
+        return;
+      }
+
+      frameId = window.requestAnimationFrame(keepBottomPinnedThroughHydration);
+      pendingInitialBottomPinFrameRef.current = frameId;
+    };
+    frameId = window.requestAnimationFrame(keepBottomPinnedThroughHydration);
+    pendingInitialBottomPinFrameRef.current = frameId;
+
+    return () => {
+      if (pendingInitialBottomPinFrameRef.current === frameId && frameId !== null) {
+        pendingInitialBottomPinFrameRef.current = null;
+        window.cancelAnimationFrame(frameId);
+      }
+    };
+  }, [
+    activeForSideEffects,
+    activeThread?.id,
+    forceStickToBottom,
+    scrollMessagesToBottom,
+    setShowScrollToBottom,
+    timelineHydratedRowCount,
+  ]);
+  useLayoutEffect(() => {
+    if (!activeForSideEffects) return;
     if (!shouldAutoScrollRef.current) return;
+    if (pendingUserScrollUpIntentRef.current || isPointerScrollActiveRef.current) return;
     stickToBottomBeforePaint();
   }, [activeForSideEffects, stickToBottomBeforePaint, timelineTailStickKey]);
   useEffect(() => {
     if (!activeForSideEffects) return;
     if (!liveTurnInProgress) return;
     if (!shouldAutoScrollRef.current) return;
+    if (pendingUserScrollUpIntentRef.current || isPointerScrollActiveRef.current) return;
     scheduleStickToBottom();
   }, [activeForSideEffects, liveTurnInProgress, scheduleStickToBottom, timelineTailStickKey]);
 
@@ -10152,7 +10243,6 @@ function useChatViewComponent({
     () => ({
       messagesContainerRef: setMessagesScrollContainerRef,
       messagesTimelineProps,
-      onMessagesClickCapture,
       onMessagesPointerCancel,
       onMessagesPointerDown,
       onMessagesPointerUp,
@@ -10168,7 +10258,6 @@ function useChatViewComponent({
     [
       activeThreadIdValue,
       messagesTimelineProps,
-      onMessagesClickCapture,
       onMessagesPointerCancel,
       onMessagesPointerDown,
       onMessagesPointerUp,

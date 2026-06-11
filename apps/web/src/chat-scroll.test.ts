@@ -5,8 +5,6 @@ import {
   SCROLL_TO_BOTTOM_BUTTON_THRESHOLD_PX,
   isScrollContainerNearBottom,
   resolveAutoScrollOnScroll,
-  resolveTimelinePrependScrollAnchor,
-  shouldPreserveInteractionAnchorOnClick,
   shouldShowScrollToBottomButton,
   scrollContainerToBottom,
 } from "./chat-scroll";
@@ -180,12 +178,30 @@ describe("resolveAutoScrollOnScroll", () => {
     });
   });
 
-  it("keeps auto-scroll active for layout drift without explicit user intent", () => {
+  it("disables auto-scroll when upward movement is observed without an explicit input hint", () => {
     expect(
       resolveAutoScrollOnScroll({
         shouldAutoScroll: true,
         isNearBottom: false,
         currentScrollTop: 520,
+        previousScrollTop: 540,
+        hasPendingUserScrollUpIntent: false,
+        isPointerScrollActive: false,
+      }),
+    ).toEqual({
+      shouldAutoScroll: false,
+      clearPendingUserScrollUpIntent: true,
+      cancelPendingStickToBottom: true,
+      scheduleStickToBottom: false,
+    });
+  });
+
+  it("keeps auto-scroll active for downward layout drift without explicit user intent", () => {
+    expect(
+      resolveAutoScrollOnScroll({
+        shouldAutoScroll: true,
+        isNearBottom: false,
+        currentScrollTop: 560,
         previousScrollTop: 540,
         hasPendingUserScrollUpIntent: false,
         isPointerScrollActive: false,
@@ -214,74 +230,5 @@ describe("resolveAutoScrollOnScroll", () => {
       cancelPendingStickToBottom: false,
       scheduleStickToBottom: false,
     });
-  });
-});
-
-describe("resolveTimelinePrependScrollAnchor", () => {
-  it("preserves the viewport anchor when older timeline rows are prepended", () => {
-    expect(
-      resolveTimelinePrependScrollAnchor({
-        previousThreadId: "thread-1",
-        currentThreadId: "thread-1",
-        previousEntryCount: 4,
-        currentEntryCount: 8,
-        previousFirstEntryKey: "message:older-loaded",
-        currentFirstEntryKey: "message:first-loaded",
-        previousLastEntryKey: "message:latest",
-        currentLastEntryKey: "message:latest",
-        previousScrollHeight: 1_000,
-        currentScrollHeight: 1_460,
-        previousScrollTop: 320,
-        shouldAutoScroll: false,
-      }),
-    ).toEqual({ kind: "preserve-anchor", scrollTop: 780 });
-  });
-
-  it("preserves the viewport anchor when older timeline rows prepend while auto-scroll is active", () => {
-    expect(
-      resolveTimelinePrependScrollAnchor({
-        previousThreadId: "thread-1",
-        currentThreadId: "thread-1",
-        previousEntryCount: 4,
-        currentEntryCount: 8,
-        previousFirstEntryKey: "message:older-loaded",
-        currentFirstEntryKey: "message:first-loaded",
-        previousLastEntryKey: "message:latest",
-        currentLastEntryKey: "message:latest",
-        previousScrollHeight: 1_000,
-        currentScrollHeight: 1_460,
-        previousScrollTop: 320,
-        shouldAutoScroll: true,
-      }),
-    ).toEqual({ kind: "preserve-anchor", scrollTop: 780 });
-  });
-
-  it("does nothing when newer timeline rows are appended", () => {
-    expect(
-      resolveTimelinePrependScrollAnchor({
-        previousThreadId: "thread-1",
-        currentThreadId: "thread-1",
-        previousEntryCount: 4,
-        currentEntryCount: 5,
-        previousFirstEntryKey: "message:first-loaded",
-        currentFirstEntryKey: "message:first-loaded",
-        previousLastEntryKey: "message:latest",
-        currentLastEntryKey: "message:new-latest",
-        previousScrollHeight: 1_000,
-        currentScrollHeight: 1_140,
-        previousScrollTop: 320,
-        shouldAutoScroll: false,
-      }),
-    ).toEqual({ kind: "none" });
-  });
-});
-
-describe("shouldPreserveInteractionAnchorOnClick", () => {
-  it("keeps anchor preservation for keyboard-triggered clicks", () => {
-    expect(shouldPreserveInteractionAnchorOnClick(0)).toBe(true);
-  });
-
-  it("skips anchor preservation for pointer clicks", () => {
-    expect(shouldPreserveInteractionAnchorOnClick(1)).toBe(false);
   });
 });

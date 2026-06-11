@@ -62,58 +62,6 @@ export interface AutoScrollOnScrollDecision {
   scheduleStickToBottom: boolean;
 }
 
-export interface TimelinePrependScrollAnchorInput {
-  previousThreadId: string | null;
-  currentThreadId: string | null;
-  previousEntryCount: number;
-  currentEntryCount: number;
-  previousFirstEntryKey: string;
-  currentFirstEntryKey: string;
-  previousLastEntryKey: string;
-  currentLastEntryKey: string;
-  previousScrollHeight: number;
-  currentScrollHeight: number;
-  previousScrollTop: number;
-  shouldAutoScroll: boolean;
-}
-
-export type TimelinePrependScrollAnchorDecision =
-  | { kind: "none" }
-  | { kind: "preserve-anchor"; scrollTop: number };
-
-export function shouldPreserveInteractionAnchorOnClick(clickDetail: number): boolean {
-  return clickDetail === 0;
-}
-
-export function resolveTimelinePrependScrollAnchor(
-  input: TimelinePrependScrollAnchorInput,
-): TimelinePrependScrollAnchorDecision {
-  if (!input.previousThreadId || input.previousThreadId !== input.currentThreadId) {
-    return { kind: "none" };
-  }
-
-  if (input.currentEntryCount <= input.previousEntryCount) {
-    return { kind: "none" };
-  }
-
-  const didPrependOlderEntries =
-    input.previousFirstEntryKey !== input.currentFirstEntryKey &&
-    input.previousLastEntryKey === input.currentLastEntryKey;
-  if (!didPrependOlderEntries) {
-    return { kind: "none" };
-  }
-
-  const heightDelta = input.currentScrollHeight - input.previousScrollHeight;
-  if (!Number.isFinite(heightDelta) || heightDelta <= 0) {
-    return { kind: "none" };
-  }
-
-  return {
-    kind: "preserve-anchor",
-    scrollTop: input.previousScrollTop + heightDelta,
-  };
-}
-
 export function resolveAutoScrollOnScroll(
   input: AutoScrollOnScrollInput,
 ): AutoScrollOnScrollDecision {
@@ -146,7 +94,7 @@ export function resolveAutoScrollOnScroll(
     input.currentScrollTop < input.previousScrollTop - AUTO_SCROLL_DISABLE_UP_DELTA_PX;
   const hasExplicitScrollUpIntent =
     input.hasPendingUserScrollUpIntent || input.isPointerScrollActive;
-  if (hasExplicitScrollUpIntent && scrolledUp) {
+  if (scrolledUp) {
     return {
       shouldAutoScroll: false,
       clearPendingUserScrollUpIntent: true,

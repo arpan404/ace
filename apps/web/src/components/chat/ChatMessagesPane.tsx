@@ -12,7 +12,6 @@ type MessagesContainerProps = ComponentProps<"div">;
 export const ChatMessagesPane = memo(function ChatMessagesPane({
   messagesContainerRef,
   messagesTimelineProps,
-  onMessagesClickCapture,
   onMessagesPointerCancel,
   onMessagesPointerDown,
   onMessagesPointerUp,
@@ -27,7 +26,6 @@ export const ChatMessagesPane = memo(function ChatMessagesPane({
 }: {
   messagesContainerRef: Ref<HTMLDivElement>;
   messagesTimelineProps: ComponentProps<typeof MessagesTimeline>;
-  onMessagesClickCapture: MessagesContainerProps["onClickCapture"];
   onMessagesPointerCancel: MessagesContainerProps["onPointerCancel"];
   onMessagesPointerDown: MessagesContainerProps["onPointerDown"];
   onMessagesPointerUp: MessagesContainerProps["onPointerUp"];
@@ -48,7 +46,6 @@ export const ChatMessagesPane = memo(function ChatMessagesPane({
         viewportProps={{
           className: "pe-2.5",
           onScroll: onMessagesScroll,
-          onClickCapture: onMessagesClickCapture,
           onWheel: onMessagesWheel,
           onPointerDown: onMessagesPointerDown,
           onPointerUp: onMessagesPointerUp,

@@ -166,7 +166,6 @@ const ASSISTANT_MESSAGE_ROW_SELECTOR = '[data-message-role="assistant"][data-mes
 const COMPLETED_WORK_SUMMARY_ROW_ID_PREFIX = "completed-work-summary:";
 const PINNED_SELECTION_TEXT_BLOCK_SELECTOR =
   "blockquote,div,h1,h2,h3,h4,h5,h6,li,ol,p,pre,section,table,tbody,td,tfoot,th,thead,tr,ul";
-const PREPENDED_TIMELINE_SCROLL_PRESERVE_FRAMES = 8;
 const TIMELINE_ROW_ID_SELECTOR = "[data-timeline-row-id]";
 const TIMELINE_ROW_RENDER_INTRINSIC_MIN_HEIGHT_PX = 40;
 
@@ -263,8 +262,8 @@ function collectTimelineRowCandidateIds(row: TimelineRow): readonly string[] {
   const ids: string[] = [];
   addTimelineRowCandidateId(ids, row.id);
   if (row.kind === "completed-work-summary") {
-    for (const entry of row.entries) {
-      addTimelineRowCandidateId(ids, entry.id);
+    for (const sourceEntryId of row.sourceEntryIds) {
+      addTimelineRowCandidateId(ids, sourceEntryId);
     }
     for (const detailRow of row.detailRows) {
       addTimelineRowCandidateId(ids, detailRow.id);
@@ -405,16 +404,6 @@ type AssistantSelectionPinTarget = {
   text: string;
   top: number;
 };
-
-interface TimelinePrependAnchorSnapshot {
-  readonly firstRowId: string | null;
-  readonly lastRowId: string | null;
-  readonly topAnchoredRowId: string | null;
-  readonly topAnchoredRowRelativeTop: number;
-  readonly rowCount: number;
-  readonly scrollHeight: number;
-  readonly scrollTop: number;
-}
 
 type TargetMessageNavigation = {
   messageId: string;
@@ -661,77 +650,6 @@ export function TimelineRowsLoadingFallback() {
       <TimelineRowsFetchingPill />
     </div>
   );
-}
-
-function readTimelinePrependAnchorSnapshot(
-  rows: ReadonlyArray<TimelineRow>,
-  scrollContainer: HTMLElement,
-): TimelinePrependAnchorSnapshot {
-  const firstRowId = rows[0]?.id ?? null;
-  const lastRowId = rows.at(-1)?.id ?? null;
-  const rowElements = [...scrollContainer.querySelectorAll<HTMLElement>(TIMELINE_ROW_ID_SELECTOR)];
-  const containerRect = scrollContainer.getBoundingClientRect();
-  const firstAnchoredRowElement =
-    rowElements.find((element) => {
-      const rect = element.getBoundingClientRect();
-      return rect.bottom > containerRect.top + 1 && rect.top < containerRect.bottom - 1;
-    }) ?? rowElements[0];
-  const firstAnchoredRowRect = firstAnchoredRowElement?.getBoundingClientRect();
-  const topAnchoredRowRelativeTop = firstAnchoredRowRect
-    ? firstAnchoredRowRect.top - containerRect.top
-    : 0;
-  return {
-    firstRowId,
-    lastRowId,
-    topAnchoredRowId: firstAnchoredRowElement?.dataset.timelineRowId ?? null,
-    topAnchoredRowRelativeTop: Number.isFinite(topAnchoredRowRelativeTop)
-      ? topAnchoredRowRelativeTop
-      : 0,
-    rowCount: rows.length,
-    scrollHeight: scrollContainer.scrollHeight,
-    scrollTop: scrollContainer.scrollTop,
-  };
-}
-
-function findMountedTimelineRowElement(
-  scrollContainer: HTMLElement,
-  rowId: string,
-): HTMLElement | null {
-  const rowElements = [...scrollContainer.querySelectorAll<HTMLElement>(TIMELINE_ROW_ID_SELECTOR)];
-  for (const element of rowElements) {
-    if (element.dataset.timelineRowId === rowId) {
-      return element;
-    }
-  }
-  return null;
-}
-
-function resolveTimelineTopAnchoredScrollTop(
-  input: {
-    readonly rowId: string | null;
-    readonly rowRelativeTop: number;
-  },
-  scrollContainer: HTMLElement,
-): number | null {
-  if (!input.rowId) {
-    return null;
-  }
-  const anchorRowElement = findMountedTimelineRowElement(scrollContainer, input.rowId);
-  if (!anchorRowElement) {
-    return null;
-  }
-  const containerRect = scrollContainer.getBoundingClientRect();
-  const anchorRowRect = anchorRowElement.getBoundingClientRect();
-  const containerRelativeTop = anchorRowRect.top - containerRect.top;
-  if (!Number.isFinite(containerRelativeTop)) {
-    return null;
-  }
-  const nextScrollTop = scrollContainer.scrollTop + (containerRelativeTop - input.rowRelativeTop);
-  if (!Number.isFinite(nextScrollTop)) {
-    return null;
-  }
-  const maxScrollTop = Math.max(0, scrollContainer.scrollHeight - scrollContainer.clientHeight);
-  return Math.min(Math.max(0, nextScrollTop), maxScrollTop);
 }
 
 export function shouldRenderTimelineVirtualizedBuffer(input: {
@@ -1152,151 +1070,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     preResolvedRows: timelineRowsOverride,
     timelineRowsInput,
   });
-  const prependAnchorSnapshotRef = useRef<TimelinePrependAnchorSnapshot | null>(null);
-  const prependAnchorCorrectionFrameRef = useRef<number | null>(null);
-
-  useLayoutEffect(() => {
-    const scrollContainer = getScrollContainer();
-    const previous = prependAnchorSnapshotRef.current;
-    if (!scrollContainer) {
-      prependAnchorSnapshotRef.current = null;
-      return;
-    }
-
-    if (!previous || !previous.firstRowId) {
-      prependAnchorSnapshotRef.current = readTimelinePrependAnchorSnapshot(rows, scrollContainer);
-      return;
-    }
-
-    const previousFirstRowId = previous.firstRowId;
-    const previousLastRowId = previous.lastRowId;
-    const currentFirstRowId = rows[0]?.id ?? null;
-    const currentLastRowId = rows.at(-1)?.id ?? null;
-    const previousFirstRowCurrentIndex = rows.findIndex((row) => row.id === previousFirstRowId);
-    const isPrepend =
-      previousFirstRowId !== null &&
-      previousFirstRowCurrentIndex > 0 &&
-      rows.length >= previous.rowCount;
-    const isHeightRefinementPass =
-      rows.length === previous.rowCount &&
-      previousFirstRowId !== null &&
-      previousLastRowId !== null &&
-      currentFirstRowId === previousFirstRowId &&
-      currentLastRowId === previousLastRowId;
-    if (!isPrepend && !isHeightRefinementPass) {
-      prependAnchorSnapshotRef.current = readTimelinePrependAnchorSnapshot(rows, scrollContainer);
-      return;
-    }
-    const topAnchoredScrollTop = resolveTimelineTopAnchoredScrollTop(
-      {
-        rowId: previous.topAnchoredRowId,
-        rowRelativeTop: previous.topAnchoredRowRelativeTop,
-      },
-      scrollContainer,
-    );
-
-    if (isPrepend) {
-      if (topAnchoredScrollTop !== null) {
-        scrollContainer.scrollTop = topAnchoredScrollTop;
-      } else {
-        const scrollHeightDelta = scrollContainer.scrollHeight - previous.scrollHeight;
-        if (Number.isFinite(scrollHeightDelta) && scrollHeightDelta > 0) {
-          const maxScrollTop = Math.max(
-            0,
-            scrollContainer.scrollHeight - scrollContainer.clientHeight,
-          );
-          const nextScrollTop = Math.min(
-            Math.max(0, previous.scrollTop + scrollHeightDelta),
-            maxScrollTop,
-          );
-          scrollContainer.scrollTop = nextScrollTop;
-        }
-      }
-    } else if (isHeightRefinementPass) {
-      if (topAnchoredScrollTop !== null) {
-        scrollContainer.scrollTop = topAnchoredScrollTop;
-      } else {
-        const scrollHeightDelta = scrollContainer.scrollHeight - previous.scrollHeight;
-        if (Number.isFinite(scrollHeightDelta) && scrollHeightDelta > 0) {
-          const nextScrollTop = Math.min(
-            Math.max(0, previous.scrollTop + scrollHeightDelta),
-            Math.max(0, scrollContainer.scrollHeight - scrollContainer.clientHeight),
-          );
-          scrollContainer.scrollTop = nextScrollTop;
-        }
-      }
-    }
-
-    if (prependAnchorCorrectionFrameRef.current !== null) {
-      window.cancelAnimationFrame(prependAnchorCorrectionFrameRef.current);
-    }
-
-    const shouldRefine = isPrepend || isHeightRefinementPass;
-    let remainingFrames = PREPENDED_TIMELINE_SCROLL_PRESERVE_FRAMES;
-    let previousScrollHeight = scrollContainer.scrollHeight;
-    let expectedScrollTop =
-      isPrepend || isHeightRefinementPass ? scrollContainer.scrollTop : previous.scrollTop;
-    const runCorrectionFrame = () => {
-      remainingFrames -= 1;
-      if (remainingFrames <= 0 || !scrollContainer.isConnected) {
-        prependAnchorCorrectionFrameRef.current = null;
-        return;
-      }
-      const topAnchoredScrollTopAfterLayout = resolveTimelineTopAnchoredScrollTop(
-        {
-          rowId: previous.topAnchoredRowId,
-          rowRelativeTop: previous.topAnchoredRowRelativeTop,
-        },
-        scrollContainer,
-      );
-      if (topAnchoredScrollTopAfterLayout !== null) {
-        expectedScrollTop = topAnchoredScrollTopAfterLayout;
-        scrollContainer.scrollTop = expectedScrollTop;
-        previousScrollHeight = scrollContainer.scrollHeight;
-        if (shouldRefine) {
-          prependAnchorCorrectionFrameRef.current =
-            window.requestAnimationFrame(runCorrectionFrame);
-        } else {
-          prependAnchorCorrectionFrameRef.current = null;
-        }
-        return;
-      }
-      const scrollHeightDelta = scrollContainer.scrollHeight - previousScrollHeight;
-      if (scrollHeightDelta > 0 && Number.isFinite(scrollHeightDelta)) {
-        expectedScrollTop = Math.min(
-          Math.max(0, expectedScrollTop + scrollHeightDelta),
-          Math.max(0, scrollContainer.scrollHeight - scrollContainer.clientHeight),
-        );
-        scrollContainer.scrollTop = expectedScrollTop;
-      }
-
-      previousScrollHeight = scrollContainer.scrollHeight;
-
-      if (!shouldRefine) {
-        prependAnchorCorrectionFrameRef.current = null;
-        return;
-      }
-      prependAnchorCorrectionFrameRef.current = window.requestAnimationFrame(runCorrectionFrame);
-    };
-
-    if (shouldRefine) {
-      prependAnchorCorrectionFrameRef.current = window.requestAnimationFrame(runCorrectionFrame);
-    }
-
-    prependAnchorSnapshotRef.current = scrollContainer
-      ? readTimelinePrependAnchorSnapshot(rows, scrollContainer)
-      : null;
-  }, [getScrollContainer, rows]);
-
-  useEffect(
-    () => () => {
-      if (prependAnchorCorrectionFrameRef.current !== null) {
-        window.cancelAnimationFrame(prependAnchorCorrectionFrameRef.current);
-      }
-    },
-    [],
-  );
-
   const latestForkableAssistantMessageId = useMemo(() => {
     for (let index = rows.length - 1; index >= 0; index -= 1) {
       const row = rows[index];
@@ -2005,15 +1778,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         {row.kind === "completed-work-summary" && (
           <CompletedWorkSummaryTimelineRow
             row={row}
-            enableLocalFileLinks={enableLocalFileLinks}
             expandedWorkGroups={expandedWorkGroups}
-            liveTimers={liveTimers}
-            markdownCwd={markdownCwd}
-            onImageExpand={onImageExpand}
-            onOpenBrowserUrl={onOpenBrowserUrl}
-            onOpenFilePath={onOpenFilePath}
             onToggleWorkGroup={onToggleWorkGroup}
-            timestampFormat={timestampFormat}
           />
         )}
 
@@ -2770,7 +2536,7 @@ function estimateTimelineRowHeight(
       break;
   }
 
-  return writeCachedTimelineRowHeight(cacheKey, height);
+  return height;
 }
 
 function getTimelineRowHeightCacheKey(
@@ -3393,6 +3159,7 @@ const WorkLogTimelineRow = memo(function WorkLogTimelineRow(props: {
   }
 
   const groupId = workGroupId(props.row.id);
+  const hasGroupDetails = props.row.entries.length > 0;
   const isExpanded = props.expandedWorkGroups[groupId] ?? false;
   const ChevronIcon = isExpanded ? ChevronDownIcon : ChevronRightIcon;
   const { summary } = props.row;
@@ -3412,15 +3179,26 @@ const WorkLogTimelineRow = memo(function WorkLogTimelineRow(props: {
     <div className="min-w-0 py-0.5" data-thread-group={summary.threadGroupTone}>
       <button
         type="button"
-        className="group/disclosure flex max-w-full items-center gap-3 rounded-md bg-transparent px-0 py-1 text-left outline-none focus-visible:outline-none focus-visible:ring-0"
-        onClick={() => props.onToggleWorkGroup(groupId)}
-        aria-expanded={isExpanded}
+        className={cn(
+          "group/disclosure flex max-w-full items-center gap-3 rounded-md bg-transparent px-0 py-1 text-left outline-none focus-visible:outline-none focus-visible:ring-0",
+          !hasGroupDetails && "cursor-default",
+        )}
+        onClick={() => {
+          if (hasGroupDetails) {
+            props.onToggleWorkGroup(groupId);
+          }
+        }}
+        aria-expanded={hasGroupDetails ? isExpanded : undefined}
         data-meta-disclosure="true"
-        data-meta-disclosure-open={String(isExpanded)}
+        data-meta-disclosure-open={hasGroupDetails ? String(isExpanded) : undefined}
         data-thinking-disclosure={summary.hasThinkingEntries ? "true" : undefined}
-        data-thinking-disclosure-open={summary.hasThinkingEntries ? String(isExpanded) : undefined}
+        data-thinking-disclosure-open={
+          summary.hasThinkingEntries && hasGroupDetails ? String(isExpanded) : undefined
+        }
         data-tool-disclosure={summary.hasToolEntries ? "true" : undefined}
-        data-tool-disclosure-open={summary.hasToolEntries ? String(isExpanded) : undefined}
+        data-tool-disclosure-open={
+          summary.hasToolEntries && hasGroupDetails ? String(isExpanded) : undefined
+        }
       >
         <GroupIcon
           className={cn("mt-0.5 size-3.5 shrink-0", metaToneTextClass(summary.surfaceTone))}
@@ -3429,21 +3207,27 @@ const WorkLogTimelineRow = memo(function WorkLogTimelineRow(props: {
           {breakdownParts.map((part, index) => (
             <Fragment key={`${props.row.id}:summary:${part.key}`}>
               {index > 0 && <span className="shrink-0 text-muted-foreground/45">·</span>}
-              <InlineTooltip
-                content={part.title}
-                className={cn(
-                  "min-w-0 truncate transition-colors duration-100 group-hover/disclosure:text-foreground/92 group-focus-visible/disclosure:text-foreground/92",
-                  isExpanded ? "text-foreground/92" : "text-muted-foreground/70",
-                )}
-              >
-                {part.text}
-              </InlineTooltip>
+              {hasGroupDetails ? (
+                <InlineTooltip
+                  content={part.title}
+                  className={cn(
+                    "min-w-0 truncate transition-colors duration-100 group-hover/disclosure:text-foreground/92 group-focus-visible/disclosure:text-foreground/92",
+                    isExpanded ? "text-foreground/92" : "text-muted-foreground/70",
+                  )}
+                >
+                  {part.text}
+                </InlineTooltip>
+              ) : (
+                <span className="min-w-0 truncate text-muted-foreground/70">{part.text}</span>
+              )}
             </Fragment>
           ))}
-          <ChevronIcon
-            className="size-3.5 shrink-0 text-muted-foreground/60 transition-colors duration-100 group-hover/disclosure:text-foreground/90 group-focus-visible/disclosure:text-foreground/90"
-            strokeWidth={2.2}
-          />
+          {hasGroupDetails && (
+            <ChevronIcon
+              className="size-3.5 shrink-0 text-muted-foreground/60 transition-colors duration-100 group-hover/disclosure:text-foreground/90 group-focus-visible/disclosure:text-foreground/90"
+              strokeWidth={2.2}
+            />
+          )}
           {elapsedLabel && (
             <span
               className="sr-only"
@@ -3452,7 +3236,7 @@ const WorkLogTimelineRow = memo(function WorkLogTimelineRow(props: {
           )}
         </div>
       </button>
-      {isExpanded && (
+      {isExpanded && hasGroupDetails && (
         <div
           className="mt-2 space-y-2 border-l border-border/45 pl-5"
           data-meta-disclosure-body="true"
@@ -3481,47 +3265,39 @@ const WorkLogTimelineRow = memo(function WorkLogTimelineRow(props: {
 
 const CompletedWorkDetailTimelineRow = memo(function CompletedWorkDetailTimelineRow(props: {
   row: TimelineCompletedWorkDetailRow;
-  enableLocalFileLinks: boolean | undefined;
   expandedWorkGroups: Record<string, boolean>;
-  liveTimers: boolean;
-  markdownCwd: string | undefined;
-  onImageExpand: (preview: ExpandedImagePreview) => void;
-  onOpenBrowserUrl: ((url: string) => void) | null | undefined;
-  onOpenFilePath: ((path: string) => void) | null | undefined;
   onToggleWorkGroup: (groupId: string) => void;
-  timestampFormat: TimestampFormat;
 }) {
-  if (props.row.kind === "work" || props.row.kind === "work-group" || props.row.kind === "intent") {
-    return (
-      <WorkLogTimelineRow
-        row={props.row}
-        expandedWorkGroups={props.expandedWorkGroups}
-        onToggleWorkGroup={props.onToggleWorkGroup}
-      />
-    );
-  }
-
-  if (!isAssistantTimelineMessage(props.row.message)) {
-    return null;
+  if (props.row.kind === "assistant-update") {
+    return <AssistantUpdateTimelineRow row={props.row} />;
   }
 
   return (
-    <div className="min-w-0 py-0.5" data-completed-work-hidden-assistant-message="true">
-      <AssistantMessageTimelineRow
-        durationStart={props.row.durationStart}
-        isAssistantTurnTerminal={props.row.isAssistantTurnTerminal ?? false}
-        liveTimers={props.liveTimers}
-        showCompletedTiming={props.row.showAssistantTiming ?? false}
-        markdownCwd={props.markdownCwd}
-        message={props.row.message}
-        onImageExpand={props.onImageExpand}
-        onOpenBrowserUrl={props.onOpenBrowserUrl ?? null}
-        onOpenFilePath={props.onOpenFilePath ?? null}
-        enableLocalFileLinks={props.enableLocalFileLinks ?? true}
-        renderMarkdown
-        showCopyAction={false}
-        timestampFormat={props.timestampFormat}
-      />
+    <WorkLogTimelineRow
+      row={props.row}
+      expandedWorkGroups={props.expandedWorkGroups}
+      onToggleWorkGroup={props.onToggleWorkGroup}
+    />
+  );
+});
+
+const AssistantUpdateTimelineRow = memo(function AssistantUpdateTimelineRow(props: {
+  row: Extract<TimelineCompletedWorkDetailRow, { kind: "assistant-update" }>;
+}) {
+  return (
+    <div
+      className="min-w-0 py-0.5"
+      data-completed-work-assistant-update="true"
+      data-assistant-update-id={props.row.id}
+    >
+      <p className="wrap-break-word max-w-[min(100%,72rem)] whitespace-pre-wrap text-[13px] leading-[1.55] text-foreground/80">
+        {props.row.text}
+        {props.row.truncated ? (
+          <span className="block text-[12px] leading-5 text-muted-foreground/55">
+            ... update truncated
+          </span>
+        ) : null}
+      </p>
     </div>
   );
 });
@@ -3543,15 +3319,8 @@ function estimateVisibleCompletedWorkDiagnosticRowsHeight(
 
 const CompletedWorkSummaryTimelineRow = memo(function CompletedWorkSummaryTimelineRow(props: {
   row: Extract<TimelineRow, { kind: "completed-work-summary" }>;
-  enableLocalFileLinks: boolean | undefined;
   expandedWorkGroups: Record<string, boolean>;
-  liveTimers: boolean;
-  markdownCwd: string | undefined;
-  onImageExpand: (preview: ExpandedImagePreview) => void;
-  onOpenBrowserUrl: ((url: string) => void) | null | undefined;
-  onOpenFilePath: ((path: string) => void) | null | undefined;
   onToggleWorkGroup: (groupId: string) => void;
-  timestampFormat: TimestampFormat;
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const visibleDiagnosticRows = props.row.visibleDiagnosticRows;
@@ -3633,15 +3402,8 @@ const CompletedWorkSummaryTimelineRow = memo(function CompletedWorkSummaryTimeli
             <CompletedWorkDetailTimelineRow
               key={`completed-work-summary:${props.row.id}:${detailRow.kind}:${detailRow.id}`}
               row={detailRow}
-              enableLocalFileLinks={props.enableLocalFileLinks}
               expandedWorkGroups={props.expandedWorkGroups}
-              liveTimers={props.liveTimers}
-              markdownCwd={props.markdownCwd}
-              onImageExpand={props.onImageExpand}
-              onOpenBrowserUrl={props.onOpenBrowserUrl}
-              onOpenFilePath={props.onOpenFilePath}
               onToggleWorkGroup={props.onToggleWorkGroup}
-              timestampFormat={props.timestampFormat}
             />
           ))}
         </div>
