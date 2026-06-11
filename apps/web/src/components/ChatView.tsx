@@ -1898,9 +1898,20 @@ function useChatViewComponent({
   const composerPanelsRef = useRef<ConnectedChatComposerPanelsHandle>(null);
   const subagentComposerPanelsRef = useRef<ConnectedChatComposerPanelsHandle>(null);
   const chatShellRef = useRef<HTMLDivElement | null>(null);
-  const setMessagesScrollContainerRef = useCallback((element: HTMLDivElement | null) => {
-    messagesScrollRef.current = element;
-  }, []);
+  const setMessagesScrollContainerRef = useCallback(
+    (element: HTMLDivElement | null) => {
+      messagesScrollRef.current = element;
+      if (!element || pendingInitialBottomScrollThreadIdRef.current !== threadId) {
+        return;
+      }
+      scrollContainerToBottom(element);
+      lastKnownScrollTopRef.current = element.scrollTop;
+      shouldAutoScrollRef.current = true;
+      pendingUserScrollUpIntentRef.current = false;
+      setShowScrollToBottom(false);
+    },
+    [setShowScrollToBottom, threadId],
+  );
   const getMessagesScrollContainer = useCallback(() => messagesScrollRef.current, []);
   useEffect(() => {
     const syncComposerDraftRefs = (state: ReturnType<typeof useComposerDraftStore.getState>) => {
@@ -7599,6 +7610,68 @@ function useChatViewComponent({
       scrollMessagesToBottom,
     ],
   );
+  const startInitialBottomPin = useCallback(
+    (activeThreadId: ThreadId) => {
+      const pendingFrame = pendingInitialBottomPinFrameRef.current;
+      if (pendingFrame !== null) {
+        pendingInitialBottomPinFrameRef.current = null;
+        window.cancelAnimationFrame(pendingFrame);
+      }
+
+      shouldAutoScrollRef.current = true;
+      setShowScrollToBottom(false);
+      forceStickToBottom(true);
+
+      const startedAtMs = performance.now();
+      let lastScrollHeight = -1;
+      let stableFrameCount = 0;
+      let frameId: number | null = null;
+      const keepBottomPinnedThroughHydration = () => {
+        const scrollContainer = messagesScrollRef.current;
+        if (!scrollContainer) {
+          frameId = null;
+          return;
+        }
+        if (
+          previousThreadIdRef.current !== activeThreadId ||
+          !shouldAutoScrollRef.current ||
+          pendingUserScrollUpIntentRef.current ||
+          isPointerScrollActiveRef.current
+        ) {
+          pendingInitialBottomPinFrameRef.current = null;
+          return;
+        }
+
+        const elapsedMs = performance.now() - startedAtMs;
+        const scrollHeightChanged = Math.abs(scrollContainer.scrollHeight - lastScrollHeight) >= 1;
+        if (scrollHeightChanged || !isScrollContainerNearBottom(scrollContainer)) {
+          scrollMessagesToBottom();
+        }
+
+        if (!scrollHeightChanged) {
+          stableFrameCount += 1;
+        } else {
+          stableFrameCount = 0;
+          lastScrollHeight = scrollContainer.scrollHeight;
+        }
+
+        if (
+          elapsedMs >= INITIAL_THREAD_BOTTOM_PIN_MAX_MS ||
+          (elapsedMs >= INITIAL_THREAD_BOTTOM_PIN_MIN_MS &&
+            stableFrameCount >= INITIAL_THREAD_BOTTOM_PIN_STABLE_FRAMES)
+        ) {
+          pendingInitialBottomPinFrameRef.current = null;
+          return;
+        }
+
+        frameId = window.requestAnimationFrame(keepBottomPinnedThroughHydration);
+        pendingInitialBottomPinFrameRef.current = frameId;
+      };
+      frameId = window.requestAnimationFrame(keepBottomPinnedThroughHydration);
+      pendingInitialBottomPinFrameRef.current = frameId;
+    },
+    [forceStickToBottom, scrollMessagesToBottom, setShowScrollToBottom],
+  );
   const onMessagesScroll = useCallback(() => {
     const scrollContainer = messagesScrollRef.current;
     if (!scrollContainer) return;
@@ -7707,6 +7780,7 @@ function useChatViewComponent({
     pendingInitialBottomScrollThreadIdRef.current = nextThreadId;
     setShowScrollToBottom(false);
     forceStickToBottom(jumpImmediately);
+    startInitialBottomPin(nextThreadId);
 
     const timeout = window.setTimeout(() => {
       const scrollContainer = messagesScrollRef.current;
@@ -7732,6 +7806,7 @@ function useChatViewComponent({
     forceStickToBottom,
     scheduleStickToBottom,
     setShowScrollToBottom,
+    startInitialBottomPin,
   ]);
   useLayoutEffect(() => {
     if (!activeForSideEffects) return;
@@ -7748,69 +7823,8 @@ function useChatViewComponent({
     }
 
     pendingInitialBottomScrollThreadIdRef.current = null;
-    shouldAutoScrollRef.current = true;
-    setShowScrollToBottom(false);
-    forceStickToBottom(true);
-
-    const startedAtMs = performance.now();
-    let lastScrollHeight = -1;
-    let stableFrameCount = 0;
-    let frameId: number | null = null;
-    const keepBottomPinnedThroughHydration = () => {
-      const scrollContainer = messagesScrollRef.current;
-      if (!scrollContainer) {
-        frameId = null;
-        return;
-      }
-      if (
-        previousThreadIdRef.current !== activeThreadId ||
-        !shouldAutoScrollRef.current ||
-        pendingUserScrollUpIntentRef.current ||
-        isPointerScrollActiveRef.current
-      ) {
-        pendingInitialBottomPinFrameRef.current = null;
-        return;
-      }
-
-      scrollMessagesToBottom();
-
-      const elapsedMs = performance.now() - startedAtMs;
-      if (Math.abs(scrollContainer.scrollHeight - lastScrollHeight) < 1) {
-        stableFrameCount += 1;
-      } else {
-        stableFrameCount = 0;
-        lastScrollHeight = scrollContainer.scrollHeight;
-      }
-
-      if (
-        elapsedMs >= INITIAL_THREAD_BOTTOM_PIN_MAX_MS ||
-        (elapsedMs >= INITIAL_THREAD_BOTTOM_PIN_MIN_MS &&
-          stableFrameCount >= INITIAL_THREAD_BOTTOM_PIN_STABLE_FRAMES)
-      ) {
-        pendingInitialBottomPinFrameRef.current = null;
-        return;
-      }
-
-      frameId = window.requestAnimationFrame(keepBottomPinnedThroughHydration);
-      pendingInitialBottomPinFrameRef.current = frameId;
-    };
-    frameId = window.requestAnimationFrame(keepBottomPinnedThroughHydration);
-    pendingInitialBottomPinFrameRef.current = frameId;
-
-    return () => {
-      if (pendingInitialBottomPinFrameRef.current === frameId && frameId !== null) {
-        pendingInitialBottomPinFrameRef.current = null;
-        window.cancelAnimationFrame(frameId);
-      }
-    };
-  }, [
-    activeForSideEffects,
-    activeThread?.id,
-    forceStickToBottom,
-    scrollMessagesToBottom,
-    setShowScrollToBottom,
-    timelineHydratedRowCount,
-  ]);
+    startInitialBottomPin(activeThreadId);
+  }, [activeForSideEffects, activeThread?.id, startInitialBottomPin, timelineHydratedRowCount]);
   useLayoutEffect(() => {
     if (!activeForSideEffects) return;
     if (!shouldAutoScrollRef.current) return;
