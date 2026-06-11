@@ -2695,6 +2695,7 @@ function compactDisplayText(value: string, maxLength = 72): string {
 
 function summarizeWorkGroupBreakdownParts(
   summary: TimelineWorkGroupSummaryProjection,
+  thinkingDurationMs: number | null,
 ): Array<{ key: string; text: string; title: string }> {
   const {
     entryCount,
@@ -2711,11 +2712,15 @@ function summarizeWorkGroupBreakdownParts(
 
   if (isThinkingOnly) {
     const steps = summarizeCount(thinkingCount, "reasoning step");
+    const thinkingDurationLabel =
+      thinkingDurationMs === null ? null : formatToolDuration(thinkingDurationMs);
     return [
       {
         key: "thinking",
-        text: summarizeMultiplier(thinkingCount, "Thinking"),
-        title: steps,
+        text: thinkingDurationLabel
+          ? `${summarizeMultiplier(thinkingCount, "Thinking")} · ${thinkingDurationLabel}`
+          : summarizeMultiplier(thinkingCount, "Thinking"),
+        title: thinkingDurationLabel ? `${steps}, ${thinkingDurationLabel} reported` : steps,
       },
     ];
   }
@@ -2757,10 +2762,14 @@ function summarizeWorkGroupBreakdownParts(
   }
   if (thinkingCount > 0) {
     const steps = summarizeCount(thinkingCount, "reasoning step");
+    const thinkingDurationLabel =
+      thinkingDurationMs === null ? null : formatToolDuration(thinkingDurationMs);
     parts.push({
       key: "thinking",
-      text: summarizeMultiplier(thinkingCount, "Thinking"),
-      title: steps,
+      text: thinkingDurationLabel
+        ? `${summarizeMultiplier(thinkingCount, "Thinking")} · ${thinkingDurationLabel}`
+        : summarizeMultiplier(thinkingCount, "Thinking"),
+      title: thinkingDurationLabel ? `${steps}, ${thinkingDurationLabel} reported` : steps,
     });
   }
   if (errorCount > 0) {
@@ -2778,6 +2787,25 @@ function summarizeWorkGroupBreakdownParts(
 
   const entriesLabel = summarizeCount(entryCount, "log entry", "log entries");
   return [{ key: "fallback", text: `Logged ${entriesLabel}`, title: entriesLabel }];
+}
+
+function summarizeReportedThinkingDurationMs(
+  entries: ReadonlyArray<TimelineMetaGroupEntry>,
+): number | null {
+  let totalDurationMs = 0;
+  let hasReportedDuration = false;
+  for (const entry of entries) {
+    if (entry.kind !== "work" || entry.workEntry.tone !== "thinking") {
+      continue;
+    }
+    const durationMs = entry.workEntry.durationMs;
+    if (durationMs === undefined || !Number.isFinite(durationMs) || durationMs < 0) {
+      continue;
+    }
+    totalDurationMs += durationMs;
+    hasReportedDuration = true;
+  }
+  return hasReportedDuration ? totalDurationMs : null;
 }
 
 function workGroupIcon(iconKey: TimelineWorkGroupIconKey): TimelineIcon {
@@ -3155,7 +3183,8 @@ const WorkLogTimelineRow = memo(function WorkLogTimelineRow(props: {
   const ChevronIcon = isExpanded ? ChevronDownIcon : ChevronRightIcon;
   const { summary } = props.row;
   const elapsedLabel = summarizeWorkGroupElapsedLabel(props.row.createdAt, props.row.summaryEndAt);
-  const breakdownParts = summarizeWorkGroupBreakdownParts(summary);
+  const thinkingDurationMs = summarizeReportedThinkingDurationMs(props.row.entries);
+  const breakdownParts = summarizeWorkGroupBreakdownParts(summary, thinkingDurationMs);
   const GroupIcon = workGroupIcon(summary.iconKey);
 
   return (

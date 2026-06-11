@@ -2174,6 +2174,7 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
               createdAt: "2026-03-17T19:12:31.500Z",
               label: "Reasoning",
               detail: "Inspecting package scripts before patching the renderer.",
+              durationMs: 650,
               tone: "thinking",
             },
           },
@@ -2186,6 +2187,7 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
               createdAt: "2026-03-17T19:12:33.500Z",
               label: "Reasoning",
               detail: "Comparing the grouped timeline behavior after the patch.",
+              durationMs: 850,
               tone: "thinking",
             },
           },
@@ -2211,6 +2213,7 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(markup).toContain('data-thinking-disclosure-open="false"');
     expect(markup).toContain('data-meta-disclosure-elapsed="2s"');
     expect(markup).toContain("Thinking x2");
+    expect(markup).toContain("1.5s");
     expect(markup).not.toContain("Thought 2 times for 2 seconds");
     expect(markup).not.toContain("Thought for 2s");
     expect(markup).not.toContain('data-work-entry-id="thinking-collapsed"');
