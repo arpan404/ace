@@ -1893,6 +1893,74 @@ describe("incremental orchestration updates", () => {
     ]);
   });
 
+  it("keeps streamed assistant text when a metadata-only thread receives an empty final event", async () => {
+    const threadId = ThreadId.makeUnsafe("thread-metadata-empty-final");
+    const messageId = MessageId.makeUnsafe("message-metadata-empty-final");
+    const turnId = TurnId.makeUnsafe("turn-metadata-empty-final");
+    const state = makeState(
+      makeThread({
+        id: threadId,
+        historyLoaded: false,
+        latestTurn: {
+          turnId,
+          state: "running",
+          requestedAt: "2026-02-27T00:00:00.000Z",
+          startedAt: "2026-02-27T00:00:00.000Z",
+          completedAt: null,
+          assistantMessageId: null,
+        },
+      }),
+    );
+
+    const live = applyOrchestrationEvent(
+      state,
+      makeEvent(
+        "thread.message-sent",
+        {
+          threadId,
+          messageId,
+          role: "assistant",
+          text: "hi",
+          turnId,
+          streaming: true,
+          createdAt: "2026-02-27T00:00:01.000Z",
+          updatedAt: "2026-02-27T00:00:01.000Z",
+        },
+        {
+          sequence: 2,
+          occurredAt: "2026-02-27T00:00:01.000Z",
+        },
+      ),
+    );
+    applyOrchestrationEvent(
+      live,
+      makeEvent(
+        "thread.message-sent",
+        {
+          threadId,
+          messageId,
+          role: "assistant",
+          text: "",
+          turnId,
+          streaming: false,
+          createdAt: "2026-02-27T00:00:01.000Z",
+          updatedAt: "2026-02-27T00:00:02.000Z",
+        },
+        {
+          sequence: 3,
+          occurredAt: "2026-02-27T00:00:02.000Z",
+        },
+      ),
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(readTimelineRowsProjection(threadId).messages[0]).toMatchObject({
+      text: "hi",
+      streaming: false,
+    });
+  });
+
   it("does not replace sidebar summaries for sub-second tool activity churn", () => {
     const threadId = ThreadId.makeUnsafe("thread-activity-sidebar");
     const turnId = TurnId.makeUnsafe("turn-activity-sidebar");

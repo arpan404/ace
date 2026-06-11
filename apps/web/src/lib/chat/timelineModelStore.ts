@@ -100,6 +100,27 @@ interface PrimeLiveTimelineRowOptions {
   readonly flush?: "frame" | "sync";
 }
 
+function mergeQueuedLiveTimelineRowPatch(
+  pending: PrimeLiveTimelineRowInput,
+  input: PrimeLiveTimelineRowInput,
+): PrimeLiveTimelineRowInput {
+  const message =
+    pending.message && input.message
+      ? chooseFreshestMessage(pending.message, input.message)
+      : (input.message ?? pending.message);
+  const activity = input.activity ?? pending.activity;
+  const proposedPlan =
+    pending.proposedPlan && input.proposedPlan
+      ? chooseFreshestProposedPlan(pending.proposedPlan, input.proposedPlan)
+      : (input.proposedPlan ?? pending.proposedPlan);
+  return {
+    ...input,
+    ...(message ? { message } : {}),
+    ...(activity ? { activity } : {}),
+    ...(proposedPlan ? { proposedPlan } : {}),
+  };
+}
+
 interface TimelineModelState {
   readonly metadataByThreadId: Record<string, TimelineRowsMetadata>;
   readonly rowIdsByThreadId: Record<string, readonly string[]>;
@@ -280,6 +301,10 @@ function normalizeTimelineMessage(message: OrchestrationMessage): OrchestrationM
   return attachments && attachments.length > 0 ? { ...message, attachments } : message;
 }
 
+function hasRenderableMessageText(message: OrchestrationMessage): boolean {
+  return message.text.trim().length > 0;
+}
+
 function chooseFreshestMessage(
   existing: OrchestrationMessage | undefined,
   incoming: OrchestrationMessage,
@@ -298,6 +323,18 @@ function chooseFreshestMessage(
     existing.text.length > incoming.text.length
   ) {
     return existing;
+  }
+  if (!hasRenderableMessageText(normalizedIncoming) && hasRenderableMessageText(existing)) {
+    const attachments = mergeTimelineMessageAttachments(
+      existing.attachments,
+      normalizedIncoming.attachments,
+    );
+    return {
+      ...existing,
+      streaming: normalizedIncoming.streaming,
+      updatedAt: normalizedIncoming.updatedAt,
+      ...(attachments && attachments.length > 0 ? { attachments } : {}),
+    };
   }
   const attachments = mergeTimelineMessageAttachments(
     existing.attachments,
@@ -681,16 +718,23 @@ export function hydrateThreadTimelineRowsSnapshotInBackground(threadId: ThreadId
   }
 
   useTimelineModelStore.getState().beginFetches(threadId, 1);
-  const promise = ensureNativeApi()
-    .orchestration.getThreadTimelineRowsSnapshot({ threadId })
-    .then((snapshot) => {
-      useTimelineModelStore.getState().primeSnapshot(snapshot);
-      return snapshot;
-    })
-    .finally(() => {
-      inFlightRowsSnapshotByThreadId.delete(threadId);
-      useTimelineModelStore.getState().finishFetches(threadId, 1);
-    });
+  let promise: Promise<OrchestrationGetThreadTimelineRowsSnapshotResult>;
+  try {
+    promise = ensureNativeApi()
+      .orchestration.getThreadTimelineRowsSnapshot({ threadId })
+      .then((snapshot) => {
+        useTimelineModelStore.getState().primeSnapshot(snapshot);
+        return snapshot;
+      })
+      .finally(() => {
+        inFlightRowsSnapshotByThreadId.delete(threadId);
+        useTimelineModelStore.getState().finishFetches(threadId, 1);
+      });
+  } catch (error) {
+    useTimelineModelStore.getState().finishFetches(threadId, 1);
+    void error;
+    return;
+  }
   inFlightRowsSnapshotByThreadId.set(threadId, promise);
   void promise.catch(() => undefined);
 }
@@ -855,7 +899,11 @@ export function primeLiveTimelineRow(
     applyLiveTimelineRowPatches([input]);
     return;
   }
-  liveTimelineRowPatchQueue.set(queueKey, input);
+  const pending = liveTimelineRowPatchQueue.get(queueKey);
+  liveTimelineRowPatchQueue.set(
+    queueKey,
+    pending ? mergeQueuedLiveTimelineRowPatch(pending, input) : input,
+  );
   if (liveTimelineRowPatchFrame !== null) {
     return;
   }

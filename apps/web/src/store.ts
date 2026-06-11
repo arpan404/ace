@@ -31,6 +31,7 @@ import {
 } from "./lib/chat/messageText";
 import { primeHydratedThreadCache } from "./lib/threadHydrationCache";
 import {
+  hydrateThreadTimelineRowsSnapshotInBackground,
   primeLiveTimelineRow,
   primeThreadTimelineRowsMetadataFromReadModelThread,
   primeThreadTimelineRowsMetadataFromReadModelThreads,
@@ -1901,6 +1902,10 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
 
     case "thread.message-sent": {
       const connectionUrl = resolveConnectionForThreadId(event.payload.threadId);
+      const shouldRecoverFinalAssistantSnapshot =
+        event.payload.role === "assistant" &&
+        !event.payload.streaming &&
+        event.payload.text.trim().length === 0;
       const orchestrationMessage = {
         id: event.payload.messageId,
         role: event.payload.role,
@@ -1926,6 +1931,9 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
         },
         message: mapOrchestrationMessageForClient(orchestrationMessage, connectionUrl),
       });
+      if (shouldRecoverFinalAssistantSnapshot) {
+        hydrateThreadTimelineRowsSnapshotInBackground(event.payload.threadId);
+      }
       return updateThreadState(state, event.payload.threadId, (thread) => {
         const message = mapTimelineMessage(orchestrationMessage, connectionUrl);
         const existingMessageIndex = thread.messages.findIndex((entry) => entry.id === message.id);

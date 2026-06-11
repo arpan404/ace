@@ -333,6 +333,65 @@ describe("timelineModelStore", () => {
     });
   });
 
+  it("does not let an empty final assistant event erase live assistant text", async () => {
+    const { primeLiveTimelineRow } = await import("./timelineModelStore");
+
+    primeLiveTimelineRow(
+      {
+        threadId,
+        updatedAt: "2026-01-01T00:00:02.000Z",
+        entry: {
+          kind: "message",
+          id: messageId,
+          createdAt: "2026-01-01T00:00:01.000Z",
+          turnId,
+          sequence: 1,
+        },
+        message: {
+          id: messageId,
+          role: "assistant",
+          text: "hi",
+          turnId,
+          streaming: true,
+          sequence: 1,
+          createdAt: "2026-01-01T00:00:01.000Z",
+          updatedAt: "2026-01-01T00:00:02.000Z",
+        },
+      },
+      { flush: "sync" },
+    );
+    primeLiveTimelineRow(
+      {
+        threadId,
+        updatedAt: "2026-01-01T00:00:03.000Z",
+        entry: {
+          kind: "message",
+          id: messageId,
+          createdAt: "2026-01-01T00:00:01.000Z",
+          turnId,
+          sequence: 1,
+        },
+        message: {
+          id: messageId,
+          role: "assistant",
+          text: "",
+          turnId,
+          streaming: false,
+          sequence: 1,
+          createdAt: "2026-01-01T00:00:01.000Z",
+          updatedAt: "2026-01-01T00:00:03.000Z",
+        },
+      },
+      { flush: "sync" },
+    );
+
+    expect(readTimelineRowsProjection(threadId).messages[0]).toMatchObject({
+      text: "hi",
+      streaming: false,
+      updatedAt: "2026-01-01T00:00:03.000Z",
+    });
+  });
+
   it("appends live rows after existing metadata-only history", async () => {
     const { primeLiveTimelineRow } = await import("./timelineModelStore");
     const secondMessageId = MessageId.makeUnsafe("message-row-store-second");
