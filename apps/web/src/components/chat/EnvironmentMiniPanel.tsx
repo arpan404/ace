@@ -484,32 +484,21 @@ export const EnvironmentMiniPanel = forwardRef<
               onWorkspaceModeChange={props.onWorkspaceModeChange}
             />
           ) : props.gitCwd ? (
-            <div className="mx-2 my-1 px-3 py-2 rounded-xl border border-border/45 bg-muted/12 transition-all duration-200">
-              <p className="text-[11px] leading-relaxed text-muted-foreground/85 mb-2 text-center">
-                No Git repository found in this workspace. Initialize Git to enable version
-                tracking.
-              </p>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-7 w-full rounded-lg text-[11px] font-medium transition-all hover:bg-accent/80 hover:text-accent-foreground"
-                onClick={handleGitInit}
-                disabled={initMutation.isPending}
-              >
-                {initMutation.isPending ? (
-                  <>
-                    <Spinner className="mr-1.5 size-3" />
-                    Initializing...
-                  </>
-                ) : (
-                  <>
-                    <GitBranchPlusIcon className="mr-1.5 size-3.5 text-muted-foreground/70" />
-                    Initialize Git
-                  </>
-                )}
-              </Button>
-            </div>
+            <button
+              type="button"
+              className="flex min-h-8 w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-[12px] transition-colors hover:bg-accent/60 hover:text-accent-foreground"
+              disabled={initMutation.isPending}
+              onClick={handleGitInit}
+            >
+              {initMutation.isPending ? (
+                <Spinner className="size-3.5" />
+              ) : (
+                <GitBranchPlusIcon className="size-3.5 text-muted-foreground" />
+              )}
+              <span className="min-w-0 flex-1">
+                {initMutation.isPending ? "Initializing Git..." : "Initialize Git"}
+              </span>
+            </button>
           ) : null}
         </EnvironmentPanelGroup>
 
