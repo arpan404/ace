@@ -17,7 +17,11 @@ import { cn } from "~/lib/utils";
 import { buttonVariants } from "~/components/ui/buttonVariants";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
-import { buildVisibleToastLayout, shouldHideCollapsedToastContent } from "~/lib/ui/toast";
+import {
+  buildVisibleToastLayout,
+  selectLatestVisibleToast,
+  shouldHideCollapsedToastContent,
+} from "~/lib/ui/toast";
 
 type ThreadToastData = {
   threadId?: ThreadId | null;
@@ -32,17 +36,17 @@ type ToastId = ReturnType<typeof toastManager.add>;
 const threadToastVisibleTimeoutRemainingMs = new Map<ToastId, number>();
 
 const TOAST_SURFACE_CLASS_NAME = cn(
-  "overflow-hidden rounded-[var(--panel-radius)]",
+  "overflow-hidden rounded-xl border-foreground/10 shadow-[0_18px_60px_rgb(0_0_0/.24),0_1px_0_rgb(255_255_255/.05)_inset] ring-1 ring-foreground/[0.035]",
   GLASS_SURFACE_CLASS_NAME,
 );
 const TOAST_CONTENT_CLASS_NAME =
-  "pointer-events-auto flex flex-col gap-2 overflow-hidden px-3 py-2.5 text-xs";
+  "pointer-events-auto relative flex max-h-[min(9.5rem,calc(100dvh-1.5rem))] flex-col gap-2.5 overflow-hidden px-4 py-3 text-xs";
 const TOAST_TITLE_CLASS_NAME =
-  "min-w-0 break-words text-xs font-medium leading-4 text-foreground/95";
+  "line-clamp-2 min-w-0 text-[13px] font-semibold leading-5 text-foreground/95 [overflow-wrap:anywhere]";
 const TOAST_DESCRIPTION_CLASS_NAME =
-  "min-w-0 select-text break-words text-[11px] leading-4 text-muted-foreground/76";
+  "line-clamp-3 min-w-0 select-text text-xs leading-4 text-muted-foreground/72 [overflow-wrap:anywhere]";
 const TOAST_ACTION_CLASS_NAME =
-  "h-6 max-w-full shrink-0 self-start truncate rounded-[var(--chip-radius)] border-border/55 bg-background px-2 text-xs font-medium leading-none text-foreground/88 shadow-none hover:bg-accent hover:text-accent-foreground";
+  "h-7 max-w-full shrink-0 self-start truncate rounded-md border-border/55 bg-background/70 px-2.5 text-xs font-medium leading-none text-foreground/88 shadow-none hover:bg-accent hover:text-accent-foreground";
 const TOAST_STATUS_ICONS = {
   error: CircleAlertIcon,
   loading: LoaderCircleIcon,
@@ -60,7 +64,7 @@ function ToastProgressBar({ percent }: { percent: number }) {
   return (
     <progress
       aria-label={`Progress ${percent}%`}
-      className="mt-1 h-0.5 w-full overflow-hidden rounded-full bg-muted/55 accent-info [&::-moz-progress-bar]:rounded-full [&::-moz-progress-bar]:bg-info [&::-webkit-progress-bar]:rounded-full [&::-webkit-progress-bar]:bg-muted/55 [&::-webkit-progress-value]:rounded-full [&::-webkit-progress-value]:bg-info"
+      className="mt-1 h-1 w-full overflow-hidden rounded-full bg-muted/50 accent-info [&::-moz-progress-bar]:rounded-full [&::-moz-progress-bar]:bg-info [&::-webkit-progress-bar]:rounded-full [&::-webkit-progress-bar]:bg-muted/50 [&::-webkit-progress-value]:rounded-full [&::-webkit-progress-value]:bg-info"
       max={100}
       value={percent}
     />
@@ -75,14 +79,18 @@ function CopyErrorButton({ text }: { text: string }) {
       <TooltipTrigger
         render={
           <button
-            className="shrink-0 cursor-pointer rounded-md border border-transparent p-0.5 text-muted-foreground/72 transition-colors hover:border-border/60 hover:bg-background/70 hover:text-foreground"
+            className="shrink-0 cursor-pointer rounded-md border border-transparent p-1 text-muted-foreground/72 transition-colors hover:border-border/60 hover:bg-background/70 hover:text-foreground"
             onClick={() => copyToClipboard(text)}
             type="button"
             aria-label={isCopied ? "Copied" : "Copy error"}
           />
         }
       >
-        {isCopied ? <CheckIcon className="size-3 text-success" /> : <CopyIcon className="size-3" />}
+        {isCopied ? (
+          <CheckIcon className="size-3.5 text-success" />
+        ) : (
+          <CopyIcon className="size-3.5" />
+        )}
       </TooltipTrigger>
       <TooltipPopup side="top">{isCopied ? "Copied" : "Copy error"}</TooltipPopup>
     </Tooltip>
@@ -104,16 +112,17 @@ function ToastStatusIcon({
   type: keyof typeof TOAST_STATUS_ICONS;
 }) {
   return (
-    <Icon
+    <span
       className={cn(
-        "mt-px size-3.5 shrink-0",
-        type === "error" && "text-destructive",
-        type === "loading" && "animate-spin text-info/90",
-        type === "warning" && "text-warning",
+        "mt-px flex size-6 shrink-0 items-center justify-center rounded-lg border",
+        type === "error" && "border-destructive/25 bg-destructive/10 text-destructive",
+        type === "loading" && "border-info/25 bg-info/10 text-info",
+        type === "warning" && "border-warning/25 bg-warning/10 text-warning",
       )}
-      strokeWidth={2.25}
       aria-hidden="true"
-    />
+    >
+      <Icon className={cn("size-3.5", type === "loading" && "animate-spin")} strokeWidth={2.4} />
+    </span>
   );
 }
 
@@ -132,18 +141,19 @@ function ToastMessageContent({
 }) {
   return (
     <>
-      <div className="flex min-w-0 flex-col gap-0.5">
-        <div className="flex items-start justify-between gap-2">
-          <div className="flex min-w-0 items-start gap-1.5">
-            {statusIcon && statusType ? (
-              <ToastStatusIcon Icon={statusIcon} type={statusType} />
-            ) : null}
+      <div className="flex min-w-0 items-start gap-3">
+        {statusIcon && statusType ? <ToastStatusIcon Icon={statusIcon} type={statusType} /> : null}
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <div className="flex min-w-0 items-start justify-between gap-3">
             <Toast.Title className={TOAST_TITLE_CLASS_NAME} data-slot="toast-title" />
+            {copyErrorText ? <CopyErrorButton text={copyErrorText} /> : null}
           </div>
-          {copyErrorText ? <CopyErrorButton text={copyErrorText} /> : null}
+          <Toast.Description
+            className={TOAST_DESCRIPTION_CLASS_NAME}
+            data-slot="toast-description"
+          />
+          {progressPercent !== null ? <ToastProgressBar percent={progressPercent} /> : null}
         </div>
-        <Toast.Description className={TOAST_DESCRIPTION_CLASS_NAME} data-slot="toast-description" />
-        {progressPercent !== null ? <ToastProgressBar percent={progressPercent} /> : null}
       </div>
       {action ? <div className="flex justify-end">{action}</div> : null}
     </>
@@ -257,7 +267,7 @@ function ThreadToastVisibleAutoDismiss({
   return null;
 }
 
-function ToastProvider({ children, position = "top-right", ...props }: ToastProviderProps) {
+function ToastProvider({ children, position = "top-center", ...props }: ToastProviderProps) {
   return (
     <Toast.Provider toastManager={toastManager} {...props}>
       {children}
@@ -266,14 +276,14 @@ function ToastProvider({ children, position = "top-right", ...props }: ToastProv
   );
 }
 
-function Toasts({ position = "top-right" }: { position: ToastPosition }) {
+function Toasts({ position = "top-center" }: { position: ToastPosition }) {
   const { toasts } = Toast.useToastManager<ThreadToastData>();
   const activeThreadId = useActiveThreadIdFromRoute();
   const isTop = position.startsWith("top");
   const visibleToasts = toasts.filter((toast) =>
     shouldRenderForActiveThread(toast.data, activeThreadId),
   );
-  const visibleToastLayout = buildVisibleToastLayout(visibleToasts);
+  const visibleToastLayout = buildVisibleToastLayout(selectLatestVisibleToast(visibleToasts));
 
   useEffect(() => {
     const activeToastIds = new Set(toasts.map((toast) => toast.id));
@@ -288,7 +298,7 @@ function Toasts({ position = "top-right" }: { position: ToastPosition }) {
     <Toast.Portal data-slot="toast-portal">
       <Toast.Viewport
         className={cn(
-          "fixed z-[70] mx-auto flex w-[calc(100%-var(--toast-inset)*2)] max-w-[18rem] [--toast-header-offset:52px] [--toast-inset:--spacing(3)] sm:[--toast-inset:--spacing(4)]",
+          "fixed z-[70] mx-auto flex w-[calc(100%-var(--toast-inset)*2)] max-w-[32rem] [--toast-header-offset:0px] [--toast-inset:--spacing(2)] sm:[--toast-inset:--spacing(3)]",
           // Vertical positioning
           "data-[position*=top]:top-[calc(var(--toast-inset)+var(--toast-header-offset))]",
           "data-[position*=bottom]:bottom-(--toast-inset)",
@@ -322,6 +332,7 @@ function Toasts({ position = "top-right" }: { position: ToastPosition }) {
               className={cn(
                 "absolute z-[calc(9999-var(--toast-index))] h-(--toast-calc-height) w-full select-none",
                 TOAST_SURFACE_CLASS_NAME,
+                "data-[type=error]:border-destructive/30 data-[type=loading]:border-info/30 data-[type=warning]:border-warning/30",
                 "[transition:transform_.5s_cubic-bezier(.22,1,.36,1),opacity_.5s,height_.15s]",
                 // Base positioning using data-position
                 "data-[position*=right]:right-0 data-[position*=right]:left-auto",
@@ -333,11 +344,13 @@ function Toasts({ position = "top-right" }: { position: ToastPosition }) {
                 "after:absolute after:left-0 after:h-[calc(var(--toast-gap)+1px)] after:w-full",
                 "data-[position*=top]:after:top-full",
                 "data-[position*=bottom]:after:bottom-full",
+                "before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-foreground/10",
+                "data-[type=error]:before:bg-destructive/45 data-[type=loading]:before:bg-info/45 data-[type=warning]:before:bg-warning/45",
                 // Define some variables
                 // Base UI exposes a shared front-most height for the collapsed stack.
                 // If that shared measurement is briefly stale, long content can render
                 // outside the card until hover expands the toast and swaps to its own height.
-                "[--toast-calc-height:max(var(--toast-frontmost-height,var(--toast-height)),var(--toast-height))] [--toast-gap:--spacing(3)] [--toast-peek:--spacing(3)] [--toast-scale:calc(max(0,1-(var(--toast-index)*.1)))] [--toast-shrink:calc(1-var(--toast-scale))]",
+                "[--toast-calc-height:max(var(--toast-frontmost-height,var(--toast-height)),var(--toast-height))] [--toast-gap:--spacing(3)] [--toast-peek:--spacing(2.5)] [--toast-scale:calc(max(0,1-(var(--toast-index)*.06)))] [--toast-shrink:calc(1-var(--toast-scale))]",
                 // Define offset-y variable
                 "data-[position*=top]:[--toast-calc-offset-y:calc(var(--toast-offset-y)+var(--toast-index)*var(--toast-gap)+var(--toast-swipe-movement-y))]",
                 "data-[position*=bottom]:[--toast-calc-offset-y:calc(var(--toast-offset-y)*-1+var(--toast-index)*var(--toast-gap)*-1+var(--toast-swipe-movement-y))]",
@@ -369,6 +382,7 @@ function Toasts({ position = "top-right" }: { position: ToastPosition }) {
                 "data-expanded:data-ending-style:data-[swipe-direction=down]:transform-[translateY(calc(var(--toast-swipe-movement-y)+100%+var(--toast-inset)))]",
               )}
               data-position={position}
+              data-type={toast.type ?? undefined}
               key={toast.id}
               style={
                 {
@@ -480,7 +494,10 @@ function AnchoredToasts() {
               >
                 {tooltipStyle ? (
                   <Toast.Content className="pointer-events-auto px-2 py-1">
-                    <Toast.Title data-slot="toast-title" />
+                    <Toast.Title
+                      className="line-clamp-2 max-w-64 text-xs leading-4 [overflow-wrap:anywhere]"
+                      data-slot="toast-title"
+                    />
                   </Toast.Content>
                 ) : (
                   <Toast.Content className={TOAST_CONTENT_CLASS_NAME}>
