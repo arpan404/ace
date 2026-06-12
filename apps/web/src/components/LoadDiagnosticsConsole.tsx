@@ -1,5 +1,3 @@
-import { useMemo } from "react";
-
 import {
   clearLoadDiagnostics,
   formatLoadDiagnosticsReport,
@@ -20,7 +18,7 @@ const LEVEL_ACCENT_CLASS: Record<string, string> = {
 export function LoadDiagnosticsConsole() {
   const { enabled, expanded, entries } = useLoadDiagnostics();
   const latestEntry = entries.at(-1) ?? null;
-  const visibleEntries = useMemo(() => entries.slice(-80).toReversed(), [entries]);
+  const visibleEntries = entries.slice(-80).toReversed();
 
   if (!enabled) {
     return null;

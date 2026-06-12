@@ -461,6 +461,14 @@ function getCliUpdateStatusLabel(
   return null;
 }
 
+function setProviderModelListRef(
+  modelListRefs: MutableRefObject<Partial<Record<ProviderKind, HTMLDivElement | null>>>,
+  provider: ProviderKind,
+  element: HTMLDivElement | null,
+) {
+  modelListRefs.current[provider] = element;
+}
+
 function useProviderSettingsSectionComponent({
   customModelErrorByProvider,
   customModelInputByProvider,
@@ -1449,7 +1457,7 @@ function useProviderSettingsSectionComponent({
                 <SettingsInsetPanel className="overflow-hidden border border-border/40 shadow-xs">
                   <ScrollArea
                     ref={(element) => {
-                      modelListRefs.current[providerCard.provider] = element;
+                      setProviderModelListRef(modelListRefs, providerCard.provider, element);
                     }}
                     className="max-h-64"
                   >

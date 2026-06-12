@@ -393,23 +393,28 @@ function useDiffPanelComponent({
     activeProjectId ? store.projects.find((project) => project.id === activeProjectId) : undefined,
   );
   const activeCwd = activeThread?.worktreePath ?? activeProject?.cwd;
-  const gitBranchesQuery = useQuery(gitBranchesQueryOptions(activeCwd ?? null));
-  const gitStatusQuery = useQuery(
+  const {
+    data: gitBranchesData,
+    error: gitBranchesError,
+    fetchStatus: gitBranchesFetchStatus,
+    isPending: isGitBranchesPending,
+  } = useQuery(gitBranchesQueryOptions(activeCwd ?? null));
+  const { data: gitStatusData } = useQuery(
     gitStatusQueryOptions(
       activeThread?.latestTurn?.state === "running" ? (activeCwd ?? null) : null,
     ),
   );
-  const gitRepoStatus = gitBranchesQuery.data?.isRepo;
+  const gitRepoStatus = gitBranchesData?.isRepo;
   const gitRepoCheckError =
-    gitBranchesQuery.error instanceof Error
-      ? gitBranchesQuery.error.message
-      : gitBranchesQuery.error
+    gitBranchesError instanceof Error
+      ? gitBranchesError.message
+      : gitBranchesError
         ? "Failed to inspect git repository status."
         : null;
   const isCheckingGitRepo =
     activeCwd !== null &&
-    (gitBranchesQuery.isPending ||
-      (gitBranchesQuery.fetchStatus === "fetching" && typeof gitRepoStatus !== "boolean"));
+    (isGitBranchesPending ||
+      (gitBranchesFetchStatus === "fetching" && typeof gitRepoStatus !== "boolean"));
   const isGitRepo = gitRepoStatus === true;
   const { turnDiffSummaries, inferredCheckpointTurnCountByTurnId } =
     useTurnDiffSummaries(activeThread);
@@ -472,7 +477,7 @@ function useDiffPanelComponent({
     selectedTurn?.status === "missing" &&
     !selectedTurnLiveDiff &&
     (liveTurnDiffMode === undefined || liveTurnDiffMode === "workspace") &&
-    gitStatusQuery.data?.hasWorkingTreeChanges === true;
+    gitStatusData?.hasWorkingTreeChanges === true;
   const selectedTurnUnavailableReason = useMemo(() => {
     if (
       !selectedTurn ||
@@ -542,7 +547,12 @@ function useDiffPanelComponent({
     activeCheckpointRange !== null &&
     !selectedTurnLiveDiff &&
     !selectedTurnWorkspaceFallback;
-  const activeCheckpointDiffQuery = useQuery(
+  const {
+    data: activeCheckpointDiffData,
+    error: activeCheckpointDiffError,
+    fetchStatus: activeCheckpointDiffFetchStatus,
+    isPending: isActiveCheckpointDiffPending,
+  } = useQuery(
     checkpointDiffQueryOptions({
       threadId: activeThreadId,
       fromTurnCount: activeCheckpointRange?.fromTurnCount ?? null,
@@ -551,44 +561,44 @@ function useDiffPanelComponent({
       enabled: canQueryCheckpointDiff,
     }),
   );
-  const selectedTurnCheckpointDiff = selectedTurn
-    ? activeCheckpointDiffQuery.data?.diff
-    : undefined;
-  const workingTreeDiffQuery = useQuery(
+  const selectedTurnCheckpointDiff = selectedTurn ? activeCheckpointDiffData?.diff : undefined;
+  const {
+    data: workingTreeDiffData,
+    error: workingTreeDiffError,
+    fetchStatus: workingTreeDiffFetchStatus,
+    isPending: isWorkingTreeDiffPending,
+  } = useQuery(
     gitWorkingTreeDiffQueryOptions({
       cwd: activeCwd ?? null,
       enabled: diffOpen && selectedTurnWorkspaceFallback,
     }),
   );
-  const conversationCheckpointDiff = selectedTurn
-    ? undefined
-    : activeCheckpointDiffQuery.data?.diff;
+  const conversationCheckpointDiff = selectedTurn ? undefined : activeCheckpointDiffData?.diff;
   const isLoadingCheckpointDiff =
     (canQueryCheckpointDiff &&
-      (activeCheckpointDiffQuery.isPending ||
-        activeCheckpointDiffQuery.fetchStatus === "fetching")) ||
+      (isActiveCheckpointDiffPending || activeCheckpointDiffFetchStatus === "fetching")) ||
     (selectedTurnWorkspaceFallback &&
-      (workingTreeDiffQuery.isPending || workingTreeDiffQuery.fetchStatus === "fetching"));
+      (isWorkingTreeDiffPending || workingTreeDiffFetchStatus === "fetching"));
   const checkpointDiffError = selectedTurnWorkspaceFallback
-    ? workingTreeDiffQuery.error instanceof Error
-      ? workingTreeDiffQuery.error.message
-      : workingTreeDiffQuery.error
+    ? workingTreeDiffError instanceof Error
+      ? workingTreeDiffError.message
+      : workingTreeDiffError
         ? "Failed to load workspace diff."
         : null
-    : activeCheckpointDiffQuery.error instanceof Error
-      ? activeCheckpointDiffQuery.error.message
-      : activeCheckpointDiffQuery.error
+    : activeCheckpointDiffError instanceof Error
+      ? activeCheckpointDiffError.message
+      : activeCheckpointDiffError
         ? "Failed to load checkpoint diff."
         : null;
   const checkpointDiffIsTemporarilyUnavailable =
     !selectedTurnLiveDiff &&
     !selectedTurnWorkspaceFallback &&
-    activeCheckpointDiffQuery.error !== null &&
-    isCheckpointTemporarilyUnavailable(activeCheckpointDiffQuery.error);
+    activeCheckpointDiffError !== null &&
+    isCheckpointTemporarilyUnavailable(activeCheckpointDiffError);
 
   const selectedPatch = diffOpen
     ? selectedTurn
-      ? (selectedTurnLiveDiff ?? workingTreeDiffQuery.data?.diff ?? selectedTurnCheckpointDiff)
+      ? (selectedTurnLiveDiff ?? workingTreeDiffData?.diff ?? selectedTurnCheckpointDiff)
       : conversationCheckpointDiff
     : undefined;
   const deferredSelectedPatch = useDeferredValue(selectedPatch);

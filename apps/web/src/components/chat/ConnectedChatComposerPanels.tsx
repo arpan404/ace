@@ -595,7 +595,11 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
     }
     return nextOptions;
   }, [props.lockedProvider, props.modelOptionsByProvider]);
-  const workspaceEntriesQuery = useQuery(
+  const {
+    data: workspaceEntriesData,
+    isFetching: isWorkspaceEntriesFetching,
+    isLoading: isWorkspaceEntriesLoading,
+  } = useQuery(
     projectSearchEntriesQueryOptions({
       cwd: props.gitCwd,
       query: effectivePathQuery,
@@ -603,8 +607,12 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
       limit: 80,
     }),
   );
-  const workspaceEntries = workspaceEntriesQuery.data?.entries ?? EMPTY_PROJECT_ENTRIES;
-  const issueTriggerLookupQuery = useQuery(
+  const workspaceEntries = workspaceEntriesData?.entries ?? EMPTY_PROJECT_ENTRIES;
+  const {
+    data: issueTriggerLookupData,
+    isFetching: isIssueTriggerLookupFetching,
+    isLoading: isIssueTriggerLookupLoading,
+  } = useQuery(
     gitGitHubIssuesQueryOptions({
       cwd: props.gitCwd,
       limit: 120,
@@ -613,12 +621,12 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
     }),
   );
   const issueTriggerMatches = useMemo(() => {
-    const issues = issueTriggerLookupQuery.data?.issues ?? EMPTY_GITHUB_ISSUES;
+    const issues = issueTriggerLookupData?.issues ?? EMPTY_GITHUB_ISSUES;
     if (issueTriggerQuery.length === 0) {
       return issues;
     }
     return issues.filter((issue) => String(issue.number).startsWith(issueTriggerQuery));
-  }, [issueTriggerLookupQuery.data?.issues, issueTriggerQuery]);
+  }, [issueTriggerLookupData?.issues, issueTriggerQuery]);
   const composerMenuItems = useMemo<
     ComponentProps<typeof ChatComposerPanel>["composerMenuItems"]
   >(() => {
@@ -790,10 +798,10 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
   const isComposerMenuLoading =
     (composerTriggerKind === "path" &&
       ((pathTriggerQuery.length > 0 && composerPathQueryDebouncer.state.isPending) ||
-        workspaceEntriesQuery.isLoading ||
-        workspaceEntriesQuery.isFetching)) ||
+        isWorkspaceEntriesLoading ||
+        isWorkspaceEntriesFetching)) ||
     (composerTriggerKind === "issue" &&
-      (issueTriggerLookupQuery.isLoading || issueTriggerLookupQuery.isFetching));
+      (isIssueTriggerLookupLoading || isIssueTriggerLookupFetching));
   const showIssuesCommandExamplesHint =
     !isComposerApprovalState &&
     props.pendingUserInputs.length === 0 &&

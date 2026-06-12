@@ -613,22 +613,14 @@ function RetainedThreadTerminalDrawers(props: {
   const { activeDrawerProps, activeThreadId } = props;
   const [retainedEntries, setRetainedEntries] = useState<RetainedThreadTerminalDrawerEntry[]>([]);
   const previousVisibleEntryRef = useRef<RetainedThreadTerminalDrawerEntry | null>(null);
-  const previousVisibleEntry = previousVisibleEntryRef.current;
   const renderEntries = (() => {
     const hiddenEntries = retainedEntries.filter((entry) => entry.threadId !== activeThreadId);
-    const nextEntries =
-      previousVisibleEntry &&
-      previousVisibleEntry.threadId !== activeThreadId &&
-      !hiddenEntries.some((entry) => entry.threadId === previousVisibleEntry.threadId)
-        ? [...hiddenEntries, previousVisibleEntry]
-        : hiddenEntries;
-
     if (!activeDrawerProps) {
-      return nextEntries;
+      return hiddenEntries;
     }
 
     return [
-      ...nextEntries,
+      ...hiddenEntries,
       {
         threadId: activeThreadId,
         props: activeDrawerProps,
@@ -636,7 +628,7 @@ function RetainedThreadTerminalDrawers(props: {
     ];
   })();
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const previousEntry = previousVisibleEntryRef.current;
     if (previousEntry && previousEntry.threadId !== activeThreadId) {
       setRetainedEntries((currentEntries) =>
@@ -2478,13 +2470,12 @@ function useChatViewComponent({
         if (!canceled) {
           console.error("Failed to prefetch recent thread timeline", error);
         }
-      } finally {
-        if (
-          !canceled &&
-          recentThreadHistoryHydrationInFlightRef.current === recentThreadHistoryKeepId
-        ) {
-          recentThreadHistoryHydrationInFlightRef.current = null;
-        }
+      }
+      if (
+        !canceled &&
+        recentThreadHistoryHydrationInFlightRef.current === recentThreadHistoryKeepId
+      ) {
+        recentThreadHistoryHydrationInFlightRef.current = null;
       }
     })();
 
@@ -2563,10 +2554,9 @@ function useChatViewComponent({
         if (!canceled) {
           console.error("Failed to prefetch source proposed-plan timeline", error);
         }
-      } finally {
-        if (!canceled && sourcePlanHydrationInFlightRef.current === sourceProposedPlanThreadId) {
-          sourcePlanHydrationInFlightRef.current = null;
-        }
+      }
+      if (!canceled && sourcePlanHydrationInFlightRef.current === sourceProposedPlanThreadId) {
+        sourcePlanHydrationInFlightRef.current = null;
       }
     })();
 
@@ -2617,9 +2607,8 @@ function useChatViewComponent({
           if (!canceled) {
             console.error("Failed to prefetch handoff timeline", error);
           }
-        } finally {
-          handoffHydrationInFlight.delete(threadIdToHydrate);
         }
+        handoffHydrationInFlight.delete(threadIdToHydrate);
       })();
     }
 
@@ -3721,7 +3710,7 @@ function useChatViewComponent({
   const codingGitCwd = gitCwd;
   const canOpenLocalMarkdownFiles = Boolean(activeThreadId && gitCwd);
   const workspaceStatusPollingMs = latestTurnSettled ? 10_000 : 5_000;
-  const workspaceStatusQuery = useQuery({
+  const { data: workspaceStatusData, error: workspaceStatusError } = useQuery({
     ...gitStatusQueryOptions(codingGitCwd, activeServerConnectionUrl),
     enabled: codingGitCwd !== null && activeForSideEffects,
     staleTime: workspaceStatusPollingMs,
@@ -3729,7 +3718,7 @@ function useChatViewComponent({
     refetchIntervalInBackground: false,
   });
   const workspaceChangeStat = useMemo(() => {
-    const workingTree = workspaceStatusQuery.data?.workingTree;
+    const workingTree = workspaceStatusData?.workingTree;
     if (!workingTree || (workingTree.insertions === 0 && workingTree.deletions === 0)) {
       return null;
     }
@@ -3737,9 +3726,9 @@ function useChatViewComponent({
       additions: workingTree.insertions,
       deletions: workingTree.deletions,
     };
-  }, [workspaceStatusQuery.data?.workingTree]);
+  }, [workspaceStatusData?.workingTree]);
   const workspaceDiffSummary = useMemo(() => {
-    const workingTree = workspaceStatusQuery.data?.workingTree;
+    const workingTree = workspaceStatusData?.workingTree;
     if (!workingTree || (workingTree.insertions === 0 && workingTree.deletions === 0)) {
       return null;
     }
@@ -3748,7 +3737,7 @@ function useChatViewComponent({
       deletions: workingTree.deletions,
       fileCount: workingTree.files.length,
     };
-  }, [workspaceStatusQuery.data?.workingTree]);
+  }, [workspaceStatusData?.workingTree]);
   const handleRegenerateSummary = useCallback(async () => {
     if (!activeThread) {
       return;
@@ -3765,17 +3754,15 @@ function useChatViewComponent({
       createdAt: new Date().toISOString(),
     });
   }, [activeThread]);
-  const branchesQuery = useQuery({
+  const { data: branchesData } = useQuery({
     ...gitBranchesQueryOptions(codingGitCwd, activeServerConnectionUrl),
     enabled: codingGitCwd !== null && activeForSideEffects,
   });
   // Default true while loading to avoid toolbar flicker.
-  const rawIsGitRepo = branchesQuery.data?.isRepo ?? true;
+  const rawIsGitRepo = branchesData?.isRepo ?? true;
   const isGitRepo = rawIsGitRepo;
   const activeThreadBranchName =
-    activeThread?.branch ??
-    branchesQuery.data?.branches.find((branch) => branch.current)?.name ??
-    null;
+    activeThread?.branch ?? branchesData?.branches.find((branch) => branch.current)?.name ?? null;
   const keybindings = useServerKeybindings({ enabled: activeForSideEffects });
   const availableEditors = useServerAvailableEditors({ enabled: activeForSideEffects });
   const handoffDisabledReason = useMemo(() => {
@@ -9119,12 +9106,13 @@ function useChatViewComponent({
             ? error.message
             : "An error occurred while creating the fork thread.",
       });
-    } finally {
       setHandoffInFlight(false);
+      return;
     }
+    setHandoffInFlight(false);
   });
 
-  const onSend = useEffectEvent(async (e?: { preventDefault: () => void }) => {
+  async function onSend(e?: { preventDefault: () => void }) {
     e?.preventDefault();
     const api = readNativeApi();
     if (!api || !activeThread) return;
@@ -9372,7 +9360,7 @@ function useChatViewComponent({
         [threadId]: [],
       }));
     }
-  });
+  }
 
   const clearPendingInterruptStopFallback = useEffectEvent(() => {
     if (pendingInterruptStopFallbackRef.current === null) {
@@ -9940,9 +9928,10 @@ function useChatViewComponent({
               ? error.message
               : "An error occurred while creating the handoff thread.",
         });
-      } finally {
         setHandoffInFlight(false);
+        return;
       }
+      setHandoffInFlight(false);
     },
   );
 
@@ -10612,12 +10601,11 @@ function useChatViewComponent({
         activeSubagentThreadId,
         activeThreadId: activeThread.id,
         branchToolbarProps,
-        branchList: branchesQuery.data ?? null,
+        branchList: branchesData ?? null,
         editorStateInstanceId: workspaceEditorStateInstanceId,
         gitCwd,
-        gitStatus: workspaceStatusQuery.data ?? null,
-        gitStatusError:
-          workspaceStatusQuery.error instanceof Error ? workspaceStatusQuery.error : null,
+        gitStatus: workspaceStatusData ?? null,
+        gitStatusError: workspaceStatusError instanceof Error ? workspaceStatusError : null,
         isGitRepo,
         keybindings,
         preferredScriptId: activeProject

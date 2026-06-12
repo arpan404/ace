@@ -11,6 +11,16 @@ export function ProjectFavicon({ cwd, className }: { cwd: string; className?: st
     pathname: "/api/project-favicon",
     searchParams: { cwd },
   });
+  return (
+    <ProjectFaviconImage
+      key={baseSrc}
+      baseSrc={baseSrc}
+      {...(className === undefined ? {} : { className })}
+    />
+  );
+}
+
+function ProjectFaviconImage({ baseSrc, className }: { baseSrc: string; className?: string }) {
   const retryTimeoutRef = useRef<number | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [status, setStatus] = useState<"loading" | "loaded" | "error">(() =>
@@ -24,11 +34,6 @@ export function ProjectFavicon({ cwd, className }: { cwd: string; className?: st
     url.searchParams.set("attempt", String(attempt));
     return url.toString();
   }, [attempt, baseSrc]);
-
-  useEffect(() => {
-    setAttempt(0);
-    setStatus(loadedProjectFaviconSrcs.has(baseSrc) ? "loaded" : "loading");
-  }, [baseSrc]);
 
   useEffect(() => {
     return () => {

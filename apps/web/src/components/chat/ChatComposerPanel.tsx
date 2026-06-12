@@ -334,7 +334,14 @@ const ComposerImageStrip = memo(function ComposerImageStrip(props: {
   );
 });
 
-export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComposerPanelProps) {
+export const ChatComposerPanel = memo(function ChatComposerPanel({
+  composerEditorRef,
+  composerFooterActionsRef,
+  composerFooterLeadingRef,
+  composerFooterRef,
+  composerFormRef,
+  ...props
+}: ChatComposerPanelProps) {
   const interactionModeDisabledReason = null;
   const providerTraitsMenuContent = useMemo(
     () =>
@@ -448,7 +455,7 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
       )}
     >
       <form
-        ref={props.composerFormRef}
+        ref={composerFormRef}
         onSubmit={props.onSubmit}
         className="mx-auto w-full min-w-0 max-w-208"
         data-chat-composer-form="true"
@@ -593,7 +600,7 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
               ) : null}
 
               <ComposerPromptEditor
-                ref={props.composerEditorRef}
+                ref={composerEditorRef}
                 value={composerValue}
                 cursor={props.composerCursor}
                 terminalContexts={composerTerminalContexts}
@@ -625,7 +632,7 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
               </div>
             ) : (
               <div
-                ref={props.composerFooterRef}
+                ref={composerFooterRef}
                 data-chat-composer-footer="true"
                 data-chat-composer-footer-compact={props.isComposerFooterCompact ? "true" : "false"}
                 className={cn(
@@ -634,7 +641,7 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
                 )}
               >
                 <div
-                  ref={props.composerFooterLeadingRef}
+                  ref={composerFooterLeadingRef}
                   className={cn(
                     "flex min-w-0 flex-1 items-center",
                     props.isComposerFooterCompact
@@ -733,7 +740,7 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
                 </div>
 
                 <div
-                  ref={props.composerFooterActionsRef}
+                  ref={composerFooterActionsRef}
                   data-chat-composer-actions="right"
                   data-chat-composer-primary-actions-compact={
                     props.isComposerPrimaryActionsCompact ? "true" : "false"

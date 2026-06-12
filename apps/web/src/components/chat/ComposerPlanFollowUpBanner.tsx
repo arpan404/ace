@@ -1,10 +1,4 @@
-import { memo } from "react";
-
-export const ComposerPlanFollowUpBanner = memo(function ComposerPlanFollowUpBanner({
-  planTitle,
-}: {
-  planTitle: string | null;
-}) {
+export function ComposerPlanFollowUpBanner({ planTitle }: { planTitle: string | null }) {
   return (
     <div className="px-4 py-3.5 sm:px-5 sm:py-4">
       <div className="flex flex-wrap items-center gap-2.5">
@@ -22,4 +16,4 @@ export const ComposerPlanFollowUpBanner = memo(function ComposerPlanFollowUpBann
       </div>
     </div>
   );
-});
+}

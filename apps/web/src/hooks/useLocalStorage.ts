@@ -1,6 +1,6 @@
 import * as Schema from "effect/Schema";
 import * as Record from "effect/Record";
-import { useCallback, useEffect, useReducer, useRef } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 
 const isomorphicLocalStorage: Storage =
   typeof window !== "undefined"
@@ -56,6 +56,10 @@ type LocalStorageAction<T> =
   | { type: "set-error"; value: Error | null };
 
 let nextLocalStorageSourceId = 1;
+
+function createLocalStorageSourceId() {
+  return nextLocalStorageSourceId++;
+}
 
 export function resolveLocalStorageStoredValue<T>(
   state: { key: string; value: T },
@@ -129,10 +133,7 @@ export function useLocalStorage<T, E>(
     },
   });
   const { storageError, storedValueState } = state;
-  const sourceIdRef = useRef<number | null>(null);
-  if (sourceIdRef.current === null) {
-    sourceIdRef.current = nextLocalStorageSourceId++;
-  }
+  const [sourceId] = useState(createLocalStorageSourceId);
   const storedValue = resolveLocalStorageStoredValue(storedValueState, key, initialStoredValue);
 
   // Return a wrapped version of useState's setter function that persists the new value to localStorage
@@ -155,13 +156,13 @@ export function useLocalStorage<T, E>(
         } else {
           setLocalStorageItem(key, valueToStore, schema);
         }
-        queueMicrotask(() => dispatchLocalStorageChange(key, sourceIdRef.current ?? 0));
+        queueMicrotask(() => dispatchLocalStorageChange(key, sourceId));
         dispatch({ type: "sync", key, value: valueToStore });
       } catch (error) {
         dispatch({ type: "set-error", value: reportLocalStorageError(key, "write", error) });
       }
     },
-    [initialStoredValue, key, schema, storageError, storedValueState.key],
+    [initialStoredValue, key, schema, sourceId, storageError, storedValueState.key],
   );
 
   const prevKeyRef = useRef(key);
@@ -197,7 +198,7 @@ export function useLocalStorage<T, E>(
     };
 
     const handleLocalChange = (event: CustomEvent<LocalStorageChangeDetail>) => {
-      if (event.detail.key === key && event.detail.sourceId !== sourceIdRef.current) {
+      if (event.detail.key === key && event.detail.sourceId !== sourceId) {
         syncFromStorage();
       }
     };

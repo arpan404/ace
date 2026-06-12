@@ -685,7 +685,12 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
   const hasUnsavedBufferEdits = activeDraftInStore
     ? activeDraftInStore.draftContents !== activeDraftInStore.savedContents
     : false;
-  const activeFileQuery = useQuery({
+  const {
+    data: activeFileData,
+    error: activeFileError,
+    isError: isActiveFileError,
+    isPending: isActiveFilePending,
+  } = useQuery({
     ...projectReadFileQueryOptions({
       connectionUrl: props.connectionUrl,
       cwd: props.gitCwd,
@@ -704,23 +709,23 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
   });
 
   useEffect(() => {
-    if (isPreviewMode || !pane.activeFilePath || activeFileQuery.data?.contents === undefined) {
+    if (isPreviewMode || !pane.activeFilePath || activeFileData?.contents === undefined) {
       return;
     }
-    onHydrateFile(pane.activeFilePath, activeFileQuery.data.contents);
-  }, [activeFileQuery.data?.contents, isPreviewMode, onHydrateFile, pane.activeFilePath]);
+    onHydrateFile(pane.activeFilePath, activeFileData.contents);
+  }, [activeFileData?.contents, isPreviewMode, onHydrateFile, pane.activeFilePath]);
 
   const activeDraft =
     isPreviewMode || !pane.activeFilePath
       ? null
       : (props.draftsByFilePath[pane.activeFilePath] ?? null);
-  const activeFileContents = activeDraft?.draftContents ?? activeFileQuery.data?.contents ?? "";
+  const activeFileContents = activeDraft?.draftContents ?? activeFileData?.contents ?? "";
   const activeFileDirty = activeDraft
     ? activeDraft.draftContents !== activeDraft.savedContents
     : false;
   const activeFileSizeBytes = isPreviewMode
     ? null
-    : (activeFileQuery.data?.sizeBytes ?? new Blob([activeFileContents]).size);
+    : (activeFileData?.sizeBytes ?? new Blob([activeFileContents]).size);
   const previewUrl =
     isBinaryPreviewMode && pane.activeFilePath && props.gitCwd
       ? buildWorkspacePreviewUrl(props.gitCwd, pane.activeFilePath)
@@ -798,7 +803,7 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
 
   const activeFileReady =
     pane.activeFilePath !== null &&
-    (isPreviewMode || activeDraft !== null || activeFileQuery.data?.contents !== undefined);
+    (isPreviewMode || activeDraft !== null || activeFileData?.contents !== undefined);
 
   const applyWorkspaceProblems = useCallback(
     (
@@ -1379,12 +1384,16 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
       );
     } catch {
       sent = false;
-    } finally {
       dispatchSelectionState({
         type: "set-selection-comment-submitting",
         selectionCommentSubmitting: false,
       });
+      return;
     }
+    dispatchSelectionState({
+      type: "set-selection-comment-submitting",
+      selectionCommentSubmitting: false,
+    });
     if (!sent) {
       return;
     }
@@ -1401,9 +1410,7 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
   }, [pane.activeFilePath]);
 
   const activeFileErrorMessage =
-    activeFileQuery.error instanceof Error
-      ? activeFileQuery.error.message
-      : "An unexpected error occurred.";
+    activeFileError instanceof Error ? activeFileError.message : "An unexpected error occurred.";
   const activeFileName = pane.activeFilePath ? basenameOfPath(pane.activeFilePath) : "File";
 
   return (
@@ -1672,13 +1679,13 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
               <span className="truncate">{previewModeLabel}</span>
             </div>
           </div>
-        ) : isTextPreviewMode && activeFileQuery.data?.contents !== undefined ? (
+        ) : isTextPreviewMode && activeFileData?.contents !== undefined ? (
           <div className="flex h-full min-h-0 flex-col">
             {activePreviewKind === "markdown" ? (
               <div className="min-h-0 flex-1 overflow-auto bg-background">
                 <div className="workspace-markdown-preview mx-auto w-full max-w-4xl px-5 py-5 sm:px-8 sm:py-7">
                   <ChatMarkdown
-                    text={activeFileQuery.data.contents}
+                    text={activeFileData.contents}
                     cwd={props.gitCwd ?? undefined}
                     isStreaming={false}
                   />
@@ -1688,7 +1695,7 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
               <div className="min-h-0 flex-1 overflow-auto p-4">
                 <div className={cn(APP_WORKSPACE_INSET_CLASS_NAME, "min-h-[220px] p-4")}>
                   <MermaidDiagram
-                    source={activeFileQuery.data.contents}
+                    source={activeFileData.contents}
                     theme={props.resolvedTheme}
                     className="h-full"
                   />
@@ -1699,7 +1706,7 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
               <span className="truncate">{previewModeLabel}</span>
             </div>
           </div>
-        ) : activeFileQuery.isPending && !activeDraft ? (
+        ) : isActiveFilePending && !activeDraft ? (
           <div className="space-y-4 p-6">
             <p className="text-xs font-medium tracking-[0.16em] text-muted-foreground uppercase">
               Opening file
@@ -1709,7 +1716,7 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
             <div className="h-4 w-[88%] rounded bg-foreground/4" />
             <div className="h-4 w-[76%] rounded bg-foreground/4" />
           </div>
-        ) : activeFileQuery.isError && !activeDraft ? (
+        ) : isActiveFileError && !activeDraft ? (
           <div className="h-full min-h-0 overflow-auto bg-background px-8 py-12 text-foreground sm:px-10">
             <div className="mx-auto flex w-full max-w-2xl flex-col items-start gap-4">
               <div className="flex min-w-0 items-center gap-2 text-muted-foreground/76">

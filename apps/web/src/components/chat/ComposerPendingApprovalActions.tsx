@@ -1,5 +1,4 @@
 import { type ApprovalRequestId, type ProviderApprovalDecision } from "@ace/contracts";
-import { memo } from "react";
 import { Button } from "../ui/button";
 
 interface ComposerPendingApprovalActionsProps {
@@ -11,7 +10,7 @@ interface ComposerPendingApprovalActionsProps {
   ) => Promise<void>;
 }
 
-export const ComposerPendingApprovalActions = memo(function ComposerPendingApprovalActions({
+export function ComposerPendingApprovalActions({
   requestId,
   isResponding,
   onRespondToApproval,
@@ -52,4 +51,4 @@ export const ComposerPendingApprovalActions = memo(function ComposerPendingAppro
       </Button>
     </>
   );
-});
+}

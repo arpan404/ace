@@ -2,6 +2,7 @@ import { ArrowUpRightIcon, GlobeIcon, MousePointer2Icon, RotateCwIcon } from "lu
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useReducer,
   useRef,
@@ -966,11 +967,14 @@ export function buildBrowserElementCaptureScript(
       range.selectNodeContents(element);
       const rect = range.getBoundingClientRect();
       if (!pointWithinRect(rect) || rect.width < 6 || rect.height < 6) {
+        range.detach?.();
         return null;
       }
-      return rect;
-    } finally {
       range.detach?.();
+      return rect;
+    } catch (error) {
+      range.detach?.();
+      throw error;
     }
   };
   const getMetrics = (element) => {
@@ -1647,7 +1651,9 @@ function useBrowserTabWebviewComponent(props: {
   const requestedUrlRef = useRef(tab.url);
   const localConnectionUrl = useMemo(() => resolveLocalConnectionUrl(), []);
   const activeRef = useRef(active);
-  activeRef.current = active;
+  useLayoutEffect(() => {
+    activeRef.current = active;
+  }, [active]);
   const [designOverlayState, dispatchDesignOverlayState] = useReducer(
     browserDesignOverlayStateReducer,
     EMPTY_BROWSER_DESIGN_OVERLAY_STATE,
@@ -2852,7 +2858,7 @@ function useBrowserTabWebviewComponent(props: {
     [captureDesignSelection, designerTool],
   );
 
-  const flushHoveredElementInspection = useCallback(() => {
+  const flushHoveredElementInspection = () => {
     if (elementHoverFrameRef.current !== null) {
       window.cancelAnimationFrame(elementHoverFrameRef.current);
       elementHoverFrameRef.current = null;
@@ -2893,18 +2899,12 @@ function useBrowserTabWebviewComponent(props: {
       .finally(() => {
         elementHoverRequestInFlightRef.current = false;
         if (activeRef.current && pendingElementHoverPointRef.current) {
-          elementHoverFrameRef.current = window.requestAnimationFrame(
-            flushHoveredElementInspection,
-          );
+          elementHoverFrameRef.current = window.requestAnimationFrame(() => {
+            flushHoveredElementInspection();
+          });
         }
       });
-  }, [
-    commitHoveredElementCapture,
-    designDraft,
-    designerModeActive,
-    designerTool,
-    inspectBrowserPoint,
-  ]);
+  };
 
   const onCaptureOverlayPointerDown = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -3104,12 +3104,16 @@ function useBrowserTabWebviewComponent(props: {
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not add the comment.";
       reportDesignCaptureError(message);
-    } finally {
       dispatchDesignOverlayState({
         type: "set-submitting-design-request",
         isSubmittingDesignRequest: false,
       });
+      return;
     }
+    dispatchDesignOverlayState({
+      type: "set-submitting-design-request",
+      isSubmittingDesignRequest: false,
+    });
   }, [designDraft, designInstructions, isSubmittingDesignRequest, onDesignCaptureSubmit]);
 
   useEffect(() => {

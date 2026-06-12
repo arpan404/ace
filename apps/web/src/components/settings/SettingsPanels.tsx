@@ -3501,9 +3501,10 @@ function ProjectWorktreeSetupEditor({ project }: { readonly project: Project }) 
       });
     } catch (error) {
       setValidationError(error instanceof Error ? error.message : "Failed to save setup command.");
-    } finally {
       setSaving(false);
+      return;
     }
+    setSaving(false);
   }, [command, envFilePath, envText, project.id, project.scripts, setupScript]);
 
   const disableSetup = useCallback(async () => {
@@ -3525,9 +3526,10 @@ function ProjectWorktreeSetupEditor({ project }: { readonly project: Project }) 
       });
     } catch (error) {
       setValidationError(error instanceof Error ? error.message : "Failed to disable setup.");
-    } finally {
       setSaving(false);
+      return;
     }
+    setSaving(false);
   }, [project.id, project.scripts, setupScript]);
 
   const hasEnv = Object.keys(setupScript?.env ?? {}).length > 0;
@@ -3639,7 +3641,14 @@ function ProjectEnvironmentWorktrees({
   readonly threads: readonly Thread[];
 }) {
   const projectConnectionUrl = resolveConnectionForProjectId(project.id) ?? null;
-  const branchesQuery = useQuery(gitBranchesQueryOptions(project.cwd, projectConnectionUrl));
+  const {
+    data: branchesData,
+    error: branchesError,
+    isError: branchesIsError,
+    isFetching: branchesIsFetching,
+    isLoading: branchesIsLoading,
+    refetch: refetchBranches,
+  } = useQuery(gitBranchesQueryOptions(project.cwd, projectConnectionUrl));
   const navigate = useNavigate();
   const settings = useSettings();
   const { updateSettings } = useUpdateSettings();
@@ -3676,23 +3685,23 @@ function ProjectEnvironmentWorktrees({
   const worktrees = useMemo(
     () =>
       getEnvironmentWorktreeEntries({
-        branches: branchesQuery.data?.branches ?? [],
+        branches: branchesData?.branches ?? [],
         project,
         threads: projectThreads,
       }),
-    [branchesQuery.data?.branches, project, projectThreads],
+    [branchesData?.branches, project, projectThreads],
   );
   const worktreePaths = useMemo(() => worktrees.map((worktree) => worktree.path), [worktrees]);
-  const statsQuery = useQuery(
+  const { data: statsData, isFetching: statsIsFetching } = useQuery(
     gitWorktreeStatsQueryOptions({ connectionUrl: projectConnectionUrl, paths: worktreePaths }),
   );
   const statsByPath = useMemo(() => {
     const stats = new Map<string, EnvironmentWorktreeStats>();
-    for (const worktreeStats of statsQuery.data?.worktrees ?? []) {
+    for (const worktreeStats of statsData?.worktrees ?? []) {
       stats.set(worktreeStats.path, worktreeStats);
     }
     return stats;
-  }, [statsQuery.data?.worktrees]);
+  }, [statsData?.worktrees]);
   const visibleWorktrees = useMemo(() => {
     const query = worktreeSearch.trim().toLowerCase();
     return worktrees
@@ -3875,12 +3884,13 @@ function ProjectEnvironmentWorktrees({
           cleanupStorageBytes,
         )}.`,
       });
-      void branchesQuery.refetch();
-    } finally {
+      void refetchBranches();
+    } catch (error) {
       setIsCleaningWorktrees(false);
+      throw error;
     }
+    setIsCleaningWorktrees(false);
   }, [
-    branchesQuery,
     cleanupCandidates,
     cleanupLinkedChatCount,
     cleanupStorageBytes,
@@ -3889,6 +3899,7 @@ function ProjectEnvironmentWorktrees({
     project.cwd,
     project.id,
     projectConnectionUrl,
+    refetchBranches,
   ]);
   const handleDeleteSelectedWorktrees = useCallback(async () => {
     const api = readNativeApi();
@@ -3932,17 +3943,19 @@ function ProjectEnvironmentWorktrees({
           selectedStorageBytes,
         )}.`,
       });
-      void branchesQuery.refetch();
-    } finally {
+      void refetchBranches();
+    } catch (error) {
       setIsDeletingSelectedWorktrees(false);
+      throw error;
     }
+    setIsDeletingSelectedWorktrees(false);
   }, [
-    branchesQuery,
     deleteWorktreeAndRelatedData,
     isDeletingSelectedWorktrees,
     project.cwd,
     project.id,
     projectConnectionUrl,
+    refetchBranches,
     selectedLinkedChatCount,
     selectedStorageBytes,
     selectedWorktrees,
@@ -4016,11 +4029,11 @@ function ProjectEnvironmentWorktrees({
             type="button"
             size="icon-sm"
             variant="outline"
-            disabled={branchesQuery.isFetching}
-            onClick={() => void branchesQuery.refetch()}
+            disabled={branchesIsFetching}
+            onClick={() => void refetchBranches()}
             aria-label="Refresh worktrees"
           >
-            <RefreshCwIcon className={cn("size-3.5", branchesQuery.isFetching && "animate-spin")} />
+            <RefreshCwIcon className={cn("size-3.5", branchesIsFetching && "animate-spin")} />
           </Button>
         }
       >
@@ -4077,15 +4090,15 @@ function ProjectEnvironmentWorktrees({
           </div>
         </div>
 
-        {branchesQuery.isError ? (
+        {branchesIsError ? (
           <div className="mt-3 text-xs text-destructive">
-            {branchesQuery.error instanceof Error
-              ? branchesQuery.error.message
+            {branchesError instanceof Error
+              ? branchesError.message
               : "Unable to load worktrees for this project."}
           </div>
         ) : null}
 
-        {branchesQuery.isLoading ? (
+        {branchesIsLoading ? (
           <div className="mt-3 inline-flex items-center gap-2 text-xs text-muted-foreground/60">
             <Spinner className="size-3" />
             Loading worktree inventory
@@ -4153,7 +4166,7 @@ function ProjectEnvironmentWorktrees({
                 const isActive = worktree.activeThread !== null;
                 const isSelected = selectedWorktreePaths.has(worktree.path);
                 const stats = statsByPath.get(worktree.path);
-                const isStorageRefreshing = statsQuery.isFetching && worktreePaths.length > 0;
+                const isStorageRefreshing = statsIsFetching && worktreePaths.length > 0;
                 return (
                   <div
                     key={worktree.path}
@@ -4265,7 +4278,7 @@ function ProjectEnvironmentWorktrees({
                   <span>{formatCountLabel(cleanupCandidates.length, "candidate")}</span>
                   <span>{formatStorageBytes(cleanupStorageBytes)}</span>
                   <span>{formatCountLabel(cleanupLinkedChatCount, "linked chat")}</span>
-                  {statsQuery.isFetching ? (
+                  {statsIsFetching ? (
                     <span className="inline-flex items-center gap-1">
                       <Spinner className="size-3" />
                       Updating storage
@@ -4554,22 +4567,26 @@ function EnvironmentProjectRow({
 }) {
   const navigate = useNavigate();
   const projectConnectionUrl = resolveConnectionForProjectId(project.id) ?? null;
-  const branchesQuery = useQuery(gitBranchesQueryOptions(project.cwd, projectConnectionUrl));
+  const {
+    data: branchesData,
+    isError: branchesIsError,
+    isLoading: branchesIsLoading,
+  } = useQuery(gitBranchesQueryOptions(project.cwd, projectConnectionUrl));
   const worktreePaths = useMemo(
     () =>
       getProjectWorktreePaths({
-        branches: branchesQuery.data?.branches ?? [],
+        branches: branchesData?.branches ?? [],
         project,
       }),
-    [branchesQuery.data?.branches, project],
+    [branchesData?.branches, project],
   );
-  const statsQuery = useQuery(
+  const { data: statsData, isFetching: statsIsFetching } = useQuery(
     gitWorktreeStatsQueryOptions({ connectionUrl: projectConnectionUrl, paths: worktreePaths }),
   );
   const setupScript = setupProjectScript(project.scripts);
   const environmentCount = Object.keys(setupScript?.env ?? {}).length;
   const totalStorageBytes =
-    statsQuery.data?.worktrees.reduce((total, worktree) => total + worktree.sizeBytes, 0) ?? 0;
+    statsData?.worktrees.reduce((total, worktree) => total + worktree.sizeBytes, 0) ?? 0;
   useEffect(() => {
     onMetricsChange(project.id, {
       hasSetup: setupScript !== null,
@@ -4577,17 +4594,13 @@ function EnvironmentProjectRow({
       worktreeCount: worktreePaths.length,
     });
   }, [onMetricsChange, project.id, setupScript, totalStorageBytes, worktreePaths.length]);
-  const worktreeCountLabel = branchesQuery.isError
+  const worktreeCountLabel = branchesIsError
     ? "Unavailable"
     : formatCountLabel(worktreePaths.length, "worktree");
-  const isLoadingWorktrees = branchesQuery.isLoading;
+  const isLoadingWorktrees = branchesIsLoading;
   const storageLabel =
-    worktreePaths.length === 0
-      ? "0 B"
-      : !statsQuery.data
-        ? "…"
-        : formatStorageBytes(totalStorageBytes);
-  const isRefreshingStorage = worktreePaths.length > 0 && statsQuery.isFetching;
+    worktreePaths.length === 0 ? "0 B" : !statsData ? "…" : formatStorageBytes(totalStorageBytes);
+  const isRefreshingStorage = worktreePaths.length > 0 && statsIsFetching;
   const pathLine = formatEnvironmentProjectPathLine(project);
   const displayName = formatEnvironmentProjectDisplayName(project, duplicateNames);
 

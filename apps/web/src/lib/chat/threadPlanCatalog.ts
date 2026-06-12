@@ -1,5 +1,5 @@
 import { type ThreadId } from "@ace/contracts";
-import { useMemo } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { type Thread } from "../../types";
 import { LRUCache } from "../lruCache";
 import { registerMemoryPressureHandler, shouldBypassNonEssentialCaching } from "../memoryPressure";
@@ -67,33 +67,10 @@ function toThreadPlanCatalogEntry(thread: Thread): ThreadPlanCatalogEntry {
 }
 
 export function useThreadPlanCatalog(threadIds: readonly ThreadId[]): ThreadPlanCatalogEntry[] {
-  const selector = useMemo(() => {
-    let previousThreads: Array<Thread | undefined> | null = null;
-    let previousEntries: ThreadPlanCatalogEntry[] = [];
-
-    return (state: Pick<AppState, "threads" | "threadsById">): ThreadPlanCatalogEntry[] => {
+  return useStore(
+    useShallow((state: Pick<AppState, "threads" | "threadsById">): ThreadPlanCatalogEntry[] => {
       const nextThreads = getThreadsByIdsFromState(state, threadIds);
-      const cachedThreads = previousThreads;
-      if (cachedThreads && nextThreads.length === cachedThreads.length) {
-        let hasSameThreads = true;
-        for (const [index, thread] of nextThreads.entries()) {
-          if (thread !== cachedThreads[index]) {
-            hasSameThreads = false;
-            break;
-          }
-        }
-        if (hasSameThreads) {
-          return previousEntries;
-        }
-      }
-
-      previousThreads = nextThreads;
-      previousEntries = nextThreads.flatMap((thread) =>
-        thread ? [toThreadPlanCatalogEntry(thread)] : [],
-      );
-      return previousEntries;
-    };
-  }, [threadIds]);
-
-  return useStore(selector);
+      return nextThreads.flatMap((thread) => (thread ? [toThreadPlanCatalogEntry(thread)] : []));
+    }),
+  );
 }

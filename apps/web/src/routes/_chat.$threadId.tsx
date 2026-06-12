@@ -22,6 +22,10 @@ import { THREAD_ROUTE_CONNECTION_SEARCH_PARAM } from "../lib/connectionRouting";
 import { useHostConnectionStore } from "../hostConnectionStore";
 import { resolveThreadLineageSourceThreadId } from "../lib/chat/handoff";
 
+function preloadDiffPanel() {
+  return import("../components/DiffPanel");
+}
+
 export interface ChatThreadRouteSearch extends DiffRouteSearch {
   readonly connection?: string;
 }
@@ -63,7 +67,7 @@ function ChatThreadRouteView() {
   const threadHydrationRequestIdRef = useRef(0);
   useEffect(() => {
     const preloadTimer = window.setTimeout(() => {
-      void import("../components/DiffPanel");
+      void preloadDiffPanel();
     }, 350);
     return () => {
       window.clearTimeout(preloadTimer);
@@ -151,17 +155,16 @@ function ChatThreadRouteView() {
         }
       } catch {
         // Full timeline snapshots are opportunistic here; active view recovery can retry on reconnect.
-      } finally {
-        if (fallbackTimer !== null) {
-          window.clearTimeout(fallbackTimer);
-          fallbackTimer = null;
-        }
-        if (
-          requestId === threadHydrationRequestIdRef.current &&
-          threadHydrationInFlightRef.current === threadId
-        ) {
-          threadHydrationInFlightRef.current = null;
-        }
+      }
+      if (fallbackTimer !== null) {
+        window.clearTimeout(fallbackTimer);
+        fallbackTimer = null;
+      }
+      if (
+        requestId === threadHydrationRequestIdRef.current &&
+        threadHydrationInFlightRef.current === threadId
+      ) {
+        threadHydrationInFlightRef.current = null;
       }
     })();
 

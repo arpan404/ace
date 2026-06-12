@@ -1709,7 +1709,11 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     [api, inputProps.connectionUrl],
   );
 
-  const workspaceTreeQuery = useQuery({
+  const {
+    data: workspaceTreeData,
+    isFetching: isWorkspaceTreeFetching,
+    isPending: isWorkspaceTreePending,
+  } = useQuery({
     ...projectListTreeQueryOptions({
       connectionUrl: inputProps.connectionUrl,
       cwd: props.gitCwd,
@@ -1718,9 +1722,11 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: false,
   });
-  const gitStatusQuery = useQuery(gitStatusQueryOptions(props.gitCwd, inputProps.connectionUrl));
+  const { data: gitStatusData } = useQuery(
+    gitStatusQueryOptions(props.gitCwd, inputProps.connectionUrl),
+  );
   const searchMode = deferredTreeSearch.length > 0;
-  const treeEntries = workspaceTreeQuery.data?.entries ?? EMPTY_PROJECT_ENTRIES;
+  const treeEntries = workspaceTreeData?.entries ?? EMPTY_PROJECT_ENTRIES;
   const localSearchEntries = useMemo(
     () =>
       searchMode
@@ -1740,7 +1746,12 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     () => new Map(treeEntries.map((entry) => [entry.path, entry] as const)),
     [treeEntries],
   );
-  const codeSearchResultsQuery = useQuery({
+  const {
+    data: codeSearchResultsData,
+    isError: isCodeSearchResultsError,
+    isFetching: isCodeSearchResultsFetching,
+    isPending: isCodeSearchResultsPending,
+  } = useQuery({
     queryKey: [
       "workspace",
       "code-search",
@@ -1849,12 +1860,12 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     placeholderData: (previous) => previous ?? [],
   });
   const codeSearchResultGroups = useMemo(
-    () => groupWorkspaceCodeSearchResults(codeSearchResultsQuery.data ?? []),
-    [codeSearchResultsQuery.data],
+    () => groupWorkspaceCodeSearchResults(codeSearchResultsData ?? []),
+    [codeSearchResultsData],
   );
   const codeSearchResultPathSet = useMemo(
-    () => new Set((codeSearchResultsQuery.data ?? []).map((result) => result.entry.path)),
-    [codeSearchResultsQuery.data],
+    () => new Set((codeSearchResultsData ?? []).map((result) => result.entry.path)),
+    [codeSearchResultsData],
   );
   const codeSearchFileResults = useMemo(
     () =>
@@ -1865,14 +1876,13 @@ function useThreadWorkspaceEditorComponent(inputProps: {
         : EMPTY_PROJECT_ENTRIES,
     [codeSearchResultPathSet, debouncedCodeSearchQuery, searchableFileEntries],
   );
-  const codeSearchResultCount =
-    codeSearchFileResults.length + (codeSearchResultsQuery.data?.length ?? 0);
+  const codeSearchResultCount = codeSearchFileResults.length + (codeSearchResultsData?.length ?? 0);
   const codeSearchBusy =
     (trimmedCodeSearchQuery.length >= 2 &&
       codeSearchDebouncer.state.isPending &&
       trimmedCodeSearchQuery !== debouncedCodeSearchQuery) ||
-    codeSearchResultsQuery.isPending ||
-    codeSearchResultsQuery.isFetching;
+    isCodeSearchResultsPending ||
+    isCodeSearchResultsFetching;
   const visibleRecentCodeSearches = useMemo(() => {
     const seenQueries = new Set<string>();
     const visibleQueries: string[] = [];
@@ -2284,7 +2294,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
   }, [api, openWorkspaceFilePaths, prefetchWorkspaceEditorFile, props.gitCwd]);
 
   const gitStatusByPath = useMemo(() => {
-    const files = gitStatusQuery.data?.workingTree.files ?? [];
+    const files = gitStatusData?.workingTree.files ?? [];
     const statusByPath = new Map<string, GitWorkingTreeFileStatus>();
     for (const file of files) {
       if (file.status) {
@@ -2292,8 +2302,8 @@ function useThreadWorkspaceEditorComponent(inputProps: {
       }
     }
     return statusByPath;
-  }, [gitStatusQuery.data?.workingTree.files]);
-  const changedFiles = gitStatusQuery.data?.workingTree.files ?? [];
+  }, [gitStatusData?.workingTree.files]);
+  const changedFiles = gitStatusData?.workingTree.files ?? [];
   const openCodeCommentCount = useMemo(
     () => countOpenWorkspaceCodeComments(codeComments),
     [codeComments],
@@ -2731,8 +2741,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     [inlineEntryState, visibleRows],
   );
   const explorerPending =
-    workspaceTreeQuery.isPending ||
-    (searchMode && workspaceTreeQuery.isFetching && treeEntries.length === 0);
+    isWorkspaceTreePending || (searchMode && isWorkspaceTreeFetching && treeEntries.length === 0);
 
   const rowVirtualizer = useVirtualizer({
     count: explorerRows.length,
@@ -4236,12 +4245,12 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                       />
                     </div>
                   </div>
-                  {searchMode || workspaceTreeQuery.data?.truncated ? (
+                  {searchMode || workspaceTreeData?.truncated ? (
                     <div className="flex h-6 items-center gap-1.5 border-b border-border/35 px-3 text-[10px] text-muted-foreground/70">
                       <span className="min-w-0 flex-1 truncate">
                         {searchMode ? "Matches" : "Indexed files"}
                       </span>
-                      {workspaceTreeQuery.data?.truncated ? (
+                      {workspaceTreeData?.truncated ? (
                         <span className="shrink-0 font-medium text-amber-600">partial</span>
                       ) : null}
                       <span className="shrink-0 tabular-nums">
@@ -4480,7 +4489,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                               </div>
                             ))}
                           </div>
-                        ) : codeSearchResultsQuery.isError ? (
+                        ) : isCodeSearchResultsError ? (
                           <div className="px-3 py-4 text-[11px] text-destructive">
                             Code search failed.
                           </div>
@@ -4490,7 +4499,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                             No matches.
                           </div>
                         ) : null}
-                        {!codeSearchBusy && !codeSearchResultsQuery.isError
+                        {!codeSearchBusy && !isCodeSearchResultsError
                           ? codeSearchResultGroups.map((group) => (
                               <section key={group.id} className="space-y-1.5">
                                 <div className="px-3 pt-1 text-[10px] font-medium text-muted-foreground/62">

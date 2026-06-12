@@ -29,7 +29,6 @@ export function desktopCliInstallStateQueryOptions() {
 
 export function useDesktopCliInstallState() {
   const queryClient = useQueryClient();
-  const query = useQuery(desktopCliInstallStateQueryOptions());
 
   useEffect(() => {
     const bridge = window.desktopBridge;
@@ -42,5 +41,5 @@ export function useDesktopCliInstallState() {
     });
   }, [queryClient]);
 
-  return query;
+  return useQuery(desktopCliInstallStateQueryOptions());
 }

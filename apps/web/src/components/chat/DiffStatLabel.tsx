@@ -1,6 +1,4 @@
-import { memo } from "react";
-
-export const DiffStatLabel = memo(function DiffStatLabel(props: {
+export function DiffStatLabel(props: {
   additions: number;
   deletions: number;
   showParentheses?: boolean;
@@ -17,4 +15,4 @@ export const DiffStatLabel = memo(function DiffStatLabel(props: {
       {showParentheses && <span className="text-muted-foreground/70">)</span>}
     </>
   );
-});
+}

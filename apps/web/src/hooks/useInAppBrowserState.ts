@@ -3,6 +3,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -10,7 +11,6 @@ import {
 import type { BrowserBridgeRequest } from "@ace/contracts";
 import type { BrowserSearchEngine } from "@ace/contracts/settings";
 
-import { useEffectEvent } from "~/hooks/useEffectEvent";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
 import { useSetting, useUpdateSettings } from "~/hooks/useSettings";
 import {
@@ -147,6 +147,18 @@ interface UseInAppBrowserStateOptions {
 }
 
 const EMPTY_BROWSER_SUGGESTIONS: BrowserSuggestion[] = [];
+
+function useStableCallback<TArgs extends readonly unknown[], TResult>(
+  callback: (...args: TArgs) => TResult,
+): (...args: TArgs) => TResult {
+  const callbackRef = useRef(callback);
+
+  useLayoutEffect(() => {
+    callbackRef.current = callback;
+  }, [callback]);
+
+  return useCallback((...args: TArgs) => callbackRef.current(...args), []);
+}
 
 interface BrowserSessionProjection {
   readonly activeRuntime: BrowserTabRuntimeState;
@@ -1964,30 +1976,30 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     [setDesignerState],
   );
 
-  const closeActiveTabEvent = useEffectEvent(closeActiveTab);
-  const clearAgentPointersEvent = useEffectEvent(clearAgentPointers);
-  const closeTabEvent = useEffectEvent(closeTab);
-  const closeDevToolsEvent = useEffectEvent(closeDevTools);
-  const findInPageEvent = useEffectEvent(findInPage);
-  const focusAddressBarEvent = useEffectEvent(focusAddressBar);
-  const goBackEvent = useEffectEvent(goBack);
-  const goForwardEvent = useEffectEvent(goForward);
-  const moveTabSelectionEvent = useEffectEvent(moveTabSelection);
-  const openDevToolsEvent = useEffectEvent(openDevTools);
-  const openNewTabEvent = useEffectEvent(openNewTab);
-  const activateTabEvent = useEffectEvent(activateTab);
-  const reorderTabsEvent = useEffectEvent(reorderTabs);
-  const openUrlEvent = useEffectEvent(openUrl);
-  const reloadEvent = useEffectEvent(reload);
-  const runBridgeRequestEvent = useEffectEvent(runBridgeRequest);
-  const setActiveTabByIndexEvent = useEffectEvent(setActiveTabByIndex);
-  const setDesignerModeActiveEvent = useEffectEvent(setDesignerModeActive);
-  const stopFindInPageEvent = useEffectEvent(stopFindInPage);
-  const toggleDesignerToolEvent = useEffectEvent(toggleDesignerTool);
-  const toggleDevToolsEvent = useEffectEvent(toggleDevTools);
-  const zoomInEvent = useEffectEvent(zoomIn);
-  const zoomOutEvent = useEffectEvent(zoomOut);
-  const zoomResetEvent = useEffectEvent(zoomReset);
+  const closeActiveTabEvent = useStableCallback(closeActiveTab);
+  const clearAgentPointersEvent = useStableCallback(clearAgentPointers);
+  const closeTabEvent = useStableCallback(closeTab);
+  const closeDevToolsEvent = useStableCallback(closeDevTools);
+  const findInPageEvent = useStableCallback(findInPage);
+  const focusAddressBarEvent = useStableCallback(focusAddressBar);
+  const goBackEvent = useStableCallback(goBack);
+  const goForwardEvent = useStableCallback(goForward);
+  const moveTabSelectionEvent = useStableCallback(moveTabSelection);
+  const openDevToolsEvent = useStableCallback(openDevTools);
+  const openNewTabEvent = useStableCallback(openNewTab);
+  const activateTabEvent = useStableCallback(activateTab);
+  const reorderTabsEvent = useStableCallback(reorderTabs);
+  const openUrlEvent = useStableCallback(openUrl);
+  const reloadEvent = useStableCallback(reload);
+  const runBridgeRequestEvent = useStableCallback(runBridgeRequest);
+  const setActiveTabByIndexEvent = useStableCallback(setActiveTabByIndex);
+  const setDesignerModeActiveEvent = useStableCallback(setDesignerModeActive);
+  const stopFindInPageEvent = useStableCallback(stopFindInPage);
+  const toggleDesignerToolEvent = useStableCallback(toggleDesignerTool);
+  const toggleDevToolsEvent = useStableCallback(toggleDevTools);
+  const zoomInEvent = useStableCallback(zoomIn);
+  const zoomOutEvent = useStableCallback(zoomOut);
+  const zoomResetEvent = useStableCallback(zoomReset);
   const browserController = useMemo<InAppBrowserController>(
     () => ({
       activateTab: (tabId) => activateTabEvent(tabId),
@@ -2062,9 +2074,10 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
         title: "Browser storage repair failed.",
         description: error instanceof Error ? error.message : "An error occurred.",
       });
-    } finally {
       setIsRepairingStorage(false);
+      return;
     }
+    setIsRepairingStorage(false);
   }, [api]);
 
   const openActiveTabExternally = useCallback(() => {

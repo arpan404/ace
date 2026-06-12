@@ -236,7 +236,11 @@ export interface SidebarThreadRowProps {
   } | null;
 }
 
-export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowProps) {
+export const SidebarThreadRow = memo(function SidebarThreadRow({
+  renamingCommittedRef,
+  renamingInputRef,
+  ...props
+}: SidebarThreadRowProps) {
   const thread = useSidebarThreadSummaryById(props.threadId);
   const lastVisitedAt = useUiStateStore((state) => state.threadLastVisitedAtById[props.threadId]);
   const runningTerminalIds = useTerminalStateStore(
@@ -366,8 +370,8 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
           {props.renamingThreadId === thread.id ? (
             <input
               ref={(element) => {
-                if (element && props.renamingInputRef.current !== element) {
-                  props.renamingInputRef.current = element;
+                if (element && renamingInputRef.current !== element) {
+                  renamingInputRef.current = element;
                   element.focus();
                   element.select();
                 }
@@ -379,16 +383,16 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
                 event.stopPropagation();
                 if (event.key === "Enter") {
                   event.preventDefault();
-                  props.renamingCommittedRef.current = true;
+                  renamingCommittedRef.current = true;
                   void props.commitRename(thread.id, props.renamingTitle, thread.title);
                 } else if (event.key === "Escape") {
                   event.preventDefault();
-                  props.renamingCommittedRef.current = true;
+                  renamingCommittedRef.current = true;
                   props.cancelRename();
                 }
               }}
               onBlur={() => {
-                if (!props.renamingCommittedRef.current) {
+                if (!renamingCommittedRef.current) {
                   void props.commitRename(thread.id, props.renamingTitle, thread.title);
                 }
               }}

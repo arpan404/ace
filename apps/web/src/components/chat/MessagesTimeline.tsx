@@ -4605,6 +4605,10 @@ export const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
   variant?: "nested" | "standalone";
 }) {
   const { workEntry } = props;
+  const [isDetailOpen, setIsDetailOpen] = useState(
+    workEntry.tone === "error" || workEntry.diagnosticKind !== undefined,
+  );
+
   if (workEntry.tone === "tool" && isCommandWorkEntry(workEntry)) {
     return <CommandWorkEntryRow {...props} />;
   }
@@ -4640,10 +4644,6 @@ export const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
     workEntry.tone !== "thinking" &&
     !showDetailInline &&
     Boolean(detailText || terminalOutputText || hasChangedFiles);
-  const [isDetailOpen, setIsDetailOpen] = useState(
-    workEntry.tone === "error" || workEntry.diagnosticKind !== undefined,
-  );
-
   return (
     <div
       className={cn("min-w-0", isNested && "pl-3")}
