@@ -1,6 +1,6 @@
 import { type ModelSelection, type ProjectId, type ThreadId } from "@ace/contracts";
 import { PlusIcon } from "lucide-react";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { ensureNativeApi } from "~/nativeApi";
 import { DEFAULT_THREAD_TITLE } from "~/lib/chat/chatView";
@@ -17,8 +17,10 @@ export interface NewThreadRecommendedPrompt {
 const MAX_RECOMMENDED_PROMPTS = 3;
 const EMPTY_RECOMMENDED_PROMPTS: readonly NewThreadRecommendedPrompt[] = [];
 const EMPTY_PROJECT_THREADS: readonly Thread[] = [];
-const RECOMMENDATION_CACHE_STORAGE_PREFIX = "ace:new-thread-recommendations:v2:";
-const RECOMMENDATION_CACHE_TTL_MS = 6 * 60 * 60 * 1_000;
+const LEGACY_RECOMMENDATION_CACHE_STORAGE_PREFIXES = [
+  "ace:new-thread-recommendations:v2:",
+  "ace:new-thread-recommendations:v3:",
+] as const;
 const RECOMMENDATION_GENERATION_FAILURE_COOLDOWN_MS = 5 * 60 * 1_000;
 const MAX_RECOMMENDATION_CONTEXT_CHARS = 2_400;
 
@@ -30,17 +32,12 @@ interface RecommendationContextTurn {
   readonly updatedAt: string;
 }
 
-interface CachedRecommendationPayload {
-  readonly fingerprint: string;
-  readonly generatedAt: number;
-  readonly recommendations: ReadonlyArray<NewThreadRecommendedPrompt>;
-}
-
 const recommendationRequestsByFingerprint = new Map<
   string,
   Promise<ReadonlyArray<NewThreadRecommendedPrompt>>
 >();
 const recommendationFailureCooldownByFingerprint = new Map<string, number>();
+let legacyBrowserRecommendationCacheCleaned = false;
 
 function trimThreadTitle(title: string): string {
   return title.trim().replace(/\s+/g, " ");
@@ -88,20 +85,6 @@ function selectLatestTurnMessages(thread: Thread): ReadonlyArray<ChatMessage> {
   }
   const latestTurnMessages = thread.messages.filter((message) => message.turnId === latestTurnId);
   return latestTurnMessages.length > 0 ? latestTurnMessages : thread.messages;
-}
-
-function isCachedRecommendationPayload(value: unknown): value is CachedRecommendationPayload {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-  const candidate = value as Partial<CachedRecommendationPayload>;
-  return (
-    typeof candidate.fingerprint === "string" &&
-    typeof candidate.generatedAt === "number" &&
-    Array.isArray(candidate.recommendations) &&
-    normalizeRecommendedPrompts(candidate.recommendations).length ===
-      candidate.recommendations.length
-  );
 }
 
 function isUsefulRecommendedPrompt(value: unknown): value is NewThreadRecommendedPrompt {
@@ -163,34 +146,30 @@ function normalizeRecommendedPrompts(
   return normalized.length === MAX_RECOMMENDED_PROMPTS ? normalized : EMPTY_RECOMMENDED_PROMPTS;
 }
 
-function readCachedRecommendations(projectId: ProjectId): CachedRecommendationPayload | null {
-  if (typeof window === "undefined") {
-    return null;
+function recommendedPromptsEqual(
+  left: ReadonlyArray<NewThreadRecommendedPrompt>,
+  right: ReadonlyArray<NewThreadRecommendedPrompt>,
+): boolean {
+  if (left === right) {
+    return true;
   }
-  try {
-    const raw = window.localStorage.getItem(`${RECOMMENDATION_CACHE_STORAGE_PREFIX}${projectId}`);
-    if (!raw) {
-      return null;
+  if (left.length !== right.length) {
+    return false;
+  }
+  for (let index = 0; index < left.length; index += 1) {
+    const leftPrompt = left[index];
+    const rightPrompt = right[index];
+    if (
+      !leftPrompt ||
+      !rightPrompt ||
+      leftPrompt.title !== rightPrompt.title ||
+      leftPrompt.description !== rightPrompt.description ||
+      leftPrompt.prompt !== rightPrompt.prompt
+    ) {
+      return false;
     }
-    const parsed: unknown = JSON.parse(raw);
-    return isCachedRecommendationPayload(parsed) ? parsed : null;
-  } catch {
-    return null;
   }
-}
-
-function writeCachedRecommendations(projectId: ProjectId, payload: CachedRecommendationPayload) {
-  if (typeof window === "undefined") {
-    return;
-  }
-  try {
-    window.localStorage.setItem(
-      `${RECOMMENDATION_CACHE_STORAGE_PREFIX}${projectId}`,
-      JSON.stringify(payload),
-    );
-  } catch {
-    // Best-effort cache; generation should still work when storage is unavailable.
-  }
+  return true;
 }
 
 function hashString(value: string): string {
@@ -202,10 +181,32 @@ function hashString(value: string): string {
 }
 
 function buildRecommendationFingerprint(input: {
+  readonly cwd: string;
   readonly modelSelection: ModelSelection;
   readonly turns: ReadonlyArray<RecommendationContextTurn>;
 }): string {
-  return hashString(JSON.stringify({ model: input.modelSelection, turns: input.turns }));
+  return hashString(
+    JSON.stringify({ cwd: input.cwd, model: input.modelSelection, turns: input.turns }),
+  );
+}
+
+function cleanupLegacyBrowserRecommendationCache() {
+  if (typeof window === "undefined") {
+    return;
+  }
+  if (legacyBrowserRecommendationCacheCleaned) {
+    return;
+  }
+  legacyBrowserRecommendationCacheCleaned = true;
+  try {
+    for (const key of Object.keys(window.localStorage)) {
+      if (LEGACY_RECOMMENDATION_CACHE_STORAGE_PREFIXES.some((prefix) => key.startsWith(prefix))) {
+        window.localStorage.removeItem(key);
+      }
+    }
+  } catch {
+    // Legacy browser cache cleanup is best-effort; the backend cache is authoritative.
+  }
 }
 
 function useProjectThreads(projectId: ProjectId | null): ReadonlyArray<Thread> {
@@ -275,17 +276,6 @@ function buildRecommendationContextTurns(input: {
   return turns;
 }
 
-function shouldRegenerateRecommendations(
-  cached: CachedRecommendationPayload | null,
-  fingerprint: string,
-  now: number,
-): boolean {
-  if (!cached || cached.fingerprint !== fingerprint) {
-    return true;
-  }
-  return now - cached.generatedAt >= RECOMMENDATION_CACHE_TTL_MS;
-}
-
 async function requestGeneratedRecommendations(input: {
   readonly cwd: string;
   readonly modelSelection: ModelSelection;
@@ -328,33 +318,57 @@ export function useNewThreadRecommendedPrompts(
       }),
     [allProjectThreads, projectThreads],
   );
+  const contextTurnsSignature = useMemo(() => JSON.stringify(contextTurns), [contextTurns]);
+  const stableContextTurns = useMemo(
+    () => JSON.parse(contextTurnsSignature) as ReadonlyArray<RecommendationContextTurn>,
+    [contextTurnsSignature],
+  );
+  const modelSelectionSignature = useMemo(
+    () => (modelSelection ? JSON.stringify(modelSelection) : null),
+    [modelSelection],
+  );
+  const stableModelSelection = useMemo(
+    () =>
+      modelSelectionSignature ? (JSON.parse(modelSelectionSignature) as ModelSelection) : null,
+    [modelSelectionSignature],
+  );
   const fingerprint = useMemo(() => {
-    if (!modelSelection || contextTurns.length === 0) {
+    if (!stableModelSelection || !activeProjectCwd) {
       return null;
     }
-    return buildRecommendationFingerprint({ modelSelection, turns: contextTurns });
-  }, [contextTurns, modelSelection]);
+    return buildRecommendationFingerprint({
+      cwd: activeProjectCwd,
+      modelSelection: stableModelSelection,
+      turns: stableContextTurns,
+    });
+  }, [activeProjectCwd, stableContextTurns, stableModelSelection]);
+  const requestKey = activeProjectId && fingerprint ? `${activeProjectId}:${fingerprint}` : null;
+  const lastCompletedRequestKeyRef = useRef<string | null>(null);
   const [recommendations, setRecommendations] =
     useState<ReadonlyArray<NewThreadRecommendedPrompt>>(EMPTY_RECOMMENDED_PROMPTS);
 
   useEffect(() => {
-    if (!activeProjectId || !activeProjectCwd || !modelSelection || !fingerprint) {
-      setRecommendations(EMPTY_RECOMMENDED_PROMPTS);
+    if (
+      !activeProjectId ||
+      !activeProjectCwd ||
+      !stableModelSelection ||
+      !fingerprint ||
+      !requestKey
+    ) {
+      lastCompletedRequestKeyRef.current = null;
+      setRecommendations((existingRecommendations) =>
+        existingRecommendations.length === 0 ? existingRecommendations : EMPTY_RECOMMENDED_PROMPTS,
+      );
+      return;
+    }
+
+    cleanupLegacyBrowserRecommendationCache();
+
+    if (lastCompletedRequestKeyRef.current === requestKey) {
       return;
     }
 
     const now = Date.now();
-    const cached = readCachedRecommendations(activeProjectId);
-    if (cached?.fingerprint === fingerprint) {
-      setRecommendations(normalizeRecommendedPrompts(cached.recommendations));
-    } else {
-      setRecommendations(EMPTY_RECOMMENDED_PROMPTS);
-    }
-
-    if (!shouldRegenerateRecommendations(cached, fingerprint, now)) {
-      return;
-    }
-
     const cooldownUntil = recommendationFailureCooldownByFingerprint.get(fingerprint) ?? 0;
     if (cooldownUntil > now) {
       return;
@@ -363,8 +377,8 @@ export function useNewThreadRecommendedPrompts(
     let cancelled = false;
     void requestGeneratedRecommendations({
       cwd: activeProjectCwd,
-      modelSelection,
-      turns: contextTurns,
+      modelSelection: stableModelSelection,
+      turns: stableContextTurns,
       fingerprint,
     })
       .then((generatedRecommendations) => {
@@ -372,13 +386,12 @@ export function useNewThreadRecommendedPrompts(
           return;
         }
         const normalizedRecommendations = normalizeRecommendedPrompts(generatedRecommendations);
-        const payload: CachedRecommendationPayload = {
-          fingerprint,
-          generatedAt: Date.now(),
-          recommendations: normalizedRecommendations,
-        };
-        writeCachedRecommendations(activeProjectId, payload);
-        setRecommendations(normalizedRecommendations);
+        lastCompletedRequestKeyRef.current = requestKey;
+        setRecommendations((existingRecommendations) =>
+          recommendedPromptsEqual(existingRecommendations, normalizedRecommendations)
+            ? existingRecommendations
+            : normalizedRecommendations,
+        );
       })
       .catch(() => {
         recommendationFailureCooldownByFingerprint.set(
@@ -390,7 +403,14 @@ export function useNewThreadRecommendedPrompts(
     return () => {
       cancelled = true;
     };
-  }, [activeProjectCwd, activeProjectId, contextTurns, fingerprint, modelSelection]);
+  }, [
+    activeProjectCwd,
+    activeProjectId,
+    fingerprint,
+    requestKey,
+    stableContextTurns,
+    stableModelSelection,
+  ]);
 
   return recommendations;
 }
