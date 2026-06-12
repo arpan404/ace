@@ -835,6 +835,54 @@ describe("nativeTimelineRows", () => {
     });
   });
 
+  it("keeps active-turn work visible when row timestamps precede the active start", () => {
+    const toolActivity: OrchestrationThreadActivity = {
+      id: EventId.makeUnsafe("activity-live-tool-clock-skew"),
+      tone: "tool",
+      kind: "tool.completed",
+      summary: "Ran command",
+      payload: { itemType: "command", title: "Inspect workspace" },
+      turnId,
+      sequence: 1,
+      createdAt: "2026-01-01T00:00:00.500Z",
+    };
+    const thinkingActivity: OrchestrationThreadActivity = {
+      id: EventId.makeUnsafe("activity-live-thinking-clock-skew"),
+      tone: "info",
+      kind: "task.progress",
+      summary: "Thinking",
+      payload: { detail: "Reviewing live output." },
+      turnId,
+      sequence: 2,
+      createdAt: "2026-01-01T00:00:00.750Z",
+    };
+
+    const rows = buildNativeTimelineRows({
+      rows: [activityRow(toolActivity, 0), activityRow(thinkingActivity, 1)],
+      messages: [],
+      activities: [toolActivity, thinkingActivity],
+      proposedPlans: [],
+      activeTurnId: String(turnId),
+      activeTurnInProgress: true,
+      activeTurnStartedAt: "2026-01-01T00:00:01.000Z",
+      completionDividerBeforeEntryId: null,
+      completionSummary: null,
+      hideCompletedWorkMessages: true,
+      turnDiffSummaryByAssistantMessageId: new Map(),
+    });
+
+    expect(rows.map((row) => row.kind)).toEqual(["work-group", "work", "working"]);
+    expect(rows.some((row) => row.kind === "completed-work-summary")).toBe(false);
+    expect(rows[0]).toMatchObject({
+      kind: "work-group",
+      entries: [{ id: toolActivity.id }],
+    });
+    expect(rows[1]).toMatchObject({
+      kind: "work",
+      workEntry: { id: thinkingActivity.id },
+    });
+  });
+
   it("shows a live working timer row while the active turn is running", () => {
     const activity: OrchestrationThreadActivity = {
       id: activityId,

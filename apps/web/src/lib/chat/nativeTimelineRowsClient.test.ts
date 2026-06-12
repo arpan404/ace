@@ -90,7 +90,7 @@ describe("nativeTimelineRowsClient", () => {
     });
 
     expect(firstKey).not.toBeNull();
-    expect(firstKey?.startsWith("native-timeline-rows:v5\0")).toBe(true);
+    expect(firstKey?.startsWith("native-timeline-rows:v6\0")).toBe(true);
     expect(firstKey).toContain("live");
     expect(secondKey).not.toBe(firstKey);
   });
