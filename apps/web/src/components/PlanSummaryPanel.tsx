@@ -147,7 +147,6 @@ function SummaryGenerationNotice({ hasExistingSummary }: { hasExistingSummary: b
     <output
       className="inline-flex items-center gap-2 text-xs text-muted-foreground"
       aria-live="polite"
-      role="status"
     >
       <SummaryWorkingIndicator />
       <span>{hasExistingSummary ? "Updating summary" : "Generating summary"}</span>

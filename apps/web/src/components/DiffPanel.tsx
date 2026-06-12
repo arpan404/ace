@@ -375,6 +375,7 @@ function useDiffPanelComponent({
   const [reviewCommentPopoverPosition, setReviewCommentPopoverPosition] =
     useState<ReviewCommentPopoverPosition | null>(null);
   const [reviewCommentDraft, setReviewCommentDraft] = useState("");
+  const reviewCommentInputRef = useRef<HTMLInputElement>(null);
   const patchViewportRef = useRef<HTMLDivElement>(null);
   const previousDiffOpenRef = useRef(false);
   const routeThreadId = useParams({
@@ -859,6 +860,17 @@ function useDiffPanelComponent({
     reviewCommentPopoverOpen,
   ]);
 
+  useEffect(() => {
+    if (!reviewCommentPopoverOpen || reviewCommentPopoverPosition?.placement === "pending") {
+      return;
+    }
+    reviewCommentInputRef.current?.focus({ preventScroll: true });
+  }, [
+    activeReviewLineSelection,
+    reviewCommentPopoverOpen,
+    reviewCommentPopoverPosition?.placement,
+  ]);
+
   const selectedTurnSelectValue = selectedTurn?.turnId ?? ALL_TURNS_SELECT_VALUE;
   const selectedTurnLabel = selectedTurn
     ? resolveTurnCheckpointLabel(selectedTurn, inferredCheckpointTurnCountByTurnId)
@@ -1229,6 +1241,7 @@ function useDiffPanelComponent({
                             {commentSelection.label}
                           </span>
                           <input
+                            ref={reviewCommentInputRef}
                             value={reviewCommentDraft}
                             onChange={(event) => setReviewCommentDraft(event.target.value)}
                             onKeyDown={(event) => {
@@ -1239,7 +1252,6 @@ function useDiffPanelComponent({
                             }}
                             placeholder={commentPlaceholder}
                             className="h-9 min-w-0 flex-1 border-0 bg-transparent px-1 text-[13px] font-medium text-foreground outline-none placeholder:text-muted-foreground/55"
-                            autoFocus
                           />
                           <Tooltip>
                             <TooltipTrigger

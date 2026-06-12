@@ -220,8 +220,9 @@ export function deriveTimelineEntries(
 
   for (const { timelineEntry: entry } of rawEntries) {
     if (entry.kind === "work" && isReportIntentWorkEntry(entry.entry)) {
-      const workTurnId = entry.entry.turnId ?? null;
-      const intentText = extractReportIntentText(entry.entry);
+      const workEntry = entry.entry;
+      const workTurnId = workEntry.turnId ?? null;
+      const intentText = extractReportIntentText(workEntry);
       if (intentText) {
         const nextIntentFingerprint = normalizeIntentComparisonText(intentText);
         if (nextIntentFingerprint !== previousIntentFingerprint) {
@@ -242,7 +243,8 @@ export function deriveTimelineEntries(
     }
 
     if (entry.kind === "work" && pendingIntentText) {
-      const entryTurnId = entry.entry.turnId ?? null;
+      const workEntry = entry.entry;
+      const entryTurnId = workEntry.turnId ?? null;
       if (!timelineWorkTurnIdsMatch(pendingIntentTurnId, entryTurnId)) {
         pendingIntentText = null;
         pendingIntentFingerprint = null;
@@ -252,13 +254,13 @@ export function deriveTimelineEntries(
         continue;
       }
 
-      if (entry.entry.tone === "tool") {
+      if (workEntry.tone === "tool") {
         const attachedIntentFingerprint =
           pendingIntentFingerprint ?? normalizeIntentComparisonText(pendingIntentText);
         normalizedEntries.push({
           ...entry,
           entry: {
-            ...entry.entry,
+            ...workEntry,
             intentText: pendingIntentText,
           },
         });
@@ -274,21 +276,27 @@ export function deriveTimelineEntries(
     }
 
     if (entry.kind === "work" && entry.entry.tone === "tool" && entry.entry.intentText) {
-      const embeddedIntentText = normalizeIntentDisplayText(entry.entry.intentText);
+      const workEntry = entry.entry;
+      const rawIntentText = workEntry.intentText;
+      if (!rawIntentText) {
+        normalizedEntries.push(entry);
+        continue;
+      }
+      const embeddedIntentText = normalizeIntentDisplayText(rawIntentText);
       const nextIntentFingerprint = normalizeIntentComparisonText(embeddedIntentText);
       if (nextIntentFingerprint !== previousIntentFingerprint) {
         normalizedEntries.push({
           id: `intent:${entry.id}`,
           kind: "intent",
           createdAt: entry.createdAt,
-          turnId: entry.entry.turnId ?? null,
+          turnId: workEntry.turnId ?? null,
           text: embeddedIntentText,
         });
       }
       normalizedEntries.push({
         ...entry,
         entry: {
-          ...entry.entry,
+          ...workEntry,
           intentText: embeddedIntentText,
         },
       });

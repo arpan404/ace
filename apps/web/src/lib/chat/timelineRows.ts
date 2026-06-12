@@ -1125,9 +1125,12 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
       continue;
     }
 
-    const messageRole = timelineEntry.kind === "message" ? timelineEntry.message.role : null;
+    const pendingMetaMessageRole =
+      timelineEntry.kind === "message" ? timelineEntry.message.role : null;
     const pendingMetaNextEventCreatedAt =
-      timelineEntry.kind === "message" && messageRole === "user" ? null : timelineEntry.createdAt;
+      timelineEntry.kind === "message" && pendingMetaMessageRole === "user"
+        ? null
+        : timelineEntry.createdAt;
     flushPendingMetaEntries(pendingMetaNextEventCreatedAt);
 
     if (timelineEntry.kind === "proposed-plan") {
@@ -1144,8 +1147,9 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
     }
 
     const { message } = timelineEntry;
+    const { role: messageRole } = message;
 
-    if (message.role === "assistant" && shouldSkipAssistantMessageRow(message)) {
+    if (messageRole === "assistant" && shouldSkipAssistantMessageRow(message)) {
       continue;
     }
 
@@ -1153,12 +1157,12 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
       timelineEntry.createdAt,
       activeTurnStartedAtMs,
     );
-    if (messageIsInActiveTurn && message.role !== "user") {
+    if (messageIsInActiveTurn && messageRole !== "user") {
       hasRenderableCurrentTurnOutput = true;
     }
 
     const durationStart = messageDurationStartById.get(message.id) ?? message.createdAt;
-    if (message.role === "user") {
+    if (messageRole === "user") {
       flushOrDiscardHiddenCompletedWorkAtBoundary();
       lastMessageBoundaryAt = message.createdAt;
       if (
@@ -1170,7 +1174,7 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
           activeTurnPrimaryUserMessageIsGoalCommand = isGoalCommandMessageText(message.text);
         }
       }
-    } else if (message.role === "system") {
+    } else if (messageRole === "system") {
       flushOrDiscardHiddenCompletedWorkAtBoundary();
     }
 
@@ -1178,7 +1182,7 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
 
     if (
       input.hideCompletedWorkMessages === true &&
-      message.role === "assistant" &&
+      messageRole === "assistant" &&
       !goalState.active &&
       !message.streaming &&
       !terminalAssistantMessageIds.has(timelineEntry.id) &&
@@ -1193,7 +1197,7 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
 
     if (
       input.hideCompletedWorkMessages === true &&
-      message.role === "assistant" &&
+      messageRole === "assistant" &&
       !message.streaming &&
       terminalAssistantMessageIds.has(timelineEntry.id) &&
       !(input.activeTurnInProgress && messageIsInActiveTurn)
@@ -1211,26 +1215,26 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
       message,
       durationStart,
       completionSummary:
-        message.role === "assistant" && input.completionDividerBeforeEntryId === timelineEntry.id
+        messageRole === "assistant" && input.completionDividerBeforeEntryId === timelineEntry.id
           ? input.completionSummary
           : null,
       isAssistantTurnTerminal:
-        message.role === "assistant" && terminalAssistantMessageIds.has(timelineEntry.id),
+        messageRole === "assistant" && terminalAssistantMessageIds.has(timelineEntry.id),
       showAssistantTiming:
-        message.role === "assistant" &&
+        messageRole === "assistant" &&
         terminalAssistantMessageIds.has(timelineEntry.id) &&
         !(
           input.activeTurnInProgress &&
           isEventInActiveTurn(timelineEntry.createdAt, activeTurnStartedAtMs)
         ),
       showAssistantSummaryByDefault:
-        timelineEntry.message.role === "assistant" &&
+        messageRole === "assistant" &&
         terminalAssistantMessageIds.has(timelineEntry.id) &&
         assistantMessageIdsWithoutLaterUser.has(timelineEntry.id),
     });
 
-    if (timelineEntry.message.role === "assistant" && timelineEntry.message.completedAt) {
-      lastMessageBoundaryAt = timelineEntry.message.completedAt;
+    if (messageRole === "assistant" && message.completedAt) {
+      lastMessageBoundaryAt = message.completedAt;
     }
   }
 

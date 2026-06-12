@@ -1920,8 +1920,8 @@ function useThreadWorkspaceEditorComponent(inputProps: {
         nextQuery,
         ...current.filter((query) => query.trim().toLowerCase() !== nextQuery.toLowerCase()),
       ].slice(0, WORKSPACE_CODE_SEARCH_RECENT_LIMIT);
-      return next.every((query, index) => query === current[index]) &&
-        next.length === current.length
+      return next.length === current.length &&
+        next.every((query, index) => query === current[index])
         ? current
         : next;
     });

@@ -2679,13 +2679,14 @@ export function applyOrchestrationEvents(
     let nextIndex = index + 1;
     while (nextIndex < events.length) {
       const nextEvent = events[nextIndex];
-      if (
-        nextEvent?.type !== "thread.activity-appended" ||
-        nextEvent.payload.threadId !== threadId
-      ) {
+      if (nextEvent?.type !== "thread.activity-appended") {
         break;
       }
-      const nextActivity = nextEvent.payload.activity;
+      const nextPayload = nextEvent.payload;
+      if (nextPayload.threadId !== threadId) {
+        break;
+      }
+      const nextActivity = nextPayload.activity;
       primeThreadActivityTimelineRow({
         threadId,
         activity: nextActivity,

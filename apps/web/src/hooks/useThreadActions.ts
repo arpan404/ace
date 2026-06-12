@@ -86,9 +86,12 @@ export function useThreadActions() {
     if (!worktreePath) return;
 
     const draftStore = useComposerDraftStore.getState();
-    const draftThreadIds = Object.entries(draftStore.draftThreadsByThreadId)
-      .filter(([, draftThread]) => normalizeWorktreePath(draftThread.worktreePath) === worktreePath)
-      .map(([threadId]) => ThreadId.makeUnsafe(threadId));
+    const draftThreadIds = Object.entries(draftStore.draftThreadsByThreadId).flatMap(
+      ([threadId, draftThread]) =>
+        normalizeWorktreePath(draftThread.worktreePath) === worktreePath
+          ? [ThreadId.makeUnsafe(threadId)]
+          : [],
+    );
 
     for (const draftThreadId of draftThreadIds) {
       draftStore.clearDraftThread(draftThreadId);

@@ -10,8 +10,7 @@ type AppStartupScreenProps = {
 export function AppStartupScreen({ message }: AppStartupScreenProps) {
   return (
     <LazyMotion features={domAnimation}>
-      <div
-        role="status"
+      <output
         aria-live="polite"
         aria-label={message}
         className="relative flex h-screen flex-col items-center justify-center overflow-hidden bg-background text-foreground"
@@ -39,7 +38,7 @@ export function AppStartupScreen({ message }: AppStartupScreenProps) {
         >
           v{APP_VERSION}
         </m.div>
-      </div>
+      </output>
     </LazyMotion>
   );
 }

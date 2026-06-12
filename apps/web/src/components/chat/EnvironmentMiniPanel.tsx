@@ -52,8 +52,10 @@ import {
   type PinnedMessages,
 } from "./pinnedMessagesStore";
 
+const diffCountFormatter = new Intl.NumberFormat();
+
 function formatDiffCount(value: number): string {
-  return new Intl.NumberFormat().format(value);
+  return diffCountFormatter.format(value);
 }
 
 function EnvironmentPanelGroup(props: {

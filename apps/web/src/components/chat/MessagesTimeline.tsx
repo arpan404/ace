@@ -577,10 +577,7 @@ function highlightPinnedSelectionText(
 
   const overlay = document.createElement("div");
   overlay.dataset.pinnedSelectionHighlight = "true";
-  overlay.style.pointerEvents = "none";
-  overlay.style.position = "absolute";
-  overlay.style.inset = "0";
-  overlay.style.zIndex = "20";
+  overlay.style.cssText = "pointer-events: none; position: absolute; inset: 0; z-index: 20";
   scrollContainer.appendChild(overlay);
 
   for (const rect of rangeRects) {
@@ -1126,7 +1123,10 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         timestampFormat,
       });
       const shouldShowAssistantTurnActions =
-        timing !== null && !row.message.streaming && messageCompletedAt !== undefined && messageCompletedAt !== null;
+        timing !== null &&
+        !row.message.streaming &&
+        messageCompletedAt !== undefined &&
+        messageCompletedAt !== null;
       const assistantTurnPinTarget = shouldShowAssistantTurnActions
         ? collectVisibleAssistantTurnPinTarget(rows, index)
         : null;

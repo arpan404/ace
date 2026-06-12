@@ -50,12 +50,17 @@ export function asTrimmedString(value: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-const EMBEDDED_WORK_LOG_PATTERNS = (["intent", "goal", "explanation", "summary"] as const).map(
-  (key) => ({
-    key,
-    pattern: new RegExp(`["']${key}["']\\s*:\\s*["']([^"']+)["']`, "i"),
-  }),
-);
+const EMBEDDED_WORK_LOG_PATTERNS = [
+  { key: "intent", pattern: /["']intent["']\s*:\s*["']([^"']+)["']/i },
+  { key: "goal", pattern: /["']goal["']\s*:\s*["']([^"']+)["']/i },
+  { key: "explanation", pattern: /["']explanation["']\s*:\s*["']([^"']+)["']/i },
+  { key: "summary", pattern: /["']summary["']\s*:\s*["']([^"']+)["']/i },
+] as const;
+
+const TAGGED_XML_TOOL_DETAIL_PATTERNS = [
+  /<(?:path|file|command|cmd|url|query|title|name)>([^<]+)<\/(?:path|file|command|cmd|url|query|title|name)>/giu,
+  /<(?:[^>\s]+)[^>]*(?:path|file|command|cmd|url|query|title|name)=["']([^"']+)["'][^>]*>/giu,
+] as const;
 
 function extractEmbeddedWorkLogText(value: string): string | null {
   for (const { pattern } of EMBEDDED_WORK_LOG_PATTERNS) {

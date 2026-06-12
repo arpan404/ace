@@ -84,9 +84,18 @@ function loadConnectedRemoteEnvironments(): ConnectedRemoteEnvironment[] {
   const localConnectionUrl = normalizeWsUrl(resolveLocalDeviceWsUrl());
   const connectedHostIds = new Set(loadConnectedRemoteHostIds());
   return loadRemoteHostInstances()
-    .filter((host) => connectedHostIds.has(host.id))
-    .map((host) => ({ host, connectionUrl: resolveHostConnectionWsUrl(host) }))
-    .filter((environment) => normalizeWsUrl(environment.connectionUrl) !== localConnectionUrl)
+    .flatMap((host) => {
+      if (!connectedHostIds.has(host.id)) {
+        return [];
+      }
+
+      const connectionUrl = resolveHostConnectionWsUrl(host);
+      if (normalizeWsUrl(connectionUrl) === localConnectionUrl) {
+        return [];
+      }
+
+      return [{ host, connectionUrl }];
+    })
     .toSorted((left, right) => left.host.name.localeCompare(right.host.name));
 }
 

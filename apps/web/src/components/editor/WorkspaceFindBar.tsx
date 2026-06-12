@@ -143,6 +143,7 @@ function WorkspaceFindBar(props: WorkspaceFindBarProps) {
               onChange={(event) => props.onStateChange({ search: event.target.value })}
               onKeyDown={handleSearchKeyDown}
               placeholder="Find in file"
+              aria-label="Find in file"
               className={cn(
                 APP_SETTINGS_FIELD_CLASS_NAME,
                 "h-7 min-w-0 flex-1 rounded-md px-2 font-mono text-[12px] text-foreground outline-none placeholder:text-muted-foreground/55 focus:border-primary/45",
@@ -159,6 +160,7 @@ function WorkspaceFindBar(props: WorkspaceFindBarProps) {
               onChange={(event) => props.onStateChange({ replace: event.target.value })}
               onKeyDown={handleReplaceKeyDown}
               placeholder="Replace"
+              aria-label="Replace"
               className={cn(
                 APP_SETTINGS_FIELD_CLASS_NAME,
                 "h-7 min-w-0 rounded-md px-2 font-mono text-[12px] text-foreground outline-none placeholder:text-muted-foreground/55 focus:border-primary/45",

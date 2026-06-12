@@ -99,9 +99,15 @@ export function GitHubIssueExternalLink({ url }: { url: string }) {
       variant="outline"
       size="icon-sm"
       className="size-7 text-muted-foreground hover:text-foreground"
-      render={<a href={url} target="_blank" rel="noreferrer" />}
-      aria-label="Open issue on GitHub"
-      title="Open issue on GitHub"
+      render={
+        <a
+          href={url}
+          target="_blank"
+          rel="noreferrer"
+          aria-label="Open issue on GitHub"
+          title="Open issue on GitHub"
+        />
+      }
     >
       <ExternalLinkIcon className="size-3.5 opacity-70" />
     </Button>

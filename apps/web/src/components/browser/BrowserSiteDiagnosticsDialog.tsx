@@ -210,7 +210,7 @@ export function BrowserSiteDiagnosticsDialog(props: {
   const { open, url, onOpenChange } = props;
   const [siteInfoState, setSiteInfoState] = useState<{
     url: string;
-    siteInfo: DesktopBrowserSiteInfo;
+    siteInfo: DesktopBrowserSiteInfo | null;
   } | null>(null);
   const api = useMemo(() => ensureNativeApi(), []);
   const siteInfo = open && url && siteInfoState?.url === url ? siteInfoState.siteInfo : null;

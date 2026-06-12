@@ -290,7 +290,7 @@ function ProjectScriptEditorDialog(props: {
               onSubmit={props.submitAddScript}
             >
               <div className="grid gap-3 pb-4 sm:grid-cols-[minmax(0,1fr)_16rem]">
-                <label className="space-y-1.5">
+                <label htmlFor="script-name" className="space-y-1.5">
                   <span className={HEADER_ACTION_FIELD_LABEL_CLASS_NAME}>Name</span>
                   <Input
                     id="script-name"

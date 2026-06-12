@@ -48,9 +48,13 @@ export function getWorktreeLinkedThreadIds(
     return [];
   }
 
-  return threads
-    .filter((thread) => normalizeWorktreePath(thread.worktreePath) === normalizedWorktreePath)
-    .map((thread) => thread.id);
+  const linkedThreadIds: WorktreeThread["id"][] = [];
+  for (const thread of threads) {
+    if (normalizeWorktreePath(thread.worktreePath) === normalizedWorktreePath) {
+      linkedThreadIds.push(thread.id);
+    }
+  }
+  return linkedThreadIds;
 }
 
 export function isWorktreeThreadSessionActive(thread: WorktreeSessionThread): boolean {

@@ -1240,17 +1240,17 @@ function browserPanelInstancesEqual(
   if (previous.instances === next.instances) {
     return true;
   }
-  if (previous.instances.length !== next.instances.length) {
-    return false;
-  }
-  return previous.instances.every((previousInstance, index) => {
-    const nextInstance = next.instances[index];
-    return (
-      nextInstance !== undefined &&
-      previousInstance.key === nextInstance.key &&
-      shallowObjectEqual(previousInstance.inAppBrowserProps, nextInstance.inAppBrowserProps)
-    );
-  });
+  return (
+    previous.instances.length === next.instances.length &&
+    previous.instances.every((previousInstance, index) => {
+      const nextInstance = next.instances[index];
+      return (
+        nextInstance !== undefined &&
+        previousInstance.key === nextInstance.key &&
+        shallowObjectEqual(previousInstance.inAppBrowserProps, nextInstance.inAppBrowserProps)
+      );
+    })
+  );
 }
 
 function handoffLineageResultsEqual(
