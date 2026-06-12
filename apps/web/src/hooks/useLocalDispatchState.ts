@@ -1,5 +1,5 @@
 import { type ApprovalRequestId } from "@ace/contracts";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { type SessionPhase, type Thread } from "../types";
 import {
   createLocalDispatchSnapshot,
@@ -16,21 +16,6 @@ export function useLocalDispatchState(input: {
   threadError: string | null | undefined;
 }) {
   const [localDispatch, setLocalDispatch] = useState<LocalDispatchSnapshot | null>(null);
-
-  const beginLocalDispatch = useCallback(
-    (options?: { preparingWorktree?: boolean }) => {
-      const preparingWorktree = Boolean(options?.preparingWorktree);
-      setLocalDispatch((current) => {
-        if (current) {
-          return current.preparingWorktree === preparingWorktree
-            ? current
-            : { ...current, preparingWorktree };
-        }
-        return createLocalDispatchSnapshot(input.activeThread, options);
-      });
-    },
-    [input.activeThread],
-  );
 
   const resetLocalDispatch = useCallback(() => {
     setLocalDispatch(null);
@@ -58,18 +43,28 @@ export function useLocalDispatchState(input: {
     ],
   );
 
-  useEffect(() => {
-    if (!serverAcknowledgedLocalDispatch) {
-      return;
-    }
-    resetLocalDispatch();
-  }, [resetLocalDispatch, serverAcknowledgedLocalDispatch]);
+  const beginLocalDispatch = useCallback(
+    (options?: { preparingWorktree?: boolean }) => {
+      const preparingWorktree = Boolean(options?.preparingWorktree);
+      setLocalDispatch((current) => {
+        if (current && !serverAcknowledgedLocalDispatch) {
+          return current.preparingWorktree === preparingWorktree
+            ? current
+            : { ...current, preparingWorktree };
+        }
+        return createLocalDispatchSnapshot(input.activeThread, options);
+      });
+    },
+    [input.activeThread, serverAcknowledgedLocalDispatch],
+  );
+
+  const visibleLocalDispatch = serverAcknowledgedLocalDispatch ? null : localDispatch;
 
   return {
     beginLocalDispatch,
     resetLocalDispatch,
-    localDispatchStartedAt: localDispatch?.startedAt ?? null,
-    isPreparingWorktree: localDispatch?.preparingWorktree ?? false,
-    isSendBusy: localDispatch !== null && !serverAcknowledgedLocalDispatch,
+    localDispatchStartedAt: visibleLocalDispatch?.startedAt ?? null,
+    isPreparingWorktree: visibleLocalDispatch?.preparingWorktree ?? false,
+    isSendBusy: visibleLocalDispatch !== null,
   };
 }

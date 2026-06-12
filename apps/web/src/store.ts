@@ -1779,11 +1779,12 @@ function applyProjectEvent(state: AppState, event: OrchestrationEvent): AppState
       const threads = state.threads.filter(
         (thread) => thread.projectId !== event.payload.projectId,
       );
-      const removedThreadIds = new Set(
-        state.threads
-          .filter((thread) => thread.projectId === event.payload.projectId)
-          .map((thread) => thread.id),
-      );
+      const removedThreadIds = new Set<Thread["id"]>();
+      for (const thread of state.threads) {
+        if (thread.projectId === event.payload.projectId) {
+          removedThreadIds.add(thread.id);
+        }
+      }
       return {
         ...state,
         projects,
@@ -2664,15 +2665,15 @@ export function applyOrchestrationEvents(
       continue;
     }
 
-    const threadId = event.payload.threadId;
-    const activities = [event.payload.activity];
+    const { activity, threadId } = event.payload;
+    const activities = [activity];
     let updatedAt = event.occurredAt;
     primeThreadActivityTimelineRow({
       threadId,
-      activity: event.payload.activity,
+      activity,
       updatedAt: event.occurredAt,
     });
-    if (!shouldRetainActivityInAppStore(event.payload.activity)) {
+    if (!shouldRetainActivityInAppStore(activity)) {
       continue;
     }
     let nextIndex = index + 1;
@@ -2684,16 +2685,17 @@ export function applyOrchestrationEvents(
       ) {
         break;
       }
+      const nextActivity = nextEvent.payload.activity;
       primeThreadActivityTimelineRow({
         threadId,
-        activity: nextEvent.payload.activity,
+        activity: nextActivity,
         updatedAt: nextEvent.occurredAt,
       });
-      if (!shouldRetainActivityInAppStore(nextEvent.payload.activity)) {
+      if (!shouldRetainActivityInAppStore(nextActivity)) {
         nextIndex += 1;
         continue;
       }
-      activities.push(nextEvent.payload.activity);
+      activities.push(nextActivity);
       updatedAt = nextEvent.occurredAt;
       nextIndex += 1;
     }

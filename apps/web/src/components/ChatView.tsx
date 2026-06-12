@@ -5120,7 +5120,7 @@ function useChatViewComponent({
       threadId,
     ],
   );
-  const queueBrowserDesignRequest = useEffectEvent(
+  const queueBrowserDesignRequest = useCallback(
     async (targetThreadId: ThreadId, submission: BrowserDesignRequestSubmission) => {
       const trimmedInstructions = submission.instructions.trim();
       const normalizedMimeType =
@@ -5204,6 +5204,17 @@ function useChatViewComponent({
         throw new Error("Failed to add the comment.");
       }
     },
+    [
+      activeThread?.id,
+      appendQueuedComposerMessage,
+      commentSubmissionMode,
+      ensureQueuedComposerThread,
+      interactionMode,
+      pendingComposerCommentsByThreadId,
+      runtimeMode,
+      selectedModelSelection,
+      threadId,
+    ],
   );
   const onSteerQueuedComposerMessage = useCallback(
     async (messageId: MessageId) => {
@@ -6874,20 +6885,18 @@ function useChatViewComponent({
       syncRightSidePanelWidth,
     ],
   );
-  const resizeBrowserViewportForBridgeEvent = useEffectEvent(
-    (browserInstanceId: string, request: BrowserViewportResizeRequest) =>
-      resizeBrowserViewportForBridge(
-        resolveBrowserThreadIdFromInstanceId(browserInstanceId),
-        request,
-      ),
-  );
+  const resizeBrowserViewportForBridgeRef = useRef(resizeBrowserViewportForBridge);
+  resizeBrowserViewportForBridgeRef.current = resizeBrowserViewportForBridge;
   const getBrowserViewportResizeHandler = useCallback((browserInstanceId: string) => {
     const existingHandler = browserViewportResizeHandlerByThreadRef.current.get(browserInstanceId);
     if (existingHandler) {
       return existingHandler;
     }
     const handler = (request: BrowserViewportResizeRequest) =>
-      resizeBrowserViewportForBridgeEvent(browserInstanceId, request);
+      resizeBrowserViewportForBridgeRef.current(
+        resolveBrowserThreadIdFromInstanceId(browserInstanceId),
+        request,
+      );
     browserViewportResizeHandlerByThreadRef.current.set(browserInstanceId, handler);
     return handler;
   }, []);
@@ -8163,10 +8172,10 @@ function useChatViewComponent({
     setExpandedImage(null);
   }, [resetLocalDispatch, threadId]);
 
-  const closeExpandedImage = useEffectEvent(() => {
+  const closeExpandedImage = useCallback(() => {
     setExpandedImage(null);
-  });
-  const navigateExpandedImage = useEffectEvent((direction: -1 | 1) => {
+  }, []);
+  const navigateExpandedImage = useCallback((direction: -1 | 1) => {
     setExpandedImage((existing) => {
       if (!existing || existing.images.length <= 1) {
         return existing;
@@ -8178,7 +8187,7 @@ function useChatViewComponent({
       }
       return { ...existing, index: nextIndex };
     });
-  });
+  }, []);
 
   useEffect(() => {
     if (!expandedImage) {
@@ -9028,7 +9037,7 @@ function useChatViewComponent({
     ],
   );
 
-  const onForkConversation = useEffectEvent(async () => {
+  const onForkConversation = useCallback(async () => {
     const api = readNativeApi();
     if (!api || !activeThread || !activeProject || !isServerThread) {
       return;
@@ -9110,7 +9119,22 @@ function useChatViewComponent({
       return;
     }
     setHandoffInFlight(false);
-  });
+  }, [
+    activeProject,
+    activeThread,
+    handoffInFlight,
+    hydrateThreadFromCache,
+    hydrateThreadFromReadModel,
+    interactionMode,
+    isConnecting,
+    isSendBusy,
+    isServerThread,
+    liveTurnInProgress,
+    navigate,
+    runtimeMode,
+    setComposerDraftModelSelection,
+    setStickyComposerModelSelection,
+  ]);
 
   async function onSend(e?: { preventDefault: () => void }) {
     e?.preventDefault();
@@ -9362,15 +9386,15 @@ function useChatViewComponent({
     }
   }
 
-  const clearPendingInterruptStopFallback = useEffectEvent(() => {
+  const clearPendingInterruptStopFallback = useCallback(() => {
     if (pendingInterruptStopFallbackRef.current === null) {
       return;
     }
     window.clearTimeout(pendingInterruptStopFallbackRef.current);
     pendingInterruptStopFallbackRef.current = null;
-  });
+  }, []);
 
-  const dispatchInterruptStopFallback = useEffectEvent(
+  const dispatchInterruptStopFallback = useCallback(
     async (targetThreadId: ThreadId, targetTurnId: TurnId | null) => {
       const api = readNativeApi();
       if (!api) {
@@ -9401,9 +9425,10 @@ function useChatViewComponent({
           );
         });
     },
+    [setStoreThreadError],
   );
 
-  const scheduleInterruptStopFallback = useEffectEvent(
+  const scheduleInterruptStopFallback = useCallback(
     (targetThreadId: ThreadId, targetTurnId: TurnId | null) => {
       clearPendingInterruptStopFallback();
       pendingInterruptStopFallbackRef.current = window.setTimeout(() => {
@@ -9411,17 +9436,18 @@ function useChatViewComponent({
         void dispatchInterruptStopFallback(targetThreadId, targetTurnId);
       }, INTERRUPT_STOP_FALLBACK_DELAY_MS);
     },
+    [clearPendingInterruptStopFallback, dispatchInterruptStopFallback],
   );
 
   useEffect(() => {
     if (!liveTurnInProgress) {
       clearPendingInterruptStopFallback();
     }
-  }, [liveTurnInProgress]);
+  }, [clearPendingInterruptStopFallback, liveTurnInProgress]);
 
-  useEffect(() => () => clearPendingInterruptStopFallback(), []);
+  useEffect(() => () => clearPendingInterruptStopFallback(), [clearPendingInterruptStopFallback]);
 
-  const onInterrupt = useEffectEvent(async () => {
+  const onInterrupt = useCallback(async () => {
     const api = readNativeApi();
     if (!api || !activeThread) return;
     const interruptedTurnId = activeLatestTurn?.turnId ?? null;
@@ -9432,9 +9458,9 @@ function useChatViewComponent({
       createdAt: new Date().toISOString(),
     });
     scheduleInterruptStopFallback(activeThread.id, interruptedTurnId);
-  });
+  }, [activeLatestTurn?.turnId, activeThread, scheduleInterruptStopFallback]);
 
-  const onRespondToApproval = useEffectEvent(
+  const onRespondToApproval = useCallback(
     async (requestId: ApprovalRequestId, decision: ProviderApprovalDecision) => {
       const api = readNativeApi();
       if (!api || !activeThreadId) return;
@@ -9459,6 +9485,7 @@ function useChatViewComponent({
         });
       setRespondingRequestIds((existing) => existing.filter((id) => id !== requestId));
     },
+    [activeThreadId, setStoreThreadError],
   );
 
   const onRespondToUserInput = useCallback(
@@ -9722,7 +9749,7 @@ function useChatViewComponent({
     ],
   );
 
-  const onImplementPlanInNewThread = useEffectEvent(async () => {
+  const onImplementPlanInNewThread = useCallback(async () => {
     const api = readNativeApi();
     if (
       !api ||
@@ -9825,9 +9852,27 @@ function useChatViewComponent({
         });
       })
       .then(finish, finish);
-  });
+  }, [
+    activeProject,
+    activeProposedPlan,
+    activeThread,
+    beginLocalDispatch,
+    interactionMode,
+    isConnecting,
+    isSendBusy,
+    isServerThread,
+    navigate,
+    readCurrentSelectedPromptEffort,
+    resetLocalDispatch,
+    runtimeMode,
+    selectedModel,
+    selectedModelSelection,
+    selectedProvider,
+    selectedProviderModels,
+    waitForStartedServerThread,
+  ]);
 
-  const onHandoffToProvider = useEffectEvent(
+  const onHandoffToProvider = useCallback(
     async (provider: ProviderKind, _mode: ThreadHandoffMode) => {
       if (handoffDisabledReason) {
         toastManager.add({
@@ -9933,6 +9978,22 @@ function useChatViewComponent({
       }
       setHandoffInFlight(false);
     },
+    [
+      activeProject,
+      activeThread,
+      composerShellDraft,
+      handoffDisabledReason,
+      handoffInFlight,
+      hydrateThreadFromCache,
+      hydrateThreadFromReadModel,
+      isServerThread,
+      modelSettings,
+      navigate,
+      providerStatuses,
+      runtimeMode,
+      setComposerDraftModelSelection,
+      setStickyComposerModelSelection,
+    ],
   );
 
   const onEnvModeChange = useCallback(
@@ -10079,7 +10140,7 @@ function useChatViewComponent({
       selectedModelSelection,
     ],
   );
-  const onFixGitHubIssuesInParallelWorktrees = useEffectEvent(
+  const onFixGitHubIssuesInParallelWorktrees = useCallback(
     async (issueNumbers: ReadonlyArray<number>) => {
       const api = readNativeApi();
       if (!api || !activeThread || !activeProject) {
@@ -10284,6 +10345,24 @@ function useChatViewComponent({
         description: failureMessages[0] ?? "Please try again.",
       });
     },
+    [
+      activeProject,
+      activeServerConnectionUrl,
+      activeThread,
+      closeGitHubIssueDialog,
+      createWorktreeMutation,
+      gitCwd,
+      hydrateThreadFromCache,
+      hydrateThreadFromReadModel,
+      interactionMode,
+      isGitRepo,
+      providerStatuses,
+      queryClient,
+      readCurrentSelectedPromptEffort,
+      runProjectScript,
+      runtimeMode,
+      selectedModelSelection,
+    ],
   );
 
   const isLineageThread = Boolean(

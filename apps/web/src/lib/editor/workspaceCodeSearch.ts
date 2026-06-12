@@ -78,13 +78,16 @@ function uniqueValues(values: readonly string[]): string[] {
 
 export function extractWorkspaceCodeSearchTerms(query: string): readonly string[] {
   const searchableQuery = query.replace(/\b(?:content|in|inre|re):/giu, " ");
-  const rawTerms = searchableQuery
-    .toLowerCase()
-    .match(/[a-z0-9_$.-]{2,}/gu)
-    ?.map((term) => term.replace(/^[._-]+|[._-]+$/gu, ""))
-    .filter((term) => term.length >= 2 && !WORKSPACE_CODE_SEARCH_STOP_WORDS.has(term));
+  const matches = searchableQuery.toLowerCase().match(/[a-z0-9_$.-]{2,}/gu) ?? [];
+  const rawTerms: string[] = [];
+  for (const match of matches) {
+    const term = match.replace(/^[._-]+|[._-]+$/gu, "");
+    if (term.length >= 2 && !WORKSPACE_CODE_SEARCH_STOP_WORDS.has(term)) {
+      rawTerms.push(term);
+    }
+  }
 
-  return uniqueValues(rawTerms ?? []).slice(0, MAX_CODE_SEARCH_TERMS);
+  return uniqueValues(rawTerms).slice(0, MAX_CODE_SEARCH_TERMS);
 }
 
 export function buildWorkspaceCodeSearchQueries(query: string): readonly string[] {
@@ -136,6 +139,7 @@ export function createWorkspaceCodeSearchResult(input: {
   if (terms.length === 0) {
     return null;
   }
+  const termSet = new Set(terms);
 
   const normalizedPath = input.entry.path.toLowerCase();
   const normalizedName = basenameOfPath(input.entry.path).toLowerCase();
@@ -223,9 +227,9 @@ export function highlightWorkspaceCodeSearchText(
   text: string,
   query: string,
 ): readonly WorkspaceCodeSearchTextPart[] {
-  const terms = extractWorkspaceCodeSearchTerms(query)
-    .filter((term) => term.length > 0)
-    .toSorted((left, right) => right.length - left.length);
+  const terms = extractWorkspaceCodeSearchTerms(query).toSorted(
+    (left, right) => right.length - left.length,
+  );
   if (terms.length === 0 || text.length === 0) {
     return [{ highlight: false, text }];
   }
@@ -234,11 +238,20 @@ export function highlightWorkspaceCodeSearchText(
   const parts: WorkspaceCodeSearchTextPart[] = [];
   let index = 0;
   while (index < text.length) {
-    const match = terms
-      .map((term) => ({ term, index: normalizedText.indexOf(term, index) }))
-      .filter((candidate) => candidate.index >= 0)
-      .toSorted((left, right) => left.index - right.index || right.term.length - left.term.length)
-      .at(0);
+    let match: { readonly term: string; readonly index: number } | null = null;
+    for (const term of terms) {
+      const termIndex = normalizedText.indexOf(term, index);
+      if (termIndex < 0) {
+        continue;
+      }
+      if (
+        match === null ||
+        termIndex < match.index ||
+        (termIndex === match.index && term.length > match.term.length)
+      ) {
+        match = { term, index: termIndex };
+      }
+    }
     if (!match) {
       parts.push({ highlight: false, text: text.slice(index) });
       break;

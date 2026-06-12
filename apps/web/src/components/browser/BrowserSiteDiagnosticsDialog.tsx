@@ -208,16 +208,19 @@ export function BrowserSiteDiagnosticsDialog(props: {
   readonly onOpenChange: (open: boolean) => void;
 }) {
   const { open, url, onOpenChange } = props;
-  const [siteInfo, setSiteInfo] = useState<DesktopBrowserSiteInfo | null>(null);
+  const [siteInfoState, setSiteInfoState] = useState<{
+    url: string;
+    siteInfo: DesktopBrowserSiteInfo;
+  } | null>(null);
   const api = useMemo(() => ensureNativeApi(), []);
+  const siteInfo = open && url && siteInfoState?.url === url ? siteInfoState.siteInfo : null;
 
   const refresh = useCallback(async () => {
     if (!url || !open) {
-      setSiteInfo(null);
       return;
     }
     try {
-      setSiteInfo(await api.browser.getSiteInfo(url));
+      setSiteInfoState({ url, siteInfo: await api.browser.getSiteInfo(url) });
     } catch (error) {
       toastManager.add({
         type: "error",

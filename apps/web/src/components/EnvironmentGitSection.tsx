@@ -12,6 +12,7 @@ import {
   type RefObject,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useReducer,
   useRef,
@@ -400,9 +401,8 @@ function EnvironmentGitActionMenuPortal({
     setPosition(resolveGitActionMenuPosition(triggerElement));
   }, [triggerRef]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!open) {
-      setPosition(null);
       return;
     }
 

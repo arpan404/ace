@@ -466,22 +466,7 @@ function parseTaggedXmlToolDetail(value: string): string | null {
   }
   const subjects: string[] = [];
   const seen = new Set<string>();
-  for (const tag of [
-    "path",
-    "filePath",
-    "file_path",
-    "filename",
-    "relativePath",
-    "absolutePath",
-    "query",
-    "pattern",
-    "glob",
-    "url",
-    "uri",
-    "command",
-  ] as const) {
-    const escapedTag = tag.replaceAll("_", "[_-]?");
-    const pattern = new RegExp(`<${escapedTag}>\\s*([\\s\\S]*?)\\s*</${escapedTag}>`, "giu");
+  for (const pattern of TAGGED_XML_TOOL_DETAIL_PATTERNS) {
     for (const match of value.matchAll(pattern)) {
       pushToolSubject(subjects, seen, match[1]);
       if (subjects.length >= 6) {

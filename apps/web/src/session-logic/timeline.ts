@@ -220,6 +220,7 @@ export function deriveTimelineEntries(
 
   for (const { timelineEntry: entry } of rawEntries) {
     if (entry.kind === "work" && isReportIntentWorkEntry(entry.entry)) {
+      const workTurnId = entry.entry.turnId ?? null;
       const intentText = extractReportIntentText(entry.entry);
       if (intentText) {
         const nextIntentFingerprint = normalizeIntentComparisonText(intentText);
@@ -228,13 +229,13 @@ export function deriveTimelineEntries(
             id: `intent:${entry.id}`,
             kind: "intent",
             createdAt: entry.createdAt,
-            turnId: entry.entry.turnId ?? null,
+            turnId: workTurnId,
             text: intentText,
           });
         }
         pendingIntentText = intentText;
         pendingIntentFingerprint = nextIntentFingerprint;
-        pendingIntentTurnId = entry.entry.turnId ?? null;
+        pendingIntentTurnId = workTurnId;
         previousIntentFingerprint = nextIntentFingerprint;
       }
       continue;

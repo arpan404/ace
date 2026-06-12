@@ -44,7 +44,8 @@ function ExpandedImageOverlay({
   navigateExpandedImage,
 }: ExpandedImageOverlayProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
-  const [imageLoadFailed, setImageLoadFailed] = useState(false);
+  const [failedImageSrc, setFailedImageSrc] = useState<string | null>(null);
+  const imageLoadFailed = failedImageSrc === expandedImageItem.src;
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -60,10 +61,6 @@ function ExpandedImageOverlay({
       }
     };
   }, []);
-
-  useEffect(() => {
-    setImageLoadFailed(false);
-  }, [expandedImageItem.src]);
 
   return (
     <dialog
@@ -119,7 +116,7 @@ function ExpandedImageOverlay({
             className="max-h-[86vh] max-w-[92vw] select-none rounded-lg border border-border bg-background object-contain shadow-2xl"
             draggable={false}
             onError={() => {
-              setImageLoadFailed(true);
+              setFailedImageSrc(expandedImageItem.src);
             }}
           />
         )}

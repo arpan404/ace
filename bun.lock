@@ -154,7 +154,6 @@
         "@dnd-kit/sortable": "^10.0.0",
         "@dnd-kit/utilities": "^3.2.2",
         "@effect/atom-react": "catalog:",
-        "@formkit/auto-animate": "^0.9.0",
         "@lexical/react": "^0.45.0",
         "@pierre/diffs": "^1.2.7",
         "@tabler/icons-react": "^3.44.0",
@@ -709,8 +708,6 @@
     "@floating-ui/react-dom": ["@floating-ui/react-dom@2.1.8", "", { "dependencies": { "@floating-ui/dom": "^1.7.6" }, "peerDependencies": { "react": ">=16.8.0", "react-dom": ">=16.8.0" } }, "sha512-cC52bHwM/n/CxS87FH0yWdngEZrjdtLW/qVruo68qg+prK7ZQ4YGdut2GyDVpoGeAYe/h899rVeOVm6Oi40k2A=="],
 
     "@floating-ui/utils": ["@floating-ui/utils@0.2.11", "", {}, "sha512-RiB/yIh78pcIxl6lLMG0CgBXAZ2Y0eVHqMPYugu+9U0AeT6YBeiJpf7lbdJNIugFP5SIjwNRgo4DhR1Qxi26Gg=="],
-
-    "@formkit/auto-animate": ["@formkit/auto-animate@0.9.0", "", {}, "sha512-VhP4zEAacXS3dfTpJpJ88QdLqMTcabMg0jwpOSxZ/VzfQVfl3GkZSCZThhGC5uhq/TxPHPzW0dzr4H9Bb1OgKA=="],
 
     "@github/copilot": ["@github/copilot@1.0.61", "", { "dependencies": { "detect-libc": "^2.1.2" }, "optionalDependencies": { "@github/copilot-darwin-arm64": "1.0.61", "@github/copilot-darwin-x64": "1.0.61", "@github/copilot-linux-arm64": "1.0.61", "@github/copilot-linux-x64": "1.0.61", "@github/copilot-linuxmusl-arm64": "1.0.61", "@github/copilot-linuxmusl-x64": "1.0.61", "@github/copilot-win32-arm64": "1.0.61", "@github/copilot-win32-x64": "1.0.61" }, "bin": { "copilot": "npm-loader.js" } }, "sha512-E4f7YXTL2uUZY/ypnfsUruAeSgrHx3AGYEbm5N0DrpzPqoNAZqV6kHEWM4vu+W/nGvydIfPxmOTqaMEhM8r0Uw=="],
 

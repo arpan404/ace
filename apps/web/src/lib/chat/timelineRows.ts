@@ -1125,10 +1125,9 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
       continue;
     }
 
+    const messageRole = timelineEntry.kind === "message" ? timelineEntry.message.role : null;
     const pendingMetaNextEventCreatedAt =
-      timelineEntry.kind === "message" && timelineEntry.message.role === "user"
-        ? null
-        : timelineEntry.createdAt;
+      timelineEntry.kind === "message" && messageRole === "user" ? null : timelineEntry.createdAt;
     flushPendingMetaEntries(pendingMetaNextEventCreatedAt);
 
     if (timelineEntry.kind === "proposed-plan") {

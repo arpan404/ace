@@ -585,14 +585,17 @@ function highlightPinnedSelectionText(
 
   for (const rect of rangeRects) {
     const highlight = document.createElement("div");
-    highlight.style.position = "absolute";
-    highlight.style.left = `${rect.left - containerRect.left + scrollContainer.scrollLeft - 2}px`;
-    highlight.style.top = `${rect.top - containerRect.top + scrollContainer.scrollTop - 2}px`;
-    highlight.style.width = `${rect.width + 4}px`;
-    highlight.style.height = `${rect.height + 4}px`;
-    highlight.style.borderRadius = "0.25rem";
-    highlight.style.background = "hsl(var(--primary) / 0.22)";
-    highlight.style.boxShadow = "0 0 0 1px hsl(var(--primary) / 0.36)";
+    highlight.style.cssText = [
+      "position: absolute",
+      `left: ${rect.left - containerRect.left + scrollContainer.scrollLeft - 2}px`,
+      `top: ${rect.top - containerRect.top + scrollContainer.scrollTop - 2}px`,
+      `width: ${rect.width + 4}px`,
+      `height: ${rect.height + 4}px`,
+      "border-radius: 0.25rem",
+      "background: hsl(var(--primary) / 0.22)",
+      "box-shadow: 0 0 0 1px hsl(var(--primary) / 0.36)",
+      "pointer-events: none",
+    ].join("; ");
     overlay.appendChild(highlight);
   }
 
@@ -1114,18 +1117,16 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         continue;
       }
 
+      const messageCompletedAt = row.message.completedAt;
       const timing = resolveAssistantTurnTiming({
-        completedAt: row.message.completedAt ?? null,
+        completedAt: messageCompletedAt ?? null,
         durationStart: row.durationStart,
         isAssistantTurnTerminal: row.isAssistantTurnTerminal ?? false,
         showCompletedTiming: row.showAssistantTiming ?? false,
         timestampFormat,
       });
       const shouldShowAssistantTurnActions =
-        timing !== null &&
-        !row.message.streaming &&
-        row.message.completedAt !== undefined &&
-        row.message.completedAt !== null;
+        timing !== null && !row.message.streaming && messageCompletedAt !== undefined && messageCompletedAt !== null;
       const assistantTurnPinTarget = shouldShowAssistantTurnActions
         ? collectVisibleAssistantTurnPinTarget(rows, index)
         : null;
