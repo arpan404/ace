@@ -1,16 +1,20 @@
 import { ThreadId } from "@ace/contracts";
 import { createFileRoute, retainSearchParams, useNavigate } from "@tanstack/react-router";
-import { startTransition, useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 
 import { ThreadBoard } from "../components/chat/ThreadBoard";
 import { useComposerDraftStore } from "../composerDraftStore";
 import { type DiffRouteSearch, parseDiffRouteSearch } from "../diffRouteSearch";
-import { hydrateThreadFromCache, readCachedHydratedThread } from "../lib/threadHydrationCache";
 import {
-  prefetchThreadTimelineWindows,
-  primeThreadTimelineManifestFromReadModelThread,
-} from "../lib/chat/timelineWindowStore";
+  prefetchThreadTimelineRowsSnapshot,
+  startThreadTimelineRowsOpenPrefetch,
+} from "../lib/chat/timelineModelStore";
 import { getThreadById, getThreadByIdFromState, useStore } from "../store";
+import { hydrateThreadFromCache } from "../lib/threadHydrationCache";
+import {
+  ACTIVE_THREAD_HYDRATION_FALLBACK_DELAY_MS,
+  shouldHydrateActiveThreadFromReadModelFallback,
+} from "../lib/chat/activeThreadHydration";
 import { SidebarInset } from "~/components/ui/sidebar";
 import { getWsRpcClient } from "../wsRpcClient";
 import { normalizeWsUrl } from "../lib/remoteHosts";
@@ -43,7 +47,6 @@ function parseChatThreadRouteSearch(search: Record<string, unknown>): ChatThread
 
 function ChatThreadRouteView() {
   const bootstrapComplete = useStore((store) => store.bootstrapComplete);
-  const hydrateThreadFromReadModel = useStore((store) => store.hydrateThreadFromReadModel);
   const navigate = useNavigate();
   const threadId = Route.useParams({
     select: (params) => ThreadId.makeUnsafe(params.threadId),
@@ -58,10 +61,6 @@ function ChatThreadRouteView() {
   const routeThreadExists = threadExists || draftThreadExists;
   const threadHydrationInFlightRef = useRef<ThreadId | null>(null);
   const threadHydrationRequestIdRef = useRef(0);
-  const cachedHydratedThread =
-    serverThread?.historyLoaded === false && serverThread.updatedAt
-      ? readCachedHydratedThread(threadId, serverThread.updatedAt)
-      : null;
   useEffect(() => {
     const preloadTimer = window.setTimeout(() => {
       void import("../components/DiffPanel");
@@ -98,23 +97,9 @@ function ChatThreadRouteView() {
     if (
       !bootstrapComplete ||
       !serverThread ||
-      serverThread.historyLoaded !== false ||
+      !shouldHydrateActiveThreadFromReadModelFallback(serverThread) ||
       threadHydrationInFlightRef.current === threadId
     ) {
-      return;
-    }
-
-    if (cachedHydratedThread) {
-      primeThreadTimelineManifestFromReadModelThread(cachedHydratedThread);
-      void prefetchThreadTimelineWindows({
-        threadId,
-        totalItemsHint:
-          cachedHydratedThread.messages.length +
-          cachedHydratedThread.activities.length +
-          cachedHydratedThread.proposedPlans.length,
-        priority: "immediate",
-      }).catch(() => undefined);
-      hydrateThreadFromReadModel(cachedHydratedThread);
       return;
     }
 
@@ -122,18 +107,55 @@ function ChatThreadRouteView() {
     const requestId = threadHydrationRequestIdRef.current + 1;
     threadHydrationRequestIdRef.current = requestId;
     threadHydrationInFlightRef.current = threadId;
+    const prefetch = startThreadTimelineRowsOpenPrefetch({
+      threadId,
+      priority: "immediate",
+    });
+    let fallbackTimer: number | null = window.setTimeout(() => {
+      fallbackTimer = null;
+      if (canceled || requestId !== threadHydrationRequestIdRef.current) {
+        return;
+      }
+
+      const currentThread = getThreadByIdFromState(useStore.getState(), threadId);
+      if (!shouldHydrateActiveThreadFromReadModelFallback(currentThread)) {
+        return;
+      }
+
+      void (async () => {
+        try {
+          const readModelThread = await hydrateThreadFromCache(threadId, {
+            expectedUpdatedAt: currentThread.updatedAt ?? null,
+          });
+          if (canceled || requestId !== threadHydrationRequestIdRef.current) {
+            return;
+          }
+          useStore
+            .getState()
+            .hydrateThreadFromReadModel(
+              readModelThread,
+              routeConnectionUrl ? { connectionUrl: routeConnectionUrl } : undefined,
+            );
+        } catch (error) {
+          if (!canceled) {
+            console.error("Failed to hydrate active thread fallback", error);
+          }
+        }
+      })();
+    }, ACTIVE_THREAD_HYDRATION_FALLBACK_DELAY_MS);
     void (async () => {
       try {
-        await prefetchThreadTimelineWindows({
-          threadId,
-          priority: "immediate",
-        });
+        await prefetch.done;
         if (canceled) {
           return;
         }
       } catch {
-        // Timeline windows are opportunistic here; the visible timeline also fetches ranges on scroll.
+        // Full timeline snapshots are opportunistic here; active view recovery can retry on reconnect.
       } finally {
+        if (fallbackTimer !== null) {
+          window.clearTimeout(fallbackTimer);
+          fallbackTimer = null;
+        }
         if (
           requestId === threadHydrationRequestIdRef.current &&
           threadHydrationInFlightRef.current === threadId
@@ -145,6 +167,12 @@ function ChatThreadRouteView() {
 
     return () => {
       canceled = true;
+      // The route owns the active-open timeline snapshot. In-flight RPCs may finish and stay cached.
+      prefetch.stop();
+      if (fallbackTimer !== null) {
+        window.clearTimeout(fallbackTimer);
+        fallbackTimer = null;
+      }
       if (
         requestId === threadHydrationRequestIdRef.current &&
         threadHydrationInFlightRef.current === threadId
@@ -152,10 +180,10 @@ function ChatThreadRouteView() {
         threadHydrationInFlightRef.current = null;
       }
     };
-  }, [bootstrapComplete, cachedHydratedThread, hydrateThreadFromReadModel, serverThread, threadId]);
+  }, [bootstrapComplete, routeConnectionUrl, serverThread, threadId]);
 
   useEffect(() => {
-    runThreadHydration();
+    return runThreadHydration();
   }, [runThreadHydration]);
 
   useEffect(
@@ -183,35 +211,21 @@ function ChatThreadRouteView() {
     if (sourceThread && sourceThread.historyLoaded !== false) {
       return;
     }
-    if (sourceThread?.updatedAt) {
-      const cached = readCachedHydratedThread(lineageSourceThreadId, sourceThread.updatedAt);
-      if (cached) {
-        startTransition(() => {
-          hydrateThreadFromReadModel(cached);
-        });
-        return;
-      }
-    }
     let canceled = false;
     void (async () => {
       try {
-        const readModelThread = await hydrateThreadFromCache(lineageSourceThreadId, {
-          expectedUpdatedAt: sourceThread?.updatedAt ?? null,
-        });
+        await prefetchThreadTimelineRowsSnapshot({ threadId: lineageSourceThreadId });
         if (canceled) {
           return;
         }
-        startTransition(() => {
-          hydrateThreadFromReadModel(readModelThread);
-        });
       } catch (error) {
-        console.error("Failed to hydrate conversation source thread", error);
+        console.error("Failed to prefetch conversation source timeline", error);
       }
     })();
     return () => {
       canceled = true;
     };
-  }, [bootstrapComplete, lineageSourceThread, lineageSourceThreadId, hydrateThreadFromReadModel]);
+  }, [bootstrapComplete, lineageSourceThread, lineageSourceThreadId]);
 
   if (!bootstrapComplete || !routeThreadExists) {
     return null;

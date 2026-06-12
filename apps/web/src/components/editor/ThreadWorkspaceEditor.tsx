@@ -4821,7 +4821,10 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                       {queuedWorkspaceContexts.map((entry) => (
                         <div
                           key={entry.id}
-                          className={cn(APP_WORKSPACE_INSET_CLASS_NAME, "overflow-hidden rounded-lg")}
+                          className={cn(
+                            APP_WORKSPACE_INSET_CLASS_NAME,
+                            "overflow-hidden rounded-lg",
+                          )}
                         >
                           <div className="flex items-start gap-2 px-2 py-1.5">
                             <CircleDotIcon className="mt-1 size-3 text-muted-foreground/58" />
@@ -4887,7 +4890,10 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                       {unresolvedCodeComments.map((comment) => (
                         <div
                           key={comment.id}
-                          className={cn(APP_WORKSPACE_INSET_CLASS_NAME, "overflow-hidden rounded-xl")}
+                          className={cn(
+                            APP_WORKSPACE_INSET_CLASS_NAME,
+                            "overflow-hidden rounded-xl",
+                          )}
                         >
                           <div className="flex items-start gap-2 border-l-2 border-primary/60 p-2">
                             <ClipboardListIcon className="mt-0.5 size-3.5 text-primary/80" />

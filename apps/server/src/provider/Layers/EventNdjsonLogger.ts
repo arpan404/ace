@@ -13,10 +13,13 @@ import { RotatingFileSink } from "@ace/shared/logging";
 import { Effect, Exit, Logger, Scope } from "effect";
 
 import { toSafeThreadAttachmentSegment } from "../../attachmentStore.ts";
+import { readPositiveIntegerEnv } from "../../resourceLimits.ts";
 
 const DEFAULT_MAX_BYTES = 10 * 1024 * 1024;
 const DEFAULT_MAX_FILES = 10;
 const DEFAULT_BATCH_WINDOW_MS = 200;
+const DEFAULT_MAX_OPEN_THREAD_WRITERS = 64;
+const DEFAULT_THREAD_WRITER_IDLE_TTL_MS = 10 * 60_000;
 const GLOBAL_THREAD_SEGMENT = "_global";
 const LOG_SCOPE = "provider-observability";
 
@@ -38,6 +41,11 @@ export interface EventNdjsonLoggerOptions {
 interface ThreadWriter {
   writeMessage: (message: string) => Effect.Effect<void>;
   close: () => Effect.Effect<void>;
+}
+
+interface ThreadWriterEntry {
+  readonly writer: ThreadWriter;
+  lastUsedAtMs: number;
 }
 
 function logWarning(message: string, context: Record<string, unknown>): Effect.Effect<void> {
@@ -175,6 +183,16 @@ export const makeEventNdjsonLogger = Effect.fn("makeEventNdjsonLogger")(function
   const maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES;
   const maxFiles = options.maxFiles ?? DEFAULT_MAX_FILES;
   const batchWindowMs = options.batchWindowMs ?? DEFAULT_BATCH_WINDOW_MS;
+  const maxOpenThreadWriters = readPositiveIntegerEnv({
+    envVarName: "ACE_EVENT_LOG_MAX_OPEN_THREAD_WRITERS",
+    fallback: DEFAULT_MAX_OPEN_THREAD_WRITERS,
+    minimum: 1,
+  });
+  const threadWriterIdleTtlMs = readPositiveIntegerEnv({
+    envVarName: "ACE_EVENT_LOG_THREAD_WRITER_IDLE_TTL_MS",
+    fallback: DEFAULT_THREAD_WRITER_IDLE_TTL_MS,
+    minimum: 1_000,
+  });
   const streamLabel = resolveStreamLabel(options.stream);
 
   const directoryReady = yield* Effect.sync(() => {
@@ -193,18 +211,67 @@ export const makeEventNdjsonLogger = Effect.fn("makeEventNdjsonLogger")(function
     return undefined;
   }
 
-  const threadWriters = new Map<string, ThreadWriter>();
+  const threadWriters = new Map<string, ThreadWriterEntry>();
   const failedSegments = new Set<string>();
+
+  const closeThreadWriter = Effect.fn("closeThreadWriter")(function* (
+    threadSegment: string,
+    entry: ThreadWriterEntry,
+  ) {
+    threadWriters.delete(threadSegment);
+    yield* entry.writer.close();
+  });
+
+  const pruneThreadWriters = Effect.fn("pruneThreadWriters")(function* (
+    nowMs: number,
+    requestedThreadSegment: string,
+  ) {
+    for (const [threadSegment, entry] of threadWriters) {
+      if (threadSegment === requestedThreadSegment) {
+        continue;
+      }
+      if (nowMs - entry.lastUsedAtMs >= threadWriterIdleTtlMs) {
+        yield* closeThreadWriter(threadSegment, entry);
+      }
+    }
+
+    while (
+      threadWriters.size >= maxOpenThreadWriters &&
+      !threadWriters.has(requestedThreadSegment)
+    ) {
+      let oldest:
+        | {
+            readonly threadSegment: string;
+            readonly entry: ThreadWriterEntry;
+          }
+        | undefined;
+      for (const [threadSegment, entry] of threadWriters) {
+        if (threadSegment === requestedThreadSegment) {
+          continue;
+        }
+        if (!oldest || entry.lastUsedAtMs < oldest.entry.lastUsedAtMs) {
+          oldest = { threadSegment, entry };
+        }
+      }
+      if (!oldest) {
+        return;
+      }
+      yield* closeThreadWriter(oldest.threadSegment, oldest.entry);
+    }
+  });
 
   const resolveThreadWriter = Effect.fn("resolveThreadWriter")(function* (
     threadSegment: string,
   ): Effect.fn.Return<ThreadWriter | undefined> {
+    const nowMs = Date.now();
+    yield* pruneThreadWriters(nowMs, threadSegment);
     if (failedSegments.has(threadSegment)) {
       return undefined;
     }
     const existing = threadWriters.get(threadSegment);
     if (existing) {
-      return existing;
+      existing.lastUsedAtMs = nowMs;
+      return existing.writer;
     }
 
     const writer = yield* makeThreadWriter({
@@ -219,7 +286,10 @@ export const makeEventNdjsonLogger = Effect.fn("makeEventNdjsonLogger")(function
       return undefined;
     }
 
-    threadWriters.set(threadSegment, writer);
+    threadWriters.set(threadSegment, {
+      writer,
+      lastUsedAtMs: nowMs,
+    });
     return writer;
   });
 
@@ -239,8 +309,8 @@ export const makeEventNdjsonLogger = Effect.fn("makeEventNdjsonLogger")(function
   });
 
   const close = Effect.fn("close")(function* () {
-    for (const writer of threadWriters.values()) {
-      yield* writer.close();
+    for (const [threadSegment, entry] of threadWriters) {
+      yield* closeThreadWriter(threadSegment, entry);
     }
     threadWriters.clear();
   });

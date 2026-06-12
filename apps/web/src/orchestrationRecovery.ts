@@ -19,6 +19,13 @@ export interface OrchestrationRecoveryState {
 
 type SequencedEvent = Readonly<{ sequence: number }>;
 
+export function canUseSnapshotAsAuthoritative(
+  state: OrchestrationRecoveryState,
+  snapshotSequence: number,
+): boolean {
+  return state.latestSequence <= snapshotSequence;
+}
+
 export function createOrchestrationRecoveryCoordinator() {
   let state: OrchestrationRecoveryState = {
     latestSequence: 0,

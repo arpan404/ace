@@ -54,6 +54,7 @@ import {
 import { GitCore, type GitCoreShape } from "./git/Services/GitCore.ts";
 import { GitHubCli, type GitHubCliShape } from "./git/Services/GitHubCli.ts";
 import { GitManager, type GitManagerShape } from "./git/Services/GitManager.ts";
+import { TextGeneration, type TextGenerationShape } from "./git/Services/TextGeneration.ts";
 import { Keybindings, type KeybindingsShape } from "./keybindings.ts";
 import { Open, type OpenShape } from "./open.ts";
 import {
@@ -145,6 +146,38 @@ const workspaceAndProjectServicesLayer = Layer.mergeAll(
   ),
   ProjectFaviconResolverLive,
 );
+
+const fakeTextGeneration: TextGenerationShape = {
+  generateCommitMessage: () =>
+    Effect.succeed({
+      subject: "Update project",
+      body: "",
+    }),
+  generatePrContent: () =>
+    Effect.succeed({
+      title: "Update project",
+      body: "## Summary\n- Update project\n\n## Testing\n- Not run",
+    }),
+  generateBranchName: () => Effect.succeed({ branch: "update-project" }),
+  generateThreadTitle: () => Effect.succeed({ title: "Update project" }),
+  generateWorkspaceSummary: () =>
+    Effect.succeed({
+      headline: "Update project",
+      summary: "Generated summary",
+      keyChanges: [],
+      risks: [],
+    }),
+  generateNewThreadRecommendations: () =>
+    Effect.succeed({
+      recommendations: [
+        {
+          title: "Continue project",
+          description: "Pick up from the latest project context.",
+          prompt: "Continue from the latest project context.",
+        },
+      ],
+    }),
+};
 
 const buildAppUnderTest = (options?: {
   config?: Partial<ServerConfigShape>;
@@ -268,6 +301,7 @@ const buildAppUnderTest = (options?: {
           ...options?.layers?.gitManager,
         }),
       ),
+      Layer.provide(Layer.succeed(TextGeneration, fakeTextGeneration)),
       Layer.provide(
         Layer.mock(TerminalManager)({
           ...options?.layers?.terminalManager,
@@ -2439,7 +2473,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
   );
 
   it.effect(
-    "routes websocket rpc orchestration.getSnapshot through the in-memory lean view and targeted hydration",
+    "routes websocket rpc orchestration.getSnapshot without targeted hydration side effects",
     () =>
       Effect.gen(function* () {
         const now = new Date().toISOString();
@@ -2534,44 +2568,52 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             },
           ],
         };
-        const leanSnapshotFixture: OrchestrationReadModel = {
+        const metadataSnapshot: OrchestrationReadModel = {
           ...snapshot,
           threads: [
             {
               ...snapshot.threads[0]!,
-              messages: [snapshot.threads[0]!.messages[0]!],
-              activities: [snapshot.threads[0]!.activities[0]!],
+              messages: [],
+              activities: [],
+              proposedPlans: [],
               checkpoints: [],
             },
           ],
         };
+        const snapshotInputs: unknown[] = [];
+        let getThreadCallCount = 0;
 
         yield* buildAppUnderTest({
           layers: {
             orchestrationEngine: {
-              getReadModel: () => Effect.succeed(leanSnapshotFixture),
+              getReadModel: () => Effect.succeed(metadataSnapshot),
             },
             projectionSnapshotQuery: {
-              getSnapshot: () => Effect.die("unexpected full snapshot query"),
+              getSnapshot: (input) =>
+                Effect.sync(() => {
+                  snapshotInputs.push(input);
+                  return metadataSnapshot;
+                }),
               getThread: (requestedThreadId) =>
-                Effect.succeed(
-                  requestedThreadId === threadId
+                Effect.sync(() => {
+                  getThreadCallCount += 1;
+                  return requestedThreadId === threadId
                     ? Option.some(snapshot.threads[0]!)
-                    : Option.none(),
-                ),
+                    : Option.none();
+                }),
             },
           },
         });
 
         const wsUrl = yield* getWsServerUrl("/ws");
-        const leanSnapshot = yield* Effect.scoped(
+        const firstSnapshot = yield* Effect.scoped(
           withWsRpcClient(wsUrl, (client) =>
             client[ORCHESTRATION_WS_METHODS.getSnapshot]({
               hydrateThreadId: null,
             }),
           ),
         );
-        const hydratedSnapshot = yield* Effect.scoped(
+        const targetedSnapshot = yield* Effect.scoped(
           withWsRpcClient(wsUrl, (client) =>
             client[ORCHESTRATION_WS_METHODS.getSnapshot]({
               hydrateThreadId: threadId,
@@ -2586,25 +2628,17 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           ),
         );
 
-        assert.deepEqual(
-          leanSnapshot.threads[0]?.messages.map((message) => message.role),
-          ["user"],
-        );
-        assert.deepEqual(
-          leanSnapshot.threads[0]?.activities.map((activity) => activity.kind),
-          ["approval.requested"],
-        );
-        assert.equal(leanSnapshot.threads[0]?.checkpoints.length, 0);
-
-        assert.deepEqual(
-          hydratedSnapshot.threads[0]?.messages.map((message) => message.role),
-          ["user", "assistant"],
-        );
-        assert.deepEqual(
-          hydratedSnapshot.threads[0]?.activities.map((activity) => activity.kind),
-          ["approval.requested", "tool.progress"],
-        );
-        assert.equal(hydratedSnapshot.threads[0]?.checkpoints.length, 1);
+        assert.deepEqual(snapshotInputs, [
+          { hydrateThreadId: null },
+          { hydrateThreadId: threadId },
+        ]);
+        assert.equal(getThreadCallCount, 1);
+        assert.deepEqual(firstSnapshot.threads[0]?.messages, []);
+        assert.deepEqual(firstSnapshot.threads[0]?.activities, []);
+        assert.equal(firstSnapshot.threads[0]?.checkpoints.length, 0);
+        assert.deepEqual(targetedSnapshot.threads[0]?.messages, []);
+        assert.deepEqual(targetedSnapshot.threads[0]?.activities, []);
+        assert.equal(targetedSnapshot.threads[0]?.checkpoints.length, 0);
         assert.deepEqual(
           targetedThread.messages.map((message) => message.role),
           ["user", "assistant"],

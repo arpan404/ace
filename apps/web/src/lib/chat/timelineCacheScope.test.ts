@@ -3,6 +3,10 @@ import { describe, expect, it } from "vitest";
 
 import type { TimelineEntry, WorkLogEntry } from "../../session-logic/types";
 import type { ChatMessage, Thread } from "../../types";
+import {
+  appendChatMessageStreamingTextState,
+  createChatMessageStreamingTextState,
+} from "./messageText";
 import { buildThreadTimelineCacheScope } from "./timelineCacheScope";
 
 const baseThread = {
@@ -32,6 +36,36 @@ function makeMessage(text: string): ChatMessage {
 
 function makeScope(text: string): string | null {
   const message = makeMessage(text);
+  const timelineEntry = {
+    id: message.id,
+    kind: "message",
+    createdAt: message.createdAt,
+    message,
+  } satisfies TimelineEntry;
+
+  return buildThreadTimelineCacheScope({
+    thread: baseThread,
+    timelineEntries: [timelineEntry],
+    timelineMessages: [message],
+    timelineProposedPlans: [],
+    timelineWorkEntries: [],
+    turnDiffSummaries: [],
+  });
+}
+
+function makeStreamingScope(text: string): string | null {
+  const state = appendChatMessageStreamingTextState(
+    createChatMessageStreamingTextState("Start"),
+    text,
+  );
+  const message = {
+    id: MessageId.makeUnsafe("message-cache-scope"),
+    role: "assistant",
+    text: "",
+    streamingTextState: state,
+    createdAt: "2026-03-17T19:12:30.000Z",
+    streaming: true,
+  } satisfies ChatMessage;
   const timelineEntry = {
     id: message.id,
     kind: "message",
@@ -82,6 +116,10 @@ describe("buildThreadTimelineCacheScope", () => {
 
   it("changes when tail message content changes", () => {
     expect(makeScope("Start the work.")).not.toBe(makeScope("Start the work with tests."));
+  });
+
+  it("changes when streaming message content changes", () => {
+    expect(makeStreamingScope(" the work.")).not.toBe(makeStreamingScope(" the work with tests."));
   });
 
   it("changes when tail work turn ownership changes", () => {

@@ -107,6 +107,8 @@ const rpcClientMock = {
   orchestration: {
     getSnapshot: vi.fn(),
     getThread: vi.fn(),
+    getThreadTimelineRowsSnapshot: vi.fn(),
+    getThreadTimelineRowsSnapshotChunk: vi.fn(),
     dispatchCommand: vi.fn(),
     getTurnDiff: vi.fn(),
     getFullThreadDiff: vi.fn(),

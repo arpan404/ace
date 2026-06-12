@@ -20,6 +20,7 @@ import { type TextGenerationShape, TextGeneration } from "../Services/TextGenera
 import {
   buildBranchNamePrompt,
   buildCommitMessagePrompt,
+  buildNewThreadRecommendationsPrompt,
   buildPrContentPrompt,
   buildThreadTitlePrompt,
   buildWorkspaceSummaryPrompt,
@@ -27,6 +28,7 @@ import {
 import {
   normalizeCliError,
   sanitizeCommitSubject,
+  sanitizeNewThreadRecommendations,
   sanitizePrTitle,
   sanitizeThreadTitle,
   sanitizeWorkspaceSummaryHeadline,
@@ -84,7 +86,8 @@ const makeClaudeTextGeneration = Effect.gen(function* () {
       | "generatePrContent"
       | "generateBranchName"
       | "generateThreadTitle"
-      | "generateWorkspaceSummary";
+      | "generateWorkspaceSummary"
+      | "generateNewThreadRecommendations";
     cwd: string;
     prompt: string;
     outputSchemaJson: S;
@@ -373,12 +376,39 @@ const makeClaudeTextGeneration = Effect.gen(function* () {
     };
   });
 
+  const generateNewThreadRecommendations: TextGenerationShape["generateNewThreadRecommendations"] =
+    Effect.fn("ClaudeTextGeneration.generateNewThreadRecommendations")(function* (input) {
+      const { prompt, outputSchema } = buildNewThreadRecommendationsPrompt({
+        turns: input.turns,
+      });
+
+      if (input.modelSelection.provider !== "claudeAgent") {
+        return yield* new TextGenerationError({
+          operation: "generateNewThreadRecommendations",
+          detail: "Invalid model selection.",
+        });
+      }
+
+      const generated = yield* runClaudeJson({
+        operation: "generateNewThreadRecommendations",
+        cwd: input.cwd,
+        prompt,
+        outputSchemaJson: outputSchema,
+        modelSelection: input.modelSelection,
+      });
+
+      return {
+        recommendations: sanitizeNewThreadRecommendations(generated.recommendations),
+      };
+    });
+
   return {
     generateCommitMessage,
     generatePrContent,
     generateBranchName,
     generateThreadTitle,
     generateWorkspaceSummary,
+    generateNewThreadRecommendations,
   } satisfies TextGenerationShape;
 });
 

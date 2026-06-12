@@ -5,6 +5,7 @@ import {
   PlusIcon,
   RefreshCwIcon,
   SaveIcon,
+  Trash2Icon,
   Undo2Icon,
   XIcon,
 } from "lucide-react";
@@ -22,6 +23,7 @@ import { formatProviderModelDisplayName, normalizeModelSlug } from "@ace/shared/
 import { resolveProviderSettings } from "@ace/shared/providerInstances";
 
 import { cn } from "../../lib/utils";
+import { ensureNativeApi } from "../../nativeApi";
 import { MAX_CUSTOM_MODEL_LENGTH } from "../../modelSelection";
 import {
   PROVIDER_INSTANCE_BADGE_COLORS,
@@ -43,7 +45,6 @@ import {
   DialogPopup,
   DialogTitle,
 } from "../ui/dialog";
-import { Input } from "../ui/input";
 import { Switch } from "../ui/switch";
 import { Textarea } from "../ui/textarea";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -59,10 +60,33 @@ import {
 } from "../Icons";
 import {
   ProviderLastChecked,
+  SettingsInsetPanel,
+  SettingsInput,
   SettingsSection,
   SettingResetButton,
+  getProviderSummary,
   getProviderVersionLabel,
 } from "./SettingsPanelPrimitives";
+import {
+  SETTINGS_COLOR_SWATCH_BUTTON_CLASS,
+  SETTINGS_COMPACT_ACTION_BUTTON_CLASS,
+  SETTINGS_FIELD_HINT_CLASS,
+  SETTINGS_ICON_CHOICE_BUTTON_CLASS,
+  SETTINGS_LIST_ROW_BUTTON_CLASS,
+  SETTINGS_PROVIDER_DETAIL_HEADER_CLASS,
+  SETTINGS_PROVIDER_DETAIL_SECTION_CLASS,
+  SETTINGS_PROVIDER_DETAIL_STATUS_CLASS,
+  SETTINGS_PROVIDER_DETAIL_TITLE_CLASS,
+  SETTINGS_PROVIDER_FIELD_LABEL_CLASS,
+  SETTINGS_PROVIDER_LAYOUT_CLASS,
+  SETTINGS_PROVIDER_LIST_ITEM_CLASS,
+  SETTINGS_PROVIDER_LIST_META_CLASS,
+  SETTINGS_PROVIDER_LIST_NAME_CLASS,
+  SETTINGS_SECTION_CARD_FLUSH_BODY_CLASS,
+  SETTINGS_ROW_DESCRIPTION_CLASS,
+  SETTINGS_SECTION_TITLE_CLASS,
+  SETTINGS_WIZARD_STEP_BUTTON_CLASS,
+} from "./settingsUi";
 
 interface ProviderStatusStyle {
   dot: string;
@@ -103,6 +127,40 @@ const PROVIDER_DISPLAY_NAMES: Record<ProviderKind, string> = {
   gemini: "Gemini",
   opencode: "OpenCode",
 };
+
+const PROVIDER_ENTRY_STATUS_STYLES = {
+  disabled: {
+    dot: "bg-amber-500/80 shadow-[0_0_6px_rgba(245,158,11,0.4)]",
+  },
+  error: {
+    dot: "bg-destructive shadow-[0_0_6px_rgba(239,68,68,0.4)]",
+  },
+  ready: {
+    dot: "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]",
+  },
+  warning: {
+    dot: "bg-warning shadow-[0_0_6px_rgba(234,179,8,0.4)]",
+  },
+} as const;
+
+const CAPABILITY_BADGE_STYLE: Record<string, string> = {
+  Fast: "bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/20 dark:border-sky-500/30",
+  Thinking:
+    "bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20 dark:border-purple-500/30",
+  Reasoning:
+    "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20 dark:border-amber-500/30",
+};
+
+function resolveProviderEntryStatusStyle(
+  entry: ProviderSettingsEntry,
+  snapshot: ServerProvider | undefined,
+): ProviderStatusStyle {
+  if (!entry.enabled) {
+    return PROVIDER_ENTRY_STATUS_STYLES.disabled;
+  }
+  const statusKey = snapshot?.status ?? "warning";
+  return PROVIDER_ENTRY_STATUS_STYLES[statusKey];
+}
 
 export interface ProviderCard {
   provider: ProviderKind;
@@ -569,6 +627,16 @@ function useProviderSettingsSectionComponent({
       ...providerConfig,
       instances: providerConfig.instances.filter((instance) => instance.id !== instanceId),
     } as UnifiedSettings["providers"][typeof provider]);
+    if (selectedEntryKey === providerEntryKey(provider, instanceId)) {
+      dispatchSectionState({
+        type: "set-selected-entry-key",
+        selectedEntryKey: providerEntryKey(provider),
+      });
+    }
+    setCustomModelErrorByProvider((existing) => ({
+      ...existing,
+      [provider]: null,
+    }));
   };
 
   const addDraftCustomModel = (providerCard: ProviderCard, providerInstanceId?: string) => {
@@ -699,7 +767,6 @@ function useProviderSettingsSectionComponent({
   const customModelError = customModelErrorByProvider[providerCard.provider] ?? null;
   const providerDisplayName = getProviderCardDisplayName(providerCard);
   const ProviderLogo = PROVIDER_LOGO_BY_PROVIDER[providerCard.provider];
-  const isUpgrading = isUpgradingProvider(providerCard.provider);
   const draftConfig = draftProviders[providerCard.provider];
   const selectedInstance = selectedProviderEntry.instanceId
     ? draftConfig.instances.find((instance) => instance.id === selectedProviderEntry.instanceId)
@@ -713,15 +780,11 @@ function useProviderSettingsSectionComponent({
   );
   const selectedVersionLabel =
     getProviderVersionLabel(selectedSnapshot?.version) ?? providerCard.versionLabel;
-  const selectedLatestVersionLabel =
-    getProviderVersionLabel(selectedSnapshot?.latestVersion) ?? providerCard.latestVersionLabel;
-  const selectedUpdateStatus = selectedSnapshot?.updateStatus ?? providerCard.updateStatus;
-  const selectedUpdateStatusLabel = getCliUpdateStatusLabel(
-    selectedUpdateStatus,
-    selectedLatestVersionLabel,
+  const selectedSummary = getProviderSummary(selectedSnapshot);
+  const selectedStatusStyle = resolveProviderEntryStatusStyle(
+    selectedProviderEntry,
+    selectedSnapshot,
   );
-  const canUpdateSelectedCli =
-    providerCard.canUpgradeCli && selectedUpdateStatus === "update-available";
   const selectedCustomModels = selectedInstance?.customModels ?? draftConfig.customModels;
   const selectedEntryConfig = (selectedInstance ?? draftConfig) as Record<string, unknown>;
   const selectedPathLabel = instancePathLabel(providerCard.provider);
@@ -815,217 +878,132 @@ function useProviderSettingsSectionComponent({
       dispatchSectionState({ type: "set-add-provider-step", addProviderStep: nextStep.id });
     }
   };
+  const confirmRemoveSelectedProviderInstance = async () => {
+    if (!selectedInstance) {
+      return;
+    }
+    const instanceLabel = selectedInstance.label.trim() || "Personal";
+    const confirmed = await ensureNativeApi().dialogs.confirm(
+      `Remove ${providerDisplayName} (${instanceLabel})?\nThis removes the provider account from your settings draft.\nSave to apply the change.`,
+    );
+    if (!confirmed) {
+      return;
+    }
+    removeProviderInstance(providerCard, selectedInstance.id);
+  };
 
   return (
-    <SettingsSection
-      title="Providers"
-      description="Configure provider CLIs, accounts, launch paths, and custom models."
-      contentClassName="overflow-visible p-0"
-      headerAction={
-        <div className="flex flex-wrap items-center justify-end gap-1.5">
-          <ProviderLastChecked lastCheckedAt={lastCheckedAt} />
-          {hasProviderDraftChanges ? (
-            <span className="rounded-full border border-warning/35 bg-warning/10 px-2 py-0.5 text-[11px] font-medium text-warning-foreground">
-              Unsaved
-            </span>
-          ) : null}
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  className="size-7 rounded-[var(--control-radius)] text-muted-foreground/70 hover:text-foreground disabled:text-muted-foreground/35"
-                  disabled={!hasProviderDraftChanges}
-                  onClick={revertProviderDraft}
-                  aria-label="Revert provider changes"
-                >
-                  <Undo2Icon className="size-3.5" />
-                </Button>
-              }
-            />
-            <TooltipPopup side="top">Revert provider changes</TooltipPopup>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  className={cn(
-                    "size-7 rounded-[var(--control-radius)] text-muted-foreground/70 hover:text-foreground disabled:text-muted-foreground/35",
-                    hasProviderDraftChanges && "text-foreground",
-                  )}
-                  disabled={!hasProviderDraftChanges}
-                  onClick={saveProviderDraft}
-                  aria-label="Save provider changes"
-                >
-                  <SaveIcon className="size-3.5" />
-                </Button>
-              }
-            />
-            <TooltipPopup side="top">Save provider changes</TooltipPopup>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  className="size-7 rounded-[var(--control-radius)] text-muted-foreground/70 hover:text-foreground disabled:text-muted-foreground/35"
-                  disabled={isRefreshingProviders}
-                  onClick={() => void refreshProviders()}
-                  aria-label="Check CLI status"
-                >
-                  {isRefreshingProviders ? (
-                    <LoaderIcon className="size-3.5 animate-spin" />
-                  ) : (
-                    <RefreshCwIcon className="size-3.5" />
-                  )}
-                </Button>
-              }
-            />
-            <TooltipPopup side="top">Check CLI status</TooltipPopup>
-          </Tooltip>
-          {canUpdateSelectedCli ? (
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    className="size-7 rounded-[var(--control-radius)] text-muted-foreground/70 hover:text-foreground disabled:text-muted-foreground/35"
-                    disabled={isUpgrading || isRefreshingProviders}
-                    onClick={() => upgradeProviderCli(providerCard.provider, providerCard.provider)}
-                    aria-label={`Update ${providerDisplayName} CLI`}
-                  >
-                    {isUpgrading ? (
-                      <LoaderIcon className="size-3.5 animate-spin" />
-                    ) : (
-                      <DownloadIcon className="size-3.5" />
-                    )}
-                  </Button>
-                }
-              />
-              <TooltipPopup side="top">
-                {isUpgrading
-                  ? `Updating ${providerDisplayName} CLI`
-                  : `Update ${providerDisplayName} CLI`}
-              </TooltipPopup>
-            </Tooltip>
-          ) : null}
-        </div>
-      }
-    >
-      <div className="grid min-h-[34rem] gap-4 md:grid-cols-[13.5rem_minmax(0,1fr)]">
-        <div className="py-2 md:pr-2">
-          <Button
-            size="sm"
-            variant="outline"
-            className="mb-2 h-8 w-full rounded-[var(--control-radius)] justify-start gap-1.5 px-2 text-xs"
-            onClick={openAddProviderDialog}
-            aria-label="Add provider instance"
-            data-provider-settings-add-provider="true"
-          >
-            <PlusIcon className="size-3" />
-            Add provider
-          </Button>
-
-          <div className="grid grid-cols-2 gap-1 sm:grid-cols-3 md:grid-cols-1">
-            {providerEntries.map((entry) => {
-              const railProviderCard =
-                providerCards.find((candidate) => candidate.provider === entry.provider) ??
-                providerCards[0];
-              if (!railProviderCard) return null;
-              const RailLogo = PROVIDER_LOGO_BY_PROVIDER[entry.provider];
-              const isSelected = entry.key === selectedProviderEntry.key;
-              const railSubtitle = entry.accountLabel ?? "Default";
-              return (
-                <button
-                  key={entry.key}
-                  type="button"
-                  className={cn(
-                    "group flex min-w-0 items-center gap-2 px-1.5 py-2 text-left transition-colors",
-                    isSelected
-                      ? "text-foreground"
-                      : "text-muted-foreground hover:bg-foreground/[0.012] hover:text-foreground/90",
-                  )}
-                  onClick={() =>
-                    dispatchSectionState({
-                      type: "set-selected-entry-key",
-                      selectedEntryKey: entry.key,
-                    })
-                  }
-                >
-                  <span
-                    className={cn(
-                      "relative flex size-7 shrink-0 items-center justify-center rounded-[var(--control-radius)] transition-colors",
-                      isSelected
-                        ? "bg-foreground/[0.08] text-foreground"
-                        : "bg-transparent text-muted-foreground",
-                    )}
-                  >
-                    <RailLogo className="size-3.5" />
-                    {entry.instanceId ? (
-                      <ProviderInstanceBadge
-                        color={entry.badgeColor}
-                        icon={entry.badgeIcon}
-                        className="absolute -bottom-1 -right-1 size-3.5 border-[1.5px] p-[2px]"
+    <>
+      <SettingsSection
+        title="Providers"
+        description="Configure provider CLIs, accounts, launch paths, and custom models."
+        bodyClassName={SETTINGS_SECTION_CARD_FLUSH_BODY_CLASS}
+        contentClassName="[&_[data-slot=input-control]]:text-[12px] [&_[data-slot=input]]:text-[12px] [&_[data-slot=textarea]]:text-[12px]"
+      >
+        <div className={SETTINGS_PROVIDER_LAYOUT_CLASS} data-provider-settings-layout="true">
+          <aside className="flex min-h-0 flex-col bg-muted/[0.03] lg:max-h-[calc(100vh-12rem)]">
+            <div className="border-b border-border px-2.5 py-2.5">
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 w-full gap-1 text-xs"
+                onClick={openAddProviderDialog}
+                data-provider-settings-add-provider="true"
+              >
+                <PlusIcon className="size-3" />
+                Add provider
+              </Button>
+            </div>
+            <ScrollArea className="min-h-0 flex-1">
+              <div className="space-y-1.5 p-2">
+                {providerEntries.map((entry) => {
+                  const entryCard = providerCards.find(
+                    (candidate) => candidate.provider === entry.provider,
+                  );
+                  if (!entryCard) return null;
+                  const EntryLogo = PROVIDER_LOGO_BY_PROVIDER[entry.provider];
+                  const entrySnapshot = resolveProviderCardSnapshot(entryCard, entry.instanceId);
+                  const entryStatusStyle = resolveProviderEntryStatusStyle(entry, entrySnapshot);
+                  const entryDisplayName = getProviderCardDisplayName(entryCard);
+                  const isSelected = entry.key === selectedEntryKey;
+                  return (
+                    <Button
+                      key={entry.key}
+                      type="button"
+                      variant="ghost"
+                      data-active={isSelected ? "true" : undefined}
+                      className={cn(
+                        SETTINGS_PROVIDER_LIST_ITEM_CLASS,
+                        SETTINGS_LIST_ROW_BUTTON_CLASS,
+                        "!h-auto !py-2 !px-2 rounded-lg border transition-all duration-200",
+                        isSelected
+                          ? "bg-foreground/[0.06] border-foreground/[0.08] dark:border-white/[0.08] shadow-xs text-foreground"
+                          : "border-transparent text-muted-foreground/80 hover:bg-foreground/[0.03] hover:text-foreground",
+                      )}
+                      onClick={() =>
+                        dispatchSectionState({
+                          type: "set-selected-entry-key",
+                          selectedEntryKey: entry.key,
+                        })
+                      }
+                    >
+                      <span className="relative flex size-7 shrink-0 items-center justify-center rounded-full bg-foreground/[0.05] dark:bg-white/[0.05] border border-foreground/[0.08] dark:border-white/[0.08] shadow-xs">
+                        <EntryLogo className="size-3.5" />
+                        {entry.instanceId && entry.badgeColor && entry.badgeIcon ? (
+                          <ProviderInstanceBadge
+                            color={entry.badgeColor}
+                            icon={entry.badgeIcon}
+                            className="absolute -bottom-0.5 -right-0.5 size-3.5 border-[1.5px] p-[1px] bg-background rounded-full"
+                          />
+                        ) : null}
+                      </span>
+                      <span className="min-w-0 flex-1 ml-1">
+                        <span className={cn(SETTINGS_PROVIDER_LIST_NAME_CLASS, "text-[12.5px]")}>
+                          {entryDisplayName}
+                        </span>
+                        <span
+                          className={cn(SETTINGS_PROVIDER_LIST_META_CLASS, "text-[10.5px] mt-0.5")}
+                        >
+                          {entry.accountLabel ?? "Default"}
+                          {!entry.enabled ? " · Off" : ""}
+                        </span>
+                      </span>
+                      <span
+                        aria-hidden="true"
+                        className={cn(
+                          "size-1.5 shrink-0 rounded-full transition-all duration-300",
+                          entryStatusStyle.dot,
+                          !entry.enabled && "opacity-50",
+                        )}
                       />
-                    ) : null}
-                  </span>
-                  <span
-                    className={cn(
-                      "size-1.5 shrink-0 rounded-full",
-                      entry.enabled ? railProviderCard.statusStyle.dot : "bg-muted-foreground/35",
-                    )}
-                  />
-                  <span className="min-w-0 flex-1">
-                    <span className="block min-w-0 truncate text-xs font-medium">
-                      {getProviderCardDisplayName(railProviderCard)}
-                    </span>
-                    <span className="mt-0.5 block truncate text-[10px] text-muted-foreground/55">
-                      {entry.enabled ? railSubtitle : `${railSubtitle} · Off`}
-                    </span>
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
+                    </Button>
+                  );
+                })}
+              </div>
+            </ScrollArea>
+          </aside>
 
-        <div className="min-w-0">
-          <div className="px-0 py-3 md:pl-3">
-            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-              <div className="flex min-w-0 gap-3">
-                <div className="flex size-10 shrink-0 items-center justify-center rounded-[var(--control-radius)] bg-foreground/[0.06]">
-                  <ProviderLogo className="size-5 text-foreground" />
-                </div>
-                <div className="min-w-0 space-y-1">
-                  <div className="flex min-w-0 flex-wrap items-center gap-2">
-                    <h3 className="truncate text-[14px] font-semibold tracking-tight text-foreground">
+          <div className="min-w-0">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border/40 px-5 py-4 bg-foreground/[0.01] dark:bg-white/[0.01]">
+              <div className="flex min-w-0 items-center gap-3.5">
+                <span className="relative flex size-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-foreground/[0.05] to-foreground/[0.01] dark:from-white/[0.08] dark:to-white/[0.02] border border-foreground/[0.08] dark:border-white/[0.08] shadow-sm">
+                  <ProviderLogo className="size-5" />
+                  {selectedInstance ? (
+                    <ProviderInstanceBadge
+                      color={selectedInstance.badgeColor}
+                      icon={selectedInstance.badgeIcon}
+                      className="absolute -bottom-0.5 -right-0.5 size-4 border-[1.5px] p-[1px] bg-background rounded-full"
+                    />
+                  ) : null}
+                </span>
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <h3 className="text-sm font-semibold tracking-tight text-foreground">
                       {providerDisplayName}
                     </h3>
-                    {selectedProviderEntry.accountLabel ? (
-                      <span className="rounded-full bg-foreground/[0.06] px-2 py-0.5 text-[11px] text-muted-foreground">
-                        {selectedProviderEntry.accountLabel}
-                      </span>
-                    ) : null}
                     {selectedVersionLabel ? (
-                      <code className="rounded bg-foreground/[0.06] px-1.5 py-0.5 text-[11px] text-muted-foreground">
+                      <span className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-[10px] font-medium tracking-wide text-muted-foreground/80">
                         {selectedVersionLabel}
-                      </code>
-                    ) : null}
-                    {selectedUpdateStatusLabel ? (
-                      <span
-                        className={cn(
-                          "rounded border px-1.5 py-0.5 text-[11px] font-medium",
-                          selectedUpdateStatus === "update-available"
-                            ? "border-warning/35 bg-warning/10 text-warning-foreground"
-                            : "border-border/30 bg-transparent text-muted-foreground",
-                        )}
-                      >
-                        {selectedUpdateStatusLabel}
                       </span>
                     ) : null}
                     {isDraftDefaultDirty ? (
@@ -1041,62 +1019,136 @@ function useProviderSettingsSectionComponent({
                       />
                     ) : null}
                   </div>
-                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-muted-foreground/70">
-                    <span className="inline-flex items-center gap-1">
-                      <span className={cn("size-1.5 rounded-full", providerCard.statusStyle.dot)} />
-                      {providerCard.summary.headline}
-                    </span>
-                    {providerCard.summary.detail ? (
-                      <span>{providerCard.summary.detail}</span>
+                  <div
+                    className={cn(
+                      "mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-muted-foreground/80",
+                    )}
+                  >
+                    <span
+                      aria-hidden="true"
+                      className={cn("size-1.5 rounded-full", selectedStatusStyle.dot)}
+                    />
+                    <span className="font-medium">{selectedSummary.headline}</span>
+                    {selectedSummary.detail ? (
+                      <span className="text-muted-foreground/60 font-normal">
+                        · {selectedSummary.detail}
+                      </span>
                     ) : null}
                   </div>
                 </div>
               </div>
-
-              <div className="flex shrink-0 items-center gap-2 md:justify-end">
-                {selectedInstance ? (
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    className="size-8 rounded-[var(--control-radius)] text-muted-foreground/60 hover:text-foreground"
-                    onClick={() => {
-                      removeProviderInstance(providerCard, selectedInstance.id);
-                      dispatchSectionState({
-                        type: "set-selected-entry-key",
-                        selectedEntryKey: providerEntryKey(providerCard.provider),
-                      });
+              <div className="flex flex-wrap items-center gap-3 sm:justify-end">
+                <ProviderLastChecked lastCheckedAt={lastCheckedAt} />
+                <div className="hidden sm:block h-4 w-px bg-border/30" />
+                <div className="flex items-center gap-1">
+                  {hasProviderDraftChanges ? (
+                    <>
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className={cn(
+                                SETTINGS_COMPACT_ACTION_BUTTON_CLASS,
+                                "!h-8 !w-8 hover:bg-foreground/[0.06]",
+                              )}
+                              onClick={revertProviderDraft}
+                              aria-label="Revert provider changes"
+                            >
+                              <Undo2Icon className="size-4" />
+                            </Button>
+                          }
+                        />
+                        <TooltipPopup side="top">Revert changes</TooltipPopup>
+                      </Tooltip>
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className={cn(
+                                SETTINGS_COMPACT_ACTION_BUTTON_CLASS,
+                                "!h-8 !w-8 hover:bg-foreground/[0.06]",
+                              )}
+                              onClick={saveProviderDraft}
+                              aria-label="Save provider changes"
+                            >
+                              <SaveIcon className="size-4" />
+                            </Button>
+                          }
+                        />
+                        <TooltipPopup side="top">Save changes</TooltipPopup>
+                      </Tooltip>
+                    </>
+                  ) : (
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className={cn(
+                              SETTINGS_COMPACT_ACTION_BUTTON_CLASS,
+                              "!h-8 !w-8 hover:bg-foreground/[0.06]",
+                            )}
+                            disabled={isRefreshingProviders}
+                            onClick={() => void refreshProviders()}
+                            aria-label="Check provider status"
+                          >
+                            <RefreshCwIcon
+                              className={cn("size-4", isRefreshingProviders && "animate-spin")}
+                            />
+                          </Button>
+                        }
+                      />
+                      <TooltipPopup side="top">
+                        {isRefreshingProviders ? "Checking..." : "Check status"}
+                      </TooltipPopup>
+                    </Tooltip>
+                  )}
+                </div>
+                <div className="hidden sm:block h-4 w-px bg-border/30" />
+                <div className="flex items-center gap-2 rounded-lg border border-border/40 bg-foreground/[0.02] dark:bg-white/[0.02] px-2.5 py-1.5 shadow-xs">
+                  <span className="text-[11px] font-medium text-muted-foreground">Enabled</span>
+                  <Switch
+                    checked={selectedInstance?.enabled ?? draftConfig.enabled}
+                    onCheckedChange={(checked) => {
+                      updateSelectedEntryConfig({ enabled: Boolean(checked) });
                     }}
-                    aria-label={`Remove ${selectedInstance.label}`}
-                  >
-                    <XIcon className="size-3.5" />
-                  </Button>
-                ) : null}
-                <Switch
-                  checked={selectedInstance?.enabled ?? draftConfig.enabled}
-                  onCheckedChange={(checked) => {
-                    updateSelectedEntryConfig({ enabled: Boolean(checked) });
-                  }}
-                  aria-label={`Enable ${selectedProviderEntry.title}`}
-                />
+                    aria-label={`Enable ${selectedProviderEntry.title}`}
+                  />
+                </div>
               </div>
             </div>
-          </div>
 
-          <div className="space-y-0 md:pl-3">
             {selectedInstance ? (
-              <section>
-                <div className="px-0 py-3">
-                  <div className="text-xs font-semibold text-foreground/90">Identity</div>
-                </div>
-                <div className="grid gap-3 pb-4 lg:grid-cols-[minmax(0,16rem)_minmax(0,1fr)]">
-                  <label
-                    htmlFor={`provider-instance-${providerCard.provider}-name`}
-                    className="block"
+              <div className={SETTINGS_PROVIDER_DETAIL_SECTION_CLASS}>
+                <div className="flex items-center justify-between gap-2">
+                  <p className={SETTINGS_SECTION_TITLE_CLASS}>Identity</p>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 gap-1 px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+                    onClick={() => void confirmRemoveSelectedProviderInstance()}
                   >
-                    <span className="text-[11px] font-medium text-foreground/75">Name</span>
-                    <Input
+                    <Trash2Icon className="size-3" />
+                    Remove
+                  </Button>
+                </div>
+                <div className="mt-2.5 space-y-2.5">
+                  <div>
+                    <label
+                      className={SETTINGS_PROVIDER_FIELD_LABEL_CLASS}
+                      htmlFor={`provider-instance-${providerCard.provider}-name`}
+                    >
+                      Name
+                    </label>
+                    <SettingsInput
                       id={`provider-instance-${providerCard.provider}-name`}
-                      className="mt-1"
+                      className="mt-1 w-full"
                       value={selectedInstance.label}
                       onChange={(event) =>
                         updateProviderInstance(providerCard, selectedInstance.id, {
@@ -1105,103 +1157,105 @@ function useProviderSettingsSectionComponent({
                       }
                       placeholder="Personal"
                     />
-                  </label>
-
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    <div>
-                      <div className="mb-1 text-[11px] font-medium text-foreground/75">Icon</div>
-                      <div className="flex flex-wrap items-center gap-1 py-1">
-                        {PROVIDER_INSTANCE_BADGE_ICONS.map((badgeIcon) => {
-                          const selectedIcon =
-                            normalizeProviderInstanceBadgeIcon(selectedInstance.badgeIcon) ===
-                            badgeIcon.value;
-                          return (
-                            <Tooltip key={badgeIcon.value}>
-                              <TooltipTrigger
-                                render={
-                                  <button
-                                    type="button"
-                                    className={cn(
-                                      "flex size-6 items-center justify-center rounded-[calc(var(--control-radius)-3px)] text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground",
-                                      selectedIcon && "bg-foreground/[0.08] text-foreground",
-                                    )}
-                                    onClick={() =>
-                                      updateProviderInstance(providerCard, selectedInstance.id, {
-                                        badgeIcon: badgeIcon.value,
-                                      })
-                                    }
-                                    aria-label={`Use ${badgeIcon.label} badge icon`}
-                                  >
-                                    <ProviderInstanceBadgeIconGlyph
-                                      icon={badgeIcon.value}
-                                      className="size-3.5"
-                                    />
-                                  </button>
-                                }
+                  </div>
+                  <div>
+                    <p className={SETTINGS_PROVIDER_FIELD_LABEL_CLASS}>Icon</p>
+                    <div className="mt-1 flex flex-wrap items-center gap-1">
+                      {PROVIDER_INSTANCE_BADGE_ICONS.map((badgeIcon) => {
+                        const selectedIcon =
+                          normalizeProviderInstanceBadgeIcon(selectedInstance.badgeIcon) ===
+                          badgeIcon.value;
+                        return (
+                          <Tooltip key={badgeIcon.value}>
+                            <TooltipTrigger
+                              render={
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon-sm"
+                                  className={cn(
+                                    SETTINGS_ICON_CHOICE_BUTTON_CLASS,
+                                    "text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground",
+                                    selectedIcon && "bg-foreground/[0.08] text-foreground",
+                                  )}
+                                  onClick={() =>
+                                    updateProviderInstance(providerCard, selectedInstance.id, {
+                                      badgeIcon: badgeIcon.value,
+                                    })
+                                  }
+                                  aria-label={`Use ${badgeIcon.label} badge icon`}
+                                />
+                              }
+                            >
+                              <ProviderInstanceBadgeIconGlyph
+                                icon={badgeIcon.value}
+                                className="size-3.5"
                               />
-                              <TooltipPopup side="top">{badgeIcon.label}</TooltipPopup>
-                            </Tooltip>
-                          );
-                        })}
-                      </div>
+                            </TooltipTrigger>
+                            <TooltipPopup side="top">{badgeIcon.label}</TooltipPopup>
+                          </Tooltip>
+                        );
+                      })}
                     </div>
-
-                    <div>
-                      <div className="mb-1 text-[11px] font-medium text-foreground/75">Color</div>
-                      <div className="flex flex-wrap items-center gap-1 py-1">
-                        {PROVIDER_INSTANCE_BADGE_COLORS.map((badgeColor) => {
-                          const selectedColor =
-                            normalizeProviderInstanceBadgeColor(selectedInstance.badgeColor) ===
-                            badgeColor.value;
-                          return (
-                            <Tooltip key={badgeColor.value}>
-                              <TooltipTrigger
-                                render={
-                                  <button
-                                    type="button"
-                                    className={cn(
-                                      "flex size-6 items-center justify-center rounded-full border border-transparent transition-colors hover:border-border/70",
-                                      selectedColor && "border-foreground/75",
-                                    )}
-                                    onClick={() =>
-                                      updateProviderInstance(providerCard, selectedInstance.id, {
-                                        badgeColor: badgeColor.value,
-                                      })
-                                    }
-                                    aria-label={`Use ${badgeColor.label} badge color`}
-                                  >
-                                    <span
-                                      aria-hidden="true"
-                                      className="size-3.5 rounded-full"
-                                      style={{ backgroundColor: badgeColor.hex }}
-                                    />
-                                  </button>
-                                }
+                  </div>
+                  <div>
+                    <p className={SETTINGS_PROVIDER_FIELD_LABEL_CLASS}>Color</p>
+                    <div className="mt-1 flex flex-wrap items-center gap-1">
+                      {PROVIDER_INSTANCE_BADGE_COLORS.map((badgeColor) => {
+                        const selectedColor =
+                          normalizeProviderInstanceBadgeColor(selectedInstance.badgeColor) ===
+                          badgeColor.value;
+                        return (
+                          <Tooltip key={badgeColor.value}>
+                            <TooltipTrigger
+                              render={
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon-sm"
+                                  className={cn(
+                                    SETTINGS_COLOR_SWATCH_BUTTON_CLASS,
+                                    "hover:border-border/70",
+                                    selectedColor && "border-foreground/75",
+                                  )}
+                                  onClick={() =>
+                                    updateProviderInstance(providerCard, selectedInstance.id, {
+                                      badgeColor: badgeColor.value,
+                                    })
+                                  }
+                                  aria-label={`Use ${badgeColor.label} badge color`}
+                                />
+                              }
+                            >
+                              <span
+                                aria-hidden="true"
+                                className="size-3.5 rounded-full"
+                                style={{ backgroundColor: badgeColor.hex }}
                               />
-                              <TooltipPopup side="top">{badgeColor.label}</TooltipPopup>
-                            </Tooltip>
-                          );
-                        })}
-                      </div>
+                            </TooltipTrigger>
+                            <TooltipPopup side="top">{badgeColor.label}</TooltipPopup>
+                          </Tooltip>
+                        );
+                      })}
                     </div>
                   </div>
                 </div>
-              </section>
+              </div>
             ) : null}
 
-            <section>
-              <div className="px-0 py-3">
-                <div className="text-xs font-semibold text-foreground/90">Launch</div>
-              </div>
-              <div className="grid gap-3 pb-4 md:grid-cols-2">
-                <label
-                  htmlFor={`provider-install-${providerCard.provider}-binary-path`}
-                  className="block"
-                >
-                  <span className="text-[11px] font-medium text-foreground/75">Binary path</span>
-                  <Input
+            <div className={SETTINGS_PROVIDER_DETAIL_SECTION_CLASS}>
+              <p className={SETTINGS_SECTION_TITLE_CLASS}>Launch</p>
+              <div className="mt-3.5 space-y-4">
+                <div>
+                  <label
+                    className="block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/60 mb-1.5"
+                    htmlFor={`provider-install-${providerCard.provider}-binary-path`}
+                  >
+                    Binary path
+                  </label>
+                  <SettingsInput
                     id={`provider-install-${providerCard.provider}-binary-path`}
-                    className="mt-1"
+                    className="w-full !h-9 !px-3 border-border/40 focus:border-primary/40 focus:ring-1 focus:ring-primary/20 transition-all bg-foreground/[0.01] dark:bg-white/[0.01]"
                     value={String(selectedEntryConfig.binaryPath ?? "")}
                     onChange={(event) =>
                       updateSelectedEntryConfig({
@@ -1211,22 +1265,24 @@ function useProviderSettingsSectionComponent({
                     placeholder={providerCard.binaryPlaceholder}
                     spellCheck={false}
                   />
-                  <span className="mt-1 block text-[11px] text-muted-foreground/55">
-                    {providerCard.binaryDescription}
-                  </span>
-                </label>
+                  {providerCard.binaryDescription ? (
+                    <p className="mt-1.5 text-[11.5px] leading-normal text-muted-foreground/50">
+                      {providerCard.binaryDescription}
+                    </p>
+                  ) : null}
+                </div>
 
                 {providerCard.provider === "githubCopilot" ? (
-                  <label
-                    htmlFor={`provider-install-${providerCard.provider}-cli-url`}
-                    className="block"
-                  >
-                    <span className="text-[11px] font-medium text-foreground/75">
+                  <div>
+                    <label
+                      className="block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/60 mb-1.5"
+                      htmlFor={`provider-install-${providerCard.provider}-cli-url`}
+                    >
                       CLI server URL
-                    </span>
-                    <Input
+                    </label>
+                    <SettingsInput
                       id={`provider-install-${providerCard.provider}-cli-url`}
-                      className="mt-1"
+                      className="w-full !h-9 !px-3 border-border/40 focus:border-primary/40 focus:ring-1 focus:ring-primary/20 transition-all bg-foreground/[0.01] dark:bg-white/[0.01]"
                       value={selectedCliUrlValue}
                       onChange={(event) =>
                         updateSelectedEntryConfig({
@@ -1237,24 +1293,24 @@ function useProviderSettingsSectionComponent({
                       spellCheck={false}
                     />
                     {providerCard.cliUrlDescription ? (
-                      <span className="mt-1 block text-[11px] text-muted-foreground/55">
+                      <p className="mt-1.5 text-[11.5px] leading-normal text-muted-foreground/50">
                         {providerCard.cliUrlDescription}
-                      </span>
+                      </p>
                     ) : null}
-                  </label>
+                  </div>
                 ) : null}
 
                 {selectedPathLabel ? (
-                  <label
-                    htmlFor={`provider-install-${providerCard.provider}-path`}
-                    className="block"
-                  >
-                    <span className="text-[11px] font-medium text-foreground/75">
+                  <div>
+                    <label
+                      className="block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/60 mb-1.5"
+                      htmlFor={`provider-install-${providerCard.provider}-path`}
+                    >
                       {selectedPathLabel}
-                    </span>
-                    <Input
+                    </label>
+                    <SettingsInput
                       id={`provider-install-${providerCard.provider}-path`}
-                      className="mt-1"
+                      className="w-full !h-9 !px-3 border-border/40 focus:border-primary/40 focus:ring-1 focus:ring-primary/20 transition-all bg-foreground/[0.01] dark:bg-white/[0.01]"
                       value={selectedPathValue}
                       onChange={(event) => {
                         const pathKey =
@@ -1270,21 +1326,23 @@ function useProviderSettingsSectionComponent({
                       spellCheck={false}
                     />
                     {providerCard.homeDescription ? (
-                      <span className="mt-1 block text-[11px] text-muted-foreground/55">
+                      <p className="mt-1.5 text-[11.5px] leading-normal text-muted-foreground/50">
                         {providerCard.homeDescription}
-                      </span>
+                      </p>
                     ) : null}
-                  </label>
+                  </div>
                 ) : null}
 
-                <label
-                  htmlFor={`provider-install-${providerCard.provider}-launch-env`}
-                  className="block md:col-span-2"
-                >
-                  <span className="text-[11px] font-medium text-foreground/75">Launch env</span>
+                <div>
+                  <label
+                    className="block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/60 mb-1.5"
+                    htmlFor={`provider-install-${providerCard.provider}-launch-env`}
+                  >
+                    Launch env
+                  </label>
                   <Textarea
                     id={`provider-install-${providerCard.provider}-launch-env`}
-                    className="mt-1"
+                    className="w-full !h-24 !p-3 border-border/40 focus:border-primary/40 focus:ring-1 focus:ring-primary/20 transition-all bg-foreground/[0.01] dark:bg-white/[0.01] font-mono text-[12px] rounded-[var(--control-radius)]"
                     size="sm"
                     value={formatLaunchEnv(selectedLaunchEnv)}
                     onChange={(event) =>
@@ -1297,226 +1355,242 @@ function useProviderSettingsSectionComponent({
                     }
                     spellCheck={false}
                   />
-                </label>
-              </div>
-
-              {providerCard.runtimes && providerCard.runtimes.length > 0 ? (
-                <div className="py-3">
-                  <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/55">
-                    Runtimes
-                  </div>
-                  <div className="grid gap-2 md:grid-cols-2">
-                    {providerCard.runtimes.map((runtime) => {
-                      const upgradingRuntime = isUpgradingRuntime(
-                        providerCard.provider,
-                        runtime.id,
-                      );
-                      const runtimeLatestVersionLabel = getProviderVersionLabel(
-                        runtime.latestVersion,
-                      );
-                      const runtimeUpdateStatusLabel = getCliUpdateStatusLabel(
-                        runtime.updateStatus,
-                        runtimeLatestVersionLabel,
-                      );
-                      const canUpdateRuntime =
-                        runtime.upgradeable && runtime.updateStatus === "update-available";
-                      return (
-                        <div
-                          key={`${providerCard.provider}:${runtime.id}`}
-                          className="flex items-center justify-between gap-3 px-0.5 py-2 transition-colors hover:bg-foreground/[0.012]"
-                        >
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-2">
-                              <span className="text-xs font-medium text-foreground/90">
-                                {runtime.label}
-                              </span>
-                              {runtime.version ? (
-                                <code className="text-[11px] text-muted-foreground/60">
-                                  {runtime.version}
-                                </code>
-                              ) : null}
-                              {runtimeUpdateStatusLabel ? (
-                                <span
-                                  className={cn(
-                                    "text-[11px] font-medium",
-                                    runtime.updateStatus === "update-available"
-                                      ? "text-warning-foreground"
-                                      : "text-muted-foreground/60",
-                                  )}
-                                >
-                                  {runtimeUpdateStatusLabel}
-                                </span>
-                              ) : null}
-                            </div>
-                            <div className="truncate text-[11px] text-muted-foreground/60">
-                              {runtime.binaryPath}
-                            </div>
-                          </div>
-                          {canUpdateRuntime ? (
-                            <Tooltip>
-                              <TooltipTrigger
-                                render={
-                                  <Button
-                                    size="icon"
-                                    variant="outline"
-                                    className="size-7 rounded-[var(--control-radius)] text-muted-foreground/70 hover:text-foreground"
-                                    disabled={upgradingRuntime}
-                                    onClick={() =>
-                                      upgradeProviderCli(providerCard.provider, runtime.id)
-                                    }
-                                    aria-label={`Update ${runtime.label}`}
-                                  >
-                                    {upgradingRuntime ? (
-                                      <LoaderIcon className="size-3 animate-spin" />
-                                    ) : (
-                                      <DownloadIcon className="size-3" />
-                                    )}
-                                  </Button>
-                                }
-                              />
-                              <TooltipPopup side="top">Update {runtime.label}</TooltipPopup>
-                            </Tooltip>
-                          ) : null}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              ) : null}
-            </section>
-
-            <section>
-              <div className="flex items-center justify-between gap-3 px-0 py-3">
-                <div>
-                  <div className="text-xs font-semibold text-foreground/90">Models</div>
-                  <div className="text-[11px] text-muted-foreground/55">
-                    {displayedModels.length} available, {selectedCustomModels.length} custom.
-                  </div>
                 </div>
               </div>
-              <div className="grid gap-3 pb-4 lg:grid-cols-[minmax(0,1fr)_16rem]">
-                <ScrollArea
-                  ref={(element) => {
-                    modelListRefs.current[providerCard.provider] = element;
-                  }}
-                  className="max-h-56"
-                >
-                  {displayedModels.map((model) => {
-                    const caps = model.capabilities;
-                    const capLabels: string[] = [];
-                    if (caps?.supportsFastMode) capLabels.push("Fast");
-                    if (caps?.supportsThinkingToggle) capLabels.push("Thinking");
-                    if (caps?.reasoningEffortLevels && caps.reasoningEffortLevels.length > 0) {
-                      capLabels.push("Reasoning");
-                    }
-                    const hasDetails = capLabels.length > 0 || model.name !== model.slug;
+            </div>
 
+            {providerCard.runtimes && providerCard.runtimes.length > 0 ? (
+              <div className={SETTINGS_PROVIDER_DETAIL_SECTION_CLASS}>
+                <p className={SETTINGS_SECTION_TITLE_CLASS}>Runtimes</p>
+                <SettingsInsetPanel className="mt-3 overflow-hidden">
+                  {providerCard.runtimes.map((runtime) => {
+                    const upgradingRuntime = isUpgradingRuntime(providerCard.provider, runtime.id);
+                    const runtimeLatestVersionLabel = getProviderVersionLabel(
+                      runtime.latestVersion,
+                    );
+                    const runtimeUpdateStatusLabel = getCliUpdateStatusLabel(
+                      runtime.updateStatus,
+                      runtimeLatestVersionLabel,
+                    );
+                    const canUpdateRuntime =
+                      runtime.upgradeable && runtime.updateStatus === "update-available";
                     return (
                       <div
-                        key={`${providerCard.provider}:${model.slug}`}
-                        className="flex min-h-9 items-center gap-2 px-0.5 py-1.5 transition-colors hover:bg-foreground/[0.012]"
+                        key={`${providerCard.provider}:${runtime.id}`}
+                        className="flex items-center justify-between gap-3 border-b border-border/40 px-3 py-2.5 last:border-b-0"
                       >
-                        <span className="min-w-0 flex-1 truncate text-xs text-foreground/90">
-                          {model.name}
-                        </span>
-                        {capLabels.map((label) => (
-                          <span
-                            key={label}
-                            className="hidden rounded-full border border-border/35 px-1.5 py-0.5 text-[10px] text-muted-foreground/65 sm:inline-flex"
-                          >
-                            {label}
-                          </span>
-                        ))}
-                        {hasDetails ? (
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-[12px] font-medium text-foreground">
+                              {runtime.label}
+                            </span>
+                            {runtime.version ? (
+                              <code className="text-xs text-muted-foreground">
+                                {runtime.version}
+                              </code>
+                            ) : null}
+                            {runtimeUpdateStatusLabel ? (
+                              <span
+                                className={cn(
+                                  "text-xs font-medium",
+                                  runtime.updateStatus === "update-available"
+                                    ? "text-warning-foreground"
+                                    : "text-muted-foreground",
+                                )}
+                              >
+                                {runtimeUpdateStatusLabel}
+                              </span>
+                            ) : null}
+                          </div>
+                          <div className="truncate text-xs text-muted-foreground">
+                            {runtime.binaryPath}
+                          </div>
+                        </div>
+                        {canUpdateRuntime ? (
                           <Tooltip>
                             <TooltipTrigger
                               render={
-                                <button
-                                  type="button"
-                                  className="shrink-0 text-muted-foreground/35 transition-colors duration-150 hover:text-muted-foreground/60"
-                                  aria-label={`Details for ${model.name}`}
+                                <Button
+                                  size="icon"
+                                  variant="outline"
+                                  className="size-8 shrink-0 text-muted-foreground hover:text-foreground"
+                                  disabled={upgradingRuntime}
+                                  onClick={() =>
+                                    upgradeProviderCli(providerCard.provider, runtime.id)
+                                  }
+                                  aria-label={`Update ${runtime.label}`}
                                 >
-                                  <InfoIcon className="size-3" />
-                                </button>
+                                  {upgradingRuntime ? (
+                                    <LoaderIcon className="size-3.5 animate-spin" />
+                                  ) : (
+                                    <DownloadIcon className="size-3.5" />
+                                  )}
+                                </Button>
                               }
                             />
-                            <TooltipPopup side="top" className="max-w-56">
-                              <code className="block text-[11px] text-foreground">
-                                {model.slug}
-                              </code>
-                            </TooltipPopup>
+                            <TooltipPopup side="top">Update {runtime.label}</TooltipPopup>
                           </Tooltip>
-                        ) : null}
-                        {model.isCustom ? (
-                          <button
-                            type="button"
-                            className="rounded-full border border-border/35 px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:text-foreground"
-                            aria-label={`Remove ${model.slug}`}
-                            onClick={() =>
-                              removeDraftCustomModel(
-                                providerCard,
-                                model.slug,
-                                selectedProviderEntry.instanceId,
-                              )
-                            }
-                          >
-                            custom
-                          </button>
                         ) : null}
                       </div>
                     );
                   })}
-                </ScrollArea>
+                </SettingsInsetPanel>
+              </div>
+            ) : null}
 
-                <div className="py-3">
-                  <div className="text-xs font-medium text-foreground/85">Add custom model</div>
-                  <div className="mt-1 text-[11px] leading-relaxed text-muted-foreground/55">
-                    Custom model slugs are saved with this provider after Save.
-                  </div>
-                  <Input
-                    id={`custom-model-${providerCard.provider}`}
-                    className="mt-3"
-                    value={customModelInput}
-                    onChange={(event) => {
-                      const value = event.target.value;
-                      setCustomModelInputByProvider((existing) => ({
-                        ...existing,
-                        [providerCard.provider]: value,
-                      }));
-                      if (customModelError) {
-                        setCustomModelErrorByProvider((existing) => ({
-                          ...existing,
-                          [providerCard.provider]: null,
-                        }));
-                      }
+            <div className={cn(SETTINGS_PROVIDER_DETAIL_SECTION_CLASS, "pb-5")}>
+              <div className="flex items-baseline justify-between gap-3">
+                <p className={SETTINGS_SECTION_TITLE_CLASS}>Models</p>
+                <p className="text-[10px] font-medium text-muted-foreground/60">
+                  {displayedModels.length} available, {selectedCustomModels.length} custom.
+                </p>
+              </div>
+              <div className="mt-3.5 grid gap-4 lg:grid-cols-[minmax(0,1fr)_16rem]">
+                <SettingsInsetPanel className="overflow-hidden border border-border/40 shadow-xs">
+                  <ScrollArea
+                    ref={(element) => {
+                      modelListRefs.current[providerCard.provider] = element;
                     }}
-                    onKeyDown={(event) => {
-                      if (event.key !== "Enter") return;
-                      event.preventDefault();
-                      addDraftCustomModel(providerCard, selectedProviderEntry.instanceId);
-                    }}
-                    placeholder={resolveCustomModelPlaceholder(providerCard.provider)}
-                    spellCheck={false}
-                  />
-                  <Button
-                    className="mt-2 h-8 w-full rounded-[var(--control-radius)] gap-1.5 text-xs"
-                    variant="outline"
-                    onClick={() =>
-                      addDraftCustomModel(providerCard, selectedProviderEntry.instanceId)
-                    }
+                    className="max-h-64"
                   >
-                    <PlusIcon className="size-3.5" />
-                    Add model
-                  </Button>
-                  {customModelError ? (
-                    <p className="mt-2 text-xs text-destructive">{customModelError}</p>
-                  ) : null}
+                    {displayedModels.map((model) => {
+                      const caps = model.capabilities;
+                      const capLabels: string[] = [];
+                      if (caps?.supportsFastMode) capLabels.push("Fast");
+                      if (caps?.supportsThinkingToggle) capLabels.push("Thinking");
+                      if (caps?.reasoningEffortLevels && caps.reasoningEffortLevels.length > 0) {
+                        capLabels.push("Reasoning");
+                      }
+                      const hasDetails = capLabels.length > 0 || model.name !== model.slug;
+
+                      return (
+                        <div
+                          key={`${providerCard.provider}:${model.slug}`}
+                          className="flex min-h-9 items-center gap-2 border-b border-border/20 px-3 py-1.5 last:border-b-0 hover:bg-foreground/[0.02] dark:hover:bg-white/[0.02] transition-colors"
+                        >
+                          <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-foreground">
+                            {model.name}
+                          </span>
+                          <div className="flex items-center gap-1.5">
+                            {capLabels.map((label) => (
+                              <span
+                                key={label}
+                                className={cn(
+                                  "hidden rounded-full px-2 py-0.5 text-[9.5px] font-semibold tracking-wide sm:inline-flex items-center border",
+                                  CAPABILITY_BADGE_STYLE[label] ??
+                                    "bg-muted text-muted-foreground border-border/40",
+                                )}
+                              >
+                                {label}
+                              </span>
+                            ))}
+                          </div>
+                          {hasDetails ? (
+                            <Tooltip>
+                              <TooltipTrigger
+                                render={
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon-sm"
+                                    className="shrink-0 size-7 text-muted-foreground/50 hover:text-muted-foreground hover:bg-foreground/[0.06]"
+                                    aria-label={`Details for ${model.name}`}
+                                  />
+                                }
+                              />
+                              <TooltipPopup side="top" className="max-w-56">
+                                <code className="block text-xs text-foreground">{model.slug}</code>
+                              </TooltipPopup>
+                            </Tooltip>
+                          ) : null}
+                          {model.isCustom ? (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="xs"
+                              className="rounded-full border-border/40 px-2 py-0.5 text-[10px] font-medium text-muted-foreground/80 hover:text-foreground hover:bg-foreground/[0.06]"
+                              aria-label={`Remove ${model.slug}`}
+                              onClick={() =>
+                                removeDraftCustomModel(
+                                  providerCard,
+                                  model.slug,
+                                  selectedProviderEntry.instanceId,
+                                )
+                              }
+                            >
+                              custom
+                            </Button>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </ScrollArea>
+                </SettingsInsetPanel>
+
+                <div className="min-w-0 flex flex-col justify-between">
+                  <div>
+                    <p className="block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/60 mb-1.5">
+                      Add custom model
+                    </p>
+                    <p
+                      className={cn(
+                        SETTINGS_ROW_DESCRIPTION_CLASS,
+                        "mt-1 text-[11px] leading-relaxed text-muted-foreground/60",
+                      )}
+                    >
+                      Custom model slugs are saved with this provider after Save.
+                    </p>
+                    <div className="mt-3 relative flex items-center">
+                      <SettingsInput
+                        id={`custom-model-${providerCard.provider}`}
+                        className="w-full !h-9 pr-10 pl-3 border-border/40 focus:border-primary/40 focus:ring-1 focus:ring-primary/20 bg-foreground/[0.01] dark:bg-white/[0.01] transition-all rounded-[var(--control-radius)]"
+                        value={customModelInput}
+                        onChange={(event) => {
+                          const value = event.target.value;
+                          setCustomModelInputByProvider((existing) => ({
+                            ...existing,
+                            [providerCard.provider]: value,
+                          }));
+                          if (customModelError) {
+                            setCustomModelErrorByProvider((existing) => ({
+                              ...existing,
+                              [providerCard.provider]: null,
+                            }));
+                          }
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key !== "Enter") return;
+                          event.preventDefault();
+                          addDraftCustomModel(providerCard, selectedProviderEntry.instanceId);
+                        }}
+                        placeholder={resolveCustomModelPlaceholder(providerCard.provider)}
+                        spellCheck={false}
+                      />
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        className="absolute right-1.5 h-6.5 w-6.5 rounded-md text-muted-foreground/80 hover:text-foreground hover:bg-foreground/[0.06]"
+                        onClick={() =>
+                          addDraftCustomModel(providerCard, selectedProviderEntry.instanceId)
+                        }
+                        aria-label="Add custom model"
+                      >
+                        <PlusIcon className="size-3.5" />
+                      </Button>
+                    </div>
+                    {customModelError ? (
+                      <p className="mt-2 text-xs text-destructive bg-destructive/5 border border-destructive/10 rounded-md px-2.5 py-1.5 font-medium">
+                        {customModelError}
+                      </p>
+                    ) : null}
+                  </div>
                 </div>
               </div>
-            </section>
+            </div>
           </div>
         </div>
-      </div>
+      </SettingsSection>
       <Dialog
         onOpenChange={(open) => {
           dispatchSectionState({ type: "set-add-provider-open", addProviderOpen: open });
@@ -1555,11 +1629,12 @@ function useProviderSettingsSectionComponent({
                 const isActive = step.id === addProviderStep;
                 const isComplete = index < addProviderCurrentStepIndex;
                 return (
-                  <button
+                  <Button
                     key={step.id}
                     type="button"
+                    variant="ghost"
                     className={cn(
-                      "h-7 rounded-[calc(var(--control-radius)-2px)] px-2 text-xs transition-colors",
+                      SETTINGS_WIZARD_STEP_BUTTON_CLASS,
                       isActive
                         ? "bg-foreground/[0.08] text-foreground"
                         : isComplete
@@ -1577,7 +1652,7 @@ function useProviderSettingsSectionComponent({
                     disabled={index > addProviderCurrentStepIndex}
                   >
                     {step.label}
-                  </button>
+                  </Button>
                 );
               })}
             </div>
@@ -1585,21 +1660,23 @@ function useProviderSettingsSectionComponent({
 
           <DialogPanel className="p-4 sm:p-5">
             {addProviderStep === "provider" ? (
-              <div className="grid gap-2 sm:grid-cols-2" data-provider-setup-step="provider">
+              <div className="flex flex-col gap-3" data-provider-setup-step="provider">
                 {providerCards.map((candidate) => {
                   const CandidateLogo = PROVIDER_LOGO_BY_PROVIDER[candidate.provider];
                   const candidateName = getProviderCardDisplayName(candidate);
                   const isSelected = candidate.provider === addProviderDraft.provider;
                   const instanceCount = draftProviders[candidate.provider].instances.length;
                   return (
-                    <button
+                    <Button
                       key={`provider-setup:${candidate.provider}`}
                       type="button"
+                      variant="ghost"
                       className={cn(
-                        "flex min-w-0 items-center gap-3 rounded-[var(--control-radius)] px-3 py-2.5 text-left transition-colors",
+                        SETTINGS_LIST_ROW_BUTTON_CLASS,
+                        "h-auto w-full justify-start gap-3 rounded-[var(--control-radius)] px-3 py-2.5",
                         isSelected
                           ? "bg-foreground/[0.07] text-foreground"
-                          : "bg-transparent text-muted-foreground hover:bg-foreground/[0.012]",
+                          : "bg-transparent text-muted-foreground hover:bg-foreground/[0.04]",
                       )}
                       onClick={() => selectAddProvider(candidate.provider)}
                     >
@@ -1614,7 +1691,7 @@ function useProviderSettingsSectionComponent({
                             : `${instanceCount} account${instanceCount === 1 ? "" : "s"}`}
                         </span>
                       </span>
-                    </button>
+                    </Button>
                   );
                 })}
               </div>
@@ -1622,10 +1699,10 @@ function useProviderSettingsSectionComponent({
 
             {addProviderStep === "setup" ? (
               <div className="space-y-4" data-provider-setup-step="setup">
-                <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+                <div className="flex flex-col gap-3">
                   <label htmlFor="add-provider-name" className="block">
                     <span className="text-[11px] font-medium text-foreground/75">Name</span>
-                    <Input
+                    <SettingsInput
                       id="add-provider-name"
                       className="mt-1"
                       value={addProviderDraft.label}
@@ -1660,7 +1737,7 @@ function useProviderSettingsSectionComponent({
                   </div>
                 </div>
 
-                <div className="grid gap-3 sm:grid-cols-2">
+                <div className="flex flex-col gap-3">
                   <div>
                     <div className="mb-1 text-[11px] font-medium text-foreground/75">Badge</div>
                     <div className="flex flex-wrap items-center gap-1 py-1">
@@ -1672,10 +1749,13 @@ function useProviderSettingsSectionComponent({
                           <Tooltip key={badgeIcon.value}>
                             <TooltipTrigger
                               render={
-                                <button
+                                <Button
                                   type="button"
+                                  variant="ghost"
+                                  size="icon-sm"
                                   className={cn(
-                                    "flex size-7 items-center justify-center rounded-[calc(var(--control-radius)-3px)] text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground",
+                                    SETTINGS_ICON_CHOICE_BUTTON_CLASS,
+                                    "rounded-[calc(var(--control-radius)-3px)] text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground",
                                     selectedIcon && "bg-foreground/[0.08] text-foreground",
                                   )}
                                   onClick={() =>
@@ -1688,14 +1768,14 @@ function useProviderSettingsSectionComponent({
                                     })
                                   }
                                   aria-label={`Use ${badgeIcon.label} badge icon`}
-                                >
-                                  <ProviderInstanceBadgeIconGlyph
-                                    icon={badgeIcon.value}
-                                    className="size-3.5"
-                                  />
-                                </button>
+                                />
                               }
-                            />
+                            >
+                              <ProviderInstanceBadgeIconGlyph
+                                icon={badgeIcon.value}
+                                className="size-3.5"
+                              />
+                            </TooltipTrigger>
                             <TooltipPopup side="top">{badgeIcon.label}</TooltipPopup>
                           </Tooltip>
                         );
@@ -1714,10 +1794,13 @@ function useProviderSettingsSectionComponent({
                           <Tooltip key={badgeColor.value}>
                             <TooltipTrigger
                               render={
-                                <button
+                                <Button
                                   type="button"
+                                  variant="ghost"
+                                  size="icon-sm"
                                   className={cn(
-                                    "flex size-7 items-center justify-center rounded-full border border-transparent transition-colors hover:border-border/70",
+                                    SETTINGS_COLOR_SWATCH_BUTTON_CLASS,
+                                    "hover:border-border/70",
                                     selectedColor && "border-foreground/75",
                                   )}
                                   onClick={() =>
@@ -1730,15 +1813,15 @@ function useProviderSettingsSectionComponent({
                                     })
                                   }
                                   aria-label={`Use ${badgeColor.label} badge color`}
-                                >
-                                  <span
-                                    aria-hidden="true"
-                                    className="size-3.5 rounded-full"
-                                    style={{ backgroundColor: badgeColor.hex }}
-                                  />
-                                </button>
+                                />
                               }
-                            />
+                            >
+                              <span
+                                aria-hidden="true"
+                                className="size-3.5 rounded-full"
+                                style={{ backgroundColor: badgeColor.hex }}
+                              />
+                            </TooltipTrigger>
                             <TooltipPopup side="top">{badgeColor.label}</TooltipPopup>
                           </Tooltip>
                         );
@@ -1747,10 +1830,10 @@ function useProviderSettingsSectionComponent({
                   </div>
                 </div>
 
-                <div className="grid gap-3 sm:grid-cols-2">
+                <div className="flex flex-col gap-3">
                   <label htmlFor="add-provider-binary-path" className="block">
                     <span className="text-[11px] font-medium text-foreground/75">Binary path</span>
-                    <Input
+                    <SettingsInput
                       id="add-provider-binary-path"
                       className="mt-1"
                       value={addProviderDraft.binaryPath}
@@ -1773,7 +1856,7 @@ function useProviderSettingsSectionComponent({
                       <span className="text-[11px] font-medium text-foreground/75">
                         {addProviderPathLabel}
                       </span>
-                      <Input
+                      <SettingsInput
                         id="add-provider-path"
                         className="mt-1"
                         value={addProviderDraft.pathValue}
@@ -1797,7 +1880,7 @@ function useProviderSettingsSectionComponent({
                       <span className="text-[11px] font-medium text-foreground/75">
                         CLI server URL
                       </span>
-                      <Input
+                      <SettingsInput
                         id="add-provider-cli-url"
                         className="mt-1"
                         value={addProviderDraft.cliUrl}
@@ -1863,7 +1946,7 @@ function useProviderSettingsSectionComponent({
                   </div>
                 </div>
 
-                <div className="grid gap-1 text-xs sm:grid-cols-2">
+                <div className="flex flex-col gap-2 text-xs">
                   <div className="rounded-[var(--control-radius)] bg-foreground/[0.025] px-3 py-2">
                     <div className="text-muted-foreground/60">Binary</div>
                     <div className="mt-0.5 truncate text-foreground/90">
@@ -1929,7 +2012,7 @@ function useProviderSettingsSectionComponent({
           </DialogFooter>
         </DialogPopup>
       </Dialog>
-    </SettingsSection>
+    </>
   );
 }
 

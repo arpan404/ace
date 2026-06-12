@@ -13,6 +13,10 @@ interface HostConnectionState {
   readonly threadConnectionById: Record<string, string>;
   readonly ownershipByConnectionUrl: Record<string, ConnectionOwnership>;
   readonly getOwnership: (connectionUrl: string) => ConnectionOwnership | undefined;
+  readonly mergeSnapshotOwnership: (
+    connectionUrl: string,
+    snapshot: OrchestrationReadModel,
+  ) => void;
   readonly upsertSnapshotOwnership: (
     connectionUrl: string,
     snapshot: OrchestrationReadModel,
@@ -109,6 +113,20 @@ function removeOwnershipConflicts(
   return changed ? nextOwnershipByConnectionUrl : ownershipByConnectionUrl;
 }
 
+function mergeOwnership(
+  existingOwnership: ConnectionOwnership | undefined,
+  incomingOwnership: ConnectionOwnership,
+): ConnectionOwnership {
+  return {
+    projectIds: Array.from(
+      new Set([...(existingOwnership?.projectIds ?? []), ...incomingOwnership.projectIds]),
+    ),
+    threadIds: Array.from(
+      new Set([...(existingOwnership?.threadIds ?? []), ...incomingOwnership.threadIds]),
+    ),
+  };
+}
+
 export const useHostConnectionStore = create<HostConnectionState>((set, get) => ({
   projectConnectionById: {},
   threadConnectionById: {},
@@ -116,6 +134,39 @@ export const useHostConnectionStore = create<HostConnectionState>((set, get) => 
   getOwnership: (connectionUrl) => {
     const normalizedConnectionUrl = normalizeWsUrl(connectionUrl);
     return get().ownershipByConnectionUrl[normalizedConnectionUrl];
+  },
+  mergeSnapshotOwnership: (connectionUrl, snapshot) => {
+    const normalizedConnectionUrl = normalizeWsUrl(connectionUrl);
+    const snapshotOwnership = resolveSnapshotOwnership(snapshot);
+    set((state) => {
+      const nextOwnership = mergeOwnership(
+        state.ownershipByConnectionUrl[normalizedConnectionUrl],
+        snapshotOwnership,
+      );
+      const ownershipByConnectionUrl = removeOwnershipConflicts(
+        state.ownershipByConnectionUrl,
+        normalizedConnectionUrl,
+        nextOwnership,
+      );
+      return {
+        projectConnectionById: {
+          ...state.projectConnectionById,
+          ...Object.fromEntries(
+            nextOwnership.projectIds.map((projectId) => [projectId, normalizedConnectionUrl]),
+          ),
+        },
+        threadConnectionById: {
+          ...state.threadConnectionById,
+          ...Object.fromEntries(
+            nextOwnership.threadIds.map((threadId) => [threadId, normalizedConnectionUrl]),
+          ),
+        },
+        ownershipByConnectionUrl: {
+          ...ownershipByConnectionUrl,
+          [normalizedConnectionUrl]: nextOwnership,
+        },
+      };
+    });
   },
   upsertSnapshotOwnership: (connectionUrl, snapshot) => {
     const normalizedConnectionUrl = normalizeWsUrl(connectionUrl);

@@ -7,13 +7,10 @@ import {
   type GitManagerServiceError,
   OrchestrationDispatchCommandError,
   type OrchestrationEvent,
-  type OrchestrationGetSnapshotInput,
-  type OrchestrationGetThreadTimelineManifestInput,
-  type OrchestrationGetThreadTimelinePageInput,
-  type OrchestrationReadModel,
+  type OrchestrationGetThreadTimelineRowsSnapshotChunkInput,
+  type OrchestrationGetThreadTimelineRowsSnapshotInput,
   type ProviderKind,
   type ServerProvider,
-  type ThreadId,
   OrchestrationGetFullThreadDiffError,
   OrchestrationGetSnapshotError,
   OrchestrationGetThreadError,
@@ -30,6 +27,7 @@ import {
   ProjectWriteFileError,
   OrchestrationReplayEventsError,
   type TerminalEvent,
+  TextGenerationError,
   type BrowserBridgeRequest,
   ServerLspToolsError,
   ServerProviderCliUpgradeError,
@@ -56,10 +54,18 @@ import { browserBridge } from "./browserBridge";
 import { ServerConfig } from "./config";
 import { GitCore } from "./git/Services/GitCore";
 import { GitManager } from "./git/Services/GitManager";
+import { TextGeneration } from "./git/Services/TextGeneration";
+import { resolveTextGenerationModelSelection } from "./git/textGenerationModelSelection";
 import { Keybindings } from "./keybindings";
 import { Open, resolveAvailableEditors } from "./open";
 import { normalizeDispatchCommand } from "./orchestration/Normalizer";
-import { createReadModelSnapshotViewCache } from "./orchestration/readModelSnapshotView";
+import {
+  sanitizeOrchestrationEventForClient,
+  sanitizeReadModelForClient,
+  sanitizeThreadForClient,
+  sanitizeTimelineRowsSnapshotChunkForClient,
+  sanitizeTimelineRowsSnapshotForClient,
+} from "./orchestration/publicPresentation";
 import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine";
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
 import { ProviderRegistry } from "./provider/Services/ProviderRegistry";
@@ -266,37 +272,6 @@ function selectDueProviderForRefresh(
   return oldestDueProviders[selectedIndex]?.provider ?? null;
 }
 
-function hasExplicitSnapshotHydrationMode(
-  input: OrchestrationGetSnapshotInput | undefined,
-): input is OrchestrationGetSnapshotInput & { readonly hydrateThreadId: ThreadId | null } {
-  return input !== undefined && Object.prototype.hasOwnProperty.call(input, "hydrateThreadId");
-}
-
-function replaceSnapshotThread(
-  snapshot: OrchestrationReadModel,
-  threadId: OrchestrationReadModel["threads"][number]["id"],
-  nextThread: OrchestrationReadModel["threads"][number],
-): OrchestrationReadModel {
-  const threadIndex = snapshot.threads.findIndex((thread) => thread.id === threadId);
-  if (threadIndex === -1) {
-    return snapshot;
-  }
-  if (snapshot.threads[threadIndex] === nextThread) {
-    return snapshot;
-  }
-
-  const threads = snapshot.threads.slice();
-  threads[threadIndex] = nextThread;
-  return {
-    ...snapshot,
-    threads,
-    updatedAt:
-      snapshot.updatedAt.localeCompare(nextThread.updatedAt) >= 0
-        ? snapshot.updatedAt
-        : nextThread.updatedAt,
-  };
-}
-
 async function getDirectorySizeBytes(path: string): Promise<WorktreeSizeStats> {
   let entryStat;
   try {
@@ -438,6 +413,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
     const open = yield* Open;
     const gitManager = yield* GitManager;
     const git = yield* GitCore;
+    const textGeneration = yield* TextGeneration;
     const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
     const terminalManager = yield* TerminalManager;
     const providerRegistry = yield* ProviderRegistry;
@@ -451,7 +427,6 @@ const WsRpcLayer = WsRpcGroup.toLayer(
     const workspaceEditor = yield* WorkspaceEditor;
     const workspaceFileEventsOption = yield* Effect.serviceOption(WorkspaceFileEvents);
     const workspaceFileSystem = yield* WorkspaceFileSystem;
-    const snapshotViewCache = createReadModelSnapshotViewCache();
 
     const loadServerConfig = Effect.gen(function* () {
       const keybindingsConfig = yield* keybindings.loadConfigState;
@@ -583,33 +558,10 @@ const WsRpcLayer = WsRpcGroup.toLayer(
         Stream.filter(() => isCurrentWsClientSession(input.clientSessionId, input.connectionId)),
       );
 
-    const loadSnapshot = (input?: OrchestrationGetSnapshotInput) =>
-      Effect.gen(function* () {
-        if (!hasExplicitSnapshotHydrationMode(input)) {
-          return yield* projectionSnapshotQuery.getSnapshot(input);
-        }
-
-        const hydrateThreadId = input.hydrateThreadId ?? null;
-        const [readModel, hydratedThread] = yield* Effect.all([
-          orchestrationEngine.getReadModel(),
-          hydrateThreadId === null
-            ? Effect.succeed(Option.none<OrchestrationReadModel["threads"][number]>())
-            : projectionSnapshotQuery.getThread(hydrateThreadId),
-        ]);
-        const snapshot = snapshotViewCache.getSnapshot(readModel, input);
-        if (hydrateThreadId === null) {
-          return snapshot;
-        }
-
-        return Option.match(hydratedThread, {
-          onNone: () => snapshot,
-          onSome: (thread) => replaceSnapshotThread(snapshot, hydrateThreadId, thread),
-        });
-      });
-
     return WsRpcGroup.of({
       [ORCHESTRATION_WS_METHODS.getSnapshot]: (input) =>
-        loadSnapshot(input).pipe(
+        projectionSnapshotQuery.getSnapshot(input).pipe(
+          Effect.map(sanitizeReadModelForClient),
           Effect.mapError(
             (cause) =>
               new OrchestrationGetSnapshotError({
@@ -628,7 +580,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
                     message: `Thread '${input.threadId}' was not found.`,
                   }),
                 ),
-              onSome: Effect.succeed,
+              onSome: (value) => Effect.succeed(sanitizeThreadForClient(value)),
             }),
           ),
           Effect.mapError((cause) =>
@@ -640,50 +592,50 @@ const WsRpcLayer = WsRpcGroup.toLayer(
                 }),
           ),
         ),
-      [ORCHESTRATION_WS_METHODS.getThreadTimelinePage]: (
-        input: OrchestrationGetThreadTimelinePageInput,
+      [ORCHESTRATION_WS_METHODS.getThreadTimelineRowsSnapshot]: (
+        input: OrchestrationGetThreadTimelineRowsSnapshotInput,
       ) =>
-        projectionSnapshotQuery.getThreadTimelinePage(input).pipe(
-          Effect.flatMap((page) =>
-            Option.match(page, {
+        projectionSnapshotQuery.getThreadTimelineRowsSnapshot(input).pipe(
+          Effect.flatMap((snapshot) =>
+            Option.match(snapshot, {
               onNone: () =>
                 Effect.fail(
                   new OrchestrationGetThreadError({
                     message: `Thread '${input.threadId}' was not found.`,
                   }),
                 ),
-              onSome: Effect.succeed,
+              onSome: (value) => Effect.succeed(sanitizeTimelineRowsSnapshotForClient(value)),
             }),
           ),
           Effect.mapError((cause) =>
             Schema.is(OrchestrationGetThreadError)(cause)
               ? cause
               : new OrchestrationGetThreadError({
-                  message: "Failed to load orchestration thread timeline page",
+                  message: "Failed to load orchestration thread timeline rows snapshot",
                   cause,
                 }),
           ),
         ),
-      [ORCHESTRATION_WS_METHODS.getThreadTimelineManifest]: (
-        input: OrchestrationGetThreadTimelineManifestInput,
+      [ORCHESTRATION_WS_METHODS.getThreadTimelineRowsSnapshotChunk]: (
+        input: OrchestrationGetThreadTimelineRowsSnapshotChunkInput,
       ) =>
-        projectionSnapshotQuery.getThreadTimelineManifest(input).pipe(
-          Effect.flatMap((manifest) =>
-            Option.match(manifest, {
+        projectionSnapshotQuery.getThreadTimelineRowsSnapshotChunk(input).pipe(
+          Effect.flatMap((snapshot) =>
+            Option.match(snapshot, {
               onNone: () =>
                 Effect.fail(
                   new OrchestrationGetThreadError({
                     message: `Thread '${input.threadId}' was not found.`,
                   }),
                 ),
-              onSome: Effect.succeed,
+              onSome: (value) => Effect.succeed(sanitizeTimelineRowsSnapshotChunkForClient(value)),
             }),
           ),
           Effect.mapError((cause) =>
             Schema.is(OrchestrationGetThreadError)(cause)
               ? cause
               : new OrchestrationGetThreadError({
-                  message: "Failed to load orchestration thread timeline manifest",
+                  message: "Failed to load orchestration thread timeline rows snapshot chunk",
                   cause,
                 }),
           ),
@@ -728,7 +680,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
             clamp(input.fromSequenceExclusive, { maximum: Number.MAX_SAFE_INTEGER, minimum: 0 }),
           ),
         ).pipe(
-          Effect.map((events) => Array.from(events)),
+          Effect.map((events) => Array.from(events).map(sanitizeOrchestrationEventForClient)),
           Effect.mapError(
             (cause) =>
               new OrchestrationReplayEventsError({
@@ -749,7 +701,9 @@ const WsRpcLayer = WsRpcGroup.toLayer(
               Effect.catch(() => Effect.succeed([] as Array<OrchestrationEvent>)),
             );
             const replayStream = Stream.fromIterable(replayEvents);
-            const source = Stream.merge(replayStream, orchestrationEngine.streamDomainEvents);
+            const source = Stream.merge(replayStream, orchestrationEngine.streamDomainEvents).pipe(
+              Stream.map(sanitizeOrchestrationEventForClient),
+            );
             type SequenceState = {
               readonly nextSequence: number;
               readonly pendingBySequence: Map<number, OrchestrationEvent>;
@@ -869,6 +823,27 @@ const WsRpcLayer = WsRpcGroup.toLayer(
               await server.close();
             }
           }).pipe(Effect.orDie);
+        }),
+      [WS_METHODS.serverGenerateNewThreadRecommendations]: (input) =>
+        Effect.gen(function* () {
+          const settings = yield* serverSettings.getSettings.pipe(
+            Effect.mapError(
+              (cause) =>
+                new TextGenerationError({
+                  operation: "generateNewThreadRecommendations",
+                  detail: cause.message,
+                  cause,
+                }),
+            ),
+          );
+          return yield* textGeneration.generateNewThreadRecommendations({
+            cwd: input.cwd,
+            turns: input.turns,
+            modelSelection: resolveTextGenerationModelSelection({
+              serverSettings: settings,
+              fallbackModelSelection: input.modelSelection,
+            }),
+          });
         }),
       [WS_METHODS.serverGetLspToolsStatus]: (_input) =>
         Effect.tryPromise({

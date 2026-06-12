@@ -97,6 +97,31 @@ export interface WorkspaceSummaryGenerationResult {
   risks: ReadonlyArray<string>;
 }
 
+export interface NewThreadRecommendationContextTurn {
+  threadId: string;
+  title: string;
+  latestUserMessage: string;
+  latestAssistantMessage: string;
+  updatedAt: string;
+}
+
+export interface NewThreadRecommendationsGenerationInput {
+  cwd: string;
+  turns: ReadonlyArray<NewThreadRecommendationContextTurn>;
+  /** What model and provider to use for generation. */
+  modelSelection: ModelSelection;
+}
+
+export interface NewThreadRecommendation {
+  title: string;
+  description: string;
+  prompt: string;
+}
+
+export interface NewThreadRecommendationsGenerationResult {
+  recommendations: ReadonlyArray<NewThreadRecommendation>;
+}
+
 export interface TextGenerationService {
   generateCommitMessage(
     input: CommitMessageGenerationInput,
@@ -107,6 +132,9 @@ export interface TextGenerationService {
   generateWorkspaceSummary(
     input: WorkspaceSummaryGenerationInput,
   ): Promise<WorkspaceSummaryGenerationResult>;
+  generateNewThreadRecommendations(
+    input: NewThreadRecommendationsGenerationInput,
+  ): Promise<NewThreadRecommendationsGenerationResult>;
 }
 
 /**
@@ -147,6 +175,13 @@ export interface TextGenerationShape {
   readonly generateWorkspaceSummary: (
     input: WorkspaceSummaryGenerationInput,
   ) => Effect.Effect<WorkspaceSummaryGenerationResult, TextGenerationError>;
+
+  /**
+   * Generate suggested next prompts for the new-thread landing page.
+   */
+  readonly generateNewThreadRecommendations: (
+    input: NewThreadRecommendationsGenerationInput,
+  ) => Effect.Effect<NewThreadRecommendationsGenerationResult, TextGenerationError>;
 }
 
 /**

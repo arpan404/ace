@@ -1,8 +1,5 @@
 import type { WorkspaceFindMatchSummary, WorkspaceFindState } from "~/lib/editor/workspaceFind";
-import {
-  APP_FLOATING_TOOLBAR_CLASS_NAME,
-  APP_SETTINGS_FIELD_CLASS_NAME,
-} from "~/lib/appChrome";
+import { APP_FLOATING_TOOLBAR_CLASS_NAME, APP_SETTINGS_FIELD_CLASS_NAME } from "~/lib/appChrome";
 import { cn } from "~/lib/utils";
 import {
   ArrowDownIcon,

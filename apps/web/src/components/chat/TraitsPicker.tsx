@@ -38,6 +38,35 @@ import {
 import { useComposerDraftStore } from "../../composerDraftStore";
 import { getProviderModelCapabilities } from "../../providerModels";
 import { cn } from "~/lib/utils";
+import { APP_SETTINGS_PICKER_TRIGGER_CLASS_NAME } from "~/lib/appChrome";
+
+function traitsPickerTriggerVariant(
+  triggerSurface: "composer" | "settings" | undefined,
+  triggerVariant?: VariantProps<typeof buttonVariants>["variant"],
+) {
+  return triggerSurface === "settings" ? "ghost" : (triggerVariant ?? "ghost");
+}
+
+function traitsPickerTriggerClassName(
+  triggerSurface: "composer" | "settings" | undefined,
+  isCodexStyle: boolean,
+  triggerClassName?: string,
+) {
+  if (triggerSurface === "settings") {
+    return cn(
+      APP_SETTINGS_PICKER_TRIGGER_CLASS_NAME,
+      "min-w-0 max-w-none shrink-0",
+      triggerClassName,
+    );
+  }
+
+  return cn(
+    isCodexStyle
+      ? "min-w-0 max-w-40 shrink justify-start overflow-hidden whitespace-nowrap px-2 text-muted-foreground/60 transition-colors duration-150 hover:text-foreground/70 sm:max-w-48 sm:px-2.5 [&_svg]:mx-0"
+      : "shrink-0 whitespace-nowrap px-2 text-muted-foreground/60 transition-colors duration-150 hover:text-foreground/70 sm:px-2.5",
+    triggerClassName,
+  );
+}
 import {
   cursorFacetValues,
   pickCursorModelFromTraits,
@@ -539,6 +568,7 @@ export interface TraitsMenuContentProps {
   showFastInTriggerLabel?: boolean;
   triggerVariant?: VariantProps<typeof buttonVariants>["variant"];
   triggerClassName?: string;
+  triggerSurface?: "composer" | "settings";
   sessionConfigOptions?: ReadonlyArray<ProviderSessionConfigOption> | undefined;
 }
 
@@ -776,6 +806,7 @@ export const TraitsPicker = memo(function TraitsPicker({
   showFastInTriggerLabel = true,
   triggerVariant,
   triggerClassName,
+  triggerSurface,
   sessionConfigOptions,
   ...persistence
 }: TraitsMenuContentProps & TraitsPersistence) {
@@ -799,11 +830,8 @@ export const TraitsPicker = memo(function TraitsPicker({
           render={
             <Button
               size="sm"
-              variant={triggerVariant ?? "ghost"}
-              className={cn(
-                "shrink-0 whitespace-nowrap px-2 text-muted-foreground/60 transition-colors duration-150 hover:text-foreground/70 sm:px-2.5",
-                triggerClassName,
-              )}
+              variant={traitsPickerTriggerVariant(triggerSurface, triggerVariant)}
+              className={traitsPickerTriggerClassName(triggerSurface, false, triggerClassName)}
             />
           }
         >
@@ -886,13 +914,8 @@ export const TraitsPicker = memo(function TraitsPicker({
         render={
           <Button
             size="sm"
-            variant={triggerVariant ?? "ghost"}
-            className={cn(
-              isCodexStyle
-                ? "min-w-0 max-w-40 shrink justify-start overflow-hidden whitespace-nowrap px-2 text-muted-foreground/60 transition-colors duration-150 hover:text-foreground/70 sm:max-w-48 sm:px-2.5 [&_svg]:mx-0"
-                : "shrink-0 whitespace-nowrap px-2 text-muted-foreground/60 transition-colors duration-150 hover:text-foreground/70 sm:px-2.5",
-              triggerClassName,
-            )}
+            variant={traitsPickerTriggerVariant(triggerSurface, triggerVariant)}
+            className={traitsPickerTriggerClassName(triggerSurface, isCodexStyle, triggerClassName)}
           />
         }
       >

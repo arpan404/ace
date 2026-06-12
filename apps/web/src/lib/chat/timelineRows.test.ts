@@ -1,11 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { MessageId, TurnId } from "@ace/contracts";
 
-import {
-  buildTimelineRows,
-  isCompletedAssistantMessageRow,
-  shouldWorkerizeTimelineRows,
-} from "./timelineRows";
+import { buildTimelineRows, isCompletedAssistantMessageRow } from "./timelineRows";
 import { createMarkedProviderCommandToken } from "../../composer-editor-mentions";
 import type { TimelineEntry } from "../../session-logic/types";
 
@@ -27,13 +23,39 @@ describe("timelineRows", () => {
     ];
     const rows = buildTimelineRows({
       timelineEntries,
-      activeTurnInProgress: false,
+      activeTurnInProgress: true,
       activeTurnStartedAt: null,
       completionDividerBeforeEntryId: null,
       completionSummary: null,
       isWorking: true,
     });
     expect(rows.at(-1)).toMatchObject({ kind: "working" });
+  });
+
+  it("does not append a working indicator without an active turn", () => {
+    const rows = buildTimelineRows({
+      timelineEntries: [
+        {
+          id: "user-1",
+          kind: "message",
+          createdAt: "2025-01-01T00:00:00.000Z",
+          message: {
+            id: MessageId.makeUnsafe("user-1"),
+            role: "user",
+            text: "hi",
+            createdAt: "2025-01-01T00:00:00.000Z",
+            streaming: false,
+          },
+        },
+      ],
+      activeTurnInProgress: false,
+      activeTurnStartedAt: null,
+      completionDividerBeforeEntryId: null,
+      completionSummary: null,
+      isWorking: true,
+    });
+
+    expect(rows.some((row) => row.kind === "working")).toBe(false);
   });
 
   it("precomputes collapsed work group summary projections", () => {
@@ -120,7 +142,7 @@ describe("timelineRows", () => {
           },
         },
       ],
-      activeTurnInProgress: false,
+      activeTurnInProgress: true,
       activeTurnStartedAt: null,
       completionDividerBeforeEntryId: null,
       completionSummary: null,
@@ -147,7 +169,7 @@ describe("timelineRows", () => {
           },
         },
       ],
-      activeTurnInProgress: false,
+      activeTurnInProgress: true,
       activeTurnStartedAt: null,
       completionDividerBeforeEntryId: null,
       completionSummary: null,
@@ -325,6 +347,92 @@ describe("timelineRows", () => {
       createdAt: "2025-01-01T00:00:21.000Z",
       goalStartedAt: "2025-01-01T00:00:00.000Z",
     });
+  });
+
+  it("keeps consecutive assistant goal progress messages visible when completed work is hidden", () => {
+    const turnId = TurnId.makeUnsafe("goal-progress-turn");
+    const rows = buildTimelineRows({
+      timelineEntries: [
+        {
+          id: "user-goal-progress-visible",
+          kind: "message",
+          createdAt: "2025-01-01T00:00:00.000Z",
+          message: {
+            id: MessageId.makeUnsafe("user-goal-progress-visible"),
+            role: "user",
+            text: "/goal Ship the feature",
+            createdAt: "2025-01-01T00:00:00.000Z",
+            streaming: false,
+          },
+        },
+        {
+          id: "assistant-goal-progress-1",
+          kind: "message",
+          createdAt: "2025-01-01T00:00:05.000Z",
+          message: {
+            id: MessageId.makeUnsafe("assistant-goal-progress-1"),
+            role: "assistant",
+            turnId,
+            text: "I found the first issue.",
+            createdAt: "2025-01-01T00:00:05.000Z",
+            completedAt: "2025-01-01T00:00:10.000Z",
+            streaming: false,
+          },
+        },
+        {
+          id: "assistant-goal-progress-2",
+          kind: "message",
+          createdAt: "2025-01-01T00:00:15.000Z",
+          message: {
+            id: MessageId.makeUnsafe("assistant-goal-progress-2"),
+            role: "assistant",
+            turnId,
+            text: "I am applying the fix.",
+            createdAt: "2025-01-01T00:00:15.000Z",
+            completedAt: "2025-01-01T00:00:20.000Z",
+            streaming: false,
+          },
+        },
+      ],
+      activeTurnInProgress: true,
+      activeTurnStartedAt: "2025-01-01T00:00:21.000Z",
+      completionDividerBeforeEntryId: null,
+      completionSummary: null,
+      enableGoalWorkingState: true,
+      hideCompletedWorkMessages: true,
+      isWorking: true,
+    });
+
+    expect(
+      rows
+        .filter((row) => row.kind === "message" && row.message.role === "assistant")
+        .map((row) => row.id),
+    ).toEqual(["assistant-goal-progress-1", "assistant-goal-progress-2"]);
+    expect(
+      rows.flatMap((row) =>
+        row.kind === "message" && row.message.role === "assistant"
+          ? [
+              {
+                id: row.id,
+                isAssistantTurnTerminal: row.isAssistantTurnTerminal,
+                showAssistantTiming: row.showAssistantTiming,
+              },
+            ]
+          : [],
+      ),
+    ).toEqual([
+      {
+        id: "assistant-goal-progress-1",
+        isAssistantTurnTerminal: true,
+        showAssistantTiming: true,
+      },
+      {
+        id: "assistant-goal-progress-2",
+        isAssistantTurnTerminal: true,
+        showAssistantTiming: true,
+      },
+    ]);
+    expect(rows.some((row) => row.kind === "completed-work-summary")).toBe(false);
   });
 
   it("stops showing the goal working activity after Codex reports goal completion", () => {
@@ -678,11 +786,14 @@ describe("timelineRows", () => {
       toolCallCount: 1,
       hiddenThinkingCount: 1,
       hiddenMessageCount: 0,
-      visibleDiagnosticCacheKey: "hidden-warning:15:0",
+      visibleDiagnosticCacheKey: "hidden-warning:0:0",
       visibleDiagnosticRows: [
         expect.objectContaining({
           kind: "work",
           id: "hidden-warning",
+          workEntry: expect.not.objectContaining({
+            detail: "Retry scheduled",
+          }),
         }),
       ],
     });
@@ -762,22 +873,15 @@ describe("timelineRows", () => {
         kind: "completed-work-summary",
         startedAt: "2025-01-01T00:06:45.000Z",
         endedAt: "2025-01-01T00:06:54.000Z",
-        entries: [
-          expect.objectContaining({
-            kind: "work",
-            id: "current-hidden-tool",
-          }),
-        ],
+        sourceEntryIds: ["current-hidden-tool"],
         detailRows: [
           expect.objectContaining({
             kind: "work-group",
             id: "current-hidden-tool",
-            entries: [
-              expect.objectContaining({
-                kind: "work",
-                id: "current-hidden-tool",
-              }),
-            ],
+            entries: [],
+            summary: expect.objectContaining({
+              toolCount: 1,
+            }),
           }),
         ],
       }),
@@ -790,8 +894,8 @@ describe("timelineRows", () => {
     );
     const summaryRow = rows.find((row) => row.kind === "completed-work-summary");
     expect(
-      summaryRow?.kind === "completed-work-summary" ? summaryRow.entries : [],
-    ).not.toContainEqual(expect.objectContaining({ id: "old-hidden-tool" }));
+      summaryRow?.kind === "completed-work-summary" ? summaryRow.sourceEntryIds : [],
+    ).not.toContain("old-hidden-tool");
     expect(
       summaryRow?.kind === "completed-work-summary"
         ? summaryRow.detailRows.flatMap((row) => (row.kind === "work-group" ? row.entries : []))
@@ -873,12 +977,7 @@ describe("timelineRows", () => {
       kind: "completed-work-summary",
       startedAt: "2025-01-01T00:00:03.000Z",
       endedAt: "2025-01-01T00:00:03.000Z",
-      entries: [
-        expect.objectContaining({
-          kind: "work",
-          id: "trailing-tool",
-        }),
-      ],
+      sourceEntryIds: ["trailing-tool"],
     });
   });
 
@@ -980,7 +1079,7 @@ describe("timelineRows", () => {
     ]);
   });
 
-  it("flushes trailing hidden completed work when no assistant message follows", () => {
+  it("omits runtime error work from the message timeline", () => {
     const rows = buildTimelineRows({
       timelineEntries: [
         {
@@ -1005,6 +1104,7 @@ describe("timelineRows", () => {
             label: "Runtime error",
             detail: "rate limit",
             tone: "error",
+            diagnosticKind: "runtime-error",
           },
         },
       ],
@@ -1016,23 +1116,8 @@ describe("timelineRows", () => {
       isWorking: false,
     });
 
-    expect(rows).toContainEqual(
-      expect.objectContaining({
-        kind: "completed-work-summary",
-        startedAt: "2025-01-01T00:00:03.000Z",
-        endedAt: "2025-01-01T00:00:03.000Z",
-        detailRows: [
-          expect.objectContaining({
-            kind: "work",
-            id: "runtime-error-final-event",
-            workEntry: expect.objectContaining({
-              tone: "error",
-              detail: "rate limit",
-            }),
-          }),
-        ],
-      }),
-    );
+    expect(rows.map((row) => row.id)).toEqual(["user-before-runtime-error"]);
+    expect(rows.some((row) => row.kind === "completed-work-summary")).toBe(false);
   });
 
   it("hides non-final completed assistant messages when completed work details are hidden", () => {
@@ -1085,11 +1170,10 @@ describe("timelineRows", () => {
         endedAt: "2025-01-01T00:00:04.000Z",
         detailRows: [
           expect.objectContaining({
-            kind: "message",
-            id: "assistant-draft",
-            message: expect.objectContaining({
-              text: "I am checking this first.",
-            }),
+            kind: "assistant-update",
+            id: "hidden-assistant-update:assistant-draft",
+            text: "I am checking this first.",
+            truncated: false,
           }),
         ],
       }),
@@ -1097,37 +1181,103 @@ describe("timelineRows", () => {
     expect(rows).toHaveLength(2);
   });
 
-  it("workerizes large settled timelines only", () => {
-    expect(
-      shouldWorkerizeTimelineRows({
-        timelineEntries: Array.from({ length: 80 }, (_, index) => ({
-          id: `message-${index}`,
-          kind: "message" as const,
-          createdAt: "2025-01-01T00:00:00.000Z",
+  it("preserves hidden assistant update and tool group order inside completed work details", () => {
+    const turnId = TurnId.makeUnsafe("turn-ordered-details");
+    const rows = buildTimelineRows({
+      timelineEntries: [
+        {
+          id: "assistant-update-one",
+          kind: "message",
+          createdAt: "2025-01-01T00:00:01.000Z",
           message: {
-            id: MessageId.makeUnsafe(`message-${index}`),
-            role: "assistant" as const,
-            text: "x".repeat(1000),
-            createdAt: "2025-01-01T00:00:00.000Z",
+            id: MessageId.makeUnsafe("assistant-update-one"),
+            role: "assistant",
+            turnId,
+            text: "I am checking the repo first.",
+            createdAt: "2025-01-01T00:00:01.000Z",
+            completedAt: "2025-01-01T00:00:02.000Z",
             streaming: false,
           },
-        })),
-        activeTurnInProgress: false,
-        activeTurnStartedAt: null,
-        completionDividerBeforeEntryId: null,
-        completionSummary: null,
-        isWorking: false,
-      }),
-    ).toBe(true);
-    expect(
-      shouldWorkerizeTimelineRows({
-        timelineEntries: [],
-        activeTurnInProgress: true,
-        activeTurnStartedAt: "2025-01-01T00:00:00.000Z",
-        completionDividerBeforeEntryId: null,
-        completionSummary: null,
-        isWorking: true,
-      }),
-    ).toBe(false);
+        },
+        {
+          id: "hidden-command",
+          kind: "work",
+          createdAt: "2025-01-01T00:00:03.000Z",
+          entry: {
+            id: "hidden-command",
+            turnId,
+            createdAt: "2025-01-01T00:00:03.000Z",
+            label: "Run command",
+            requestKind: "command",
+            tone: "tool",
+          },
+        },
+        {
+          id: "assistant-update-two",
+          kind: "message",
+          createdAt: "2025-01-01T00:00:04.000Z",
+          message: {
+            id: MessageId.makeUnsafe("assistant-update-two"),
+            role: "assistant",
+            turnId,
+            text: "I confirmed the scripts and I am checking packages next.",
+            createdAt: "2025-01-01T00:00:04.000Z",
+            completedAt: "2025-01-01T00:00:05.000Z",
+            streaming: false,
+          },
+        },
+        {
+          id: "assistant-final",
+          kind: "message",
+          createdAt: "2025-01-01T00:00:06.000Z",
+          message: {
+            id: MessageId.makeUnsafe("assistant-final"),
+            role: "assistant",
+            turnId,
+            text: "Done.",
+            createdAt: "2025-01-01T00:00:06.000Z",
+            completedAt: "2025-01-01T00:00:07.000Z",
+            streaming: false,
+          },
+        },
+      ],
+      activeTurnInProgress: false,
+      activeTurnStartedAt: null,
+      completionDividerBeforeEntryId: null,
+      completionSummary: null,
+      hideCompletedWorkMessages: true,
+      isWorking: false,
+    });
+
+    const summaryRow = rows.find((row) => row.kind === "completed-work-summary");
+    expect(summaryRow?.kind).toBe("completed-work-summary");
+    if (summaryRow?.kind !== "completed-work-summary") {
+      throw new Error("Expected a completed work summary row.");
+    }
+
+    expect(summaryRow.detailRows.map((row) => row.id)).toEqual([
+      "hidden-assistant-update:assistant-update-one",
+      "hidden-command",
+      "hidden-assistant-update:assistant-update-two",
+    ]);
+    expect(summaryRow.detailRows).toMatchObject([
+      {
+        kind: "assistant-update",
+        text: "I am checking the repo first.",
+      },
+      {
+        kind: "work-group",
+        summary: expect.objectContaining({
+          toolCount: 1,
+          toolSummaryCounts: expect.objectContaining({
+            command: 1,
+          }),
+        }),
+      },
+      {
+        kind: "assistant-update",
+        text: "I confirmed the scripts and I am checking packages next.",
+      },
+    ]);
   });
 });

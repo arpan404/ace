@@ -28,11 +28,45 @@ export interface ActivityVisibilitySettings {
 
 const MAX_WORK_LOG_TERMINAL_OUTPUT_CHARS = 16_000;
 
+const HIDDEN_WORK_LOG_ACTIVITY_KINDS = new Set([
+  "config.warning",
+  "context-compaction",
+  "context-window",
+  "context-window.updated",
+  "checkpoint.captured",
+  "deprecation.notice",
+  "goal.cleared",
+  "goal.updated",
+  "runtime.warning",
+]);
+
+function isCheckpointCapturedActivity(activity: OrchestrationThreadActivity): boolean {
+  return (
+    activity.kind === "checkpoint.captured" ||
+    activity.summary.trim().toLowerCase() === "checkpoint captured"
+  );
+}
+
+function isHiddenWorkLogActivity(activity: OrchestrationThreadActivity): boolean {
+  if (isCheckpointCapturedActivity(activity)) {
+    return true;
+  }
+  if (HIDDEN_WORK_LOG_ACTIVITY_KINDS.has(activity.kind)) {
+    return true;
+  }
+
+  const normalizedSummary = activity.summary.trim().toLowerCase();
+  return (
+    normalizedSummary === "context window updated" || normalizedSummary === "context compacted"
+  );
+}
+
 export function filterVisibleWorkLogActivities(
   activities: ReadonlyArray<OrchestrationThreadActivity>,
   _visibility: ActivityVisibilitySettings,
 ): ReadonlyArray<OrchestrationThreadActivity> {
-  return activities;
+  const visibleActivities = activities.filter((activity) => !isHiddenWorkLogActivity(activity));
+  return visibleActivities.length === activities.length ? activities : visibleActivities;
 }
 
 function ensureActivitiesOrdered(
@@ -841,6 +875,9 @@ export function deriveWorkLogEntries(
   const ordered = ensureActivitiesOrdered(activities);
   const entries: DerivedWorkLogEntry[] = [];
   for (const activity of ordered) {
+    if (isCheckpointCapturedActivity(activity)) {
+      continue;
+    }
     if (latestTurnId && activity.turnId !== latestTurnId) {
       continue;
     }

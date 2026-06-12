@@ -1,6 +1,7 @@
 import { type OrchestrationLatestTurn } from "@ace/contracts";
 
 import { compareSequenceThenCreatedAt } from "../lib/activityOrder";
+import { getChatMessageRenderableText } from "../lib/chat/messageText";
 import type { ChatMessage, ProposedPlan, TimelineEntry, WorkLogEntry } from "./types";
 import {
   normalizeIntentComparisonText,
@@ -128,6 +129,19 @@ type TimelineSortEntry = {
   sequence?: number | undefined;
 };
 
+function isHiddenAssistantStatusMessage(message: ChatMessage): boolean {
+  if (message.role !== "assistant") {
+    return false;
+  }
+
+  const text = getChatMessageRenderableText(message).trim();
+  return (
+    /^Creating a thread goal from your\s+\/goal\s+command\.$/iu.test(text) ||
+    /^Active goals? set:\s*.+$/iu.test(text) ||
+    /^Active goals? cleared\.?$/iu.test(text)
+  );
+}
+
 function buildSortedTimelineEntries(
   messages: ReadonlyArray<ChatMessage>,
   proposedPlans: ReadonlyArray<ProposedPlan>,
@@ -137,6 +151,10 @@ function buildSortedTimelineEntries(
   let sourceIndex = 0;
 
   for (const message of messages) {
+    if (isHiddenAssistantStatusMessage(message)) {
+      continue;
+    }
+
     rawEntries.push({
       timelineEntry: {
         id: message.id,

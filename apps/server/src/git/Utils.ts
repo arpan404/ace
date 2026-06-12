@@ -135,6 +135,84 @@ export function sanitizeWorkspaceSummaryRisks(raw: ReadonlyArray<string>): Reado
   return sanitizeSummaryList(raw, 3);
 }
 
+function sanitizeRecommendationField(raw: string, fallback: string, maxLength: number): string {
+  const normalized = raw
+    .trim()
+    .split(/\r?\n/g)[0]
+    ?.trim()
+    .replace(/^['"`]+|['"`]+$/g, "")
+    .replace(/\s+/g, " ");
+
+  if (!normalized || normalized.length === 0) {
+    return fallback;
+  }
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+  return `${normalized.slice(0, Math.max(0, maxLength - 3)).trimEnd()}...`;
+}
+
+export function sanitizeNewThreadRecommendations(
+  raw: ReadonlyArray<{
+    readonly title: string;
+    readonly description: string;
+    readonly prompt: string;
+  }>,
+): ReadonlyArray<{
+  readonly title: string;
+  readonly description: string;
+  readonly prompt: string;
+}> {
+  const recommendations: Array<{ title: string; description: string; prompt: string }> = [];
+  const seenPrompts = new Set<string>();
+  for (const entry of raw) {
+    const title = sanitizeRecommendationField(entry.title, "", 64);
+    const description = sanitizeRecommendationField(entry.description, "", 120);
+    const prompt = entry.prompt.trim().replace(/\s+/g, " ");
+    if (
+      !isUsefulNewThreadRecommendation({ title, description, prompt }) ||
+      seenPrompts.has(prompt)
+    ) {
+      continue;
+    }
+    seenPrompts.add(prompt);
+    recommendations.push({
+      title,
+      description,
+      prompt: prompt.length <= 500 ? prompt : `${prompt.slice(0, 497).trimEnd()}...`,
+    });
+    if (recommendations.length >= 3) {
+      break;
+    }
+  }
+
+  return recommendations.length === 3 ? recommendations : [];
+}
+
+function isUsefulNewThreadRecommendation(input: {
+  readonly title: string;
+  readonly description: string;
+  readonly prompt: string;
+}): boolean {
+  if (input.title.length < 4 || input.description.length < 12 || input.prompt.length < 20) {
+    return false;
+  }
+
+  const joined = `${input.title} ${input.description} ${input.prompt}`.toLowerCase();
+  const genericFragments = [
+    "start a task",
+    "continue latest work",
+    "continue recent work",
+    "continue the latest",
+    "continue with the next useful",
+    "pick up from the recent",
+    "pick up from the latest",
+    "recent turns only contain greetings",
+    "state the coding task clearly",
+  ];
+  return !genericFragments.some((fragment) => joined.includes(fragment));
+}
+
 /** CLI name to human-readable label, e.g. "codex" → "Codex CLI (`codex`)" */
 function cliLabel(cliName: string): string {
   const capitalized = cliName.charAt(0).toUpperCase() + cliName.slice(1);
