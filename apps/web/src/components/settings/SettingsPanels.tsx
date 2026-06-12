@@ -3656,6 +3656,7 @@ function ProjectEnvironmentWorktrees({
   const [worktreeFilter, setWorktreeFilter] = useState<EnvironmentWorktreeFilter>("inactive");
   const [worktreeSort, setWorktreeSort] = useState<EnvironmentWorktreeSort>("oldest");
   const [cleanupAge, setCleanupAge] = useState<EnvironmentWorktreeCleanupAge>("30d");
+  const [cleanupReferenceTimeMs] = useState(() => Date.now());
   const [isCleaningWorktrees, setIsCleaningWorktrees] = useState(false);
   const [isDeletingSelectedWorktrees, setIsDeletingSelectedWorktrees] = useState(false);
   const [selectedWorktreePaths, setSelectedWorktreePaths] = useState<ReadonlySet<string>>(
@@ -3753,40 +3754,32 @@ function ProjectEnvironmentWorktrees({
         );
       });
   }, [statsByPath, worktreeFilter, worktreeSearch, worktreeSort, worktrees]);
-  useEffect(() => {
-    const availablePaths = new Set(worktrees.map((worktree) => worktree.path));
-    setSelectedWorktreePaths((current) => {
-      const next = new Set(Array.from(current).filter((path) => availablePaths.has(path)));
-      return next.size === current.size ? current : next;
-    });
-  }, [worktrees]);
+  const availableWorktreePaths = new Set(worktrees.map((worktree) => worktree.path));
+  const effectiveSelectedWorktreePaths = new Set(
+    Array.from(selectedWorktreePaths).filter((path) => availableWorktreePaths.has(path)),
+  );
   const visibleSelectableWorktrees = useMemo(
     () => visibleWorktrees.filter((worktree) => worktree.activeThread === null),
     [visibleWorktrees],
   );
-  const selectedWorktrees = useMemo(
-    () =>
-      worktrees.filter(
-        (worktree) => worktree.activeThread === null && selectedWorktreePaths.has(worktree.path),
-      ),
-    [selectedWorktreePaths, worktrees],
+  const selectedWorktrees = worktrees.filter(
+    (worktree) =>
+      worktree.activeThread === null && effectiveSelectedWorktreePaths.has(worktree.path),
   );
-  const selectedStorageBytes = useMemo(
-    () =>
-      selectedWorktrees.reduce(
-        (total, worktree) => total + (statsByPath.get(worktree.path)?.sizeBytes ?? 0),
-        0,
-      ),
-    [selectedWorktrees, statsByPath],
+  const selectedStorageBytes = selectedWorktrees.reduce(
+    (total, worktree) => total + (statsByPath.get(worktree.path)?.sizeBytes ?? 0),
+    0,
   );
-  const selectedLinkedChatCount = useMemo(
-    () => selectedWorktrees.reduce((total, worktree) => total + worktree.relatedThreads.length, 0),
-    [selectedWorktrees],
+  const selectedLinkedChatCount = selectedWorktrees.reduce(
+    (total, worktree) => total + worktree.relatedThreads.length,
+    0,
   );
   const allVisibleSelectableSelected =
     visibleSelectableWorktrees.length > 0 &&
-    visibleSelectableWorktrees.every((worktree) => selectedWorktreePaths.has(worktree.path));
-  const toggleWorktreeSelected = useCallback((path: string, selected: boolean) => {
+    visibleSelectableWorktrees.every((worktree) =>
+      effectiveSelectedWorktreePaths.has(worktree.path),
+    );
+  const toggleWorktreeSelected = (path: string, selected: boolean) => {
     setSelectedWorktreePaths((current) => {
       const next = new Set(current);
       if (selected) {
@@ -3796,32 +3789,33 @@ function ProjectEnvironmentWorktrees({
       }
       return next;
     });
-  }, []);
-  const setVisibleWorktreesSelected = useCallback(
-    (selected: boolean) => {
-      setSelectedWorktreePaths((current) => {
-        const next = new Set(current);
-        for (const worktree of visibleSelectableWorktrees) {
-          if (selected) {
-            next.add(worktree.path);
-          } else {
-            next.delete(worktree.path);
-          }
+  };
+  const setVisibleWorktreesSelected = (selected: boolean) => {
+    setSelectedWorktreePaths((current) => {
+      const next = new Set(current);
+      for (const worktree of visibleSelectableWorktrees) {
+        if (selected) {
+          next.add(worktree.path);
+        } else {
+          next.delete(worktree.path);
         }
-        return next;
-      });
-    },
-    [visibleSelectableWorktrees],
-  );
-  const clearSelectedWorktrees = useCallback(() => {
+      }
+      return next;
+    });
+  };
+  const clearSelectedWorktrees = () => {
     setSelectedWorktreePaths(new Set());
-  }, []);
+  };
   const cleanupCandidates = useMemo(() => {
-    const now = Date.now();
     return worktrees
       .filter((worktree) => worktree.activeThread === null)
       .filter((worktree) =>
-        isWorktreeOlderThan(worktree, statsByPath.get(worktree.path), cleanupAge, now),
+        isWorktreeOlderThan(
+          worktree,
+          statsByPath.get(worktree.path),
+          cleanupAge,
+          cleanupReferenceTimeMs,
+        ),
       )
       .toSorted(
         (left, right) =>
@@ -3830,7 +3824,7 @@ function ProjectEnvironmentWorktrees({
           left.displayName.localeCompare(right.displayName) ||
           left.path.localeCompare(right.path),
       );
-  }, [cleanupAge, statsByPath, worktrees]);
+  }, [cleanupAge, cleanupReferenceTimeMs, statsByPath, worktrees]);
   const cleanupStorageBytes = useMemo(
     () =>
       cleanupCandidates.reduce(
@@ -3843,7 +3837,7 @@ function ProjectEnvironmentWorktrees({
     () => cleanupCandidates.reduce((total, worktree) => total + worktree.relatedThreads.length, 0),
     [cleanupCandidates],
   );
-  const handleCleanupCandidates = useCallback(async () => {
+  const handleCleanupCandidates = async () => {
     const api = readNativeApi();
     if (!api || cleanupCandidates.length === 0 || isCleaningWorktrees) {
       return;
@@ -3890,18 +3884,8 @@ function ProjectEnvironmentWorktrees({
       throw error;
     }
     setIsCleaningWorktrees(false);
-  }, [
-    cleanupCandidates,
-    cleanupLinkedChatCount,
-    cleanupStorageBytes,
-    deleteWorktreeAndRelatedData,
-    isCleaningWorktrees,
-    project.cwd,
-    project.id,
-    projectConnectionUrl,
-    refetchBranches,
-  ]);
-  const handleDeleteSelectedWorktrees = useCallback(async () => {
+  };
+  const handleDeleteSelectedWorktrees = async () => {
     const api = readNativeApi();
     if (!api || selectedWorktrees.length === 0 || isDeletingSelectedWorktrees) {
       return;
@@ -3949,17 +3933,7 @@ function ProjectEnvironmentWorktrees({
       throw error;
     }
     setIsDeletingSelectedWorktrees(false);
-  }, [
-    deleteWorktreeAndRelatedData,
-    isDeletingSelectedWorktrees,
-    project.cwd,
-    project.id,
-    projectConnectionUrl,
-    refetchBranches,
-    selectedLinkedChatCount,
-    selectedStorageBytes,
-    selectedWorktrees,
-  ]);
+  };
 
   return (
     <div id={`project-environment-${project.id}`} className="flex min-w-0 flex-col gap-5 sm:gap-6">
@@ -4164,7 +4138,7 @@ function ProjectEnvironmentWorktrees({
               {visibleWorktrees.map((worktree) => {
                 const relatedChatCount = worktree.relatedThreads.length;
                 const isActive = worktree.activeThread !== null;
-                const isSelected = selectedWorktreePaths.has(worktree.path);
+                const isSelected = effectiveSelectedWorktreePaths.has(worktree.path);
                 const stats = statsByPath.get(worktree.path);
                 const isStorageRefreshing = statsIsFetching && worktreePaths.length > 0;
                 return (

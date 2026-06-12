@@ -336,6 +336,13 @@ export function useSidebarCommandPalette(
     () => new Map(searchPaletteItems.map((item, index) => [item.id, index] as const)),
     [searchPaletteItems],
   );
+  const effectiveSearchPaletteActiveIndex = !searchPaletteOpen
+    ? -1
+    : searchPaletteItems.length === 0
+      ? -1
+      : searchPaletteActiveIndex < 0
+        ? 0
+        : Math.min(searchPaletteActiveIndex, searchPaletteItems.length - 1);
 
   const openSearchPalette = useCallback(() => {
     setSearchPaletteMode("root");
@@ -488,8 +495,8 @@ export function useSidebarCommandPalette(
       if (event.key === "Enter") {
         event.preventDefault();
         const selectedItem =
-          searchPaletteActiveIndex >= 0
-            ? searchPaletteItems[searchPaletteActiveIndex]
+          effectiveSearchPaletteActiveIndex >= 0
+            ? searchPaletteItems[effectiveSearchPaletteActiveIndex]
             : searchPaletteItems[0];
         if (selectedItem) {
           handleSearchPaletteSelect(selectedItem);
@@ -538,27 +545,11 @@ export function useSidebarCommandPalette(
     searchPaletteInputRef.current?.focus();
   }, [searchPaletteOpen]);
 
-  useEffect(() => {
-    if (!searchPaletteOpen) {
-      setSearchPaletteActiveIndex(-1);
-      return;
-    }
-    setSearchPaletteActiveIndex((currentIndex) => {
-      if (searchPaletteItems.length === 0) {
-        return -1;
-      }
-      if (currentIndex < 0) {
-        return 0;
-      }
-      return Math.min(currentIndex, searchPaletteItems.length - 1);
-    });
-  }, [searchPaletteItems, searchPaletteOpen]);
-
   return {
     searchPaletteOpen,
     searchPaletteMode,
     searchPaletteQuery,
-    searchPaletteActiveIndex,
+    searchPaletteActiveIndex: effectiveSearchPaletteActiveIndex,
     searchPaletteKeyboardNavigationId,
     searchPaletteInputRef,
     normalizedSearchPaletteQuery,
