@@ -382,6 +382,27 @@ function chooseFreshestMessage(
       ...(attachments && attachments.length > 0 ? { attachments } : {}),
     };
   }
+  if (
+    existing.role === "assistant" &&
+    normalizedIncoming.role === "assistant" &&
+    existing.text.length > normalizedIncoming.text.length &&
+    (existing.streaming ||
+      normalizedIncoming.streaming ||
+      normalizedIncoming.sequence === undefined ||
+      existing.sequence === undefined ||
+      normalizedIncoming.sequence <= existing.sequence)
+  ) {
+    const attachments = mergeTimelineMessageAttachments(
+      existing.attachments,
+      normalizedIncoming.attachments,
+    );
+    return {
+      ...existing,
+      streaming: normalizedIncoming.streaming,
+      updatedAt: normalizedIncoming.updatedAt,
+      ...(attachments && attachments.length > 0 ? { attachments } : {}),
+    };
+  }
   if (!hasRenderableMessageText(normalizedIncoming) && hasRenderableMessageText(existing)) {
     const attachments = mergeTimelineMessageAttachments(
       existing.attachments,
@@ -1237,7 +1258,8 @@ function applyLiveTimelineRowPatchToState(
       },
     ],
   };
-  const nextThreadRowIds = threadRowIds.includes(rowId) ? threadRowIds : [...threadRowIds, rowId];
+  const isExistingRow = threadRowIds.includes(rowId);
+  const nextThreadRowIds = isExistingRow ? threadRowIds : [...threadRowIds, rowId];
   const nextTotalRows = Math.max(
     previousMetadata?.totalRows ?? 0,
     row.endSourceIndexExclusive,
@@ -1257,7 +1279,9 @@ function applyLiveTimelineRowPatchToState(
         ),
       }
     : state.messagesById;
-  const presentationRowIds = sortTimelineRowIds(nextThreadRowIds, input.threadId, nextRowsById);
+  const presentationRowIds = isExistingRow
+    ? nextThreadRowIds
+    : sortTimelineRowIds(nextThreadRowIds, input.threadId, nextRowsById);
 
   return {
     ...state,

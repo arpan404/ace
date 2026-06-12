@@ -214,6 +214,7 @@ import {
 import {
   buildNativeTimelineRows,
   deriveNativeCompletionAttachment,
+  toPagedChatMessage,
   type NativeTimelineRowsInput,
 } from "~/lib/chat/nativeTimelineRows";
 import {
@@ -940,6 +941,57 @@ const EMPTY_VISIBLE_BOARD_THREAD_IDS: readonly ThreadId[] = [];
 const EMPTY_THREAD_LAST_VISITED_AT_BY_ID: Readonly<Record<string, string>> = {};
 const EMPTY_TIMELINE_ROW_IDS: readonly string[] = [];
 const NATIVE_TIMELINE_ROWS_CONTENT_KEY_TAIL_ROWS = 32;
+const ACTIVE_NATIVE_TIMELINE_ROWS_REBUILD_DELAY_MS = 80;
+
+function patchRetainedNativeTimelineRows(input: {
+  readonly rows: ReadonlyArray<TimelineRow>;
+  readonly messages: ReadonlyArray<OrchestrationMessage>;
+}): ReadonlyArray<TimelineRow> {
+  if (input.rows.length === 0 || input.messages.length === 0) {
+    return input.rows;
+  }
+
+  const messageById = new Map<string, OrchestrationMessage>();
+  for (const message of input.messages) {
+    messageById.set(String(message.id), message);
+  }
+
+  let changed = false;
+  const rows = input.rows.map((row) => {
+    if (row.kind !== "message") {
+      return row;
+    }
+    const nextMessage = messageById.get(String(row.message.id));
+    if (!nextMessage) {
+      return row;
+    }
+    const currentText = row.message.streaming
+      ? (row.message.streamingTextState?.chunks.join("") ?? "")
+      : row.message.text;
+    if (
+      row.message.streaming === nextMessage.streaming &&
+      row.message.completedAt === (nextMessage.streaming ? undefined : nextMessage.updatedAt) &&
+      currentText === nextMessage.text
+    ) {
+      return row;
+    }
+    changed = true;
+    return {
+      ...row,
+      message: toPagedChatMessage(nextMessage),
+      showAssistantTiming:
+        nextMessage.role === "assistant" &&
+        (row.isAssistantTurnTerminal ?? false) &&
+        !nextMessage.streaming,
+      showAssistantSummaryByDefault:
+        nextMessage.role === "assistant" &&
+        (row.showAssistantSummaryByDefault ?? false) &&
+        !nextMessage.streaming,
+    };
+  });
+
+  return changed ? rows : input.rows;
+}
 const RECENT_HYDRATED_THREAD_HISTORY_KEEP_COUNT = 8;
 
 function toOptimisticOrchestrationMessage(message: ChatMessage): OrchestrationMessage {
@@ -3411,32 +3463,44 @@ function useChatViewComponent({
     }
 
     let canceled = false;
-    resolveNativeTimelineRows({
-      cacheKey: nativeTimelineRowsInputKey,
-      rowsInput: nativeTimelineRowsInput,
-    })
-      .then((rows) => {
-        if (canceled) {
-          return;
-        }
-        startTransition(() => {
-          setResolvedNativeTimelineRows({ key: nativeTimelineRowsInputKey, rows });
-        });
+    let timer: number | null = null;
+    const resolveRows = () => {
+      timer = null;
+      resolveNativeTimelineRows({
+        cacheKey: nativeTimelineRowsInputKey,
+        rowsInput: nativeTimelineRowsInput,
       })
-      .catch((error) => {
-        if (!canceled) {
-          console.error("Failed to build native timeline rows", error);
-        }
-      });
+        .then((rows) => {
+          if (canceled) {
+            return;
+          }
+          startTransition(() => {
+            setResolvedNativeTimelineRows({ key: nativeTimelineRowsInputKey, rows });
+          });
+        })
+        .catch((error) => {
+          if (!canceled) {
+            console.error("Failed to build native timeline rows", error);
+          }
+        });
+    };
+    if (nativeTimelineRowsInput.activeTurnInProgress) {
+      timer = window.setTimeout(resolveRows, ACTIVE_NATIVE_TIMELINE_ROWS_REBUILD_DELAY_MS);
+    } else {
+      resolveRows();
+    }
     return () => {
       canceled = true;
+      if (timer !== null) {
+        window.clearTimeout(timer);
+      }
     };
   }, [
     nativeTimelineRowsInput,
     nativeTimelineRowsInputKey,
     shouldBuildNativeTimelineRowsSynchronously,
   ]);
-  const nativeTimelineRowsOverride =
+  const currentNativeTimelineRowsOverride =
     synchronousNativeTimelineRows ??
     cachedNativeTimelineRows ??
     (resolvedNativeTimelineRows?.key === nativeTimelineRowsInputKey
@@ -3448,6 +3512,30 @@ function useChatViewComponent({
     nativeTimelineRowsInputKey !== null &&
     cachedNativeTimelineRows === null &&
     resolvedNativeTimelineRows?.key !== nativeTimelineRowsInputKey;
+  const retainedNativeTimelineRowsRef = useRef<{
+    readonly threadId: string;
+    readonly rows: ReadonlyArray<TimelineRow>;
+  } | null>(null);
+  if (currentNativeTimelineRowsOverride !== null && nativeTimelineRowsThreadId !== null) {
+    retainedNativeTimelineRowsRef.current = {
+      threadId: nativeTimelineRowsThreadId,
+      rows: currentNativeTimelineRowsOverride,
+    };
+  } else if (
+    nativeTimelineRowsThreadId === null ||
+    retainedNativeTimelineRowsRef.current?.threadId !== nativeTimelineRowsThreadId
+  ) {
+    retainedNativeTimelineRowsRef.current = null;
+  }
+  const nativeTimelineRowsOverride =
+    currentNativeTimelineRowsOverride ??
+    (nativeTimelineRowsLoading &&
+    retainedNativeTimelineRowsRef.current?.threadId === nativeTimelineRowsThreadId
+      ? patchRetainedNativeTimelineRows({
+          rows: retainedNativeTimelineRowsRef.current.rows,
+          messages: nativeTimelineRowsInput?.messages ?? [],
+        })
+      : null);
   const timelineRenderState = useMemo(() => {
     if (nativeTimelineRowsOverride !== null) {
       return {
