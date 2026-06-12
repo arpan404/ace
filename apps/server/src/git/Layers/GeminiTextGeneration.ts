@@ -10,6 +10,7 @@ import { type TextGenerationShape, TextGeneration } from "../Services/TextGenera
 import {
   buildBranchNamePrompt,
   buildCommitMessagePrompt,
+  buildNewThreadRecommendationsPrompt,
   buildPrContentPrompt,
   buildThreadTitlePrompt,
   buildWorkspaceSummaryPrompt,
@@ -17,6 +18,7 @@ import {
 import {
   normalizeCliError,
   sanitizeCommitSubject,
+  sanitizeNewThreadRecommendations,
   sanitizePrTitle,
   sanitizeThreadTitle,
   sanitizeWorkspaceSummaryHeadline,
@@ -84,7 +86,8 @@ const makeGeminiTextGeneration = Effect.gen(function* () {
       | "generatePrContent"
       | "generateBranchName"
       | "generateThreadTitle"
-      | "generateWorkspaceSummary";
+      | "generateWorkspaceSummary"
+      | "generateNewThreadRecommendations";
     cwd: string;
     prompt: string;
     outputSchema: S;
@@ -361,12 +364,39 @@ const makeGeminiTextGeneration = Effect.gen(function* () {
     };
   });
 
+  const generateNewThreadRecommendations: TextGenerationShape["generateNewThreadRecommendations"] =
+    Effect.fn("GeminiTextGeneration.generateNewThreadRecommendations")(function* (input) {
+      const { prompt, outputSchema } = buildNewThreadRecommendationsPrompt({
+        turns: input.turns,
+      });
+
+      if (input.modelSelection.provider !== "gemini") {
+        return yield* new TextGenerationError({
+          operation: "generateNewThreadRecommendations",
+          detail: "Invalid model selection.",
+        });
+      }
+
+      const generated = yield* runGeminiJson({
+        operation: "generateNewThreadRecommendations",
+        cwd: input.cwd,
+        prompt,
+        outputSchema,
+        modelSelection: input.modelSelection,
+      });
+
+      return {
+        recommendations: sanitizeNewThreadRecommendations(generated.recommendations),
+      };
+    });
+
   return {
     generateCommitMessage,
     generatePrContent,
     generateBranchName,
     generateThreadTitle,
     generateWorkspaceSummary,
+    generateNewThreadRecommendations,
   } satisfies TextGenerationShape;
 });
 

@@ -144,6 +144,15 @@ const makeRoutingTextGeneration = Effect.gen(function* () {
         modelSelection,
       });
     },
+    generateNewThreadRecommendations: (input) => {
+      const modelSelection = normalizeTextGenerationModelSelection(input.modelSelection);
+      return route(
+        toTextGenerationProvider(modelSelection.provider),
+      ).generateNewThreadRecommendations({
+        ...input,
+        modelSelection,
+      });
+    },
   } satisfies TextGenerationShape;
 });
 

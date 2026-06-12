@@ -206,6 +206,8 @@ function createTextGenerationHarness(): {
       generateBranchName: () => Effect.die(new Error("Unsupported text generation call in test")),
       generateThreadTitle: () => Effect.die(new Error("Unsupported text generation call in test")),
       generateWorkspaceSummary,
+      generateNewThreadRecommendations: () =>
+        Effect.die(new Error("Unsupported text generation call in test")),
     },
     generateWorkspaceSummary,
   };

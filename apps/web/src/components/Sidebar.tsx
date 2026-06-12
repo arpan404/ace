@@ -55,6 +55,7 @@ import { type SidebarProjectSortOrder } from "@ace/contracts/settings";
 import { isElectron } from "../env";
 import { APP_VERSION, IS_DEV_BUILD } from "../branding";
 import { reportBackgroundError } from "../lib/async";
+import { SIDEBAR_ADD_PROJECT_REQUEST_EVENT } from "../lib/sidebarAddProjectRequest";
 import { cn, randomUUID } from "../lib/utils";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { isMacPlatform, newCommandId, newProjectId } from "../lib/utils";
@@ -3859,6 +3860,12 @@ function useSidebarComponent() {
   const handleStartAddProjectEffect = useEffectEvent(() => {
     handleStartAddProject();
   });
+  useEffect(() => {
+    window.addEventListener(SIDEBAR_ADD_PROJECT_REQUEST_EVENT, handleStartAddProjectEffect);
+    return () => {
+      window.removeEventListener(SIDEBAR_ADD_PROJECT_REQUEST_EVENT, handleStartAddProjectEffect);
+    };
+  }, []);
 
   const cancelRename = useCallback(() => {
     dispatchSidebarEditorState({ type: "clear-thread-rename" });

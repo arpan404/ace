@@ -20,6 +20,7 @@ import {
 import {
   buildBranchNamePrompt,
   buildCommitMessagePrompt,
+  buildNewThreadRecommendationsPrompt,
   buildPrContentPrompt,
   buildThreadTitlePrompt,
   buildWorkspaceSummaryPrompt,
@@ -27,6 +28,7 @@ import {
 import {
   normalizeCliError,
   sanitizeCommitSubject,
+  sanitizeNewThreadRecommendations,
   sanitizePrTitle,
   sanitizeThreadTitle,
   sanitizeWorkspaceSummaryHeadline,
@@ -98,7 +100,8 @@ const makeCodexTextGeneration = Effect.gen(function* () {
       | "generatePrContent"
       | "generateBranchName"
       | "generateThreadTitle"
-      | "generateWorkspaceSummary",
+      | "generateWorkspaceSummary"
+      | "generateNewThreadRecommendations",
     attachments: BranchNameGenerationInput["attachments"],
   ): Effect.fn.Return<MaterializedImageAttachments, TextGenerationError> {
     if (!attachments || attachments.length === 0) {
@@ -143,7 +146,8 @@ const makeCodexTextGeneration = Effect.gen(function* () {
       | "generatePrContent"
       | "generateBranchName"
       | "generateThreadTitle"
-      | "generateWorkspaceSummary";
+      | "generateWorkspaceSummary"
+      | "generateNewThreadRecommendations";
     cwd: string;
     prompt: string;
     outputSchemaJson: S;
@@ -448,12 +452,39 @@ const makeCodexTextGeneration = Effect.gen(function* () {
     } satisfies WorkspaceSummaryGenerationResult;
   });
 
+  const generateNewThreadRecommendations: TextGenerationShape["generateNewThreadRecommendations"] =
+    Effect.fn("CodexTextGeneration.generateNewThreadRecommendations")(function* (input) {
+      const { prompt, outputSchema } = buildNewThreadRecommendationsPrompt({
+        turns: input.turns,
+      });
+
+      if (input.modelSelection.provider !== "codex") {
+        return yield* new TextGenerationError({
+          operation: "generateNewThreadRecommendations",
+          detail: "Invalid model selection.",
+        });
+      }
+
+      const generated = yield* runCodexJson({
+        operation: "generateNewThreadRecommendations",
+        cwd: input.cwd,
+        prompt,
+        outputSchemaJson: outputSchema,
+        modelSelection: input.modelSelection,
+      });
+
+      return {
+        recommendations: sanitizeNewThreadRecommendations(generated.recommendations),
+      };
+    });
+
   return {
     generateCommitMessage,
     generatePrContent,
     generateBranchName,
     generateThreadTitle,
     generateWorkspaceSummary,
+    generateNewThreadRecommendations,
   } satisfies TextGenerationShape;
 });
 

@@ -54,7 +54,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, LazyMotion, LayoutGroup, domAnimation, m } from "motion/react";
-import { ChevronDownIcon, LaptopIcon, LayersIcon } from "lucide-react";
+import { ChevronDownIcon, GitBranchPlusIcon, LaptopIcon } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate, useSearch } from "@tanstack/react-router";
 import { useShallow } from "zustand/react/shallow";
@@ -241,12 +241,14 @@ import {
 import { ChatHeader } from "./chat/ChatHeader";
 import { ChatConversationExtras } from "./chat/ChatConversationExtras";
 import { EnvironmentMiniPanel } from "./chat/EnvironmentMiniPanel";
+import { ProjectGlyphIcon } from "./ProjectAvatar";
 import type { PinnedMessageNavigationTarget } from "./chat/pinnedMessagesStore";
 import { GitHubIssuePreviewDialog } from "./GitHubIssuePreviewDialog";
 import { ChatMessagesPane } from "./chat/ChatMessagesPane";
 import { PlanSummaryPanel } from "./PlanSummaryPanel";
 import type { DiffReviewCommentInput } from "./DiffPanel";
 import { ChatViewPanels } from "./chat/ChatViewPanels";
+import BranchToolbar from "./BranchToolbar";
 import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
 import { resolveExpandedImageItem, type ExpandedImagePreview } from "./chat/ExpandedImagePreview";
 import { NewThreadStartSurface, useNewThreadRecommendedPrompts } from "./chat/NewThreadLanding";
@@ -277,8 +279,10 @@ import { getComposerProviderState } from "./chat/composerProviderRegistry";
 import { ThreadErrorBanner } from "./chat/ThreadErrorBanner";
 import { ConnectionHealthPill } from "./reliability/ConnectionHealthPill";
 import { ReliabilityDiagnosticsDialog } from "./reliability/ReliabilityDiagnosticsDialog";
+import { GitHubIcon } from "./Icons";
 import { Button } from "./ui/button";
 import { Menu, MenuGroup, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuTrigger } from "./ui/menu";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import {
   DRAFT_CONTEXT_PILL_ICON_CLASS_NAME,
   DRAFT_CONTEXT_PILL_TRIGGER_CLASS_NAME,
@@ -296,6 +300,7 @@ import {
   deriveHydratedThreadHistoryKeepIds,
   deriveRecentlyVisitedThreadHistoryKeepIds,
   deriveQueuedComposerMessageDraftForEditing,
+  DEFAULT_THREAD_TITLE,
   formatOutgoingPrompt,
   queuedComposerImageToDraftAttachment,
   revokeComposerImagePreviewUrls,
@@ -4510,7 +4515,9 @@ function useChatViewComponent({
       }
       const targetThreadId = activeThread?.id ?? threadId;
       const normalizedTitleSeed = options.titleSeed.trim().replace(/\s+/gu, " ");
-      const title = truncate(normalizedTitleSeed.length > 0 ? normalizedTitleSeed : "New thread");
+      const title = truncate(
+        normalizedTitleSeed.length > 0 ? normalizedTitleSeed : DEFAULT_THREAD_TITLE,
+      );
       try {
         await api.orchestration.dispatchCommand({
           type: "thread.create",
@@ -8589,7 +8596,7 @@ function useChatViewComponent({
           } else if (composerTerminalContextsSnapshot.length > 0) {
             titleSeed = formatTerminalContextLabel(composerTerminalContextsSnapshot[0]!);
           } else {
-            titleSeed = "New thread";
+            titleSeed = DEFAULT_THREAD_TITLE;
           }
         }
         const title = truncate(titleSeed);
@@ -10188,11 +10195,27 @@ function useChatViewComponent({
       turnDiffSummaryByAssistantMessageId,
     ],
   );
+  const showDraftNewThreadLanding =
+    activeThread !== undefined &&
+    activeThread.messages.length === 0 &&
+    optimisticUserMessages.length === 0 &&
+    !isWorking &&
+    (isLocalDraftThread || activeThread.title.trim() === DEFAULT_THREAD_TITLE);
+  const [draftEnvironmentPanelExplicitOpen, setDraftEnvironmentPanelExplicitOpen] = useState(false);
   const environmentPanelCanUseInlineLayout = chatViewportSize.width >= 1120;
   const environmentPanelVisible = environmentPanelOpen && activeThread !== undefined;
-  const environmentPanelInlineOpen =
-    environmentPanelVisible && !rightSidePanelOpen && environmentPanelCanUseInlineLayout;
-  const environmentPanelPopoverOpen = environmentPanelVisible && !environmentPanelInlineOpen;
+  const environmentPanelCanOpenInline = !rightSidePanelOpen && environmentPanelCanUseInlineLayout;
+  const environmentPanelInlineOpen = environmentPanelVisible && environmentPanelCanOpenInline;
+  const environmentPanelPopoverOpen =
+    environmentPanelVisible &&
+    !environmentPanelInlineOpen &&
+    (!showDraftNewThreadLanding || draftEnvironmentPanelExplicitOpen);
+  const environmentPanelRenderedOpen = environmentPanelInlineOpen || environmentPanelPopoverOpen;
+  useEffect(() => {
+    if (!showDraftNewThreadLanding || !environmentPanelVisible) {
+      setDraftEnvironmentPanelExplicitOpen(false);
+    }
+  }, [environmentPanelVisible, showDraftNewThreadLanding]);
   useLayoutEffect(() => {
     if (!environmentPanelPopoverOpen) {
       setEnvironmentPanelPopoverStyle(null);
@@ -10282,6 +10305,7 @@ function useChatViewComponent({
       }
 
       setEnvironmentPanelOpen(false);
+      setDraftEnvironmentPanelExplicitOpen(false);
     };
 
     document.addEventListener("pointerdown", handlePointerDownCapture, { capture: true });
@@ -11044,20 +11068,45 @@ function useChatViewComponent({
   const handleComposerSubmit = useCallback((event: FormEvent<HTMLFormElement>) => {
     void onSend(event);
   }, []);
-  const showDraftNewThreadLanding =
-    activeThread !== undefined &&
-    activeThread.messages.length === 0 &&
-    optimisticUserMessages.length === 0 &&
-    !isWorking &&
-    (isLocalDraftThread || activeThread.title.trim() === "New thread");
-  const draftNewThreadRecommendedPrompts = useNewThreadRecommendedPrompts(activeProjectId);
+  const draftNewThreadRecommendedPrompts = useNewThreadRecommendedPrompts(
+    activeProjectId,
+    activeProject?.cwd ?? null,
+    selectedModelSelection,
+  );
+  const draftNewThreadTitle = activeProject
+    ? `What should we build in ${activeProject.name}?`
+    : "What should we build?";
   const onDraftNewThreadRecommendedPromptClick = useCallback(
     (prompt: string) => {
-      setComposerDraftPrompt(threadId, prompt);
+      setPrompt(prompt);
       scheduleComposerFocus();
     },
-    [scheduleComposerFocus, setComposerDraftPrompt, threadId],
+    [scheduleComposerFocus, setPrompt],
   );
+  const onDraftNewThreadGitHubIssuesClick = useCallback(() => {
+    openGitHubIssueDialog();
+  }, [openGitHubIssueDialog]);
+  const draftNewThreadQuickActionsNode =
+    activeProject !== null && isGitRepo ? (
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="new-thread-start-quick-action size-8 rounded-[var(--control-radius)] border border-transparent bg-transparent text-muted-foreground/80 shadow-none transition-colors hover:bg-foreground/[0.045] hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/25"
+              aria-label="Solve GitHub issue"
+              onClick={onDraftNewThreadGitHubIssuesClick}
+            />
+          }
+        >
+          <GitHubIcon className="size-4" />
+          <span className="sr-only">Solve GitHub issue</span>
+        </TooltipTrigger>
+        <TooltipPopup side="top">Solve GitHub issue</TooltipPopup>
+      </Tooltip>
+    ) : null;
   const draftNewThreadContextControlsNode = (
     <>
       <ProjectContextSwitcher
@@ -11070,10 +11119,7 @@ function useChatViewComponent({
         <MenuTrigger
           render={
             <Button
-              className={cn(
-                DRAFT_CONTEXT_PILL_TRIGGER_CLASS_NAME,
-                "min-w-[12rem] max-w-[15rem] justify-start",
-              )}
+              className={cn(DRAFT_CONTEXT_PILL_TRIGGER_CLASS_NAME, "max-w-[12rem] justify-start")}
               variant="ghost"
               size="default"
             />
@@ -11081,15 +11127,19 @@ function useChatViewComponent({
         >
           <span className={DRAFT_CONTEXT_PILL_ICON_CLASS_NAME}>
             {envMode === "local" ? (
-              <LaptopIcon className="size-4" />
+              activeEnvironmentIcon ? (
+                <ProjectGlyphIcon icon={activeEnvironmentIcon} className="size-3.5 opacity-80" />
+              ) : (
+                <LaptopIcon className="size-3.5 text-muted-foreground" />
+              )
             ) : (
-              <LayersIcon className="size-4" />
+              <GitBranchPlusIcon className="size-3.5 text-muted-foreground" />
             )}
           </span>
           <span className="min-w-0 truncate">
-            {envMode === "local" ? "Work locally" : "Work in worktree"}
+            {envMode === "local" ? "Locally" : "New worktree"}
           </span>
-          <ChevronDownIcon className="ml-auto size-4 shrink-0 text-muted-foreground/55" />
+          <ChevronDownIcon className="size-3.5 shrink-0 text-muted-foreground/55" />
         </MenuTrigger>
         <MenuPopup align="start" className="w-48">
           <MenuGroup>
@@ -11099,14 +11149,21 @@ function useChatViewComponent({
             >
               <MenuRadioItem value="local" className="text-xs">
                 <span className="flex items-center gap-2">
-                  <LaptopIcon className="size-3.5" />
-                  Work locally
+                  {activeEnvironmentIcon ? (
+                    <ProjectGlyphIcon
+                      icon={activeEnvironmentIcon}
+                      className="size-3.5 opacity-80"
+                    />
+                  ) : (
+                    <LaptopIcon className="size-3.5" />
+                  )}
+                  Locally
                 </span>
               </MenuRadioItem>
               <MenuRadioItem value="worktree" className="text-xs">
                 <span className="flex items-center gap-2">
-                  <LayersIcon className="size-3.5" />
-                  Work in worktree
+                  <GitBranchPlusIcon className="size-3.5" />
+                  New worktree
                 </span>
               </MenuRadioItem>
             </MenuRadioGroup>
@@ -11115,6 +11172,9 @@ function useChatViewComponent({
       </Menu>
     </>
   );
+  const draftNewThreadBranchControlNode = branchToolbarProps ? (
+    <BranchToolbar {...branchToolbarProps} presentation="draft" />
+  ) : null;
   if (!activeThread) {
     return null;
   }
@@ -11241,6 +11301,7 @@ function useChatViewComponent({
       activePendingProgress={activePendingProgress}
       activePendingIsResponding={activePendingIsResponding}
       activePendingResolvedAnswers={activePendingResolvedAnswers}
+      placeholderOverride={showDraftNewThreadLanding ? "Do anything" : undefined}
       planFollowUpId={activeProposedPlan?.id ?? null}
       planFollowUpTitle={
         activeProposedPlan ? (proposedPlanTitle(activeProposedPlan.planMarkdown) ?? null) : null
@@ -11276,6 +11337,11 @@ function useChatViewComponent({
     />
   );
   const composerLayoutId = `thread-composer:${threadId}`;
+  const trimmedActiveThreadTitle = activeThread.title.trim();
+  const showThreadHeaderIdentity =
+    !showDraftNewThreadLanding &&
+    trimmedActiveThreadTitle.length > 0 &&
+    trimmedActiveThreadTitle !== DEFAULT_THREAD_TITLE;
 
   return (
     <LazyMotion features={domAnimation}>
@@ -11288,13 +11354,13 @@ function useChatViewComponent({
         <div
           className={cn(
             "relative flex shrink-0 items-stretch overflow-hidden bg-background transition-[max-height,opacity] duration-200 ease-out",
-            !showDraftNewThreadLanding &&
+            showThreadHeaderIdentity &&
               "border-b border-border/25 after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-px after:bg-border/70",
             isHeaderHidden ? "max-h-0 opacity-0" : "max-h-28 opacity-100",
           )}
         >
           <AppPageTopBar
-            className="min-w-0 flex-1"
+            className={cn("min-w-0 flex-1", !showThreadHeaderIdentity && "border-b-0")}
             desktopDragRegion={!rightSidePanelFullscreen}
             showSidebarTrigger={showSidebarTrigger}
           >
@@ -11311,13 +11377,21 @@ function useChatViewComponent({
                   terminalAvailable={activeProject !== undefined}
                   terminalOpen={terminalState.terminalOpen}
                   terminalToggleShortcutLabel={terminalToggleShortcutLabel}
-                  environmentPanelOpen={environmentPanelOpen}
+                  environmentPanelOpen={environmentPanelRenderedOpen}
                   rightSidePanelToggleShortcutLabel={rightSidePanelToggleShortcutLabel}
                   rightSidePanelOpen={rightSidePanelOpen}
                   onActiveProjectChange={isLocalDraftThread ? handleActiveProjectChange : null}
-                  showThreadIdentity={!showDraftNewThreadLanding}
+                  showThreadIdentity={showThreadHeaderIdentity}
                   onToggleEnvironmentPanel={() => {
-                    setEnvironmentPanelOpen((open) => !open);
+                    if (environmentPanelRenderedOpen) {
+                      setDraftEnvironmentPanelExplicitOpen(false);
+                      setEnvironmentPanelOpen(false);
+                      return;
+                    }
+                    if (showDraftNewThreadLanding) {
+                      setDraftEnvironmentPanelExplicitOpen(true);
+                    }
+                    setEnvironmentPanelOpen(true);
                   }}
                   onToggleTerminal={toggleTerminalVisibility}
                   onToggleRightSidePanel={onToggleRightSidePanel}
@@ -11443,8 +11517,7 @@ function useChatViewComponent({
                               transition={PANEL_SPRING_TRANSITION}
                             >
                               <NewThreadStartSurface
-                                activeProjectName={activeProject?.name ?? null}
-                                branchName={activeThreadBranchName ?? "main"}
+                                branchControlNode={draftNewThreadBranchControlNode}
                                 composerNode={
                                   <m.div
                                     layoutId={composerLayoutId}
@@ -11456,7 +11529,9 @@ function useChatViewComponent({
                                 }
                                 contextControlsNode={draftNewThreadContextControlsNode}
                                 hasProjects={activeProject !== null}
+                                quickActionsNode={draftNewThreadQuickActionsNode}
                                 recommendedPrompts={draftNewThreadRecommendedPrompts}
+                                title={draftNewThreadTitle}
                                 onRecommendedPromptClick={onDraftNewThreadRecommendedPromptClick}
                               />
                             </m.div>

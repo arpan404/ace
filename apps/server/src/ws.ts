@@ -27,6 +27,7 @@ import {
   ProjectWriteFileError,
   OrchestrationReplayEventsError,
   type TerminalEvent,
+  TextGenerationError,
   type BrowserBridgeRequest,
   ServerLspToolsError,
   ServerProviderCliUpgradeError,
@@ -53,6 +54,8 @@ import { browserBridge } from "./browserBridge";
 import { ServerConfig } from "./config";
 import { GitCore } from "./git/Services/GitCore";
 import { GitManager } from "./git/Services/GitManager";
+import { TextGeneration } from "./git/Services/TextGeneration";
+import { resolveTextGenerationModelSelection } from "./git/textGenerationModelSelection";
 import { Keybindings } from "./keybindings";
 import { Open, resolveAvailableEditors } from "./open";
 import { normalizeDispatchCommand } from "./orchestration/Normalizer";
@@ -410,6 +413,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
     const open = yield* Open;
     const gitManager = yield* GitManager;
     const git = yield* GitCore;
+    const textGeneration = yield* TextGeneration;
     const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
     const terminalManager = yield* TerminalManager;
     const providerRegistry = yield* ProviderRegistry;
@@ -819,6 +823,27 @@ const WsRpcLayer = WsRpcGroup.toLayer(
               await server.close();
             }
           }).pipe(Effect.orDie);
+        }),
+      [WS_METHODS.serverGenerateNewThreadRecommendations]: (input) =>
+        Effect.gen(function* () {
+          const settings = yield* serverSettings.getSettings.pipe(
+            Effect.mapError(
+              (cause) =>
+                new TextGenerationError({
+                  operation: "generateNewThreadRecommendations",
+                  detail: cause.message,
+                  cause,
+                }),
+            ),
+          );
+          return yield* textGeneration.generateNewThreadRecommendations({
+            cwd: input.cwd,
+            turns: input.turns,
+            modelSelection: resolveTextGenerationModelSelection({
+              serverSettings: settings,
+              fallbackModelSelection: input.modelSelection,
+            }),
+          });
         }),
       [WS_METHODS.serverGetLspToolsStatus]: (_input) =>
         Effect.tryPromise({

@@ -119,6 +119,80 @@
     content-visibility: auto;
     contain-intrinsic-size: auto var(--timeline-row-estimated-height, 96px);
   }
+
+  .new-thread-start-surface {
+    container-type: inline-size;
+  }
+
+  .new-thread-start-title {
+    font-size: clamp(1.375rem, 5cqw, 2rem);
+    line-height: 1.12;
+    overflow-wrap: anywhere;
+  }
+
+  .new-thread-start-body {
+    margin-top: clamp(1.25rem, 6cqw, 2rem);
+  }
+
+  .new-thread-start-composer [data-testid="composer-editor"] {
+    min-height: clamp(3.25rem, 12cqw, 5.25rem);
+  }
+
+  .new-thread-start-composer-editor,
+  .new-thread-start-composer-placeholder {
+    font-size: clamp(1.0625rem, 3.8cqw, 1.25rem);
+    line-height: 1.28;
+  }
+
+  .new-thread-start-composer-placeholder {
+    max-width: min(100%, 38rem);
+    padding-right: clamp(3.25rem, 10cqw, 5.5rem);
+    color: color-mix(in oklch, var(--foreground) 72%, transparent);
+  }
+
+  @container (max-width: 520px) {
+    .new-thread-start-surface {
+      justify-content: center;
+      padding-inline: 1rem;
+    }
+
+    .new-thread-start-controls {
+      gap: 0.25rem 0.5rem;
+      padding-inline: 0;
+    }
+
+    .new-thread-start-controls > * {
+      max-width: 100%;
+    }
+
+    .new-thread-start-composer [data-testid="composer-editor"] {
+      min-height: 5.75rem;
+    }
+
+    .new-thread-start-composer-placeholder {
+      padding-right: 3rem;
+    }
+  }
+
+  @container (max-width: 380px) {
+    .new-thread-start-surface {
+      padding-inline: 0.75rem;
+    }
+
+    .new-thread-start-title {
+      font-size: 1.25rem;
+      line-height: 1.18;
+    }
+
+    .new-thread-start-composer [data-testid="composer-editor"] {
+      min-height: 7.25rem;
+    }
+
+    .new-thread-start-composer-placeholder {
+      font-size: 1rem;
+      line-height: 1.3;
+    }
+  }
 }
 
 .no-transitions,
