@@ -3301,6 +3301,7 @@ function useChatViewComponent({
       messages: timelineWithOptimisticMessages.messages,
       activities: activeThreadTimelineProjection?.activities ?? [],
       proposedPlans: activeThreadTimelineProjection?.proposedPlans ?? [],
+      activeTurnId: activeLatestTurn?.turnId ?? null,
       activeTurnInProgress: isWorking,
       activeTurnStartedAt: activeWorkStartedAt,
       completionDividerBeforeEntryId: nativeCompletionDividerBeforeEntryId,
@@ -3314,6 +3315,7 @@ function useChatViewComponent({
   }, [
     activeThreadTimelineProjection,
     activeWorkStartedAt,
+    activeLatestTurn?.turnId,
     completionSummary,
     hideCompletedWorkMessages,
     isThreadHistoryMetadataOnly,
@@ -3349,6 +3351,7 @@ function useChatViewComponent({
       rowCount: nativeTimelineRowsInput.rows.length,
       rowContentKey: nativeTimelineRowsContentKey,
       isActiveTurnRunning: isWorking,
+      activeTurnId: nativeTimelineRowsInput.activeTurnId ?? null,
       activeTurnStartedAt: activeWorkStartedAt,
       completionEndedAt: nativeTimelineRowsInput.completionEndedAt ?? null,
       completionDividerBeforeEntryId: nativeCompletionDividerBeforeEntryId,

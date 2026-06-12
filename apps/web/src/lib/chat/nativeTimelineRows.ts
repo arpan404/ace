@@ -23,6 +23,7 @@ export interface NativeTimelineRowsInput {
   readonly messages: readonly OrchestrationMessage[];
   readonly activities: readonly OrchestrationThreadActivity[];
   readonly proposedPlans: readonly OrchestrationProposedPlan[];
+  readonly activeTurnId?: string | null;
   readonly activeTurnInProgress: boolean;
   readonly activeTurnStartedAt: string | null;
   readonly completionDividerBeforeEntryId: string | null;
@@ -433,12 +434,13 @@ export function buildNativeTimelineRows(input: NativeTimelineRowsInput): Timelin
     if (entries.length === 0) {
       continue;
     }
+    const rowIsInActiveTurn = isActiveTurnWorkRow(input, activeTurnStartedAtMs, row);
     if (row.id === latestActiveWorkRowId) {
       flushPendingWorkGroup();
       appendIndividualWorkRows(rows, row, entries);
       continue;
     }
-    if (input.hideCompletedWorkMessages === true) {
+    if (input.hideCompletedWorkMessages === true && !rowIsInActiveTurn) {
       flushPendingWorkGroup();
       recordHiddenCompletedWork(row, entries);
       continue;
@@ -497,11 +499,13 @@ function isActiveTurnWorkRow(
   activeTurnStartedAtMs: number,
   row: OrchestrationTimelineRow,
 ): boolean {
-  if (
-    !input.activeTurnInProgress ||
-    !input.activeTurnStartedAt ||
-    Number.isNaN(activeTurnStartedAtMs)
-  ) {
+  if (!input.activeTurnInProgress) {
+    return false;
+  }
+  if (input.activeTurnId && row.turnId !== undefined) {
+    return row.turnId === input.activeTurnId;
+  }
+  if (!input.activeTurnStartedAt || Number.isNaN(activeTurnStartedAtMs)) {
     return false;
   }
   const rowCreatedAtMs = Date.parse(row.createdAt);
