@@ -27,7 +27,7 @@
     "@effect/platform-node": "catalog:",
     "@effect/sql-sqlite-bun": "catalog:",
     "@google/generative-ai": "^0.24.1",
-    "@opencode-ai/sdk": "1.16.2",
+    "@opencode-ai/sdk": "1.17.4",
     "@pierre/diffs": "^1.2.7",
     "effect": "catalog:",
     "node-pty": "^1.1.0",
