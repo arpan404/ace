@@ -305,6 +305,19 @@ function hasRenderableMessageText(message: OrchestrationMessage): boolean {
   return message.text.trim().length > 0;
 }
 
+function mergeStreamingMessageText(existingText: string, incomingText: string): string {
+  if (incomingText.length === 0) {
+    return existingText;
+  }
+  if (incomingText.startsWith(existingText)) {
+    return incomingText;
+  }
+  if (existingText.endsWith(incomingText)) {
+    return existingText;
+  }
+  return `${existingText}${incomingText}`;
+}
+
 function chooseFreshestMessage(
   existing: OrchestrationMessage | undefined,
   incoming: OrchestrationMessage,
@@ -323,6 +336,17 @@ function chooseFreshestMessage(
     existing.text.length > incoming.text.length
   ) {
     return existing;
+  }
+  if (normalizedIncoming.streaming && existing.streaming) {
+    const attachments = mergeTimelineMessageAttachments(
+      existing.attachments,
+      normalizedIncoming.attachments,
+    );
+    return {
+      ...normalizedIncoming,
+      text: mergeStreamingMessageText(existing.text, normalizedIncoming.text),
+      ...(attachments && attachments.length > 0 ? { attachments } : {}),
+    };
   }
   if (!hasRenderableMessageText(normalizedIncoming) && hasRenderableMessageText(existing)) {
     const attachments = mergeTimelineMessageAttachments(
@@ -393,7 +417,7 @@ function sortTimelineRowIds(
   rowsById: Readonly<Record<string, OrchestrationTimelineRow>>,
   messagesById: Readonly<Record<string, OrchestrationMessage>>,
 ): string[] {
-  return [...rowIds].sort((leftId, rightId) => {
+  return rowIds.toSorted((leftId, rightId) => {
     const left = rowsById[rowKey(threadId, leftId)];
     const right = rowsById[rowKey(threadId, rightId)];
     if (!left || !right) {

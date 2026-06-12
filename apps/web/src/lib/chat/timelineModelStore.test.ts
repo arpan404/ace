@@ -392,6 +392,122 @@ describe("timelineModelStore", () => {
     });
   });
 
+  it("appends streaming assistant deltas for the same live row", async () => {
+    const { primeLiveTimelineRow } = await import("./timelineModelStore");
+
+    primeLiveTimelineRow(
+      {
+        threadId,
+        updatedAt: "2026-01-01T00:00:02.000Z",
+        entry: {
+          kind: "message",
+          id: messageId,
+          createdAt: "2026-01-01T00:00:01.000Z",
+          turnId,
+          sequence: 1,
+        },
+        message: {
+          id: messageId,
+          role: "assistant",
+          text: "Hel",
+          turnId,
+          streaming: true,
+          sequence: 1,
+          createdAt: "2026-01-01T00:00:01.000Z",
+          updatedAt: "2026-01-01T00:00:02.000Z",
+        },
+      },
+      { flush: "sync" },
+    );
+    primeLiveTimelineRow(
+      {
+        threadId,
+        updatedAt: "2026-01-01T00:00:03.000Z",
+        entry: {
+          kind: "message",
+          id: messageId,
+          createdAt: "2026-01-01T00:00:01.000Z",
+          turnId,
+          sequence: 2,
+        },
+        message: {
+          id: messageId,
+          role: "assistant",
+          text: "lo",
+          turnId,
+          streaming: true,
+          sequence: 2,
+          createdAt: "2026-01-01T00:00:01.000Z",
+          updatedAt: "2026-01-01T00:00:03.000Z",
+        },
+      },
+      { flush: "sync" },
+    );
+
+    expect(readTimelineRowsProjection(threadId).messages[0]).toMatchObject({
+      text: "Hello",
+      streaming: true,
+    });
+  });
+
+  it("does not duplicate cumulative streaming assistant text", async () => {
+    const { primeLiveTimelineRow } = await import("./timelineModelStore");
+
+    primeLiveTimelineRow(
+      {
+        threadId,
+        updatedAt: "2026-01-01T00:00:02.000Z",
+        entry: {
+          kind: "message",
+          id: messageId,
+          createdAt: "2026-01-01T00:00:01.000Z",
+          turnId,
+          sequence: 1,
+        },
+        message: {
+          id: messageId,
+          role: "assistant",
+          text: "Hel",
+          turnId,
+          streaming: true,
+          sequence: 1,
+          createdAt: "2026-01-01T00:00:01.000Z",
+          updatedAt: "2026-01-01T00:00:02.000Z",
+        },
+      },
+      { flush: "sync" },
+    );
+    primeLiveTimelineRow(
+      {
+        threadId,
+        updatedAt: "2026-01-01T00:00:03.000Z",
+        entry: {
+          kind: "message",
+          id: messageId,
+          createdAt: "2026-01-01T00:00:01.000Z",
+          turnId,
+          sequence: 2,
+        },
+        message: {
+          id: messageId,
+          role: "assistant",
+          text: "Hello",
+          turnId,
+          streaming: true,
+          sequence: 2,
+          createdAt: "2026-01-01T00:00:01.000Z",
+          updatedAt: "2026-01-01T00:00:03.000Z",
+        },
+      },
+      { flush: "sync" },
+    );
+
+    expect(readTimelineRowsProjection(threadId).messages[0]).toMatchObject({
+      text: "Hello",
+      streaming: true,
+    });
+  });
+
   it("orders same-turn live work rows before assistant message rows", async () => {
     const { primeLiveTimelineRow } = await import("./timelineModelStore");
     const activityId = EventId.makeUnsafe("activity-row-store-thinking");
