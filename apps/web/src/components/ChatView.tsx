@@ -696,6 +696,7 @@ interface ConnectedRetainedThreadTerminalDrawersProps {
   onToggleTerminal: () => void;
   onHeightChange: (height: number) => void;
   onAddTerminalContext: (selection: TerminalContextSelection) => void;
+  onOpenFilePath?: ((path: string) => void | Promise<void>) | null;
 }
 
 interface ConnectedThreadTerminalPanelProps extends ConnectedRetainedThreadTerminalDrawersProps {
@@ -721,6 +722,7 @@ function ConnectedRetainedThreadTerminalDrawers({
   onToggleTerminal,
   onHeightChange,
   onAddTerminalContext,
+  onOpenFilePath,
 }: ConnectedRetainedThreadTerminalDrawersProps) {
   const terminalDrawerState = useTerminalStateStore((state) =>
     selectThreadTerminalState(state.terminalStateByThreadId, activeThreadId),
@@ -751,6 +753,7 @@ function ConnectedRetainedThreadTerminalDrawers({
           onToggleTerminal,
           onHeightChange,
           onAddTerminalContext,
+          ...(onOpenFilePath ? { onOpenFilePath } : {}),
         }
       : null;
 
@@ -781,6 +784,7 @@ function ConnectedThreadTerminalPanel({
   onClosePanelTerminal,
   onHeightChange,
   onAddTerminalContext,
+  onOpenFilePath,
 }: ConnectedThreadTerminalPanelProps) {
   const terminalDrawerState = useTerminalStateStore(
     useShallow((state) => {
@@ -835,6 +839,7 @@ function ConnectedThreadTerminalPanel({
       onToggleTerminal={onClosePanelTerminal}
       onHeightChange={onHeightChange}
       onAddTerminalContext={onAddTerminalContext}
+      {...(onOpenFilePath ? { onOpenFilePath } : {})}
     />
   );
 }
@@ -2131,7 +2136,6 @@ function useChatViewComponent({
       }),
     [connectionUrl, projectConnectionUrl, routeConnectionUrl, threadConnectionUrl],
   );
-  const canOpenLocalMarkdownFiles = activeServerConnectionUrl === null;
   const resolveBrowserThreadConnectionUrl = useCallback(
     (browserThreadId: ThreadId): string => {
       const browserThread =
@@ -3555,6 +3559,7 @@ function useChatViewComponent({
       })
     : null;
   const codingGitCwd = gitCwd;
+  const canOpenLocalMarkdownFiles = Boolean(activeThreadId && gitCwd);
   const workspaceStatusPollingMs = latestTurnSettled ? 10_000 : 5_000;
   const workspaceStatusQuery = useQuery({
     ...gitStatusQueryOptions(codingGitCwd, activeServerConnectionUrl),
@@ -5425,13 +5430,29 @@ function useChatViewComponent({
     [activeProject?.cwd, activeThread?.worktreePath, gitCwd],
   );
   const openMarkdownFileInAppEditor = useCallback(
-    (targetPath: string) => {
+    async (targetPath: string) => {
       if (!activeThreadId || !gitCwd) {
         return;
       }
       const normalizedTargetPath = targetPath.trim();
       if (normalizedTargetPath.length === 0) {
         return;
+      }
+      const api = readNativeApi();
+      if (api) {
+        try {
+          const pathInfo = await api.shell.pathInfo(normalizedTargetPath, {
+            connectionUrl: activeServerConnectionUrl,
+          });
+          if (pathInfo.kind === "directory") {
+            await api.shell.revealInFileManager(normalizedTargetPath, {
+              connectionUrl: activeServerConnectionUrl,
+            });
+            return;
+          }
+        } catch (error) {
+          console.warn("Failed to inspect local file path before opening editor.", error);
+        }
       }
       let resolvedFilePath = resolveWorkspaceEditorFilePath(
         normalizedTargetPath,
@@ -5463,6 +5484,7 @@ function useChatViewComponent({
     },
     [
       activeRightPanelEditorTabId,
+      activeServerConnectionUrl,
       activeThreadId,
       gitCwd,
       onOpenRightSidePanelEditor,
@@ -11818,6 +11840,9 @@ function useChatViewComponent({
                                 onClosePanelTerminal={onCloseRightSidePanelTerminal}
                                 onHeightChange={setRightPanelTerminalHeight}
                                 onAddTerminalContext={addTerminalContextToDraft}
+                                onOpenFilePath={
+                                  canOpenLocalMarkdownFiles ? openMarkdownFileInAppEditor : null
+                                }
                               />
                             ) : activeRightSidePanelMode === "editor" ? (
                               <Suspense
@@ -11981,6 +12006,9 @@ function useChatViewComponent({
                         onClosePanelTerminal={onCloseBottomPanelTerminal}
                         onHeightChange={setTerminalHeight}
                         onAddTerminalContext={addTerminalContextToDraft}
+                        onOpenFilePath={
+                          canOpenLocalMarkdownFiles ? openMarkdownFileInAppEditor : null
+                        }
                       />
                     ) : activeBottomPanelMode === "editor" ? (
                       <Suspense

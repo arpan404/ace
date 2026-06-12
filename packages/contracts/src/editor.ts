@@ -36,6 +36,16 @@ export const OpenPathExistsInput = Schema.Struct({
 });
 export type OpenPathExistsInput = typeof OpenPathExistsInput.Type;
 
+export const OpenPathInfoInput = Schema.Struct({
+  path: TrimmedNonEmptyString,
+});
+export type OpenPathInfoInput = typeof OpenPathInfoInput.Type;
+
+export const OpenPathInfoResult = Schema.Struct({
+  kind: Schema.Literals(["missing", "file", "directory", "other"] as const),
+});
+export type OpenPathInfoResult = typeof OpenPathInfoResult.Type;
+
 export class OpenError extends Schema.TaggedErrorClass<OpenError>()("OpenError", {
   message: Schema.String,
   cause: Schema.optional(Schema.Defect),

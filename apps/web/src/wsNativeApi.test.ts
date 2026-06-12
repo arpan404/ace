@@ -70,6 +70,7 @@ const rpcClientMock = {
   shell: {
     openInEditor: vi.fn(),
     pathExists: vi.fn(),
+    pathInfo: vi.fn(),
     revealInFileManager: vi.fn(),
   },
   git: {
@@ -331,6 +332,18 @@ describe("wsNativeApi", { timeout: 15_000 }, () => {
 
     await expect(api.shell.pathExists("/tmp/generated.pptx")).resolves.toBe(true);
     expect(rpcClientMock.shell.pathExists).toHaveBeenCalledWith({ path: "/tmp/generated.pptx" });
+  });
+
+  it("forwards shell path info checks to the RPC client", async () => {
+    rpcClientMock.shell.pathInfo.mockResolvedValue({ kind: "directory" });
+    const { createWsNativeApi } = await import("./wsNativeApi");
+
+    const api = createWsNativeApi();
+
+    await expect(api.shell.pathInfo("/tmp/project/apps/web")).resolves.toEqual({
+      kind: "directory",
+    });
+    expect(rpcClientMock.shell.pathInfo).toHaveBeenCalledWith({ path: "/tmp/project/apps/web" });
   });
 
   it("forwards server config fetches directly to the RPC client", async () => {

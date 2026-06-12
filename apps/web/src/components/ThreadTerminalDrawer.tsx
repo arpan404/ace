@@ -417,6 +417,7 @@ interface TerminalViewportProps {
   focusRequestId: number;
   shouldFocusTerminal: boolean;
   drawerHeight: number;
+  onOpenFilePath?: ((path: string) => void | Promise<void>) | null;
 }
 
 function useTerminalViewportComponent({
@@ -432,6 +433,7 @@ function useTerminalViewportComponent({
   focusRequestId,
   shouldFocusTerminal,
   drawerHeight,
+  onOpenFilePath = null,
 }: TerminalViewportProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
@@ -439,6 +441,7 @@ function useTerminalViewportComponent({
   const onSessionExitedRef = useRef(onSessionExited);
   const onAddTerminalContextRef = useRef(onAddTerminalContext);
   const onAutoTerminalTitleChangeRef = useRef(onAutoTerminalTitleChange);
+  const onOpenFilePathRef = useRef(onOpenFilePath);
   const runtimeEnvRef = useRef(runtimeEnv);
   const runtimeEnvKey = useMemo(() => stableRuntimeEnvKey(runtimeEnv), [runtimeEnv]);
   const terminalLabelRef = useRef(terminalLabel);
@@ -462,6 +465,10 @@ function useTerminalViewportComponent({
   useEffect(() => {
     onAutoTerminalTitleChangeRef.current = onAutoTerminalTitleChange;
   }, [onAutoTerminalTitleChange]);
+
+  useEffect(() => {
+    onOpenFilePathRef.current = onOpenFilePath;
+  }, [onOpenFilePath]);
 
   useEffect(() => {
     runtimeEnvRef.current = runtimeEnv;
@@ -768,7 +775,22 @@ function useTerminalViewportComponent({
               }
 
               const target = resolvePathLinkTarget(match.text, cwd);
-              void openInPreferredEditor(api, target).catch((error) => {
+              if (onOpenFilePathRef.current) {
+                void onOpenFilePathRef.current(target);
+                return;
+              }
+              void (async () => {
+                try {
+                  const pathInfo = await api.shell.pathInfo(target);
+                  if (pathInfo.kind === "directory") {
+                    await api.shell.revealInFileManager(target);
+                    return;
+                  }
+                } catch (error) {
+                  console.warn("Failed to inspect terminal path before opening editor.", error);
+                }
+                await openInPreferredEditor(api, target);
+              })().catch((error) => {
                 writeSystemMessage(
                   latestTerminal,
                   error instanceof Error ? error.message : "Unable to open path",
@@ -1106,6 +1128,7 @@ function terminalViewportPropsEqual(
     previous.onSessionExited === next.onSessionExited &&
     previous.onAddTerminalContext === next.onAddTerminalContext &&
     previous.onAutoTerminalTitleChange === next.onAutoTerminalTitleChange &&
+    previous.onOpenFilePath === next.onOpenFilePath &&
     shallowRuntimeEnvEqual(previous.runtimeEnv, next.runtimeEnv)
   );
 }
@@ -1139,6 +1162,7 @@ interface ThreadTerminalDrawerProps {
   onToggleTerminal: () => void;
   onHeightChange: (height: number) => void;
   onAddTerminalContext: (selection: TerminalContextSelection) => void;
+  onOpenFilePath?: ((path: string) => void | Promise<void>) | null;
 }
 
 interface TerminalActionButtonProps {
@@ -1304,6 +1328,7 @@ export default memo(function ThreadTerminalDrawer({
   onToggleTerminal,
   onHeightChange,
   onAddTerminalContext,
+  onOpenFilePath = null,
 }: ThreadTerminalDrawerProps) {
   const [drawerHeight, setDrawerHeight] = useState(() => clampDrawerHeight(height));
   const drawerHeightRef = useRef(drawerHeight);
@@ -1753,6 +1778,7 @@ export default memo(function ThreadTerminalDrawer({
                       onSessionExited={onCloseTerminal}
                       onAddTerminalContext={onAddTerminalContext}
                       onAutoTerminalTitleChange={onAutoTerminalTitleChange}
+                      {...(onOpenFilePath ? { onOpenFilePath } : {})}
                       focusRequestId={focusRequestId}
                       shouldFocusTerminal={interactive && terminalId === resolvedActiveTerminalId}
                       drawerHeight={drawerHeight}
