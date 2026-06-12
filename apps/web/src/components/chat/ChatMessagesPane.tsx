@@ -1,5 +1,5 @@
 import { ChevronDownIcon } from "lucide-react";
-import { memo, type ComponentProps, type ReactNode, type Ref } from "react";
+import { memo, type ComponentProps, type Ref } from "react";
 import { cn } from "~/lib/utils";
 import { APP_FLOATING_CHIP_CLASS_NAME } from "~/lib/appChrome";
 import { Button } from "~/components/ui/button";
@@ -10,10 +10,8 @@ import { MessagesTimeline } from "./MessagesTimeline";
 type MessagesContainerProps = ComponentProps<"div">;
 
 export const ChatMessagesPane = memo(function ChatMessagesPane({
-  loadingNotice,
   messagesContainerRef,
   messagesTimelineProps,
-  onMessagesClickCapture,
   onMessagesPointerCancel,
   onMessagesPointerDown,
   onMessagesPointerUp,
@@ -26,10 +24,8 @@ export const ChatMessagesPane = memo(function ChatMessagesPane({
   showScrollToBottom,
   timelineKey,
 }: {
-  loadingNotice?: ReactNode;
   messagesContainerRef: Ref<HTMLDivElement>;
   messagesTimelineProps: ComponentProps<typeof MessagesTimeline>;
-  onMessagesClickCapture: MessagesContainerProps["onClickCapture"];
   onMessagesPointerCancel: MessagesContainerProps["onPointerCancel"];
   onMessagesPointerDown: MessagesContainerProps["onPointerDown"];
   onMessagesPointerUp: MessagesContainerProps["onPointerUp"];
@@ -50,7 +46,6 @@ export const ChatMessagesPane = memo(function ChatMessagesPane({
         viewportProps={{
           className: "pe-2.5",
           onScroll: onMessagesScroll,
-          onClickCapture: onMessagesClickCapture,
           onWheel: onMessagesWheel,
           onPointerDown: onMessagesPointerDown,
           onPointerUp: onMessagesPointerUp,
@@ -61,7 +56,6 @@ export const ChatMessagesPane = memo(function ChatMessagesPane({
           onTouchCancel: onMessagesTouchEnd,
         }}
       >
-        {loadingNotice}
         <MessagesTimeline key={timelineKey} {...messagesTimelineProps} />
       </ScrollArea>
 

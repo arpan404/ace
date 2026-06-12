@@ -45,7 +45,14 @@ import {
 } from "effect";
 import * as Semaphore from "effect/Semaphore";
 import { ServerConfig } from "./config";
+import { readPositiveIntegerEnv } from "./resourceLimits.ts";
 import { fromLenientJson } from "@ace/shared/schemaJson";
+
+const KEYBINDINGS_PUBSUB_CAPACITY = readPositiveIntegerEnv({
+  envVarName: "ACE_KEYBINDINGS_PUBSUB_CAPACITY",
+  fallback: 64,
+  minimum: 1,
+});
 
 type WhenToken =
   | { type: "identifier"; value: string }
@@ -635,7 +642,7 @@ const makeKeybindings = Effect.gen(function* () {
   const path = yield* Path.Path;
   const upsertSemaphore = yield* Semaphore.make(1);
   const resolvedConfigCacheKey = "resolved" as const;
-  const changesPubSub = yield* PubSub.unbounded<KeybindingsChangeEvent>();
+  const changesPubSub = yield* PubSub.sliding<KeybindingsChangeEvent>(KEYBINDINGS_PUBSUB_CAPACITY);
   const startedRef = yield* Ref.make(false);
   const startedDeferred = yield* Deferred.make<void, KeybindingsConfigError>();
   const watcherScope = yield* Scope.make("sequential");

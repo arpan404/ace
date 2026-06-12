@@ -83,8 +83,18 @@ beforeAll(() => {
   });
 });
 
+const makeTimelineVirtualItem = (index: number) =>
+  ({
+    end: (index + 1) * 100,
+    index,
+    key: index,
+    lane: 0,
+    size: 100,
+    start: index * 100,
+  }) as const;
+
 describe("MessagesTimeline", { timeout: 30_000 }, () => {
-  it("derives timeline prefetch page size and direction from scroll speed", async () => {
+  it("derives timeline snapshot prefetch direction from scroll speed", async () => {
     const { deriveTimelineScrollPrefetchRequest } = await import("./MessagesTimeline");
 
     expect(
@@ -93,82 +103,131 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
         previousScrollTop: 0,
         elapsedMs: 100,
       }),
-    ).toMatchObject({ direction: "both", pageSize: 100 });
+    ).toMatchObject({ direction: "both", lookaheadRows: 32 });
     expect(
       deriveTimelineScrollPrefetchRequest({
         currentScrollTop: 500,
         previousScrollTop: 0,
         elapsedMs: 100,
       }),
-    ).toMatchObject({ direction: "newer", pageSize: 1_000 });
+    ).toMatchObject({
+      direction: "newer",
+      lookaheadRows: 256,
+    });
     expect(
       deriveTimelineScrollPrefetchRequest({
         currentScrollTop: 0,
         previousScrollTop: 1_200,
         elapsedMs: 100,
       }),
-    ).toMatchObject({ direction: "older", pageSize: 4_000 });
+    ).toMatchObject({
+      direction: "older",
+      lookaheadRows: 1_024,
+    });
   });
 
-  it("uses stable timeline row cache keys across equivalent remounted arrays", async () => {
-    const { buildTimelineRowsCacheKey } = await import("../../lib/chat/timelineRowsClient");
-    const makeInput = (timelineEntries: []) => ({
-      timelineEntries,
-      activeTurnInProgress: false,
-      activeTurnStartedAt: null,
-      cacheScopeKey: "thread:thread-1:hydrated:v1",
-      completionDividerBeforeEntryId: null,
-      completionSummary: null,
-      isWorking: false,
+  it("derives rendered window state from loaded rows only", async () => {
+    const { deriveTimelineRenderedWindowState } = await import("./MessagesTimeline");
+
+    expect(
+      deriveTimelineRenderedWindowState({
+        renderedVirtualItems: [
+          makeTimelineVirtualItem(2),
+          makeTimelineVirtualItem(3),
+          makeTimelineVirtualItem(4),
+        ],
+        virtualizedRows: [
+          { id: "loaded-0", kind: "message" },
+          { id: "loaded-1", kind: "message" },
+          { id: "loaded-2", kind: "message" },
+          { id: "loaded-3", kind: "message" },
+          { id: "loaded-4", kind: "message" },
+        ] as unknown as Parameters<typeof deriveTimelineRenderedWindowState>[0]["virtualizedRows"],
+      }),
+    ).toMatchObject({
+      loadedEndIndexExclusive: 5,
+      loadedRowCount: 5,
+      loadedStartIndex: 2,
+      overscanLoadedEndIndexExclusive: 5,
+      overscanLoadedStartIndex: 2,
+    });
+  });
+
+  it("maps rendered row windows back to global timeline indexes", async () => {
+    const { deriveGlobalTimelineRenderedWindowState, deriveTimelineRenderedWindowState } =
+      await import("./MessagesTimeline");
+    const rows = [
+      {
+        id: "entry-5000",
+        kind: "message",
+      },
+      {
+        id: "completed-work-summary:entry-5001",
+        kind: "completed-work-summary",
+        sourceEntryIds: ["entry-5001", "entry-5002"],
+        detailRows: [],
+        visibleDiagnosticRows: [],
+      },
+      {
+        id: "entry-5003",
+        kind: "message",
+      },
+    ] as unknown as Parameters<typeof deriveGlobalTimelineRenderedWindowState>[0]["rows"];
+    const renderedWindowState = deriveTimelineRenderedWindowState({
+      renderedVirtualItems: [makeTimelineVirtualItem(1), makeTimelineVirtualItem(2)],
+      virtualizedRows: rows,
     });
 
-    expect(buildTimelineRowsCacheKey(makeInput([]))).toBe(buildTimelineRowsCacheKey(makeInput([])));
+    expect(
+      deriveGlobalTimelineRenderedWindowState({
+        renderedWindowState,
+        rows,
+        timelineIndexByEntryId: new Map([
+          ["entry-5000", 5_000],
+          ["entry-5001", 5_001],
+          ["entry-5002", 5_002],
+          ["entry-5003", 5_003],
+        ]),
+      }),
+    ).toMatchObject({
+      loadedEndIndexExclusive: 5_004,
+      loadedStartIndex: 5_001,
+      overscanLoadedEndIndexExclusive: 5_004,
+      overscanLoadedStartIndex: 5_001,
+    });
   });
 
-  it("versions timeline row cache keys by projection semantics", async () => {
-    const { buildTimelineRowsCacheKey } = await import("../../lib/chat/timelineRowsClient");
-    const { TIMELINE_ROWS_PROJECTION_VERSION } =
-      await import("../../lib/chat/timelineRowsProjection");
+  it("returns null when no loaded rows are rendered", async () => {
+    const { deriveTimelineRenderedWindowState } = await import("./MessagesTimeline");
 
     expect(
-      buildTimelineRowsCacheKey({
-        timelineEntries: [],
-        activeTurnInProgress: false,
-        activeTurnStartedAt: null,
-        cacheScopeKey: "thread:thread-1:hydrated:v1",
-        completionDividerBeforeEntryId: null,
-        completionSummary: null,
-        isWorking: false,
+      deriveTimelineRenderedWindowState({
+        renderedVirtualItems: [],
+        virtualizedRows: [],
       }),
-    ).toContain(`timeline-rows:v${String(TIMELINE_ROWS_PROJECTION_VERSION)}`);
+    ).toBeNull();
   });
 
-  it("separates timeline row cache keys when the thread content scope changes", async () => {
-    const { buildTimelineRowsCacheKey } = await import("../../lib/chat/timelineRowsClient");
-    const baseInput = {
-      timelineEntries: [],
-      activeTurnInProgress: false,
-      activeTurnStartedAt: null,
-      completionDividerBeforeEntryId: null,
-      completionSummary: null,
-      isWorking: false,
-    };
+  it("derives a rendered window for underfilled unvirtualized timelines", async () => {
+    const { deriveTimelineRenderedWindowState } = await import("./MessagesTimeline");
 
     expect(
-      buildTimelineRowsCacheKey({
-        ...baseInput,
-        cacheScopeKey: "thread:thread-1:hydrated:v1",
+      deriveTimelineRenderedWindowState({
+        renderedVirtualItems: [],
+        totalRowCount: 2,
+        virtualizedRows: [],
       }),
-    ).not.toBe(
-      buildTimelineRowsCacheKey({
-        ...baseInput,
-        cacheScopeKey: "thread:thread-1:hydrated:v2",
-      }),
-    );
+    ).toEqual({
+      loadedEndIndexExclusive: 2,
+      loadedRowCount: 2,
+      loadedStartIndex: 0,
+      overscanLoadedEndIndexExclusive: 2,
+      overscanLoadedStartIndex: 0,
+    });
   });
 
-  it("keeps active thread rows visible while async row rebuilding is pending", async () => {
-    const { resolveVisibleTimelineRows } = await import("./MessagesTimeline");
+  it("keeps active thread rows visible while rows are temporarily empty", async () => {
+    const { resolveVisibleTimelineRows } = await import("./useTimelineRowsController");
     const retainedRows = [
       {
         id: "previous-user-row",
@@ -182,8 +241,6 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
         activeThreadId: "thread-1",
         rows: retainedRows,
       },
-      resolvedAsyncRows: null,
-      shouldResolveAsync: true,
       syncRows: [],
     });
 
@@ -191,8 +248,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(result.rows).toBe(retainedRows);
   });
 
-  it("does not keep retained rows visible while thread history is loading", async () => {
-    const { resolveVisibleTimelineRows } = await import("./MessagesTimeline");
+  it("can opt out of retaining previous rows", async () => {
+    const { resolveVisibleTimelineRows } = await import("./useTimelineRowsController");
     const retainedRows = [
       {
         id: "previous-user-row",
@@ -207,8 +264,43 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
         rows: retainedRows,
       },
       retainRowsWhileLoading: false,
-      resolvedAsyncRows: null,
-      shouldResolveAsync: true,
+      syncRows: [],
+    });
+
+    expect(result.loading).toBe(false);
+    expect(result.rows).toEqual([]);
+  });
+
+  it("keeps active thread rows visible while snapshot hydration catches up", async () => {
+    const { resolveVisibleTimelineRows } = await import("./useTimelineRowsController");
+    const retainedRows = [
+      {
+        id: "previous-user-row",
+        kind: "message",
+      },
+    ] as unknown as ReturnType<typeof resolveVisibleTimelineRows>["rows"];
+
+    const result = resolveVisibleTimelineRows({
+      activeThreadId: "thread-1",
+      loading: true,
+      retainedRows: {
+        activeThreadId: "thread-1",
+        rows: retainedRows,
+      },
+      syncRows: [],
+    });
+
+    expect(result.loading).toBe(false);
+    expect(result.rows).toBe(retainedRows);
+  });
+
+  it("shows loading while an empty thread snapshot is in flight", async () => {
+    const { resolveVisibleTimelineRows } = await import("./useTimelineRowsController");
+
+    const result = resolveVisibleTimelineRows({
+      activeThreadId: "thread-1",
+      loading: true,
+      retainedRows: null,
       syncRows: [],
     });
 
@@ -216,8 +308,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(result.rows).toEqual([]);
   });
 
-  it("uses sync rows while async row caching is pending", async () => {
-    const { resolveVisibleTimelineRows } = await import("./MessagesTimeline");
+  it("uses sync rows before retained rows", async () => {
+    const { resolveVisibleTimelineRows } = await import("./useTimelineRowsController");
     const syncRows = [
       {
         id: "sync-row",
@@ -231,8 +323,6 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
         activeThreadId: "thread-2",
         rows: [],
       },
-      resolvedAsyncRows: null,
-      shouldResolveAsync: true,
       syncRows,
     });
 
@@ -253,18 +343,23 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
       ...previousWindow,
       localStorage: globalThis.localStorage,
     });
-    vi.stubGlobal("Worker", class MockWorker {} as unknown as typeof Worker);
+    vi.stubGlobal(
+      "Worker",
+      class MockWorker {
+        terminate(): void {}
+      } as unknown as typeof Worker,
+    );
     try {
       const timelineEntries = Array.from({ length: 80 }, (_, index) => {
         const createdAt = `2026-03-17T19:${String(12 + Math.floor(index / 60)).padStart(2, "0")}:${String(index % 60).padStart(2, "0")}.000Z`;
         return {
-          id: `lean-user-${index + 1}`,
+          id: `metadata-user-${index + 1}`,
           kind: "message" as const,
           createdAt,
           message: {
-            id: MessageId.makeUnsafe(`lean-user-${index + 1}`),
+            id: MessageId.makeUnsafe(`metadata-user-${index + 1}`),
             role: "user" as const,
-            text: `Lean row ${index + 1}`,
+            text: `Metadata row ${index + 1}`,
             createdAt,
             streaming: false,
           },
@@ -294,12 +389,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
       };
 
       const cacheMissMarkup = renderToStaticMarkup(<MessagesTimeline {...baseProps} />);
-      const restoringMarkup = renderToStaticMarkup(
-        <MessagesTimeline {...baseProps} isThreadHistoryLoading />,
-      );
 
       expect(cacheMissMarkup).not.toContain("Loading conversation");
-      expect(restoringMarkup).not.toContain("Loading conversation");
     } finally {
       vi.stubGlobal("document", previousDocument);
       vi.stubGlobal("window", previousWindow);
@@ -324,9 +415,55 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
 
     const markup = renderToStaticMarkup(<TimelineRowsLoadingFallback />);
 
-    expect(markup).toContain("Fetching thread");
+    expect(markup).toContain("Loading thread...");
     expect(markup).not.toContain("animate-pulse");
     expect(markup).not.toContain("rounded-full bg-muted");
+  });
+
+  it("does not show thread fetching chrome over already rendered rows", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        hasMessages
+        isWorking={false}
+        activeTurnInProgress={false}
+        activeTurnStartedAt={null}
+        getScrollContainer={() => null}
+        timelineEntries={[
+          {
+            id: "loaded-user",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:30.000Z",
+            message: {
+              id: MessageId.makeUnsafe("loaded-user"),
+              role: "user",
+              text: "Already loaded",
+              createdAt: "2026-03-17T19:12:30.000Z",
+              streaming: false,
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        resolvedTheme="light"
+        timestampFormat="locale"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup).toContain("Already loaded");
+    expect(markup).not.toContain("Loading thread...");
+    expect(markup).not.toContain('data-thread-timeline-fetching="true"');
+    expect(markup).not.toContain("Loading conversation");
   });
 
   it("renders terminal assistant output through markdown instead of forcing plain text", async () => {
@@ -729,7 +866,7 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(markup).toContain("tabler-icon-terminal");
     expect(markup).toContain("yoo what&#x27;s ");
     expect(markup).toContain('data-user-message-bubble="true"');
-    expect(markup).toContain("bg-chat-bubble");
+    expect(markup).toContain("glass-inset");
     expect(markup).toContain("rounded-2xl");
     expect(markup).not.toContain("translate-y-[38%] rotate-45");
     expect(markup).not.toContain('data-thread-row="true"');
@@ -2037,6 +2174,7 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
               createdAt: "2026-03-17T19:12:31.500Z",
               label: "Reasoning",
               detail: "Inspecting package scripts before patching the renderer.",
+              durationMs: 650,
               tone: "thinking",
             },
           },
@@ -2049,6 +2187,7 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
               createdAt: "2026-03-17T19:12:33.500Z",
               label: "Reasoning",
               detail: "Comparing the grouped timeline behavior after the patch.",
+              durationMs: 850,
               tone: "thinking",
             },
           },
@@ -2073,16 +2212,17 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(markup).toContain('data-thinking-disclosure="true"');
     expect(markup).toContain('data-thinking-disclosure-open="false"');
     expect(markup).toContain('data-meta-disclosure-elapsed="2s"');
-    expect(markup).toContain("Thought 2 times for 2 seconds");
+    expect(markup).toContain("Thinking x2");
+    expect(markup).toContain("1.5s");
+    expect(markup).not.toContain("Thought 2 times for 2 seconds");
     expect(markup).not.toContain("Thought for 2s");
-    expect(markup).not.toContain(">Thinking<");
     expect(markup).not.toContain('data-work-entry-id="thinking-collapsed"');
     expect(markup).not.toContain('data-work-entry-id="thinking-collapsed-2"');
     expect(markup).not.toContain("Inspecting package scripts before patching the renderer.");
     expect(markup).not.toContain("Comparing the grouped timeline behavior after the patch.");
   });
 
-  it("measures completed thinking until the nearest next event after the turn finishes", async () => {
+  it("summarizes completed thinking without fabricating thinking duration", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
@@ -2330,7 +2470,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(markup).toContain("text-foreground/76");
     expect(markup).toContain("Tracing the ordering boundary before patching the renderer.");
     expect(markup).toContain('data-meta-disclosure-elapsed="1s"');
-    expect(markup).toContain("Thought 1 time for 1 second");
+    expect(markup).toContain(">Thinking<");
+    expect(markup).not.toContain("Thought 1 time for 1 second");
   });
 
   it("keeps assistant follow-ups beneath the preceding work row in order", async () => {
@@ -2586,8 +2727,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(markup.indexOf("Updated the timeline rendering.")).toBeLessThan(
       markup.indexOf("Changed files (2)"),
     );
-    expect(markup.indexOf("Changed files (2)")).toBeLessThan(
-      markup.indexOf('data-response-summary="true"'),
+    expect(markup.indexOf('data-response-summary="true"')).toBeLessThan(
+      markup.indexOf("Changed files (2)"),
     );
   });
 
@@ -3088,7 +3229,7 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(markup.match(/data-response-summary="true"/g) ?? []).toHaveLength(1);
   });
 
-  it("keeps runtime diagnostics visible when completed work details are hidden", async () => {
+  it("omits runtime errors from completed work diagnostics", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
@@ -3170,12 +3311,12 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
 
     expect(markup).toContain('data-completed-work-summary="true"');
     expect(markup).toContain('data-completed-work-visible-diagnostics="true"');
-    expect(markup).toContain('data-work-entry-id="runtime-error-hidden-work"');
+    expect(markup).not.toContain('data-work-entry-id="runtime-error-hidden-work"');
     expect(markup).toContain('data-work-entry-id="runtime-warning-hidden-work"');
-    expect(markup).toContain("Runtime error");
+    expect(markup).not.toContain("Runtime error");
     expect(markup).toContain("Runtime warning");
-    expect(markup).toContain("You&#x27;ve hit your rate limit");
-    expect(markup).toContain("Retry scheduled");
+    expect(markup).not.toContain("You&#x27;ve hit your rate limit");
+    expect(markup).not.toContain("Retry scheduled");
     expect(markup).not.toContain("README.md");
   });
 
@@ -4107,7 +4248,7 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     );
   });
 
-  it("renders assistant footer after trailing work rows for the turn", async () => {
+  it("renders assistant footer before trailing work rows for the turn", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const turnId = TurnId.makeUnsafe("turn-footer-after-work");
     const markup = renderToStaticMarkup(
@@ -4168,17 +4309,17 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(markup).toContain("Ran 1 command");
     expect(markup).toContain('data-assistant-turn-footer="true"');
     expect(markup.indexOf("Assistant text before work.")).toBeLessThan(
-      markup.indexOf("Ran 1 command"),
-    );
-    expect(markup.indexOf("Ran 1 command")).toBeLessThan(
       markup.indexOf('data-assistant-turn-footer="true"'),
+    );
+    expect(markup.indexOf('data-assistant-turn-footer="true"')).toBeLessThan(
+      markup.indexOf("Ran 1 command"),
     );
     expect(markup.indexOf('data-response-summary="true"')).toBeLessThan(
       markup.indexOf('aria-label="Fork conversation"'),
     );
   });
 
-  it("renders assistant footer after the hidden trailing work summary", async () => {
+  it("hoists hidden trailing work summary above the terminal assistant footer", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const turnId = TurnId.makeUnsafe("turn-footer-after-hidden-work");
     const markup = renderToStaticMarkup(
@@ -4251,10 +4392,10 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(markup).toContain("Assistant text before hidden work.");
     expect(markup).toContain("Worked for 1s");
     expect(markup).not.toContain("Ran 1 command");
-    expect(markup.indexOf("Assistant text before hidden work.")).toBeLessThan(
-      markup.indexOf("Worked for 1s"),
-    );
     expect(markup.indexOf("Worked for 1s")).toBeLessThan(
+      markup.indexOf("Assistant text before hidden work."),
+    );
+    expect(markup.indexOf("Assistant text before hidden work.")).toBeLessThan(
       markup.indexOf('data-assistant-turn-footer="true"'),
     );
     expect(markup.indexOf('data-response-summary="true"')).toBeLessThan(

@@ -3,6 +3,7 @@ import {
   type MouseEvent,
   type PointerEventHandler,
   memo,
+  useEffect,
   useMemo,
 } from "react";
 import { type GitStatusResult, type ProjectId, type ThreadId } from "@ace/contracts";
@@ -131,6 +132,7 @@ export const SidebarLocalProjectSection = memo(function SidebarLocalProjectSecti
 ) {
   const project = useProjectById(props.projectId);
   const allProjectThreads = useSidebarThreadSummariesByProjectId(props.projectId);
+  const prefetchThreadHistory = props.prefetchThreadHistory;
   const projectExpanded = useUiStateStore(
     (state) => state.projectExpandedById[props.projectId] ?? true,
   );
@@ -174,6 +176,19 @@ export const SidebarLocalProjectSection = memo(function SidebarLocalProjectSecti
       visibleProjectThreads,
     ],
   );
+
+  useEffect(() => {
+    if (!projectExpanded || renderState.renderedThreadIds.length === 0) {
+      return;
+    }
+    for (const threadId of renderState.renderedThreadIds) {
+      prefetchThreadHistory(threadId, {
+        hydrateStore: false,
+        prewarmRows: true,
+        priority: "background",
+      });
+    }
+  }, [prefetchThreadHistory, projectExpanded, renderState.renderedThreadIds]);
 
   if (!project) {
     return null;

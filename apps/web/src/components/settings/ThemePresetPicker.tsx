@@ -2,6 +2,8 @@ import { memo, type CSSProperties } from "react";
 
 import { THEME_PRESET_OPTIONS, type ThemePresetId } from "~/themePresets";
 import { cn } from "~/lib/utils";
+import { Button } from "~/components/ui/button";
+import { SETTINGS_LIST_ROW_BUTTON_CLASS, SETTINGS_SIDEBAR_FOCUS_RING_CLASS } from "./settingsUi";
 
 export const ThemePresetPicker = memo(function ThemePresetPicker({
   value,
@@ -26,23 +28,26 @@ export const ThemePresetPicker = memo(function ThemePresetPicker({
           } as CSSProperties;
 
           return (
-            <button
+            <Button
               key={option.id}
               type="button"
+              variant="ghost"
               aria-pressed={active}
               aria-label={option.label}
               onClick={() => {
                 onChange(option.id);
               }}
               className={cn(
-                "group flex min-h-11 w-full min-w-0 items-center gap-3 rounded-[calc(var(--control-radius)+2px)] border px-2 py-2 text-left outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-[color:var(--preset-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+                SETTINGS_LIST_ROW_BUTTON_CLASS,
+                SETTINGS_SIDEBAR_FOCUS_RING_CLASS,
+                "group min-h-11 w-full min-w-0 justify-start gap-3 rounded-[var(--control-radius)] border px-2 py-2 text-left transition-colors duration-150 focus-visible:ring-[color:var(--preset-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-background",
                 active
                   ? "border-foreground/22 bg-foreground/[0.055] text-foreground"
                   : "border-transparent bg-transparent text-muted-foreground/72 hover:border-border/40 hover:bg-foreground/[0.035] hover:text-foreground/92",
               )}
               style={presetStyle}
             >
-              <span className="flex h-6 w-10 shrink-0 overflow-hidden rounded-[var(--control-radius)] border border-border/30">
+              <span className="flex h-6 w-10 shrink-0 overflow-hidden rounded-[var(--control-radius)] border border-border/40">
                 <span className="h-full flex-1" style={{ background: panelLeft }} />
                 <span className="h-full flex-1" style={{ background: panelRight }} />
                 <span className="h-full w-2" style={{ background: preview.accent }} />
@@ -57,7 +62,7 @@ export const ThemePresetPicker = memo(function ThemePresetPicker({
                   />
                 </span>
               </span>
-            </button>
+            </Button>
           );
         })}
       </div>

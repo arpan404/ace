@@ -41,6 +41,7 @@ import {
   cloneReplayTurns,
   type TranscriptReplayTurn,
 } from "../providerTranscriptBootstrap.ts";
+import { makeProviderAdapterRuntimeEventPubSub } from "../providerRuntimeQueue.ts";
 import { resolveCursorCliModelId } from "./CursorProvider.ts";
 import {
   describeCursorAdapterCause,
@@ -529,7 +530,7 @@ export const CursorAdapterLive = Layer.effect(
     const services = yield* Effect.services();
     const runPromise = Effect.runPromiseWith(services);
     const eventsPubSub = yield* Effect.acquireRelease(
-      PubSub.unbounded<ProviderRuntimeEvent>(),
+      makeProviderAdapterRuntimeEventPubSub(),
       PubSub.shutdown,
     );
     const sessions = new Map<ThreadId, CursorSessionContext>();

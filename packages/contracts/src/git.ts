@@ -155,6 +155,26 @@ export const GitWorkingTreeDiffInput = Schema.Struct({
 });
 export type GitWorkingTreeDiffInput = typeof GitWorkingTreeDiffInput.Type;
 
+export const NewThreadRecommendationContextTurn = Schema.Struct({
+  threadId: TrimmedNonEmptyStringSchema,
+  title: TrimmedNonEmptyStringSchema,
+  latestUserMessage: Schema.String,
+  latestAssistantMessage: Schema.String,
+  updatedAt: IsoDateTime,
+});
+export type NewThreadRecommendationContextTurn = typeof NewThreadRecommendationContextTurn.Type;
+
+export const GenerateNewThreadRecommendationsInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  modelSelection: ModelSelection,
+  turns: Schema.Array(NewThreadRecommendationContextTurn).check(
+    Schema.isMinLength(1),
+    Schema.isMaxLength(3),
+  ),
+});
+export type GenerateNewThreadRecommendationsInput =
+  typeof GenerateNewThreadRecommendationsInput.Type;
+
 export const GitPullInput = Schema.Struct({
   cwd: TrimmedNonEmptyStringSchema,
 });
@@ -284,6 +304,19 @@ export const GitWorkingTreeDiffResult = Schema.Struct({
   diff: Schema.String,
 });
 export type GitWorkingTreeDiffResult = typeof GitWorkingTreeDiffResult.Type;
+
+export const NewThreadRecommendation = Schema.Struct({
+  title: TrimmedNonEmptyStringSchema,
+  description: TrimmedNonEmptyStringSchema,
+  prompt: TrimmedNonEmptyStringSchema,
+});
+export type NewThreadRecommendation = typeof NewThreadRecommendation.Type;
+
+export const GenerateNewThreadRecommendationsResult = Schema.Struct({
+  recommendations: Schema.Array(NewThreadRecommendation).check(Schema.isMaxLength(3)),
+});
+export type GenerateNewThreadRecommendationsResult =
+  typeof GenerateNewThreadRecommendationsResult.Type;
 
 export const GitListBranchesResult = Schema.Struct({
   branches: Schema.Array(GitBranch),

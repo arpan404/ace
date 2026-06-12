@@ -123,13 +123,9 @@ export function deriveThreadTimelineRenderState(input: {
     return cachedState;
   }
 
-  const turnDiffSummaryByAssistantMessageId = new Map<MessageId, TurnDiffSummary>();
-  for (const summary of input.turnDiffSummaries) {
-    if (!summary.assistantMessageId) {
-      continue;
-    }
-    turnDiffSummaryByAssistantMessageId.set(summary.assistantMessageId, summary);
-  }
+  const turnDiffSummaryByAssistantMessageId = deriveTurnDiffSummaryByAssistantMessageId(
+    input.turnDiffSummaries,
+  );
 
   const nextState = {
     timelineEntries: measureRenderWork("chat.deriveTimelineEntries", () =>
@@ -144,4 +140,17 @@ export function deriveThreadTimelineRenderState(input: {
 
   cacheBucket.set(input.turnDiffSummaries, nextState);
   return nextState;
+}
+
+export function deriveTurnDiffSummaryByAssistantMessageId(
+  turnDiffSummaries: ReadonlyArray<TurnDiffSummary>,
+): Map<MessageId, TurnDiffSummary> {
+  const byAssistantMessageId = new Map<MessageId, TurnDiffSummary>();
+  for (const summary of turnDiffSummaries) {
+    if (!summary.assistantMessageId) {
+      continue;
+    }
+    byAssistantMessageId.set(summary.assistantMessageId, summary);
+  }
+  return byAssistantMessageId;
 }

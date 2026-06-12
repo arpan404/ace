@@ -17,6 +17,7 @@ import {
   startTransition,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -42,13 +43,11 @@ import {
 } from "../../lib/chat/markdownRenderAnalysis";
 import { prewarmMarkdownRenderAnalysis } from "../../lib/chat/markdownRenderAnalysisClient";
 import {
-  prefetchThreadTimelineAroundLoadedWindow,
-  readTimelineRowHeight,
-  resolveTimelineScrollPrefetchPageSize,
-  type TimelinePrefetchDirection,
-  useTimelineWindowStore,
-  writeTimelineRowHeight,
-} from "../../lib/chat/timelineWindowStore";
+  prefetchThreadTimelineRowsSnapshot,
+  readTimelineModelRowHeight,
+  useTimelineModelStore,
+  writeTimelineModelRowHeight,
+} from "../../lib/chat/timelineModelStore";
 import { deriveTimelineEntries } from "../../session-logic";
 import { type TurnDiffSummary } from "../../types";
 import { summarizeTurnDiffStats } from "../../lib/turnDiffTree";
@@ -103,9 +102,8 @@ import {
   deriveDisplayedUserMessageState,
   type ParsedTerminalContextEntry,
 } from "~/lib/terminalContext";
-import { APP_WORKSPACE_INSET_CLASS_NAME } from "~/lib/appChrome";
+import { APP_USER_BUBBLE_CLASS_NAME, APP_WORKSPACE_INSET_CLASS_NAME } from "~/lib/appChrome";
 import { cn } from "~/lib/utils";
-import { measureRenderWork } from "~/lib/renderProfiling";
 import { type TimestampFormat } from "@ace/contracts/settings";
 import { formatTimestamp } from "../../timestampFormat";
 import { basenameOfPath, inferEntryKindFromPath } from "../../vscode-icons";
@@ -116,11 +114,8 @@ import {
   textContainsInlineTerminalContextLabels,
 } from "~/lib/chat/userMessageTerminalContexts";
 import {
-  buildTimelineWorkGroupSummaryProjection,
-  buildTimelineRows,
   isCompletedAssistantMessageRow,
   isEventInActiveTurn,
-  shouldWorkerizeTimelineRows,
   type AssistantTimelineMessage,
   type BuildTimelineRowsInput,
   type TimelineCompletedWorkDiagnosticRow,
@@ -137,26 +132,24 @@ import {
   type TimelineWorkLogRow,
   type UserTimelineMessage,
 } from "~/lib/chat/timelineRows";
-import {
-  buildTimelineRowsCacheKey,
-  readCachedTimelineRows,
-  resolveTimelineRows,
-  writeCachedTimelineRows,
-} from "~/lib/chat/timelineRowsClient";
 import type { StuckTurnSnapshot } from "~/lib/reliability/stuckTurn";
+import { useTimelineRowsController } from "./useTimelineRowsController";
+import { TimelineViewport } from "./TimelineViewport";
 
 const ALWAYS_UNVIRTUALIZED_TAIL_ROWS = 8;
-const TIMELINE_VIRTUALIZER_OVERSCAN = 8;
+const TIMELINE_VIRTUALIZER_OVERSCAN = 16;
 const MAX_TIMELINE_ROW_HEIGHT_CACHE_ENTRIES = 4_096;
 const IMMEDIATE_ASSISTANT_MARKDOWN_TAIL_MESSAGES = 12;
 const ASSISTANT_MARKDOWN_IDLE_BATCH_SIZE = 2;
+const ASSISTANT_MARKDOWN_PENDING_LOOKBACK_ROWS = 256;
+const ASSISTANT_MARKDOWN_PENDING_MESSAGE_LIMIT = 64;
+const MAX_RENDERED_ASSISTANT_MARKDOWN_MESSAGE_IDS = 512;
 const DEFAULT_TURN_DIFF_DIRECTORIES_EXPANDED = false;
 const ASSISTANT_MARKDOWN_IDLE_TIMEOUT_MS = 600;
 const ASSISTANT_MARKDOWN_FALLBACK_DELAY_MS = 80;
 const TIMELINE_WIDTH_RESIZE_DEBOUNCE_MS = 96;
 const TIMELINE_INITIAL_VIEWPORT_HEIGHT_PX = 720;
 const TIMELINE_FALLBACK_VIRTUAL_RANGE_MIN_ROWS = TIMELINE_VIRTUALIZER_OVERSCAN * 2 + 8;
-const EMPTY_TIMELINE_ROWS: ReadonlyArray<TimelineRow> = [];
 const EMPTY_PROVIDER_COMMANDS: ReadonlyArray<ProviderSlashCommand> = [];
 const ASSISTANT_IMAGE_GENERATION_MESSAGE_ID_REGEX =
   /^assistant:image:(?<width>\d{2,5})x(?<height>\d{2,5}):/u;
@@ -168,17 +161,33 @@ const IMAGE_GENERATION_PORTRAIT_FRAME_MAX_HEIGHT_VH = 42;
 const SELECTION_PIN_BUTTON_WIDTH_PX = 92;
 const SELECTION_PIN_BUTTON_HEIGHT_PX = 32;
 const TIMELINE_DIRECTIONAL_PREFETCH_MIN_VELOCITY_PX_PER_MS = 0.75;
+const TIMELINE_BASE_PREFETCH_EDGE_ROWS = Math.max(TIMELINE_VIRTUALIZER_OVERSCAN * 2, 16);
 const ASSISTANT_MESSAGE_ROW_SELECTOR = '[data-message-role="assistant"][data-message-id]';
+const COMPLETED_WORK_SUMMARY_ROW_ID_PREFIX = "completed-work-summary:";
 const PINNED_SELECTION_TEXT_BLOCK_SELECTOR =
   "blockquote,div,h1,h2,h3,h4,h5,h6,li,ol,p,pre,section,table,tbody,td,tfoot,th,thead,tr,ul";
+const TIMELINE_ROW_ID_SELECTOR = "[data-timeline-row-id]";
+const TIMELINE_ROW_RENDER_INTRINSIC_MIN_HEIGHT_PX = 40;
+
+export function resolveTimelineScrollPrefetchLookaheadRows(velocityPxPerMs: number): number {
+  const velocity = Math.max(0, Number.isFinite(velocityPxPerMs) ? velocityPxPerMs : 0);
+  if (velocity < 0.75) return TIMELINE_BASE_PREFETCH_EDGE_ROWS;
+  if (velocity < 1.5) return 64;
+  if (velocity < 3) return 128;
+  if (velocity < 6) return 256;
+  if (velocity < 10) return 512;
+  return 1_024;
+}
+
+type TimelineScrollPrefetchDirection = "older" | "newer" | "both";
 
 export function deriveTimelineScrollPrefetchRequest(input: {
   readonly currentScrollTop: number;
   readonly previousScrollTop: number;
   readonly elapsedMs: number;
 }): {
-  readonly direction: TimelinePrefetchDirection;
-  readonly pageSize: number;
+  readonly direction: TimelineScrollPrefetchDirection;
+  readonly lookaheadRows: number;
   readonly velocityPxPerMs: number;
 } {
   const deltaScrollTop = Number.isFinite(input.previousScrollTop)
@@ -196,8 +205,196 @@ export function deriveTimelineScrollPrefetchRequest(input: {
       : "both";
   return {
     direction,
-    pageSize: resolveTimelineScrollPrefetchPageSize(velocityPxPerMs),
+    lookaheadRows: resolveTimelineScrollPrefetchLookaheadRows(velocityPxPerMs),
     velocityPxPerMs,
+  };
+}
+
+export type TimelineRenderedWindowState = {
+  readonly loadedEndIndexExclusive: number;
+  readonly loadedRowCount: number;
+  readonly loadedStartIndex: number;
+  readonly overscanLoadedEndIndexExclusive: number;
+  readonly overscanLoadedStartIndex: number;
+};
+
+export function deriveTimelineRenderedWindowState(input: {
+  readonly totalRowCount?: number;
+  readonly renderedVirtualItems: readonly VirtualItem[];
+  readonly virtualizedRows: ReadonlyArray<TimelineRow>;
+}): TimelineRenderedWindowState | null {
+  const firstVirtualItem = input.renderedVirtualItems[0];
+  const lastVirtualItem = input.renderedVirtualItems.at(-1);
+  if (!firstVirtualItem || !lastVirtualItem) {
+    const totalRowCount = Math.max(0, Math.trunc(input.totalRowCount ?? 0));
+    if (input.virtualizedRows.length === 0 && totalRowCount > 0) {
+      return {
+        loadedEndIndexExclusive: totalRowCount,
+        loadedRowCount: totalRowCount,
+        loadedStartIndex: 0,
+        overscanLoadedEndIndexExclusive: totalRowCount,
+        overscanLoadedStartIndex: 0,
+      };
+    }
+    return null;
+  }
+
+  return {
+    loadedEndIndexExclusive: lastVirtualItem.index + 1,
+    loadedRowCount: input.virtualizedRows.length,
+    loadedStartIndex: firstVirtualItem.index,
+    overscanLoadedEndIndexExclusive: lastVirtualItem.index + 1,
+    overscanLoadedStartIndex: firstVirtualItem.index,
+  };
+}
+
+function addTimelineRowCandidateId(ids: string[], id: string | null | undefined): void {
+  if (!id) {
+    return;
+  }
+  ids.push(id);
+  if (id.startsWith(COMPLETED_WORK_SUMMARY_ROW_ID_PREFIX)) {
+    ids.push(id.slice(COMPLETED_WORK_SUMMARY_ROW_ID_PREFIX.length));
+  }
+}
+
+function collectTimelineRowCandidateIds(row: TimelineRow): readonly string[] {
+  const ids: string[] = [];
+  addTimelineRowCandidateId(ids, row.id);
+  if (row.kind === "completed-work-summary") {
+    for (const sourceEntryId of row.sourceEntryIds) {
+      addTimelineRowCandidateId(ids, sourceEntryId);
+    }
+    for (const detailRow of row.detailRows) {
+      addTimelineRowCandidateId(ids, detailRow.id);
+      if (detailRow.kind === "work-group") {
+        for (const entry of detailRow.entries) {
+          addTimelineRowCandidateId(ids, entry.id);
+        }
+      }
+    }
+    for (const diagnosticRow of row.visibleDiagnosticRows) {
+      addTimelineRowCandidateId(ids, diagnosticRow.id);
+    }
+  } else if (row.kind === "work-group") {
+    for (const entry of row.entries) {
+      addTimelineRowCandidateId(ids, entry.id);
+    }
+  }
+  return ids;
+}
+
+function resolveTimelineRowGlobalIndexRange(
+  row: TimelineRow,
+  timelineIndexByEntryId: ReadonlyMap<string, number>,
+): { readonly endIndexExclusive: number; readonly startIndex: number } | null {
+  let startIndex = Number.POSITIVE_INFINITY;
+  let endIndexExclusive = Number.NEGATIVE_INFINITY;
+  for (const candidateId of collectTimelineRowCandidateIds(row)) {
+    const index = timelineIndexByEntryId.get(candidateId);
+    if (index === undefined) {
+      continue;
+    }
+    startIndex = Math.min(startIndex, index);
+    endIndexExclusive = Math.max(endIndexExclusive, index + 1);
+  }
+  if (!Number.isFinite(startIndex) || !Number.isFinite(endIndexExclusive)) {
+    return null;
+  }
+  return { startIndex, endIndexExclusive };
+}
+
+function resolveTimelineRowsGlobalIndexRange(input: {
+  readonly endIndexExclusive: number;
+  readonly rows: ReadonlyArray<TimelineRow>;
+  readonly startIndex: number;
+  readonly timelineIndexByEntryId: ReadonlyMap<string, number>;
+}): { readonly endIndexExclusive: number; readonly startIndex: number } | null {
+  const startIndex = Math.min(input.rows.length, Math.max(0, Math.trunc(input.startIndex)));
+  const endIndexExclusive = Math.min(
+    input.rows.length,
+    Math.max(startIndex, Math.trunc(input.endIndexExclusive)),
+  );
+  if (endIndexExclusive <= startIndex) {
+    return null;
+  }
+
+  let firstRange: { readonly endIndexExclusive: number; readonly startIndex: number } | null = null;
+  for (let rowIndex = startIndex; rowIndex < endIndexExclusive; rowIndex += 1) {
+    const row = input.rows[rowIndex];
+    if (!row) {
+      continue;
+    }
+    firstRange = resolveTimelineRowGlobalIndexRange(row, input.timelineIndexByEntryId);
+    if (firstRange) {
+      break;
+    }
+  }
+  if (!firstRange) {
+    return null;
+  }
+
+  let lastRange = firstRange;
+  for (let rowIndex = endIndexExclusive - 1; rowIndex >= startIndex; rowIndex -= 1) {
+    const row = input.rows[rowIndex];
+    if (!row) {
+      continue;
+    }
+    const range = resolveTimelineRowGlobalIndexRange(row, input.timelineIndexByEntryId);
+    if (range) {
+      lastRange = range;
+      break;
+    }
+  }
+
+  const globalStartIndex = Math.min(firstRange.startIndex, lastRange.startIndex);
+  const globalEndIndexExclusive = Math.max(
+    firstRange.endIndexExclusive,
+    lastRange.endIndexExclusive,
+  );
+  if (globalEndIndexExclusive <= globalStartIndex) {
+    return null;
+  }
+  return {
+    startIndex: globalStartIndex,
+    endIndexExclusive: globalEndIndexExclusive,
+  };
+}
+
+export function deriveGlobalTimelineRenderedWindowState(input: {
+  readonly renderedWindowState: TimelineRenderedWindowState | null;
+  readonly rows: ReadonlyArray<TimelineRow>;
+  readonly timelineIndexByEntryId?: ReadonlyMap<string, number> | null;
+}): TimelineRenderedWindowState | null {
+  if (!input.renderedWindowState) {
+    return null;
+  }
+  if (!input.timelineIndexByEntryId) {
+    return input.renderedWindowState;
+  }
+  const loadedRange = resolveTimelineRowsGlobalIndexRange({
+    rows: input.rows,
+    startIndex: input.renderedWindowState.loadedStartIndex,
+    endIndexExclusive: input.renderedWindowState.loadedEndIndexExclusive,
+    timelineIndexByEntryId: input.timelineIndexByEntryId,
+  });
+  if (!loadedRange) {
+    return null;
+  }
+  const overscanRange =
+    resolveTimelineRowsGlobalIndexRange({
+      rows: input.rows,
+      startIndex: input.renderedWindowState.overscanLoadedStartIndex,
+      endIndexExclusive: input.renderedWindowState.overscanLoadedEndIndexExclusive,
+      timelineIndexByEntryId: input.timelineIndexByEntryId,
+    }) ?? loadedRange;
+
+  return {
+    loadedEndIndexExclusive: loadedRange.endIndexExclusive,
+    loadedRowCount: input.renderedWindowState.loadedRowCount,
+    loadedStartIndex: loadedRange.startIndex,
+    overscanLoadedEndIndexExclusive: overscanRange.endIndexExclusive,
+    overscanLoadedStartIndex: overscanRange.startIndex,
   };
 }
 
@@ -435,12 +632,12 @@ function InlineTooltip(props: {
   );
 }
 
-function canResolveTimelineRowsInWorker(): boolean {
+function TimelineRowsFetchingPill() {
   return (
-    typeof window !== "undefined" &&
-    typeof document !== "undefined" &&
-    typeof Worker !== "undefined" &&
-    typeof document.createElement === "function"
+    <div className="inline-flex items-center gap-2 rounded-full bg-background/80 px-3 py-1.5 text-[11px] text-muted-foreground shadow-lg shadow-background/30 backdrop-blur">
+      <span className="size-3 rounded-full border-2 border-primary/30 border-t-primary animate-spin" />
+      Loading thread...
+    </div>
   );
 }
 
@@ -448,63 +645,11 @@ export function TimelineRowsLoadingFallback() {
   return (
     <div
       className="mx-auto flex h-full w-full max-w-3xl items-center justify-center px-4 py-8"
-      aria-label="Loading conversation"
+      aria-label="Loading thread"
     >
-      <div className="rounded-full border border-border/45 bg-card/80 px-3 py-1.5 text-[11px] text-muted-foreground shadow-sm shadow-background/20">
-        Fetching thread…
-      </div>
+      <TimelineRowsFetchingPill />
     </div>
   );
-}
-
-export function resolveVisibleTimelineRows(input: {
-  readonly activeThreadId?: string | null;
-  readonly retainedRows: {
-    readonly activeThreadId: string;
-    readonly rows: ReadonlyArray<TimelineRow>;
-  } | null;
-  readonly resolvedAsyncRows: ReadonlyArray<TimelineRow> | null;
-  readonly retainRowsWhileLoading?: boolean;
-  readonly shouldResolveAsync: boolean;
-  readonly syncRows: ReadonlyArray<TimelineRow>;
-}): { readonly loading: boolean; readonly rows: ReadonlyArray<TimelineRow> } {
-  if (!input.shouldResolveAsync) {
-    return {
-      loading: false,
-      rows: input.syncRows.length > 0 ? input.syncRows : EMPTY_TIMELINE_ROWS,
-    };
-  }
-
-  if (input.resolvedAsyncRows !== null) {
-    return {
-      loading: false,
-      rows: input.resolvedAsyncRows,
-    };
-  }
-
-  if (input.syncRows.length > 0) {
-    return {
-      loading: false,
-      rows: input.syncRows,
-    };
-  }
-
-  if (
-    input.retainRowsWhileLoading !== false &&
-    input.activeThreadId &&
-    input.retainedRows?.activeThreadId === input.activeThreadId &&
-    input.retainedRows.rows.length > 0
-  ) {
-    return {
-      loading: false,
-      rows: input.retainedRows.rows,
-    };
-  }
-
-  return {
-    loading: true,
-    rows: EMPTY_TIMELINE_ROWS,
-  };
 }
 
 export function shouldRenderTimelineVirtualizedBuffer(input: {
@@ -675,7 +820,7 @@ function cancelAssistantMarkdownIdleCallback(handle: AssistantMarkdownIdleHandle
 function readCachedTimelineRowHeight(cacheKey: string): number | null {
   const cachedHeight = timelineRowHeightCache.get(cacheKey);
   if (cachedHeight === undefined) {
-    return readTimelineRowHeight(cacheKey);
+    return readTimelineModelRowHeight(cacheKey);
   }
 
   timelineRowHeightCache.delete(cacheKey);
@@ -691,7 +836,7 @@ function writeCachedTimelineRowHeight(cacheKey: string, height: number): number 
       timelineRowHeightCache.delete(oldestCacheKey);
     }
   }
-  writeTimelineRowHeight(cacheKey, height);
+  writeTimelineModelRowHeight(cacheKey, height);
   return height;
 }
 
@@ -728,10 +873,12 @@ interface MessagesTimelineProps {
   backgroundMarkdownPrewarm?: boolean;
   getScrollContainer: () => HTMLDivElement | null;
   hideCompletedWorkMessages?: boolean;
-  isThreadHistoryLoading?: boolean;
   liveTimers?: boolean;
   timelineCacheScope?: string | null;
   timelineEntries: ReturnType<typeof deriveTimelineEntries>;
+  timelineRowsLoading?: boolean;
+  timelineRowsOverride?: ReadonlyArray<TimelineRow> | null;
+  timelineIndexByEntryId?: ReadonlyMap<string, number> | null;
   completionDividerBeforeEntryId: string | null;
   completionSummary: string | null;
   turnDiffSummaryByAssistantMessageId: Map<MessageId, TurnDiffSummary>;
@@ -777,10 +924,12 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   backgroundMarkdownPrewarm = true,
   getScrollContainer,
   hideCompletedWorkMessages = false,
-  isThreadHistoryLoading = false,
   liveTimers = true,
   timelineCacheScope = null,
   timelineEntries,
+  timelineRowsLoading: externalTimelineRowsLoading = false,
+  timelineRowsOverride = null,
+  timelineIndexByEntryId = null,
   completionDividerBeforeEntryId,
   completionSummary,
   turnDiffSummaryByAssistantMessageId,
@@ -909,104 +1058,18 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       enableGoalWorkingState,
     ],
   );
-  const shouldResolveTimelineRowsInWorker = useMemo(
-    () =>
-      !isThreadHistoryLoading &&
-      canResolveTimelineRowsInWorker() &&
-      shouldWorkerizeTimelineRows(timelineRowsInput),
-    [isThreadHistoryLoading, timelineRowsInput],
-  );
-  const timelineRowsCacheKey = useMemo(
-    () => buildTimelineRowsCacheKey(timelineRowsInput),
-    [timelineRowsInput],
-  );
-  const cachedTimelineRows = readCachedTimelineRows(timelineRowsCacheKey);
-  const [asyncTimelineRows, setAsyncTimelineRows] = useState<{
-    readonly cacheKey: string;
-    readonly rows: ReadonlyArray<TimelineRow>;
-  } | null>(null);
-  const [retainedTimelineRows, setRetainedTimelineRows] = useState<{
-    readonly activeThreadId: string;
-    readonly rows: ReadonlyArray<TimelineRow>;
-  } | null>(null);
-  const resolvedAsyncTimelineRows =
-    asyncTimelineRows?.cacheKey === timelineRowsCacheKey ? asyncTimelineRows.rows : null;
-  const shouldResolveTimelineRowsAsync = shouldResolveTimelineRowsInWorker && !cachedTimelineRows;
-  const syncTimelineRows = useMemo<ReadonlyArray<TimelineRow>>(() => {
-    if (cachedTimelineRows) {
-      return cachedTimelineRows;
-    }
-    return measureRenderWork("chat.buildTimelineRows", () => buildTimelineRows(timelineRowsInput));
-  }, [cachedTimelineRows, timelineRowsInput]);
-  const { loading: timelineRowsLoading, rows } = resolveVisibleTimelineRows({
-    activeThreadId: activeThreadId ?? null,
-    retainedRows: retainedTimelineRows,
-    retainRowsWhileLoading: !isThreadHistoryLoading,
-    resolvedAsyncRows: resolvedAsyncTimelineRows,
-    shouldResolveAsync: shouldResolveTimelineRowsAsync,
-    syncRows: syncTimelineRows,
-  });
-
-  useEffect(() => {
-    if (cachedTimelineRows) {
-      return;
-    }
-    writeCachedTimelineRows(timelineRowsCacheKey, timelineRowsInput, syncTimelineRows);
-  }, [cachedTimelineRows, syncTimelineRows, timelineRowsCacheKey, timelineRowsInput]);
-
-  useEffect(() => {
+  const isTimelineSnapshotLoading = useTimelineModelStore((state) => {
     if (!activeThreadId) {
-      setRetainedTimelineRows(null);
-      return;
+      return false;
     }
-    setRetainedTimelineRows((current) =>
-      current?.activeThreadId === activeThreadId ? current : null,
-    );
-  }, [activeThreadId]);
-
-  useEffect(() => {
-    if (!activeThreadId || timelineRowsLoading || rows.length === 0) {
-      return;
-    }
-    setRetainedTimelineRows((current) =>
-      current?.activeThreadId === activeThreadId && current.rows === rows
-        ? current
-        : { activeThreadId, rows },
-    );
-  }, [activeThreadId, rows, timelineRowsLoading]);
-
-  useEffect(() => {
-    if (!shouldResolveTimelineRowsAsync) {
-      return;
-    }
-    let canceled = false;
-    resolveTimelineRows(timelineRowsCacheKey, timelineRowsInput)
-      .then((resolvedRows) => {
-        if (canceled) {
-          return;
-        }
-        startTransition(() => {
-          setAsyncTimelineRows({ cacheKey: timelineRowsCacheKey, rows: resolvedRows });
-        });
-      })
-      .catch(() => {
-        const fallbackRows = writeCachedTimelineRows(
-          timelineRowsCacheKey,
-          timelineRowsInput,
-          buildTimelineRows(timelineRowsInput),
-        );
-        if (canceled) {
-          return;
-        }
-        startTransition(() => {
-          setAsyncTimelineRows({ cacheKey: timelineRowsCacheKey, rows: fallbackRows });
-        });
-      });
-    return () => {
-      canceled = true;
-    };
-  }, [shouldResolveTimelineRowsAsync, timelineRowsCacheKey, timelineRowsInput]);
-
+    return (state.fetchStateByThreadId[activeThreadId]?.inFlightCount ?? 0) > 0;
+  });
+  const { loading: timelineRowsLoading, rows } = useTimelineRowsController({
+    activeThreadId: activeThreadId ?? null,
+    loading: isTimelineSnapshotLoading || externalTimelineRowsLoading,
+    preResolvedRows: timelineRowsOverride,
+    timelineRowsInput,
+  });
   const latestForkableAssistantMessageId = useMemo(() => {
     for (let index = rows.length - 1; index >= 0; index -= 1) {
       const row = rows[index];
@@ -1103,25 +1166,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         continue;
       }
 
-      let placementIndex = index;
-      for (let nextIndex = index + 1; nextIndex < rows.length; nextIndex += 1) {
-        const nextRow = rows[nextIndex];
-        if (
-          nextRow?.kind !== "work" &&
-          nextRow?.kind !== "work-group" &&
-          nextRow?.kind !== "intent" &&
-          nextRow?.kind !== "completed-work-summary"
-        ) {
-          break;
-        }
-        placementIndex = nextIndex;
-      }
-
-      const placementRow = rows[placementIndex];
-      if (!placementRow) {
-        continue;
-      }
-      footerByRowId.set(placementRow.id, {
+      footerByRowId.set(row.id, {
         copyText,
         isPinned,
         isForkConversationDisabled,
@@ -1143,6 +1188,37 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     supportsForkConversation,
     timestampFormat,
   ]);
+  const trailingCompletedWorkSummaryByAssistantRowId = useMemo(() => {
+    const summaryByAssistantRowId = new Map<
+      string,
+      Extract<TimelineRow, { kind: "completed-work-summary" }>
+    >();
+    for (let index = 1; index < rows.length; index += 1) {
+      const row = rows[index];
+      if (row?.kind !== "completed-work-summary") {
+        continue;
+      }
+      const previousRow = rows[index - 1];
+      if (
+        previousRow?.kind !== "message" ||
+        !isAssistantTimelineMessage(previousRow.message) ||
+        !(previousRow.isAssistantTurnTerminal ?? false)
+      ) {
+        continue;
+      }
+      summaryByAssistantRowId.set(previousRow.id, row);
+    }
+    return summaryByAssistantRowId;
+  }, [rows]);
+  const hoistedCompletedWorkSummaryRowIds = useMemo(
+    () =>
+      new Set(
+        [...trailingCompletedWorkSummaryByAssistantRowId.values()].map((summaryRow) => {
+          return summaryRow.id;
+        }),
+      ),
+    [trailingCompletedWorkSummaryByAssistantRowId],
+  );
 
   const activeTurnStartedAtMs =
     activeTurnInProgress && activeTurnStartedAt ? Date.parse(activeTurnStartedAt) : Number.NaN;
@@ -1242,8 +1318,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     [expandedWorkGroups, timelineWidthPx, virtualizedRows],
   );
   const measureVirtualizedRowElement = useCallback(
-    (element: HTMLElement, entry?: ResizeObserverEntry | undefined) => {
-      const index = Number(element.dataset.index);
+    (element: Element, entry?: ResizeObserverEntry | undefined) => {
+      const htmlElement = element as HTMLElement;
+      const index = Number(htmlElement.dataset.index);
       const height = measureTimelineRowElementHeight(element, entry);
       const row = Number.isInteger(index) ? virtualizedRows[index] : undefined;
       if (row && Number.isFinite(height) && height > 0) {
@@ -1302,40 +1379,49 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     virtualizedRows.length,
   ]);
   const renderedVirtualItems = virtualItems.length > 0 ? virtualItems : fallbackVirtualItems;
+  const renderedWindowState = useMemo(
+    () =>
+      deriveTimelineRenderedWindowState({
+        renderedVirtualItems,
+        totalRowCount: rows.length,
+        virtualizedRows,
+      }),
+    [renderedVirtualItems, rows.length, virtualizedRows],
+  );
+  const renderedWindowIndexRows =
+    shouldUseVirtualizedBuffer || renderedVirtualItems.length > 0 ? virtualizedRows : rows;
+  const globalRenderedWindowState = useMemo(
+    () =>
+      deriveGlobalTimelineRenderedWindowState({
+        renderedWindowState,
+        rows: renderedWindowIndexRows,
+        timelineIndexByEntryId,
+      }),
+    [renderedWindowIndexRows, renderedWindowState, timelineIndexByEntryId],
+  );
   const shouldRenderVirtualizedBuffer = shouldRenderTimelineVirtualizedBuffer({
     virtualizedRowCount: virtualizedRows.length,
   });
   useEffect(() => {
-    if (!activeThreadId || renderedVirtualItems.length === 0) {
+    if (!activeThreadId || !globalRenderedWindowState) {
       return;
     }
-    const firstVirtualItem = renderedVirtualItems[0];
-    const lastVirtualItem = renderedVirtualItems.at(-1);
-    if (!firstVirtualItem || !lastVirtualItem) {
+    if (
+      globalRenderedWindowState.loadedEndIndexExclusive <=
+      globalRenderedWindowState.loadedStartIndex
+    ) {
       return;
     }
-    useTimelineWindowStore.getState().setActiveWindow(activeThreadId as ThreadId, {
-      startIndex: firstVirtualItem.index,
-      endIndexExclusive: lastVirtualItem.index + 1,
-      overscanStartIndex: firstVirtualItem.index,
-      overscanEndIndexExclusive: lastVirtualItem.index + 1,
-      updatedAt: timelineCacheScope,
+    useTimelineModelStore.getState().setActiveWindow(activeThreadId as ThreadId, {
+      startRowIndex: globalRenderedWindowState.loadedStartIndex,
+      endRowIndexExclusive: globalRenderedWindowState.loadedEndIndexExclusive,
+      overscanStartRowIndex: globalRenderedWindowState.overscanLoadedStartIndex,
+      overscanEndRowIndexExclusive: globalRenderedWindowState.overscanLoadedEndIndexExclusive,
+      revision: timelineCacheScope,
     });
-  }, [activeThreadId, renderedVirtualItems, timelineCacheScope]);
+  }, [activeThreadId, globalRenderedWindowState, timelineCacheScope]);
   useEffect(() => {
-    if (!activeThreadId || renderedVirtualItems.length === 0 || rows.length === 0) {
-      return;
-    }
-    const firstVirtualItem = renderedVirtualItems[0];
-    const lastVirtualItem = renderedVirtualItems.at(-1);
-    if (!firstVirtualItem || !lastVirtualItem) {
-      return;
-    }
-    const edgeThreshold = Math.max(TIMELINE_VIRTUALIZER_OVERSCAN * 2, 16);
-    const isNearOlderEdge = firstVirtualItem.index <= edgeThreshold;
-    const isNearNewerEdge = rows.length - lastVirtualItem.index <= edgeThreshold;
-    const isNearRenderedEdge = isNearOlderEdge || isNearNewerEdge;
-    if (!isNearRenderedEdge) {
+    if (!activeThreadId || !renderedWindowState || rows.length === 0) {
       return;
     }
     const scrollContainer = getScrollContainer();
@@ -1351,13 +1437,19 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       scrollTop: currentScrollTop,
       sampledAt: now,
     };
-    void prefetchThreadTimelineAroundLoadedWindow({
+    const edgeThreshold = Math.max(TIMELINE_BASE_PREFETCH_EDGE_ROWS, prefetchRequest.lookaheadRows);
+    const isNearOlderEdge = renderedWindowState.loadedStartIndex <= edgeThreshold;
+    const isNearNewerEdge =
+      renderedWindowState.loadedRowCount - renderedWindowState.loadedEndIndexExclusive <=
+      edgeThreshold;
+    const isNearRenderedEdge = isNearOlderEdge || isNearNewerEdge;
+    if (!isNearRenderedEdge) {
+      return;
+    }
+    void prefetchThreadTimelineRowsSnapshot({
       threadId: activeThreadId as ThreadId,
-      priority: "background",
-      pageSize: prefetchRequest.pageSize,
-      direction: prefetchRequest.direction,
     }).catch(() => undefined);
-  }, [activeThreadId, getScrollContainer, renderedVirtualItems, rows.length]);
+  }, [activeThreadId, getScrollContainer, renderedWindowState, rows.length]);
   useEffect(() => {
     if (!targetMessageNavigation) return;
     const targetMessageId = targetMessageNavigation.messageId;
@@ -1470,21 +1562,14 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     () => new Set(immediateAssistantMarkdownMessageIds),
     [immediateAssistantMarkdownMessageIds],
   );
-  const allAssistantMarkdownMessageIds = useMemo(() => {
-    const messageIds: string[] = [];
-    for (const row of rows) {
-      if (isCompletedAssistantMessageRow(row)) {
-        messageIds.push(String(row.message.id));
-      }
-    }
-    return messageIds;
-  }, [rows]);
   const pendingAssistantMarkdownMessageIds = useMemo(
     () =>
       shouldPrewarmAssistantMarkdown
         ? derivePendingAssistantMarkdownMessageIdsBottomUp(rows, {
             firstUnvirtualizedRowIndex,
             immediateMessageIds: immediateAssistantMarkdownMessageIdSet,
+            maxMessageIds: ASSISTANT_MARKDOWN_PENDING_MESSAGE_LIMIT,
+            maxRows: ASSISTANT_MARKDOWN_PENDING_LOOKBACK_ROWS,
             mountedMessageIds: mountedVirtualizedAssistantMarkdownMessageIdSet,
             renderedMessageIds: renderedAssistantMarkdownMessageIds,
           })
@@ -1498,35 +1583,49 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       shouldPrewarmAssistantMarkdown,
     ],
   );
+  const assistantMarkdownPrewarmRows = useMemo(
+    () =>
+      shouldPrewarmAssistantMarkdown
+        ? collectAssistantMarkdownPrewarmRows(rows, {
+            firstUnvirtualizedRowIndex,
+            renderedVirtualItems,
+            virtualizedRows,
+          })
+        : [],
+    [
+      firstUnvirtualizedRowIndex,
+      renderedVirtualItems,
+      rows,
+      shouldPrewarmAssistantMarkdown,
+      virtualizedRows,
+    ],
+  );
   const assistantMarkdownAnalysisPrewarmJobs = useMemo(() => {
     if (!shouldPrewarmAssistantMarkdown) {
       return [];
     }
     return buildAssistantMarkdownAnalysisPrewarmJobs({
-      rows,
+      rows: assistantMarkdownPrewarmRows,
       immediateMessageIds: immediateAssistantMarkdownMessageIds,
       pendingMessageIds: pendingAssistantMarkdownMessageIds,
     });
   }, [
+    assistantMarkdownPrewarmRows,
     immediateAssistantMarkdownMessageIds,
     pendingAssistantMarkdownMessageIds,
-    rows,
     shouldPrewarmAssistantMarkdown,
   ]);
-  const allAssistantMarkdownMessageIdKey = allAssistantMarkdownMessageIds.join("\0");
   const immediateAssistantMarkdownMessageIdKey = immediateAssistantMarkdownMessageIds.join("\0");
   const pendingAssistantMarkdownMessageIdKey = pendingAssistantMarkdownMessageIds.join("\0");
   const assistantMarkdownAnalysisPrewarmJobKey = assistantMarkdownAnalysisPrewarmJobs
     .map((job) => job.cacheKey)
     .join("\0");
   const assistantMarkdownPriorityRef = useRef({
-    allMessageIds: allAssistantMarkdownMessageIds,
     immediateMessageIds: immediateAssistantMarkdownMessageIds,
     mountedMessageIds: mountedVirtualizedAssistantMarkdownMessageIds,
     pendingMessageIds: pendingAssistantMarkdownMessageIds,
   });
   assistantMarkdownPriorityRef.current = {
-    allMessageIds: allAssistantMarkdownMessageIds,
     immediateMessageIds: immediateAssistantMarkdownMessageIds,
     mountedMessageIds: mountedVirtualizedAssistantMarkdownMessageIds,
     pendingMessageIds: pendingAssistantMarkdownMessageIds,
@@ -1542,38 +1641,31 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     if (isTimelineScrolling) {
       return;
     }
-    const { allMessageIds, immediateMessageIds, mountedMessageIds } =
+    const { immediateMessageIds, mountedMessageIds, pendingMessageIds } =
       assistantMarkdownPriorityRef.current;
-    const validMessageIds = new Set(allMessageIds);
+    const priorityMessageIds = [...immediateMessageIds, ...mountedMessageIds, ...pendingMessageIds];
     setRenderedAssistantMarkdownMessageIds((current) => {
-      let changed = false;
       const next = new Set<string>();
+      for (const messageId of priorityMessageIds) {
+        if (!next.has(messageId)) {
+          next.add(messageId);
+        }
+      }
       for (const messageId of current) {
-        if (!validMessageIds.has(messageId)) {
-          changed = true;
-          continue;
-        }
-        next.add(messageId);
-      }
-      for (const messageId of immediateMessageIds) {
         if (!next.has(messageId)) {
-          changed = true;
           next.add(messageId);
         }
-      }
-      for (const messageId of mountedMessageIds) {
-        if (!next.has(messageId)) {
-          changed = true;
-          next.add(messageId);
+        if (next.size >= MAX_RENDERED_ASSISTANT_MARKDOWN_MESSAGE_IDS) {
+          break;
         }
       }
-      return changed ? next : current;
+      return areStringSetsEqual(next, current) ? current : next;
     });
   }, [
-    allAssistantMarkdownMessageIdKey,
     immediateAssistantMarkdownMessageIdKey,
     isTimelineScrolling,
     mountedVirtualizedAssistantMarkdownMessageIdKey,
+    pendingAssistantMarkdownMessageIdKey,
     shouldPrioritizeAssistantMarkdown,
   ]);
 
@@ -1689,6 +1781,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   ]);
   const buildRowContent = (row: TimelineRow, _rowIndex: number) => {
     const detachedAssistantFooter = assistantFooterByPlacementRowId.get(row.id) ?? null;
+    if (row.kind === "completed-work-summary" && hoistedCompletedWorkSummaryRowIds.has(row.id)) {
+      return null;
+    }
     return (
       <div
         className="group/timeline relative pb-3 transition-colors data-[pinned-message-target=true]:rounded-xl data-[pinned-message-target=true]:bg-accent/20 data-[pinned-message-target=true]:ring-1 data-[pinned-message-target=true]:ring-primary/35"
@@ -1699,15 +1794,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         {row.kind === "completed-work-summary" && (
           <CompletedWorkSummaryTimelineRow
             row={row}
-            enableLocalFileLinks={enableLocalFileLinks}
             expandedWorkGroups={expandedWorkGroups}
-            liveTimers={liveTimers}
-            markdownCwd={markdownCwd}
-            onImageExpand={onImageExpand}
-            onOpenBrowserUrl={onOpenBrowserUrl}
-            onOpenFilePath={onOpenFilePath}
             onToggleWorkGroup={onToggleWorkGroup}
-            timestampFormat={timestampFormat}
           />
         )}
 
@@ -1760,6 +1848,19 @@ export const MessagesTimeline = memo(function MessagesTimeline({
 
             return (
               <div className="min-w-0">
+                {(() => {
+                  const trailingCompletedWorkSummary =
+                    trailingCompletedWorkSummaryByAssistantRowId.get(row.id) ?? null;
+                  return trailingCompletedWorkSummary ? (
+                    <div className="mb-2">
+                      <CompletedWorkSummaryTimelineRow
+                        row={trailingCompletedWorkSummary}
+                        expandedWorkGroups={expandedWorkGroups}
+                        onToggleWorkGroup={onToggleWorkGroup}
+                      />
+                    </div>
+                  ) : null;
+                })()}
                 <AssistantMessageTimelineRow
                   durationStart={row.durationStart}
                   isAssistantTurnTerminal={row.isAssistantTurnTerminal ?? false}
@@ -1778,6 +1879,16 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                   showCopyAction={false}
                   timestampFormat={timestampFormat}
                 />
+                {detachedAssistantFooter && (
+                  <AssistantTurnFooter
+                    copyText={detachedAssistantFooter.copyText}
+                    isPinned={detachedAssistantFooter.isPinned}
+                    onForkConversation={detachedAssistantFooter.onForkConversation}
+                    isForkConversationDisabled={detachedAssistantFooter.isForkConversationDisabled}
+                    onTogglePinnedMessage={detachedAssistantFooter.onTogglePinnedMessage}
+                    timing={detachedAssistantFooter.timing}
+                  />
+                )}
                 {shouldShowTurnSummary && (
                   <div className="mt-2.5 max-w-3xl">
                     <AssistantMessageTurnDiffSummary
@@ -1890,7 +2001,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             ) : null}
           </div>
         )}
-        {detachedAssistantFooter && (
+        {detachedAssistantFooter && row.kind !== "message" && (
           <AssistantTurnFooter
             copyText={detachedAssistantFooter.copyText}
             isPinned={detachedAssistantFooter.isPinned}
@@ -1903,6 +2014,24 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       </div>
     );
   };
+  const buildRowRenderCacheStyle = useCallback(
+    (row: TimelineRow, style: CSSProperties = {}): CSSProperties => {
+      const intrinsicHeight = Math.max(
+        TIMELINE_ROW_RENDER_INTRINSIC_MIN_HEIGHT_PX,
+        Math.ceil(
+          estimateTimelineRowHeight(row, {
+            timelineWidthPx,
+            expandedWorkGroups,
+          }),
+        ),
+      );
+      return {
+        ...style,
+        "--timeline-row-estimated-height": `${intrinsicHeight}px`,
+      } as CSSProperties;
+    },
+    [expandedWorkGroups, timelineWidthPx],
+  );
 
   if (!hasMessages && !isWorking) {
     const showConversationStarters =
@@ -1954,7 +2083,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     );
   }
 
-  if (timelineRowsLoading) {
+  if (timelineRowsLoading && rows.length === 0) {
     return <TimelineRowsLoadingFallback />;
   }
 
@@ -1963,6 +2092,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       ref={setTimelineRootElement}
       data-timeline-root="true"
       className="mx-auto w-full min-w-0 max-w-3xl overflow-x-hidden"
+      style={{ overflowAnchor: "none" }}
       onKeyUp={updateSelectionPinTarget}
       onMouseUp={updateSelectionPinTarget}
     >
@@ -1979,38 +2109,16 @@ export const MessagesTimeline = memo(function MessagesTimeline({
           Pin
         </button>
       ) : null}
-      {shouldRenderVirtualizedBuffer ? (
-        <div
-          data-virtualizer-buffer="true"
-          className="relative"
-          style={{ height: `${virtualizedBufferHeight}px` }}
-        >
-          {renderedVirtualItems.map((virtualRow) => {
-            const row = virtualizedRows[virtualRow.index];
-            if (!row) {
-              return null;
-            }
-            return (
-              <div
-                key={`row:${row.id}`}
-                ref={rowVirtualizer.measureElement}
-                data-index={virtualRow.index}
-                className="absolute top-0 left-0 flow-root w-full"
-                style={{ transform: `translateY(${virtualRow.start}px)` }}
-              >
-                {buildRowContent(row, virtualRow.index)}
-              </div>
-            );
-          })}
-        </div>
-      ) : (
-        virtualizedRows.map((row, index) => (
-          <div key={`row:${row.id}`}>{buildRowContent(row, index)}</div>
-        ))
-      )}
-      {trailingRows.map((row, index) => (
-        <div key={`row:${row.id}`}>{buildRowContent(row, virtualizedRows.length + index)}</div>
-      ))}
+      <TimelineViewport
+        buildRowContent={buildRowContent}
+        buildRowRenderCacheStyle={buildRowRenderCacheStyle}
+        measureVirtualizedRowElement={rowVirtualizer.measureElement}
+        renderedVirtualItems={renderedVirtualItems}
+        shouldRenderVirtualizedBuffer={shouldRenderVirtualizedBuffer}
+        trailingRows={trailingRows}
+        virtualizedBufferHeight={virtualizedBufferHeight}
+        virtualizedRows={virtualizedRows}
+      />
     </div>
   );
 });
@@ -2144,12 +2252,23 @@ export function derivePendingAssistantMarkdownMessageIdsBottomUp(
   input: {
     firstUnvirtualizedRowIndex: number;
     immediateMessageIds: ReadonlySet<string>;
+    maxMessageIds?: number;
+    maxRows?: number;
     mountedMessageIds: ReadonlySet<string>;
     renderedMessageIds: ReadonlySet<string>;
   },
 ): string[] {
   const messageIds: string[] = [];
-  for (let index = input.firstUnvirtualizedRowIndex - 1; index >= 0; index -= 1) {
+  const maxRows = Math.max(0, Math.trunc(input.maxRows ?? Number.POSITIVE_INFINITY));
+  const maxMessageIds = Math.max(0, Math.trunc(input.maxMessageIds ?? Number.POSITIVE_INFINITY));
+  const minIndexExclusive =
+    Number.isFinite(maxRows) && maxRows > 0
+      ? Math.max(0, input.firstUnvirtualizedRowIndex - maxRows)
+      : 0;
+  for (let index = input.firstUnvirtualizedRowIndex - 1; index >= minIndexExclusive; index -= 1) {
+    if (messageIds.length >= maxMessageIds) {
+      break;
+    }
     const row = rows[index];
     if (!row || !isCompletedAssistantMessageRow(row)) {
       continue;
@@ -2165,6 +2284,47 @@ export function derivePendingAssistantMarkdownMessageIdsBottomUp(
     messageIds.push(messageId);
   }
   return messageIds;
+}
+
+function collectAssistantMarkdownPrewarmRows(
+  rows: ReadonlyArray<TimelineRow>,
+  input: {
+    readonly firstUnvirtualizedRowIndex: number;
+    readonly renderedVirtualItems: readonly VirtualItem[];
+    readonly virtualizedRows: ReadonlyArray<TimelineRow>;
+  },
+): TimelineRow[] {
+  const rowById = new Map<string, TimelineRow>();
+  for (const virtualItem of input.renderedVirtualItems) {
+    const row = input.virtualizedRows[virtualItem.index];
+    if (row) {
+      rowById.set(row.id, row);
+    }
+  }
+
+  const pendingLookbackStartIndex = Math.max(
+    0,
+    input.firstUnvirtualizedRowIndex - ASSISTANT_MARKDOWN_PENDING_LOOKBACK_ROWS,
+  );
+  for (let index = pendingLookbackStartIndex; index < rows.length; index += 1) {
+    const row = rows[index];
+    if (row) {
+      rowById.set(row.id, row);
+    }
+  }
+  return [...rowById.values()];
+}
+
+function areStringSetsEqual(left: ReadonlySet<string>, right: ReadonlySet<string>): boolean {
+  if (left.size !== right.size) {
+    return false;
+  }
+  for (const value of left) {
+    if (!right.has(value)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 export function deriveFirstUnvirtualizedTimelineRowIndex(
@@ -2415,7 +2575,7 @@ function estimateTimelineRowHeight(
       break;
   }
 
-  return writeCachedTimelineRowHeight(cacheKey, height);
+  return height;
 }
 
 function getTimelineRowHeightCacheKey(
@@ -2517,11 +2677,6 @@ function formatCompletedWorkTimer(startIso: string, endIso: string): string | nu
   return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
 }
 
-function formatSecondsAsWords(seconds: number): string {
-  const roundedSeconds = Math.max(1, Math.ceil(seconds));
-  return `${roundedSeconds} ${roundedSeconds === 1 ? "second" : "seconds"}`;
-}
-
 function summarizeCount(count: number, singular: string, plural = `${singular}s`): string {
   return `${count} ${count === 1 ? singular : plural}`;
 }
@@ -2540,8 +2695,7 @@ function compactDisplayText(value: string, maxLength = 72): string {
 
 function summarizeWorkGroupBreakdownParts(
   summary: TimelineWorkGroupSummaryProjection,
-  elapsedLabel: string | null,
-  thinkingOnlyDurationSeconds: number | null,
+  thinkingDurationMs: number | null,
 ): Array<{ key: string; text: string; title: string }> {
   const {
     entryCount,
@@ -2556,24 +2710,17 @@ function summarizeWorkGroupBreakdownParts(
   const parts: Array<{ key: string; text: string; title: string }> = [];
   const isThinkingOnly = thinkingCount > 0 && entryCount === thinkingCount;
 
-  if (isThinkingOnly && thinkingOnlyDurationSeconds !== null) {
+  if (isThinkingOnly) {
     const steps = summarizeCount(thinkingCount, "reasoning step");
-    const times = summarizeCount(thinkingCount, "time");
+    const thinkingDurationLabel =
+      thinkingDurationMs === null ? null : formatToolDuration(thinkingDurationMs);
     return [
       {
         key: "thinking",
-        text: `Thought ${times} for ${formatSecondsAsWords(thinkingOnlyDurationSeconds)}`,
-        title: steps,
-      },
-    ];
-  } else if (isThinkingOnly && elapsedLabel) {
-    const steps = summarizeCount(thinkingCount, "reasoning step");
-    const times = summarizeCount(thinkingCount, "time");
-    return [
-      {
-        key: "thinking",
-        text: `Thought ${times} for ${elapsedLabel}`,
-        title: steps,
+        text: thinkingDurationLabel
+          ? `${summarizeMultiplier(thinkingCount, "Thinking")} · ${thinkingDurationLabel}`
+          : summarizeMultiplier(thinkingCount, "Thinking"),
+        title: thinkingDurationLabel ? `${steps}, ${thinkingDurationLabel} reported` : steps,
       },
     ];
   }
@@ -2615,10 +2762,14 @@ function summarizeWorkGroupBreakdownParts(
   }
   if (thinkingCount > 0) {
     const steps = summarizeCount(thinkingCount, "reasoning step");
+    const thinkingDurationLabel =
+      thinkingDurationMs === null ? null : formatToolDuration(thinkingDurationMs);
     parts.push({
       key: "thinking",
-      text: summarizeMultiplier(thinkingCount, "Thinking"),
-      title: steps,
+      text: thinkingDurationLabel
+        ? `${summarizeMultiplier(thinkingCount, "Thinking")} · ${thinkingDurationLabel}`
+        : summarizeMultiplier(thinkingCount, "Thinking"),
+      title: thinkingDurationLabel ? `${steps}, ${thinkingDurationLabel} reported` : steps,
     });
   }
   if (errorCount > 0) {
@@ -2638,34 +2789,23 @@ function summarizeWorkGroupBreakdownParts(
   return [{ key: "fallback", text: `Logged ${entriesLabel}`, title: entriesLabel }];
 }
 
-function summarizeThinkingOnlyDurationSeconds(
+function summarizeReportedThinkingDurationMs(
   entries: ReadonlyArray<TimelineMetaGroupEntry>,
-  summaryEndAt: string | null,
 ): number | null {
-  const thinkingEntries = entries.filter(
-    (entry): entry is Extract<TimelineMetaGroupEntry, { kind: "work" }> =>
-      entry.kind === "work" && entry.workEntry.tone === "thinking",
-  );
-  if (thinkingEntries.length === 0 || thinkingEntries.length !== entries.length) {
-    return null;
-  }
-
-  let totalSeconds = 0;
-  for (let index = 0; index < thinkingEntries.length; index += 1) {
-    const current = thinkingEntries[index];
-    if (!current) {
+  let totalDurationMs = 0;
+  let hasReportedDuration = false;
+  for (const entry of entries) {
+    if (entry.kind !== "work" || entry.workEntry.tone !== "thinking") {
       continue;
     }
-    const startMs = Date.parse(current.createdAt);
-    const nextCreatedAt = thinkingEntries[index + 1]?.createdAt ?? summaryEndAt;
-    const endMs = nextCreatedAt ? Date.parse(nextCreatedAt) : Number.NaN;
-    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
+    const durationMs = entry.workEntry.durationMs;
+    if (durationMs === undefined || !Number.isFinite(durationMs) || durationMs < 0) {
       continue;
     }
-    totalSeconds += Math.ceil((endMs - startMs) / 1_000);
+    totalDurationMs += durationMs;
+    hasReportedDuration = true;
   }
-
-  return Math.max(1, totalSeconds);
+  return hasReportedDuration ? totalDurationMs : null;
 }
 
 function workGroupIcon(iconKey: TimelineWorkGroupIconKey): TimelineIcon {
@@ -3038,34 +3178,39 @@ const WorkLogTimelineRow = memo(function WorkLogTimelineRow(props: {
   }
 
   const groupId = workGroupId(props.row.id);
+  const hasGroupDetails = props.row.entries.length > 0;
   const isExpanded = props.expandedWorkGroups[groupId] ?? false;
   const ChevronIcon = isExpanded ? ChevronDownIcon : ChevronRightIcon;
   const { summary } = props.row;
   const elapsedLabel = summarizeWorkGroupElapsedLabel(props.row.createdAt, props.row.summaryEndAt);
-  const thinkingOnlyDurationSeconds = summarizeThinkingOnlyDurationSeconds(
-    props.row.entries,
-    props.row.summaryEndAt,
-  );
-  const breakdownParts = summarizeWorkGroupBreakdownParts(
-    summary,
-    elapsedLabel,
-    thinkingOnlyDurationSeconds,
-  );
+  const thinkingDurationMs = summarizeReportedThinkingDurationMs(props.row.entries);
+  const breakdownParts = summarizeWorkGroupBreakdownParts(summary, thinkingDurationMs);
   const GroupIcon = workGroupIcon(summary.iconKey);
 
   return (
     <div className="min-w-0 py-0.5" data-thread-group={summary.threadGroupTone}>
       <button
         type="button"
-        className="group/disclosure flex max-w-full items-center gap-3 rounded-md bg-transparent px-0 py-1 text-left outline-none focus-visible:outline-none focus-visible:ring-0"
-        onClick={() => props.onToggleWorkGroup(groupId)}
-        aria-expanded={isExpanded}
+        className={cn(
+          "group/disclosure flex max-w-full items-center gap-3 rounded-md bg-transparent px-0 py-1 text-left outline-none focus-visible:outline-none focus-visible:ring-0",
+          !hasGroupDetails && "cursor-default",
+        )}
+        onClick={() => {
+          if (hasGroupDetails) {
+            props.onToggleWorkGroup(groupId);
+          }
+        }}
+        aria-expanded={hasGroupDetails ? isExpanded : undefined}
         data-meta-disclosure="true"
-        data-meta-disclosure-open={String(isExpanded)}
+        data-meta-disclosure-open={hasGroupDetails ? String(isExpanded) : undefined}
         data-thinking-disclosure={summary.hasThinkingEntries ? "true" : undefined}
-        data-thinking-disclosure-open={summary.hasThinkingEntries ? String(isExpanded) : undefined}
+        data-thinking-disclosure-open={
+          summary.hasThinkingEntries && hasGroupDetails ? String(isExpanded) : undefined
+        }
         data-tool-disclosure={summary.hasToolEntries ? "true" : undefined}
-        data-tool-disclosure-open={summary.hasToolEntries ? String(isExpanded) : undefined}
+        data-tool-disclosure-open={
+          summary.hasToolEntries && hasGroupDetails ? String(isExpanded) : undefined
+        }
       >
         <GroupIcon
           className={cn("mt-0.5 size-3.5 shrink-0", metaToneTextClass(summary.surfaceTone))}
@@ -3074,21 +3219,27 @@ const WorkLogTimelineRow = memo(function WorkLogTimelineRow(props: {
           {breakdownParts.map((part, index) => (
             <Fragment key={`${props.row.id}:summary:${part.key}`}>
               {index > 0 && <span className="shrink-0 text-muted-foreground/45">·</span>}
-              <InlineTooltip
-                content={part.title}
-                className={cn(
-                  "min-w-0 truncate transition-colors duration-100 group-hover/disclosure:text-foreground/92 group-focus-visible/disclosure:text-foreground/92",
-                  isExpanded ? "text-foreground/92" : "text-muted-foreground/70",
-                )}
-              >
-                {part.text}
-              </InlineTooltip>
+              {hasGroupDetails ? (
+                <InlineTooltip
+                  content={part.title}
+                  className={cn(
+                    "min-w-0 truncate transition-colors duration-100 group-hover/disclosure:text-foreground/92 group-focus-visible/disclosure:text-foreground/92",
+                    isExpanded ? "text-foreground/92" : "text-muted-foreground/70",
+                  )}
+                >
+                  {part.text}
+                </InlineTooltip>
+              ) : (
+                <span className="min-w-0 truncate text-muted-foreground/70">{part.text}</span>
+              )}
             </Fragment>
           ))}
-          <ChevronIcon
-            className="size-3.5 shrink-0 text-muted-foreground/60 transition-colors duration-100 group-hover/disclosure:text-foreground/90 group-focus-visible/disclosure:text-foreground/90"
-            strokeWidth={2.2}
-          />
+          {hasGroupDetails && (
+            <ChevronIcon
+              className="size-3.5 shrink-0 text-muted-foreground/60 transition-colors duration-100 group-hover/disclosure:text-foreground/90 group-focus-visible/disclosure:text-foreground/90"
+              strokeWidth={2.2}
+            />
+          )}
           {elapsedLabel && (
             <span
               className="sr-only"
@@ -3097,7 +3248,7 @@ const WorkLogTimelineRow = memo(function WorkLogTimelineRow(props: {
           )}
         </div>
       </button>
-      {isExpanded && (
+      {isExpanded && hasGroupDetails && (
         <div
           className="mt-2 space-y-2 border-l border-border/45 pl-5"
           data-meta-disclosure-body="true"
@@ -3126,47 +3277,39 @@ const WorkLogTimelineRow = memo(function WorkLogTimelineRow(props: {
 
 const CompletedWorkDetailTimelineRow = memo(function CompletedWorkDetailTimelineRow(props: {
   row: TimelineCompletedWorkDetailRow;
-  enableLocalFileLinks: boolean | undefined;
   expandedWorkGroups: Record<string, boolean>;
-  liveTimers: boolean;
-  markdownCwd: string | undefined;
-  onImageExpand: (preview: ExpandedImagePreview) => void;
-  onOpenBrowserUrl: ((url: string) => void) | null | undefined;
-  onOpenFilePath: ((path: string) => void) | null | undefined;
   onToggleWorkGroup: (groupId: string) => void;
-  timestampFormat: TimestampFormat;
 }) {
-  if (props.row.kind === "work" || props.row.kind === "work-group" || props.row.kind === "intent") {
-    return (
-      <WorkLogTimelineRow
-        row={props.row}
-        expandedWorkGroups={props.expandedWorkGroups}
-        onToggleWorkGroup={props.onToggleWorkGroup}
-      />
-    );
-  }
-
-  if (!isAssistantTimelineMessage(props.row.message)) {
-    return null;
+  if (props.row.kind === "assistant-update") {
+    return <AssistantUpdateTimelineRow row={props.row} />;
   }
 
   return (
-    <div className="min-w-0 py-0.5" data-completed-work-hidden-assistant-message="true">
-      <AssistantMessageTimelineRow
-        durationStart={props.row.durationStart}
-        isAssistantTurnTerminal={props.row.isAssistantTurnTerminal ?? false}
-        liveTimers={props.liveTimers}
-        showCompletedTiming={props.row.showAssistantTiming ?? false}
-        markdownCwd={props.markdownCwd}
-        message={props.row.message}
-        onImageExpand={props.onImageExpand}
-        onOpenBrowserUrl={props.onOpenBrowserUrl ?? null}
-        onOpenFilePath={props.onOpenFilePath ?? null}
-        enableLocalFileLinks={props.enableLocalFileLinks ?? true}
-        renderMarkdown
-        showCopyAction={false}
-        timestampFormat={props.timestampFormat}
-      />
+    <WorkLogTimelineRow
+      row={props.row}
+      expandedWorkGroups={props.expandedWorkGroups}
+      onToggleWorkGroup={props.onToggleWorkGroup}
+    />
+  );
+});
+
+const AssistantUpdateTimelineRow = memo(function AssistantUpdateTimelineRow(props: {
+  row: Extract<TimelineCompletedWorkDetailRow, { kind: "assistant-update" }>;
+}) {
+  return (
+    <div
+      className="min-w-0 py-0.5"
+      data-completed-work-assistant-update="true"
+      data-assistant-update-id={props.row.id}
+    >
+      <p className="wrap-break-word max-w-[min(100%,72rem)] whitespace-pre-wrap text-[13px] leading-[1.55] text-foreground/80">
+        {props.row.text}
+        {props.row.truncated ? (
+          <span className="block text-[12px] leading-5 text-muted-foreground/55">
+            ... update truncated
+          </span>
+        ) : null}
+      </p>
     </div>
   );
 });
@@ -3188,15 +3331,8 @@ function estimateVisibleCompletedWorkDiagnosticRowsHeight(
 
 const CompletedWorkSummaryTimelineRow = memo(function CompletedWorkSummaryTimelineRow(props: {
   row: Extract<TimelineRow, { kind: "completed-work-summary" }>;
-  enableLocalFileLinks: boolean | undefined;
   expandedWorkGroups: Record<string, boolean>;
-  liveTimers: boolean;
-  markdownCwd: string | undefined;
-  onImageExpand: (preview: ExpandedImagePreview) => void;
-  onOpenBrowserUrl: ((url: string) => void) | null | undefined;
-  onOpenFilePath: ((path: string) => void) | null | undefined;
   onToggleWorkGroup: (groupId: string) => void;
-  timestampFormat: TimestampFormat;
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const visibleDiagnosticRows = props.row.visibleDiagnosticRows;
@@ -3205,21 +3341,9 @@ const CompletedWorkSummaryTimelineRow = memo(function CompletedWorkSummaryTimeli
     return null;
   }
   const hasHiddenLogs = props.row.detailRows.length > 0;
-  const hiddenWorkSummary =
-    props.row.entries.length > 0
-      ? buildTimelineWorkGroupSummaryProjection(props.row.entries)
-      : null;
-  const SummaryIcon = hiddenWorkSummary ? workGroupIcon(hiddenWorkSummary.iconKey) : Clock3Icon;
   const summaryContent = (
     <>
-      <SummaryIcon
-        className={cn(
-          "mt-1 size-3 shrink-0 transition-colors group-hover/completed-work:text-muted-foreground/78",
-          hiddenWorkSummary
-            ? metaToneTextClass(hiddenWorkSummary.surfaceTone)
-            : "text-muted-foreground/42",
-        )}
-      />
+      <Clock3Icon className="mt-1 size-3 shrink-0 text-muted-foreground/42 transition-colors group-hover/completed-work:text-muted-foreground/78" />
       <span
         className="flex min-w-0 flex-wrap items-center gap-x-1.5 text-[12px] leading-5 text-muted-foreground/76 transition-colors group-hover/completed-work:text-foreground/86"
         data-completed-work-summary-label="worked-for"
@@ -3290,15 +3414,8 @@ const CompletedWorkSummaryTimelineRow = memo(function CompletedWorkSummaryTimeli
             <CompletedWorkDetailTimelineRow
               key={`completed-work-summary:${props.row.id}:${detailRow.kind}:${detailRow.id}`}
               row={detailRow}
-              enableLocalFileLinks={props.enableLocalFileLinks}
               expandedWorkGroups={props.expandedWorkGroups}
-              liveTimers={props.liveTimers}
-              markdownCwd={props.markdownCwd}
-              onImageExpand={props.onImageExpand}
-              onOpenBrowserUrl={props.onOpenBrowserUrl}
-              onOpenFilePath={props.onOpenFilePath}
               onToggleWorkGroup={props.onToggleWorkGroup}
-              timestampFormat={props.timestampFormat}
             />
           ))}
         </div>
@@ -3329,7 +3446,7 @@ const UserMessageTimelineRow = memo(function UserMessageTimelineRow(props: {
         className="group relative max-w-[82%] p-0 sm:max-w-[72%]"
         data-user-message-bubble="true"
       >
-        <div className="relative rounded-2xl rounded-br-lg border border-border/40 bg-chat-bubble px-4 py-3">
+        <div className={cn(APP_USER_BUBBLE_CLASS_NAME, "relative")}>
           {userImages.length > 0 && (
             <div className="mb-2.5 grid max-w-105 grid-cols-2 gap-1.5">
               {userImages.map((image: NonNullable<TimelineMessage["attachments"]>[number]) => (
@@ -3557,7 +3674,6 @@ const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(pr
         <div className="min-w-0" data-assistant-message-content="true">
           {props.renderMarkdown ? (
             <ChatMarkdown
-              key={`${props.message.id}:${props.message.streaming ? "streaming" : (props.message.completedAt ?? "complete")}:${messageText.length}`}
               analysisCacheKey={buildMarkdownRenderAnalysisCacheKey(
                 {
                   text: messageText,
@@ -3829,11 +3945,11 @@ const AssistantMessageTurnDiffSummary = memo(function AssistantMessageTurnDiffSu
 
   return (
     <div
-      className="min-w-0 overflow-hidden border-border/20 border-y"
+      className="glass-inset min-w-0 overflow-hidden rounded-[var(--panel-radius)] border border-border/36 bg-background/28"
       data-turn-diff-summary="true"
     >
-      <div className="flex min-w-0 items-center gap-2 border-border/15 border-b px-2 py-1.5">
-        <span className="min-w-0 truncate font-mono text-[10px] leading-4 font-medium tracking-[0.16em] text-muted-foreground/72 uppercase">
+      <div className="flex min-w-0 items-center gap-2 border-border/24 border-b bg-muted/[0.08] px-3 py-2">
+        <span className="min-w-0 truncate font-mono text-[10px] leading-4 font-medium tracking-[0.16em] text-muted-foreground/76 uppercase">
           Changed files ({checkpointFiles.length})
         </span>
         {hasNonZeroStat(summaryStat) && (
@@ -3850,7 +3966,7 @@ const AssistantMessageTurnDiffSummary = memo(function AssistantMessageTurnDiffSu
           type="button"
           size="xs"
           variant="ghost"
-          className="h-5 rounded-sm px-1.5 text-[11px] font-normal text-muted-foreground/62 hover:bg-foreground/[0.045] hover:text-foreground"
+          className="h-6 rounded-[var(--control-radius)] px-2 text-[11px] font-normal text-muted-foreground/64 hover:bg-foreground/[0.05] hover:text-foreground"
           onClick={() => props.onOpenTurnDiff(props.turnSummary.turnId, checkpointFiles[0]?.path)}
         >
           <FileDiffIcon aria-hidden="true" className="mr-1 size-3.5" />
@@ -3866,7 +3982,7 @@ const AssistantMessageTurnDiffSummary = memo(function AssistantMessageTurnDiffSu
                       type="button"
                       size="icon-xs"
                       variant="ghost"
-                      className="size-5 rounded-sm border-0 bg-transparent text-muted-foreground/66 shadow-none hover:bg-foreground/[0.055] hover:text-foreground"
+                      className="size-6 rounded-[var(--control-radius)] border-0 bg-transparent text-muted-foreground/66 shadow-none hover:bg-foreground/[0.055] hover:text-foreground"
                       disabled={props.isRevertingCheckpoint || props.isWorking}
                       onClick={props.onRevert}
                       aria-label={props.revertActionTitle}
@@ -3889,7 +4005,7 @@ const AssistantMessageTurnDiffSummary = memo(function AssistantMessageTurnDiffSu
                       size="icon-xs"
                       variant="ghost"
                       data-scroll-anchor-ignore
-                      className="size-5 rounded-sm border-0 bg-transparent text-muted-foreground/66 shadow-none hover:bg-foreground/[0.055] hover:text-foreground"
+                      className="size-6 rounded-[var(--control-radius)] border-0 bg-transparent text-muted-foreground/66 shadow-none hover:bg-foreground/[0.055] hover:text-foreground"
                       onClick={() => props.onToggleAllDirectories(props.turnSummary.turnId)}
                       aria-label={props.allDirectoriesExpanded ? "Collapse all" : "Expand all"}
                     />
@@ -3909,7 +4025,7 @@ const AssistantMessageTurnDiffSummary = memo(function AssistantMessageTurnDiffSu
           </div>
         )}
       </div>
-      <div className="px-1.5 py-1">
+      <div className="px-2 py-2">
         <ChangedFilesTree
           key={`changed-files-tree:${props.turnSummary.turnId}`}
           turnId={props.turnSummary.turnId}

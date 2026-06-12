@@ -3,11 +3,16 @@ import { describe, expect, it } from "vitest";
 import {
   buildBranchNamePrompt,
   buildCommitMessagePrompt,
+  buildNewThreadRecommendationsPrompt,
   buildPrContentPrompt,
   buildThreadTitlePrompt,
   buildWorkspaceSummaryPrompt,
 } from "./Prompts.ts";
-import { normalizeCliError, sanitizeThreadTitle } from "./Utils.ts";
+import {
+  normalizeCliError,
+  sanitizeNewThreadRecommendations,
+  sanitizeThreadTitle,
+} from "./Utils.ts";
 import { TextGenerationError } from "@ace/contracts";
 
 describe("buildCommitMessagePrompt", () => {
@@ -156,6 +161,69 @@ describe("buildWorkspaceSummaryPrompt", () => {
     expect(result.prompt).toContain("2 files currently changed");
     expect(result.prompt).toContain("Current working tree diff:");
     expect(result.prompt).toContain("const summary = true;");
+  });
+});
+
+describe("buildNewThreadRecommendationsPrompt", () => {
+  it("asks for exactly three recommendations or an empty result", () => {
+    const result = buildNewThreadRecommendationsPrompt({
+      turns: [
+        {
+          threadId: "thread-1",
+          title: "Fix composer layout",
+          latestUserMessage: "Make the composer responsive in split pane mode.",
+          latestAssistantMessage: "Updated the composer CSS.",
+          updatedAt: "2026-06-12T10:00:00.000Z",
+        },
+      ],
+    });
+
+    expect(result.prompt).toContain("return exactly 3 recommendations");
+    expect(result.prompt).toContain("return an empty recommendations array");
+    expect(result.prompt).toContain("never use generic wording");
+  });
+});
+
+describe("sanitizeNewThreadRecommendations", () => {
+  it("returns exactly three useful recommendations", () => {
+    expect(
+      sanitizeNewThreadRecommendations([
+        {
+          title: "Tighten Composer Layout",
+          description: "Refine responsive composer spacing in narrow panes.",
+          prompt: "Refine the new-thread composer layout so it stays balanced in narrow panes.",
+        },
+        {
+          title: "Polish GitHub Action",
+          description: "Make the issue action feel native to the controls row.",
+          prompt: "Polish the GitHub issue action so it fits cleanly with the context controls.",
+        },
+        {
+          title: "Validate Prompt Cache",
+          description: "Add checks for cached generated prompt recommendations.",
+          prompt:
+            "Add validation around cached new-thread recommendations and hide invalid entries.",
+        },
+      ]),
+    ).toHaveLength(3);
+  });
+
+  it("hides partial or generic recommendation output", () => {
+    expect(
+      sanitizeNewThreadRecommendations([
+        {
+          title: "Start a Task",
+          description:
+            "The recent turns only contain greetings, so the next useful step is to state the coding task clearly.",
+          prompt: "Tell the agent what coding task to work on next.",
+        },
+        {
+          title: "Fix Composer",
+          description: "Refine the landing composer placeholder.",
+          prompt: "Refine the landing composer placeholder copy and spacing.",
+        },
+      ]),
+    ).toEqual([]);
   });
 });
 

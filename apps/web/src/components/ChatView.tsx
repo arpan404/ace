@@ -18,8 +18,9 @@ import {
   TrimmedNonEmptyString,
   type TurnId,
   type KeybindingCommand,
-  OrchestrationThreadActivity,
   type OrchestrationMessage,
+  type OrchestrationTimelineRow,
+  OrchestrationThreadActivity,
   ProviderInteractionMode,
   RuntimeMode,
   TerminalOpenInput,
@@ -52,7 +53,8 @@ import {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
-import { AnimatePresence, LazyMotion, domAnimation, m } from "motion/react";
+import { AnimatePresence, LazyMotion, LayoutGroup, domAnimation, m } from "motion/react";
+import { ChevronDownIcon, GitBranchPlusIcon, LaptopIcon } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate, useSearch } from "@tanstack/react-router";
 import { useShallow } from "zustand/react/shallow";
@@ -89,11 +91,12 @@ import {
   hasLiveTurn,
   hasActionableProposedPlan,
   isLatestTurnSettled,
+  type TimelineEntry,
 } from "../session-logic";
 import {
   isScrollContainerNearBottom,
   resolveAutoScrollOnScroll,
-  shouldPreserveInteractionAnchorOnClick,
+  shouldShowScrollToBottomButton,
   scrollContainerToBottom,
 } from "../chat-scroll";
 import {
@@ -130,13 +133,15 @@ import {
   type Thread,
 } from "../types";
 import { isMemoryPressureAtLeast, subscribeToMemoryPressure } from "../lib/memoryPressure";
-import { createChatMessageStreamingTextState } from "../lib/chat/messageText";
 import { hydrateThreadFromCache } from "../lib/threadHydrationCache";
+import { getChatMessageFullText } from "../lib/chat/messageText";
 import {
-  prefetchThreadTimelineWindows,
-  readLoadedThreadTimelinePages,
-  useTimelineWindowStore,
-} from "../lib/chat/timelineWindowStore";
+  primeLiveTimelineRow,
+  removeLiveTimelineRow,
+  readTimelineRowsProjection,
+  startThreadTimelineRowsOpenPrefetch,
+  useTimelineModelStore,
+} from "../lib/chat/timelineModelStore";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useTheme } from "../hooks/useTheme";
 import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
@@ -204,8 +209,20 @@ import { SIDEBAR_RESIZE_END_EVENT, isLayoutResizeInProgress } from "~/lib/deskto
 import {
   deriveThreadActivityRenderState,
   deriveThreadTimelineRenderState,
+  deriveTurnDiffSummaryByAssistantMessageId,
 } from "~/lib/chat/threadRenderState";
-import { isPagedThreadTimelineUsable } from "~/lib/chat/pagedTimelineCompleteness";
+import {
+  buildNativeTimelineRows,
+  deriveNativeCompletionDividerBeforeRowId,
+  type NativeTimelineRowsInput,
+} from "~/lib/chat/nativeTimelineRows";
+import {
+  createNativeTimelineRowsCacheKey,
+  readCachedNativeTimelineRows,
+  resolveNativeTimelineRows,
+} from "~/lib/chat/nativeTimelineRowsClient";
+import { shouldBuildNativeTimelineRowsOnMainThread } from "~/lib/chat/nativeTimelineRowsScheduling";
+import type { TimelineRow } from "~/lib/chat/timelineRows";
 import {
   buildThreadTimelineCacheScope,
   deriveThreadCompletionSummary,
@@ -224,16 +241,18 @@ import {
 import { ChatHeader } from "./chat/ChatHeader";
 import { ChatConversationExtras } from "./chat/ChatConversationExtras";
 import { EnvironmentMiniPanel } from "./chat/EnvironmentMiniPanel";
+import { ProjectGlyphIcon } from "./ProjectAvatar";
 import type { PinnedMessageNavigationTarget } from "./chat/pinnedMessagesStore";
 import { GitHubIssuePreviewDialog } from "./GitHubIssuePreviewDialog";
-import { ThreadHistoryLoadingNotice } from "./GitHubIssueSkeletons";
 import { ChatMessagesPane } from "./chat/ChatMessagesPane";
 import { PlanSummaryPanel } from "./PlanSummaryPanel";
 import type { DiffReviewCommentInput } from "./DiffPanel";
 import { ChatViewPanels } from "./chat/ChatViewPanels";
+import BranchToolbar from "./BranchToolbar";
 import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
 import { resolveExpandedImageItem, type ExpandedImagePreview } from "./chat/ExpandedImagePreview";
-import { NewThreadLanding } from "./chat/NewThreadLanding";
+import { NewThreadStartSurface, useNewThreadRecommendedPrompts } from "./chat/NewThreadLanding";
+import { ProjectContextSwitcher } from "./chat/ProjectContextSwitcher";
 import {
   ConnectedChatComposerPanels,
   type ConnectedChatComposerPanelsHandle,
@@ -260,6 +279,14 @@ import { getComposerProviderState } from "./chat/composerProviderRegistry";
 import { ThreadErrorBanner } from "./chat/ThreadErrorBanner";
 import { ConnectionHealthPill } from "./reliability/ConnectionHealthPill";
 import { ReliabilityDiagnosticsDialog } from "./reliability/ReliabilityDiagnosticsDialog";
+import { GitHubIcon } from "./Icons";
+import { Button } from "./ui/button";
+import { Menu, MenuGroup, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuTrigger } from "./ui/menu";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
+import {
+  DRAFT_CONTEXT_PILL_ICON_CLASS_NAME,
+  DRAFT_CONTEXT_PILL_TRIGGER_CLASS_NAME,
+} from "./thread/topBarClusterStyles";
 import { useConnectionHealth } from "~/lib/reliability/connectionHealth";
 import { deriveStuckTurnSnapshot } from "~/lib/reliability/stuckTurn";
 import {
@@ -273,6 +300,7 @@ import {
   deriveHydratedThreadHistoryKeepIds,
   deriveRecentlyVisitedThreadHistoryKeepIds,
   deriveQueuedComposerMessageDraftForEditing,
+  DEFAULT_THREAD_TITLE,
   formatOutgoingPrompt,
   queuedComposerImageToDraftAttachment,
   revokeComposerImagePreviewUrls,
@@ -490,6 +518,9 @@ const EMPTY_COMPOSER_MODEL_SELECTIONS: ModelSelectionByProvider = Object.freeze(
 const EMPTY_PENDING_COMPOSER_COMMENTS: readonly PendingComposerComment[] = Object.freeze([]);
 
 const THREAD_SWITCH_SCROLL_SETTLE_DELAY_MS = 96;
+const INITIAL_THREAD_BOTTOM_PIN_MAX_MS = 4_500;
+const INITIAL_THREAD_BOTTOM_PIN_MIN_MS = 900;
+const INITIAL_THREAD_BOTTOM_PIN_STABLE_FRAMES = 20;
 
 const SCRIPT_TERMINAL_COLS = 120;
 const SCRIPT_TERMINAL_ROWS = 30;
@@ -835,6 +866,35 @@ async function waitForBrowserBridgeController<TResult>(options: {
 
 type QueuedComposerMessage = Thread["queuedComposerMessages"][number];
 
+interface ComposerDispatchFailureContext {
+  provider: ProviderKind;
+  model: string | null;
+  visiblePromptLength: number;
+  outgoingPromptLength: number;
+  imageCount: number;
+  imageBytes: number;
+  terminalContextCount: number;
+  terminalContextChars: number;
+}
+
+function formatComposerDispatchFailureMessage(
+  error: unknown,
+  context: ComposerDispatchFailureContext,
+): string {
+  const message = error instanceof Error ? error.message : String(error);
+  if (message === "Invalid string length") {
+    const providerLabel = PROVIDER_DISPLAY_NAMES[context.provider] ?? context.provider;
+    const modelLabel = context.model?.trim() || "default";
+    return [
+      "Failed to send because Ace hit a JavaScript string-size limit while preparing the turn.",
+      `Provider: ${providerLabel}; model: ${modelLabel}.`,
+      `Payload sizes: visible prompt ${String(context.visiblePromptLength)} chars, outgoing prompt ${String(context.outgoingPromptLength)} chars, images ${String(context.imageCount)} (${String(context.imageBytes)} bytes), terminal context ${String(context.terminalContextCount)} (${String(context.terminalContextChars)} chars).`,
+    ].join(" ");
+  }
+
+  return error instanceof Error ? error.message : "Failed to send message.";
+}
+
 function describeBrowserDesignCommentTarget(submission: BrowserDesignRequestSubmission): {
   targetLabel: string;
   detailLabel: string | null;
@@ -868,31 +928,152 @@ interface ChatViewProps {
 
 const EMPTY_VISIBLE_BOARD_THREAD_IDS: readonly ThreadId[] = [];
 const EMPTY_THREAD_LAST_VISITED_AT_BY_ID: Readonly<Record<string, string>> = {};
+const EMPTY_TIMELINE_ROW_IDS: readonly string[] = [];
+const NATIVE_TIMELINE_ROWS_CONTENT_KEY_TAIL_ROWS = 32;
 const RECENT_HYDRATED_THREAD_HISTORY_KEEP_COUNT = 8;
 
-function toPagedChatMessage(message: OrchestrationMessage): ChatMessage {
-  const attachments = message.attachments?.map((attachment) => ({
-    type: "image" as const,
-    id: attachment.id,
-    name: attachment.name,
-    mimeType: attachment.mimeType,
-    sizeBytes: attachment.sizeBytes,
-  }));
-
+function toOptimisticOrchestrationMessage(message: ChatMessage): OrchestrationMessage {
   return {
     id: message.id,
     role: message.role,
-    text: message.streaming ? "" : message.text,
-    ...(message.streaming
-      ? { streamingTextState: createChatMessageStreamingTextState(message.text) }
-      : {}),
-    turnId: message.turnId,
-    createdAt: message.createdAt,
-    ...(message.sequence !== undefined ? { sequence: message.sequence } : {}),
+    text: getChatMessageFullText(message),
+    turnId: message.turnId ?? null,
     streaming: message.streaming,
-    ...(message.streaming ? {} : { completedAt: message.updatedAt }),
-    ...(attachments && attachments.length > 0 ? { attachments } : {}),
+    ...(message.sequence !== undefined ? { sequence: message.sequence } : {}),
+    ...(message.attachments !== undefined ? { attachments: message.attachments } : {}),
+    createdAt: message.createdAt,
+    updatedAt: message.completedAt ?? message.createdAt,
   };
+}
+
+function primeOptimisticUserTimelineRow(input: {
+  readonly threadId: ThreadId;
+  readonly message: ChatMessage;
+}): void {
+  const orchestrationMessage = toOptimisticOrchestrationMessage(input.message);
+  primeLiveTimelineRow(
+    {
+      threadId: input.threadId,
+      updatedAt: orchestrationMessage.updatedAt,
+      entry: {
+        kind: "message",
+        id: String(orchestrationMessage.id),
+        createdAt: orchestrationMessage.createdAt,
+        turnId: orchestrationMessage.turnId,
+        ...(orchestrationMessage.sequence !== undefined
+          ? { sequence: orchestrationMessage.sequence }
+          : {}),
+      },
+      message: orchestrationMessage,
+    },
+    { flush: "sync" },
+  );
+}
+
+function removeOptimisticUserTimelineRow(input: {
+  readonly threadId: ThreadId;
+  readonly messageId: MessageId;
+}): void {
+  removeLiveTimelineRow({
+    threadId: input.threadId,
+    kind: "message",
+    id: String(input.messageId),
+  });
+}
+
+function appendOptimisticUserMessagesToNativeTimeline(input: {
+  readonly rows: ReadonlyArray<OrchestrationTimelineRow>;
+  readonly messages: ReadonlyArray<OrchestrationMessage>;
+  readonly optimisticUserMessages: ReadonlyArray<ChatMessage>;
+}): {
+  readonly rows: ReadonlyArray<OrchestrationTimelineRow>;
+  readonly messages: ReadonlyArray<OrchestrationMessage>;
+} {
+  if (input.optimisticUserMessages.length === 0) {
+    return { rows: input.rows, messages: input.messages };
+  }
+
+  const existingMessageIds = new Set(input.messages.map((message) => String(message.id)));
+  const optimisticMessages = input.optimisticUserMessages
+    .filter((message) => !existingMessageIds.has(String(message.id)))
+    .map(toOptimisticOrchestrationMessage);
+  if (optimisticMessages.length === 0) {
+    return { rows: input.rows, messages: input.messages };
+  }
+
+  const nextRows = [...input.rows];
+  let nextSourceIndex =
+    nextRows.reduce((maxIndex, row) => Math.max(maxIndex, row.endSourceIndexExclusive), 0) || 0;
+  for (const message of optimisticMessages) {
+    const rowId = `message:${String(message.id)}`;
+    nextRows.push({
+      id: rowId,
+      kind: "message",
+      createdAt: message.createdAt,
+      updatedAt: message.updatedAt,
+      contentVersion: [
+        "optimistic",
+        String(message.id),
+        message.updatedAt,
+        String(message.text.length),
+      ].join(":"),
+      startSourceIndex: nextSourceIndex,
+      endSourceIndexExclusive: nextSourceIndex + 1,
+      ...(message.turnId !== undefined ? { turnId: message.turnId } : {}),
+      sourceRefs: [
+        {
+          kind: "message",
+          id: String(message.id),
+          createdAt: message.createdAt,
+          sourceIndex: nextSourceIndex,
+          ...(message.turnId !== undefined ? { turnId: message.turnId } : {}),
+          ...(message.sequence !== undefined ? { sequence: message.sequence } : {}),
+        },
+      ],
+    });
+    nextSourceIndex += 1;
+  }
+
+  return {
+    rows: nextRows,
+    messages: [...input.messages, ...optimisticMessages],
+  };
+}
+
+function timelineEntryStickKey(entry: TimelineEntry | undefined): string {
+  if (!entry) {
+    return "empty";
+  }
+  if (entry.kind === "message") {
+    const textLength = entry.message.streamingTextState?.totalLength ?? entry.message.text.length;
+    return [
+      "message",
+      String(entry.message.id),
+      entry.message.role,
+      entry.message.streaming ? "streaming" : "settled",
+      entry.message.completedAt ?? "",
+      String(textLength),
+    ].join(":");
+  }
+  if (entry.kind === "work") {
+    return [
+      "work",
+      entry.id,
+      entry.entry.status ?? "",
+      entry.entry.label,
+      entry.entry.detail ?? "",
+      entry.entry.durationMs ?? "",
+    ].join(":");
+  }
+  if (entry.kind === "proposed-plan") {
+    return [
+      "proposed-plan",
+      String(entry.proposedPlan.id),
+      entry.proposedPlan.updatedAt ?? entry.proposedPlan.createdAt,
+      String(entry.proposedPlan.planMarkdown.length),
+    ].join(":");
+  }
+  return ["intent", entry.id, entry.text.length].join(":");
 }
 
 type BrowserPanelInstance = {
@@ -1371,9 +1552,6 @@ function useChatViewComponent({
   const activeThreadLastVisitedAt = useUiStateStore((store) =>
     ownsGlobalSideEffects ? store.threadLastVisitedAtById[threadId] : undefined,
   );
-  const timelinePageCacheRevision = useTimelineWindowStore((store) =>
-    ownsGlobalSideEffects ? store.pageCacheRevision : 0,
-  );
   const defaultThreadEnvMode = useSetting("defaultThreadEnvMode");
   const enableThinkingStreaming = useSetting("enableThinkingStreaming");
   const enableToolStreaming = useSetting("enableToolStreaming");
@@ -1717,16 +1895,14 @@ function useChatViewComponent({
   const messagesScrollRef = useRef<HTMLDivElement>(null);
   const shouldAutoScrollRef = useRef(true);
   const previousThreadIdRef = useRef<ThreadId | null>(null);
+  const pendingInitialBottomScrollThreadIdRef = useRef<ThreadId | null>(null);
+  const pendingInitialBottomPinFrameRef = useRef<number | null>(null);
+  const pendingInitialBottomPinResizeObserverRef = useRef<ResizeObserver | null>(null);
   const lastKnownScrollTopRef = useRef(0);
   const isPointerScrollActiveRef = useRef(false);
   const lastTouchClientYRef = useRef<number | null>(null);
   const pendingUserScrollUpIntentRef = useRef(false);
   const pendingAutoScrollFrameRef = useRef<number | null>(null);
-  const pendingInteractionAnchorRef = useRef<{
-    element: HTMLElement;
-    top: number;
-  } | null>(null);
-  const pendingInteractionAnchorFrameRef = useRef<number | null>(null);
   const composerImagesRef = useRef<ComposerImageAttachment[]>([]);
   const attachmentPreviewHandoffByMessageIdRef = useRef<Record<string, string[]>>({});
   const attachmentPreviewHandoffTimeoutByMessageIdRef = useRef<Record<string, number>>({});
@@ -1737,9 +1913,20 @@ function useChatViewComponent({
   const composerPanelsRef = useRef<ConnectedChatComposerPanelsHandle>(null);
   const subagentComposerPanelsRef = useRef<ConnectedChatComposerPanelsHandle>(null);
   const chatShellRef = useRef<HTMLDivElement | null>(null);
-  const setMessagesScrollContainerRef = useCallback((element: HTMLDivElement | null) => {
-    messagesScrollRef.current = element;
-  }, []);
+  const setMessagesScrollContainerRef = useCallback(
+    (element: HTMLDivElement | null) => {
+      messagesScrollRef.current = element;
+      if (!element || pendingInitialBottomScrollThreadIdRef.current !== threadId) {
+        return;
+      }
+      scrollContainerToBottom(element);
+      lastKnownScrollTopRef.current = element.scrollTop;
+      shouldAutoScrollRef.current = true;
+      pendingUserScrollUpIntentRef.current = false;
+      setShowScrollToBottom(false);
+    },
+    [setShowScrollToBottom, threadId],
+  );
   const getMessagesScrollContainer = useCallback(() => messagesScrollRef.current, []);
   useEffect(() => {
     const syncComposerDraftRefs = (state: ReturnType<typeof useComposerDraftStore.getState>) => {
@@ -2020,7 +2207,22 @@ function useChatViewComponent({
   );
   const handoffMissingThreadId = handoffLineage?.missingThreadId ?? null;
   const handoffHasCycle = handoffLineage?.hasCycle ?? false;
-  const isThreadHistoryLean = isServerThread && activeThread?.historyLoaded === false;
+  const isThreadHistoryMetadataOnly = isServerThread && activeThread?.historyLoaded === false;
+  const activeThreadTimelineRowIds = useTimelineModelStore((store) =>
+    ownsGlobalSideEffects && isThreadHistoryMetadataOnly
+      ? (store.rowIdsByThreadId[threadId] ?? EMPTY_TIMELINE_ROW_IDS)
+      : EMPTY_TIMELINE_ROW_IDS,
+  );
+  const activeThreadTimelineRevision = useTimelineModelStore((store) =>
+    ownsGlobalSideEffects && isThreadHistoryMetadataOnly
+      ? (store.revisionByThreadId[threadId] ?? 0)
+      : 0,
+  );
+  const activeThreadTimelineCompleteSnapshot = useTimelineModelStore((store) =>
+    ownsGlobalSideEffects && isThreadHistoryMetadataOnly
+      ? (store.completeSnapshotByThreadId[threadId] ?? null)
+      : null,
+  );
   const canCheckoutPullRequestIntoThread = isLocalDraftThread;
   const routeWorkspaceMode: ThreadWorkspaceMode =
     !splitPane && (rawSearch.mode === "editor" || rawSearch.mode === "split")
@@ -2067,17 +2269,6 @@ function useChatViewComponent({
     trackedActiveThreadId === activeThreadId ? previousActiveThreadId : trackedActiveThreadId;
   const recentThreadHistoryThread = useThreadById(recentThreadHistoryKeepId);
   const recentThreadHistoryHydrationInFlightRef = useRef<ThreadId | null>(null);
-  const attemptDirectThreadHydration = useEffectEvent(
-    (thread: NonNullable<typeof serverThread>) => {
-      if (thread.historyLoaded !== false) {
-        return;
-      }
-      void prefetchThreadTimelineWindows({
-        threadId: thread.id,
-        priority: "immediate",
-      }).catch(() => undefined);
-    },
-  );
   const hydratedThreadHistoryKeepIds = useMemo<ThreadId[]>(
     () =>
       deriveHydratedThreadHistoryKeepIds({
@@ -2133,13 +2324,6 @@ function useChatViewComponent({
   }, [activeThreadId, ownsGlobalSideEffects, trackActiveThread]);
 
   useEffect(() => {
-    if (!serverThread || serverThread.historyLoaded !== false) {
-      return;
-    }
-    attemptDirectThreadHydration(serverThread);
-  }, [serverThread]);
-
-  useEffect(() => {
     if (
       !recentThreadHistoryKeepId ||
       recentThreadHistoryKeepId === activeThreadId ||
@@ -2155,12 +2339,13 @@ function useChatViewComponent({
 
     recentThreadHistoryHydrationInFlightRef.current = recentThreadHistoryKeepId;
     let canceled = false;
+    const prefetch = startThreadTimelineRowsOpenPrefetch({
+      threadId: recentThreadHistoryKeepId,
+      priority: "background",
+    });
     void (async () => {
       try {
-        await prefetchThreadTimelineWindows({
-          threadId: recentThreadHistoryKeepId,
-          priority: "background",
-        });
+        await prefetch.done;
       } catch (error) {
         if (!canceled) {
           console.error("Failed to prefetch recent thread timeline", error);
@@ -2177,6 +2362,7 @@ function useChatViewComponent({
 
     return () => {
       canceled = true;
+      prefetch.stop();
       if (recentThreadHistoryHydrationInFlightRef.current === recentThreadHistoryKeepId) {
         recentThreadHistoryHydrationInFlightRef.current = null;
       }
@@ -2238,12 +2424,13 @@ function useChatViewComponent({
 
     sourcePlanHydrationInFlightRef.current = sourceProposedPlanThreadId;
     let canceled = false;
+    const prefetch = startThreadTimelineRowsOpenPrefetch({
+      threadId: sourceProposedPlanThreadId,
+      priority: "background",
+    });
     void (async () => {
       try {
-        await prefetchThreadTimelineWindows({
-          threadId: sourceProposedPlanThreadId,
-          priority: "background",
-        });
+        await prefetch.done;
       } catch (error) {
         if (!canceled) {
           console.error("Failed to prefetch source proposed-plan timeline", error);
@@ -2257,6 +2444,7 @@ function useChatViewComponent({
 
     return () => {
       canceled = true;
+      prefetch.stop();
       if (sourcePlanHydrationInFlightRef.current === sourceProposedPlanThreadId) {
         sourcePlanHydrationInFlightRef.current = null;
       }
@@ -2277,34 +2465,44 @@ function useChatViewComponent({
     if (handoffMissingThreadId) {
       pendingThreadIds.add(handoffMissingThreadId);
     }
+    const handoffHydrationInFlight = handoffHydrationInFlightRef.current;
+    const prefetches: Array<ReturnType<typeof startThreadTimelineRowsOpenPrefetch>> = [];
 
     for (const threadIdToHydrate of pendingThreadIds) {
       const thread = getThreadById(useStore.getState().threads, threadIdToHydrate);
       if (thread && thread.historyLoaded !== false) {
         continue;
       }
-      if (handoffHydrationInFlightRef.current.has(threadIdToHydrate)) {
+      if (handoffHydrationInFlight.has(threadIdToHydrate)) {
         continue;
       }
-      handoffHydrationInFlightRef.current.add(threadIdToHydrate);
+      handoffHydrationInFlight.add(threadIdToHydrate);
+      const prefetch = startThreadTimelineRowsOpenPrefetch({
+        threadId: threadIdToHydrate,
+        priority: "background",
+      });
+      prefetches.push(prefetch);
       void (async () => {
         try {
-          await prefetchThreadTimelineWindows({
-            threadId: threadIdToHydrate,
-            priority: "background",
-          });
+          await prefetch.done;
         } catch (error) {
           if (!canceled) {
             console.error("Failed to prefetch handoff timeline", error);
           }
         } finally {
-          handoffHydrationInFlightRef.current.delete(threadIdToHydrate);
+          handoffHydrationInFlight.delete(threadIdToHydrate);
         }
       })();
     }
 
     return () => {
       canceled = true;
+      for (const prefetch of prefetches) {
+        prefetch.stop();
+      }
+      for (const threadIdToHydrate of pendingThreadIds) {
+        handoffHydrationInFlight.delete(threadIdToHydrate);
+      }
     };
   }, [
     activeThreadLineageSourceThreadId,
@@ -2925,100 +3123,47 @@ function useChatViewComponent({
     }
     return [...serverMessagesWithPreviewHandoff, ...pendingMessages];
   }, [serverMessages, attachmentPreviewHandoffByMessageId, optimisticUserMessages]);
-  const activeThreadTimelinePages = useMemo(() => {
-    void timelinePageCacheRevision;
-    return activeThread && isThreadHistoryLean
-      ? readLoadedThreadTimelinePages(activeThread.id)
-      : [];
-  }, [activeThread, isThreadHistoryLean, timelinePageCacheRevision]);
-  const pagedThreadTimeline = useMemo(() => {
-    if (!activeThread || !isThreadHistoryLean || activeThreadTimelinePages.length === 0) {
+  const activeThreadTimelineProjection = useMemo(() => {
+    void activeThreadTimelineRevision;
+    if (activeThreadTimelineCompleteSnapshot === null && activeThreadTimelineRowIds.length === 0) {
       return null;
     }
-
-    const pagedMessages = activeThreadTimelinePages.flatMap((page) =>
-      page.messages.map(toPagedChatMessage),
-    );
-    if (
-      !isPagedThreadTimelineUsable({
-        latestTurn: activeThread.latestTurn,
-        leanMessages: activeThreadMessages,
-        pagedMessages,
-      })
-    ) {
-      return null;
-    }
-
-    const messageById = new Map(
-      pagedMessages.map((message) => [String(message.id), message] as const),
-    );
-    const activityById = new Map(
-      activeThreadTimelinePages.flatMap((page) =>
-        page.activities.map((activity) => [String(activity.id), activity] as const),
-      ),
-    );
-    const proposedPlanById = new Map(
-      activeThreadTimelinePages.flatMap((page) =>
-        page.proposedPlans.map((proposedPlan) => [String(proposedPlan.id), proposedPlan] as const),
-      ),
-    );
-    const messages: ChatMessage[] = [];
-    const activities: OrchestrationThreadActivity[] = [];
-    const proposedPlans: Thread["proposedPlans"] = [];
-
-    for (const entry of activeThreadTimelinePages
-      .flatMap((page) => page.entries)
-      .toSorted((left, right) => left.index - right.index)) {
-      if (entry.kind === "message") {
-        const message = messageById.get(String(entry.id));
-        if (message && !messages.some((candidate) => candidate.id === message.id)) {
-          messages.push(message);
-        }
-      } else if (entry.kind === "activity") {
-        const activity = activityById.get(String(entry.id));
-        if (activity && !activities.some((candidate) => candidate.id === activity.id)) {
-          activities.push(activity);
-        }
-      } else {
-        const proposedPlan = proposedPlanById.get(String(entry.id));
-        if (proposedPlan && !proposedPlans.some((candidate) => candidate.id === proposedPlan.id)) {
-          proposedPlans.push(proposedPlan);
-        }
-      }
-    }
-
-    for (const message of activeThreadMessages) {
-      if (!messages.some((candidate) => candidate.id === message.id)) {
-        messages.push(message);
-      }
-    }
-
-    return {
-      messages,
-      proposedPlans,
-      workEntries: deriveThreadActivityRenderState(activities, activityVisibilitySettings)
-        .workLogEntries,
-    };
+    return activeThread && isThreadHistoryMetadataOnly
+      ? readTimelineRowsProjection(activeThread.id)
+      : null;
   }, [
     activeThread,
-    activeThreadMessages,
-    activeThreadTimelinePages,
-    activityVisibilitySettings,
-    isThreadHistoryLean,
+    activeThreadTimelineCompleteSnapshot,
+    activeThreadTimelineRevision,
+    activeThreadTimelineRowIds.length,
+    isThreadHistoryMetadataOnly,
   ]);
-  const isThreadHistoryLoading = isThreadHistoryLean && pagedThreadTimeline === null;
+  const activeThreadTimelineIndexByEntryId = useMemo(() => {
+    return activeThreadTimelineProjection?.timelineIndexByEntryId ?? null;
+  }, [activeThreadTimelineProjection]);
+  const hasLiveThreadTimelineContent =
+    activeThreadMessages.length > 0 ||
+    workLogEntries.length > 0 ||
+    (activeThreadTimelineProjection?.rows.length ?? 0) > 0;
+  const isThreadHistoryLoading = isThreadHistoryMetadataOnly && !hasLiveThreadTimelineContent;
   const handoffTimeline = useMemo(() => {
-    if (pagedThreadTimeline) {
+    if (
+      isThreadHistoryLoading &&
+      activeThreadMessages.length === 0 &&
+      workLogEntries.length === 0
+    ) {
       return {
-        ...pagedThreadTimeline,
+        messages: [],
+        proposedPlans: [],
+        workEntries: [],
         historicalMessageIds: new Set<MessageId>(),
       };
     }
     if (isThreadHistoryLoading) {
       return {
-        messages: [],
-        proposedPlans: [],
-        workEntries: [],
+        messages: activeThreadMessages,
+        proposedPlans: activeThread?.proposedPlans ?? [],
+        workEntries: workLogEntries,
         historicalMessageIds: new Set<MessageId>(),
       };
     }
@@ -3052,7 +3197,6 @@ function useChatViewComponent({
     handoffLineage,
     isThreadHistoryLoading,
     isServerThread,
-    pagedThreadTimeline,
     workLogEntries,
   ]);
   const timelineMessages = handoffTimeline.messages;
@@ -3091,18 +3235,200 @@ function useChatViewComponent({
   );
   const { turnDiffSummaries, inferredCheckpointTurnCountByTurnId } =
     useTurnDiffSummaries(activeThread);
-  const { timelineEntries, turnDiffSummaryByAssistantMessageId } = useMemo(
-    () =>
-      measureRenderWork("chat.deriveThreadTimelineRenderState", () =>
-        deriveThreadTimelineRenderState({
-          messages: timelineMessages,
-          proposedPlans: timelineProposedPlans,
-          workLogEntries: timelineWorkEntries,
-          turnDiffSummaries,
-        }),
-      ),
-    [timelineMessages, timelineProposedPlans, timelineWorkEntries, turnDiffSummaries],
+  const turnDiffSummaryByAssistantMessageId = useMemo(
+    () => deriveTurnDiffSummaryByAssistantMessageId(turnDiffSummaries),
+    [turnDiffSummaries],
   );
+  const completionSummary = useMemo(() => {
+    return deriveThreadCompletionSummary(activeLatestTurn, latestTurnSettled);
+  }, [activeLatestTurn, latestTurnSettled]);
+  const nativeCompletionDividerBeforeEntryId = useMemo(() => {
+    if (!latestTurnSettled || !completionSummary || !activeThreadTimelineProjection) {
+      return null;
+    }
+    return deriveNativeCompletionDividerBeforeRowId({
+      latestTurn: activeLatestTurn,
+      rows: activeThreadTimelineProjection.rows,
+      messages: activeThreadTimelineProjection.messages,
+    });
+  }, [activeLatestTurn, activeThreadTimelineProjection, completionSummary, latestTurnSettled]);
+  const nativeTimelineRowsInput = useMemo<NativeTimelineRowsInput | null>(() => {
+    if (!isThreadHistoryMetadataOnly) {
+      return null;
+    }
+    const baseRows = activeThreadTimelineProjection?.rows ?? [];
+    const baseMessages = activeThreadTimelineProjection?.messages ?? [];
+    if (baseRows.length === 0 && optimisticUserMessages.length === 0) {
+      return null;
+    }
+    const timelineWithOptimisticMessages = appendOptimisticUserMessagesToNativeTimeline({
+      rows: baseRows,
+      messages: baseMessages,
+      optimisticUserMessages,
+    });
+    return {
+      rows: timelineWithOptimisticMessages.rows,
+      messages: timelineWithOptimisticMessages.messages,
+      activities: activeThreadTimelineProjection?.activities ?? [],
+      proposedPlans: activeThreadTimelineProjection?.proposedPlans ?? [],
+      activeTurnInProgress: isWorking,
+      activeTurnStartedAt: activeWorkStartedAt,
+      completionDividerBeforeEntryId: nativeCompletionDividerBeforeEntryId,
+      completionSummary,
+      turnDiffSummaryByAssistantMessageId,
+    };
+  }, [
+    activeThreadTimelineProjection,
+    activeWorkStartedAt,
+    completionSummary,
+    isThreadHistoryMetadataOnly,
+    isWorking,
+    nativeCompletionDividerBeforeEntryId,
+    optimisticUserMessages,
+    turnDiffSummaryByAssistantMessageId,
+  ]);
+  const nativeTurnDiffSummaryKey = useMemo(
+    () => [...turnDiffSummaryByAssistantMessageId.keys()].join("\0"),
+    [turnDiffSummaryByAssistantMessageId],
+  );
+  const nativeTimelineRowsContentKey = useMemo(() => {
+    if (!nativeTimelineRowsInput) {
+      return "";
+    }
+    return nativeTimelineRowsInput.rows
+      .slice(-NATIVE_TIMELINE_ROWS_CONTENT_KEY_TAIL_ROWS)
+      .map((row) => [row.id, row.contentVersion, row.updatedAt].join(":"))
+      .join("\0");
+  }, [nativeTimelineRowsInput]);
+  const nativeTimelineRowsThreadId = activeThread?.id ?? null;
+  const nativeTimelineRowsInputKey = useMemo(() => {
+    if (!nativeTimelineRowsInput) {
+      return null;
+    }
+    return createNativeTimelineRowsCacheKey({
+      threadId: nativeTimelineRowsThreadId,
+      snapshotRevision: activeThreadTimelineCompleteSnapshot?.revision ?? null,
+      snapshotTotalRows: activeThreadTimelineCompleteSnapshot?.totalRows ?? null,
+      threadRevision: activeThreadTimelineRevision,
+      rowCount: nativeTimelineRowsInput.rows.length,
+      rowContentKey: nativeTimelineRowsContentKey,
+      isActiveTurnRunning: isWorking,
+      activeTurnStartedAt: activeWorkStartedAt,
+      completionDividerBeforeEntryId: nativeCompletionDividerBeforeEntryId,
+      completionSummary,
+      turnDiffSummaryKey: nativeTurnDiffSummaryKey,
+    });
+  }, [
+    activeThreadTimelineCompleteSnapshot,
+    activeThreadTimelineRevision,
+    activeWorkStartedAt,
+    completionSummary,
+    isWorking,
+    nativeCompletionDividerBeforeEntryId,
+    nativeTimelineRowsContentKey,
+    nativeTimelineRowsInput,
+    nativeTimelineRowsThreadId,
+    nativeTurnDiffSummaryKey,
+  ]);
+  const [resolvedNativeTimelineRows, setResolvedNativeTimelineRows] = useState<{
+    readonly key: string;
+    readonly rows: ReadonlyArray<TimelineRow>;
+  } | null>(null);
+  const cachedNativeTimelineRows = readCachedNativeTimelineRows(nativeTimelineRowsInputKey);
+  const shouldBuildNativeTimelineRowsSynchronously =
+    nativeTimelineRowsInput !== null &&
+    nativeTimelineRowsInputKey !== null &&
+    shouldBuildNativeTimelineRowsOnMainThread({
+      hasCompleteSnapshot: activeThreadTimelineCompleteSnapshot !== null,
+      rowCount: nativeTimelineRowsInput.rows.length,
+    });
+  const synchronousNativeTimelineRows = useMemo<ReadonlyArray<TimelineRow> | null>(() => {
+    if (!shouldBuildNativeTimelineRowsSynchronously || !nativeTimelineRowsInput) {
+      return null;
+    }
+    return buildNativeTimelineRows(nativeTimelineRowsInput);
+  }, [nativeTimelineRowsInput, shouldBuildNativeTimelineRowsSynchronously]);
+  useEffect(() => {
+    if (!nativeTimelineRowsInput || !nativeTimelineRowsInputKey) {
+      setResolvedNativeTimelineRows(null);
+      return;
+    }
+    if (shouldBuildNativeTimelineRowsSynchronously) {
+      setResolvedNativeTimelineRows(null);
+      return;
+    }
+    const cachedRows = readCachedNativeTimelineRows(nativeTimelineRowsInputKey);
+    if (cachedRows) {
+      setResolvedNativeTimelineRows((current) =>
+        current?.key === nativeTimelineRowsInputKey && current.rows === cachedRows
+          ? current
+          : { key: nativeTimelineRowsInputKey, rows: cachedRows },
+      );
+      return;
+    }
+
+    let canceled = false;
+    resolveNativeTimelineRows({
+      cacheKey: nativeTimelineRowsInputKey,
+      rowsInput: nativeTimelineRowsInput,
+    })
+      .then((rows) => {
+        if (canceled) {
+          return;
+        }
+        startTransition(() => {
+          setResolvedNativeTimelineRows({ key: nativeTimelineRowsInputKey, rows });
+        });
+      })
+      .catch((error) => {
+        if (!canceled) {
+          console.error("Failed to build native timeline rows", error);
+        }
+      });
+    return () => {
+      canceled = true;
+    };
+  }, [
+    nativeTimelineRowsInput,
+    nativeTimelineRowsInputKey,
+    shouldBuildNativeTimelineRowsSynchronously,
+  ]);
+  const nativeTimelineRowsOverride =
+    synchronousNativeTimelineRows ??
+    cachedNativeTimelineRows ??
+    (resolvedNativeTimelineRows?.key === nativeTimelineRowsInputKey
+      ? resolvedNativeTimelineRows.rows
+      : null);
+  const nativeTimelineRowsLoading =
+    !shouldBuildNativeTimelineRowsSynchronously &&
+    nativeTimelineRowsInput !== null &&
+    nativeTimelineRowsInputKey !== null &&
+    cachedNativeTimelineRows === null &&
+    resolvedNativeTimelineRows?.key !== nativeTimelineRowsInputKey;
+  const timelineRenderState = useMemo(() => {
+    if (nativeTimelineRowsOverride !== null) {
+      return {
+        timelineEntries: [],
+        turnDiffSummaryByAssistantMessageId,
+      };
+    }
+    return measureRenderWork("chat.deriveThreadTimelineRenderState", () =>
+      deriveThreadTimelineRenderState({
+        messages: timelineMessages,
+        proposedPlans: timelineProposedPlans,
+        workLogEntries: timelineWorkEntries,
+        turnDiffSummaries,
+      }),
+    );
+  }, [
+    nativeTimelineRowsOverride,
+    timelineMessages,
+    timelineProposedPlans,
+    timelineWorkEntries,
+    turnDiffSummaries,
+    turnDiffSummaryByAssistantMessageId,
+  ]);
+  const timelineEntries = timelineRenderState.timelineEntries;
   const revertTurnCountByUserMessageId = useMemo(() => {
     const byUserMessageId = new Map<MessageId, number>();
     for (let index = 0; index < timelineEntries.length; index += 1) {
@@ -3156,14 +3482,21 @@ function useChatViewComponent({
     return byAssistantMessageId;
   }, [inferredCheckpointTurnCountByTurnId, turnDiffSummaryByAssistantMessageId]);
 
-  const completionSummary = useMemo(() => {
-    return deriveThreadCompletionSummary(activeLatestTurn, latestTurnSettled);
-  }, [activeLatestTurn, latestTurnSettled]);
   const completionDividerBeforeEntryId = useMemo(() => {
+    if (nativeTimelineRowsOverride !== null) {
+      return nativeCompletionDividerBeforeEntryId;
+    }
     if (!latestTurnSettled) return null;
     if (!completionSummary) return null;
     return deriveCompletionDividerBeforeEntryId(timelineEntries, activeLatestTurn);
-  }, [activeLatestTurn, completionSummary, latestTurnSettled, timelineEntries]);
+  }, [
+    activeLatestTurn,
+    completionSummary,
+    latestTurnSettled,
+    nativeCompletionDividerBeforeEntryId,
+    nativeTimelineRowsOverride,
+    timelineEntries,
+  ]);
   const timelineCacheScope = useMemo(() => {
     return buildThreadTimelineCacheScope({
       thread: activeThread,
@@ -4180,7 +4513,9 @@ function useChatViewComponent({
       }
       const targetThreadId = activeThread?.id ?? threadId;
       const normalizedTitleSeed = options.titleSeed.trim().replace(/\s+/gu, " ");
-      const title = truncate(normalizedTitleSeed.length > 0 ? normalizedTitleSeed : "New thread");
+      const title = truncate(
+        normalizedTitleSeed.length > 0 ? normalizedTitleSeed : DEFAULT_THREAD_TITLE,
+      );
       try {
         await api.orchestration.dispatchCommand({
           type: "thread.create",
@@ -7217,8 +7552,15 @@ function useChatViewComponent({
   );
 
   // Auto-scroll on new messages
-  const messageCount = timelineMessages.length;
-  const timelineEntryCount = timelineEntries.length;
+  const timelineTailStickKey = useMemo(() => {
+    if (activeThreadTimelineProjection?.rows.length) {
+      const row = activeThreadTimelineProjection.rows.at(-1);
+      return row ? ["native", row.id, row.contentVersion].join(":") : "native:empty";
+    }
+    return ["legacy", timelineEntryStickKey(timelineEntries.at(-1))].join(":");
+  }, [activeThreadTimelineProjection, timelineEntries]);
+  const timelineHydratedRowCount =
+    activeThreadTimelineProjection?.rows.length ?? timelineEntries.length;
   const markMessagesAtBottom = useCallback(
     (scrollContainer: HTMLDivElement) => {
       lastKnownScrollTopRef.current = scrollContainer.scrollTop;
@@ -7248,10 +7590,13 @@ function useChatViewComponent({
     pendingAutoScrollFrameRef.current = null;
     window.cancelAnimationFrame(pendingFrame);
   }, []);
-  const cancelPendingInteractionAnchorAdjustment = useCallback(() => {
-    const pendingFrame = pendingInteractionAnchorFrameRef.current;
+  const cancelInitialBottomPin = useCallback(() => {
+    pendingInitialBottomScrollThreadIdRef.current = null;
+    pendingInitialBottomPinResizeObserverRef.current?.disconnect();
+    pendingInitialBottomPinResizeObserverRef.current = null;
+    const pendingFrame = pendingInitialBottomPinFrameRef.current;
     if (pendingFrame === null) return;
-    pendingInteractionAnchorFrameRef.current = null;
+    pendingInitialBottomPinFrameRef.current = null;
     window.cancelAnimationFrame(pendingFrame);
   }, []);
   const scheduleStickToBottom = useCallback(() => {
@@ -7265,46 +7610,6 @@ function useChatViewComponent({
     cancelPendingStickToBottom();
     scrollMessagesToBottom();
   }, [cancelPendingStickToBottom, scrollMessagesToBottom]);
-  const onMessagesClickCapture = useCallback(
-    (event: React.MouseEvent<HTMLDivElement>) => {
-      const scrollContainer = messagesScrollRef.current;
-      if (!scrollContainer || !(event.target instanceof Element)) return;
-      if (!shouldPreserveInteractionAnchorOnClick(event.detail)) {
-        pendingInteractionAnchorRef.current = null;
-        cancelPendingInteractionAnchorAdjustment();
-        return;
-      }
-
-      const trigger = event.target.closest<HTMLElement>(
-        "button, summary, [role='button'], [data-scroll-anchor-target]",
-      );
-      if (!trigger || !scrollContainer.contains(trigger)) return;
-      if (trigger.closest("[data-scroll-anchor-ignore]")) return;
-
-      pendingInteractionAnchorRef.current = {
-        element: trigger,
-        top: trigger.getBoundingClientRect().top,
-      };
-
-      cancelPendingInteractionAnchorAdjustment();
-      pendingInteractionAnchorFrameRef.current = window.requestAnimationFrame(() => {
-        pendingInteractionAnchorFrameRef.current = null;
-        const anchor = pendingInteractionAnchorRef.current;
-        pendingInteractionAnchorRef.current = null;
-        const activeScrollContainer = messagesScrollRef.current;
-        if (!anchor || !activeScrollContainer) return;
-        if (!anchor.element.isConnected || !activeScrollContainer.contains(anchor.element)) return;
-
-        const nextTop = anchor.element.getBoundingClientRect().top;
-        const delta = nextTop - anchor.top;
-        if (Math.abs(delta) < 0.5) return;
-
-        activeScrollContainer.scrollTop += delta;
-        lastKnownScrollTopRef.current = activeScrollContainer.scrollTop;
-      });
-    },
-    [cancelPendingInteractionAnchorAdjustment],
-  );
   const forceStickToBottom = useCallback(
     (jumpImmediately = false) => {
       cancelPendingStickToBottom();
@@ -7321,6 +7626,93 @@ function useChatViewComponent({
       scheduleStickToBottom,
       scrollMessagesToBottom,
     ],
+  );
+  const startInitialBottomPin = useCallback(
+    (activeThreadId: ThreadId) => {
+      const pendingFrame = pendingInitialBottomPinFrameRef.current;
+      if (pendingFrame !== null) {
+        pendingInitialBottomPinFrameRef.current = null;
+        window.cancelAnimationFrame(pendingFrame);
+      }
+      pendingInitialBottomPinResizeObserverRef.current?.disconnect();
+      pendingInitialBottomPinResizeObserverRef.current = null;
+
+      shouldAutoScrollRef.current = true;
+      setShowScrollToBottom(false);
+      forceStickToBottom(true);
+
+      const startedAtMs = performance.now();
+      let lastScrollHeight = -1;
+      let stableFrameCount = 0;
+      let frameId: number | null = null;
+      const canKeepBottomPinned = () =>
+        previousThreadIdRef.current === activeThreadId &&
+        shouldAutoScrollRef.current &&
+        !pendingUserScrollUpIntentRef.current &&
+        !isPointerScrollActiveRef.current;
+      const pinCurrentBottom = () => {
+        const scrollContainer = messagesScrollRef.current;
+        if (!scrollContainer || !canKeepBottomPinned()) {
+          return;
+        }
+        scrollMessagesToBottom();
+      };
+      if (typeof ResizeObserver !== "undefined") {
+        const resizeObserver = new ResizeObserver(pinCurrentBottom);
+        const scrollContainer = messagesScrollRef.current;
+        if (scrollContainer) {
+          resizeObserver.observe(scrollContainer);
+          const contentElement = scrollContainer.firstElementChild;
+          if (contentElement instanceof Element) {
+            resizeObserver.observe(contentElement);
+          }
+        }
+        pendingInitialBottomPinResizeObserverRef.current = resizeObserver;
+      }
+      const keepBottomPinnedThroughHydration = () => {
+        const scrollContainer = messagesScrollRef.current;
+        if (!scrollContainer) {
+          frameId = null;
+          return;
+        }
+        if (!canKeepBottomPinned()) {
+          pendingInitialBottomPinFrameRef.current = null;
+          pendingInitialBottomPinResizeObserverRef.current?.disconnect();
+          pendingInitialBottomPinResizeObserverRef.current = null;
+          return;
+        }
+
+        const elapsedMs = performance.now() - startedAtMs;
+        const scrollHeightChanged = Math.abs(scrollContainer.scrollHeight - lastScrollHeight) >= 1;
+        if (scrollHeightChanged || !isScrollContainerNearBottom(scrollContainer)) {
+          scrollMessagesToBottom();
+        }
+
+        if (!scrollHeightChanged) {
+          stableFrameCount += 1;
+        } else {
+          stableFrameCount = 0;
+          lastScrollHeight = scrollContainer.scrollHeight;
+        }
+
+        if (
+          elapsedMs >= INITIAL_THREAD_BOTTOM_PIN_MAX_MS ||
+          (elapsedMs >= INITIAL_THREAD_BOTTOM_PIN_MIN_MS &&
+            stableFrameCount >= INITIAL_THREAD_BOTTOM_PIN_STABLE_FRAMES)
+        ) {
+          pendingInitialBottomPinFrameRef.current = null;
+          pendingInitialBottomPinResizeObserverRef.current?.disconnect();
+          pendingInitialBottomPinResizeObserverRef.current = null;
+          return;
+        }
+
+        frameId = window.requestAnimationFrame(keepBottomPinnedThroughHydration);
+        pendingInitialBottomPinFrameRef.current = frameId;
+      };
+      frameId = window.requestAnimationFrame(keepBottomPinnedThroughHydration);
+      pendingInitialBottomPinFrameRef.current = frameId;
+    },
+    [forceStickToBottom, scrollMessagesToBottom, setShowScrollToBottom],
   );
   const onMessagesScroll = useCallback(() => {
     const scrollContainer = messagesScrollRef.current;
@@ -7342,23 +7734,35 @@ function useChatViewComponent({
     }
     if (autoScrollDecision.cancelPendingStickToBottom) {
       cancelPendingStickToBottom();
+      cancelInitialBottomPin();
     }
     if (autoScrollDecision.scheduleStickToBottom) {
       // Keep following output when layout shifts move the viewport slightly off-bottom.
       scheduleStickToBottom();
     }
 
-    setShowScrollToBottom(!shouldAutoScrollRef.current);
+    setShowScrollToBottom(shouldShowScrollToBottomButton(scrollContainer));
     lastKnownScrollTopRef.current = currentScrollTop;
-  }, [cancelPendingStickToBottom, scheduleStickToBottom, setShowScrollToBottom]);
+  }, [
+    cancelInitialBottomPin,
+    cancelPendingStickToBottom,
+    scheduleStickToBottom,
+    setShowScrollToBottom,
+  ]);
   const onMessagesWheel = useCallback(
     (event: React.WheelEvent<HTMLDivElement>) => {
       if (event.deltaY < 0) {
+        shouldAutoScrollRef.current = false;
         pendingUserScrollUpIntentRef.current = true;
         cancelPendingStickToBottom();
+        cancelInitialBottomPin();
+        const scrollContainer = messagesScrollRef.current;
+        setShowScrollToBottom(
+          scrollContainer ? shouldShowScrollToBottomButton(scrollContainer) : true,
+        );
       }
     },
-    [cancelPendingStickToBottom],
+    [cancelInitialBottomPin, cancelPendingStickToBottom, setShowScrollToBottom],
   );
   const onMessagesPointerDown = useCallback((_event: React.PointerEvent<HTMLDivElement>) => {
     isPointerScrollActiveRef.current = true;
@@ -7380,12 +7784,18 @@ function useChatViewComponent({
       if (!touch) return;
       const previousTouchY = lastTouchClientYRef.current;
       if (previousTouchY !== null && touch.clientY > previousTouchY + 1) {
+        shouldAutoScrollRef.current = false;
         pendingUserScrollUpIntentRef.current = true;
         cancelPendingStickToBottom();
+        cancelInitialBottomPin();
+        const scrollContainer = messagesScrollRef.current;
+        setShowScrollToBottom(
+          scrollContainer ? shouldShowScrollToBottomButton(scrollContainer) : true,
+        );
       }
       lastTouchClientYRef.current = touch.clientY;
     },
-    [cancelPendingStickToBottom],
+    [cancelInitialBottomPin, cancelPendingStickToBottom, setShowScrollToBottom],
   );
   const onMessagesTouchEnd = useCallback((_event: React.TouchEvent<HTMLDivElement>) => {
     lastTouchClientYRef.current = null;
@@ -7393,9 +7803,9 @@ function useChatViewComponent({
   useEffect(() => {
     return () => {
       cancelPendingStickToBottom();
-      cancelPendingInteractionAnchorAdjustment();
+      cancelInitialBottomPin();
     };
-  }, [cancelPendingInteractionAnchorAdjustment, cancelPendingStickToBottom]);
+  }, [cancelInitialBottomPin, cancelPendingStickToBottom]);
   useLayoutEffect(() => {
     if (!activeForSideEffects) return;
     const nextThreadId = activeThread?.id ?? null;
@@ -7404,19 +7814,26 @@ function useChatViewComponent({
       previousThreadIdRef.current !== null && previousThreadIdRef.current !== nextThreadId;
     previousThreadIdRef.current = nextThreadId;
     cancelPendingStickToBottom();
-    cancelPendingInteractionAnchorAdjustment();
-    pendingInteractionAnchorRef.current = null;
     pendingUserScrollUpIntentRef.current = false;
     isPointerScrollActiveRef.current = false;
     lastTouchClientYRef.current = null;
     lastKnownScrollTopRef.current = messagesScrollRef.current?.scrollTop ?? 0;
     shouldAutoScrollRef.current = true;
+    pendingInitialBottomScrollThreadIdRef.current = nextThreadId;
     setShowScrollToBottom(false);
     forceStickToBottom(jumpImmediately);
+    startInitialBottomPin(nextThreadId);
 
     const timeout = window.setTimeout(() => {
       const scrollContainer = messagesScrollRef.current;
       if (!scrollContainer) return;
+      if (
+        !shouldAutoScrollRef.current ||
+        pendingUserScrollUpIntentRef.current ||
+        isPointerScrollActiveRef.current
+      ) {
+        return;
+      }
       if (isScrollContainerNearBottom(scrollContainer)) return;
       scheduleStickToBottom();
     }, THREAD_SWITCH_SCROLL_SETTLE_DELAY_MS);
@@ -7427,23 +7844,42 @@ function useChatViewComponent({
   }, [
     activeForSideEffects,
     activeThread?.id,
-    cancelPendingInteractionAnchorAdjustment,
     cancelPendingStickToBottom,
     forceStickToBottom,
     scheduleStickToBottom,
     setShowScrollToBottom,
+    startInitialBottomPin,
   ]);
   useLayoutEffect(() => {
     if (!activeForSideEffects) return;
+    const activeThreadId = activeThread?.id ?? null;
+    if (!activeThreadId || pendingInitialBottomScrollThreadIdRef.current !== activeThreadId) {
+      return;
+    }
+    if (timelineHydratedRowCount <= 0) {
+      return;
+    }
+    if (pendingUserScrollUpIntentRef.current) {
+      pendingInitialBottomScrollThreadIdRef.current = null;
+      return;
+    }
+
+    pendingInitialBottomScrollThreadIdRef.current = null;
+    startInitialBottomPin(activeThreadId);
+  }, [activeForSideEffects, activeThread?.id, startInitialBottomPin, timelineHydratedRowCount]);
+  useLayoutEffect(() => {
+    if (!activeForSideEffects) return;
     if (!shouldAutoScrollRef.current) return;
+    if (pendingUserScrollUpIntentRef.current || isPointerScrollActiveRef.current) return;
     stickToBottomBeforePaint();
-  }, [activeForSideEffects, messageCount, stickToBottomBeforePaint, timelineEntryCount]);
+  }, [activeForSideEffects, stickToBottomBeforePaint, timelineTailStickKey]);
   useEffect(() => {
     if (!activeForSideEffects) return;
     if (!liveTurnInProgress) return;
     if (!shouldAutoScrollRef.current) return;
+    if (pendingUserScrollUpIntentRef.current || isPointerScrollActiveRef.current) return;
     scheduleStickToBottom();
-  }, [activeForSideEffects, liveTurnInProgress, scheduleStickToBottom, timelineEntries]);
+  }, [activeForSideEffects, liveTurnInProgress, scheduleStickToBottom, timelineTailStickKey]);
 
   useEffect(() => {
     resetThreadScopedUi();
@@ -8060,6 +8496,19 @@ function useChatViewComponent({
         effort: submissionProviderState.promptEffort,
         text: messageTextForSend || IMAGE_ONLY_BOOTSTRAP_PROMPT,
       });
+      const failureContext: ComposerDispatchFailureContext = {
+        provider: submission.modelSelection.provider,
+        model: submission.modelSelection.model,
+        visiblePromptLength: strippedPrompt.length,
+        outgoingPromptLength: outgoingMessageText.length,
+        imageCount: composerImagesSnapshot.length,
+        imageBytes: composerImagesSnapshot.reduce((total, image) => total + image.sizeBytes, 0),
+        terminalContextCount: composerTerminalContextsSnapshot.length,
+        terminalContextChars: composerTerminalContextsSnapshot.reduce(
+          (total, context) => total + context.text.length,
+          0,
+        ),
+      };
       const turnAttachmentsPromise = Promise.all(
         composerImagesSnapshot.map(async (image) => ({
           type: "image" as const,
@@ -8080,17 +8529,19 @@ function useChatViewComponent({
 
       sendInFlightRef.current = true;
       beginLocalDispatch({ preparingWorktree: Boolean(baseBranchForWorktree) });
-      setOptimisticUserMessages((existing) => [
-        ...existing,
-        {
-          id: messageIdForSend,
-          role: "user",
-          text: outgoingMessageText,
-          ...(optimisticAttachments.length > 0 ? { attachments: optimisticAttachments } : {}),
-          createdAt: messageCreatedAt,
-          streaming: false,
-        },
-      ]);
+      const optimisticUserMessage: ChatMessage = {
+        id: messageIdForSend,
+        role: "user",
+        text: outgoingMessageText,
+        ...(optimisticAttachments.length > 0 ? { attachments: optimisticAttachments } : {}),
+        createdAt: messageCreatedAt,
+        streaming: false,
+      };
+      setOptimisticUserMessages((existing) => [...existing, optimisticUserMessage]);
+      primeOptimisticUserTimelineRow({
+        threadId: threadIdForSend,
+        message: optimisticUserMessage,
+      });
       shouldAutoScrollRef.current = true;
       forceStickToBottom();
 
@@ -8143,7 +8594,7 @@ function useChatViewComponent({
           } else if (composerTerminalContextsSnapshot.length > 0) {
             titleSeed = formatTerminalContextLabel(composerTerminalContextsSnapshot[0]!);
           } else {
-            titleSeed = "New thread";
+            titleSeed = DEFAULT_THREAD_TITLE;
           }
         }
         const title = truncate(titleSeed);
@@ -8238,17 +8689,6 @@ function useChatViewComponent({
         turnStartSucceeded = true;
       })().catch(async (err: unknown) => {
         const promptForRestore = options?.restorePrompt ?? promptForSend;
-        if (createdServerThreadForLocalDraft && !turnStartSucceeded) {
-          await api.orchestration
-            .dispatchCommand({
-              type: "thread.delete",
-              commandId: newCommandId(),
-              threadId: threadIdForSend,
-            })
-            .catch((cleanupErr: unknown) => {
-              reportBackgroundError("Failed to clean up thread after send failure.", cleanupErr);
-            });
-        }
         if (
           !turnStartSucceeded &&
           promptRef.current.length === 0 &&
@@ -8263,6 +8703,10 @@ function useChatViewComponent({
             const next = existing.filter((message) => message.id !== messageIdForSend);
             return next.length === existing.length ? existing : next;
           });
+          removeOptimisticUserTimelineRow({
+            threadId: threadIdForSend,
+            messageId: messageIdForSend,
+          });
           promptRef.current = promptForRestore;
           setPrompt(promptForRestore);
           addComposerImagesToDraft(
@@ -8274,10 +8718,7 @@ function useChatViewComponent({
           composerPanelsRef.current?.resetUi(promptForRestore);
         }
         options?.onFailure?.();
-        setThreadError(
-          threadIdForSend,
-          err instanceof Error ? err.message : "Failed to send message.",
-        );
+        setThreadError(threadIdForSend, formatComposerDispatchFailureMessage(err, failureContext));
       });
       sendInFlightRef.current = false;
       if (!turnStartSucceeded) {
@@ -8956,16 +9397,18 @@ function useChatViewComponent({
       sendInFlightRef.current = true;
       beginLocalDispatch({ preparingWorktree: false });
       setThreadError(threadIdForSend, null);
-      setOptimisticUserMessages((existing) => [
-        ...existing,
-        {
-          id: messageIdForSend,
-          role: "user",
-          text: outgoingMessageText,
-          createdAt: messageCreatedAt,
-          streaming: false,
-        },
-      ]);
+      const optimisticUserMessage: ChatMessage = {
+        id: messageIdForSend,
+        role: "user",
+        text: outgoingMessageText,
+        createdAt: messageCreatedAt,
+        streaming: false,
+      };
+      setOptimisticUserMessages((existing) => [...existing, optimisticUserMessage]);
+      primeOptimisticUserTimelineRow({
+        threadId: threadIdForSend,
+        message: optimisticUserMessage,
+      });
       shouldAutoScrollRef.current = true;
       forceStickToBottom();
 
@@ -9017,6 +9460,10 @@ function useChatViewComponent({
         setOptimisticUserMessages((existing) =>
           existing.filter((message) => message.id !== messageIdForSend),
         );
+        removeOptimisticUserTimelineRow({
+          threadId: threadIdForSend,
+          messageId: messageIdForSend,
+        });
         setThreadError(
           threadIdForSend,
           err instanceof Error ? err.message : "Failed to send plan follow-up.",
@@ -9643,8 +10090,10 @@ function useChatViewComponent({
     () => ({
       ...(activeThreadIdValue ? { activeThreadId: activeThreadIdValue } : {}),
       hasMessages:
+        (nativeTimelineRowsOverride?.length ?? 0) > 0 ||
         timelineEntries.length > 0 ||
-        (isThreadHistoryLoading && activeThreadMessagesLength > 0) ||
+        isThreadHistoryMetadataOnly ||
+        isThreadHistoryLoading ||
         isLineageThread,
       isWorking,
       onStartConversationFromMessage: scheduleComposerFocus,
@@ -9656,18 +10105,20 @@ function useChatViewComponent({
               "GitHub issues are available only for Git repositories.",
           }
         : {}),
-      activeTurnInProgress: isWorking || !latestTurnSettled,
+      activeTurnInProgress: isWorking,
       activeTurnStartedAt: activeWorkStartedAt,
       stuckTurnSnapshot,
       onStopStuckTurn: onInterrupt,
       onOpenStuckTurnDiagnostics: () => openDiagnostics("thread"),
       backgroundMarkdownPrewarm: activeForSideEffects,
       hideCompletedWorkMessages,
-      isThreadHistoryLoading,
       liveTimers: activeForSideEffects,
       getScrollContainer: getMessagesScrollContainer,
       timelineCacheScope,
       timelineEntries,
+      timelineRowsLoading: nativeTimelineRowsLoading,
+      timelineRowsOverride: nativeTimelineRowsOverride,
+      timelineIndexByEntryId: activeThreadTimelineIndexByEntryId,
       completionDividerBeforeEntryId,
       completionSummary,
       turnDiffSummaryByAssistantMessageId,
@@ -9697,13 +10148,13 @@ function useChatViewComponent({
     [
       activeProject?.cwd,
       activeThreadIdValue,
-      activeThreadMessagesLength,
       activeThreadProvider,
       activeThreadModelProvider,
       canForkActiveThread,
       activeForSideEffects,
       activeWorkStartedAt,
       stuckTurnSnapshot,
+      activeThreadTimelineIndexByEntryId,
       canOpenLocalMarkdownFiles,
       completionDividerBeforeEntryId,
       completionSummary,
@@ -9714,10 +10165,12 @@ function useChatViewComponent({
       isLineageThread,
       hideCompletedWorkMessages,
       handoffInFlight,
-      isRevertingCheckpoint,
+      isThreadHistoryMetadataOnly,
       isThreadHistoryLoading,
+      isRevertingCheckpoint,
       isWorking,
-      latestTurnSettled,
+      nativeTimelineRowsLoading,
+      nativeTimelineRowsOverride,
       getMessagesScrollContainer,
       onExpandTimelineImage,
       onOpenTurnDiff,
@@ -9739,18 +10192,27 @@ function useChatViewComponent({
       turnDiffSummaryByAssistantMessageId,
     ],
   );
-  const loadingNotice = useMemo(
-    () =>
-      isThreadHistoryLoading ? (
-        <ThreadHistoryLoadingNotice variant={activeThreadMessagesLength > 0 ? "inline" : "empty"} />
-      ) : null,
-    [activeThreadMessagesLength, isThreadHistoryLoading],
-  );
+  const showDraftNewThreadLanding =
+    activeThread !== undefined &&
+    activeThread.messages.length === 0 &&
+    optimisticUserMessages.length === 0 &&
+    !isWorking &&
+    (isLocalDraftThread || activeThread.title.trim() === DEFAULT_THREAD_TITLE);
+  const [draftEnvironmentPanelExplicitOpen, setDraftEnvironmentPanelExplicitOpen] = useState(false);
   const environmentPanelCanUseInlineLayout = chatViewportSize.width >= 1120;
   const environmentPanelVisible = environmentPanelOpen && activeThread !== undefined;
-  const environmentPanelInlineOpen =
-    environmentPanelVisible && !rightSidePanelOpen && environmentPanelCanUseInlineLayout;
-  const environmentPanelPopoverOpen = environmentPanelVisible && !environmentPanelInlineOpen;
+  const environmentPanelCanOpenInline = !rightSidePanelOpen && environmentPanelCanUseInlineLayout;
+  const environmentPanelInlineOpen = environmentPanelVisible && environmentPanelCanOpenInline;
+  const environmentPanelPopoverOpen =
+    environmentPanelVisible &&
+    !environmentPanelInlineOpen &&
+    (!showDraftNewThreadLanding || draftEnvironmentPanelExplicitOpen);
+  const environmentPanelRenderedOpen = environmentPanelInlineOpen || environmentPanelPopoverOpen;
+  useEffect(() => {
+    if (!showDraftNewThreadLanding || !environmentPanelVisible) {
+      setDraftEnvironmentPanelExplicitOpen(false);
+    }
+  }, [environmentPanelVisible, showDraftNewThreadLanding]);
   useLayoutEffect(() => {
     if (!environmentPanelPopoverOpen) {
       setEnvironmentPanelPopoverStyle(null);
@@ -9840,6 +10302,7 @@ function useChatViewComponent({
       }
 
       setEnvironmentPanelOpen(false);
+      setDraftEnvironmentPanelExplicitOpen(false);
     };
 
     document.addEventListener("pointerdown", handlePointerDownCapture, { capture: true });
@@ -9850,10 +10313,8 @@ function useChatViewComponent({
   }, [environmentPanelPopoverOpen, setEnvironmentPanelOpen]);
   const chatMessagesPaneProps = useMemo(
     () => ({
-      loadingNotice,
       messagesContainerRef: setMessagesScrollContainerRef,
       messagesTimelineProps,
-      onMessagesClickCapture,
       onMessagesPointerCancel,
       onMessagesPointerDown,
       onMessagesPointerUp,
@@ -9868,9 +10329,7 @@ function useChatViewComponent({
     }),
     [
       activeThreadIdValue,
-      loadingNotice,
       messagesTimelineProps,
-      onMessagesClickCapture,
       onMessagesPointerCancel,
       onMessagesPointerDown,
       onMessagesPointerUp,
@@ -10606,8 +11065,115 @@ function useChatViewComponent({
   const handleComposerSubmit = useCallback((event: FormEvent<HTMLFormElement>) => {
     void onSend(event);
   }, []);
+  const draftNewThreadRecommendedPrompts = useNewThreadRecommendedPrompts(
+    activeProjectId,
+    activeProject?.cwd ?? null,
+    selectedModelSelection,
+  );
+  const draftNewThreadTitle = activeProject
+    ? `What should we build in ${activeProject.name}?`
+    : "What should we build?";
+  const onDraftNewThreadRecommendedPromptClick = useCallback(
+    (prompt: string) => {
+      setPrompt(prompt);
+      scheduleComposerFocus();
+    },
+    [scheduleComposerFocus, setPrompt],
+  );
+  const onDraftNewThreadGitHubIssuesClick = useCallback(() => {
+    openGitHubIssueDialog();
+  }, [openGitHubIssueDialog]);
+  const draftNewThreadQuickActionsNode =
+    activeProject !== null && isGitRepo ? (
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="new-thread-start-quick-action size-8 rounded-[var(--control-radius)] border border-transparent bg-transparent text-muted-foreground/80 shadow-none transition-colors hover:bg-foreground/[0.045] hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/25"
+              aria-label="Solve GitHub issue"
+              onClick={onDraftNewThreadGitHubIssuesClick}
+            />
+          }
+        >
+          <GitHubIcon className="size-4" />
+          <span className="sr-only">Solve GitHub issue</span>
+        </TooltipTrigger>
+        <TooltipPopup side="top">Solve GitHub issue</TooltipPopup>
+      </Tooltip>
+    ) : null;
+  const draftNewThreadContextControlsNode = (
+    <>
+      <ProjectContextSwitcher
+        activeProjectId={activeProjectId}
+        onSelectProject={handleActiveProjectChange}
+        variant="draft"
+      />
+
+      <Menu>
+        <MenuTrigger
+          render={
+            <Button
+              className={cn(DRAFT_CONTEXT_PILL_TRIGGER_CLASS_NAME, "max-w-[12rem] justify-start")}
+              variant="ghost"
+              size="default"
+            />
+          }
+        >
+          <span className={DRAFT_CONTEXT_PILL_ICON_CLASS_NAME}>
+            {envMode === "local" ? (
+              activeEnvironmentIcon ? (
+                <ProjectGlyphIcon icon={activeEnvironmentIcon} className="size-3.5 opacity-80" />
+              ) : (
+                <LaptopIcon className="size-3.5 text-muted-foreground" />
+              )
+            ) : (
+              <GitBranchPlusIcon className="size-3.5 text-muted-foreground" />
+            )}
+          </span>
+          <span className="min-w-0 truncate">
+            {envMode === "local" ? "Locally" : "New worktree"}
+          </span>
+          <ChevronDownIcon className="size-3.5 shrink-0 text-muted-foreground/55" />
+        </MenuTrigger>
+        <MenuPopup align="start" className="w-48">
+          <MenuGroup>
+            <MenuRadioGroup
+              value={envMode}
+              onValueChange={(value) => onEnvModeChange(value as DraftThreadEnvMode)}
+            >
+              <MenuRadioItem value="local" className="text-xs">
+                <span className="flex items-center gap-2">
+                  {activeEnvironmentIcon ? (
+                    <ProjectGlyphIcon
+                      icon={activeEnvironmentIcon}
+                      className="size-3.5 opacity-80"
+                    />
+                  ) : (
+                    <LaptopIcon className="size-3.5" />
+                  )}
+                  Locally
+                </span>
+              </MenuRadioItem>
+              <MenuRadioItem value="worktree" className="text-xs">
+                <span className="flex items-center gap-2">
+                  <GitBranchPlusIcon className="size-3.5" />
+                  New worktree
+                </span>
+              </MenuRadioItem>
+            </MenuRadioGroup>
+          </MenuGroup>
+        </MenuPopup>
+      </Menu>
+    </>
+  );
+  const draftNewThreadBranchControlNode = branchToolbarProps ? (
+    <BranchToolbar {...branchToolbarProps} presentation="draft" />
+  ) : null;
   if (!activeThread) {
-    return <NewThreadLanding />;
+    return null;
   }
   const environmentMiniPanelPortal =
     environmentPanelPopoverOpen &&
@@ -10684,6 +11250,95 @@ function useChatViewComponent({
       ) : null}
     </AnimatePresence>
   );
+  const connectedChatComposerPanelsNode = (
+    <ConnectedChatComposerPanels
+      ref={composerPanelsRef}
+      threadId={threadId}
+      activeForSideEffects={activeForSideEffects}
+      gitCwd={gitCwd}
+      isGitRepo={isGitRepo}
+      modelSettings={modelSettings}
+      providers={providerStatuses}
+      isServerThread={isServerThread}
+      threadRuntimeMode={activeThread.runtimeMode}
+      threadInteractionMode={activeThread.interactionMode}
+      composerModelOptions={composerModelOptions}
+      selectedProvider={selectedProvider}
+      selectedProviderInstanceId={selectedModelSelection.providerInstanceId}
+      selectedModel={selectedModel}
+      selectedProviderModels={selectedProviderModels}
+      selectedProviderModelOptions={composerModelOptions?.[selectedProvider]}
+      sessionConfigOptions={activeThread.session?.configOptions}
+      providerCommands={composerProviderCommands}
+      selectedModelForPickerWithCustomFallback={selectedModelForPickerWithCustomFallback}
+      lockedProvider={lockedProvider}
+      modelOptionsByProvider={modelOptionsByProvider}
+      modelSelectionByProvider={composerShellDraft.modelSelectionByProvider}
+      providerInstancesByProvider={providerInstancesByProvider}
+      handoffTargetProviders={handoffTargetProviders}
+      handoffDisabled={handoffDisabled}
+      interactionModeShortcutLabel={togglePlanModeShortcutLabel}
+      activeContextWindow={activeContextWindow}
+      queuedComposerMessages={queuedComposerMessages}
+      queuedSteerMessageId={queuedSteerRequest?.messageId ?? null}
+      canSendQueuedMessages={canSendQueuedComposerMessages}
+      pendingComposerComments={pendingComposerCommentItems}
+      liveTurnInProgress={liveTurnInProgress}
+      isConnecting={isConnecting}
+      isPreparingWorktree={isPreparingWorktree}
+      isSendBusy={isSendBusy}
+      allowQueueWhenSendable={!sendInFlightRef.current || isServerThread}
+      activePendingApproval={activePendingApproval}
+      pendingApprovalsCount={pendingApprovals.length}
+      pendingUserInputs={pendingUserInputs}
+      respondingApprovalRequestIds={respondingRequestIds}
+      respondingUserInputRequestIds={respondingUserInputRequestIds}
+      activePendingDraftAnswers={activePendingDraftAnswers}
+      activePendingQuestionIndex={activePendingQuestionIndex}
+      activePendingProgress={activePendingProgress}
+      activePendingIsResponding={activePendingIsResponding}
+      activePendingResolvedAnswers={activePendingResolvedAnswers}
+      placeholderOverride={showDraftNewThreadLanding ? "Do anything" : undefined}
+      planFollowUpId={activeProposedPlan?.id ?? null}
+      planFollowUpTitle={
+        activeProposedPlan ? (proposedPlanTitle(activeProposedPlan.planMarkdown) ?? null) : null
+      }
+      resolvedTheme={resolvedTheme}
+      showFloatingDock={showRightPanelChatDock}
+      floatingDockFooter={null}
+      floatingDockPortalHost={showRightPanelChatDock ? chatShellRef.current : null}
+      onComposerHeightChange={scheduleStickToBottom}
+      onPreviewExpandedImage={onExpandTimelineImage}
+      onIssuePreviewOpen={onComposerIssueTokenClick}
+      onPendingUserInputCustomAnswerChange={onChangeActivePendingUserInputCustomAnswer}
+      onSubmit={handleComposerSubmit}
+      onRespondToApproval={onRespondToApproval}
+      onSelectPendingUserInputOption={onSelectActivePendingUserInputOption}
+      onAdvancePendingUserInput={onAdvanceActivePendingUserInput}
+      onHandoffToProvider={onHandoffToProvider}
+      onInteractionModeChange={handleInteractionModeChange}
+      onRuntimeModeChange={handleRuntimeModeChange}
+      onPreviousPendingQuestion={onPreviousActivePendingUserInputQuestion}
+      onInterrupt={onInterrupt}
+      onImplementPlanInNewThread={onImplementPlanInNewThread}
+      onQueueMessage={handleQueueComposerMessage}
+      onEditQueuedComposerMessage={onEditQueuedComposerMessage}
+      onDeleteQueuedComposerMessage={removeQueuedComposerMessage}
+      onClearQueuedComposerMessages={clearQueuedComposerMessages}
+      onDismissPendingComposerComment={dismissPendingComposerComment}
+      onClearPendingComposerComments={clearPendingComposerComments}
+      onReorderQueuedComposerMessages={reorderQueuedComposerMessages}
+      onSendQueuedComposerMessage={sendQueuedComposerMessage}
+      onSteerQueuedComposerMessage={onSteerQueuedComposerMessage}
+      onSetThreadError={setThreadError}
+    />
+  );
+  const composerLayoutId = `thread-composer:${threadId}`;
+  const trimmedActiveThreadTitle = activeThread.title.trim();
+  const showThreadHeaderIdentity =
+    !showDraftNewThreadLanding &&
+    trimmedActiveThreadTitle.length > 0 &&
+    trimmedActiveThreadTitle !== DEFAULT_THREAD_TITLE;
 
   return (
     <LazyMotion features={domAnimation}>
@@ -10695,12 +11350,14 @@ function useChatViewComponent({
         {/* Persistent top bar — always visible regardless of workspace mode */}
         <div
           className={cn(
-            "relative flex shrink-0 items-stretch overflow-hidden border-b border-border/25 bg-background transition-[max-height,opacity] duration-200 ease-out after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-px after:bg-border/70",
+            "relative flex shrink-0 items-stretch overflow-hidden bg-background transition-[max-height,opacity] duration-200 ease-out",
+            showThreadHeaderIdentity &&
+              "border-b border-border/25 after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-px after:bg-border/70",
             isHeaderHidden ? "max-h-0 opacity-0" : "max-h-28 opacity-100",
           )}
         >
           <AppPageTopBar
-            className="min-w-0 flex-1"
+            className={cn("min-w-0 flex-1", !showThreadHeaderIdentity && "border-b-0")}
             desktopDragRegion={!rightSidePanelFullscreen}
             showSidebarTrigger={showSidebarTrigger}
           >
@@ -10717,12 +11374,21 @@ function useChatViewComponent({
                   terminalAvailable={activeProject !== undefined}
                   terminalOpen={terminalState.terminalOpen}
                   terminalToggleShortcutLabel={terminalToggleShortcutLabel}
-                  environmentPanelOpen={environmentPanelOpen}
+                  environmentPanelOpen={environmentPanelRenderedOpen}
                   rightSidePanelToggleShortcutLabel={rightSidePanelToggleShortcutLabel}
                   rightSidePanelOpen={rightSidePanelOpen}
                   onActiveProjectChange={isLocalDraftThread ? handleActiveProjectChange : null}
+                  showThreadIdentity={showThreadHeaderIdentity}
                   onToggleEnvironmentPanel={() => {
-                    setEnvironmentPanelOpen((open) => !open);
+                    if (environmentPanelRenderedOpen) {
+                      setDraftEnvironmentPanelExplicitOpen(false);
+                      setEnvironmentPanelOpen(false);
+                      return;
+                    }
+                    if (showDraftNewThreadLanding) {
+                      setDraftEnvironmentPanelExplicitOpen(true);
+                    }
+                    setEnvironmentPanelOpen(true);
                   }}
                   onToggleTerminal={toggleTerminalVisibility}
                   onToggleRightSidePanel={onToggleRightSidePanel}
@@ -10836,97 +11502,56 @@ function useChatViewComponent({
                       }}
                       transition={PANEL_SPRING_TRANSITION}
                     >
-                      {/* Messages Wrapper */}
-                      <ChatMessagesPane {...chatMessagesPaneProps} />
-
-                      <ConnectedChatComposerPanels
-                        ref={composerPanelsRef}
-                        threadId={threadId}
-                        activeForSideEffects={activeForSideEffects}
-                        gitCwd={gitCwd}
-                        isGitRepo={isGitRepo}
-                        modelSettings={modelSettings}
-                        providers={providerStatuses}
-                        isServerThread={isServerThread}
-                        threadRuntimeMode={activeThread.runtimeMode}
-                        threadInteractionMode={activeThread.interactionMode}
-                        composerModelOptions={composerModelOptions}
-                        selectedProvider={selectedProvider}
-                        selectedProviderInstanceId={selectedModelSelection.providerInstanceId}
-                        selectedModel={selectedModel}
-                        selectedProviderModels={selectedProviderModels}
-                        selectedProviderModelOptions={composerModelOptions?.[selectedProvider]}
-                        sessionConfigOptions={activeThread.session?.configOptions}
-                        providerCommands={composerProviderCommands}
-                        selectedModelForPickerWithCustomFallback={
-                          selectedModelForPickerWithCustomFallback
-                        }
-                        lockedProvider={lockedProvider}
-                        modelOptionsByProvider={modelOptionsByProvider}
-                        modelSelectionByProvider={composerShellDraft.modelSelectionByProvider}
-                        providerInstancesByProvider={providerInstancesByProvider}
-                        handoffTargetProviders={handoffTargetProviders}
-                        handoffDisabled={handoffDisabled}
-                        interactionModeShortcutLabel={togglePlanModeShortcutLabel}
-                        activeContextWindow={activeContextWindow}
-                        queuedComposerMessages={queuedComposerMessages}
-                        queuedSteerMessageId={queuedSteerRequest?.messageId ?? null}
-                        canSendQueuedMessages={canSendQueuedComposerMessages}
-                        pendingComposerComments={pendingComposerCommentItems}
-                        liveTurnInProgress={liveTurnInProgress}
-                        isConnecting={isConnecting}
-                        isPreparingWorktree={isPreparingWorktree}
-                        isSendBusy={isSendBusy}
-                        allowQueueWhenSendable={!sendInFlightRef.current || isServerThread}
-                        activePendingApproval={activePendingApproval}
-                        pendingApprovalsCount={pendingApprovals.length}
-                        pendingUserInputs={pendingUserInputs}
-                        respondingApprovalRequestIds={respondingRequestIds}
-                        respondingUserInputRequestIds={respondingUserInputRequestIds}
-                        activePendingDraftAnswers={activePendingDraftAnswers}
-                        activePendingQuestionIndex={activePendingQuestionIndex}
-                        activePendingProgress={activePendingProgress}
-                        activePendingIsResponding={activePendingIsResponding}
-                        activePendingResolvedAnswers={activePendingResolvedAnswers}
-                        planFollowUpId={activeProposedPlan?.id ?? null}
-                        planFollowUpTitle={
-                          activeProposedPlan
-                            ? (proposedPlanTitle(activeProposedPlan.planMarkdown) ?? null)
-                            : null
-                        }
-                        resolvedTheme={resolvedTheme}
-                        showFloatingDock={showRightPanelChatDock}
-                        floatingDockFooter={null}
-                        floatingDockPortalHost={
-                          showRightPanelChatDock ? chatShellRef.current : null
-                        }
-                        onComposerHeightChange={scheduleStickToBottom}
-                        onPreviewExpandedImage={onExpandTimelineImage}
-                        onIssuePreviewOpen={onComposerIssueTokenClick}
-                        onPendingUserInputCustomAnswerChange={
-                          onChangeActivePendingUserInputCustomAnswer
-                        }
-                        onSubmit={handleComposerSubmit}
-                        onRespondToApproval={onRespondToApproval}
-                        onSelectPendingUserInputOption={onSelectActivePendingUserInputOption}
-                        onAdvancePendingUserInput={onAdvanceActivePendingUserInput}
-                        onHandoffToProvider={onHandoffToProvider}
-                        onInteractionModeChange={handleInteractionModeChange}
-                        onRuntimeModeChange={handleRuntimeModeChange}
-                        onPreviousPendingQuestion={onPreviousActivePendingUserInputQuestion}
-                        onInterrupt={onInterrupt}
-                        onImplementPlanInNewThread={onImplementPlanInNewThread}
-                        onQueueMessage={handleQueueComposerMessage}
-                        onEditQueuedComposerMessage={onEditQueuedComposerMessage}
-                        onDeleteQueuedComposerMessage={removeQueuedComposerMessage}
-                        onClearQueuedComposerMessages={clearQueuedComposerMessages}
-                        onDismissPendingComposerComment={dismissPendingComposerComment}
-                        onClearPendingComposerComments={clearPendingComposerComments}
-                        onReorderQueuedComposerMessages={reorderQueuedComposerMessages}
-                        onSendQueuedComposerMessage={sendQueuedComposerMessage}
-                        onSteerQueuedComposerMessage={onSteerQueuedComposerMessage}
-                        onSetThreadError={setThreadError}
-                      />
+                      <LayoutGroup id={`thread-layout:${threadId}`}>
+                        <AnimatePresence initial={false} mode="popLayout">
+                          {showDraftNewThreadLanding ? (
+                            <m.div
+                              key="draft-new-thread-start"
+                              className="flex min-h-0 min-w-0 flex-1 flex-col"
+                              initial={{ opacity: 0, y: 12, scale: 0.99 }}
+                              animate={{ opacity: 1, y: 0, scale: 1 }}
+                              exit={{ opacity: 0, y: -28, scale: 0.985 }}
+                              transition={PANEL_SPRING_TRANSITION}
+                            >
+                              <NewThreadStartSurface
+                                branchControlNode={draftNewThreadBranchControlNode}
+                                composerNode={
+                                  <m.div
+                                    layoutId={composerLayoutId}
+                                    className="w-full"
+                                    transition={PANEL_SPRING_TRANSITION}
+                                  >
+                                    {connectedChatComposerPanelsNode}
+                                  </m.div>
+                                }
+                                contextControlsNode={draftNewThreadContextControlsNode}
+                                hasProjects={activeProject !== null}
+                                quickActionsNode={draftNewThreadQuickActionsNode}
+                                recommendedPrompts={draftNewThreadRecommendedPrompts}
+                                title={draftNewThreadTitle}
+                                onRecommendedPromptClick={onDraftNewThreadRecommendedPromptClick}
+                              />
+                            </m.div>
+                          ) : (
+                            <m.div
+                              key="thread-conversation"
+                              className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+                              initial={{ opacity: 0, y: 24 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              exit={{ opacity: 0, y: 12 }}
+                              transition={PANEL_SPRING_TRANSITION}
+                            >
+                              <ChatMessagesPane {...chatMessagesPaneProps} />
+                              <m.div
+                                layoutId={composerLayoutId}
+                                transition={PANEL_SPRING_TRANSITION}
+                              >
+                                {connectedChatComposerPanelsNode}
+                              </m.div>
+                            </m.div>
+                          )}
+                        </AnimatePresence>
+                      </LayoutGroup>
 
                       <ChatConversationExtras
                         gitHubIssueDialogProps={gitHubIssueDialogProps}

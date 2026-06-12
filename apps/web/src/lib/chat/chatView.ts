@@ -30,6 +30,7 @@ import {
 import { type QueuedComposerImageAttachment } from "../../types";
 export { formatQueuedComposerMessagePreview } from "./queuedComposerPreview";
 
+export const DEFAULT_THREAD_TITLE = "New thread";
 export const LAST_INVOKED_SCRIPT_BY_PROJECT_KEY = "ace:last-invoked-script-by-project";
 const WORKTREE_BRANCH_PREFIX = "ace";
 const TRAILING_BROWSER_DESIGN_CONTEXT_BLOCK_PATTERN =
@@ -47,7 +48,7 @@ export function buildLocalDraftThread(
     id: threadId,
     codexThreadId: null,
     projectId: draftThread.projectId,
-    title: "New thread",
+    title: DEFAULT_THREAD_TITLE,
     modelSelection: fallbackModelSelection,
     runtimeMode: draftThread.runtimeMode,
     interactionMode: draftThread.interactionMode,

@@ -22,6 +22,10 @@ export class LRUCache<T> {
     return entry.value;
   }
 
+  peek(key: string): T | null {
+    return this.cache.get(key)?.value ?? null;
+  }
+
   set(key: string, value: T, approximateSize: number, protectedKeys?: ReadonlySet<string>): void {
     const existing = this.cache.get(key);
     if (existing) {

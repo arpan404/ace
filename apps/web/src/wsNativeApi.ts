@@ -203,6 +203,7 @@ export function createWsNativeApi(): NativeApi {
       installLspTool: localRpcClient.server.installLspTool,
       uninstallLspTool: localRpcClient.server.uninstallLspTool,
       searchOpenCodeModels: localRpcClient.server.searchOpenCodeModels,
+      generateNewThreadRecommendations: localRpcClient.server.generateNewThreadRecommendations,
       upsertKeybinding: localRpcClient.server.upsertKeybinding,
       getSettings: localRpcClient.server.getSettings,
       updateSettings: localRpcClient.server.updateSettings,
@@ -210,10 +211,10 @@ export function createWsNativeApi(): NativeApi {
     orchestration: {
       getSnapshot: (input) => resolveRpcClientForInput(input).orchestration.getSnapshot(input),
       getThread: (input) => resolveRpcClientForInput(input).orchestration.getThread(input),
-      getThreadTimelinePage: (input) =>
-        resolveRpcClientForInput(input).orchestration.getThreadTimelinePage(input),
-      getThreadTimelineManifest: (input) =>
-        resolveRpcClientForInput(input).orchestration.getThreadTimelineManifest(input),
+      getThreadTimelineRowsSnapshot: (input) =>
+        resolveRpcClientForInput(input).orchestration.getThreadTimelineRowsSnapshot(input),
+      getThreadTimelineRowsSnapshotChunk: (input) =>
+        resolveRpcClientForInput(input).orchestration.getThreadTimelineRowsSnapshotChunk(input),
       dispatchCommand: async (input) => {
         const connectionUrl = resolveConnectionForInput(input);
         const response =

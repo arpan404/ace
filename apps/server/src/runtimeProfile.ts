@@ -38,17 +38,6 @@ export function updateProviderRuntimeIngestionCacheStats(
   });
 }
 
-export function updateSnapshotViewCacheStats(
-  patch: Partial<ServerRuntimeProfileSnapshotViewCache>,
-): void {
-  Object.assign(snapshotViewCache, {
-    ...snapshotViewCache,
-    ...Object.fromEntries(
-      Object.entries(patch).map(([key, value]) => [key, asNonNegativeInt(value)]),
-    ),
-  });
-}
-
 export function collectRuntimeProfileSnapshot(input?: {
   providerSessions?: ReadonlyArray<{ provider: ProviderKind; sessionCount: number }>;
 }): ServerRuntimeProfile {

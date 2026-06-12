@@ -266,6 +266,8 @@ describe("ProviderCommandReactor", () => {
           generateBranchName,
           generateThreadTitle,
           generateWorkspaceSummary,
+          generateNewThreadRecommendations: () =>
+            Effect.die(new Error("Unsupported text generation call in test")),
         }),
       ),
       Layer.provideMerge(ServerSettingsService.layerTest(input?.serverSettings ?? {})),

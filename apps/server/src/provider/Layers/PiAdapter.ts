@@ -37,6 +37,7 @@ import {
 import { providerFallbackSlashCommands } from "@ace/shared/providerSlashCommands";
 import { resolveProviderSettings } from "@ace/shared/providerInstances";
 import { startPiRpcClient, type PiRpcClient, type PiRpcEvent } from "../piRpcClient.ts";
+import { makeProviderAdapterRuntimeEventPubSub } from "../providerRuntimeQueue.ts";
 import { type PiAdapterShape, PiAdapter } from "../Services/PiAdapter.ts";
 
 const PROVIDER = "pi" as const;
@@ -703,7 +704,7 @@ export const PiAdapterLive = Layer.effect(
     const settingsService = yield* ServerSettingsService;
     const services = yield* Effect.services();
     const runPromise = Effect.runPromiseWith(services);
-    const eventsPubSub = yield* PubSub.unbounded<ProviderRuntimeEvent>();
+    const eventsPubSub = yield* makeProviderAdapterRuntimeEventPubSub();
     const sessions = new Map<ThreadId, PiSessionContext>();
 
     const emit = (event: ProviderRuntimeEvent) => {

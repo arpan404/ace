@@ -1,11 +1,14 @@
-import { DiffsHighlighter, getSharedHighlighter, SupportedLanguages } from "@pierre/diffs";
+import {
+  getSharedHighlighter,
+  type DiffsHighlighter,
+  type SupportedLanguages,
+} from "@pierre/diffs";
 import { CheckIcon, CopyIcon, GlobeIcon } from "lucide-react";
 import React, {
   Children,
   Profiler,
   Suspense,
   isValidElement,
-  use,
   useCallback,
   memo,
   useEffect,
@@ -85,6 +88,9 @@ interface ChatMarkdownProps {
 }
 
 const CODE_FENCE_LANGUAGE_REGEX = /(?:^|\s)language-([^\s]+)/;
+const STREAMING_REVEAL_MIN_CHARS_PER_FRAME = 12;
+const STREAMING_REVEAL_MAX_CHARS_PER_FRAME = 768;
+const STREAMING_REVEAL_BURST_RATIO = 0.34;
 const MAX_HIGHLIGHT_CACHE_ENTRIES = clampCacheEntryCount(500, {
   moderateCapEntries: 320,
   constrainedCapEntries: 160,
@@ -98,6 +104,9 @@ const highlightedCodeCache = new LRUCache<string>(
   MAX_HIGHLIGHT_CACHE_MEMORY_BYTES,
 );
 const highlighterPromiseCache = new Map<string, Promise<DiffsHighlighter>>();
+const pendingHighlightByCacheKey = new Map<string, Promise<void>>();
+const highlightedCodeCacheListeners = new Set<() => void>();
+let highlightedCodeCacheRevision = 0;
 const MARKDOWN_REMARK_PLUGINS = [remarkGfm, remarkBreaks];
 const MARKDOWN_DATA_IMAGE_URL_REGEX = /^data:image\/(?:png|jpe?g|gif|webp);base64,/iu;
 const localFilePathExistsCache = new Map<string, boolean>();
@@ -142,8 +151,28 @@ registerMemoryPressureHandler({
   release: () => {
     highlightedCodeCache.clear();
     highlighterPromiseCache.clear();
+    pendingHighlightByCacheKey.clear();
+    notifyHighlightedCodeCacheListeners();
   },
 });
+
+function notifyHighlightedCodeCacheListeners(): void {
+  highlightedCodeCacheRevision += 1;
+  for (const listener of highlightedCodeCacheListeners) {
+    listener();
+  }
+}
+
+function subscribeHighlightedCodeCache(listener: () => void): () => void {
+  highlightedCodeCacheListeners.add(listener);
+  return () => {
+    highlightedCodeCacheListeners.delete(listener);
+  };
+}
+
+function readHighlightedCodeCacheRevision(): number {
+  return highlightedCodeCacheRevision;
+}
 
 function extractFenceLanguage(className: string | undefined): string {
   const match = className?.match(CODE_FENCE_LANGUAGE_REGEX);
@@ -308,8 +337,7 @@ function estimateHighlightedSize(html: string, code: string): number {
 }
 
 function getHighlighterPromise(language: string): Promise<DiffsHighlighter> {
-  const shouldCachePromise = !shouldBypassNonEssentialCaching();
-  const cached = shouldCachePromise ? highlighterPromiseCache.get(language) : undefined;
+  const cached = highlighterPromiseCache.get(language);
   if (cached) return cached;
 
   const promise = getSharedHighlighter({
@@ -317,18 +345,97 @@ function getHighlighterPromise(language: string): Promise<DiffsHighlighter> {
     langs: [language as SupportedLanguages],
     preferredHighlighter: "shiki-js",
   }).catch((err) => {
-    highlighterPromiseCache.delete(language);
     if (language === "text") {
       // "text" itself failed — Shiki cannot initialize at all, surface the error
+      highlighterPromiseCache.delete(language);
       throw err;
     }
     // Language not supported by Shiki — fall back to "text"
-    return getHighlighterPromise("text");
+    const fallbackPromise = getHighlighterPromise("text").catch((fallbackError) => {
+      highlighterPromiseCache.delete(language);
+      throw fallbackError;
+    });
+    highlighterPromiseCache.set(language, fallbackPromise);
+    return fallbackPromise;
   });
-  if (shouldCachePromise) {
-    highlighterPromiseCache.set(language, promise);
-  }
+  highlighterPromiseCache.set(language, promise);
   return promise;
+}
+
+function writeHighlightedCodeCache(cacheKey: string, highlightedHtml: string, code: string): void {
+  if (shouldBypassNonEssentialCaching()) {
+    return;
+  }
+  highlightedCodeCache.set(
+    cacheKey,
+    highlightedHtml,
+    estimateHighlightedSize(highlightedHtml, code),
+  );
+  notifyHighlightedCodeCacheListeners();
+}
+
+async function buildHighlightedCodeHtml(input: {
+  readonly code: string;
+  readonly language: string;
+  readonly themeName: DiffThemeName;
+}): Promise<string> {
+  const highlighter = await getHighlighterPromise(input.language);
+  try {
+    return highlighter.codeToHtml(input.code, {
+      lang: input.language,
+      theme: input.themeName,
+    });
+  } catch (error) {
+    // Log highlighting failures for debugging while falling back to plain text.
+    console.warn(
+      `Code highlighting failed for language "${input.language}", falling back to plain text.`,
+      error instanceof Error ? error.message : error,
+    );
+    return highlighter.codeToHtml(input.code, { lang: "text", theme: input.themeName });
+  }
+}
+
+function prewarmHighlightedCode(input: {
+  readonly cacheKey: string;
+  readonly code: string;
+  readonly language: string;
+  readonly themeName: DiffThemeName;
+}): Promise<void> {
+  if (highlightedCodeCache.peek(input.cacheKey) !== null) {
+    return Promise.resolve();
+  }
+  const pending = pendingHighlightByCacheKey.get(input.cacheKey);
+  if (pending) {
+    return pending;
+  }
+
+  const promise = buildHighlightedCodeHtml(input)
+    .then((highlightedHtml) => {
+      writeHighlightedCodeCache(input.cacheKey, highlightedHtml, input.code);
+    })
+    .catch((error) => {
+      console.warn(
+        `Code highlighting failed for language "${input.language}", keeping plain text fallback.`,
+        error instanceof Error ? error.message : error,
+      );
+    })
+    .finally(() => {
+      pendingHighlightByCacheKey.delete(input.cacheKey);
+    });
+  pendingHighlightByCacheKey.set(input.cacheKey, promise);
+  return promise;
+}
+
+function useCachedHighlightedCode(cacheKey: string, enabled: boolean): string | null {
+  const cacheRevision = useSyncExternalStore(
+    subscribeHighlightedCodeCache,
+    readHighlightedCodeCacheRevision,
+    readHighlightedCodeCacheRevision,
+  );
+  return useMemo(
+    () => (enabled ? highlightedCodeCache.peek(cacheKey) : null),
+    [cacheKey, cacheRevision, enabled],
+  );
 }
 
 function MarkdownCodeBlock({ code, children }: { code: string; children: ReactNode }) {
@@ -401,92 +508,42 @@ function MermaidDiagramLoading({ className }: { className?: string }) {
   );
 }
 
-interface SuspenseShikiCodeBlockProps {
+interface ShikiCodeBlockProps {
   className: string | undefined;
   code: string;
+  fallback: ReactNode;
   themeName: DiffThemeName;
   isStreaming: boolean;
 }
 
-function SuspenseShikiCodeBlock({
+function ShikiCodeBlock({
   className,
   code,
+  fallback,
   themeName,
   isStreaming,
-}: SuspenseShikiCodeBlockProps) {
+}: ShikiCodeBlockProps) {
   const language = extractFenceLanguage(className);
   const cacheKey = createHighlightCacheKey(code, language, themeName);
-  const cachedHighlightedHtml = !isStreaming ? highlightedCodeCache.get(cacheKey) : null;
-
-  if (cachedHighlightedHtml != null) {
-    return <CachedShikiCodeBlock highlightedHtml={cachedHighlightedHtml} />;
-  }
-
-  return (
-    <UncachedSuspenseShikiCodeBlock
-      cacheKey={cacheKey}
-      code={code}
-      language={language}
-      themeName={themeName}
-      isStreaming={isStreaming}
-    />
-  );
-}
-
-function CachedShikiCodeBlock({ highlightedHtml }: { highlightedHtml: string }) {
-  return (
-    <div
-      className="chat-markdown-shiki"
-      // eslint-disable-next-line react/no-danger
-      dangerouslySetInnerHTML={{ __html: highlightedHtml }}
-    />
-  );
-}
-
-function UncachedSuspenseShikiCodeBlock({
-  cacheKey,
-  code,
-  language,
-  themeName,
-  isStreaming,
-}: {
-  cacheKey: string;
-  code: string;
-  language: string;
-  themeName: DiffThemeName;
-  isStreaming: boolean;
-}) {
-  const highlighter = use(getHighlighterPromise(language));
-  const highlightedHtml = useMemo(() => {
-    try {
-      return highlighter.codeToHtml(code, { lang: language, theme: themeName });
-    } catch (error) {
-      // Log highlighting failures for debugging while falling back to plain text
-      console.warn(
-        `Code highlighting failed for language "${language}", falling back to plain text.`,
-        error instanceof Error ? error.message : error,
-      );
-      // If highlighting fails for this language, render as plain text
-      return highlighter.codeToHtml(code, { lang: "text", theme: themeName });
-    }
-  }, [code, highlighter, language, themeName]);
+  const cachedHighlightedHtml = useCachedHighlightedCode(cacheKey, !isStreaming);
 
   useEffect(() => {
-    if (!isStreaming && !shouldBypassNonEssentialCaching()) {
-      highlightedCodeCache.set(
-        cacheKey,
-        highlightedHtml,
-        estimateHighlightedSize(highlightedHtml, code),
-      );
+    if (isStreaming || cachedHighlightedHtml !== null) {
+      return;
     }
-  }, [cacheKey, code, highlightedHtml, isStreaming]);
+    void prewarmHighlightedCode({ cacheKey, code, language, themeName });
+  }, [cacheKey, cachedHighlightedHtml, code, isStreaming, language, themeName]);
 
+  if (cachedHighlightedHtml !== null) {
+    return <HighlightedShikiCodeBlock highlightedHtml={cachedHighlightedHtml} />;
+  }
+
+  return <>{fallback}</>;
+}
+
+function HighlightedShikiCodeBlock({ highlightedHtml }: { highlightedHtml: string }) {
   return (
-    <div
-      className="chat-markdown-shiki"
-      // eslint-disable-next-line react/no-danger
-      dangerouslySetInnerHTML={{ __html: highlightedHtml }}
-    />
+    <div className="chat-markdown-shiki" dangerouslySetInnerHTML={{ __html: highlightedHtml }} />
   );
 }
 
@@ -499,6 +556,92 @@ function StreamingMarkdownText({ text }: { text: string }) {
       {text}
     </div>
   );
+}
+
+function StreamingLiveCursor() {
+  return <span className="chat-markdown-live-cursor" aria-hidden="true" />;
+}
+
+function useSmoothStreamingText(text: string, isStreaming: boolean): string {
+  const [displayText, setDisplayText] = useState(text);
+  const displayTextRef = useRef(text);
+  const targetTextRef = useRef(text);
+  const frameRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    displayTextRef.current = displayText;
+  }, [displayText]);
+
+  useEffect(() => {
+    if (
+      !isStreaming ||
+      typeof window === "undefined" ||
+      typeof window.requestAnimationFrame !== "function"
+    ) {
+      targetTextRef.current = text;
+      displayTextRef.current = text;
+      setDisplayText(text);
+      return;
+    }
+
+    targetTextRef.current = text;
+
+    if (!text.startsWith(displayTextRef.current)) {
+      displayTextRef.current = text;
+      setDisplayText(text);
+      return;
+    }
+
+    if (frameRef.current !== null) {
+      return;
+    }
+
+    const revealNextFrame = () => {
+      frameRef.current = null;
+      const currentText = displayTextRef.current;
+      const targetText = targetTextRef.current;
+
+      if (currentText === targetText) {
+        return;
+      }
+
+      const remainingCharCount = targetText.length - currentText.length;
+      if (remainingCharCount <= 0 || !targetText.startsWith(currentText)) {
+        displayTextRef.current = targetText;
+        setDisplayText(targetText);
+        return;
+      }
+
+      const revealCharCount = Math.min(
+        remainingCharCount,
+        Math.max(
+          STREAMING_REVEAL_MIN_CHARS_PER_FRAME,
+          Math.min(
+            STREAMING_REVEAL_MAX_CHARS_PER_FRAME,
+            Math.ceil(remainingCharCount * STREAMING_REVEAL_BURST_RATIO),
+          ),
+        ),
+      );
+      const nextText = targetText.slice(0, currentText.length + revealCharCount);
+      displayTextRef.current = nextText;
+      setDisplayText(nextText);
+
+      if (nextText !== targetText) {
+        frameRef.current = window.requestAnimationFrame(revealNextFrame);
+      }
+    };
+
+    frameRef.current = window.requestAnimationFrame(revealNextFrame);
+
+    return () => {
+      if (frameRef.current !== null) {
+        window.cancelAnimationFrame(frameRef.current);
+        frameRef.current = null;
+      }
+    };
+  }, [isStreaming, text]);
+
+  return isStreaming ? displayText : text;
 }
 
 const PlainMarkdownText = memo(function PlainMarkdownText({ text }: { text: string }) {
@@ -708,6 +851,7 @@ function ChatMarkdown({
   const [renderPreference, setRenderPreference] = useState<"auto" | "markdown">("auto");
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [isMarkdownTransitionPending, startMarkdownTransition] = useTransition();
+  const displayText = useSmoothStreamingText(text, isStreaming);
   const {
     markdownRenderAnalysis,
     shouldFastPathPlainText,
@@ -719,7 +863,7 @@ function ChatMarkdown({
     renderPlainText,
     renderPreference,
     streamingTextState,
-    text,
+    text: displayText,
   });
   const shouldObserveLayout = onLayoutChange !== undefined && shouldObserveLayoutFromAnalysis;
   const canOpenLocalFiles = enableLocalFileLinks && !isStreaming;
@@ -864,14 +1008,13 @@ function ChatMarkdown({
         return (
           <MarkdownCodeBlock code={codeBlock.code}>
             <CodeHighlightErrorBoundary fallback={<pre {...props}>{children}</pre>}>
-              <Suspense fallback={<pre {...props}>{children}</pre>}>
-                <SuspenseShikiCodeBlock
-                  className={codeBlock.className}
-                  code={codeBlock.code}
-                  themeName={diffThemeName}
-                  isStreaming={isStreaming}
-                />
-              </Suspense>
+              <ShikiCodeBlock
+                className={codeBlock.className}
+                code={codeBlock.code}
+                fallback={<pre {...props}>{children}</pre>}
+                themeName={diffThemeName}
+                isStreaming={isStreaming}
+              />
             </CodeHighlightErrorBoundary>
           </MarkdownCodeBlock>
         );
@@ -936,18 +1079,20 @@ function ChatMarkdown({
 
   const content = useMemo<ReactNode>(() => {
     if (renderPlainText) {
-      return <PreviewTextPanel text={text} />;
+      return <PreviewTextPanel text={displayText} />;
     }
     if (markdownRenderAnalysis.usesStreamingPreview && streamingTextState) {
-      return <StreamingMarkdownPreview text={text} streamingTextState={streamingTextState} />;
+      return (
+        <StreamingMarkdownPreview text={displayText} streamingTextState={streamingTextState} />
+      );
     }
     if (useLargePreview) {
       return (
         <LargeMarkdownPreview
           previewText={
-            markdownRenderAnalysis.largePreviewText ?? buildLargeMarkdownPreviewText(text)
+            markdownRenderAnalysis.largePreviewText ?? buildLargeMarkdownPreviewText(displayText)
           }
-          totalCharacters={text.length}
+          totalCharacters={displayText.length}
           isTransitionPending={isMarkdownTransitionPending}
           onRenderMarkdown={() => {
             startMarkdownTransition(() => {
@@ -958,14 +1103,15 @@ function ChatMarkdown({
       );
     }
     if (shouldFastPathPlainText) {
-      return <PlainMarkdownText text={text} />;
+      return <PlainMarkdownText text={displayText} />;
     }
     return (
       <MarkdownBody isStreaming={isStreaming} markdownComponents={markdownComponents}>
-        {text}
+        {displayText}
       </MarkdownBody>
     );
   }, [
+    displayText,
     isMarkdownTransitionPending,
     isStreaming,
     markdownRenderAnalysis,
@@ -974,13 +1120,17 @@ function ChatMarkdown({
     startMarkdownTransition,
     streamingTextState,
     shouldFastPathPlainText,
-    text,
     useLargePreview,
   ]);
 
   return (
-    <div ref={rootRef} className="w-full min-w-0">
+    <div
+      ref={rootRef}
+      className="w-full min-w-0"
+      data-chat-markdown-live={isStreaming ? "true" : undefined}
+    >
       {content}
+      {isStreaming ? <StreamingLiveCursor /> : null}
     </div>
   );
 }

@@ -4,6 +4,7 @@ import {
   type StaticKeybindingCommand,
 } from "@ace/contracts";
 import { type KeyboardEvent, useCallback, useMemo, useReducer } from "react";
+import { cn } from "~/lib/utils";
 import { ensureNativeApi } from "~/nativeApi";
 import {
   effectiveBindingForCommand,
@@ -18,8 +19,8 @@ import {
   type KeybindingCommandDefinition,
 } from "~/lib/keybindingRegistry";
 import { applyKeybindingsUpdated, useServerKeybindings } from "~/rpc/serverState";
+import { SettingsInput, SettingsRow, SettingsSection } from "./SettingsPanelPrimitives";
 import { Button } from "../ui/button";
-import { Input } from "../ui/input";
 import { toastManager } from "../ui/toast";
 
 type DraftShortcutByCommand = Partial<Record<StaticKeybindingCommand, KeybindingShortcut | null>>;
@@ -344,93 +345,82 @@ function KeybindingsSettingsEditorContent(props: {
   }, [canSave, dirtyCommands, draftShortcuts, draftWhenByCommand]);
 
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="text-[12px] text-muted-foreground/70">
-          Press keys inside an input to record a shortcut. Use <code>Backspace</code> to clear.
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            size="xs"
-            variant="outline"
-            onClick={revertChanges}
-            disabled={dirtyCommands.length === 0 || isSaving}
-          >
-            Revert
-          </Button>
-          <Button size="xs" onClick={() => void saveChanges()} disabled={!canSave}>
-            {isSaving ? "Saving..." : "Save"}
-          </Button>
-        </div>
-      </div>
+    <div className="space-y-10">
+      <SettingsSection title="Shortcuts">
+        <SettingsRow
+          title="Keyboard shortcuts"
+          description="Press keys in a field to record a shortcut. Use Backspace to clear."
+          control={
+            <div className="flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={revertChanges}
+                disabled={dirtyCommands.length === 0 || isSaving}
+              >
+                Revert
+              </Button>
+              <Button size="sm" onClick={() => void saveChanges()} disabled={!canSave}>
+                {isSaving ? "Saving..." : "Save"}
+              </Button>
+            </div>
+          }
+        />
+      </SettingsSection>
 
       {hasUnsupportedClear ? (
-        <p className="text-xs text-destructive">
+        <p className="text-sm text-destructive">
           Clearing an existing shortcut is not supported yet. Revert to keep it, or assign a new
           key.
         </p>
       ) : null}
-      {saveError ? <p className="text-xs text-destructive">{saveError}</p> : null}
+      {saveError ? <p className="text-sm text-destructive">{saveError}</p> : null}
 
       {categoryGroups.map((group) => (
-        <section key={group.category} className="space-y-1.5">
-          <div className="space-y-0.5 px-0.5">
-            <h4 className="text-[10px] font-semibold tracking-[0.14em] text-muted-foreground/72 uppercase">
-              {group.category}
-            </h4>
-            {CATEGORY_DESCRIPTIONS[group.category] ? (
-              <p className="text-[12px] text-muted-foreground/65">
-                {CATEGORY_DESCRIPTIONS[group.category]}
-              </p>
-            ) : null}
-          </div>
-          <div className="space-y-1">
-            {(expandedGroups[group.category]
-              ? group.items
-              : group.items.slice(0, CATEGORY_PREVIEW_COUNT)
-            ).map((definition) => {
-              const shortcut = draftShortcuts[definition.command];
-              const label = shortcut ? formatShortcutLabel(shortcut, platform) : "";
-              const collision = collisionByCommand.get(definition.command);
-              return (
-                <div
-                  key={definition.command}
-                  className="grid gap-2 px-0.5 py-2.5 transition-colors hover:bg-foreground/[0.012] md:grid-cols-[minmax(0,1fr)_200px] md:items-center"
-                >
-                  <div className="min-w-0">
-                    <p className="truncate text-[13px] font-medium text-foreground/90">
-                      {definition.label}
-                    </p>
-                    <p className="text-[12px] text-muted-foreground/65">{definition.description}</p>
-                    {collision ? (
-                      <p className="mt-0.5 text-xs text-destructive">{collision}</p>
-                    ) : null}
-                  </div>
-                  <Input
+        <SettingsSection
+          key={group.category}
+          title={group.category}
+          description={CATEGORY_DESCRIPTIONS[group.category]}
+        >
+          {(expandedGroups[group.category]
+            ? group.items
+            : group.items.slice(0, CATEGORY_PREVIEW_COUNT)
+          ).map((definition) => {
+            const shortcut = draftShortcuts[definition.command];
+            const label = shortcut ? formatShortcutLabel(shortcut, platform) : "";
+            const collision = collisionByCommand.get(definition.command);
+            return (
+              <SettingsRow
+                key={definition.command}
+                title={definition.label}
+                description={definition.description}
+                status={collision ? <span className="text-destructive">{collision}</span> : null}
+                control={
+                  <SettingsInput
                     value={label}
                     placeholder="Press shortcut"
                     readOnly
                     onKeyDown={(event) => captureShortcut(definition.command, event)}
-                    className={collision ? "border-destructive/70" : undefined}
+                    className={cn("w-full font-mono", collision ? "border-destructive" : undefined)}
                     aria-label={`Keybinding for ${definition.label}`}
                   />
-                </div>
-              );
-            })}
-            {group.items.length > CATEGORY_PREVIEW_COUNT ? (
-              <div className="flex justify-end px-3 py-2">
-                <Button
-                  type="button"
-                  size="xs"
-                  variant="ghost"
-                  onClick={() => dispatch({ type: "toggle-group", group: group.category })}
-                >
-                  {expandedGroups[group.category] ? "Show less" : "Show more"}
-                </Button>
-              </div>
-            ) : null}
-          </div>
-        </section>
+                }
+              />
+            );
+          })}
+          {group.items.length > CATEGORY_PREVIEW_COUNT ? (
+            <div className="flex justify-end px-4 py-2 sm:px-5">
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={() => dispatch({ type: "toggle-group", group: group.category })}
+              >
+                {expandedGroups[group.category] ? "Show less" : "Show more"}
+              </Button>
+            </div>
+          ) : null}
+        </SettingsSection>
       ))}
     </div>
   );

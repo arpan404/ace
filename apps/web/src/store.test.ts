@@ -9,7 +9,7 @@ import {
   type OrchestrationEvent,
   type OrchestrationReadModel,
 } from "@ace/contracts";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   applyOrchestrationEvent,
@@ -27,12 +27,21 @@ import {
   __resetThreadHydrationCacheForTests,
   readCachedHydratedThread,
 } from "./lib/threadHydrationCache";
-import { getChatMessageFullText } from "./lib/chat/messageText";
+import { readTimelineRowsProjection, useTimelineModelStore } from "./lib/chat/timelineModelStore";
+import {
+  createChatMessageStreamingTextState,
+  getChatMessageFullText,
+} from "./lib/chat/messageText";
 import { DEFAULT_INTERACTION_MODE, DEFAULT_RUNTIME_MODE, type Thread } from "./types";
 
 beforeEach(() => {
   __resetThreadHydrationCacheForTests();
   useStore.getState().resetToInitialState();
+  useTimelineModelStore.getState().reset();
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 function makeThread(overrides: Partial<Thread> = {}): Thread {
@@ -390,6 +399,41 @@ describe("store read model sync", () => {
     );
   });
 
+  it("maps attachment preview URLs when priming live timeline rows", async () => {
+    vi.useFakeTimers();
+    const threadId = ThreadId.makeUnsafe("thread-live-attachment");
+    const initialState = makeState(makeThread({ id: threadId }));
+
+    applyOrchestrationEvent(
+      initialState,
+      makeEvent("thread.message-sent", {
+        threadId,
+        messageId: MessageId.makeUnsafe("message-live-attachment"),
+        role: "user",
+        text: "See image",
+        turnId: null,
+        streaming: false,
+        createdAt: "2026-02-27T00:00:00.000Z",
+        updatedAt: "2026-02-27T00:00:00.000Z",
+        attachments: [
+          {
+            id: "attachment-live-1" as never,
+            name: "image.png",
+            type: "image",
+            mimeType: "image/png",
+            sizeBytes: 10,
+          },
+        ],
+      }),
+    );
+    await vi.advanceTimersByTimeAsync(16);
+
+    expect(readTimelineRowsProjection(threadId).messages[0]?.attachments?.[0]).toMatchObject({
+      name: "image.png",
+      previewUrl: "/attachments/attachment-live-1",
+    });
+  });
+
   it("maps queued composer state from the read model", () => {
     const initialState = makeState(makeThread());
     const next = syncServerReadModel(
@@ -459,7 +503,7 @@ describe("store read model sync", () => {
     });
   });
 
-  it("marks only the requested thread as history-loaded during lean snapshot sync", () => {
+  it("marks all snapshot threads as metadata-only during snapshot sync", () => {
     const initialState = makeState(makeThread());
     const firstThreadId = ThreadId.makeUnsafe("thread-1");
     const secondThreadId = ThreadId.makeUnsafe("thread-2");
@@ -498,7 +542,7 @@ describe("store read model sync", () => {
       hydrateThreadId: firstThreadId,
     });
 
-    expect(next.threads.find((thread) => thread.id === firstThreadId)?.historyLoaded).toBe(true);
+    expect(next.threads.find((thread) => thread.id === firstThreadId)?.historyLoaded).toBe(false);
     expect(next.threads.find((thread) => thread.id === secondThreadId)?.historyLoaded).toBe(false);
   });
 
@@ -562,7 +606,7 @@ describe("store read model sync", () => {
     ).toHaveLength(2);
   });
 
-  it("primes the shared hydration cache only for fully loaded snapshot threads", () => {
+  it("does not prime the shared hydration cache during metadata snapshot sync", () => {
     const firstThreadId = ThreadId.makeUnsafe("thread-1");
     const secondThreadId = ThreadId.makeUnsafe("thread-2");
     const readModel = makeReadModelFromThreads([
@@ -588,7 +632,7 @@ describe("store read model sync", () => {
           {
             id: MessageId.makeUnsafe("message-2"),
             role: "user",
-            text: "Lean only",
+            text: "Metadata only",
             turnId: null,
             streaming: false,
             createdAt: "2026-02-27T00:01:00.000Z",
@@ -602,13 +646,11 @@ describe("store read model sync", () => {
       hydrateThreadId: firstThreadId,
     });
 
-    expect(
-      readCachedHydratedThread(firstThreadId, "2026-02-27T00:00:00.000Z")?.messages,
-    ).toHaveLength(1);
+    expect(readCachedHydratedThread(firstThreadId, "2026-02-27T00:00:00.000Z")).toBeNull();
     expect(readCachedHydratedThread(secondThreadId, "2026-02-27T00:01:00.000Z")).toBeNull();
   });
 
-  it("demotes inactive hydrated threads back to lean summaries", () => {
+  it("demotes inactive hydrated threads back to metadata-only threads", () => {
     const activeThreadId = ThreadId.makeUnsafe("thread-active");
     const completedThreadId = ThreadId.makeUnsafe("thread-completed");
     const runningThreadId = ThreadId.makeUnsafe("thread-running");
@@ -758,19 +800,16 @@ describe("store read model sync", () => {
     const runningThread = next.threads.find((thread) => thread.id === runningThreadId);
 
     expect(completedThread?.historyLoaded).toBe(false);
-    expect(completedThread?.messages.map((message) => message.role)).toEqual(["user"]);
+    expect(completedThread?.messages).toEqual([]);
     expect(completedThread?.proposedPlans).toEqual([]);
     expect(completedThread?.latestProposedPlanSummary?.id).toBe("plan-1");
     expect(completedThread?.turnDiffSummaries).toEqual([]);
-    expect(completedThread?.activities.map((activity) => activity.kind)).toEqual([
-      "approval.requested",
-      "tool.completed",
-    ]);
+    expect(completedThread?.activities).toEqual([]);
     expect(runningThread?.historyLoaded).toBe(true);
     expect(runningThread?.messages).toHaveLength(2);
   });
 
-  it("keeps hydrated running thread history when syncing lean recovery snapshots", () => {
+  it("keeps hydrated running thread history when syncing metadata recovery snapshots", () => {
     const threadId = ThreadId.makeUnsafe("thread-running");
     const turnId = TurnId.makeUnsafe("turn-running");
     const state = makeState(
@@ -838,7 +877,7 @@ describe("store read model sync", () => {
           {
             id: MessageId.makeUnsafe("running-user"),
             role: "user",
-            text: "Lean summary",
+            text: "Metadata snapshot",
             turnId,
             streaming: false,
             createdAt: "2026-02-27T00:00:00.000Z",
@@ -857,7 +896,7 @@ describe("store read model sync", () => {
     ]);
   });
 
-  it("updates active session metadata while preserving hydrated history from lean snapshots", () => {
+  it("updates active session metadata while preserving hydrated history from metadata snapshots", () => {
     const threadId = ThreadId.makeUnsafe("thread-running");
     const turnId = TurnId.makeUnsafe("turn-running");
     const state = makeState(
@@ -927,7 +966,7 @@ describe("store read model sync", () => {
           {
             id: MessageId.makeUnsafe("running-user"),
             role: "user",
-            text: "Lean summary",
+            text: "Metadata snapshot",
             turnId,
             streaming: false,
             createdAt: "2026-02-27T00:00:00.000Z",
@@ -946,7 +985,147 @@ describe("store read model sync", () => {
     ]);
   });
 
-  it("derives sidebar proposed-plan state from latestProposedPlanSummary for lean threads", () => {
+  it("preserves newer live assistant text when a stale hydrated snapshot arrives", () => {
+    const threadId = ThreadId.makeUnsafe("thread-stale-hydration");
+    const turnId = TurnId.makeUnsafe("turn-stale-hydration");
+    const assistantMessageId = MessageId.makeUnsafe("assistant-stale-hydration");
+    const state = makeState(
+      makeThread({
+        id: threadId,
+        historyLoaded: true,
+        messages: [
+          {
+            id: MessageId.makeUnsafe("user-stale-hydration"),
+            role: "user",
+            text: "Investigate",
+            turnId,
+            streaming: false,
+            sequence: 1,
+            createdAt: "2026-02-27T00:00:00.000Z",
+          },
+          {
+            id: assistantMessageId,
+            role: "assistant",
+            text: "",
+            streamingTextState: createChatMessageStreamingTextState(
+              "I checked contracts and adapters.",
+            ),
+            turnId,
+            streaming: true,
+            sequence: 3,
+            createdAt: "2026-02-27T00:00:01.000Z",
+          },
+        ],
+      }),
+    );
+
+    const readModelThread = makeReadModelThread({
+      id: threadId,
+      messages: [
+        {
+          id: MessageId.makeUnsafe("user-stale-hydration"),
+          role: "user",
+          text: "Investigate",
+          turnId,
+          streaming: false,
+          sequence: 1,
+          createdAt: "2026-02-27T00:00:00.000Z",
+          updatedAt: "2026-02-27T00:00:00.000Z",
+        },
+        {
+          id: assistantMessageId,
+          role: "assistant",
+          text: "I checked",
+          turnId,
+          streaming: true,
+          sequence: 2,
+          createdAt: "2026-02-27T00:00:01.000Z",
+          updatedAt: "2026-02-27T00:00:01.000Z",
+        },
+      ],
+    });
+
+    const next = hydrateThreadFromReadModel(state, readModelThread);
+    const assistantMessage = next.threads[0]?.messages.find(
+      (message) => message.id === assistantMessageId,
+    );
+
+    expect(assistantMessage?.streaming).toBe(true);
+    expect(getChatMessageFullText(assistantMessage!)).toBe("I checked contracts and adapters.");
+  });
+
+  it("does not let snapshot sync shrink accumulated live assistant text", () => {
+    const threadId = ThreadId.makeUnsafe("thread-stale-sync");
+    const turnId = TurnId.makeUnsafe("turn-stale-sync");
+    const assistantMessageId = MessageId.makeUnsafe("assistant-stale-sync");
+    const state = makeState(
+      makeThread({
+        id: threadId,
+        historyLoaded: true,
+        messages: [
+          {
+            id: MessageId.makeUnsafe("user-stale-sync"),
+            role: "user",
+            text: "Investigate",
+            turnId,
+            streaming: false,
+            sequence: 1,
+            createdAt: "2026-02-27T00:00:00.000Z",
+          },
+          {
+            id: assistantMessageId,
+            role: "assistant",
+            text: "",
+            streamingTextState: createChatMessageStreamingTextState(
+              "I found one concrete lead already.",
+            ),
+            turnId,
+            streaming: true,
+            sequence: 3,
+            createdAt: "2026-02-27T00:00:01.000Z",
+          },
+        ],
+      }),
+    );
+
+    const next = syncServerReadModel(
+      state,
+      makeReadModel(
+        makeReadModelThread({
+          id: threadId,
+          messages: [
+            {
+              id: MessageId.makeUnsafe("user-stale-sync"),
+              role: "user",
+              text: "Investigate",
+              turnId,
+              streaming: false,
+              sequence: 1,
+              createdAt: "2026-02-27T00:00:00.000Z",
+              updatedAt: "2026-02-27T00:00:00.000Z",
+            },
+            {
+              id: assistantMessageId,
+              role: "assistant",
+              text: "I found one",
+              turnId,
+              streaming: true,
+              sequence: 2,
+              createdAt: "2026-02-27T00:00:01.000Z",
+              updatedAt: "2026-02-27T00:00:01.000Z",
+            },
+          ],
+        }),
+      ),
+    );
+    const assistantMessage = next.threads[0]?.messages.find(
+      (message) => message.id === assistantMessageId,
+    );
+
+    expect(getChatMessageFullText(assistantMessage!)).toBe("I found one concrete lead already.");
+  });
+
+  it("derives sidebar proposed-plan state from latestProposedPlanSummary for metadata threads", () => {
     const threadId = ThreadId.makeUnsafe("thread-1");
     const initialState = makeState(makeThread({ id: threadId }));
     const readModel = makeReadModel(
@@ -1662,6 +1841,126 @@ describe("incremental orchestration updates", () => {
     expect(completed.sidebarThreadsById[threadId]?.latestTurn?.state).toBe("completed");
   });
 
+  it("projects assistant messages into timeline rows for metadata-only threads", async () => {
+    const threadId = ThreadId.makeUnsafe("thread-metadata-live-assistant");
+    const messageId = MessageId.makeUnsafe("message-metadata-live-assistant");
+    const turnId = TurnId.makeUnsafe("turn-metadata-live-assistant");
+    const state = makeState(
+      makeThread({
+        id: threadId,
+        historyLoaded: false,
+        latestTurn: {
+          turnId,
+          state: "running",
+          requestedAt: "2026-02-27T00:00:00.000Z",
+          startedAt: "2026-02-27T00:00:00.000Z",
+          completedAt: null,
+          assistantMessageId: null,
+        },
+      }),
+    );
+
+    const next = applyOrchestrationEvent(
+      state,
+      makeEvent(
+        "thread.message-sent",
+        {
+          threadId,
+          messageId,
+          role: "assistant",
+          text: "streamed assistant text",
+          turnId,
+          streaming: true,
+          createdAt: "2026-02-27T00:00:01.000Z",
+          updatedAt: "2026-02-27T00:00:01.000Z",
+        },
+        {
+          sequence: 2,
+          occurredAt: "2026-02-27T00:00:01.000Z",
+        },
+      ),
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(next.threads[0]?.messages).toEqual([]);
+    expect(next.threads[0]?.latestTurn?.state).toBe("running");
+    expect(readTimelineRowsProjection(threadId).messages.map((message) => message.text)).toEqual([
+      "streamed assistant text",
+    ]);
+    expect(readTimelineRowsProjection(threadId).rowIds).toEqual([
+      "message:message-metadata-live-assistant",
+    ]);
+  });
+
+  it("keeps streamed assistant text when a metadata-only thread receives an empty final event", async () => {
+    const threadId = ThreadId.makeUnsafe("thread-metadata-empty-final");
+    const messageId = MessageId.makeUnsafe("message-metadata-empty-final");
+    const turnId = TurnId.makeUnsafe("turn-metadata-empty-final");
+    const state = makeState(
+      makeThread({
+        id: threadId,
+        historyLoaded: false,
+        latestTurn: {
+          turnId,
+          state: "running",
+          requestedAt: "2026-02-27T00:00:00.000Z",
+          startedAt: "2026-02-27T00:00:00.000Z",
+          completedAt: null,
+          assistantMessageId: null,
+        },
+      }),
+    );
+
+    const live = applyOrchestrationEvent(
+      state,
+      makeEvent(
+        "thread.message-sent",
+        {
+          threadId,
+          messageId,
+          role: "assistant",
+          text: "hi",
+          turnId,
+          streaming: true,
+          createdAt: "2026-02-27T00:00:01.000Z",
+          updatedAt: "2026-02-27T00:00:01.000Z",
+        },
+        {
+          sequence: 2,
+          occurredAt: "2026-02-27T00:00:01.000Z",
+        },
+      ),
+    );
+    applyOrchestrationEvent(
+      live,
+      makeEvent(
+        "thread.message-sent",
+        {
+          threadId,
+          messageId,
+          role: "assistant",
+          text: "",
+          turnId,
+          streaming: false,
+          createdAt: "2026-02-27T00:00:01.000Z",
+          updatedAt: "2026-02-27T00:00:02.000Z",
+        },
+        {
+          sequence: 3,
+          occurredAt: "2026-02-27T00:00:02.000Z",
+        },
+      ),
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(readTimelineRowsProjection(threadId).messages[0]).toMatchObject({
+      text: "hi",
+      streaming: false,
+    });
+  });
+
   it("does not replace sidebar summaries for sub-second tool activity churn", () => {
     const threadId = ThreadId.makeUnsafe("thread-activity-sidebar");
     const turnId = TurnId.makeUnsafe("turn-activity-sidebar");
@@ -1803,7 +2102,7 @@ describe("incremental orchestration updates", () => {
     expect(next.threads[0]?.messages[0]?.sequence).toBe(1_706_255_202_000_001);
   });
 
-  it("keeps lean thread plan bodies unloaded while refreshing the latest plan summary", () => {
+  it("keeps metadata thread plan bodies unloaded while refreshing the latest plan summary", () => {
     const thread = makeThread({
       latestTurn: {
         turnId: TurnId.makeUnsafe("turn-1"),
@@ -1845,19 +2144,10 @@ describe("incremental orchestration updates", () => {
     expect(next.sidebarThreadsById[thread.id]?.hasActionableProposedPlan).toBe(true);
   });
 
-  it("keeps lean threads from regrowing full history from background events", () => {
+  it("keeps metadata threads from regrowing message or diff history from background events", () => {
     const thread = makeThread({
       historyLoaded: false,
-      messages: [
-        {
-          id: MessageId.makeUnsafe("user-message"),
-          role: "user",
-          text: "Existing summary",
-          turnId: TurnId.makeUnsafe("turn-1"),
-          streaming: false,
-          createdAt: "2026-02-27T00:00:00.000Z",
-        },
-      ],
+      messages: [],
     });
     const state = makeState(thread);
 
@@ -1909,9 +2199,7 @@ describe("incremental orchestration updates", () => {
       }),
     ]);
 
-    expect(next.threads[0]?.messages.map((message) => message.id)).toEqual([
-      MessageId.makeUnsafe("user-message"),
-    ]);
+    expect(next.threads[0]?.messages).toEqual([]);
     expect(next.threads[0]?.turnDiffSummaries).toEqual([]);
     expect(next.threads[0]?.activities.map((activity) => activity.kind)).toEqual([
       "tool.started",
@@ -1959,7 +2247,7 @@ describe("incremental orchestration updates", () => {
     ]);
   });
 
-  it("preserves activity semantics when consecutive same-thread activity events are batched", () => {
+  it("preserves activity semantics when consecutive same-thread activity events are batched", async () => {
     const thread = makeThread();
     const state = makeState(thread);
     const events = [
@@ -2017,6 +2305,11 @@ describe("incremental orchestration updates", () => {
 
     expect(batched.threads[0]?.activities).toEqual(sequential.threads[0]?.activities);
     expect(batched.threads[0]?.updatedAt).toBe("2026-02-27T00:00:02.000Z");
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(readTimelineRowsProjection(thread.id).activities.map((activity) => activity.id)).toEqual(
+      ["tool-started", "tool-output"],
+    );
   });
 
   it("applies replay batches in sequence and updates session state", () => {

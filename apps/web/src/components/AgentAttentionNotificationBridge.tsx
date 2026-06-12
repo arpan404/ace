@@ -3,7 +3,7 @@ import { useNavigate } from "@tanstack/react-router";
 import type { OrchestrationEvent } from "@ace/contracts";
 
 import { APP_BASE_NAME } from "../branding";
-import { LEAN_SNAPSHOT_RECOVERY_INPUT } from "../bootstrapRecovery";
+import { METADATA_SNAPSHOT_RECOVERY_INPUT } from "../bootstrapRecovery";
 import { useHostConnectionStore } from "../hostConnectionStore";
 import { useStore } from "../store";
 import {
@@ -271,7 +271,7 @@ function useAgentAttentionNotificationBridgeComponent() {
       try {
         const snapshot = await routeOrchestrationGetSnapshotFromRemote(
           normalizedConnectionUrl,
-          LEAN_SNAPSHOT_RECOVERY_INPUT,
+          METADATA_SNAPSHOT_RECOVERY_INPUT,
         );
         useHostConnectionStore
           .getState()

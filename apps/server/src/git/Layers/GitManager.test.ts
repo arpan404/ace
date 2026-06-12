@@ -91,6 +91,26 @@ interface FakeGitTextGeneration {
     },
     TextGenerationError
   >;
+  generateNewThreadRecommendations: (input: {
+    cwd: string;
+    turns: ReadonlyArray<{
+      threadId: string;
+      title: string;
+      latestUserMessage: string;
+      latestAssistantMessage: string;
+      updatedAt: string;
+    }>;
+    modelSelection: ModelSelection;
+  }) => Effect.Effect<
+    {
+      recommendations: ReadonlyArray<{
+        title: string;
+        description: string;
+        prompt: string;
+      }>;
+    },
+    TextGenerationError
+  >;
 }
 
 type FakePullRequest = NonNullable<FakeGhScenario["pullRequest"]>;
@@ -288,6 +308,16 @@ function createTextGeneration(overrides: Partial<FakeGitTextGeneration> = {}): T
         keyChanges: [],
         risks: [],
       }),
+    generateNewThreadRecommendations: () =>
+      Effect.succeed({
+        recommendations: [
+          {
+            title: "Continue workflow",
+            description: "Pick up from the latest workflow context.",
+            prompt: "Continue the latest workflow implementation.",
+          },
+        ],
+      }),
     ...overrides,
   };
 
@@ -342,6 +372,17 @@ function createTextGeneration(overrides: Partial<FakeGitTextGeneration> = {}): T
           (cause) =>
             new TextGenerationError({
               operation: "generateWorkspaceSummary",
+              detail: "fake text generation failed",
+              ...(cause !== undefined ? { cause } : {}),
+            }),
+        ),
+      ),
+    generateNewThreadRecommendations: (input) =>
+      implementation.generateNewThreadRecommendations(input).pipe(
+        Effect.mapError(
+          (cause) =>
+            new TextGenerationError({
+              operation: "generateNewThreadRecommendations",
               detail: "fake text generation failed",
               ...(cause !== undefined ? { cause } : {}),
             }),
