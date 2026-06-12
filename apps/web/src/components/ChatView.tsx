@@ -381,6 +381,7 @@ import {
 import { type BrowserDesignRequestSubmission } from "~/lib/browser/types";
 import { useLocalDispatchState } from "~/hooks/useLocalDispatchState";
 import { useEffectEvent } from "~/hooks/useEffectEvent";
+import { useStableCallback } from "~/hooks/useStableCallback";
 import { getLocalStorageItem, setLocalStorageItem, useLocalStorage } from "~/hooks/useLocalStorage";
 import {
   useConnectionServerConfig,
@@ -1827,7 +1828,9 @@ function useChatViewComponent({
     Partial<Record<ThreadId, DraftThreadEnvMode>>
   >({});
   const optimisticUserMessagesRef = useRef(optimisticUserMessages);
-  optimisticUserMessagesRef.current = optimisticUserMessages;
+  useLayoutEffect(() => {
+    optimisticUserMessagesRef.current = optimisticUserMessages;
+  }, [optimisticUserMessages]);
   const composerTerminalContextsRef = useRef<TerminalContextDraft[]>([]);
   const isConnecting = false;
   const [chatViewTransientState, dispatchChatViewTransientState] = useReducer(
@@ -2000,6 +2003,11 @@ function useChatViewComponent({
   const attachmentPreviewHandoffTimeoutByMessageIdRef = useRef<Record<string, number>>({});
   const pendingInterruptStopFallbackRef = useRef<number | null>(null);
   const sendInFlightRef = useRef(false);
+  const [sendInFlight, setSendInFlight] = useState(false);
+  const setSendInFlightState = useStableCallback((value: boolean) => {
+    sendInFlightRef.current = value;
+    setSendInFlight(value);
+  });
   const queuedDesignMessageEditRef = useRef<QueuedComposerMessage | null>(null);
   const terminalOpenByThreadRef = useRef<Record<string, boolean>>({});
   const composerPanelsRef = useRef<ConnectedChatComposerPanelsHandle>(null);
@@ -2514,19 +2522,14 @@ function useChatViewComponent({
     memoryPressureHydratedThreadHistoryKeepIds,
     pruneHydratedThreadHistories,
   ]);
-  const threadPlanCatalog = useThreadPlanCatalog(
-    useMemo(() => {
-      const threadIds: ThreadId[] = [];
-      if (activeThread?.id) {
-        threadIds.push(activeThread.id);
-      }
-      const sourceThreadId = sourceProposedPlanThreadId;
-      if (sourceThreadId && sourceThreadId !== activeThread?.id) {
-        threadIds.push(sourceThreadId);
-      }
-      return threadIds;
-    }, [activeThread?.id, sourceProposedPlanThreadId]),
-  );
+  const threadPlanCatalogThreadIds: ThreadId[] = [];
+  if (activeThread?.id) {
+    threadPlanCatalogThreadIds.push(activeThread.id);
+  }
+  if (sourceProposedPlanThreadId && sourceProposedPlanThreadId !== activeThread?.id) {
+    threadPlanCatalogThreadIds.push(sourceProposedPlanThreadId);
+  }
+  const threadPlanCatalog = useThreadPlanCatalog(threadPlanCatalogThreadIds);
   useEffect(() => {
     if (
       sourceProposedPlanThreadId === null ||
@@ -2643,11 +2646,7 @@ function useChatViewComponent({
     const timer = window.setInterval(() => setStuckTurnNow(Date.now()), 5_000);
     return () => window.clearInterval(timer);
   }, [liveTurnInProgress, reliabilityUxEnabled]);
-  useEffect(() => {
-    if (!reliabilityUxEnabled) {
-      setDiagnosticsOpen(false);
-    }
-  }, [reliabilityUxEnabled]);
+  const visibleDiagnosticsOpen = reliabilityUxEnabled && diagnosticsOpen;
   const activeProject = useProjectById(activeThread?.projectId);
   const activeProjectId = activeProject?.id ?? null;
   const activeRemoteHost = useMemo(
@@ -3326,26 +3325,16 @@ function useChatViewComponent({
     [subagentProvider, timelineWorkEntries],
   );
   const [activeSubagentThreadId, setActiveSubagentThreadId] = useState<string | null>(null);
+  const visibleActiveSubagentThreadId =
+    subagentThreads.find((thread) => thread.id === activeSubagentThreadId)?.id ??
+    subagentThreads[0]?.id ??
+    null;
   const environmentMiniPanelRef = useRef<HTMLElement | null>(null);
   const [environmentPanelPopoverStyle, setEnvironmentPanelPopoverStyle] = useState<{
     left: number;
     maxHeight?: number;
     top: number;
   } | null>(null);
-  useEffect(() => {
-    if (subagentThreads.length === 0) {
-      if (activeSubagentThreadId !== null) {
-        setActiveSubagentThreadId(null);
-      }
-      return;
-    }
-    if (
-      !activeSubagentThreadId ||
-      !subagentThreads.some((thread) => thread.id === activeSubagentThreadId)
-    ) {
-      setActiveSubagentThreadId(subagentThreads[0]?.id ?? null);
-    }
-  }, [activeSubagentThreadId, subagentThreads]);
   const activeThreadMessageIds = useMemo(() => {
     if (activeThreadMessages.length === 0) {
       return EMPTY_MESSAGE_ID_SET;
@@ -8761,7 +8750,7 @@ function useChatViewComponent({
         previewUrl: image.previewUrl,
       }));
 
-      sendInFlightRef.current = true;
+      setSendInFlightState(true);
       beginLocalDispatch({ preparingWorktree: Boolean(baseBranchForWorktree) });
       const optimisticUserMessage: ChatMessage = {
         id: messageIdForSend,
@@ -8954,7 +8943,7 @@ function useChatViewComponent({
         options?.onFailure?.();
         setThreadError(threadIdForSend, formatComposerDispatchFailureMessage(err, failureContext));
       });
-      sendInFlightRef.current = false;
+      setSendInFlightState(false);
       if (!turnStartSucceeded) {
         resetLocalDispatch();
       }
@@ -8976,6 +8965,7 @@ function useChatViewComponent({
       providerStatuses,
       resetLocalDispatch,
       runProjectScript,
+      setSendInFlightState,
       setPrompt,
       setStoreThreadBranch,
       setStoreThreadError,
@@ -9647,7 +9637,7 @@ function useChatViewComponent({
         text: trimmed,
       });
 
-      sendInFlightRef.current = true;
+      setSendInFlightState(true);
       beginLocalDispatch({ preparingWorktree: false });
       setThreadError(threadIdForSend, null);
       const optimisticUserMessage: ChatMessage = {
@@ -9708,7 +9698,7 @@ function useChatViewComponent({
           setRightSidePanelMode("summary");
           setRightSidePanelVisible(true);
         }
-        sendInFlightRef.current = false;
+        setSendInFlightState(false);
       } catch (err) {
         setOptimisticUserMessages((existing) =>
           existing.filter((message) => message.id !== messageIdForSend),
@@ -9721,7 +9711,7 @@ function useChatViewComponent({
           threadIdForSend,
           err instanceof Error ? err.message : "Failed to send plan follow-up.",
         );
-        sendInFlightRef.current = false;
+        setSendInFlightState(false);
         resetLocalDispatch();
       }
     },
@@ -9744,6 +9734,7 @@ function useChatViewComponent({
       setComposerDraftInteractionMode,
       setRightSidePanelMode,
       setRightSidePanelVisible,
+      setSendInFlightState,
       setThreadError,
       selectedModel,
     ],
@@ -9778,10 +9769,10 @@ function useChatViewComponent({
     const nextThreadTitle = truncate(buildPlanImplementationThreadTitle(planMarkdown));
     const nextThreadModelSelection: ModelSelection = selectedModelSelection;
 
-    sendInFlightRef.current = true;
+    setSendInFlightState(true);
     beginLocalDispatch({ preparingWorktree: false });
     const finish = () => {
-      sendInFlightRef.current = false;
+      setSendInFlightState(false);
       resetLocalDispatch();
     };
 
@@ -9869,6 +9860,7 @@ function useChatViewComponent({
     selectedModelSelection,
     selectedProvider,
     selectedProviderModels,
+    setSendInFlightState,
     waitForStartedServerThread,
   ]);
 
@@ -10512,19 +10504,18 @@ function useChatViewComponent({
   const environmentPanelVisible = environmentPanelOpen && activeThread !== undefined;
   const environmentPanelCanOpenInline = !rightSidePanelOpen && environmentPanelCanUseInlineLayout;
   const environmentPanelInlineOpen = environmentPanelVisible && environmentPanelCanOpenInline;
+  const draftEnvironmentPanelVisibleExplicitOpen =
+    showDraftNewThreadLanding && environmentPanelVisible && draftEnvironmentPanelExplicitOpen;
   const environmentPanelPopoverOpen =
     environmentPanelVisible &&
     !environmentPanelInlineOpen &&
-    (!showDraftNewThreadLanding || draftEnvironmentPanelExplicitOpen);
+    (!showDraftNewThreadLanding || draftEnvironmentPanelVisibleExplicitOpen);
   const environmentPanelRenderedOpen = environmentPanelInlineOpen || environmentPanelPopoverOpen;
-  useEffect(() => {
-    if (!showDraftNewThreadLanding || !environmentPanelVisible) {
-      setDraftEnvironmentPanelExplicitOpen(false);
-    }
-  }, [environmentPanelVisible, showDraftNewThreadLanding]);
+  const visibleEnvironmentPanelPopoverStyle = environmentPanelPopoverOpen
+    ? environmentPanelPopoverStyle
+    : null;
   useLayoutEffect(() => {
     if (!environmentPanelPopoverOpen) {
-      setEnvironmentPanelPopoverStyle(null);
       return;
     }
 
@@ -10677,7 +10668,7 @@ function useChatViewComponent({
     ? {
         activeProjectScripts: activeProject?.scripts,
         activePlan,
-        activeSubagentThreadId,
+        activeSubagentThreadId: visibleActiveSubagentThreadId,
         activeThreadId: activeThread.id,
         branchToolbarProps,
         branchList: branchesData ?? null,
@@ -10981,7 +10972,7 @@ function useChatViewComponent({
         terminalOpen={rightSidePanelTerminalOpen}
         terminalTabs={rightPanelTerminalTabs}
         activeTerminalId={rightTerminalPanelState.activeTerminalId}
-        activeSubagentThreadId={activeSubagentThreadId}
+        activeSubagentThreadId={visibleActiveSubagentThreadId}
         floatingChatOpen={rightSidePanelFloatingChatOpen}
         onBrowserTabClose={onCloseRightSidePanelBrowserTab}
         onBrowserTabReorder={onReorderRightSidePanelBrowserTab}
@@ -11037,7 +11028,7 @@ function useChatViewComponent({
         terminalOpen={terminalState.terminalOpen}
         terminalTabs={bottomPanelTerminalTabs}
         activeTerminalId={terminalState.activeTerminalId}
-        activeSubagentThreadId={activeSubagentThreadId}
+        activeSubagentThreadId={visibleActiveSubagentThreadId}
         floatingChatOpen={false}
         onBrowserTabClose={onCloseBottomPanelBrowserTab}
         onBrowserTabReorder={onReorderBottomPanelBrowserTab}
@@ -11077,7 +11068,7 @@ function useChatViewComponent({
     !liveTurnInProgress &&
     !isSendBusy &&
     !isConnecting &&
-    !sendInFlightRef.current;
+    !sendInFlight;
   const subagentComposerThreadId = useCallback(
     (subagent: SubagentThread) =>
       ThreadId.makeUnsafe(`subagent:${activeThread?.id ?? threadId}:${subagent.id}`),
@@ -11486,7 +11477,7 @@ function useChatViewComponent({
   const environmentMiniPanelPortal =
     environmentPanelPopoverOpen &&
     environmentMiniPanelProps &&
-    environmentPanelPopoverStyle &&
+    visibleEnvironmentPanelPopoverStyle &&
     typeof document !== "undefined"
       ? createPortal(
           <AnimatePresence initial={false}>
@@ -11495,7 +11486,7 @@ function useChatViewComponent({
               ref={environmentMiniPanelRef}
               {...environmentMiniPanelProps}
               layoutMode="popover"
-              style={environmentPanelPopoverStyle}
+              style={visibleEnvironmentPanelPopoverStyle}
             />
           </AnimatePresence>,
           document.body,
@@ -11595,7 +11586,7 @@ function useChatViewComponent({
       isConnecting={isConnecting}
       isPreparingWorktree={isPreparingWorktree}
       isSendBusy={isSendBusy}
-      allowQueueWhenSendable={!sendInFlightRef.current || isServerThread}
+      allowQueueWhenSendable={!sendInFlight || isServerThread}
       activePendingApproval={activePendingApproval}
       pendingApprovalsCount={pendingApprovals.length}
       pendingUserInputs={pendingUserInputs}
@@ -11740,7 +11731,7 @@ function useChatViewComponent({
         />
         {reliabilityUxEnabled ? (
           <ReliabilityDiagnosticsDialog
-            open={diagnosticsOpen}
+            open={visibleDiagnosticsOpen}
             onOpenChange={setDiagnosticsOpen}
             connection={connectionHealth}
             provider={activeProviderStatus}
@@ -12050,7 +12041,7 @@ function useChatViewComponent({
                               />
                             ) : activeRightSidePanelMode === "subagent" ? (
                               <SubagentWorkspacePanel
-                                activeThreadId={activeSubagentThreadId}
+                                activeThreadId={visibleActiveSubagentThreadId}
                                 composer={renderSubagentComposer}
                                 timelineProps={messagesTimelineProps}
                                 threads={subagentThreads}
@@ -12217,7 +12208,7 @@ function useChatViewComponent({
                       />
                     ) : activeBottomPanelMode === "subagent" ? (
                       <SubagentWorkspacePanel
-                        activeThreadId={activeSubagentThreadId}
+                        activeThreadId={visibleActiveSubagentThreadId}
                         composer={renderSubagentComposer}
                         timelineProps={messagesTimelineProps}
                         threads={subagentThreads}
