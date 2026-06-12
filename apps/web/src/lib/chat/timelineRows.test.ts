@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MessageId, TurnId } from "@ace/contracts";
+import { MessageId, type OrchestrationProposedPlanId, TurnId } from "@ace/contracts";
 
 import { buildTimelineRows, isCompletedAssistantMessageRow } from "./timelineRows";
 import { createMarkedProviderCommandToken } from "../../composer-editor-mentions";
@@ -757,6 +757,48 @@ describe("timelineRows", () => {
     expect(rows.some(isCompletedAssistantMessageRow)).toBe(true);
   });
 
+  it("does not render a worked-for summary for trailing work while the agent is active", () => {
+    const rows = buildTimelineRows({
+      timelineEntries: [
+        {
+          id: "active-user-before-hidden-tail",
+          kind: "message",
+          createdAt: "2025-01-01T00:00:00.000Z",
+          message: {
+            id: MessageId.makeUnsafe("active-user-before-hidden-tail"),
+            role: "user",
+            text: "keep going",
+            createdAt: "2025-01-01T00:00:00.000Z",
+            streaming: false,
+          },
+        },
+        {
+          id: "active-hidden-tool-tail",
+          kind: "work",
+          createdAt: "2025-01-01T00:00:01.000Z",
+          entry: {
+            id: "active-hidden-tool-tail",
+            createdAt: "2025-01-01T00:00:01.000Z",
+            label: "Edit file",
+            tone: "tool",
+          },
+        },
+      ],
+      activeTurnInProgress: true,
+      activeTurnStartedAt: "2025-01-01T00:00:02.000Z",
+      completionDividerBeforeEntryId: null,
+      completionSummary: null,
+      hideCompletedWorkMessages: true,
+      isWorking: true,
+    });
+
+    expect(rows.some((row) => row.kind === "completed-work-summary")).toBe(false);
+    expect(rows.at(-1)).toMatchObject({
+      kind: "working",
+      mode: "silent-thinking",
+    });
+  });
+
   it("precomputes hidden completed work counts and diagnostic projections", () => {
     const rows = buildTimelineRows({
       timelineEntries: [
@@ -868,6 +910,93 @@ describe("timelineRows", () => {
     );
   });
 
+  it("keeps hidden completed work unified across a proposed plan", () => {
+    const turnId = TurnId.makeUnsafe("turn-hidden-work-plan");
+    const rows = buildTimelineRows({
+      timelineEntries: [
+        {
+          id: "user-before-plan-work",
+          kind: "message",
+          createdAt: "2025-01-01T00:00:00.000Z",
+          message: {
+            id: MessageId.makeUnsafe("user-before-plan-work"),
+            role: "user",
+            text: "Make the change",
+            createdAt: "2025-01-01T00:00:00.000Z",
+            turnId,
+            streaming: false,
+          },
+        },
+        {
+          id: "hidden-tool-before-plan",
+          kind: "work",
+          createdAt: "2025-01-01T00:00:01.000Z",
+          entry: {
+            id: "hidden-tool-before-plan",
+            createdAt: "2025-01-01T00:00:01.000Z",
+            turnId,
+            label: "Read file",
+            tone: "tool",
+          },
+        },
+        {
+          id: "plan-between-hidden-work",
+          kind: "proposed-plan",
+          createdAt: "2025-01-01T00:00:02.000Z",
+          proposedPlan: {
+            id: "plan-between-hidden-work" as OrchestrationProposedPlanId,
+            turnId,
+            planMarkdown: "1. Update the implementation.\n2. Run checks.",
+            implementedAt: null,
+            implementationThreadId: null,
+            createdAt: "2025-01-01T00:00:02.000Z",
+            updatedAt: "2025-01-01T00:00:02.000Z",
+          },
+        },
+        {
+          id: "hidden-tool-after-plan",
+          kind: "work",
+          createdAt: "2025-01-01T00:00:03.000Z",
+          entry: {
+            id: "hidden-tool-after-plan",
+            createdAt: "2025-01-01T00:00:03.000Z",
+            turnId,
+            label: "Write file",
+            tone: "tool",
+          },
+        },
+        {
+          id: "assistant-after-plan-work",
+          kind: "message",
+          createdAt: "2025-01-01T00:00:04.000Z",
+          message: {
+            id: MessageId.makeUnsafe("assistant-after-plan-work"),
+            role: "assistant",
+            text: "Done.",
+            createdAt: "2025-01-01T00:00:04.000Z",
+            completedAt: "2025-01-01T00:00:05.000Z",
+            turnId,
+            streaming: false,
+          },
+        },
+      ],
+      activeTurnInProgress: false,
+      activeTurnStartedAt: null,
+      completionDividerBeforeEntryId: null,
+      completionSummary: null,
+      hideCompletedWorkMessages: true,
+      isWorking: false,
+    });
+
+    const summaryRows = rows.filter((row) => row.kind === "completed-work-summary");
+    expect(summaryRows).toHaveLength(1);
+    expect(summaryRows[0]).toMatchObject({
+      kind: "completed-work-summary",
+      sourceEntryIds: ["hidden-tool-before-plan", "hidden-tool-after-plan"],
+      toolCallCount: 2,
+    });
+  });
+
   it("does not let hidden work before a user message inflate the next worked-for summary", () => {
     const rows = buildTimelineRows({
       timelineEntries: [
@@ -960,6 +1089,81 @@ describe("timelineRows", () => {
         ? summaryRow.detailRows.flatMap((row) => (row.kind === "work-group" ? row.entries : []))
         : [],
     ).not.toContainEqual(expect.objectContaining({ id: "old-hidden-tool" }));
+  });
+
+  it("unifies hidden completed work across internal turn id mismatches", () => {
+    const firstTurnId = TurnId.makeUnsafe("turn-hidden-unified-first");
+    const secondTurnId = TurnId.makeUnsafe("turn-hidden-unified-second");
+    const rows = buildTimelineRows({
+      timelineEntries: [
+        {
+          id: "user-hidden-unified",
+          kind: "message",
+          createdAt: "2025-01-01T00:00:00.000Z",
+          message: {
+            id: MessageId.makeUnsafe("user-hidden-unified"),
+            role: "user",
+            text: "run the checks",
+            createdAt: "2025-01-01T00:00:00.000Z",
+            streaming: false,
+          },
+        },
+        {
+          id: "hidden-ui-group",
+          kind: "work",
+          createdAt: "2025-01-01T00:00:01.000Z",
+          entry: {
+            id: "hidden-ui-group",
+            createdAt: "2025-01-01T00:00:01.000Z",
+            turnId: firstTurnId,
+            label: "Update UI group",
+            tone: "tool",
+          },
+        },
+        {
+          id: "hidden-tool-group",
+          kind: "work",
+          createdAt: "2025-01-01T00:00:02.000Z",
+          entry: {
+            id: "hidden-tool-group",
+            createdAt: "2025-01-01T00:00:02.000Z",
+            turnId: secondTurnId,
+            label: "Run command",
+            requestKind: "command",
+            tone: "tool",
+          },
+        },
+        {
+          id: "assistant-hidden-unified",
+          kind: "message",
+          createdAt: "2025-01-01T00:00:03.000Z",
+          message: {
+            id: MessageId.makeUnsafe("assistant-hidden-unified"),
+            role: "assistant",
+            text: "Done.",
+            createdAt: "2025-01-01T00:00:03.000Z",
+            completedAt: "2025-01-01T00:00:04.000Z",
+            streaming: false,
+          },
+        },
+      ],
+      activeTurnInProgress: false,
+      activeTurnStartedAt: null,
+      completionDividerBeforeEntryId: null,
+      completionSummary: null,
+      hideCompletedWorkMessages: true,
+      isWorking: false,
+    });
+
+    const summaryRows = rows.filter((row) => row.kind === "completed-work-summary");
+    expect(summaryRows).toHaveLength(1);
+    expect(summaryRows[0]).toMatchObject({
+      kind: "completed-work-summary",
+      startedAt: "2025-01-01T00:00:01.000Z",
+      endedAt: "2025-01-01T00:00:04.000Z",
+      sourceEntryIds: ["hidden-ui-group", "hidden-tool-group"],
+      toolCallCount: 2,
+    });
   });
 
   it("keeps hidden trailing work before the next user message", () => {
