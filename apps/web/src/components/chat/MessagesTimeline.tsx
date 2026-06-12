@@ -2546,6 +2546,24 @@ function workGroupId(rowId: string): string {
   return `work-group:${rowId}`;
 }
 
+function completedWorkDetailGroupId(completedWorkSummaryId: string, detailRowId: string): string {
+  return `completed-work-detail-group:${completedWorkSummaryId}:${detailRowId}`;
+}
+
+function completedWorkSummaryExpandedDetailGroupsCacheKey(
+  row: Extract<TimelineRow, { kind: "completed-work-summary" }>,
+  expandedWorkGroups: Record<string, boolean>,
+): string {
+  const expandedGroupIds = row.detailRows.flatMap((detailRow) => {
+    if (detailRow.kind !== "work-group") {
+      return [];
+    }
+    const groupId = completedWorkDetailGroupId(row.id, detailRow.id);
+    return expandedWorkGroups[groupId] ? [groupId] : [];
+  });
+  return expandedGroupIds.length === 0 ? "closed" : expandedGroupIds.join(",");
+}
+
 function getUserMessageTextForHeightEstimate(userPromptText: string): string {
   const displayedUserMessage = deriveDisplayedUserMessageState(userPromptText);
   if (displayedUserMessage.visibleText.trim().length > 0) {
@@ -2679,7 +2697,10 @@ function getTimelineRowHeightCacheKey(
   const widthCacheKey = toTimelineWidthCacheKey(input.timelineWidthPx);
   switch (row.kind) {
     case "completed-work-summary":
-      return `completed-work-summary:${row.id}:${row.startedAt}:${row.endedAt}:${row.detailRows.length}:${row.toolCallCount}:${row.hiddenThinkingCount}:${row.hiddenMessageCount}:${row.visibleDiagnosticCacheKey}`;
+      return `completed-work-summary:${row.id}:${row.startedAt}:${row.endedAt}:${row.detailRows.length}:${row.toolCallCount}:${row.hiddenThinkingCount}:${row.hiddenMessageCount}:${row.visibleDiagnosticCacheKey}:${completedWorkSummaryExpandedDetailGroupsCacheKey(
+        row,
+        input.expandedWorkGroups,
+      )}`;
     case "message": {
       const assistantRenderHint =
         row.message.role === "assistant"
@@ -3243,6 +3264,7 @@ const SystemMessageTimelineRow = memo(function SystemMessageTimelineRow(props: {
 const WorkLogTimelineRow = memo(function WorkLogTimelineRow(props: {
   row: TimelineWorkLogRow;
   expandedWorkGroups: Record<string, boolean>;
+  groupIdOverride?: string;
   onToggleWorkGroup: (groupId: string) => void;
 }) {
   if (props.row.kind === "work") {
@@ -3264,7 +3286,7 @@ const WorkLogTimelineRow = memo(function WorkLogTimelineRow(props: {
     );
   }
 
-  const groupId = workGroupId(props.row.id);
+  const groupId = props.groupIdOverride ?? workGroupId(props.row.id);
   const hasGroupDetails = props.row.entries.length > 0;
   const isExpanded = props.expandedWorkGroups[groupId] ?? false;
   const ChevronIcon = isExpanded ? ChevronDownIcon : ChevronRightIcon;
@@ -3363,6 +3385,7 @@ const WorkLogTimelineRow = memo(function WorkLogTimelineRow(props: {
 });
 
 const CompletedWorkDetailTimelineRow = memo(function CompletedWorkDetailTimelineRow(props: {
+  completedWorkSummaryId: string;
   row: TimelineCompletedWorkDetailRow;
   expandedWorkGroups: Record<string, boolean>;
   onToggleWorkGroup: (groupId: string) => void;
@@ -3375,6 +3398,11 @@ const CompletedWorkDetailTimelineRow = memo(function CompletedWorkDetailTimeline
     <WorkLogTimelineRow
       row={props.row}
       expandedWorkGroups={props.expandedWorkGroups}
+      {...(props.row.kind === "work-group"
+        ? {
+            groupIdOverride: completedWorkDetailGroupId(props.completedWorkSummaryId, props.row.id),
+          }
+        : {})}
       onToggleWorkGroup={props.onToggleWorkGroup}
     />
   );
@@ -3389,10 +3417,10 @@ const AssistantUpdateTimelineRow = memo(function AssistantUpdateTimelineRow(prop
       data-completed-work-assistant-update="true"
       data-assistant-update-id={props.row.id}
     >
-      <p className="wrap-break-word max-w-[min(100%,72rem)] whitespace-pre-wrap text-[13px] leading-[1.55] text-foreground/80">
+      <p className="wrap-break-word max-w-[min(100%,72rem)] whitespace-pre-wrap text-[12px] leading-5 text-foreground/80">
         {props.row.text}
         {props.row.truncated ? (
-          <span className="block text-[12px] leading-5 text-muted-foreground/55">
+          <span className="block text-[11px] leading-5 text-muted-foreground/55">
             ... update truncated
           </span>
         ) : null}
@@ -3431,6 +3459,9 @@ const CompletedWorkSummaryTimelineRow = memo(function CompletedWorkSummaryTimeli
   if (!hasHiddenLogs && visibleDiagnosticRows.length === 0) {
     return null;
   }
+  const singleDetailRow = props.row.detailRows.length === 1 ? props.row.detailRows[0] : undefined;
+  const shouldFlattenSingleWorkGroup =
+    singleDetailRow?.kind === "work-group" && singleDetailRow.entries.length > 0;
   const summaryContent = (
     <>
       <Clock3Icon className="mt-1 size-3 shrink-0 text-muted-foreground/42 transition-colors group-hover/completed-work:text-muted-foreground/78" />
@@ -3500,14 +3531,32 @@ const CompletedWorkSummaryTimelineRow = memo(function CompletedWorkSummaryTimeli
           className="mt-2 ml-[5px] min-w-0 space-y-2 border-border/35 border-l py-0.5 pl-4"
           data-completed-work-details="true"
         >
-          {props.row.detailRows.map((detailRow) => (
-            <CompletedWorkDetailTimelineRow
-              key={`completed-work-summary:${props.row.id}:${detailRow.kind}:${detailRow.id}`}
-              row={detailRow}
-              expandedWorkGroups={props.expandedWorkGroups}
-              onToggleWorkGroup={props.onToggleWorkGroup}
-            />
-          ))}
+          {shouldFlattenSingleWorkGroup
+            ? singleDetailRow.entries.map((entry) =>
+                entry.kind === "work" ? (
+                  <SimpleWorkEntryRow
+                    key={`completed-work-summary:${props.row.id}:flat:${entry.id}`}
+                    workEntry={entry.workEntry}
+                    inlineIntentText={null}
+                    variant="nested"
+                  />
+                ) : (
+                  <SimpleIntentEntryRow
+                    key={`completed-work-summary:${props.row.id}:flat:${entry.id}`}
+                    entry={entry}
+                    variant="nested"
+                  />
+                ),
+              )
+            : props.row.detailRows.map((detailRow) => (
+                <CompletedWorkDetailTimelineRow
+                  key={`completed-work-summary:${props.row.id}:${detailRow.kind}:${detailRow.id}`}
+                  completedWorkSummaryId={props.row.id}
+                  row={detailRow}
+                  expandedWorkGroups={props.expandedWorkGroups}
+                  onToggleWorkGroup={props.onToggleWorkGroup}
+                />
+              ))}
         </div>
       )}
     </div>
