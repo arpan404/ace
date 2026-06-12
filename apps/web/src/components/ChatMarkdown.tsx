@@ -88,6 +88,9 @@ interface ChatMarkdownProps {
 }
 
 const CODE_FENCE_LANGUAGE_REGEX = /(?:^|\s)language-([^\s]+)/;
+const STREAMING_REVEAL_MIN_CHARS_PER_FRAME = 12;
+const STREAMING_REVEAL_MAX_CHARS_PER_FRAME = 768;
+const STREAMING_REVEAL_BURST_RATIO = 0.34;
 const MAX_HIGHLIGHT_CACHE_ENTRIES = clampCacheEntryCount(500, {
   moderateCapEntries: 320,
   constrainedCapEntries: 160,
@@ -555,6 +558,92 @@ function StreamingMarkdownText({ text }: { text: string }) {
   );
 }
 
+function StreamingLiveCursor() {
+  return <span className="chat-markdown-live-cursor" aria-hidden="true" />;
+}
+
+function useSmoothStreamingText(text: string, isStreaming: boolean): string {
+  const [displayText, setDisplayText] = useState(text);
+  const displayTextRef = useRef(text);
+  const targetTextRef = useRef(text);
+  const frameRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    displayTextRef.current = displayText;
+  }, [displayText]);
+
+  useEffect(() => {
+    if (
+      !isStreaming ||
+      typeof window === "undefined" ||
+      typeof window.requestAnimationFrame !== "function"
+    ) {
+      targetTextRef.current = text;
+      displayTextRef.current = text;
+      setDisplayText(text);
+      return;
+    }
+
+    targetTextRef.current = text;
+
+    if (!text.startsWith(displayTextRef.current)) {
+      displayTextRef.current = text;
+      setDisplayText(text);
+      return;
+    }
+
+    if (frameRef.current !== null) {
+      return;
+    }
+
+    const revealNextFrame = () => {
+      frameRef.current = null;
+      const currentText = displayTextRef.current;
+      const targetText = targetTextRef.current;
+
+      if (currentText === targetText) {
+        return;
+      }
+
+      const remainingCharCount = targetText.length - currentText.length;
+      if (remainingCharCount <= 0 || !targetText.startsWith(currentText)) {
+        displayTextRef.current = targetText;
+        setDisplayText(targetText);
+        return;
+      }
+
+      const revealCharCount = Math.min(
+        remainingCharCount,
+        Math.max(
+          STREAMING_REVEAL_MIN_CHARS_PER_FRAME,
+          Math.min(
+            STREAMING_REVEAL_MAX_CHARS_PER_FRAME,
+            Math.ceil(remainingCharCount * STREAMING_REVEAL_BURST_RATIO),
+          ),
+        ),
+      );
+      const nextText = targetText.slice(0, currentText.length + revealCharCount);
+      displayTextRef.current = nextText;
+      setDisplayText(nextText);
+
+      if (nextText !== targetText) {
+        frameRef.current = window.requestAnimationFrame(revealNextFrame);
+      }
+    };
+
+    frameRef.current = window.requestAnimationFrame(revealNextFrame);
+
+    return () => {
+      if (frameRef.current !== null) {
+        window.cancelAnimationFrame(frameRef.current);
+        frameRef.current = null;
+      }
+    };
+  }, [isStreaming, text]);
+
+  return isStreaming ? displayText : text;
+}
+
 const PlainMarkdownText = memo(function PlainMarkdownText({ text }: { text: string }) {
   return (
     <div className="chat-markdown w-full min-w-0 wrap-break-word whitespace-pre-wrap text-[13px] leading-[1.55] text-foreground/80">
@@ -762,6 +851,7 @@ function ChatMarkdown({
   const [renderPreference, setRenderPreference] = useState<"auto" | "markdown">("auto");
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [isMarkdownTransitionPending, startMarkdownTransition] = useTransition();
+  const displayText = useSmoothStreamingText(text, isStreaming);
   const {
     markdownRenderAnalysis,
     shouldFastPathPlainText,
@@ -773,7 +863,7 @@ function ChatMarkdown({
     renderPlainText,
     renderPreference,
     streamingTextState,
-    text,
+    text: displayText,
   });
   const shouldObserveLayout = onLayoutChange !== undefined && shouldObserveLayoutFromAnalysis;
   const canOpenLocalFiles = enableLocalFileLinks && !isStreaming;
@@ -989,18 +1079,20 @@ function ChatMarkdown({
 
   const content = useMemo<ReactNode>(() => {
     if (renderPlainText) {
-      return <PreviewTextPanel text={text} />;
+      return <PreviewTextPanel text={displayText} />;
     }
     if (markdownRenderAnalysis.usesStreamingPreview && streamingTextState) {
-      return <StreamingMarkdownPreview text={text} streamingTextState={streamingTextState} />;
+      return (
+        <StreamingMarkdownPreview text={displayText} streamingTextState={streamingTextState} />
+      );
     }
     if (useLargePreview) {
       return (
         <LargeMarkdownPreview
           previewText={
-            markdownRenderAnalysis.largePreviewText ?? buildLargeMarkdownPreviewText(text)
+            markdownRenderAnalysis.largePreviewText ?? buildLargeMarkdownPreviewText(displayText)
           }
-          totalCharacters={text.length}
+          totalCharacters={displayText.length}
           isTransitionPending={isMarkdownTransitionPending}
           onRenderMarkdown={() => {
             startMarkdownTransition(() => {
@@ -1011,14 +1103,15 @@ function ChatMarkdown({
       );
     }
     if (shouldFastPathPlainText) {
-      return <PlainMarkdownText text={text} />;
+      return <PlainMarkdownText text={displayText} />;
     }
     return (
       <MarkdownBody isStreaming={isStreaming} markdownComponents={markdownComponents}>
-        {text}
+        {displayText}
       </MarkdownBody>
     );
   }, [
+    displayText,
     isMarkdownTransitionPending,
     isStreaming,
     markdownRenderAnalysis,
@@ -1027,13 +1120,17 @@ function ChatMarkdown({
     startMarkdownTransition,
     streamingTextState,
     shouldFastPathPlainText,
-    text,
     useLargePreview,
   ]);
 
   return (
-    <div ref={rootRef} className="w-full min-w-0">
+    <div
+      ref={rootRef}
+      className="w-full min-w-0"
+      data-chat-markdown-live={isStreaming ? "true" : undefined}
+    >
       {content}
+      {isStreaming ? <StreamingLiveCursor /> : null}
     </div>
   );
 }

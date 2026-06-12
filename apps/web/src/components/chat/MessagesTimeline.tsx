@@ -3674,7 +3674,6 @@ const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(pr
         <div className="min-w-0" data-assistant-message-content="true">
           {props.renderMarkdown ? (
             <ChatMarkdown
-              key={`${props.message.id}:${props.message.streaming ? "streaming" : (props.message.completedAt ?? "complete")}:${messageText.length}`}
               analysisCacheKey={buildMarkdownRenderAnalysisCacheKey(
                 {
                   text: messageText,
