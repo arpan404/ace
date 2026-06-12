@@ -589,7 +589,6 @@ function useSmoothStreamingText(text: string, isStreaming: boolean): string {
     ) {
       targetTextRef.current = text;
       displayTextRef.current = text;
-      setDisplayText(text);
       return;
     }
 
