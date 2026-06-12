@@ -83,22 +83,29 @@ export function useConnectionServerConfig(
     [connectionUrl, localConnectionUrl],
   );
   const isLocalConnection = normalizedConnectionUrl === localConnectionUrl;
-  const [remoteConfig, setRemoteConfig] = useState<ServerConfig | null>(
-    remoteServerConfigByConnectionUrl.get(normalizedConnectionUrl) ?? null,
-  );
+  const [remoteConfigState, setRemoteConfigState] = useState<{
+    connectionUrl: string;
+    config: ServerConfig | null;
+  }>(() => ({
+    connectionUrl: normalizedConnectionUrl,
+    config: remoteServerConfigByConnectionUrl.get(normalizedConnectionUrl) ?? null,
+  }));
+  const remoteConfig =
+    remoteConfigState.connectionUrl === normalizedConnectionUrl
+      ? remoteConfigState.config
+      : (remoteServerConfigByConnectionUrl.get(normalizedConnectionUrl) ?? null);
 
   useEffect(() => {
     if (isLocalConnection) {
       return;
     }
-    setRemoteConfig(remoteServerConfigByConnectionUrl.get(normalizedConnectionUrl) ?? null);
 
     let canceled = false;
     const client = getRouteRpcClient(normalizedConnectionUrl);
     const applyConfig = (config: ServerConfig) => {
       remoteServerConfigByConnectionUrl.set(normalizedConnectionUrl, config);
       if (!canceled) {
-        setRemoteConfig(config);
+        setRemoteConfigState({ connectionUrl: normalizedConnectionUrl, config });
       }
     };
 

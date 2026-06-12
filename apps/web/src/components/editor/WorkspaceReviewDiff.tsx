@@ -107,10 +107,19 @@ interface WorkspaceReviewDiffRenderProps {
 }
 
 function WorkspaceReviewDiff(props: WorkspaceReviewDiffProps) {
-  const [highlightedLines, setHighlightedLines] = useState<WorkspaceReviewDiffHighlights>(() => ({
+  const highlightKey = `${props.fileDiff.cacheKey ?? props.filePath}:${props.resolvedTheme}`;
+  const plainHighlightedLines: WorkspaceReviewDiffHighlights = {
     additions: createPlainWorkspaceShikiHtmlLines(props.fileDiff.additionLines),
     deletions: createPlainWorkspaceShikiHtmlLines(props.fileDiff.deletionLines),
-  }));
+  };
+  const [highlightedLinesState, setHighlightedLinesState] = useState<{
+    key: string;
+    highlightedLines: WorkspaceReviewDiffHighlights;
+  } | null>(null);
+  const highlightedLines =
+    highlightedLinesState?.key === highlightKey
+      ? highlightedLinesState.highlightedLines
+      : plainHighlightedLines;
   const [commentTarget, setCommentTarget] = useState<WorkspaceReviewDiffCommentTarget | null>(null);
   const [commentDraft, setCommentDraft] = useState("");
 
@@ -136,10 +145,6 @@ function WorkspaceReviewDiff(props: WorkspaceReviewDiffProps) {
 
   useEffect(() => {
     let cancelled = false;
-    setHighlightedLines({
-      additions: createPlainWorkspaceShikiHtmlLines(props.fileDiff.additionLines),
-      deletions: createPlainWorkspaceShikiHtmlLines(props.fileDiff.deletionLines),
-    });
 
     void Promise.all([
       highlightWorkspaceShikiHtmlLines({
@@ -154,14 +159,17 @@ function WorkspaceReviewDiff(props: WorkspaceReviewDiffProps) {
       }),
     ]).then(([additions, deletions]) => {
       if (!cancelled) {
-        setHighlightedLines({ additions, deletions });
+        setHighlightedLinesState({
+          key: highlightKey,
+          highlightedLines: { additions, deletions },
+        });
       }
     });
 
     return () => {
       cancelled = true;
     };
-  }, [props.fileDiff, props.filePath, props.resolvedTheme]);
+  }, [highlightKey, props.fileDiff, props.filePath, props.resolvedTheme]);
 
   const renderKey = useMemo(
     () =>

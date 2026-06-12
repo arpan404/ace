@@ -670,10 +670,14 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
   );
   const isBinaryPreviewMode = activePreviewKind === "image" || activePreviewKind === "video";
   const textPreviewAvailable = activePreviewKind === "markdown" || activePreviewKind === "mermaid";
+  const openFilePathSet = new Set(pane.openFilePaths);
+  const visibleTextPreviewFilePaths = new Set(
+    Array.from(textPreviewFilePaths).filter((filePath) => openFilePathSet.has(filePath)),
+  );
   const isTextPreviewMode =
     textPreviewAvailable &&
     pane.activeFilePath !== null &&
-    textPreviewFilePaths.has(pane.activeFilePath);
+    visibleTextPreviewFilePaths.has(pane.activeFilePath);
   const isPreviewMode =
     (isBinaryPreviewMode || isTextPreviewMode) &&
     pane.activeFilePath !== null &&
@@ -759,18 +763,6 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
   useEffect(() => {
     onOpenFileInPaneRef.current = onOpenFileInPane;
   }, [onOpenFileInPane]);
-
-  useEffect(() => {
-    setTextPreviewFilePaths((current) => {
-      if (current.size === 0) {
-        return current;
-      }
-      const next = new Set(
-        Array.from(current).filter((filePath) => props.pane.openFilePaths.includes(filePath)),
-      );
-      return next.size === current.size ? current : next;
-    });
-  }, [props.pane.openFilePaths]);
 
   const setActiveTextPreviewOpen = useCallback(
     (open: boolean) => {

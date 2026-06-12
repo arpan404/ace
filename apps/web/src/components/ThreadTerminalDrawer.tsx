@@ -30,6 +30,7 @@ import {
 } from "react";
 import { Popover, PopoverPopup, PopoverTrigger } from "~/components/ui/popover";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
+import { useStableCallback } from "~/hooks/useStableCallback";
 import { useTabStripOverflow } from "~/hooks/useTabStripOverflow";
 import { type TerminalContextSelection } from "~/lib/terminalContext";
 import {
@@ -1345,7 +1346,16 @@ export default memo(function ThreadTerminalDrawer({
   onOpenBrowserUrl = null,
   onOpenFilePath = null,
 }: ThreadTerminalDrawerProps) {
-  const [drawerHeight, setDrawerHeight] = useState(() => clampDrawerHeight(height));
+  const clampedPropHeight = clampDrawerHeight(height);
+  const [drawerHeightState, setDrawerHeightState] = useState(() => ({
+    threadId,
+    propHeight: clampedPropHeight,
+    height: clampedPropHeight,
+  }));
+  const drawerHeight =
+    drawerHeightState.threadId === threadId && drawerHeightState.propHeight === clampedPropHeight
+      ? drawerHeightState.height
+      : clampedPropHeight;
   const drawerHeightRef = useRef(drawerHeight);
   const lastSyncedHeightRef = useRef(clampDrawerHeight(height));
   const onHeightChangeRef = useRef(onHeightChange);
@@ -1470,13 +1480,6 @@ export default memo(function ThreadTerminalDrawer({
     onHeightChangeRef.current(clampedHeight);
   }, []);
 
-  useEffect(() => {
-    const clampedHeight = clampDrawerHeight(height);
-    setDrawerHeight(clampedHeight);
-    drawerHeightRef.current = clampedHeight;
-    lastSyncedHeightRef.current = clampedHeight;
-  }, [height, threadId]);
-
   const handleResizePointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
     event.preventDefault();
@@ -1489,7 +1492,7 @@ export default memo(function ThreadTerminalDrawer({
     };
   }, []);
 
-  const handleResizePointerMove = useCallback((event: PointerEvent) => {
+  const handleResizePointerMove = useStableCallback((event: PointerEvent) => {
     const resizeState = resizeStateRef.current;
     if (!resizeState || resizeState.pointerId !== event.pointerId) return;
     const clampedHeight = clampDrawerHeight(
@@ -1500,8 +1503,8 @@ export default memo(function ThreadTerminalDrawer({
     }
     didResizeDuringDragRef.current = true;
     drawerHeightRef.current = clampedHeight;
-    setDrawerHeight(clampedHeight);
-  }, []);
+    setDrawerHeightState({ threadId, propHeight: clampedPropHeight, height: clampedHeight });
+  });
 
   const handleResizePointerEnd = useCallback(
     (event?: PointerEvent) => {
@@ -1574,7 +1577,7 @@ export default memo(function ThreadTerminalDrawer({
       }
 
       if (heightChanged) {
-        setDrawerHeight(clampedHeight);
+        setDrawerHeightState({ threadId, propHeight: clampedPropHeight, height: clampedHeight });
         drawerHeightRef.current = clampedHeight;
       }
       if (heightChanged && !resizeStateRef.current) {
@@ -1594,7 +1597,7 @@ export default memo(function ThreadTerminalDrawer({
       }
       window.removeEventListener("resize", onWindowResize);
     };
-  }, [syncHeight]);
+  }, [clampedPropHeight, syncHeight, threadId]);
 
   useEffect(() => {
     return () => {

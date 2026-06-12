@@ -19,7 +19,8 @@ import {
   UsbIcon,
   WorkflowIcon,
 } from "lucide-react";
-import { type ComponentType, useCallback, useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { type ComponentType, useCallback, useMemo } from "react";
 
 import { ensureNativeApi } from "~/nativeApi";
 import { cn } from "~/lib/utils";
@@ -208,19 +209,28 @@ export function BrowserSiteDiagnosticsDialog(props: {
   readonly onOpenChange: (open: boolean) => void;
 }) {
   const { open, url, onOpenChange } = props;
-  const [siteInfoState, setSiteInfoState] = useState<{
-    url: string;
-    siteInfo: DesktopBrowserSiteInfo | null;
-  } | null>(null);
   const api = useMemo(() => ensureNativeApi(), []);
-  const siteInfo = open && url && siteInfoState?.url === url ? siteInfoState.siteInfo : null;
+  const { data: siteInfoData, refetch: refetchSiteInfo } = useQuery({
+    enabled: open && Boolean(url),
+    queryKey: ["browser-site-info", url],
+    queryFn: async () => {
+      if (!url) {
+        return null;
+      }
+      return {
+        url,
+        siteInfo: await api.browser.getSiteInfo(url),
+      };
+    },
+  });
+  const siteInfo = open && url && siteInfoData?.url === url ? siteInfoData.siteInfo : null;
 
   const refresh = useCallback(async () => {
     if (!url || !open) {
       return;
     }
     try {
-      setSiteInfoState({ url, siteInfo: await api.browser.getSiteInfo(url) });
+      await refetchSiteInfo();
     } catch (error) {
       toastManager.add({
         type: "error",
@@ -228,11 +238,7 @@ export function BrowserSiteDiagnosticsDialog(props: {
         description: error instanceof Error ? error.message : "An error occurred.",
       });
     }
-  }, [api, open, url]);
-
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
+  }, [open, refetchSiteInfo, url]);
 
   const permissionsByName = useMemo(() => {
     const next = new Map<DesktopBrowserPermission, DesktopBrowserPermissionSetting>();

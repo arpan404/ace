@@ -505,7 +505,11 @@ function useDevicesSettingsPanelComponent() {
   }, []);
 
   const sortedHosts = useMemo(() => {
-    const connectedIds = new Set(connectedHostIds);
+    const availableHostIds = new Set(hosts.map((host) => host.id));
+    const visibleConnectedHostIds = connectedHostIds.filter((hostId) =>
+      availableHostIds.has(hostId),
+    );
+    const connectedIds = new Set(visibleConnectedHostIds);
     return [...hosts].toSorted((left, right) => {
       const leftConnected = connectedIds.has(left.id) ? 1 : 0;
       const rightConnected = connectedIds.has(right.id) ? 1 : 0;
@@ -519,7 +523,7 @@ function useDevicesSettingsPanelComponent() {
       }
       return left.name.localeCompare(right.name);
     });
-  }, [hosts, connectedHostIds]);
+  }, [connectedHostIds, hosts]);
 
   const pinnedRelayUrls = useMemo(
     () =>
@@ -535,14 +539,10 @@ function useDevicesSettingsPanelComponent() {
 
   useEffect(() => {
     const availableHostIds = new Set(hosts.map((host) => host.id));
-    const nextConnectedHostIds = connectedHostIds.filter((hostId) => availableHostIds.has(hostId));
-    if (nextConnectedHostIds.length !== connectedHostIds.length) {
-      saveConnectedHostIds(nextConnectedHostIds);
-    }
-  }, [hosts, connectedHostIds, saveConnectedHostIds]);
-
-  useEffect(() => {
-    const connectedHostIdSet = new Set(connectedHostIds);
+    const visibleConnectedHostIds = connectedHostIds.filter((hostId) =>
+      availableHostIds.has(hostId),
+    );
+    const connectedHostIdSet = new Set(visibleConnectedHostIds);
     const nextConnectionUrls = new Set<string>();
     for (const host of hosts) {
       if (!connectedHostIdSet.has(host.id)) {
@@ -566,7 +566,7 @@ function useDevicesSettingsPanelComponent() {
     }
 
     registeredRouteConnectionUrlsRef.current = nextConnectionUrls;
-  }, [hosts, connectedHostIds]);
+  }, [connectedHostIds, hosts]);
 
   useEffect(
     () => () => {

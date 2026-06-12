@@ -334,22 +334,31 @@ export function useNewThreadRecommendedPrompts(
     }
     return buildRecommendationFingerprint({ modelSelection, turns: contextTurns });
   }, [contextTurns, modelSelection]);
-  const [recommendations, setRecommendations] =
-    useState<ReadonlyArray<NewThreadRecommendedPrompt>>(EMPTY_RECOMMENDED_PROMPTS);
+  const [generatedRecommendations, setGeneratedRecommendations] = useState<{
+    fingerprint: string;
+    recommendations: ReadonlyArray<NewThreadRecommendedPrompt>;
+  } | null>(null);
+  const cachedRecommendations =
+    activeProjectId && fingerprint
+      ? (() => {
+          const cached = readCachedRecommendations(activeProjectId);
+          return cached?.fingerprint === fingerprint
+            ? normalizeRecommendedPrompts(cached.recommendations)
+            : EMPTY_RECOMMENDED_PROMPTS;
+        })()
+      : EMPTY_RECOMMENDED_PROMPTS;
+  const recommendations =
+    generatedRecommendations?.fingerprint === fingerprint
+      ? generatedRecommendations.recommendations
+      : cachedRecommendations;
 
   useEffect(() => {
     if (!activeProjectId || !activeProjectCwd || !modelSelection || !fingerprint) {
-      setRecommendations(EMPTY_RECOMMENDED_PROMPTS);
       return;
     }
 
     const now = Date.now();
     const cached = readCachedRecommendations(activeProjectId);
-    if (cached?.fingerprint === fingerprint) {
-      setRecommendations(normalizeRecommendedPrompts(cached.recommendations));
-    } else {
-      setRecommendations(EMPTY_RECOMMENDED_PROMPTS);
-    }
 
     if (!shouldRegenerateRecommendations(cached, fingerprint, now)) {
       return;
@@ -378,7 +387,10 @@ export function useNewThreadRecommendedPrompts(
           recommendations: normalizedRecommendations,
         };
         writeCachedRecommendations(activeProjectId, payload);
-        setRecommendations(normalizedRecommendations);
+        setGeneratedRecommendations({
+          fingerprint,
+          recommendations: normalizedRecommendations,
+        });
       })
       .catch(() => {
         recommendationFailureCooldownByFingerprint.set(
