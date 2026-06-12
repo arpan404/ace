@@ -1,5 +1,9 @@
 import { assert, describe, it } from "vitest";
-import { buildVisibleToastLayout, shouldHideCollapsedToastContent } from "./toast";
+import {
+  buildVisibleToastLayout,
+  selectLatestVisibleToast,
+  shouldHideCollapsedToastContent,
+} from "./toast";
 
 describe("shouldHideCollapsedToastContent", () => {
   it("keeps a single visible toast readable", () => {
@@ -59,5 +63,17 @@ describe("buildVisibleToastLayout", () => {
         { id: "c", offsetY: 0 },
       ],
     );
+  });
+});
+
+describe("selectLatestVisibleToast", () => {
+  it("keeps only the newest visible toast from Base UI's newest-first list", () => {
+    const visibleToasts = [{ id: "newest" }, { id: "older" }, { id: "oldest" }];
+
+    assert.deepEqual(selectLatestVisibleToast(visibleToasts), [{ id: "newest" }]);
+  });
+
+  it("handles an empty visible toast list", () => {
+    assert.deepEqual(selectLatestVisibleToast([]), []);
   });
 });

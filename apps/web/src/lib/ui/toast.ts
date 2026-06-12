@@ -12,6 +12,12 @@ type ToastWithHeight = {
   height?: number | null | undefined;
 };
 
+export function selectLatestVisibleToast<TToast>(
+  visibleToasts: readonly TToast[],
+): readonly TToast[] {
+  return visibleToasts.slice(0, 1);
+}
+
 type VisibleToastLayoutItem<TToast extends object> = {
   toast: TToast;
   visibleIndex: number;
