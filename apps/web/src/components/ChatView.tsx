@@ -940,89 +940,6 @@ const EMPTY_HISTORICAL_MESSAGE_IDS: Set<MessageId> = new Set();
 const NATIVE_TIMELINE_ROWS_CONTENT_KEY_TAIL_ROWS = 32;
 const ACTIVE_NATIVE_TIMELINE_ROWS_REBUILD_DELAY_MS = 80;
 
-function patchRetainedNativeTimelineRows(input: {
-  readonly rows: ReadonlyArray<TimelineRow>;
-  readonly rowsInput: NativeTimelineRowsInput | null;
-}): ReadonlyArray<TimelineRow> {
-  if (input.rows.length === 0 || !input.rowsInput) {
-    return input.rows;
-  }
-
-  const messageById = new Map<string, OrchestrationMessage>();
-  for (const message of input.rowsInput.messages) {
-    messageById.set(String(message.id), message);
-  }
-
-  let changed = false;
-  let rows = input.rows.map((row) => {
-    if (row.kind !== "message") {
-      return row;
-    }
-    const nextMessage = messageById.get(String(row.message.id));
-    if (!nextMessage) {
-      return row;
-    }
-    const currentText = row.message.streaming
-      ? (row.message.streamingTextState?.chunks.join("") ?? "")
-      : row.message.text;
-    if (
-      row.message.streaming === nextMessage.streaming &&
-      row.message.completedAt === (nextMessage.streaming ? undefined : nextMessage.updatedAt) &&
-      currentText === nextMessage.text
-    ) {
-      return row;
-    }
-    changed = true;
-    return {
-      ...row,
-      message: toPagedChatMessage(nextMessage),
-      showAssistantTiming:
-        nextMessage.role === "assistant" &&
-        (row.isAssistantTurnTerminal ?? false) &&
-        !nextMessage.streaming,
-      showAssistantSummaryByDefault:
-        nextMessage.role === "assistant" &&
-        (row.showAssistantSummaryByDefault ?? false) &&
-        !nextMessage.streaming,
-    };
-  });
-
-  if (!input.rowsInput.activeTurnInProgress) {
-    return changed ? rows : input.rows;
-  }
-
-  const activeTurnStartedAtMs = input.rowsInput.activeTurnStartedAt
-    ? Date.parse(input.rowsInput.activeTurnStartedAt)
-    : Number.NaN;
-  const activeSourceRows = input.rowsInput.rows.filter((row) => {
-    if (input.rowsInput?.activeTurnId && row.turnId !== undefined) {
-      return row.turnId === input.rowsInput.activeTurnId;
-    }
-    if (!input.rowsInput?.activeTurnStartedAt || Number.isNaN(activeTurnStartedAtMs)) {
-      return false;
-    }
-    const rowCreatedAtMs = Date.parse(row.createdAt);
-    return !Number.isNaN(rowCreatedAtMs) && rowCreatedAtMs >= activeTurnStartedAtMs;
-  });
-  if (activeSourceRows.length === 0) {
-    return changed ? rows : input.rows;
-  }
-
-  const activeSourceRowIds = new Set(activeSourceRows.map((row) => row.id));
-  rows = rows.filter(
-    (row) => row.id !== "working-indicator-row" && !activeSourceRowIds.has(row.id),
-  );
-  const activeRows = buildNativeTimelineRows({
-    ...input.rowsInput,
-    rows: activeSourceRows,
-    completionDividerBeforeEntryId: null,
-    completionEndedAt: null,
-    completionStartedAt: null,
-    completionSummary: null,
-    completionTurnId: null,
-  });
-  return [...rows, ...activeRows];
-}
 const RECENT_HYDRATED_THREAD_HISTORY_KEEP_COUNT = 8;
 
 function toOptimisticOrchestrationMessage(message: ChatMessage): OrchestrationMessage {
@@ -2013,6 +1930,11 @@ function useChatViewComponent({
   const composerPanelsRef = useRef<ConnectedChatComposerPanelsHandle>(null);
   const subagentComposerPanelsRef = useRef<ConnectedChatComposerPanelsHandle>(null);
   const chatShellRef = useRef<HTMLDivElement | null>(null);
+  const [chatShellElement, setChatShellElement] = useState<HTMLDivElement | null>(null);
+  const setChatShellRef = useStableCallback((element: HTMLDivElement | null) => {
+    chatShellRef.current = element;
+    setChatShellElement(element);
+  });
   const setMessagesScrollContainerRef = useCallback(
     (element: HTMLDivElement | null) => {
       messagesScrollRef.current = element;
@@ -2708,9 +2630,13 @@ function useChatViewComponent({
     serverThread?.queuedComposerMessages ?? EMPTY_QUEUED_COMPOSER_MESSAGES;
   const queuedSteerRequest = serverThread?.queuedSteerRequest ?? null;
   const queuedComposerMessagesRef = useRef(queuedComposerMessages);
-  queuedComposerMessagesRef.current = queuedComposerMessages;
   const queuedSteerRequestRef = useRef(queuedSteerRequest);
-  queuedSteerRequestRef.current = queuedSteerRequest;
+  useLayoutEffect(() => {
+    queuedComposerMessagesRef.current = queuedComposerMessages;
+  }, [queuedComposerMessages]);
+  useLayoutEffect(() => {
+    queuedSteerRequestRef.current = queuedSteerRequest;
+  }, [queuedSteerRequest]);
 
   const openPullRequestDialog = useCallback(
     (reference?: string) => {
@@ -3546,31 +3472,7 @@ function useChatViewComponent({
     nativeTimelineRowsInputKey !== null &&
     cachedNativeTimelineRows === null &&
     resolvedNativeTimelineRows?.key !== nativeTimelineRowsInputKey;
-  const retainedNativeTimelineRowsRef = useRef<{
-    readonly threadId: string;
-    readonly rows: ReadonlyArray<TimelineRow>;
-  } | null>(null);
-  if (currentNativeTimelineRowsOverride !== null && nativeTimelineRowsThreadId !== null) {
-    retainedNativeTimelineRowsRef.current = {
-      threadId: nativeTimelineRowsThreadId,
-      rows: currentNativeTimelineRowsOverride,
-    };
-  } else if (
-    nativeTimelineRowsThreadId === null ||
-    retainedNativeTimelineRowsRef.current?.threadId !== nativeTimelineRowsThreadId
-  ) {
-    retainedNativeTimelineRowsRef.current = null;
-  }
-  const nativeTimelineRowsOverride =
-    currentNativeTimelineRowsOverride ??
-    (isThreadHistoryMetadataOnly &&
-    retainedNativeTimelineRowsRef.current?.threadId === nativeTimelineRowsThreadId &&
-    (nativeTimelineRowsLoading || nativeTimelineRowsInput !== null)
-      ? patchRetainedNativeTimelineRows({
-          rows: retainedNativeTimelineRowsRef.current.rows,
-          rowsInput: nativeTimelineRowsInput,
-        })
-      : null);
+  const nativeTimelineRowsOverride = currentNativeTimelineRowsOverride;
   const timelineRenderState = useMemo(() => {
     if (nativeTimelineRowsOverride !== null) {
       return {
@@ -6875,7 +6777,9 @@ function useChatViewComponent({
     ],
   );
   const resizeBrowserViewportForBridgeRef = useRef(resizeBrowserViewportForBridge);
-  resizeBrowserViewportForBridgeRef.current = resizeBrowserViewportForBridge;
+  useLayoutEffect(() => {
+    resizeBrowserViewportForBridgeRef.current = resizeBrowserViewportForBridge;
+  }, [resizeBrowserViewportForBridge]);
   const getBrowserViewportResizeHandler = useCallback((browserInstanceId: string) => {
     const existingHandler = browserViewportResizeHandlerByThreadRef.current.get(browserInstanceId);
     if (existingHandler) {
@@ -11605,7 +11509,7 @@ function useChatViewComponent({
       resolvedTheme={resolvedTheme}
       showFloatingDock={showRightPanelChatDock}
       floatingDockFooter={null}
-      floatingDockPortalHost={showRightPanelChatDock ? chatShellRef.current : null}
+      floatingDockPortalHost={showRightPanelChatDock ? chatShellElement : null}
       onComposerHeightChange={scheduleStickToBottom}
       onPreviewExpandedImage={onExpandTimelineImage}
       onIssuePreviewOpen={onComposerIssueTokenClick}
@@ -11643,7 +11547,7 @@ function useChatViewComponent({
     <LazyMotion features={domAnimation}>
       {environmentMiniPanelPortal}
       <div
-        ref={chatShellRef}
+        ref={setChatShellRef}
         className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background"
       >
         {/* Persistent top bar — always visible regardless of workspace mode */}
