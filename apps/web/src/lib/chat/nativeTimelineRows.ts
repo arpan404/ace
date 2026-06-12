@@ -815,9 +815,6 @@ function isNativeCompletionSummarySourceRow(
   },
   row: OrchestrationTimelineRow,
 ): boolean {
-  if (input.completionTurnId && row.turnId !== undefined && row.turnId !== input.completionTurnId) {
-    return false;
-  }
   if (input.completionStartedAt && row.createdAt < input.completionStartedAt) {
     return false;
   }

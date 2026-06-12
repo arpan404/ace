@@ -863,13 +863,6 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
     hiddenThinkingCount: number;
     toolCallCount: number;
   }) => {
-    if (hiddenCompletedWork && !timelineTurnIdsMatch(hiddenCompletedWork.turnId, input.turnId)) {
-      flushHiddenCompletedWorkSummary({
-        startedAtFloor: null,
-        endedAt: null,
-      });
-    }
-
     if (!hiddenCompletedWork) {
       hiddenCompletedWork = {
         id: `completed-work-summary:${input.id}`,
@@ -1142,7 +1135,6 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
       if (isEventInActiveTurn(timelineEntry.createdAt, activeTurnStartedAtMs)) {
         hasRenderableCurrentTurnOutput = true;
       }
-      flushOrDiscardHiddenCompletedWorkAtBoundary();
       nextRows.push({
         kind: "proposed-plan",
         id: timelineEntry.id,
@@ -1251,10 +1243,14 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
   } else {
     flushPendingMetaEntries(null);
   }
-  flushHiddenCompletedWorkSummary({
-    startedAtFloor: lastMessageBoundaryAt,
-    endedAt: null,
-  });
+  if (shouldRenderLiveWorkingRow) {
+    hiddenCompletedWork = null;
+  } else {
+    flushHiddenCompletedWorkSummary({
+      startedAtFloor: lastMessageBoundaryAt,
+      endedAt: null,
+    });
+  }
 
   const goalWorkingStateEnabled =
     input.enableGoalWorkingState === true &&

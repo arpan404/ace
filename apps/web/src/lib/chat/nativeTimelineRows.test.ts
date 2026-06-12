@@ -132,6 +132,65 @@ describe("nativeTimelineRows", () => {
     });
   });
 
+  it("unifies native completion work across internal turn id mismatches", () => {
+    const otherTurnId = TurnId.makeUnsafe("turn-native-row-internal-ui");
+    const userMessage: OrchestrationMessage = {
+      id: userMessageId,
+      role: "user",
+      text: "Update the UI",
+      turnId,
+      streaming: false,
+      sequence: 1,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+    const assistantMessage: OrchestrationMessage = {
+      id: assistantMessageId,
+      role: "assistant",
+      text: "Done",
+      turnId,
+      streaming: false,
+      sequence: 2,
+      createdAt: "2026-01-01T00:00:02.000Z",
+      updatedAt: "2026-01-01T00:00:04.000Z",
+    };
+    const activity: OrchestrationThreadActivity = {
+      id: activityId,
+      tone: "tool",
+      kind: "tool.completed",
+      summary: "Rendered UI group",
+      payload: { itemType: "dynamic_tool_call", title: "Render UI" },
+      turnId: otherTurnId,
+      sequence: 3,
+      createdAt: "2026-01-01T00:00:03.000Z",
+    };
+
+    const rows = buildNativeTimelineRows({
+      rows: [messageRow(userMessage, 0), messageRow(assistantMessage, 1), activityRow(activity, 2)],
+      messages: [userMessage, assistantMessage],
+      activities: [activity],
+      proposedPlans: [],
+      activeTurnInProgress: false,
+      activeTurnStartedAt: null,
+      completionDividerBeforeEntryId: `message:${assistantMessageId}`,
+      completionStartedAt: "2026-01-01T00:00:00.000Z",
+      completionEndedAt: "2026-01-01T00:00:04.000Z",
+      completionTurnId: String(turnId),
+      completionSummary: "Worked for 4s",
+      hideCompletedWorkMessages: true,
+      turnDiffSummaryByAssistantMessageId: new Map(),
+    });
+
+    const summaryRows = rows.filter((row) => row.kind === "completed-work-summary");
+    expect(rows.map((row) => row.kind)).toEqual(["message", "completed-work-summary", "message"]);
+    expect(summaryRows).toHaveLength(1);
+    expect(summaryRows[0]).toMatchObject({
+      kind: "completed-work-summary",
+      detailRows: [{ kind: "work", id: activityId }],
+      toolCallCount: 1,
+    });
+  });
+
   it("groups consecutive completed work details into one expandable row", () => {
     const userMessage: OrchestrationMessage = {
       id: userMessageId,
