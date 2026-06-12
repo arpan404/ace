@@ -1,4 +1,4 @@
-import { memo, type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { type ProviderKind } from "@ace/contracts";
 import {
   CheckIcon,
@@ -193,7 +193,7 @@ function DiffSummaryOverview({
   );
 }
 
-export const PlanSummaryPanel = memo(function PlanSummaryPanel({
+export function PlanSummaryPanel({
   activePlan,
   activeProposedPlan,
   generatedWorkspaceSummary,
@@ -223,11 +223,8 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
     ? stripDisplayedPlanMarkdown(effectivePlanMarkdown)
     : null;
   const planTitle = effectivePlanMarkdown ? proposedPlanTitle(effectivePlanMarkdown) : null;
-  const planProgress = useMemo(() => summarizeActivePlan(effectivePlan), [effectivePlan]);
-  const displaySteps = useMemo(
-    () => getDisplaySteps(effectivePlan?.steps ?? []),
-    [effectivePlan?.steps],
-  );
+  const planProgress = summarizeActivePlan(effectivePlan);
+  const displaySteps = getDisplaySteps(effectivePlan?.steps ?? []);
   const completedPercent = planProgress
     ? Math.round((planProgress.completed / Math.max(planProgress.total, 1)) * 100)
     : 0;
@@ -254,18 +251,18 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
     return () => window.clearTimeout(timeout);
   }, [isRegeneratingSummary]);
 
-  const handleCopyPlan = useCallback(() => {
+  const handleCopyPlan = () => {
     if (!effectivePlanMarkdown) return;
     copyToClipboard(effectivePlanMarkdown);
-  }, [copyToClipboard, effectivePlanMarkdown]);
+  };
 
-  const handleDownload = useCallback(() => {
+  const handleDownload = () => {
     if (!effectivePlanMarkdown) return;
     const filename = buildProposedPlanMarkdownFilename(effectivePlanMarkdown);
     downloadPlanAsTextFile(filename, normalizePlanMarkdownForExport(effectivePlanMarkdown));
-  }, [effectivePlanMarkdown]);
+  };
 
-  const handleSaveToWorkspace = useCallback(() => {
+  const handleSaveToWorkspace = () => {
     const api = readNativeApi();
     if (!api || !workspaceRoot || !effectivePlanMarkdown) return;
     const filename = buildProposedPlanMarkdownFilename(effectivePlanMarkdown);
@@ -294,9 +291,9 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
         () => setIsSavingToWorkspace(false),
         () => setIsSavingToWorkspace(false),
       );
-  }, [effectivePlanMarkdown, workspaceRoot]);
+  };
 
-  const handleRegenerateSummary = useCallback(() => {
+  const handleRegenerateSummary = () => {
     if (!onRegenerateSummary || isRegeneratingSummary) {
       return;
     }
@@ -313,7 +310,7 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
         description: error instanceof Error ? error.message : "An error occurred.",
       });
     });
-  }, [isRegeneratingSummary, onRegenerateSummary]);
+  };
 
   const hasTodoSection = Boolean(effectivePlan && effectivePlan.steps.length > 0);
   const todoPlan = hasTodoSection ? effectivePlan : null;
@@ -626,6 +623,6 @@ export const PlanSummaryPanel = memo(function PlanSummaryPanel({
       </section>
     </div>
   );
-});
+}
 
 export type { PlanSummaryPanelProps };

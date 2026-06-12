@@ -32,14 +32,14 @@ jobs:
       - uses: actions/checkout@v5
 
       - uses: millionco/react-doctor@v2
+        with:
+          directory: apps/web
         # Common configuration knobs — uncomment any to override the default.
         # Full reference: https://www.react.doctor/ci
-        # with:
         #   blocking: warning        # Gate level: "error" (default) | "warning" | "none" (advisory)
         #   scope: full              # On PRs, scan the whole project instead of just changed files
         #   comment: false           # Disable the sticky PR summary comment
         #   review-comments: false   # Disable inline review comments on changed lines
         #   commit-status: false     # Disable the commit status (score + counts, links to the run)
         #   version: "0.4.0"         # Pin to a specific react-doctor version instead of "latest"
-        #   directory: apps/web      # Scan a sub-directory (default: ".")
         #   project: "web,admin"     # In a monorepo, scan specific workspace project(s)
