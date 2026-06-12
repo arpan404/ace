@@ -65,7 +65,7 @@ interface BranchToolbarProps {
   onEnvModeChange: (mode: EnvMode) => void;
   envModeOverride?: EnvMode | null;
   envLocked: boolean;
-  presentation?: "footer" | "environment";
+  presentation?: "footer" | "environment" | "draft";
   localEnvironmentLabel?: string;
   localEnvironmentIcon?: Project["icon"];
   onCheckoutPullRequestRequest?: (reference: string) => void;
@@ -141,6 +141,8 @@ function EnvironmentModeMenu(props: {
     ) : (
       <LaptopIcon className="size-3.5 text-muted-foreground" />
     )
+  ) : isPendingNewWorktree ? (
+    <GitBranchPlusIcon className="size-3.5 text-muted-foreground" />
   ) : (
     <FolderGit2Icon className="size-3.5 text-muted-foreground" />
   );
@@ -358,6 +360,7 @@ export default function BranchToolbar({
 
   if (!activeThreadId || !activeProject) return null;
   const isEnvironmentPresentation = presentation === "environment";
+  const isDraftPresentation = presentation === "draft";
   const envModeItems = [
     { value: "local", label: localEnvironmentLabel },
     { value: "worktree", label: "New worktree" },
@@ -403,6 +406,24 @@ export default function BranchToolbar({
     );
   }
 
+  if (isDraftPresentation) {
+    return (
+      <BranchToolbarBranchSelector
+        activeProjectCwd={activeProject.cwd}
+        activeThreadBranch={activeThreadBranch}
+        activeWorktreePath={activeWorktreePath}
+        branchCwd={branchCwd}
+        connectionUrl={normalizedConnectionUrl}
+        effectiveEnvMode={effectiveEnvMode}
+        envLocked={envLocked}
+        presentation="draft"
+        onSetThreadBranch={setThreadBranch}
+        {...(onCheckoutPullRequestRequest ? { onCheckoutPullRequestRequest } : {})}
+        {...(onComposerFocusRequest ? { onComposerFocusRequest } : {})}
+      />
+    );
+  }
+
   return (
     <div className="mx-auto flex w-full max-w-3xl items-center justify-between px-5 pb-2 pt-0.5">
       <div className="flex items-center gap-0.5">
@@ -432,7 +453,7 @@ export default function BranchToolbar({
               className="gap-1.5 rounded-md text-[11px] font-medium tracking-wide text-muted-foreground uppercase transition-colors duration-150 hover:text-foreground"
             >
               {effectiveEnvMode === "worktree" ? (
-                <GitForkIcon className="size-3 opacity-60" />
+                <GitBranchPlusIcon className="size-3 opacity-60" />
               ) : (
                 localModeIcon
               )}
@@ -451,7 +472,7 @@ export default function BranchToolbar({
               </SelectItem>
               <SelectItem value="worktree">
                 <span className="inline-flex items-center gap-1.5">
-                  <GitForkIcon className="size-3" />
+                  <GitBranchPlusIcon className="size-3" />
                   New worktree
                 </span>
               </SelectItem>

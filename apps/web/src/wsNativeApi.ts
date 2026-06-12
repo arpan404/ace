@@ -203,6 +203,7 @@ export function createWsNativeApi(): NativeApi {
       installLspTool: localRpcClient.server.installLspTool,
       uninstallLspTool: localRpcClient.server.uninstallLspTool,
       searchOpenCodeModels: localRpcClient.server.searchOpenCodeModels,
+      generateNewThreadRecommendations: localRpcClient.server.generateNewThreadRecommendations,
       upsertKeybinding: localRpcClient.server.upsertKeybinding,
       getSettings: localRpcClient.server.getSettings,
       updateSettings: localRpcClient.server.updateSettings,

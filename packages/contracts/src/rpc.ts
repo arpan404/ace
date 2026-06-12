@@ -14,6 +14,8 @@ import {
   GitCheckoutInput,
   GitCommandError,
   GitCreateBranchInput,
+  GenerateNewThreadRecommendationsInput,
+  GenerateNewThreadRecommendationsResult,
   GitGetGitHubIssueThreadInput,
   GitGetGitHubIssueThreadResult,
   GitListGitHubIssuesInput,
@@ -38,6 +40,7 @@ import {
   GitWorktreeStatsResult,
   GitWorkingTreeDiffInput,
   GitWorkingTreeDiffResult,
+  TextGenerationError,
 } from "./git";
 import { KeybindingsConfigError } from "./keybindings";
 import {
@@ -210,6 +213,7 @@ export const WS_METHODS = {
   serverUpgradeProviderCli: "server.upgradeProviderCli",
   serverGetRuntimeProfile: "server.getRuntimeProfile",
   serverSearchOpenCodeModels: "server.searchOpenCodeModels",
+  serverGenerateNewThreadRecommendations: "server.generateNewThreadRecommendations",
   serverGetLspToolsStatus: "server.getLspToolsStatus",
   serverInstallLspTools: "server.installLspTools",
   serverSearchLspMarketplace: "server.searchLspMarketplace",
@@ -277,6 +281,15 @@ export const WsServerSearchOpenCodeModelsRpc = Rpc.make(WS_METHODS.serverSearchO
   payload: ServerSearchOpenCodeModelsInput,
   success: ServerSearchOpenCodeModelsResult,
 });
+
+export const WsServerGenerateNewThreadRecommendationsRpc = Rpc.make(
+  WS_METHODS.serverGenerateNewThreadRecommendations,
+  {
+    payload: GenerateNewThreadRecommendationsInput,
+    success: GenerateNewThreadRecommendationsResult,
+    error: TextGenerationError,
+  },
+);
 
 export const WsServerGetLspToolsStatusRpc = Rpc.make(WS_METHODS.serverGetLspToolsStatus, {
   payload: Schema.Struct({}),
@@ -670,6 +683,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerUpgradeProviderCliRpc,
   WsServerGetRuntimeProfileRpc,
   WsServerSearchOpenCodeModelsRpc,
+  WsServerGenerateNewThreadRecommendationsRpc,
   WsServerGetLspToolsStatusRpc,
   WsServerInstallLspToolsRpc,
   WsServerSearchLspMarketplaceRpc,

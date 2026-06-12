@@ -2,6 +2,8 @@ import { Schema } from "effect";
 import type {
   GitCheckoutInput,
   GitCreateBranchInput,
+  GenerateNewThreadRecommendationsInput,
+  GenerateNewThreadRecommendationsResult,
   GitGetGitHubIssueThreadInput,
   GitGetGitHubIssueThreadResult,
   GitListGitHubIssuesInput,
@@ -567,6 +569,9 @@ export interface NativeApi {
     searchOpenCodeModels: (
       input: ServerSearchOpenCodeModelsInput,
     ) => Promise<ServerSearchOpenCodeModelsResult>;
+    generateNewThreadRecommendations: (
+      input: GenerateNewThreadRecommendationsInput,
+    ) => Promise<GenerateNewThreadRecommendationsResult>;
     upsertKeybinding: (input: ServerUpsertKeybindingInput) => Promise<ServerUpsertKeybindingResult>;
     getSettings: () => Promise<ServerSettings>;
     updateSettings: (patch: ServerSettingsPatch) => Promise<ServerSettings>;

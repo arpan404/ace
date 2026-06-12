@@ -54,6 +54,7 @@ import {
 import { GitCore, type GitCoreShape } from "./git/Services/GitCore.ts";
 import { GitHubCli, type GitHubCliShape } from "./git/Services/GitHubCli.ts";
 import { GitManager, type GitManagerShape } from "./git/Services/GitManager.ts";
+import { TextGeneration, type TextGenerationShape } from "./git/Services/TextGeneration.ts";
 import { Keybindings, type KeybindingsShape } from "./keybindings.ts";
 import { Open, type OpenShape } from "./open.ts";
 import {
@@ -145,6 +146,38 @@ const workspaceAndProjectServicesLayer = Layer.mergeAll(
   ),
   ProjectFaviconResolverLive,
 );
+
+const fakeTextGeneration: TextGenerationShape = {
+  generateCommitMessage: () =>
+    Effect.succeed({
+      subject: "Update project",
+      body: "",
+    }),
+  generatePrContent: () =>
+    Effect.succeed({
+      title: "Update project",
+      body: "## Summary\n- Update project\n\n## Testing\n- Not run",
+    }),
+  generateBranchName: () => Effect.succeed({ branch: "update-project" }),
+  generateThreadTitle: () => Effect.succeed({ title: "Update project" }),
+  generateWorkspaceSummary: () =>
+    Effect.succeed({
+      headline: "Update project",
+      summary: "Generated summary",
+      keyChanges: [],
+      risks: [],
+    }),
+  generateNewThreadRecommendations: () =>
+    Effect.succeed({
+      recommendations: [
+        {
+          title: "Continue project",
+          description: "Pick up from the latest project context.",
+          prompt: "Continue from the latest project context.",
+        },
+      ],
+    }),
+};
 
 const buildAppUnderTest = (options?: {
   config?: Partial<ServerConfigShape>;
@@ -268,6 +301,7 @@ const buildAppUnderTest = (options?: {
           ...options?.layers?.gitManager,
         }),
       ),
+      Layer.provide(Layer.succeed(TextGeneration, fakeTextGeneration)),
       Layer.provide(
         Layer.mock(TerminalManager)({
           ...options?.layers?.terminalManager,

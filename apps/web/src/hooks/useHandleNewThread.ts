@@ -59,6 +59,7 @@ export function useHandleNewThread() {
         worktreePath?: string | null;
         envMode?: DraftThreadEnvMode;
         connectionUrl?: string;
+        replace?: boolean;
       },
     ): Promise<void> => {
       const {
@@ -72,6 +73,7 @@ export function useHandleNewThread() {
       const hasBranchOption = options?.branch !== undefined;
       const hasWorktreePathOption = options?.worktreePath !== undefined;
       const hasEnvModeOption = options?.envMode !== undefined;
+      const replace = options?.replace ?? false;
       const localConnectionUrl = resolveLocalConnectionUrl();
       const resolvedConnectionUrl = (() => {
         const candidateConnectionUrl =
@@ -110,6 +112,7 @@ export function useHandleNewThread() {
             to: "/$threadId",
             params: { threadId: storedDraftThread.threadId },
             search: threadRouteSearch,
+            replace,
           });
         })();
       }
@@ -149,6 +152,7 @@ export function useHandleNewThread() {
           to: "/$threadId",
           params: { threadId },
           search: threadRouteSearch,
+          replace,
         });
       })();
     },

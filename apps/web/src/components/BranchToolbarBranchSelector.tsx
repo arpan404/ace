@@ -44,6 +44,10 @@ import {
   ComboboxTrigger,
 } from "./ui/combobox";
 import { toastManager } from "./ui/toast";
+import {
+  DRAFT_CONTEXT_PILL_ICON_CLASS_NAME,
+  DRAFT_CONTEXT_PILL_TRIGGER_CLASS_NAME,
+} from "./thread/topBarClusterStyles";
 
 interface BranchToolbarBranchSelectorProps {
   activeProjectCwd: string;
@@ -53,7 +57,7 @@ interface BranchToolbarBranchSelectorProps {
   connectionUrl?: string | null | undefined;
   effectiveEnvMode: EnvMode;
   envLocked: boolean;
-  presentation?: "toolbar" | "environment";
+  presentation?: "toolbar" | "environment" | "draft";
   onSetThreadBranch: (branch: string | null, worktreePath: string | null) => void;
   onCheckoutPullRequestRequest?: (reference: string) => void;
   onComposerFocusRequest?: () => void;
@@ -507,6 +511,7 @@ export function BranchToolbarBranchSelector({
     resolvedActiveBranch,
   });
   const isEnvironmentPresentation = presentation === "environment";
+  const isDraftPresentation = presentation === "draft";
   const isBranchListLoading = branchesQuery.isLoading && branches.length === 0;
 
   return (
@@ -526,52 +531,73 @@ export function BranchToolbarBranchSelector({
       value={resolvedActiveBranch}
     >
       <ComboboxTrigger
-        render={<Button variant="ghost" size={isEnvironmentPresentation ? "default" : "xs"} />}
+        render={
+          <Button
+            variant="ghost"
+            size={isEnvironmentPresentation || isDraftPresentation ? "default" : "xs"}
+          />
+        }
         className={
           isEnvironmentPresentation
             ? "min-h-8 w-full justify-start gap-2 rounded-[var(--control-radius)] px-2 py-1 text-[13px] font-normal text-foreground hover:bg-accent hover:text-accent-foreground"
-            : "text-muted-foreground/70 hover:text-foreground/80"
+            : isDraftPresentation
+              ? `${DRAFT_CONTEXT_PILL_TRIGGER_CLASS_NAME} max-w-[16rem] justify-start`
+              : "text-muted-foreground/70 hover:text-foreground/80"
         }
         disabled={isBranchListLoading || isBranchActionPending}
       >
-        {isEnvironmentPresentation ? (
+        {isEnvironmentPresentation || isDraftPresentation ? (
           isBranchListLoading ? (
-            <Spinner className="size-3.5 text-muted-foreground" />
+            <span className={isDraftPresentation ? DRAFT_CONTEXT_PILL_ICON_CLASS_NAME : undefined}>
+              <Spinner className="size-3.5 text-muted-foreground" />
+            </span>
           ) : (
-            <GitBranchIcon className="size-3.5 text-muted-foreground" />
+            <span className={isDraftPresentation ? DRAFT_CONTEXT_PILL_ICON_CLASS_NAME : undefined}>
+              <GitBranchIcon className="size-3.5 text-muted-foreground" />
+            </span>
           )
         ) : null}
         <span
           className={
             isEnvironmentPresentation
               ? "min-w-0 flex-1 truncate text-left"
-              : "max-w-[240px] truncate"
+              : isDraftPresentation
+                ? "min-w-0 truncate"
+                : "max-w-[240px] truncate"
           }
         >
           {isBranchListLoading ? "Loading branches" : triggerLabel}
         </span>
         <ChevronDownIcon
-          className={isEnvironmentPresentation ? "size-3.5 text-muted-foreground" : undefined}
+          className={
+            isEnvironmentPresentation || isDraftPresentation
+              ? "size-3.5 shrink-0 text-muted-foreground/55"
+              : undefined
+          }
         />
       </ComboboxTrigger>
       <ComboboxPopup
-        align={isEnvironmentPresentation ? "start" : "end"}
-        side={isEnvironmentPresentation ? "bottom" : "top"}
-        sideOffset={isEnvironmentPresentation ? 6 : 4}
+        align={isEnvironmentPresentation || isDraftPresentation ? "start" : "end"}
+        side={isEnvironmentPresentation || isDraftPresentation ? "bottom" : "top"}
+        sideOffset={isEnvironmentPresentation || isDraftPresentation ? 6 : 4}
         className={
           isEnvironmentPresentation
             ? "glass-surface w-[var(--button-width)] max-w-[calc(100vw-1rem)] overflow-hidden rounded-[var(--panel-radius)] border"
-            : "w-80"
+            : isDraftPresentation
+              ? "glass-surface w-80 max-w-[calc(100vw-1rem)] overflow-hidden rounded-[var(--panel-radius)] border"
+              : "w-80"
         }
       >
         <div
           className={
-            isEnvironmentPresentation ? "border-border/45 border-b px-2 pt-2 pb-2" : "border-b p-1"
+            isEnvironmentPresentation || isDraftPresentation
+              ? "border-border/45 border-b px-2 pt-2 pb-2"
+              : "border-b p-1"
           }
         >
           <ComboboxInput
             className={
-              isEnvironmentPresentation
+              isEnvironmentPresentation || isDraftPresentation
                 ? "[&_input]:font-sans rounded-[var(--control-radius)] border-border/50 bg-background/45 text-[13px] has-focus-visible:border-border/70 has-focus-visible:bg-background/65"
                 : "[&_input]:font-sans rounded-md"
             }
@@ -608,7 +634,12 @@ export function BranchToolbarBranchSelector({
                 itemClassName:
                   "min-h-9 rounded-[var(--control-radius)] px-2 text-[13px] data-selected:bg-accent/45",
               }
-            : {})}
+            : isDraftPresentation
+              ? {
+                  itemClassName:
+                    "min-h-9 rounded-[var(--control-radius)] px-2 text-[13px] data-selected:bg-accent/45",
+                }
+              : {})}
         />
       </ComboboxPopup>
     </Combobox>

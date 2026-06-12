@@ -136,6 +136,7 @@ interface ChatComposerPanelProps {
   readonly isSendBusy: boolean;
   readonly showPlanFollowUpPrompt: boolean;
   readonly showQueue?: boolean;
+  readonly placeholderOverride?: string | undefined;
   readonly prompt: string;
   readonly composerCursor: ComponentProps<typeof ComposerPromptEditor>["cursor"];
   readonly composerTriggerKind: ComponentProps<typeof ComposerCommandMenu>["triggerKind"];
@@ -395,9 +396,9 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
       ? "Custom answer, or leave blank to use the selected option"
       : props.showPlanFollowUpPrompt && props.planFollowUpId
         ? "Feedback to refine the plan, or blank to implement"
-        : props.isGitRepo
-          ? "Ask anything — @ files, / commands, # for issue refs"
-          : "Follow-ups or attach images";
+        : props.placeholderOverride
+          ? props.placeholderOverride
+          : "Ask or follow-up changes";
   const pendingAction = useMemo<ComponentProps<typeof ComposerPrimaryActions>["pendingAction"]>(
     () =>
       props.activePendingProgress
@@ -602,6 +603,12 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
                 onIssueTokenClick={props.onIssueTokenClick}
                 onPaste={props.onPaste}
                 placeholder={placeholder}
+                {...(props.placeholderOverride
+                  ? {
+                      className: "new-thread-start-composer-editor",
+                      placeholderClassName: "new-thread-start-composer-placeholder",
+                    }
+                  : {})}
                 disabled={props.isConnecting || props.isComposerApprovalState}
               />
             </div>
