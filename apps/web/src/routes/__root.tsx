@@ -74,7 +74,6 @@ import {
   canUseSnapshotAsAuthoritative,
   createOrchestrationRecoveryCoordinator,
 } from "../orchestrationRecovery";
-import { useEffectEvent } from "../hooks/useEffectEvent";
 import { resetWsRpcClient } from "../wsRpcClient";
 import { useDesktopCliInstallState } from "../lib/desktopCliInstallReactQuery";
 import { getRouteRpcClient, subscribeToRemoteRelayConnectionState } from "../lib/remoteWsRouter";
@@ -901,7 +900,9 @@ function useEventRouterLifecycle() {
   const bootstrapFromSnapshotRef = useRef<() => Promise<void>>(async () => undefined);
   const serverConfig = useServerConfig();
 
-  pathnameRef.current = pathname;
+  useEffect(() => {
+    pathnameRef.current = pathname;
+  }, [pathname]);
 
   useEffect(() => {
     if (bootstrapComplete && !loggedBootstrapCompleteRef.current) {
@@ -920,7 +921,7 @@ function useEventRouterLifecycle() {
     }
   }, [bootstrapComplete, pathname]);
 
-  const handleWelcome = useEffectEvent((payload: ServerLifecycleWelcomePayload) => {
+  const handleWelcome = (payload: ServerLifecycleWelcomePayload) => {
     logLoadDiagnostic({
       phase: "bootstrap",
       message: "Processing welcome payload",
@@ -963,68 +964,65 @@ function useEventRouterLifecycle() {
       })(),
       "Failed to navigate to the bootstrap thread.",
     );
-  });
+  };
 
-  const handleServerConfigUpdated = useEffectEvent(
-    ({
-      payload,
-      source,
-    }: {
-      readonly payload: import("@ace/contracts").ServerConfigUpdatedPayload;
-      readonly source: ServerConfigUpdateSource;
-    }) => {
-      if (typeof window !== "undefined" && window.desktopBridge?.sendServerConfigEvent) {
-        window.desktopBridge.sendServerConfigEvent({ type: "settingsUpdated", payload });
-      }
-      const isReplay = !handledConfigReplayRef.current;
-      handledConfigReplayRef.current = true;
-      if (isReplay || source !== "keybindingsUpdated") {
-        return;
-      }
+  const handleServerConfigUpdated = ({
+    payload,
+    source,
+  }: {
+    readonly payload: import("@ace/contracts").ServerConfigUpdatedPayload;
+    readonly source: ServerConfigUpdateSource;
+  }) => {
+    if (typeof window !== "undefined" && window.desktopBridge?.sendServerConfigEvent) {
+      window.desktopBridge.sendServerConfigEvent({ type: "settingsUpdated", payload });
+    }
+    const isReplay = !handledConfigReplayRef.current;
+    handledConfigReplayRef.current = true;
+    if (isReplay || source !== "keybindingsUpdated") {
+      return;
+    }
 
-      const issue = payload.issues.find((entry) => entry.kind.startsWith("keybindings."));
-      if (!issue) {
-        toastManager.add({
-          type: "success",
-          title: "Keybindings updated",
-          description: "Keybindings configuration reloaded successfully.",
-        });
-        return;
-      }
-
+    const issue = payload.issues.find((entry) => entry.kind.startsWith("keybindings."));
+    if (!issue) {
       toastManager.add({
-        type: "warning",
-        title: "Invalid keybindings configuration",
-        description: issue.message,
-        actionProps: {
-          children: "Open keybindings.json",
-          onClick: () => {
-            const api = readNativeApi();
-            if (!api) {
-              return;
-            }
-
-            void Promise.resolve(serverConfig ?? api.server.getConfig())
-              .then((config) => {
-                const editor = resolveAndPersistPreferredEditor(config.availableEditors);
-                if (!editor) {
-                  throw new Error("No available editors found.");
-                }
-                return api.shell.openInEditor(config.keybindingsConfigPath, editor);
-              })
-              .catch((error) => {
-                toastManager.add({
-                  type: "error",
-                  title: "Unable to open keybindings file",
-                  description:
-                    error instanceof Error ? error.message : "Unknown error opening file.",
-                });
-              });
-          },
-        },
+        type: "success",
+        title: "Keybindings updated",
+        description: "Keybindings configuration reloaded successfully.",
       });
-    },
-  );
+      return;
+    }
+
+    toastManager.add({
+      type: "warning",
+      title: "Invalid keybindings configuration",
+      description: issue.message,
+      actionProps: {
+        children: "Open keybindings.json",
+        onClick: () => {
+          const api = readNativeApi();
+          if (!api) {
+            return;
+          }
+
+          void Promise.resolve(serverConfig ?? api.server.getConfig())
+            .then((config) => {
+              const editor = resolveAndPersistPreferredEditor(config.availableEditors);
+              if (!editor) {
+                throw new Error("No available editors found.");
+              }
+              return api.shell.openInEditor(config.keybindingsConfigPath, editor);
+            })
+            .catch((error) => {
+              toastManager.add({
+                type: "error",
+                title: "Unable to open keybindings file",
+                description: error instanceof Error ? error.message : "Unknown error opening file.",
+              });
+            });
+        },
+      },
+    });
+  };
 
   useEffect(() => {
     const localConnectionUrl = resolveLocalDeviceWsUrl();

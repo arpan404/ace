@@ -106,6 +106,15 @@ function useSidebar() {
   return context;
 }
 
+function stableSidebarSkeletonWidth(seed: string): string {
+  let hash = 2_166_136_261;
+  for (let index = 0; index < seed.length; index += 1) {
+    hash ^= seed.charCodeAt(index);
+    hash = Math.imul(hash, 16_777_619);
+  }
+  return `${((hash >>> 0) % 40) + 50}%`;
+}
+
 function SidebarProvider({
   defaultOpen = true,
   open: openProp,
@@ -124,8 +133,7 @@ function SidebarProvider({
 
   // This is the internal state of the sidebar.
   // We use openProp and setOpenProp for control from outside the component.
-  const initialOpenRef = React.useRef(defaultOpen);
-  const [_open, _setOpen] = React.useState(initialOpenRef.current);
+  const [_open, _setOpen] = React.useState(() => defaultOpen);
   const open = openProp ?? _open;
   const setOpen = React.useCallback(
     async (value: boolean | ((value: boolean) => boolean)) => {
@@ -1040,9 +1048,7 @@ function SidebarMenuSkeleton({
 }: React.ComponentProps<"div"> & {
   showIcon?: boolean;
 }) {
-  // Preserve a stable random width for the lifetime of the skeleton row.
-  const widthRef = React.useRef(`${Math.floor(Math.random() * 40) + 50}%`);
-  const width = widthRef.current;
+  const width = stableSidebarSkeletonWidth(React.useId());
 
   return (
     <div

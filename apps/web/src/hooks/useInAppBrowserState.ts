@@ -2494,14 +2494,6 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
   }, []);
 
   useEffect(() => {
-    setTabRuntimeById((current) => {
-      const validIds = new Set(browserSession.tabs.map((tab) => tab.id));
-      const entries = Object.entries(current).filter(([tabId]) => validIds.has(tabId));
-      return entries.length === Object.keys(current).length ? current : Object.fromEntries(entries);
-    });
-  }, [browserSession.tabs]);
-
-  useEffect(() => {
     if (!activeTabIsInternal || !designerState.active) {
       return;
     }

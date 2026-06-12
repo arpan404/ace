@@ -38,27 +38,24 @@ function queryAddressInput(): HTMLInputElement | null {
 }
 
 function BrowserFocusHarnessPanel(props: { mode: InAppBrowserMode }) {
-  const state = useInAppBrowserState({ mode: props.mode, open: true });
+  const { addressInputRef, browserSession, draftUrl, openNewTab, openUrl } = useInAppBrowserState({
+    mode: props.mode,
+    open: true,
+  });
 
   return (
     <div>
-      <input
-        aria-label="Browser address bar"
-        ref={state.addressInputRef}
-        value={state.draftUrl}
-        readOnly
-      />
-      <button type="button" onClick={state.openNewTab}>
+      <input aria-label="Browser address bar" ref={addressInputRef} value={draftUrl} readOnly />
+      <button type="button" onClick={openNewTab}>
         Open new tab
       </button>
-      <button type="button" onClick={() => state.openUrl("https://openai.com", { newTab: true })}>
+      <button type="button" onClick={() => openUrl("https://openai.com", { newTab: true })}>
         Open URL in new tab
       </button>
-      <div aria-label="Tab count">{state.browserSession.tabs.length}</div>
-      <div aria-label="First tab URL">{state.browserSession.tabs[0]?.url ?? ""}</div>
+      <div aria-label="Tab count">{browserSession.tabs.length}</div>
+      <div aria-label="First tab URL">{browserSession.tabs[0]?.url ?? ""}</div>
       <div aria-label="Active tab URL">
-        {state.browserSession.tabs.find((tab) => tab.id === state.browserSession.activeTabId)
-          ?.url ?? ""}
+        {browserSession.tabs.find((tab) => tab.id === browserSession.activeTabId)?.url ?? ""}
       </div>
     </div>
   );
