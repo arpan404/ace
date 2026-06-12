@@ -3261,6 +3261,46 @@ const SystemMessageTimelineRow = memo(function SystemMessageTimelineRow(props: {
   );
 });
 
+const TimelineDisclosureBody = memo(function TimelineDisclosureBody(props: {
+  readonly open: boolean;
+  readonly className?: string;
+  readonly children: ReactNode;
+  readonly dataAttribute?: Record<string, string>;
+}) {
+  const [hasRenderedContent, setHasRenderedContent] = useState(props.open);
+  useEffect(() => {
+    if (props.open) {
+      setHasRenderedContent(true);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setHasRenderedContent(false);
+    }, 220);
+    return () => window.clearTimeout(timer);
+  }, [props.open]);
+
+  if (!hasRenderedContent) {
+    return null;
+  }
+
+  return (
+    <div
+      className={cn(
+        "grid overflow-hidden transition-[grid-template-rows,opacity,transform] duration-200 ease-out motion-reduce:transition-none",
+        props.open
+          ? "grid-rows-[1fr] translate-y-0 opacity-100"
+          : "grid-rows-[0fr] -translate-y-1 opacity-0",
+        props.className,
+      )}
+      aria-hidden={props.open ? undefined : "true"}
+      data-disclosure-state={props.open ? "open" : "closed"}
+      {...props.dataAttribute}
+    >
+      <div className="min-h-0 overflow-hidden">{props.children}</div>
+    </div>
+  );
+});
+
 const WorkLogTimelineRow = memo(function WorkLogTimelineRow(props: {
   row: TimelineWorkLogRow;
   expandedWorkGroups: Record<string, boolean>;
@@ -3289,7 +3329,6 @@ const WorkLogTimelineRow = memo(function WorkLogTimelineRow(props: {
   const groupId = props.groupIdOverride ?? workGroupId(props.row.id);
   const hasGroupDetails = props.row.entries.length > 0;
   const isExpanded = props.expandedWorkGroups[groupId] ?? false;
-  const ChevronIcon = isExpanded ? ChevronDownIcon : ChevronRightIcon;
   const { summary } = props.row;
   const elapsedLabel = summarizeWorkGroupElapsedLabel(props.row.createdAt, props.row.summaryEndAt);
   const thinkingDurationMs = summarizeReportedThinkingDurationMs(props.row.entries);
@@ -3344,8 +3383,11 @@ const WorkLogTimelineRow = memo(function WorkLogTimelineRow(props: {
             </Fragment>
           ))}
           {hasGroupDetails && (
-            <ChevronIcon
-              className="size-3.5 shrink-0 text-muted-foreground/60 transition-colors duration-100 group-hover/disclosure:text-foreground/90 group-focus-visible/disclosure:text-foreground/90"
+            <ChevronRightIcon
+              className={cn(
+                "size-3.5 shrink-0 text-muted-foreground/60 transition-[color,transform] duration-200 ease-out group-hover/disclosure:text-foreground/90 group-focus-visible/disclosure:text-foreground/90 motion-reduce:transition-none",
+                isExpanded && "rotate-90",
+              )}
               strokeWidth={2.2}
             />
           )}
@@ -3357,11 +3399,12 @@ const WorkLogTimelineRow = memo(function WorkLogTimelineRow(props: {
           )}
         </div>
       </button>
-      {isExpanded && hasGroupDetails && (
-        <div
-          className="mt-2 space-y-2 border-l border-border/45 pl-5"
-          data-meta-disclosure-body="true"
-        >
+      <TimelineDisclosureBody
+        open={isExpanded && hasGroupDetails}
+        className="mt-2 border-l border-border/45 pl-5"
+        dataAttribute={{ "data-meta-disclosure-body": "true" }}
+      >
+        <div className="space-y-2">
           {props.row.entries.map((entry) =>
             entry.kind === "work" ? (
               <SimpleWorkEntryRow
@@ -3379,7 +3422,7 @@ const WorkLogTimelineRow = memo(function WorkLogTimelineRow(props: {
             ),
           )}
         </div>
-      )}
+      </TimelineDisclosureBody>
     </div>
   );
 });
@@ -3511,11 +3554,12 @@ const CompletedWorkSummaryTimelineRow = memo(function CompletedWorkSummaryTimeli
           {summaryContent}
         </div>
       )}
-      {!isOpen && visibleDiagnosticRows.length > 0 && (
-        <div
-          className="mt-2 ml-[5px] min-w-0 space-y-2 border-destructive/35 border-l py-0.5 pl-4"
-          data-completed-work-visible-diagnostics="true"
-        >
+      <TimelineDisclosureBody
+        open={!isOpen && visibleDiagnosticRows.length > 0}
+        className="mt-2 ml-[5px] min-w-0 border-destructive/35 border-l py-0.5 pl-4"
+        dataAttribute={{ "data-completed-work-visible-diagnostics": "true" }}
+      >
+        <div className="space-y-2">
           {visibleDiagnosticRows.map((diagnosticRow) => (
             <WorkLogTimelineRow
               key={`completed-work-visible-diagnostic:${props.row.id}:${diagnosticRow.id}`}
@@ -3525,12 +3569,13 @@ const CompletedWorkSummaryTimelineRow = memo(function CompletedWorkSummaryTimeli
             />
           ))}
         </div>
-      )}
-      {isOpen && hasHiddenLogs && (
-        <div
-          className="mt-2 ml-[5px] min-w-0 space-y-2 border-border/35 border-l py-0.5 pl-4"
-          data-completed-work-details="true"
-        >
+      </TimelineDisclosureBody>
+      <TimelineDisclosureBody
+        open={isOpen && hasHiddenLogs}
+        className="mt-2 ml-[5px] min-w-0 border-border/35 border-l py-0.5 pl-4"
+        dataAttribute={{ "data-completed-work-details": "true" }}
+      >
+        <div className="space-y-2">
           {shouldFlattenSingleWorkGroup
             ? singleDetailRow.entries.map((entry) =>
                 entry.kind === "work" ? (
@@ -3558,7 +3603,7 @@ const CompletedWorkSummaryTimelineRow = memo(function CompletedWorkSummaryTimeli
                 />
               ))}
         </div>
-      )}
+      </TimelineDisclosureBody>
     </div>
   );
 });
@@ -4598,7 +4643,6 @@ export const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
   const [isDetailOpen, setIsDetailOpen] = useState(
     workEntry.tone === "error" || workEntry.diagnosticKind !== undefined,
   );
-  const DetailChevronIcon = isDetailOpen ? ChevronDownIcon : ChevronRightIcon;
 
   return (
     <div
@@ -4639,8 +4683,11 @@ export const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
                 {heading}
               </InlineTooltip>
               {hasExpandableDetail && (
-                <DetailChevronIcon
-                  className="size-3.5 shrink-0 text-muted-foreground/55 transition-colors duration-100 group-hover/work-detail:text-foreground/82 group-focus-visible/work-detail:text-foreground/82"
+                <ChevronRightIcon
+                  className={cn(
+                    "size-3.5 shrink-0 text-muted-foreground/55 transition-[color,transform] duration-200 ease-out group-hover/work-detail:text-foreground/82 group-focus-visible/work-detail:text-foreground/82 motion-reduce:transition-none",
+                    isDetailOpen && "rotate-90",
+                  )}
                   strokeWidth={2.2}
                 />
               )}
@@ -4687,11 +4734,12 @@ export const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
               {detailText}
             </InlineTooltip>
           )}
-          {isDetailOpen && hasExpandableDetail && (
-            <div
-              className={cn(APP_WORKSPACE_INSET_CLASS_NAME, "mt-1.5 max-w-full px-3 py-2")}
-              data-work-detail-panel="true"
-            >
+          <TimelineDisclosureBody
+            open={isDetailOpen && hasExpandableDetail}
+            className="mt-1.5"
+            dataAttribute={{ "data-work-detail-panel": "true" }}
+          >
+            <div className={cn(APP_WORKSPACE_INSET_CLASS_NAME, "max-w-full px-3 py-2")}>
               {detailText && (
                 <InlineTooltip
                   content={detailText}
@@ -4733,7 +4781,7 @@ export const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
                 </div>
               )}
             </div>
-          )}
+          </TimelineDisclosureBody>
         </div>
       </div>
       {hasChangedFiles && !previewIsChangedFiles && !hasExpandableDetail && (
@@ -4780,7 +4828,6 @@ const CommandWorkEntryRow = memo(function CommandWorkEntryRow(props: {
   const inlineIntentText = props.inlineIntentText?.trim() || null;
   const hasExpandableOutput = Boolean(command || detailOutput);
   const [isOutputOpen, setIsOutputOpen] = useState(false);
-  const OutputChevronIcon = isOutputOpen ? ChevronDownIcon : ChevronRightIcon;
 
   return (
     <div
@@ -4822,8 +4869,11 @@ const CommandWorkEntryRow = memo(function CommandWorkEntryRow(props: {
               {heading}
             </InlineTooltip>
             {hasExpandableOutput && (
-              <OutputChevronIcon
-                className="size-3.5 shrink-0 text-muted-foreground/55 transition-colors duration-100 group-hover/command:text-foreground/82 group-focus-visible/command:text-foreground/82"
+              <ChevronRightIcon
+                className={cn(
+                  "size-3.5 shrink-0 text-muted-foreground/55 transition-[color,transform] duration-200 ease-out group-hover/command:text-foreground/82 group-focus-visible/command:text-foreground/82 motion-reduce:transition-none",
+                  isOutputOpen && "rotate-90",
+                )}
                 strokeWidth={2.2}
               />
             )}
@@ -4839,14 +4889,12 @@ const CommandWorkEntryRow = memo(function CommandWorkEntryRow(props: {
               <span className="text-foreground/72">{inlineIntentText}</span>
             </p>
           )}
-          {isOutputOpen && hasExpandableOutput && (
-            <div
-              className={cn(
-                cn(APP_WORKSPACE_INSET_CLASS_NAME, "mt-2 max-w-full px-3 py-2.5"),
-                isNested && "-ml-6",
-              )}
-              data-command-output-panel="true"
-            >
+          <TimelineDisclosureBody
+            open={isOutputOpen && hasExpandableOutput}
+            className={cn("mt-2", isNested && "-ml-6")}
+            dataAttribute={{ "data-command-output-panel": "true" }}
+          >
+            <div className={cn(APP_WORKSPACE_INSET_CLASS_NAME, "max-w-full px-3 py-2.5")}>
               <div className="mb-2 text-[11px] leading-none text-muted-foreground/72">Shell</div>
               {command && (
                 <pre className="mb-2 overflow-x-auto whitespace-pre-wrap font-mono text-[11px] leading-5 text-foreground/92">
@@ -4868,7 +4916,7 @@ const CommandWorkEntryRow = memo(function CommandWorkEntryRow(props: {
                 </div>
               )}
             </div>
-          )}
+          </TimelineDisclosureBody>
         </div>
       </div>
     </div>

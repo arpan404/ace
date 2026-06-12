@@ -16,6 +16,7 @@ export function resolveVisibleTimelineRows(input: {
     readonly activeThreadId: string;
     readonly rows: ReadonlyArray<TimelineRow>;
   } | null;
+  readonly preferRetainedRows?: boolean;
   readonly retainRowsWhileLoading?: boolean;
   readonly syncRows: ReadonlyArray<TimelineRow>;
 }): { readonly loading: boolean; readonly rows: ReadonlyArray<TimelineRow> } {
@@ -25,7 +26,12 @@ export function resolveVisibleTimelineRows(input: {
     input.retainedRows.rows.length > 0
       ? input.retainedRows.rows
       : null;
-  const rows = input.syncRows.length > 0 ? input.syncRows : (retainedRows ?? EMPTY_TIMELINE_ROWS);
+  const rows =
+    input.preferRetainedRows === true && retainedRows
+      ? retainedRows
+      : input.syncRows.length > 0
+        ? input.syncRows
+        : (retainedRows ?? EMPTY_TIMELINE_ROWS);
 
   return {
     loading: Boolean(input.loading && rows.length === 0),
@@ -47,17 +53,26 @@ export function useTimelineRowsController(input: {
     readonly activeThreadId: string;
     readonly rows: ReadonlyArray<TimelineRow>;
   } | null>(null);
+  const shouldUseRetainedRowsWhileLoading =
+    preResolvedRows === null &&
+    Boolean(input.loading) &&
+    retainedTimelineRows?.activeThreadId === input.activeThreadId &&
+    retainedTimelineRows.rows.length > 0;
   const syncTimelineRows = useMemo<ReadonlyArray<TimelineRow>>(() => {
     if (preResolvedRows !== null) {
       return preResolvedRows;
     }
+    if (shouldUseRetainedRowsWhileLoading) {
+      return EMPTY_TIMELINE_ROWS;
+    }
     return measureRenderWork("chat.buildTimelineRows", () =>
       buildTimelineRows(input.timelineRowsInput),
     );
-  }, [preResolvedRows, input.timelineRowsInput]);
+  }, [preResolvedRows, shouldUseRetainedRowsWhileLoading, input.timelineRowsInput]);
   const { loading, rows } = resolveVisibleTimelineRows({
     activeThreadId: input.activeThreadId,
     loading: input.loading,
+    preferRetainedRows: shouldUseRetainedRowsWhileLoading,
     retainedRows: retainedTimelineRows,
     retainRowsWhileLoading: true,
     syncRows: syncTimelineRows,

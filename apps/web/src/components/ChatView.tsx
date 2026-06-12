@@ -214,6 +214,7 @@ import {
 import {
   buildNativeTimelineRows,
   deriveNativeCompletionAttachment,
+  toPagedChatMessage,
   type NativeTimelineRowsInput,
 } from "~/lib/chat/nativeTimelineRows";
 import {
@@ -516,6 +517,9 @@ const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnsw
 const EMPTY_QUEUED_COMPOSER_MESSAGES: Thread["queuedComposerMessages"] = [];
 const EMPTY_COMPOSER_MODEL_SELECTIONS: ModelSelectionByProvider = Object.freeze({});
 const EMPTY_PENDING_COMPOSER_COMMENTS: readonly PendingComposerComment[] = Object.freeze([]);
+const EMPTY_MESSAGE_ID_SET: Set<MessageId> = new Set();
+const EMPTY_MESSAGE_TURN_COUNT_MAP: Map<MessageId, number> = new Map();
+const EMPTY_TIMELINE_ENTRIES: TimelineEntry[] = [];
 
 const THREAD_SWITCH_SCROLL_SETTLE_DELAY_MS = 96;
 const INITIAL_THREAD_BOTTOM_PIN_MAX_MS = 4_500;
@@ -939,7 +943,93 @@ interface ChatViewProps {
 const EMPTY_VISIBLE_BOARD_THREAD_IDS: readonly ThreadId[] = [];
 const EMPTY_THREAD_LAST_VISITED_AT_BY_ID: Readonly<Record<string, string>> = {};
 const EMPTY_TIMELINE_ROW_IDS: readonly string[] = [];
+const EMPTY_HISTORICAL_MESSAGE_IDS: Set<MessageId> = new Set();
 const NATIVE_TIMELINE_ROWS_CONTENT_KEY_TAIL_ROWS = 32;
+const ACTIVE_NATIVE_TIMELINE_ROWS_REBUILD_DELAY_MS = 80;
+
+function patchRetainedNativeTimelineRows(input: {
+  readonly rows: ReadonlyArray<TimelineRow>;
+  readonly rowsInput: NativeTimelineRowsInput | null;
+}): ReadonlyArray<TimelineRow> {
+  if (input.rows.length === 0 || !input.rowsInput) {
+    return input.rows;
+  }
+
+  const messageById = new Map<string, OrchestrationMessage>();
+  for (const message of input.rowsInput.messages) {
+    messageById.set(String(message.id), message);
+  }
+
+  let changed = false;
+  let rows = input.rows.map((row) => {
+    if (row.kind !== "message") {
+      return row;
+    }
+    const nextMessage = messageById.get(String(row.message.id));
+    if (!nextMessage) {
+      return row;
+    }
+    const currentText = row.message.streaming
+      ? (row.message.streamingTextState?.chunks.join("") ?? "")
+      : row.message.text;
+    if (
+      row.message.streaming === nextMessage.streaming &&
+      row.message.completedAt === (nextMessage.streaming ? undefined : nextMessage.updatedAt) &&
+      currentText === nextMessage.text
+    ) {
+      return row;
+    }
+    changed = true;
+    return {
+      ...row,
+      message: toPagedChatMessage(nextMessage),
+      showAssistantTiming:
+        nextMessage.role === "assistant" &&
+        (row.isAssistantTurnTerminal ?? false) &&
+        !nextMessage.streaming,
+      showAssistantSummaryByDefault:
+        nextMessage.role === "assistant" &&
+        (row.showAssistantSummaryByDefault ?? false) &&
+        !nextMessage.streaming,
+    };
+  });
+
+  if (!input.rowsInput.activeTurnInProgress) {
+    return changed ? rows : input.rows;
+  }
+
+  const activeTurnStartedAtMs = input.rowsInput.activeTurnStartedAt
+    ? Date.parse(input.rowsInput.activeTurnStartedAt)
+    : Number.NaN;
+  const activeSourceRows = input.rowsInput.rows.filter((row) => {
+    if (input.rowsInput?.activeTurnId && row.turnId !== undefined) {
+      return row.turnId === input.rowsInput.activeTurnId;
+    }
+    if (!input.rowsInput?.activeTurnStartedAt || Number.isNaN(activeTurnStartedAtMs)) {
+      return false;
+    }
+    const rowCreatedAtMs = Date.parse(row.createdAt);
+    return !Number.isNaN(rowCreatedAtMs) && rowCreatedAtMs >= activeTurnStartedAtMs;
+  });
+  if (activeSourceRows.length === 0) {
+    return changed ? rows : input.rows;
+  }
+
+  const activeSourceRowIds = new Set(activeSourceRows.map((row) => row.id));
+  rows = rows.filter(
+    (row) => row.id !== "working-indicator-row" && !activeSourceRowIds.has(row.id),
+  );
+  const activeRows = buildNativeTimelineRows({
+    ...input.rowsInput,
+    rows: activeSourceRows,
+    completionDividerBeforeEntryId: null,
+    completionEndedAt: null,
+    completionStartedAt: null,
+    completionSummary: null,
+    completionTurnId: null,
+  });
+  return [...rows, ...activeRows];
+}
 const RECENT_HYDRATED_THREAD_HISTORY_KEEP_COUNT = 8;
 
 function toOptimisticOrchestrationMessage(message: ChatMessage): OrchestrationMessage {
@@ -3188,7 +3278,7 @@ function useChatViewComponent({
         messages: activeThreadMessages,
         proposedPlans: activeThread?.proposedPlans ?? [],
         workEntries: workLogEntries,
-        historicalMessageIds: new Set<MessageId>(),
+        historicalMessageIds: EMPTY_HISTORICAL_MESSAGE_IDS,
       };
     }
     if (!activeThread) {
@@ -3196,7 +3286,7 @@ function useChatViewComponent({
         messages: activeThreadMessages,
         proposedPlans: [],
         workEntries: [],
-        historicalMessageIds: new Set<MessageId>(),
+        historicalMessageIds: EMPTY_HISTORICAL_MESSAGE_IDS,
       };
     }
     if (!isServerThread) {
@@ -3204,7 +3294,7 @@ function useChatViewComponent({
         messages: activeThreadMessages,
         proposedPlans: activeThread.proposedPlans ?? [],
         workEntries: workLogEntries,
-        historicalMessageIds: new Set<MessageId>(),
+        historicalMessageIds: EMPTY_HISTORICAL_MESSAGE_IDS,
       };
     }
     return buildHandoffTimeline({
@@ -3253,10 +3343,12 @@ function useChatViewComponent({
       setActiveSubagentThreadId(subagentThreads[0]?.id ?? null);
     }
   }, [activeSubagentThreadId, subagentThreads]);
-  const activeThreadMessageIds = useMemo(
-    () => new Set(activeThreadMessages.map((message) => message.id)),
-    [activeThreadMessages],
-  );
+  const activeThreadMessageIds = useMemo(() => {
+    if (activeThreadMessages.length === 0) {
+      return EMPTY_MESSAGE_ID_SET;
+    }
+    return new Set(activeThreadMessages.map((message) => message.id));
+  }, [activeThreadMessages]);
   const { turnDiffSummaries, inferredCheckpointTurnCountByTurnId } =
     useTurnDiffSummaries(activeThread);
   const turnDiffSummaryByAssistantMessageId = useMemo(
@@ -3324,10 +3416,12 @@ function useChatViewComponent({
     optimisticUserMessages,
     turnDiffSummaryByAssistantMessageId,
   ]);
-  const nativeTurnDiffSummaryKey = useMemo(
-    () => [...turnDiffSummaryByAssistantMessageId.keys()].join("\0"),
-    [turnDiffSummaryByAssistantMessageId],
-  );
+  const nativeTurnDiffSummaryKey = useMemo(() => {
+    if (!nativeTimelineRowsInput || turnDiffSummaryByAssistantMessageId.size === 0) {
+      return "";
+    }
+    return [...turnDiffSummaryByAssistantMessageId.keys()].join("\0");
+  }, [nativeTimelineRowsInput, turnDiffSummaryByAssistantMessageId]);
   const nativeTimelineRowsContentKey = useMemo(() => {
     if (!nativeTimelineRowsInput) {
       return "";
@@ -3411,32 +3505,44 @@ function useChatViewComponent({
     }
 
     let canceled = false;
-    resolveNativeTimelineRows({
-      cacheKey: nativeTimelineRowsInputKey,
-      rowsInput: nativeTimelineRowsInput,
-    })
-      .then((rows) => {
-        if (canceled) {
-          return;
-        }
-        startTransition(() => {
-          setResolvedNativeTimelineRows({ key: nativeTimelineRowsInputKey, rows });
-        });
+    let timer: number | null = null;
+    const resolveRows = () => {
+      timer = null;
+      resolveNativeTimelineRows({
+        cacheKey: nativeTimelineRowsInputKey,
+        rowsInput: nativeTimelineRowsInput,
       })
-      .catch((error) => {
-        if (!canceled) {
-          console.error("Failed to build native timeline rows", error);
-        }
-      });
+        .then((rows) => {
+          if (canceled) {
+            return;
+          }
+          startTransition(() => {
+            setResolvedNativeTimelineRows({ key: nativeTimelineRowsInputKey, rows });
+          });
+        })
+        .catch((error) => {
+          if (!canceled) {
+            console.error("Failed to build native timeline rows", error);
+          }
+        });
+    };
+    if (nativeTimelineRowsInput.activeTurnInProgress) {
+      timer = window.setTimeout(resolveRows, ACTIVE_NATIVE_TIMELINE_ROWS_REBUILD_DELAY_MS);
+    } else {
+      resolveRows();
+    }
     return () => {
       canceled = true;
+      if (timer !== null) {
+        window.clearTimeout(timer);
+      }
     };
   }, [
     nativeTimelineRowsInput,
     nativeTimelineRowsInputKey,
     shouldBuildNativeTimelineRowsSynchronously,
   ]);
-  const nativeTimelineRowsOverride =
+  const currentNativeTimelineRowsOverride =
     synchronousNativeTimelineRows ??
     cachedNativeTimelineRows ??
     (resolvedNativeTimelineRows?.key === nativeTimelineRowsInputKey
@@ -3448,10 +3554,35 @@ function useChatViewComponent({
     nativeTimelineRowsInputKey !== null &&
     cachedNativeTimelineRows === null &&
     resolvedNativeTimelineRows?.key !== nativeTimelineRowsInputKey;
+  const retainedNativeTimelineRowsRef = useRef<{
+    readonly threadId: string;
+    readonly rows: ReadonlyArray<TimelineRow>;
+  } | null>(null);
+  if (currentNativeTimelineRowsOverride !== null && nativeTimelineRowsThreadId !== null) {
+    retainedNativeTimelineRowsRef.current = {
+      threadId: nativeTimelineRowsThreadId,
+      rows: currentNativeTimelineRowsOverride,
+    };
+  } else if (
+    nativeTimelineRowsThreadId === null ||
+    retainedNativeTimelineRowsRef.current?.threadId !== nativeTimelineRowsThreadId
+  ) {
+    retainedNativeTimelineRowsRef.current = null;
+  }
+  const nativeTimelineRowsOverride =
+    currentNativeTimelineRowsOverride ??
+    (isThreadHistoryMetadataOnly &&
+    retainedNativeTimelineRowsRef.current?.threadId === nativeTimelineRowsThreadId &&
+    (nativeTimelineRowsLoading || nativeTimelineRowsInput !== null)
+      ? patchRetainedNativeTimelineRows({
+          rows: retainedNativeTimelineRowsRef.current.rows,
+          rowsInput: nativeTimelineRowsInput,
+        })
+      : null);
   const timelineRenderState = useMemo(() => {
     if (nativeTimelineRowsOverride !== null) {
       return {
-        timelineEntries: [],
+        timelineEntries: EMPTY_TIMELINE_ENTRIES,
         turnDiffSummaryByAssistantMessageId,
       };
     }
@@ -3473,6 +3604,9 @@ function useChatViewComponent({
   ]);
   const timelineEntries = timelineRenderState.timelineEntries;
   const revertTurnCountByUserMessageId = useMemo(() => {
+    if (timelineEntries.length === 0 || turnDiffSummaryByAssistantMessageId.size === 0) {
+      return EMPTY_MESSAGE_TURN_COUNT_MAP;
+    }
     const byUserMessageId = new Map<MessageId, number>();
     for (let index = 0; index < timelineEntries.length; index += 1) {
       const entry = timelineEntries[index];
@@ -3513,6 +3647,9 @@ function useChatViewComponent({
     turnDiffSummaryByAssistantMessageId,
   ]);
   const revertTurnCountByAssistantMessageId = useMemo(() => {
+    if (turnDiffSummaryByAssistantMessageId.size === 0) {
+      return EMPTY_MESSAGE_TURN_COUNT_MAP;
+    }
     const byAssistantMessageId = new Map<MessageId, number>();
     for (const [assistantMessageId, summary] of turnDiffSummaryByAssistantMessageId) {
       const turnCount =
@@ -3541,6 +3678,9 @@ function useChatViewComponent({
     timelineEntries,
   ]);
   const timelineCacheScope = useMemo(() => {
+    if (nativeTimelineRowsOverride !== null) {
+      return null;
+    }
     return buildThreadTimelineCacheScope({
       thread: activeThread,
       timelineEntries,
@@ -3551,6 +3691,7 @@ function useChatViewComponent({
     });
   }, [
     activeThread,
+    nativeTimelineRowsOverride,
     timelineEntries,
     timelineMessages,
     timelineProposedPlans,
@@ -10169,6 +10310,9 @@ function useChatViewComponent({
     },
     [],
   );
+  const openThreadDiagnostics = useCallback(() => {
+    openDiagnostics("thread");
+  }, [openDiagnostics]);
   const messagesTimelineProps = useMemo(
     () => ({
       ...(activeThreadIdValue ? { activeThreadId: activeThreadIdValue } : {}),
@@ -10192,7 +10336,7 @@ function useChatViewComponent({
       activeTurnStartedAt: activeWorkStartedAt,
       stuckTurnSnapshot,
       onStopStuckTurn: onInterrupt,
-      onOpenStuckTurnDiagnostics: () => openDiagnostics("thread"),
+      onOpenStuckTurnDiagnostics: openThreadDiagnostics,
       backgroundMarkdownPrewarm: activeForSideEffects,
       hideCompletedWorkMessages,
       liveTimers: activeForSideEffects,
@@ -10257,7 +10401,7 @@ function useChatViewComponent({
       getMessagesScrollContainer,
       onExpandTimelineImage,
       onOpenTurnDiff,
-      openDiagnostics,
+      openThreadDiagnostics,
       onRevertAssistantMessage,
       onRevertUserMessage,
       onToggleWorkGroup,

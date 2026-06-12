@@ -382,6 +382,27 @@ function chooseFreshestMessage(
       ...(attachments && attachments.length > 0 ? { attachments } : {}),
     };
   }
+  if (
+    existing.role === "assistant" &&
+    normalizedIncoming.role === "assistant" &&
+    existing.text.length > normalizedIncoming.text.length &&
+    (existing.streaming ||
+      normalizedIncoming.streaming ||
+      normalizedIncoming.sequence === undefined ||
+      existing.sequence === undefined ||
+      normalizedIncoming.sequence <= existing.sequence)
+  ) {
+    const attachments = mergeTimelineMessageAttachments(
+      existing.attachments,
+      normalizedIncoming.attachments,
+    );
+    return {
+      ...existing,
+      streaming: normalizedIncoming.streaming,
+      updatedAt: normalizedIncoming.updatedAt,
+      ...(attachments && attachments.length > 0 ? { attachments } : {}),
+    };
+  }
   if (!hasRenderableMessageText(normalizedIncoming) && hasRenderableMessageText(existing)) {
     const attachments = mergeTimelineMessageAttachments(
       existing.attachments,
@@ -1087,9 +1108,9 @@ function applyLiveTimelineRowQueue(input: {
     return;
   }
   useTimelineModelStore.setState((state) =>
-    input.patches.reduce<TimelineModelState>(
-      applyLiveTimelineRowPatchToState,
+    applyLiveTimelineRowPatchesToState(
       applyLiveTimelineRowRemovalsToState(state, input.removals),
+      input.patches,
     ),
   );
 }
@@ -1188,117 +1209,200 @@ function applyLiveTimelineRowPatches(patches: readonly PrimeLiveTimelineRowInput
   if (patches.length === 0) {
     return;
   }
-  applyLiveTimelineRowQueue({ removals: [], patches });
+  useTimelineModelStore.setState((state) => applyLiveTimelineRowPatchesToState(state, patches));
 }
 
-function applyLiveTimelineRowPatchToState(
-  state: TimelineModelState,
-  input: PrimeLiveTimelineRowInput,
-): TimelineModelState {
-  const previousMetadata = state.metadataByThreadId[input.threadId];
-  const rowId = rowIdForSource(input.entry.kind, String(input.entry.id));
-  const previousRow = state.rowsById[rowKey(input.threadId, rowId)];
-  const threadRowIds = state.rowIdsByThreadId[input.threadId] ?? [];
-  let nextSourceIndex = previousMetadata?.totalRows ?? 0;
-  for (const existingRowId of threadRowIds) {
-    const existingRow = state.rowsById[rowKey(input.threadId, existingRowId)];
+function resolveNextLiveTimelineSourceIndex(input: {
+  readonly metadataByThreadId: Readonly<Record<string, TimelineRowsMetadata>>;
+  readonly nextSourceIndexByThreadId: Map<ThreadId, number>;
+  readonly rowIdsByThreadId: Readonly<Record<string, readonly string[]>>;
+  readonly rowsById: Readonly<Record<string, OrchestrationTimelineRow>>;
+  readonly threadId: ThreadId;
+}): number {
+  const cached = input.nextSourceIndexByThreadId.get(input.threadId);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  let nextSourceIndex = input.metadataByThreadId[input.threadId]?.totalRows ?? 0;
+  for (const existingRowId of input.rowIdsByThreadId[input.threadId] ?? []) {
+    const existingRow = input.rowsById[rowKey(input.threadId, existingRowId)];
     if (!existingRow) {
       continue;
     }
     nextSourceIndex = Math.max(nextSourceIndex, existingRow.endSourceIndexExclusive);
   }
-  const sourceIndex = previousRow?.startSourceIndex ?? nextSourceIndex;
-  const row: OrchestrationTimelineRow = {
-    id: rowId,
-    kind: rowKindForSourceKind(input.entry.kind),
-    createdAt: input.entry.createdAt,
-    updatedAt: input.updatedAt,
-    contentVersion: [
-      "live",
-      input.entry.kind,
-      String(input.entry.id),
-      input.updatedAt,
-      input.message?.text.length ??
-        input.activity?.summary.length ??
-        input.proposedPlan?.planMarkdown.length ??
-        0,
-    ].join(":"),
-    startSourceIndex: sourceIndex,
-    endSourceIndexExclusive: sourceIndex + 1,
-    ...(input.entry.turnId !== undefined ? { turnId: input.entry.turnId } : {}),
-    sourceRefs: [
-      {
-        kind: input.entry.kind,
-        id: String(input.entry.id),
-        createdAt: input.entry.createdAt,
-        sourceIndex,
-        ...(input.entry.turnId !== undefined ? { turnId: input.entry.turnId } : {}),
-        ...(input.entry.sequence !== undefined ? { sequence: input.entry.sequence } : {}),
-      },
-    ],
-  };
-  const nextThreadRowIds = threadRowIds.includes(rowId) ? threadRowIds : [...threadRowIds, rowId];
-  const nextTotalRows = Math.max(
-    previousMetadata?.totalRows ?? 0,
-    row.endSourceIndexExclusive,
-    nextThreadRowIds.length,
-  );
-  const previousCompleteSnapshot = state.completeSnapshotByThreadId[input.threadId];
-  const nextRowsById = {
-    ...state.rowsById,
-    [rowKey(input.threadId, row.id)]: row,
-  };
-  const nextMessagesById = input.message
-    ? {
-        ...state.messagesById,
-        [String(input.message.id)]: chooseFreshestMessage(
-          state.messagesById[String(input.message.id)],
-          input.message,
-        ),
+  input.nextSourceIndexByThreadId.set(input.threadId, nextSourceIndex);
+  return nextSourceIndex;
+}
+
+function applyLiveTimelineRowPatchesToState(
+  state: TimelineModelState,
+  patches: readonly PrimeLiveTimelineRowInput[],
+): TimelineModelState {
+  if (patches.length === 0) {
+    return state;
+  }
+
+  let metadataByThreadId = state.metadataByThreadId;
+  let completeSnapshotByThreadId = state.completeSnapshotByThreadId;
+  let rowIdsByThreadId = state.rowIdsByThreadId;
+  let rowsById = state.rowsById;
+  let messagesById = state.messagesById;
+  let activitiesById = state.activitiesById;
+  let proposedPlansById = state.proposedPlansById;
+  const changedThreadIds = new Set<ThreadId>();
+  const threadsNeedingSort = new Set<ThreadId>();
+  const nextSourceIndexByThreadId = new Map<ThreadId, number>();
+  let changed = false;
+
+  for (const input of patches) {
+    const previousMetadata = metadataByThreadId[input.threadId];
+    const rowId = rowIdForSource(input.entry.kind, String(input.entry.id));
+    const previousRow = rowsById[rowKey(input.threadId, rowId)];
+    const threadRowIds = rowIdsByThreadId[input.threadId] ?? [];
+    const sourceIndex =
+      previousRow?.startSourceIndex ??
+      resolveNextLiveTimelineSourceIndex({
+        metadataByThreadId,
+        nextSourceIndexByThreadId,
+        rowIdsByThreadId,
+        rowsById,
+        threadId: input.threadId,
+      });
+    const row: OrchestrationTimelineRow = {
+      id: rowId,
+      kind: rowKindForSourceKind(input.entry.kind),
+      createdAt: input.entry.createdAt,
+      updatedAt: input.updatedAt,
+      contentVersion: [
+        "live",
+        input.entry.kind,
+        String(input.entry.id),
+        input.updatedAt,
+        input.message?.text.length ??
+          input.activity?.summary.length ??
+          input.proposedPlan?.planMarkdown.length ??
+          0,
+      ].join(":"),
+      startSourceIndex: sourceIndex,
+      endSourceIndexExclusive: sourceIndex + 1,
+      ...(input.entry.turnId !== undefined ? { turnId: input.entry.turnId } : {}),
+      sourceRefs: [
+        {
+          kind: input.entry.kind,
+          id: String(input.entry.id),
+          createdAt: input.entry.createdAt,
+          sourceIndex,
+          ...(input.entry.turnId !== undefined ? { turnId: input.entry.turnId } : {}),
+          ...(input.entry.sequence !== undefined ? { sequence: input.entry.sequence } : {}),
+        },
+      ],
+    };
+
+    if (!changed) {
+      metadataByThreadId = { ...state.metadataByThreadId };
+      rowsById = { ...state.rowsById };
+      changed = true;
+    }
+
+    rowsById[rowKey(input.threadId, row.id)] = row;
+    nextSourceIndexByThreadId.set(
+      input.threadId,
+      Math.max(nextSourceIndexByThreadId.get(input.threadId) ?? 0, row.endSourceIndexExclusive),
+    );
+
+    const isExistingRow = threadRowIds.includes(rowId);
+    const nextThreadRowIds = isExistingRow ? threadRowIds : [...threadRowIds, rowId];
+    if (!isExistingRow) {
+      if (rowIdsByThreadId === state.rowIdsByThreadId) {
+        rowIdsByThreadId = { ...state.rowIdsByThreadId };
       }
-    : state.messagesById;
-  const presentationRowIds = sortTimelineRowIds(nextThreadRowIds, input.threadId, nextRowsById);
+      rowIdsByThreadId[input.threadId] = nextThreadRowIds;
+      threadsNeedingSort.add(input.threadId);
+    }
+
+    const nextTotalRows = Math.max(
+      previousMetadata?.totalRows ?? 0,
+      row.endSourceIndexExclusive,
+      nextThreadRowIds.length,
+    );
+    metadataByThreadId[input.threadId] = {
+      threadId: input.threadId,
+      revision: previousMetadata?.revision ?? `live:${input.threadId}`,
+      updatedAt: input.updatedAt,
+      totalRows: nextTotalRows,
+      tailStartRowIndex: Math.max(0, nextTotalRows - DEFAULT_TIMELINE_TAIL_WINDOW_ROWS),
+    };
+
+    const previousCompleteSnapshot = completeSnapshotByThreadId[input.threadId];
+    if (previousCompleteSnapshot) {
+      if (completeSnapshotByThreadId === state.completeSnapshotByThreadId) {
+        completeSnapshotByThreadId = { ...state.completeSnapshotByThreadId };
+      }
+      completeSnapshotByThreadId[input.threadId] = {
+        ...previousCompleteSnapshot,
+        totalRows: Math.max(previousCompleteSnapshot.totalRows, nextTotalRows),
+      };
+    }
+
+    if (input.message) {
+      if (messagesById === state.messagesById) {
+        messagesById = { ...state.messagesById };
+      }
+      messagesById[String(input.message.id)] = chooseFreshestMessage(
+        messagesById[String(input.message.id)],
+        input.message,
+      );
+    }
+    if (input.activity) {
+      if (activitiesById === state.activitiesById) {
+        activitiesById = { ...state.activitiesById };
+      }
+      activitiesById[String(input.activity.id)] = input.activity;
+    }
+    if (input.proposedPlan) {
+      if (proposedPlansById === state.proposedPlansById) {
+        proposedPlansById = { ...state.proposedPlansById };
+      }
+      proposedPlansById[String(input.proposedPlan.id)] = chooseFreshestProposedPlan(
+        proposedPlansById[String(input.proposedPlan.id)],
+        input.proposedPlan,
+      );
+    }
+    changedThreadIds.add(input.threadId);
+  }
+
+  if (!changed) {
+    return state;
+  }
+
+  for (const threadId of threadsNeedingSort) {
+    rowIdsByThreadId[threadId] = sortTimelineRowIds(
+      rowIdsByThreadId[threadId] ?? [],
+      threadId,
+      rowsById,
+    );
+  }
+
+  let revisionByThreadId = state.revisionByThreadId;
+  for (const threadId of changedThreadIds) {
+    if (revisionByThreadId === state.revisionByThreadId) {
+      revisionByThreadId = { ...state.revisionByThreadId };
+    }
+    revisionByThreadId[threadId] = (revisionByThreadId[threadId] ?? 0) + 1;
+  }
 
   return {
     ...state,
-    metadataByThreadId: {
-      ...state.metadataByThreadId,
-      [input.threadId]: {
-        threadId: input.threadId,
-        revision: previousMetadata?.revision ?? `live:${input.threadId}`,
-        updatedAt: input.updatedAt,
-        totalRows: nextTotalRows,
-        tailStartRowIndex: Math.max(0, nextTotalRows - DEFAULT_TIMELINE_TAIL_WINDOW_ROWS),
-      },
-    },
-    completeSnapshotByThreadId: previousCompleteSnapshot
-      ? {
-          ...state.completeSnapshotByThreadId,
-          [input.threadId]: {
-            ...previousCompleteSnapshot,
-            totalRows: Math.max(previousCompleteSnapshot.totalRows, nextTotalRows),
-          },
-        }
-      : state.completeSnapshotByThreadId,
-    rowIdsByThreadId: {
-      ...state.rowIdsByThreadId,
-      [input.threadId]: presentationRowIds,
-    },
-    rowsById: nextRowsById,
-    messagesById: nextMessagesById,
-    activitiesById: input.activity
-      ? { ...state.activitiesById, [String(input.activity.id)]: input.activity }
-      : state.activitiesById,
-    proposedPlansById: input.proposedPlan
-      ? {
-          ...state.proposedPlansById,
-          [String(input.proposedPlan.id)]: chooseFreshestProposedPlan(
-            state.proposedPlansById[String(input.proposedPlan.id)],
-            input.proposedPlan,
-          ),
-        }
-      : state.proposedPlansById,
-    revisionByThreadId: bumpThreadRevision(state, input.threadId),
+    metadataByThreadId,
+    completeSnapshotByThreadId,
+    rowIdsByThreadId,
+    rowsById,
+    messagesById,
+    activitiesById,
+    proposedPlansById,
+    revisionByThreadId,
     revision: state.revision + 1,
   };
 }
