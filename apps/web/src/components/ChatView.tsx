@@ -213,7 +213,7 @@ import {
 } from "~/lib/chat/threadRenderState";
 import {
   buildNativeTimelineRows,
-  deriveNativeCompletionDividerBeforeRowId,
+  deriveNativeCompletionAttachment,
   type NativeTimelineRowsInput,
 } from "~/lib/chat/nativeTimelineRows";
 import {
@@ -2233,6 +2233,21 @@ function useChatViewComponent({
       ? (store.completeSnapshotByThreadId[threadId] ?? null)
       : null,
   );
+  useEffect(() => {
+    if (!ownsGlobalSideEffects || !isThreadHistoryMetadataOnly || !activeThread?.id) {
+      return;
+    }
+    const prefetch = startThreadTimelineRowsOpenPrefetch({
+      threadId: activeThread.id,
+      priority: "immediate",
+    });
+    void prefetch.done.catch((error) => {
+      console.error("Failed to prefetch active thread timeline", error);
+    });
+    return () => {
+      prefetch.stop();
+    };
+  }, [activeThread?.id, isThreadHistoryMetadataOnly, ownsGlobalSideEffects]);
   const canCheckoutPullRequestIntoThread = isLocalDraftThread;
   const routeWorkspaceMode: ThreadWorkspaceMode =
     !splitPane && (rawSearch.mode === "editor" || rawSearch.mode === "split")
@@ -3252,16 +3267,21 @@ function useChatViewComponent({
   const completionSummary = useMemo(() => {
     return deriveThreadCompletionSummary(activeLatestTurn, latestTurnSettled);
   }, [activeLatestTurn, latestTurnSettled]);
-  const nativeCompletionDividerBeforeEntryId = useMemo(() => {
-    if (!latestTurnSettled || !completionSummary || !activeThreadTimelineProjection) {
+  const nativeCompletionAttachment = useMemo(() => {
+    if (!activeThreadTimelineProjection) {
       return null;
     }
-    return deriveNativeCompletionDividerBeforeRowId({
+    if (!latestTurnSettled && activeLatestTurn !== null) {
+      return null;
+    }
+    return deriveNativeCompletionAttachment({
       latestTurn: activeLatestTurn,
       rows: activeThreadTimelineProjection.rows,
       messages: activeThreadTimelineProjection.messages,
     });
-  }, [activeLatestTurn, activeThreadTimelineProjection, completionSummary, latestTurnSettled]);
+  }, [activeLatestTurn, activeThreadTimelineProjection, latestTurnSettled]);
+  const nativeCompletionDividerBeforeEntryId =
+    nativeCompletionAttachment?.dividerBeforeEntryId ?? null;
   const nativeTimelineRowsInput = useMemo<NativeTimelineRowsInput | null>(() => {
     if (!isThreadHistoryMetadataOnly) {
       return null;
@@ -3284,15 +3304,21 @@ function useChatViewComponent({
       activeTurnInProgress: isWorking,
       activeTurnStartedAt: activeWorkStartedAt,
       completionDividerBeforeEntryId: nativeCompletionDividerBeforeEntryId,
+      completionEndedAt: nativeCompletionAttachment?.endedAt ?? null,
       completionSummary,
+      completionTurnId: nativeCompletionAttachment?.turnId ?? null,
+      completionStartedAt: nativeCompletionAttachment?.startedAt ?? null,
+      hideCompletedWorkMessages,
       turnDiffSummaryByAssistantMessageId,
     };
   }, [
     activeThreadTimelineProjection,
     activeWorkStartedAt,
     completionSummary,
+    hideCompletedWorkMessages,
     isThreadHistoryMetadataOnly,
     isWorking,
+    nativeCompletionAttachment,
     nativeCompletionDividerBeforeEntryId,
     optimisticUserMessages,
     turnDiffSummaryByAssistantMessageId,
@@ -3324,8 +3350,12 @@ function useChatViewComponent({
       rowContentKey: nativeTimelineRowsContentKey,
       isActiveTurnRunning: isWorking,
       activeTurnStartedAt: activeWorkStartedAt,
+      completionEndedAt: nativeTimelineRowsInput.completionEndedAt ?? null,
       completionDividerBeforeEntryId: nativeCompletionDividerBeforeEntryId,
       completionSummary,
+      completionStartedAt: nativeTimelineRowsInput.completionStartedAt ?? null,
+      completionTurnId: nativeTimelineRowsInput.completionTurnId ?? null,
+      hideCompletedWorkMessages,
       turnDiffSummaryKey: nativeTurnDiffSummaryKey,
     });
   }, [
@@ -3333,6 +3363,7 @@ function useChatViewComponent({
     activeThreadTimelineRevision,
     activeWorkStartedAt,
     completionSummary,
+    hideCompletedWorkMessages,
     isWorking,
     nativeCompletionDividerBeforeEntryId,
     nativeTimelineRowsContentKey,
@@ -7717,6 +7748,9 @@ function useChatViewComponent({
             stableFrameCount >= INITIAL_THREAD_BOTTOM_PIN_STABLE_FRAMES)
         ) {
           pendingInitialBottomPinFrameRef.current = null;
+          if (pendingInitialBottomScrollThreadIdRef.current === activeThreadId) {
+            pendingInitialBottomScrollThreadIdRef.current = null;
+          }
           pendingInitialBottomPinResizeObserverRef.current?.disconnect();
           pendingInitialBottomPinResizeObserverRef.current = null;
           return;
@@ -7733,6 +7767,19 @@ function useChatViewComponent({
   const onMessagesScroll = useCallback(() => {
     const scrollContainer = messagesScrollRef.current;
     if (!scrollContainer) return;
+    const activeThreadId = activeThread?.id ?? null;
+    if (
+      activeThreadId !== null &&
+      pendingInitialBottomScrollThreadIdRef.current === activeThreadId &&
+      !pendingUserScrollUpIntentRef.current &&
+      !isPointerScrollActiveRef.current
+    ) {
+      lastKnownScrollTopRef.current = scrollContainer.scrollTop;
+      shouldAutoScrollRef.current = true;
+      setShowScrollToBottom(false);
+      scheduleStickToBottom();
+      return;
+    }
     const currentScrollTop = scrollContainer.scrollTop;
     const isNearBottom = isScrollContainerNearBottom(scrollContainer);
     const autoScrollDecision = resolveAutoScrollOnScroll({
@@ -7760,6 +7807,7 @@ function useChatViewComponent({
     setShowScrollToBottom(shouldShowScrollToBottomButton(scrollContainer));
     lastKnownScrollTopRef.current = currentScrollTop;
   }, [
+    activeThread?.id,
     cancelInitialBottomPin,
     cancelPendingStickToBottom,
     scheduleStickToBottom,
@@ -7880,7 +7928,6 @@ function useChatViewComponent({
       return;
     }
 
-    pendingInitialBottomScrollThreadIdRef.current = null;
     startInitialBottomPin(activeThreadId);
   }, [activeForSideEffects, activeThread?.id, startInitialBottomPin, timelineHydratedRowCount]);
   useLayoutEffect(() => {

@@ -23,6 +23,8 @@ import {
 import { Alert, AlertDescription, AlertTitle } from "../ui/alert";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { useStore } from "../../store";
+import { cn } from "../../lib/utils";
+import { GLASS_BANNER_CLASS_NAME, GLASS_BANNER_WARNING_CLASS_NAME } from "../ui/glass";
 
 export function SidebarUpdatePill() {
   const queryClient = useQueryClient();
@@ -121,7 +123,10 @@ export function SidebarUpdatePill() {
   return (
     <div className="flex flex-col gap-1">
       {showArm64Warning && arm64Description && (
-        <Alert variant="warning" className="rounded-2xl border-warning/40 bg-warning/8 text-xs">
+        <Alert
+          variant="warning"
+          className={cn(GLASS_BANNER_CLASS_NAME, GLASS_BANNER_WARNING_CLASS_NAME, "text-xs")}
+        >
           <TriangleAlertIcon />
           <AlertTitle>Intel build on Apple Silicon</AlertTitle>
           <AlertDescription>{arm64Description}</AlertDescription>

@@ -558,10 +558,6 @@ function StreamingMarkdownText({ text }: { text: string }) {
   );
 }
 
-function StreamingLiveCursor() {
-  return <span className="chat-markdown-live-cursor" aria-hidden="true" />;
-}
-
 function useSmoothStreamingText(text: string, isStreaming: boolean): string {
   const [displayText, setDisplayText] = useState(text);
   const displayTextRef = useRef(text);
@@ -1130,7 +1126,6 @@ function ChatMarkdown({
       data-chat-markdown-live={isStreaming ? "true" : undefined}
     >
       {content}
-      {isStreaming ? <StreamingLiveCursor /> : null}
     </div>
   );
 }

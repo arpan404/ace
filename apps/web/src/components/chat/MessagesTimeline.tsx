@@ -26,6 +26,7 @@ import {
   type ReactNode,
 } from "react";
 import { estimateTimelineMessageHeight } from "../../lib/chat/timelineHeight";
+import { scrollContainerToBottom } from "../../chat-scroll";
 import {
   COMPOSER_INLINE_CHIP_CLASS_NAME,
   COMPOSER_INLINE_CHIP_ICON_CLASS_NAME,
@@ -149,6 +150,7 @@ const ASSISTANT_MARKDOWN_IDLE_TIMEOUT_MS = 600;
 const ASSISTANT_MARKDOWN_FALLBACK_DELAY_MS = 80;
 const TIMELINE_WIDTH_RESIZE_DEBOUNCE_MS = 96;
 const TIMELINE_INITIAL_VIEWPORT_HEIGHT_PX = 720;
+const THREAD_SWITCH_TIMELINE_BOTTOM_PIN_MAX_MS = 4_500;
 const TIMELINE_FALLBACK_VIRTUAL_RANGE_MIN_ROWS = TIMELINE_VIRTUALIZER_OVERSCAN * 2 + 8;
 const EMPTY_PROVIDER_COMMANDS: ReadonlyArray<ProviderSlashCommand> = [];
 const ASSISTANT_IMAGE_GENERATION_MESSAGE_ID_REGEX =
@@ -1089,6 +1091,16 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   }, [rows]);
   const assistantFooterByPlacementRowId = useMemo(() => {
     const footerByRowId = new Map<string, AssistantTurnFooterModel>();
+    let latestUserRowIndex = -1;
+    if (activeTurnInProgress) {
+      for (let index = rows.length - 1; index >= 0; index -= 1) {
+        const row = rows[index];
+        if (row?.kind === "message" && isUserTimelineMessage(row.message)) {
+          latestUserRowIndex = index;
+          break;
+        }
+      }
+    }
     for (let index = 0; index < rows.length; index += 1) {
       const row = rows[index];
       if (
@@ -1096,6 +1108,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         !isAssistantTimelineMessage(row.message) ||
         !(row.isAssistantTurnTerminal ?? false)
       ) {
+        continue;
+      }
+      if (activeTurnInProgress && latestUserRowIndex >= 0 && index > latestUserRowIndex) {
         continue;
       }
 
@@ -1177,6 +1192,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     }
     return footerByRowId;
   }, [
+    activeTurnInProgress,
     isForkConversationDisabled,
     activeThreadId,
     latestForkableAssistantMessageId,
@@ -1193,33 +1209,26 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       string,
       Extract<TimelineRow, { kind: "completed-work-summary" }>
     >();
-    for (let index = 1; index < rows.length; index += 1) {
+    for (let index = 0; index < rows.length - 1; index += 1) {
       const row = rows[index];
-      if (row?.kind !== "completed-work-summary") {
-        continue;
-      }
-      const previousRow = rows[index - 1];
+      const nextRow = rows[index + 1];
       if (
-        previousRow?.kind !== "message" ||
-        !isAssistantTimelineMessage(previousRow.message) ||
-        !(previousRow.isAssistantTurnTerminal ?? false)
+        row?.kind !== "message" ||
+        row.message.role !== "assistant" ||
+        !row.isAssistantTurnTerminal ||
+        nextRow?.kind !== "completed-work-summary" ||
+        nextRow.startedAt < row.createdAt
       ) {
         continue;
       }
-      summaryByAssistantRowId.set(previousRow.id, row);
+      summaryByAssistantRowId.set(row.id, nextRow);
     }
     return summaryByAssistantRowId;
   }, [rows]);
   const hoistedCompletedWorkSummaryRowIds = useMemo(
-    () =>
-      new Set(
-        [...trailingCompletedWorkSummaryByAssistantRowId.values()].map((summaryRow) => {
-          return summaryRow.id;
-        }),
-      ),
+    () => new Set([...trailingCompletedWorkSummaryByAssistantRowId.values()].map((row) => row.id)),
     [trailingCompletedWorkSummaryByAssistantRowId],
   );
-
   const activeTurnStartedAtMs =
     activeTurnInProgress && activeTurnStartedAt ? Date.parse(activeTurnStartedAt) : Number.NaN;
   const [allDirectoriesExpandedByTurnId, setAllDirectoriesExpandedByTurnId] = useState<
@@ -1346,6 +1355,11 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     overscan: TIMELINE_VIRTUALIZER_OVERSCAN,
     useAnimationFrameWithResizeObserver: true,
   });
+  const previousActiveThreadIdRef = useRef<string | undefined>(activeThreadId);
+  const pendingThreadSwitchBottomPinRef = useRef<{
+    startedAtMs: number;
+    threadId: string;
+  } | null>(activeThreadId ? { startedAtMs: 0, threadId: activeThreadId } : null);
   const isTimelineScrolling = rowVirtualizer.isScrolling;
   const timelineScrollSampleRef = useRef({
     scrollTop: Number.NaN,
@@ -1402,6 +1416,81 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const shouldRenderVirtualizedBuffer = shouldRenderTimelineVirtualizedBuffer({
     virtualizedRowCount: virtualizedRows.length,
   });
+  useLayoutEffect(() => {
+    if (!activeThreadId) {
+      previousActiveThreadIdRef.current = activeThreadId;
+      pendingThreadSwitchBottomPinRef.current = null;
+      return;
+    }
+    const activeThreadChanged = previousActiveThreadIdRef.current !== activeThreadId;
+    previousActiveThreadIdRef.current = activeThreadId;
+    if (
+      activeThreadChanged ||
+      pendingThreadSwitchBottomPinRef.current?.threadId !== activeThreadId
+    ) {
+      pendingThreadSwitchBottomPinRef.current = {
+        startedAtMs: performance.now(),
+        threadId: activeThreadId,
+      };
+    }
+    if (!pendingThreadSwitchBottomPinRef.current || rows.length === 0) {
+      return;
+    }
+
+    const scrollTimelineToBottom = () => {
+      const pendingBottomPin = pendingThreadSwitchBottomPinRef.current;
+      if (!pendingBottomPin || pendingBottomPin.threadId !== activeThreadId) {
+        return;
+      }
+      const scrollContainer = getScrollContainer();
+      if (!scrollContainer) {
+        return;
+      }
+      if (shouldRenderVirtualizedBuffer && virtualizedRows.length > 0) {
+        rowVirtualizer.scrollToIndex(virtualizedRows.length - 1, { align: "end" });
+      }
+      scrollContainerToBottom(scrollContainer);
+    };
+
+    scrollTimelineToBottom();
+    let secondFrameId: number | null = null;
+    let thirdFrameId: number | null = null;
+    const firstFrameId = window.requestAnimationFrame(() => {
+      scrollTimelineToBottom();
+      secondFrameId = window.requestAnimationFrame(() => {
+        scrollTimelineToBottom();
+        thirdFrameId = window.requestAnimationFrame(() => {
+          scrollTimelineToBottom();
+          const pendingBottomPin = pendingThreadSwitchBottomPinRef.current;
+          if (
+            pendingBottomPin?.threadId === activeThreadId &&
+            performance.now() - pendingBottomPin.startedAtMs >=
+              THREAD_SWITCH_TIMELINE_BOTTOM_PIN_MAX_MS
+          ) {
+            pendingThreadSwitchBottomPinRef.current = null;
+          }
+        });
+      });
+    });
+
+    return () => {
+      window.cancelAnimationFrame(firstFrameId);
+      if (secondFrameId !== null) {
+        window.cancelAnimationFrame(secondFrameId);
+      }
+      if (thirdFrameId !== null) {
+        window.cancelAnimationFrame(thirdFrameId);
+      }
+    };
+  }, [
+    activeThreadId,
+    getScrollContainer,
+    rowVirtualizer,
+    rows.length,
+    shouldRenderVirtualizedBuffer,
+    timelineCacheScope,
+    virtualizedRows.length,
+  ]);
   useEffect(() => {
     if (!activeThreadId || !globalRenderedWindowState) {
       return;
@@ -1780,10 +1869,10 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     shouldPrewarmAssistantMarkdown,
   ]);
   const buildRowContent = (row: TimelineRow, _rowIndex: number) => {
-    const detachedAssistantFooter = assistantFooterByPlacementRowId.get(row.id) ?? null;
     if (row.kind === "completed-work-summary" && hoistedCompletedWorkSummaryRowIds.has(row.id)) {
       return null;
     }
+    const detachedAssistantFooter = assistantFooterByPlacementRowId.get(row.id) ?? null;
     return (
       <div
         className="group/timeline relative pb-3 transition-colors data-[pinned-message-target=true]:rounded-xl data-[pinned-message-target=true]:bg-accent/20 data-[pinned-message-target=true]:ring-1 data-[pinned-message-target=true]:ring-primary/35"
@@ -1845,22 +1934,20 @@ export const MessagesTimeline = memo(function MessagesTimeline({
               (!isTimelineScrolling &&
                 mountedVirtualizedAssistantMarkdownMessageIdSet.has(assistantMessageId)) ||
               renderedAssistantMarkdownMessageIds.has(assistantMessageId);
+            const leadingCompletedWorkSummary =
+              trailingCompletedWorkSummaryByAssistantRowId.get(row.id) ?? null;
 
             return (
               <div className="min-w-0">
-                {(() => {
-                  const trailingCompletedWorkSummary =
-                    trailingCompletedWorkSummaryByAssistantRowId.get(row.id) ?? null;
-                  return trailingCompletedWorkSummary ? (
-                    <div className="mb-2">
-                      <CompletedWorkSummaryTimelineRow
-                        row={trailingCompletedWorkSummary}
-                        expandedWorkGroups={expandedWorkGroups}
-                        onToggleWorkGroup={onToggleWorkGroup}
-                      />
-                    </div>
-                  ) : null;
-                })()}
+                {leadingCompletedWorkSummary && (
+                  <div className="mb-2">
+                    <CompletedWorkSummaryTimelineRow
+                      row={leadingCompletedWorkSummary}
+                      expandedWorkGroups={expandedWorkGroups}
+                      onToggleWorkGroup={onToggleWorkGroup}
+                    />
+                  </div>
+                )}
                 <AssistantMessageTimelineRow
                   durationStart={row.durationStart}
                   isAssistantTurnTerminal={row.isAssistantTurnTerminal ?? false}
@@ -2091,7 +2178,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     <div
       ref={setTimelineRootElement}
       data-timeline-root="true"
-      className="mx-auto w-full min-w-0 max-w-3xl overflow-x-hidden"
+      className="mx-auto mt-3 w-full min-w-0 max-w-3xl overflow-x-hidden"
       style={{ overflowAnchor: "none" }}
       onKeyUp={updateSelectionPinTarget}
       onMouseUp={updateSelectionPinTarget}
@@ -3341,6 +3428,9 @@ const CompletedWorkSummaryTimelineRow = memo(function CompletedWorkSummaryTimeli
     return null;
   }
   const hasHiddenLogs = props.row.detailRows.length > 0;
+  if (!hasHiddenLogs && visibleDiagnosticRows.length === 0) {
+    return null;
+  }
   const summaryContent = (
     <>
       <Clock3Icon className="mt-1 size-3 shrink-0 text-muted-foreground/42 transition-colors group-hover/completed-work:text-muted-foreground/78" />

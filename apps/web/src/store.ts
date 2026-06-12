@@ -10,6 +10,7 @@ import {
   type OrchestrationCheckpointSummary,
   type OrchestrationThread,
   type OrchestrationSessionStatus,
+  type MessageId,
 } from "@ace/contracts";
 import * as Schema from "effect/Schema";
 import { resolveModelSlugForProvider } from "@ace/shared/model";
@@ -20,7 +21,11 @@ import {
   derivePendingApprovals,
   derivePendingUserInputs,
 } from "./session-logic";
-import { appendCompactedThreadActivity } from "@ace/shared/orchestrationThreadActivities";
+import {
+  appendCompactedThreadActivity,
+  compactOrchestrationThreadActivities,
+  compareOrchestrationThreadActivities,
+} from "@ace/shared/orchestrationThreadActivities";
 import { compactActivityForClient } from "@ace/shared/orchestrationActivityPresentation";
 import { compareSequenceThenCreatedAt } from "./lib/activityOrder";
 import {
@@ -35,6 +40,7 @@ import {
   primeLiveTimelineRow,
   primeThreadTimelineRowsMetadataFromReadModelThread,
   primeThreadTimelineRowsMetadataFromReadModelThreads,
+  removeLiveTimelineRows,
   useTimelineModelStore,
 } from "./lib/chat/timelineModelStore";
 import { resolveConnectionForThreadId } from "./lib/connectionRouting";
@@ -1356,6 +1362,27 @@ function rebindTurnDiffSummariesForAssistantMessage(
   return changed ? nextSummaries : turnDiffSummaries;
 }
 
+function resolveLatestAssistantMessageIdForTurn(
+  messages: ReadonlyArray<ChatMessage>,
+  turnId: NonNullable<ChatMessage["turnId"]>,
+): MessageId | null {
+  let latestMessage: ChatMessage | null = null;
+  for (const message of messages) {
+    if (message.role !== "assistant" || message.turnId !== turnId) {
+      continue;
+    }
+    if (
+      latestMessage === null ||
+      compareSequenceThenCreatedAt(message, latestMessage) > 0 ||
+      (compareSequenceThenCreatedAt(message, latestMessage) === 0 &&
+        message.id.localeCompare(latestMessage.id) > 0)
+    ) {
+      latestMessage = message;
+    }
+  }
+  return latestMessage?.id ?? null;
+}
+
 function retainThreadMessagesAfterRevert(
   messages: ReadonlyArray<ChatMessage>,
   retainedTurnIds: ReadonlySet<string>,
@@ -1565,11 +1592,32 @@ function appendThreadActivities(
 ): Thread["activities"] {
   let nextActivities = thread.activities;
   for (const activity of activities) {
-    nextActivities = appendCompactedThreadActivity(nextActivities, activity, {
-      maxEntries: Number.MAX_SAFE_INTEGER,
-    });
+    nextActivities = shouldPreserveFullActivityForThread(thread, activity)
+      ? appendFullThreadActivity(nextActivities, activity)
+      : appendCompactedThreadActivity(nextActivities, activity, {
+          maxEntries: Number.MAX_SAFE_INTEGER,
+        });
   }
   return nextActivities;
+}
+
+function shouldPreserveFullActivityForThread(
+  thread: Thread,
+  activity: Thread["activities"][number],
+): boolean {
+  return (
+    activity.turnId !== null &&
+    thread.latestTurn?.turnId === activity.turnId &&
+    thread.latestTurn.state === "running"
+  );
+}
+
+function appendFullThreadActivity(
+  activities: ReadonlyArray<Thread["activities"][number]>,
+  activity: Thread["activities"][number],
+): Thread["activities"] {
+  const withoutExisting = activities.filter((entry) => entry.id !== activity.id);
+  return [...withoutExisting, activity].toSorted(compareOrchestrationThreadActivities);
 }
 
 function primeThreadActivityTimelineRow(input: {
@@ -1608,12 +1656,46 @@ function applyThreadActivityBatch(
 }
 
 function compactSettledTurnActivities(thread: Thread, turnId: string, updatedAt: string): Thread {
-  let changed = false;
-  const activities = thread.activities.map((activity) => {
+  const originalActivityIds = new Set<string>();
+  const compactedSettledActivities = compactOrchestrationThreadActivities(
+    thread.activities.flatMap((activity) => {
+      if (activity.turnId === null || String(activity.turnId) !== turnId) {
+        return [];
+      }
+      originalActivityIds.add(String(activity.id));
+      return [compactActivityForClient(activity)];
+    }),
+  );
+  const retainedActivityIds = new Set(
+    compactedSettledActivities.map((activity) => String(activity.id)),
+  );
+  removeLiveTimelineRows(
+    [...originalActivityIds].flatMap((activityId) =>
+      retainedActivityIds.has(activityId)
+        ? []
+        : [
+            {
+              threadId: thread.id,
+              kind: "activity" as const,
+              id: activityId,
+            },
+          ],
+    ),
+  );
+
+  const compactedById = new Map(
+    compactedSettledActivities.map((activity) => [activity.id, activity]),
+  );
+  let changed = compactedSettledActivities.length !== originalActivityIds.size;
+  const activities = thread.activities.flatMap((activity) => {
     if (activity.turnId === null || String(activity.turnId) !== turnId) {
-      return activity;
+      return [activity];
     }
-    const compacted = compactActivityForClient(activity);
+    const compacted = compactedById.get(activity.id);
+    if (!compacted) {
+      changed = true;
+      return [];
+    }
     if (compacted !== activity) {
       changed = true;
       primeThreadActivityTimelineRow({
@@ -1622,7 +1704,7 @@ function compactSettledTurnActivities(thread: Thread, turnId: string, updatedAt:
         updatedAt,
       });
     }
-    return compacted;
+    return [compacted];
   });
 
   return changed ? { ...thread, activities } : thread;
@@ -2023,7 +2105,9 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
                     ? (thread.latestTurn.completedAt ?? null)
                     : null
                   : event.payload.updatedAt,
-                assistantMessageId: event.payload.messageId,
+                assistantMessageId:
+                  resolveLatestAssistantMessageIdForTurn(cappedMessages, event.payload.turnId) ??
+                  event.payload.messageId,
               })
             : thread.latestTurn;
         const nextThread = {

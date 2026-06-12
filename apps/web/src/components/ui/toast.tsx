@@ -12,7 +12,7 @@ import {
   TriangleAlertIcon,
 } from "lucide-react";
 
-import { GLASS_SURFACE_CLASS_NAME, GLASS_TOOLTIP_CLASS_NAME } from "~/components/ui/glass";
+import { GLASS_TOOLTIP_CLASS_NAME } from "~/components/ui/glass";
 import { cn } from "~/lib/utils";
 import { buttonVariants } from "~/components/ui/buttonVariants";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
@@ -33,7 +33,8 @@ const threadToastVisibleTimeoutRemainingMs = new Map<ToastId, number>();
 
 const TOAST_SURFACE_CLASS_NAME = cn(
   "overflow-hidden rounded-[var(--panel-radius)]",
-  GLASS_SURFACE_CLASS_NAME,
+  "border border-border/60 bg-[color-mix(in_oklch,var(--background)_94%,var(--foreground)_6%)] text-popover-foreground shadow-2xl shadow-black/28",
+  "dark:border-border/55 dark:bg-[color-mix(in_oklch,var(--background)_88%,var(--foreground)_12%)]",
 );
 const TOAST_CONTENT_CLASS_NAME =
   "pointer-events-auto flex flex-col gap-2 overflow-hidden px-3 py-2.5 text-xs";
@@ -94,6 +95,18 @@ function resolveToastStatusIcon(type: string | null | undefined) {
     return null;
   }
   return TOAST_STATUS_ICONS[type];
+}
+
+function toastSurfaceClassName(type: string | null | undefined): string {
+  return cn(
+    TOAST_SURFACE_CLASS_NAME,
+    type === "warning" &&
+      "border-warning/70 bg-[color-mix(in_oklch,var(--background)_86%,var(--warning)_14%)] shadow-warning/8 dark:bg-[color-mix(in_oklch,var(--background)_80%,var(--warning)_20%)]",
+    type === "error" &&
+      "border-destructive/55 bg-[color-mix(in_oklch,var(--background)_88%,var(--destructive)_12%)] shadow-destructive/8 dark:bg-[color-mix(in_oklch,var(--background)_82%,var(--destructive)_18%)]",
+    type === "loading" &&
+      "border-info/45 bg-[color-mix(in_oklch,var(--background)_90%,var(--info)_10%)] shadow-info/8 dark:bg-[color-mix(in_oklch,var(--background)_84%,var(--info)_16%)]",
+  );
 }
 
 function ToastStatusIcon({
@@ -321,7 +334,7 @@ function Toasts({ position = "top-right" }: { position: ToastPosition }) {
             <Toast.Root
               className={cn(
                 "absolute z-[calc(9999-var(--toast-index))] h-(--toast-calc-height) w-full select-none",
-                TOAST_SURFACE_CLASS_NAME,
+                toastSurfaceClassName(toast.type),
                 "[transition:transform_.5s_cubic-bezier(.22,1,.36,1),opacity_.5s,height_.15s]",
                 // Base positioning using data-position
                 "data-[position*=right]:right-0 data-[position*=right]:left-auto",
@@ -473,7 +486,7 @@ function AnchoredToasts() {
               <Toast.Root
                 className={cn(
                   "relative text-balance border text-popover-foreground text-xs transition-[scale,opacity] data-ending-style:scale-98 data-starting-style:scale-98 data-ending-style:opacity-0 data-starting-style:opacity-0",
-                  tooltipStyle ? GLASS_TOOLTIP_CLASS_NAME : TOAST_SURFACE_CLASS_NAME,
+                  tooltipStyle ? GLASS_TOOLTIP_CLASS_NAME : toastSurfaceClassName(toast.type),
                 )}
                 data-slot="toast-popup"
                 toast={toast}

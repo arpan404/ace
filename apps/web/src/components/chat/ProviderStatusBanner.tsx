@@ -9,15 +9,17 @@ import { readNativeApi } from "~/nativeApi";
 import { Button } from "../ui/button";
 import { toastManager } from "../ui/toast";
 import { resolveProviderStatusDismissalKey } from "./providerStatusDismissal";
+import {
+  GLASS_BANNER_CLASS_NAME,
+  GLASS_BANNER_ERROR_CLASS_NAME,
+  GLASS_BANNER_WARNING_CLASS_NAME,
+} from "../ui/glass";
 
 const DISMISSED_PROVIDER_STATUS_KEYS_STORAGE_KEY = "ace:dismissed-provider-status-keys:v1";
 const MAX_DISMISSED_PROVIDER_STATUS_KEYS = 128;
-const PROVIDER_STATUS_BANNER_SURFACE =
-  "shadow-[0_16px_48px_color-mix(in_srgb,var(--background)_76%,transparent)]";
 const PROVIDER_STATUS_BANNER_SURFACE_BY_STATUS = {
-  error:
-    "border-destructive/45 bg-[color-mix(in_srgb,var(--background)_94%,var(--destructive)_6%)]",
-  warning: "border-warning/45 bg-[color-mix(in_srgb,var(--background)_94%,var(--warning)_6%)]",
+  error: GLASS_BANNER_ERROR_CLASS_NAME,
+  warning: GLASS_BANNER_WARNING_CLASS_NAME,
 } as const;
 
 let dismissedProviderStatusKeysHydrated = false;
@@ -155,7 +157,7 @@ export const ProviderStatusBanner = memo(function ProviderStatusBanner({
     <ProviderStatusOverlay>
       <Alert
         className={cn(
-          PROVIDER_STATUS_BANNER_SURFACE,
+          GLASS_BANNER_CLASS_NAME,
           PROVIDER_STATUS_BANNER_SURFACE_BY_STATUS[bannerStatus],
         )}
         variant={bannerStatus}

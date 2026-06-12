@@ -102,6 +102,7 @@ import {
 } from "../lib/desktopUpdate";
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "./ui/alert";
 import { Button } from "./ui/button";
+import { GLASS_BANNER_CLASS_NAME, GLASS_BANNER_WARNING_CLASS_NAME } from "./ui/glass";
 import {
   Dialog,
   DialogDescription,
@@ -7238,7 +7239,10 @@ function useSidebarComponent() {
         <>
           {showArm64IntelBuildWarning && arm64IntelBuildWarningDescription ? (
             <SidebarGroup className="px-2 pt-2 pb-0">
-              <Alert variant="warning" className="rounded-2xl border-warning/40 bg-warning/8">
+              <Alert
+                variant="warning"
+                className={cn(GLASS_BANNER_CLASS_NAME, GLASS_BANNER_WARNING_CLASS_NAME)}
+              >
                 <TriangleAlertIcon />
                 <AlertTitle>Intel build on Apple Silicon</AlertTitle>
                 <AlertDescription>{arm64IntelBuildWarningDescription}</AlertDescription>

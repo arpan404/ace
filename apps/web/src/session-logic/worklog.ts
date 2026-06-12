@@ -587,16 +587,33 @@ function extractToolDurationMs(payload: Record<string, unknown> | null): number 
 }
 
 function extractTerminalOutput(payload: Record<string, unknown> | null): string | null {
-  const direct = terminalOutputString(payload?.terminalOutput);
+  const direct =
+    terminalOutputString(payload?.terminalOutput) ??
+    terminalOutputString(payload?.output) ??
+    terminalOutputString(payload?.stdout) ??
+    terminalOutputString(payload?.stderr);
   if (direct !== null) {
     return direct;
   }
 
+  const payloadItem = asRecord(payload?.item);
+  const payloadResult = asRecord(payload?.result);
+  const payloadOutput = asRecord(payload?.output);
   const data = asRecord(payload?.data);
   const item = asRecord(data?.item);
   const result = asRecord(item?.result) ?? asRecord(data?.result);
   const output = asRecord(item?.output) ?? asRecord(data?.output) ?? asRecord(result?.output);
   for (const candidate of [
+    payloadItem?.aggregatedOutput,
+    payloadItem?.aggregated_output,
+    payloadResult?.aggregatedOutput,
+    payloadResult?.aggregated_output,
+    payloadOutput?.aggregatedOutput,
+    payloadOutput?.aggregated_output,
+    payloadOutput?.text,
+    payloadResult?.text,
+    payloadResult?.stdout,
+    payloadResult?.stderr,
     item?.aggregatedOutput,
     item?.aggregated_output,
     result?.aggregatedOutput,
