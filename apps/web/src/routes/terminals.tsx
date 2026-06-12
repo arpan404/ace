@@ -153,9 +153,10 @@ function TerminalsPage() {
       } catch (error) {
         reportBackgroundError("Failed to stop terminal process.", error);
         setErrorMessage(error instanceof Error ? error.message : "Failed to stop terminal.");
-      } finally {
         setStoppingId(null);
+        return;
       }
+      setStoppingId(null);
     },
     [refreshProcesses],
   );

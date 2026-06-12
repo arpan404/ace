@@ -591,12 +591,16 @@ function useDevicesSettingsPanelComponent() {
       });
     } catch {
       dispatchPanelState({ type: "set-advertised-local-ws-url", advertisedLocalWsUrl: null });
-    } finally {
       dispatchPanelState({
         type: "set-refreshing-local-endpoint",
         refreshingLocalEndpoint: false,
       });
+      return;
     }
+    dispatchPanelState({
+      type: "set-refreshing-local-endpoint",
+      refreshingLocalEndpoint: false,
+    });
   }, [localDeviceConnection.authToken, localDeviceConnection.wsUrl]);
 
   const saveRelaySettings = useCallback(() => {
@@ -900,9 +904,10 @@ function useDevicesSettingsPanelComponent() {
         title: "Could not add remote host.",
         description: error instanceof Error ? error.message : "Remote host setup failed.",
       });
-    } finally {
       dispatchPanelState({ type: "set-importing-host", importingHost: false });
+      return;
     }
+    dispatchPanelState({ type: "set-importing-host", importingHost: false });
   }, [
     clearHostDraft,
     editingHostId,
@@ -981,9 +986,10 @@ function useDevicesSettingsPanelComponent() {
           description:
             error instanceof Error ? error.message : "Host connection check did not complete.",
         });
-      } finally {
         dispatchPanelState({ type: "set-checking-host-id", checkingHostId: null });
+        return;
       }
+      dispatchPanelState({ type: "set-checking-host-id", checkingHostId: null });
     },
     [checkingHostId],
   );
@@ -1028,9 +1034,10 @@ function useDevicesSettingsPanelComponent() {
           description:
             error instanceof Error ? error.message : "Host connection check did not complete.",
         });
-      } finally {
         dispatchPanelState({ type: "set-connecting-host-id", connectingHostId: null });
+        return;
       }
+      dispatchPanelState({ type: "set-connecting-host-id", connectingHostId: null });
     },
     [connectedHostIds, connectingHostId, markHostLastConnected, saveConnectedHostIds],
   );
@@ -1059,9 +1066,10 @@ function useDevicesSettingsPanelComponent() {
           description:
             error instanceof Error ? error.message : "Remote route cleanup did not complete.",
         });
-      } finally {
         dispatchPanelState({ type: "set-connecting-host-id", connectingHostId: null });
+        return;
       }
+      dispatchPanelState({ type: "set-connecting-host-id", connectingHostId: null });
     },
     [connectedHostIds, connectingHostId, saveConnectedHostIds],
   );
@@ -1080,9 +1088,10 @@ function useDevicesSettingsPanelComponent() {
         description:
           error instanceof Error ? error.message : "Local host connection check did not complete.",
       });
-    } finally {
       dispatchPanelState({ type: "set-connecting-host-id", connectingHostId: null });
+      return;
     }
+    dispatchPanelState({ type: "set-connecting-host-id", connectingHostId: null });
   }, [connectingHostId, localControlConnectionUrl]);
 
   const createPairingLink = useCallback(async () => {
@@ -1147,9 +1156,10 @@ function useDevicesSettingsPanelComponent() {
         title: "Could not create pairing link.",
         description: error instanceof Error ? error.message : "Pairing link creation failed.",
       });
-    } finally {
       dispatchPairingUi({ type: "set-creating", creatingPairingLink: false });
+      return;
     }
+    dispatchPairingUi({ type: "set-creating", creatingPairingLink: false });
   }, [
     localAdvertisedWsUrl,
     localDeviceConnection.authToken,
@@ -1179,9 +1189,10 @@ function useDevicesSettingsPanelComponent() {
         title: "Could not revoke pairing link.",
         description: error instanceof Error ? error.message : "Pairing link revoke failed.",
       });
-    } finally {
       dispatchPairingUi({ type: "set-revoking", revokingPairingLink: false });
+      return;
     }
+    dispatchPairingUi({ type: "set-revoking", revokingPairingLink: false });
   }, [localAdvertisedWsUrl, localDeviceConnection.authToken, pairingLink]);
 
   useEffect(() => {
@@ -1244,13 +1255,19 @@ function useDevicesSettingsPanelComponent() {
             description: error instanceof Error ? error.message : "Failed to fetch paired devices.",
           });
         }
-      } finally {
         if (!options?.quiet) {
           dispatchSessionState({
             type: "set-refreshing-paired-sessions",
             refreshingPairedSessions: false,
           });
         }
+        return;
+      }
+      if (!options?.quiet) {
+        dispatchSessionState({
+          type: "set-refreshing-paired-sessions",
+          refreshingPairedSessions: false,
+        });
       }
     },
     [localAdvertisedWsUrl, localDeviceConnection.authToken],
@@ -1302,13 +1319,18 @@ function useDevicesSettingsPanelComponent() {
           title: "Could not revoke device access.",
           description: error instanceof Error ? error.message : "Pairing session revoke failed.",
         });
-      } finally {
         dispatchSessionState({
           type: "set-revoking-paired-session",
           sessionId: session.sessionId,
           revoking: false,
         });
+        return;
       }
+      dispatchSessionState({
+        type: "set-revoking-paired-session",
+        sessionId: session.sessionId,
+        revoking: false,
+      });
     },
     [localAdvertisedWsUrl, localDeviceConnection.authToken, pairedSessions, refreshPairedSessions],
   );

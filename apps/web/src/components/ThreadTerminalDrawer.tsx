@@ -702,9 +702,11 @@ function useTerminalViewportComponent({
         onAddTerminalContextRef.current(nextAction.selection);
         terminalRef.current?.clearSelection();
         terminalRef.current?.focus();
-      } finally {
+      } catch (error) {
         selectionActionOpenRef.current = false;
+        throw error;
       }
+      selectionActionOpenRef.current = false;
     };
 
     const sendTerminalInput = async (data: string, fallbackError: string) => {

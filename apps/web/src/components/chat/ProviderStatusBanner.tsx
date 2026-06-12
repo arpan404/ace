@@ -148,9 +148,10 @@ export const ProviderStatusBanner = memo(function ProviderStatusBanner({
         title: "Provider refresh failed",
         description: error instanceof Error ? error.message : "Unable to refresh provider status.",
       });
-    } finally {
       setRefreshing(false);
+      return;
     }
+    setRefreshing(false);
   };
 
   return (

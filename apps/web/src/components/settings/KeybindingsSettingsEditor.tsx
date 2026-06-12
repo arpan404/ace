@@ -339,9 +339,10 @@ function KeybindingsSettingsEditorContent(props: {
         type: "set-save-error",
         value: error instanceof Error ? error.message : "Unable to save keybindings.",
       });
-    } finally {
       dispatch({ type: "finish-saving" });
+      return;
     }
+    dispatch({ type: "finish-saving" });
   }, [canSave, dirtyCommands, draftShortcuts, draftWhenByCommand]);
 
   return (
