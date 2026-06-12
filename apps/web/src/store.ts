@@ -10,6 +10,7 @@ import {
   type OrchestrationCheckpointSummary,
   type OrchestrationThread,
   type OrchestrationSessionStatus,
+  type MessageId,
 } from "@ace/contracts";
 import * as Schema from "effect/Schema";
 import { resolveModelSlugForProvider } from "@ace/shared/model";
@@ -1356,6 +1357,27 @@ function rebindTurnDiffSummariesForAssistantMessage(
   return changed ? nextSummaries : turnDiffSummaries;
 }
 
+function resolveLatestAssistantMessageIdForTurn(
+  messages: ReadonlyArray<ChatMessage>,
+  turnId: NonNullable<ChatMessage["turnId"]>,
+): MessageId | null {
+  let latestMessage: ChatMessage | null = null;
+  for (const message of messages) {
+    if (message.role !== "assistant" || message.turnId !== turnId) {
+      continue;
+    }
+    if (
+      latestMessage === null ||
+      compareSequenceThenCreatedAt(message, latestMessage) > 0 ||
+      (compareSequenceThenCreatedAt(message, latestMessage) === 0 &&
+        message.id.localeCompare(latestMessage.id) > 0)
+    ) {
+      latestMessage = message;
+    }
+  }
+  return latestMessage?.id ?? null;
+}
+
 function retainThreadMessagesAfterRevert(
   messages: ReadonlyArray<ChatMessage>,
   retainedTurnIds: ReadonlySet<string>,
@@ -2023,7 +2045,9 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
                     ? (thread.latestTurn.completedAt ?? null)
                     : null
                   : event.payload.updatedAt,
-                assistantMessageId: event.payload.messageId,
+                assistantMessageId:
+                  resolveLatestAssistantMessageIdForTurn(cappedMessages, event.payload.turnId) ??
+                  event.payload.messageId,
               })
             : thread.latestTurn;
         const nextThread = {

@@ -379,43 +379,52 @@ function chooseFreshestProposedPlan(
   return existing.updatedAt.localeCompare(incoming.updatedAt) > 0 ? existing : incoming;
 }
 
-function timelinePresentationPriority(
-  row: OrchestrationTimelineRow,
-  messagesById: Readonly<Record<string, OrchestrationMessage>>,
-): number {
-  if (row.kind !== "message") {
-    return 1;
-  }
-  const sourceRef = row.sourceRefs.find((source) => source.kind === "message");
-  const message = sourceRef ? messagesById[sourceRef.id] : undefined;
-  return message?.role === "assistant" ? 2 : 0;
-}
-
-function compareTimelinePresentationRows(
+function compareTimelineRowsBySourceOrder(
   left: OrchestrationTimelineRow,
   right: OrchestrationTimelineRow,
-  messagesById: Readonly<Record<string, OrchestrationMessage>>,
 ): number {
-  if (left.turnId && right.turnId && left.turnId === right.turnId) {
-    const priority =
-      timelinePresentationPriority(left, messagesById) -
-      timelinePresentationPriority(right, messagesById);
-    if (priority !== 0) {
-      return priority;
-    }
-  }
   return (
+    compareLiveTimelineRowSourceSequence(left, right) ||
     left.startSourceIndex - right.startSourceIndex ||
     left.createdAt.localeCompare(right.createdAt) ||
     left.id.localeCompare(right.id)
   );
 }
 
+function compareLiveTimelineRowSourceSequence(
+  left: OrchestrationTimelineRow,
+  right: OrchestrationTimelineRow,
+): number {
+  if (!isLiveTimelineRow(left) && !isLiveTimelineRow(right)) {
+    return 0;
+  }
+  const leftSequence = timelineRowFirstSequence(left);
+  const rightSequence = timelineRowFirstSequence(right);
+  if (leftSequence === undefined || rightSequence === undefined || leftSequence === rightSequence) {
+    return 0;
+  }
+  return leftSequence - rightSequence;
+}
+
+function isLiveTimelineRow(row: OrchestrationTimelineRow): boolean {
+  return row.contentVersion.startsWith("live:");
+}
+
+function timelineRowFirstSequence(row: OrchestrationTimelineRow): number | undefined {
+  let sequence: number | undefined;
+  for (const sourceRef of row.sourceRefs) {
+    if (sourceRef.sequence === undefined) {
+      continue;
+    }
+    sequence = sequence === undefined ? sourceRef.sequence : Math.min(sequence, sourceRef.sequence);
+  }
+  return sequence;
+}
+
 function sortTimelineRowIds(
   rowIds: readonly string[],
   threadId: ThreadId,
   rowsById: Readonly<Record<string, OrchestrationTimelineRow>>,
-  messagesById: Readonly<Record<string, OrchestrationMessage>>,
 ): string[] {
   return rowIds.toSorted((leftId, rightId) => {
     const left = rowsById[rowKey(threadId, leftId)];
@@ -423,7 +432,7 @@ function sortTimelineRowIds(
     if (!left || !right) {
       return leftId.localeCompare(rightId);
     }
-    return compareTimelinePresentationRows(left, right, messagesById);
+    return compareTimelineRowsBySourceOrder(left, right);
   });
 }
 
@@ -500,12 +509,7 @@ function primeTimelineRowsSnapshotIntoState(
       proposedPlan,
     );
   }
-  const presentationRowIds = sortTimelineRowIds(
-    sortedRowIds,
-    snapshot.threadId,
-    rowsById,
-    messagesById,
-  );
+  const presentationRowIds = sortTimelineRowIds(sortedRowIds, snapshot.threadId, rowsById);
 
   const loadedAt = Date.now();
 
@@ -597,21 +601,26 @@ export const useTimelineModelStore = create<TimelineModelState>((set) => ({
     })),
   primeSnapshot: (snapshot) => set((state) => primeTimelineRowsSnapshotIntoState(state, snapshot)),
   patchRow: (threadId, row) =>
-    set((state) => ({
-      ...state,
-      rowsById: {
+    set((state) => {
+      const rowsById = {
         ...state.rowsById,
         [rowKey(threadId, row.id)]: row,
-      },
-      rowIdsByThreadId: {
-        ...state.rowIdsByThreadId,
-        [threadId]: state.rowIdsByThreadId[threadId]?.includes(row.id)
-          ? state.rowIdsByThreadId[threadId]
-          : [...(state.rowIdsByThreadId[threadId] ?? []), row.id],
-      },
-      revisionByThreadId: bumpThreadRevision(state, threadId),
-      revision: state.revision + 1,
-    })),
+      };
+      const previousRowIds = state.rowIdsByThreadId[threadId] ?? [];
+      const nextRowIds = previousRowIds.includes(row.id)
+        ? previousRowIds
+        : [...previousRowIds, row.id];
+      return {
+        ...state,
+        rowsById,
+        rowIdsByThreadId: {
+          ...state.rowIdsByThreadId,
+          [threadId]: sortTimelineRowIds(nextRowIds, threadId, rowsById),
+        },
+        revisionByThreadId: bumpThreadRevision(state, threadId),
+        revision: state.revision + 1,
+      };
+    }),
   setActiveWindow: (threadId, window) =>
     set((state) => ({
       ...state,
@@ -1129,12 +1138,7 @@ function applyLiveTimelineRowPatchToState(
         ),
       }
     : state.messagesById;
-  const presentationRowIds = sortTimelineRowIds(
-    nextThreadRowIds,
-    input.threadId,
-    nextRowsById,
-    nextMessagesById,
-  );
+  const presentationRowIds = sortTimelineRowIds(nextThreadRowIds, input.threadId, nextRowsById);
 
   return {
     ...state,

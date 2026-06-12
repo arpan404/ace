@@ -253,6 +253,69 @@ describe("timelineModelStore", () => {
     ]);
   });
 
+  it("preserves source-index order for live rows that arrive out of order", async () => {
+    const { primeLiveTimelineRow } = await import("./timelineModelStore");
+    const activityId = EventId.makeUnsafe("activity-row-store");
+
+    primeLiveTimelineRow(
+      {
+        threadId,
+        updatedAt: "2026-01-01T00:00:03.000Z",
+        entry: {
+          kind: "activity",
+          id: activityId,
+          createdAt: "2026-01-01T00:00:03.000Z",
+          turnId,
+          sequence: 3,
+        },
+        activity: {
+          id: activityId,
+          kind: "tool.completed",
+          tone: "tool",
+          summary: "Ran command",
+          payload: { itemType: "command_execution", command: "bun typecheck" },
+          turnId,
+          sequence: 3,
+          createdAt: "2026-01-01T00:00:03.000Z",
+        },
+      },
+      { flush: "sync" },
+    );
+    primeLiveTimelineRow(
+      {
+        threadId,
+        updatedAt: "2026-01-01T00:00:02.000Z",
+        entry: {
+          kind: "message",
+          id: messageId,
+          createdAt: "2026-01-01T00:00:02.000Z",
+          turnId,
+          sequence: 2,
+        },
+        message: {
+          id: messageId,
+          role: "assistant",
+          text: "Streaming",
+          turnId,
+          streaming: true,
+          sequence: 2,
+          createdAt: "2026-01-01T00:00:02.000Z",
+          updatedAt: "2026-01-01T00:00:02.000Z",
+        },
+      },
+      { flush: "sync" },
+    );
+
+    expect(useTimelineModelStore.getState().rowIdsByThreadId[threadId]).toEqual([
+      "message:message-row-store",
+      "activity:activity-row-store",
+    ]);
+    expect(readTimelineRowsProjection(threadId).rows.map((row) => row.id)).toEqual([
+      "message:message-row-store",
+      "activity:activity-row-store",
+    ]);
+  });
+
   it("preserves image previews when a server echo replaces an optimistic user row", async () => {
     const { primeLiveTimelineRow } = await import("./timelineModelStore");
     const attachmentId = "attachment-row-store";
@@ -508,7 +571,7 @@ describe("timelineModelStore", () => {
     });
   });
 
-  it("orders same-turn live work rows before assistant message rows", async () => {
+  it("orders same-turn live rows by source sequence", async () => {
     const { primeLiveTimelineRow } = await import("./timelineModelStore");
     const activityId = EventId.makeUnsafe("activity-row-store-thinking");
 
@@ -562,8 +625,8 @@ describe("timelineModelStore", () => {
     );
 
     expect(readTimelineRowsProjection(threadId).rows.map((row) => row.id)).toEqual([
-      `activity:${activityId}`,
       `message:${messageId}`,
+      `activity:${activityId}`,
     ]);
   });
 

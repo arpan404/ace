@@ -116,20 +116,7 @@ export function buildNativeTimelineRows(input: NativeTimelineRowsInput): Timelin
     turnId: string | null;
     entries: TimelineMetaGroupEntry[];
   } | null = null;
-  const orderedSourceRows = input.rows.toSorted((left, right) => {
-    if (left.turnId && right.turnId && left.turnId === right.turnId) {
-      const leftPriority = nativeTimelinePresentationPriority(left, messageById);
-      const rightPriority = nativeTimelinePresentationPriority(right, messageById);
-      if (leftPriority !== rightPriority) {
-        return leftPriority - rightPriority;
-      }
-    }
-    return (
-      left.startSourceIndex - right.startSourceIndex ||
-      left.createdAt.localeCompare(right.createdAt) ||
-      left.id.localeCompare(right.id)
-    );
-  });
+  const orderedSourceRows = input.rows.toSorted(compareNativeTimelineRowsBySourceOrder);
 
   const flushPendingWorkGroup = () => {
     if (!pendingWorkGroup) {
@@ -278,16 +265,46 @@ export function buildNativeTimelineRows(input: NativeTimelineRowsInput): Timelin
   return rows;
 }
 
-function nativeTimelinePresentationPriority(
-  row: OrchestrationTimelineRow,
-  messageById: ReadonlyMap<string, ChatMessage>,
+function compareNativeTimelineRowsBySourceOrder(
+  left: OrchestrationTimelineRow,
+  right: OrchestrationTimelineRow,
 ): number {
-  if (row.kind !== "message") {
-    return 1;
+  return (
+    compareLiveNativeTimelineRowSourceSequence(left, right) ||
+    left.startSourceIndex - right.startSourceIndex ||
+    left.createdAt.localeCompare(right.createdAt) ||
+    left.id.localeCompare(right.id)
+  );
+}
+
+function compareLiveNativeTimelineRowSourceSequence(
+  left: OrchestrationTimelineRow,
+  right: OrchestrationTimelineRow,
+): number {
+  if (!isLiveNativeTimelineRow(left) && !isLiveNativeTimelineRow(right)) {
+    return 0;
   }
-  const sourceRef = row.sourceRefs.find((source) => source.kind === "message");
-  const message = sourceRef ? messageById.get(String(sourceRef.id)) : undefined;
-  return message?.role === "assistant" ? 2 : 0;
+  const leftSequence = nativeTimelineRowFirstSequence(left);
+  const rightSequence = nativeTimelineRowFirstSequence(right);
+  if (leftSequence === undefined || rightSequence === undefined || leftSequence === rightSequence) {
+    return 0;
+  }
+  return leftSequence - rightSequence;
+}
+
+function isLiveNativeTimelineRow(row: OrchestrationTimelineRow): boolean {
+  return row.contentVersion.startsWith("live:");
+}
+
+function nativeTimelineRowFirstSequence(row: OrchestrationTimelineRow): number | undefined {
+  let sequence: number | undefined;
+  for (const sourceRef of row.sourceRefs) {
+    if (sourceRef.sequence === undefined) {
+      continue;
+    }
+    sequence = sequence === undefined ? sourceRef.sequence : Math.min(sequence, sourceRef.sequence);
+  }
+  return sequence;
 }
 
 export function deriveNativeCompletionDividerBeforeRowId(input: {
