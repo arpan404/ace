@@ -7732,6 +7732,9 @@ function useChatViewComponent({
             stableFrameCount >= INITIAL_THREAD_BOTTOM_PIN_STABLE_FRAMES)
         ) {
           pendingInitialBottomPinFrameRef.current = null;
+          if (pendingInitialBottomScrollThreadIdRef.current === activeThreadId) {
+            pendingInitialBottomScrollThreadIdRef.current = null;
+          }
           pendingInitialBottomPinResizeObserverRef.current?.disconnect();
           pendingInitialBottomPinResizeObserverRef.current = null;
           return;
@@ -7909,7 +7912,6 @@ function useChatViewComponent({
       return;
     }
 
-    pendingInitialBottomScrollThreadIdRef.current = null;
     startInitialBottomPin(activeThreadId);
   }, [activeForSideEffects, activeThread?.id, startInitialBottomPin, timelineHydratedRowCount]);
   useLayoutEffect(() => {

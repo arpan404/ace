@@ -150,6 +150,7 @@ const ASSISTANT_MARKDOWN_IDLE_TIMEOUT_MS = 600;
 const ASSISTANT_MARKDOWN_FALLBACK_DELAY_MS = 80;
 const TIMELINE_WIDTH_RESIZE_DEBOUNCE_MS = 96;
 const TIMELINE_INITIAL_VIEWPORT_HEIGHT_PX = 720;
+const THREAD_SWITCH_TIMELINE_BOTTOM_PIN_MAX_MS = 4_500;
 const TIMELINE_FALLBACK_VIRTUAL_RANGE_MIN_ROWS = TIMELINE_VIRTUALIZER_OVERSCAN * 2 + 8;
 const EMPTY_PROVIDER_COMMANDS: ReadonlyArray<ProviderSlashCommand> = [];
 const ASSISTANT_IMAGE_GENERATION_MESSAGE_ID_REGEX =
@@ -1355,6 +1356,10 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     useAnimationFrameWithResizeObserver: true,
   });
   const previousActiveThreadIdRef = useRef<string | undefined>(activeThreadId);
+  const pendingThreadSwitchBottomPinRef = useRef<{
+    startedAtMs: number;
+    threadId: string;
+  } | null>(activeThreadId ? { startedAtMs: 0, threadId: activeThreadId } : null);
   const isTimelineScrolling = rowVirtualizer.isScrolling;
   const timelineScrollSampleRef = useRef({
     scrollTop: Number.NaN,
@@ -1414,15 +1419,29 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   useLayoutEffect(() => {
     if (!activeThreadId) {
       previousActiveThreadIdRef.current = activeThreadId;
+      pendingThreadSwitchBottomPinRef.current = null;
       return;
     }
     const activeThreadChanged = previousActiveThreadIdRef.current !== activeThreadId;
     previousActiveThreadIdRef.current = activeThreadId;
-    if (!activeThreadChanged || rows.length === 0) {
+    if (
+      activeThreadChanged ||
+      pendingThreadSwitchBottomPinRef.current?.threadId !== activeThreadId
+    ) {
+      pendingThreadSwitchBottomPinRef.current = {
+        startedAtMs: performance.now(),
+        threadId: activeThreadId,
+      };
+    }
+    if (!pendingThreadSwitchBottomPinRef.current || rows.length === 0) {
       return;
     }
 
     const scrollTimelineToBottom = () => {
+      const pendingBottomPin = pendingThreadSwitchBottomPinRef.current;
+      if (!pendingBottomPin || pendingBottomPin.threadId !== activeThreadId) {
+        return;
+      }
       const scrollContainer = getScrollContainer();
       if (!scrollContainer) {
         return;
@@ -1435,15 +1454,32 @@ export const MessagesTimeline = memo(function MessagesTimeline({
 
     scrollTimelineToBottom();
     let secondFrameId: number | null = null;
+    let thirdFrameId: number | null = null;
     const firstFrameId = window.requestAnimationFrame(() => {
       scrollTimelineToBottom();
-      secondFrameId = window.requestAnimationFrame(scrollTimelineToBottom);
+      secondFrameId = window.requestAnimationFrame(() => {
+        scrollTimelineToBottom();
+        thirdFrameId = window.requestAnimationFrame(() => {
+          scrollTimelineToBottom();
+          const pendingBottomPin = pendingThreadSwitchBottomPinRef.current;
+          if (
+            pendingBottomPin?.threadId === activeThreadId &&
+            performance.now() - pendingBottomPin.startedAtMs >=
+              THREAD_SWITCH_TIMELINE_BOTTOM_PIN_MAX_MS
+          ) {
+            pendingThreadSwitchBottomPinRef.current = null;
+          }
+        });
+      });
     });
 
     return () => {
       window.cancelAnimationFrame(firstFrameId);
       if (secondFrameId !== null) {
         window.cancelAnimationFrame(secondFrameId);
+      }
+      if (thirdFrameId !== null) {
+        window.cancelAnimationFrame(thirdFrameId);
       }
     };
   }, [
@@ -1452,6 +1488,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     rowVirtualizer,
     rows.length,
     shouldRenderVirtualizedBuffer,
+    timelineCacheScope,
     virtualizedRows.length,
   ]);
   useEffect(() => {
