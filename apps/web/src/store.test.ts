@@ -2817,7 +2817,7 @@ describe("incremental orchestration updates", () => {
     expect(next.threads[0]?.latestTurn?.sourceProposedPlan).toBeUndefined();
   });
 
-  it("preserves full latest-turn activity while running and compacts it after completion", () => {
+  it("preserves full latest-turn activity while running and after completion", () => {
     const turnId = TurnId.makeUnsafe("turn-1");
     const thread = makeThread({
       latestTurn: {
@@ -2916,13 +2916,11 @@ describe("incremental orchestration updates", () => {
       EventId.makeUnsafe("reasoning-004"),
     ]);
     expect(state.threads[0]?.activities[0]?.payload).toMatchObject({
-      compacted: true,
-      originalKind: "tool.completed",
+      detail: "packages/contracts/src/model.ts",
     });
     expect(state.threads[0]?.activities[1]?.payload).toMatchObject({
-      compacted: true,
-      originalKind: "task.progress",
       taskId: "copilot-task-1",
+      detail: "thought-000 thought-001 thought-002 thought-003 thought-004",
     });
   });
 });

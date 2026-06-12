@@ -3298,12 +3298,14 @@ function useChatViewComponent({
       completionSummary,
       completionTurnId: nativeCompletionAttachment?.turnId ?? null,
       completionStartedAt: nativeCompletionAttachment?.startedAt ?? null,
+      hideCompletedWorkMessages,
       turnDiffSummaryByAssistantMessageId,
     };
   }, [
     activeThreadTimelineProjection,
     activeWorkStartedAt,
     completionSummary,
+    hideCompletedWorkMessages,
     isThreadHistoryMetadataOnly,
     isWorking,
     nativeCompletionAttachment,
@@ -3343,6 +3345,7 @@ function useChatViewComponent({
       completionSummary,
       completionStartedAt: nativeTimelineRowsInput.completionStartedAt ?? null,
       completionTurnId: nativeTimelineRowsInput.completionTurnId ?? null,
+      hideCompletedWorkMessages,
       turnDiffSummaryKey: nativeTurnDiffSummaryKey,
     });
   }, [
@@ -3350,6 +3353,7 @@ function useChatViewComponent({
     activeThreadTimelineRevision,
     activeWorkStartedAt,
     completionSummary,
+    hideCompletedWorkMessages,
     isWorking,
     nativeCompletionDividerBeforeEntryId,
     nativeTimelineRowsContentKey,

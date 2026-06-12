@@ -1023,7 +1023,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
     }),
   );
 
-  it.effect("keeps stored backend activities out of UI-serving thread hydration", () =>
+  it.effect("preserves stored backend activities in UI-serving full timeline snapshots", () =>
     Effect.gen(function* () {
       const snapshotQuery = yield* ProjectionSnapshotQuery;
       const sql = yield* SqlClient.SqlClient;
@@ -1137,14 +1137,19 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       yield* rebuildTimelineEntriesForThread(sql, threadId);
       const thread = Option.getOrThrow(yield* snapshotQuery.getThread(threadId));
 
-      assert.equal(thread.activities.length, 0);
+      assert.equal(thread.activities.length, totalActivityCount);
 
       const timelineSnapshot = yield* snapshotQuery.getThreadTimelineRowsSnapshot({ threadId });
       assert.equal(timelineSnapshot._tag, "Some");
       if (Option.isSome(timelineSnapshot)) {
-        assert.equal(timelineSnapshot.value.totalRows, 0);
-        assert.deepEqual(timelineSnapshot.value.rows, []);
-        assert.deepEqual(timelineSnapshot.value.activities, []);
+        assert.equal(timelineSnapshot.value.totalRows, totalActivityCount);
+        assert.equal(timelineSnapshot.value.rows.length, totalActivityCount);
+        assert.equal(timelineSnapshot.value.activities.length, totalActivityCount);
+        assert.equal(timelineSnapshot.value.activities[0]?.summary, "Activity 1");
+        assert.equal(
+          timelineSnapshot.value.activities.at(-1)?.summary,
+          `Activity ${String(totalActivityCount)}`,
+        );
       }
     }),
   );
@@ -1919,11 +1924,13 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       const snapshot = yield* snapshotQuery.getThreadTimelineRowsSnapshot({ threadId });
       assert.equal(snapshot._tag, "Some");
       if (Option.isSome(snapshot)) {
-        assert.equal(snapshot.value.totalRows, 3);
+        assert.equal(snapshot.value.totalRows, 5);
         assert.deepEqual(
           snapshot.value.rows.map((row) => `${row.startSourceIndex}:${row.kind}:${row.id}`),
           [
             "0:message:message:message-user-running",
+            "1:work:activity:activity-tool-one",
+            "2:work:activity:activity-thinking",
             "3:work:activity:activity-tool-two",
             "4:message:message:message-assistant-running",
           ],
@@ -1935,6 +1942,16 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             summary: activity.summary,
           })),
           [
+            {
+              id: "activity-tool-one",
+              payload: { command: "bun lint", terminalOutput: "large output" },
+              summary: "Ran bun lint",
+            },
+            {
+              id: "activity-thinking",
+              payload: { detail: "private reasoning" },
+              summary: "Thought about approach",
+            },
             {
               id: "activity-tool-two",
               payload: { command: "bun typecheck" },
@@ -2445,11 +2462,12 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       if (Option.isSome(initialSnapshot)) {
         assert.equal(initialSnapshot.value.threadId, threadId);
         assert.equal(initialSnapshot.value.updatedAt, "2026-03-04T00:00:10.000Z");
-        assert.equal(initialSnapshot.value.totalRows, 3);
+        assert.equal(initialSnapshot.value.totalRows, 4);
         assert.deepEqual(
           initialSnapshot.value.rows.map((row) => `${row.startSourceIndex}:${row.kind}:${row.id}`),
           [
             "0:message:message:message-user",
+            "1:work:activity:activity-tool",
             "2:proposed-plan:proposed-plan:plan-timeline",
             "3:message:message:message-assistant",
           ],
@@ -2470,11 +2488,12 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       const rebuiltSnapshot = yield* snapshotQuery.getThreadTimelineRowsSnapshot({ threadId });
       assert.equal(rebuiltSnapshot._tag, "Some");
       if (Option.isSome(rebuiltSnapshot)) {
-        assert.equal(rebuiltSnapshot.value.totalRows, 3);
+        assert.equal(rebuiltSnapshot.value.totalRows, 4);
         assert.deepEqual(
           rebuiltSnapshot.value.rows.map((row) => `${row.startSourceIndex}:${row.kind}:${row.id}`),
           [
             "0:message:message:message-user",
+            "1:work:activity:activity-tool",
             "2:proposed-plan:proposed-plan:plan-timeline",
             "3:message:message:message-assistant",
           ],
@@ -2494,11 +2513,12 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         assert.equal(repairedSnapshot.value.threadId, threadId);
         assert.equal(repairedSnapshot.value.revision.includes("thread-timeline-page:"), true);
         assert.equal(repairedSnapshot.value.updatedAt, "2026-03-04T00:00:10.000Z");
-        assert.equal(repairedSnapshot.value.totalRows, 3);
+        assert.equal(repairedSnapshot.value.totalRows, 4);
         assert.deepEqual(
           repairedSnapshot.value.rows.map((row) => `${row.startSourceIndex}:${row.kind}:${row.id}`),
           [
             "0:message:message:message-user",
+            "1:work:activity:activity-tool",
             "2:proposed-plan:proposed-plan:plan-timeline",
             "3:message:message:message-assistant",
           ],
@@ -2511,6 +2531,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           ),
           [
             ["0:message:message-user"],
+            ["1:activity:activity-tool"],
             ["2:proposed-plan:plan-timeline"],
             ["3:message:message-assistant"],
           ],
@@ -2519,7 +2540,10 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           repairedSnapshot.value.messages.map((message) => message.text),
           ["Run checks", "Done"],
         );
-        assert.deepEqual(repairedSnapshot.value.activities, []);
+        assert.deepEqual(
+          repairedSnapshot.value.activities.map((activity) => activity.summary),
+          ["Run command"],
+        );
         assert.deepEqual(
           repairedSnapshot.value.proposedPlans.map((plan) => plan.planMarkdown),
           ["Plan"],

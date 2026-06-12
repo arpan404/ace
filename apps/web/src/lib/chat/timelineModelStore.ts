@@ -17,7 +17,7 @@ import { clampCacheEntryCount } from "../resourceProfile";
 const DEFAULT_TIMELINE_TAIL_WINDOW_ROWS = 100;
 const BACKGROUND_TIMELINE_ROWS_PREFETCH_DELAY_MS = 750;
 const TIMELINE_ROWS_SNAPSHOT_RPC_TIMEOUT_MS = 10_000;
-const TIMELINE_MODEL_CACHE_VERSION = "timeline-model:v3";
+const TIMELINE_MODEL_CACHE_VERSION = "timeline-model:v4";
 const MAX_ROW_HEIGHT_CACHE_ENTRIES = clampCacheEntryCount(32_000, {
   moderateCapEntries: 16_000,
   constrainedCapEntries: 8_000,

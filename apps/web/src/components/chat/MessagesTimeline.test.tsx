@@ -3229,6 +3229,83 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(markup.match(/data-response-summary="true"/g) ?? []).toHaveLength(1);
   });
 
+  it("does not render completed work summaries that have no expandable details", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        hasMessages
+        isWorking={false}
+        activeTurnInProgress={false}
+        activeTurnStartedAt={null}
+        getScrollContainer={() => null}
+        timelineEntries={[]}
+        timelineRowsOverride={[
+          {
+            id: "user-before-empty-work-summary",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:30.000Z",
+            message: {
+              id: MessageId.makeUnsafe("user-before-empty-work-summary"),
+              role: "user",
+              text: "Hey",
+              createdAt: "2026-03-17T19:12:30.000Z",
+              streaming: false,
+            },
+            durationStart: "2026-03-17T19:12:30.000Z",
+            completionSummary: null,
+          },
+          {
+            id: "completed-work-summary:empty",
+            kind: "completed-work-summary",
+            createdAt: "2026-03-17T19:12:31.000Z",
+            startedAt: "2026-03-17T19:12:31.000Z",
+            endedAt: "2026-03-17T19:12:39.000Z",
+            sourceEntryIds: [],
+            detailRows: [],
+            visibleDiagnosticRows: [],
+            visibleDiagnosticCacheKey: "empty",
+            hiddenMessageCount: 0,
+            hiddenThinkingCount: 0,
+            toolCallCount: 0,
+          },
+          {
+            id: "assistant-after-empty-work-summary",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:39.000Z",
+            message: {
+              id: MessageId.makeUnsafe("assistant-after-empty-work-summary"),
+              role: "assistant",
+              text: "Hi-ready when you are.",
+              createdAt: "2026-03-17T19:12:39.000Z",
+              completedAt: "2026-03-17T19:12:39.000Z",
+              streaming: false,
+            },
+            durationStart: "2026-03-17T19:12:31.000Z",
+            completionSummary: null,
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        resolvedTheme="light"
+        timestampFormat="24-hour"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup).not.toContain('data-completed-work-summary="true"');
+    expect(markup).not.toContain("Worked for 8s");
+    expect(markup).toContain("Hi-ready when you are.");
+  });
+
   it("omits runtime errors from completed work diagnostics", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
@@ -3935,6 +4012,82 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(markup).toContain("Edit file");
     expect(markup).not.toContain('data-assistant-turn-copy-action="true"');
     expect(markup).not.toContain('aria-label="Copy message"');
+    expect(markup).not.toContain('aria-label="Fork conversation"');
+  });
+
+  it("hides assistant footer for completed partial output in the active turn", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const turnId = TurnId.makeUnsafe("turn-active-partial-footer-hidden");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        hasMessages
+        isWorking
+        activeTurnInProgress
+        activeTurnStartedAt="2026-03-17T19:12:30.000Z"
+        getScrollContainer={() => null}
+        timelineEntries={[
+          {
+            id: "user-active-partial-footer-hidden",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:30.000Z",
+            message: {
+              id: MessageId.makeUnsafe("user-active-partial-footer-hidden"),
+              role: "user",
+              turnId,
+              text: "Audit in deep",
+              createdAt: "2026-03-17T19:12:30.000Z",
+              streaming: false,
+            },
+          },
+          {
+            id: "assistant-active-partial-footer-hidden",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:36.000Z",
+            message: {
+              id: MessageId.makeUnsafe("assistant-active-partial-footer-hidden"),
+              role: "assistant",
+              turnId,
+              text: "Let me do a bottom-up audit, reading every source file.",
+              createdAt: "2026-03-17T19:12:36.000Z",
+              completedAt: "2026-03-17T19:12:42.000Z",
+              streaming: false,
+            },
+          },
+          {
+            id: "work-active-after-partial-footer-hidden",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:43.000Z",
+            entry: {
+              id: "work-active-after-partial-footer-hidden",
+              createdAt: "2026-03-17T19:12:43.000Z",
+              label: "Used 2 tools",
+              tone: "tool",
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        onForkConversation={() => {}}
+        resolvedTheme="light"
+        timestampFormat="24-hour"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup).toContain("Let me do a bottom-up audit");
+    expect(markup).toContain("Working for");
+    expect(markup).not.toContain('data-assistant-turn-footer="true"');
+    expect(markup).not.toContain('data-response-summary="true"');
+    expect(markup).not.toContain('data-assistant-turn-copy-action="true"');
     expect(markup).not.toContain('aria-label="Fork conversation"');
   });
 

@@ -201,10 +201,6 @@ const ProjectIdLookupInput = Schema.Struct({
 const ThreadIdLookupInput = Schema.Struct({
   threadId: ThreadId,
 });
-const ThreadTurnLookupInput = Schema.Struct({
-  threadId: ThreadId,
-  turnId: TurnId,
-});
 const ProjectionProjectLookupRowSchema = ProjectionProjectDbRowSchema;
 const ProjectionThreadIdLookupRowSchema = Schema.Struct({
   threadId: ThreadId,
@@ -388,7 +384,7 @@ function normalizedTimelineRowsRevision(input: {
   readonly updatedAt: string;
   readonly totalRows: number;
 }): string {
-  return `timeline-rows:ui-v3:${input.threadId}:${input.updatedAt}:${String(input.totalRows)}`;
+  return `timeline-rows:ui-v4:${input.threadId}:${input.updatedAt}:${String(input.totalRows)}`;
 }
 
 function buildTimelineRowsSnapshotFromPresentationRows(input: {
@@ -819,35 +815,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     Result: ProjectionThreadTimelineSourceRowSchema,
     execute: ({ threadId }) =>
       sql`
-        WITH latest_turn AS (
-          SELECT turns.turn_id, turns.state
-          FROM projection_threads AS thread
-          INNER JOIN projection_turns AS turns
-            ON turns.thread_id = thread.thread_id
-           AND turns.turn_id = thread.latest_turn_id
-          WHERE thread.thread_id = ${threadId}
-          LIMIT 1
-        ),
-        terminal_assistant_messages AS (
-          SELECT message_id
-          FROM (
-            SELECT
-              message_id,
-              ROW_NUMBER() OVER (
-                PARTITION BY COALESCE(turn_id, message_id)
-                ORDER BY
-                  updated_at DESC,
-                  created_at DESC,
-                  CASE WHEN sequence IS NULL THEN -1 ELSE sequence END DESC,
-                  message_id DESC
-              ) AS row_rank
-            FROM projection_thread_messages
-            WHERE thread_id = ${threadId}
-              AND role = 'assistant'
-              AND is_streaming = 0
-          )
-          WHERE row_rank = 1
-        )
         SELECT
           timeline.kind AS kind,
           timeline.source_id AS id,
@@ -876,21 +843,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
          AND message.message_id = timeline.source_id
         INNER JOIN projection_threads AS thread
           ON thread.thread_id = timeline.thread_id
-        LEFT JOIN latest_turn AS latest
-          ON 1 = 1
         WHERE timeline.thread_id = ${threadId}
           AND timeline.kind = 'message'
-          AND (
-            message.role IN ('user', 'system')
-            OR message.is_streaming = 1
-            OR message.turn_id IS NULL
-            OR (
-              latest.turn_id IS NOT NULL
-              AND latest.state = 'running'
-              AND message.turn_id = latest.turn_id
-            )
-            OR message.message_id IN (SELECT message_id FROM terminal_assistant_messages)
-          )
         ORDER BY timeline.timeline_index ASC
       `,
   });
@@ -934,10 +888,10 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       `,
   });
 
-  const listPresentationTimelineActivityRowsByThreadTurn = SqlSchema.findAll({
-    Request: ThreadTurnLookupInput,
+  const listPresentationTimelineActivityRowsByThread = SqlSchema.findAll({
+    Request: ThreadIdLookupInput,
     Result: ProjectionThreadTimelineSourceRowSchema,
-    execute: ({ threadId, turnId }) =>
+    execute: ({ threadId }) =>
       sql`
         SELECT
           timeline.kind AS kind,
@@ -969,60 +923,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           ON thread.thread_id = timeline.thread_id
         WHERE timeline.thread_id = ${threadId}
           AND timeline.kind = 'activity'
-          AND timeline.turn_id = ${turnId}
         ORDER BY timeline.timeline_index ASC
-      `,
-  });
-
-  const listLatestPresentationTimelineActivityRowsByThreadTurn = SqlSchema.findAll({
-    Request: ThreadTurnLookupInput,
-    Result: ProjectionThreadTimelineSourceRowSchema,
-    execute: ({ threadId, turnId }) =>
-      sql`
-        SELECT
-          timeline.kind AS kind,
-          timeline.source_id AS id,
-          timeline.turn_id AS "turnId",
-          timeline.sequence AS sequence,
-          timeline.created_at AS "createdAt",
-          timeline.timeline_index AS "timelineIndex",
-          0 AS "totalItems",
-          NULL AS "messageRole",
-          NULL AS "messageText",
-          NULL AS "messageAttachments",
-          NULL AS "messageIsStreaming",
-          NULL AS "messageUpdatedAt",
-          thread.updated_at AS "threadUpdatedAt",
-          activity.tone AS "activityTone",
-          activity.kind AS "activityKind",
-          activity.summary AS "activitySummary",
-          activity.payload_json AS "activityPayload",
-          NULL AS "planMarkdown",
-          NULL AS "planImplementedAt",
-          NULL AS "planImplementationThreadId",
-          NULL AS "planUpdatedAt"
-        FROM projection_thread_timeline_entries AS timeline
-        INNER JOIN projection_thread_activities AS activity
-          ON activity.thread_id = timeline.thread_id
-         AND activity.activity_id = timeline.source_id
-        INNER JOIN projection_threads AS thread
-          ON thread.thread_id = timeline.thread_id
-        WHERE timeline.thread_id = ${threadId}
-          AND timeline.kind = 'activity'
-          AND timeline.turn_id = ${turnId}
-          AND activity.kind NOT IN (
-            'config.warning',
-            'context-compaction',
-            'context-window',
-            'context-window.updated',
-            'checkpoint.captured',
-            'deprecation.notice',
-            'goal.cleared',
-            'goal.updated',
-            'runtime.warning'
-          )
-        ORDER BY timeline.timeline_index DESC
-        LIMIT 1
       `,
   });
 
@@ -1574,23 +1475,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           return Option.none<OrchestrationGetThreadTimelineRowsSnapshotResult>();
         }
         const metadataValue = metadata.value;
-        const latestTurnRow = yield* getLatestTurnRowByThread({ threadId: input.threadId }).pipe(
-          Effect.mapError(
-            toPersistenceSqlOrDecodeError(
-              "ProjectionSnapshotQuery.getThreadTimelineRowsSnapshot:getLatestTurn:query",
-              "ProjectionSnapshotQuery.getThreadTimelineRowsSnapshot:getLatestTurn:decodeRow",
-            ),
-          ),
-        );
-        const activeTurnId =
-          Option.isSome(latestTurnRow) && latestTurnRow.value.state === "running"
-            ? latestTurnRow.value.turnId
-            : null;
-        const settledLatestTurnId =
-          Option.isSome(latestTurnRow) && latestTurnRow.value.state !== "running"
-            ? latestTurnRow.value.turnId
-            : null;
-
         const messageRows = yield* listPresentationTimelineMessageRowsByThread({
           threadId: input.threadId,
         }).pipe(
@@ -1611,19 +1495,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             ),
           ),
         );
-        const activityRows = yield* (
-          settledLatestTurnId !== null
-            ? listPresentationTimelineActivityRowsByThreadTurn({
-                threadId: input.threadId,
-                turnId: settledLatestTurnId,
-              })
-            : activeTurnId !== null
-              ? listLatestPresentationTimelineActivityRowsByThreadTurn({
-                  threadId: input.threadId,
-                  turnId: activeTurnId,
-                })
-              : Effect.succeed([])
-        ).pipe(
+        const activityRows = yield* listPresentationTimelineActivityRowsByThread({
+          threadId: input.threadId,
+        }).pipe(
           Effect.mapError(
             toPersistenceSqlOrDecodeError(
               "ProjectionSnapshotQuery.getThreadTimelineRowsSnapshot:listPresentationActivities:query",

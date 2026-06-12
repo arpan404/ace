@@ -21,7 +21,7 @@ let nextRequestId = 1;
 let nativeTimelineRowsWorker: Worker | null = null;
 const pendingRequests = new Map<number, PendingNativeTimelineRowsRequest>();
 const MAX_NATIVE_TIMELINE_ROWS_CACHE_ENTRIES = 8;
-const NATIVE_TIMELINE_ROWS_CACHE_VERSION = "native-timeline-rows:v3";
+const NATIVE_TIMELINE_ROWS_CACHE_VERSION = "native-timeline-rows:v5";
 const nativeTimelineRowsCache = new Map<string, TimelineRow[]>();
 
 export interface NativeTimelineRowsCacheKeyInput {
@@ -31,6 +31,7 @@ export interface NativeTimelineRowsCacheKeyInput {
   readonly completionSummary: string | null;
   readonly completionStartedAt?: string | null;
   readonly completionTurnId?: string | null;
+  readonly hideCompletedWorkMessages: boolean;
   readonly isActiveTurnRunning: boolean;
   readonly rowContentKey: string;
   readonly rowCount: number;
@@ -63,6 +64,7 @@ export function createNativeTimelineRowsCacheKey(
     input.completionTurnId ?? "",
     input.completionStartedAt ?? "",
     input.completionEndedAt ?? "",
+    input.hideCompletedWorkMessages ? "hide-completed-work" : "show-completed-work",
     input.turnDiffSummaryKey,
   ].join("\0");
 }

@@ -1089,6 +1089,16 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   }, [rows]);
   const assistantFooterByPlacementRowId = useMemo(() => {
     const footerByRowId = new Map<string, AssistantTurnFooterModel>();
+    let latestUserRowIndex = -1;
+    if (activeTurnInProgress) {
+      for (let index = rows.length - 1; index >= 0; index -= 1) {
+        const row = rows[index];
+        if (row?.kind === "message" && isUserTimelineMessage(row.message)) {
+          latestUserRowIndex = index;
+          break;
+        }
+      }
+    }
     for (let index = 0; index < rows.length; index += 1) {
       const row = rows[index];
       if (
@@ -1096,6 +1106,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         !isAssistantTimelineMessage(row.message) ||
         !(row.isAssistantTurnTerminal ?? false)
       ) {
+        continue;
+      }
+      if (activeTurnInProgress && latestUserRowIndex >= 0 && index > latestUserRowIndex) {
         continue;
       }
 
@@ -1177,6 +1190,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     }
     return footerByRowId;
   }, [
+    activeTurnInProgress,
     isForkConversationDisabled,
     activeThreadId,
     latestForkableAssistantMessageId,
@@ -3332,6 +3346,9 @@ const CompletedWorkSummaryTimelineRow = memo(function CompletedWorkSummaryTimeli
     return null;
   }
   const hasHiddenLogs = props.row.detailRows.length > 0;
+  if (!hasHiddenLogs && visibleDiagnosticRows.length === 0) {
+    return null;
+  }
   const summaryContent = (
     <>
       <Clock3Icon className="mt-1 size-3 shrink-0 text-muted-foreground/42 transition-colors group-hover/completed-work:text-muted-foreground/78" />

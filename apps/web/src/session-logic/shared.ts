@@ -100,10 +100,19 @@ function isGenericToolLabel(value: string | null): boolean {
     normalized === "tool call" ||
     normalized === "dynamic tool call" ||
     normalized === "mcp tool call" ||
+    normalized === "task" ||
     normalized === "file change" ||
     normalized === "command run" ||
     normalized === "command execution"
   );
+}
+
+function isGenericTaskToolLabel(value: string | null): boolean {
+  if (!value) {
+    return false;
+  }
+  const normalized = value.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
+  return normalized === "task" || normalized === "subtask" || normalized === "agent task";
 }
 
 function looksLikePath(value: string | null): boolean {
@@ -244,6 +253,24 @@ function extractToolNameFromData(data: Record<string, unknown> | null): string |
   return candidates.find((candidate) => candidate !== null) ?? null;
 }
 
+function extractTaskDescriptionFromData(data: Record<string, unknown> | null): string | null {
+  const state = asRecord(data?.state);
+  const input = asRecord(data?.input);
+  const stateInput = asRecord(state?.input);
+  const args = asRecord(data?.arguments) ?? asRecord(data?.args);
+  const candidates = [
+    asTrimmedString(data?.description),
+    asTrimmedString(input?.description),
+    asTrimmedString(input?.promptDescription),
+    asTrimmedString(state?.title),
+    asTrimmedString(stateInput?.description),
+    asTrimmedString(stateInput?.promptDescription),
+    asTrimmedString(args?.description),
+    asTrimmedString(args?.promptDescription),
+  ];
+  return candidates.find((candidate) => candidate !== null) ?? null;
+}
+
 function normalizeCommandValue(value: unknown): string | null {
   const direct = asTrimmedString(value);
   if (direct) {
@@ -323,6 +350,13 @@ export function extractToolTitle(payload: Record<string, unknown> | null): strin
   const data = asRecord(payload?.data);
   const rawTitle = typeof payload?.title === "string" ? sanitizeWorkLogText(payload.title) : null;
   const dataToolName = extractToolNameFromData(data);
+  const taskDescription = extractTaskDescriptionFromData(data);
+  if (
+    taskDescription &&
+    (isGenericTaskToolLabel(rawTitle) || isGenericTaskToolLabel(dataToolName))
+  ) {
+    return taskDescription;
+  }
   const rawTitleActionLabel = recognizedToolActionLabel(rawTitle);
   if (rawTitleActionLabel) {
     return rawTitleActionLabel;
