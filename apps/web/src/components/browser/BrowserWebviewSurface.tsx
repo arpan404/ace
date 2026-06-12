@@ -47,7 +47,7 @@ import {
 } from "~/lib/browser/url";
 import { resolveLocalConnectionUrl } from "~/lib/connectionRouting";
 import { useWorkspaceCommentPlaceholder } from "~/lib/editor/workspaceCommentPlaceholders";
-import { useEffectEvent } from "~/hooks/useEffectEvent";
+import { useStableCallback } from "~/hooks/useStableCallback";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 const BROWSER_ZOOM_STEP = 0.1;
@@ -1635,6 +1635,7 @@ function useBrowserTabWebviewComponent(props: {
     viewport: OverlayViewportSize;
   } | null>(null);
   const elementHoverFrameRef = useRef<number | null>(null);
+  const flushHoveredElementInspectionRef = useRef<(() => void) | null>(null);
   const pendingElementHoverPointRef = useRef<{ x: number; y: number } | null>(null);
   const elementHoverRequestInFlightRef = useRef(false);
   const hoveredElementCaptureRef = useRef<BrowserPageElementCapture | null>(null);
@@ -1685,29 +1686,33 @@ function useBrowserTabWebviewComponent(props: {
     },
     [designDraft?.requestId],
   );
-  const emitTabSnapshotChange = useEffectEvent(
+  const emitTabSnapshotChange = useStableCallback(
     (snapshot: BrowserTabSnapshot, options?: BrowserTabSnapshotOptions) => {
       onSnapshotChange(tab.id, snapshot, options);
     },
   );
-  const cancelDesignCaptureEvent = useEffectEvent(() => {
-    onDesignCaptureCancel?.();
-  });
-  const reportBrowserLoadError = useEffectEvent((message: string) => {
+  const reportBrowserLoadError = useStableCallback((message: string) => {
     onBrowserLoadError?.(message);
   });
-  const reportDesignCaptureError = useEffectEvent((message: string) => {
+  const reportDesignCaptureError = useStableCallback((message: string) => {
     onDesignCaptureError?.(message);
   });
-  const requestContextMenuFallback = useEffectEvent(
+  const cancelDesignCapture = useStableCallback(() => {
+    dispatchDesignOverlayState({ type: "clear-design-capture" });
+    dragSelectionRef.current = null;
+    designRequestPanelRequestIdRef.current = null;
+    pendingElementHoverPointRef.current = null;
+    onDesignCaptureCancel?.();
+  });
+  const requestContextMenuFallback = useStableCallback(
     (position: { x: number; y: number }, requestedAt: number) => {
       onContextMenuFallbackRequest(tab.id, position, requestedAt);
     },
   );
-  const requestOpenUrlInNewTab = useEffectEvent((url: string) => {
+  const requestOpenUrlInNewTab = useStableCallback((url: string) => {
     onOpenUrlInNewTab?.(url);
   });
-  const emitFindResultChange = useEffectEvent((result: BrowserFindResult | null) => {
+  const emitFindResultChange = useStableCallback((result: BrowserFindResult | null) => {
     onFindResultChange?.(tab.id, result);
   });
   const commitHoveredElementCapture = useCallback(
@@ -1788,7 +1793,7 @@ function useBrowserTabWebviewComponent(props: {
         options,
       );
     },
-    [resolveSnapshotUrl],
+    [emitTabSnapshotChange, resolveSnapshotUrl],
   );
 
   const readSnapshot = useCallback((): BrowserTabSnapshot | null => {
@@ -1844,11 +1849,11 @@ function useBrowserTabWebviewComponent(props: {
     }
     pendingSnapshotOptionsRef.current = null;
   }, []);
-  const resolveLoadUrlEvent = useEffectEvent((url: string) => resolveLoadUrl(url));
-  const resolveSnapshotUrlEvent = useEffectEvent((currentUrl: string) =>
+  const resolveLoadUrlEvent = useStableCallback((url: string) => resolveLoadUrl(url));
+  const resolveSnapshotUrlEvent = useStableCallback((currentUrl: string) =>
     resolveSnapshotUrl(currentUrl),
   );
-  const scheduleEmitSnapshotEvent = useEffectEvent((options?: BrowserTabSnapshotOptions) => {
+  const scheduleEmitSnapshotEvent = useStableCallback((options?: BrowserTabSnapshotOptions) => {
     scheduleEmitSnapshot(options);
   });
 
@@ -1881,7 +1886,7 @@ function useBrowserTabWebviewComponent(props: {
         reportBrowserLoadError(message);
       });
     },
-    [resolveLoadUrl, scheduleEmitSnapshot],
+    [reportBrowserLoadError, resolveLoadUrl, scheduleEmitSnapshot],
   );
 
   const inspectBrowserPoint = useCallback(
@@ -2072,13 +2077,17 @@ function useBrowserTabWebviewComponent(props: {
     [clearAgentPointerActionTimer],
   );
 
-  const clearAgentPointer = useCallback(() => {
+  const clearAgentPointerRuntime = useStableCallback(() => {
     agentPointerTokenRef.current += 1;
     clearAgentPointerActionTimer();
     cancelAgentPointerAnimation();
     agentPointerPositionRef.current = null;
+  });
+
+  const clearAgentPointer = useCallback(() => {
+    clearAgentPointerRuntime();
     setAgentPointer(null);
-  }, [cancelAgentPointerAnimation, clearAgentPointerActionTimer]);
+  }, [clearAgentPointerRuntime]);
 
   const animateAgentPointerTo = useCallback(
     (
@@ -2399,8 +2408,8 @@ function useBrowserTabWebviewComponent(props: {
     if (active) {
       return;
     }
-    clearAgentPointer();
-  }, [active, clearAgentPointer]);
+    clearAgentPointerRuntime();
+  }, [active, clearAgentPointerRuntime]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -2572,7 +2581,7 @@ function useBrowserTabWebviewComponent(props: {
       dispatchDesignOverlayState({ type: "clear-design-capture" });
       hoveredElementCaptureRef.current = null;
       dragSelectionRef.current = null;
-      cancelDesignCaptureEvent();
+      cancelDesignCapture();
     };
     const handleFoundInPage = (event: Event) => {
       const detail = event as Event & { result?: unknown };
@@ -2618,19 +2627,23 @@ function useBrowserTabWebviewComponent(props: {
       readyRef.current = false;
       cancelScheduledSnapshot();
     };
-  }, [browserPartition, cancelScheduledSnapshot]);
+  }, [
+    browserPartition,
+    cancelDesignCapture,
+    cancelScheduledSnapshot,
+    emitFindResultChange,
+    emitTabSnapshotChange,
+    reportBrowserLoadError,
+    requestContextMenuFallback,
+    requestOpenUrlInNewTab,
+    resolveLoadUrlEvent,
+    resolveSnapshotUrlEvent,
+    scheduleEmitSnapshotEvent,
+  ]);
 
   useEffect(() => {
     navigate(tab.url);
   }, [navigate, tab.url]);
-
-  const cancelDesignCapture = useEffectEvent(() => {
-    dispatchDesignOverlayState({ type: "clear-design-capture" });
-    dragSelectionRef.current = null;
-    designRequestPanelRequestIdRef.current = null;
-    pendingElementHoverPointRef.current = null;
-    cancelDesignCaptureEvent();
-  });
 
   useEffect(() => {
     if (!active) {
@@ -2657,7 +2670,7 @@ function useBrowserTabWebviewComponent(props: {
     return () => {
       window.removeEventListener("keydown", onWindowKeyDownCapture, true);
     };
-  }, [active, designDraft]);
+  }, [active, cancelDesignCapture, designDraft]);
 
   useEffect(() => {
     if (designerModeActive) {
@@ -2670,7 +2683,7 @@ function useBrowserTabWebviewComponent(props: {
       return;
     }
     cancelDesignCapture();
-  }, [clearHoveredElementCapture, designDraft, designerModeActive]);
+  }, [cancelDesignCapture, clearHoveredElementCapture, designDraft, designerModeActive]);
 
   useEffect(() => {
     if (designerTool === "element-comment") {
@@ -2684,7 +2697,7 @@ function useBrowserTabWebviewComponent(props: {
       return;
     }
     cancelDesignCapture();
-  }, [designDraft, designerTool]);
+  }, [cancelDesignCapture, designDraft, designerTool]);
 
   useEffect(() => {
     return () => {
@@ -2855,10 +2868,10 @@ function useBrowserTabWebviewComponent(props: {
           cancelDesignCapture();
         });
     },
-    [captureDesignSelection, designerTool],
+    [cancelDesignCapture, captureDesignSelection, designerTool, reportDesignCaptureError],
   );
 
-  const flushHoveredElementInspection = () => {
+  const flushHoveredElementInspection = useStableCallback(() => {
     if (elementHoverFrameRef.current !== null) {
       window.cancelAnimationFrame(elementHoverFrameRef.current);
       elementHoverFrameRef.current = null;
@@ -2900,11 +2913,14 @@ function useBrowserTabWebviewComponent(props: {
         elementHoverRequestInFlightRef.current = false;
         if (activeRef.current && pendingElementHoverPointRef.current) {
           elementHoverFrameRef.current = window.requestAnimationFrame(() => {
-            flushHoveredElementInspection();
+            flushHoveredElementInspectionRef.current?.();
           });
         }
       });
-  };
+  });
+  useLayoutEffect(() => {
+    flushHoveredElementInspectionRef.current = flushHoveredElementInspection;
+  }, [flushHoveredElementInspection]);
 
   const onCaptureOverlayPointerDown = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -3077,6 +3093,7 @@ function useBrowserTabWebviewComponent(props: {
       designerModeActive,
       designerTool,
       inspectBrowserPoint,
+      reportDesignCaptureError,
       selectionRect,
       startCapturedDraft,
     ],
@@ -3114,7 +3131,14 @@ function useBrowserTabWebviewComponent(props: {
       type: "set-submitting-design-request",
       isSubmittingDesignRequest: false,
     });
-  }, [designDraft, designInstructions, isSubmittingDesignRequest, onDesignCaptureSubmit]);
+  }, [
+    cancelDesignCapture,
+    designDraft,
+    designInstructions,
+    isSubmittingDesignRequest,
+    onDesignCaptureSubmit,
+    reportDesignCaptureError,
+  ]);
 
   useEffect(() => {
     if (!designDraft) {
@@ -3297,14 +3321,18 @@ function useBrowserTabWebviewComponent(props: {
   const activeOverlaySelection =
     selectionRect ??
     (designerTool === "element-comment" ? (hoveredElementCapture?.targetRect ?? null) : null);
+  const visibleAgentPointer = active ? agentPointer : null;
   const agentPointerScrollAxis =
-    agentPointer && Math.abs(agentPointer.scrollX) > Math.abs(agentPointer.scrollY) ? "x" : "y";
+    visibleAgentPointer &&
+    Math.abs(visibleAgentPointer.scrollX) > Math.abs(visibleAgentPointer.scrollY)
+      ? "x"
+      : "y";
   const agentPointerScrollDirection =
     agentPointerScrollAxis === "x"
-      ? (agentPointer?.scrollX ?? 0) >= 0
+      ? (visibleAgentPointer?.scrollX ?? 0) >= 0
         ? 1
         : -1
-      : (agentPointer?.scrollY ?? 0) >= 0
+      : (visibleAgentPointer?.scrollY ?? 0) >= 0
         ? 1
         : -1;
   const agentPointerScrollRotation =
@@ -3333,20 +3361,20 @@ function useBrowserTabWebviewComponent(props: {
       {loadFailure ? (
         <BrowserLoadErrorPage failure={loadFailure} onRetry={retryFailedLoad} />
       ) : null}
-      {agentPointer?.visible ? (
+      {visibleAgentPointer?.visible ? (
         <div className="pointer-events-none absolute inset-0 z-[35] overflow-hidden">
           <div
             className="absolute left-0 top-0"
             style={{
-              transform: `translate3d(${agentPointer.x}px, ${agentPointer.y}px, 0) scale(${
-                agentPointer.pressed ? 0.96 : 1
+              transform: `translate3d(${visibleAgentPointer.x}px, ${visibleAgentPointer.y}px, 0) scale(${
+                visibleAgentPointer.pressed ? 0.96 : 1
               })`,
             }}
           >
-            {agentPointer.pressed ? (
+            {visibleAgentPointer.pressed ? (
               <span className="absolute -left-3 -top-3 size-7 rounded-full border border-primary/70 bg-primary/12 shadow-[0_0_18px_color-mix(in_srgb,var(--primary)_26%,transparent)]" />
             ) : null}
-            {agentPointer.mode === "scroll" ? (
+            {visibleAgentPointer.mode === "scroll" ? (
               <span
                 className="absolute left-5 top-4 flex size-8 items-center justify-center rounded-full border border-primary/35 bg-background/78 text-primary shadow-lg shadow-black/10 backdrop-blur-md"
                 style={{ transform: `rotate(${agentPointerScrollRotation}deg)` }}
