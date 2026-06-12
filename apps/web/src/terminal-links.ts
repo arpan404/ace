@@ -1,5 +1,3 @@
-import { isMacPlatform } from "./lib/utils";
-
 type TerminalLinkKind = "url" | "path";
 
 export interface TerminalLinkMatch {
@@ -168,16 +166,6 @@ export function extractTerminalLinks(line: string): readonly TerminalLinkMatch[]
   const urlMatches = collectMatches(line, "url", URL_PATTERN, []);
   const pathMatches = collectMatches(line, "path", FILE_PATH_PATTERN, urlMatches);
   return [...urlMatches, ...pathMatches].toSorted((a, b) => a.start - b.start);
-}
-
-export function isTerminalLinkActivation(
-  event: Pick<MouseEvent, "metaKey" | "ctrlKey">,
-  platform = typeof navigator === "undefined" ? "" : navigator.platform,
-): boolean {
-  if (platform.length === 0) return false;
-  return isMacPlatform(platform)
-    ? event.metaKey && !event.ctrlKey
-    : event.ctrlKey && !event.metaKey;
 }
 
 export function resolvePathLinkTarget(rawPath: string, cwd: string): string {

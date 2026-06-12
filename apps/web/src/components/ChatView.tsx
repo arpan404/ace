@@ -696,6 +696,7 @@ interface ConnectedRetainedThreadTerminalDrawersProps {
   onToggleTerminal: () => void;
   onHeightChange: (height: number) => void;
   onAddTerminalContext: (selection: TerminalContextSelection) => void;
+  onOpenBrowserUrl?: ((url: string) => void) | null;
   onOpenFilePath?: ((path: string) => void | Promise<void>) | null;
 }
 
@@ -722,7 +723,8 @@ function ConnectedRetainedThreadTerminalDrawers({
   onToggleTerminal,
   onHeightChange,
   onAddTerminalContext,
-  onOpenFilePath,
+  onOpenBrowserUrl = null,
+  onOpenFilePath = null,
 }: ConnectedRetainedThreadTerminalDrawersProps) {
   const terminalDrawerState = useTerminalStateStore((state) =>
     selectThreadTerminalState(state.terminalStateByThreadId, activeThreadId),
@@ -753,7 +755,8 @@ function ConnectedRetainedThreadTerminalDrawers({
           onToggleTerminal,
           onHeightChange,
           onAddTerminalContext,
-          ...(onOpenFilePath ? { onOpenFilePath } : {}),
+          onOpenBrowserUrl,
+          onOpenFilePath,
         }
       : null;
 
@@ -784,7 +787,8 @@ function ConnectedThreadTerminalPanel({
   onClosePanelTerminal,
   onHeightChange,
   onAddTerminalContext,
-  onOpenFilePath,
+  onOpenBrowserUrl = null,
+  onOpenFilePath = null,
 }: ConnectedThreadTerminalPanelProps) {
   const terminalDrawerState = useTerminalStateStore(
     useShallow((state) => {
@@ -839,7 +843,8 @@ function ConnectedThreadTerminalPanel({
       onToggleTerminal={onClosePanelTerminal}
       onHeightChange={onHeightChange}
       onAddTerminalContext={onAddTerminalContext}
-      {...(onOpenFilePath ? { onOpenFilePath } : {})}
+      onOpenBrowserUrl={onOpenBrowserUrl}
+      onOpenFilePath={onOpenFilePath}
     />
   );
 }
@@ -4051,15 +4056,21 @@ function useChatViewComponent({
       return;
     }
     activeBrowserThreadIdRef.current = primaryBrowserInstanceId;
-    browserControllerRef.current = primaryBrowserInstanceId
+    const activeController = primaryBrowserInstanceId
       ? (browserControllerByThreadRef.current.get(primaryBrowserInstanceId) ?? null)
       : null;
+    browserControllerRef.current = activeController;
     setBrowserDevToolsOpen(
       primaryBrowserInstanceId
         ? (browserRuntimeStateByThreadRef.current.get(primaryBrowserInstanceId)?.devToolsOpen ??
             false)
         : false,
     );
+    const pendingUrl = pendingBrowserOpenUrlRef.current;
+    if (activeController && pendingUrl) {
+      pendingBrowserOpenUrlRef.current = null;
+      activeController.openUrl(pendingUrl);
+    }
   }, [primaryBrowserInstanceId, rightSidePanelInteractive, setBrowserDevToolsOpen]);
   useEffect(() => {
     if (!rightSidePanelInteractive) {
@@ -6112,7 +6123,7 @@ function useChatViewComponent({
         return;
       }
       pendingBrowserOpenUrlRef.current = null;
-      controller.openUrl(pendingUrl, { newTab: true });
+      controller.openUrl(pendingUrl);
     },
     [setBrowserDevToolsOpen],
   );
@@ -11840,6 +11851,7 @@ function useChatViewComponent({
                                 onClosePanelTerminal={onCloseRightSidePanelTerminal}
                                 onHeightChange={setRightPanelTerminalHeight}
                                 onAddTerminalContext={addTerminalContextToDraft}
+                                onOpenBrowserUrl={isElectron ? openBrowserUrlInNewTab : null}
                                 onOpenFilePath={
                                   canOpenLocalMarkdownFiles ? openMarkdownFileInAppEditor : null
                                 }
@@ -12006,6 +12018,7 @@ function useChatViewComponent({
                         onClosePanelTerminal={onCloseBottomPanelTerminal}
                         onHeightChange={setTerminalHeight}
                         onAddTerminalContext={addTerminalContextToDraft}
+                        onOpenBrowserUrl={isElectron ? openBrowserUrlInNewTab : null}
                         onOpenFilePath={
                           canOpenLocalMarkdownFiles ? openMarkdownFileInAppEditor : null
                         }

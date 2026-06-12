@@ -41,7 +41,6 @@ import {
 import { openInPreferredEditor } from "../editorPreferences";
 import {
   extractTerminalLinks,
-  isTerminalLinkActivation,
   resolvePathLinkTarget,
   type TerminalLinkMatch,
 } from "../terminal-links";
@@ -414,10 +413,11 @@ interface TerminalViewportProps {
   onSessionExited: (terminalId: string) => void;
   onAddTerminalContext: (selection: TerminalContextSelection) => void;
   onAutoTerminalTitleChange: (terminalId: string, title: string | null) => void;
+  onOpenBrowserUrl?: ((url: string) => void) | null;
+  onOpenFilePath?: ((path: string) => void | Promise<void>) | null;
   focusRequestId: number;
   shouldFocusTerminal: boolean;
   drawerHeight: number;
-  onOpenFilePath?: ((path: string) => void | Promise<void>) | null;
 }
 
 function useTerminalViewportComponent({
@@ -430,10 +430,11 @@ function useTerminalViewportComponent({
   onSessionExited,
   onAddTerminalContext,
   onAutoTerminalTitleChange,
+  onOpenBrowserUrl = null,
+  onOpenFilePath = null,
   focusRequestId,
   shouldFocusTerminal,
   drawerHeight,
-  onOpenFilePath = null,
 }: TerminalViewportProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
@@ -441,6 +442,7 @@ function useTerminalViewportComponent({
   const onSessionExitedRef = useRef(onSessionExited);
   const onAddTerminalContextRef = useRef(onAddTerminalContext);
   const onAutoTerminalTitleChangeRef = useRef(onAutoTerminalTitleChange);
+  const onOpenBrowserUrlRef = useRef(onOpenBrowserUrl);
   const onOpenFilePathRef = useRef(onOpenFilePath);
   const runtimeEnvRef = useRef(runtimeEnv);
   const runtimeEnvKey = useMemo(() => stableRuntimeEnvKey(runtimeEnv), [runtimeEnv]);
@@ -465,6 +467,10 @@ function useTerminalViewportComponent({
   useEffect(() => {
     onAutoTerminalTitleChangeRef.current = onAutoTerminalTitleChange;
   }, [onAutoTerminalTitleChange]);
+
+  useEffect(() => {
+    onOpenBrowserUrlRef.current = onOpenBrowserUrl;
+  }, [onOpenBrowserUrl]);
 
   useEffect(() => {
     onOpenFilePathRef.current = onOpenFilePath;
@@ -759,12 +765,15 @@ function useTerminalViewportComponent({
               end: { x: match.end, y: bufferLineNumber },
             },
             activate: (event: MouseEvent) => {
-              if (!isTerminalLinkActivation(event)) return;
-
               const latestTerminal = terminalRef.current;
               if (!latestTerminal) return;
 
               if (match.kind === "url") {
+                const openBrowserUrl = onOpenBrowserUrlRef.current;
+                if (!event.metaKey && !event.ctrlKey && openBrowserUrl) {
+                  openBrowserUrl(match.text);
+                  return;
+                }
                 void api.shell.openExternal(match.text).catch((error) => {
                   writeSystemMessage(
                     latestTerminal,
@@ -775,8 +784,9 @@ function useTerminalViewportComponent({
               }
 
               const target = resolvePathLinkTarget(match.text, cwd);
-              if (onOpenFilePathRef.current) {
-                void onOpenFilePathRef.current(target);
+              const openFilePath = onOpenFilePathRef.current;
+              if (!event.metaKey && !event.ctrlKey && openFilePath) {
+                void openFilePath(target);
                 return;
               }
               void (async () => {
@@ -1128,6 +1138,7 @@ function terminalViewportPropsEqual(
     previous.onSessionExited === next.onSessionExited &&
     previous.onAddTerminalContext === next.onAddTerminalContext &&
     previous.onAutoTerminalTitleChange === next.onAutoTerminalTitleChange &&
+    previous.onOpenBrowserUrl === next.onOpenBrowserUrl &&
     previous.onOpenFilePath === next.onOpenFilePath &&
     shallowRuntimeEnvEqual(previous.runtimeEnv, next.runtimeEnv)
   );
@@ -1162,6 +1173,7 @@ interface ThreadTerminalDrawerProps {
   onToggleTerminal: () => void;
   onHeightChange: (height: number) => void;
   onAddTerminalContext: (selection: TerminalContextSelection) => void;
+  onOpenBrowserUrl?: ((url: string) => void) | null;
   onOpenFilePath?: ((path: string) => void | Promise<void>) | null;
 }
 
@@ -1328,6 +1340,7 @@ export default memo(function ThreadTerminalDrawer({
   onToggleTerminal,
   onHeightChange,
   onAddTerminalContext,
+  onOpenBrowserUrl = null,
   onOpenFilePath = null,
 }: ThreadTerminalDrawerProps) {
   const [drawerHeight, setDrawerHeight] = useState(() => clampDrawerHeight(height));
@@ -1778,7 +1791,8 @@ export default memo(function ThreadTerminalDrawer({
                       onSessionExited={onCloseTerminal}
                       onAddTerminalContext={onAddTerminalContext}
                       onAutoTerminalTitleChange={onAutoTerminalTitleChange}
-                      {...(onOpenFilePath ? { onOpenFilePath } : {})}
+                      onOpenBrowserUrl={onOpenBrowserUrl}
+                      onOpenFilePath={onOpenFilePath}
                       focusRequestId={focusRequestId}
                       shouldFocusTerminal={interactive && terminalId === resolvedActiveTerminalId}
                       drawerHeight={drawerHeight}
