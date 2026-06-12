@@ -439,6 +439,38 @@ function toTimelineRenderRow(row: ProjectionThreadTimelineSourceRow): Orchestrat
   };
 }
 
+function timelinePresentationPriority(input: {
+  readonly row: OrchestrationTimelineRow;
+  readonly messageById: ReadonlyMap<string, OrchestrationMessage>;
+}): number {
+  if (input.row.kind !== "message") {
+    return 1;
+  }
+  const sourceRef = input.row.sourceRefs.find((source) => source.kind === "message");
+  const message = sourceRef ? input.messageById.get(sourceRef.id) : undefined;
+  return message?.role === "assistant" ? 2 : 0;
+}
+
+function compareTimelinePresentationRows(
+  left: OrchestrationTimelineRow,
+  right: OrchestrationTimelineRow,
+  messageById: ReadonlyMap<string, OrchestrationMessage>,
+): number {
+  if (left.turnId && right.turnId && left.turnId === right.turnId) {
+    const priority =
+      timelinePresentationPriority({ row: left, messageById }) -
+      timelinePresentationPriority({ row: right, messageById });
+    if (priority !== 0) {
+      return priority;
+    }
+  }
+  return (
+    left.startSourceIndex - right.startSourceIndex ||
+    left.createdAt.localeCompare(right.createdAt) ||
+    left.id.localeCompare(right.id)
+  );
+}
+
 function normalizedTimelineRowsRevision(input: {
   readonly threadId: string;
   readonly updatedAt: string;
@@ -458,6 +490,7 @@ function buildTimelineRowsSnapshotFromPresentationRows(input: {
   const proposedPlans: OrchestrationProposedPlan[] = [];
   const activities: OrchestrationThreadActivity[] = [];
   const rows: OrchestrationTimelineRow[] = [];
+  const messageById = new Map<string, OrchestrationMessage>();
 
   for (const row of input.messageRows) {
     const message = toOrchestrationMessageFromTimelineSourceRow(row);
@@ -465,6 +498,7 @@ function buildTimelineRowsSnapshotFromPresentationRows(input: {
       continue;
     }
     messages.push(message);
+    messageById.set(String(message.id), message);
     rows.push(toTimelineRenderRow(row));
   }
 
@@ -486,12 +520,7 @@ function buildTimelineRowsSnapshotFromPresentationRows(input: {
     }
   }
 
-  rows.sort(
-    (left, right) =>
-      left.startSourceIndex - right.startSourceIndex ||
-      left.createdAt.localeCompare(right.createdAt) ||
-      left.id.localeCompare(right.id),
-  );
+  rows.sort((left, right) => compareTimelinePresentationRows(left, right, messageById));
   const dedupedRows: OrchestrationTimelineRow[] = [];
   const seenRowIds = new Set<string>();
   for (const row of rows) {

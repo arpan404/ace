@@ -355,6 +355,54 @@ function chooseFreshestProposedPlan(
   return existing.updatedAt.localeCompare(incoming.updatedAt) > 0 ? existing : incoming;
 }
 
+function timelinePresentationPriority(
+  row: OrchestrationTimelineRow,
+  messagesById: Readonly<Record<string, OrchestrationMessage>>,
+): number {
+  if (row.kind !== "message") {
+    return 1;
+  }
+  const sourceRef = row.sourceRefs.find((source) => source.kind === "message");
+  const message = sourceRef ? messagesById[sourceRef.id] : undefined;
+  return message?.role === "assistant" ? 2 : 0;
+}
+
+function compareTimelinePresentationRows(
+  left: OrchestrationTimelineRow,
+  right: OrchestrationTimelineRow,
+  messagesById: Readonly<Record<string, OrchestrationMessage>>,
+): number {
+  if (left.turnId && right.turnId && left.turnId === right.turnId) {
+    const priority =
+      timelinePresentationPriority(left, messagesById) -
+      timelinePresentationPriority(right, messagesById);
+    if (priority !== 0) {
+      return priority;
+    }
+  }
+  return (
+    left.startSourceIndex - right.startSourceIndex ||
+    left.createdAt.localeCompare(right.createdAt) ||
+    left.id.localeCompare(right.id)
+  );
+}
+
+function sortTimelineRowIds(
+  rowIds: readonly string[],
+  threadId: ThreadId,
+  rowsById: Readonly<Record<string, OrchestrationTimelineRow>>,
+  messagesById: Readonly<Record<string, OrchestrationMessage>>,
+): string[] {
+  return [...rowIds].sort((leftId, rightId) => {
+    const left = rowsById[rowKey(threadId, leftId)];
+    const right = rowsById[rowKey(threadId, rightId)];
+    if (!left || !right) {
+      return leftId.localeCompare(rightId);
+    }
+    return compareTimelinePresentationRows(left, right, messagesById);
+  });
+}
+
 function primeTimelineRowsSnapshotIntoState(
   state: TimelineModelState,
   snapshot: OrchestrationGetThreadTimelineRowsSnapshotResult,
@@ -428,6 +476,12 @@ function primeTimelineRowsSnapshotIntoState(
       proposedPlan,
     );
   }
+  const presentationRowIds = sortTimelineRowIds(
+    sortedRowIds,
+    snapshot.threadId,
+    rowsById,
+    messagesById,
+  );
 
   const loadedAt = Date.now();
 
@@ -453,7 +507,7 @@ function primeTimelineRowsSnapshotIntoState(
     },
     rowIdsByThreadId: {
       ...state.rowIdsByThreadId,
-      [snapshot.threadId]: sortedRowIds,
+      [snapshot.threadId]: presentationRowIds,
     },
     rowsById,
     messagesById,
@@ -1038,6 +1092,25 @@ function applyLiveTimelineRowPatchToState(
     nextThreadRowIds.length,
   );
   const previousCompleteSnapshot = state.completeSnapshotByThreadId[input.threadId];
+  const nextRowsById = {
+    ...state.rowsById,
+    [rowKey(input.threadId, row.id)]: row,
+  };
+  const nextMessagesById = input.message
+    ? {
+        ...state.messagesById,
+        [String(input.message.id)]: chooseFreshestMessage(
+          state.messagesById[String(input.message.id)],
+          input.message,
+        ),
+      }
+    : state.messagesById;
+  const presentationRowIds = sortTimelineRowIds(
+    nextThreadRowIds,
+    input.threadId,
+    nextRowsById,
+    nextMessagesById,
+  );
 
   return {
     ...state,
@@ -1062,21 +1135,10 @@ function applyLiveTimelineRowPatchToState(
       : state.completeSnapshotByThreadId,
     rowIdsByThreadId: {
       ...state.rowIdsByThreadId,
-      [input.threadId]: nextThreadRowIds,
+      [input.threadId]: presentationRowIds,
     },
-    rowsById: {
-      ...state.rowsById,
-      [rowKey(input.threadId, row.id)]: row,
-    },
-    messagesById: input.message
-      ? {
-          ...state.messagesById,
-          [String(input.message.id)]: chooseFreshestMessage(
-            state.messagesById[String(input.message.id)],
-            input.message,
-          ),
-        }
-      : state.messagesById,
+    rowsById: nextRowsById,
+    messagesById: nextMessagesById,
     activitiesById: input.activity
       ? { ...state.activitiesById, [String(input.activity.id)]: input.activity }
       : state.activitiesById,

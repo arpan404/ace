@@ -1,4 +1,4 @@
-import { MessageId, ThreadId, TurnId, type OrchestrationReadModel } from "@ace/contracts";
+import { EventId, MessageId, ThreadId, TurnId, type OrchestrationReadModel } from "@ace/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const nativeApiMock = vi.hoisted(() => ({
@@ -390,6 +390,65 @@ describe("timelineModelStore", () => {
       streaming: false,
       updatedAt: "2026-01-01T00:00:03.000Z",
     });
+  });
+
+  it("orders same-turn live work rows before assistant message rows", async () => {
+    const { primeLiveTimelineRow } = await import("./timelineModelStore");
+    const activityId = EventId.makeUnsafe("activity-row-store-thinking");
+
+    primeLiveTimelineRow(
+      {
+        threadId,
+        updatedAt: "2026-01-01T00:00:03.000Z",
+        entry: {
+          kind: "message",
+          id: messageId,
+          createdAt: "2026-01-01T00:00:03.000Z",
+          turnId,
+          sequence: 3,
+        },
+        message: {
+          id: messageId,
+          role: "assistant",
+          text: "Answer",
+          turnId,
+          streaming: false,
+          sequence: 3,
+          createdAt: "2026-01-01T00:00:03.000Z",
+          updatedAt: "2026-01-01T00:00:03.000Z",
+        },
+      },
+      { flush: "sync" },
+    );
+    primeLiveTimelineRow(
+      {
+        threadId,
+        updatedAt: "2026-01-01T00:00:04.000Z",
+        entry: {
+          kind: "activity",
+          id: activityId,
+          createdAt: "2026-01-01T00:00:04.000Z",
+          turnId,
+          sequence: 4,
+        },
+        activity: {
+          id: activityId,
+          tone: "info",
+          kind: "task.progress",
+          summary: "Thinking",
+          payload: {},
+          turnId,
+          sequence: 4,
+          createdAt: "2026-01-01T00:00:04.000Z",
+        },
+      },
+      { flush: "sync" },
+    );
+
+    expect(readTimelineRowsProjection(threadId).rows.map((row) => row.id)).toEqual([
+      `activity:${activityId}`,
+      `message:${messageId}`,
+    ]);
   });
 
   it("appends live rows after existing metadata-only history", async () => {

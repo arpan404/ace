@@ -113,16 +113,16 @@ describe("nativeTimelineRows", () => {
       turnDiffSummaryByAssistantMessageId: new Map(),
     });
 
-    expect(rows.map((row) => row.kind)).toEqual(["message", "message", "work-group"]);
+    expect(rows.map((row) => row.kind)).toEqual(["message", "work-group", "message"]);
     expect(rows[1]).toMatchObject({
+      kind: "work-group",
+      entries: [{ id: activityId }],
+    });
+    expect(rows[2]).toMatchObject({
       kind: "message",
       completionSummary: "Worked for 4s",
       isAssistantTurnTerminal: true,
       showAssistantTiming: true,
-    });
-    expect(rows[2]).toMatchObject({
-      kind: "work-group",
-      entries: [{ id: activityId }],
     });
   });
 

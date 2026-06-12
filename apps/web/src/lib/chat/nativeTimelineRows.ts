@@ -113,6 +113,20 @@ export function buildNativeTimelineRows(input: NativeTimelineRowsInput): Timelin
     turnId: string | null;
     entries: TimelineMetaGroupEntry[];
   } | null = null;
+  const orderedSourceRows = [...input.rows].sort((left, right) => {
+    if (left.turnId && right.turnId && left.turnId === right.turnId) {
+      const leftPriority = nativeTimelinePresentationPriority(left, messageById);
+      const rightPriority = nativeTimelinePresentationPriority(right, messageById);
+      if (leftPriority !== rightPriority) {
+        return leftPriority - rightPriority;
+      }
+    }
+    return (
+      left.startSourceIndex - right.startSourceIndex ||
+      left.createdAt.localeCompare(right.createdAt) ||
+      left.id.localeCompare(right.id)
+    );
+  });
 
   const flushPendingWorkGroup = () => {
     if (!pendingWorkGroup) {
@@ -149,7 +163,7 @@ export function buildNativeTimelineRows(input: NativeTimelineRowsInput): Timelin
     pendingWorkGroup = null;
   };
 
-  for (const row of input.rows) {
+  for (const row of orderedSourceRows) {
     if (row.kind === "message") {
       flushPendingWorkGroup();
       const sourceRef = row.sourceRefs.find((source) => source.kind === "message");
@@ -238,6 +252,18 @@ export function buildNativeTimelineRows(input: NativeTimelineRowsInput): Timelin
   }
   flushPendingWorkGroup();
   return rows;
+}
+
+function nativeTimelinePresentationPriority(
+  row: OrchestrationTimelineRow,
+  messageById: ReadonlyMap<string, ChatMessage>,
+): number {
+  if (row.kind !== "message") {
+    return 1;
+  }
+  const sourceRef = row.sourceRefs.find((source) => source.kind === "message");
+  const message = sourceRef ? messageById.get(String(sourceRef.id)) : undefined;
+  return message?.role === "assistant" ? 2 : 0;
 }
 
 export function deriveNativeCompletionDividerBeforeRowId(input: {
