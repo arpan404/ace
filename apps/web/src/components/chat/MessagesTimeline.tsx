@@ -13,6 +13,7 @@ import {
 import { useVirtualizer, type VirtualItem } from "@tanstack/react-virtual";
 import {
   Fragment,
+  createElement,
   memo,
   startTransition,
   useCallback,
@@ -3334,7 +3335,9 @@ const WorkLogTimelineRow = memo(function WorkLogTimelineRow(props: {
   const elapsedLabel = summarizeWorkGroupElapsedLabel(props.row.createdAt, props.row.summaryEndAt);
   const thinkingDurationMs = summarizeReportedThinkingDurationMs(props.row.entries);
   const breakdownParts = summarizeWorkGroupBreakdownParts(summary, thinkingDurationMs);
-  const GroupIcon = workGroupIcon(summary.iconKey);
+  const groupIcon = createElement(workGroupIcon(summary.iconKey), {
+    className: cn("mt-0.5 size-3.5 shrink-0", metaToneTextClass(summary.surfaceTone)),
+  });
 
   return (
     <div className="min-w-0 py-0.5" data-thread-group={summary.threadGroupTone}>
@@ -3361,9 +3364,7 @@ const WorkLogTimelineRow = memo(function WorkLogTimelineRow(props: {
           summary.hasToolEntries && hasGroupDetails ? String(isExpanded) : undefined
         }
       >
-        <GroupIcon
-          className={cn("mt-0.5 size-3.5 shrink-0", metaToneTextClass(summary.surfaceTone))}
-        />
+        {groupIcon}
         <div className="flex min-w-0 items-center gap-1.5 overflow-hidden text-[13px] leading-5 text-muted-foreground/70">
           {breakdownParts.map((part, index) => (
             <Fragment key={`${props.row.id}:summary:${part.key}`}>
@@ -4618,7 +4619,10 @@ export const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
   }
 
   const iconConfig = workToneIcon(workEntry.tone);
-  const EntryIcon = workEntryIcon(workEntry);
+  const tone = resolveWorkEntryTone(workEntry.tone);
+  const entryIcon = createElement(workEntryIcon(workEntry), {
+    className: cn("mt-1 shrink-0", "size-3.5", iconConfig.className, metaToneTextClass(tone)),
+  });
   const heading = nonCommandWorkEntryHeading(workEntry);
   const commandIsAlreadyInHeading =
     workEntry.command !== undefined && heading.includes(workEntry.command);
@@ -4631,7 +4635,6 @@ export const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
   const inlineIntentText = props.inlineIntentText?.trim() || null;
   const variant = props.variant ?? "standalone";
   const isNested = variant === "nested";
-  const tone = resolveWorkEntryTone(workEntry.tone);
   const showDetailInline =
     workEntry.tone !== "thinking" &&
     workEntry.tone !== "error" &&
@@ -4658,9 +4661,7 @@ export const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
           isNested ? "gap-2.5" : "gap-3",
         )}
       >
-        <EntryIcon
-          className={cn("mt-1 shrink-0", "size-3.5", iconConfig.className, metaToneTextClass(tone))}
-        />
+        {entryIcon}
         <div className="min-w-0 flex-1 overflow-hidden">
           <div className="mb-0.5 flex min-w-0 items-center gap-2">
             <button

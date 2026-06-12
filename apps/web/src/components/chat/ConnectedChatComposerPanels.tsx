@@ -73,7 +73,6 @@ import {
   shouldUseCompactComposerFooter,
   shouldUseCompactComposerPrimaryActions,
 } from "../../lib/composer/footerLayout";
-import { useEffectEvent } from "../../hooks/useEffectEvent";
 import { gitGitHubIssuesQueryOptions } from "~/lib/gitReactQuery";
 import { projectSearchEntriesQueryOptions } from "~/lib/projectReactQuery";
 import { formatCommandDisplayLabel } from "~/lib/commandDisplay";
@@ -816,7 +815,7 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
     [props.threadId, setComposerDraftPrompt],
   );
 
-  const addComposerImages = useEffectEvent((files: File[]) => {
+  const addComposerImages = (files: File[]) => {
     if (files.length === 0) return;
     if (props.pendingUserInputs.length > 0) {
       toastManager.add({
@@ -860,9 +859,9 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
       addComposerDraftImages(props.threadId, nextImages);
     }
     props.onSetThreadError(props.threadId, error);
-  });
+  };
 
-  const onComposerPaste = useCallback((event: ClipboardEvent<HTMLElement>) => {
+  const onComposerPaste = (event: ClipboardEvent<HTMLElement>) => {
     const files = Array.from(event.clipboardData.files);
     if (files.length === 0) {
       return;
@@ -873,7 +872,7 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
     }
     event.preventDefault();
     addComposerImages(imageFiles);
-  }, []);
+  };
 
   const onComposerDragEnter = useCallback((event: DragEvent<HTMLDivElement>) => {
     if (!event.dataTransfer.types.includes("Files")) {
@@ -908,19 +907,16 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
     }
   }, []);
 
-  const onComposerDrop = useCallback(
-    (event: DragEvent<HTMLDivElement>) => {
-      if (!event.dataTransfer.types.includes("Files")) {
-        return;
-      }
-      event.preventDefault();
-      dragDepthRef.current = 0;
-      setIsDragOverComposer(false);
-      addComposerImages(Array.from(event.dataTransfer.files));
-      scheduleComposerFocus();
-    },
-    [scheduleComposerFocus],
-  );
+  const onComposerDrop = (event: DragEvent<HTMLDivElement>) => {
+    if (!event.dataTransfer.types.includes("Files")) {
+      return;
+    }
+    event.preventDefault();
+    dragDepthRef.current = 0;
+    setIsDragOverComposer(false);
+    addComposerImages(Array.from(event.dataTransfer.files));
+    scheduleComposerFocus();
+  };
 
   const removeComposerImage = useCallback(
     (imageId: string) => {
@@ -959,35 +955,37 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
     onInteractionModeChange(interactionMode === "plan" ? "default" : "plan");
   }, [interactionMode, onInteractionModeChange]);
 
-  const onProviderModelSelect = useEffectEvent(
-    (provider: ProviderKind, model: string, providerInstanceId?: string) => {
-      if (props.lockedProvider !== null && provider !== props.lockedProvider) {
-        scheduleComposerFocus();
-        return;
-      }
-      const resolvedProvider = resolveSelectableProvider(props.providers, provider);
-      const resolvedModel = resolveAppModelSelection(
-        resolvedProvider,
-        props.modelSettings,
-        props.providers,
-        model,
-        providerInstanceId,
-      );
-      const nextModelSelection: ModelSelection = {
-        provider: resolvedProvider,
-        ...(providerInstanceId && providerInstanceId !== "default" ? { providerInstanceId } : {}),
-        model: resolvedModel,
-      };
-      if (resolvedProvider === "cursor") {
-        setComposerDraftProviderModelOptions(props.threadId, "cursor", undefined, {
-          persistSticky: true,
-        });
-      }
-      setComposerDraftModelSelection(props.threadId, nextModelSelection);
-      setStickyComposerModelSelection(nextModelSelection);
+  const onProviderModelSelect = (
+    provider: ProviderKind,
+    model: string,
+    providerInstanceId?: string,
+  ) => {
+    if (props.lockedProvider !== null && provider !== props.lockedProvider) {
       scheduleComposerFocus();
-    },
-  );
+      return;
+    }
+    const resolvedProvider = resolveSelectableProvider(props.providers, provider);
+    const resolvedModel = resolveAppModelSelection(
+      resolvedProvider,
+      props.modelSettings,
+      props.providers,
+      model,
+      providerInstanceId,
+    );
+    const nextModelSelection: ModelSelection = {
+      provider: resolvedProvider,
+      ...(providerInstanceId && providerInstanceId !== "default" ? { providerInstanceId } : {}),
+      model: resolvedModel,
+    };
+    if (resolvedProvider === "cursor") {
+      setComposerDraftProviderModelOptions(props.threadId, "cursor", undefined, {
+        persistSticky: true,
+      });
+    }
+    setComposerDraftModelSelection(props.threadId, nextModelSelection);
+    setStickyComposerModelSelection(nextModelSelection);
+    scheduleComposerFocus();
+  };
 
   const applyPromptReplacement = useCallback(
     (
@@ -1061,17 +1059,72 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
     };
   }, [detectComposerTriggerWithDismissal, readComposerSnapshot]);
 
-  const onSelectComposerItem = useEffectEvent(
-    (item: ComponentProps<typeof ChatComposerPanel>["composerMenuItems"][number]) => {
-      if (composerSelectLockRef.current) return;
-      composerSelectLockRef.current = true;
-      window.requestAnimationFrame(() => {
-        composerSelectLockRef.current = false;
-      });
-      const { snapshot, trigger } = resolveActiveComposerTrigger();
-      if (!trigger) return;
-      if (item.type === "path") {
-        const replacement = `@${item.path} `;
+  const onSelectComposerItem = (
+    item: ComponentProps<typeof ChatComposerPanel>["composerMenuItems"][number],
+  ) => {
+    if (composerSelectLockRef.current) return;
+    composerSelectLockRef.current = true;
+    window.requestAnimationFrame(() => {
+      composerSelectLockRef.current = false;
+    });
+    const { snapshot, trigger } = resolveActiveComposerTrigger();
+    if (!trigger) return;
+    if (item.type === "path") {
+      const replacement = `@${item.path} `;
+      const replacementRangeEnd = extendReplacementRangeForTrailingSpace(
+        snapshot.value,
+        trigger.rangeEnd,
+        replacement,
+      );
+      if (
+        applyPromptReplacement(trigger.rangeStart, replacementRangeEnd, replacement, {
+          expectedText: snapshot.value.slice(trigger.rangeStart, replacementRangeEnd),
+        })
+      ) {
+        setComposerHighlightedItemId(null);
+      }
+      return;
+    }
+    if (item.type === "issue") {
+      const replacement = `${createMarkedIssueReferenceToken(item.issueNumber)} `;
+      const replacementRangeEnd = extendReplacementRangeForTrailingSpace(
+        snapshot.value,
+        trigger.rangeEnd,
+        replacement,
+      );
+      if (
+        applyPromptReplacement(trigger.rangeStart, replacementRangeEnd, replacement, {
+          expectedText: snapshot.value.slice(trigger.rangeStart, replacementRangeEnd),
+        })
+      ) {
+        setComposerHighlightedItemId(null);
+      }
+      return;
+    }
+    if (item.type === "provider-command") {
+      const replacement = `${createMarkedProviderCommandToken(item.command)} `;
+      const replacementRangeEnd = extendReplacementRangeForTrailingSpace(
+        snapshot.value,
+        trigger.rangeEnd,
+        replacement,
+      );
+      if (
+        applyPromptReplacement(trigger.rangeStart, replacementRangeEnd, replacement, {
+          expectedText: snapshot.value.slice(trigger.rangeStart, replacementRangeEnd),
+        })
+      ) {
+        setComposerHighlightedItemId(null);
+      }
+      return;
+    }
+    if (item.type === "slash-command") {
+      if (item.command === "model" || item.command === "issues" || item.command === "goal") {
+        const replacement =
+          item.command === "model"
+            ? "/model "
+            : item.command === "issues"
+              ? "/issues "
+              : `${createMarkedProviderCommandToken("goal")} `;
         const replacementRangeEnd = extendReplacementRangeForTrailingSpace(
           snapshot.value,
           trigger.rangeEnd,
@@ -1086,71 +1139,7 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
         }
         return;
       }
-      if (item.type === "issue") {
-        const replacement = `${createMarkedIssueReferenceToken(item.issueNumber)} `;
-        const replacementRangeEnd = extendReplacementRangeForTrailingSpace(
-          snapshot.value,
-          trigger.rangeEnd,
-          replacement,
-        );
-        if (
-          applyPromptReplacement(trigger.rangeStart, replacementRangeEnd, replacement, {
-            expectedText: snapshot.value.slice(trigger.rangeStart, replacementRangeEnd),
-          })
-        ) {
-          setComposerHighlightedItemId(null);
-        }
-        return;
-      }
-      if (item.type === "provider-command") {
-        const replacement = `${createMarkedProviderCommandToken(item.command)} `;
-        const replacementRangeEnd = extendReplacementRangeForTrailingSpace(
-          snapshot.value,
-          trigger.rangeEnd,
-          replacement,
-        );
-        if (
-          applyPromptReplacement(trigger.rangeStart, replacementRangeEnd, replacement, {
-            expectedText: snapshot.value.slice(trigger.rangeStart, replacementRangeEnd),
-          })
-        ) {
-          setComposerHighlightedItemId(null);
-        }
-        return;
-      }
-      if (item.type === "slash-command") {
-        if (item.command === "model" || item.command === "issues" || item.command === "goal") {
-          const replacement =
-            item.command === "model"
-              ? "/model "
-              : item.command === "issues"
-                ? "/issues "
-                : `${createMarkedProviderCommandToken("goal")} `;
-          const replacementRangeEnd = extendReplacementRangeForTrailingSpace(
-            snapshot.value,
-            trigger.rangeEnd,
-            replacement,
-          );
-          if (
-            applyPromptReplacement(trigger.rangeStart, replacementRangeEnd, replacement, {
-              expectedText: snapshot.value.slice(trigger.rangeStart, replacementRangeEnd),
-            })
-          ) {
-            setComposerHighlightedItemId(null);
-          }
-          return;
-        }
-        toggleInteractionMode();
-        if (
-          applyPromptReplacement(trigger.rangeStart, trigger.rangeEnd, "", {
-            expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd),
-          })
-        ) {
-          setComposerHighlightedItemId(null);
-        }
-        return;
-      }
-      onProviderModelSelect(item.provider, item.model);
+      toggleInteractionMode();
       if (
         applyPromptReplacement(trigger.rangeStart, trigger.rangeEnd, "", {
           expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd),
@@ -1158,8 +1147,17 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
       ) {
         setComposerHighlightedItemId(null);
       }
-    },
-  );
+      return;
+    }
+    onProviderModelSelect(item.provider, item.model);
+    if (
+      applyPromptReplacement(trigger.rangeStart, trigger.rangeEnd, "", {
+        expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd),
+      })
+    ) {
+      setComposerHighlightedItemId(null);
+    }
+  };
 
   const nudgeComposerMenuHighlight = useCallback(
     (key: "ArrowDown" | "ArrowUp") => {
@@ -1180,51 +1178,52 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
     [composerHighlightedItemId, composerMenuItems],
   );
 
-  const onComposerCommandKey = useEffectEvent(
-    (key: "ArrowDown" | "ArrowUp" | "Enter" | "Tab" | "Escape", event: KeyboardEvent) => {
-      if (key === "Tab" && event.shiftKey) {
-        toggleInteractionMode();
+  const onComposerCommandKey = (
+    key: "ArrowDown" | "ArrowUp" | "Enter" | "Tab" | "Escape",
+    event: KeyboardEvent,
+  ) => {
+    if (key === "Tab" && event.shiftKey) {
+      toggleInteractionMode();
+      return true;
+    }
+    const { trigger } = resolveActiveComposerTrigger();
+    const menuIsActive = composerMenuOpenRef.current || trigger !== null;
+    if (key === "Escape" && menuIsActive) {
+      const dismissedTrigger = trigger ?? composerTrigger;
+      if (dismissedTrigger) {
+        dismissedComposerTriggerRef.current = {
+          kind: dismissedTrigger.kind,
+          rangeStart: dismissedTrigger.rangeStart,
+        };
+      }
+      setComposerTrigger(null);
+      setComposerHighlightedItemId(null);
+      return true;
+    }
+    if (menuIsActive) {
+      const currentItems = composerMenuItemsRef.current;
+      if (key === "ArrowDown" && currentItems.length > 0) {
+        nudgeComposerMenuHighlight("ArrowDown");
         return true;
       }
-      const { trigger } = resolveActiveComposerTrigger();
-      const menuIsActive = composerMenuOpenRef.current || trigger !== null;
-      if (key === "Escape" && menuIsActive) {
-        const dismissedTrigger = trigger ?? composerTrigger;
-        if (dismissedTrigger) {
-          dismissedComposerTriggerRef.current = {
-            kind: dismissedTrigger.kind,
-            rangeStart: dismissedTrigger.rangeStart,
-          };
-        }
-        setComposerTrigger(null);
-        setComposerHighlightedItemId(null);
+      if (key === "ArrowUp" && currentItems.length > 0) {
+        nudgeComposerMenuHighlight("ArrowUp");
         return true;
       }
-      if (menuIsActive) {
-        const currentItems = composerMenuItemsRef.current;
-        if (key === "ArrowDown" && currentItems.length > 0) {
-          nudgeComposerMenuHighlight("ArrowDown");
+      if (key === "Tab" || key === "Enter") {
+        const selectedItem = activeComposerMenuItemRef.current ?? currentItems[0];
+        if (selectedItem) {
+          onSelectComposerItem(selectedItem);
           return true;
         }
-        if (key === "ArrowUp" && currentItems.length > 0) {
-          nudgeComposerMenuHighlight("ArrowUp");
-          return true;
-        }
-        if (key === "Tab" || key === "Enter") {
-          const selectedItem = activeComposerMenuItemRef.current ?? currentItems[0];
-          if (selectedItem) {
-            onSelectComposerItem(selectedItem);
-            return true;
-          }
-        }
       }
-      if (key === "Enter" && !event.shiftKey) {
-        void props.onSubmit(event as unknown as FormEvent<HTMLFormElement>);
-        return true;
-      }
-      return false;
-    },
-  );
+    }
+    if (key === "Enter" && !event.shiftKey) {
+      void props.onSubmit(event as unknown as FormEvent<HTMLFormElement>);
+      return true;
+    }
+    return false;
+  };
 
   const onPromptChange = useCallback(
     (
