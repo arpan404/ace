@@ -630,6 +630,8 @@ it.layer(NodeServices.layer, { excludeTestServices: true })("TerminalManager", (
       process.emitData("\u001b]11;rgb:ffff/ffff/ffff\u0007");
       process.emitData("\u001b[1;1R");
       process.emitData("x\u001b[999999999b");
+      process.emitData("\u001b[?1003h\u001b[?1006h");
+      process.emitData("\u001b[<35;20;2M\u001b[<35;20;2m");
       process.emitData("done\n");
 
       yield* manager.close({ threadId: "thread-1" });
@@ -639,31 +641,43 @@ it.layer(NodeServices.layer, { excludeTestServices: true })("TerminalManager", (
     }),
   );
 
-  it.effect(
-    "preserves clear and style control sequences while dropping chunk-split query traffic",
-    () =>
-      Effect.gen(function* () {
-        const { manager, ptyAdapter } = yield* createManager();
-        yield* manager.open(openInput());
-        const process = ptyAdapter.processes[0];
-        expect(process).toBeDefined();
-        if (!process) return;
+  it.effect("strips replay-unsafe controls from live terminal snapshots on reopen", () =>
+    Effect.gen(function* () {
+      const { manager, ptyAdapter } = yield* createManager();
+      yield* manager.open(openInput());
+      const process = ptyAdapter.processes[0];
+      expect(process).toBeDefined();
+      if (!process) return;
 
-        process.emitData("before clear\n");
-        process.emitData("\u001b[H\u001b[2J");
-        process.emitData("prompt ");
-        process.emitData("\u001b]11;");
-        process.emitData("rgb:ffff/ffff/ffff\u0007\u001b[1;1");
-        process.emitData("R\u001b[36mdone\u001b[0m\n");
+      process.emitData("before\n");
+      process.emitData("\u001b[?1049h\u001b[H\u001b[2J");
+      process.emitData("prompt \u001b[35mok\u001b[0m\n");
 
-        yield* manager.close({ threadId: "thread-1" });
+      const reopened = yield* manager.open(openInput());
+      assert.equal(reopened.history, "before\nprompt \u001b[35mok\u001b[0m\n");
+    }),
+  );
 
-        const reopened = yield* manager.open(openInput());
-        assert.equal(
-          reopened.history,
-          "before clear\n\u001b[H\u001b[2Jprompt \u001b[36mdone\u001b[0m\n",
-        );
-      }),
+  it.effect("preserves style while dropping clear-screen and chunk-split query traffic", () =>
+    Effect.gen(function* () {
+      const { manager, ptyAdapter } = yield* createManager();
+      yield* manager.open(openInput());
+      const process = ptyAdapter.processes[0];
+      expect(process).toBeDefined();
+      if (!process) return;
+
+      process.emitData("before clear\n");
+      process.emitData("\u001b[H\u001b[2J");
+      process.emitData("prompt ");
+      process.emitData("\u001b]11;");
+      process.emitData("rgb:ffff/ffff/ffff\u0007\u001b[1;1");
+      process.emitData("R\u001b[36mdone\u001b[0m\n");
+
+      yield* manager.close({ threadId: "thread-1" });
+
+      const reopened = yield* manager.open(openInput());
+      assert.equal(reopened.history, "before clear\nprompt \u001b[36mdone\u001b[0m\n");
+    }),
   );
 
   it.effect("does not leak final bytes from ESC sequences with intermediate bytes", () =>
