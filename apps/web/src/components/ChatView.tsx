@@ -53,7 +53,8 @@ import {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
-import { AnimatePresence, LazyMotion, domAnimation, m } from "motion/react";
+import { AnimatePresence, LazyMotion, LayoutGroup, domAnimation, m } from "motion/react";
+import { ChevronDownIcon, LaptopIcon, LayersIcon } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate, useSearch } from "@tanstack/react-router";
 import { useShallow } from "zustand/react/shallow";
@@ -248,7 +249,8 @@ import type { DiffReviewCommentInput } from "./DiffPanel";
 import { ChatViewPanels } from "./chat/ChatViewPanels";
 import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
 import { resolveExpandedImageItem, type ExpandedImagePreview } from "./chat/ExpandedImagePreview";
-import { NewThreadLanding } from "./chat/NewThreadLanding";
+import { NewThreadStartSurface, useNewThreadRecommendedPrompts } from "./chat/NewThreadLanding";
+import { ProjectContextSwitcher } from "./chat/ProjectContextSwitcher";
 import {
   ConnectedChatComposerPanels,
   type ConnectedChatComposerPanelsHandle,
@@ -275,6 +277,12 @@ import { getComposerProviderState } from "./chat/composerProviderRegistry";
 import { ThreadErrorBanner } from "./chat/ThreadErrorBanner";
 import { ConnectionHealthPill } from "./reliability/ConnectionHealthPill";
 import { ReliabilityDiagnosticsDialog } from "./reliability/ReliabilityDiagnosticsDialog";
+import { Button } from "./ui/button";
+import { Menu, MenuGroup, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuTrigger } from "./ui/menu";
+import {
+  DRAFT_CONTEXT_PILL_ICON_CLASS_NAME,
+  DRAFT_CONTEXT_PILL_TRIGGER_CLASS_NAME,
+} from "./thread/topBarClusterStyles";
 import { useConnectionHealth } from "~/lib/reliability/connectionHealth";
 import { deriveStuckTurnSnapshot } from "~/lib/reliability/stuckTurn";
 import {
@@ -11036,8 +11044,79 @@ function useChatViewComponent({
   const handleComposerSubmit = useCallback((event: FormEvent<HTMLFormElement>) => {
     void onSend(event);
   }, []);
+  const showDraftNewThreadLanding =
+    activeThread !== undefined &&
+    activeThread.messages.length === 0 &&
+    optimisticUserMessages.length === 0 &&
+    !isWorking &&
+    (isLocalDraftThread || activeThread.title.trim() === "New thread");
+  const draftNewThreadRecommendedPrompts = useNewThreadRecommendedPrompts(activeProjectId);
+  const onDraftNewThreadRecommendedPromptClick = useCallback(
+    (prompt: string) => {
+      setComposerDraftPrompt(threadId, prompt);
+      scheduleComposerFocus();
+    },
+    [scheduleComposerFocus, setComposerDraftPrompt, threadId],
+  );
+  const draftNewThreadContextControlsNode = (
+    <>
+      <ProjectContextSwitcher
+        activeProjectId={activeProjectId}
+        onSelectProject={handleActiveProjectChange}
+        variant="draft"
+      />
+
+      <Menu>
+        <MenuTrigger
+          render={
+            <Button
+              className={cn(
+                DRAFT_CONTEXT_PILL_TRIGGER_CLASS_NAME,
+                "min-w-[12rem] max-w-[15rem] justify-start",
+              )}
+              variant="ghost"
+              size="default"
+            />
+          }
+        >
+          <span className={DRAFT_CONTEXT_PILL_ICON_CLASS_NAME}>
+            {envMode === "local" ? (
+              <LaptopIcon className="size-4" />
+            ) : (
+              <LayersIcon className="size-4" />
+            )}
+          </span>
+          <span className="min-w-0 truncate">
+            {envMode === "local" ? "Work locally" : "Work in worktree"}
+          </span>
+          <ChevronDownIcon className="ml-auto size-4 shrink-0 text-muted-foreground/55" />
+        </MenuTrigger>
+        <MenuPopup align="start" className="w-48">
+          <MenuGroup>
+            <MenuRadioGroup
+              value={envMode}
+              onValueChange={(value) => onEnvModeChange(value as DraftThreadEnvMode)}
+            >
+              <MenuRadioItem value="local" className="text-xs">
+                <span className="flex items-center gap-2">
+                  <LaptopIcon className="size-3.5" />
+                  Work locally
+                </span>
+              </MenuRadioItem>
+              <MenuRadioItem value="worktree" className="text-xs">
+                <span className="flex items-center gap-2">
+                  <LayersIcon className="size-3.5" />
+                  Work in worktree
+                </span>
+              </MenuRadioItem>
+            </MenuRadioGroup>
+          </MenuGroup>
+        </MenuPopup>
+      </Menu>
+    </>
+  );
   if (!activeThread) {
-    return <NewThreadLanding />;
+    return null;
   }
   const environmentMiniPanelPortal =
     environmentPanelPopoverOpen &&
@@ -11114,6 +11193,89 @@ function useChatViewComponent({
       ) : null}
     </AnimatePresence>
   );
+  const connectedChatComposerPanelsNode = (
+    <ConnectedChatComposerPanels
+      ref={composerPanelsRef}
+      threadId={threadId}
+      activeForSideEffects={activeForSideEffects}
+      gitCwd={gitCwd}
+      isGitRepo={isGitRepo}
+      modelSettings={modelSettings}
+      providers={providerStatuses}
+      isServerThread={isServerThread}
+      threadRuntimeMode={activeThread.runtimeMode}
+      threadInteractionMode={activeThread.interactionMode}
+      composerModelOptions={composerModelOptions}
+      selectedProvider={selectedProvider}
+      selectedProviderInstanceId={selectedModelSelection.providerInstanceId}
+      selectedModel={selectedModel}
+      selectedProviderModels={selectedProviderModels}
+      selectedProviderModelOptions={composerModelOptions?.[selectedProvider]}
+      sessionConfigOptions={activeThread.session?.configOptions}
+      providerCommands={composerProviderCommands}
+      selectedModelForPickerWithCustomFallback={selectedModelForPickerWithCustomFallback}
+      lockedProvider={lockedProvider}
+      modelOptionsByProvider={modelOptionsByProvider}
+      modelSelectionByProvider={composerShellDraft.modelSelectionByProvider}
+      providerInstancesByProvider={providerInstancesByProvider}
+      handoffTargetProviders={handoffTargetProviders}
+      handoffDisabled={handoffDisabled}
+      interactionModeShortcutLabel={togglePlanModeShortcutLabel}
+      activeContextWindow={activeContextWindow}
+      queuedComposerMessages={queuedComposerMessages}
+      queuedSteerMessageId={queuedSteerRequest?.messageId ?? null}
+      canSendQueuedMessages={canSendQueuedComposerMessages}
+      pendingComposerComments={pendingComposerCommentItems}
+      liveTurnInProgress={liveTurnInProgress}
+      isConnecting={isConnecting}
+      isPreparingWorktree={isPreparingWorktree}
+      isSendBusy={isSendBusy}
+      allowQueueWhenSendable={!sendInFlightRef.current || isServerThread}
+      activePendingApproval={activePendingApproval}
+      pendingApprovalsCount={pendingApprovals.length}
+      pendingUserInputs={pendingUserInputs}
+      respondingApprovalRequestIds={respondingRequestIds}
+      respondingUserInputRequestIds={respondingUserInputRequestIds}
+      activePendingDraftAnswers={activePendingDraftAnswers}
+      activePendingQuestionIndex={activePendingQuestionIndex}
+      activePendingProgress={activePendingProgress}
+      activePendingIsResponding={activePendingIsResponding}
+      activePendingResolvedAnswers={activePendingResolvedAnswers}
+      planFollowUpId={activeProposedPlan?.id ?? null}
+      planFollowUpTitle={
+        activeProposedPlan ? (proposedPlanTitle(activeProposedPlan.planMarkdown) ?? null) : null
+      }
+      resolvedTheme={resolvedTheme}
+      showFloatingDock={showRightPanelChatDock}
+      floatingDockFooter={null}
+      floatingDockPortalHost={showRightPanelChatDock ? chatShellRef.current : null}
+      onComposerHeightChange={scheduleStickToBottom}
+      onPreviewExpandedImage={onExpandTimelineImage}
+      onIssuePreviewOpen={onComposerIssueTokenClick}
+      onPendingUserInputCustomAnswerChange={onChangeActivePendingUserInputCustomAnswer}
+      onSubmit={handleComposerSubmit}
+      onRespondToApproval={onRespondToApproval}
+      onSelectPendingUserInputOption={onSelectActivePendingUserInputOption}
+      onAdvancePendingUserInput={onAdvanceActivePendingUserInput}
+      onHandoffToProvider={onHandoffToProvider}
+      onInteractionModeChange={handleInteractionModeChange}
+      onRuntimeModeChange={handleRuntimeModeChange}
+      onPreviousPendingQuestion={onPreviousActivePendingUserInputQuestion}
+      onInterrupt={onInterrupt}
+      onImplementPlanInNewThread={onImplementPlanInNewThread}
+      onQueueMessage={handleQueueComposerMessage}
+      onEditQueuedComposerMessage={onEditQueuedComposerMessage}
+      onDeleteQueuedComposerMessage={removeQueuedComposerMessage}
+      onClearQueuedComposerMessages={clearQueuedComposerMessages}
+      onDismissPendingComposerComment={dismissPendingComposerComment}
+      onClearPendingComposerComments={clearPendingComposerComments}
+      onReorderQueuedComposerMessages={reorderQueuedComposerMessages}
+      onSendQueuedComposerMessage={sendQueuedComposerMessage}
+      onSteerQueuedComposerMessage={onSteerQueuedComposerMessage}
+      onSetThreadError={setThreadError}
+    />
+  );
+  const composerLayoutId = `thread-composer:${threadId}`;
 
   return (
     <LazyMotion features={domAnimation}>
@@ -11125,7 +11287,9 @@ function useChatViewComponent({
         {/* Persistent top bar — always visible regardless of workspace mode */}
         <div
           className={cn(
-            "relative flex shrink-0 items-stretch overflow-hidden border-b border-border/25 bg-background transition-[max-height,opacity] duration-200 ease-out after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-px after:bg-border/70",
+            "relative flex shrink-0 items-stretch overflow-hidden bg-background transition-[max-height,opacity] duration-200 ease-out",
+            !showDraftNewThreadLanding &&
+              "border-b border-border/25 after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-px after:bg-border/70",
             isHeaderHidden ? "max-h-0 opacity-0" : "max-h-28 opacity-100",
           )}
         >
@@ -11151,6 +11315,7 @@ function useChatViewComponent({
                   rightSidePanelToggleShortcutLabel={rightSidePanelToggleShortcutLabel}
                   rightSidePanelOpen={rightSidePanelOpen}
                   onActiveProjectChange={isLocalDraftThread ? handleActiveProjectChange : null}
+                  showThreadIdentity={!showDraftNewThreadLanding}
                   onToggleEnvironmentPanel={() => {
                     setEnvironmentPanelOpen((open) => !open);
                   }}
@@ -11266,97 +11431,55 @@ function useChatViewComponent({
                       }}
                       transition={PANEL_SPRING_TRANSITION}
                     >
-                      {/* Messages Wrapper */}
-                      <ChatMessagesPane {...chatMessagesPaneProps} />
-
-                      <ConnectedChatComposerPanels
-                        ref={composerPanelsRef}
-                        threadId={threadId}
-                        activeForSideEffects={activeForSideEffects}
-                        gitCwd={gitCwd}
-                        isGitRepo={isGitRepo}
-                        modelSettings={modelSettings}
-                        providers={providerStatuses}
-                        isServerThread={isServerThread}
-                        threadRuntimeMode={activeThread.runtimeMode}
-                        threadInteractionMode={activeThread.interactionMode}
-                        composerModelOptions={composerModelOptions}
-                        selectedProvider={selectedProvider}
-                        selectedProviderInstanceId={selectedModelSelection.providerInstanceId}
-                        selectedModel={selectedModel}
-                        selectedProviderModels={selectedProviderModels}
-                        selectedProviderModelOptions={composerModelOptions?.[selectedProvider]}
-                        sessionConfigOptions={activeThread.session?.configOptions}
-                        providerCommands={composerProviderCommands}
-                        selectedModelForPickerWithCustomFallback={
-                          selectedModelForPickerWithCustomFallback
-                        }
-                        lockedProvider={lockedProvider}
-                        modelOptionsByProvider={modelOptionsByProvider}
-                        modelSelectionByProvider={composerShellDraft.modelSelectionByProvider}
-                        providerInstancesByProvider={providerInstancesByProvider}
-                        handoffTargetProviders={handoffTargetProviders}
-                        handoffDisabled={handoffDisabled}
-                        interactionModeShortcutLabel={togglePlanModeShortcutLabel}
-                        activeContextWindow={activeContextWindow}
-                        queuedComposerMessages={queuedComposerMessages}
-                        queuedSteerMessageId={queuedSteerRequest?.messageId ?? null}
-                        canSendQueuedMessages={canSendQueuedComposerMessages}
-                        pendingComposerComments={pendingComposerCommentItems}
-                        liveTurnInProgress={liveTurnInProgress}
-                        isConnecting={isConnecting}
-                        isPreparingWorktree={isPreparingWorktree}
-                        isSendBusy={isSendBusy}
-                        allowQueueWhenSendable={!sendInFlightRef.current || isServerThread}
-                        activePendingApproval={activePendingApproval}
-                        pendingApprovalsCount={pendingApprovals.length}
-                        pendingUserInputs={pendingUserInputs}
-                        respondingApprovalRequestIds={respondingRequestIds}
-                        respondingUserInputRequestIds={respondingUserInputRequestIds}
-                        activePendingDraftAnswers={activePendingDraftAnswers}
-                        activePendingQuestionIndex={activePendingQuestionIndex}
-                        activePendingProgress={activePendingProgress}
-                        activePendingIsResponding={activePendingIsResponding}
-                        activePendingResolvedAnswers={activePendingResolvedAnswers}
-                        planFollowUpId={activeProposedPlan?.id ?? null}
-                        planFollowUpTitle={
-                          activeProposedPlan
-                            ? (proposedPlanTitle(activeProposedPlan.planMarkdown) ?? null)
-                            : null
-                        }
-                        resolvedTheme={resolvedTheme}
-                        showFloatingDock={showRightPanelChatDock}
-                        floatingDockFooter={null}
-                        floatingDockPortalHost={
-                          showRightPanelChatDock ? chatShellRef.current : null
-                        }
-                        onComposerHeightChange={scheduleStickToBottom}
-                        onPreviewExpandedImage={onExpandTimelineImage}
-                        onIssuePreviewOpen={onComposerIssueTokenClick}
-                        onPendingUserInputCustomAnswerChange={
-                          onChangeActivePendingUserInputCustomAnswer
-                        }
-                        onSubmit={handleComposerSubmit}
-                        onRespondToApproval={onRespondToApproval}
-                        onSelectPendingUserInputOption={onSelectActivePendingUserInputOption}
-                        onAdvancePendingUserInput={onAdvanceActivePendingUserInput}
-                        onHandoffToProvider={onHandoffToProvider}
-                        onInteractionModeChange={handleInteractionModeChange}
-                        onRuntimeModeChange={handleRuntimeModeChange}
-                        onPreviousPendingQuestion={onPreviousActivePendingUserInputQuestion}
-                        onInterrupt={onInterrupt}
-                        onImplementPlanInNewThread={onImplementPlanInNewThread}
-                        onQueueMessage={handleQueueComposerMessage}
-                        onEditQueuedComposerMessage={onEditQueuedComposerMessage}
-                        onDeleteQueuedComposerMessage={removeQueuedComposerMessage}
-                        onClearQueuedComposerMessages={clearQueuedComposerMessages}
-                        onDismissPendingComposerComment={dismissPendingComposerComment}
-                        onClearPendingComposerComments={clearPendingComposerComments}
-                        onReorderQueuedComposerMessages={reorderQueuedComposerMessages}
-                        onSendQueuedComposerMessage={sendQueuedComposerMessage}
-                        onSteerQueuedComposerMessage={onSteerQueuedComposerMessage}
-                        onSetThreadError={setThreadError}
-                      />
+                      <LayoutGroup id={`thread-layout:${threadId}`}>
+                        <AnimatePresence initial={false} mode="popLayout">
+                          {showDraftNewThreadLanding ? (
+                            <m.div
+                              key="draft-new-thread-start"
+                              className="flex min-h-0 min-w-0 flex-1 flex-col"
+                              initial={{ opacity: 0, y: 12, scale: 0.99 }}
+                              animate={{ opacity: 1, y: 0, scale: 1 }}
+                              exit={{ opacity: 0, y: -28, scale: 0.985 }}
+                              transition={PANEL_SPRING_TRANSITION}
+                            >
+                              <NewThreadStartSurface
+                                activeProjectName={activeProject?.name ?? null}
+                                branchName={activeThreadBranchName ?? "main"}
+                                composerNode={
+                                  <m.div
+                                    layoutId={composerLayoutId}
+                                    className="w-full"
+                                    transition={PANEL_SPRING_TRANSITION}
+                                  >
+                                    {connectedChatComposerPanelsNode}
+                                  </m.div>
+                                }
+                                contextControlsNode={draftNewThreadContextControlsNode}
+                                hasProjects={activeProject !== null}
+                                recommendedPrompts={draftNewThreadRecommendedPrompts}
+                                onRecommendedPromptClick={onDraftNewThreadRecommendedPromptClick}
+                              />
+                            </m.div>
+                          ) : (
+                            <m.div
+                              key="thread-conversation"
+                              className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+                              initial={{ opacity: 0, y: 24 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              exit={{ opacity: 0, y: 12 }}
+                              transition={PANEL_SPRING_TRANSITION}
+                            >
+                              <ChatMessagesPane {...chatMessagesPaneProps} />
+                              <m.div
+                                layoutId={composerLayoutId}
+                                transition={PANEL_SPRING_TRANSITION}
+                              >
+                                {connectedChatComposerPanelsNode}
+                              </m.div>
+                            </m.div>
+                          )}
+                        </AnimatePresence>
+                      </LayoutGroup>
 
                       <ChatConversationExtras
                         gitHubIssueDialogProps={gitHubIssueDialogProps}

@@ -50,3 +50,9 @@ export const HEADER_PILL_HERO_TRIGGER_CLASS_NAME = cn(
   HEADER_PILL_SURFACE_CLASS_NAME,
   "inline-flex h-8 sm:h-8.5 max-w-full items-center gap-1.75 px-3 sm:px-3.5 text-[12px] sm:text-[13px] font-medium text-pill-foreground transition-[border-color,background-color,color] duration-150 hover:border-pill-border hover:text-pill-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-64",
 );
+
+export const DRAFT_CONTEXT_PILL_TRIGGER_CLASS_NAME =
+  "glass-surface inline-flex h-11 min-w-0 items-center gap-2 rounded-[calc(var(--panel-radius)-2px)] border border-border/42 px-3.5 text-[14px]/none font-medium text-foreground/88 shadow-none outline-none transition-[border-color,background-color,color,box-shadow,transform] duration-150 ease-out hover:border-border/60 hover:bg-foreground/[0.035] hover:text-foreground focus-visible:border-primary/65 focus-visible:ring-2 focus-visible:ring-primary/25 disabled:pointer-events-none disabled:opacity-55";
+
+export const DRAFT_CONTEXT_PILL_ICON_CLASS_NAME =
+  "inline-flex size-5 shrink-0 items-center justify-center text-muted-foreground/72";

@@ -10,6 +10,8 @@ import { useUiStateStore } from "~/uiStateStore";
 
 import { ProjectAvatar } from "../ProjectAvatar";
 import {
+  DRAFT_CONTEXT_PILL_ICON_CLASS_NAME,
+  DRAFT_CONTEXT_PILL_TRIGGER_CLASS_NAME,
   HEADER_PILL_HERO_TRIGGER_CLASS_NAME,
   HEADER_PILL_TRIGGER_CLASS_NAME,
 } from "../thread/topBarClusterStyles";
@@ -29,7 +31,7 @@ type ProjectContextProject = Pick<Project, "cwd" | "icon" | "id" | "name">;
 interface ProjectContextSwitcherProps {
   activeProjectId: ProjectId | null;
   onSelectProject: (projectId: ProjectId) => void;
-  variant?: "compact" | "hero";
+  variant?: "compact" | "draft" | "hero";
   className?: string;
   emptyLabel?: string;
 }
@@ -74,8 +76,12 @@ export const ProjectContextSwitcher = memo(function ProjectContextSwitcher({
             <Button
               aria-label={triggerLabel}
               className={cn(
-                HEADER_PILL_TRIGGER_CLASS_NAME,
-                "min-w-0 max-w-60 justify-start gap-1 !px-2.25 sm:!px-2.75 text-left",
+                variant === "draft"
+                  ? DRAFT_CONTEXT_PILL_TRIGGER_CLASS_NAME
+                  : HEADER_PILL_TRIGGER_CLASS_NAME,
+                variant === "draft"
+                  ? "min-w-[10.5rem] max-w-[14rem] justify-start text-left"
+                  : "min-w-0 max-w-60 justify-start gap-1 !px-2.25 sm:!px-2.75 text-left",
                 className,
               )}
               size="default"
@@ -96,9 +102,25 @@ export const ProjectContextSwitcher = memo(function ProjectContextSwitcher({
             </>
           ) : (
             <>
-              <ProjectAvatar project={activeProject} className="size-3.5" />
+              <span
+                className={cn(
+                  variant === "draft" ? DRAFT_CONTEXT_PILL_ICON_CLASS_NAME : "inline-flex",
+                )}
+              >
+                <ProjectAvatar
+                  project={activeProject}
+                  className={variant === "draft" ? "size-4" : "size-3.5"}
+                />
+              </span>
               <span className="min-w-0 truncate">{activeProject.name}</span>
-              <ChevronDownIcon className="size-3.5 shrink-0 text-pill-foreground/55" />
+              <ChevronDownIcon
+                className={cn(
+                  "shrink-0",
+                  variant === "draft"
+                    ? "ml-auto size-4 text-muted-foreground/55"
+                    : "size-3.5 text-pill-foreground/55",
+                )}
+              />
             </>
           )
         ) : (
@@ -108,8 +130,15 @@ export const ProjectContextSwitcher = memo(function ProjectContextSwitcher({
             >
               {emptyLabel}
             </span>
-            {variant === "compact" ? (
-              <ChevronDownIcon className="size-3.5 shrink-0 text-pill-foreground/45" />
+            {variant !== "hero" ? (
+              <ChevronDownIcon
+                className={cn(
+                  "shrink-0",
+                  variant === "draft"
+                    ? "ml-auto size-4 text-muted-foreground/45"
+                    : "size-3.5 text-pill-foreground/45",
+                )}
+              />
             ) : null}
           </>
         )}
