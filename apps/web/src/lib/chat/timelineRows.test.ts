@@ -29,7 +29,61 @@ describe("timelineRows", () => {
       completionSummary: null,
       isWorking: true,
     });
-    expect(rows.at(-1)).toMatchObject({ kind: "working" });
+    expect(rows.at(-1)).toMatchObject({ kind: "working", mode: "silent-thinking" });
+  });
+
+  it("switches the active indicator from getting started to working after agent output", () => {
+    const turnId = TurnId.makeUnsafe("turn-working-transition");
+    const userEntry: TimelineEntry = {
+      id: "user-working-transition",
+      kind: "message",
+      createdAt: "2025-01-01T00:00:00.000Z",
+      message: {
+        id: MessageId.makeUnsafe("user-working-transition"),
+        role: "user",
+        text: "hi",
+        createdAt: "2025-01-01T00:00:00.000Z",
+        turnId,
+        streaming: false,
+      },
+    };
+
+    const gettingStartedRows = buildTimelineRows({
+      timelineEntries: [userEntry],
+      activeTurnInProgress: true,
+      activeTurnStartedAt: "2025-01-01T00:00:00.000Z",
+      completionDividerBeforeEntryId: null,
+      completionSummary: null,
+      isWorking: true,
+    });
+    expect(gettingStartedRows.at(-1)).toMatchObject({
+      kind: "working",
+      mode: "silent-thinking",
+    });
+
+    const workingRows = buildTimelineRows({
+      timelineEntries: [
+        userEntry,
+        {
+          id: "work-working-transition",
+          kind: "work",
+          createdAt: "2025-01-01T00:00:02.000Z",
+          entry: {
+            id: "work-working-transition",
+            createdAt: "2025-01-01T00:00:02.000Z",
+            turnId,
+            label: "Thinking",
+            tone: "thinking",
+          },
+        },
+      ],
+      activeTurnInProgress: true,
+      activeTurnStartedAt: "2025-01-01T00:00:00.000Z",
+      completionDividerBeforeEntryId: null,
+      completionSummary: null,
+      isWorking: true,
+    });
+    expect(workingRows.at(-1)).toMatchObject({ kind: "working", mode: "live" });
   });
 
   it("does not append a working indicator without an active turn", () => {

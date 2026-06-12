@@ -272,6 +272,58 @@ describe("nativeTimelineRows", () => {
     });
   });
 
+  it("keeps the active indicator in getting-started mode until agent output exists", () => {
+    const userMessage: OrchestrationMessage = {
+      id: userMessageId,
+      role: "user",
+      text: "Identify backend issues",
+      turnId,
+      streaming: false,
+      sequence: 1,
+      createdAt: "2026-01-01T00:00:01.000Z",
+      updatedAt: "2026-01-01T00:00:01.000Z",
+    };
+    const activity: OrchestrationThreadActivity = {
+      id: activityId,
+      tone: "info",
+      kind: "task.progress",
+      summary: "Thinking",
+      payload: {},
+      turnId,
+      sequence: 2,
+      createdAt: "2026-01-01T00:00:03.000Z",
+    };
+
+    const gettingStartedRows = buildNativeTimelineRows({
+      rows: [messageRow(userMessage, 0)],
+      messages: [userMessage],
+      activities: [],
+      proposedPlans: [],
+      activeTurnInProgress: true,
+      activeTurnStartedAt: "2026-01-01T00:00:01.000Z",
+      completionDividerBeforeEntryId: null,
+      completionSummary: null,
+      turnDiffSummaryByAssistantMessageId: new Map(),
+    });
+    expect(gettingStartedRows.at(-1)).toMatchObject({
+      kind: "working",
+      mode: "silent-thinking",
+    });
+
+    const workingRows = buildNativeTimelineRows({
+      rows: [messageRow(userMessage, 0), activityRow(activity, 1)],
+      messages: [userMessage],
+      activities: [activity],
+      proposedPlans: [],
+      activeTurnInProgress: true,
+      activeTurnStartedAt: "2026-01-01T00:00:01.000Z",
+      completionDividerBeforeEntryId: null,
+      completionSummary: null,
+      turnDiffSummaryByAssistantMessageId: new Map(),
+    });
+    expect(workingRows.at(-1)).toMatchObject({ kind: "working", mode: "live" });
+  });
+
   it("derives the completion divider row from latest-turn metadata", () => {
     const assistantMessage: OrchestrationMessage = {
       id: assistantMessageId,

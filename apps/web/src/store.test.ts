@@ -2817,8 +2817,18 @@ describe("incremental orchestration updates", () => {
     expect(next.threads[0]?.latestTurn?.sourceProposedPlan).toBeUndefined();
   });
 
-  it("compacts repeated reasoning activity so verbose turns keep earlier tool history visible", () => {
-    const thread = makeThread();
+  it("preserves full latest-turn activity while running and compacts it after completion", () => {
+    const turnId = TurnId.makeUnsafe("turn-1");
+    const thread = makeThread({
+      latestTurn: {
+        turnId,
+        state: "running",
+        requestedAt: "2026-03-05T10:00:00.000Z",
+        startedAt: "2026-03-05T10:00:00.000Z",
+        completedAt: null,
+        assistantMessageId: null,
+      },
+    });
     let state = makeState(thread);
 
     state = applyOrchestrationEvent(
@@ -2831,13 +2841,13 @@ describe("incremental orchestration updates", () => {
           kind: "tool.completed",
           summary: "Read file",
           payload: { detail: "packages/contracts/src/model.ts" },
-          turnId: TurnId.makeUnsafe("turn-1"),
+          turnId,
           createdAt: "2026-03-05T10:00:00.500Z",
         },
       }),
     );
 
-    for (let index = 0; index < 750; index += 1) {
+    for (let index = 0; index < 5; index += 1) {
       const fraction = String(index).padStart(3, "0");
       state = applyOrchestrationEvent(
         state,
@@ -2854,7 +2864,7 @@ describe("incremental orchestration updates", () => {
                 taskId: "copilot-task-1",
                 detail: `thought-${fraction}`,
               },
-              turnId: TurnId.makeUnsafe("turn-1"),
+              turnId,
               sequence: index + 1,
               createdAt: `2026-03-05T10:00:${String((index % 60) + 1).padStart(2, "0")}.000Z`,
             },
@@ -2869,13 +2879,50 @@ describe("incremental orchestration updates", () => {
 
     expect(state.threads[0]?.activities.map((activity) => activity.id)).toEqual([
       EventId.makeUnsafe("tool-history"),
-      EventId.makeUnsafe("reasoning-749"),
+      EventId.makeUnsafe("reasoning-000"),
+      EventId.makeUnsafe("reasoning-001"),
+      EventId.makeUnsafe("reasoning-002"),
+      EventId.makeUnsafe("reasoning-003"),
+      EventId.makeUnsafe("reasoning-004"),
     ]);
     expect(
       (state.threads[0]?.activities[1]?.payload as { detail?: string } | undefined)?.detail,
-    ).toContain("thought-000");
-    expect(
-      (state.threads[0]?.activities[1]?.payload as { detail?: string } | undefined)?.detail,
-    ).toContain("thought-749");
+    ).toBe("thought-000");
+
+    state = applyOrchestrationEvent(
+      state,
+      makeEvent(
+        "thread.message-sent",
+        {
+          threadId: thread.id,
+          messageId: MessageId.makeUnsafe("assistant-completed-turn-1"),
+          role: "assistant",
+          text: "Done",
+          turnId,
+          streaming: false,
+          sequence: 10,
+          createdAt: "2026-03-05T10:01:00.000Z",
+          updatedAt: "2026-03-05T10:01:00.000Z",
+        },
+        {
+          sequence: 100,
+          eventId: EventId.makeUnsafe("event-assistant-completed-turn-1"),
+        },
+      ),
+    );
+
+    expect(state.threads[0]?.activities.map((activity) => activity.id)).toEqual([
+      EventId.makeUnsafe("tool-history"),
+      EventId.makeUnsafe("reasoning-004"),
+    ]);
+    expect(state.threads[0]?.activities[0]?.payload).toMatchObject({
+      compacted: true,
+      originalKind: "tool.completed",
+    });
+    expect(state.threads[0]?.activities[1]?.payload).toMatchObject({
+      compacted: true,
+      originalKind: "task.progress",
+      taskId: "copilot-task-1",
+    });
   });
 });

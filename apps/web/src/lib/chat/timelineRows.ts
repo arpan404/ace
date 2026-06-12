@@ -1162,7 +1162,7 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
       timelineEntry.createdAt,
       activeTurnStartedAtMs,
     );
-    if (messageIsInActiveTurn) {
+    if (messageIsInActiveTurn && message.role !== "user") {
       hasRenderableCurrentTurnOutput = true;
     }
 

@@ -246,6 +246,9 @@ export function buildNativeTimelineRows(input: NativeTimelineRowsInput): Timelin
       if (!input.activeTurnStartedAt || Number.isNaN(activeTurnStartedAtMs)) {
         return false;
       }
+      if (row.kind === "message" && row.message.role === "user") {
+        return false;
+      }
       if (!row.createdAt) {
         return false;
       }

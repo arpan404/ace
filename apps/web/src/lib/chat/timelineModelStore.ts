@@ -100,6 +100,12 @@ interface PrimeLiveTimelineRowOptions {
   readonly flush?: "frame" | "sync";
 }
 
+interface RemoveLiveTimelineRowInput {
+  readonly threadId: ThreadId;
+  readonly kind: OrchestrationThreadTimelineEntryReference["kind"];
+  readonly id: string;
+}
+
 function mergeQueuedLiveTimelineRowPatch(
   pending: PrimeLiveTimelineRowInput,
   input: PrimeLiveTimelineRowInput,
@@ -1007,57 +1013,88 @@ export function primeLiveTimelineRow(
   });
 }
 
-export function removeLiveTimelineRow(input: {
-  readonly threadId: ThreadId;
-  readonly kind: OrchestrationThreadTimelineEntryReference["kind"];
-  readonly id: string;
-}): void {
-  const rowId = rowIdForSource(input.kind, input.id);
-  const rowStoreKey = rowKey(input.threadId, rowId);
-  const queueKey = `${input.threadId}:${input.kind}:${input.id}`;
-  liveTimelineRowPatchQueue.delete(queueKey);
-  useTimelineModelStore.setState((state) => {
-    const previousRowIds = state.rowIdsByThreadId[input.threadId] ?? [];
-    if (!previousRowIds.includes(rowId) && state.rowsById[rowStoreKey] === undefined) {
-      return state;
-    }
+export function removeLiveTimelineRow(input: RemoveLiveTimelineRowInput): void {
+  removeLiveTimelineRows([input]);
+}
 
-    const nextRowIds = previousRowIds.filter((existingRowId) => existingRowId !== rowId);
-    const { [rowStoreKey]: _removedRow, ...nextRowsById } = state.rowsById;
-    const previousMetadata = state.metadataByThreadId[input.threadId];
-    const nextMetadata = previousMetadata
-      ? {
+export function removeLiveTimelineRows(inputs: readonly RemoveLiveTimelineRowInput[]): void {
+  if (inputs.length === 0) {
+    return;
+  }
+  for (const input of inputs) {
+    const queueKey = `${input.threadId}:${input.kind}:${input.id}`;
+    liveTimelineRowPatchQueue.delete(queueKey);
+  }
+  useTimelineModelStore.setState((state) => {
+    let metadataByThreadId = state.metadataByThreadId;
+    let rowIdsByThreadId = state.rowIdsByThreadId;
+    let rowsById = state.rowsById;
+    let messagesById = state.messagesById;
+    let activitiesById = state.activitiesById;
+    let proposedPlansById = state.proposedPlansById;
+    let revisionByThreadId = state.revisionByThreadId;
+    let changed = false;
+    const changedThreadIds = new Set<ThreadId>();
+
+    for (const input of inputs) {
+      const rowId = rowIdForSource(input.kind, input.id);
+      const rowStoreKey = rowKey(input.threadId, rowId);
+      const previousRowIds = rowIdsByThreadId[input.threadId] ?? [];
+      if (!previousRowIds.includes(rowId) && rowsById[rowStoreKey] === undefined) {
+        continue;
+      }
+
+      if (!changed) {
+        metadataByThreadId = { ...state.metadataByThreadId };
+        rowIdsByThreadId = { ...state.rowIdsByThreadId };
+        rowsById = { ...state.rowsById };
+        messagesById = { ...state.messagesById };
+        activitiesById = { ...state.activitiesById };
+        proposedPlansById = { ...state.proposedPlansById };
+        revisionByThreadId = { ...state.revisionByThreadId };
+        changed = true;
+      }
+
+      const nextRowIds = previousRowIds.filter((existingRowId) => existingRowId !== rowId);
+      rowIdsByThreadId[input.threadId] = nextRowIds;
+      delete rowsById[rowStoreKey];
+      if (input.kind === "message") {
+        delete messagesById[input.id];
+      } else if (input.kind === "activity") {
+        delete activitiesById[input.id];
+      } else {
+        delete proposedPlansById[input.id];
+      }
+
+      const previousMetadata = metadataByThreadId[input.threadId];
+      if (previousMetadata) {
+        metadataByThreadId[input.threadId] = {
           ...previousMetadata,
           totalRows: nextRowIds.length,
           tailStartRowIndex: Math.max(0, nextRowIds.length - DEFAULT_TIMELINE_TAIL_WINDOW_ROWS),
           updatedAt: new Date().toISOString(),
-        }
-      : undefined;
+        };
+      }
+      changedThreadIds.add(input.threadId);
+    }
 
-    const nextMessagesById =
-      input.kind === "message"
-        ? (({ [input.id]: _removedMessage, ...remaining }) => remaining)(state.messagesById)
-        : state.messagesById;
-    const nextActivitiesById =
-      input.kind === "activity"
-        ? (({ [input.id]: _removedActivity, ...remaining }) => remaining)(state.activitiesById)
-        : state.activitiesById;
-    const nextProposedPlansById =
-      input.kind === "proposed-plan"
-        ? (({ [input.id]: _removedPlan, ...remaining }) => remaining)(state.proposedPlansById)
-        : state.proposedPlansById;
+    if (!changed) {
+      return state;
+    }
+
+    for (const threadId of changedThreadIds) {
+      revisionByThreadId[threadId] = (revisionByThreadId[threadId] ?? 0) + 1;
+    }
 
     return {
       ...state,
-      metadataByThreadId: nextMetadata
-        ? { ...state.metadataByThreadId, [input.threadId]: nextMetadata }
-        : state.metadataByThreadId,
-      rowIdsByThreadId: { ...state.rowIdsByThreadId, [input.threadId]: nextRowIds },
-      rowsById: nextRowsById,
-      messagesById: nextMessagesById,
-      activitiesById: nextActivitiesById,
-      proposedPlansById: nextProposedPlansById,
-      revisionByThreadId: bumpThreadRevision(state, input.threadId),
+      metadataByThreadId,
+      rowIdsByThreadId,
+      rowsById,
+      messagesById,
+      activitiesById,
+      proposedPlansById,
+      revisionByThreadId,
       revision: state.revision + 1,
     };
   });

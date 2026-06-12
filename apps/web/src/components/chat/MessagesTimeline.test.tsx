@@ -4569,7 +4569,7 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     }
   });
 
-  it("shows separate working and pursuing-goal timers for active Codex goal turns", async () => {
+  it("shows separate getting-started and pursuing-goal timers for active Codex goal turns before output", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-03-17T19:13:00.000Z"));
 
@@ -4626,12 +4626,12 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
         />,
       );
 
-      expect(markup).toContain("Working for 1m");
+      expect(markup).toContain("Getting started for 1m");
       expect(markup).toContain("Pursuing goal for 1m");
       expect(markup).toContain('data-goal-working-timer="true"');
       expect(markup.match(/data-working-activity-indicator="true"/g)?.length).toBe(1);
       expect(markup).toContain("lucide-target");
-      expect(markup).not.toContain("Working for 30s");
+      expect(markup).not.toContain("Getting started for 30s");
     } finally {
       vi.useRealTimers();
     }
