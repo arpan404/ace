@@ -1,3 +1,5 @@
+import { readPositiveIntegerEnv } from "./resourceLimits.ts";
+
 type WsClientSessionRecord = {
   readonly connectionId: string;
   readonly generation: number;
@@ -6,6 +8,11 @@ type WsClientSessionRecord = {
 
 const WS_CLIENT_SESSION_TTL_MS = 15 * 60_000;
 const WS_CLIENT_SESSION_PRUNE_INTERVAL_MS = 60_000;
+const WS_CLIENT_SESSION_MAX_RECORDS = readPositiveIntegerEnv({
+  envVarName: "ACE_WS_CLIENT_SESSION_MAX_RECORDS",
+  fallback: 128,
+  minimum: 1,
+});
 
 const wsClientSessions = new Map<string, WsClientSessionRecord>();
 let nextWsClientSessionPruneAt = 0;
@@ -15,6 +22,20 @@ function pruneWsClientSessions(now = Date.now()): void {
     if (record.updatedAt + WS_CLIENT_SESSION_TTL_MS <= now) {
       wsClientSessions.delete(clientSessionId);
     }
+  }
+  while (wsClientSessions.size > WS_CLIENT_SESSION_MAX_RECORDS) {
+    let oldestClientSessionId: string | undefined;
+    let oldestUpdatedAt = Number.POSITIVE_INFINITY;
+    for (const [clientSessionId, record] of wsClientSessions.entries()) {
+      if (record.updatedAt < oldestUpdatedAt) {
+        oldestClientSessionId = clientSessionId;
+        oldestUpdatedAt = record.updatedAt;
+      }
+    }
+    if (oldestClientSessionId === undefined) {
+      return;
+    }
+    wsClientSessions.delete(oldestClientSessionId);
   }
 }
 
@@ -50,6 +71,7 @@ export function registerWsClientSession(
           updatedAt: now,
         };
   wsClientSessions.set(clientSessionId, nextRecord);
+  pruneWsClientSessions(now);
 }
 
 export function isCurrentWsClientSession(clientSessionId?: string, connectionId?: string): boolean {

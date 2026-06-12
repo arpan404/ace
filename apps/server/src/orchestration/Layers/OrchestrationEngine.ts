@@ -12,6 +12,7 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { toPersistenceSqlError } from "../../persistence/Errors.ts";
 import { OrchestrationEventStore } from "../../persistence/Services/OrchestrationEventStore.ts";
 import { OrchestrationCommandReceiptRepository } from "../../persistence/Services/OrchestrationCommandReceipts.ts";
+import { readPositiveIntegerEnv } from "../../resourceLimits.ts";
 import { withStartupTiming } from "../../startupDiagnostics.ts";
 import {
   OrchestrationCommandInvariantError,
@@ -44,6 +45,11 @@ const ORCHESTRATION_ENGINE_PARTITION_QUEUE_CAPACITY = Math.max(
   64,
   Math.ceil(ORCHESTRATION_ENGINE_QUEUE_CAPACITY / ORCHESTRATION_ENGINE_WORKER_COUNT),
 );
+const ORCHESTRATION_ENGINE_EVENT_PUBSUB_CAPACITY = readPositiveIntegerEnv({
+  envVarName: "ACE_ORCHESTRATION_EVENT_PUBSUB_CAPACITY",
+  fallback: 16_384,
+  minimum: 256,
+});
 
 function commandToAggregateRef(command: OrchestrationCommand): {
   readonly aggregateKind: "project" | "thread";
@@ -110,7 +116,9 @@ const makeOrchestrationEngine = Effect.gen(function* () {
   let readModel = createEmptyReadModel(new Date().toISOString());
 
   const commandQueue = yield* Queue.bounded<CommandEnvelope>(ORCHESTRATION_ENGINE_QUEUE_CAPACITY);
-  const eventPubSub = yield* PubSub.unbounded<OrchestrationEvent>();
+  const eventPubSub = yield* PubSub.bounded<OrchestrationEvent>(
+    ORCHESTRATION_ENGINE_EVENT_PUBSUB_CAPACITY,
+  );
   const readModelReconcileSemaphore = yield* Semaphore.make(1);
   const queueByPartition = yield* Effect.forEach(
     Array.from({ length: ORCHESTRATION_ENGINE_WORKER_COUNT }, () => null),
@@ -145,19 +153,23 @@ const makeOrchestrationEngine = Effect.gen(function* () {
       if (thread.proposedPlans.some((entry) => entry.id === planId)) {
         return;
       }
-      if (thread.proposedPlans.length > 0) {
+
+      const hydratedThread = yield* projectionSnapshotQuery.getThread(threadId);
+      if (Option.isNone(hydratedThread)) {
         return;
       }
 
-      const snapshot = yield* projectionSnapshotQuery.getSnapshot({
-        hydrateThreadId: threadId,
-      });
-      const hydratedThread = snapshot.threads.find((entry) => entry.id === threadId);
-      if (!hydratedThread) {
-        return;
-      }
-
-      readModel = snapshot;
+      const nextUpdatedAt =
+        readModel.updatedAt.localeCompare(hydratedThread.value.updatedAt) >= 0
+          ? readModel.updatedAt
+          : hydratedThread.value.updatedAt;
+      readModel = {
+        ...readModel,
+        threads: readModel.threads.map((entry) =>
+          entry.id === threadId ? hydratedThread.value : entry,
+        ),
+        updatedAt: nextUpdatedAt,
+      };
     });
 
   const processEnvelope = (envelope: CommandEnvelope): Effect.Effect<void> => {

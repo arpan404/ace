@@ -34,6 +34,7 @@ import {
   cloneReplayTurns,
   type TranscriptReplayTurn,
 } from "../providerTranscriptBootstrap.ts";
+import { makeProviderAdapterRuntimeEventQueue } from "../providerRuntimeQueue.ts";
 import {
   asArrayOrEmpty as asArray,
   asNonEmptyString as asString,
@@ -1340,7 +1341,7 @@ function selectPermissionOption(
 }
 
 const makeGeminiAdapter = Effect.gen(function* () {
-  const runtimeEventQueue = yield* Queue.unbounded<ProviderRuntimeEvent>();
+  const runtimeEventQueue = yield* makeProviderAdapterRuntimeEventQueue();
   const services = yield* Effect.services();
   const runPromise = Effect.runPromiseWith(services);
   const serverConfig = yield* ServerConfig;

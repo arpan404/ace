@@ -14,7 +14,10 @@ import { Button } from "../ui/button";
 import { buttonVariants } from "../ui/buttonVariants";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import { APP_COMPOSER_CONTROL_CLASS_NAME } from "~/lib/appChrome";
+import {
+  APP_COMPOSER_CONTROL_CLASS_NAME,
+  APP_SETTINGS_PICKER_TRIGGER_CLASS_NAME,
+} from "~/lib/appChrome";
 import { cn } from "~/lib/utils";
 import { getProviderSnapshot } from "../../providerModels";
 import {
@@ -312,6 +315,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   disabled?: boolean;
   triggerVariant?: VariantProps<typeof buttonVariants>["variant"];
   triggerClassName?: string;
+  triggerSurface?: "composer" | "settings";
   onProviderModelChange: (
     provider: ProviderKind,
     model: string,
@@ -695,12 +699,21 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
         render={
           <Button
             size="sm"
-            variant={props.triggerVariant ?? "ghost"}
+            variant={
+              props.triggerSurface === "settings" ? "ghost" : (props.triggerVariant ?? "ghost")
+            }
             data-chat-provider-model-picker="true"
             className={cn(
-              APP_COMPOSER_CONTROL_CLASS_NAME,
-              "min-w-0 justify-start overflow-hidden whitespace-nowrap px-2 [&_svg]:mx-0",
-              props.compact ? "max-w-42 shrink-0" : "max-w-56 shrink sm:max-w-72 sm:px-2.5",
+              props.triggerSurface === "settings"
+                ? cn(
+                    APP_SETTINGS_PICKER_TRIGGER_CLASS_NAME,
+                    "min-w-0 max-w-none shrink-0 justify-start overflow-hidden whitespace-nowrap px-2.5 text-[13px] [&_svg]:mx-0",
+                  )
+                : cn(
+                    APP_COMPOSER_CONTROL_CLASS_NAME,
+                    "min-w-0 justify-start overflow-hidden whitespace-nowrap px-2 [&_svg]:mx-0",
+                    props.compact ? "max-w-42 shrink-0" : "max-w-56 shrink sm:max-w-72 sm:px-2.5",
+                  ),
               props.triggerClassName,
             )}
             disabled={props.disabled}
@@ -923,10 +936,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
         entriesDisabled={props.handoff.disabled}
         providers={props.handoff.providers}
         showLabel={false}
-        triggerClassName={cn(
-          APP_COMPOSER_CONTROL_CLASS_NAME,
-          props.compact ? "size-7" : "size-8",
-        )}
+        triggerClassName={cn(APP_COMPOSER_CONTROL_CLASS_NAME, props.compact ? "size-7" : "size-8")}
         triggerVariant={props.triggerVariant ?? "ghost"}
         onSelect={(provider, mode) => {
           props.handoff?.onSelect(provider, mode);

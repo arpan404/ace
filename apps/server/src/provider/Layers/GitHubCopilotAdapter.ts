@@ -35,6 +35,7 @@ import {
   cloneReplayTurns,
   type TranscriptReplayTurn,
 } from "../providerTranscriptBootstrap.ts";
+import { makeProviderAdapterRuntimeEventQueue } from "../providerRuntimeQueue.ts";
 import {
   createGitHubCopilotClient,
   type GitHubCopilotClientLike,
@@ -1098,7 +1099,7 @@ function withTimeoutOutcome<T>(
 const makeGitHubCopilotAdapter = Effect.fn("makeGitHubCopilotAdapter")(function* (
   options?: GitHubCopilotAdapterLiveOptions,
 ) {
-  const runtimeEventQueue = yield* Queue.unbounded<ProviderRuntimeEvent>();
+  const runtimeEventQueue = yield* makeProviderAdapterRuntimeEventQueue();
   const services = yield* Effect.services();
   const runPromise = Effect.runPromiseWith(services);
   const serverConfig = yield* ServerConfig;

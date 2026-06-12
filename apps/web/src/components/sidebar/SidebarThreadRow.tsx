@@ -1,4 +1,10 @@
-import { IconArchive, IconPin, IconPinFilled, IconPinnedOff, IconTerminal } from "@tabler/icons-react";
+import {
+  IconArchive,
+  IconPin,
+  IconPinFilled,
+  IconPinnedOff,
+  IconTerminal,
+} from "@tabler/icons-react";
 import {
   CircleAlertIcon,
   CircleCheckBig,
@@ -199,7 +205,14 @@ export interface SidebarThreadRowProps {
     connectionUrl: string,
   ) => void;
   navigateToThread: (threadId: ThreadId) => void;
-  prefetchThreadHistory: (threadId: ThreadId) => void;
+  prefetchThreadHistory: (
+    threadId: ThreadId,
+    options?: {
+      readonly hydrateStore?: boolean;
+      readonly prewarmRows?: boolean;
+      readonly priority?: "background" | "immediate";
+    },
+  ) => void;
   handleMultiSelectContextMenu: (position: { x: number; y: number }) => Promise<void>;
   handleThreadContextMenu: (
     threadId: ThreadId,
@@ -296,7 +309,7 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
       }}
     >
       <SidebarMenuSubButton
-        render={<button type="button" />}
+        render={<div role="button" tabIndex={0} />}
         size="sm"
         isActive={isActive}
         data-testid={`thread-row-${thread.id}`}

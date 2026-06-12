@@ -15,7 +15,7 @@ import {
   ThreadId,
   TurnId,
 } from "@ace/contracts";
-import { Effect, Exit, Layer, ManagedRuntime, PubSub, Scope, Stream } from "effect";
+import { Effect, Exit, Layer, ManagedRuntime, Option, PubSub, Scope, Stream } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -289,9 +289,7 @@ describe("ProviderRuntimeIngestion", () => {
       );
     const readProjectedThread = (threadId: ThreadId = asThreadId("thread-1")) =>
       runtime!.runPromise(
-        projectionSnapshotQuery
-          .getSnapshot({ hydrateThreadId: threadId })
-          .pipe(Effect.map((snapshot) => snapshot.threads.find((entry) => entry.id === threadId))),
+        projectionSnapshotQuery.getThread(threadId).pipe(Effect.map(Option.getOrUndefined)),
       );
 
     const createdAt = new Date().toISOString();
@@ -2331,6 +2329,35 @@ describe("ProviderRuntimeIngestion", () => {
       itemType: "reasoning",
       detail: "Need to inspect the workspace and then patch the adapter.",
     });
+  });
+
+  it("ignores empty reasoning item completions", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-empty-reasoning-complete"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-empty-reasoning"),
+      itemId: asItemId("reasoning-empty"),
+      payload: {
+        itemType: "reasoning",
+        status: "completed",
+        title: "Reasoning",
+        data: {
+          content: "   ",
+        },
+      },
+    });
+
+    await harness.drain();
+    const persistence = await harness.readActivityPersistence();
+
+    expect(persistence.activityEventCount).toBe(0);
+    expect(persistence.projectionRows).toEqual([]);
   });
 
   it("projects reasoning deltas into streamed progress activities", async () => {

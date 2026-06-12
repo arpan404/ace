@@ -1,6 +1,14 @@
 import type { ServerLifecycleStreamEvent } from "@ace/contracts";
 import { Effect, Layer, PubSub, Ref, ServiceMap, Stream } from "effect";
 
+import { readPositiveIntegerEnv } from "./resourceLimits.ts";
+
+const SERVER_LIFECYCLE_PUBSUB_CAPACITY = readPositiveIntegerEnv({
+  envVarName: "ACE_SERVER_LIFECYCLE_PUBSUB_CAPACITY",
+  fallback: 16,
+  minimum: 1,
+});
+
 type LifecycleEventInput =
   | Omit<Extract<ServerLifecycleStreamEvent, { type: "welcome" }>, "sequence">
   | Omit<Extract<ServerLifecycleStreamEvent, { type: "ready" }>, "sequence">;
@@ -24,7 +32,9 @@ export class ServerLifecycleEvents extends ServiceMap.Service<
 export const ServerLifecycleEventsLive = Layer.effect(
   ServerLifecycleEvents,
   Effect.gen(function* () {
-    const pubsub = yield* PubSub.unbounded<ServerLifecycleStreamEvent>();
+    const pubsub = yield* PubSub.sliding<ServerLifecycleStreamEvent>(
+      SERVER_LIFECYCLE_PUBSUB_CAPACITY,
+    );
     const state = yield* Ref.make<SnapshotState>({
       sequence: 0,
       events: [],

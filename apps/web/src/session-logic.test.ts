@@ -1075,11 +1075,19 @@ describe("deriveWorkLogEntries", () => {
     });
   });
 
-  it("keeps checkpoint captured info entries", () => {
+  it("hides checkpoint captured info entries", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({
         id: "checkpoint",
         createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "checkpoint.captured",
+        summary: "Checkpoint captured",
+        tone: "info",
+      }),
+      makeActivity({
+        id: "legacy-checkpoint",
+        createdAt: "2026-02-23T00:00:01.500Z",
+        kind: "runtime.note",
         summary: "Checkpoint captured",
         tone: "info",
       }),
@@ -1093,7 +1101,7 @@ describe("deriveWorkLogEntries", () => {
     ];
 
     const entries = deriveWorkLogEntries(activities, undefined);
-    expect(entries.map((entry) => entry.id)).toEqual(["checkpoint", "tool-complete"]);
+    expect(entries.map((entry) => entry.id)).toEqual(["tool-complete"]);
   });
 
   it("keeps generated turn summary info entries", () => {
@@ -2065,6 +2073,38 @@ describe("deriveWorkLogEntries", () => {
 });
 
 describe("deriveTimelineEntries", () => {
+  it("hides assistant status messages that are not conversation content", () => {
+    const entries = deriveTimelineEntries(
+      [
+        {
+          id: MessageId.makeUnsafe("assistant-goal-start"),
+          role: "assistant",
+          text: "Creating a thread goal from your /goal command.",
+          createdAt: "2026-02-23T00:00:01.000Z",
+          streaming: false,
+        },
+        {
+          id: MessageId.makeUnsafe("assistant-goal-active"),
+          role: "assistant",
+          text: "Active goals set: hey",
+          createdAt: "2026-02-23T00:00:02.000Z",
+          streaming: false,
+        },
+        {
+          id: MessageId.makeUnsafe("assistant-normal"),
+          role: "assistant",
+          text: "Here is the actual reply.",
+          createdAt: "2026-02-23T00:00:03.000Z",
+          streaming: false,
+        },
+      ],
+      [],
+      [],
+    );
+
+    expect(entries.map((entry) => entry.id)).toEqual([MessageId.makeUnsafe("assistant-normal")]);
+  });
+
   it("includes proposed plans alongside messages and work entries in chronological order", () => {
     const entries = deriveTimelineEntries(
       [
@@ -2700,47 +2740,152 @@ describe("deriveTimelineEntries", () => {
 });
 
 describe("deriveWorkLogEntries context window handling", () => {
-  it("keeps context window updates in the work log", () => {
+  it("hides context window updates from the visible work log", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "context-1",
+        turnId: "turn-1",
+        kind: "context-window.updated",
+        summary: "Context window updated",
+        tone: "info",
+      }),
+      makeActivity({
+        id: "tool-1",
+        turnId: "turn-1",
+        kind: "tool.completed",
+        summary: "Ran command",
+        tone: "tool",
+      }),
+    ];
     const entries = deriveWorkLogEntries(
-      [
-        makeActivity({
-          id: "context-1",
-          turnId: "turn-1",
-          kind: "context-window.updated",
-          summary: "Context window updated",
-          tone: "info",
-        }),
-        makeActivity({
-          id: "tool-1",
-          turnId: "turn-1",
-          kind: "tool.completed",
-          summary: "Ran command",
-          tone: "tool",
-        }),
-      ],
+      filterVisibleWorkLogActivities(activities, {
+        enableToolStreaming: true,
+        enableThinkingStreaming: true,
+      }),
       TurnId.makeUnsafe("turn-1"),
     );
 
-    expect(entries.map((entry) => entry.id)).toEqual(["context-1", "tool-1"]);
-    expect(entries[0]?.label).toBe("Context window updated");
+    expect(entries.map((entry) => entry.id)).toEqual(["tool-1"]);
   });
 
-  it("keeps context compaction activities as normal work log entries", () => {
+  it("hides context compaction activities from the visible work log", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "compaction-1",
+        turnId: "turn-1",
+        kind: "context-compaction",
+        summary: "Context compacted",
+        tone: "info",
+      }),
+    ];
     const entries = deriveWorkLogEntries(
-      [
-        makeActivity({
-          id: "compaction-1",
-          turnId: "turn-1",
-          kind: "context-compaction",
-          summary: "Context compacted",
-          tone: "info",
-        }),
-      ],
+      filterVisibleWorkLogActivities(activities, {
+        enableToolStreaming: true,
+        enableThinkingStreaming: true,
+      }),
       TurnId.makeUnsafe("turn-1"),
     );
 
-    expect(entries).toHaveLength(1);
-    expect(entries[0]?.label).toBe("Context compacted");
+    expect(entries).toHaveLength(0);
+  });
+});
+
+describe("filterVisibleWorkLogActivities", () => {
+  it("hides status-noise activities before timeline rendering", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "context-window",
+        kind: "context-window.updated",
+        summary: "Context window updated",
+        tone: "info",
+      }),
+      makeActivity({
+        id: "context-compaction",
+        kind: "context-compaction",
+        summary: "Context compacted",
+        tone: "info",
+      }),
+      makeActivity({
+        id: "runtime-warning",
+        kind: "runtime.warning",
+        summary: "Runtime warning",
+        tone: "info",
+      }),
+      makeActivity({
+        id: "config-warning",
+        kind: "config.warning",
+        summary: "Config warning",
+        tone: "info",
+      }),
+      makeActivity({
+        id: "goal-updated",
+        kind: "goal.updated",
+        summary: "Goal updated",
+        tone: "info",
+      }),
+      makeActivity({
+        id: "tool-complete",
+        kind: "tool.completed",
+        summary: "Tool completed",
+        tone: "tool",
+      }),
+      makeActivity({
+        id: "runtime-error",
+        kind: "runtime.error",
+        summary: "Runtime error",
+        tone: "error",
+      }),
+    ];
+
+    const visible = filterVisibleWorkLogActivities(activities, {
+      enableToolStreaming: true,
+      enableThinkingStreaming: true,
+    });
+
+    expect(visible.map((activity) => activity.id)).toEqual(["tool-complete", "runtime-error"]);
+  });
+
+  it("keeps tool and thinking activities when visibility toggles are disabled", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "tool-complete",
+        kind: "tool.completed",
+        summary: "Tool completed",
+        tone: "tool",
+      }),
+      makeActivity({
+        id: "task-progress",
+        kind: "task.progress",
+        summary: "Reasoning update",
+        tone: "info",
+      }),
+      makeActivity({
+        id: "plan-updated",
+        kind: "turn.plan.updated",
+        summary: "Plan updated",
+        tone: "info",
+      }),
+    ];
+
+    const visible = filterVisibleWorkLogActivities(activities, {
+      enableToolStreaming: false,
+      enableThinkingStreaming: false,
+    });
+
+    expect(visible).toBe(activities);
+  });
+
+  it("returns the original array when both visibility toggles are enabled", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({ id: "tool-complete", kind: "tool.completed", tone: "tool" }),
+    ];
+
+    const visible = filterVisibleWorkLogActivities(activities, {
+      enableToolStreaming: true,
+      enableThinkingStreaming: true,
+    });
+
+    expect(visible).toBe(activities);
   });
 });
 
@@ -2813,57 +2958,6 @@ describe("deriveVisibleTurnDiffSummaryByAssistantMessageId", () => {
         ],
       ),
     ).toEqual(new Map());
-  });
-});
-
-describe("filterVisibleWorkLogActivities", () => {
-  it("keeps tool and thinking activities when visibility toggles are disabled", () => {
-    const activities: OrchestrationThreadActivity[] = [
-      makeActivity({
-        id: "tool-complete",
-        kind: "tool.completed",
-        summary: "Tool completed",
-        tone: "tool",
-      }),
-      makeActivity({
-        id: "task-progress",
-        kind: "task.progress",
-        summary: "Reasoning update",
-        tone: "info",
-      }),
-      makeActivity({
-        id: "plan-updated",
-        kind: "turn.plan.updated",
-        summary: "Plan updated",
-        tone: "info",
-      }),
-      makeActivity({
-        id: "runtime-warning",
-        kind: "runtime.warning",
-        summary: "Runtime warning",
-        tone: "info",
-      }),
-    ];
-
-    const visible = filterVisibleWorkLogActivities(activities, {
-      enableToolStreaming: false,
-      enableThinkingStreaming: false,
-    });
-
-    expect(visible).toBe(activities);
-  });
-
-  it("returns the original array when both visibility toggles are enabled", () => {
-    const activities: OrchestrationThreadActivity[] = [
-      makeActivity({ id: "tool-complete", kind: "tool.completed", tone: "tool" }),
-    ];
-
-    const visible = filterVisibleWorkLogActivities(activities, {
-      enableToolStreaming: true,
-      enableThinkingStreaming: true,
-    });
-
-    expect(visible).toBe(activities);
   });
 });
 
@@ -2948,13 +3042,22 @@ describe("isLatestTurnSettled", () => {
     ).toBe(false);
   });
 
-  it("returns false while any turn is running to avoid stale latest-turn banners", () => {
+  it("returns false while another concrete turn is running to avoid stale latest-turn banners", () => {
     expect(
       isLatestTurnSettled(latestTurn, {
         orchestrationStatus: "running",
         activeTurnId: TurnId.makeUnsafe("turn-2"),
       }),
     ).toBe(false);
+  });
+
+  it("returns true for a completed turn when a stale running session has no active turn", () => {
+    expect(
+      isLatestTurnSettled(latestTurn, {
+        orchestrationStatus: "running",
+        activeTurnId: undefined,
+      }),
+    ).toBe(true);
   });
 
   it("returns true once the session is no longer running that turn", () => {

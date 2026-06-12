@@ -192,7 +192,7 @@ export const ProposedPlanCard = memo(function ProposedPlanCard({
             />
           )}
           {canCollapse && !expanded ? (
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-linear-to-t from-background via-background/82 to-transparent" />
+            <div className="proposed-plan-card-fade pointer-events-none absolute inset-x-0 bottom-0 h-12" />
           ) : null}
         </div>
         {canCollapse ? (

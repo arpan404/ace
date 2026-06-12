@@ -54,6 +54,7 @@ import {
   providerFallbackSlashCommands,
 } from "@ace/shared/providerSlashCommands";
 import { resolveProviderSettings } from "@ace/shared/providerInstances";
+import { makeProviderAdapterRuntimeEventQueue } from "../providerRuntimeQueue.ts";
 import {
   ProviderAdapterRequestError,
   ProviderAdapterSessionNotFoundError,
@@ -1002,7 +1003,7 @@ function resolveOpenCodeVariant(modelSelection: ModelSelection | undefined): str
 }
 
 const makeOpenCodeAdapter = Effect.fn("makeOpenCodeAdapter")(function* () {
-  const runtimeEventQueue = yield* Queue.unbounded<ProviderRuntimeEvent>();
+  const runtimeEventQueue = yield* makeProviderAdapterRuntimeEventQueue();
   const services = yield* Effect.services();
   const runPromise = Effect.runPromiseWith(services);
   const serverConfig = yield* ServerConfig;

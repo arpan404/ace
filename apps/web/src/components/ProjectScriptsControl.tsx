@@ -31,6 +31,7 @@ import {
 } from "~/keybindings";
 import {
   AlertDialog,
+  AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
@@ -473,9 +474,9 @@ function ProjectScriptEditorDialog(props: {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <Button variant="destructive" onClick={props.confirmDeleteScript}>
+            <AlertDialogAction variant="destructive" onClick={props.confirmDeleteScript}>
               Delete action
-            </Button>
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

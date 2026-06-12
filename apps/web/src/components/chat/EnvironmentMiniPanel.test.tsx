@@ -63,37 +63,40 @@ describe("EnvironmentMiniPanel", () => {
   };
 
   it("renders active todo progress with loading and completed states", () => {
+    const queryClient = new QueryClient();
     const markup = renderToStaticMarkup(
-      <EnvironmentMiniPanel
-        activeProjectScripts={undefined}
-        activePlan={activePlan}
-        activeSubagentThreadId={null}
-        activeThreadId={"thread-1" as ThreadId}
-        branchToolbarProps={null}
-        editorStateInstanceId="test-workspace-editor"
-        gitCwd={null}
-        gitStatus={null}
-        gitStatusError={null}
-        branchList={null}
-        isGitRepo={false}
-        keybindings={[]}
-        layoutMode="inline"
-        onAddProjectScript={() => Promise.resolve()}
-        onDeleteProjectScript={() => Promise.resolve()}
-        onOpenDiffPanel={() => undefined}
-        onOpenEnvironmentSettings={() => undefined}
-        onJumpToMessage={() => undefined}
-        onOpenSummaryPanel={() => undefined}
-        onRunProjectScript={() => undefined}
-        onSelectSubagentThread={() => undefined}
-        onSubagentPanelOpen={() => undefined}
-        onUpdateProjectScript={() => Promise.resolve()}
-        onWorkspaceModeChange={() => undefined}
-        preferredScriptId={null}
-        subagentThreads={[]}
-        workspaceChangeStat={null}
-        workspaceMode="chat"
-      />,
+      <QueryClientProvider client={queryClient}>
+        <EnvironmentMiniPanel
+          activeProjectScripts={undefined}
+          activePlan={activePlan}
+          activeSubagentThreadId={null}
+          activeThreadId={"thread-1" as ThreadId}
+          branchToolbarProps={null}
+          editorStateInstanceId="test-workspace-editor"
+          gitCwd={null}
+          gitStatus={null}
+          gitStatusError={null}
+          branchList={null}
+          isGitRepo={false}
+          keybindings={[]}
+          layoutMode="inline"
+          onAddProjectScript={() => Promise.resolve()}
+          onDeleteProjectScript={() => Promise.resolve()}
+          onOpenDiffPanel={() => undefined}
+          onOpenEnvironmentSettings={() => undefined}
+          onJumpToMessage={() => undefined}
+          onOpenSummaryPanel={() => undefined}
+          onRunProjectScript={() => undefined}
+          onSelectSubagentThread={() => undefined}
+          onSubagentPanelOpen={() => undefined}
+          onUpdateProjectScript={() => Promise.resolve()}
+          onWorkspaceModeChange={() => undefined}
+          preferredScriptId={null}
+          subagentThreads={[]}
+          workspaceChangeStat={null}
+          workspaceMode="chat"
+        />
+      </QueryClientProvider>,
     );
 
     expect(markup).toContain('role="status"');

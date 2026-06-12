@@ -4,6 +4,11 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { prunePairingSessionsNow } from "./pairing";
 import { ProviderService } from "./provider/Services/ProviderService";
+import {
+  readBooleanEnv,
+  readByteLimitEnv,
+  runBestEffortGarbageCollection,
+} from "./resourceLimits.ts";
 import { withStartupTiming } from "./startupDiagnostics";
 import { hasActiveWsClientSessions, pruneWsClientSessionsIfNeeded } from "./wsClientSessions";
 
@@ -17,6 +22,10 @@ const DEFAULT_PAIRING_CLEANUP_INTERVAL_MS = 2 * 60_000;
 const DEFAULT_SQLITE_OPTIMIZE_INTERVAL_MS = 30 * 60_000;
 const DEFAULT_SQLITE_WAL_PASSIVE_INTERVAL_MS = 5 * 60_000;
 const DEFAULT_SQLITE_WAL_TRUNCATE_INTERVAL_MS = 90 * 60_000;
+const DEFAULT_MEMORY_PRESSURE_INTERVAL_MS = 10_000;
+const DEFAULT_MEMORY_SOFT_LIMIT_BYTES = 4 * 1024 * 1024 * 1024;
+const DEFAULT_MEMORY_HARD_LIMIT_BYTES = 8 * 1024 * 1024 * 1024;
+const MEMORY_PRESSURE_WARNING_THROTTLE_MS = 30_000;
 
 const JOB_INTERVAL_JITTER_RATIO = 0.2;
 
@@ -89,6 +98,13 @@ function isProviderSessionBusy(session: ProviderSession): boolean {
   );
 }
 
+function formatBytes(bytes: number): string {
+  if (bytes >= 1024 * 1024 * 1024) {
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GiB`;
+  }
+  return `${Math.round(bytes / (1024 * 1024))} MiB`;
+}
+
 const makeMaintenanceRuntime = Effect.gen(function* () {
   const sqlOption = yield* Effect.serviceOption(SqlClient.SqlClient);
   const providerServiceOption = yield* Effect.serviceOption(ProviderService);
@@ -113,8 +129,73 @@ const makeMaintenanceRuntime = Effect.gen(function* () {
     fallback: DEFAULT_MAINTENANCE_DEEP_IDLE_MIN_AGE_MS,
     minimum: maintenanceIdleMinAgeMs,
   });
+  const memorySoftLimitBytes = readByteLimitEnv({
+    envVarName: "ACE_MEMORY_LIMIT",
+    fallbackEnvVarNames: ["ACE_SERVER_MEMORY_SOFT_LIMIT"],
+    fallbackBytes: DEFAULT_MEMORY_SOFT_LIMIT_BYTES,
+    minimumBytes: 128 * 1024 * 1024,
+  });
+  const memoryHardLimitBytes = Math.max(
+    memorySoftLimitBytes,
+    readByteLimitEnv({
+      envVarName: "ACE_MEMORY_HARD_LIMIT",
+      fallbackEnvVarNames: ["ACE_SERVER_MEMORY_HARD_LIMIT"],
+      fallbackBytes: DEFAULT_MEMORY_HARD_LIMIT_BYTES,
+      minimumBytes: 256 * 1024 * 1024,
+    }),
+  );
+  const exitOnHardMemoryLimit = readBooleanEnv({
+    envVarName: "ACE_SERVER_EXIT_ON_MEMORY_HARD_LIMIT",
+    fallback: false,
+  });
+  let lastMemoryPressureWarningAtMs = 0;
 
   const jobs: Array<MaintenanceJob> = [
+    {
+      id: "process-memory-pressure",
+      phase: "always",
+      intervalMs: parseBoundedIntegerEnv({
+        envVarName: "ACE_MAINTENANCE_MEMORY_PRESSURE_INTERVAL_MS",
+        fallback: DEFAULT_MEMORY_PRESSURE_INTERVAL_MS,
+        minimum: 1_000,
+      }),
+      timeoutMs: maintenanceJobTimeoutMs,
+      nextRunAtMs: 0,
+      run: ({ nowMs }) =>
+        Effect.gen(function* () {
+          const usage = process.memoryUsage();
+          if (usage.rss < memorySoftLimitBytes) {
+            return "ran" as const;
+          }
+
+          pruneWsClientSessionsIfNeeded(nowMs);
+          prunePairingSessionsNow(nowMs);
+          const gcRan = runBestEffortGarbageCollection();
+          const shouldWarn =
+            nowMs - lastMemoryPressureWarningAtMs >= MEMORY_PRESSURE_WARNING_THROTTLE_MS;
+          if (shouldWarn) {
+            lastMemoryPressureWarningAtMs = nowMs;
+            yield* Effect.logWarning("server memory pressure cleanup ran", {
+              rss: formatBytes(usage.rss),
+              heapUsed: formatBytes(usage.heapUsed),
+              external: formatBytes(usage.external),
+              softLimit: formatBytes(memorySoftLimitBytes),
+              hardLimit: formatBytes(memoryHardLimitBytes),
+              gcRan,
+            });
+          }
+
+          if (usage.rss >= memoryHardLimitBytes && exitOnHardMemoryLimit) {
+            yield* Effect.logError("server memory hard limit exceeded; exiting", {
+              rss: formatBytes(usage.rss),
+              hardLimit: formatBytes(memoryHardLimitBytes),
+            });
+            setTimeout(() => process.exit(137), 0);
+          }
+
+          return "ran" as const;
+        }),
+    },
     {
       id: "light-memory-prune",
       phase: "always",

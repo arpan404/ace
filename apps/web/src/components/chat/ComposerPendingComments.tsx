@@ -30,9 +30,7 @@ export function ComposerPendingComments(props: {
           <span className="text-[10px] font-semibold tracking-[0.16em] text-muted-foreground/70 uppercase">
             Pending comments
           </span>
-          <span className={APP_BADGE_CLASS_NAME}>
-            {props.comments.length}
-          </span>
+          <span className={APP_BADGE_CLASS_NAME}>{props.comments.length}</span>
         </div>
         <Tooltip>
           <TooltipTrigger

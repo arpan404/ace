@@ -64,6 +64,7 @@ import {
 
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
+import { readPositiveIntegerEnv } from "../../resourceLimits.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { getClaudeModelCapabilities } from "./ClaudeProvider.ts";
 import {
@@ -81,12 +82,18 @@ import {
   cloneReplayTurns,
   type TranscriptReplayTurn,
 } from "../providerTranscriptBootstrap.ts";
+import { makeProviderAdapterRuntimeEventQueue } from "../providerRuntimeQueue.ts";
 import { ClaudeAdapter, type ClaudeAdapterShape } from "../Services/ClaudeAdapter.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 import { loadClaudeAgentSdkModule, type ClaudeAgentSdkLoader } from "../providerSdkRuntime.ts";
 
 const PROVIDER = "claudeAgent" as const;
 const ROLLBACK_BOOTSTRAP_MAX_CHARS = 24_000;
+const CLAUDE_PROMPT_QUEUE_CAPACITY = readPositiveIntegerEnv({
+  envVarName: "ACE_CLAUDE_PROMPT_QUEUE_CAPACITY",
+  fallback: 32,
+  minimum: 1,
+});
 type ClaudeTextStreamKind = Extract<RuntimeContentStreamKind, "assistant_text" | "reasoning_text">;
 type ClaudeToolResultStreamKind = Extract<
   RuntimeContentStreamKind,
@@ -1034,7 +1041,7 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     });
 
   const sessions = new Map<ThreadId, ClaudeSessionContext>();
-  const runtimeEventQueue = yield* Queue.unbounded<ProviderRuntimeEvent>();
+  const runtimeEventQueue = yield* makeProviderAdapterRuntimeEventQueue();
   const serverSettingsService = yield* ServerSettingsService;
 
   const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
@@ -2497,7 +2504,7 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       const runFork = Effect.runForkWith(services);
       const runPromise = Effect.runPromiseWith(services);
 
-      const promptQueue = yield* Queue.unbounded<PromptQueueItem>();
+      const promptQueue = yield* Queue.bounded<PromptQueueItem>(CLAUDE_PROMPT_QUEUE_CAPACITY);
       const prompt = Stream.fromQueue(promptQueue).pipe(
         Stream.filter((item) => item.type === "message"),
         Stream.map((item) => item.message),

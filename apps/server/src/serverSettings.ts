@@ -42,8 +42,15 @@ import * as Semaphore from "effect/Semaphore";
 import { ServerConfig } from "./config";
 import { type DeepPartial, deepMerge } from "@ace/shared/Struct";
 import { resolveProviderSettings } from "@ace/shared/providerInstances";
+import { readPositiveIntegerEnv } from "./resourceLimits.ts";
 import { fromLenientJson } from "@ace/shared/schemaJson";
 import { validateRelayWebSocketUrl } from "@ace/shared/relay";
+
+const SERVER_SETTINGS_PUBSUB_CAPACITY = readPositiveIntegerEnv({
+  envVarName: "ACE_SERVER_SETTINGS_PUBSUB_CAPACITY",
+  fallback: 64,
+  minimum: 1,
+});
 
 export interface ServerSettingsShape {
   /** Start the settings runtime and attach file watching. */
@@ -197,7 +204,7 @@ const makeServerSettings = Effect.gen(function* () {
   const pathService = yield* Path.Path;
   const writeSemaphore = yield* Semaphore.make(1);
   const cacheKey = "settings" as const;
-  const changesPubSub = yield* PubSub.unbounded<ServerSettings>();
+  const changesPubSub = yield* PubSub.sliding<ServerSettings>(SERVER_SETTINGS_PUBSUB_CAPACITY);
   const startedRef = yield* Ref.make(false);
   const startedDeferred = yield* Deferred.make<void, ServerSettingsError>();
   const watcherScope = yield* Scope.make("sequential");

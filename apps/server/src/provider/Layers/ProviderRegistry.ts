@@ -33,6 +33,7 @@ import { OpenCodeProvider } from "../Services/OpenCodeProvider";
 import type { PiProviderShape } from "../Services/PiProvider";
 import { PiProvider } from "../Services/PiProvider";
 import { ProviderRegistry, type ProviderRegistryShape } from "../Services/ProviderRegistry";
+import { readPositiveIntegerEnv } from "../../resourceLimits.ts";
 import { ServerSettingsService } from "../../serverSettings";
 import { withStartupTiming } from "../../startupDiagnostics";
 import { resolveProviderSettings } from "@ace/shared/providerInstances";
@@ -51,6 +52,11 @@ const PROVIDER_MANUAL_REFRESH_PARALLEL_CONCURRENCY = 3;
 const PROVIDER_MANUAL_REFRESH_MIN_FREE_MEMORY_BYTES = 6 * 1024 * 1024 * 1024;
 const PROVIDER_MANUAL_REFRESH_MIN_FREE_MEMORY_RATIO = 0.2;
 const PROVIDER_MANUAL_REFRESH_MAX_PROCESS_RSS_BYTES = 1_500 * 1024 * 1024;
+const PROVIDER_REGISTRY_PUBSUB_CAPACITY = readPositiveIntegerEnv({
+  envVarName: "ACE_PROVIDER_REGISTRY_PUBSUB_CAPACITY",
+  fallback: 64,
+  minimum: 1,
+});
 
 function resolveManualRefreshAllConcurrency(): number {
   const freeMemoryBytes = freemem();
@@ -351,7 +357,7 @@ export const ProviderRegistryLive = Layer.effect(
       },
     );
     const changesPubSub = yield* Effect.acquireRelease(
-      PubSub.unbounded<ReadonlyArray<ServerProvider>>(),
+      PubSub.sliding<ReadonlyArray<ServerProvider>>(PROVIDER_REGISTRY_PUBSUB_CAPACITY),
       PubSub.shutdown,
     );
     const providersRef = yield* Ref.make<ReadonlyArray<ServerProvider>>(

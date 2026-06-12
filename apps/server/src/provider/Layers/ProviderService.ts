@@ -51,6 +51,7 @@ import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogg
 import { AnalyticsService } from "../../telemetry/Services/AnalyticsService.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { ProjectionThreadMessageRepository } from "../../persistence/Services/ProjectionThreadMessages.ts";
+import { readPositiveIntegerEnv } from "../../resourceLimits.ts";
 import { withStartupTiming } from "../../startupDiagnostics.ts";
 import { projectionMessagesToReplayTurns } from "../providerReplayTurns.ts";
 import { resolveProviderIntegrationCapabilities } from "../providerCapabilities.ts";
@@ -68,6 +69,9 @@ const ProviderRollbackConversationInput = Schema.Struct({
 });
 
 const PROVIDER_CLI_POLICY_SWEEP_INTERVAL_MS = 1_000;
+const DEFAULT_PROVIDER_RUNTIME_EVENT_QUEUE_CAPACITY = 8_192;
+const DEFAULT_PROVIDER_RUNTIME_EVENT_PUBSUB_CAPACITY = 8_192;
+const DEFAULT_PROVIDER_TURN_QUEUE_CAPACITY_PER_THREAD = 8;
 
 type ProviderCliPoolPolicy = {
   readonly maxOpen: number;
@@ -264,15 +268,30 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     "Resolving projection thread message repository",
     Effect.service(ProjectionThreadMessageRepository),
   );
+  const runtimeEventQueueCapacity = readPositiveIntegerEnv({
+    envVarName: "ACE_PROVIDER_RUNTIME_EVENT_QUEUE_CAPACITY",
+    fallback: DEFAULT_PROVIDER_RUNTIME_EVENT_QUEUE_CAPACITY,
+    minimum: 256,
+  });
+  const runtimeEventPubSubCapacity = readPositiveIntegerEnv({
+    envVarName: "ACE_PROVIDER_RUNTIME_EVENT_PUBSUB_CAPACITY",
+    fallback: DEFAULT_PROVIDER_RUNTIME_EVENT_PUBSUB_CAPACITY,
+    minimum: 256,
+  });
+  const turnQueueCapacityPerThread = readPositiveIntegerEnv({
+    envVarName: "ACE_PROVIDER_TURN_QUEUE_CAPACITY_PER_THREAD",
+    fallback: DEFAULT_PROVIDER_TURN_QUEUE_CAPACITY_PER_THREAD,
+    minimum: 1,
+  });
   const runtimeEventQueue = yield* withStartupTiming(
     "providers",
     "Allocating provider runtime event queue",
-    Queue.unbounded<ProviderRuntimeEvent>(),
+    Queue.bounded<ProviderRuntimeEvent>(runtimeEventQueueCapacity),
   );
   const runtimeEventPubSub = yield* withStartupTiming(
     "providers",
     "Allocating provider runtime event pubsub",
-    PubSub.unbounded<ProviderRuntimeEvent>(),
+    PubSub.bounded<ProviderRuntimeEvent>(runtimeEventPubSubCapacity),
   );
 
   const publishRuntimeEvent = (event: ProviderRuntimeEvent): Effect.Effect<void> =>
@@ -325,6 +344,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
   );
   const sessionActivityByThreadId = new Map<ThreadId, SessionActivityState>();
   const turnQueueByThreadId = new Map<ThreadId, Queue.Queue<QueuedProviderTurn>>();
+  const queuedTurnCountByThreadId = new Map<ThreadId, number>();
   const activeTurnIdleByThreadId = new Map<ThreadId, Deferred.Deferred<void>>();
 
   const listActiveSessions = Effect.forEach(adapters, (adapter) => adapter.listSessions()).pipe(
@@ -598,6 +618,26 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       }
       activeTurnIdleByThreadId.delete(threadId);
       yield* Deferred.succeed(idle, undefined).pipe(Effect.orDie);
+    });
+
+  const decrementQueuedTurnCount = (threadId: ThreadId): void => {
+    const current = queuedTurnCountByThreadId.get(threadId) ?? 0;
+    if (current <= 1) {
+      queuedTurnCountByThreadId.delete(threadId);
+    } else {
+      queuedTurnCountByThreadId.set(threadId, current - 1);
+    }
+  };
+
+  const shutdownTurnQueueForThread = (threadId: ThreadId): Effect.Effect<void> =>
+    Effect.gen(function* () {
+      queuedTurnCountByThreadId.delete(threadId);
+      const queue = turnQueueByThreadId.get(threadId);
+      if (!queue) {
+        return;
+      }
+      turnQueueByThreadId.delete(threadId);
+      yield* Queue.shutdown(queue);
     });
 
   const processRuntimeEvent = (adapterEvent: ProviderRuntimeEvent): Effect.Effect<void> =>
@@ -966,6 +1006,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
   const processQueuedTurn = Effect.fn("processQueuedTurn")(function* (
     queuedTurn: QueuedProviderTurn,
   ) {
+    decrementQueuedTurnCount(queuedTurn.input.threadId);
     const idle = yield* Deferred.make<void>();
     activeTurnIdleByThreadId.set(queuedTurn.input.threadId, idle);
 
@@ -992,7 +1033,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       return existing;
     }
 
-    const queue = yield* Queue.unbounded<QueuedProviderTurn>();
+    const queue = yield* Queue.bounded<QueuedProviderTurn>(turnQueueCapacityPerThread);
     turnQueueByThreadId.set(threadId, queue);
     yield* Queue.take(queue).pipe(
       Effect.flatMap(processQueuedTurn),
@@ -1030,7 +1071,24 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
 
     const result = yield* Deferred.make<ProviderTurnStartResult, ProviderServiceError>();
     const queue = yield* getTurnQueue(input.threadId);
-    yield* Queue.offer(queue, { input, result }).pipe(Effect.asVoid);
+    const queuedTurnCount = queuedTurnCountByThreadId.get(input.threadId) ?? 0;
+    if (queuedTurnCount >= turnQueueCapacityPerThread) {
+      return yield* toValidationError(
+        "ProviderService.sendTurn",
+        `Thread '${input.threadId}' already has ${queuedTurnCount} queued turns. Wait for the active turn to settle before sending more work.`,
+      );
+    }
+    queuedTurnCountByThreadId.set(input.threadId, queuedTurnCount + 1);
+    const offered = yield* Queue.offer(queue, { input, result }).pipe(
+      Effect.onInterrupt(() => Effect.sync(() => decrementQueuedTurnCount(input.threadId))),
+    );
+    if (!offered) {
+      decrementQueuedTurnCount(input.threadId);
+      return yield* toValidationError(
+        "ProviderService.sendTurn",
+        `Thread '${input.threadId}' turn queue is full. Wait for the active turn to settle before sending more work.`,
+      );
+    }
     return yield* Deferred.await(result);
   });
 
@@ -1162,6 +1220,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       }
       yield* directory.remove(input.threadId);
       sessionActivityByThreadId.delete(input.threadId);
+      yield* shutdownTurnQueueForThread(input.threadId);
       yield* completeActiveTurn(input.threadId);
       yield* analytics.record("provider.session.stopped", {
         provider: routed.adapter.provider,
@@ -1295,6 +1354,11 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
       ),
     ).pipe(Effect.asVoid);
     sessionActivityByThreadId.clear();
+    queuedTurnCountByThreadId.clear();
+    yield* Effect.forEach(turnQueueByThreadId.values(), (queue) => Queue.shutdown(queue)).pipe(
+      Effect.asVoid,
+    );
+    turnQueueByThreadId.clear();
     yield* analytics.record("provider.sessions.stopped_all", {
       sessionCount: threadIds.length,
     });

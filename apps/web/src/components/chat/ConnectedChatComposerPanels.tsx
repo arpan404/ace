@@ -263,6 +263,7 @@ interface ConnectedChatComposerPanelsProps {
   readonly activePendingProgress: ComponentProps<typeof ChatComposerPanel>["activePendingProgress"];
   readonly activePendingIsResponding: boolean;
   readonly activePendingResolvedAnswers: unknown;
+  readonly placeholderOverride?: string | undefined;
   readonly planFollowUpId: string | null;
   readonly planFollowUpTitle: string | null;
   readonly resolvedTheme: ComponentProps<typeof ChatComposerPanel>["resolvedTheme"];
@@ -1481,6 +1482,7 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
         isSendBusy={props.isSendBusy}
         showPlanFollowUpPrompt={showPlanFollowUpPrompt}
         showQueue={true}
+        placeholderOverride={props.placeholderOverride}
         prompt={prompt}
         composerCursor={composerCursor}
         composerTriggerKind={composerTriggerKind}
@@ -1596,6 +1598,7 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
         liveTurnInProgress={props.liveTurnInProgress}
         isSendBusy={props.isSendBusy}
         showPlanFollowUpPrompt={showPlanFollowUpPrompt}
+        placeholderOverride={props.placeholderOverride}
         prompt={prompt}
         composerCursor={composerCursor}
         composerTriggerKind={composerTriggerKind}
