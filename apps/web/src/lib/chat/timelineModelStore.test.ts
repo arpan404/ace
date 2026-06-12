@@ -55,6 +55,7 @@ afterEach(() => {
   useTimelineModelStore.getState().reset();
   nativeApiMock.getThreadTimelineRowsSnapshot.mockReset();
   nativeApiMock.getThreadTimelineRowsSnapshotChunk.mockReset();
+  vi.useRealTimers();
 });
 
 describe("timelineModelStore", () => {
@@ -214,6 +215,83 @@ describe("timelineModelStore", () => {
     ]);
     expect(useTimelineModelStore.getState().rowIdsByThreadId[threadId]).toEqual([
       "message:message-row-store",
+    ]);
+  });
+
+  it("publishes mixed live row bursts once per frame", async () => {
+    vi.useFakeTimers();
+    const { primeLiveTimelineRow, removeLiveTimelineRow } = await import("./timelineModelStore");
+    const firstActivityId = EventId.makeUnsafe("activity-frame-burst-one");
+    const secondActivityId = EventId.makeUnsafe("activity-frame-burst-two");
+
+    primeLiveTimelineRow(
+      {
+        threadId,
+        updatedAt: "2026-01-01T00:00:02.000Z",
+        entry: {
+          kind: "message",
+          id: messageId,
+          createdAt: "2026-01-01T00:00:01.000Z",
+          turnId,
+          sequence: 1,
+        },
+        message: {
+          id: messageId,
+          role: "assistant",
+          text: "Previous",
+          turnId,
+          streaming: true,
+          sequence: 1,
+          createdAt: "2026-01-01T00:00:01.000Z",
+          updatedAt: "2026-01-01T00:00:02.000Z",
+        },
+      },
+      { flush: "sync" },
+    );
+
+    let publishCount = 0;
+    const unsubscribe = useTimelineModelStore.subscribe(() => {
+      publishCount += 1;
+    });
+
+    removeLiveTimelineRow({
+      threadId,
+      kind: "message",
+      id: String(messageId),
+    });
+    for (const [index, activityId] of [firstActivityId, secondActivityId].entries()) {
+      primeLiveTimelineRow({
+        threadId,
+        updatedAt: `2026-01-01T00:00:0${String(index + 3)}.000Z`,
+        entry: {
+          kind: "activity",
+          id: activityId,
+          createdAt: `2026-01-01T00:00:0${String(index + 3)}.000Z`,
+          turnId,
+          sequence: index + 2,
+        },
+        activity: {
+          id: activityId,
+          kind: "tool.completed",
+          tone: "tool",
+          summary: `Ran command ${String(index + 1)}`,
+          payload: { itemType: "command_execution", command: `echo ${String(index + 1)}` },
+          turnId,
+          sequence: index + 2,
+          createdAt: `2026-01-01T00:00:0${String(index + 3)}.000Z`,
+        },
+      });
+    }
+
+    expect(publishCount).toBe(0);
+    await vi.advanceTimersByTimeAsync(16);
+
+    unsubscribe();
+    expect(publishCount).toBe(1);
+    expect(readTimelineRowsProjection(threadId).messages).toEqual([]);
+    expect(readTimelineRowsProjection(threadId).activities.map((activity) => activity.id)).toEqual([
+      firstActivityId,
+      secondActivityId,
     ]);
   });
 
@@ -697,6 +775,7 @@ describe("timelineModelStore", () => {
   });
 
   it("removes rolled back optimistic rows", async () => {
+    vi.useFakeTimers();
     const { primeLiveTimelineRow, removeLiveTimelineRow } = await import("./timelineModelStore");
 
     primeLiveTimelineRow(
@@ -730,11 +809,17 @@ describe("timelineModelStore", () => {
       id: String(messageId),
     });
 
+    expect(readTimelineRowsProjection(threadId).messages.map((message) => message.text)).toEqual([
+      "Rollback me",
+    ]);
+    await vi.advanceTimersByTimeAsync(16);
+
     expect(readTimelineRowsProjection(threadId).messages).toEqual([]);
     expect(useTimelineModelStore.getState().rowIdsByThreadId[threadId]).toEqual([]);
   });
 
   it("removes multiple live rows with a single revision bump", async () => {
+    vi.useFakeTimers();
     const { primeLiveTimelineRow, removeLiveTimelineRows } = await import("./timelineModelStore");
     const firstActivityId = EventId.makeUnsafe("activity-first");
     const secondActivityId = EventId.makeUnsafe("activity-second");
@@ -772,24 +857,44 @@ describe("timelineModelStore", () => {
       { threadId, kind: "activity", id: String(secondActivityId) },
     ]);
 
+    expect(useTimelineModelStore.getState().revision).toBe(revisionBeforeRemoval);
+    await vi.advanceTimersByTimeAsync(16);
+
     expect(readTimelineRowsProjection(threadId).activities).toEqual([]);
     expect(useTimelineModelStore.getState().rowIdsByThreadId[threadId]).toEqual([]);
     expect(useTimelineModelStore.getState().revision).toBe(revisionBeforeRemoval + 1);
   });
 
   it("does not bump revisions for unchanged row height writes", async () => {
+    vi.useFakeTimers();
     const { writeTimelineModelRowHeight } = await import("./timelineModelStore");
 
     writeTimelineModelRowHeight("row-height-cache-key", 48);
+    await vi.advanceTimersByTimeAsync(16);
     const revisionAfterFirstWrite = useTimelineModelStore.getState().revision;
     const rowHeightRevisionAfterFirstWrite = useTimelineModelStore.getState().rowHeightRevision;
 
     writeTimelineModelRowHeight("row-height-cache-key", 48);
+    await vi.advanceTimersByTimeAsync(16);
 
     expect(useTimelineModelStore.getState().revision).toBe(revisionAfterFirstWrite);
     expect(useTimelineModelStore.getState().rowHeightRevision).toBe(
       rowHeightRevisionAfterFirstWrite,
     );
+  });
+
+  it("coalesces row height revision bumps per frame", async () => {
+    vi.useFakeTimers();
+    const { writeTimelineModelRowHeight } = await import("./timelineModelStore");
+
+    writeTimelineModelRowHeight("row-height-cache-key-one", 48);
+    writeTimelineModelRowHeight("row-height-cache-key-two", 72);
+    writeTimelineModelRowHeight("row-height-cache-key-three", 96);
+
+    expect(useTimelineModelStore.getState().rowHeightRevision).toBe(0);
+    await vi.advanceTimersByTimeAsync(16);
+
+    expect(useTimelineModelStore.getState().rowHeightRevision).toBe(1);
   });
 
   it("projects bounded placeholder windows for large unloaded timelines", () => {

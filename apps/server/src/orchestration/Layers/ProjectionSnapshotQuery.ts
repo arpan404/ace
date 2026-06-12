@@ -1044,6 +1044,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                 turns.turn_id DESC
             ) AS row_number
           FROM projection_turns AS turns
+          WHERE turns.turn_id IS NOT NULL
         )
         SELECT
           turns.thread_id AS "threadId",
@@ -1080,6 +1081,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             ) AS row_number
           FROM projection_turns AS turns
           WHERE turns.thread_id = ${threadId}
+            AND turns.turn_id IS NOT NULL
         )
         SELECT
           turns.thread_id AS "threadId",

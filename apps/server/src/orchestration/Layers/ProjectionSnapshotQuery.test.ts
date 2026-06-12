@@ -110,6 +110,147 @@ const projectionSnapshotLayer = it.layer(
 );
 
 projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
+  it.effect("ignores pending turn placeholders when selecting latest turns", () =>
+    Effect.gen(function* () {
+      const snapshotQuery = yield* ProjectionSnapshotQuery;
+      const sql = yield* SqlClient.SqlClient;
+      const threadId = ThreadId.makeUnsafe("thread-pending-latest-turn-placeholder");
+
+      yield* sql`DELETE FROM projection_state`;
+      yield* sql`DELETE FROM projection_projects`;
+      yield* sql`DELETE FROM projection_threads`;
+      yield* sql`DELETE FROM projection_thread_sessions`;
+      yield* sql`DELETE FROM provider_session_runtime`;
+      yield* sql`DELETE FROM projection_thread_messages`;
+      yield* sql`DELETE FROM projection_thread_activities`;
+      yield* sql`DELETE FROM projection_thread_timeline_entries`;
+      yield* sql`DELETE FROM projection_thread_proposed_plans`;
+      yield* sql`DELETE FROM projection_turns`;
+
+      yield* sql`
+        INSERT INTO projection_projects (
+          project_id,
+          title,
+          workspace_root,
+          default_model_selection_json,
+          scripts_json,
+          created_at,
+          updated_at,
+          deleted_at
+        )
+        VALUES (
+          'project-pending-latest-turn-placeholder',
+          'Pending Latest Turn Placeholder Project',
+          '/tmp/pending-latest-turn-placeholder',
+          '{"provider":"codex","model":"gpt-5-codex"}',
+          '[]',
+          '2026-04-04T00:00:00.000Z',
+          '2026-04-04T00:00:00.000Z',
+          NULL
+        )
+      `;
+
+      yield* sql`
+        INSERT INTO projection_threads (
+          thread_id,
+          project_id,
+          title,
+          model_selection_json,
+          runtime_mode,
+          interaction_mode,
+          branch,
+          worktree_path,
+          queued_composer_messages_json,
+          queued_steer_request_json,
+          latest_turn_id,
+          created_at,
+          updated_at,
+          archived_at,
+          deleted_at
+        )
+        VALUES (
+          ${threadId},
+          'project-pending-latest-turn-placeholder',
+          'Pending Latest Turn Placeholder',
+          '{"provider":"codex","model":"gpt-5-codex"}',
+          'full-access',
+          'default',
+          NULL,
+          NULL,
+          '[]',
+          NULL,
+          NULL,
+          '2026-04-04T00:00:00.000Z',
+          '2026-04-04T00:00:03.000Z',
+          NULL,
+          NULL
+        )
+      `;
+
+      yield* sql`
+        INSERT INTO projection_turns (
+          thread_id,
+          turn_id,
+          pending_message_id,
+          source_proposed_plan_thread_id,
+          source_proposed_plan_id,
+          assistant_message_id,
+          state,
+          requested_at,
+          started_at,
+          completed_at,
+          checkpoint_turn_count,
+          checkpoint_ref,
+          checkpoint_status,
+          checkpoint_files_json
+        )
+        VALUES
+          (
+            ${threadId},
+            'turn-concrete-before-placeholder',
+            NULL,
+            NULL,
+            NULL,
+            NULL,
+            'completed',
+            '2026-04-04T00:00:01.000Z',
+            '2026-04-04T00:00:01.000Z',
+            '2026-04-04T00:00:02.000Z',
+            NULL,
+            NULL,
+            NULL,
+            '[]'
+          ),
+          (
+            ${threadId},
+            NULL,
+            'message-pending-placeholder',
+            NULL,
+            NULL,
+            NULL,
+            'pending',
+            '2026-04-04T00:00:03.000Z',
+            NULL,
+            NULL,
+            NULL,
+            NULL,
+            NULL,
+            '[]'
+          )
+      `;
+
+      const snapshot = yield* snapshotQuery.getSnapshot();
+      const thread = snapshot.threads.find((entry) => entry.id === threadId);
+      assert.equal(thread?.latestTurn?.turnId, "turn-concrete-before-placeholder");
+
+      const loadedThread = yield* snapshotQuery.getThread(threadId);
+      assert.isTrue(Option.isSome(loadedThread));
+      if (Option.isSome(loadedThread)) {
+        assert.equal(loadedThread.value.latestTurn?.turnId, "turn-concrete-before-placeholder");
+      }
+    }),
+  );
+
   it.effect("loads metadata snapshots from projection tables and computes snapshot sequence", () =>
     Effect.gen(function* () {
       const snapshotQuery = yield* ProjectionSnapshotQuery;
@@ -117,6 +258,12 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
 
       yield* sql`DELETE FROM projection_projects`;
       yield* sql`DELETE FROM projection_state`;
+      yield* sql`DELETE FROM projection_threads`;
+      yield* sql`DELETE FROM projection_thread_sessions`;
+      yield* sql`DELETE FROM provider_session_runtime`;
+      yield* sql`DELETE FROM projection_thread_messages`;
+      yield* sql`DELETE FROM projection_thread_activities`;
+      yield* sql`DELETE FROM projection_thread_timeline_entries`;
       yield* sql`DELETE FROM projection_thread_proposed_plans`;
       yield* sql`DELETE FROM projection_turns`;
 

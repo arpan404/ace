@@ -3526,14 +3526,14 @@ const make = Effect.fn("make")(function* () {
           : activeTurnId === null || eventTurnId === undefined || sameId(activeTurnId, eventTurnId);
 
         if (shouldApplyRuntimeError) {
-          const isUnscopedActiveTurnError = activeTurnId !== null && eventTurnId === undefined;
+          const isActiveTurnRuntimeError = activeTurnId !== null;
           yield* orchestrationEngine.dispatch({
             type: "thread.session.set",
             commandId: providerCommandId(event, "runtime-error-session-set"),
             threadId: thread.id,
             session: {
               threadId: thread.id,
-              status: isUnscopedActiveTurnError ? "running" : "error",
+              status: isActiveTurnRuntimeError ? "running" : "error",
               providerName: event.provider,
               capabilities: yield* resolveSessionCapabilities(event.provider),
               configOptions: thread.session?.configOptions ?? [],

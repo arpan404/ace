@@ -109,6 +109,10 @@ interface RemoveLiveTimelineRowInput {
   readonly id: string;
 }
 
+interface RemoveLiveTimelineRowOptions {
+  readonly flush?: "frame" | "sync";
+}
+
 function mergeQueuedLiveTimelineRowPatch(
   pending: PrimeLiveTimelineRowInput,
   input: PrimeLiveTimelineRowInput,
@@ -164,17 +168,38 @@ const inFlightRowsSnapshotByThreadId = new Map<
 >();
 const projectionCacheByThreadId = new Map<string, TimelineRowsProjectionCacheEntry>();
 const liveTimelineRowPatchQueue = new Map<string, PrimeLiveTimelineRowInput>();
+const liveTimelineRowRemovalQueue = new Map<string, RemoveLiveTimelineRowInput>();
 let liveTimelineRowPatchFrame: number | null = null;
+let rowHeightRevisionFrame: number | null = null;
+
+function scheduleAnimationFrame(callback: FrameRequestCallback): number {
+  return typeof globalThis.requestAnimationFrame === "function"
+    ? globalThis.requestAnimationFrame(callback)
+    : (globalThis.setTimeout(() => callback(Date.now()), 16) as unknown as number);
+}
+
+function cancelScheduledAnimationFrame(handle: number): void {
+  if (typeof globalThis.cancelAnimationFrame === "function") {
+    globalThis.cancelAnimationFrame(handle);
+  }
+  globalThis.clearTimeout(handle);
+}
 
 function cancelLiveTimelineRowPatchFrame(): void {
   if (liveTimelineRowPatchFrame !== null) {
-    if (typeof globalThis.cancelAnimationFrame === "function") {
-      globalThis.cancelAnimationFrame(liveTimelineRowPatchFrame);
-    }
-    globalThis.clearTimeout(liveTimelineRowPatchFrame);
+    cancelScheduledAnimationFrame(liveTimelineRowPatchFrame);
     liveTimelineRowPatchFrame = null;
   }
   liveTimelineRowPatchQueue.clear();
+  liveTimelineRowRemovalQueue.clear();
+}
+
+function cancelRowHeightRevisionFrame(): void {
+  if (rowHeightRevisionFrame === null) {
+    return;
+  }
+  cancelScheduledAnimationFrame(rowHeightRevisionFrame);
+  rowHeightRevisionFrame = null;
 }
 
 function createTimelineRowsSnapshotTimeout(threadId: ThreadId): Promise<never> {
@@ -674,6 +699,7 @@ export const useTimelineModelStore = create<TimelineModelState>((set) => ({
     inFlightRowsSnapshotByThreadId.clear();
     projectionCacheByThreadId.clear();
     cancelLiveTimelineRowPatchFrame();
+    cancelRowHeightRevisionFrame();
     set(createInitialTimelineModelState());
   },
 }));
@@ -998,35 +1024,30 @@ export function primeLiveTimelineRow(
   const queueKey = `${input.threadId}:${input.entry.kind}:${String(input.entry.id)}`;
   if (options.flush === "sync") {
     liveTimelineRowPatchQueue.delete(queueKey);
+    liveTimelineRowRemovalQueue.delete(queueKey);
     applyLiveTimelineRowPatches([input]);
     return;
   }
+  liveTimelineRowRemovalQueue.delete(queueKey);
   const pending = liveTimelineRowPatchQueue.get(queueKey);
   liveTimelineRowPatchQueue.set(
     queueKey,
     pending ? mergeQueuedLiveTimelineRowPatch(pending, input) : input,
   );
-  if (liveTimelineRowPatchFrame !== null) {
-    return;
-  }
-  const scheduleFrame =
-    typeof globalThis.requestAnimationFrame === "function"
-      ? globalThis.requestAnimationFrame.bind(globalThis)
-      : (callback: FrameRequestCallback) =>
-          globalThis.setTimeout(() => callback(Date.now()), 16) as unknown as number;
-  liveTimelineRowPatchFrame = scheduleFrame(() => {
-    liveTimelineRowPatchFrame = null;
-    const patches = [...liveTimelineRowPatchQueue.values()];
-    liveTimelineRowPatchQueue.clear();
-    applyLiveTimelineRowPatches(patches);
-  });
+  scheduleLiveTimelineRowQueueFlush();
 }
 
-export function removeLiveTimelineRow(input: RemoveLiveTimelineRowInput): void {
-  removeLiveTimelineRows([input]);
+export function removeLiveTimelineRow(
+  input: RemoveLiveTimelineRowInput,
+  options: RemoveLiveTimelineRowOptions = {},
+): void {
+  removeLiveTimelineRows([input], options);
 }
 
-export function removeLiveTimelineRows(inputs: readonly RemoveLiveTimelineRowInput[]): void {
+export function removeLiveTimelineRows(
+  inputs: readonly RemoveLiveTimelineRowInput[],
+  options: RemoveLiveTimelineRowOptions = {},
+): void {
   if (inputs.length === 0) {
     return;
   }
@@ -1034,88 +1055,140 @@ export function removeLiveTimelineRows(inputs: readonly RemoveLiveTimelineRowInp
     const queueKey = `${input.threadId}:${input.kind}:${input.id}`;
     liveTimelineRowPatchQueue.delete(queueKey);
   }
+  if (options.flush === "sync") {
+    applyLiveTimelineRowRemovals(inputs);
+    return;
+  }
+  for (const input of inputs) {
+    liveTimelineRowRemovalQueue.set(`${input.threadId}:${input.kind}:${input.id}`, input);
+  }
+  scheduleLiveTimelineRowQueueFlush();
+}
+
+function scheduleLiveTimelineRowQueueFlush(): void {
+  if (liveTimelineRowPatchFrame !== null) {
+    return;
+  }
+  liveTimelineRowPatchFrame = scheduleAnimationFrame(() => {
+    liveTimelineRowPatchFrame = null;
+    const removals = [...liveTimelineRowRemovalQueue.values()];
+    const patches = [...liveTimelineRowPatchQueue.values()];
+    liveTimelineRowRemovalQueue.clear();
+    liveTimelineRowPatchQueue.clear();
+    applyLiveTimelineRowQueue({ removals, patches });
+  });
+}
+
+function applyLiveTimelineRowQueue(input: {
+  readonly patches: readonly PrimeLiveTimelineRowInput[];
+  readonly removals: readonly RemoveLiveTimelineRowInput[];
+}): void {
+  if (input.patches.length === 0 && input.removals.length === 0) {
+    return;
+  }
+  useTimelineModelStore.setState((state) =>
+    input.patches.reduce<TimelineModelState>(
+      applyLiveTimelineRowPatchToState,
+      applyLiveTimelineRowRemovalsToState(state, input.removals),
+    ),
+  );
+}
+
+function applyLiveTimelineRowRemovals(inputs: readonly RemoveLiveTimelineRowInput[]): void {
+  if (inputs.length === 0) {
+    return;
+  }
   useTimelineModelStore.setState((state) => {
-    let metadataByThreadId = state.metadataByThreadId;
-    let rowIdsByThreadId = state.rowIdsByThreadId;
-    let rowsById = state.rowsById;
-    let messagesById = state.messagesById;
-    let activitiesById = state.activitiesById;
-    let proposedPlansById = state.proposedPlansById;
-    let revisionByThreadId = state.revisionByThreadId;
-    let changed = false;
-    const changedThreadIds = new Set<ThreadId>();
+    return applyLiveTimelineRowRemovalsToState(state, inputs);
+  });
+}
 
-    for (const input of inputs) {
-      const rowId = rowIdForSource(input.kind, input.id);
-      const rowStoreKey = rowKey(input.threadId, rowId);
-      const previousRowIds = rowIdsByThreadId[input.threadId] ?? [];
-      if (!previousRowIds.includes(rowId) && rowsById[rowStoreKey] === undefined) {
-        continue;
-      }
+function applyLiveTimelineRowRemovalsToState(
+  state: TimelineModelState,
+  inputs: readonly RemoveLiveTimelineRowInput[],
+): TimelineModelState {
+  if (inputs.length === 0) {
+    return state;
+  }
 
-      if (!changed) {
-        metadataByThreadId = { ...state.metadataByThreadId };
-        rowIdsByThreadId = { ...state.rowIdsByThreadId };
-        rowsById = { ...state.rowsById };
-        messagesById = { ...state.messagesById };
-        activitiesById = { ...state.activitiesById };
-        proposedPlansById = { ...state.proposedPlansById };
-        revisionByThreadId = { ...state.revisionByThreadId };
-        changed = true;
-      }
+  let metadataByThreadId = state.metadataByThreadId;
+  let rowIdsByThreadId = state.rowIdsByThreadId;
+  let rowsById = state.rowsById;
+  let messagesById = state.messagesById;
+  let activitiesById = state.activitiesById;
+  let proposedPlansById = state.proposedPlansById;
+  let revisionByThreadId = state.revisionByThreadId;
+  let changed = false;
+  const changedThreadIds = new Set<ThreadId>();
 
-      const nextRowIds = previousRowIds.filter((existingRowId) => existingRowId !== rowId);
-      rowIdsByThreadId[input.threadId] = nextRowIds;
-      delete rowsById[rowStoreKey];
-      if (input.kind === "message") {
-        delete messagesById[input.id];
-      } else if (input.kind === "activity") {
-        delete activitiesById[input.id];
-      } else {
-        delete proposedPlansById[input.id];
-      }
-
-      const previousMetadata = metadataByThreadId[input.threadId];
-      if (previousMetadata) {
-        metadataByThreadId[input.threadId] = {
-          ...previousMetadata,
-          totalRows: nextRowIds.length,
-          tailStartRowIndex: Math.max(0, nextRowIds.length - DEFAULT_TIMELINE_TAIL_WINDOW_ROWS),
-          updatedAt: new Date().toISOString(),
-        };
-      }
-      changedThreadIds.add(input.threadId);
+  for (const input of inputs) {
+    const rowId = rowIdForSource(input.kind, input.id);
+    const rowStoreKey = rowKey(input.threadId, rowId);
+    const previousRowIds = rowIdsByThreadId[input.threadId] ?? [];
+    if (!previousRowIds.includes(rowId) && rowsById[rowStoreKey] === undefined) {
+      continue;
     }
 
     if (!changed) {
-      return state;
+      metadataByThreadId = { ...state.metadataByThreadId };
+      rowIdsByThreadId = { ...state.rowIdsByThreadId };
+      rowsById = { ...state.rowsById };
+      messagesById = { ...state.messagesById };
+      activitiesById = { ...state.activitiesById };
+      proposedPlansById = { ...state.proposedPlansById };
+      revisionByThreadId = { ...state.revisionByThreadId };
+      changed = true;
     }
 
-    for (const threadId of changedThreadIds) {
-      revisionByThreadId[threadId] = (revisionByThreadId[threadId] ?? 0) + 1;
+    const nextRowIds = previousRowIds.filter((existingRowId) => existingRowId !== rowId);
+    rowIdsByThreadId[input.threadId] = nextRowIds;
+    delete rowsById[rowStoreKey];
+    if (input.kind === "message") {
+      delete messagesById[input.id];
+    } else if (input.kind === "activity") {
+      delete activitiesById[input.id];
+    } else {
+      delete proposedPlansById[input.id];
     }
 
-    return {
-      ...state,
-      metadataByThreadId,
-      rowIdsByThreadId,
-      rowsById,
-      messagesById,
-      activitiesById,
-      proposedPlansById,
-      revisionByThreadId,
-      revision: state.revision + 1,
-    };
-  });
+    const previousMetadata = metadataByThreadId[input.threadId];
+    if (previousMetadata) {
+      metadataByThreadId[input.threadId] = {
+        ...previousMetadata,
+        totalRows: nextRowIds.length,
+        tailStartRowIndex: Math.max(0, nextRowIds.length - DEFAULT_TIMELINE_TAIL_WINDOW_ROWS),
+        updatedAt: new Date().toISOString(),
+      };
+    }
+    changedThreadIds.add(input.threadId);
+  }
+
+  if (!changed) {
+    return state;
+  }
+
+  for (const threadId of changedThreadIds) {
+    revisionByThreadId[threadId] = (revisionByThreadId[threadId] ?? 0) + 1;
+  }
+
+  return {
+    ...state,
+    metadataByThreadId,
+    rowIdsByThreadId,
+    rowsById,
+    messagesById,
+    activitiesById,
+    proposedPlansById,
+    revisionByThreadId,
+    revision: state.revision + 1,
+  };
 }
 
 function applyLiveTimelineRowPatches(patches: readonly PrimeLiveTimelineRowInput[]): void {
   if (patches.length === 0) {
     return;
   }
-  useTimelineModelStore.setState((state) =>
-    patches.reduce<TimelineModelState>(applyLiveTimelineRowPatchToState, state),
-  );
+  applyLiveTimelineRowQueue({ removals: [], patches });
 }
 
 function applyLiveTimelineRowPatchToState(
@@ -1250,9 +1323,19 @@ export function writeTimelineModelRowHeight(rowId: string, height: number): void
     return;
   }
   rowHeightCache.set(rowId, height, 24);
-  useTimelineModelStore.getState().noteRowHeightWrite();
+  scheduleRowHeightRevisionWrite();
 }
 
 export function readTimelineModelRowHeight(rowId: string): number | null {
   return rowHeightCache.get(rowId);
+}
+
+function scheduleRowHeightRevisionWrite(): void {
+  if (rowHeightRevisionFrame !== null) {
+    return;
+  }
+  rowHeightRevisionFrame = scheduleAnimationFrame(() => {
+    rowHeightRevisionFrame = null;
+    useTimelineModelStore.getState().noteRowHeightWrite();
+  });
 }

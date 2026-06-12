@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { Alert, AlertAction, AlertDescription } from "../ui/alert";
+import { Alert, AlertDescription } from "../ui/alert";
 import { CircleAlertIcon, RotateCcwIcon, WrenchIcon, XIcon } from "lucide-react";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { Button } from "../ui/button";
@@ -21,24 +21,34 @@ export const ThreadErrorBanner = memo(function ThreadErrorBanner({
 }: ThreadErrorBannerProps) {
   if (!error) return null;
   return (
-    <div className="pt-3 mx-auto max-w-3xl">
-      <Alert variant="error" className={cn(GLASS_BANNER_CLASS_NAME, GLASS_BANNER_ERROR_CLASS_NAME)}>
-        <CircleAlertIcon />
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <AlertDescription className="line-clamp-3 text-[12px] leading-relaxed">
-                {error}
-              </AlertDescription>
-            }
-          />
-          <TooltipPopup side="top" className="max-w-96 whitespace-pre-wrap">
-            {error}
-          </TooltipPopup>
-        </Tooltip>
-        {(onOpenDiagnostics || onRetryLastMessage || onDismiss) && (
-          <AlertAction>
-            <div className="flex items-center gap-1">
+    <div className="pointer-events-none fixed inset-x-0 top-20 z-50 px-4">
+      <div className="pointer-events-auto mx-auto max-w-xl">
+        <Alert
+          variant="error"
+          className={cn(
+            GLASS_BANNER_CLASS_NAME,
+            GLASS_BANNER_ERROR_CLASS_NAME,
+            "grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 px-4 py-2.5",
+          )}
+        >
+          <CircleAlertIcon className="col-start-1 row-start-1 size-4" />
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <AlertDescription className="col-start-2 row-start-1 min-w-0 text-left text-[12px] leading-relaxed">
+                  {error}
+                </AlertDescription>
+              }
+            />
+            <TooltipPopup side="top" className="max-w-96 whitespace-pre-wrap">
+              {error}
+            </TooltipPopup>
+          </Tooltip>
+          {(onOpenDiagnostics || onRetryLastMessage || onDismiss) && (
+            <div
+              className="col-start-3 row-start-1 flex shrink-0 items-center justify-end gap-1 self-start"
+              data-thread-error-banner-actions=""
+            >
               {onRetryLastMessage ? (
                 <Button type="button" size="xs" variant="outline" onClick={onRetryLastMessage}>
                   <RotateCcwIcon className="size-3" />
@@ -62,9 +72,9 @@ export const ThreadErrorBanner = memo(function ThreadErrorBanner({
                 </button>
               ) : null}
             </div>
-          </AlertAction>
-        )}
-      </Alert>
+          )}
+        </Alert>
+      </div>
     </div>
   );
 });
