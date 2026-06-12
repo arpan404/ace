@@ -240,6 +240,38 @@ describe("nativeTimelineRows", () => {
     });
   });
 
+  it("shows a live working timer row while the active turn is running", () => {
+    const activity: OrchestrationThreadActivity = {
+      id: activityId,
+      tone: "tool",
+      kind: "tool.started",
+      summary: "Used tool",
+      payload: { itemType: "tool", status: "inProgress" },
+      turnId,
+      sequence: 2,
+      createdAt: "2026-01-01T00:00:02.000Z",
+    };
+
+    const rows = buildNativeTimelineRows({
+      rows: [activityRow(activity, 1)],
+      messages: [],
+      activities: [activity],
+      proposedPlans: [],
+      activeTurnInProgress: true,
+      activeTurnStartedAt: "2026-01-01T00:00:01.000Z",
+      completionDividerBeforeEntryId: null,
+      completionSummary: null,
+      turnDiffSummaryByAssistantMessageId: new Map(),
+    });
+
+    expect(rows.at(-1)).toMatchObject({
+      kind: "working",
+      id: "working-indicator-row",
+      createdAt: "2026-01-01T00:00:01.000Z",
+      mode: "live",
+    });
+  });
+
   it("derives the completion divider row from latest-turn metadata", () => {
     const assistantMessage: OrchestrationMessage = {
       id: assistantMessageId,

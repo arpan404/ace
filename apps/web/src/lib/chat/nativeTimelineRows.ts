@@ -105,6 +105,9 @@ export function buildNativeTimelineRows(input: NativeTimelineRowsInput): Timelin
     messageById,
     activeTurnInProgress: input.activeTurnInProgress,
   });
+  const activeTurnStartedAtMs = input.activeTurnStartedAt
+    ? Date.parse(input.activeTurnStartedAt)
+    : Number.NaN;
   const rows: TimelineRow[] = [];
   let pendingWorkGroup: {
     rowId: string;
@@ -113,7 +116,7 @@ export function buildNativeTimelineRows(input: NativeTimelineRowsInput): Timelin
     turnId: string | null;
     entries: TimelineMetaGroupEntry[];
   } | null = null;
-  const orderedSourceRows = [...input.rows].sort((left, right) => {
+  const orderedSourceRows = input.rows.toSorted((left, right) => {
     if (left.turnId && right.turnId && left.turnId === right.turnId) {
       const leftPriority = nativeTimelinePresentationPriority(left, messageById);
       const rightPriority = nativeTimelinePresentationPriority(right, messageById);
@@ -251,6 +254,27 @@ export function buildNativeTimelineRows(input: NativeTimelineRowsInput): Timelin
     }
   }
   flushPendingWorkGroup();
+  if (input.activeTurnInProgress) {
+    const hasRenderableCurrentTurnOutput = rows.some((row) => {
+      if (!input.activeTurnStartedAt || Number.isNaN(activeTurnStartedAtMs)) {
+        return false;
+      }
+      if (!row.createdAt) {
+        return false;
+      }
+      const rowCreatedAtMs = Date.parse(row.createdAt);
+      return !Number.isNaN(rowCreatedAtMs) && rowCreatedAtMs >= activeTurnStartedAtMs;
+    });
+    rows.push({
+      kind: "working",
+      id: "working-indicator-row",
+      createdAt: input.activeTurnStartedAt,
+      mode: hasRenderableCurrentTurnOutput ? "live" : "silent-thinking",
+      activity: "default",
+      goalStartedAt: null,
+      intentText: null,
+    });
+  }
   return rows;
 }
 
