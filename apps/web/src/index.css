@@ -602,6 +602,16 @@ body {
   box-shadow: none;
 }
 
+.toast-surface {
+  background: var(--toast-surface-bg, var(--glass-surface));
+  border-color: var(--toast-surface-border, var(--glass-surface-border));
+  box-shadow:
+    inset 0 1px 0 var(--glass-highlight),
+    var(--glass-shadow);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+}
+
 .glass-banner {
   --glass-banner-accent: var(--border);
   --glass-banner-accent-strength: 8%;

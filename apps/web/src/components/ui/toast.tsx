@@ -36,18 +36,20 @@ type ToastId = ReturnType<typeof toastManager.add>;
 const threadToastVisibleTimeoutRemainingMs = new Map<ToastId, number>();
 
 const TOAST_SURFACE_CLASS_NAME = cn(
-  "overflow-hidden rounded-xl",
-  "border border-border/60 bg-[color-mix(in_oklch,var(--background)_94%,var(--foreground)_6%)] text-popover-foreground shadow-[0_18px_60px_rgb(0_0_0/.24),0_1px_0_rgb(255_255_255/.05)_inset] ring-1 ring-foreground/[0.035]",
-  "dark:border-border/55 dark:bg-[color-mix(in_oklch,var(--background)_88%,var(--foreground)_12%)]",
+  "toast-surface border text-popover-foreground",
+  "overflow-hidden rounded-[calc(var(--panel-radius)+4px)] border-border/48",
+  "shadow-[0_16px_44px_-28px_rgb(0_0_0/.42),0_1px_0_rgb(255_255_255/.14)_inset] ring-1 ring-foreground/[0.03]",
+  "supports-[backdrop-filter]:backdrop-blur-xl supports-[backdrop-filter]:backdrop-saturate-[1.12]",
+  "dark:border-border/44 dark:shadow-[0_18px_54px_-30px_rgb(0_0_0/.64),0_1px_0_rgb(255_255_255/.055)_inset]",
 );
 const TOAST_CONTENT_CLASS_NAME =
-  "pointer-events-auto relative flex max-h-[min(9.5rem,calc(100dvh-1.5rem))] flex-col gap-2.5 overflow-hidden px-4 py-3 text-xs";
+  "pointer-events-auto relative flex max-h-[min(7.5rem,calc(100dvh-1.5rem))] flex-col overflow-hidden px-3.5 py-2.5 text-xs";
 const TOAST_TITLE_CLASS_NAME =
-  "line-clamp-2 min-w-0 text-[13px] font-semibold leading-5 text-foreground/95 [overflow-wrap:anywhere]";
+  "line-clamp-1 min-w-0 text-[13px] font-semibold leading-5 text-foreground/92 [overflow-wrap:anywhere]";
 const TOAST_DESCRIPTION_CLASS_NAME =
-  "line-clamp-3 min-w-0 select-text text-xs leading-4 text-muted-foreground/72 [overflow-wrap:anywhere]";
+  "line-clamp-2 min-w-0 select-text text-xs leading-4 text-muted-foreground/78 [overflow-wrap:anywhere]";
 const TOAST_ACTION_CLASS_NAME =
-  "h-7 max-w-full shrink-0 self-start truncate rounded-md border-border/55 bg-background/70 px-2.5 text-xs font-medium leading-none text-foreground/88 shadow-none hover:bg-accent hover:text-accent-foreground";
+  "h-7 max-w-[10rem] shrink-0 self-start truncate rounded-md border-border/50 bg-background/55 px-2.5 text-xs font-medium leading-none text-foreground/88 shadow-none hover:bg-accent/80 hover:text-accent-foreground supports-[backdrop-filter]:bg-background/35";
 const TOAST_STATUS_ICONS = {
   error: CircleAlertIcon,
   loading: LoaderCircleIcon,
@@ -109,11 +111,11 @@ function toastSurfaceClassName(type: string | null | undefined): string {
   return cn(
     TOAST_SURFACE_CLASS_NAME,
     type === "warning" &&
-      "border-warning/70 bg-[color-mix(in_oklch,var(--background)_86%,var(--warning)_14%)] shadow-warning/8 dark:bg-[color-mix(in_oklch,var(--background)_80%,var(--warning)_20%)]",
+      "border-warning/45 shadow-warning/8 [--toast-surface-bg:color-mix(in_oklch,var(--popover)_88%,var(--warning)_12%)] dark:[--toast-surface-bg:color-mix(in_oklch,var(--popover)_76%,var(--warning)_24%)]",
     type === "error" &&
-      "border-destructive/55 bg-[color-mix(in_oklch,var(--background)_88%,var(--destructive)_12%)] shadow-destructive/8 dark:bg-[color-mix(in_oklch,var(--background)_82%,var(--destructive)_18%)]",
+      "border-destructive/42 shadow-destructive/8 [--toast-surface-bg:color-mix(in_oklch,var(--popover)_90%,var(--destructive)_10%)] dark:[--toast-surface-bg:color-mix(in_oklch,var(--popover)_78%,var(--destructive)_22%)]",
     type === "loading" &&
-      "border-info/45 bg-[color-mix(in_oklch,var(--background)_90%,var(--info)_10%)] shadow-info/8 dark:bg-[color-mix(in_oklch,var(--background)_84%,var(--info)_16%)]",
+      "border-info/38 shadow-info/8 [--toast-surface-bg:color-mix(in_oklch,var(--popover)_92%,var(--info)_8%)] dark:[--toast-surface-bg:color-mix(in_oklch,var(--popover)_82%,var(--info)_18%)]",
   );
 }
 
@@ -127,14 +129,17 @@ function ToastStatusIcon({
   return (
     <span
       className={cn(
-        "mt-px flex size-6 shrink-0 items-center justify-center rounded-lg border",
-        type === "error" && "border-destructive/25 bg-destructive/10 text-destructive",
-        type === "loading" && "border-info/25 bg-info/10 text-info",
-        type === "warning" && "border-warning/25 bg-warning/10 text-warning",
+        "mt-0.5 flex size-[22px] shrink-0 items-center justify-center rounded-lg border",
+        type === "error" && "border-destructive/22 bg-destructive/8 text-destructive",
+        type === "loading" && "border-info/22 bg-info/8 text-info",
+        type === "warning" && "border-warning/22 bg-warning/8 text-warning",
       )}
       aria-hidden="true"
     >
-      <Icon className={cn("size-3.5", type === "loading" && "animate-spin")} strokeWidth={2.4} />
+      <Icon
+        className={cn("size-[13px]", type === "loading" && "animate-spin")}
+        strokeWidth={2.35}
+      />
     </span>
   );
 }
@@ -153,11 +158,11 @@ function ToastMessageContent({
   statusType: keyof typeof TOAST_STATUS_ICONS | null;
 }) {
   return (
-    <>
-      <div className="flex min-w-0 items-start gap-3">
+    <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:gap-3">
+      <div className="flex min-w-0 flex-1 items-start gap-2.5">
         {statusIcon && statusType ? <ToastStatusIcon Icon={statusIcon} type={statusType} /> : null}
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <div className="flex min-w-0 items-start justify-between gap-3">
+          <div className="flex min-w-0 items-start justify-between gap-2">
             <Toast.Title className={TOAST_TITLE_CLASS_NAME} data-slot="toast-title" />
             {copyErrorText ? <CopyErrorButton text={copyErrorText} /> : null}
           </div>
@@ -168,8 +173,8 @@ function ToastMessageContent({
           {progressPercent !== null ? <ToastProgressBar percent={progressPercent} /> : null}
         </div>
       </div>
-      {action ? <div className="flex justify-end">{action}</div> : null}
-    </>
+      {action ? <div className="flex shrink-0 justify-end sm:pt-0.5">{action}</div> : null}
+    </div>
   );
 }
 
@@ -311,7 +316,7 @@ function Toasts({ position = "top-center" }: { position: ToastPosition }) {
     <Toast.Portal data-slot="toast-portal">
       <Toast.Viewport
         className={cn(
-          "fixed z-[70] mx-auto flex w-[calc(100%-var(--toast-inset)*2)] max-w-[32rem] [--toast-header-offset:0px] [--toast-inset:--spacing(2)] sm:[--toast-inset:--spacing(3)]",
+          "fixed z-[70] mx-auto flex w-[calc(100%-var(--toast-inset)*2)] max-w-[26rem] [--toast-header-offset:0px] [--toast-inset:--spacing(2)] sm:[--toast-inset:--spacing(2.5)]",
           // Vertical positioning
           "data-[position*=top]:top-[calc(var(--toast-inset)+var(--toast-header-offset))]",
           "data-[position*=bottom]:bottom-(--toast-inset)",
@@ -356,8 +361,8 @@ function Toasts({ position = "top-center" }: { position: ToastPosition }) {
                 "after:absolute after:left-0 after:h-[calc(var(--toast-gap)+1px)] after:w-full",
                 "data-[position*=top]:after:top-full",
                 "data-[position*=bottom]:after:bottom-full",
-                "before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-foreground/10",
-                "data-[type=error]:before:bg-destructive/45 data-[type=loading]:before:bg-info/45 data-[type=warning]:before:bg-warning/45",
+                "before:pointer-events-none before:absolute before:inset-x-4 before:top-0 before:h-px before:bg-foreground/8",
+                "data-[type=error]:before:bg-destructive/35 data-[type=loading]:before:bg-info/35 data-[type=warning]:before:bg-warning/35",
                 // Define some variables
                 // Base UI exposes a shared front-most height for the collapsed stack.
                 // If that shared measurement is briefly stale, long content can render
