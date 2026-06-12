@@ -3423,13 +3423,6 @@ function ProjectWorktreeSetupEditor({ project }: { readonly project: Project }) 
   const [validationError, setValidationError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    setCommand(setupScript?.command ?? "");
-    setEnvText(formatProjectScriptEnv(setupScript?.env));
-    setEnvFilePath(setupScript?.envFilePath ?? DEFAULT_PROJECT_SCRIPT_ENV_FILE_PATH);
-    setValidationError(null);
-  }, [setupScript?.command, setupScript?.env, setupScript?.envFilePath]);
-
   const saveSetup = useCallback(async () => {
     const api = readNativeApi();
     if (!api) {
@@ -3631,6 +3624,19 @@ function ProjectWorktreeSetupEditor({ project }: { readonly project: Project }) 
       ) : null}
     </div>
   );
+}
+
+function projectWorktreeSetupEditorKey(project: Project): string {
+  const setupScript = setupProjectScript(project.scripts);
+  if (!setupScript) {
+    return `${project.id}:empty`;
+  }
+  return JSON.stringify({
+    projectId: project.id,
+    command: setupScript.command,
+    env: setupScript.env ?? {},
+    envFilePath: setupScript.envFilePath ?? DEFAULT_PROJECT_SCRIPT_ENV_FILE_PATH,
+  });
 }
 
 function ProjectEnvironmentWorktrees({
@@ -3959,7 +3965,10 @@ function ProjectEnvironmentWorktrees({
         title="Worktree setup"
         description="Runs after a new worktree is created. Use it for install, bootstrap, or generated files."
       >
-        <ProjectWorktreeSetupEditor project={project} />
+        <ProjectWorktreeSetupEditor
+          key={projectWorktreeSetupEditorKey(project)}
+          project={project}
+        />
       </SettingsSection>
 
       <SettingsSection title="Credentials">
