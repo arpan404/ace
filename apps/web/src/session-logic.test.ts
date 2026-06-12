@@ -885,6 +885,32 @@ describe("deriveWorkLogEntries", () => {
     expect(entry?.detail).toContain("rate limit");
   });
 
+  it("extracts command and output from top-level provider activity payloads", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "top-level-command",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "tool.completed",
+        summary: "Ran command",
+        payload: {
+          itemType: "command_execution",
+          cmd: "bun typecheck",
+          output: {
+            text: "Typecheck passed",
+          },
+        },
+      }),
+    ];
+
+    const [entry] = deriveWorkLogEntries(activities, undefined);
+    expect(entry).toMatchObject({
+      id: "top-level-command",
+      command: "bun typecheck",
+      terminalOutput: "Typecheck passed",
+      requestKind: "command",
+    });
+  });
+
   it("keeps task start and completion lifecycle entries", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({
@@ -1710,6 +1736,38 @@ describe("deriveWorkLogEntries", () => {
       toolTitle: "Search",
       detail: "ProviderRuntimeEvent +1 more",
     });
+  });
+
+  it("uses OpenCode task descriptions as worklog titles", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "opencode-task",
+        kind: "tool.completed",
+        summary: "task",
+        payload: {
+          itemType: "dynamic_tool_call",
+          title: "task",
+          status: "completed",
+          detail: "task_id: ses_123\n\n<task_result>Done</task_result>",
+          data: {
+            toolName: "task",
+            state: {
+              input: {
+                description: "Explore backend structure",
+                prompt: "Explore the backend files and summarize them.",
+              },
+            },
+          },
+        },
+      }),
+    ];
+
+    const [entry] = deriveWorkLogEntries(activities, undefined);
+
+    expect(entry).toMatchObject({
+      toolTitle: "Explore backend structure",
+    });
+    expect(entry?.detail).toContain("<task_result>Done</task_result>");
   });
 
   it("collapses repeated lifecycle updates for the same tool call into one entry", () => {

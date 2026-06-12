@@ -528,6 +528,39 @@ function shouldStripCsiSequence(body: string, finalByte: string): boolean {
   if (finalByte === "b") {
     return true;
   }
+  if ((finalByte === "J" || finalByte === "K") && /^[0-9;?]*$/.test(body)) {
+    return true;
+  }
+  if ((finalByte === "H" || finalByte === "f") && /^[0-9;?]*$/.test(body)) {
+    return true;
+  }
+  if ((finalByte === "M" || finalByte === "m") && /^<[0-9;]+$/.test(body)) {
+    return true;
+  }
+  if (
+    (finalByte === "h" || finalByte === "l") &&
+    body
+      .replace(/^\?/, "")
+      .split(";")
+      .some((mode) =>
+        [
+          "47",
+          "1047",
+          "1048",
+          "1049",
+          "1000",
+          "1001",
+          "1002",
+          "1003",
+          "1004",
+          "1005",
+          "1006",
+          "1015",
+        ].includes(mode),
+      )
+  ) {
+    return true;
+  }
   if (finalByte === "n") {
     return true;
   }
@@ -657,7 +690,10 @@ function sanitizeTerminalHistoryChunk(
       if (escapeSequenceEndIndex === null) {
         return { visibleText, pendingControlSequence: input.slice(index) };
       }
-      append(input.slice(index, escapeSequenceEndIndex));
+      const sequence = input.slice(index, escapeSequenceEndIndex);
+      if (sequence !== "\u001bc") {
+        append(sequence);
+      }
       index = escapeSequenceEndIndex;
       continue;
     }
@@ -1741,10 +1777,11 @@ export const makeTerminalManagerWithOptions = Effect.fn("makeTerminalManagerWith
           }
 
           const liveSession = existing.value;
+          const sanitizedLiveHistory = sanitizeTerminalHistoryString(liveSession.history);
           const compactedLiveHistory =
             liveSession.title === null && liveSession.pendingInputCommandBuffer.length === 0
-              ? collapseRepeatedPromptOnlyHistory(liveSession.history)
-              : liveSession.history;
+              ? collapseRepeatedPromptOnlyHistory(sanitizedLiveHistory)
+              : sanitizedLiveHistory;
           const cappedLiveHistory = capHistory(compactedLiveHistory, historyLineLimit);
           if (cappedLiveHistory !== liveSession.history) {
             liveSession.history = cappedLiveHistory;

@@ -15,6 +15,13 @@ export const GLASS_TOOLTIP_CLASS_NAME =
 export const GLASS_PANEL_CLASS_NAME =
   "glass-surface glass-surface--tooltip glass-surface--panel border border-border/45 text-popover-foreground";
 
+export const GLASS_BANNER_CLASS_NAME =
+  "glass-banner overflow-hidden rounded-[var(--panel-radius)] border text-popover-foreground";
+
+export const GLASS_BANNER_ERROR_CLASS_NAME = "glass-banner--error border-destructive/55";
+
+export const GLASS_BANNER_WARNING_CLASS_NAME = "glass-banner--warning border-warning/55";
+
 export const GLASS_FOOTER_CLASS_NAME =
   "border-t border-border/30 bg-muted/20 supports-[backdrop-filter]:bg-muted/12";
 

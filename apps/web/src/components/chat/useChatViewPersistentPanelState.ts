@@ -251,7 +251,7 @@ export function useChatViewPersistentPanelState(threadId: ThreadId) {
   );
   const [environmentPanelOpen, setEnvironmentPanelOpen] = useLocalStorage(
     environmentPanelOpenStorageKey,
-    true,
+    false,
     Schema.Boolean,
   );
   const [browserMode, setBrowserMode] = useLocalStorage(

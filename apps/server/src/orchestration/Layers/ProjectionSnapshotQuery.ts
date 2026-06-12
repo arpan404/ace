@@ -201,24 +201,6 @@ const ProjectIdLookupInput = Schema.Struct({
 const ThreadIdLookupInput = Schema.Struct({
   threadId: ThreadId,
 });
-const ThreadTurnLookupInput = Schema.Struct({
-  threadId: ThreadId,
-  turnId: TurnId,
-});
-const ProjectionActiveTurnActivitySummaryRowSchema = Schema.Struct({
-  threadId: ThreadId,
-  turnId: TurnId,
-  firstTimelineIndex: NonNegativeInt,
-  endTimelineIndexExclusive: NonNegativeInt,
-  createdAt: IsoDateTime,
-  updatedAt: IsoDateTime,
-  toolCallCount: NonNegativeInt,
-  thinkingCount: NonNegativeInt,
-  errorCount: NonNegativeInt,
-});
-type ProjectionActiveTurnActivitySummaryRow = Schema.Schema.Type<
-  typeof ProjectionActiveTurnActivitySummaryRowSchema
->;
 const ProjectionProjectLookupRowSchema = ProjectionProjectDbRowSchema;
 const ProjectionThreadIdLookupRowSchema = Schema.Struct({
   threadId: ThreadId,
@@ -272,101 +254,27 @@ function toOrchestrationProposedPlanFromTimelineSourceRow(
   };
 }
 
-function pluralizeCount(count: number, singular: string, plural = `${singular}s`): string {
-  return `${String(count)} ${count === 1 ? singular : plural}`;
-}
-
-function buildActiveTurnSummaryActivities(
-  summary: ProjectionActiveTurnActivitySummaryRow,
-): OrchestrationThreadActivity[] {
-  const activities: OrchestrationThreadActivity[] = [];
-  if (summary.toolCallCount > 0) {
-    activities.push({
-      id: EventId.makeUnsafe(`ui:${summary.threadId}:${summary.turnId}:tool-summary`),
-      tone: "tool",
-      kind: "tool.completed",
-      summary: `Ran ${pluralizeCount(summary.toolCallCount, "tool call")}`,
-      payload: {
-        compacted: true,
-        uiSummary: true,
-        version: 1,
-        itemType: "tool",
-        status: "inProgress",
-        toolCallCount: summary.toolCallCount,
-      },
-      turnId: summary.turnId,
-      createdAt: summary.createdAt,
-    });
-  }
-  if (summary.thinkingCount > 0) {
-    activities.push({
-      id: EventId.makeUnsafe(`ui:${summary.threadId}:${summary.turnId}:thinking-summary`),
-      tone: "info",
-      kind: "task.progress",
-      summary:
-        summary.thinkingCount === 1 ? "Thinking" : `Thinking x${String(summary.thinkingCount)}`,
-      payload: {
-        compacted: true,
-        uiSummary: true,
-        version: 1,
-        itemType: "reasoning",
-        thinkingCount: summary.thinkingCount,
-      },
-      turnId: summary.turnId,
-      createdAt: summary.createdAt,
-    });
-  }
-  if (summary.errorCount > 0) {
-    activities.push({
-      id: EventId.makeUnsafe(`ui:${summary.threadId}:${summary.turnId}:error-summary`),
-      tone: "error",
-      kind: "runtime.error",
-      summary: pluralizeCount(summary.errorCount, "runtime issue"),
-      payload: {
-        compacted: true,
-        uiSummary: true,
-        version: 1,
-        errorCount: summary.errorCount,
-      },
-      turnId: summary.turnId,
-      createdAt: summary.createdAt,
-    });
-  }
-  return activities;
-}
-
-function buildActiveTurnSummaryRow(
-  summary: ProjectionActiveTurnActivitySummaryRow,
-  activities: ReadonlyArray<OrchestrationThreadActivity>,
-): OrchestrationTimelineRow | null {
-  if (activities.length === 0) {
+function toOrchestrationActivityFromTimelineSourceRow(
+  row: ProjectionThreadTimelineSourceRow,
+): OrchestrationThreadActivity | null {
+  if (
+    row.kind !== "activity" ||
+    row.activityTone === null ||
+    row.activityKind === null ||
+    row.activitySummary === null ||
+    row.activityPayload === null
+  ) {
     return null;
   }
   return {
-    id: `work-group:ui:${summary.threadId}:${summary.turnId}:active-summary`,
-    kind: "work-group",
-    createdAt: summary.createdAt,
-    updatedAt: summary.updatedAt,
-    contentVersion: [
-      "v1",
-      "active-summary",
-      summary.threadId,
-      summary.turnId,
-      summary.updatedAt,
-      summary.toolCallCount,
-      summary.thinkingCount,
-      summary.errorCount,
-    ].join(":"),
-    startSourceIndex: summary.firstTimelineIndex,
-    endSourceIndexExclusive: summary.endTimelineIndexExclusive,
-    turnId: summary.turnId,
-    sourceRefs: activities.map((activity, index) => ({
-      kind: "activity",
-      id: activity.id,
-      createdAt: activity.createdAt,
-      sourceIndex: summary.firstTimelineIndex + index,
-      turnId: summary.turnId,
-    })),
+    id: EventId.makeUnsafe(row.id),
+    tone: row.activityTone as OrchestrationThreadActivity["tone"],
+    kind: row.activityKind as OrchestrationThreadActivity["kind"],
+    summary: row.activitySummary,
+    payload: row.activityPayload,
+    turnId: row.turnId,
+    ...(row.sequence !== null ? { sequence: row.sequence } : {}),
+    createdAt: row.createdAt,
   };
 }
 
@@ -476,15 +384,15 @@ function normalizedTimelineRowsRevision(input: {
   readonly updatedAt: string;
   readonly totalRows: number;
 }): string {
-  return `timeline-rows:ui-v2:${input.threadId}:${input.updatedAt}:${String(input.totalRows)}`;
+  return `timeline-rows:ui-v4:${input.threadId}:${input.updatedAt}:${String(input.totalRows)}`;
 }
 
 function buildTimelineRowsSnapshotFromPresentationRows(input: {
   readonly threadId: ThreadId;
   readonly updatedAt: string;
   readonly messageRows: ReadonlyArray<ProjectionThreadTimelineSourceRow>;
+  readonly activityRows: ReadonlyArray<ProjectionThreadTimelineSourceRow>;
   readonly proposedPlanRows: ReadonlyArray<ProjectionThreadTimelineSourceRow>;
-  readonly activeActivitySummary: ProjectionActiveTurnActivitySummaryRow | null;
 }): OrchestrationGetThreadTimelineRowsSnapshotResult {
   const messages: OrchestrationMessage[] = [];
   const proposedPlans: OrchestrationProposedPlan[] = [];
@@ -502,6 +410,15 @@ function buildTimelineRowsSnapshotFromPresentationRows(input: {
     rows.push(toTimelineRenderRow(row));
   }
 
+  for (const row of input.activityRows) {
+    const activity = toOrchestrationActivityFromTimelineSourceRow(row);
+    if (!activity) {
+      continue;
+    }
+    activities.push(activity);
+    rows.push(toTimelineRenderRow(row));
+  }
+
   for (const row of input.proposedPlanRows) {
     const proposedPlan = toOrchestrationProposedPlanFromTimelineSourceRow(row);
     if (!proposedPlan) {
@@ -509,15 +426,6 @@ function buildTimelineRowsSnapshotFromPresentationRows(input: {
     }
     proposedPlans.push(proposedPlan);
     rows.push(toTimelineRenderRow(row));
-  }
-
-  if (input.activeActivitySummary !== null) {
-    const activeActivities = buildActiveTurnSummaryActivities(input.activeActivitySummary);
-    const activeRow = buildActiveTurnSummaryRow(input.activeActivitySummary, activeActivities);
-    if (activeRow !== null) {
-      activities.push(...activeActivities);
-      rows.push(activeRow);
-    }
   }
 
   rows.sort((left, right) => compareTimelinePresentationRows(left, right, messageById));
@@ -907,35 +815,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     Result: ProjectionThreadTimelineSourceRowSchema,
     execute: ({ threadId }) =>
       sql`
-        WITH latest_turn AS (
-          SELECT turns.turn_id, turns.state
-          FROM projection_threads AS thread
-          INNER JOIN projection_turns AS turns
-            ON turns.thread_id = thread.thread_id
-           AND turns.turn_id = thread.latest_turn_id
-          WHERE thread.thread_id = ${threadId}
-          LIMIT 1
-        ),
-        terminal_assistant_messages AS (
-          SELECT message_id
-          FROM (
-            SELECT
-              message_id,
-              ROW_NUMBER() OVER (
-                PARTITION BY COALESCE(turn_id, message_id)
-                ORDER BY
-                  updated_at DESC,
-                  created_at DESC,
-                  CASE WHEN sequence IS NULL THEN -1 ELSE sequence END DESC,
-                  message_id DESC
-              ) AS row_rank
-            FROM projection_thread_messages
-            WHERE thread_id = ${threadId}
-              AND role = 'assistant'
-              AND is_streaming = 0
-          )
-          WHERE row_rank = 1
-        )
         SELECT
           timeline.kind AS kind,
           timeline.source_id AS id,
@@ -964,21 +843,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
          AND message.message_id = timeline.source_id
         INNER JOIN projection_threads AS thread
           ON thread.thread_id = timeline.thread_id
-        LEFT JOIN latest_turn AS latest
-          ON 1 = 1
         WHERE timeline.thread_id = ${threadId}
           AND timeline.kind = 'message'
-          AND (
-            message.role IN ('user', 'system')
-            OR message.is_streaming = 1
-            OR message.turn_id IS NULL
-            OR (
-              latest.turn_id IS NOT NULL
-              AND latest.state = 'running'
-              AND message.turn_id = latest.turn_id
-            )
-            OR message.message_id IN (SELECT message_id FROM terminal_assistant_messages)
-          )
         ORDER BY timeline.timeline_index ASC
       `,
   });
@@ -1022,55 +888,42 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       `,
   });
 
-  const getActiveTurnActivitySummaryRow = SqlSchema.findOneOption({
-    Request: ThreadTurnLookupInput,
-    Result: ProjectionActiveTurnActivitySummaryRowSchema,
-    execute: ({ threadId, turnId }) =>
+  const listPresentationTimelineActivityRowsByThread = SqlSchema.findAll({
+    Request: ThreadIdLookupInput,
+    Result: ProjectionThreadTimelineSourceRowSchema,
+    execute: ({ threadId }) =>
       sql`
         SELECT
-          activity.thread_id AS "threadId",
-          activity.turn_id AS "turnId",
-          MIN(timeline.timeline_index) AS "firstTimelineIndex",
-          MAX(timeline.timeline_index) + 1 AS "endTimelineIndexExclusive",
-          MIN(activity.created_at) AS "createdAt",
-          MAX(activity.created_at) AS "updatedAt",
-          SUM(
-            CASE
-              WHEN activity.tone = 'tool' OR activity.kind LIKE 'tool.%' THEN 1
-              ELSE 0
-            END
-          ) AS "toolCallCount",
-          SUM(
-            CASE
-              WHEN activity.kind = 'task.progress' OR activity.kind = 'reasoning.completed' THEN 1
-              ELSE 0
-            END
-          ) AS "thinkingCount",
-          SUM(
-            CASE
-              WHEN activity.tone = 'error' OR activity.kind LIKE '%error%' THEN 1
-              ELSE 0
-            END
-          ) AS "errorCount"
-        FROM projection_thread_activities AS activity
-        INNER JOIN projection_thread_timeline_entries AS timeline
-          ON timeline.thread_id = activity.thread_id
-         AND timeline.kind = 'activity'
-         AND timeline.source_id = activity.activity_id
-        WHERE activity.thread_id = ${threadId}
-          AND activity.turn_id = ${turnId}
-          AND activity.kind NOT IN (
-            'config.warning',
-            'context-compaction',
-            'context-window',
-            'context-window.updated',
-            'checkpoint.captured',
-            'deprecation.notice',
-            'goal.cleared',
-            'goal.updated',
-            'runtime.warning'
-          )
-        GROUP BY activity.thread_id, activity.turn_id
+          timeline.kind AS kind,
+          timeline.source_id AS id,
+          timeline.turn_id AS "turnId",
+          timeline.sequence AS sequence,
+          timeline.created_at AS "createdAt",
+          timeline.timeline_index AS "timelineIndex",
+          0 AS "totalItems",
+          NULL AS "messageRole",
+          NULL AS "messageText",
+          NULL AS "messageAttachments",
+          NULL AS "messageIsStreaming",
+          NULL AS "messageUpdatedAt",
+          thread.updated_at AS "threadUpdatedAt",
+          activity.tone AS "activityTone",
+          activity.kind AS "activityKind",
+          activity.summary AS "activitySummary",
+          activity.payload_json AS "activityPayload",
+          NULL AS "planMarkdown",
+          NULL AS "planImplementedAt",
+          NULL AS "planImplementationThreadId",
+          NULL AS "planUpdatedAt"
+        FROM projection_thread_timeline_entries AS timeline
+        INNER JOIN projection_thread_activities AS activity
+          ON activity.thread_id = timeline.thread_id
+         AND activity.activity_id = timeline.source_id
+        INNER JOIN projection_threads AS thread
+          ON thread.thread_id = timeline.thread_id
+        WHERE timeline.thread_id = ${threadId}
+          AND timeline.kind = 'activity'
+        ORDER BY timeline.timeline_index ASC
       `,
   });
 
@@ -1181,6 +1034,18 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     Result: ProjectionLatestTurnDbRowSchema,
     execute: () =>
       sql`
+        WITH latest_turns AS (
+          SELECT
+            turns.*,
+            ROW_NUMBER() OVER (
+              PARTITION BY turns.thread_id
+              ORDER BY
+                COALESCE(turns.completed_at, turns.started_at, turns.requested_at) DESC,
+                turns.turn_id DESC
+            ) AS row_number
+          FROM projection_turns AS turns
+          WHERE turns.turn_id IS NOT NULL
+        )
         SELECT
           turns.thread_id AS "threadId",
           turns.turn_id AS "turnId",
@@ -1192,10 +1057,10 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           turns.source_proposed_plan_thread_id AS "sourceProposedPlanThreadId",
           turns.source_proposed_plan_id AS "sourceProposedPlanId"
         FROM projection_threads AS threads
-        INNER JOIN projection_turns AS turns
+        INNER JOIN latest_turns AS turns
           ON turns.thread_id = threads.thread_id
-         AND turns.turn_id = threads.latest_turn_id
-        WHERE threads.latest_turn_id IS NOT NULL
+         AND turns.row_number = 1
+        WHERE threads.deleted_at IS NULL
         ORDER BY turns.thread_id ASC
       `,
   });
@@ -1205,6 +1070,19 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     Result: ProjectionLatestTurnDbRowSchema,
     execute: ({ threadId }) =>
       sql`
+        WITH latest_turns AS (
+          SELECT
+            turns.*,
+            ROW_NUMBER() OVER (
+              PARTITION BY turns.thread_id
+              ORDER BY
+                COALESCE(turns.completed_at, turns.started_at, turns.requested_at) DESC,
+                turns.turn_id DESC
+            ) AS row_number
+          FROM projection_turns AS turns
+          WHERE turns.thread_id = ${threadId}
+            AND turns.turn_id IS NOT NULL
+        )
         SELECT
           turns.thread_id AS "threadId",
           turns.turn_id AS "turnId",
@@ -1216,11 +1094,11 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           turns.source_proposed_plan_thread_id AS "sourceProposedPlanThreadId",
           turns.source_proposed_plan_id AS "sourceProposedPlanId"
         FROM projection_threads AS threads
-        INNER JOIN projection_turns AS turns
+        INNER JOIN latest_turns AS turns
           ON turns.thread_id = threads.thread_id
-         AND turns.turn_id = threads.latest_turn_id
+         AND turns.row_number = 1
         WHERE threads.thread_id = ${threadId}
-          AND threads.latest_turn_id IS NOT NULL
+          AND threads.deleted_at IS NULL
         LIMIT 1
       `,
   });
@@ -1599,19 +1477,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           return Option.none<OrchestrationGetThreadTimelineRowsSnapshotResult>();
         }
         const metadataValue = metadata.value;
-        const latestTurnRow = yield* getLatestTurnRowByThread({ threadId: input.threadId }).pipe(
-          Effect.mapError(
-            toPersistenceSqlOrDecodeError(
-              "ProjectionSnapshotQuery.getThreadTimelineRowsSnapshot:getLatestTurn:query",
-              "ProjectionSnapshotQuery.getThreadTimelineRowsSnapshot:getLatestTurn:decodeRow",
-            ),
-          ),
-        );
-        const activeTurnId =
-          Option.isSome(latestTurnRow) && latestTurnRow.value.state === "running"
-            ? latestTurnRow.value.turnId
-            : null;
-
         const messageRows = yield* listPresentationTimelineMessageRowsByThread({
           threadId: input.threadId,
         }).pipe(
@@ -1632,26 +1497,22 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             ),
           ),
         );
-        const activeActivitySummary =
-          activeTurnId === null
-            ? Option.none<ProjectionActiveTurnActivitySummaryRow>()
-            : yield* getActiveTurnActivitySummaryRow({
-                threadId: input.threadId,
-                turnId: activeTurnId,
-              }).pipe(
-                Effect.mapError(
-                  toPersistenceSqlOrDecodeError(
-                    "ProjectionSnapshotQuery.getThreadTimelineRowsSnapshot:getActiveActivitySummary:query",
-                    "ProjectionSnapshotQuery.getThreadTimelineRowsSnapshot:getActiveActivitySummary:decodeRow",
-                  ),
-                ),
-              );
+        const activityRows = yield* listPresentationTimelineActivityRowsByThread({
+          threadId: input.threadId,
+        }).pipe(
+          Effect.mapError(
+            toPersistenceSqlOrDecodeError(
+              "ProjectionSnapshotQuery.getThreadTimelineRowsSnapshot:listPresentationActivities:query",
+              "ProjectionSnapshotQuery.getThreadTimelineRowsSnapshot:listPresentationActivities:decodeRows",
+            ),
+          ),
+        );
         const snapshot = buildTimelineRowsSnapshotFromPresentationRows({
           threadId: input.threadId,
           updatedAt: metadataValue.updatedAt,
           messageRows,
+          activityRows,
           proposedPlanRows,
-          activeActivitySummary: Option.getOrNull(activeActivitySummary),
         });
         return Option.some(snapshot);
       });

@@ -83,7 +83,7 @@ interface ChatMarkdownProps {
   streamingTextState?: ChatMessageStreamingTextState;
   onLayoutChange?: () => void;
   onOpenBrowserUrl?: ((url: string) => void) | null;
-  onOpenFilePath?: ((path: string) => void) | null;
+  onOpenFilePath?: ((path: string) => void | Promise<void>) | null;
   enableLocalFileLinks?: boolean;
 }
 
@@ -235,21 +235,34 @@ function isSingleLineMarkdownNode(node: unknown): boolean {
 
 function openLocalFilePath(input: {
   readonly targetPath: string;
-  readonly onOpenFilePath: ((path: string) => void) | null;
+  readonly onOpenFilePath: ((path: string) => void | Promise<void>) | null;
   readonly preferExternalEditor: boolean;
 }): void {
   if (!input.preferExternalEditor && input.onOpenFilePath) {
-    input.onOpenFilePath(input.targetPath);
+    void Promise.resolve(input.onOpenFilePath(input.targetPath)).catch((error) => {
+      console.warn("Failed to open local filesystem path.", error);
+    });
     return;
   }
   const api = readNativeApi();
-  if (api) {
-    void openInPreferredEditor(api, input.targetPath).catch((error) => {
-      console.warn("Failed to open file in external editor.", error);
-    });
-  } else {
+  if (!api) {
     console.warn("Native API not found. Unable to open file in editor.");
+    return;
   }
+  void (async () => {
+    try {
+      const pathInfo = await api.shell.pathInfo(input.targetPath);
+      if (pathInfo.kind === "directory") {
+        await api.shell.revealInFileManager(input.targetPath);
+        return;
+      }
+    } catch (error) {
+      console.warn("Failed to inspect local filesystem path before opening editor.", error);
+    }
+    await openInPreferredEditor(api, input.targetPath);
+  })().catch((error) => {
+    console.warn("Failed to open local filesystem path.", error);
+  });
 }
 
 function InlineCodeLocalFileLink(props: {
@@ -258,7 +271,7 @@ function InlineCodeLocalFileLink(props: {
   readonly codeProps: ComponentPropsWithoutRef<"code">;
   readonly cwd: string | undefined;
   readonly enabled: boolean;
-  readonly onOpenFilePath: ((path: string) => void) | null;
+  readonly onOpenFilePath: ((path: string) => void | Promise<void>) | null;
 }) {
   const targetPath = useMemo(
     () => (props.enabled ? resolveMarkdownFileLinkTarget(props.code, props.cwd) : null),
@@ -556,10 +569,6 @@ function StreamingMarkdownText({ text }: { text: string }) {
       {text}
     </div>
   );
-}
-
-function StreamingLiveCursor() {
-  return <span className="chat-markdown-live-cursor" aria-hidden="true" />;
 }
 
 function useSmoothStreamingText(text: string, isStreaming: boolean): string {
@@ -1130,7 +1139,6 @@ function ChatMarkdown({
       data-chat-markdown-live={isStreaming ? "true" : undefined}
     >
       {content}
-      {isStreaming ? <StreamingLiveCursor /> : null}
     </div>
   );
 }

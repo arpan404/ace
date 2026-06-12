@@ -40,7 +40,7 @@ describe("ChatMarkdown", () => {
 
     expect(markup).toContain('data-streaming-markdown="true"');
     expect(markup).toContain('data-chat-markdown-live="true"');
-    expect(markup).toContain("chat-markdown-live-cursor");
+    expect(markup).not.toContain("chat-markdown-live-cursor");
     expect(markup).toContain("<strong>bold</strong>");
     expect(markup).toContain("<li>item</li>");
   });
@@ -51,7 +51,6 @@ describe("ChatMarkdown", () => {
     expect(markup).toContain("<strong>bold</strong>");
     expect(markup).not.toContain('data-streaming-markdown="true"');
     expect(markup).not.toContain('data-chat-markdown-live="true"');
-    expect(markup).not.toContain("chat-markdown-live-cursor");
   });
 
   it("uses the plain text fast path when text has no markdown syntax", () => {

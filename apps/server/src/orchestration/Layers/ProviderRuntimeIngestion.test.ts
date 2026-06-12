@@ -3902,6 +3902,47 @@ describe("ProviderRuntimeIngestion", () => {
     expect(thread.session?.activeTurnId).toBe("turn-runtime-error-active");
   });
 
+  it("keeps the session running when a scoped runtime.error arrives during an active turn", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-runtime-error-scoped-active-turn-started"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-runtime-error-scoped-active"),
+      payload: {},
+    });
+
+    harness.emit({
+      type: "runtime.error",
+      eventId: asEventId("evt-runtime-error-scoped-active"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-runtime-error-scoped-active"),
+      payload: {
+        message: "OpenCode session error",
+      },
+    });
+
+    const thread = await waitForThread(
+      harness.engine,
+      (entry) =>
+        entry.session?.status === "running" &&
+        entry.session?.activeTurnId === "turn-runtime-error-scoped-active" &&
+        entry.session?.lastError === "OpenCode session error" &&
+        entry.activities.some(
+          (activity: ProviderRuntimeTestActivity) =>
+            activity.id === "evt-runtime-error-scoped-active" && activity.kind === "runtime.error",
+        ),
+    );
+    expect(thread.session?.status).toBe("running");
+    expect(thread.session?.activeTurnId).toBe("turn-runtime-error-scoped-active");
+  });
+
   it("records runtime.error activities from the typed payload message", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();

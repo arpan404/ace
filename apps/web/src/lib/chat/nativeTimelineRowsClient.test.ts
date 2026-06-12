@@ -71,6 +71,7 @@ describe("nativeTimelineRowsClient", () => {
       activeTurnStartedAt: "2026-01-01T00:00:01.000Z",
       completionDividerBeforeEntryId: null,
       completionSummary: null,
+      hideCompletedWorkMessages: false,
       turnDiffSummaryKey: "",
     });
     const secondKey = createNativeTimelineRowsCacheKey({
@@ -84,10 +85,12 @@ describe("nativeTimelineRowsClient", () => {
       activeTurnStartedAt: "2026-01-01T00:00:01.000Z",
       completionDividerBeforeEntryId: null,
       completionSummary: null,
+      hideCompletedWorkMessages: false,
       turnDiffSummaryKey: "",
     });
 
     expect(firstKey).not.toBeNull();
+    expect(firstKey?.startsWith("native-timeline-rows:v6\0")).toBe(true);
     expect(firstKey).toContain("live");
     expect(secondKey).not.toBe(firstKey);
   });
@@ -105,6 +108,7 @@ describe("nativeTimelineRowsClient", () => {
         activeTurnStartedAt: null,
         completionDividerBeforeEntryId: null,
         completionSummary: null,
+        hideCompletedWorkMessages: false,
         turnDiffSummaryKey: "",
       }),
     ).toBeNull();
@@ -121,6 +125,7 @@ describe("nativeTimelineRowsClient", () => {
       activeTurnStartedAt: "2026-01-01T00:00:01.000Z",
       completionDividerBeforeEntryId: null,
       completionSummary: null,
+      hideCompletedWorkMessages: false,
       turnDiffSummaryKey: "",
     };
 
@@ -137,6 +142,34 @@ describe("nativeTimelineRowsClient", () => {
     expect(secondKey).not.toBe(firstKey);
   });
 
+  it("changes the cache key when completed work visibility changes", () => {
+    const baseInput = {
+      threadId: "thread-live-only",
+      snapshotRevision: "snapshot:1",
+      snapshotTotalRows: 2,
+      threadRevision: 4,
+      rowCount: 2,
+      rowContentKey: "message:1:v1",
+      isActiveTurnRunning: false,
+      activeTurnStartedAt: null,
+      completionDividerBeforeEntryId: null,
+      completionSummary: null,
+      turnDiffSummaryKey: "",
+    };
+
+    const visibleKey = createNativeTimelineRowsCacheKey({
+      ...baseInput,
+      hideCompletedWorkMessages: false,
+    });
+    const hiddenKey = createNativeTimelineRowsCacheKey({
+      ...baseInput,
+      hideCompletedWorkMessages: true,
+    });
+
+    expect(visibleKey).not.toBeNull();
+    expect(hiddenKey).not.toBe(visibleKey);
+  });
+
   it("reuses cached render rows for an unchanged snapshot key", async () => {
     vi.stubGlobal("Worker", undefined);
     const message = createMessage();
@@ -149,6 +182,7 @@ describe("nativeTimelineRowsClient", () => {
       activeTurnStartedAt: null,
       completionDividerBeforeEntryId: null,
       completionSummary: null,
+      hideCompletedWorkMessages: false,
       turnDiffSummaryByAssistantMessageId: new Map(),
     };
 

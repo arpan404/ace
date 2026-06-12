@@ -1829,6 +1829,35 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
+  it.effect("routes websocket rpc shell.pathInfo", () =>
+    Effect.gen(function* () {
+      let checkedPath: string | null = null;
+      yield* buildAppUnderTest({
+        layers: {
+          open: {
+            pathInfo: (input) =>
+              Effect.sync(() => {
+                checkedPath = input.path;
+                return { kind: "directory" as const };
+              }),
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const pathInfo = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.shellPathInfo]({
+            path: "/tmp/project/apps/web",
+          }),
+        ),
+      );
+
+      assert.deepEqual(pathInfo, { kind: "directory" });
+      assert.equal(checkedPath, "/tmp/project/apps/web");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
   it.effect("routes websocket rpc server.pickFolder", () =>
     Effect.gen(function* () {
       let receivedInitialPath: string | undefined;

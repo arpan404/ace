@@ -590,7 +590,7 @@ function compactHiddenWorkGroupRow(input: {
     kind: "work-group",
     id: input.id,
     createdAt: input.createdAt,
-    entries: [],
+    entries: [...input.entries],
     summaryEndAt: resolveWorkGroupSummaryEndAt(input.entries, input.nextEventCreatedAt),
     summary: input.summary,
   };
@@ -1162,7 +1162,7 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
       timelineEntry.createdAt,
       activeTurnStartedAtMs,
     );
-    if (messageIsInActiveTurn) {
+    if (messageIsInActiveTurn && message.role !== "user") {
       hasRenderableCurrentTurnOutput = true;
     }
 

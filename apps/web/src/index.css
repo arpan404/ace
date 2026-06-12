@@ -102,17 +102,6 @@
       transform: scaleY(1);
     }
   }
-  @keyframes chat-stream-caret {
-    0%,
-    100% {
-      opacity: 0.32;
-      transform: scaleY(0.62);
-    }
-    50% {
-      opacity: 0.92;
-      transform: scaleY(1);
-    }
-  }
 }
 
 @layer base {
@@ -611,6 +600,42 @@ body {
   --glass-saturate: 1.16;
   background: var(--glass-surface-panel) !important;
   box-shadow: none;
+}
+
+.glass-banner {
+  --glass-banner-accent: var(--border);
+  --glass-banner-accent-strength: 8%;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in oklch, var(--popover) 90%, transparent),
+      color-mix(in oklch, var(--background) 92%, transparent)
+    ),
+    linear-gradient(
+      135deg,
+      color-mix(
+        in oklch,
+        var(--glass-banner-accent) var(--glass-banner-accent-strength),
+        transparent
+      ),
+      transparent 54%
+    ) !important;
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklch, var(--foreground) 10%, transparent),
+    inset 0 0 0 1px color-mix(in oklch, var(--background) 42%, transparent),
+    0 18px 54px -22px color-mix(in srgb, var(--background) 52%, black 48%);
+  -webkit-backdrop-filter: blur(22px) saturate(1.16);
+  backdrop-filter: blur(22px) saturate(1.16);
+}
+
+.glass-banner--error {
+  --glass-banner-accent: var(--destructive);
+  --glass-banner-accent-strength: 12%;
+}
+
+.glass-banner--warning {
+  --glass-banner-accent: var(--warning);
+  --glass-banner-accent-strength: 10%;
 }
 
 .dark .glass-surface--tooltip {
@@ -1293,28 +1318,6 @@ label:has(> select#reasoning-effort) select {
   margin-bottom: 0;
 }
 
-[data-chat-markdown-live="true"] {
-  position: relative;
-}
-
-.chat-markdown-live-cursor {
-  display: inline-block;
-  width: 0.42rem;
-  height: 0.95em;
-  margin-left: 0.25rem;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--foreground) 56%, transparent);
-  vertical-align: -0.13em;
-  animation: chat-stream-caret 920ms ease-in-out infinite;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .chat-markdown-live-cursor {
-    animation: none;
-    opacity: 0.55;
-  }
-}
-
 .chat-markdown p,
 .chat-markdown ul,
 .chat-markdown ol,
@@ -1379,21 +1382,24 @@ label:has(> select#reasoning-effort) select {
 
 .chat-markdown .chat-markdown-local-file-link {
   display: inline;
-  text-decoration: none;
-}
-
-.chat-markdown .chat-markdown-local-file-link code {
-  border-color: color-mix(in srgb, var(--info-foreground) 52%, var(--border));
   color: var(--info-foreground);
-  cursor: pointer;
   text-decoration: underline;
-  text-decoration-color: color-mix(in srgb, var(--info-foreground) 42%, transparent);
+  text-decoration-color: color-mix(in srgb, var(--info-foreground) 35%, transparent);
   text-underline-offset: 2px;
 }
 
+.chat-markdown .chat-markdown-local-file-link code {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  text-decoration: inherit;
+}
+
 .chat-markdown .chat-markdown-local-file-link:hover code {
-  border-color: color-mix(in srgb, var(--info-foreground) 70%, var(--border));
-  background: color-mix(in srgb, var(--info-foreground) 12%, var(--muted));
+  background: transparent;
 }
 
 .chat-markdown .chat-markdown-link-open-browser {

@@ -1115,6 +1115,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
       [WS_METHODS.shellOpenInEditor]: (input) => open.openInEditor(input),
       [WS_METHODS.shellRevealInFileManager]: (input) => open.revealInFileManager(input),
       [WS_METHODS.shellPathExists]: (input) => open.pathExists(input),
+      [WS_METHODS.shellPathInfo]: (input) => open.pathInfo(input),
       [WS_METHODS.filesystemBrowse]: (input) =>
         workspaceEntries.browse(input).pipe(
           Effect.mapError(
