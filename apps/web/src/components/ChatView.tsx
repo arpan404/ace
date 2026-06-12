@@ -945,19 +945,19 @@ const ACTIVE_NATIVE_TIMELINE_ROWS_REBUILD_DELAY_MS = 80;
 
 function patchRetainedNativeTimelineRows(input: {
   readonly rows: ReadonlyArray<TimelineRow>;
-  readonly messages: ReadonlyArray<OrchestrationMessage>;
+  readonly rowsInput: NativeTimelineRowsInput | null;
 }): ReadonlyArray<TimelineRow> {
-  if (input.rows.length === 0 || input.messages.length === 0) {
+  if (input.rows.length === 0 || !input.rowsInput) {
     return input.rows;
   }
 
   const messageById = new Map<string, OrchestrationMessage>();
-  for (const message of input.messages) {
+  for (const message of input.rowsInput.messages) {
     messageById.set(String(message.id), message);
   }
 
   let changed = false;
-  const rows = input.rows.map((row) => {
+  let rows = input.rows.map((row) => {
     if (row.kind !== "message") {
       return row;
     }
@@ -990,7 +990,41 @@ function patchRetainedNativeTimelineRows(input: {
     };
   });
 
-  return changed ? rows : input.rows;
+  if (!input.rowsInput.activeTurnInProgress) {
+    return changed ? rows : input.rows;
+  }
+
+  const activeTurnStartedAtMs = input.rowsInput.activeTurnStartedAt
+    ? Date.parse(input.rowsInput.activeTurnStartedAt)
+    : Number.NaN;
+  const activeSourceRows = input.rowsInput.rows.filter((row) => {
+    if (input.rowsInput?.activeTurnId && row.turnId !== undefined) {
+      return row.turnId === input.rowsInput.activeTurnId;
+    }
+    if (!input.rowsInput?.activeTurnStartedAt || Number.isNaN(activeTurnStartedAtMs)) {
+      return false;
+    }
+    const rowCreatedAtMs = Date.parse(row.createdAt);
+    return !Number.isNaN(rowCreatedAtMs) && rowCreatedAtMs >= activeTurnStartedAtMs;
+  });
+  if (activeSourceRows.length === 0) {
+    return changed ? rows : input.rows;
+  }
+
+  const activeSourceRowIds = new Set(activeSourceRows.map((row) => row.id));
+  rows = rows.filter(
+    (row) => row.id !== "working-indicator-row" && !activeSourceRowIds.has(row.id),
+  );
+  const activeRows = buildNativeTimelineRows({
+    ...input.rowsInput,
+    rows: activeSourceRows,
+    completionDividerBeforeEntryId: null,
+    completionEndedAt: null,
+    completionStartedAt: null,
+    completionSummary: null,
+    completionTurnId: null,
+  });
+  return [...rows, ...activeRows];
 }
 const RECENT_HYDRATED_THREAD_HISTORY_KEEP_COUNT = 8;
 
@@ -3529,11 +3563,12 @@ function useChatViewComponent({
   }
   const nativeTimelineRowsOverride =
     currentNativeTimelineRowsOverride ??
-    (nativeTimelineRowsLoading &&
-    retainedNativeTimelineRowsRef.current?.threadId === nativeTimelineRowsThreadId
+    (isThreadHistoryMetadataOnly &&
+    retainedNativeTimelineRowsRef.current?.threadId === nativeTimelineRowsThreadId &&
+    (nativeTimelineRowsLoading || nativeTimelineRowsInput !== null)
       ? patchRetainedNativeTimelineRows({
           rows: retainedNativeTimelineRowsRef.current.rows,
-          messages: nativeTimelineRowsInput?.messages ?? [],
+          rowsInput: nativeTimelineRowsInput,
         })
       : null);
   const timelineRenderState = useMemo(() => {

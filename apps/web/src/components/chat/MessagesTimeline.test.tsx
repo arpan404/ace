@@ -330,6 +330,36 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(result.rows).toBe(syncRows);
   });
 
+  it("can prefer retained rows over sync rows during native row rebuilds", async () => {
+    const { resolveVisibleTimelineRows } = await import("./useTimelineRowsController");
+    const retainedRows = [
+      {
+        id: "retained-native-row",
+        kind: "message",
+      },
+    ] as unknown as ReturnType<typeof resolveVisibleTimelineRows>["rows"];
+    const syncRows = [
+      {
+        id: "fallback-legacy-row",
+        kind: "message",
+      },
+    ] as unknown as ReturnType<typeof resolveVisibleTimelineRows>["rows"];
+
+    const result = resolveVisibleTimelineRows({
+      activeThreadId: "thread-1",
+      loading: true,
+      preferRetainedRows: true,
+      retainedRows: {
+        activeThreadId: "thread-1",
+        rows: retainedRows,
+      },
+      syncRows,
+    });
+
+    expect(result.loading).toBe(false);
+    expect(result.rows).toBe(retainedRows);
+  });
+
   it("does not show the async loading skeleton on cache misses or history restore", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const previousDocument = globalThis.document;
