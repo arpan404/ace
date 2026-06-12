@@ -4319,7 +4319,7 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     );
   });
 
-  it("hoists hidden trailing work summary above the terminal assistant footer", async () => {
+  it("renders hidden trailing work summary before terminal assistant content", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const turnId = TurnId.makeUnsafe("turn-footer-after-hidden-work");
     const markup = renderToStaticMarkup(

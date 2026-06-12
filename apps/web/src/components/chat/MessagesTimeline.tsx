@@ -1193,33 +1193,26 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       string,
       Extract<TimelineRow, { kind: "completed-work-summary" }>
     >();
-    for (let index = 1; index < rows.length; index += 1) {
+    for (let index = 0; index < rows.length - 1; index += 1) {
       const row = rows[index];
-      if (row?.kind !== "completed-work-summary") {
-        continue;
-      }
-      const previousRow = rows[index - 1];
+      const nextRow = rows[index + 1];
       if (
-        previousRow?.kind !== "message" ||
-        !isAssistantTimelineMessage(previousRow.message) ||
-        !(previousRow.isAssistantTurnTerminal ?? false)
+        row?.kind !== "message" ||
+        row.message.role !== "assistant" ||
+        !row.isAssistantTurnTerminal ||
+        nextRow?.kind !== "completed-work-summary" ||
+        nextRow.startedAt < row.createdAt
       ) {
         continue;
       }
-      summaryByAssistantRowId.set(previousRow.id, row);
+      summaryByAssistantRowId.set(row.id, nextRow);
     }
     return summaryByAssistantRowId;
   }, [rows]);
   const hoistedCompletedWorkSummaryRowIds = useMemo(
-    () =>
-      new Set(
-        [...trailingCompletedWorkSummaryByAssistantRowId.values()].map((summaryRow) => {
-          return summaryRow.id;
-        }),
-      ),
+    () => new Set([...trailingCompletedWorkSummaryByAssistantRowId.values()].map((row) => row.id)),
     [trailingCompletedWorkSummaryByAssistantRowId],
   );
-
   const activeTurnStartedAtMs =
     activeTurnInProgress && activeTurnStartedAt ? Date.parse(activeTurnStartedAt) : Number.NaN;
   const [allDirectoriesExpandedByTurnId, setAllDirectoriesExpandedByTurnId] = useState<
@@ -1780,10 +1773,10 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     shouldPrewarmAssistantMarkdown,
   ]);
   const buildRowContent = (row: TimelineRow, _rowIndex: number) => {
-    const detachedAssistantFooter = assistantFooterByPlacementRowId.get(row.id) ?? null;
     if (row.kind === "completed-work-summary" && hoistedCompletedWorkSummaryRowIds.has(row.id)) {
       return null;
     }
+    const detachedAssistantFooter = assistantFooterByPlacementRowId.get(row.id) ?? null;
     return (
       <div
         className="group/timeline relative pb-3 transition-colors data-[pinned-message-target=true]:rounded-xl data-[pinned-message-target=true]:bg-accent/20 data-[pinned-message-target=true]:ring-1 data-[pinned-message-target=true]:ring-primary/35"
@@ -1845,22 +1838,20 @@ export const MessagesTimeline = memo(function MessagesTimeline({
               (!isTimelineScrolling &&
                 mountedVirtualizedAssistantMarkdownMessageIdSet.has(assistantMessageId)) ||
               renderedAssistantMarkdownMessageIds.has(assistantMessageId);
+            const leadingCompletedWorkSummary =
+              trailingCompletedWorkSummaryByAssistantRowId.get(row.id) ?? null;
 
             return (
               <div className="min-w-0">
-                {(() => {
-                  const trailingCompletedWorkSummary =
-                    trailingCompletedWorkSummaryByAssistantRowId.get(row.id) ?? null;
-                  return trailingCompletedWorkSummary ? (
-                    <div className="mb-2">
-                      <CompletedWorkSummaryTimelineRow
-                        row={trailingCompletedWorkSummary}
-                        expandedWorkGroups={expandedWorkGroups}
-                        onToggleWorkGroup={onToggleWorkGroup}
-                      />
-                    </div>
-                  ) : null;
-                })()}
+                {leadingCompletedWorkSummary && (
+                  <div className="mb-2">
+                    <CompletedWorkSummaryTimelineRow
+                      row={leadingCompletedWorkSummary}
+                      expandedWorkGroups={expandedWorkGroups}
+                      onToggleWorkGroup={onToggleWorkGroup}
+                    />
+                  </div>
+                )}
                 <AssistantMessageTimelineRow
                   durationStart={row.durationStart}
                   isAssistantTurnTerminal={row.isAssistantTurnTerminal ?? false}

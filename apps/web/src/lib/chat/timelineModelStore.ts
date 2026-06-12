@@ -17,12 +17,14 @@ import { clampCacheEntryCount } from "../resourceProfile";
 const DEFAULT_TIMELINE_TAIL_WINDOW_ROWS = 100;
 const BACKGROUND_TIMELINE_ROWS_PREFETCH_DELAY_MS = 750;
 const TIMELINE_ROWS_SNAPSHOT_RPC_TIMEOUT_MS = 10_000;
+const TIMELINE_MODEL_CACHE_VERSION = "timeline-model:v3";
 const MAX_ROW_HEIGHT_CACHE_ENTRIES = clampCacheEntryCount(32_000, {
   moderateCapEntries: 16_000,
   constrainedCapEntries: 8_000,
 });
 
 export interface TimelineRowsMetadata {
+  readonly cacheVersion?: string;
   readonly threadId: ThreadId;
   readonly revision: string;
   readonly updatedAt: string;
@@ -37,6 +39,7 @@ export interface TimelineRowsFetchState {
 }
 
 export interface TimelineRowsCompleteSnapshot {
+  readonly cacheVersion?: string;
   readonly revision: string;
   readonly totalRows: number;
   readonly loadedAt: number;
@@ -524,6 +527,7 @@ function primeTimelineRowsSnapshotIntoState(
     metadataByThreadId: {
       ...state.metadataByThreadId,
       [snapshot.threadId]: {
+        cacheVersion: TIMELINE_MODEL_CACHE_VERSION,
         threadId: snapshot.threadId,
         revision: snapshot.revision,
         updatedAt: snapshot.updatedAt,
@@ -534,6 +538,7 @@ function primeTimelineRowsSnapshotIntoState(
     completeSnapshotByThreadId: {
       ...state.completeSnapshotByThreadId,
       [snapshot.threadId]: {
+        cacheVersion: TIMELINE_MODEL_CACHE_VERSION,
         revision: snapshot.revision,
         totalRows,
         loadedAt,
@@ -678,6 +683,7 @@ function timelineRowsMetadataFromReadModelThread(
 ): TimelineRowsMetadata {
   const totalRows = thread.messages.length + thread.activities.length + thread.proposedPlans.length;
   return {
+    cacheVersion: TIMELINE_MODEL_CACHE_VERSION,
     threadId: thread.id,
     revision: `${thread.id}:${thread.updatedAt}:${String(totalRows)}`,
     updatedAt: thread.updatedAt,
@@ -691,6 +697,7 @@ function timelineRowsMetadataEquals(
   right: TimelineRowsMetadata,
 ): boolean {
   return (
+    left?.cacheVersion === right.cacheVersion &&
     left?.threadId === right.threadId &&
     left.revision === right.revision &&
     left.updatedAt === right.updatedAt &&
@@ -753,6 +760,8 @@ export function isThreadTimelineRowsFullyHydrated(threadId: ThreadId): boolean {
   }
   const rowIds = state.rowIdsByThreadId[threadId] ?? [];
   return (
+    metadata.cacheVersion === TIMELINE_MODEL_CACHE_VERSION &&
+    completeSnapshot.cacheVersion === TIMELINE_MODEL_CACHE_VERSION &&
     completeSnapshot.revision === metadata.revision &&
     completeSnapshot.totalRows >= metadata.totalRows &&
     rowIds.length >= metadata.totalRows
@@ -1230,6 +1239,14 @@ export function readTimelineRow(
 
 export function writeTimelineModelRowHeight(rowId: string, height: number): void {
   if (!Number.isFinite(height) || height <= 0) {
+    return;
+  }
+  const previousHeight = rowHeightCache.get(rowId);
+  if (
+    previousHeight !== null &&
+    previousHeight !== undefined &&
+    Math.abs(previousHeight - height) < 1
+  ) {
     return;
   }
   rowHeightCache.set(rowId, height, 24);

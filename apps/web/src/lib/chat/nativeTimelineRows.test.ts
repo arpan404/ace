@@ -9,6 +9,7 @@ import {
 import { describe, expect, it } from "vitest";
 
 import {
+  deriveNativeCompletionAttachment,
   buildNativeTimelineRows,
   deriveNativeCompletionDividerBeforeRowId,
 } from "./nativeTimelineRows";
@@ -109,20 +110,122 @@ describe("nativeTimelineRows", () => {
       activeTurnInProgress: false,
       activeTurnStartedAt: null,
       completionDividerBeforeEntryId: `message:${assistantMessageId}`,
+      completionStartedAt: "2026-01-01T00:00:00.000Z",
+      completionEndedAt: "2026-01-01T00:00:04.000Z",
+      completionTurnId: String(turnId),
       completionSummary: "Worked for 4s",
       turnDiffSummaryByAssistantMessageId: new Map(),
     });
 
-    expect(rows.map((row) => row.kind)).toEqual(["message", "message", "work-group"]);
+    expect(rows.map((row) => row.kind)).toEqual(["message", "completed-work-summary", "message"]);
     expect(rows[1]).toMatchObject({
+      kind: "completed-work-summary",
+      detailRows: [{ kind: "work", id: activityId }],
+      toolCallCount: 1,
+    });
+    expect(rows[2]).toMatchObject({
       kind: "message",
       completionSummary: "Worked for 4s",
       isAssistantTurnTerminal: true,
       showAssistantTiming: true,
     });
+  });
+
+  it("synthesizes completed work timing when native rows have no visible work activities", () => {
+    const userMessage: OrchestrationMessage = {
+      id: userMessageId,
+      role: "user",
+      text: "Inspect the backend",
+      turnId,
+      streaming: false,
+      sequence: 1,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+    const assistantMessage: OrchestrationMessage = {
+      id: assistantMessageId,
+      role: "assistant",
+      text: "Backend analysis complete",
+      turnId,
+      streaming: false,
+      sequence: 2,
+      createdAt: "2026-01-01T00:00:04.000Z",
+      updatedAt: "2026-01-01T00:00:10.000Z",
+    };
+
+    const rows = buildNativeTimelineRows({
+      rows: [messageRow(userMessage, 0), messageRow(assistantMessage, 1)],
+      messages: [userMessage, assistantMessage],
+      activities: [],
+      proposedPlans: [],
+      activeTurnInProgress: false,
+      activeTurnStartedAt: null,
+      completionDividerBeforeEntryId: `message:${assistantMessageId}`,
+      completionStartedAt: "2026-01-01T00:00:00.000Z",
+      completionEndedAt: "2026-01-01T00:00:10.000Z",
+      completionTurnId: String(turnId),
+      completionSummary: "Worked for 10s",
+      turnDiffSummaryByAssistantMessageId: new Map(),
+    });
+
+    expect(rows.map((row) => row.kind)).toEqual(["message", "completed-work-summary", "message"]);
+    expect(rows[1]).toMatchObject({
+      kind: "completed-work-summary",
+      startedAt: "2026-01-01T00:00:00.000Z",
+      endedAt: "2026-01-01T00:00:10.000Z",
+      detailRows: [],
+      toolCallCount: 0,
+      hiddenThinkingCount: 0,
+      hiddenMessageCount: 0,
+    });
+  });
+
+  it("renders completed work timing even when the assistant footer summary is unavailable", () => {
+    const userMessage: OrchestrationMessage = {
+      id: userMessageId,
+      role: "user",
+      text: "Inspect the backend",
+      turnId,
+      streaming: false,
+      sequence: 1,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+    const assistantMessage: OrchestrationMessage = {
+      id: assistantMessageId,
+      role: "assistant",
+      text: "Backend analysis complete",
+      turnId,
+      streaming: false,
+      sequence: 2,
+      createdAt: "2026-01-01T00:00:04.000Z",
+      updatedAt: "2026-01-01T00:00:10.000Z",
+    };
+
+    const rows = buildNativeTimelineRows({
+      rows: [messageRow(userMessage, 0), messageRow(assistantMessage, 1)],
+      messages: [userMessage, assistantMessage],
+      activities: [],
+      proposedPlans: [],
+      activeTurnInProgress: false,
+      activeTurnStartedAt: null,
+      completionDividerBeforeEntryId: `message:${assistantMessageId}`,
+      completionStartedAt: "2026-01-01T00:00:00.000Z",
+      completionEndedAt: "2026-01-01T00:00:10.000Z",
+      completionTurnId: String(turnId),
+      completionSummary: null,
+      turnDiffSummaryByAssistantMessageId: new Map(),
+    });
+
+    expect(rows.map((row) => row.kind)).toEqual(["message", "completed-work-summary", "message"]);
+    expect(rows[1]).toMatchObject({
+      kind: "completed-work-summary",
+      startedAt: "2026-01-01T00:00:00.000Z",
+      endedAt: "2026-01-01T00:00:10.000Z",
+    });
     expect(rows[2]).toMatchObject({
-      kind: "work-group",
-      entries: [{ id: activityId }],
+      kind: "message",
+      completionSummary: null,
     });
   });
 
@@ -264,6 +367,10 @@ describe("nativeTimelineRows", () => {
       turnDiffSummaryByAssistantMessageId: new Map(),
     });
 
+    expect(rows[0]).toMatchObject({
+      kind: "work",
+      workEntry: { id: activityId, status: "inProgress" },
+    });
     expect(rows.at(-1)).toMatchObject({
       kind: "working",
       id: "working-indicator-row",
@@ -348,5 +455,41 @@ describe("nativeTimelineRows", () => {
         messages: [assistantMessage],
       }),
     ).toBe(`message:${assistantMessageId}`);
+  });
+
+  it("derives a completion attachment from the terminal assistant message when turn metadata is incomplete", () => {
+    const userMessage: OrchestrationMessage = {
+      id: userMessageId,
+      role: "user",
+      text: "Inspect the backend",
+      turnId,
+      streaming: false,
+      sequence: 1,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+    const assistantMessage: OrchestrationMessage = {
+      id: assistantMessageId,
+      role: "assistant",
+      text: "Backend analysis complete",
+      turnId: null,
+      streaming: false,
+      sequence: 2,
+      createdAt: "2026-01-01T00:00:04.000Z",
+      updatedAt: "2026-01-01T00:00:10.000Z",
+    };
+
+    expect(
+      deriveNativeCompletionAttachment({
+        latestTurn: null,
+        rows: [messageRow(userMessage, 0), messageRow(assistantMessage, 1)],
+        messages: [userMessage, assistantMessage],
+      }),
+    ).toEqual({
+      dividerBeforeEntryId: `message:${assistantMessageId}`,
+      startedAt: "2026-01-01T00:00:00.000Z",
+      endedAt: "2026-01-01T00:00:10.000Z",
+      turnId: null,
+    });
   });
 });

@@ -11,6 +11,7 @@ import { createChatMessageStreamingTextState } from "./messageText";
 import { computeMessageDurationStart } from "./messagesTimeline";
 import {
   buildTimelineWorkGroupSummaryProjection,
+  type TimelineCompletedWorkSummaryRow,
   type TimelineMetaGroupEntry,
   type TimelineRow,
 } from "./timelineRows";
@@ -25,8 +26,18 @@ export interface NativeTimelineRowsInput {
   readonly activeTurnInProgress: boolean;
   readonly activeTurnStartedAt: string | null;
   readonly completionDividerBeforeEntryId: string | null;
+  readonly completionEndedAt?: string | null;
   readonly completionSummary: string | null;
+  readonly completionTurnId?: string | null;
+  readonly completionStartedAt?: string | null;
   readonly turnDiffSummaryByAssistantMessageId: ReadonlyMap<MessageId, TurnDiffSummary>;
+}
+
+export interface NativeCompletionAttachment {
+  readonly dividerBeforeEntryId: string;
+  readonly startedAt: string;
+  readonly endedAt: string;
+  readonly turnId: string | null;
 }
 
 export function toPagedChatMessage(message: OrchestrationMessage): ChatMessage {
@@ -105,6 +116,15 @@ export function buildNativeTimelineRows(input: NativeTimelineRowsInput): Timelin
     messageById,
     activeTurnInProgress: input.activeTurnInProgress,
   });
+  const orderedSourceRows = input.rows.toSorted(compareNativeTimelineRowsBySourceOrder);
+  const completionWorkSummary = buildNativeCompletionWorkSummary({
+    completionEndedAt: input.completionEndedAt ?? null,
+    completionStartedAt: input.completionStartedAt ?? null,
+    completionTurnId: input.completionTurnId ?? null,
+    rows: input.rows,
+    workEntryByActivityId,
+  });
+  const completionWorkSourceRowIds = new Set(completionWorkSummary?.sourceRowIds ?? []);
   const activeTurnStartedAtMs = input.activeTurnStartedAt
     ? Date.parse(input.activeTurnStartedAt)
     : Number.NaN;
@@ -116,7 +136,6 @@ export function buildNativeTimelineRows(input: NativeTimelineRowsInput): Timelin
     turnId: string | null;
     entries: TimelineMetaGroupEntry[];
   } | null = null;
-  const orderedSourceRows = input.rows.toSorted(compareNativeTimelineRowsBySourceOrder);
 
   const flushPendingWorkGroup = () => {
     if (!pendingWorkGroup) {
@@ -129,7 +148,7 @@ export function buildNativeTimelineRows(input: NativeTimelineRowsInput): Timelin
       if (entry?.kind === "work") {
         const shouldCollapseSingle =
           entry.workEntry.tone === "thinking" || entry.workEntry.tone === "tool";
-        if (!shouldCollapseSingle) {
+        if (!shouldCollapseSingle || input.activeTurnInProgress) {
           rows.push({
             kind: "work",
             id: rowId,
@@ -162,16 +181,18 @@ export function buildNativeTimelineRows(input: NativeTimelineRowsInput): Timelin
         continue;
       }
       const turnSummary = input.turnDiffSummaryByAssistantMessageId.get(message.id) ?? null;
+      const completionSummaryBelongsToMessage =
+        message.role === "assistant" && input.completionDividerBeforeEntryId === row.id;
+      if (completionSummaryBelongsToMessage && completionWorkSummary) {
+        rows.push(completionWorkSummary.row);
+      }
       rows.push({
         kind: "message",
         id: row.id,
         createdAt: row.createdAt,
         message,
         durationStart: messageDurationStartById.get(message.id) ?? message.createdAt,
-        completionSummary:
-          message.role === "assistant" && input.completionDividerBeforeEntryId === row.id
-            ? input.completionSummary
-            : null,
+        completionSummary: completionSummaryBelongsToMessage ? input.completionSummary : null,
         isAssistantTurnTerminal:
           message.role === "assistant" && terminalAssistantMessageIds.has(String(message.id)),
         showAssistantTiming:
@@ -197,6 +218,11 @@ export function buildNativeTimelineRows(input: NativeTimelineRowsInput): Timelin
         createdAt: row.createdAt,
         proposedPlan,
       });
+      continue;
+    }
+
+    if (completionWorkSourceRowIds.has(row.id)) {
+      flushPendingWorkGroup();
       continue;
     }
 
@@ -266,6 +292,116 @@ export function buildNativeTimelineRows(input: NativeTimelineRowsInput): Timelin
     });
   }
   return rows;
+}
+
+function buildNativeCompletionWorkSummary(input: {
+  readonly completionEndedAt: string | null;
+  readonly completionStartedAt: string | null;
+  readonly completionTurnId: string | null;
+  readonly rows: readonly OrchestrationTimelineRow[];
+  readonly workEntryByActivityId: ReadonlyMap<
+    string,
+    ReturnType<typeof deriveWorkLogEntries>[number]
+  >;
+}): {
+  readonly row: TimelineCompletedWorkSummaryRow;
+  readonly sourceRowIds: readonly string[];
+} | null {
+  if (!input.completionStartedAt || !input.completionEndedAt) {
+    return null;
+  }
+
+  const sourceRowIds: string[] = [];
+  const sourceEntryIds: string[] = [];
+  const detailRows: TimelineCompletedWorkSummaryRow["detailRows"] = [];
+  const visibleDiagnosticRows: TimelineCompletedWorkSummaryRow["visibleDiagnosticRows"] = [];
+  const summaryEntries: TimelineMetaGroupEntry[] = [];
+  for (const row of input.rows.toSorted(compareNativeTimelineRowsBySourceOrder)) {
+    if (row.kind !== "work") {
+      continue;
+    }
+    if (
+      input.completionTurnId &&
+      row.turnId !== undefined &&
+      row.turnId !== input.completionTurnId
+    ) {
+      continue;
+    }
+    const entries: TimelineMetaGroupEntry[] = [];
+    for (const sourceRef of row.sourceRefs) {
+      if (sourceRef.kind !== "activity") {
+        continue;
+      }
+      const workEntry = input.workEntryByActivityId.get(String(sourceRef.id));
+      if (!workEntry) {
+        continue;
+      }
+      const entry: TimelineMetaGroupEntry = {
+        kind: "work",
+        id: workEntry.id,
+        createdAt: workEntry.createdAt,
+        workEntry,
+      };
+      entries.push(entry);
+      summaryEntries.push(entry);
+      sourceEntryIds.push(workEntry.id);
+      if (workEntry.tone === "error") {
+        visibleDiagnosticRows.push({
+          kind: "work",
+          id: workEntry.id,
+          createdAt: workEntry.createdAt,
+          workEntry,
+        });
+      }
+    }
+    if (entries.length === 0) {
+      continue;
+    }
+    sourceRowIds.push(row.id);
+    if (entries.length === 1) {
+      const [entry] = entries;
+      if (entry?.kind === "work") {
+        detailRows.push({
+          kind: "work",
+          id: entry.id,
+          createdAt: entry.createdAt,
+          workEntry: entry.workEntry,
+        });
+      }
+      continue;
+    }
+    detailRows.push({
+      kind: "work-group",
+      id: `completed-work-detail:${row.id}`,
+      createdAt: row.createdAt,
+      entries,
+      summaryEndAt: row.updatedAt,
+      summary: buildTimelineWorkGroupSummaryProjection(entries),
+    });
+  }
+
+  const summary = buildTimelineWorkGroupSummaryProjection(summaryEntries);
+  const visibleDiagnosticCacheKey =
+    visibleDiagnosticRows.length === 0
+      ? "empty"
+      : visibleDiagnosticRows.map((row) => row.id).join(",");
+  return {
+    row: {
+      kind: "completed-work-summary",
+      id: `completed-work-summary:${input.completionTurnId ?? input.completionEndedAt}`,
+      createdAt: input.completionStartedAt,
+      startedAt: input.completionStartedAt,
+      endedAt: input.completionEndedAt,
+      sourceEntryIds,
+      detailRows,
+      visibleDiagnosticRows,
+      visibleDiagnosticCacheKey,
+      hiddenMessageCount: 0,
+      hiddenThinkingCount: summary.thinkingCount,
+      toolCallCount: summary.toolCount,
+    },
+    sourceRowIds,
+  };
 }
 
 function compareNativeTimelineRowsBySourceOrder(
@@ -384,6 +520,88 @@ export function deriveNativeCompletionDividerBeforeRowId(input: {
     }
   }
   return inRangeMatch ?? fallbackMatch;
+}
+
+export function deriveNativeCompletionAttachment(input: {
+  readonly latestTurn: Pick<
+    OrchestrationLatestTurn,
+    "turnId" | "assistantMessageId" | "startedAt" | "completedAt"
+  > | null;
+  readonly rows: readonly OrchestrationTimelineRow[];
+  readonly messages: readonly OrchestrationMessage[];
+}): NativeCompletionAttachment | null {
+  const latestTurn = input.latestTurn;
+  const dividerFromTurn = deriveNativeCompletionDividerBeforeRowId(input);
+  if (dividerFromTurn && latestTurn?.startedAt && latestTurn.completedAt) {
+    return {
+      dividerBeforeEntryId: dividerFromTurn,
+      startedAt: latestTurn.startedAt,
+      endedAt: latestTurn.completedAt,
+      turnId: String(latestTurn.turnId),
+    };
+  }
+
+  const messageById = new Map<string, OrchestrationMessage>();
+  for (const message of input.messages) {
+    messageById.set(String(message.id), message);
+  }
+
+  let terminalAssistant: {
+    readonly row: OrchestrationTimelineRow;
+    readonly message: OrchestrationMessage;
+  } | null = null;
+  let previousUserMessage: OrchestrationMessage | null = null;
+  let lastUserBeforeTerminalAssistant: OrchestrationMessage | null = null;
+  const orderedRows = input.rows.toSorted(compareNativeTimelineRowsBySourceOrder);
+  for (const row of orderedRows) {
+    if (row.kind !== "message") {
+      continue;
+    }
+    const sourceRef = row.sourceRefs.find((source) => source.kind === "message");
+    const message = sourceRef ? messageById.get(String(sourceRef.id)) : undefined;
+    if (!message) {
+      continue;
+    }
+    if (message.role === "user") {
+      previousUserMessage = message;
+      continue;
+    }
+    if (message.role !== "assistant" || message.streaming) {
+      continue;
+    }
+    terminalAssistant = { row, message };
+    lastUserBeforeTerminalAssistant = previousUserMessage;
+  }
+
+  if (!terminalAssistant) {
+    return null;
+  }
+
+  const endedAt = terminalAssistant.message.updatedAt;
+  let startedAt =
+    latestTurn?.startedAt ??
+    lastUserBeforeTerminalAssistant?.createdAt ??
+    terminalAssistant.message.createdAt;
+  const endedAtMs = Date.parse(endedAt);
+  const startedAtMs = Date.parse(startedAt);
+  if (Number.isNaN(endedAtMs)) {
+    return null;
+  }
+  if (Number.isNaN(startedAtMs) || startedAtMs > endedAtMs) {
+    startedAt = terminalAssistant.message.createdAt;
+  }
+
+  return {
+    dividerBeforeEntryId: terminalAssistant.row.id,
+    startedAt,
+    endedAt,
+    turnId:
+      latestTurn?.turnId !== undefined && latestTurn.turnId !== null
+        ? String(latestTurn.turnId)
+        : terminalAssistant.message.turnId !== null
+          ? String(terminalAssistant.message.turnId)
+          : null,
+  };
 }
 
 function deriveLoadedTerminalAssistantMessageIds(

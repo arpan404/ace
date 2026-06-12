@@ -3,6 +3,8 @@ import { Alert, AlertAction, AlertDescription } from "../ui/alert";
 import { CircleAlertIcon, RotateCcwIcon, WrenchIcon, XIcon } from "lucide-react";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { Button } from "../ui/button";
+import { GLASS_BANNER_CLASS_NAME, GLASS_BANNER_ERROR_CLASS_NAME } from "../ui/glass";
+import { cn } from "~/lib/utils";
 
 interface ThreadErrorBannerProps {
   error: string | null;
@@ -20,7 +22,7 @@ export const ThreadErrorBanner = memo(function ThreadErrorBanner({
   if (!error) return null;
   return (
     <div className="pt-3 mx-auto max-w-3xl">
-      <Alert variant="error">
+      <Alert variant="error" className={cn(GLASS_BANNER_CLASS_NAME, GLASS_BANNER_ERROR_CLASS_NAME)}>
         <CircleAlertIcon />
         <Tooltip>
           <TooltipTrigger

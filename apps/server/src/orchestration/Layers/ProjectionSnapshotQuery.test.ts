@@ -1009,7 +1009,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             onSome: (thread) => thread.activities.map((activity) => activity.id),
           }),
         ),
-        [],
+        ["thread-1-approval", "thread-1-runtime-note"],
       );
       assert.equal(
         targetedThread.pipe(
@@ -1501,11 +1501,46 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           NULL,
           '[]',
           NULL,
-          NULL,
+          'turn-timeline-page',
           '2026-04-01T00:00:00.000Z',
           '2026-04-01T00:00:10.000Z',
           NULL,
           NULL
+        )
+      `;
+
+      yield* sql`
+        INSERT INTO projection_turns (
+          thread_id,
+          turn_id,
+          pending_message_id,
+          source_proposed_plan_thread_id,
+          source_proposed_plan_id,
+          assistant_message_id,
+          state,
+          requested_at,
+          started_at,
+          completed_at,
+          checkpoint_turn_count,
+          checkpoint_ref,
+          checkpoint_status,
+          checkpoint_files_json
+        )
+        VALUES (
+          'thread-timeline-page',
+          'turn-timeline-page',
+          NULL,
+          NULL,
+          NULL,
+          'message-assistant',
+          'completed',
+          '2026-04-01T00:00:00.500Z',
+          '2026-04-01T00:00:01.000Z',
+          '2026-04-01T00:00:04.000Z',
+          0,
+          NULL,
+          NULL,
+          '[]'
         )
       `;
 
@@ -1613,11 +1648,12 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       });
       assert.equal(snapshot._tag, "Some");
       if (Option.isSome(snapshot)) {
-        assert.equal(snapshot.value.totalRows, 3);
+        assert.equal(snapshot.value.totalRows, 4);
         assert.deepEqual(
           snapshot.value.rows.map((row) => `${row.startSourceIndex}:${row.kind}:${row.id}`),
           [
             "0:message:message:message-user",
+            "1:work:activity:activity-tool",
             "3:proposed-plan:proposed-plan:plan-1",
             "4:message:message:message-assistant",
           ],
@@ -1626,7 +1662,20 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           snapshot.value.messages.map((message) => message.text),
           ["Run checks", "Done"],
         );
-        assert.deepEqual(snapshot.value.activities, []);
+        assert.deepEqual(
+          snapshot.value.activities.map((activity) => ({
+            id: String(activity.id),
+            payload: activity.payload,
+            summary: activity.summary,
+          })),
+          [
+            {
+              id: "activity-tool",
+              payload: { command: "bun lint" },
+              summary: "Run command",
+            },
+          ],
+        );
         assert.deepEqual(
           snapshot.value.proposedPlans.map((plan) => plan.id),
           ["plan-1"],
@@ -1653,17 +1702,21 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       });
       assert.equal(repairedSnapshot._tag, "Some");
       if (Option.isSome(repairedSnapshot)) {
-        assert.equal(repairedSnapshot.value.totalRows, 3);
+        assert.equal(repairedSnapshot.value.totalRows, 4);
         assert.equal(repairedSnapshot.value.updatedAt, "2026-04-01T00:00:11.000Z");
         assert.deepEqual(
           repairedSnapshot.value.rows.map((row) => `${row.startSourceIndex}:${row.kind}:${row.id}`),
           [
             "0:message:message:message-user",
+            "1:work:activity:activity-tool",
             "2:proposed-plan:proposed-plan:plan-1",
             "3:message:message:message-assistant",
           ],
         );
-        assert.deepEqual(repairedSnapshot.value.activities, []);
+        assert.deepEqual(
+          repairedSnapshot.value.activities.map((activity) => activity.summary),
+          ["Run command"],
+        );
       }
     }),
   );
@@ -1871,33 +1924,214 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           snapshot.value.rows.map((row) => `${row.startSourceIndex}:${row.kind}:${row.id}`),
           [
             "0:message:message:message-user-running",
-            "1:work-group:work-group:ui:thread-running-summary:turn-running-summary:active-summary",
+            "3:work:activity:activity-tool-two",
             "4:message:message:message-assistant-running",
           ],
         );
         assert.deepEqual(
-          snapshot.value.activities.map((activity) => activity.summary),
-          ["Ran 2 tool calls", "Thinking"],
-        );
-        assert.deepEqual(
-          snapshot.value.activities.map((activity) => activity.payload),
+          snapshot.value.activities.map((activity) => ({
+            id: String(activity.id),
+            payload: activity.payload,
+            summary: activity.summary,
+          })),
           [
             {
-              compacted: true,
-              uiSummary: true,
-              version: 1,
-              itemType: "tool",
-              status: "inProgress",
-              toolCallCount: 2,
-            },
-            {
-              compacted: true,
-              uiSummary: true,
-              version: 1,
-              itemType: "reasoning",
-              thinkingCount: 1,
+              id: "activity-tool-two",
+              payload: { command: "bun typecheck" },
+              summary: "Ran bun typecheck",
             },
           ],
+        );
+      }
+    }),
+  );
+
+  it.effect("derives completed latest turn work when the thread pointer is stale", () =>
+    Effect.gen(function* () {
+      const snapshotQuery = yield* ProjectionSnapshotQuery;
+      const sql = yield* SqlClient.SqlClient;
+      const threadId = ThreadId.makeUnsafe("thread-stale-latest-turn");
+
+      yield* sql`DELETE FROM projection_projects`;
+      yield* sql`DELETE FROM projection_threads`;
+      yield* sql`DELETE FROM projection_thread_messages`;
+      yield* sql`DELETE FROM projection_thread_activities`;
+      yield* sql`DELETE FROM projection_thread_timeline_entries`;
+      yield* sql`DELETE FROM projection_thread_proposed_plans`;
+      yield* sql`DELETE FROM projection_turns`;
+
+      yield* sql`
+        INSERT INTO projection_projects (
+          project_id,
+          title,
+          workspace_root,
+          default_model_selection_json,
+          scripts_json,
+          created_at,
+          updated_at,
+          deleted_at
+        )
+        VALUES (
+          'project-stale-latest-turn',
+          'Stale Latest Turn Project',
+          '/tmp/stale-latest-turn',
+          '{"provider":"codex","model":"gpt-5-codex"}',
+          '[]',
+          '2026-04-03T00:00:00.000Z',
+          '2026-04-03T00:00:00.000Z',
+          NULL
+        )
+      `;
+
+      yield* sql`
+        INSERT INTO projection_threads (
+          thread_id,
+          project_id,
+          title,
+          model_selection_json,
+          runtime_mode,
+          interaction_mode,
+          branch,
+          worktree_path,
+          queued_composer_messages_json,
+          queued_steer_request_json,
+          latest_turn_id,
+          created_at,
+          updated_at,
+          archived_at,
+          deleted_at
+        )
+        VALUES (
+          ${threadId},
+          'project-stale-latest-turn',
+          'Stale Latest Turn',
+          '{"provider":"codex","model":"gpt-5-codex"}',
+          'full-access',
+          'default',
+          NULL,
+          NULL,
+          '[]',
+          NULL,
+          NULL,
+          '2026-04-03T00:00:00.000Z',
+          '2026-04-03T00:00:05.000Z',
+          NULL,
+          NULL
+        )
+      `;
+
+      yield* sql`
+        INSERT INTO projection_turns (
+          thread_id,
+          turn_id,
+          pending_message_id,
+          source_proposed_plan_thread_id,
+          source_proposed_plan_id,
+          assistant_message_id,
+          state,
+          requested_at,
+          started_at,
+          completed_at,
+          checkpoint_turn_count,
+          checkpoint_ref,
+          checkpoint_status,
+          checkpoint_files_json
+        )
+        VALUES (
+          ${threadId},
+          'turn-stale-latest-turn',
+          NULL,
+          NULL,
+          NULL,
+          'message-stale-assistant',
+          'completed',
+          '2026-04-03T00:00:00.500Z',
+          '2026-04-03T00:00:01.000Z',
+          '2026-04-03T00:00:04.000Z',
+          NULL,
+          NULL,
+          NULL,
+          '[]'
+        )
+      `;
+
+      yield* sql`
+        INSERT INTO projection_thread_messages (
+          message_id,
+          thread_id,
+          turn_id,
+          role,
+          text,
+          is_streaming,
+          sequence,
+          created_at,
+          updated_at
+        )
+        VALUES
+          (
+            'message-stale-user',
+            ${threadId},
+            'turn-stale-latest-turn',
+            'user',
+            'Audit backend',
+            0,
+            1,
+            '2026-04-03T00:00:01.000Z',
+            '2026-04-03T00:00:01.000Z'
+          ),
+          (
+            'message-stale-assistant',
+            ${threadId},
+            'turn-stale-latest-turn',
+            'assistant',
+            'Done',
+            0,
+            3,
+            '2026-04-03T00:00:04.000Z',
+            '2026-04-03T00:00:04.000Z'
+          )
+      `;
+
+      yield* sql`
+        INSERT INTO projection_thread_activities (
+          activity_id,
+          thread_id,
+          turn_id,
+          tone,
+          kind,
+          summary,
+          payload_json,
+          sequence,
+          created_at
+        )
+        VALUES (
+          'activity-stale-tool',
+          ${threadId},
+          'turn-stale-latest-turn',
+          'tool',
+          'tool.completed',
+          'Ran command',
+          '{"command":"rg backend"}',
+          2,
+          '2026-04-03T00:00:02.000Z'
+        )
+      `;
+
+      yield* rebuildTimelineEntriesForThread(sql, threadId);
+
+      const snapshot = yield* snapshotQuery.getThreadTimelineRowsSnapshot({ threadId });
+      assert.equal(snapshot._tag, "Some");
+      if (Option.isSome(snapshot)) {
+        assert.deepEqual(
+          snapshot.value.rows.map((row) => row.kind),
+          ["message", "work", "message"],
+        );
+        assert.deepEqual(
+          snapshot.value.activities.map((activity) => ({
+            id: String(activity.id),
+            summary: activity.summary,
+          })),
+          [{ id: "activity-stale-tool", summary: "Ran command" }],
         );
       }
     }),

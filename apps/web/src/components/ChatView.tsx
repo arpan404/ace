@@ -213,7 +213,7 @@ import {
 } from "~/lib/chat/threadRenderState";
 import {
   buildNativeTimelineRows,
-  deriveNativeCompletionDividerBeforeRowId,
+  deriveNativeCompletionAttachment,
   type NativeTimelineRowsInput,
 } from "~/lib/chat/nativeTimelineRows";
 import {
@@ -2223,6 +2223,21 @@ function useChatViewComponent({
       ? (store.completeSnapshotByThreadId[threadId] ?? null)
       : null,
   );
+  useEffect(() => {
+    if (!ownsGlobalSideEffects || !isThreadHistoryMetadataOnly || !activeThread?.id) {
+      return;
+    }
+    const prefetch = startThreadTimelineRowsOpenPrefetch({
+      threadId: activeThread.id,
+      priority: "immediate",
+    });
+    void prefetch.done.catch((error) => {
+      console.error("Failed to prefetch active thread timeline", error);
+    });
+    return () => {
+      prefetch.stop();
+    };
+  }, [activeThread?.id, isThreadHistoryMetadataOnly, ownsGlobalSideEffects]);
   const canCheckoutPullRequestIntoThread = isLocalDraftThread;
   const routeWorkspaceMode: ThreadWorkspaceMode =
     !splitPane && (rawSearch.mode === "editor" || rawSearch.mode === "split")
@@ -3242,16 +3257,21 @@ function useChatViewComponent({
   const completionSummary = useMemo(() => {
     return deriveThreadCompletionSummary(activeLatestTurn, latestTurnSettled);
   }, [activeLatestTurn, latestTurnSettled]);
-  const nativeCompletionDividerBeforeEntryId = useMemo(() => {
-    if (!latestTurnSettled || !completionSummary || !activeThreadTimelineProjection) {
+  const nativeCompletionAttachment = useMemo(() => {
+    if (!activeThreadTimelineProjection) {
       return null;
     }
-    return deriveNativeCompletionDividerBeforeRowId({
+    if (!latestTurnSettled && activeLatestTurn !== null) {
+      return null;
+    }
+    return deriveNativeCompletionAttachment({
       latestTurn: activeLatestTurn,
       rows: activeThreadTimelineProjection.rows,
       messages: activeThreadTimelineProjection.messages,
     });
-  }, [activeLatestTurn, activeThreadTimelineProjection, completionSummary, latestTurnSettled]);
+  }, [activeLatestTurn, activeThreadTimelineProjection, latestTurnSettled]);
+  const nativeCompletionDividerBeforeEntryId =
+    nativeCompletionAttachment?.dividerBeforeEntryId ?? null;
   const nativeTimelineRowsInput = useMemo<NativeTimelineRowsInput | null>(() => {
     if (!isThreadHistoryMetadataOnly) {
       return null;
@@ -3274,7 +3294,10 @@ function useChatViewComponent({
       activeTurnInProgress: isWorking,
       activeTurnStartedAt: activeWorkStartedAt,
       completionDividerBeforeEntryId: nativeCompletionDividerBeforeEntryId,
+      completionEndedAt: nativeCompletionAttachment?.endedAt ?? null,
       completionSummary,
+      completionTurnId: nativeCompletionAttachment?.turnId ?? null,
+      completionStartedAt: nativeCompletionAttachment?.startedAt ?? null,
       turnDiffSummaryByAssistantMessageId,
     };
   }, [
@@ -3283,6 +3306,7 @@ function useChatViewComponent({
     completionSummary,
     isThreadHistoryMetadataOnly,
     isWorking,
+    nativeCompletionAttachment,
     nativeCompletionDividerBeforeEntryId,
     optimisticUserMessages,
     turnDiffSummaryByAssistantMessageId,
@@ -3314,8 +3338,11 @@ function useChatViewComponent({
       rowContentKey: nativeTimelineRowsContentKey,
       isActiveTurnRunning: isWorking,
       activeTurnStartedAt: activeWorkStartedAt,
+      completionEndedAt: nativeTimelineRowsInput.completionEndedAt ?? null,
       completionDividerBeforeEntryId: nativeCompletionDividerBeforeEntryId,
       completionSummary,
+      completionStartedAt: nativeTimelineRowsInput.completionStartedAt ?? null,
+      completionTurnId: nativeTimelineRowsInput.completionTurnId ?? null,
       turnDiffSummaryKey: nativeTurnDiffSummaryKey,
     });
   }, [

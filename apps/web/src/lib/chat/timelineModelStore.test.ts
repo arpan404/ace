@@ -734,6 +734,64 @@ describe("timelineModelStore", () => {
     expect(useTimelineModelStore.getState().rowIdsByThreadId[threadId]).toEqual([]);
   });
 
+  it("removes multiple live rows with a single revision bump", async () => {
+    const { primeLiveTimelineRow, removeLiveTimelineRows } = await import("./timelineModelStore");
+    const firstActivityId = EventId.makeUnsafe("activity-first");
+    const secondActivityId = EventId.makeUnsafe("activity-second");
+
+    for (const [index, activityId] of [firstActivityId, secondActivityId].entries()) {
+      primeLiveTimelineRow(
+        {
+          threadId,
+          updatedAt: `2026-01-01T00:00:0${String(index + 2)}.000Z`,
+          entry: {
+            kind: "activity",
+            id: activityId,
+            createdAt: `2026-01-01T00:00:0${String(index + 1)}.000Z`,
+            turnId,
+            sequence: index + 1,
+          },
+          activity: {
+            id: activityId,
+            kind: "reasoning",
+            summary: `Reasoning ${String(index + 1)}`,
+            payload: null,
+            tone: "info",
+            turnId,
+            sequence: index + 1,
+            createdAt: `2026-01-01T00:00:0${String(index + 1)}.000Z`,
+          },
+        },
+        { flush: "sync" },
+      );
+    }
+
+    const revisionBeforeRemoval = useTimelineModelStore.getState().revision;
+    removeLiveTimelineRows([
+      { threadId, kind: "activity", id: String(firstActivityId) },
+      { threadId, kind: "activity", id: String(secondActivityId) },
+    ]);
+
+    expect(readTimelineRowsProjection(threadId).activities).toEqual([]);
+    expect(useTimelineModelStore.getState().rowIdsByThreadId[threadId]).toEqual([]);
+    expect(useTimelineModelStore.getState().revision).toBe(revisionBeforeRemoval + 1);
+  });
+
+  it("does not bump revisions for unchanged row height writes", async () => {
+    const { writeTimelineModelRowHeight } = await import("./timelineModelStore");
+
+    writeTimelineModelRowHeight("row-height-cache-key", 48);
+    const revisionAfterFirstWrite = useTimelineModelStore.getState().revision;
+    const rowHeightRevisionAfterFirstWrite = useTimelineModelStore.getState().rowHeightRevision;
+
+    writeTimelineModelRowHeight("row-height-cache-key", 48);
+
+    expect(useTimelineModelStore.getState().revision).toBe(revisionAfterFirstWrite);
+    expect(useTimelineModelStore.getState().rowHeightRevision).toBe(
+      rowHeightRevisionAfterFirstWrite,
+    );
+  });
+
   it("projects bounded placeholder windows for large unloaded timelines", () => {
     useTimelineModelStore.getState().primeMetadata({
       threadId,
@@ -840,6 +898,123 @@ describe("timelineModelStore", () => {
     expect(readTimelineRowsProjection(threadId).messages.map((message) => message.text)).toEqual([
       "Hi",
       "Hello",
+    ]);
+  });
+
+  it("refetches timeline rows when a fully populated cache is from an old model version", async () => {
+    useTimelineModelStore.getState().primeSnapshot({
+      threadId,
+      revision: "rev:old-cache",
+      updatedAt: "2026-01-01T00:00:02.000Z",
+      totalRows: 1,
+      rows: [
+        {
+          id: "message:message-row-store",
+          kind: "message",
+          createdAt: "2026-01-01T00:00:01.000Z",
+          updatedAt: "2026-01-01T00:00:02.000Z",
+          contentVersion: "snapshot:old",
+          startSourceIndex: 0,
+          endSourceIndexExclusive: 1,
+          turnId,
+          sourceRefs: [
+            {
+              kind: "message",
+              id: "message-row-store",
+              createdAt: "2026-01-01T00:00:01.000Z",
+              sourceIndex: 0,
+              turnId,
+              sequence: 1,
+            },
+          ],
+        },
+      ],
+      messages: [
+        {
+          id: messageId,
+          role: "assistant",
+          text: "Old cached answer",
+          turnId,
+          streaming: false,
+          sequence: 1,
+          createdAt: "2026-01-01T00:00:01.000Z",
+          updatedAt: "2026-01-01T00:00:02.000Z",
+        },
+      ],
+      activities: [],
+      proposedPlans: [],
+    });
+    useTimelineModelStore.setState((state) => ({
+      ...state,
+      completeSnapshotByThreadId: {
+        ...state.completeSnapshotByThreadId,
+        [threadId]: {
+          revision: "rev:old-cache",
+          totalRows: 1,
+          loadedAt: Date.now(),
+        },
+      },
+      metadataByThreadId: {
+        ...state.metadataByThreadId,
+        [threadId]: {
+          threadId,
+          revision: "rev:old-cache",
+          updatedAt: "2026-01-01T00:00:02.000Z",
+          totalRows: 1,
+          tailStartRowIndex: 0,
+        },
+      },
+    }));
+    nativeApiMock.getThreadTimelineRowsSnapshot.mockResolvedValue({
+      threadId,
+      revision: "rev:fresh-cache",
+      updatedAt: "2026-01-01T00:00:03.000Z",
+      totalRows: 1,
+      rows: [
+        {
+          id: "message:message-row-store",
+          kind: "message",
+          createdAt: "2026-01-01T00:00:01.000Z",
+          updatedAt: "2026-01-01T00:00:03.000Z",
+          contentVersion: "snapshot:fresh",
+          startSourceIndex: 0,
+          endSourceIndexExclusive: 1,
+          turnId,
+          sourceRefs: [
+            {
+              kind: "message",
+              id: "message-row-store",
+              createdAt: "2026-01-01T00:00:01.000Z",
+              sourceIndex: 0,
+              turnId,
+              sequence: 1,
+            },
+          ],
+        },
+      ],
+      messages: [
+        {
+          id: messageId,
+          role: "assistant",
+          text: "Fresh backend answer",
+          turnId,
+          streaming: false,
+          sequence: 1,
+          createdAt: "2026-01-01T00:00:01.000Z",
+          updatedAt: "2026-01-01T00:00:03.000Z",
+        },
+      ],
+      activities: [],
+      proposedPlans: [],
+    });
+
+    expect(isThreadTimelineRowsFullyHydrated(threadId)).toBe(false);
+    const snapshot = await fetchThreadTimelineRowsSnapshot(threadId);
+
+    expect(nativeApiMock.getThreadTimelineRowsSnapshot).toHaveBeenCalledTimes(1);
+    expect(snapshot.revision).toBe("rev:fresh-cache");
+    expect(readTimelineRowsProjection(threadId).messages.map((message) => message.text)).toEqual([
+      "Fresh backend answer",
     ]);
   });
 

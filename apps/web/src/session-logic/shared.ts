@@ -263,6 +263,10 @@ function normalizeCommandValue(value: unknown): string | null {
 }
 
 export function extractToolCommand(payload: Record<string, unknown> | null): string | null {
+  const payloadItem = asRecord(payload?.item);
+  const payloadInput = asRecord(payload?.input);
+  const payloadArgs = asRecord(payload?.arguments) ?? asRecord(payload?.args);
+  const payloadRawInput = asRecord(payload?.rawInput);
   const data = asRecord(payload?.data);
   const item = asRecord(data?.item);
   const itemResult = asRecord(item?.result);
@@ -272,12 +276,27 @@ export function extractToolCommand(payload: Record<string, unknown> | null): str
   const rawInput = asRecord(data?.rawInput);
   const candidates = [
     normalizeCommandValue(payload?.command),
+    normalizeCommandValue(payload?.cmd),
+    normalizeCommandValue(payload?.fullCommandText),
+    normalizeCommandValue(payload?.shellCommand),
+    normalizeCommandValue(payloadItem?.command),
+    normalizeCommandValue(payloadItem?.cmd),
+    normalizeCommandValue(payloadInput?.command),
+    normalizeCommandValue(payloadInput?.cmd),
+    normalizeCommandValue(payloadArgs?.command),
+    normalizeCommandValue(payloadArgs?.cmd),
+    normalizeCommandValue(payloadRawInput?.command),
+    normalizeCommandValue(payloadRawInput?.cmd),
     normalizeCommandValue(item?.command),
+    normalizeCommandValue(item?.cmd),
     normalizeCommandValue(itemInput?.command),
+    normalizeCommandValue(itemInput?.cmd),
     normalizeCommandValue(itemResult?.command),
+    normalizeCommandValue(itemResult?.cmd),
     normalizeCommandValue(data?.command),
     normalizeCommandValue(data?.cmd),
     normalizeCommandValue(data?.fullCommandText),
+    normalizeCommandValue(data?.shellCommand),
     normalizeCommandValue(input?.command),
     normalizeCommandValue(input?.cmd),
     normalizeCommandValue(args?.command),
