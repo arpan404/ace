@@ -41,7 +41,7 @@ export const ChatMessagesPane = memo(function ChatMessagesPane({
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
       <ScrollArea
-        className="flex-1 px-3 py-3 sm:px-5 sm:py-4"
+        className="flex-1 px-3 sm:px-5"
         viewportRef={messagesContainerRef}
         viewportProps={{
           className: "pe-2.5",
@@ -68,12 +68,11 @@ export const ChatMessagesPane = memo(function ChatMessagesPane({
             onClick={() => scrollMessagesToBottom()}
             className={cn(
               APP_FLOATING_CHIP_CLASS_NAME,
-              "pointer-events-auto h-8 px-3 text-xs hover:bg-accent/80 hover:text-accent-foreground",
+              "pointer-events-auto h-8 w-8 rounded-full p-0 transition-colors hover:bg-accent/75 hover:text-accent-foreground active:bg-accent/80",
             )}
             aria-label="Scroll to bottom"
           >
-            <ChevronDownIcon className="size-3.5" />
-            Scroll to bottom
+            <ChevronDownIcon className="size-4" />
           </Button>
         </div>
       )}
