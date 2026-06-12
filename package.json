@@ -66,10 +66,10 @@
     "sync:vscode-icons": "node scripts/sync-vscode-icons.mjs"
   },
   "devDependencies": {
-    "@types/node": "^25.9.1",
+    "@types/node": "^25.9.2",
     "dotenv": "^17.4.2",
-    "oxfmt": "^0.52.0",
-    "oxlint": "^1.67.0",
+    "oxfmt": "^0.54.0",
+    "oxlint": "^1.68.0",
     "turbo": "^2.9.16",
     "vitest": "^4.1.8"
   },
