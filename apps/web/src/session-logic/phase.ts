@@ -29,11 +29,19 @@ type LatestTurnTiming = Pick<OrchestrationLatestTurn, "turnId" | "startedAt" | "
 type LatestTurnActivityState = Pick<OrchestrationLatestTurn, "state" | "completedAt">;
 type SessionActivityState = Pick<ThreadSession, "orchestrationStatus" | "activeTurnId">;
 
+function hasActiveSessionTurn(
+  session: SessionActivityState | null,
+): session is SessionActivityState & {
+  activeTurnId: NonNullable<SessionActivityState["activeTurnId"]>;
+} {
+  return session?.orchestrationStatus === "running" && session.activeTurnId != null;
+}
+
 export function hasLiveTurn(
   latestTurn: (LatestTurnTiming & LatestTurnActivityState) | null,
   session: SessionActivityState | null,
 ): boolean {
-  if (session?.orchestrationStatus === "running") {
+  if (hasActiveSessionTurn(session)) {
     return true;
   }
   return latestTurn?.state === "running" && latestTurn.completedAt === null;
@@ -46,7 +54,7 @@ export function isLatestTurnSettled(
   if (!latestTurn?.startedAt) return false;
   if (!latestTurn.completedAt) return false;
   if (!session) return true;
-  if (session.orchestrationStatus === "running") return false;
+  if (hasActiveSessionTurn(session)) return false;
   return true;
 }
 
@@ -68,10 +76,8 @@ export function deriveVisibleWorkTurnId(
 ): TurnId | undefined {
   const latestRenderableActivityTurnId = findLatestRenderableWorkTurnId(activities);
 
-  if (session?.orchestrationStatus === "running") {
-    return (
-      latestRenderableActivityTurnId ?? session.activeTurnId ?? latestTurn?.turnId ?? undefined
-    );
+  if (hasActiveSessionTurn(session)) {
+    return latestRenderableActivityTurnId ?? session.activeTurnId ?? latestTurn?.turnId;
   }
 
   return latestTurn?.turnId ?? latestRenderableActivityTurnId ?? session?.activeTurnId ?? undefined;

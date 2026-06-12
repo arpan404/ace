@@ -20,6 +20,22 @@ describe("hasLiveTurn", () => {
     ).toBe(true);
   });
 
+  it("does not treat an idle running session as live without an active turn id", () => {
+    expect(
+      hasLiveTurn(
+        {
+          ...liveTurn,
+          state: "completed",
+          completedAt: "2026-04-07T14:01:00.000Z",
+        },
+        {
+          orchestrationStatus: "running",
+          activeTurnId: undefined,
+        },
+      ),
+    ).toBe(false);
+  });
+
   it("returns true when the latest turn is still marked running after session phase drops", () => {
     expect(
       hasLiveTurn(liveTurn, {

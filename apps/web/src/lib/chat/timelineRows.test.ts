@@ -23,13 +23,39 @@ describe("timelineRows", () => {
     ];
     const rows = buildTimelineRows({
       timelineEntries,
-      activeTurnInProgress: false,
+      activeTurnInProgress: true,
       activeTurnStartedAt: null,
       completionDividerBeforeEntryId: null,
       completionSummary: null,
       isWorking: true,
     });
     expect(rows.at(-1)).toMatchObject({ kind: "working" });
+  });
+
+  it("does not append a working indicator without an active turn", () => {
+    const rows = buildTimelineRows({
+      timelineEntries: [
+        {
+          id: "user-1",
+          kind: "message",
+          createdAt: "2025-01-01T00:00:00.000Z",
+          message: {
+            id: MessageId.makeUnsafe("user-1"),
+            role: "user",
+            text: "hi",
+            createdAt: "2025-01-01T00:00:00.000Z",
+            streaming: false,
+          },
+        },
+      ],
+      activeTurnInProgress: false,
+      activeTurnStartedAt: null,
+      completionDividerBeforeEntryId: null,
+      completionSummary: null,
+      isWorking: true,
+    });
+
+    expect(rows.some((row) => row.kind === "working")).toBe(false);
   });
 
   it("precomputes collapsed work group summary projections", () => {
@@ -116,7 +142,7 @@ describe("timelineRows", () => {
           },
         },
       ],
-      activeTurnInProgress: false,
+      activeTurnInProgress: true,
       activeTurnStartedAt: null,
       completionDividerBeforeEntryId: null,
       completionSummary: null,
@@ -143,7 +169,7 @@ describe("timelineRows", () => {
           },
         },
       ],
-      activeTurnInProgress: false,
+      activeTurnInProgress: true,
       activeTurnStartedAt: null,
       completionDividerBeforeEntryId: null,
       completionSummary: null,

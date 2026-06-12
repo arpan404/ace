@@ -1243,7 +1243,9 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
     }
   }
 
-  if (input.isWorking && pendingIntentEntries.length > 0) {
+  const shouldRenderLiveWorkingRow = input.isWorking && input.activeTurnInProgress;
+
+  if (shouldRenderLiveWorkingRow && pendingIntentEntries.length > 0) {
     flushPendingMetaEntries(null, { includePendingIntents: false });
     activeLiveIntentText = consumeLatestPendingIntentText();
   } else {
@@ -1261,7 +1263,7 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
   const liveDurationStartAt =
     activeTurnPrimaryUserMessageCreatedAt ?? input.activeTurnStartedAt ?? lastMessageBoundaryAt;
 
-  if (input.isWorking) {
+  if (shouldRenderLiveWorkingRow) {
     nextRows.push({
       kind: "working",
       id: "working-indicator-row",

@@ -1,4 +1,4 @@
-import { formatElapsed, isLatestTurnSettled } from "../../session-logic";
+import { formatElapsed } from "../../session-logic";
 import type { TimelineEntry, WorkLogEntry } from "../../session-logic/types";
 import type { ChatMessage, ProposedPlan, Thread, TurnDiffSummary } from "../../types";
 import { fnv1a32 } from "../diffRendering";
