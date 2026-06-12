@@ -3269,22 +3269,6 @@ const TimelineDisclosureBody = memo(function TimelineDisclosureBody(props: {
   readonly children: ReactNode;
   readonly dataAttribute?: Record<string, string>;
 }) {
-  const [hasRenderedContent, setHasRenderedContent] = useState(props.open);
-  useEffect(() => {
-    if (props.open) {
-      setHasRenderedContent(true);
-      return;
-    }
-    const timer = window.setTimeout(() => {
-      setHasRenderedContent(false);
-    }, 220);
-    return () => window.clearTimeout(timer);
-  }, [props.open]);
-
-  if (!hasRenderedContent) {
-    return null;
-  }
-
   return (
     <div
       className={cn(

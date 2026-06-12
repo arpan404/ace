@@ -367,7 +367,6 @@ import {
 import {
   evictExpiredRecentBrowserInstances,
   resolveNextRecentBrowserInstanceExpiry,
-  touchRecentBrowserInstance,
   type RecentBrowserInstanceEntry,
 } from "~/lib/browser/liveInstanceCache";
 import { resolveScopedBrowserStorageKey } from "~/lib/browser/storage";
@@ -3439,22 +3438,15 @@ function useChatViewComponent({
     }
     return buildNativeTimelineRows(nativeTimelineRowsInput);
   }, [nativeTimelineRowsInput, shouldBuildNativeTimelineRowsSynchronously]);
+  const hasCachedNativeTimelineRows = cachedNativeTimelineRows !== null;
   useEffect(() => {
     if (!nativeTimelineRowsInput || !nativeTimelineRowsInputKey) {
-      setResolvedNativeTimelineRows(null);
       return;
     }
     if (shouldBuildNativeTimelineRowsSynchronously) {
-      setResolvedNativeTimelineRows(null);
       return;
     }
-    const cachedRows = readCachedNativeTimelineRows(nativeTimelineRowsInputKey);
-    if (cachedRows) {
-      setResolvedNativeTimelineRows((current) =>
-        current?.key === nativeTimelineRowsInputKey && current.rows === cachedRows
-          ? current
-          : { key: nativeTimelineRowsInputKey, rows: cachedRows },
-      );
+    if (hasCachedNativeTimelineRows) {
       return;
     }
 
@@ -3494,6 +3486,7 @@ function useChatViewComponent({
   }, [
     nativeTimelineRowsInput,
     nativeTimelineRowsInputKey,
+    hasCachedNativeTimelineRows,
     shouldBuildNativeTimelineRowsSynchronously,
   ]);
   const currentNativeTimelineRowsOverride =
@@ -4147,26 +4140,8 @@ function useChatViewComponent({
     }
     if (!isElectron || !activeThreadId) {
       resetBrowserCacheState();
-      setMountedBrowserInstances([]);
-      return;
     }
-    if (!anyBrowserOpen) {
-      return;
-    }
-    setMountedBrowserInstances((current) =>
-      activeBrowserInstanceIds.reduce(
-        (next, browserInstanceId) =>
-          touchRecentBrowserInstance(next, browserInstanceId, Date.now(), Number.MAX_SAFE_INTEGER),
-        current,
-      ),
-    );
-  }, [
-    activeBrowserInstanceIds,
-    activeThreadId,
-    anyBrowserOpen,
-    resetBrowserCacheState,
-    rightSidePanelInteractive,
-  ]);
+  }, [activeThreadId, resetBrowserCacheState, rightSidePanelInteractive]);
   useEffect(() => {
     if (!rightSidePanelInteractive) {
       return;
@@ -8181,28 +8156,6 @@ function useChatViewComponent({
     terminalState.terminalOpen,
   ]);
   useEffect(() => {
-    if (terminalState.terminalOpen) {
-      setBottomPanelTabOrder((current) => {
-        const terminalEntries = new Set(
-          terminalState.terminalIds.map((terminalId) => `terminal:${terminalId}`),
-        );
-        const retainedEntries = current.filter(
-          (entry) =>
-            entry !== "terminal" && (!entry.startsWith("terminal:") || terminalEntries.has(entry)),
-        );
-        return terminalState.terminalIds.reduce<PanelTabOrderEntry[]>(
-          (nextEntries, terminalId) => appendPanelTabOrder(nextEntries, `terminal:${terminalId}`),
-          retainedEntries,
-        );
-      });
-      setBottomPanelMode((current) => current ?? "terminal");
-      return;
-    }
-    removeBottomPanelTabOrder("terminal");
-    setBottomPanelMode((current) => (current === "terminal" ? null : current));
-  }, [removeBottomPanelTabOrder, terminalState.terminalIds, terminalState.terminalOpen]);
-
-  useEffect(() => {
     if (!ownsGlobalSideEffects) return;
     if (!shortcutsEnabled) return;
     const handler = (event: globalThis.KeyboardEvent) => {
@@ -10772,9 +10725,28 @@ function useChatViewComponent({
       : requestedRightSidePanelMode === "editor" && rightPanelEditorTabs.length === 0
         ? "summary"
         : requestedRightSidePanelMode;
+  const visibleBottomPanelTabOrder = terminalState.terminalOpen
+    ? terminalState.terminalIds.reduce<PanelTabOrderEntry[]>(
+        (nextEntries, terminalId) => appendPanelTabOrder(nextEntries, `terminal:${terminalId}`),
+        bottomPanelTabOrder.filter((entry) => {
+          if (entry === "terminal") {
+            return false;
+          }
+          if (!entry.startsWith("terminal:")) {
+            return true;
+          }
+          return terminalState.terminalIds.includes(entry.slice("terminal:".length));
+        }),
+      )
+    : removePanelTabOrderByMode(bottomPanelTabOrder, "terminal");
+  const visibleBottomPanelMode = terminalState.terminalOpen
+    ? (bottomPanelMode ?? "terminal")
+    : bottomPanelMode === "terminal"
+      ? null
+      : bottomPanelMode;
   const bottomPanelHasContent = bottomPanelOpen;
   const requestedBottomPanelMode: DockPanelMode | null = bottomPanelHasContent
-    ? (bottomPanelMode ?? "terminal")
+    ? (visibleBottomPanelMode ?? "terminal")
     : null;
   const activeBottomPanelMode =
     requestedBottomPanelMode === "browser" && !browserPanel ? null : requestedBottomPanelMode;
@@ -11000,7 +10972,7 @@ function useChatViewComponent({
         onToggleFloatingChat={() => undefined}
         onToggleFullscreen={() => undefined}
         panelToggleShortcutLabel={null}
-        panelTabOrder={bottomPanelTabOrder}
+        panelTabOrder={visibleBottomPanelTabOrder}
         showPanelActions={false}
         showSummaryTab={false}
         subagentThreads={subagentThreads}
