@@ -1,10 +1,14 @@
 import { Effect, Layer, Option, Queue, Ref, Schema, Stream } from "effect";
 import { execFile } from "node:child_process";
-import { lstat } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { lstat, mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { promisify } from "node:util";
 import {
   type GitActionProgressEvent,
   type GitManagerServiceError,
+  type GenerateNewThreadRecommendationsResult,
+  type NewThreadRecommendation,
   OrchestrationDispatchCommandError,
   type OrchestrationEvent,
   type OrchestrationGetThreadTimelineRowsSnapshotChunkInput,
@@ -116,6 +120,11 @@ const WORKTREE_SIZE_CACHE_TTL_MS = 5 * 60_000;
 const WORKTREE_SIZE_CACHE_MAX_ENTRIES = 512;
 const WORKTREE_SIZE_DU_TIMEOUT_MS = 20_000;
 const WORKTREE_SIZE_STATS_CONCURRENCY = 4;
+const NEW_THREAD_RECOMMENDATION_CACHE_TTL_MS = 6 * 60 * 60_000;
+const NEW_THREAD_RECOMMENDATION_CACHE_MAX_AGE_MS = 14 * 24 * 60 * 60_000;
+const NEW_THREAD_RECOMMENDATION_CACHE_CLEANUP_INTERVAL_MS = 10 * 60_000;
+const NEW_THREAD_RECOMMENDATION_CACHE_MAX_FILES = 512;
+const NEW_THREAD_RECOMMENDATION_GENERATION_RETRY_COOLDOWN_MS = 5 * 60_000;
 const ORCHESTRATION_EVENT_REORDER_MAX_PENDING = Math.max(
   128,
   Number.parseInt(process.env.ACE_ORCHESTRATION_EVENT_REORDER_MAX_PENDING ?? "1024", 10) || 1024,
@@ -134,7 +143,18 @@ type WorktreeSizeCacheEntry = {
 };
 
 const worktreeSizeCache = new Map<string, WorktreeSizeCacheEntry>();
+let nextNewThreadRecommendationCacheCleanupAt = 0;
+const newThreadRecommendationGenerationCooldownByKey = new Map<string, number>();
 const execFileAsync = promisify(execFile);
+
+type CachedNewThreadRecommendations = {
+  readonly version: 1;
+  readonly cacheKey: string;
+  readonly cwd: string;
+  readonly fingerprint: string;
+  readonly generatedAt: number;
+  readonly recommendations: ReadonlyArray<NewThreadRecommendation>;
+};
 
 async function getDirectorySizeBytesFromPlatform(path: string): Promise<number | null> {
   if (process.platform === "win32") {
@@ -270,6 +290,234 @@ function selectDueProviderForRefresh(
   const oldestDueProviders = dueProviders.filter((provider) => provider.dueAt === oldestDueAt);
   const selectedIndex = Math.floor(Math.random() * oldestDueProviders.length);
   return oldestDueProviders[selectedIndex]?.provider ?? null;
+}
+
+function hashNewThreadRecommendationCacheKey(value: string): string {
+  return createHash("sha256").update(value).digest("hex").slice(0, 32);
+}
+
+function newThreadRecommendationCacheKey(cwd: string): string {
+  return hashNewThreadRecommendationCacheKey(cwd.trim());
+}
+
+function newThreadRecommendationFingerprint(input: {
+  readonly modelSelection: unknown;
+  readonly turns: ReadonlyArray<unknown>;
+}): string {
+  return hashNewThreadRecommendationCacheKey(
+    JSON.stringify({ model: input.modelSelection, turns: input.turns }),
+  );
+}
+
+function newThreadRecommendationCacheDir(stateDir: string): string {
+  return join(stateDir, "new-thread-recommendations");
+}
+
+function newThreadRecommendationCachePath(stateDir: string, cacheKey: string): string {
+  return join(newThreadRecommendationCacheDir(stateDir), `${cacheKey}.json`);
+}
+
+function isCachedNewThreadRecommendation(value: unknown): value is NewThreadRecommendation {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const candidate = value as Partial<NewThreadRecommendation>;
+  return (
+    typeof candidate.title === "string" &&
+    candidate.title.trim().length > 0 &&
+    typeof candidate.description === "string" &&
+    candidate.description.trim().length > 0 &&
+    typeof candidate.prompt === "string" &&
+    candidate.prompt.trim().length > 0
+  );
+}
+
+function normalizeCachedNewThreadRecommendations(
+  value: unknown,
+): ReadonlyArray<NewThreadRecommendation> {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const recommendations: NewThreadRecommendation[] = [];
+  const seenPrompts = new Set<string>();
+  for (const item of value) {
+    if (!isCachedNewThreadRecommendation(item)) {
+      continue;
+    }
+    const prompt = item.prompt.trim().replace(/\s+/g, " ");
+    if (seenPrompts.has(prompt)) {
+      continue;
+    }
+    seenPrompts.add(prompt);
+    recommendations.push({
+      title: item.title.trim().replace(/\s+/g, " "),
+      description: item.description.trim().replace(/\s+/g, " "),
+      prompt,
+    });
+    if (recommendations.length >= 3) {
+      break;
+    }
+  }
+  return recommendations;
+}
+
+function isCachedNewThreadRecommendations(
+  value: unknown,
+  expectedCacheKey: string,
+): value is CachedNewThreadRecommendations {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const candidate = value as Partial<CachedNewThreadRecommendations>;
+  return (
+    candidate.version === 1 &&
+    candidate.cacheKey === expectedCacheKey &&
+    typeof candidate.cwd === "string" &&
+    candidate.cwd.trim().length > 0 &&
+    typeof candidate.fingerprint === "string" &&
+    typeof candidate.generatedAt === "number" &&
+    Number.isFinite(candidate.generatedAt) &&
+    normalizeCachedNewThreadRecommendations(candidate.recommendations).length > 0
+  );
+}
+
+function isFreshNewThreadRecommendationCache(
+  cached: CachedNewThreadRecommendations,
+  now: number,
+): boolean {
+  return now - cached.generatedAt < NEW_THREAD_RECOMMENDATION_CACHE_TTL_MS;
+}
+
+function isExpiredNewThreadRecommendationCache(
+  cached: CachedNewThreadRecommendations,
+  now: number,
+): boolean {
+  return now - cached.generatedAt >= NEW_THREAD_RECOMMENDATION_CACHE_MAX_AGE_MS;
+}
+
+async function readNewThreadRecommendationCache(
+  stateDir: string,
+  cwd: string,
+): Promise<CachedNewThreadRecommendations | null> {
+  const cacheKey = newThreadRecommendationCacheKey(cwd);
+  const cachePath = newThreadRecommendationCachePath(stateDir, cacheKey);
+  let raw: string;
+  try {
+    raw = await readFile(cachePath, "utf8");
+  } catch {
+    return null;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    await rm(cachePath, { force: true }).catch(() => {});
+    return null;
+  }
+
+  if (!isCachedNewThreadRecommendations(parsed, cacheKey)) {
+    await rm(cachePath, { force: true }).catch(() => {});
+    return null;
+  }
+
+  const now = Date.now();
+  if (isExpiredNewThreadRecommendationCache(parsed, now)) {
+    await rm(cachePath, { force: true }).catch(() => {});
+    return null;
+  }
+
+  return {
+    ...parsed,
+    recommendations: normalizeCachedNewThreadRecommendations(parsed.recommendations),
+  };
+}
+
+async function writeNewThreadRecommendationCache(
+  stateDir: string,
+  payload: CachedNewThreadRecommendations,
+): Promise<void> {
+  const recommendations = normalizeCachedNewThreadRecommendations(payload.recommendations);
+  const cachePath = newThreadRecommendationCachePath(stateDir, payload.cacheKey);
+  if (recommendations.length === 0) {
+    await rm(cachePath, { force: true }).catch(() => {});
+    return;
+  }
+
+  const cacheDir = newThreadRecommendationCacheDir(stateDir);
+  await mkdir(cacheDir, { recursive: true });
+  const tempPath = join(cacheDir, `${payload.cacheKey}.${randomUUID()}.tmp`);
+  const normalizedPayload: CachedNewThreadRecommendations = {
+    ...payload,
+    recommendations,
+  };
+  try {
+    await writeFile(tempPath, `${JSON.stringify(normalizedPayload)}\n`, "utf8");
+    await rename(tempPath, cachePath);
+  } catch (error) {
+    await rm(tempPath, { force: true }).catch(() => {});
+    throw error;
+  }
+}
+
+async function cleanupNewThreadRecommendationCache(stateDir: string): Promise<void> {
+  const now = Date.now();
+  if (now < nextNewThreadRecommendationCacheCleanupAt) {
+    return;
+  }
+  nextNewThreadRecommendationCacheCleanupAt =
+    now + NEW_THREAD_RECOMMENDATION_CACHE_CLEANUP_INTERVAL_MS;
+
+  const cacheDir = newThreadRecommendationCacheDir(stateDir);
+  let entries: string[];
+  try {
+    entries = await readdir(cacheDir);
+  } catch {
+    return;
+  }
+
+  const retainedEntries: Array<{ filename: string; generatedAt: number }> = [];
+  await Promise.all(
+    entries.map(async (filename) => {
+      const filePath = join(cacheDir, filename);
+      if (!filename.endsWith(".json")) {
+        if (filename.endsWith(".tmp")) {
+          await rm(filePath, { force: true }).catch(() => {});
+        }
+        return;
+      }
+
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(await readFile(filePath, "utf8"));
+      } catch {
+        await rm(filePath, { force: true }).catch(() => {});
+        return;
+      }
+
+      const expectedCacheKey = filename.slice(0, -".json".length);
+      if (!isCachedNewThreadRecommendations(parsed, expectedCacheKey)) {
+        await rm(filePath, { force: true }).catch(() => {});
+        return;
+      }
+      if (isExpiredNewThreadRecommendationCache(parsed, now)) {
+        await rm(filePath, { force: true }).catch(() => {});
+        return;
+      }
+      retainedEntries.push({ filename, generatedAt: parsed.generatedAt });
+    }),
+  );
+
+  if (retainedEntries.length <= NEW_THREAD_RECOMMENDATION_CACHE_MAX_FILES) {
+    return;
+  }
+
+  const entriesToRemove = retainedEntries
+    .toSorted((left, right) => left.generatedAt - right.generatedAt)
+    .slice(0, retainedEntries.length - NEW_THREAD_RECOMMENDATION_CACHE_MAX_FILES);
+  await Promise.all(
+    entriesToRemove.map((entry) => rm(join(cacheDir, entry.filename), { force: true })),
+  );
 }
 
 async function getDirectorySizeBytes(path: string): Promise<WorktreeSizeStats> {
@@ -464,6 +712,135 @@ const WsRpcLayer = WsRpcGroup.toLayer(
           }).pipe(Effect.as(providers)),
         ),
       );
+
+    const generateAndCacheNewThreadRecommendations = (input: {
+      readonly cwd: string;
+      readonly cacheKey: string;
+      readonly fingerprint: string;
+      readonly modelSelection: Parameters<
+        typeof textGeneration.generateNewThreadRecommendations
+      >[0]["modelSelection"];
+      readonly turns: Parameters<
+        typeof textGeneration.generateNewThreadRecommendations
+      >[0]["turns"];
+    }): Effect.Effect<GenerateNewThreadRecommendationsResult, TextGenerationError> =>
+      Effect.gen(function* () {
+        const generated = yield* textGeneration.generateNewThreadRecommendations({
+          cwd: input.cwd,
+          turns: input.turns,
+          modelSelection: input.modelSelection,
+        });
+        const recommendations = normalizeCachedNewThreadRecommendations(generated.recommendations);
+        if (recommendations.length > 0) {
+          yield* Effect.tryPromise({
+            try: () =>
+              writeNewThreadRecommendationCache(config.stateDir, {
+                version: 1,
+                cacheKey: input.cacheKey,
+                cwd: input.cwd,
+                fingerprint: input.fingerprint,
+                generatedAt: Date.now(),
+                recommendations,
+              }),
+            catch: (cause) =>
+              new TextGenerationError({
+                operation: "generateNewThreadRecommendations",
+                detail: "Unable to write new-thread recommendation cache.",
+                cause,
+              }),
+          }).pipe(Effect.catch((error) => Effect.logWarning(error.message).pipe(Effect.asVoid)));
+        } else {
+          newThreadRecommendationGenerationCooldownByKey.set(
+            `${input.cacheKey}:${input.fingerprint}`,
+            Date.now() + NEW_THREAD_RECOMMENDATION_GENERATION_RETRY_COOLDOWN_MS,
+          );
+        }
+        return { recommendations };
+      }).pipe(
+        Effect.tapError(() =>
+          Effect.sync(() => {
+            newThreadRecommendationGenerationCooldownByKey.set(
+              `${input.cacheKey}:${input.fingerprint}`,
+              Date.now() + NEW_THREAD_RECOMMENDATION_GENERATION_RETRY_COOLDOWN_MS,
+            );
+          }),
+        ),
+      );
+
+    const loadNewThreadRecommendations = (input: {
+      readonly cwd: string;
+      readonly modelSelection: Parameters<
+        typeof textGeneration.generateNewThreadRecommendations
+      >[0]["modelSelection"];
+      readonly turns: Parameters<
+        typeof textGeneration.generateNewThreadRecommendations
+      >[0]["turns"];
+    }): Effect.Effect<GenerateNewThreadRecommendationsResult, TextGenerationError> =>
+      Effect.gen(function* () {
+        yield* Effect.tryPromise({
+          try: () => cleanupNewThreadRecommendationCache(config.stateDir),
+          catch: (cause) =>
+            new TextGenerationError({
+              operation: "generateNewThreadRecommendations",
+              detail: "Unable to clean new-thread recommendation cache.",
+              cause,
+            }),
+        }).pipe(Effect.catch((error) => Effect.logWarning(error.message).pipe(Effect.asVoid)));
+
+        const cacheKey = newThreadRecommendationCacheKey(input.cwd);
+        const fingerprint = newThreadRecommendationFingerprint({
+          modelSelection: input.modelSelection,
+          turns: input.turns,
+        });
+        const cached = yield* Effect.tryPromise({
+          try: () => readNewThreadRecommendationCache(config.stateDir, input.cwd),
+          catch: (cause) =>
+            new TextGenerationError({
+              operation: "generateNewThreadRecommendations",
+              detail: "Unable to read new-thread recommendation cache.",
+              cause,
+            }),
+        }).pipe(Effect.catch(() => Effect.succeed(null)));
+
+        const cachedRecommendations =
+          cached === null ? [] : normalizeCachedNewThreadRecommendations(cached.recommendations);
+        const hasCachedRecommendations = cachedRecommendations.length > 0;
+        const hasGenerationContext = input.turns.length > 0;
+
+        if (
+          cached !== null &&
+          hasCachedRecommendations &&
+          isFreshNewThreadRecommendationCache(cached, Date.now())
+        ) {
+          return { recommendations: cachedRecommendations };
+        }
+
+        if (!hasGenerationContext) {
+          return { recommendations: cachedRecommendations };
+        }
+
+        const generationCooldownUntil =
+          newThreadRecommendationGenerationCooldownByKey.get(`${cacheKey}:${fingerprint}`) ?? 0;
+        if (generationCooldownUntil > Date.now()) {
+          return { recommendations: cachedRecommendations };
+        }
+        if (generationCooldownUntil > 0) {
+          newThreadRecommendationGenerationCooldownByKey.delete(`${cacheKey}:${fingerprint}`);
+        }
+
+        const refresh = generateAndCacheNewThreadRecommendations({
+          ...input,
+          cacheKey,
+          fingerprint,
+        });
+
+        if (hasCachedRecommendations) {
+          yield* refresh.pipe(Effect.ignoreCause({ log: true }), Effect.forkDetach);
+          return { recommendations: cachedRecommendations };
+        }
+
+        return yield* refresh;
+      });
 
     const loadRuntimeProfile = Effect.gen(function* () {
       const providerSessions = Option.isSome(providerServiceOption)
@@ -836,7 +1213,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
                 }),
             ),
           );
-          return yield* textGeneration.generateNewThreadRecommendations({
+          return yield* loadNewThreadRecommendations({
             cwd: input.cwd,
             turns: input.turns,
             modelSelection: resolveTextGenerationModelSelection({
