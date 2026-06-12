@@ -521,6 +521,7 @@ const EMPTY_PENDING_COMPOSER_COMMENTS: readonly PendingComposerComment[] = Objec
 const EMPTY_MESSAGE_ID_SET: Set<MessageId> = new Set();
 const EMPTY_MESSAGE_TURN_COUNT_MAP: Map<MessageId, number> = new Map();
 const EMPTY_TIMELINE_ENTRIES: TimelineEntry[] = [];
+const EMPTY_CHAT_MESSAGES: readonly ChatMessage[] = Object.freeze([]);
 
 const THREAD_SWITCH_SCROLL_SETTLE_DELAY_MS = 96;
 const INITIAL_THREAD_BOTTOM_PIN_MAX_MS = 4_500;
@@ -1739,8 +1740,43 @@ function useChatViewComponent({
     (store) => store.draftThreadsByThreadId[threadId] ?? null,
   );
   const promptRef = useRef("");
-  const [expandedImage, setExpandedImage] = useState<ExpandedImagePreview | null>(null);
-  const [optimisticUserMessages, setOptimisticUserMessages] = useState<ChatMessage[]>([]);
+  const [expandedImageState, setExpandedImageState] = useState<{
+    readonly threadId: ThreadId;
+    readonly preview: ExpandedImagePreview;
+  } | null>(null);
+  const expandedImage =
+    expandedImageState?.threadId === threadId ? expandedImageState.preview : null;
+  const [optimisticUserMessagesState, setOptimisticUserMessagesState] = useState<{
+    readonly threadId: ThreadId;
+    readonly messages: readonly ChatMessage[];
+  } | null>(null);
+  const optimisticUserMessages =
+    optimisticUserMessagesState?.threadId === threadId
+      ? optimisticUserMessagesState.messages
+      : EMPTY_CHAT_MESSAGES;
+  const optimisticUserMessagesStateRef = useRef(optimisticUserMessagesState);
+  useLayoutEffect(() => {
+    optimisticUserMessagesStateRef.current = optimisticUserMessagesState;
+  }, [optimisticUserMessagesState]);
+  const setThreadOptimisticUserMessages = useStableCallback(
+    (
+      targetThreadId: ThreadId,
+      updater: (existing: readonly ChatMessage[]) => readonly ChatMessage[],
+    ) => {
+      const previousState = optimisticUserMessagesStateRef.current;
+      if (previousState && previousState.threadId !== targetThreadId) {
+        for (const message of previousState.messages) {
+          revokeUserMessagePreviewUrls(message);
+        }
+      }
+      setOptimisticUserMessagesState((current) => {
+        const existing =
+          current?.threadId === targetThreadId ? current.messages : EMPTY_CHAT_MESSAGES;
+        const next = updater(existing);
+        return next.length === 0 ? null : { threadId: targetThreadId, messages: next };
+      });
+    },
+  );
   const [threadEnvModeOverrideById, setThreadEnvModeOverrideById] = useState<
     Partial<Record<ThreadId, DraftThreadEnvMode>>
   >({});
@@ -3078,7 +3114,7 @@ function useChatViewComponent({
   useEffect(() => {
     return () => {
       clearAttachmentPreviewHandoffs();
-      for (const message of optimisticUserMessagesRef.current) {
+      for (const message of optimisticUserMessagesStateRef.current?.messages ?? []) {
         revokeUserMessagePreviewUrls(message);
       }
     };
@@ -8036,7 +8072,7 @@ function useChatViewComponent({
       return;
     }
     const timer = window.setTimeout(() => {
-      setOptimisticUserMessages((existing) =>
+      setThreadOptimisticUserMessages(threadId, (existing) =>
         existing.filter((message) => !serverIds.has(message.id)),
       );
     }, 0);
@@ -8051,36 +8087,32 @@ function useChatViewComponent({
     return () => {
       window.clearTimeout(timer);
     };
-  }, [activeThread?.id, activeThread?.messages, handoffAttachmentPreviews, optimisticUserMessages]);
+  }, [
+    activeThread?.id,
+    activeThread?.messages,
+    handoffAttachmentPreviews,
+    optimisticUserMessages,
+    setThreadOptimisticUserMessages,
+    threadId,
+  ]);
 
-  useEffect(() => {
-    setOptimisticUserMessages((existing) => {
-      for (const message of existing) {
-        revokeUserMessagePreviewUrls(message);
-      }
-      return [];
-    });
-    resetLocalDispatch();
-    queuedDesignMessageEditRef.current = null;
-    setExpandedImage(null);
-  }, [resetLocalDispatch, threadId]);
-
-  const closeExpandedImage = useCallback(() => {
-    setExpandedImage(null);
-  }, []);
-  const navigateExpandedImage = useCallback((direction: -1 | 1) => {
-    setExpandedImage((existing) => {
-      if (!existing || existing.images.length <= 1) {
+  const closeExpandedImage = () => {
+    setExpandedImageState(null);
+  };
+  const navigateExpandedImage = useStableCallback((direction: -1 | 1) => {
+    setExpandedImageState((existing) => {
+      if (!existing || existing.threadId !== threadId || existing.preview.images.length <= 1) {
         return existing;
       }
       const nextIndex =
-        (existing.index + direction + existing.images.length) % existing.images.length;
-      if (nextIndex === existing.index) {
+        (existing.preview.index + direction + existing.preview.images.length) %
+        existing.preview.images.length;
+      if (nextIndex === existing.preview.index) {
         return existing;
       }
-      return { ...existing, index: nextIndex };
+      return { ...existing, preview: { ...existing.preview, index: nextIndex } };
     });
-  }, []);
+  });
 
   useEffect(() => {
     if (!expandedImage) {
@@ -8111,7 +8143,7 @@ function useChatViewComponent({
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [expandedImage]);
+  }, [expandedImage, navigateExpandedImage]);
 
   const activeWorktreePath = activeThread?.worktreePath;
   const envMode: DraftThreadEnvMode = activeWorktreePath
@@ -8664,7 +8696,10 @@ function useChatViewComponent({
         createdAt: messageCreatedAt,
         streaming: false,
       };
-      setOptimisticUserMessages((existing) => [...existing, optimisticUserMessage]);
+      setThreadOptimisticUserMessages(threadIdForSend, (existing) => [
+        ...existing,
+        optimisticUserMessage,
+      ]);
       primeOptimisticUserTimelineRow({
         threadId: threadIdForSend,
         message: optimisticUserMessage,
@@ -8822,7 +8857,7 @@ function useChatViewComponent({
           composerImagesRef.current.length === 0 &&
           composerTerminalContextsRef.current.length === 0
         ) {
-          setOptimisticUserMessages((existing) => {
+          setThreadOptimisticUserMessages(threadIdForSend, (existing) => {
             const removed = existing.filter((message) => message.id === messageIdForSend);
             for (const message of removed) {
               revokeUserMessagePreviewUrls(message);
@@ -8874,6 +8909,7 @@ function useChatViewComponent({
       setStoreThreadBranch,
       setStoreThreadError,
       setThreadError,
+      setThreadOptimisticUserMessages,
     ],
   );
   const sendQueuedComposerMessage = useCallback(
@@ -9551,7 +9587,10 @@ function useChatViewComponent({
         createdAt: messageCreatedAt,
         streaming: false,
       };
-      setOptimisticUserMessages((existing) => [...existing, optimisticUserMessage]);
+      setThreadOptimisticUserMessages(threadIdForSend, (existing) => [
+        ...existing,
+        optimisticUserMessage,
+      ]);
       primeOptimisticUserTimelineRow({
         threadId: threadIdForSend,
         message: optimisticUserMessage,
@@ -9604,7 +9643,7 @@ function useChatViewComponent({
         }
         setSendInFlightState(false);
       } catch (err) {
-        setOptimisticUserMessages((existing) =>
+        setThreadOptimisticUserMessages(threadIdForSend, (existing) =>
           existing.filter((message) => message.id !== messageIdForSend),
         );
         removeOptimisticUserTimelineRow({
@@ -9640,6 +9679,7 @@ function useChatViewComponent({
       setRightSidePanelVisible,
       setSendInFlightState,
       setThreadError,
+      setThreadOptimisticUserMessages,
       selectedModel,
     ],
   );
@@ -9880,14 +9920,15 @@ function useChatViewComponent({
       composerShellDraft,
       handoffDisabledReason,
       handoffInFlight,
-      hydrateThreadFromCache,
       hydrateThreadFromReadModel,
+      interactionMode,
       isServerThread,
       modelSettings,
       navigate,
       providerStatuses,
       runtimeMode,
       setComposerDraftModelSelection,
+      setHandoffInFlight,
       setStickyComposerModelSelection,
     ],
   );
@@ -9943,12 +9984,12 @@ function useChatViewComponent({
       [groupId]: !existing[groupId],
     }));
   }, []);
-  const onExpandTimelineImage = useCallback((preview: ExpandedImagePreview) => {
+  const onExpandTimelineImage = useStableCallback((preview: ExpandedImagePreview) => {
     if (!resolveExpandedImageItem(preview)) {
       return;
     }
-    setExpandedImage(preview);
-  }, []);
+    setExpandedImageState({ threadId, preview });
+  });
   const expandedImageItem = resolveExpandedImageItem(expandedImage);
   const onOpenTurnDiff = useCallback(
     (turnId: TurnId, filePath?: string) => {
@@ -10248,7 +10289,6 @@ function useChatViewComponent({
       closeGitHubIssueDialog,
       createWorktreeMutation,
       gitCwd,
-      hydrateThreadFromCache,
       hydrateThreadFromReadModel,
       interactionMode,
       isGitRepo,
@@ -10378,6 +10418,8 @@ function useChatViewComponent({
       nativeTimelineRowsOverride,
       getMessagesScrollContainer,
       onExpandTimelineImage,
+      onForkConversation,
+      onInterrupt,
       onOpenTurnDiff,
       openThreadDiagnostics,
       onRevertAssistantMessage,

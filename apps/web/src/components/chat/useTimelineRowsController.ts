@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 
 import { measureRenderWork } from "~/lib/renderProfiling";
 import {
@@ -49,56 +49,21 @@ export function useTimelineRowsController(input: {
   readonly rows: ReadonlyArray<TimelineRow>;
 } {
   const preResolvedRows = input.preResolvedRows ?? null;
-  const [retainedTimelineRows, setRetainedTimelineRows] = useState<{
-    readonly activeThreadId: string;
-    readonly rows: ReadonlyArray<TimelineRow>;
-  } | null>(null);
-  const shouldUseRetainedRowsWhileLoading =
-    preResolvedRows === null &&
-    Boolean(input.loading) &&
-    retainedTimelineRows?.activeThreadId === input.activeThreadId &&
-    retainedTimelineRows.rows.length > 0;
   const syncTimelineRows = useMemo<ReadonlyArray<TimelineRow>>(() => {
     if (preResolvedRows !== null) {
       return preResolvedRows;
     }
-    if (shouldUseRetainedRowsWhileLoading) {
-      return EMPTY_TIMELINE_ROWS;
-    }
     return measureRenderWork("chat.buildTimelineRows", () =>
       buildTimelineRows(input.timelineRowsInput),
     );
-  }, [preResolvedRows, shouldUseRetainedRowsWhileLoading, input.timelineRowsInput]);
+  }, [preResolvedRows, input.timelineRowsInput]);
   const { loading, rows } = resolveVisibleTimelineRows({
     activeThreadId: input.activeThreadId,
     loading: input.loading,
-    preferRetainedRows: shouldUseRetainedRowsWhileLoading,
-    retainedRows: retainedTimelineRows,
+    retainedRows: null,
     retainRowsWhileLoading: true,
     syncRows: syncTimelineRows,
   });
-
-  useEffect(() => {
-    if (!input.activeThreadId) {
-      setRetainedTimelineRows(null);
-      return;
-    }
-    setRetainedTimelineRows((current) =>
-      current?.activeThreadId === input.activeThreadId ? current : null,
-    );
-  }, [input.activeThreadId]);
-
-  useEffect(() => {
-    const activeThreadId = input.activeThreadId;
-    if (!activeThreadId || loading || rows.length === 0) {
-      return;
-    }
-    setRetainedTimelineRows((current) =>
-      current?.activeThreadId === activeThreadId && current.rows === rows
-        ? current
-        : { activeThreadId, rows },
-    );
-  }, [input.activeThreadId, rows, loading]);
 
   return { loading, rows };
 }

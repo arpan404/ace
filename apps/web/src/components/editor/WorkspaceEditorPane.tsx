@@ -174,6 +174,7 @@ interface ActiveSelectionState {
 }
 
 type WorkspaceEditorFeedbackState = {
+  filePath: string | null;
   actionError: string | null;
   diagnosticSummary: string | null;
   diagnosticError: string | null;
@@ -184,6 +185,7 @@ type WorkspaceEditorFeedbackState = {
 };
 
 const EMPTY_WORKSPACE_EDITOR_FEEDBACK_STATE: WorkspaceEditorFeedbackState = {
+  filePath: null,
   actionError: null,
   diagnosticSummary: null,
   diagnosticError: null,
@@ -624,6 +626,15 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
   const [editorFeedbackState, setEditorFeedbackState] = useState<WorkspaceEditorFeedbackState>(
     EMPTY_WORKSPACE_EDITOR_FEEDBACK_STATE,
   );
+  const visibleEditorFeedbackState =
+    editorFeedbackState.filePath === pane.activeFilePath
+      ? editorFeedbackState
+      : {
+          ...editorFeedbackState,
+          actionError: null,
+          previewError: null,
+          problemsOpen: false,
+        };
   const {
     actionError,
     diagnosticError,
@@ -632,7 +643,7 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
     previewError,
     problems,
     problemsOpen,
-  } = editorFeedbackState;
+  } = visibleEditorFeedbackState;
   const [navigationState, dispatchNavigationState] = useReducer(
     workspaceEditorNavigationStateReducer,
     EMPTY_WORKSPACE_EDITOR_NAVIGATION_STATE,
@@ -806,6 +817,7 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
       const nextProblems = nextDiagnostics.map(toWorkspaceEditorPaneProblem);
       setEditorFeedbackState((current) => ({
         ...current,
+        filePath: activeFilePath,
         diagnostics: nextDiagnostics,
         diagnosticSummary: formatProblemSummary(nextProblems),
         problems: nextProblems,
@@ -901,7 +913,11 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
         return [];
       }
       try {
-        setEditorFeedbackState((current) => ({ ...current, actionError: null }));
+        setEditorFeedbackState((current) => ({
+          ...current,
+          filePath: input.relativePath,
+          actionError: null,
+        }));
         const result = await api.workspaceEditor.definition(
           withRpcRouteConnection(
             {
@@ -917,7 +933,11 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
         return result.locations;
       } catch (error) {
         const message = toErrorMessage(error);
-        setEditorFeedbackState((current) => ({ ...current, actionError: message }));
+        setEditorFeedbackState((current) => ({
+          ...current,
+          filePath: input.relativePath,
+          actionError: message,
+        }));
         console.error("Failed to resolve workspace editor definitions", {
           diagnosticsCwd: props.diagnosticsCwd,
           relativePath: input.relativePath,
@@ -1392,15 +1412,6 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
     dispatchSelectionState({ type: "reset-selection-comment" });
   }, [activeSelection, commentDraft, props, selectionCommentSubmitting, workspaceCwd]);
 
-  useEffect(() => {
-    setEditorFeedbackState((current) => ({
-      ...current,
-      actionError: null,
-      previewError: null,
-      problemsOpen: false,
-    }));
-  }, [pane.activeFilePath]);
-
   const activeFileErrorMessage =
     activeFileError instanceof Error ? activeFileError.message : "An unexpected error occurred.";
   const activeFileName = pane.activeFilePath ? basenameOfPath(pane.activeFilePath) : "File";
@@ -1648,6 +1659,7 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
                     onError={() => {
                       setEditorFeedbackState((current) => ({
                         ...current,
+                        filePath: pane.activeFilePath,
                         previewError: "Unable to preview this image in the embedded editor.",
                       }));
                     }}
@@ -1660,6 +1672,7 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
                     onError={() => {
                       setEditorFeedbackState((current) => ({
                         ...current,
+                        filePath: pane.activeFilePath,
                         previewError: "Unable to preview this video in the embedded editor.",
                       }));
                     }}
@@ -1767,6 +1780,7 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
               onToggleProblems={() => {
                 setEditorFeedbackState((current) => ({
                   ...current,
+                  filePath: pane.activeFilePath,
                   problemsOpen: !current.problemsOpen,
                 }));
               }}
@@ -2040,6 +2054,7 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
                     onClick={() => {
                       setEditorFeedbackState((current) => ({
                         ...current,
+                        filePath: pane.activeFilePath,
                         problemsOpen: !current.problemsOpen,
                       }));
                     }}

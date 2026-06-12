@@ -59,12 +59,16 @@ export function useLocalDispatchState(input: {
   );
 
   const visibleLocalDispatch = serverAcknowledgedLocalDispatch ? null : localDispatch;
+  const activeThreadLocalDispatch =
+    visibleLocalDispatch?.threadId === (input.activeThread?.id ?? null)
+      ? visibleLocalDispatch
+      : null;
 
   return {
     beginLocalDispatch,
     resetLocalDispatch,
-    localDispatchStartedAt: visibleLocalDispatch?.startedAt ?? null,
-    isPreparingWorktree: visibleLocalDispatch?.preparingWorktree ?? false,
-    isSendBusy: visibleLocalDispatch !== null,
+    localDispatchStartedAt: activeThreadLocalDispatch?.startedAt ?? null,
+    isPreparingWorktree: activeThreadLocalDispatch?.preparingWorktree ?? false,
+    isSendBusy: activeThreadLocalDispatch !== null,
   };
 }
