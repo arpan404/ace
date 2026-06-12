@@ -26,6 +26,7 @@ import {
   type ReactNode,
 } from "react";
 import { estimateTimelineMessageHeight } from "../../lib/chat/timelineHeight";
+import { scrollContainerToBottom } from "../../chat-scroll";
 import {
   COMPOSER_INLINE_CHIP_CLASS_NAME,
   COMPOSER_INLINE_CHIP_ICON_CLASS_NAME,
@@ -1353,6 +1354,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     overscan: TIMELINE_VIRTUALIZER_OVERSCAN,
     useAnimationFrameWithResizeObserver: true,
   });
+  const previousActiveThreadIdRef = useRef<string | undefined>(activeThreadId);
   const isTimelineScrolling = rowVirtualizer.isScrolling;
   const timelineScrollSampleRef = useRef({
     scrollTop: Number.NaN,
@@ -1409,6 +1411,49 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const shouldRenderVirtualizedBuffer = shouldRenderTimelineVirtualizedBuffer({
     virtualizedRowCount: virtualizedRows.length,
   });
+  useLayoutEffect(() => {
+    if (!activeThreadId) {
+      previousActiveThreadIdRef.current = activeThreadId;
+      return;
+    }
+    const activeThreadChanged = previousActiveThreadIdRef.current !== activeThreadId;
+    previousActiveThreadIdRef.current = activeThreadId;
+    if (!activeThreadChanged || rows.length === 0) {
+      return;
+    }
+
+    const scrollTimelineToBottom = () => {
+      const scrollContainer = getScrollContainer();
+      if (!scrollContainer) {
+        return;
+      }
+      if (shouldRenderVirtualizedBuffer && virtualizedRows.length > 0) {
+        rowVirtualizer.scrollToIndex(virtualizedRows.length - 1, { align: "end" });
+      }
+      scrollContainerToBottom(scrollContainer);
+    };
+
+    scrollTimelineToBottom();
+    let secondFrameId: number | null = null;
+    const firstFrameId = window.requestAnimationFrame(() => {
+      scrollTimelineToBottom();
+      secondFrameId = window.requestAnimationFrame(scrollTimelineToBottom);
+    });
+
+    return () => {
+      window.cancelAnimationFrame(firstFrameId);
+      if (secondFrameId !== null) {
+        window.cancelAnimationFrame(secondFrameId);
+      }
+    };
+  }, [
+    activeThreadId,
+    getScrollContainer,
+    rowVirtualizer,
+    rows.length,
+    shouldRenderVirtualizedBuffer,
+    virtualizedRows.length,
+  ]);
   useEffect(() => {
     if (!activeThreadId || !globalRenderedWindowState) {
       return;

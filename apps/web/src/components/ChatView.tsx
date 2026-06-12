@@ -7748,6 +7748,19 @@ function useChatViewComponent({
   const onMessagesScroll = useCallback(() => {
     const scrollContainer = messagesScrollRef.current;
     if (!scrollContainer) return;
+    const activeThreadId = activeThread?.id ?? null;
+    if (
+      activeThreadId !== null &&
+      pendingInitialBottomScrollThreadIdRef.current === activeThreadId &&
+      !pendingUserScrollUpIntentRef.current &&
+      !isPointerScrollActiveRef.current
+    ) {
+      lastKnownScrollTopRef.current = scrollContainer.scrollTop;
+      shouldAutoScrollRef.current = true;
+      setShowScrollToBottom(false);
+      scheduleStickToBottom();
+      return;
+    }
     const currentScrollTop = scrollContainer.scrollTop;
     const isNearBottom = isScrollContainerNearBottom(scrollContainer);
     const autoScrollDecision = resolveAutoScrollOnScroll({
@@ -7775,6 +7788,7 @@ function useChatViewComponent({
     setShowScrollToBottom(shouldShowScrollToBottomButton(scrollContainer));
     lastKnownScrollTopRef.current = currentScrollTop;
   }, [
+    activeThread?.id,
     cancelInitialBottomPin,
     cancelPendingStickToBottom,
     scheduleStickToBottom,
