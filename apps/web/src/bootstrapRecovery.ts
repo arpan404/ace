@@ -1,6 +1,6 @@
 import type { ProjectId, ServerLifecycleWelcomePayload, ThreadId } from "@ace/contracts";
 
-export const LEAN_SNAPSHOT_RECOVERY_INPUT = {
+export const METADATA_SNAPSHOT_RECOVERY_INPUT = {
   hydrateThreadId: null,
 } as const;
 

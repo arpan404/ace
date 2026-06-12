@@ -12,7 +12,10 @@ import { Throttler } from "@tanstack/react-pacer";
 import { CheckIcon, ChevronDownIcon, CopyIcon, RefreshCwIcon, RotateCcwIcon } from "lucide-react";
 
 import { resolveAppStartupMessage, resolveAppStartupState } from "../appStartup";
-import { LEAN_SNAPSHOT_RECOVERY_INPUT, resolveWelcomeBootstrapPlan } from "../bootstrapRecovery";
+import {
+  METADATA_SNAPSHOT_RECOVERY_INPUT,
+  resolveWelcomeBootstrapPlan,
+} from "../bootstrapRecovery";
 import { APP_BASE_NAME } from "../branding";
 import { AppSidebarLayout } from "../components/AppSidebarLayout";
 import { AgentAttentionNotificationBridge } from "../components/AgentAttentionNotificationBridge";
@@ -67,7 +70,10 @@ import {
   coalesceOrchestrationUiEvents,
   resolveOrchestrationUiEventFlushPriority,
 } from "../orchestrationUiEvents";
-import { createOrchestrationRecoveryCoordinator } from "../orchestrationRecovery";
+import {
+  canUseSnapshotAsAuthoritative,
+  createOrchestrationRecoveryCoordinator,
+} from "../orchestrationRecovery";
 import { useEffectEvent } from "../hooks/useEffectEvent";
 import { resetWsRpcClient } from "../wsRpcClient";
 import { useDesktopCliInstallState } from "../lib/desktopCliInstallReactQuery";
@@ -451,22 +457,21 @@ function DetachedThreadSnapshotBootstrap(props: {
     if (!props.threadId) {
       return;
     }
-    const threadId = ThreadId.makeUnsafe(props.threadId);
     const connectionUrl = props.connectionUrl?.trim() || null;
     let disposed = false;
 
     runAsyncTask(
       (async () => {
         const snapshot = connectionUrl
-          ? await getRouteRpcClient(connectionUrl).orchestration.getSnapshot({
-              hydrateThreadId: threadId,
-            })
-          : await readNativeApi()?.orchestration.getSnapshot({ hydrateThreadId: threadId });
+          ? await getRouteRpcClient(connectionUrl).orchestration.getSnapshot(
+              METADATA_SNAPSHOT_RECOVERY_INPUT,
+            )
+          : await readNativeApi()?.orchestration.getSnapshot(METADATA_SNAPSHOT_RECOVERY_INPUT);
         if (!snapshot || disposed) {
           return;
         }
         mergeServerReadModel(snapshot, {
-          hydrateThreadId: threadId,
+          hydrateThreadId: METADATA_SNAPSHOT_RECOVERY_INPUT.hydrateThreadId,
           ...(connectionUrl ? { connectionUrl } : {}),
         });
       })(),
@@ -1253,27 +1258,38 @@ function useEventRouterLifecycle() {
         return;
       }
       const phase = beginLoadPhase("snapshot", `Running snapshot recovery (${reason})`, {
-        hydrateThreadId: LEAN_SNAPSHOT_RECOVERY_INPUT.hydrateThreadId,
+        hydrateThreadId: METADATA_SNAPSHOT_RECOVERY_INPUT.hydrateThreadId,
       });
 
       try {
         const snapshot = await localRpcClient.orchestration.getSnapshot(
-          LEAN_SNAPSHOT_RECOVERY_INPUT,
+          METADATA_SNAPSHOT_RECOVERY_INPUT,
         );
         if (!disposed) {
+          const recoveryStateBeforeMerge = recovery.getState();
+          const canReplaceWithSnapshot = canUseSnapshotAsAuthoritative(
+            recoveryStateBeforeMerge,
+            snapshot.snapshotSequence,
+          );
           const localOwnership = useHostConnectionStore.getState().getOwnership(localConnectionUrl);
-          if (localOwnership) {
+          if (localOwnership && canReplaceWithSnapshot) {
             removeReadModelEntities(localOwnership);
           }
-          useHostConnectionStore.getState().upsertSnapshotOwnership(localConnectionUrl, snapshot);
+          if (canReplaceWithSnapshot) {
+            useHostConnectionStore.getState().upsertSnapshotOwnership(localConnectionUrl, snapshot);
+          } else {
+            useHostConnectionStore.getState().mergeSnapshotOwnership(localConnectionUrl, snapshot);
+          }
           mergeServerReadModel(snapshot, {
-            ...LEAN_SNAPSHOT_RECOVERY_INPUT,
+            ...METADATA_SNAPSHOT_RECOVERY_INPUT,
             connectionUrl: localConnectionUrl,
           });
           reconcileSnapshotDerivedState();
           phase.success("Snapshot recovery applied", {
             reason,
             snapshotSequence: snapshot.snapshotSequence,
+            latestAppliedSequence: recoveryStateBeforeMerge.latestSequence,
+            authoritative: canReplaceWithSnapshot,
             projectCount: snapshot.projects.length,
             threadCount: snapshot.threads.length,
           });
@@ -1330,6 +1346,14 @@ function useEventRouterLifecycle() {
       }
       const action = recovery.classifyDomainEvent(event.sequence);
       if (action === "apply") {
+        pendingDomainEvents.push(event);
+        schedulePendingDomainEventFlush(resolveOrchestrationUiEventFlushPriority(event));
+        return;
+      }
+      if (action === "defer") {
+        // Full snapshot recovery can be slow for large threads. Live domain events
+        // are still self-contained enough to update the UI immediately; the
+        // snapshot/replay path will reconcile durable history afterward.
         pendingDomainEvents.push(event);
         schedulePendingDomainEventFlush(resolveOrchestrationUiEventFlushPriority(event));
         return;

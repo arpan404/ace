@@ -8,10 +8,10 @@
  */
 import type {
   OrchestrationCheckpointSummary,
-  OrchestrationGetThreadTimelineManifestInput,
-  OrchestrationGetThreadTimelineManifestResult,
-  OrchestrationGetThreadTimelinePageInput,
-  OrchestrationGetThreadTimelinePageResult,
+  OrchestrationGetThreadTimelineRowsSnapshotChunkInput,
+  OrchestrationGetThreadTimelineRowsSnapshotChunkResult,
+  OrchestrationGetThreadTimelineRowsSnapshotInput,
+  OrchestrationGetThreadTimelineRowsSnapshotResult,
   OrchestrationGetSnapshotInput,
   OrchestrationProject,
   OrchestrationReadModel,
@@ -53,29 +53,29 @@ export interface ProjectionSnapshotQueryShape {
   ) => Effect.Effect<OrchestrationReadModel, ProjectionRepositoryError>;
 
   /**
-   * Read a single fully hydrated active thread.
+   * Read a single thread with UI presentation history only.
    */
   readonly getThread: (
     threadId: ThreadId,
   ) => Effect.Effect<Option.Option<OrchestrationThread>, ProjectionRepositoryError>;
 
   /**
-   * Read a sparse timeline page for a thread without hydrating the full thread history.
+   * Read the complete server-rendered row timeline for one thread in a single request.
    */
-  readonly getThreadTimelinePage: (
-    input: OrchestrationGetThreadTimelinePageInput,
+  readonly getThreadTimelineRowsSnapshot: (
+    input: OrchestrationGetThreadTimelineRowsSnapshotInput,
   ) => Effect.Effect<
-    Option.Option<OrchestrationGetThreadTimelinePageResult>,
+    Option.Option<OrchestrationGetThreadTimelineRowsSnapshotResult>,
     ProjectionRepositoryError
   >;
 
   /**
-   * Read the timeline manifest needed to virtualize a thread without fetching rows.
+   * Read a normalized UI row slice for one thread.
    */
-  readonly getThreadTimelineManifest: (
-    input: OrchestrationGetThreadTimelineManifestInput,
+  readonly getThreadTimelineRowsSnapshotChunk: (
+    input: OrchestrationGetThreadTimelineRowsSnapshotChunkInput,
   ) => Effect.Effect<
-    Option.Option<OrchestrationGetThreadTimelineManifestResult>,
+    Option.Option<OrchestrationGetThreadTimelineRowsSnapshotChunkResult>,
     ProjectionRepositoryError
   >;
 

@@ -1,19 +1,65 @@
+import { isValidElement, type ReactElement, type ReactNode, useEffect, useState } from "react";
 import { Undo2Icon } from "lucide-react";
-import { type ReactNode, useEffect, useState } from "react";
 import type { ServerProvider } from "@ace/contracts";
 
-import { APP_SETTINGS_FIELD_CLASS_NAME } from "../../lib/appChrome";
 import { formatRelativeTime } from "../../timestampFormat";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
+import { Input } from "../ui/input";
+import type { ComponentProps } from "react";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
+import { Switch } from "../ui/switch";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { SidebarTrigger } from "../ui/sidebar";
+import {
+  SETTINGS_COMPACT_CONTROL_CLASS,
+  SETTINGS_CONTENT_GUTTER_CLASS,
+  SETTINGS_CONTENT_MAX_WIDTH_CLASS,
+  SETTINGS_CONTENT_TOP_PADDING_CLASS,
+  SETTINGS_CONTENT_BOTTOM_PADDING_CLASS,
+  SETTINGS_CONTROL_SURFACE_CLASS_NAMES,
+  SETTINGS_FIELD_CLASS,
+  SETTINGS_FIELD_CONTROL_CLASS,
+  SETTINGS_SELECT_TRIGGER_CLASS,
+  SETTINGS_GROUP_CLASS_NAME,
+  SETTINGS_HEADER_PAGE_CLASS,
+  SETTINGS_HEADER_ROOT_CLASS,
+  SETTINGS_HEADER_SEPARATOR_CLASS,
+  SETTINGS_INSET_PANEL_CLASS,
+  SETTINGS_PAGE_DESCRIPTION_CLASS,
+  SETTINGS_PAGE_TITLE_CLASS,
+  SETTINGS_ROW_CLASS,
+  SETTINGS_ROW_DESCRIPTION_CLASS,
+  SETTINGS_ROW_STATUS_CLASS,
+  SETTINGS_ROW_TITLE_CLASS,
+  SETTINGS_SECTION_DESCRIPTION_CLASS,
+  SETTINGS_SECTION_CARD_BODY_CLASS,
+  SETTINGS_SECTION_CARD_CLASS,
+  SETTINGS_SECTION_CARD_FLUSH_BODY_CLASS,
+  SETTINGS_SECTION_FRAME_CLASS,
+  SETTINGS_SECTION_TITLE_CLASS,
+  SETTINGS_SUBSECTION_CLASS,
+} from "./settingsUi";
 
 export const SETTINGS_NEUTRAL_ACTION_CLASS_NAME =
-  "border-border/45 bg-foreground/[0.07] text-foreground hover:bg-foreground/[0.11] active:bg-foreground/[0.15]";
+  "border-border/40 bg-foreground/[0.06] text-foreground hover:bg-foreground/[0.10] active:bg-foreground/[0.14]";
 
-export const SETTINGS_FIELD_SURFACE_CLASS_NAME = APP_SETTINGS_FIELD_CLASS_NAME;
+export const SETTINGS_FIELD_SURFACE_CLASS_NAME = SETTINGS_FIELD_CLASS;
 export const SETTINGS_INLINE_DIVIDER_CLASS_NAME = "bg-transparent shadow-none";
+
+type SettingsInputProps = ComponentProps<typeof Input>;
+
+export function SettingsInput({ className, ...props }: SettingsInputProps) {
+  return <Input className={cn(SETTINGS_FIELD_CLASS, className)} {...props} />;
+}
+
+export { SETTINGS_GROUP_CLASS_NAME } from "./settingsUi";
+export const SETTINGS_ROW_INSET_CLASS_NAME = SETTINGS_ROW_CLASS;
+export const SETTINGS_LIST_ROW_CLASS_NAME = SETTINGS_ROW_CLASS;
+export const SETTINGS_SUBSECTION_LABEL_CLASS_NAME = SETTINGS_SECTION_TITLE_CLASS;
+export const SETTINGS_CARD_CLASS_NAME = SETTINGS_SECTION_CARD_CLASS;
+export const SETTINGS_CARD_HEADER_CLASS_NAME = "pb-2";
+export const SETTINGS_CARD_BODY_CLASS_NAME = SETTINGS_SECTION_CARD_BODY_CLASS;
 
 function maskEmailAddress(value: string): string {
   const [localPart, domainPart] = value.split("@");
@@ -146,7 +192,7 @@ export function ProviderLastChecked({ lastCheckedAt }: { lastCheckedAt: string |
   }
 
   return (
-    <span className="text-[11px] text-muted-foreground/35">
+    <span className={SETTINGS_ROW_STATUS_CLASS}>
       {lastCheckedRelative.suffix ? (
         <>
           Checked <span className="font-mono tabular-nums">{lastCheckedRelative.value}</span>{" "}
@@ -159,40 +205,108 @@ export function ProviderLastChecked({ lastCheckedAt }: { lastCheckedAt: string |
   );
 }
 
-export function SettingsSection({
+function isCompactControl(control: ReactNode): control is ReactElement {
+  if (!isValidElement(control)) {
+    return false;
+  }
+  return control.type === Switch || control.type === Select;
+}
+
+export function SettingsPageHeader({
+  pageLabel,
+  description,
+  action,
+  showSidebarTrigger = false,
+  className,
+}: {
+  pageLabel: ReactNode;
+  description?: ReactNode;
+  action?: ReactNode;
+  showSidebarTrigger?: boolean;
+  className?: string;
+}) {
+  return (
+    <header className={cn("mb-8 min-w-0", className)}>
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex min-w-0 items-start gap-2">
+          {showSidebarTrigger ? <SidebarTrigger className="mt-px shrink-0" /> : null}
+          <div className="min-w-0">
+            <h1 className={SETTINGS_PAGE_TITLE_CLASS}>
+              <span className={SETTINGS_HEADER_ROOT_CLASS}>Settings</span>
+              <span className={SETTINGS_HEADER_SEPARATOR_CLASS} aria-hidden="true">
+                |
+              </span>
+              <span className={SETTINGS_HEADER_PAGE_CLASS}>{pageLabel}</span>
+            </h1>
+            {description ? <p className={SETTINGS_PAGE_DESCRIPTION_CLASS}>{description}</p> : null}
+          </div>
+        </div>
+        {action ? <div className="shrink-0">{action}</div> : null}
+      </div>
+    </header>
+  );
+}
+
+export function SettingsSubsection({
   title,
   description,
-  icon,
-  headerAction,
-  contentClassName,
+  className,
   children,
 }: {
   title: string;
   description?: ReactNode;
-  icon?: ReactNode;
-  headerAction?: ReactNode;
-  contentClassName?: string;
-  children: ReactNode;
+  className?: string;
+  children?: ReactNode;
 }) {
   return (
+    <div className={cn(SETTINGS_SUBSECTION_CLASS, className)}>
+      <h3 className={SETTINGS_SECTION_TITLE_CLASS}>{title}</h3>
+      {description ? <p className={SETTINGS_SECTION_DESCRIPTION_CLASS}>{description}</p> : null}
+      {children}
+    </div>
+  );
+}
+
+export function SettingsSection({
+  title,
+  description,
+  headerAction,
+  contentClassName,
+  bodyClassName,
+  framed = true,
+  children,
+}: {
+  title: string;
+  description?: ReactNode;
+  headerAction?: ReactNode;
+  contentClassName?: string;
+  bodyClassName?: string;
+  /** Wrap rows in a section card. Default on; use false for self-contained panels. */
+  framed?: boolean;
+  children: ReactNode;
+}) {
+  const body = (
+    <div
+      className={
+        framed
+          ? (bodyClassName ?? SETTINGS_SECTION_CARD_BODY_CLASS)
+          : cn(SETTINGS_SECTION_FRAME_CLASS, SETTINGS_GROUP_CLASS_NAME)
+      }
+    >
+      {children}
+    </div>
+  );
+
+  return (
     <section className={cn("min-w-0", contentClassName)}>
-      <div className="flex min-w-0 flex-col gap-2 px-0 pb-4 sm:flex-row sm:items-end sm:justify-between">
-        <div className="min-w-0 space-y-1.5">
-          <h2 className="flex min-w-0 items-center gap-2 text-[19px] leading-6 font-semibold tracking-normal text-foreground">
-            {icon ? <span className="shrink-0 text-muted-foreground/50">{icon}</span> : null}
-            <span className="min-w-0 truncate">{title}</span>
-          </h2>
-          {description ? (
-            <p className="max-w-3xl text-[12px] leading-relaxed text-muted-foreground/60">
-              {description}
-            </p>
-          ) : null}
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className={SETTINGS_SECTION_TITLE_CLASS}>{title}</h2>
+          {description ? <p className={SETTINGS_SECTION_DESCRIPTION_CLASS}>{description}</p> : null}
         </div>
-        {headerAction ? (
-          <div className="flex min-h-6 shrink-0 items-center sm:justify-end">{headerAction}</div>
-        ) : null}
+        {headerAction ? <div className="shrink-0">{headerAction}</div> : null}
       </div>
-      <div className={cn("relative min-w-0 space-y-1 text-card-foreground")}>{children}</div>
+      {framed ? <div className={SETTINGS_SECTION_CARD_CLASS}>{body}</div> : body}
     </section>
   );
 }
@@ -204,6 +318,7 @@ export function SettingsRow({
   resetAction,
   control,
   controlClassName,
+  layout,
   tone = "default",
   children,
 }: {
@@ -213,51 +328,53 @@ export function SettingsRow({
   resetAction?: ReactNode;
   control?: ReactNode;
   controlClassName?: string;
+  layout?: "compact" | "field";
   tone?: "default" | "warning" | "danger";
   children?: ReactNode;
 }) {
+  const useCompactLayout = layout ?? (control && !children ? isCompactControl(control) : false);
+
+  const label = (
+    <div className="min-w-0 flex-1">
+      <div className="flex items-center gap-2">
+        <span className={SETTINGS_ROW_TITLE_CLASS}>{title}</span>
+        {resetAction}
+      </div>
+      {description ? <p className={SETTINGS_ROW_DESCRIPTION_CLASS}>{description}</p> : null}
+      {status ? <div className={SETTINGS_ROW_STATUS_CLASS}>{status}</div> : null}
+    </div>
+  );
+
   return (
     <div
       className={cn(
-        "px-0 py-3.5 transition-colors duration-150 sm:py-4",
-        tone === "default" && "hover:bg-foreground/[0.012]",
-        tone === "warning" && "bg-warning/[0.025] px-2 sm:px-3",
-        tone === "danger" && "bg-destructive/[0.025] px-2 sm:px-3",
+        SETTINGS_ROW_CLASS,
+        tone === "warning" && "bg-warning/[0.04]",
+        tone === "danger" && "bg-destructive/[0.04]",
       )}
     >
-      <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-center md:gap-5">
-        <div className="min-w-0 flex-1 space-y-1">
-          <div className="flex min-h-5 min-w-0 items-center gap-1.5">
-            <h3 className="min-w-0 text-[14px] leading-snug font-semibold tracking-normal text-foreground/94">
-              {title}
-            </h3>
-            {resetAction ? (
-              <span className="inline-flex size-5 shrink-0 items-center justify-center">
-                {resetAction}
-              </span>
-            ) : null}
-          </div>
-          {description ? (
-            <p className="max-w-2xl text-[12px] leading-relaxed text-muted-foreground/58">
-              {description}
-            </p>
-          ) : null}
-          {status ? (
-            <div className="pt-0.5 text-[11px] text-muted-foreground/60">{status}</div>
-          ) : null}
-        </div>
-        {control ? (
+      {useCompactLayout && control ? (
+        <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between sm:gap-8">
+          {label}
           <div
             className={cn(
-              "flex w-full min-w-0 shrink-0 items-center gap-2 md:w-auto md:justify-end",
+              SETTINGS_COMPACT_CONTROL_CLASS,
+              "flex shrink-0 items-center sm:justify-end",
               controlClassName,
             )}
           >
             {control}
           </div>
-        ) : null}
-      </div>
-      {children}
+        </div>
+      ) : (
+        <div className="space-y-2.5">
+          {label}
+          {control ? (
+            <div className={cn(SETTINGS_FIELD_CONTROL_CLASS, controlClassName)}>{control}</div>
+          ) : null}
+        </div>
+      )}
+      {children ? <div className="mt-3 min-w-0">{children}</div> : null}
     </div>
   );
 }
@@ -291,21 +408,21 @@ export function SettingsChoiceGroup<TValue extends string>({
       }}
     >
       <SelectTrigger
-        size="sm"
-        className={cn("mt-3 w-full max-w-sm text-foreground/90", className)}
+        size="default"
+        className={cn(SETTINGS_SELECT_TRIGGER_CLASS, className)}
         aria-label={label}
       >
         <SelectValue>
           <span className="min-w-0 truncate">{selectedOption?.label}</span>
         </SelectValue>
       </SelectTrigger>
-      <SelectPopup align="start" alignItemWithTrigger={false}>
+      <SelectPopup align="end" alignItemWithTrigger={false}>
         {options.map((option) => (
           <SelectItem key={option.value} value={option.value}>
             <span className="min-w-0">
-              <span className="block truncate">{option.label}</span>
+              <span className="block truncate text-sm">{option.label}</span>
               {option.description ? (
-                <span className="mt-0.5 block max-w-80 truncate text-[11px] font-normal text-muted-foreground/62">
+                <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
                   {option.description}
                 </span>
               ) : null}
@@ -319,36 +436,58 @@ export function SettingsChoiceGroup<TValue extends string>({
 
 export function SettingResetButton({ label, onClick }: { label: string; onClick: () => void }) {
   return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <Button
-            size="icon-xs"
-            variant="ghost"
-            aria-label={`Reset ${label} to default`}
-            className="size-5 rounded-[var(--control-radius)] p-0 text-muted-foreground/50 transition-colors duration-150 hover:bg-foreground/[0.055] hover:text-foreground"
-            onClick={(event) => {
-              event.stopPropagation();
-              onClick();
-            }}
-          >
-            <Undo2Icon className="size-3" />
-          </Button>
-        }
-      />
-      <TooltipPopup side="top">Reset to default</TooltipPopup>
-    </Tooltip>
+    <Button
+      type="button"
+      size="xs"
+      variant="ghost"
+      className="h-6 px-1.5 text-xs text-muted-foreground hover:text-foreground"
+      aria-label={`Reset ${label} to default`}
+      onClick={(event) => {
+        event.stopPropagation();
+        onClick();
+      }}
+    >
+      <Undo2Icon className="size-3" />
+      Reset
+    </Button>
   );
 }
 
 export function SettingsPageContainer({ children }: { children: ReactNode }) {
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-5 sm:py-5 lg:px-8">
-      <div className="mx-auto flex w-full max-w-[64rem] flex-col gap-6 pb-10 sm:gap-7">
-        <div className="flex flex-col gap-8 sm:gap-9 [&>section+section]:border-t [&>section+section]:border-border/38 [&>section+section]:pt-8 sm:[&>section+section]:pt-9 [&_[data-slot=input-control]]:border-border/45 [&_[data-slot=input-control]]:bg-background/55 [&_[data-slot=input-control]]:shadow-none [&_[data-slot=input]]:h-7 [&_[data-slot=input]]:px-2.5 [&_[data-slot=input]]:text-[12px] [&_[data-slot=input]]:leading-7 [&_[data-slot=select-button]]:rounded-[var(--control-radius)] [&_[data-slot=select-button]]:border-border/45 [&_[data-slot=select-button]]:bg-background/55 [&_[data-slot=select-button]]:shadow-none [&_[data-slot=switch][data-checked]]:border-border/45 [&_[data-slot=switch][data-checked]]:bg-foreground/55 [&_button[data-slot=button]:not([data-size^=icon])]:h-7 [&_button[data-slot=button]:not([data-size^=icon])]:px-2.5 [&_button[data-slot=button]:not([data-size^=icon])]:text-[12px] [&_button[data-slot=button][data-variant=default]]:border-border/45 [&_button[data-slot=button][data-variant=default]]:bg-foreground/[0.07] [&_button[data-slot=button][data-variant=default]]:text-foreground [&_button[data-slot=button][data-variant=default]]:hover:bg-foreground/[0.11] [&_button[data-slot=button][data-variant=default]]:active:bg-foreground/[0.15] [&_button[data-slot=button]]:rounded-[var(--control-radius)]">
-          {children}
-        </div>
+    <div
+      className={cn(
+        "min-h-0 flex-1 overflow-y-auto",
+        SETTINGS_CONTENT_TOP_PADDING_CLASS,
+        SETTINGS_CONTENT_BOTTOM_PADDING_CLASS,
+      )}
+    >
+      <div
+        className={cn(
+          "mx-auto w-full",
+          SETTINGS_CONTENT_MAX_WIDTH_CLASS,
+          SETTINGS_CONTENT_GUTTER_CLASS,
+          ...SETTINGS_CONTROL_SURFACE_CLASS_NAMES,
+        )}
+      >
+        <div className="space-y-8">{children}</div>
       </div>
+    </div>
+  );
+}
+
+export function SettingsInsetPanel({
+  children,
+  className,
+  muted = false,
+}: {
+  children: ReactNode;
+  className?: string;
+  muted?: boolean;
+}) {
+  return (
+    <div className={cn(SETTINGS_INSET_PANEL_CLASS, muted && "bg-muted/10", className)}>
+      {children}
     </div>
   );
 }

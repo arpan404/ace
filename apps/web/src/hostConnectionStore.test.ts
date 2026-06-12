@@ -1,4 +1,4 @@
-import { ProjectId, ThreadId } from "@ace/contracts";
+import { ProjectId, ThreadId, type OrchestrationReadModel } from "@ace/contracts";
 import { describe, expect, it } from "vitest";
 
 import { useHostConnectionStore } from "./hostConnectionStore";
@@ -9,6 +9,26 @@ function resetHostConnectionStore(): void {
     projectConnectionById: {},
     threadConnectionById: {},
   });
+}
+
+function readModelWithOwnership(input: {
+  projectIds?: ReadonlyArray<ProjectId>;
+  threadIds?: ReadonlyArray<ThreadId>;
+}): OrchestrationReadModel {
+  return {
+    snapshotSequence: 1,
+    projects: (input.projectIds ?? []).map((id) => ({
+      id,
+      archivedAt: null,
+      deletedAt: null,
+    })),
+    threads: (input.threadIds ?? []).map((id) => ({
+      id,
+      archivedAt: null,
+      deletedAt: null,
+    })),
+    updatedAt: new Date(0).toISOString(),
+  } as unknown as OrchestrationReadModel;
 }
 
 describe("hostConnectionStore", () => {
@@ -58,5 +78,27 @@ describe("hostConnectionStore", () => {
     expect(next.threadConnectionById[threadId]).toBe("ws://new-host/ws");
     expect(next.ownershipByConnectionUrl["ws://old-host/ws"]?.threadIds).not.toContain(threadId);
     expect(next.ownershipByConnectionUrl["ws://new-host/ws"]?.threadIds).toContain(threadId);
+  });
+
+  it("merges stale snapshot ownership without dropping live-owned entities", () => {
+    resetHostConnectionStore();
+    const snapshotThreadId = ThreadId.makeUnsafe("thread-from-snapshot");
+    const liveThreadId = ThreadId.makeUnsafe("thread-from-live-event");
+
+    useHostConnectionStore.getState().upsertThreadOwnership("ws://remote-host/ws", liveThreadId);
+    useHostConnectionStore
+      .getState()
+      .mergeSnapshotOwnership(
+        "ws://remote-host/ws",
+        readModelWithOwnership({ threadIds: [snapshotThreadId] }),
+      );
+
+    const next = useHostConnectionStore.getState();
+    expect(next.threadConnectionById[snapshotThreadId]).toBe("ws://remote-host/ws");
+    expect(next.threadConnectionById[liveThreadId]).toBe("ws://remote-host/ws");
+    expect(next.ownershipByConnectionUrl["ws://remote-host/ws"]?.threadIds).toEqual([
+      liveThreadId,
+      snapshotThreadId,
+    ]);
   });
 });

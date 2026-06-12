@@ -25,6 +25,7 @@ interface ChatHeaderProps {
   onToggleTerminal: () => void;
   onToggleRightSidePanel: () => void;
   reliabilitySlot?: ReactNode;
+  showThreadIdentity?: boolean;
 }
 
 export const ChatHeader = memo(function ChatHeader({
@@ -43,6 +44,7 @@ export const ChatHeader = memo(function ChatHeader({
   onToggleTerminal,
   onToggleRightSidePanel,
   reliabilitySlot,
+  showThreadIdentity = true,
 }: ChatHeaderProps) {
   const bottomPanelTooltipLabel = !terminalAvailable
     ? "Bottom panel is unavailable until this thread has an active project."
@@ -59,44 +61,50 @@ export const ChatHeader = memo(function ChatHeader({
   return (
     <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2">
       <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden sm:gap-2">
-        <div className="flex min-w-0 items-center gap-1.5 sm:gap-2">
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <h2 className="min-w-0 shrink truncate text-[13px] leading-none font-medium tracking-tight text-foreground/80">
-                  {activeThreadTitle}
-                </h2>
-              }
-            />
-            <TooltipPopup side="bottom" className="max-w-96 whitespace-pre-wrap">
-              {activeThreadTitle}
-            </TooltipPopup>
-          </Tooltip>
-          {activeProjectName ? (
-            <div className="flex min-w-0 items-center gap-1 overflow-hidden">
-              {activeProjectId !== null && onActiveProjectChange ? (
-                <ProjectContextSwitcher
-                  activeProjectId={activeProjectId}
-                  className="min-w-0 max-w-52 shrink"
-                  onSelectProject={onActiveProjectChange}
-                />
-              ) : (
-                <Badge
-                  variant="outline"
-                  size="sm"
-                  className="min-w-0 max-w-40 shrink overflow-hidden border-pill-border/40 bg-pill/80 text-pill-foreground/65 sm:max-w-48"
-                >
-                  <span className="min-w-0 truncate">{activeProjectName}</span>
-                </Badge>
-              )}
-              {!isGitRepo ? (
-                <Badge variant="warning" size="sm" className="shrink-0">
-                  No Git
-                </Badge>
-              ) : null}
-            </div>
-          ) : null}
-        </div>
+        {showThreadIdentity ? (
+          <div className="flex min-w-0 items-center gap-1.5 sm:gap-2">
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <span
+                    role="heading"
+                    aria-level={2}
+                    className="flex min-w-0 shrink items-center truncate text-[13px] leading-[18px] font-medium tracking-tight text-foreground/80"
+                  >
+                    {activeThreadTitle}
+                  </span>
+                }
+              />
+              <TooltipPopup side="bottom" className="max-w-96 whitespace-pre-wrap">
+                {activeThreadTitle}
+              </TooltipPopup>
+            </Tooltip>
+            {activeProjectName ? (
+              <div className="flex min-w-0 items-center gap-1 overflow-hidden">
+                {activeProjectId !== null && onActiveProjectChange ? (
+                  <ProjectContextSwitcher
+                    activeProjectId={activeProjectId}
+                    className="min-w-0 max-w-52 shrink"
+                    onSelectProject={onActiveProjectChange}
+                  />
+                ) : (
+                  <Badge
+                    variant="outline"
+                    size="sm"
+                    className="min-w-0 max-w-40 shrink overflow-hidden border-pill-border/40 bg-pill/80 text-pill-foreground/65 sm:max-w-48"
+                  >
+                    <span className="min-w-0 truncate">{activeProjectName}</span>
+                  </Badge>
+                )}
+                {!isGitRepo ? (
+                  <Badge variant="warning" size="sm" className="shrink-0">
+                    No Git
+                  </Badge>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
       </div>
 
       <div className="flex shrink-0 items-center overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">

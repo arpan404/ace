@@ -313,9 +313,7 @@ export function ComposerQueuedMessages(props: {
           <span className="text-[10px] font-semibold tracking-[0.16em] text-muted-foreground/70 uppercase">
             Queue
           </span>
-          <span className={APP_BADGE_CLASS_NAME}>
-            {props.messages.length}
-          </span>
+          <span className={APP_BADGE_CLASS_NAME}>{props.messages.length}</span>
         </div>
         <div className="flex items-center gap-1">
           <Tooltip>

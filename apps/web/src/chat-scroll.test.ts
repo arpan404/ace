@@ -2,9 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   AUTO_SCROLL_BOTTOM_THRESHOLD_PX,
+  SCROLL_TO_BOTTOM_BUTTON_THRESHOLD_PX,
   isScrollContainerNearBottom,
   resolveAutoScrollOnScroll,
-  shouldPreserveInteractionAnchorOnClick,
+  shouldShowScrollToBottomButton,
   scrollContainerToBottom,
 } from "./chat-scroll";
 
@@ -67,6 +68,29 @@ describe("isScrollContainerNearBottom", () => {
   });
 });
 
+describe("shouldShowScrollToBottomButton", () => {
+  it("hides the button when the viewport is close enough to the bottom", () => {
+    expect(
+      shouldShowScrollToBottomButton({
+        scrollTop: 460,
+        clientHeight: 400,
+        scrollHeight: 1_000,
+      }),
+    ).toBe(false);
+    expect(SCROLL_TO_BOTTOM_BUTTON_THRESHOLD_PX).toBeGreaterThan(AUTO_SCROLL_BOTTOM_THRESHOLD_PX);
+  });
+
+  it("shows the button only when the user is meaningfully away from the bottom", () => {
+    expect(
+      shouldShowScrollToBottomButton({
+        scrollTop: 420,
+        clientHeight: 400,
+        scrollHeight: 1_000,
+      }),
+    ).toBe(true);
+  });
+});
+
 describe("scrollContainerToBottom", () => {
   it("jumps directly to the bottom by default", () => {
     const scrollTo = vi.fn();
@@ -107,13 +131,31 @@ describe("resolveAutoScrollOnScroll", () => {
         isNearBottom: true,
         currentScrollTop: 540,
         previousScrollTop: 560,
-        hasPendingUserScrollUpIntent: true,
+        hasPendingUserScrollUpIntent: false,
         isPointerScrollActive: false,
       }),
     ).toEqual({
       shouldAutoScroll: true,
       clearPendingUserScrollUpIntent: true,
       cancelPendingStickToBottom: false,
+      scheduleStickToBottom: false,
+    });
+  });
+
+  it("does not re-enable auto-scroll while upward intent is still pending near bottom", () => {
+    expect(
+      resolveAutoScrollOnScroll({
+        shouldAutoScroll: false,
+        isNearBottom: true,
+        currentScrollTop: 540,
+        previousScrollTop: 560,
+        hasPendingUserScrollUpIntent: true,
+        isPointerScrollActive: false,
+      }),
+    ).toEqual({
+      shouldAutoScroll: false,
+      clearPendingUserScrollUpIntent: false,
+      cancelPendingStickToBottom: true,
       scheduleStickToBottom: false,
     });
   });
@@ -136,12 +178,30 @@ describe("resolveAutoScrollOnScroll", () => {
     });
   });
 
-  it("keeps auto-scroll active for layout drift without explicit user intent", () => {
+  it("disables auto-scroll when upward movement is observed without an explicit input hint", () => {
     expect(
       resolveAutoScrollOnScroll({
         shouldAutoScroll: true,
         isNearBottom: false,
         currentScrollTop: 520,
+        previousScrollTop: 540,
+        hasPendingUserScrollUpIntent: false,
+        isPointerScrollActive: false,
+      }),
+    ).toEqual({
+      shouldAutoScroll: false,
+      clearPendingUserScrollUpIntent: true,
+      cancelPendingStickToBottom: true,
+      scheduleStickToBottom: false,
+    });
+  });
+
+  it("keeps auto-scroll active for downward layout drift without explicit user intent", () => {
+    expect(
+      resolveAutoScrollOnScroll({
+        shouldAutoScroll: true,
+        isNearBottom: false,
+        currentScrollTop: 560,
         previousScrollTop: 540,
         hasPendingUserScrollUpIntent: false,
         isPointerScrollActive: false,
@@ -170,15 +230,5 @@ describe("resolveAutoScrollOnScroll", () => {
       cancelPendingStickToBottom: false,
       scheduleStickToBottom: false,
     });
-  });
-});
-
-describe("shouldPreserveInteractionAnchorOnClick", () => {
-  it("keeps anchor preservation for keyboard-triggered clicks", () => {
-    expect(shouldPreserveInteractionAnchorOnClick(0)).toBe(true);
-  });
-
-  it("skips anchor preservation for pointer clicks", () => {
-    expect(shouldPreserveInteractionAnchorOnClick(1)).toBe(false);
   });
 });

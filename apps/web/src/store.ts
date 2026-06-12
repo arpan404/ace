@@ -21,18 +21,22 @@ import {
   derivePendingUserInputs,
 } from "./session-logic";
 import { appendCompactedThreadActivity } from "@ace/shared/orchestrationThreadActivities";
+import { compactActivityForClient } from "@ace/shared/orchestrationActivityPresentation";
 import { compareSequenceThenCreatedAt } from "./lib/activityOrder";
 import {
   appendChatMessageStreamingTextState,
   createChatMessageStreamingTextState,
   finalizeChatMessageText,
+  getChatMessageFullText,
 } from "./lib/chat/messageText";
 import { primeHydratedThreadCache } from "./lib/threadHydrationCache";
 import {
-  primeLiveThreadTimelineEntry,
-  primeThreadTimelineManifestFromReadModelThread,
-  useTimelineWindowStore,
-} from "./lib/chat/timelineWindowStore";
+  hydrateThreadTimelineRowsSnapshotInBackground,
+  primeLiveTimelineRow,
+  primeThreadTimelineRowsMetadataFromReadModelThread,
+  primeThreadTimelineRowsMetadataFromReadModelThreads,
+  useTimelineModelStore,
+} from "./lib/chat/timelineModelStore";
 import { resolveConnectionForThreadId } from "./lib/connectionRouting";
 import { resolveServerUrl } from "./lib/utils";
 import { type ChatMessage, type Project, type SidebarThreadSummary, type Thread } from "./types";
@@ -198,7 +202,7 @@ function normalizeModelSelection<T extends { provider: ProviderKind; model: stri
 }
 
 function mapProjectScripts(scripts: ReadonlyArray<Project["scripts"][number]>): Project["scripts"] {
-  return scripts.map((script) => ({ ...script, env: { ...(script.env ?? {}) } }));
+  return scripts.map((script) => ({ ...script, env: script.env ? { ...script.env } : {} }));
 }
 
 function mapSession(session: OrchestrationSession): Thread["session"] {
@@ -257,8 +261,11 @@ function suppressDismissedThreadError(
   };
 }
 
-function mapMessage(message: OrchestrationMessage, connectionUrl?: string): ChatMessage {
-  const attachments = message.attachments?.map((attachment) => ({
+function mapMessageAttachments(
+  attachments: OrchestrationMessage["attachments"],
+  connectionUrl?: string,
+) {
+  return attachments?.map((attachment) => ({
     type: "image" as const,
     id: attachment.id,
     name: attachment.name,
@@ -266,6 +273,10 @@ function mapMessage(message: OrchestrationMessage, connectionUrl?: string): Chat
     sizeBytes: attachment.sizeBytes,
     previewUrl: toAttachmentPreviewUrl(attachmentPreviewRoutePath(attachment.id), connectionUrl),
   }));
+}
+
+function mapTimelineMessage(message: OrchestrationMessage, connectionUrl?: string): ChatMessage {
+  const attachments = mapMessageAttachments(message.attachments, connectionUrl);
 
   return {
     id: message.id,
@@ -281,6 +292,81 @@ function mapMessage(message: OrchestrationMessage, connectionUrl?: string): Chat
     ...(message.streaming ? {} : { completedAt: message.updatedAt }),
     ...(attachments && attachments.length > 0 ? { attachments } : {}),
   };
+}
+
+function mapOrchestrationMessageForClient(
+  message: OrchestrationMessage,
+  connectionUrl?: string,
+): OrchestrationMessage {
+  const attachments = message.attachments?.map((attachment) => ({
+    ...attachment,
+    previewUrl: toAttachmentPreviewUrl(attachmentPreviewRoutePath(attachment.id), connectionUrl),
+  }));
+  return {
+    ...message,
+    ...(attachments && attachments.length > 0 ? { attachments } : {}),
+  };
+}
+
+function isIncomingMessageOlder(existing: ChatMessage, incoming: ChatMessage): boolean {
+  return (
+    existing.sequence !== undefined &&
+    incoming.sequence !== undefined &&
+    incoming.sequence < existing.sequence
+  );
+}
+
+function mergeMessagePreservingLiveText(existing: ChatMessage, incoming: ChatMessage): ChatMessage {
+  if (isIncomingMessageOlder(existing, incoming)) {
+    return existing;
+  }
+
+  if (existing.role !== "assistant" || incoming.role !== "assistant") {
+    return incoming;
+  }
+
+  const existingText = getChatMessageFullText(existing);
+  const incomingText = getChatMessageFullText(incoming);
+  if (existingText.length === 0 || incomingText.length >= existingText.length) {
+    return incoming;
+  }
+
+  if (
+    incoming.streaming ||
+    existing.streaming ||
+    incoming.sequence === undefined ||
+    existing.sequence === undefined ||
+    incoming.sequence <= existing.sequence
+  ) {
+    return existing;
+  }
+
+  return incoming;
+}
+
+function mergeMessagesPreservingLiveText(
+  existingMessages: ReadonlyArray<ChatMessage>,
+  incomingMessages: ReadonlyArray<ChatMessage>,
+): ChatMessage[] {
+  if (existingMessages.length === 0) {
+    return [...incomingMessages];
+  }
+
+  const existingById = new Map(existingMessages.map((message) => [message.id, message] as const));
+  const incomingIds = new Set(incomingMessages.map((message) => message.id));
+  const messages = incomingMessages.map((message) => {
+    const existingMessage = existingById.get(message.id);
+    return existingMessage ? mergeMessagePreservingLiveText(existingMessage, message) : message;
+  });
+
+  for (const existingMessage of existingMessages) {
+    if (incomingIds.has(existingMessage.id)) {
+      continue;
+    }
+    messages.push(existingMessage);
+  }
+
+  return messages.toSorted(compareSequenceThenCreatedAt).slice(-MAX_THREAD_MESSAGES);
 }
 
 function mapQueuedComposerMessage(
@@ -394,9 +480,18 @@ function mergeThreadPreservingHydratedHistory(
     existingThread.historyLoaded === false ||
     incomingThread.historyLoaded
   ) {
-    return existingThread && threadsRenderEquivalent(existingThread, incomingThread)
-      ? existingThread
+    const mergedThread = existingThread
+      ? {
+          ...incomingThread,
+          messages: mergeMessagesPreservingLiveText(
+            existingThread.messages,
+            incomingThread.messages,
+          ),
+        }
       : incomingThread;
+    return existingThread && threadsRenderEquivalent(existingThread, mergedThread)
+      ? existingThread
+      : mergedThread;
   }
   const mergedThread = {
     ...incomingThread,
@@ -722,11 +817,8 @@ export interface SnapshotSyncOptions {
   connectionUrl?: string;
 }
 
-function resolveThreadHistoryLoaded(threadId: ThreadId, options?: SnapshotSyncOptions): boolean {
-  if (options === undefined || !Object.prototype.hasOwnProperty.call(options, "hydrateThreadId")) {
-    return true;
-  }
-  return options.hydrateThreadId !== null && options.hydrateThreadId === threadId;
+function resolveThreadHistoryLoaded(_threadId: ThreadId, _options?: SnapshotSyncOptions): boolean {
+  return false;
 }
 
 function mapThread(thread: OrchestrationThread, options?: SnapshotSyncOptions): Thread {
@@ -740,7 +832,7 @@ function mapThread(thread: OrchestrationThread, options?: SnapshotSyncOptions): 
     runtimeMode: thread.runtimeMode,
     interactionMode: thread.interactionMode,
     session: thread.session ? mapSession(thread.session) : null,
-    messages: thread.messages.map((message) => mapMessage(message, threadConnectionUrl)),
+    messages: thread.messages.map((message) => mapTimelineMessage(message, threadConnectionUrl)),
     proposedPlans: thread.proposedPlans.map(mapProposedPlan),
     latestProposedPlanSummary: mapLatestProposedPlanSummary(thread.latestProposedPlanSummary),
     error: resolveSessionVisibleError(thread.session),
@@ -1095,17 +1187,18 @@ function retainDismissedThreadErrorKeysForThreads(
   return changed ? nextDismissedKeys : (dismissedThreadErrorKeysById as Record<string, string>);
 }
 
-function toLeanThread(thread: Thread): Thread {
+function toMetadataOnlyThread(thread: Thread): Thread {
   if (thread.historyLoaded === false) {
     return thread;
   }
 
   return {
     ...thread,
-    messages: thread.messages.filter((message) => message.role === "user"),
+    messages: [],
     proposedPlans: [],
     latestProposedPlanSummary:
       thread.latestProposedPlanSummary ?? findLatestProposedPlanSummary(thread.proposedPlans),
+    activities: [],
     turnDiffSummaries: [],
     historyLoaded: false,
   };
@@ -1136,11 +1229,11 @@ export function pruneHydratedThreadHistories(
       return thread;
     }
 
-    const leanThread = toLeanThread(thread);
-    if (leanThread !== thread) {
+    const metadataThread = toMetadataOnlyThread(thread);
+    if (metadataThread !== thread) {
       changed = true;
     }
-    return leanThread;
+    return metadataThread;
   });
 
   if (!changed) {
@@ -1479,6 +1572,25 @@ function appendThreadActivities(
   return nextActivities;
 }
 
+function primeThreadActivityTimelineRow(input: {
+  readonly threadId: ThreadId;
+  readonly activity: Thread["activities"][number];
+  readonly updatedAt: string;
+}): void {
+  primeLiveTimelineRow({
+    threadId: input.threadId,
+    updatedAt: input.updatedAt,
+    entry: {
+      kind: "activity",
+      id: input.activity.id,
+      createdAt: input.activity.createdAt,
+      turnId: input.activity.turnId,
+      ...(input.activity.sequence !== undefined ? { sequence: input.activity.sequence } : {}),
+    },
+    activity: input.activity,
+  });
+}
+
 function applyThreadActivityBatch(
   state: AppState,
   threadId: ThreadId,
@@ -1493,6 +1605,27 @@ function applyThreadActivityBatch(
     activities: appendThreadActivities(thread, activities),
     updatedAt,
   }));
+}
+
+function compactSettledTurnActivities(thread: Thread, turnId: string, updatedAt: string): Thread {
+  let changed = false;
+  const activities = thread.activities.map((activity) => {
+    if (activity.turnId === null || String(activity.turnId) !== turnId) {
+      return activity;
+    }
+    const compacted = compactActivityForClient(activity);
+    if (compacted !== activity) {
+      changed = true;
+      primeThreadActivityTimelineRow({
+        threadId: thread.id,
+        activity: compacted,
+        updatedAt,
+      });
+    }
+    return compacted;
+  });
+
+  return changed ? { ...thread, activities } : thread;
 }
 
 function applyProjectEvent(state: AppState, event: OrchestrationEvent): AppState | null {
@@ -1768,7 +1901,25 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
     }
 
     case "thread.message-sent": {
-      primeLiveThreadTimelineEntry({
+      const connectionUrl = resolveConnectionForThreadId(event.payload.threadId);
+      const shouldRecoverFinalAssistantSnapshot =
+        event.payload.role === "assistant" &&
+        !event.payload.streaming &&
+        event.payload.text.trim().length === 0;
+      const orchestrationMessage = {
+        id: event.payload.messageId,
+        role: event.payload.role,
+        text: event.payload.text,
+        ...(event.payload.attachments !== undefined
+          ? { attachments: event.payload.attachments }
+          : {}),
+        turnId: event.payload.turnId,
+        streaming: event.payload.streaming,
+        sequence: event.payload.sequence ?? event.sequence,
+        createdAt: event.payload.createdAt,
+        updatedAt: event.payload.updatedAt,
+      } satisfies OrchestrationMessage;
+      primeLiveTimelineRow({
         threadId: event.payload.threadId,
         updatedAt: event.occurredAt,
         entry: {
@@ -1778,37 +1929,13 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
           turnId: event.payload.turnId,
           sequence: event.payload.sequence ?? event.sequence,
         },
-        message: {
-          id: event.payload.messageId,
-          role: event.payload.role,
-          text: event.payload.text,
-          ...(event.payload.attachments !== undefined
-            ? { attachments: event.payload.attachments }
-            : {}),
-          turnId: event.payload.turnId,
-          streaming: event.payload.streaming,
-          sequence: event.payload.sequence ?? event.sequence,
-          createdAt: event.payload.createdAt,
-          updatedAt: event.payload.updatedAt,
-        },
+        message: mapOrchestrationMessageForClient(orchestrationMessage, connectionUrl),
       });
+      if (shouldRecoverFinalAssistantSnapshot) {
+        hydrateThreadTimelineRowsSnapshotInBackground(event.payload.threadId);
+      }
       return updateThreadState(state, event.payload.threadId, (thread) => {
-        const message = mapMessage(
-          {
-            id: event.payload.messageId,
-            role: event.payload.role,
-            text: event.payload.text,
-            ...(event.payload.attachments !== undefined
-              ? { attachments: event.payload.attachments }
-              : {}),
-            turnId: event.payload.turnId,
-            streaming: event.payload.streaming,
-            sequence: event.payload.sequence ?? event.sequence,
-            createdAt: event.payload.createdAt,
-            updatedAt: event.payload.updatedAt,
-          },
-          resolveConnectionForThreadId(event.payload.threadId),
-        );
+        const message = mapTimelineMessage(orchestrationMessage, connectionUrl);
         const existingMessageIndex = thread.messages.findIndex((entry) => entry.id === message.id);
         const existingMessage =
           existingMessageIndex >= 0 ? thread.messages[existingMessageIndex] : undefined;
@@ -1899,13 +2026,19 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
                 assistantMessageId: event.payload.messageId,
               })
             : thread.latestTurn;
-        return {
+        const nextThread = {
           ...thread,
           messages: cappedMessages,
           turnDiffSummaries,
           latestTurn,
           updatedAt: event.occurredAt,
         };
+        return event.payload.role === "assistant" &&
+          event.payload.turnId !== null &&
+          latestTurn?.turnId === event.payload.turnId &&
+          latestTurn.state !== "running"
+          ? compactSettledTurnActivities(nextThread, String(event.payload.turnId), event.occurredAt)
+          : nextThread;
       });
     }
 
@@ -1942,7 +2075,7 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
     }
 
     case "thread.proposed-plan-upserted": {
-      primeLiveThreadTimelineEntry({
+      primeLiveTimelineRow({
         threadId: event.payload.threadId,
         updatedAt: event.occurredAt,
         entry: {
@@ -2029,12 +2162,17 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
                 sourceProposedPlan: thread.pendingSourceProposedPlan,
               })
             : thread.latestTurn;
-        return {
+        const nextThread = {
           ...thread,
           turnDiffSummaries,
           latestTurn,
           updatedAt: event.occurredAt,
         };
+        return compactSettledTurnActivities(
+          nextThread,
+          String(event.payload.turnId),
+          event.occurredAt,
+        );
       });
     }
 
@@ -2093,19 +2231,10 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
     }
 
     case "thread.activity-appended": {
-      primeLiveThreadTimelineEntry({
+      primeThreadActivityTimelineRow({
         threadId: event.payload.threadId,
-        updatedAt: event.occurredAt,
-        entry: {
-          kind: "activity",
-          id: event.payload.activity.id,
-          createdAt: event.payload.activity.createdAt,
-          turnId: event.payload.activity.turnId,
-          ...(event.payload.activity.sequence !== undefined
-            ? { sequence: event.payload.activity.sequence }
-            : {}),
-        },
         activity: event.payload.activity,
+        updatedAt: event.occurredAt,
       });
       return applyThreadActivityBatch(
         state,
@@ -2145,15 +2274,13 @@ export function syncServerReadModel(
   }
   const projects = preserveProjectArrayIdentity(state.projects, nextProjects);
   const threads: AppState["threads"] = [];
+  const timelineMetadataThreads: Array<OrchestrationReadModel["threads"][number]> = [];
   for (const thread of readModel.threads) {
     if (thread.deletedAt !== null) {
       continue;
     }
     const mappedThread = mapThread(thread, options);
-    primeThreadTimelineManifestFromReadModelThread(
-      thread,
-      mappedThread.historyLoaded === false ? "lean" : "hydrated",
-    );
+    timelineMetadataThreads.push(thread);
     const nextThread = mergeThreadPreservingHydratedHistory(
       existingThreadsById.get(thread.id),
       mappedThread,
@@ -2164,6 +2291,7 @@ export function syncServerReadModel(
     }
     threads.push(suppressDismissedThreadError(nextThread, state.dismissedThreadErrorKeysById));
   }
+  primeThreadTimelineRowsMetadataFromReadModelThreads(timelineMetadataThreads);
   const dismissedThreadErrorKeysById = retainDismissedThreadErrorKeysForThreads(
     state.dismissedThreadErrorKeysById,
     threads,
@@ -2201,6 +2329,7 @@ export function mergeServerReadModel(
     }
   }
   const incomingThreads: AppState["threads"] = [];
+  const timelineMetadataThreads: Array<OrchestrationReadModel["threads"][number]> = [];
   for (const thread of readModel.threads) {
     if (thread.deletedAt !== null) {
       continue;
@@ -2209,15 +2338,13 @@ export function mergeServerReadModel(
       mapThread(thread, options),
       state.dismissedThreadErrorKeysById,
     );
-    primeThreadTimelineManifestFromReadModelThread(
-      thread,
-      nextThread.historyLoaded === false ? "lean" : "hydrated",
-    );
+    timelineMetadataThreads.push(thread);
     if (options !== undefined && nextThread.historyLoaded !== false) {
       primeHydratedThreadCache(thread);
     }
     incomingThreads.push(nextThread);
   }
+  primeThreadTimelineRowsMetadataFromReadModelThreads(timelineMetadataThreads);
 
   const projectsById = new Map(state.projects.map((project) => [project.id, project] as const));
   for (const project of incomingProjects) {
@@ -2270,7 +2397,7 @@ function removeReadModelEntities(
     const shouldRemove = projectIds.has(thread.projectId) || threadIds.has(thread.id);
     if (shouldRemove) {
       removedThreadIds.add(thread.id);
-      useTimelineWindowStore.getState().clearThread(thread.id);
+      useTimelineModelStore.getState().clearThread(thread.id);
     }
     return !shouldRemove;
   });
@@ -2302,9 +2429,15 @@ export function hydrateThreadFromReadModel(
   }
 
   primeHydratedThreadCache(readModelThread);
-  primeThreadTimelineManifestFromReadModelThread(readModelThread);
-  const nextThread = { ...mapThread(readModelThread, options), historyLoaded: true };
-  const existingThread = state.threads.find((thread) => thread.id === nextThread.id);
+  primeThreadTimelineRowsMetadataFromReadModelThread(readModelThread);
+  const mappedThread = { ...mapThread(readModelThread, options), historyLoaded: true };
+  const existingThread = state.threads.find((thread) => thread.id === mappedThread.id);
+  const nextThread = existingThread
+    ? {
+        ...mappedThread,
+        messages: mergeMessagesPreservingLiveText(existingThread.messages, mappedThread.messages),
+      }
+    : mappedThread;
   const threads = existingThread
     ? state.threads.map((thread) => (thread.id === nextThread.id ? nextThread : thread))
     : [...state.threads, nextThread];
@@ -2374,6 +2507,11 @@ export function applyOrchestrationEvents(
     const threadId = event.payload.threadId;
     const activities = [event.payload.activity];
     let updatedAt = event.occurredAt;
+    primeThreadActivityTimelineRow({
+      threadId,
+      activity: event.payload.activity,
+      updatedAt: event.occurredAt,
+    });
     let nextIndex = index + 1;
     while (nextIndex < events.length) {
       const nextEvent = events[nextIndex];
@@ -2385,6 +2523,11 @@ export function applyOrchestrationEvents(
       }
       activities.push(nextEvent.payload.activity);
       updatedAt = nextEvent.occurredAt;
+      primeThreadActivityTimelineRow({
+        threadId,
+        activity: nextEvent.payload.activity,
+        updatedAt: nextEvent.occurredAt,
+      });
       nextIndex += 1;
     }
 
@@ -2542,7 +2685,7 @@ interface AppStore extends AppState {
 export const useStore = create<AppStore>((set) => ({
   ...initialState,
   resetToInitialState: () => {
-    useTimelineWindowStore.getState().reset();
+    useTimelineModelStore.getState().reset();
     set(() => createInitialState());
   },
   syncServerReadModel: (readModel, options) =>

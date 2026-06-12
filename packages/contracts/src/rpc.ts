@@ -14,6 +14,8 @@ import {
   GitCheckoutInput,
   GitCommandError,
   GitCreateBranchInput,
+  GenerateNewThreadRecommendationsInput,
+  GenerateNewThreadRecommendationsResult,
   GitGetGitHubIssueThreadInput,
   GitGetGitHubIssueThreadResult,
   GitListGitHubIssuesInput,
@@ -38,6 +40,7 @@ import {
   GitWorktreeStatsResult,
   GitWorkingTreeDiffInput,
   GitWorkingTreeDiffResult,
+  TextGenerationError,
 } from "./git";
 import { KeybindingsConfigError } from "./keybindings";
 import {
@@ -51,8 +54,8 @@ import {
   OrchestrationGetSnapshotInput,
   OrchestrationGetThreadError,
   OrchestrationGetThreadInput,
-  OrchestrationGetThreadTimelineManifestInput,
-  OrchestrationGetThreadTimelinePageInput,
+  OrchestrationGetThreadTimelineRowsSnapshotChunkInput,
+  OrchestrationGetThreadTimelineRowsSnapshotInput,
   OrchestrationGetTurnDiffError,
   OrchestrationGetTurnDiffInput,
   OrchestrationReplayEventsError,
@@ -210,6 +213,7 @@ export const WS_METHODS = {
   serverUpgradeProviderCli: "server.upgradeProviderCli",
   serverGetRuntimeProfile: "server.getRuntimeProfile",
   serverSearchOpenCodeModels: "server.searchOpenCodeModels",
+  serverGenerateNewThreadRecommendations: "server.generateNewThreadRecommendations",
   serverGetLspToolsStatus: "server.getLspToolsStatus",
   serverInstallLspTools: "server.installLspTools",
   serverSearchLspMarketplace: "server.searchLspMarketplace",
@@ -277,6 +281,15 @@ export const WsServerSearchOpenCodeModelsRpc = Rpc.make(WS_METHODS.serverSearchO
   payload: ServerSearchOpenCodeModelsInput,
   success: ServerSearchOpenCodeModelsResult,
 });
+
+export const WsServerGenerateNewThreadRecommendationsRpc = Rpc.make(
+  WS_METHODS.serverGenerateNewThreadRecommendations,
+  {
+    payload: GenerateNewThreadRecommendationsInput,
+    success: GenerateNewThreadRecommendationsResult,
+    error: TextGenerationError,
+  },
+);
 
 export const WsServerGetLspToolsStatusRpc = Rpc.make(WS_METHODS.serverGetLspToolsStatus, {
   payload: Schema.Struct({}),
@@ -578,20 +591,20 @@ export const WsOrchestrationGetThreadRpc = Rpc.make(ORCHESTRATION_WS_METHODS.get
   error: OrchestrationGetThreadError,
 });
 
-export const WsOrchestrationGetThreadTimelinePageRpc = Rpc.make(
-  ORCHESTRATION_WS_METHODS.getThreadTimelinePage,
+export const WsOrchestrationGetThreadTimelineRowsSnapshotRpc = Rpc.make(
+  ORCHESTRATION_WS_METHODS.getThreadTimelineRowsSnapshot,
   {
-    payload: OrchestrationGetThreadTimelinePageInput,
-    success: OrchestrationRpcSchemas.getThreadTimelinePage.output,
+    payload: OrchestrationGetThreadTimelineRowsSnapshotInput,
+    success: OrchestrationRpcSchemas.getThreadTimelineRowsSnapshot.output,
     error: OrchestrationGetThreadError,
   },
 );
 
-export const WsOrchestrationGetThreadTimelineManifestRpc = Rpc.make(
-  ORCHESTRATION_WS_METHODS.getThreadTimelineManifest,
+export const WsOrchestrationGetThreadTimelineRowsSnapshotChunkRpc = Rpc.make(
+  ORCHESTRATION_WS_METHODS.getThreadTimelineRowsSnapshotChunk,
   {
-    payload: OrchestrationGetThreadTimelineManifestInput,
-    success: OrchestrationRpcSchemas.getThreadTimelineManifest.output,
+    payload: OrchestrationGetThreadTimelineRowsSnapshotChunkInput,
+    success: OrchestrationRpcSchemas.getThreadTimelineRowsSnapshotChunk.output,
     error: OrchestrationGetThreadError,
   },
 );
@@ -670,6 +683,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerUpgradeProviderCliRpc,
   WsServerGetRuntimeProfileRpc,
   WsServerSearchOpenCodeModelsRpc,
+  WsServerGenerateNewThreadRecommendationsRpc,
   WsServerGetLspToolsStatusRpc,
   WsServerInstallLspToolsRpc,
   WsServerSearchLspMarketplaceRpc,
@@ -728,8 +742,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsSubscribeServerLifecycleRpc,
   WsOrchestrationGetSnapshotRpc,
   WsOrchestrationGetThreadRpc,
-  WsOrchestrationGetThreadTimelinePageRpc,
-  WsOrchestrationGetThreadTimelineManifestRpc,
+  WsOrchestrationGetThreadTimelineRowsSnapshotRpc,
+  WsOrchestrationGetThreadTimelineRowsSnapshotChunkRpc,
   WsOrchestrationDispatchCommandRpc,
   WsOrchestrationGetTurnDiffRpc,
   WsOrchestrationGetFullThreadDiffRpc,

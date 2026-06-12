@@ -1,6 +1,6 @@
 {
   "name": "@ace/mobile",
-  "version": "0.6.0",
+  "version": "0.6.6",
   "private": true,
   "main": "expo-router/entry",
   "scripts": {
@@ -17,11 +17,11 @@
     "@ace/shared": "workspace:*",
     "@babel/runtime": "^7.29.7",
     "@expo/ui": "~0.2.0-beta.9",
-    "@react-native-async-storage/async-storage": "2.2.0",
+    "@react-native-async-storage/async-storage": "3.1.1",
     "effect": "catalog:",
     "expo": "^54.0.34",
     "expo-camera": "~17.0.10",
-    "expo-constants": "~18.0.13",
+    "expo-constants": "~56.0.17",
     "expo-glass-effect": "~0.1.10",
     "expo-linking": "~56.0.13",
     "expo-notifications": "~0.32.17",

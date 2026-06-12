@@ -9,10 +9,7 @@ import {
 } from "@ace/contracts";
 import { describe, expect, it } from "vitest";
 
-import {
-  createReadModelSnapshotView,
-  createReadModelSnapshotViewCache,
-} from "./readModelSnapshotView.ts";
+import { createReadModelSnapshotView } from "./readModelSnapshotView.ts";
 
 const NOW = "2026-04-05T00:00:00.000Z";
 const PROJECT_ID = ProjectId.makeUnsafe("project-1");
@@ -143,14 +140,24 @@ function makeReadModel(): OrchestrationReadModel {
 }
 
 describe("createReadModelSnapshotView", () => {
-  it("returns the full read model when thread hydration mode is not requested", () => {
+  it("returns a metadata-only read model when thread hydration mode is not requested", () => {
     const readModel = makeReadModel();
 
-    expect(createReadModelSnapshotView(readModel)).toBe(readModel);
-    expect(createReadModelSnapshotView(readModel, {})).toBe(readModel);
+    const snapshot = createReadModelSnapshotView(readModel);
+    const emptyInputSnapshot = createReadModelSnapshotView(readModel, {});
+
+    expect(snapshot).not.toBe(readModel);
+    expect(emptyInputSnapshot).toEqual(snapshot);
+    for (const thread of snapshot.threads) {
+      expect(thread.messages).toEqual([]);
+      expect(thread.activities).toEqual([]);
+      expect(thread.checkpoints).toEqual([]);
+      expect(thread.proposedPlans).toEqual([]);
+      expect(thread.latestProposedPlanSummary?.id).toBe(`${thread.id}-plan`);
+    }
   });
 
-  it("returns lean thread summaries when hydrateThreadId is null", () => {
+  it("returns metadata-only threads when hydrateThreadId is null", () => {
     const readModel = makeReadModel();
 
     const snapshot = createReadModelSnapshotView(readModel, {
@@ -160,18 +167,15 @@ describe("createReadModelSnapshotView", () => {
     expect(snapshot).not.toBe(readModel);
     expect(snapshot.threads).toHaveLength(2);
     for (const thread of snapshot.threads) {
-      expect(thread.messages.map((message) => message.role)).toEqual(["user"]);
-      expect(thread.activities.map((activity) => activity.kind)).toEqual([
-        "approval.requested",
-        "tool.progress",
-      ]);
+      expect(thread.messages).toEqual([]);
+      expect(thread.activities).toEqual([]);
       expect(thread.checkpoints).toEqual([]);
       expect(thread.proposedPlans).toEqual([]);
       expect(thread.latestProposedPlanSummary?.id).toBe(`${thread.id}-plan`);
     }
   });
 
-  it("keeps only the latest user message in lean thread summaries", () => {
+  it("drops transcript messages instead of keeping a partial fallback", () => {
     const readModel = makeReadModel();
     const snapshot = createReadModelSnapshotView(
       {
@@ -215,40 +219,26 @@ describe("createReadModelSnapshotView", () => {
       },
     );
 
-    expect(snapshot.threads[0]?.messages.map((message) => message.id)).toEqual([
-      "thread-1-user-latest",
-    ]);
+    expect(snapshot.threads[0]?.messages).toEqual([]);
   });
 
-  it("keeps the requested thread fully hydrated and summarizes the others", () => {
+  it("ignores requested thread hydration and returns one metadata snapshot shape", () => {
     const readModel = makeReadModel();
 
     const snapshot = createReadModelSnapshotView(readModel, {
       hydrateThreadId: THREAD_ONE_ID,
     });
 
-    const hydratedThread = snapshot.threads.find((thread) => thread.id === THREAD_ONE_ID);
-    const summarizedThread = snapshot.threads.find((thread) => thread.id === THREAD_TWO_ID);
-
-    expect(hydratedThread?.messages.map((message) => message.role)).toEqual(["user", "assistant"]);
-    expect(hydratedThread?.activities.map((activity) => activity.kind)).toEqual([
-      "approval.requested",
-      "tool.progress",
-    ]);
-    expect(hydratedThread?.checkpoints).toHaveLength(1);
-    expect(hydratedThread?.proposedPlans).toHaveLength(1);
-
-    expect(summarizedThread?.messages.map((message) => message.role)).toEqual(["user"]);
-    expect(summarizedThread?.activities.map((activity) => activity.kind)).toEqual([
-      "approval.requested",
-      "tool.progress",
-    ]);
-    expect(summarizedThread?.checkpoints).toEqual([]);
-    expect(summarizedThread?.proposedPlans).toEqual([]);
-    expect(summarizedThread?.latestProposedPlanSummary?.id).toBe(`${THREAD_TWO_ID}-plan`);
+    for (const thread of snapshot.threads) {
+      expect(thread.messages).toEqual([]);
+      expect(thread.activities).toEqual([]);
+      expect(thread.checkpoints).toEqual([]);
+      expect(thread.proposedPlans).toEqual([]);
+      expect(thread.latestProposedPlanSummary?.id).toBe(`${thread.id}-plan`);
+    }
   });
 
-  it("bounds activity rows only for lean thread summaries", () => {
+  it("drops activity rows instead of bounding a partial activity summary", () => {
     const manyActivities = Array.from({ length: 40 }, (_, index) => ({
       id: EventId.makeUnsafe(`thread-2-activity-${index + 1}`),
       tone: "info" as const,
@@ -274,38 +264,7 @@ describe("createReadModelSnapshotView", () => {
       },
     );
 
-    const hydratedThread = snapshot.threads.find((thread) => thread.id === THREAD_ONE_ID);
-    const summarizedThread = snapshot.threads.find((thread) => thread.id === THREAD_TWO_ID);
-
-    expect(hydratedThread?.activities).toHaveLength(threadOneActivities.length);
-    expect(summarizedThread?.activities).toHaveLength(32);
-    expect(summarizedThread?.activities[0]?.id).toBe("thread-2-activity-9");
-    expect(summarizedThread?.activities.at(-1)?.id).toBe("thread-2-activity-40");
-  });
-});
-
-describe("createReadModelSnapshotViewCache", () => {
-  it("reuses cached views for the same snapshot sequence and invalidates on new snapshots", () => {
-    const readModel = makeReadModel();
-    const cache = createReadModelSnapshotViewCache();
-
-    const firstLeanSnapshot = cache.getSnapshot(readModel, {
-      hydrateThreadId: null,
-    });
-    const secondLeanSnapshot = cache.getSnapshot(readModel, {
-      hydrateThreadId: null,
-    });
-
-    expect(secondLeanSnapshot).toBe(firstLeanSnapshot);
-
-    const nextReadModel = {
-      ...readModel,
-      snapshotSequence: readModel.snapshotSequence + 1,
-    };
-    const nextLeanSnapshot = cache.getSnapshot(nextReadModel, {
-      hydrateThreadId: null,
-    });
-
-    expect(nextLeanSnapshot).not.toBe(firstLeanSnapshot);
+    expect(snapshot.threads.find((thread) => thread.id === THREAD_ONE_ID)?.activities).toEqual([]);
+    expect(snapshot.threads.find((thread) => thread.id === THREAD_TWO_ID)?.activities).toEqual([]);
   });
 });

@@ -939,6 +939,7 @@ interface ComposerPromptEditorProps {
   disabled: boolean;
   placeholder: string;
   className?: string;
+  placeholderClassName?: string | undefined;
   onRemoveTerminalContext: (contextId: string) => void;
   onChange: (
     nextValue: string,
@@ -1231,6 +1232,7 @@ function ComposerPromptEditorInner({
   disabled,
   placeholder,
   className,
+  placeholderClassName,
   onRemoveTerminalContext,
   onChange,
   onCommandKeyDown,
@@ -1456,7 +1458,12 @@ function ComposerPromptEditorInner({
           }
           placeholder={
             terminalContexts.length > 0 ? null : (
-              <div className="pointer-events-none absolute inset-0 text-[14px] leading-relaxed text-muted-foreground">
+              <div
+                className={cn(
+                  "pointer-events-none absolute inset-0 text-[14px] leading-relaxed text-muted-foreground",
+                  placeholderClassName,
+                )}
+              >
                 {placeholder}
               </div>
             )
@@ -1482,6 +1489,7 @@ export function ComposerPromptEditor({
   disabled,
   placeholder,
   className,
+  placeholderClassName,
   onRemoveTerminalContext,
   onChange,
   onCommandKeyDown,
@@ -1521,6 +1529,7 @@ export function ComposerPromptEditor({
         terminalContexts={terminalContexts}
         disabled={disabled}
         placeholder={placeholder}
+        placeholderClassName={placeholderClassName}
         onRemoveTerminalContext={onRemoveTerminalContext}
         onChange={onChange}
         onPaste={onPaste}

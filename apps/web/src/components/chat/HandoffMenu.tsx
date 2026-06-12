@@ -92,11 +92,7 @@ export const HandoffMenuButton = memo(function HandoffMenuButton(props: {
         <ArrowRightLeftIcon className="size-3.5" />
         {showLabel ? <span className="sr-only sm:not-sr-only">Handoff</span> : null}
       </MenuTrigger>
-      <MenuPopup
-        align="start"
-        className="min-w-40"
-        listClassName="p-1"
-      >
+      <MenuPopup align="start" className="min-w-40" listClassName="p-1">
         <HandoffMenuEntries
           providers={props.providers}
           disabled={entriesDisabled}

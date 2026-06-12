@@ -46,7 +46,7 @@ layer("ProjectionThreadTimelineEntryRepository", (it) => {
         updatedAt: "2026-04-01T00:00:10.000Z",
       });
 
-      const rows = yield* repository.listPage({ threadId, startIndex: 0, limit: 10 });
+      const rows = yield* repository.listByThreadId({ threadId });
       assert.deepStrictEqual(
         rows.map((row) => ({
           index: row.timelineIndex,
@@ -149,7 +149,7 @@ layer("ProjectionThreadTimelineEntryRepository", (it) => {
       `;
       yield* repository.rebuildThread({ threadId });
 
-      const rows = yield* repository.listPage({ threadId, startIndex: 0, limit: 10 });
+      const rows = yield* repository.listByThreadId({ threadId });
       assert.deepStrictEqual(
         rows.map((row) => `${row.timelineIndex}:${row.kind}:${row.sourceId}`),
         ["0:message:message-user", "1:message:message-assistant"],

@@ -107,6 +107,14 @@ export type TimelineIntentRow = {
   text: string;
 };
 
+export type TimelineAssistantUpdateRow = {
+  kind: "assistant-update";
+  id: string;
+  createdAt: string;
+  text: string;
+  truncated: boolean;
+};
+
 export type TimelineMessageRow = {
   kind: "message";
   id: string;
@@ -138,7 +146,7 @@ export type TimelineWorkingRow = {
 
 export type TimelineWorkLogRow = TimelineWorkRow | TimelineWorkGroupRow | TimelineIntentRow;
 
-export type TimelineCompletedWorkDetailRow = TimelineWorkLogRow | TimelineMessageRow;
+export type TimelineCompletedWorkDetailRow = TimelineWorkLogRow | TimelineAssistantUpdateRow;
 
 export type TimelineCompletedWorkDiagnosticRow = TimelineWorkRow;
 
@@ -148,7 +156,7 @@ export type TimelineCompletedWorkSummaryRow = {
   createdAt: string;
   startedAt: string;
   endedAt: string;
-  entries: TimelineMetaGroupEntry[];
+  sourceEntryIds: string[];
   detailRows: TimelineCompletedWorkDetailRow[];
   visibleDiagnosticRows: TimelineCompletedWorkDiagnosticRow[];
   visibleDiagnosticCacheKey: string;
@@ -513,52 +521,21 @@ function shouldSkipAssistantMessageRow(message: TimelineMessage): boolean {
   );
 }
 
+function shouldSkipTimelineWorkEntry(workEntry: TimelineWorkEntry): boolean {
+  return (
+    workEntry.diagnosticKind === "runtime-error" ||
+    (workEntry.tone === "error" && workEntry.label.trim().toLowerCase() === "runtime error")
+  );
+}
+
 function isVisibleCompletedWorkDiagnosticEntry(
   entry: TimelineMetaGroupEntry,
 ): entry is Extract<TimelineMetaGroupEntry, { kind: "work" }> {
   return (
     entry.kind === "work" &&
+    !shouldSkipTimelineWorkEntry(entry.workEntry) &&
     (entry.workEntry.tone === "error" || entry.workEntry.diagnosticKind !== undefined)
   );
-}
-
-function workRowFromMetaEntry(
-  entry: Extract<TimelineMetaGroupEntry, { kind: "work" }>,
-): TimelineCompletedWorkDiagnosticRow {
-  return {
-    kind: "work",
-    id: entry.id,
-    createdAt: entry.createdAt,
-    workEntry: entry.workEntry,
-  };
-}
-
-function collectVisibleCompletedWorkDiagnosticRows(
-  detailRows: ReadonlyArray<TimelineCompletedWorkDetailRow>,
-): TimelineCompletedWorkDiagnosticRow[] {
-  const diagnosticRows: TimelineCompletedWorkDiagnosticRow[] = [];
-  for (const detailRow of detailRows) {
-    if (detailRow.kind === "work") {
-      if (
-        detailRow.workEntry.tone === "error" ||
-        detailRow.workEntry.diagnosticKind !== undefined
-      ) {
-        diagnosticRows.push(detailRow);
-      }
-      continue;
-    }
-
-    if (detailRow.kind !== "work-group") {
-      continue;
-    }
-
-    for (const entry of detailRow.entries) {
-      if (isVisibleCompletedWorkDiagnosticEntry(entry)) {
-        diagnosticRows.push(workRowFromMetaEntry(entry));
-      }
-    }
-  }
-  return diagnosticRows;
 }
 
 function completedWorkDiagnosticCacheKeyPart(row: TimelineCompletedWorkDiagnosticRow): string {
@@ -571,13 +548,75 @@ function completedWorkDiagnosticsCacheKey(
   return rows.length === 0 ? "none" : rows.map(completedWorkDiagnosticCacheKeyPart).join(",");
 }
 
+function compactHiddenDiagnosticWorkEntry(workEntry: TimelineWorkEntry): TimelineWorkEntry {
+  return {
+    id: workEntry.id,
+    createdAt: workEntry.createdAt,
+    ...(workEntry.sequence !== undefined ? { sequence: workEntry.sequence } : {}),
+    ...(workEntry.turnId !== undefined ? { turnId: workEntry.turnId } : {}),
+    label: workEntry.diagnosticKind === "runtime-warning" ? "Runtime warning" : workEntry.label,
+    tone: workEntry.tone,
+    ...(workEntry.status !== undefined ? { status: workEntry.status } : {}),
+    ...(workEntry.diagnosticKind !== undefined ? { diagnosticKind: workEntry.diagnosticKind } : {}),
+  };
+}
+
+function compactHiddenDiagnosticRows(
+  entries: ReadonlyArray<TimelineMetaGroupEntry>,
+): TimelineCompletedWorkDiagnosticRow[] {
+  const diagnosticRows: TimelineCompletedWorkDiagnosticRow[] = [];
+  for (const entry of entries) {
+    if (!isVisibleCompletedWorkDiagnosticEntry(entry)) {
+      continue;
+    }
+    diagnosticRows.push({
+      kind: "work",
+      id: entry.id,
+      createdAt: entry.createdAt,
+      workEntry: compactHiddenDiagnosticWorkEntry(entry.workEntry),
+    });
+  }
+  return diagnosticRows;
+}
+
+function compactHiddenWorkGroupRow(input: {
+  readonly entries: ReadonlyArray<TimelineMetaGroupEntry>;
+  readonly id: string;
+  readonly createdAt: string;
+  readonly nextEventCreatedAt: string | null;
+  readonly summary: TimelineWorkGroupSummaryProjection;
+}): TimelineWorkGroupRow {
+  return {
+    kind: "work-group",
+    id: input.id,
+    createdAt: input.createdAt,
+    entries: [],
+    summaryEndAt: resolveWorkGroupSummaryEndAt(input.entries, input.nextEventCreatedAt),
+    summary: input.summary,
+  };
+}
+
+const MAX_HIDDEN_ASSISTANT_UPDATE_TEXT_LENGTH = 1_200;
+
+function compactHiddenAssistantUpdateRow(message: TimelineMessage): TimelineAssistantUpdateRow {
+  const text = getChatMessageRenderableText(message).trim();
+  const truncated = text.length > MAX_HIDDEN_ASSISTANT_UPDATE_TEXT_LENGTH;
+  return {
+    kind: "assistant-update",
+    id: `hidden-assistant-update:${String(message.id)}`,
+    createdAt: message.createdAt,
+    text: truncated ? text.slice(0, MAX_HIDDEN_ASSISTANT_UPDATE_TEXT_LENGTH).trimEnd() : text,
+    truncated,
+  };
+}
+
 type HiddenCompletedWorkAccumulator = {
   id: string;
   createdAt: string;
   startedAt: string;
   endedAt: string;
   turnId: TimelineTurnId | null;
-  entries: TimelineMetaGroupEntry[];
+  sourceEntryIds: string[];
   detailRows: TimelineCompletedWorkDetailRow[];
   visibleDiagnosticRows: TimelineCompletedWorkDiagnosticRow[];
   visibleDiagnosticCacheKeyParts: string[];
@@ -746,6 +785,11 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
       assistantMessageIdsWithoutLaterUser.add(timelineEntry.id);
     }
   }
+  if (input.activeTurnInProgress && goalState.active) {
+    for (const messageId of assistantMessageIdsWithoutLaterUser) {
+      terminalAssistantMessageIds.add(messageId);
+    }
+  }
   const activeTurnStartedAtMs =
     typeof input.activeTurnStartedAt === "string"
       ? Date.parse(input.activeTurnStartedAt)
@@ -833,7 +877,7 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
         startedAt: input.startedAt,
         endedAt: input.endedAt,
         turnId: input.turnId,
-        entries: [],
+        sourceEntryIds: [],
         detailRows: [],
         visibleDiagnosticRows: [],
         visibleDiagnosticCacheKeyParts: [],
@@ -865,15 +909,15 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
     const fallbackEndAt = entries.at(-1)?.createdAt ?? firstEntry.createdAt;
     const endedAt = nextEventCreatedAt ?? fallbackEndAt;
     const summary = buildTimelineWorkGroupSummaryProjection(entries);
-    const detailRows = buildMetaTimelineRows({
-      rowId: firstEntry.id,
+    const detailRow = compactHiddenWorkGroupRow({
+      id: firstEntry.id,
       createdAt: firstEntry.createdAt,
       entries,
       nextEventCreatedAt,
       summary,
     });
-    const visibleDiagnosticRows = collectVisibleCompletedWorkDiagnosticRows(detailRows);
-    const previousEntries = hiddenCompletedWork?.entries ?? [];
+    const visibleDiagnosticRows = compactHiddenDiagnosticRows(entries);
+    const previousSourceEntryIds = hiddenCompletedWork?.sourceEntryIds ?? [];
     const previousDetailRows = hiddenCompletedWork?.detailRows ?? [];
     const previousVisibleDiagnosticRows = hiddenCompletedWork?.visibleDiagnosticRows ?? [];
     const previousVisibleDiagnosticCacheKeyParts =
@@ -890,8 +934,8 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
     if (hiddenCompletedWork) {
       hiddenCompletedWork = {
         ...hiddenCompletedWork,
-        entries: [...previousEntries, ...entries],
-        detailRows: [...previousDetailRows, ...detailRows],
+        sourceEntryIds: [...previousSourceEntryIds, ...entries.map((entry) => entry.id)],
+        detailRows: [...previousDetailRows, detailRow],
         visibleDiagnosticRows: [...previousVisibleDiagnosticRows, ...visibleDiagnosticRows],
         visibleDiagnosticCacheKeyParts: [
           ...previousVisibleDiagnosticCacheKeyParts,
@@ -901,7 +945,8 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
     }
   };
 
-  const recordHiddenAssistantMessage = (message: TimelineMessage, durationStart: string) => {
+  const recordHiddenAssistantMessage = (message: TimelineMessage, _durationStart: string) => {
+    const previousSourceEntryIds = hiddenCompletedWork?.sourceEntryIds ?? [];
     const previousDetailRows = hiddenCompletedWork?.detailRows ?? [];
     recordHiddenCompletedWork({
       id: String(message.id),
@@ -915,20 +960,8 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
     if (hiddenCompletedWork) {
       hiddenCompletedWork = {
         ...hiddenCompletedWork,
-        detailRows: [
-          ...previousDetailRows,
-          {
-            kind: "message",
-            id: String(message.id),
-            createdAt: message.createdAt,
-            message,
-            durationStart,
-            completionSummary: null,
-            isAssistantTurnTerminal: false,
-            showAssistantTiming: false,
-            showAssistantSummaryByDefault: false,
-          },
-        ],
+        sourceEntryIds: [...previousSourceEntryIds, String(message.id)],
+        detailRows: [...previousDetailRows, compactHiddenAssistantUpdateRow(message)],
       };
     }
   };
@@ -950,7 +983,7 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
       createdAt: startedAt,
       startedAt,
       endedAt: input.endedAt ?? hiddenCompletedWork.endedAt,
-      entries: hiddenCompletedWork.entries,
+      sourceEntryIds: hiddenCompletedWork.sourceEntryIds,
       detailRows: hiddenCompletedWork.detailRows,
       visibleDiagnosticRows: hiddenCompletedWork.visibleDiagnosticRows,
       visibleDiagnosticCacheKey:
@@ -1078,6 +1111,9 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
     }
 
     if (timelineEntry.kind === "work") {
+      if (shouldSkipTimelineWorkEntry(timelineEntry.entry)) {
+        continue;
+      }
       if (isEventInActiveTurn(timelineEntry.createdAt, activeTurnStartedAtMs)) {
         hasRenderableCurrentTurnOutput = true;
       }
@@ -1152,6 +1188,7 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
     if (
       input.hideCompletedWorkMessages === true &&
       message.role === "assistant" &&
+      !goalState.active &&
       !message.streaming &&
       !terminalAssistantMessageIds.has(timelineEntry.id) &&
       !(input.activeTurnInProgress && messageIsInActiveTurn)
@@ -1206,7 +1243,9 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
     }
   }
 
-  if (input.isWorking && pendingIntentEntries.length > 0) {
+  const shouldRenderLiveWorkingRow = input.isWorking && input.activeTurnInProgress;
+
+  if (shouldRenderLiveWorkingRow && pendingIntentEntries.length > 0) {
     flushPendingMetaEntries(null, { includePendingIntents: false });
     activeLiveIntentText = consumeLatestPendingIntentText();
   } else {
@@ -1224,7 +1263,7 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
   const liveDurationStartAt =
     activeTurnPrimaryUserMessageCreatedAt ?? input.activeTurnStartedAt ?? lastMessageBoundaryAt;
 
-  if (input.isWorking) {
+  if (shouldRenderLiveWorkingRow) {
     nextRows.push({
       kind: "working",
       id: "working-indicator-row",
@@ -1237,63 +1276,4 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
   }
 
   return nextRows;
-}
-
-export function shouldWorkerizeTimelineRows(input: BuildTimelineRowsInput): boolean {
-  if (input.activeTurnInProgress || input.isWorking) {
-    return false;
-  }
-
-  let textBudget = 0;
-  let workEntryCount = 0;
-  for (const entry of input.timelineEntries) {
-    if (!entry) {
-      continue;
-    }
-    if (entry.kind === "message") {
-      textBudget += entry.message.text.length;
-      continue;
-    }
-    if (entry.kind === "work") {
-      workEntryCount += 1;
-      textBudget += entry.entry.label.length;
-      textBudget += entry.entry.detail?.length ?? 0;
-      continue;
-    }
-    if (entry.kind === "intent") {
-      textBudget += entry.text.length;
-      continue;
-    }
-    if (entry.kind === "proposed-plan") {
-      textBudget += entry.proposedPlan.planMarkdown.length;
-    }
-  }
-
-  return input.timelineEntries.length >= 72 || workEntryCount >= 32 || textBudget >= 40_000;
-}
-
-export function estimateTimelineRowsCacheSize(
-  input: BuildTimelineRowsInput,
-  rows: ReadonlyArray<TimelineRow>,
-): number {
-  let size = rows.length * 256;
-  for (const entry of input.timelineEntries) {
-    if (!entry) {
-      continue;
-    }
-    if (entry.kind === "message") {
-      size += Math.min(entry.message.text.length, 16_384) * 2;
-      continue;
-    }
-    if (entry.kind === "proposed-plan") {
-      size += Math.min(entry.proposedPlan.planMarkdown.length, 12_288) * 2;
-      continue;
-    }
-    if (entry.kind === "intent") {
-      size += entry.text.length * 2;
-      continue;
-    }
-    size += (entry.entry.label.length + (entry.entry.detail?.length ?? 0)) * 2;
-  }
-  return Math.max(4_096, size);
 }

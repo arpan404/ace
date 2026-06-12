@@ -20,12 +20,14 @@ import { type TextGenerationShape, TextGeneration } from "../Services/TextGenera
 import {
   buildBranchNamePrompt,
   buildCommitMessagePrompt,
+  buildNewThreadRecommendationsPrompt,
   buildPrContentPrompt,
   buildThreadTitlePrompt,
   buildWorkspaceSummaryPrompt,
 } from "../Prompts.ts";
 import {
   sanitizeCommitSubject,
+  sanitizeNewThreadRecommendations,
   sanitizePrTitle,
   sanitizeThreadTitle,
   sanitizeWorkspaceSummaryHeadline,
@@ -60,7 +62,8 @@ const makeOpenCodeTextGeneration = Effect.gen(function* () {
       | "generatePrContent"
       | "generateBranchName"
       | "generateThreadTitle"
-      | "generateWorkspaceSummary";
+      | "generateWorkspaceSummary"
+      | "generateNewThreadRecommendations";
     cwd: string;
     prompt: string;
     outputSchema: S;
@@ -337,12 +340,39 @@ const makeOpenCodeTextGeneration = Effect.gen(function* () {
     };
   });
 
+  const generateNewThreadRecommendations: TextGenerationShape["generateNewThreadRecommendations"] =
+    Effect.fn("OpenCodeTextGeneration.generateNewThreadRecommendations")(function* (input) {
+      const { prompt, outputSchema } = buildNewThreadRecommendationsPrompt({
+        turns: input.turns,
+      });
+
+      if (input.modelSelection.provider !== "opencode") {
+        return yield* new TextGenerationError({
+          operation: "generateNewThreadRecommendations",
+          detail: "Invalid model selection.",
+        });
+      }
+
+      const generated = yield* runOpenCodeJson({
+        operation: "generateNewThreadRecommendations",
+        cwd: input.cwd,
+        prompt,
+        outputSchema,
+        modelSelection: input.modelSelection,
+      });
+
+      return {
+        recommendations: sanitizeNewThreadRecommendations(generated.recommendations),
+      };
+    });
+
   return {
     generateCommitMessage,
     generatePrContent,
     generateBranchName,
     generateThreadTitle,
     generateWorkspaceSummary,
+    generateNewThreadRecommendations,
   } satisfies TextGenerationShape;
 });
 

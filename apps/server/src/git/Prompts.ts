@@ -254,3 +254,64 @@ export function buildWorkspaceSummaryPrompt(input: WorkspaceSummaryPromptInput) 
 
   return { prompt, outputSchema };
 }
+
+// ---------------------------------------------------------------------------
+// New thread recommendations
+// ---------------------------------------------------------------------------
+
+export interface NewThreadRecommendationPromptTurn {
+  threadId: string;
+  title: string;
+  latestUserMessage: string;
+  latestAssistantMessage: string;
+  updatedAt: string;
+}
+
+export interface NewThreadRecommendationsPromptInput {
+  turns: ReadonlyArray<NewThreadRecommendationPromptTurn>;
+}
+
+export function buildNewThreadRecommendationsPrompt(input: NewThreadRecommendationsPromptInput) {
+  const turnSections = input.turns.map((turn, index) =>
+    [
+      `Recent turn ${index + 1}:`,
+      `Thread title: ${turn.title}`,
+      `Updated at: ${turn.updatedAt}`,
+      "",
+      "Latest user message:",
+      limitSection(turn.latestUserMessage || "(none)", 4_000),
+      "",
+      "Latest assistant response:",
+      limitSection(turn.latestAssistantMessage || "(none)", 4_000),
+    ].join("\n"),
+  );
+
+  const prompt = [
+    "You generate concise follow-up prompts for a coding-agent new-thread screen.",
+    "Return a JSON object with key: recommendations.",
+    "Each recommendation must have keys: title, description, prompt.",
+    "Rules:",
+    "- return exactly 3 recommendations when the supplied recent turns contain enough actionable coding context",
+    "- return an empty recommendations array when the turns are greetings, vague chatter, or otherwise not useful for a concrete coding task",
+    "- base every recommendation only on the supplied recent turns; do not invent project requirements",
+    "- title should be short, specific, and action-oriented",
+    "- description should be one understated sentence explaining the next useful step",
+    "- prompt should be directly usable as the next user message to a coding agent",
+    "- never use generic wording like start a task, continue latest work, continue recent work, or pick up from recent context",
+    "- do not mention that these were generated from cached or previous data",
+    "",
+    turnSections.join("\n\n---\n\n"),
+  ].join("\n");
+
+  const outputSchema = Schema.Struct({
+    recommendations: Schema.Array(
+      Schema.Struct({
+        title: Schema.String,
+        description: Schema.String,
+        prompt: Schema.String,
+      }),
+    ),
+  });
+
+  return { prompt, outputSchema };
+}

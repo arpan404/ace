@@ -2,6 +2,8 @@ import { Schema } from "effect";
 import type {
   GitCheckoutInput,
   GitCreateBranchInput,
+  GenerateNewThreadRecommendationsInput,
+  GenerateNewThreadRecommendationsResult,
   GitGetGitHubIssueThreadInput,
   GitGetGitHubIssueThreadResult,
   GitListGitHubIssuesInput,
@@ -95,10 +97,10 @@ import type {
   ClientOrchestrationCommand,
   OrchestrationGetSnapshotInput,
   OrchestrationGetThreadInput,
-  OrchestrationGetThreadTimelineManifestInput,
-  OrchestrationGetThreadTimelineManifestResult,
-  OrchestrationGetThreadTimelinePageInput,
-  OrchestrationGetThreadTimelinePageResult,
+  OrchestrationGetThreadTimelineRowsSnapshotChunkInput,
+  OrchestrationGetThreadTimelineRowsSnapshotChunkResult,
+  OrchestrationGetThreadTimelineRowsSnapshotInput,
+  OrchestrationGetThreadTimelineRowsSnapshotResult,
   OrchestrationGetFullThreadDiffInput,
   OrchestrationGetFullThreadDiffResult,
   OrchestrationGetTurnDiffInput,
@@ -567,6 +569,9 @@ export interface NativeApi {
     searchOpenCodeModels: (
       input: ServerSearchOpenCodeModelsInput,
     ) => Promise<ServerSearchOpenCodeModelsResult>;
+    generateNewThreadRecommendations: (
+      input: GenerateNewThreadRecommendationsInput,
+    ) => Promise<GenerateNewThreadRecommendationsResult>;
     upsertKeybinding: (input: ServerUpsertKeybindingInput) => Promise<ServerUpsertKeybindingResult>;
     getSettings: () => Promise<ServerSettings>;
     updateSettings: (patch: ServerSettingsPatch) => Promise<ServerSettings>;
@@ -574,12 +579,12 @@ export interface NativeApi {
   orchestration: {
     getSnapshot: (input?: OrchestrationGetSnapshotInput) => Promise<OrchestrationReadModel>;
     getThread: (input: OrchestrationGetThreadInput) => Promise<OrchestrationThread>;
-    getThreadTimelinePage: (
-      input: OrchestrationGetThreadTimelinePageInput,
-    ) => Promise<OrchestrationGetThreadTimelinePageResult>;
-    getThreadTimelineManifest: (
-      input: OrchestrationGetThreadTimelineManifestInput,
-    ) => Promise<OrchestrationGetThreadTimelineManifestResult>;
+    getThreadTimelineRowsSnapshot: (
+      input: OrchestrationGetThreadTimelineRowsSnapshotInput,
+    ) => Promise<OrchestrationGetThreadTimelineRowsSnapshotResult>;
+    getThreadTimelineRowsSnapshotChunk: (
+      input: OrchestrationGetThreadTimelineRowsSnapshotChunkInput,
+    ) => Promise<OrchestrationGetThreadTimelineRowsSnapshotChunkResult>;
     dispatchCommand: (command: ClientOrchestrationCommand) => Promise<{ sequence: number }>;
     getTurnDiff: (input: OrchestrationGetTurnDiffInput) => Promise<OrchestrationGetTurnDiffResult>;
     getFullThreadDiff: (

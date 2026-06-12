@@ -1,6 +1,6 @@
 {
   "name": "@ace/shared",
-  "version": "0.6.0",
+  "version": "0.6.6",
   "private": true,
   "type": "module",
   "exports": {
@@ -59,6 +59,10 @@
     "./orchestrationThreadActivities": {
       "types": "./src/orchestrationThreadActivities.ts",
       "import": "./src/orchestrationThreadActivities.ts"
+    },
+    "./orchestrationActivityPresentation": {
+      "types": "./src/orchestrationActivityPresentation.ts",
+      "import": "./src/orchestrationActivityPresentation.ts"
     },
     "./notifications": {
       "types": "./src/notifications.ts",

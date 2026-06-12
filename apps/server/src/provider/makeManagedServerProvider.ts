@@ -3,11 +3,17 @@ import { Effect, FileSystem, Option, PubSub, Ref, Schema, Scope, Stream } from "
 import * as Semaphore from "effect/Semaphore";
 
 import { ServerConfig } from "../config";
+import { readPositiveIntegerEnv } from "../resourceLimits.ts";
 import type { ServerProviderShape } from "./Services/ServerProvider";
 import { ServerSettingsError } from "@ace/contracts";
 import { withStartupTiming } from "../startupDiagnostics";
 
 const PROVIDER_PROBE_CACHE_TTL_MS = 15 * 60 * 1000;
+const PROVIDER_STATUS_PUBSUB_CAPACITY = readPositiveIntegerEnv({
+  envVarName: "ACE_PROVIDER_STATUS_PUBSUB_CAPACITY",
+  fallback: 64,
+  minimum: 1,
+});
 
 function settingsHash(settings: unknown): string {
   return JSON.stringify(settings);
@@ -133,7 +139,7 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
 
   const refreshSemaphore = yield* Semaphore.make(1);
   const changesPubSub = yield* Effect.acquireRelease(
-    PubSub.unbounded<ServerProvider>(),
+    PubSub.sliding<ServerProvider>(PROVIDER_STATUS_PUBSUB_CAPACITY),
     PubSub.shutdown,
   );
   const initialSettings = yield* withStartupTiming(

@@ -18,7 +18,14 @@ import { approveRelayPairingRequest, persistPairingSessionsToDatabase } from "./
 import { ServerConfig } from "./config";
 import { PairingSessionRepository } from "./persistence/Services/PairingSessions";
 import { getRelayDeviceIdentity } from "./relayIdentity";
+import { readPositiveIntegerEnv } from "./resourceLimits.ts";
 import { ServerSettingsService } from "./serverSettings";
+
+const RELAY_STATUS_PUBSUB_CAPACITY = readPositiveIntegerEnv({
+  envVarName: "ACE_RELAY_STATUS_PUBSUB_CAPACITY",
+  fallback: 64,
+  minimum: 1,
+});
 
 interface RelayWebSocketLike {
   readonly readyState: number;
@@ -250,7 +257,7 @@ const makeRelayHostManager = Effect.gen(function* () {
   const config = yield* ServerConfig;
   const relayIdentity = yield* getRelayDeviceIdentity();
   const pairingSessionRepository = yield* PairingSessionRepository;
-  const changesPubSub = yield* PubSub.unbounded<ServerRelayStatus>();
+  const changesPubSub = yield* PubSub.sliding<ServerRelayStatus>(RELAY_STATUS_PUBSUB_CAPACITY);
   const services = yield* Effect.services();
   const runFork = Effect.runForkWith(services);
 

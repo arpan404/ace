@@ -30,7 +30,10 @@ import { ServerLifecycleEvents } from "./serverLifecycleEvents";
 import { ServerSettingsService } from "./serverSettings";
 import { logStartupEvent, withStartupTiming } from "./startupDiagnostics";
 import { ProviderSessionDirectory } from "./provider/Services/ProviderSessionDirectory";
+import { readPositiveIntegerEnv } from "./resourceLimits.ts";
 import { AnalyticsService } from "./telemetry/Services/AnalyticsService";
+
+const DEFAULT_STARTUP_COMMAND_QUEUE_CAPACITY = 512;
 
 const isWildcardHost = (host: string | undefined): boolean =>
   host === "0.0.0.0" || host === "::" || host === "[::]";
@@ -78,7 +81,12 @@ const settleQueuedCommand = <A, E>(deferred: Deferred.Deferred<A, E>, exit: Exit
 
 export const makeCommandGate = Effect.gen(function* () {
   const commandReady = yield* Deferred.make<void, ServerRuntimeStartupError>();
-  const commandQueue = yield* Queue.unbounded<QueuedCommand>();
+  const commandQueueCapacity = readPositiveIntegerEnv({
+    envVarName: "ACE_STARTUP_COMMAND_QUEUE_CAPACITY",
+    fallback: DEFAULT_STARTUP_COMMAND_QUEUE_CAPACITY,
+    minimum: 1,
+  });
+  const commandQueue = yield* Queue.bounded<QueuedCommand>(commandQueueCapacity);
   const commandReadinessState = yield* Ref.make<CommandReadinessState>("pending");
 
   const commandWorker = Effect.forever(
@@ -108,13 +116,24 @@ export const makeCommandGate = Effect.gen(function* () {
         }
 
         const result = yield* Deferred.make<A, E | ServerRuntimeStartupError>();
-        yield* Queue.offer(commandQueue, {
+        const queuedCount = yield* Queue.size(commandQueue);
+        if (queuedCount >= commandQueueCapacity) {
+          return yield* new ServerRuntimeStartupError({
+            message: `Server startup command queue is full (${commandQueueCapacity}). Try again after startup completes.`,
+          });
+        }
+        const offered = yield* Queue.offer(commandQueue, {
           run: Deferred.await(commandReady).pipe(
             Effect.flatMap(() => effect),
             Effect.exit,
             Effect.flatMap((exit) => settleQueuedCommand(result, exit)),
           ),
         });
+        if (!offered) {
+          return yield* new ServerRuntimeStartupError({
+            message: `Server startup command queue is full (${commandQueueCapacity}). Try again after startup completes.`,
+          });
+        }
         return yield* Deferred.await(result);
       }),
   } satisfies CommandGate;

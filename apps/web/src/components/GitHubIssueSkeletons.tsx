@@ -2,7 +2,6 @@
 
 import { cn } from "~/lib/utils";
 import { Skeleton } from "./ui/skeleton";
-import { Spinner } from "./ui/spinner";
 
 const ISSUE_MARKDOWN_SKELETON_WIDTHS = [
   "w-[92%]",
@@ -123,30 +122,6 @@ export function GitHubIssuePreviewHeaderSkeleton({ issueNumber }: { issueNumber:
         <Skeleton className="h-[18px] w-12 rounded-full" />
         <Skeleton className="h-2.5 w-28 rounded-full" />
         <Skeleton className="h-2.5 w-12 rounded-full" />
-      </div>
-    </div>
-  );
-}
-
-export function ThreadHistoryLoadingNotice({
-  variant = "empty",
-}: {
-  variant?: "empty" | "inline";
-}) {
-  const isInline = variant === "inline";
-  return (
-    <div className={cn("sticky top-0 z-10 flex justify-center", isInline ? "mb-2" : "mb-3")}>
-      <div
-        className={cn(
-          "inline-flex items-center gap-2 rounded-full border border-border/50 bg-card/95 px-3 py-1.5 text-[11px] text-muted-foreground backdrop-blur-sm",
-          isInline ? "shadow-sm shadow-background/30" : "",
-        )}
-      >
-        <Spinner className="size-3 text-primary" />
-        <span>{isInline ? "Restoring older messages…" : "Restoring conversation…"}</span>
-        <span className="hidden text-muted-foreground/70 sm:inline">
-          {isInline ? "showing recent messages now" : "syncing missing messages"}
-        </span>
       </div>
     </div>
   );
