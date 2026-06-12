@@ -6,6 +6,8 @@ import {
   OpenError,
   OpenInEditorInput,
   OpenPathExistsInput,
+  OpenPathInfoInput,
+  OpenPathInfoResult,
   OpenRevealInFileManagerInput,
 } from "./editor";
 import { FilesystemBrowseError, FilesystemBrowseInput, FilesystemBrowseResult } from "./filesystem";
@@ -175,6 +177,7 @@ export const WS_METHODS = {
   shellOpenInEditor: "shell.openInEditor",
   shellRevealInFileManager: "shell.revealInFileManager",
   shellPathExists: "shell.pathExists",
+  shellPathInfo: "shell.pathInfo",
 
   // Filesystem methods
   filesystemBrowse: "filesystem.browse",
@@ -441,6 +444,11 @@ export const WsShellRevealInFileManagerRpc = Rpc.make(WS_METHODS.shellRevealInFi
 export const WsShellPathExistsRpc = Rpc.make(WS_METHODS.shellPathExists, {
   payload: OpenPathExistsInput,
   success: Schema.Boolean,
+});
+
+export const WsShellPathInfoRpc = Rpc.make(WS_METHODS.shellPathInfo, {
+  payload: OpenPathInfoInput,
+  success: OpenPathInfoResult,
 });
 
 export const WsFilesystemBrowseRpc = Rpc.make(WS_METHODS.filesystemBrowse, {
@@ -711,6 +719,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsShellOpenInEditorRpc,
   WsShellRevealInFileManagerRpc,
   WsShellPathExistsRpc,
+  WsShellPathInfoRpc,
   WsFilesystemBrowseRpc,
   WsGitStatusRpc,
   WsGitReadWorkingTreeDiffRpc,

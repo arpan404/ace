@@ -697,7 +697,7 @@ interface ConnectedRetainedThreadTerminalDrawersProps {
   onHeightChange: (height: number) => void;
   onAddTerminalContext: (selection: TerminalContextSelection) => void;
   onOpenBrowserUrl?: ((url: string) => void) | null;
-  onOpenFilePath?: ((path: string) => void) | null;
+  onOpenFilePath?: ((path: string) => void | Promise<void>) | null;
 }
 
 interface ConnectedThreadTerminalPanelProps extends ConnectedRetainedThreadTerminalDrawersProps {
@@ -2141,7 +2141,6 @@ function useChatViewComponent({
       }),
     [connectionUrl, projectConnectionUrl, routeConnectionUrl, threadConnectionUrl],
   );
-  const canOpenLocalMarkdownFiles = activeServerConnectionUrl === null;
   const resolveBrowserThreadConnectionUrl = useCallback(
     (browserThreadId: ThreadId): string => {
       const browserThread =
@@ -3565,6 +3564,7 @@ function useChatViewComponent({
       })
     : null;
   const codingGitCwd = gitCwd;
+  const canOpenLocalMarkdownFiles = Boolean(activeThreadId && gitCwd);
   const workspaceStatusPollingMs = latestTurnSettled ? 10_000 : 5_000;
   const workspaceStatusQuery = useQuery({
     ...gitStatusQueryOptions(codingGitCwd, activeServerConnectionUrl),
@@ -5441,13 +5441,29 @@ function useChatViewComponent({
     [activeProject?.cwd, activeThread?.worktreePath, gitCwd],
   );
   const openMarkdownFileInAppEditor = useCallback(
-    (targetPath: string) => {
+    async (targetPath: string) => {
       if (!activeThreadId || !gitCwd) {
         return;
       }
       const normalizedTargetPath = targetPath.trim();
       if (normalizedTargetPath.length === 0) {
         return;
+      }
+      const api = readNativeApi();
+      if (api) {
+        try {
+          const pathInfo = await api.shell.pathInfo(normalizedTargetPath, {
+            connectionUrl: activeServerConnectionUrl,
+          });
+          if (pathInfo.kind === "directory") {
+            await api.shell.revealInFileManager(normalizedTargetPath, {
+              connectionUrl: activeServerConnectionUrl,
+            });
+            return;
+          }
+        } catch (error) {
+          console.warn("Failed to inspect local file path before opening editor.", error);
+        }
       }
       let resolvedFilePath = resolveWorkspaceEditorFilePath(
         normalizedTargetPath,
@@ -5479,6 +5495,7 @@ function useChatViewComponent({
     },
     [
       activeRightPanelEditorTabId,
+      activeServerConnectionUrl,
       activeThreadId,
       gitCwd,
       onOpenRightSidePanelEditor,

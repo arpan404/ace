@@ -11,7 +11,13 @@ import { accessSync, constants, statSync } from "node:fs";
 import * as OS from "node:os";
 import { dirname, extname, isAbsolute, join, resolve as resolvePath } from "node:path";
 
-import { EDITORS, OpenError, type EditorId, type PickFolderOptions } from "@ace/contracts";
+import {
+  EDITORS,
+  OpenError,
+  type EditorId,
+  type OpenPathInfoResult,
+  type PickFolderOptions,
+} from "@ace/contracts";
 import { ServiceMap, Effect, Layer } from "effect";
 
 import { runProcess, type ProcessRunResult } from "./processRunner";
@@ -32,6 +38,10 @@ export interface RevealInFileManagerInput {
 }
 
 export interface PathExistsInput {
+  readonly path: string;
+}
+
+export interface PathInfoInput {
   readonly path: string;
 }
 
@@ -444,6 +454,11 @@ export interface OpenShape {
    * Check whether a local filesystem path exists.
    */
   readonly pathExists: (input: PathExistsInput) => Effect.Effect<boolean>;
+
+  /**
+   * Inspect a local filesystem path enough to choose a safe open behavior.
+   */
+  readonly pathInfo: (input: PathInfoInput) => Effect.Effect<OpenPathInfoResult>;
 }
 
 /**
@@ -577,6 +592,21 @@ const make = Effect.gen(function* () {
           return true;
         } catch {
           return false;
+        }
+      }),
+    pathInfo: (input) =>
+      Effect.sync((): OpenPathInfoResult => {
+        const targetPath = input.path.trim().replace(LINE_COLUMN_SUFFIX_PATTERN, "");
+        if (targetPath.length === 0) {
+          return { kind: "missing" };
+        }
+        try {
+          const stat = statSync(targetPath);
+          if (stat.isFile()) return { kind: "file" };
+          if (stat.isDirectory()) return { kind: "directory" };
+          return { kind: "other" };
+        } catch {
+          return { kind: "missing" };
         }
       }),
   } satisfies OpenShape;

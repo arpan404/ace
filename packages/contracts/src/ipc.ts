@@ -27,6 +27,7 @@ import type {
   GitWorkingTreeDiffInput,
   GitWorkingTreeDiffResult,
 } from "./git";
+import type { OpenPathInfoResult } from "./editor";
 import type { FilesystemBrowseInput, FilesystemBrowseResult } from "./filesystem";
 import type {
   ProjectListTreeInput,
@@ -521,6 +522,10 @@ export interface NativeApi {
       path: string,
       options?: { readonly connectionUrl?: string | null | undefined },
     ) => Promise<boolean>;
+    pathInfo: (
+      path: string,
+      options?: { readonly connectionUrl?: string | null | undefined },
+    ) => Promise<OpenPathInfoResult>;
     openExternal: (url: string) => Promise<void>;
   };
   git: {

@@ -414,7 +414,7 @@ interface TerminalViewportProps {
   onAddTerminalContext: (selection: TerminalContextSelection) => void;
   onAutoTerminalTitleChange: (terminalId: string, title: string | null) => void;
   onOpenBrowserUrl?: ((url: string) => void) | null;
-  onOpenFilePath?: ((path: string) => void) | null;
+  onOpenFilePath?: ((path: string) => void | Promise<void>) | null;
   focusRequestId: number;
   shouldFocusTerminal: boolean;
   drawerHeight: number;
@@ -786,10 +786,21 @@ function useTerminalViewportComponent({
               const target = resolvePathLinkTarget(match.text, cwd);
               const openFilePath = onOpenFilePathRef.current;
               if (!event.metaKey && !event.ctrlKey && openFilePath) {
-                openFilePath(target);
+                void openFilePath(target);
                 return;
               }
-              void openInPreferredEditor(api, target).catch((error) => {
+              void (async () => {
+                try {
+                  const pathInfo = await api.shell.pathInfo(target);
+                  if (pathInfo.kind === "directory") {
+                    await api.shell.revealInFileManager(target);
+                    return;
+                  }
+                } catch (error) {
+                  console.warn("Failed to inspect terminal path before opening editor.", error);
+                }
+                await openInPreferredEditor(api, target);
+              })().catch((error) => {
                 writeSystemMessage(
                   latestTerminal,
                   error instanceof Error ? error.message : "Unable to open path",
@@ -1163,7 +1174,7 @@ interface ThreadTerminalDrawerProps {
   onHeightChange: (height: number) => void;
   onAddTerminalContext: (selection: TerminalContextSelection) => void;
   onOpenBrowserUrl?: ((url: string) => void) | null;
-  onOpenFilePath?: ((path: string) => void) | null;
+  onOpenFilePath?: ((path: string) => void | Promise<void>) | null;
 }
 
 interface TerminalActionButtonProps {
