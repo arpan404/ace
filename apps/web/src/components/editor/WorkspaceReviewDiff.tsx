@@ -10,6 +10,7 @@ import {
   createWorkspaceCodeComment,
   type WorkspaceCodeComment,
 } from "~/lib/editor/workspaceDesigner";
+import { renderTrustedHighlightedHtml } from "~/components/TrustedHighlightedHtml";
 import { useWorkspaceCommentPlaceholder } from "~/lib/editor/workspaceCommentPlaceholders";
 import {
   APP_FLOATING_CHIP_CLASS_NAME,
@@ -875,6 +876,7 @@ function WorkspaceReviewDiffCode(props: {
   readonly kind: WorkspaceReviewDiffLineProps["kind"];
   readonly wordWrap: boolean;
 }) {
+  const children = renderTrustedHighlightedHtml(props.html ?? "&nbsp;");
   return (
     <code
       className={cn(
@@ -882,8 +884,9 @@ function WorkspaceReviewDiffCode(props: {
         props.wordWrap ? "whitespace-pre-wrap break-words" : "whitespace-pre",
         props.kind === "empty" && "text-muted-foreground/35",
       )}
-      dangerouslySetInnerHTML={{ __html: props.html ?? "&nbsp;" }}
-    />
+    >
+      {children}
+    </code>
   );
 }
 

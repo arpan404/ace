@@ -50,6 +50,7 @@ import { isRenderProfilingEnabled, recordReactRenderProfile } from "../lib/rende
 import { resolveMarkdownFileLinkTarget } from "../markdown-links";
 import { readNativeApi } from "../nativeApi";
 import type { ChatMessageStreamingTextState } from "../types";
+import { renderTrustedHighlightedHtml } from "./TrustedHighlightedHtml";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 const MermaidDiagram = React.lazy(() => import("./MermaidDiagram"));
 
@@ -555,9 +556,8 @@ function ShikiCodeBlock({
 }
 
 function HighlightedShikiCodeBlock({ highlightedHtml }: { highlightedHtml: string }) {
-  return (
-    <div className="chat-markdown-shiki" dangerouslySetInnerHTML={{ __html: highlightedHtml }} />
-  );
+  const highlightedChildren = renderTrustedHighlightedHtml(highlightedHtml);
+  return <div className="chat-markdown-shiki">{highlightedChildren}</div>;
 }
 
 function StreamingMarkdownText({ text }: { text: string }) {
