@@ -3398,11 +3398,11 @@ const CompletedWorkDetailTimelineRow = memo(function CompletedWorkDetailTimeline
     <WorkLogTimelineRow
       row={props.row}
       expandedWorkGroups={props.expandedWorkGroups}
-      groupIdOverride={
-        props.row.kind === "work-group"
-          ? completedWorkDetailGroupId(props.completedWorkSummaryId, props.row.id)
-          : undefined
-      }
+      {...(props.row.kind === "work-group"
+        ? {
+            groupIdOverride: completedWorkDetailGroupId(props.completedWorkSummaryId, props.row.id),
+          }
+        : {})}
       onToggleWorkGroup={props.onToggleWorkGroup}
     />
   );
@@ -3417,10 +3417,10 @@ const AssistantUpdateTimelineRow = memo(function AssistantUpdateTimelineRow(prop
       data-completed-work-assistant-update="true"
       data-assistant-update-id={props.row.id}
     >
-      <p className="wrap-break-word max-w-[min(100%,72rem)] whitespace-pre-wrap text-[13px] leading-[1.55] text-foreground/80">
+      <p className="wrap-break-word max-w-[min(100%,72rem)] whitespace-pre-wrap text-[12px] leading-5 text-foreground/80">
         {props.row.text}
         {props.row.truncated ? (
-          <span className="block text-[12px] leading-5 text-muted-foreground/55">
+          <span className="block text-[11px] leading-5 text-muted-foreground/55">
             ... update truncated
           </span>
         ) : null}

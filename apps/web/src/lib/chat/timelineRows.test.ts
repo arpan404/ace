@@ -937,7 +937,7 @@ describe("timelineRows", () => {
           expect.objectContaining({
             kind: "work-group",
             id: "current-hidden-tool",
-            entries: [],
+            entries: [expect.objectContaining({ id: "current-hidden-tool" })],
             summary: expect.objectContaining({
               toolCount: 1,
             }),
