@@ -4751,15 +4751,9 @@ export function ArchivedThreadsPanel() {
     );
   }, [projects, threadCountByProjectId, threads]);
   const [openGroupIds, setOpenGroupIds] = useState<Record<string, boolean>>({});
-  useEffect(() => {
-    setOpenGroupIds((current) => {
-      const next: Record<string, boolean> = {};
-      for (const group of archivedGroups) {
-        next[group.project.id] = current[group.project.id] ?? true;
-      }
-      return next;
-    });
-  }, [archivedGroups]);
+  const visibleOpenGroupIds = Object.fromEntries(
+    archivedGroups.map((group) => [group.project.id, openGroupIds[group.project.id] ?? true]),
+  );
 
   const handleArchivedThreadContextMenu = useCallback(
     async (threadId: ThreadId, position: { x: number; y: number }) => {
@@ -4806,7 +4800,7 @@ export function ArchivedThreadsPanel() {
   }, []);
   const hasArchivedItems = archivedGroups.length > 0;
   const allGroupsExpanded = archivedGroups.every(
-    (group) => openGroupIds[group.project.id] !== false,
+    (group) => visibleOpenGroupIds[group.project.id] !== false,
   );
   const setAllGroupsOpen = useCallback(
     (open: boolean) => {
@@ -4871,7 +4865,7 @@ export function ArchivedThreadsPanel() {
           <div className="min-w-0 space-y-0 px-2 py-2 sm:px-3">
             {archivedGroups.map((group) => {
               const project = group.project;
-              const isOpen = openGroupIds[project.id] !== false;
+              const isOpen = visibleOpenGroupIds[project.id] !== false;
               const archivedItemCount =
                 group.threads.length + (project.archivedAt === null ? 0 : 1);
 

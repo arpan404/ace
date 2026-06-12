@@ -377,7 +377,6 @@ function useDiffPanelComponent({
   const [reviewCommentDraft, setReviewCommentDraft] = useState("");
   const reviewCommentInputRef = useRef<HTMLInputElement>(null);
   const patchViewportRef = useRef<HTMLDivElement>(null);
-  const previousDiffOpenRef = useRef(false);
   const routeThreadId = useParams({
     strict: false,
     select: (params) => (params.threadId ? ThreadId.makeUnsafe(params.threadId) : null),
@@ -638,24 +637,13 @@ function useDiffPanelComponent({
     () => renderableFiles.map((fileDiff) => buildFileDiffRenderKey(fileDiff)),
     [renderableFiles],
   );
-  const renderableFileKeysSignature = renderableFileKeys.join("\u0000");
-  const expandedFileCount = renderableFiles.length - collapsedFileKeys.size;
+  const renderableFileKeySet = new Set(renderableFileKeys);
+  const visibleCollapsedFileKeys = new Set(
+    Array.from(collapsedFileKeys).filter((fileKey) => renderableFileKeySet.has(fileKey)),
+  );
+  const visibleCollapsedFileKeysSignature = Array.from(visibleCollapsedFileKeys).join("\u0000");
+  const expandedFileCount = renderableFiles.length - visibleCollapsedFileKeys.size;
   const allFilesCollapsed = renderableFiles.length > 0 && expandedFileCount === 0;
-
-  useEffect(() => {
-    if (diffOpen && !previousDiffOpenRef.current) {
-      setDiffWordWrap(diffWordWrapSetting);
-    }
-    previousDiffOpenRef.current = diffOpen;
-  }, [diffOpen, diffWordWrapSetting]);
-
-  useEffect(() => {
-    setCollapsedFileKeys(new Set());
-    setActiveCommentFileKey(null);
-    setActiveReviewLineSelection(null);
-    setReviewCommentPopoverPosition(null);
-    setReviewCommentDraft("");
-  }, [renderableFileKeysSignature]);
 
   useEffect(() => {
     if (!selectedFilePath || !patchViewportRef.current) {
@@ -666,27 +654,6 @@ function useDiffPanelComponent({
     ).find((element) => element.dataset.diffFilePath === selectedFilePath);
     target?.scrollIntoView({ block: "nearest" });
   }, [selectedFilePath, renderableFiles]);
-
-  useEffect(() => {
-    if (!selectedFilePath) {
-      return;
-    }
-    const selectedFile = renderableFiles.find(
-      (fileDiff) => resolveFileDiffPath(fileDiff) === selectedFilePath,
-    );
-    if (!selectedFile) {
-      return;
-    }
-    const selectedFileKey = buildFileDiffRenderKey(selectedFile);
-    setCollapsedFileKeys((current) => {
-      if (!current.has(selectedFileKey)) {
-        return current;
-      }
-      const next = new Set(current);
-      next.delete(selectedFileKey);
-      return next;
-    });
-  }, [renderableFiles, selectedFilePath]);
 
   const openDiffFileInEditor = useCallback(
     (filePath: string) => {
@@ -783,6 +750,9 @@ function useDiffPanelComponent({
     activeCommentFileKey !== null &&
     activeReviewLineSelection !== null &&
     activeReviewFileDiff !== null;
+  const visibleReviewCommentPopoverPosition = reviewCommentPopoverOpen
+    ? reviewCommentPopoverPosition
+    : null;
   const closeReviewCommentPopover = useCallback(() => {
     setActiveCommentFileKey(null);
     setActiveReviewLineSelection(null);
@@ -792,7 +762,6 @@ function useDiffPanelComponent({
 
   useLayoutEffect(() => {
     if (!reviewCommentPopoverOpen || !activeReviewLineSelection) {
-      setReviewCommentPopoverPosition(null);
       return;
     }
 
@@ -853,7 +822,7 @@ function useDiffPanelComponent({
     };
   }, [
     activeReviewLineSelection,
-    collapsedFileKeys,
+    visibleCollapsedFileKeysSignature,
     diffRenderMode,
     diffWordWrap,
     resolvedTheme,
@@ -861,14 +830,14 @@ function useDiffPanelComponent({
   ]);
 
   useEffect(() => {
-    if (!reviewCommentPopoverOpen || reviewCommentPopoverPosition?.placement === "pending") {
+    if (!reviewCommentPopoverOpen || visibleReviewCommentPopoverPosition?.placement === "pending") {
       return;
     }
     reviewCommentInputRef.current?.focus({ preventScroll: true });
   }, [
     activeReviewLineSelection,
     reviewCommentPopoverOpen,
-    reviewCommentPopoverPosition?.placement,
+    visibleReviewCommentPopoverPosition?.placement,
   ]);
 
   const selectedTurnSelectValue = selectedTurn?.turnId ?? ALL_TURNS_SELECT_VALUE;
@@ -1146,7 +1115,7 @@ function useDiffPanelComponent({
                   const themedFileKey = `${fileKey}:${resolvedTheme}`;
                   const stat = summarizeFileDiff(fileDiff);
                   const changeType = formatFileChangeType(fileDiff);
-                  const collapsed = collapsedFileKeys.has(fileKey);
+                  const collapsed = visibleCollapsedFileKeys.has(fileKey);
                   const commentSelection =
                     activeReviewLineSelection?.fileKey === fileKey
                       ? activeReviewLineSelection
@@ -1156,8 +1125,8 @@ function useDiffPanelComponent({
                     activeCommentFileKey === fileKey &&
                     commentSelection !== null;
                   const commentPopoverPosition =
-                    reviewCommentPopoverPosition?.fileKey === fileKey
-                      ? reviewCommentPopoverPosition
+                    visibleReviewCommentPopoverPosition?.fileKey === fileKey
+                      ? visibleReviewCommentPopoverPosition
                       : commentPopoverOpen
                         ? createFallbackReviewCommentPopoverPosition(fileKey, "pending")
                         : null;
