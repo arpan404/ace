@@ -2178,7 +2178,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     <div
       ref={setTimelineRootElement}
       data-timeline-root="true"
-      className="mx-auto w-full min-w-0 max-w-3xl overflow-x-hidden"
+      className="mx-auto mt-3 w-full min-w-0 max-w-3xl overflow-x-hidden"
       style={{ overflowAnchor: "none" }}
       onKeyUp={updateSelectionPinTarget}
       onMouseUp={updateSelectionPinTarget}

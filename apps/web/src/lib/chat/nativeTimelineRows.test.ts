@@ -114,6 +114,7 @@ describe("nativeTimelineRows", () => {
       completionEndedAt: "2026-01-01T00:00:04.000Z",
       completionTurnId: String(turnId),
       completionSummary: "Worked for 4s",
+      hideCompletedWorkMessages: true,
       turnDiffSummaryByAssistantMessageId: new Map(),
     });
 
@@ -201,6 +202,7 @@ describe("nativeTimelineRows", () => {
       completionEndedAt: "2026-01-01T00:00:06.000Z",
       completionTurnId: String(turnId),
       completionSummary: "Worked for 6s",
+      hideCompletedWorkMessages: true,
       turnDiffSummaryByAssistantMessageId: new Map(),
     });
 
@@ -209,12 +211,12 @@ describe("nativeTimelineRows", () => {
       kind: "completed-work-summary",
       detailRows: [
         {
-          kind: "work",
-          id: "activity-thinking",
-        },
-        {
           kind: "work-group",
-          entries: [{ id: "activity-read" }, { id: "activity-command" }],
+          entries: [
+            { id: "activity-thinking" },
+            { id: "activity-read" },
+            { id: "activity-command" },
+          ],
         },
       ],
       hiddenThinkingCount: 1,
@@ -292,6 +294,7 @@ describe("nativeTimelineRows", () => {
       completionEndedAt: "2026-01-01T00:00:06.000Z",
       completionTurnId: String(turnId),
       completionSummary: "Worked for 6s",
+      hideCompletedWorkMessages: true,
       turnDiffSummaryByAssistantMessageId: new Map(),
     });
 
@@ -349,6 +352,7 @@ describe("nativeTimelineRows", () => {
       completionEndedAt: "2026-01-01T00:00:10.000Z",
       completionTurnId: String(turnId),
       completionSummary: "Worked for 10s",
+      hideCompletedWorkMessages: true,
       turnDiffSummaryByAssistantMessageId: new Map(),
     });
 
@@ -398,6 +402,7 @@ describe("nativeTimelineRows", () => {
       completionEndedAt: "2026-01-01T00:00:10.000Z",
       completionTurnId: String(turnId),
       completionSummary: null,
+      hideCompletedWorkMessages: true,
       turnDiffSummaryByAssistantMessageId: new Map(),
     });
 
@@ -410,6 +415,82 @@ describe("nativeTimelineRows", () => {
     expect(rows[2]).toMatchObject({
       kind: "message",
       completionSummary: null,
+    });
+  });
+
+  it("keeps completed work details inline when completed work hiding is disabled", () => {
+    const userMessage: OrchestrationMessage = {
+      id: userMessageId,
+      role: "user",
+      text: "Audit timeline behavior",
+      turnId,
+      streaming: false,
+      sequence: 1,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+    const toolActivity: OrchestrationThreadActivity = {
+      id: EventId.makeUnsafe("activity-visible-completed-tool"),
+      tone: "tool",
+      kind: "tool.completed",
+      summary: "Ran command",
+      payload: { itemType: "command_execution", command: "bun lint" },
+      turnId,
+      sequence: 2,
+      createdAt: "2026-01-01T00:00:01.000Z",
+    };
+    const thinkingActivity: OrchestrationThreadActivity = {
+      id: EventId.makeUnsafe("activity-visible-completed-thinking"),
+      tone: "info",
+      kind: "task.progress",
+      summary: "Thinking",
+      payload: { detail: "Checking whether completed work stays visible." },
+      turnId,
+      sequence: 3,
+      createdAt: "2026-01-01T00:00:02.000Z",
+    };
+    const assistantMessage: OrchestrationMessage = {
+      id: assistantMessageId,
+      role: "assistant",
+      text: "Done.",
+      turnId,
+      streaming: false,
+      sequence: 4,
+      createdAt: "2026-01-01T00:00:04.000Z",
+      updatedAt: "2026-01-01T00:00:06.000Z",
+    };
+
+    const rows = buildNativeTimelineRows({
+      rows: [
+        messageRow(userMessage, 0),
+        activityRow(toolActivity, 1),
+        activityRow(thinkingActivity, 2),
+        messageRow(assistantMessage, 3),
+      ],
+      messages: [userMessage, assistantMessage],
+      activities: [toolActivity, thinkingActivity],
+      proposedPlans: [],
+      activeTurnInProgress: false,
+      activeTurnStartedAt: null,
+      completionDividerBeforeEntryId: `message:${assistantMessageId}`,
+      completionStartedAt: "2026-01-01T00:00:00.000Z",
+      completionEndedAt: "2026-01-01T00:00:06.000Z",
+      completionTurnId: String(turnId),
+      completionSummary: "Worked for 6s",
+      hideCompletedWorkMessages: false,
+      turnDiffSummaryByAssistantMessageId: new Map(),
+    });
+
+    expect(rows.map((row) => row.kind)).toEqual(["message", "work-group", "message"]);
+    expect(rows.some((row) => row.kind === "completed-work-summary")).toBe(false);
+    expect(rows[1]).toMatchObject({
+      kind: "work-group",
+      entries: [{ id: toolActivity.id }, { id: thinkingActivity.id }],
+    });
+    expect(rows[2]).toMatchObject({
+      kind: "message",
+      message: { id: assistantMessage.id },
+      completionSummary: "Worked for 6s",
     });
   });
 
@@ -480,6 +561,104 @@ describe("nativeTimelineRows", () => {
       endedAt: "2026-01-01T00:00:06.000Z",
       hiddenThinkingCount: 1,
       toolCallCount: 1,
+      detailRows: [
+        {
+          kind: "work-group",
+          entries: [{ id: toolActivity.id }, { id: thinkingActivity.id }],
+        },
+      ],
+    });
+  });
+
+  it("hides non-terminal native assistant updates inside completed work summaries", () => {
+    const userMessage: OrchestrationMessage = {
+      id: userMessageId,
+      role: "user",
+      text: "Commit these changes",
+      turnId,
+      streaming: false,
+      sequence: 1,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+    const firstToolActivity: OrchestrationThreadActivity = {
+      id: EventId.makeUnsafe("activity-commit-status"),
+      tone: "tool",
+      kind: "tool.completed",
+      summary: "Ran command",
+      payload: { itemType: "command_execution", command: "git status --short" },
+      turnId,
+      sequence: 2,
+      createdAt: "2026-01-01T00:00:01.000Z",
+    };
+    const intermediateAssistantMessage: OrchestrationMessage = {
+      id: MessageId.makeUnsafe("message-assistant-native-progress"),
+      role: "assistant",
+      text: "I will create the commit now, then open a PR.",
+      turnId,
+      streaming: false,
+      sequence: 3,
+      createdAt: "2026-01-01T00:00:02.000Z",
+      updatedAt: "2026-01-01T00:00:02.500Z",
+    };
+    const secondToolActivity: OrchestrationThreadActivity = {
+      id: EventId.makeUnsafe("activity-commit-create"),
+      tone: "tool",
+      kind: "tool.completed",
+      summary: "Ran command",
+      payload: { itemType: "command_execution", command: "git commit" },
+      turnId,
+      sequence: 4,
+      createdAt: "2026-01-01T00:00:03.000Z",
+    };
+    const finalAssistantMessage: OrchestrationMessage = {
+      id: assistantMessageId,
+      role: "assistant",
+      text: "Done.",
+      turnId,
+      streaming: false,
+      sequence: 5,
+      createdAt: "2026-01-01T00:00:04.000Z",
+      updatedAt: "2026-01-01T00:00:06.000Z",
+    };
+
+    const rows = buildNativeTimelineRows({
+      rows: [
+        messageRow(userMessage, 0),
+        activityRow(firstToolActivity, 1),
+        messageRow(intermediateAssistantMessage, 2),
+        activityRow(secondToolActivity, 3),
+        messageRow(finalAssistantMessage, 4),
+      ],
+      messages: [userMessage, intermediateAssistantMessage, finalAssistantMessage],
+      activities: [firstToolActivity, secondToolActivity],
+      proposedPlans: [],
+      activeTurnInProgress: false,
+      activeTurnStartedAt: null,
+      completionDividerBeforeEntryId: null,
+      completionSummary: null,
+      hideCompletedWorkMessages: true,
+      turnDiffSummaryByAssistantMessageId: new Map(),
+    });
+
+    expect(rows.map((row) => row.kind)).toEqual(["message", "completed-work-summary", "message"]);
+    expect(rows[1]).toMatchObject({
+      kind: "completed-work-summary",
+      hiddenMessageCount: 1,
+      toolCallCount: 2,
+      detailRows: [
+        { kind: "work", id: firstToolActivity.id },
+        {
+          kind: "assistant-update",
+          id: `hidden-assistant-update:${intermediateAssistantMessage.id}`,
+          text: intermediateAssistantMessage.text,
+        },
+        { kind: "work", id: secondToolActivity.id },
+      ],
+    });
+    expect(rows[2]).toMatchObject({
+      kind: "message",
+      message: { id: finalAssistantMessage.id },
     });
   });
 

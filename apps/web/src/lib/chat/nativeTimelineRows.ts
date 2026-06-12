@@ -118,15 +118,18 @@ export function buildNativeTimelineRows(input: NativeTimelineRowsInput): Timelin
     activeTurnInProgress: input.activeTurnInProgress,
   });
   const orderedSourceRows = input.rows.toSorted(compareNativeTimelineRowsBySourceOrder);
-  const completionWorkSummary = buildNativeCompletionWorkSummary({
-    completionEndedAt: input.completionEndedAt ?? null,
-    completionStartedAt: input.completionStartedAt ?? null,
-    completionTurnId: input.completionTurnId ?? null,
-    completionDividerBeforeEntryId: input.completionDividerBeforeEntryId,
-    rows: input.rows,
-    messageById,
-    workEntryByActivityId,
-  });
+  const completionWorkSummary =
+    input.hideCompletedWorkMessages === true
+      ? buildNativeCompletionWorkSummary({
+          completionEndedAt: input.completionEndedAt ?? null,
+          completionStartedAt: input.completionStartedAt ?? null,
+          completionTurnId: input.completionTurnId ?? null,
+          completionDividerBeforeEntryId: input.completionDividerBeforeEntryId,
+          rows: input.rows,
+          messageById,
+          workEntryByActivityId,
+        })
+      : null;
   const completionWorkSourceRowIds = new Set(completionWorkSummary?.sourceRowIds ?? []);
   const activeTurnStartedAtMs = input.activeTurnStartedAt
     ? Date.parse(input.activeTurnStartedAt)
@@ -153,9 +156,44 @@ export function buildNativeTimelineRows(input: NativeTimelineRowsInput): Timelin
     turnId: string | null;
     sourceEntryIds: string[];
     detailRows: TimelineCompletedWorkSummaryRow["detailRows"];
+    hiddenMessageCount: number;
     hiddenThinkingCount: number;
     toolCallCount: number;
   } | null = null;
+
+  const appendHiddenCompletedWorkDetailRows = (
+    existingRows: TimelineCompletedWorkSummaryRow["detailRows"],
+    detailRows: readonly TimelineCompletedWorkSummaryRow["detailRows"][number][],
+  ): TimelineCompletedWorkSummaryRow["detailRows"] => {
+    let nextRows = [...existingRows];
+    for (const detailRow of detailRows) {
+      const previousRow = nextRows.at(-1);
+      const previousEntries = completedWorkDetailWorkEntries(previousRow);
+      const nextEntries = completedWorkDetailWorkEntries(detailRow);
+      if (previousRow && previousEntries && nextEntries) {
+        const mergedEntries = [...previousEntries, ...nextEntries];
+        const previousSummaryEndAt = completedWorkDetailSummaryEndAt(previousRow);
+        const nextSummaryEndAt = completedWorkDetailSummaryEndAt(detailRow);
+        nextRows = [
+          ...nextRows.slice(0, -1),
+          {
+            kind: "work-group",
+            id: previousRow.id,
+            createdAt: previousRow.createdAt,
+            entries: mergedEntries,
+            summaryEndAt:
+              previousSummaryEndAt && nextSummaryEndAt
+                ? latestIso(previousSummaryEndAt, nextSummaryEndAt)
+                : (previousSummaryEndAt ?? nextSummaryEndAt),
+            summary: buildTimelineWorkGroupSummaryProjection(mergedEntries),
+          },
+        ];
+        continue;
+      }
+      nextRows.push(detailRow);
+    }
+    return nextRows;
+  };
 
   const flushPendingWorkGroup = () => {
     if (!pendingWorkGroup) {
@@ -215,6 +253,7 @@ export function buildNativeTimelineRows(input: NativeTimelineRowsInput): Timelin
         turnId: row.turnId ?? null,
         sourceEntryIds: entries.map((entry) => entry.id),
         detailRows: [detailRow],
+        hiddenMessageCount: 0,
         hiddenThinkingCount: summary.thinkingCount,
         toolCallCount: summary.toolCount,
       };
@@ -228,9 +267,42 @@ export function buildNativeTimelineRows(input: NativeTimelineRowsInput): Timelin
         ...pendingHiddenCompletedWork.sourceEntryIds,
         ...entries.map((entry) => entry.id),
       ],
-      detailRows: [...pendingHiddenCompletedWork.detailRows, detailRow],
+      detailRows: appendHiddenCompletedWorkDetailRows(pendingHiddenCompletedWork.detailRows, [
+        detailRow,
+      ]),
+      hiddenMessageCount: pendingHiddenCompletedWork.hiddenMessageCount,
       hiddenThinkingCount: pendingHiddenCompletedWork.hiddenThinkingCount + summary.thinkingCount,
       toolCallCount: pendingHiddenCompletedWork.toolCallCount + summary.toolCount,
+    };
+  };
+
+  const recordHiddenAssistantMessage = (row: OrchestrationTimelineRow, message: ChatMessage) => {
+    const detailRow = compactNativeHiddenAssistantUpdateRow(message);
+    const endedAt = message.completedAt ?? row.updatedAt;
+    if (!pendingHiddenCompletedWork) {
+      pendingHiddenCompletedWork = {
+        id: `completed-work-summary:${message.turnId ?? String(message.id)}`,
+        createdAt: message.createdAt,
+        startedAt: message.createdAt,
+        endedAt,
+        turnId: message.turnId ?? null,
+        sourceEntryIds: [String(message.id)],
+        detailRows: [detailRow],
+        hiddenMessageCount: 1,
+        hiddenThinkingCount: 0,
+        toolCallCount: 0,
+      };
+      return;
+    }
+    pendingHiddenCompletedWork = {
+      ...pendingHiddenCompletedWork,
+      endedAt: latestIso(pendingHiddenCompletedWork.endedAt, endedAt),
+      turnId: pendingHiddenCompletedWork.turnId ?? message.turnId ?? null,
+      sourceEntryIds: [...pendingHiddenCompletedWork.sourceEntryIds, String(message.id)],
+      detailRows: appendHiddenCompletedWorkDetailRows(pendingHiddenCompletedWork.detailRows, [
+        detailRow,
+      ]),
+      hiddenMessageCount: pendingHiddenCompletedWork.hiddenMessageCount + 1,
     };
   };
 
@@ -252,7 +324,7 @@ export function buildNativeTimelineRows(input: NativeTimelineRowsInput): Timelin
       detailRows: pendingHiddenCompletedWork.detailRows,
       visibleDiagnosticRows: [],
       visibleDiagnosticCacheKey: "empty",
-      hiddenMessageCount: 0,
+      hiddenMessageCount: pendingHiddenCompletedWork.hiddenMessageCount,
       hiddenThinkingCount: pendingHiddenCompletedWork.hiddenThinkingCount,
       toolCallCount: pendingHiddenCompletedWork.toolCallCount,
     });
@@ -279,9 +351,28 @@ export function buildNativeTimelineRows(input: NativeTimelineRowsInput): Timelin
       const turnSummary = input.turnDiffSummaryByAssistantMessageId.get(message.id) ?? null;
       const completionSummaryBelongsToMessage =
         message.role === "assistant" && input.completionDividerBeforeEntryId === row.id;
+      const messageIsInActiveTurn = isActiveTurnWorkRow(input, activeTurnStartedAtMs, row);
       if (completionSummaryBelongsToMessage && completionWorkSummary) {
         discardHiddenCompletedWorkSummary();
         rows.push(completionWorkSummary.row);
+      } else if (
+        input.hideCompletedWorkMessages === true &&
+        message.role === "assistant" &&
+        !message.streaming &&
+        !terminalAssistantMessageIds.has(String(message.id)) &&
+        !messageIsInActiveTurn
+      ) {
+        recordHiddenAssistantMessage(row, message);
+        lastMessageBoundaryAt = message.completedAt ?? message.createdAt;
+        continue;
+      } else if (
+        input.hideCompletedWorkMessages === true &&
+        message.role === "assistant" &&
+        !message.streaming &&
+        terminalAssistantMessageIds.has(String(message.id)) &&
+        !messageIsInActiveTurn
+      ) {
+        flushHiddenCompletedWorkSummary(message.completedAt ?? message.createdAt);
       } else if (message.role === "assistant" && !message.streaming) {
         flushHiddenCompletedWorkSummary(message.completedAt ?? message.createdAt);
       } else {
@@ -468,7 +559,7 @@ function compactNativeHiddenCompletedWorkDetailRow(input: {
   readonly summary: ReturnType<typeof buildTimelineWorkGroupSummaryProjection>;
 }): TimelineCompletedWorkSummaryRow["detailRows"][number] {
   if (input.entries.length === 1) {
-    const [entry] = input.entries;
+    const entry = input.entries[0];
     if (entry?.kind === "work") {
       return {
         kind: "work",
@@ -504,6 +595,40 @@ function compactNativeHiddenAssistantUpdateRow(
       : text,
     truncated,
   };
+}
+
+function completedWorkDetailWorkEntries(
+  row: TimelineCompletedWorkSummaryRow["detailRows"][number] | undefined,
+): TimelineMetaGroupEntry[] | null {
+  if (!row) {
+    return null;
+  }
+  if (row.kind === "work-group") {
+    return row.entries;
+  }
+  if (row.kind === "work") {
+    return [
+      {
+        kind: "work",
+        id: row.id,
+        createdAt: row.createdAt,
+        workEntry: row.workEntry,
+      },
+    ];
+  }
+  return null;
+}
+
+function completedWorkDetailSummaryEndAt(
+  row: TimelineCompletedWorkSummaryRow["detailRows"][number],
+): string | null {
+  if (row.kind === "work-group") {
+    return row.summaryEndAt;
+  }
+  if (row.kind === "work") {
+    return row.createdAt;
+  }
+  return null;
 }
 
 function latestIso(left: string, right: string): string {
@@ -549,7 +674,7 @@ function buildNativeCompletionWorkSummary(input: {
     }
     const { rowId, createdAt, updatedAt, entries } = pendingDetailGroup;
     if (entries.length === 1) {
-      const [entry] = entries;
+      const entry = entries[0];
       if (entry?.kind === "work") {
         detailRows.push({
           kind: "work",
@@ -702,7 +827,7 @@ function completedWorkDetailGroupKey(entry: TimelineMetaGroupEntry): string {
   if (entry.kind === "intent") {
     return "intent";
   }
-  return `work:${entry.workEntry.tone}`;
+  return "work";
 }
 
 function compareNativeTimelineRowsBySourceOrder(
