@@ -2,16 +2,14 @@ import { DEFAULT_UNIFIED_SETTINGS } from "@ace/contracts/settings";
 import * as Equal from "effect/Equal";
 import { useCallback, useMemo } from "react";
 
-import { resetThemePresetToDefault, useAppearancePrefs } from "../../appearancePrefs";
+import { resetThemePresetToDefault } from "../../appearancePrefs";
 import { useTheme } from "../../hooks/useTheme";
 import { useSettings, useUpdateSettings } from "../../hooks/useSettings";
 import { ensureNativeApi, readNativeApi } from "../../nativeApi";
-import { DEFAULT_THEME_PRESET } from "../../themePresets";
 import { PROVIDER_SETTINGS } from "./settingsProviderConfig";
 
 export function useSettingsRestore(onRestored?: () => void) {
   const { theme, setTheme } = useTheme();
-  const { themePreset } = useAppearancePrefs();
   const settings = useSettings();
   const { resetSettings } = useUpdateSettings();
 
@@ -28,7 +26,6 @@ export function useSettingsRestore(onRestored?: () => void) {
   const changedSettingLabels = useMemo(
     () => [
       ...(theme !== "system" ? ["Theme"] : []),
-      ...(themePreset !== DEFAULT_THEME_PRESET ? ["Theme preset"] : []),
       ...(settings.uiFontFamily !== DEFAULT_UNIFIED_SETTINGS.uiFontFamily ? ["UI font"] : []),
       ...(settings.uiMonoFontFamily !== DEFAULT_UNIFIED_SETTINGS.uiMonoFontFamily
         ? ["Monospace font"]
@@ -152,7 +149,6 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.uiMonoFontFamily,
       settings.workspaceEditorOpenMode,
       theme,
-      themePreset,
     ],
   );
 

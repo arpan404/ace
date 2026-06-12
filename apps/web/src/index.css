@@ -654,7 +654,7 @@ body {
   --glass-surface: color-mix(in oklch, var(--popover) 82%, transparent);
   --glass-surface-tooltip: color-mix(in oklch, var(--popover) 88%, transparent);
   --glass-surface-panel: color-mix(in oklch, var(--popover) 92%, transparent);
-  --glass-surface-border: color-mix(in oklch, var(--foreground) 7%, transparent);
+  --glass-surface-border: color-mix(in oklch, var(--foreground) 13%, transparent);
   --glass-highlight: transparent;
   --glass-shadow: 0 16px 40px -24px color-mix(in oklch, var(--foreground) 6%, transparent);
   --glass-backdrop: color-mix(in oklch, var(--background) 55%, transparent);
@@ -674,14 +674,14 @@ body {
 
 [data-theme-preset="glass"] [data-sidebar="sidebar"] {
   background: hsl(var(--sidebar) / 0.78) !important;
-  border-color: hsl(var(--sidebar-border) / 0.35) !important;
+  border-color: hsl(var(--sidebar-border) / 0.62) !important;
   -webkit-backdrop-filter: blur(24px) saturate(1.16);
   backdrop-filter: blur(24px) saturate(1.16);
 }
 
 [data-theme-preset="glass"] [data-slot="sidebar-inset"] {
   background: var(--card);
-  box-shadow: inset 1px 0 0 color-mix(in oklch, var(--foreground) 5%, transparent);
+  box-shadow: inset 1px 0 0 color-mix(in oklch, var(--foreground) 10%, transparent);
 }
 
 .dark[data-theme-preset="glass"] {
@@ -690,7 +690,7 @@ body {
   --glass-surface: color-mix(in oklch, var(--popover) 58%, transparent);
   --glass-surface-tooltip: color-mix(in oklch, var(--popover) 64%, transparent);
   --glass-surface-panel: color-mix(in oklch, var(--popover) 68%, transparent);
-  --glass-surface-border: color-mix(in oklch, var(--foreground) 6%, transparent);
+  --glass-surface-border: color-mix(in oklch, var(--foreground) 14%, transparent);
   --glass-highlight: transparent;
   --glass-shadow: 0 28px 60px -30px oklch(0 0 0 / 0.45);
   --glass-backdrop: color-mix(in oklch, var(--background) 62%, transparent);
@@ -710,12 +710,12 @@ body {
 
 .dark[data-theme-preset="glass"] [data-sidebar="sidebar"] {
   background: hsl(var(--sidebar) / 0.97) !important;
-  border-color: hsl(var(--sidebar-border) / 0.42) !important;
+  border-color: hsl(var(--sidebar-border) / 0.76) !important;
 }
 
 .dark[data-theme-preset="glass"] [data-slot="sidebar-inset"] {
   background: color-mix(in oklch, var(--card) 90%, transparent);
-  box-shadow: inset 1px 0 0 color-mix(in oklch, var(--foreground) 4%, transparent);
+  box-shadow: inset 1px 0 0 color-mix(in oklch, var(--foreground) 12%, transparent);
   -webkit-backdrop-filter: blur(32px) saturate(1.22);
   backdrop-filter: blur(32px) saturate(1.22);
 }

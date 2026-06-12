@@ -55,8 +55,6 @@ import {
 import { ProviderModelPicker } from "../chat/ProviderModelPicker";
 import { TraitsPicker } from "../chat/TraitsPicker";
 import { isElectron } from "../../env";
-import { useAppearancePrefs } from "../../appearancePrefs";
-import { DEFAULT_THEME_PRESET } from "../../themePresets";
 import { useTheme } from "../../hooks/useTheme";
 import { useSettings, useUpdateSettings } from "../../hooks/useSettings";
 import { useThreadActions } from "../../hooks/useThreadActions";
@@ -114,7 +112,6 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { ProjectAvatar } from "../ProjectAvatar";
 import type { Project, Thread } from "../../types";
 import { ProviderSettingsSection, type ProviderCard } from "./ProviderSettingsSection";
-import { ThemePresetPicker } from "./ThemePresetPicker";
 import { PROVIDER_SETTINGS } from "./settingsProviderConfig";
 import { KeybindingsSettingsEditor } from "./KeybindingsSettingsEditor";
 import {
@@ -819,7 +816,6 @@ type SettingsPanelPage =
 
 function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
   const { theme, setTheme } = useTheme();
-  const { themePreset, setThemePreset } = useAppearancePrefs();
   const settings = useSettings();
   const { updateSettings } = useUpdateSettings();
   const [notificationState, dispatchNotificationState] = useReducer(
@@ -1506,25 +1502,6 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
                 </Select>
               }
             />
-
-            <SettingsRow
-              title="Theme presets"
-              description="Pick a full palette (surfaces + primary). Cards show a dark preview strip; the app follows your light/dark theme setting."
-              resetAction={
-                themePreset !== DEFAULT_THEME_PRESET ? (
-                  <SettingResetButton
-                    label="theme preset"
-                    onClick={() => setThemePreset(DEFAULT_THEME_PRESET)}
-                  />
-                ) : null
-              }
-            >
-              <ThemePresetPicker
-                className="mt-3 w-full"
-                value={themePreset}
-                onChange={setThemePreset}
-              />
-            </SettingsRow>
 
             <SettingsRow
               title="UI font"
