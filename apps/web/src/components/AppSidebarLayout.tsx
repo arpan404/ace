@@ -97,117 +97,123 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
   const activeThreadId = useUiStateStore((store) => store.activeThreadId);
   const previousActiveThreadId = useUiStateStore((store) => store.previousActiveThreadId);
 
-  const openBrowserFromShell = async () => {
-    await requestInAppBrowserFromShell({
-      routeThreadId,
-      fallbackThreadId: activeThreadId ?? previousActiveThreadId,
-      activeProjectId: activeThread?.projectId ?? activeDraftThread?.projectId ?? null,
-      activeThread: activeThread
-        ? {
-            projectId: activeThread.projectId,
-            branch: activeThread.branch,
-            worktreePath: activeThread.worktreePath,
-          }
-        : null,
-      activeDraftThread: activeDraftThread
-        ? {
-            projectId: activeDraftThread.projectId,
-            branch: activeDraftThread.branch,
-            worktreePath: activeDraftThread.worktreePath,
-            envMode: activeDraftThread.envMode,
-          }
-        : null,
-      defaultProjectId,
-      defaultThreadEnvMode: resolveSidebarNewThreadEnvMode({
-        defaultEnvMode: defaultThreadEnvMode,
-      }),
-      handleNewThread,
-      navigateToThread: async (threadId) => {
-        await navigate({
-          to: "/$threadId",
-          params: { threadId },
-          search: buildSingleThreadRouteSearch(),
-        });
-      },
-      request: { action: "open" },
-      onMissingProject: () => {
-        toastManager.add({
-          type: "error",
-          title: "Add a project to open the browser",
-          description: "The in-app browser opens from an active workspace thread.",
-        });
-      },
-    });
-  };
-
-  const handleDesktopMenuAction = (action: DesktopMenuAction) => {
-    const settingsRoute = resolveDesktopMenuSettingsRoute(action);
-    if (settingsRoute) {
-      void navigate({ to: settingsRoute });
-      return;
-    }
-
-    if (action === "open-browser-tab") {
-      void openBrowserFromShell();
-      return;
-    }
-
-    if (action === "zoom-in" || action === "zoom-out" || action === "zoom-reset") {
-      const activeElement = document.activeElement;
-      if (
-        activeElement instanceof HTMLElement &&
-        activeElement.closest("[data-in-app-browser-shell='true']")
-      ) {
-        return;
-      }
-      void window.desktopBridge?.applyAppZoom?.(action);
-      return;
-    }
-
-    if (action !== "new-thread" && action !== "new-local-thread") {
-      return;
-    }
-
-    const projectId = activeThread?.projectId ?? activeDraftThread?.projectId ?? defaultProjectId;
-    if (!projectId) {
-      return;
-    }
-
-    void handleNewThread(
-      projectId,
-      resolveThreadCreationOptions(action, {
-        activeDraftThread: activeDraftThread
-          ? {
-              branch: activeDraftThread.branch,
-              envMode: activeDraftThread.envMode,
-              worktreePath: activeDraftThread.worktreePath,
-            }
-          : null,
-        activeThread: activeThread
-          ? {
-              branch: activeThread.branch,
-              worktreePath: activeThread.worktreePath,
-            }
-          : null,
-        defaultNewThreadEnvMode: resolveSidebarNewThreadEnvMode({
-          defaultEnvMode: defaultThreadEnvMode,
-        }),
-      }),
-    );
-  };
-
   useEffect(() => {
     const onMenuAction = window.desktopBridge?.onMenuAction;
     if (typeof onMenuAction !== "function") {
       return;
     }
 
+    const handleDesktopMenuAction = (action: DesktopMenuAction) => {
+      const settingsRoute = resolveDesktopMenuSettingsRoute(action);
+      if (settingsRoute) {
+        void navigate({ to: settingsRoute });
+        return;
+      }
+
+      if (action === "open-browser-tab") {
+        void requestInAppBrowserFromShell({
+          routeThreadId,
+          fallbackThreadId: activeThreadId ?? previousActiveThreadId,
+          activeProjectId: activeThread?.projectId ?? activeDraftThread?.projectId ?? null,
+          activeThread: activeThread
+            ? {
+                projectId: activeThread.projectId,
+                branch: activeThread.branch,
+                worktreePath: activeThread.worktreePath,
+              }
+            : null,
+          activeDraftThread: activeDraftThread
+            ? {
+                projectId: activeDraftThread.projectId,
+                branch: activeDraftThread.branch,
+                worktreePath: activeDraftThread.worktreePath,
+                envMode: activeDraftThread.envMode,
+              }
+            : null,
+          defaultProjectId,
+          defaultThreadEnvMode: resolveSidebarNewThreadEnvMode({
+            defaultEnvMode: defaultThreadEnvMode,
+          }),
+          handleNewThread,
+          navigateToThread: async (threadId) => {
+            await navigate({
+              to: "/$threadId",
+              params: { threadId },
+              search: buildSingleThreadRouteSearch(),
+            });
+          },
+          request: { action: "open" },
+          onMissingProject: () => {
+            toastManager.add({
+              type: "error",
+              title: "Add a project to open the browser",
+              description: "The in-app browser opens from an active workspace thread.",
+            });
+          },
+        });
+        return;
+      }
+
+      if (action === "zoom-in" || action === "zoom-out" || action === "zoom-reset") {
+        const activeElement = document.activeElement;
+        if (
+          activeElement instanceof HTMLElement &&
+          activeElement.closest("[data-in-app-browser-shell='true']")
+        ) {
+          return;
+        }
+        void window.desktopBridge?.applyAppZoom?.(action);
+        return;
+      }
+
+      if (action !== "new-thread" && action !== "new-local-thread") {
+        return;
+      }
+
+      const projectId = activeThread?.projectId ?? activeDraftThread?.projectId ?? defaultProjectId;
+      if (!projectId) {
+        return;
+      }
+
+      void handleNewThread(
+        projectId,
+        resolveThreadCreationOptions(action, {
+          activeDraftThread: activeDraftThread
+            ? {
+                branch: activeDraftThread.branch,
+                envMode: activeDraftThread.envMode,
+                worktreePath: activeDraftThread.worktreePath,
+              }
+            : null,
+          activeThread: activeThread
+            ? {
+                branch: activeThread.branch,
+                worktreePath: activeThread.worktreePath,
+              }
+            : null,
+          defaultNewThreadEnvMode: resolveSidebarNewThreadEnvMode({
+            defaultEnvMode: defaultThreadEnvMode,
+          }),
+        }),
+      );
+    };
+
     const unsubscribe = onMenuAction(handleDesktopMenuAction);
 
     return () => {
       unsubscribe?.();
     };
-  }, [handleDesktopMenuAction]);
+  }, [
+    activeDraftThread,
+    activeThread,
+    activeThreadId,
+    defaultProjectId,
+    defaultThreadEnvMode,
+    handleNewThread,
+    navigate,
+    previousActiveThreadId,
+    routeThreadId,
+  ]);
 
   return (
     <SidebarProvider defaultOpen>

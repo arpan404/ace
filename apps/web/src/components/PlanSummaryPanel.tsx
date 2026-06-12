@@ -209,7 +209,6 @@ export function PlanSummaryPanel({
   const [planDetailsExpanded, setPlanDetailsExpanded] = useState(true);
   const [todoDetailsExpanded, setTodoDetailsExpanded] = useState(true);
   const [isSavingToWorkspace, setIsSavingToWorkspace] = useState(false);
-  const [isRegeneratingSummary, setIsRegeneratingSummary] = useState(false);
   const [summaryRequestStartedAt, setSummaryRequestStartedAt] = useState<string | null>(null);
   const { copyToClipboard, isCopied } = useCopyToClipboard();
 
@@ -228,27 +227,19 @@ export function PlanSummaryPanel({
     ? Math.round((planProgress.completed / Math.max(planProgress.total, 1)) * 100)
     : 0;
   const generatedWorkspaceSummaryCreatedAt = effectiveGeneratedWorkspaceSummary?.createdAt ?? null;
+  const isRegeneratingSummary =
+    summaryRequestStartedAt !== null &&
+    !summaryGeneratedAfterRequest(generatedWorkspaceSummaryCreatedAt, summaryRequestStartedAt);
 
   useEffect(() => {
-    if (
-      isRegeneratingSummary &&
-      summaryGeneratedAfterRequest(generatedWorkspaceSummaryCreatedAt, summaryRequestStartedAt)
-    ) {
-      setIsRegeneratingSummary(false);
-      setSummaryRequestStartedAt(null);
-    }
-  }, [generatedWorkspaceSummaryCreatedAt, isRegeneratingSummary, summaryRequestStartedAt]);
-
-  useEffect(() => {
-    if (!isRegeneratingSummary) {
+    if (summaryRequestStartedAt === null) {
       return;
     }
     const timeout = window.setTimeout(() => {
-      setIsRegeneratingSummary(false);
       setSummaryRequestStartedAt(null);
     }, 90_000);
     return () => window.clearTimeout(timeout);
-  }, [isRegeneratingSummary]);
+  }, [summaryRequestStartedAt]);
 
   const handleCopyPlan = () => {
     if (!effectivePlanMarkdown) return;
@@ -299,10 +290,8 @@ export function PlanSummaryPanel({
 
     const requestStartedAt = new Date().toISOString();
     setSummaryRequestStartedAt(requestStartedAt);
-    setIsRegeneratingSummary(true);
     void Promise.resolve(onRegenerateSummary()).catch((error: unknown) => {
       setSummaryRequestStartedAt(null);
-      setIsRegeneratingSummary(false);
       toastManager.add({
         type: "error",
         title: "Could not regenerate summary",
