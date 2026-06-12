@@ -2308,22 +2308,36 @@ function useChatViewComponent({
   const handoffHasCycle = handoffLineage?.hasCycle ?? false;
   const isThreadHistoryMetadataOnly = isServerThread && activeThread?.historyLoaded === false;
   const activeThreadTimelineRowIds = useTimelineModelStore((store) =>
-    ownsGlobalSideEffects && isThreadHistoryMetadataOnly
+    ownsGlobalSideEffects && isServerThread
       ? (store.rowIdsByThreadId[threadId] ?? EMPTY_TIMELINE_ROW_IDS)
       : EMPTY_TIMELINE_ROW_IDS,
   );
   const activeThreadTimelineRevision = useTimelineModelStore((store) =>
-    ownsGlobalSideEffects && isThreadHistoryMetadataOnly
-      ? (store.revisionByThreadId[threadId] ?? 0)
-      : 0,
+    ownsGlobalSideEffects && isServerThread ? (store.revisionByThreadId[threadId] ?? 0) : 0,
   );
   const activeThreadTimelineCompleteSnapshot = useTimelineModelStore((store) =>
-    ownsGlobalSideEffects && isThreadHistoryMetadataOnly
+    ownsGlobalSideEffects && isServerThread
       ? (store.completeSnapshotByThreadId[threadId] ?? null)
       : null,
   );
+  const activeThreadTimelineProjection = useMemo(() => {
+    void activeThreadTimelineRevision;
+    if (activeThreadTimelineCompleteSnapshot === null && activeThreadTimelineRowIds.length === 0) {
+      return null;
+    }
+    return activeThread && isServerThread ? readTimelineRowsProjection(activeThread.id) : null;
+  }, [
+    activeThread,
+    activeThreadTimelineCompleteSnapshot,
+    activeThreadTimelineRevision,
+    activeThreadTimelineRowIds.length,
+    isServerThread,
+  ]);
+  const activeThreadTimelineIndexByEntryId = useMemo(() => {
+    return activeThreadTimelineProjection?.timelineIndexByEntryId ?? null;
+  }, [activeThreadTimelineProjection]);
   useEffect(() => {
-    if (!ownsGlobalSideEffects || !isThreadHistoryMetadataOnly || !activeThread?.id) {
+    if (!ownsGlobalSideEffects || !isServerThread || !activeThread?.id) {
       return;
     }
     const prefetch = startThreadTimelineRowsOpenPrefetch({
@@ -2336,7 +2350,7 @@ function useChatViewComponent({
     return () => {
       prefetch.stop();
     };
-  }, [activeThread?.id, isThreadHistoryMetadataOnly, ownsGlobalSideEffects]);
+  }, [activeThread?.id, isServerThread, ownsGlobalSideEffects]);
   const canCheckoutPullRequestIntoThread = isLocalDraftThread;
   const routeWorkspaceMode: ThreadWorkspaceMode =
     !splitPane && (rawSearch.mode === "editor" || rawSearch.mode === "split")
@@ -2975,10 +2989,13 @@ function useChatViewComponent({
     if (!hasThreadStarted) {
       return null;
     }
-    return deriveLatestContextWindowSnapshot(activeThread?.activities ?? []);
-  }, [activeThread?.activities, hasThreadStarted]);
+    return deriveLatestContextWindowSnapshot(
+      activeThreadTimelineProjection?.activities ?? activeThread?.activities ?? [],
+    );
+  }, [activeThread?.activities, activeThreadTimelineProjection, hasThreadStarted]);
   const phase = derivePhase(activeThread?.session ?? null);
-  const threadActivities = activeThread?.activities ?? EMPTY_ACTIVITIES;
+  const threadActivities =
+    activeThreadTimelineProjection?.activities ?? activeThread?.activities ?? EMPTY_ACTIVITIES;
   const activityVisibilitySettings = useMemo(
     () => ({
       enableToolStreaming,
@@ -3090,12 +3107,21 @@ function useChatViewComponent({
       reliabilityUxEnabled && activeThread
         ? deriveStuckTurnSnapshot({
             latestTurn: activeLatestTurn,
-            messages: activeThread.messages,
-            activities: activeThread.activities,
+            messages:
+              activeThreadTimelineProjection?.messages.map(toPagedChatMessage) ??
+              activeThread.messages,
+            activities: threadActivities,
             now: stuckTurnNow,
           })
         : { isLikelyStuck: false, runningForMs: 0, reason: null },
-    [activeLatestTurn, activeThread, reliabilityUxEnabled, stuckTurnNow],
+    [
+      activeLatestTurn,
+      activeThread,
+      activeThreadTimelineProjection,
+      reliabilityUxEnabled,
+      stuckTurnNow,
+      threadActivities,
+    ],
   );
   const openDiagnostics = useCallback(
     (focus: "connection" | "provider" | "thread") => {
@@ -3183,9 +3209,15 @@ function useChatViewComponent({
       delete attachmentPreviewHandoffTimeoutByMessageIdRef.current[messageId];
     }, ATTACHMENT_PREVIEW_HANDOFF_TTL_MS);
   }, []);
-  const serverMessages = activeThread?.messages;
+  const serverMessages = useMemo(
+    () =>
+      activeThreadTimelineProjection
+        ? activeThreadTimelineProjection.messages.map(toPagedChatMessage)
+        : (activeThread?.messages ?? []),
+    [activeThread?.messages, activeThreadTimelineProjection],
+  );
   const activeThreadMessages = useMemo(() => {
-    const messages = serverMessages ?? [];
+    const messages = serverMessages;
     const serverMessagesWithPreviewHandoff =
       Object.keys(attachmentPreviewHandoffByMessageId).length === 0
         ? messages
@@ -3237,24 +3269,6 @@ function useChatViewComponent({
     }
     return [...serverMessagesWithPreviewHandoff, ...pendingMessages];
   }, [serverMessages, attachmentPreviewHandoffByMessageId, optimisticUserMessages]);
-  const activeThreadTimelineProjection = useMemo(() => {
-    void activeThreadTimelineRevision;
-    if (activeThreadTimelineCompleteSnapshot === null && activeThreadTimelineRowIds.length === 0) {
-      return null;
-    }
-    return activeThread && isThreadHistoryMetadataOnly
-      ? readTimelineRowsProjection(activeThread.id)
-      : null;
-  }, [
-    activeThread,
-    activeThreadTimelineCompleteSnapshot,
-    activeThreadTimelineRevision,
-    activeThreadTimelineRowIds.length,
-    isThreadHistoryMetadataOnly,
-  ]);
-  const activeThreadTimelineIndexByEntryId = useMemo(() => {
-    return activeThreadTimelineProjection?.timelineIndexByEntryId ?? null;
-  }, [activeThreadTimelineProjection]);
   const hasLiveThreadTimelineContent =
     activeThreadMessages.length > 0 ||
     workLogEntries.length > 0 ||

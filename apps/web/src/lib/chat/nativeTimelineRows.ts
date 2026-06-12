@@ -49,6 +49,9 @@ export function toPagedChatMessage(message: OrchestrationMessage): ChatMessage {
     name: attachment.name,
     mimeType: attachment.mimeType,
     sizeBytes: attachment.sizeBytes,
+    ...("previewUrl" in attachment && typeof attachment.previewUrl === "string"
+      ? { previewUrl: attachment.previewUrl }
+      : {}),
   }));
 
   return {
