@@ -854,6 +854,11 @@ describe("timelineRows", () => {
     expect(summaryRow.detailRows).toContainEqual(
       expect.objectContaining({
         kind: "work-group",
+        entries: [
+          expect.objectContaining({ id: "hidden-command" }),
+          expect.objectContaining({ id: "hidden-thinking" }),
+          expect.objectContaining({ id: "hidden-warning" }),
+        ],
         summary: expect.objectContaining({
           toolCount: 1,
           thinkingCount: 1,
