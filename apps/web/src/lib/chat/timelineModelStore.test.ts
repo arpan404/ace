@@ -352,6 +352,73 @@ describe("timelineModelStore", () => {
     ]);
   });
 
+  it("applies concurrent live row bursts with one revision bump per thread", async () => {
+    vi.useFakeTimers();
+    const { primeLiveTimelineRow } = await import("./timelineModelStore");
+    let publishCount = 0;
+    const unsubscribe = useTimelineModelStore.subscribe(() => {
+      publishCount += 1;
+    });
+
+    primeLiveTimelineRow({
+      threadId,
+      updatedAt: "2026-01-01T00:00:02.000Z",
+      entry: {
+        kind: "message",
+        id: messageId,
+        createdAt: "2026-01-01T00:00:01.000Z",
+        turnId,
+        sequence: 1,
+      },
+      message: {
+        id: messageId,
+        role: "assistant",
+        text: "First agent",
+        turnId,
+        streaming: true,
+        sequence: 1,
+        createdAt: "2026-01-01T00:00:01.000Z",
+        updatedAt: "2026-01-01T00:00:02.000Z",
+      },
+    });
+    primeLiveTimelineRow({
+      threadId: otherThreadId,
+      updatedAt: "2026-01-01T00:00:03.000Z",
+      entry: {
+        kind: "message",
+        id: otherMessageId,
+        createdAt: "2026-01-01T00:00:01.000Z",
+        turnId,
+        sequence: 1,
+      },
+      message: {
+        id: otherMessageId,
+        role: "assistant",
+        text: "Second agent",
+        turnId,
+        streaming: true,
+        sequence: 1,
+        createdAt: "2026-01-01T00:00:01.000Z",
+        updatedAt: "2026-01-01T00:00:03.000Z",
+      },
+    });
+
+    await vi.advanceTimersByTimeAsync(16);
+    unsubscribe();
+
+    const state = useTimelineModelStore.getState();
+    expect(publishCount).toBe(1);
+    expect(state.revision).toBe(1);
+    expect(state.revisionByThreadId[threadId]).toBe(1);
+    expect(state.revisionByThreadId[otherThreadId]).toBe(1);
+    expect(readTimelineRowsProjection(threadId).messages.map((message) => message.text)).toEqual([
+      "First agent",
+    ]);
+    expect(
+      readTimelineRowsProjection(otherThreadId).messages.map((message) => message.text),
+    ).toEqual(["Second agent"]);
+  });
+
   it("can flush optimistic user rows synchronously", async () => {
     const { primeLiveTimelineRow } = await import("./timelineModelStore");
 
