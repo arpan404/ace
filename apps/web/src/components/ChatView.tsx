@@ -517,6 +517,9 @@ const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnsw
 const EMPTY_QUEUED_COMPOSER_MESSAGES: Thread["queuedComposerMessages"] = [];
 const EMPTY_COMPOSER_MODEL_SELECTIONS: ModelSelectionByProvider = Object.freeze({});
 const EMPTY_PENDING_COMPOSER_COMMENTS: readonly PendingComposerComment[] = Object.freeze([]);
+const EMPTY_MESSAGE_ID_SET: Set<MessageId> = new Set();
+const EMPTY_MESSAGE_TURN_COUNT_MAP: Map<MessageId, number> = new Map();
+const EMPTY_TIMELINE_ENTRIES: TimelineEntry[] = [];
 
 const THREAD_SWITCH_SCROLL_SETTLE_DELAY_MS = 96;
 const INITIAL_THREAD_BOTTOM_PIN_MAX_MS = 4_500;
@@ -940,6 +943,7 @@ interface ChatViewProps {
 const EMPTY_VISIBLE_BOARD_THREAD_IDS: readonly ThreadId[] = [];
 const EMPTY_THREAD_LAST_VISITED_AT_BY_ID: Readonly<Record<string, string>> = {};
 const EMPTY_TIMELINE_ROW_IDS: readonly string[] = [];
+const EMPTY_HISTORICAL_MESSAGE_IDS: Set<MessageId> = new Set();
 const NATIVE_TIMELINE_ROWS_CONTENT_KEY_TAIL_ROWS = 32;
 const ACTIVE_NATIVE_TIMELINE_ROWS_REBUILD_DELAY_MS = 80;
 
@@ -3274,7 +3278,7 @@ function useChatViewComponent({
         messages: activeThreadMessages,
         proposedPlans: activeThread?.proposedPlans ?? [],
         workEntries: workLogEntries,
-        historicalMessageIds: new Set<MessageId>(),
+        historicalMessageIds: EMPTY_HISTORICAL_MESSAGE_IDS,
       };
     }
     if (!activeThread) {
@@ -3282,7 +3286,7 @@ function useChatViewComponent({
         messages: activeThreadMessages,
         proposedPlans: [],
         workEntries: [],
-        historicalMessageIds: new Set<MessageId>(),
+        historicalMessageIds: EMPTY_HISTORICAL_MESSAGE_IDS,
       };
     }
     if (!isServerThread) {
@@ -3290,7 +3294,7 @@ function useChatViewComponent({
         messages: activeThreadMessages,
         proposedPlans: activeThread.proposedPlans ?? [],
         workEntries: workLogEntries,
-        historicalMessageIds: new Set<MessageId>(),
+        historicalMessageIds: EMPTY_HISTORICAL_MESSAGE_IDS,
       };
     }
     return buildHandoffTimeline({
@@ -3339,10 +3343,12 @@ function useChatViewComponent({
       setActiveSubagentThreadId(subagentThreads[0]?.id ?? null);
     }
   }, [activeSubagentThreadId, subagentThreads]);
-  const activeThreadMessageIds = useMemo(
-    () => new Set(activeThreadMessages.map((message) => message.id)),
-    [activeThreadMessages],
-  );
+  const activeThreadMessageIds = useMemo(() => {
+    if (activeThreadMessages.length === 0) {
+      return EMPTY_MESSAGE_ID_SET;
+    }
+    return new Set(activeThreadMessages.map((message) => message.id));
+  }, [activeThreadMessages]);
   const { turnDiffSummaries, inferredCheckpointTurnCountByTurnId } =
     useTurnDiffSummaries(activeThread);
   const turnDiffSummaryByAssistantMessageId = useMemo(
@@ -3410,10 +3416,12 @@ function useChatViewComponent({
     optimisticUserMessages,
     turnDiffSummaryByAssistantMessageId,
   ]);
-  const nativeTurnDiffSummaryKey = useMemo(
-    () => [...turnDiffSummaryByAssistantMessageId.keys()].join("\0"),
-    [turnDiffSummaryByAssistantMessageId],
-  );
+  const nativeTurnDiffSummaryKey = useMemo(() => {
+    if (!nativeTimelineRowsInput || turnDiffSummaryByAssistantMessageId.size === 0) {
+      return "";
+    }
+    return [...turnDiffSummaryByAssistantMessageId.keys()].join("\0");
+  }, [nativeTimelineRowsInput, turnDiffSummaryByAssistantMessageId]);
   const nativeTimelineRowsContentKey = useMemo(() => {
     if (!nativeTimelineRowsInput) {
       return "";
@@ -3574,7 +3582,7 @@ function useChatViewComponent({
   const timelineRenderState = useMemo(() => {
     if (nativeTimelineRowsOverride !== null) {
       return {
-        timelineEntries: [],
+        timelineEntries: EMPTY_TIMELINE_ENTRIES,
         turnDiffSummaryByAssistantMessageId,
       };
     }
@@ -3596,6 +3604,9 @@ function useChatViewComponent({
   ]);
   const timelineEntries = timelineRenderState.timelineEntries;
   const revertTurnCountByUserMessageId = useMemo(() => {
+    if (timelineEntries.length === 0 || turnDiffSummaryByAssistantMessageId.size === 0) {
+      return EMPTY_MESSAGE_TURN_COUNT_MAP;
+    }
     const byUserMessageId = new Map<MessageId, number>();
     for (let index = 0; index < timelineEntries.length; index += 1) {
       const entry = timelineEntries[index];
@@ -3636,6 +3647,9 @@ function useChatViewComponent({
     turnDiffSummaryByAssistantMessageId,
   ]);
   const revertTurnCountByAssistantMessageId = useMemo(() => {
+    if (turnDiffSummaryByAssistantMessageId.size === 0) {
+      return EMPTY_MESSAGE_TURN_COUNT_MAP;
+    }
     const byAssistantMessageId = new Map<MessageId, number>();
     for (const [assistantMessageId, summary] of turnDiffSummaryByAssistantMessageId) {
       const turnCount =
@@ -3664,6 +3678,9 @@ function useChatViewComponent({
     timelineEntries,
   ]);
   const timelineCacheScope = useMemo(() => {
+    if (nativeTimelineRowsOverride !== null) {
+      return null;
+    }
     return buildThreadTimelineCacheScope({
       thread: activeThread,
       timelineEntries,
@@ -3674,6 +3691,7 @@ function useChatViewComponent({
     });
   }, [
     activeThread,
+    nativeTimelineRowsOverride,
     timelineEntries,
     timelineMessages,
     timelineProposedPlans,
@@ -10292,6 +10310,9 @@ function useChatViewComponent({
     },
     [],
   );
+  const openThreadDiagnostics = useCallback(() => {
+    openDiagnostics("thread");
+  }, [openDiagnostics]);
   const messagesTimelineProps = useMemo(
     () => ({
       ...(activeThreadIdValue ? { activeThreadId: activeThreadIdValue } : {}),
@@ -10315,7 +10336,7 @@ function useChatViewComponent({
       activeTurnStartedAt: activeWorkStartedAt,
       stuckTurnSnapshot,
       onStopStuckTurn: onInterrupt,
-      onOpenStuckTurnDiagnostics: () => openDiagnostics("thread"),
+      onOpenStuckTurnDiagnostics: openThreadDiagnostics,
       backgroundMarkdownPrewarm: activeForSideEffects,
       hideCompletedWorkMessages,
       liveTimers: activeForSideEffects,
@@ -10380,7 +10401,7 @@ function useChatViewComponent({
       getMessagesScrollContainer,
       onExpandTimelineImage,
       onOpenTurnDiff,
-      openDiagnostics,
+      openThreadDiagnostics,
       onRevertAssistantMessage,
       onRevertUserMessage,
       onToggleWorkGroup,
