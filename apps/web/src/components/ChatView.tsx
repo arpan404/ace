@@ -2383,10 +2383,18 @@ function useChatViewComponent({
     }
     const store = useHostConnectionStore.getState();
     store.upsertThreadOwnership(activeServerConnectionUrl, activeThread.id);
-    if (activeProjectId) {
-      store.upsertProjectOwnership(activeServerConnectionUrl, activeProjectId);
+  }, [activeForSideEffects, activeServerConnectionUrl, activeThread?.id]);
+  useEffect(() => {
+    if (!activeForSideEffects) {
+      return;
     }
-  }, [activeForSideEffects, activeProjectId, activeServerConnectionUrl, activeThread?.id]);
+    if (!activeProjectId) {
+      return;
+    }
+    useHostConnectionStore
+      .getState()
+      .upsertProjectOwnership(activeServerConnectionUrl, activeProjectId);
+  }, [activeForSideEffects, activeProjectId, activeServerConnectionUrl]);
   const activeEnvironmentIcon =
     activeRemoteHost && (activeRemoteHost.iconGlyph || activeRemoteHost.iconColor)
       ? {
@@ -7116,14 +7124,13 @@ function useChatViewComponent({
 
   useEffect(() => {
     resetThreadScopedUi();
-    if (openSummaryOnNextThreadRef.current) {
-      openSummaryOnNextThreadRef.current = false;
-      if (rightSidePanelEnabled) {
-        setRightSidePanelMode("summary");
-        setRightSidePanelVisible(true);
-      }
+    if (!openSummaryOnNextThreadRef.current) {
+      return;
     }
-  }, [activeThread?.id, rightSidePanelEnabled, setRightSidePanelMode, setRightSidePanelVisible]);
+    openSummaryOnNextThreadRef.current = false;
+    setRightSidePanelMode("summary");
+    setRightSidePanelVisible(true);
+  }, [activeThread?.id, setRightSidePanelMode, setRightSidePanelVisible]);
 
   useEffect(() => {
     if (!ownsGlobalSideEffects) return;
@@ -8314,9 +8321,10 @@ function useChatViewComponent({
   };
 
   useEffect(() => {
-    if (!liveTurnInProgress) {
-      clearPendingInterruptStopFallback();
+    if (liveTurnInProgress) {
+      return;
     }
+    clearPendingInterruptStopFallback();
   }, [clearPendingInterruptStopFallback, liveTurnInProgress]);
 
   useEffect(() => () => clearPendingInterruptStopFallback(), [clearPendingInterruptStopFallback]);

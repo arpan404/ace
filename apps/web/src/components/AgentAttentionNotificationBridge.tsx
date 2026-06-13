@@ -19,6 +19,7 @@ import {
   resolveAgentAttentionNotificationReply,
   requestAgentAttentionNotificationPermission,
   shouldOfferAgentAttentionNotificationPermission,
+  type AgentAttentionDesktopNotificationBridge,
   type AgentAttentionNotificationPermission,
 } from "../lib/agentAttentionNotifications";
 import { resolveLocalConnectionUrl } from "../lib/connectionRouting";
@@ -43,6 +44,10 @@ import { newCommandId } from "../lib/utils";
 import { useStableCallback } from "../hooks/useStableCallback";
 import { useSetting } from "../hooks/useSettings";
 import { toastManager } from "./ui/toast";
+
+type AgentAttentionDesktopNotificationReplyEvent = Parameters<
+  Parameters<AgentAttentionDesktopNotificationBridge["onNotificationReply"]>[0]
+>[0];
 
 function closeNotification(notification: Notification | undefined): void {
   notification?.close();
@@ -453,6 +458,9 @@ function useAgentAttentionNotificationBridgeComponent() {
     }
     lastKnownFocusStateRef.current = nextIsFocused;
     const setWindowState = (nextPermission: AgentAttentionNotificationPermission) => {
+      if (nextPermission !== "default") {
+        resetPermissionOfferTracking();
+      }
       dispatchBridgeState({
         type: "set-window-state",
         isAppFocused: nextIsFocused,
@@ -522,27 +530,29 @@ function useAgentAttentionNotificationBridgeComponent() {
   useEffect(() => {
     const activeRequestKeys = new Set(attentionRequests.map((request) => request.key));
 
-    for (const requestKey of notifiedRequestKeysRef.current) {
-      if (!activeRequestKeys.has(requestKey)) {
-        notifiedRequestKeysRef.current.delete(requestKey);
-      }
+    const staleNotifiedRequestKeys = [...notifiedRequestKeysRef.current].filter(
+      (requestKey) => !activeRequestKeys.has(requestKey),
+    );
+    for (const requestKey of staleNotifiedRequestKeys) {
+      notifiedRequestKeysRef.current.delete(requestKey);
     }
-    for (const requestKey of failedDesktopNotificationRequestKeysRef.current) {
-      if (!activeRequestKeys.has(requestKey)) {
-        failedDesktopNotificationRequestKeysRef.current.delete(requestKey);
-      }
+    const staleDesktopFailureRequestKeys = [
+      ...failedDesktopNotificationRequestKeysRef.current,
+    ].filter((requestKey) => !activeRequestKeys.has(requestKey));
+    for (const requestKey of staleDesktopFailureRequestKeys) {
+      failedDesktopNotificationRequestKeysRef.current.delete(requestKey);
     }
-    for (const requestKey of failedBrowserNotificationRequestKeysRef.current) {
-      if (!activeRequestKeys.has(requestKey)) {
-        failedBrowserNotificationRequestKeysRef.current.delete(requestKey);
-      }
+    const staleBrowserFailureRequestKeys = [
+      ...failedBrowserNotificationRequestKeysRef.current,
+    ].filter((requestKey) => !activeRequestKeys.has(requestKey));
+    for (const requestKey of staleBrowserFailureRequestKeys) {
+      failedBrowserNotificationRequestKeysRef.current.delete(requestKey);
     }
 
-    for (const [requestKey, notification] of activeBrowserNotificationsRef.current) {
-      if (activeRequestKeys.has(requestKey)) {
-        continue;
-      }
-
+    const staleBrowserNotifications = [...activeBrowserNotificationsRef.current].filter(
+      ([requestKey]) => !activeRequestKeys.has(requestKey),
+    );
+    for (const [requestKey, notification] of staleBrowserNotifications) {
       closeNotification(notification);
       activeBrowserNotificationsRef.current.delete(requestKey);
     }
@@ -550,11 +560,10 @@ function useAgentAttentionNotificationBridgeComponent() {
       return;
     }
 
-    for (const requestKey of activeDesktopNotificationIdsRef.current) {
-      if (activeRequestKeys.has(requestKey)) {
-        continue;
-      }
-
+    const staleDesktopNotificationIds = [...activeDesktopNotificationIdsRef.current].filter(
+      (requestKey) => !activeRequestKeys.has(requestKey),
+    );
+    for (const requestKey of staleDesktopNotificationIds) {
       activeDesktopNotificationIdsRef.current.delete(requestKey);
       void desktopNotificationBridge.closeNotification(requestKey);
     }
@@ -598,12 +607,8 @@ function useAgentAttentionNotificationBridgeComponent() {
     });
   }, [desktopNotificationBridge, navigateToRequestThread]);
 
-  useEffect(() => {
-    if (!desktopNotificationBridge) {
-      return;
-    }
-
-    return desktopNotificationBridge.onNotificationReply((event) => {
+  const handleDesktopNotificationReply = useStableCallback(
+    (event: AgentAttentionDesktopNotificationReplyEvent) => {
       activeDesktopNotificationIdsRef.current.delete(event.id);
       const request = attentionRequestByKeyRef.current.get(event.id);
       if (!request) {
@@ -641,8 +646,16 @@ function useAgentAttentionNotificationBridgeComponent() {
             ),
           });
         });
-    });
-  }, [desktopNotificationBridge, navigateToRequestThread]);
+    },
+  );
+
+  useEffect(() => {
+    if (!desktopNotificationBridge) {
+      return;
+    }
+
+    return desktopNotificationBridge.onNotificationReply(handleDesktopNotificationReply);
+  }, [desktopNotificationBridge, handleDesktopNotificationReply]);
 
   useEffect(() => {
     if (!desktopNotificationBridge) {
@@ -813,7 +826,6 @@ function useAgentAttentionNotificationBridgeComponent() {
         hasPromptedForPermission: hasPromptedForPermissionRef.current,
       })
     ) {
-      resetPermissionOfferTracking();
       return;
     }
     if (permissionOfferToastIdRef.current !== null) {
@@ -872,6 +884,13 @@ function useAgentAttentionNotificationBridgeComponent() {
       },
     });
     permissionOfferToastIdRef.current = toastId;
+    return () => {
+      if (permissionOfferToastIdRef.current !== toastId) {
+        return;
+      }
+      toastManager.close(toastId);
+      permissionOfferToastIdRef.current = null;
+    };
   }, [
     attentionRequests.length,
     desktopNotificationBridge,
@@ -897,12 +916,6 @@ function useAgentAttentionNotificationBridgeComponent() {
       activeDesktopNotificationIds.clear();
     };
   }, [desktopNotificationBridge]);
-
-  useEffect(() => {
-    if (notificationPermission !== "default") {
-      resetPermissionOfferTracking();
-    }
-  }, [notificationPermission, resetPermissionOfferTracking]);
 
   useEffect(
     () => () => {
