@@ -207,12 +207,9 @@ function ThreadToastVisibleAutoDismiss({
   dismissAfterVisibleMs,
 }: {
   toastId: ToastId;
-  dismissAfterVisibleMs: number | undefined;
+  dismissAfterVisibleMs: number;
 }) {
   useEffect(() => {
-    if (!dismissAfterVisibleMs || dismissAfterVisibleMs <= 0) return;
-    if (typeof window === "undefined" || typeof document === "undefined") return;
-
     let remainingMs = threadToastVisibleTimeoutRemainingMs.get(toastId) ?? dismissAfterVisibleMs;
     let startedAtMs: number | null = null;
     let timeoutId: number | null = null;
@@ -411,10 +408,12 @@ function Toasts({ position = "top-center" }: { position: ToastPosition }) {
               }
               toast={toast}
             >
-              <ThreadToastVisibleAutoDismiss
-                dismissAfterVisibleMs={toast.data?.dismissAfterVisibleMs}
-                toastId={toast.id}
-              />
+              {toast.data?.dismissAfterVisibleMs && toast.data.dismissAfterVisibleMs > 0 ? (
+                <ThreadToastVisibleAutoDismiss
+                  dismissAfterVisibleMs={toast.data.dismissAfterVisibleMs}
+                  toastId={toast.id}
+                />
+              ) : null}
               <Toast.Content
                 className={cn(
                   TOAST_CONTENT_CLASS_NAME,

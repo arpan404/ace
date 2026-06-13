@@ -7,7 +7,7 @@ import {
   Trash2Icon,
   Undo2Icon,
 } from "lucide-react";
-import { useEffect, useReducer } from "react";
+import { useReducer } from "react";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import type { Dispatch, MutableRefObject, ReactNode, SetStateAction } from "react";
 import type {
@@ -192,6 +192,7 @@ interface AddProviderDraft {
 
 type ProviderSettingsSectionState = {
   draftProviders: UnifiedSettings["providers"];
+  draftProvidersSource: UnifiedSettings["providers"];
   selectedEntryKey: string;
   addProviderOpen: boolean;
   addProviderStep: AddProviderStep;
@@ -199,7 +200,11 @@ type ProviderSettingsSectionState = {
 };
 
 type ProviderSettingsSectionAction =
-  | { type: "set-draft-providers"; draftProviders: UnifiedSettings["providers"] }
+  | {
+      type: "set-draft-providers";
+      draftProviders: UnifiedSettings["providers"];
+      draftProvidersSource: UnifiedSettings["providers"];
+    }
   | { type: "set-selected-entry-key"; selectedEntryKey: string }
   | { type: "set-add-provider-open"; addProviderOpen: boolean }
   | { type: "set-add-provider-step"; addProviderStep: AddProviderStep }
@@ -221,9 +226,14 @@ function providerSettingsSectionStateReducer(
 ): ProviderSettingsSectionState {
   switch (action.type) {
     case "set-draft-providers":
-      return state.draftProviders === action.draftProviders
+      return state.draftProviders === action.draftProviders &&
+        state.draftProvidersSource === action.draftProvidersSource
         ? state
-        : { ...state, draftProviders: action.draftProviders };
+        : {
+            ...state,
+            draftProviders: action.draftProviders,
+            draftProvidersSource: action.draftProvidersSource,
+          };
     case "set-selected-entry-key":
       return state.selectedEntryKey === action.selectedEntryKey
         ? state
@@ -500,6 +510,7 @@ function useProviderSettingsSectionComponent({
     undefined,
     (): ProviderSettingsSectionState => ({
       draftProviders: settings.providers,
+      draftProvidersSource: settings.providers,
       selectedEntryKey: providerEntryKey(providerCards[0]?.provider ?? "codex"),
       addProviderOpen: false,
       addProviderStep: "provider",
@@ -509,21 +520,16 @@ function useProviderSettingsSectionComponent({
       ),
     }),
   );
-  const { addProviderDraft, addProviderOpen, addProviderStep, draftProviders, selectedEntryKey } =
-    sectionState;
-  useEffect(() => {
-    dispatchSectionState({ type: "set-draft-providers", draftProviders: settings.providers });
-  }, [settings.providers]);
+  const { addProviderDraft, addProviderOpen, addProviderStep, selectedEntryKey } = sectionState;
+  const draftProviders =
+    sectionState.draftProvidersSource === settings.providers
+      ? sectionState.draftProviders
+      : settings.providers;
   const providerEntries = buildProviderSettingsEntries(providerCards, draftProviders);
-  useEffect(() => {
-    if (providerEntries.some((entry) => entry.key === selectedEntryKey)) {
-      return;
-    }
-    const firstEntry = providerEntries[0];
-    if (firstEntry) {
-      dispatchSectionState({ type: "set-selected-entry-key", selectedEntryKey: firstEntry.key });
-    }
-  }, [providerEntries, selectedEntryKey]);
+  const effectiveSelectedEntryKey =
+    providerEntries.some((entry) => entry.key === selectedEntryKey) || !providerEntries[0]
+      ? selectedEntryKey
+      : providerEntries[0].key;
 
   const hasProviderDraftChanges =
     allProviderSettingsFingerprint(draftProviders) !==
@@ -535,6 +541,7 @@ function useProviderSettingsSectionComponent({
   ) => {
     dispatchSectionState({
       type: "set-draft-providers",
+      draftProvidersSource: settings.providers,
       draftProviders: {
         ...draftProviders,
         [provider]: config,
@@ -557,7 +564,11 @@ function useProviderSettingsSectionComponent({
   };
 
   const revertProviderDraft = () => {
-    dispatchSectionState({ type: "set-draft-providers", draftProviders: settings.providers });
+    dispatchSectionState({
+      type: "set-draft-providers",
+      draftProviders: settings.providers,
+      draftProvidersSource: settings.providers,
+    });
   };
 
   const addProviderInstance = (draft: AddProviderDraft) => {
@@ -623,7 +634,7 @@ function useProviderSettingsSectionComponent({
       ...providerConfig,
       instances: providerConfig.instances.filter((instance) => instance.id !== instanceId),
     } as UnifiedSettings["providers"][typeof provider]);
-    if (selectedEntryKey === providerEntryKey(provider, instanceId)) {
+    if (effectiveSelectedEntryKey === providerEntryKey(provider, instanceId)) {
       dispatchSectionState({
         type: "set-selected-entry-key",
         selectedEntryKey: providerEntryKey(provider),
@@ -732,7 +743,7 @@ function useProviderSettingsSectionComponent({
   };
 
   const selectedEntry =
-    providerEntries.find((entry) => entry.key === selectedEntryKey) ?? providerEntries[0];
+    providerEntries.find((entry) => entry.key === effectiveSelectedEntryKey) ?? providerEntries[0];
   const selectedProviderCard = selectedEntry
     ? providerCards.find((providerCard) => providerCard.provider === selectedEntry.provider)
     : providerCards[0];
@@ -921,7 +932,7 @@ function useProviderSettingsSectionComponent({
                   const entrySnapshot = resolveProviderCardSnapshot(entryCard, entry.instanceId);
                   const entryStatusStyle = resolveProviderEntryStatusStyle(entry, entrySnapshot);
                   const entryDisplayName = getProviderCardDisplayName(entryCard);
-                  const isSelected = entry.key === selectedEntryKey;
+                  const isSelected = entry.key === effectiveSelectedEntryKey;
                   return (
                     <Button
                       key={entry.key}
