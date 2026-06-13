@@ -11,7 +11,6 @@ import {
 } from "lucide-react";
 import {
   startTransition,
-  useCallback,
   useEffect,
   useReducer,
   useRef,
@@ -1895,9 +1894,8 @@ function useSidebarComponent() {
   const projects = useStore((store) => store.projects);
   const bootstrapComplete = useStore((store) => store.bootstrapComplete);
   const sidebarThreadsById = useStore((store) => store.sidebarThreadsById);
-  const readSidebarThreadSummary = useCallback(
+  const readSidebarThreadSummary = useStableCallback(
     (threadId: ThreadId) => useStore.getState().sidebarThreadsById[threadId],
-    [],
   );
   const savedSplitBoard = useChatThreadBoardStore(
     useShallow((store) => ({
@@ -2126,7 +2124,7 @@ function useSidebarComponent() {
       confirmingArchiveThreadId,
     });
   };
-  const setThreadRevealCountByProject = useCallback(
+  const setThreadRevealCountByProject = useStableCallback(
     (
       threadRevealCountByProject:
         | Partial<Record<ProjectId, number>>
@@ -2137,7 +2135,6 @@ function useSidebarComponent() {
         threadRevealCountByProject,
       });
     },
-    [],
   );
   const setDesktopUpdateState = (
     desktopUpdateState:
@@ -2150,7 +2147,7 @@ function useSidebarComponent() {
       desktopUpdateState,
     });
   };
-  const setRemoteSidebarHosts = useCallback(
+  const setRemoteSidebarHosts = useStableCallback(
     (
       remoteSidebarHosts:
         | ReadonlyArray<RemoteSidebarHostEntry>
@@ -2163,7 +2160,6 @@ function useSidebarComponent() {
         remoteSidebarHosts,
       });
     },
-    [],
   );
   const setRemoteProjectExpandedById = (
     remoteProjectExpandedById:
@@ -2175,7 +2171,7 @@ function useSidebarComponent() {
       remoteProjectExpandedById,
     });
   };
-  const setRemoteThreadRevealCountByProject = useCallback(
+  const setRemoteThreadRevealCountByProject = useStableCallback(
     (
       remoteThreadRevealCountByProject:
         | Record<string, number>
@@ -2186,7 +2182,6 @@ function useSidebarComponent() {
         remoteThreadRevealCountByProject,
       });
     },
-    [],
   );
   const { showThreadJumpHints, updateThreadJumpHintsVisibility } = useThreadJumpHintVisibility();
   const renamingCommittedRef = useRef(false);
@@ -2834,7 +2829,7 @@ function useSidebarComponent() {
         environment.subtitle.toLowerCase().includes(normalizedProjectPickerEnvironmentQuery),
     );
   })();
-  const reconcileThreadDerivedState = useCallback(() => {
+  const reconcileThreadDerivedState = useStableCallback(() => {
     const threads = useStore.getState().threads;
     useUiStateStore.getState().syncThreads(
       threads.map((thread) => ({
@@ -2844,8 +2839,8 @@ function useSidebarComponent() {
       })),
     );
     clearPromotedDraftThreads(threads.map((thread) => thread.id));
-  }, []);
-  const clearRemoteSnapshotMergeHandle = useCallback(() => {
+  });
+  const clearRemoteSnapshotMergeHandle = useStableCallback(() => {
     remoteSnapshotMergeScheduledRef.current = false;
     const handle = remoteSnapshotMergeHandleRef.current;
     if (!handle) {
@@ -2860,8 +2855,8 @@ function useSidebarComponent() {
       return;
     }
     window.clearTimeout(handle.id);
-  }, []);
-  const flushRemoteSnapshotMergeQueue = useCallback(() => {
+  });
+  const flushRemoteSnapshotMergeQueue = useStableCallback(() => {
     remoteSnapshotMergeScheduledRef.current = false;
     remoteSnapshotMergeHandleRef.current = null;
     const pending = pendingRemoteSnapshotMergeByConnectionRef.current;
@@ -2879,8 +2874,8 @@ function useSidebarComponent() {
       });
     }
     reconcileThreadDerivedState();
-  }, [reconcileThreadDerivedState]);
-  const scheduleRemoteSnapshotMergeFlush = useCallback(() => {
+  });
+  const scheduleRemoteSnapshotMergeFlush = useStableCallback(() => {
     if (remoteSnapshotMergeScheduledRef.current) {
       return;
     }
@@ -2906,7 +2901,7 @@ function useSidebarComponent() {
     }
     const handleId = window.setTimeout(runFlush, REMOTE_SNAPSHOT_BACKGROUND_MERGE_DELAY_MS);
     remoteSnapshotMergeHandleRef.current = { kind: "timeout", id: handleId };
-  }, [flushRemoteSnapshotMergeQueue]);
+  });
   const refreshRemoteSidebarHosts = async () => {
     const existingRefresh = remoteSidebarRefreshInFlightRef.current;
     if (existingRefresh) {
@@ -3994,7 +3989,7 @@ function useSidebarComponent() {
     removeFromSelection(ids);
   };
 
-  const prefetchThreadHistory = useCallback(
+  const prefetchThreadHistory = useStableCallback(
     (
       threadId: ThreadId,
       options?: {
@@ -4078,7 +4073,6 @@ function useSidebarComponent() {
       }
       return Promise.resolve();
     },
-    [readSidebarThreadSummary],
   );
 
   const handleThreadClick = (
