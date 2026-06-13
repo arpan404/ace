@@ -15,10 +15,8 @@ import {
   Fragment,
   createElement,
   startTransition,
-  useCallback,
   useEffect,
   useLayoutEffect,
-  useMemo,
   useRef,
   useState,
   type CSSProperties,
@@ -50,6 +48,7 @@ import { type TurnDiffSummary } from "../../types";
 import { summarizeTurnDiffStats } from "../../lib/turnDiffTree";
 import ChatMarkdown from "../ChatMarkdown";
 import { useReactCompilerSafeVirtualizer } from "~/hooks/useReactCompilerSafeVirtualizer";
+import { useEffectEvent } from "~/hooks/useEffectEvent";
 import {
   ArrowLeftRightIcon,
   BrainIcon,
@@ -660,14 +659,11 @@ export function MessagesTimeline({
     EMPTY_PINNED_MESSAGES,
     PinnedMessagesSchema,
   );
-  const pinnedMessageIdSet = useMemo(
-    () => new Set(pinnedMessages.map((message) => message.id)),
-    [pinnedMessages],
-  );
+  const pinnedMessageIdSet = new Set(pinnedMessages.map((message) => message.id));
   const [selectionPinTarget, setSelectionPinTarget] = useState<AssistantSelectionPinTarget | null>(
     null,
   );
-  const updateSelectionPinTarget = useCallback(() => {
+  const updateSelectionPinTarget = () => {
     if (!activeThreadId) {
       setSelectionPinTarget(null);
       return;
@@ -702,7 +698,8 @@ export function MessagesTimeline({
       text: currentSelectionPinTarget.text,
       top,
     });
-  }, [activeThreadId]);
+  };
+  const updateSelectionPinTargetEffect = useEffectEvent(updateSelectionPinTarget);
   const pinSelectedAssistantText = () => {
     if (!activeThreadId || !selectionPinTarget) return;
     setPinnedMessages((current) =>
@@ -717,7 +714,7 @@ export function MessagesTimeline({
   };
   useEffect(() => {
     const updateAfterSelectionSettles = () => {
-      window.requestAnimationFrame(updateSelectionPinTarget);
+      window.requestAnimationFrame(updateSelectionPinTargetEffect);
     };
     document.addEventListener("selectionchange", updateAfterSelectionSettles);
     document.addEventListener("mouseup", updateAfterSelectionSettles);
@@ -727,7 +724,7 @@ export function MessagesTimeline({
       document.removeEventListener("mouseup", updateAfterSelectionSettles);
       document.removeEventListener("keyup", updateAfterSelectionSettles);
     };
-  }, [updateSelectionPinTarget]);
+  }, []);
   const timelineRowsInput = {
     timelineEntries,
     activeTurnInProgress,
@@ -751,7 +748,7 @@ export function MessagesTimeline({
     preResolvedRows: timelineRowsOverride,
     timelineRowsInput,
   });
-  const latestForkableAssistantMessageId = useMemo(() => {
+  const latestForkableAssistantMessageId = (() => {
     for (let index = rows.length - 1; index >= 0; index -= 1) {
       const row = rows[index];
       if (row?.kind !== "message") {
@@ -767,8 +764,8 @@ export function MessagesTimeline({
       }
     }
     return null;
-  }, [rows]);
-  const assistantFooterByPlacementRowId = useMemo(() => {
+  })();
+  const assistantFooterByPlacementRowId = (() => {
     const footerByRowId = new Map<string, AssistantTurnFooterModel>();
     let latestUserRowIndex = -1;
     if (activeTurnInProgress) {
@@ -871,20 +868,8 @@ export function MessagesTimeline({
       });
     }
     return footerByRowId;
-  }, [
-    activeTurnInProgress,
-    isForkConversationDisabled,
-    activeThreadId,
-    latestForkableAssistantMessageId,
-    onForkConversation,
-    pinnedMessageIdSet,
-    rows,
-    selectionPinTarget,
-    setPinnedMessages,
-    supportsForkConversation,
-    timestampFormat,
-  ]);
-  const trailingCompletedWorkSummaryByAssistantRowId = useMemo(() => {
+  })();
+  const trailingCompletedWorkSummaryByAssistantRowId = (() => {
     const summaryByAssistantRowId = new Map<
       string,
       Extract<TimelineRow, { kind: "completed-work-summary" }>
@@ -904,7 +889,7 @@ export function MessagesTimeline({
       summaryByAssistantRowId.set(row.id, nextRow);
     }
     return summaryByAssistantRowId;
-  }, [rows]);
+  })();
   const hoistedCompletedWorkSummaryRowIds = new Set(
     [...trailingCompletedWorkSummaryByAssistantRowId.values()].map((row) => row.id),
   );
@@ -975,32 +960,19 @@ export function MessagesTimeline({
     };
   }, [timelineRootElement]);
 
-  const firstUnvirtualizedRowIndex = useMemo(
-    () =>
-      deriveFirstUnvirtualizedTimelineRowIndex(rows, {
-        activeTurnInProgress,
-        activeTurnStartedAt,
-        preserveCurrentTurnTail: true,
-      }),
-    [activeTurnInProgress, activeTurnStartedAt, rows],
-  );
-  const virtualizedRows = useMemo(
-    () => rows.slice(0, firstUnvirtualizedRowIndex),
-    [firstUnvirtualizedRowIndex, rows],
-  );
+  const firstUnvirtualizedRowIndex = deriveFirstUnvirtualizedTimelineRowIndex(rows, {
+    activeTurnInProgress,
+    activeTurnStartedAt,
+    preserveCurrentTurnTail: true,
+  });
+  const virtualizedRows = rows.slice(0, firstUnvirtualizedRowIndex);
   const trailingRows = rows.slice(firstUnvirtualizedRowIndex);
-  const getVirtualRowKey = useCallback(
-    (index: number) => virtualizedRows[index]?.id ?? index,
-    [virtualizedRows],
-  );
-  const estimateVirtualizedRowSize = useCallback(
-    (index: number) =>
-      estimateTimelineRowHeight(virtualizedRows[index], {
-        timelineWidthPx,
-        expandedWorkGroups,
-      }),
-    [expandedWorkGroups, timelineWidthPx, virtualizedRows],
-  );
+  const getVirtualRowKey = (index: number) => virtualizedRows[index]?.id ?? index;
+  const estimateVirtualizedRowSize = (index: number) =>
+    estimateTimelineRowHeight(virtualizedRows[index], {
+      timelineWidthPx,
+      expandedWorkGroups,
+    });
   const measureVirtualizedRowElement = (
     element: Element,
     entry?: ResizeObserverEntry | undefined,
@@ -1046,7 +1018,7 @@ export function MessagesTimeline({
   const shouldPrewarmAssistantMarkdown =
     shouldPrioritizeAssistantMarkdown && backgroundMarkdownPrewarm;
   const virtualItems = shouldUseVirtualizedBuffer ? rowVirtualizer.getVirtualItems() : [];
-  const fallbackVirtualItems = useMemo(() => {
+  const fallbackVirtualItems = (() => {
     if (!shouldUseVirtualizedBuffer || virtualItems.length > 0) {
       return [];
     }
@@ -1059,35 +1031,20 @@ export function MessagesTimeline({
       scrollTop: scrollContainer?.scrollTop ?? Number.POSITIVE_INFINITY,
       viewportHeight: scrollContainer?.clientHeight ?? TIMELINE_INITIAL_VIEWPORT_HEIGHT_PX,
     });
-  }, [
-    estimateVirtualizedRowSize,
-    getScrollContainer,
-    getVirtualRowKey,
-    shouldUseVirtualizedBuffer,
-    virtualItems.length,
-    virtualizedRows.length,
-  ]);
+  })();
   const renderedVirtualItems = virtualItems.length > 0 ? virtualItems : fallbackVirtualItems;
-  const renderedWindowState = useMemo(
-    () =>
-      deriveTimelineRenderedWindowState({
-        renderedVirtualItems,
-        totalRowCount: rows.length,
-        virtualizedRows,
-      }),
-    [renderedVirtualItems, rows.length, virtualizedRows],
-  );
+  const renderedWindowState = deriveTimelineRenderedWindowState({
+    renderedVirtualItems,
+    totalRowCount: rows.length,
+    virtualizedRows,
+  });
   const renderedWindowIndexRows =
     shouldUseVirtualizedBuffer || renderedVirtualItems.length > 0 ? virtualizedRows : rows;
-  const globalRenderedWindowState = useMemo(
-    () =>
-      deriveGlobalTimelineRenderedWindowState({
-        renderedWindowState,
-        rows: renderedWindowIndexRows,
-        timelineIndexByEntryId,
-      }),
-    [renderedWindowIndexRows, renderedWindowState, timelineIndexByEntryId],
-  );
+  const globalRenderedWindowState = deriveGlobalTimelineRenderedWindowState({
+    renderedWindowState,
+    rows: renderedWindowIndexRows,
+    timelineIndexByEntryId,
+  });
   const shouldRenderVirtualizedBuffer = shouldRenderTimelineVirtualizedBuffer({
     virtualizedRowCount: virtualizedRows.length,
   });
@@ -1306,65 +1263,33 @@ export function MessagesTimeline({
     : [];
   const mountedVirtualizedAssistantMarkdownMessageIdKey =
     mountedVirtualizedAssistantMarkdownMessageIds.join("\0");
-  const mountedVirtualizedAssistantMarkdownMessageIdSet = useMemo(
-    () =>
-      new Set(
-        mountedVirtualizedAssistantMarkdownMessageIdKey.length > 0
-          ? mountedVirtualizedAssistantMarkdownMessageIdKey.split("\0")
-          : [],
-      ),
-    [mountedVirtualizedAssistantMarkdownMessageIdKey],
+  const mountedVirtualizedAssistantMarkdownMessageIdSet = new Set(
+    mountedVirtualizedAssistantMarkdownMessageIdKey.length > 0
+      ? mountedVirtualizedAssistantMarkdownMessageIdKey.split("\0")
+      : [],
   );
-  const immediateAssistantMarkdownMessageIds = useMemo(
-    () =>
-      shouldPrioritizeAssistantMarkdown
-        ? deriveImmediateAssistantMarkdownMessageIds(rows, firstUnvirtualizedRowIndex)
-        : [],
-    [firstUnvirtualizedRowIndex, rows, shouldPrioritizeAssistantMarkdown],
-  );
-  const immediateAssistantMarkdownMessageIdSet = useMemo(
-    () => new Set(immediateAssistantMarkdownMessageIds),
-    [immediateAssistantMarkdownMessageIds],
-  );
-  const pendingAssistantMarkdownMessageIds = useMemo(
-    () =>
-      shouldPrewarmAssistantMarkdown
-        ? derivePendingAssistantMarkdownMessageIdsBottomUp(rows, {
-            firstUnvirtualizedRowIndex,
-            immediateMessageIds: immediateAssistantMarkdownMessageIdSet,
-            maxMessageIds: ASSISTANT_MARKDOWN_PENDING_MESSAGE_LIMIT,
-            maxRows: ASSISTANT_MARKDOWN_PENDING_LOOKBACK_ROWS,
-            mountedMessageIds: mountedVirtualizedAssistantMarkdownMessageIdSet,
-            renderedMessageIds: renderedAssistantMarkdownMessageIds,
-          })
-        : [],
-    [
-      firstUnvirtualizedRowIndex,
-      immediateAssistantMarkdownMessageIdSet,
-      mountedVirtualizedAssistantMarkdownMessageIdSet,
-      renderedAssistantMarkdownMessageIds,
-      rows,
-      shouldPrewarmAssistantMarkdown,
-    ],
-  );
-  const assistantMarkdownPrewarmRows = useMemo(
-    () =>
-      shouldPrewarmAssistantMarkdown
-        ? collectAssistantMarkdownPrewarmRows(rows, {
-            firstUnvirtualizedRowIndex,
-            renderedVirtualItems,
-            virtualizedRows,
-          })
-        : [],
-    [
-      firstUnvirtualizedRowIndex,
-      renderedVirtualItems,
-      rows,
-      shouldPrewarmAssistantMarkdown,
-      virtualizedRows,
-    ],
-  );
-  const assistantMarkdownAnalysisPrewarmJobs = useMemo(() => {
+  const immediateAssistantMarkdownMessageIds = shouldPrioritizeAssistantMarkdown
+    ? deriveImmediateAssistantMarkdownMessageIds(rows, firstUnvirtualizedRowIndex)
+    : [];
+  const immediateAssistantMarkdownMessageIdSet = new Set(immediateAssistantMarkdownMessageIds);
+  const pendingAssistantMarkdownMessageIds = shouldPrewarmAssistantMarkdown
+    ? derivePendingAssistantMarkdownMessageIdsBottomUp(rows, {
+        firstUnvirtualizedRowIndex,
+        immediateMessageIds: immediateAssistantMarkdownMessageIdSet,
+        maxMessageIds: ASSISTANT_MARKDOWN_PENDING_MESSAGE_LIMIT,
+        maxRows: ASSISTANT_MARKDOWN_PENDING_LOOKBACK_ROWS,
+        mountedMessageIds: mountedVirtualizedAssistantMarkdownMessageIdSet,
+        renderedMessageIds: renderedAssistantMarkdownMessageIds,
+      })
+    : [];
+  const assistantMarkdownPrewarmRows = shouldPrewarmAssistantMarkdown
+    ? collectAssistantMarkdownPrewarmRows(rows, {
+        firstUnvirtualizedRowIndex,
+        renderedVirtualItems,
+        virtualizedRows,
+      })
+    : [];
+  const assistantMarkdownAnalysisPrewarmJobs = (() => {
     if (!shouldPrewarmAssistantMarkdown) {
       return [];
     }
@@ -1373,12 +1298,7 @@ export function MessagesTimeline({
       immediateMessageIds: immediateAssistantMarkdownMessageIds,
       pendingMessageIds: pendingAssistantMarkdownMessageIds,
     });
-  }, [
-    assistantMarkdownPrewarmRows,
-    immediateAssistantMarkdownMessageIds,
-    pendingAssistantMarkdownMessageIds,
-    shouldPrewarmAssistantMarkdown,
-  ]);
+  })();
   const immediateAssistantMarkdownMessageIdKey = immediateAssistantMarkdownMessageIds.join("\0");
   const pendingAssistantMarkdownMessageIdKey = pendingAssistantMarkdownMessageIds.join("\0");
   const assistantMarkdownAnalysisPrewarmJobKey = assistantMarkdownAnalysisPrewarmJobs
@@ -1392,11 +1312,11 @@ export function MessagesTimeline({
       return;
     }
     const priorityMessageIds = [
-      ...immediateAssistantMarkdownMessageIds,
+      ...immediateAssistantMarkdownMessageIdKey.split("\0").filter(Boolean),
       ...(mountedVirtualizedAssistantMarkdownMessageIdKey.length > 0
         ? mountedVirtualizedAssistantMarkdownMessageIdKey.split("\0")
         : []),
-      ...pendingAssistantMarkdownMessageIds,
+      ...pendingAssistantMarkdownMessageIdKey.split("\0").filter(Boolean),
     ];
     const timeoutId = window.setTimeout(() => {
       setRenderedAssistantMarkdownMessageIds((current) => {
@@ -1421,11 +1341,9 @@ export function MessagesTimeline({
       window.clearTimeout(timeoutId);
     };
   }, [
-    immediateAssistantMarkdownMessageIds,
     immediateAssistantMarkdownMessageIdKey,
     isTimelineScrolling,
     mountedVirtualizedAssistantMarkdownMessageIdKey,
-    pendingAssistantMarkdownMessageIds,
     pendingAssistantMarkdownMessageIdKey,
     shouldPrioritizeAssistantMarkdown,
   ]);
@@ -1441,7 +1359,7 @@ export function MessagesTimeline({
     if (typeof window === "undefined") {
       return;
     }
-    const pendingMessageIds = pendingAssistantMarkdownMessageIds;
+    const pendingMessageIds = pendingAssistantMarkdownMessageIdKey.split("\0").filter(Boolean);
 
     let cancelled = false;
     let cursor = 0;
@@ -1491,12 +1409,7 @@ export function MessagesTimeline({
         cancelAssistantMarkdownIdleCallback(idleHandle);
       }
     };
-  }, [
-    isTimelineScrolling,
-    pendingAssistantMarkdownMessageIdKey,
-    pendingAssistantMarkdownMessageIds,
-    shouldPrewarmAssistantMarkdown,
-  ]);
+  }, [isTimelineScrolling, pendingAssistantMarkdownMessageIdKey, shouldPrewarmAssistantMarkdown]);
   useEffect(() => {
     if (!shouldPrewarmAssistantMarkdown || assistantMarkdownAnalysisPrewarmJobs.length === 0) {
       return;
