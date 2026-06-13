@@ -1,5 +1,12 @@
 import * as React from "react";
 
+function clearTimeoutRef(timeoutRef: { current: NodeJS.Timeout | null }) {
+  if (timeoutRef.current) {
+    clearTimeout(timeoutRef.current);
+    timeoutRef.current = null;
+  }
+}
+
 export function useCopyToClipboard<TContext = void>({
   timeout = 2000,
   onCopy,
@@ -31,9 +38,7 @@ export function useCopyToClipboard<TContext = void>({
 
     navigator.clipboard.writeText(value).then(
       () => {
-        if (timeoutIdRef.current) {
-          clearTimeout(timeoutIdRef.current);
-        }
+        clearTimeoutRef(timeoutIdRef);
         setIsCopied(true);
 
         onCopyRef.current?.(ctx);
@@ -58,9 +63,7 @@ export function useCopyToClipboard<TContext = void>({
   // Cleanup timeout on unmount
   React.useEffect(() => {
     return (): void => {
-      if (timeoutIdRef.current) {
-        clearTimeout(timeoutIdRef.current);
-      }
+      clearTimeoutRef(timeoutIdRef);
     };
   }, []);
 

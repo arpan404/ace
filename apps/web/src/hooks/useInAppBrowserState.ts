@@ -12,6 +12,7 @@ import type { BrowserBridgeRequest } from "@ace/contracts";
 import type { BrowserSearchEngine } from "@ace/contracts/settings";
 
 import { useLocalStorage } from "~/hooks/useLocalStorage";
+import { useEffectEvent } from "~/hooks/useEffectEvent";
 import { useSetting, useUpdateSettings } from "~/hooks/useSettings";
 import {
   buildBrowserClickScript,
@@ -2362,11 +2363,16 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     });
   }, []);
 
+  const clearBrowserContextMenuFallbackTimer = useEffectEvent(() => {
+    if (browserContextMenuFallbackTimerRef.current !== null) {
+      window.clearTimeout(browserContextMenuFallbackTimerRef.current);
+      browserContextMenuFallbackTimerRef.current = null;
+    }
+  });
+
   useEffect(() => {
     return () => {
-      if (browserContextMenuFallbackTimerRef.current !== null) {
-        window.clearTimeout(browserContextMenuFallbackTimerRef.current);
-      }
+      clearBrowserContextMenuFallbackTimer();
     };
   }, []);
 

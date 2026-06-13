@@ -2800,12 +2800,15 @@ function useChatViewComponent({
     attachmentPreviewHandoffByMessageIdRef.current = {};
     setAttachmentPreviewHandoffByMessageId({});
   }, []);
+  const clearOptimisticUserMessagePreviews = useEffectEvent(() => {
+    for (const message of optimisticUserMessagesStateRef.current?.messages ?? []) {
+      revokeUserMessagePreviewUrls(message);
+    }
+  });
   useEffect(() => {
     return () => {
       clearAttachmentPreviewHandoffs();
-      for (const message of optimisticUserMessagesStateRef.current?.messages ?? []) {
-        revokeUserMessagePreviewUrls(message);
-      }
+      clearOptimisticUserMessagePreviews();
     };
   }, [clearAttachmentPreviewHandoffs]);
   const handoffAttachmentPreviews = useCallback((messageId: MessageId, previewUrls: string[]) => {

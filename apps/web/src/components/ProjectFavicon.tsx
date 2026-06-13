@@ -5,6 +5,13 @@ import { resolveServerUrl } from "~/lib/utils";
 const loadedProjectFaviconSrcs = new Set<string>();
 const PROJECT_FAVICON_RETRY_DELAYS_MS = [300, 900, 1800] as const;
 
+function clearWindowTimeoutRef(timeoutRef: { current: number | null }) {
+  if (timeoutRef.current !== null) {
+    window.clearTimeout(timeoutRef.current);
+    timeoutRef.current = null;
+  }
+}
+
 export function ProjectFavicon({ cwd, className }: { cwd: string; className?: string }) {
   const baseSrc = resolveServerUrl({
     protocol: "http",
@@ -35,9 +42,7 @@ function ProjectFaviconImage({ baseSrc, className }: { baseSrc: string; classNam
 
   useEffect(() => {
     return () => {
-      if (retryTimeoutRef.current !== null) {
-        window.clearTimeout(retryTimeoutRef.current);
-      }
+      clearWindowTimeoutRef(retryTimeoutRef);
     };
   }, []);
 
@@ -53,10 +58,7 @@ function ProjectFaviconImage({ baseSrc, className }: { baseSrc: string; classNam
         decoding="sync"
         className={`size-3.5 shrink-0 rounded-sm object-contain ${status === "loaded" ? "" : "hidden"} ${className ?? ""}`}
         onLoad={() => {
-          if (retryTimeoutRef.current !== null) {
-            window.clearTimeout(retryTimeoutRef.current);
-            retryTimeoutRef.current = null;
-          }
+          clearWindowTimeoutRef(retryTimeoutRef);
           loadedProjectFaviconSrcs.add(baseSrc);
           setStatus("loaded");
         }}

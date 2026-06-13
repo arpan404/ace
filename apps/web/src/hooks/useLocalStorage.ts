@@ -207,7 +207,7 @@ export function useLocalStorage<T, E>(
       window.removeEventListener("storage", handleStorageChange);
       window.removeEventListener(LOCAL_STORAGE_CHANGE_EVENT, handleLocalChange as EventListener);
     };
-  }, [key, initialValue, schema]);
+  }, [key, initialValue, schema, sourceId]);
 
   return [storedValue, setValue, storageError];
 }

@@ -50,6 +50,7 @@ import {
   resolveMountedBrowserTabs,
   shouldPublishBrowserSessionChange,
 } from "~/lib/browser/inAppBrowserPresentation";
+import { useEffectEvent } from "~/hooks/useEffectEvent";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import {
@@ -354,6 +355,13 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
   useEffect(() => {
     latestBrowserSessionChangeHandlerRef.current = onBrowserSessionChange;
   }, [onBrowserSessionChange]);
+  const cancelPendingBrowserSessionPublish = useEffectEvent(() => {
+    if (browserSessionPublishFrameRef.current !== null) {
+      window.cancelAnimationFrame(browserSessionPublishFrameRef.current);
+      browserSessionPublishFrameRef.current = null;
+    }
+    pendingBrowserSessionRef.current = null;
+  });
 
   useEffect(() => {
     if (!latestBrowserSessionChangeHandlerRef.current) {
@@ -388,11 +396,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
   }, [browserSession, visible]);
   useEffect(() => {
     return () => {
-      if (browserSessionPublishFrameRef.current !== null) {
-        window.cancelAnimationFrame(browserSessionPublishFrameRef.current);
-        browserSessionPublishFrameRef.current = null;
-      }
-      pendingBrowserSessionRef.current = null;
+      cancelPendingBrowserSessionPublish();
     };
   }, []);
   const browserShellRef = useRef<HTMLElement | null>(null);

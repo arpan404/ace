@@ -10,6 +10,13 @@ import { APP_BADGE_CLASS_NAME, APP_COMPOSER_INSET_PANEL_CLASS_NAME } from "~/lib
 import { cn } from "~/lib/utils";
 import { Button } from "../ui/button";
 
+function clearWindowTimeoutRef(timeoutRef: { current: number | null }) {
+  if (timeoutRef.current !== null) {
+    window.clearTimeout(timeoutRef.current);
+    timeoutRef.current = null;
+  }
+}
+
 interface PendingUserInputPanelProps {
   pendingUserInputs: PendingUserInput[];
   respondingRequestIds: ApprovalRequestId[];
@@ -71,24 +78,17 @@ function ComposerPendingUserInputCard({
   // Clear auto-advance timer on unmount
   useEffect(() => {
     return () => {
-      if (autoAdvanceTimerRef.current !== null) {
-        window.clearTimeout(autoAdvanceTimerRef.current);
-      }
+      clearWindowTimeoutRef(autoAdvanceTimerRef);
     };
   }, []);
 
   const selectOptionAndAutoAdvance = (questionId: string, optionLabel: string) => {
     onSelectOption(questionId, optionLabel);
     if (activeQuestion?.multiSelect === true) {
-      if (autoAdvanceTimerRef.current !== null) {
-        window.clearTimeout(autoAdvanceTimerRef.current);
-        autoAdvanceTimerRef.current = null;
-      }
+      clearWindowTimeoutRef(autoAdvanceTimerRef);
       return;
     }
-    if (autoAdvanceTimerRef.current !== null) {
-      window.clearTimeout(autoAdvanceTimerRef.current);
-    }
+    clearWindowTimeoutRef(autoAdvanceTimerRef);
     autoAdvanceTimerRef.current = window.setTimeout(() => {
       autoAdvanceTimerRef.current = null;
       onAdvance();

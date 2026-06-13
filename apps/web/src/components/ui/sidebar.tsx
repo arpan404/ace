@@ -17,6 +17,7 @@ import {
 } from "~/components/ui/sheet";
 import { Skeleton } from "~/components/ui/skeleton";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
+import { useEffectEvent } from "~/hooks/useEffectEvent";
 import { useIsMobile } from "~/hooks/useMediaQuery";
 import { getLocalStorageItem, setLocalStorageItem } from "~/hooks/useLocalStorage";
 import { SIDEBAR_RESIZE_END_EVENT, SIDEBAR_RESIZING_CLASS_NAME } from "~/lib/desktopChrome";
@@ -448,6 +449,25 @@ function useSidebarRailInteractions({
     }
     releaseInlineWidthFrameIdsRef.current = [];
   }, []);
+  const cleanupResizeState = useEffectEvent(() => {
+    const resizeState = resizeStateRef.current;
+    if (resizeState?.rafId != null) window.cancelAnimationFrame(resizeState.rafId);
+    cancelScheduledInlineWidthRelease();
+    resizeState?.transitionTargets.forEach((element) => {
+      element.style.removeProperty("transition-duration");
+    });
+    resizeState?.sidebarGap.style.removeProperty("width");
+    resizeState?.sidebarContainer.style.removeProperty("width");
+    const hadSidebarResizeClass = document.documentElement.classList.contains(
+      SIDEBAR_RESIZING_CLASS_NAME,
+    );
+    document.documentElement.classList.remove(SIDEBAR_RESIZING_CLASS_NAME);
+    if (hadSidebarResizeClass) {
+      window.dispatchEvent(new Event(SIDEBAR_RESIZE_END_EVENT));
+    }
+    document.body.style.removeProperty("cursor");
+    document.body.style.removeProperty("user-select");
+  });
 
   const stopResize = React.useCallback(
     (pointerId: number) => {
@@ -620,25 +640,9 @@ function useSidebarRailInteractions({
 
   React.useEffect(() => {
     return () => {
-      const resizeState = resizeStateRef.current;
-      if (resizeState?.rafId != null) window.cancelAnimationFrame(resizeState.rafId);
-      cancelScheduledInlineWidthRelease();
-      resizeState?.transitionTargets.forEach((element) => {
-        element.style.removeProperty("transition-duration");
-      });
-      resizeState?.sidebarGap.style.removeProperty("width");
-      resizeState?.sidebarContainer.style.removeProperty("width");
-      const hadSidebarResizeClass = document.documentElement.classList.contains(
-        SIDEBAR_RESIZING_CLASS_NAME,
-      );
-      document.documentElement.classList.remove(SIDEBAR_RESIZING_CLASS_NAME);
-      if (hadSidebarResizeClass) {
-        window.dispatchEvent(new Event(SIDEBAR_RESIZE_END_EVENT));
-      }
-      document.body.style.removeProperty("cursor");
-      document.body.style.removeProperty("user-select");
+      cleanupResizeState();
     };
-  }, [cancelScheduledInlineWidthRelease]);
+  }, []);
 
   React.useEffect(() => {
     const resetResizeState = () => {

@@ -1652,6 +1652,13 @@ function useBrowserTabWebviewComponent(props: {
     }
     commitHoveredElementCapture(null, null);
   }, [commitHoveredElementCapture]);
+  const clearElementInteractionFrames = useStableCallback(() => {
+    clearHoveredElementCapture();
+    if (elementCommentWheelFrameRef.current !== null) {
+      window.cancelAnimationFrame(elementCommentWheelFrameRef.current);
+      elementCommentWheelFrameRef.current = null;
+    }
+  });
 
   const resolveLoadUrl = useCallback(
     (url: string) =>
@@ -2600,15 +2607,9 @@ function useBrowserTabWebviewComponent(props: {
 
   useEffect(() => {
     return () => {
-      elementHoverRequestTokenRef.current += 1;
-      if (elementHoverFrameRef.current !== null) {
-        window.cancelAnimationFrame(elementHoverFrameRef.current);
-      }
-      if (elementCommentWheelFrameRef.current !== null) {
-        window.cancelAnimationFrame(elementCommentWheelFrameRef.current);
-      }
+      clearElementInteractionFrames();
     };
-  }, []);
+  }, [clearElementInteractionFrames]);
 
   const forwardElementCommentWheelToWebview = useCallback(
     (input: { deltaX: number; deltaY: number; clientX: number; clientY: number }) => {

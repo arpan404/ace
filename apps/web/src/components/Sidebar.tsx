@@ -5194,6 +5194,13 @@ function useSidebarComponent() {
       measureSidebarProjectListScrollMargin();
     });
   }, [measureSidebarProjectListScrollMargin]);
+  const cancelSidebarProjectListScrollMarginMeasure = useEffectEvent(() => {
+    if (sidebarProjectListScrollMarginFrameRef.current === null) {
+      return;
+    }
+    window.cancelAnimationFrame(sidebarProjectListScrollMarginFrameRef.current);
+    sidebarProjectListScrollMarginFrameRef.current = null;
+  });
 
   const setSidebarProjectListElement = (element: HTMLUListElement | null) => {
     sidebarProjectListRef.current = element;
@@ -5235,11 +5242,7 @@ function useSidebarComponent() {
 
   useEffect(() => {
     return () => {
-      if (sidebarProjectListScrollMarginFrameRef.current === null) {
-        return;
-      }
-      window.cancelAnimationFrame(sidebarProjectListScrollMarginFrameRef.current);
-      sidebarProjectListScrollMarginFrameRef.current = null;
+      cancelSidebarProjectListScrollMarginMeasure();
     };
   }, []);
 
