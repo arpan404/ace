@@ -1951,7 +1951,7 @@ function useBrowserTabWebviewComponent(props: {
     scheduleEmitSnapshotEvent,
   ]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     navigate(tab.url);
   }, [navigate, tab.url]);
 
