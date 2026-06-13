@@ -374,7 +374,6 @@ function useTerminalViewportComponent({
   const selectionGestureActiveRef = useRef(false);
   const selectionActionRequestIdRef = useRef(0);
   const selectionActionOpenRef = useRef(false);
-  const selectionActionTimerRef = useRef<number | null>(null);
   const handledFocusRequestIdRef = useRef(0);
 
   useEffect(() => {
@@ -435,6 +434,7 @@ function useTerminalViewportComponent({
     let pendingNativeWindowResizeFit = false;
     let pendingTerminalOutput = "";
     let pendingTerminalOutputFrame: number | null = null;
+    let selectionActionTimer: number | null = null;
 
     const fitToViewport = (options: { force?: boolean; syncPty?: boolean } = {}) => {
       const { force = false, syncPty = true } = options;
@@ -532,9 +532,9 @@ function useTerminalViewportComponent({
 
     const clearSelectionAction = () => {
       selectionActionRequestIdRef.current += 1;
-      if (selectionActionTimerRef.current !== null) {
-        window.clearTimeout(selectionActionTimerRef.current);
-        selectionActionTimerRef.current = null;
+      if (selectionActionTimer !== null) {
+        window.clearTimeout(selectionActionTimer);
+        selectionActionTimer = null;
       }
     };
     const terminalLinkMatchCache = new Map<
@@ -770,8 +770,8 @@ function useTerminalViewportComponent({
       }
       selectionPointerRef.current = { x: event.clientX, y: event.clientY };
       const delay = terminalSelectionActionDelayForClickCount(event.detail);
-      selectionActionTimerRef.current = window.setTimeout(() => {
-        selectionActionTimerRef.current = null;
+      selectionActionTimer = window.setTimeout(() => {
+        selectionActionTimer = null;
         window.requestAnimationFrame(() => {
           void showSelectionAction();
         });
@@ -956,8 +956,9 @@ function useTerminalViewportComponent({
       inputDisposable.dispose();
       selectionDisposable.dispose();
       terminalLinksDisposable.dispose();
-      if (selectionActionTimerRef.current !== null) {
-        window.clearTimeout(selectionActionTimerRef.current);
+      if (selectionActionTimer !== null) {
+        window.clearTimeout(selectionActionTimer);
+        selectionActionTimer = null;
       }
       window.removeEventListener("mouseup", handleMouseUp);
       mount.removeEventListener("pointerdown", handlePointerDown);

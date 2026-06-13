@@ -1765,6 +1765,7 @@ export function MessagesTimeline({
   return (
     <div
       ref={setTimelineRootElement}
+      role="presentation"
       data-timeline-root="true"
       className="mx-auto mt-3 w-full min-w-0 max-w-3xl overflow-x-hidden"
       style={{ overflowAnchor: "none" }}
