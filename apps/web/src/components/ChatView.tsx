@@ -3669,9 +3669,10 @@ function useChatViewComponent({
     openRightSidePanelDiff();
   }, [rightSidePanelDiffOpen, rightSidePanelEnabled, rightSidePanelMode]);
   useEffect(() => {
-    if (rightSidePanelEnabled && diffOpen) {
-      setRightSidePanelReviewOpen(true);
+    if (!rightSidePanelEnabled || !diffOpen) {
+      return;
     }
+    setRightSidePanelReviewOpen(true);
   }, [diffOpen, rightSidePanelEnabled, setRightSidePanelReviewOpen]);
   useLayoutEffect(() => {
     if (

@@ -1586,37 +1586,38 @@ function useThreadWorkspaceEditorComponent(inputProps: {
           ? Array.from(previous.filePaths).filter((filePath) => !nextFilePaths.has(filePath))
           : [];
 
-    if (api && previous.cwd && removedFilePaths.length > 0) {
-      const previousCwd = previous.cwd;
-      void Promise.allSettled(
-        removedFilePaths.map((relativePath) =>
-          api.workspaceEditor.closeBuffer(
-            withRpcRouteConnection(
-              {
-                cwd: previousCwd,
-                relativePath,
-              },
-              inputProps.connectionUrl,
-            ),
-          ),
-        ),
-      ).then((results) => {
-        for (const [index, result] of results.entries()) {
-          if (result.status === "rejected") {
-            console.error("Failed to close workspace editor buffer", {
-              cwd: previousCwd,
-              relativePath: removedFilePaths[index],
-              error: result.reason,
-            });
-          }
-        }
-      });
-    }
-
     previousWorkspaceBufferStateRef.current = {
       cwd: diagnosticsCwd,
       filePaths: nextFilePaths,
     };
+    if (!api || !previous.cwd || removedFilePaths.length === 0) {
+      return;
+    }
+
+    const previousCwd = previous.cwd;
+    void Promise.allSettled(
+      removedFilePaths.map((relativePath) =>
+        api.workspaceEditor.closeBuffer(
+          withRpcRouteConnection(
+            {
+              cwd: previousCwd,
+              relativePath,
+            },
+            inputProps.connectionUrl,
+          ),
+        ),
+      ),
+    ).then((results) => {
+      for (const [index, result] of results.entries()) {
+        if (result.status === "rejected") {
+          console.error("Failed to close workspace editor buffer", {
+            cwd: previousCwd,
+            relativePath: removedFilePaths[index],
+            error: result.reason,
+          });
+        }
+      }
+    });
   }, [api, diagnosticsCwd, inputProps.connectionUrl, openWorkspaceFilePaths]);
 
   useEffect(
