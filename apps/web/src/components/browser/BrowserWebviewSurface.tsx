@@ -1461,9 +1461,27 @@ function useBrowserTabWebviewComponent(props: {
     },
     [cancelAgentPointerAnimation, clampAgentPointerPoint, setAgentPointerFrame],
   );
-
   const animateAgentPointer = useCallback(
     async (effect: BrowserAgentPointerEffect): Promise<void> => {
+      const animateActiveAgentPointerTo = async (
+        point: BrowserAgentPointerPoint,
+        options: {
+          durationMultiplier?: number;
+          pressed?: boolean | undefined;
+          token: number;
+        },
+      ): Promise<boolean> => {
+        await animateAgentPointerTo(effect, point, options);
+        return agentPointerTokenRef.current === options.token;
+      };
+      const waitForActiveAgentPointerFrame = async (
+        activeToken: number,
+        ms: number,
+      ): Promise<boolean> => {
+        await waitForBrowserPointerFrame(ms);
+        return agentPointerTokenRef.current === activeToken;
+      };
+
       if (!activeRef.current) {
         return;
       }
@@ -1481,17 +1499,17 @@ function useBrowserTabWebviewComponent(props: {
         : undefined;
 
       if (effect.type === "drag" && path && path.length >= 2) {
-        await animateAgentPointerTo(effect, path[0]!, {
-          durationMultiplier: 0.82,
-          pressed: false,
-          token,
-        });
-        if (agentPointerTokenRef.current !== token) {
+        if (
+          !(await animateActiveAgentPointerTo(path[0]!, {
+            durationMultiplier: 0.82,
+            pressed: false,
+            token,
+          }))
+        ) {
           return;
         }
         setAgentPointerFrame(effect, path[0]!, { pressed: true });
-        await waitForBrowserPointerFrame(80);
-        if (agentPointerTokenRef.current !== token) {
+        if (!(await waitForActiveAgentPointerFrame(token, 80))) {
           return;
         }
         const steps = path.slice(1);
@@ -1500,15 +1518,18 @@ function useBrowserTabWebviewComponent(props: {
           if (!point || agentPointerTokenRef.current !== token) {
             return;
           }
-          await animateAgentPointerTo(effect, point, {
-            durationMultiplier: 0.62,
-            pressed: true,
-            token,
-          });
+          if (
+            !(await animateActiveAgentPointerTo(point, {
+              durationMultiplier: 0.62,
+              pressed: true,
+              token,
+            }))
+          ) {
+            return;
+          }
           await animateDragMovement(index + 1);
         };
-        await animateDragMovement(0);
-        if (agentPointerTokenRef.current !== token) {
+        if (!(await animateDragMovement(0).then(() => agentPointerTokenRef.current === token))) {
           return;
         }
         setAgentPointerFrame(effect, path[path.length - 1]!, { pressed: false });
@@ -1517,29 +1538,29 @@ function useBrowserTabWebviewComponent(props: {
       }
 
       const point = resolveAgentPointerPoint(effect);
-      await animateAgentPointerTo(effect, point, {
-        durationMultiplier: effect.type === "scroll" ? 0.78 : 1,
-        pressed: false,
-        token,
-      });
-      if (agentPointerTokenRef.current !== token) {
+      if (
+        !(await animateActiveAgentPointerTo(point, {
+          durationMultiplier: effect.type === "scroll" ? 0.78 : 1,
+          pressed: false,
+          token,
+        }))
+      ) {
         return;
       }
       if (effect.type === "click" || effect.type === "double_click") {
         setAgentPointerFrame(effect, point, { pressed: true });
-        await waitForBrowserPointerFrame(effect.type === "double_click" ? 90 : 80);
-        if (agentPointerTokenRef.current !== token) {
+        if (
+          !(await waitForActiveAgentPointerFrame(token, effect.type === "double_click" ? 90 : 80))
+        ) {
           return;
         }
         setAgentPointerFrame(effect, point, { pressed: false });
         if (effect.type === "double_click") {
-          await waitForBrowserPointerFrame(80);
-          if (agentPointerTokenRef.current !== token) {
+          if (!(await waitForActiveAgentPointerFrame(token, 80))) {
             return;
           }
           setAgentPointerFrame(effect, point, { pressed: true });
-          await waitForBrowserPointerFrame(80);
-          if (agentPointerTokenRef.current !== token) {
+          if (!(await waitForActiveAgentPointerFrame(token, 80))) {
             return;
           }
           setAgentPointerFrame(effect, point, { pressed: false });
