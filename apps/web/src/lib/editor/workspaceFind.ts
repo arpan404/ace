@@ -1,8 +1,8 @@
 import { SearchQuery } from "@codemirror/search";
-import { EditorState, type Text } from "@codemirror/state";
 
 const WORKSPACE_FIND_MAX_MATCH_COUNT = 1_000;
 const WORKSPACE_FIND_MAX_SEED_LENGTH = 200;
+type WorkspaceFindDocument = Parameters<SearchQuery["getCursor"]>[0] | string;
 
 export interface WorkspaceFindState {
   readonly caseSensitive: boolean;
@@ -57,12 +57,8 @@ export function createWorkspaceFindQuery(state: WorkspaceFindState): SearchQuery
   });
 }
 
-function toEditorState(doc: EditorState | Text | string): EditorState | Text {
-  return typeof doc === "string" ? EditorState.create({ doc }) : doc;
-}
-
 export function countWorkspaceFindMatches(
-  doc: EditorState | Text | string,
+  doc: WorkspaceFindDocument,
   query: SearchQuery,
   limit = WORKSPACE_FIND_MAX_MATCH_COUNT,
 ): WorkspaceFindMatchSummary {
@@ -70,7 +66,7 @@ export function countWorkspaceFindMatches(
     return { capped: false, count: 0 };
   }
 
-  const cursor = query.getCursor(toEditorState(doc));
+  const cursor = query.getCursor(doc as Parameters<SearchQuery["getCursor"]>[0]);
   let count = 0;
   while (count < limit) {
     const next = cursor.next();
