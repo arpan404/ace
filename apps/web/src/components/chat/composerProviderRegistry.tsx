@@ -9,12 +9,12 @@ import { isClaudeUltrathinkPrompt, resolveEffort } from "@ace/shared/model";
 import type { ReactNode } from "react";
 import { getProviderModelCapabilities } from "../../providerModels";
 import {
-  shouldRenderTraitsPicker,
   TraitsMenuContent,
   TraitsPicker,
   CursorTraitsMenuContent,
   CursorTraitsPicker,
 } from "./TraitsPicker";
+import { shouldRenderTraitsPicker } from "./traitsPickerVisibility";
 import {
   normalizeClaudeModelOptionsWithCapabilities,
   normalizeCodexModelOptionsWithCapabilities,

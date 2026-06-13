@@ -27,7 +27,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
-  useMemo,
+  useReducer,
   useRef,
   useState,
 } from "react";
@@ -193,6 +193,30 @@ const DESIGNER_TOOL_BUTTONS: ReadonlyArray<{
 ];
 const FALLBACK_DESIGNER_TOOL_BUTTON = DESIGNER_TOOL_BUTTONS[0]!;
 
+interface BrowserFindBarState {
+  readonly open: boolean;
+  readonly query: string;
+}
+
+type BrowserFindBarAction =
+  | { readonly type: "close" }
+  | { readonly type: "open" }
+  | { readonly type: "set-query"; readonly query: string };
+
+function browserFindBarReducer(
+  state: BrowserFindBarState,
+  action: BrowserFindBarAction,
+): BrowserFindBarState {
+  switch (action.type) {
+    case "close":
+      return state.open || state.query ? { open: false, query: "" } : state;
+    case "open":
+      return state.open ? state : { ...state, open: true };
+    case "set-query":
+      return state.query === action.query ? state : { ...state, query: action.query };
+  }
+}
+
 export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps) {
   const {
     open,
@@ -222,12 +246,16 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
   const scopeId = providedScopeId?.trim() || fallbackScopeIdRef.current;
   const browserPartition = resolveBrowserWebviewPartition(scopeId);
   const findInputRef = useRef<HTMLInputElement | null>(null);
-  const [findOpen, setFindOpen] = useState(false);
-  const [findQuery, setFindQuery] = useState("");
+  const [findBarState, dispatchFindBarState] = useReducer(browserFindBarReducer, {
+    open: false,
+    query: "",
+  });
+  const findOpen = findBarState.open;
+  const findQuery = findBarState.query;
   const [findResultByTabId, setFindResultByTabId] = useState<Record<string, BrowserFindResult>>({});
   const [showAuthRecovery, setShowAuthRecovery] = useState(false);
   const openFindBar = () => {
-    setFindOpen(true);
+    dispatchFindBarState({ type: "open" });
     window.requestAnimationFrame(() => {
       findInputRef.current?.focus();
       findInputRef.current?.select();
@@ -303,7 +331,11 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
       ...(activeTab?.url && !activeTabIsInternal ? { initialUrl: activeTab.url } : {}),
     });
     if (detached) {
-      onDetached?.() ?? onClose();
+      if (onDetached) {
+        onDetached();
+      } else {
+        onClose();
+      }
       return;
     }
     toastManager.add({
@@ -457,11 +489,10 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
       url: activeTabUrl,
     });
   const activeFindResult = activeTab ? (findResultByTabId[activeTab.id] ?? null) : null;
-  const closeFindBar = useCallback(() => {
+  const closeFindBar = () => {
     stopFindInPage();
-    setFindOpen(false);
-    setFindQuery("");
-  }, [stopFindInPage]);
+    dispatchFindBarState({ type: "close" });
+  };
   const runFind = (direction: "next" | "previous") => {
     if (!findQuery.trim() || activeTabIsInternal) {
       return;
@@ -500,21 +531,22 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     if (!open) {
       setDesignerModeActive(false);
       setAddressFieldExpanded(false);
-      closeFindBar();
+      stopFindInPage();
+      dispatchFindBarState({ type: "close" });
     }
-  }, [closeFindBar, open, setDesignerModeActive]);
+  }, [open, setDesignerModeActive, stopFindInPage]);
   useEffect(() => {
     setAddressFieldExpanded(false);
-    if (findOpen && findQuery.trim()) {
-      findInputRef.current?.focus();
-    }
-  }, [activeTab?.id, findOpen, findQuery]);
+  }, [activeTab?.id]);
   useEffect(() => {
     if (!findOpen || activeTabIsInternal || !findQuery.trim()) {
       stopFindInPage();
       return;
     }
     findInPage(findQuery, { forward: true });
+    return () => {
+      stopFindInPage();
+    };
   }, [activeTab?.id, activeTabIsInternal, findInPage, findOpen, findQuery, stopFindInPage]);
   useEffect(() => {
     setShowAuthRecovery(false);
@@ -1302,7 +1334,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                   aria-label="Find in page"
                   value={findQuery}
                   onChange={(event) => {
-                    setFindQuery(event.target.value);
+                    dispatchFindBarState({ type: "set-query", query: event.target.value });
                   }}
                   onKeyDown={(event) => {
                     if (event.key === "Escape") {

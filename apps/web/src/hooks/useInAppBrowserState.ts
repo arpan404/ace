@@ -1565,13 +1565,19 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
         const action = operation.replace(/^cua_/u, "").replace("double_click", "double_click");
         const { handle, snapshot, tab } = await resolveBridgeTarget(args);
         clearBridgeReadCache(tab.id);
-        await handle.animateAgentPointer(
-          buildBrowserAgentPointerEffectFromArgs(action as BrowserAgentPointerEffect["type"], args),
-        );
         if (action === "keypress") {
+          await handle.animateAgentPointer(
+            buildBrowserAgentPointerEffectFromArgs(
+              action as BrowserAgentPointerEffect["type"],
+              args,
+            ),
+          );
           await handle.pressKeys(readBrowserBridgeKeys(args));
           return { ok: true, tab: { id: tab.id, ...snapshot } };
         }
+        await handle.animateAgentPointer(
+          buildBrowserAgentPointerEffectFromArgs(action as BrowserAgentPointerEffect["type"], args),
+        );
         const result = await handle.executeJavaScript(buildBrowserCuaActionScript(action, args));
         return { ok: true, result, tab: { id: tab.id, ...snapshot } };
       }

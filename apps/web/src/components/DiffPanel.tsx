@@ -1,5 +1,5 @@
 import type { SelectedLineRange } from "@pierre/diffs";
-import { FileDiff, type FileDiffMetadata, Virtualizer } from "@pierre/diffs/react";
+import { FileDiff, Virtualizer } from "@pierre/diffs/react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { ThreadId, TurnId } from "@ace/contracts";
@@ -12,7 +12,15 @@ import {
   TextWrapIcon,
   XIcon,
 } from "lucide-react";
-import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  useDeferredValue,
+  useEffect,
+  useLayoutEffect,
+  useReducer,
+  useRef,
+  useState,
+  type SetStateAction,
+} from "react";
 import { openInPreferredEditor } from "../editorPreferences";
 import {
   gitBranchesQueryOptions,
@@ -303,6 +311,13 @@ function createFallbackReviewCommentPopoverPosition(
   };
 }
 
+function reviewCommentPopoverPositionReducer(
+  current: ReviewCommentPopoverPosition | null,
+  action: SetStateAction<ReviewCommentPopoverPosition | null>,
+): ReviewCommentPopoverPosition | null {
+  return typeof action === "function" ? action(current) : action;
+}
+
 function resolveTurnCheckpointLabel(
   summary: {
     turnId: TurnId;
@@ -365,8 +380,10 @@ function useDiffPanelComponent({
       ? `${activeReviewLineSelection.fileKey}:${activeReviewLineSelection.lineRange.startSide}:${activeReviewLineSelection.lineRange.startLine}:${activeReviewLineSelection.lineRange.endSide}:${activeReviewLineSelection.lineRange.endLine}`
       : null,
   );
-  const [reviewCommentPopoverPosition, setReviewCommentPopoverPosition] =
-    useState<ReviewCommentPopoverPosition | null>(null);
+  const [reviewCommentPopoverPosition, dispatchReviewCommentPopoverPosition] = useReducer(
+    reviewCommentPopoverPositionReducer,
+    null,
+  );
   const [reviewCommentDraft, setReviewCommentDraft] = useState("");
   const reviewCommentInputRef = useRef<HTMLInputElement>(null);
   const patchViewportRef = useRef<HTMLDivElement>(null);
@@ -598,6 +615,7 @@ function useDiffPanelComponent({
         )
       : [];
   const renderableFileKeys = renderableFiles.map((fileDiff) => buildFileDiffRenderKey(fileDiff));
+  const renderableFileKeysSignature = renderableFileKeys.join("\u0000");
   const renderableFileKeySet = new Set(renderableFileKeys);
   const visibleCollapsedFileKeys = new Set(
     Array.from(collapsedFileKeys).filter((fileKey) => renderableFileKeySet.has(fileKey)),
@@ -614,7 +632,7 @@ function useDiffPanelComponent({
       patchViewportRef.current.querySelectorAll<HTMLElement>("[data-diff-file-path]"),
     ).find((element) => element.dataset.diffFilePath === selectedFilePath);
     target?.scrollIntoView({ block: "nearest" });
-  }, [selectedFilePath, renderableFiles]);
+  }, [selectedFilePath, renderableFileKeysSignature]);
 
   const openDiffFileInEditor = (filePath: string) => {
     const api = readNativeApi();
@@ -650,7 +668,7 @@ function useDiffPanelComponent({
       setActiveReviewLineSelection((current) => (current?.fileKey === fileKey ? null : current));
       setActiveCommentFileKey((current) => (current === fileKey ? null : current));
       if (activeReviewLineSelection?.fileKey === fileKey) {
-        setReviewCommentPopoverPosition(null);
+        dispatchReviewCommentPopoverPosition(null);
         setReviewCommentDraft("");
       }
       return;
@@ -661,7 +679,7 @@ function useDiffPanelComponent({
       activeReviewLineSelection.filePath === filePath &&
       areSelectedLineRangesEqual(activeReviewLineSelection.range, range);
     if (!sameSelection) {
-      setReviewCommentPopoverPosition(
+      dispatchReviewCommentPopoverPosition(
         createFallbackReviewCommentPopoverPosition(fileKey, "pending"),
       );
       setReviewCommentDraft("");
@@ -707,7 +725,7 @@ function useDiffPanelComponent({
   const closeReviewCommentPopover = () => {
     setActiveCommentFileKey(null);
     setActiveReviewLineSelection(null);
-    setReviewCommentPopoverPosition(null);
+    dispatchReviewCommentPopoverPosition(null);
     setReviewCommentDraft("");
   };
 
@@ -730,7 +748,7 @@ function useDiffPanelComponent({
     const measure = () => {
       const viewport = patchViewportRef.current;
       if (!viewport) {
-        setReviewCommentPopoverPosition(fallbackPosition);
+        dispatchReviewCommentPopoverPosition(fallbackPosition);
         return;
       }
 
@@ -740,13 +758,13 @@ function useDiffPanelComponent({
         : null;
 
       if (!fileElement || !anchorElement) {
-        setReviewCommentPopoverPosition((current) => current ?? pendingPosition);
+        dispatchReviewCommentPopoverPosition((current) => current ?? pendingPosition);
         if (retryCount < 10) {
           retryCount += 1;
           animationFrameId = window.requestAnimationFrame(measure);
           return;
         }
-        setReviewCommentPopoverPosition(fallbackPosition);
+        dispatchReviewCommentPopoverPosition(fallbackPosition);
         return;
       }
 
@@ -755,7 +773,7 @@ function useDiffPanelComponent({
         anchorElement,
         activeReviewLineSelection.fileKey,
       );
-      setReviewCommentPopoverPosition((current) =>
+      dispatchReviewCommentPopoverPosition((current) =>
         current?.fileKey === nextPosition.fileKey &&
         current.left === nextPosition.left &&
         current.placement === nextPosition.placement &&

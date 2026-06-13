@@ -9,8 +9,8 @@ import React, {
   Profiler,
   Suspense,
   isValidElement,
-  memo,
   useEffect,
+  useReducer,
   useRef,
   useState,
   useSyncExternalStore,
@@ -577,7 +577,10 @@ function StreamingMarkdownText({ text }: { text: string }) {
 }
 
 function useSmoothStreamingText(text: string, isStreaming: boolean): string {
-  const [displayText, setDisplayText] = useState(text);
+  const [displayText, dispatchDisplayText] = useReducer(
+    (_current: string, nextText: string) => nextText,
+    text,
+  );
   const displayTextRef = useRef(text);
   const targetTextRef = useRef(text);
   const frameRef = useRef<number | null>(null);
@@ -601,7 +604,7 @@ function useSmoothStreamingText(text: string, isStreaming: boolean): string {
 
     if (!text.startsWith(displayTextRef.current)) {
       displayTextRef.current = text;
-      setDisplayText(text);
+      dispatchDisplayText(text);
       return;
     }
 
@@ -621,7 +624,7 @@ function useSmoothStreamingText(text: string, isStreaming: boolean): string {
       const remainingCharCount = targetText.length - currentText.length;
       if (remainingCharCount <= 0 || !targetText.startsWith(currentText)) {
         displayTextRef.current = targetText;
-        setDisplayText(targetText);
+        dispatchDisplayText(targetText);
         return;
       }
 
@@ -637,7 +640,7 @@ function useSmoothStreamingText(text: string, isStreaming: boolean): string {
       );
       const nextText = targetText.slice(0, currentText.length + revealCharCount);
       displayTextRef.current = nextText;
-      setDisplayText(nextText);
+      dispatchDisplayText(nextText);
 
       if (nextText !== targetText) {
         frameRef.current = window.requestAnimationFrame(revealNextFrame);

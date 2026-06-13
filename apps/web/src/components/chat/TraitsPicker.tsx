@@ -14,12 +14,7 @@ import {
 import {
   applyClaudePromptEffortPrefix,
   buildProviderModelSelection,
-  isClaudeUltrathinkPrompt,
-  trimOrNull,
   getDefaultEffort,
-  getDefaultContextWindow,
-  hasContextWindowOption,
-  resolveEffort,
 } from "@ace/shared/model";
 import { type ReactElement, useState } from "react";
 import type { VariantProps } from "class-variance-authority";
@@ -36,9 +31,16 @@ import {
   MenuTrigger,
 } from "../ui/menu";
 import { useComposerDraftStore } from "../../composerDraftStore";
-import { getProviderModelCapabilities } from "../../providerModels";
 import { cn } from "~/lib/utils";
 import { APP_SETTINGS_PICKER_TRIGGER_CLASS_NAME } from "~/lib/appChrome";
+import {
+  findPiThoughtConfigOption,
+  getRawEffort,
+  getSelectedTraits,
+  hasVisibleTraits,
+  hasVisibleCursorTraits,
+  type TraitsProviderOptions,
+} from "./traitsPickerVisibility";
 
 function traitsPickerTriggerVariant(
   triggerSurface: "composer" | "settings" | undefined,
@@ -76,7 +78,7 @@ import {
   type CursorSelectorReasoningEffort,
 } from "../../cursorModelSelector";
 
-type ProviderOptions = ProviderModelOptions[ProviderKind];
+type ProviderOptions = TraitsProviderOptions;
 type TraitsPersistence =
   | {
       threadId: ThreadId;
@@ -95,44 +97,6 @@ const CURSOR_REASONING_LABELS: Record<CursorSelectorReasoningEffort, string> = {
   xhigh: "Extra High",
 };
 
-function getRawEffort(
-  provider: ProviderKind,
-  modelOptions: ProviderOptions | null | undefined,
-): string | null {
-  switch (provider) {
-    case "codex":
-    case "githubCopilot":
-    case "cursor":
-      return trimOrNull(
-        (
-          modelOptions as
-            | CodexModelOptions
-            | GitHubCopilotModelOptions
-            | CursorModelOptions
-            | undefined
-        )?.reasoningEffort,
-      );
-    case "claudeAgent":
-      return trimOrNull((modelOptions as ClaudeModelOptions | undefined)?.effort);
-    case "pi":
-      return (
-        trimOrNull((modelOptions as PiModelOptions | undefined)?.thoughtLevel) ??
-        trimOrNull((modelOptions as PiModelOptions | undefined)?.reasoningEffort)
-      );
-    case "gemini":
-    case "opencode":
-      return null;
-  }
-}
-
-function findPiThoughtConfigOption(
-  sessionConfigOptions: ReadonlyArray<ProviderSessionConfigOption> | undefined,
-): ProviderSessionConfigOption | undefined {
-  return (sessionConfigOptions ?? []).find(
-    (option) => option.category === "thought_level" || option.id === "thought_level",
-  );
-}
-
 function buildPiOptionsFromThoughtLevel(
   modelOptions: ProviderOptions | null | undefined,
   value: string,
@@ -146,19 +110,6 @@ function buildPiOptionsFromThoughtLevel(
         }
       : {}),
   };
-}
-
-function getRawContextWindow(
-  provider: ProviderKind,
-  modelOptions: ProviderOptions | null | undefined,
-): string | null {
-  if (provider === "claudeAgent") {
-    return trimOrNull((modelOptions as ClaudeModelOptions | undefined)?.contextWindow);
-  }
-  if (provider === "opencode") {
-    return trimOrNull((modelOptions as OpenCodeModelOptions | undefined)?.variant);
-  }
-  return null;
 }
 
 function buildNextOptions(
@@ -203,98 +154,6 @@ function buildNextOptions(
   }
 }
 
-function getSelectedTraits(
-  provider: ProviderKind,
-  models: ReadonlyArray<ServerProviderModel>,
-  model: string | null | undefined,
-  prompt: string,
-  modelOptions: ProviderOptions | null | undefined,
-  allowPromptInjectedEffort: boolean,
-) {
-  const caps = getProviderModelCapabilities(models, model, provider);
-  const effortLevels = allowPromptInjectedEffort
-    ? caps.reasoningEffortLevels
-    : caps.reasoningEffortLevels.filter(
-        (option) => !caps.promptInjectedEffortLevels.includes(option.value),
-      );
-
-  // Resolve effort from options (provider-specific key)
-  const rawEffort = getRawEffort(provider, modelOptions);
-  const effort = resolveEffort(caps, rawEffort) ?? null;
-
-  // Thinking toggle (only for models that support it)
-  const thinkingEnabled = caps.supportsThinkingToggle
-    ? ((modelOptions as ClaudeModelOptions | undefined)?.thinking ?? true)
-    : null;
-
-  // Fast mode
-  const fastModeEnabled =
-    caps.supportsFastMode &&
-    (modelOptions as { fastMode?: boolean } | undefined)?.fastMode === true;
-
-  // Context window
-  const contextWindowOptions = caps.contextWindowOptions;
-  const rawContextWindow = getRawContextWindow(provider, modelOptions);
-  const defaultContextWindow = getDefaultContextWindow(caps);
-  const contextWindow =
-    rawContextWindow && hasContextWindowOption(caps, rawContextWindow)
-      ? rawContextWindow
-      : defaultContextWindow;
-
-  // Prompt-controlled effort (e.g. ultrathink in prompt text)
-  const ultrathinkPromptControlled =
-    allowPromptInjectedEffort &&
-    caps.promptInjectedEffortLevels.length > 0 &&
-    isClaudeUltrathinkPrompt(prompt);
-
-  // Check if "ultrathink" appears in the body text (not just our prefix)
-  const ultrathinkInBodyText =
-    ultrathinkPromptControlled && isClaudeUltrathinkPrompt(prompt.replace(/^Ultrathink:\s*/i, ""));
-
-  return {
-    caps,
-    effort,
-    effortLevels,
-    thinkingEnabled,
-    fastModeEnabled,
-    contextWindowOptions,
-    contextWindow,
-    defaultContextWindow,
-    ultrathinkPromptControlled,
-    ultrathinkInBodyText,
-  };
-}
-
-function hasVisibleTraits(input: {
-  effortLevels: ReadonlyArray<{ value: string }>;
-  thinkingEnabled: boolean | null;
-  supportsFastMode: boolean;
-  contextWindowOptions: ReadonlyArray<{ value: string }>;
-}): boolean {
-  return (
-    input.effortLevels.length > 0 ||
-    input.thinkingEnabled !== null ||
-    input.supportsFastMode ||
-    input.contextWindowOptions.length > 1
-  );
-}
-
-function hasVisibleCursorTraits(
-  models: ReadonlyArray<ServerProviderModel>,
-  model: string | null | undefined,
-): boolean {
-  const family = resolveCursorSelectorFamily(models, model);
-  if (!family) {
-    return false;
-  }
-  return (
-    family.reasoningEffortOptions.length > 0 ||
-    family.supportsThinkingToggle ||
-    family.supportsFastMode ||
-    family.supportsMaxMode
-  );
-}
-
 function readDefaultCursorTraits(
   family: CursorSelectorFamily,
 ): ReturnType<typeof readCursorSelectedTraits> {
@@ -331,42 +190,6 @@ function buildCursorTriggerLabel(input: {
   ]
     .filter(Boolean)
     .join(" · ");
-}
-
-export function shouldRenderTraitsPicker(input: {
-  provider: ProviderKind;
-  models: ReadonlyArray<ServerProviderModel>;
-  model: string | null | undefined;
-  prompt: string;
-  modelOptions?: ProviderOptions | null | undefined;
-  sessionConfigOptions?: ReadonlyArray<ProviderSessionConfigOption> | undefined;
-  allowPromptInjectedEffort?: boolean;
-}): boolean {
-  if (input.provider === "cursor") {
-    return hasVisibleCursorTraits(input.models, input.model);
-  }
-  if (input.provider === "pi") {
-    const piThoughtOption = findPiThoughtConfigOption(input.sessionConfigOptions);
-    if (piThoughtOption && piThoughtOption.options.length > 0) {
-      return true;
-    }
-  }
-
-  const { caps, effortLevels, thinkingEnabled, contextWindowOptions } = getSelectedTraits(
-    input.provider,
-    input.models,
-    input.model,
-    input.prompt,
-    input.modelOptions,
-    input.allowPromptInjectedEffort ?? true,
-  );
-
-  return hasVisibleTraits({
-    effortLevels,
-    thinkingEnabled,
-    supportsFastMode: caps.supportsFastMode,
-    contextWindowOptions,
-  });
 }
 
 export function CursorTraitsMenuContent(props: {
