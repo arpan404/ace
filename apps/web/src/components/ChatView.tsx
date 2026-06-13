@@ -5489,6 +5489,10 @@ function useChatViewComponent({
     browserInstanceId: string,
     controller: InAppBrowserController | null,
   ) => {
+    const previousController = browserControllerByThreadRef.current.get(browserInstanceId) ?? null;
+    if (previousController === controller) {
+      return;
+    }
     if (controller) {
       browserControllerByThreadRef.current.set(browserInstanceId, controller);
     } else {

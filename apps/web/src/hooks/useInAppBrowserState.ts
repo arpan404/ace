@@ -2408,12 +2408,16 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     );
   }, [activeTabIsInternal, designerState.active, setDesignerState]);
 
+  const notifyControllerChange = useEffectEvent((controller: InAppBrowserController | null) => {
+    onControllerChange?.(controller);
+  });
+
   useLayoutEffect(() => {
-    onControllerChange?.(browserController);
+    notifyControllerChange(browserController);
     return () => {
-      onControllerChange?.(null);
+      notifyControllerChange(null);
     };
-  }, [browserController, onControllerChange]);
+  }, [browserController]);
 
   return {
     activateTab,
