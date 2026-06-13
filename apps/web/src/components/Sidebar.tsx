@@ -39,6 +39,7 @@ import {
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { restrictToFirstScrollableAncestor, restrictToVerticalAxis } from "@dnd-kit/modifiers";
 import { useEffectEvent } from "~/hooks/useEffectEvent";
+import { useStableCallback } from "~/hooks/useStableCallback";
 import {
   type DesktopUpdateState,
   type FilesystemBrowseResult,
@@ -5134,7 +5135,7 @@ function useSidebarComponent() {
     };
   }, [mountedSidebarThreadIdsForPrefetch, mountedSidebarThreadPrefetchKey, prefetchThreadHistory]);
 
-  const measureSidebarProjectListScrollMargin = useCallback(() => {
+  const measureSidebarProjectListScrollMargin = () => {
     const scrollElement = sidebarContentScrollRef.current;
     const projectListElement = sidebarProjectListRef.current;
     if (!scrollElement || !projectListElement) {
@@ -5168,9 +5169,9 @@ function useSidebarComponent() {
     setSidebarProjectListScrollMargin((current) =>
       Math.abs(current - nextScrollMargin) < 0.5 ? current : nextScrollMargin,
     );
-  }, []);
+  };
 
-  const scheduleSidebarProjectListScrollMarginMeasure = useCallback(() => {
+  const scheduleSidebarProjectListScrollMarginMeasure = useStableCallback(() => {
     if (sidebarProjectListScrollMarginFrameRef.current !== null) {
       window.cancelAnimationFrame(sidebarProjectListScrollMarginFrameRef.current);
     }
@@ -5178,7 +5179,7 @@ function useSidebarComponent() {
       sidebarProjectListScrollMarginFrameRef.current = null;
       measureSidebarProjectListScrollMargin();
     });
-  }, [measureSidebarProjectListScrollMargin]);
+  });
   const cancelSidebarProjectListScrollMarginMeasure = useEffectEvent(() => {
     if (sidebarProjectListScrollMarginFrameRef.current === null) {
       return;
