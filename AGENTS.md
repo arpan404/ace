@@ -23,6 +23,15 @@ If a tradeoff is required, choose correctness and robustness over short-term con
 
 Long term maintainability is a core priority. If you add new functionality, first check if there is shared logic that can be extracted to a separate module. Duplicate logic across multiple files is a code smell and should be avoided. Don't be afraid to change existing code. Don't take shortcuts by just adding local logic to solve a problem.
 
+## React Code Quality
+
+- Do not introduce new React Doctor Bugs, Performance, Security, or Accessibility diagnostics in `apps/web`. After React code changes, run `npx react-doctor@latest --verbose --diff` from `apps/web` and fix any new non-maintainability findings before committing.
+- Treat React Doctor maintainability warnings as guidance, not a license to make mechanical edits that create new bugs or compiler bailouts. If removing `memo`, `useMemo`, `useCallback`, or `forwardRef` exposes new React Doctor Bugs or Performance diagnostics, revert that local edit and fix the underlying compiler-incompatible code first.
+- Keep side effects tied to the event or subscription that causes them. Avoid using state plus `useEffect` as a delayed event handler; this creates extra renders and can run late or more than once.
+- Avoid render-time reads or writes of refs except for narrow, intentional lazy initialization patterns that are verified against React Doctor. Ref-backed caches and imperative handles should be structured so React Compiler can still optimize the component.
+- Prefer guard clauses in effects over nested conditional side effects. Effects should either synchronize with an external system, subscribe/unsubscribe, or perform cleanup; event work belongs in event handlers.
+- When making React performance fixes, verify with the real tool instead of assuming a warning disappeared. Do not suppress React Doctor rules to pass a scan.
+
 ## Package Roles
 
 - `apps/server`: Node.js WebSocket server. Wraps Codex app-server (JSON-RPC over stdio), serves the React web app, and manages provider sessions.
