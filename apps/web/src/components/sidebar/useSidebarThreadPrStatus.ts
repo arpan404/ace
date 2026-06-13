@@ -23,27 +23,16 @@ interface UseSidebarThreadPrStatusResult {
 export function useSidebarThreadPrStatus(
   input: UseSidebarThreadPrStatusInput,
 ): UseSidebarThreadPrStatusResult {
-  const visibleSidebarThreadIds = useMemo(
-    () => getVisibleSidebarThreadIds(input.renderedProjects),
-    [input.renderedProjects],
-  );
-  const visibleSidebarThreads = useMemo(
-    () =>
-      visibleSidebarThreadIds.flatMap((threadId) => {
-        const thread = input.sidebarThreadsById[threadId];
-        return thread ? [thread] : [];
-      }),
-    [input.sidebarThreadsById, visibleSidebarThreadIds],
-  );
-  const threadGitTargets = useMemo(
-    () =>
-      visibleSidebarThreads.map((thread) => ({
-        threadId: thread.id,
-        branch: thread.branch,
-        cwd: thread.worktreePath ?? input.projectCwdById.get(thread.projectId) ?? null,
-      })),
-    [input.projectCwdById, visibleSidebarThreads],
-  );
+  const visibleSidebarThreadIds = getVisibleSidebarThreadIds(input.renderedProjects);
+  const visibleSidebarThreads = visibleSidebarThreadIds.flatMap((threadId) => {
+    const thread = input.sidebarThreadsById[threadId];
+    return thread ? [thread] : [];
+  });
+  const threadGitTargets = visibleSidebarThreads.map((thread) => ({
+    threadId: thread.id,
+    branch: thread.branch,
+    cwd: thread.worktreePath ?? input.projectCwdById.get(thread.projectId) ?? null,
+  }));
   const threadGitStatusCwds = useMemo(() => {
     const cwdSet = new Set<string>();
     for (const target of threadGitTargets) {

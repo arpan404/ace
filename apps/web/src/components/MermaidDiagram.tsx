@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useReducer } from "react";
+import { useEffect, useReducer } from "react";
 
 import { cn } from "~/lib/utils";
 
@@ -87,7 +87,7 @@ function mermaidRenderStateReducer(
 }
 
 export default function MermaidDiagram({ source, theme, className }: MermaidDiagramProps) {
-  const trimmedSource = useMemo(() => source.trim(), [source]);
+  const trimmedSource = source.trim();
   const [renderState, dispatchRenderState] = useReducer(
     mermaidRenderStateReducer,
     IDLE_MERMAID_RENDER_STATE,

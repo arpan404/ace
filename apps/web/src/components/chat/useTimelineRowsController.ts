@@ -1,5 +1,3 @@
-import { useMemo } from "react";
-
 import { measureRenderWork } from "~/lib/renderProfiling";
 import {
   buildTimelineRows,
@@ -49,14 +47,9 @@ export function useTimelineRowsController(input: {
   readonly rows: ReadonlyArray<TimelineRow>;
 } {
   const preResolvedRows = input.preResolvedRows ?? null;
-  const syncTimelineRows = useMemo<ReadonlyArray<TimelineRow>>(() => {
-    if (preResolvedRows !== null) {
-      return preResolvedRows;
-    }
-    return measureRenderWork("chat.buildTimelineRows", () =>
-      buildTimelineRows(input.timelineRowsInput),
-    );
-  }, [preResolvedRows, input.timelineRowsInput]);
+  const syncTimelineRows =
+    preResolvedRows ??
+    measureRenderWork("chat.buildTimelineRows", () => buildTimelineRows(input.timelineRowsInput));
   const { loading, rows } = resolveVisibleTimelineRows({
     activeThreadId: input.activeThreadId,
     loading: input.loading,

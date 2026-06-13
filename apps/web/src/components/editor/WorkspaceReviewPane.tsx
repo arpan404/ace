@@ -53,10 +53,7 @@ function WorkspaceReviewPane(props: WorkspaceReviewPaneProps) {
       relativePath: props.filePath,
     }),
   );
-  const renderablePatch = useMemo(
-    () => getRenderablePatch(diffData?.diff, `workspace-review:${props.filePath}`),
-    [diffData?.diff, props.filePath],
-  );
+  const renderablePatch = getRenderablePatch(diffData?.diff, `workspace-review:${props.filePath}`);
   const fileDiff = useMemo(() => {
     if (renderablePatch?.kind !== "files") {
       return null;

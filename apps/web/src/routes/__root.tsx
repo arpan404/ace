@@ -249,10 +249,7 @@ function DetachedBrowserWindow(props: {
   const openedInitialUrlRef = useRef(false);
   const returningToMainWindowRef = useRef(false);
   const [controller, setController] = useState<InAppBrowserController | null>(null);
-  const threadId = useMemo(
-    () => resolveThreadIdFromBrowserScope(props.search.scopeId),
-    [props.search.scopeId],
-  );
+  const threadId = resolveThreadIdFromBrowserScope(props.search.scopeId);
   const thread = useStore((store) =>
     threadId
       ? (store.threadsById?.[threadId] ??
@@ -489,10 +486,7 @@ function DetachedEditorWindowContent(props: {
   placement: string | null;
   workspaceMode: string | null;
 }) {
-  const threadId = useMemo(
-    () => (props.threadId ? ThreadId.makeUnsafe(props.threadId) : null),
-    [props.threadId],
-  );
+  const threadId = props.threadId ? ThreadId.makeUnsafe(props.threadId) : null;
   const thread = useStore((store) =>
     threadId
       ? (store.threadsById?.[threadId] ??

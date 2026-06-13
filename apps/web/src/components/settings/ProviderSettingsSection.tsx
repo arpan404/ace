@@ -1,15 +1,13 @@
 import {
   DownloadIcon,
-  InfoIcon,
   LoaderIcon,
   PlusIcon,
   RefreshCwIcon,
   SaveIcon,
   Trash2Icon,
   Undo2Icon,
-  XIcon,
 } from "lucide-react";
-import { useEffect, useMemo, useReducer } from "react";
+import { useEffect, useReducer } from "react";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import type { Dispatch, MutableRefObject, ReactNode, SetStateAction } from "react";
 import type {
@@ -70,13 +68,9 @@ import {
 import {
   SETTINGS_COLOR_SWATCH_BUTTON_CLASS,
   SETTINGS_COMPACT_ACTION_BUTTON_CLASS,
-  SETTINGS_FIELD_HINT_CLASS,
   SETTINGS_ICON_CHOICE_BUTTON_CLASS,
   SETTINGS_LIST_ROW_BUTTON_CLASS,
-  SETTINGS_PROVIDER_DETAIL_HEADER_CLASS,
   SETTINGS_PROVIDER_DETAIL_SECTION_CLASS,
-  SETTINGS_PROVIDER_DETAIL_STATUS_CLASS,
-  SETTINGS_PROVIDER_DETAIL_TITLE_CLASS,
   SETTINGS_PROVIDER_FIELD_LABEL_CLASS,
   SETTINGS_PROVIDER_LAYOUT_CLASS,
   SETTINGS_PROVIDER_LIST_ITEM_CLASS,
@@ -473,7 +467,6 @@ function useProviderSettingsSectionComponent({
   customModelErrorByProvider,
   customModelInputByProvider,
   isRefreshingProviders,
-  isUpgradingProvider,
   isUpgradingRuntime,
   lastCheckedAt,
   modelListRefs,
@@ -489,7 +482,6 @@ function useProviderSettingsSectionComponent({
   customModelErrorByProvider: Partial<Record<ProviderKind, string | null>>;
   customModelInputByProvider: Record<ProviderKind, string>;
   isRefreshingProviders: boolean;
-  isUpgradingProvider: (provider: ProviderKind) => boolean;
   isUpgradingRuntime: (provider: ProviderKind, runtimeId: string) => boolean;
   lastCheckedAt: string | null;
   modelListRefs: MutableRefObject<Partial<Record<ProviderKind, HTMLDivElement | null>>>;
@@ -523,10 +515,7 @@ function useProviderSettingsSectionComponent({
   useEffect(() => {
     dispatchSectionState({ type: "set-draft-providers", draftProviders: settings.providers });
   }, [settings.providers]);
-  const providerEntries = useMemo(
-    () => buildProviderSettingsEntries(providerCards, draftProviders),
-    [draftProviders, providerCards],
-  );
+  const providerEntries = buildProviderSettingsEntries(providerCards, draftProviders);
   useEffect(() => {
     if (providerEntries.some((entry) => entry.key === selectedEntryKey)) {
       return;

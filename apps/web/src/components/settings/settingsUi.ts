@@ -42,8 +42,6 @@ export const SETTINGS_ROW_STATUS_CLASS = "mt-1 text-[11px] text-muted-foreground
 
 export const SETTINGS_FIELD_LABEL_CLASS = "text-[13px] font-medium text-foreground";
 
-export const SETTINGS_FIELD_HINT_CLASS = "mt-1 text-xs leading-relaxed text-muted-foreground/65";
-
 export const SETTINGS_SUBSECTION_CLASS =
   "border-t border-border/40 pt-4 first:border-t-0 first:pt-0";
 
@@ -136,15 +134,6 @@ export const SETTINGS_PROVIDER_LIST_NAME_CLASS =
 
 export const SETTINGS_PROVIDER_LIST_META_CLASS =
   "block truncate text-[10px] leading-tight text-muted-foreground/65";
-
-export const SETTINGS_PROVIDER_DETAIL_HEADER_CLASS =
-  "flex flex-wrap items-start justify-between gap-2 border-b border-border/40 px-3 py-2.5";
-
-export const SETTINGS_PROVIDER_DETAIL_TITLE_CLASS =
-  "text-[13px] font-medium leading-tight text-foreground";
-
-export const SETTINGS_PROVIDER_DETAIL_STATUS_CLASS =
-  "text-[11px] leading-snug text-muted-foreground";
 
 export const SETTINGS_PROVIDER_FIELD_LABEL_CLASS =
   "text-[12px] font-medium leading-snug text-foreground";

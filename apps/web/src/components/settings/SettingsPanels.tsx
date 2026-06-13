@@ -914,8 +914,6 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
         setUpgradingRuntimeKey(null);
       });
   };
-  const isUpgradingProvider = (provider: ProviderKind) =>
-    upgradingRuntimeKey !== null && upgradingRuntimeKey.startsWith(`${provider}:`);
   const isUpgradingRuntime = (provider: ProviderKind, runtimeId: string) =>
     upgradingRuntimeKey === `${provider}:${runtimeId}`;
   const canOpenNotificationSystemSettings = useMemo(
@@ -2989,7 +2987,6 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
             customModelErrorByProvider={customModelErrorByProvider}
             customModelInputByProvider={customModelInputByProvider}
             isRefreshingProviders={isRefreshingProviders}
-            isUpgradingProvider={isUpgradingProvider}
             isUpgradingRuntime={isUpgradingRuntime}
             lastCheckedAt={lastCheckedAt}
             modelListRefs={modelListRefs}

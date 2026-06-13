@@ -1,5 +1,5 @@
 import { FolderIcon } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { resolveServerUrl } from "~/lib/utils";
 
 const loadedProjectFaviconSrcs = new Set<string>();
@@ -26,14 +26,12 @@ function ProjectFaviconImage({ baseSrc, className }: { baseSrc: string; classNam
   const [status, setStatus] = useState<"loading" | "loaded" | "error">(() =>
     loadedProjectFaviconSrcs.has(baseSrc) ? "loaded" : "loading",
   );
-  const src = useMemo(() => {
-    if (attempt === 0) {
-      return baseSrc;
-    }
+  let src = baseSrc;
+  if (attempt !== 0) {
     const url = new URL(baseSrc);
     url.searchParams.set("attempt", String(attempt));
-    return url.toString();
-  }, [attempt, baseSrc]);
+    src = url.toString();
+  }
 
   useEffect(() => {
     return () => {
