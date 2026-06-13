@@ -76,6 +76,10 @@ export interface PairingAdvertisedEndpoint {
   readonly wsUrl: string;
 }
 
+type NativeWebSocketProbeResult =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly message: string };
+
 function emitRemoteHostStorageChange(eventName: string): void {
   if (typeof window === "undefined") {
     return;
@@ -405,71 +409,11 @@ function connectToWsHost(
   window.location.assign(nextUrl);
 }
 
-export async function verifyWsHostConnection(
-  targetWsUrl: string,
-  options?: { readonly timeoutMs?: number },
-): Promise<void> {
-  const normalizedTarget = normalizeWsUrl(await resolveWebSecureRelayConnectionUrl(targetWsUrl));
-  if (parseRelayConnectionUrl(normalizedTarget)) {
-    const transport = new RelayRpcTransport({
-      connectionUrl: normalizedTarget,
-      clientSessionId: createRelayProbeId("relay-probe"),
-      connectionId: createRelayProbeId("relay-connection"),
-      deviceName: "ace web",
-      loadIdentity: loadWebRelayDeviceIdentity,
-    });
-    try {
-      await Promise.race([
-        transport.request((client) => client[WS_METHODS.serverGetConfig]({})),
-        new Promise<never>((_, reject) => {
-          setTimeout(
-            () => {
-              reject(
-                new Error(
-                  `Connection check timed out after ${String(
-                    Math.max(1_000, options?.timeoutMs ?? 5_000),
-                  )}ms.`,
-                ),
-              );
-            },
-            Math.max(1_000, options?.timeoutMs ?? 5_000),
-          );
-        }),
-      ]);
-      return;
-    } finally {
-      await transport.dispose().catch(() => undefined);
-    }
-  }
-  const { wsUrl, authToken } = splitWsUrlAuthToken(normalizedTarget);
-  const timeoutMs = Math.max(1_000, options?.timeoutMs ?? 5_000);
-  const probeErrors: string[] = [];
-
+async function probeNativeWebSocketConnection(
+  normalizedTarget: string,
+  timeoutMs: number,
+): Promise<NativeWebSocketProbeResult> {
   try {
-    let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
-    try {
-      await Promise.race([
-        readHostPairingAdvertisedEndpoint({
-          wsUrl,
-          ...(authToken ? { authToken } : {}),
-        }),
-        new Promise<never>((_, reject) => {
-          timeoutHandle = setTimeout(() => {
-            reject(new Error(`Connection check timed out after ${String(timeoutMs)}ms.`));
-          }, timeoutMs);
-        }),
-      ]);
-    } finally {
-      if (timeoutHandle !== null) {
-        clearTimeout(timeoutHandle);
-      }
-    }
-    return;
-  } catch (error) {
-    probeErrors.push(error instanceof Error ? error.message : String(error));
-  }
-
-  if (typeof window !== "undefined" && typeof WebSocket === "function") {
     await new Promise<void>((resolve, reject) => {
       let settled = false;
       let opened = false;
@@ -550,15 +494,84 @@ export async function verifyWsHostConnection(
         });
       };
       socket.addEventListener("close", onClose);
-    })
-      .then(() => undefined)
-      .catch((error) => {
-        probeErrors.push(error instanceof Error ? error.message : String(error));
-      });
-    if (probeErrors.length === 1) {
+    });
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+export async function verifyWsHostConnection(
+  targetWsUrl: string,
+  options?: { readonly timeoutMs?: number },
+): Promise<void> {
+  const normalizedTarget = normalizeWsUrl(await resolveWebSecureRelayConnectionUrl(targetWsUrl));
+  if (parseRelayConnectionUrl(normalizedTarget)) {
+    const transport = new RelayRpcTransport({
+      connectionUrl: normalizedTarget,
+      clientSessionId: createRelayProbeId("relay-probe"),
+      connectionId: createRelayProbeId("relay-connection"),
+      deviceName: "ace web",
+      loadIdentity: loadWebRelayDeviceIdentity,
+    });
+    try {
+      await Promise.race([
+        transport.request((client) => client[WS_METHODS.serverGetConfig]({})),
+        new Promise<never>((_, reject) => {
+          setTimeout(
+            () => {
+              reject(
+                new Error(
+                  `Connection check timed out after ${String(
+                    Math.max(1_000, options?.timeoutMs ?? 5_000),
+                  )}ms.`,
+                ),
+              );
+            },
+            Math.max(1_000, options?.timeoutMs ?? 5_000),
+          );
+        }),
+      ]);
+      return;
+    } finally {
+      await transport.dispose().catch(() => undefined);
+    }
+  }
+  const { wsUrl, authToken } = splitWsUrlAuthToken(normalizedTarget);
+  const timeoutMs = Math.max(1_000, options?.timeoutMs ?? 5_000);
+  const probeErrors: string[] = [];
+
+  try {
+    let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+    try {
+      await Promise.race([
+        readHostPairingAdvertisedEndpoint({
+          wsUrl,
+          ...(authToken ? { authToken } : {}),
+        }),
+        new Promise<never>((_, reject) => {
+          timeoutHandle = setTimeout(() => {
+            reject(new Error(`Connection check timed out after ${String(timeoutMs)}ms.`));
+          }, timeoutMs);
+        }),
+      ]);
+    } finally {
+      if (timeoutHandle !== null) {
+        clearTimeout(timeoutHandle);
+      }
+    }
+    return;
+  } catch (error) {
+    probeErrors.push(error instanceof Error ? error.message : String(error));
+  }
+
+  if (typeof window !== "undefined" && typeof WebSocket === "function") {
+    const socketProbe = await probeNativeWebSocketConnection(normalizedTarget, timeoutMs);
+    if (socketProbe.ok) {
       // Socket probe succeeded.
       return;
     }
+    probeErrors.push(socketProbe.message);
   }
 
   throw new Error(probeErrors.filter((message) => message.trim().length > 0).join(" "));
