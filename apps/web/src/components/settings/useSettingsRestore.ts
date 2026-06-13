@@ -1,6 +1,5 @@
 import { DEFAULT_UNIFIED_SETTINGS } from "@ace/contracts/settings";
 import * as Equal from "effect/Equal";
-import { useCallback } from "react";
 
 import { resetThemePresetToDefault } from "../../appearancePrefs";
 import { useTheme } from "../../hooks/useTheme";

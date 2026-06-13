@@ -12,15 +12,7 @@ import {
   TextWrapIcon,
   XIcon,
 } from "lucide-react";
-import {
-  useCallback,
-  useDeferredValue,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { openInPreferredEditor } from "../editorPreferences";
 import {
   gitBranchesQueryOptions,
@@ -418,29 +410,21 @@ function useDiffPanelComponent({
   const isGitRepo = gitRepoStatus === true;
   const { turnDiffSummaries, inferredCheckpointTurnCountByTurnId } =
     useTurnDiffSummaries(activeThread);
-  const orderedTurnDiffSummaries = useMemo(
-    () =>
-      [...turnDiffSummaries].toSorted((left, right) => {
-        const leftTurnCount =
-          left.checkpointTurnCount ?? inferredCheckpointTurnCountByTurnId[left.turnId] ?? 0;
-        const rightTurnCount =
-          right.checkpointTurnCount ?? inferredCheckpointTurnCountByTurnId[right.turnId] ?? 0;
-        if (leftTurnCount !== rightTurnCount) {
-          return rightTurnCount - leftTurnCount;
-        }
-        return right.completedAt.localeCompare(left.completedAt);
-      }),
-    [inferredCheckpointTurnCountByTurnId, turnDiffSummaries],
-  );
-  const queryableTurnDiffSummaries = useMemo(
-    () =>
-      orderedTurnDiffSummaries.filter((summary) =>
-        isCheckpointSummaryQueryable(
-          summary,
-          summary.checkpointTurnCount ?? inferredCheckpointTurnCountByTurnId[summary.turnId],
-        ),
-      ),
-    [inferredCheckpointTurnCountByTurnId, orderedTurnDiffSummaries],
+  const orderedTurnDiffSummaries = [...turnDiffSummaries].toSorted((left, right) => {
+    const leftTurnCount =
+      left.checkpointTurnCount ?? inferredCheckpointTurnCountByTurnId[left.turnId] ?? 0;
+    const rightTurnCount =
+      right.checkpointTurnCount ?? inferredCheckpointTurnCountByTurnId[right.turnId] ?? 0;
+    if (leftTurnCount !== rightTurnCount) {
+      return rightTurnCount - leftTurnCount;
+    }
+    return right.completedAt.localeCompare(left.completedAt);
+  });
+  const queryableTurnDiffSummaries = orderedTurnDiffSummaries.filter((summary) =>
+    isCheckpointSummaryQueryable(
+      summary,
+      summary.checkpointTurnCount ?? inferredCheckpointTurnCountByTurnId[summary.turnId],
+    ),
   );
 
   const selectedTurnId =
@@ -478,23 +462,14 @@ function useDiffPanelComponent({
     !selectedTurnLiveDiff &&
     (liveTurnDiffMode === undefined || liveTurnDiffMode === "workspace") &&
     gitStatusData?.hasWorkingTreeChanges === true;
-  const selectedTurnUnavailableReason = useMemo(() => {
-    if (
-      !selectedTurn ||
-      selectedTurnQueryable ||
-      selectedTurnLiveDiff ||
-      selectedTurnWorkspaceFallback
-    ) {
-      return null;
-    }
-    if (selectedTurn.status === "missing") {
-      return "Diff is still being prepared for this turn.";
-    }
-    if (selectedTurn.status === "error") {
-      return "Diff generation failed for this turn.";
-    }
-    return "Diff is unavailable for this turn.";
-  }, [selectedTurn, selectedTurnLiveDiff, selectedTurnQueryable, selectedTurnWorkspaceFallback]);
+  const selectedTurnUnavailableReason =
+    !selectedTurn || selectedTurnQueryable || selectedTurnLiveDiff || selectedTurnWorkspaceFallback
+      ? null
+      : selectedTurn.status === "missing"
+        ? "Diff is still being prepared for this turn."
+        : selectedTurn.status === "error"
+          ? "Diff generation failed for this turn."
+          : "Diff is unavailable for this turn.";
   const selectedCheckpointRange =
     selectedTurn && selectedTurnQueryable && typeof selectedCheckpointTurnCount === "number"
       ? {
@@ -502,21 +477,22 @@ function useDiffPanelComponent({
           toTurnCount: selectedCheckpointTurnCount,
         }
       : null;
-  const conversationCheckpointTurnCount = useMemo(() => {
-    const turnCounts: number[] = [];
-    for (const summary of queryableTurnDiffSummaries) {
-      const turnCount =
-        summary.checkpointTurnCount ?? inferredCheckpointTurnCountByTurnId[summary.turnId];
-      if (typeof turnCount === "number") {
-        turnCounts.push(turnCount);
-      }
+  const conversationCheckpointTurnCounts: number[] = [];
+  for (const summary of queryableTurnDiffSummaries) {
+    const turnCount =
+      summary.checkpointTurnCount ?? inferredCheckpointTurnCountByTurnId[summary.turnId];
+    if (typeof turnCount === "number") {
+      conversationCheckpointTurnCounts.push(turnCount);
     }
-    if (turnCounts.length === 0) {
-      return undefined;
-    }
-    const latest = Math.max(...turnCounts);
-    return latest > 0 ? latest : undefined;
-  }, [inferredCheckpointTurnCountByTurnId, queryableTurnDiffSummaries]);
+  }
+  const latestConversationCheckpointTurnCount =
+    conversationCheckpointTurnCounts.length > 0
+      ? Math.max(...conversationCheckpointTurnCounts)
+      : undefined;
+  const conversationCheckpointTurnCount =
+    latestConversationCheckpointTurnCount && latestConversationCheckpointTurnCount > 0
+      ? latestConversationCheckpointTurnCount
+      : undefined;
   const conversationCheckpointRange =
     !selectedTurn && typeof conversationCheckpointTurnCount === "number"
       ? {
@@ -527,12 +503,10 @@ function useDiffPanelComponent({
   const activeCheckpointRange = selectedTurn
     ? selectedCheckpointRange
     : conversationCheckpointRange;
-  const conversationCacheScope = useMemo(() => {
-    if (selectedTurn || queryableTurnDiffSummaries.length === 0) {
-      return null;
-    }
-    return `conversation:${queryableTurnDiffSummaries.map((summary) => summary.turnId).join(",")}`;
-  }, [queryableTurnDiffSummaries, selectedTurn]);
+  const conversationCacheScope =
+    selectedTurn || queryableTurnDiffSummaries.length === 0
+      ? null
+      : `conversation:${queryableTurnDiffSummaries.map((summary) => summary.turnId).join(",")}`;
   const canQueryCheckpointDiff =
     diffOpen &&
     !isCheckingGitRepo &&
@@ -612,21 +586,16 @@ function useDiffPanelComponent({
           ? "No net changes in the current turn."
           : "No net changes in this selection."
         : "No patch available for this selection.");
-  const renderablePatch = useMemo(
-    () => getRenderablePatch(deferredSelectedPatch, "diff-panel"),
-    [deferredSelectedPatch],
-  );
-  const renderableFiles = useMemo(() => {
-    if (!renderablePatch || renderablePatch.kind !== "files") {
-      return [];
-    }
-    return renderablePatch.files.toSorted((left, right) =>
-      resolveFileDiffPath(left).localeCompare(resolveFileDiffPath(right), undefined, {
-        numeric: true,
-        sensitivity: "base",
-      }),
-    );
-  }, [renderablePatch]);
+  const renderablePatch = getRenderablePatch(deferredSelectedPatch, "diff-panel");
+  const renderableFiles =
+    renderablePatch?.kind === "files"
+      ? renderablePatch.files.toSorted((left, right) =>
+          resolveFileDiffPath(left).localeCompare(resolveFileDiffPath(right), undefined, {
+            numeric: true,
+            sensitivity: "base",
+          }),
+        )
+      : [];
   const renderableFileKeys = renderableFiles.map((fileDiff) => buildFileDiffRenderKey(fileDiff));
   const renderableFileKeySet = new Set(renderableFileKeys);
   const visibleCollapsedFileKeys = new Set(
@@ -722,16 +691,11 @@ function useDiffPanelComponent({
       return next;
     });
   };
-  const activeReviewFileDiff = useMemo(() => {
-    if (!activeReviewLineSelection) {
-      return null;
-    }
-    return (
-      renderableFiles.find(
+  const activeReviewFileDiff = activeReviewLineSelection
+    ? (renderableFiles.find(
         (fileDiff) => buildFileDiffRenderKey(fileDiff) === activeReviewLineSelection.fileKey,
-      ) ?? null
-    );
-  }, [activeReviewLineSelection, renderableFiles]);
+      ) ?? null)
+    : null;
   const reviewCommentPopoverOpen =
     activeCommentFileKey !== null &&
     activeReviewLineSelection !== null &&

@@ -5,7 +5,6 @@ import {
   startTransition,
   useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -551,7 +550,7 @@ function useThreadBoardComponent(props: { connectionUrl?: string | null; threadI
     threadId: props.threadId,
     title: routeSidebarThread?.title ?? null,
   };
-  const orderedPanes = useMemo(() => orderBoardPanes(panes, layoutRoot), [layoutRoot, panes]);
+  const orderedPanes = orderBoardPanes(panes, layoutRoot);
   const visibleBoardThreadIds = orderedPanes.map((pane) => pane.threadId);
   const primaryPane = selectBoardPaneById(panes, activePaneId) ?? orderedPanes[0];
   const paneById = new Map(panes.map((pane) => [pane.id, pane]));

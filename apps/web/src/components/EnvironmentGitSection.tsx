@@ -31,7 +31,6 @@ import {
 } from "lucide-react";
 import { GitHubIcon } from "./Icons";
 import { runAsyncTask } from "../lib/async";
-import { useEffectEvent } from "../hooks/useEffectEvent";
 import {
   buildGitActionProgressStages,
   buildMenuItems,
@@ -654,12 +653,12 @@ function useEnvironmentGitSection({
     persistThreadBranchSync,
   ]);
 
-  const isDefaultBranch = useMemo(() => {
-    const branchName = gitStatusForActions?.branch;
-    if (!branchName) return false;
-    const current = branchList?.branches.find((branch) => branch.name === branchName);
-    return current?.isDefault ?? (branchName === "main" || branchName === "master");
-  }, [branchList?.branches, gitStatusForActions?.branch]);
+  const branchName = gitStatusForActions?.branch;
+  const currentBranchInfo = branchName
+    ? branchList?.branches.find((branch) => branch.name === branchName)
+    : undefined;
+  const isDefaultBranch =
+    currentBranchInfo?.isDefault ?? (branchName === "main" || branchName === "master");
 
   const gitActionMenuItems = buildMenuItems(
     gitStatusForActions,
