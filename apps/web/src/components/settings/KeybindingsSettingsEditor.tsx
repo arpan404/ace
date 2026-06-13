@@ -1,9 +1,5 @@
-import {
-  type KeybindingShortcut,
-  type ServerUpsertKeybindingResult,
-  type StaticKeybindingCommand,
-} from "@ace/contracts";
-import { type KeyboardEvent, useCallback, useMemo, useReducer } from "react";
+import { type KeybindingShortcut, type StaticKeybindingCommand } from "@ace/contracts";
+import { type KeyboardEvent, useMemo, useReducer } from "react";
 import { cn } from "~/lib/utils";
 import { ensureNativeApi } from "~/nativeApi";
 import {
@@ -78,15 +74,11 @@ export function KeybindingsSettingsEditor() {
       whenByCommand: nextWhenByCommand,
     };
   }, [keybindings]);
-  const editorStateKey = useMemo(
-    () =>
-      KEYBINDING_COMMAND_DEFINITIONS.map((definition) => {
-        const shortcut = shortcutValueFingerprint(initialByCommand.shortcuts[definition.command]);
-        const when = initialByCommand.whenByCommand[definition.command] ?? "";
-        return `${definition.command}:${shortcut ?? ""}:${when}`;
-      }).join("|"),
-    [initialByCommand],
-  );
+  const editorStateKey = KEYBINDING_COMMAND_DEFINITIONS.map((definition) => {
+    const shortcut = shortcutValueFingerprint(initialByCommand.shortcuts[definition.command]);
+    const when = initialByCommand.whenByCommand[definition.command] ?? "";
+    return `${definition.command}:${shortcut ?? ""}:${when}`;
+  }).join("|");
 
   return (
     <KeybindingsSettingsEditorContent
@@ -243,15 +235,11 @@ function KeybindingsSettingsEditorContent(props: {
     return collisions;
   }, [draftShortcuts, draftWhenByCommand, nonEditableShortcutFingerprints, platform]);
 
-  const hasUnsupportedClear = useMemo(
-    () =>
-      dirtyCommands.some((definition) => {
-        const initialShortcut = initialByCommand.shortcuts[definition.command];
-        const draftShortcut = draftShortcuts[definition.command];
-        return initialShortcut && !draftShortcut;
-      }),
-    [dirtyCommands, draftShortcuts, initialByCommand.shortcuts],
-  );
+  const hasUnsupportedClear = dirtyCommands.some((definition) => {
+    const initialShortcut = initialByCommand.shortcuts[definition.command];
+    const draftShortcut = draftShortcuts[definition.command];
+    return initialShortcut && !draftShortcut;
+  });
 
   const canSave =
     dirtyCommands.length > 0 && collisionByCommand.size === 0 && !hasUnsupportedClear && !isSaving;
@@ -278,28 +266,28 @@ function KeybindingsSettingsEditorContent(props: {
     return groups;
   }, []);
 
-  const captureShortcut = useCallback(
-    (command: StaticKeybindingCommand, event: KeyboardEvent<HTMLInputElement>) => {
-      if (event.key === "Tab") return;
-      event.preventDefault();
+  const captureShortcut = (
+    command: StaticKeybindingCommand,
+    event: KeyboardEvent<HTMLInputElement>,
+  ) => {
+    if (event.key === "Tab") return;
+    event.preventDefault();
 
-      if (event.key === "Backspace" || event.key === "Delete") {
-        dispatch({ type: "set-shortcut", command, value: null });
-        return;
-      }
+    if (event.key === "Backspace" || event.key === "Delete") {
+      dispatch({ type: "set-shortcut", command, value: null });
+      return;
+    }
 
-      const shortcut = shortcutFromKeyboardEvent(event);
-      if (!shortcut) return;
-      dispatch({ type: "set-shortcut", command, value: shortcut });
-    },
-    [],
-  );
+    const shortcut = shortcutFromKeyboardEvent(event);
+    if (!shortcut) return;
+    dispatch({ type: "set-shortcut", command, value: shortcut });
+  };
 
-  const revertChanges = useCallback(() => {
+  const revertChanges = () => {
     dispatch({ type: "revert", initialByCommand });
-  }, [initialByCommand.shortcuts, initialByCommand.whenByCommand]);
+  };
 
-  const saveChanges = useCallback(async () => {
+  const saveChanges = async () => {
     if (!canSave) return;
     dispatch({ type: "start-saving" });
     try {
@@ -343,7 +331,7 @@ function KeybindingsSettingsEditorContent(props: {
       return;
     }
     dispatch({ type: "finish-saving" });
-  }, [canSave, dirtyCommands, draftShortcuts, draftWhenByCommand]);
+  };
 
   return (
     <div className="space-y-10">

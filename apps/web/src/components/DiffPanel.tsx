@@ -355,7 +355,7 @@ function useDiffPanelComponent({
   selectedTurnId: selectedTurnIdOverride,
   threadId,
 }: DiffPanelProps) {
-  const diffPanelUnsafeCss = useMemo(() => buildDiffPanelUnsafeCss(mode), [mode]);
+  const diffPanelUnsafeCss = buildDiffPanelUnsafeCss(mode);
   const navigate = useNavigate();
   const { resolvedTheme } = useTheme();
   const diffWordWrapSetting = useSetting("diffWordWrap");
@@ -495,16 +495,13 @@ function useDiffPanelComponent({
     }
     return "Diff is unavailable for this turn.";
   }, [selectedTurn, selectedTurnLiveDiff, selectedTurnQueryable, selectedTurnWorkspaceFallback]);
-  const selectedCheckpointRange = useMemo(
-    () =>
-      selectedTurn && selectedTurnQueryable && typeof selectedCheckpointTurnCount === "number"
-        ? {
-            fromTurnCount: Math.max(0, selectedCheckpointTurnCount - 1),
-            toTurnCount: selectedCheckpointTurnCount,
-          }
-        : null,
-    [selectedCheckpointTurnCount, selectedTurn, selectedTurnQueryable],
-  );
+  const selectedCheckpointRange =
+    selectedTurn && selectedTurnQueryable && typeof selectedCheckpointTurnCount === "number"
+      ? {
+          fromTurnCount: Math.max(0, selectedCheckpointTurnCount - 1),
+          toTurnCount: selectedCheckpointTurnCount,
+        }
+      : null;
   const conversationCheckpointTurnCount = useMemo(() => {
     const turnCounts: number[] = [];
     for (const summary of queryableTurnDiffSummaries) {
@@ -520,16 +517,13 @@ function useDiffPanelComponent({
     const latest = Math.max(...turnCounts);
     return latest > 0 ? latest : undefined;
   }, [inferredCheckpointTurnCountByTurnId, queryableTurnDiffSummaries]);
-  const conversationCheckpointRange = useMemo(
-    () =>
-      !selectedTurn && typeof conversationCheckpointTurnCount === "number"
-        ? {
-            fromTurnCount: 0,
-            toTurnCount: conversationCheckpointTurnCount,
-          }
-        : null,
-    [conversationCheckpointTurnCount, selectedTurn],
-  );
+  const conversationCheckpointRange =
+    !selectedTurn && typeof conversationCheckpointTurnCount === "number"
+      ? {
+          fromTurnCount: 0,
+          toTurnCount: conversationCheckpointTurnCount,
+        }
+      : null;
   const activeCheckpointRange = selectedTurn
     ? selectedCheckpointRange
     : conversationCheckpointRange;
@@ -655,19 +649,16 @@ function useDiffPanelComponent({
     target?.scrollIntoView({ block: "nearest" });
   }, [selectedFilePath, renderableFiles]);
 
-  const openDiffFileInEditor = useCallback(
-    (filePath: string) => {
-      const api = readNativeApi();
-      if (!api) return;
-      const targetPath = activeCwd ? resolvePathLinkTarget(filePath, activeCwd) : filePath;
-      void openInPreferredEditor(api, targetPath).catch((error) => {
-        console.warn("Failed to open diff file in editor.", error);
-      });
-    },
-    [activeCwd],
-  );
+  const openDiffFileInEditor = (filePath: string) => {
+    const api = readNativeApi();
+    if (!api) return;
+    const targetPath = activeCwd ? resolvePathLinkTarget(filePath, activeCwd) : filePath;
+    void openInPreferredEditor(api, targetPath).catch((error) => {
+      console.warn("Failed to open diff file in editor.", error);
+    });
+  };
 
-  const toggleFileCollapsed = useCallback((fileKey: string) => {
+  const toggleFileCollapsed = (fileKey: string) => {
     setCollapsedFileKeys((current) => {
       const next = new Set(current);
       if (next.has(fileKey)) {
@@ -677,65 +668,63 @@ function useDiffPanelComponent({
       }
       return next;
     });
-  }, []);
+  };
 
-  const setAllFilesCollapsed = useCallback(
-    (collapsed: boolean) => {
-      setCollapsedFileKeys(collapsed ? new Set(renderableFileKeys) : new Set());
-    },
-    [renderableFileKeys],
-  );
+  const setAllFilesCollapsed = (collapsed: boolean) => {
+    setCollapsedFileKeys(collapsed ? new Set(renderableFileKeys) : new Set());
+  };
 
-  const openReviewLineSelection = useCallback(
-    (fileKey: string, filePath: string, range: SelectedLineRange | null) => {
-      if (!range) {
-        setActiveReviewLineSelection((current) => (current?.fileKey === fileKey ? null : current));
-        setActiveCommentFileKey((current) => (current === fileKey ? null : current));
-        if (activeReviewLineSelection?.fileKey === fileKey) {
-          setReviewCommentPopoverPosition(null);
-          setReviewCommentDraft("");
-        }
-        return;
-      }
-      const lineRange = formatDiffReviewLineRange(range);
-      const sameSelection =
-        activeReviewLineSelection?.fileKey === fileKey &&
-        activeReviewLineSelection.filePath === filePath &&
-        areSelectedLineRangesEqual(activeReviewLineSelection.range, range);
-      if (!sameSelection) {
-        setReviewCommentPopoverPosition(
-          createFallbackReviewCommentPopoverPosition(fileKey, "pending"),
-        );
+  const openReviewLineSelection = (
+    fileKey: string,
+    filePath: string,
+    range: SelectedLineRange | null,
+  ) => {
+    if (!range) {
+      setActiveReviewLineSelection((current) => (current?.fileKey === fileKey ? null : current));
+      setActiveCommentFileKey((current) => (current === fileKey ? null : current));
+      if (activeReviewLineSelection?.fileKey === fileKey) {
+        setReviewCommentPopoverPosition(null);
         setReviewCommentDraft("");
       }
-      setActiveReviewLineSelection((current) => {
-        if (
-          current?.fileKey === fileKey &&
-          current.filePath === filePath &&
-          areSelectedLineRangesEqual(current.range, range)
-        ) {
-          return current;
-        }
-        return {
-          fileKey,
-          filePath,
-          label: lineRange.label,
-          lineRange,
-          range,
-        };
-      });
-      setActiveCommentFileKey(fileKey);
-      setCollapsedFileKeys((current) => {
-        if (!current.has(fileKey)) {
-          return current;
-        }
-        const next = new Set(current);
-        next.delete(fileKey);
-        return next;
-      });
-    },
-    [activeReviewLineSelection],
-  );
+      return;
+    }
+    const lineRange = formatDiffReviewLineRange(range);
+    const sameSelection =
+      activeReviewLineSelection?.fileKey === fileKey &&
+      activeReviewLineSelection.filePath === filePath &&
+      areSelectedLineRangesEqual(activeReviewLineSelection.range, range);
+    if (!sameSelection) {
+      setReviewCommentPopoverPosition(
+        createFallbackReviewCommentPopoverPosition(fileKey, "pending"),
+      );
+      setReviewCommentDraft("");
+    }
+    setActiveReviewLineSelection((current) => {
+      if (
+        current?.fileKey === fileKey &&
+        current.filePath === filePath &&
+        areSelectedLineRangesEqual(current.range, range)
+      ) {
+        return current;
+      }
+      return {
+        fileKey,
+        filePath,
+        label: lineRange.label,
+        lineRange,
+        range,
+      };
+    });
+    setActiveCommentFileKey(fileKey);
+    setCollapsedFileKeys((current) => {
+      if (!current.has(fileKey)) {
+        return current;
+      }
+      const next = new Set(current);
+      next.delete(fileKey);
+      return next;
+    });
+  };
   const activeReviewFileDiff = useMemo(() => {
     if (!activeReviewLineSelection) {
       return null;
@@ -846,7 +835,7 @@ function useDiffPanelComponent({
     : "All turns";
   const turnSelectorDisabled = orderedTurnDiffSummaries.length === 0;
 
-  const submitReviewComment = useCallback(() => {
+  const submitReviewComment = () => {
     const body = reviewCommentDraft.trim();
     if (
       !body ||
@@ -879,15 +868,7 @@ function useDiffPanelComponent({
       next.delete(activeReviewLineSelection.fileKey);
       return next;
     });
-  }, [
-    activeCwd,
-    activeReviewFileDiff,
-    activeReviewLineSelection,
-    closeReviewCommentPopover,
-    onAddReviewComment,
-    reviewCommentDraft,
-    selectedTurnLabel,
-  ]);
+  };
 
   const selectTurn = (turnId: TurnId) => {
     if (onSelectTurn) {

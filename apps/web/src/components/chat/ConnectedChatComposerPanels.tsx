@@ -343,32 +343,18 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
       }),
     [composerDraft, props.threadInteractionMode, props.threadRuntimeMode],
   );
-  const composerSendState = useMemo(
-    () =>
-      deriveComposerSendState({
-        prompt,
-        imageCount: composerImages.length,
-        terminalContexts: composerTerminalContexts,
-      }),
-    [composerImages.length, composerTerminalContexts, prompt],
-  );
-  const composerProviderState = useMemo(
-    () =>
-      getComposerProviderState({
-        provider: props.selectedProvider,
-        model: props.selectedModel,
-        models: props.selectedProviderModels,
-        prompt,
-        modelOptions: props.composerModelOptions,
-      }),
-    [
-      props.composerModelOptions,
-      prompt,
-      props.selectedModel,
-      props.selectedProvider,
-      props.selectedProviderModels,
-    ],
-  );
+  const composerSendState = deriveComposerSendState({
+    prompt,
+    imageCount: composerImages.length,
+    terminalContexts: composerTerminalContexts,
+  });
+  const composerProviderState = getComposerProviderState({
+    provider: props.selectedProvider,
+    model: props.selectedModel,
+    models: props.selectedProviderModels,
+    prompt,
+    modelOptions: props.composerModelOptions,
+  });
   const [isDragOverComposer, setIsDragOverComposer] = useState(false);
   const [composerHighlightedItemId, setComposerHighlightedItemId] = useState<string | null>(null);
   const [composerCursor, setComposerCursor] = useState(() =>
@@ -437,10 +423,7 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
   const setStickyComposerModelSelection = useComposerDraftStore(
     (store) => store.setStickyModelSelection,
   );
-  const nonPersistedComposerImageIdSet = useMemo(
-    () => new Set(nonPersistedComposerImageIds),
-    [nonPersistedComposerImageIds],
-  );
+  const nonPersistedComposerImageIdSet = new Set(nonPersistedComposerImageIds);
   const showPlanFollowUpPrompt =
     props.pendingUserInputs.length === 0 &&
     interactionMode === "plan" &&
@@ -784,13 +767,10 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
     workspaceEntries,
   ]);
   const composerMenuOpen = Boolean(composerTrigger);
-  const activeComposerMenuItem = useMemo(
-    () =>
-      composerMenuItems.find((item) => item.id === composerHighlightedItemId) ??
-      composerMenuItems[0] ??
-      null,
-    [composerHighlightedItemId, composerMenuItems],
-  );
+  const activeComposerMenuItem =
+    composerMenuItems.find((item) => item.id === composerHighlightedItemId) ??
+    composerMenuItems[0] ??
+    null;
   composerMenuOpenRef.current = composerMenuOpen;
   composerMenuItemsRef.current = composerMenuItems;
   activeComposerMenuItemRef.current = activeComposerMenuItem;
@@ -874,25 +854,25 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
     addComposerImages(imageFiles);
   };
 
-  const onComposerDragEnter = useCallback((event: DragEvent<HTMLDivElement>) => {
+  const onComposerDragEnter = (event: DragEvent<HTMLDivElement>) => {
     if (!event.dataTransfer.types.includes("Files")) {
       return;
     }
     event.preventDefault();
     dragDepthRef.current += 1;
     setIsDragOverComposer(true);
-  }, []);
+  };
 
-  const onComposerDragOver = useCallback((event: DragEvent<HTMLDivElement>) => {
+  const onComposerDragOver = (event: DragEvent<HTMLDivElement>) => {
     if (!event.dataTransfer.types.includes("Files")) {
       return;
     }
     event.preventDefault();
     event.dataTransfer.dropEffect = "copy";
     setIsDragOverComposer(true);
-  }, []);
+  };
 
-  const onComposerDragLeave = useCallback((event: DragEvent<HTMLDivElement>) => {
+  const onComposerDragLeave = (event: DragEvent<HTMLDivElement>) => {
     if (!event.dataTransfer.types.includes("Files")) {
       return;
     }
@@ -905,7 +885,7 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
     if (dragDepthRef.current === 0) {
       setIsDragOverComposer(false);
     }
-  }, []);
+  };
 
   const onComposerDrop = (event: DragEvent<HTMLDivElement>) => {
     if (!event.dataTransfer.types.includes("Files")) {
@@ -918,42 +898,33 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
     scheduleComposerFocus();
   };
 
-  const removeComposerImage = useCallback(
-    (imageId: string) => {
-      removeComposerDraftImage(props.threadId, imageId);
-    },
-    [props.threadId, removeComposerDraftImage],
-  );
+  const removeComposerImage = (imageId: string) => {
+    removeComposerDraftImage(props.threadId, imageId);
+  };
 
-  const onPreviewComposerImage = useCallback(
-    (imageId: string) => {
-      const preview = buildExpandedImagePreview(composerImages, imageId);
-      if (!preview) {
-        return;
-      }
-      onPreviewExpandedImage(preview);
-    },
-    [composerImages, onPreviewExpandedImage],
-  );
+  const onPreviewComposerImage = (imageId: string) => {
+    const preview = buildExpandedImagePreview(composerImages, imageId);
+    if (!preview) {
+      return;
+    }
+    onPreviewExpandedImage(preview);
+  };
 
-  const setPromptFromTraits = useCallback(
-    (nextPrompt: string) => {
-      const currentPrompt = promptRef.current;
-      if (nextPrompt === currentPrompt) {
-        scheduleComposerFocus();
-        return;
-      }
-      promptRef.current = nextPrompt;
-      setPrompt(nextPrompt);
-      resetUi(nextPrompt);
+  const setPromptFromTraits = (nextPrompt: string) => {
+    const currentPrompt = promptRef.current;
+    if (nextPrompt === currentPrompt) {
       scheduleComposerFocus();
-    },
-    [resetUi, scheduleComposerFocus, setPrompt],
-  );
+      return;
+    }
+    promptRef.current = nextPrompt;
+    setPrompt(nextPrompt);
+    resetUi(nextPrompt);
+    scheduleComposerFocus();
+  };
 
-  const toggleInteractionMode = useCallback(() => {
+  const toggleInteractionMode = () => {
     onInteractionModeChange(interactionMode === "plan" ? "default" : "plan");
-  }, [interactionMode, onInteractionModeChange]);
+  };
 
   const onProviderModelSelect = (
     provider: ProviderKind,
@@ -987,56 +958,47 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
     scheduleComposerFocus();
   };
 
-  const applyPromptReplacement = useCallback(
-    (
-      rangeStart: number,
-      rangeEnd: number,
-      replacement: string,
-      options?: { expectedText?: string },
-    ): boolean => {
-      const currentText = promptRef.current;
-      const safeStart = Math.max(0, Math.min(currentText.length, rangeStart));
-      const safeEnd = Math.max(safeStart, Math.min(currentText.length, rangeEnd));
-      if (
-        options?.expectedText !== undefined &&
-        currentText.slice(safeStart, safeEnd) !== options.expectedText
-      ) {
-        return false;
-      }
-      const next = replaceTextRange(promptRef.current, rangeStart, rangeEnd, replacement);
-      const nextCursor = collapseExpandedComposerCursor(next.text, next.cursor);
-      promptRef.current = next.text;
-      if (activePendingQuestion && activePendingUserInput) {
-        onPendingUserInputCustomAnswerChange(
-          activePendingQuestion.id,
-          next.text,
-          nextCursor,
-          next.cursor,
-          false,
-        );
-      } else {
-        setPrompt(next.text);
-      }
-      setComposerCursor(nextCursor);
-      setComposerTrigger(
-        detectComposerTriggerWithDismissal(
-          next.text,
-          expandCollapsedComposerCursor(next.text, nextCursor),
-        ),
+  const applyPromptReplacement = (
+    rangeStart: number,
+    rangeEnd: number,
+    replacement: string,
+    options?: { expectedText?: string },
+  ): boolean => {
+    const currentText = promptRef.current;
+    const safeStart = Math.max(0, Math.min(currentText.length, rangeStart));
+    const safeEnd = Math.max(safeStart, Math.min(currentText.length, rangeEnd));
+    if (
+      options?.expectedText !== undefined &&
+      currentText.slice(safeStart, safeEnd) !== options.expectedText
+    ) {
+      return false;
+    }
+    const next = replaceTextRange(promptRef.current, rangeStart, rangeEnd, replacement);
+    const nextCursor = collapseExpandedComposerCursor(next.text, next.cursor);
+    promptRef.current = next.text;
+    if (activePendingQuestion && activePendingUserInput) {
+      onPendingUserInputCustomAnswerChange(
+        activePendingQuestion.id,
+        next.text,
+        nextCursor,
+        next.cursor,
+        false,
       );
-      window.requestAnimationFrame(() => {
-        composerEditorRef.current?.focusAt(nextCursor);
-      });
-      return true;
-    },
-    [
-      detectComposerTriggerWithDismissal,
-      activePendingUserInput,
-      activePendingQuestion,
-      onPendingUserInputCustomAnswerChange,
-      setPrompt,
-    ],
-  );
+    } else {
+      setPrompt(next.text);
+    }
+    setComposerCursor(nextCursor);
+    setComposerTrigger(
+      detectComposerTriggerWithDismissal(
+        next.text,
+        expandCollapsedComposerCursor(next.text, nextCursor),
+      ),
+    );
+    window.requestAnimationFrame(() => {
+      composerEditorRef.current?.focusAt(nextCursor);
+    });
+    return true;
+  };
 
   const readComposerSnapshot = useCallback(() => {
     const editorSnapshot = composerEditorRef.current?.readSnapshot();
@@ -1051,13 +1013,13 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
     };
   }, [composerCursor, composerTerminalContexts]);
 
-  const resolveActiveComposerTrigger = useCallback(() => {
+  const resolveActiveComposerTrigger = () => {
     const snapshot = readComposerSnapshot();
     return {
       snapshot,
       trigger: detectComposerTriggerWithDismissal(snapshot.value, snapshot.expandedCursor),
     };
-  }, [detectComposerTriggerWithDismissal, readComposerSnapshot]);
+  };
 
   const onSelectComposerItem = (
     item: ComponentProps<typeof ChatComposerPanel>["composerMenuItems"][number],
@@ -1159,24 +1121,20 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
     }
   };
 
-  const nudgeComposerMenuHighlight = useCallback(
-    (key: "ArrowDown" | "ArrowUp") => {
-      if (composerMenuItems.length === 0) {
-        return;
-      }
-      const highlightedIndex = composerMenuItems.findIndex(
-        (item) => item.id === composerHighlightedItemId,
-      );
-      const normalizedIndex =
-        highlightedIndex >= 0 ? highlightedIndex : key === "ArrowDown" ? -1 : 0;
-      const offset = key === "ArrowDown" ? 1 : -1;
-      const nextIndex =
-        (normalizedIndex + offset + composerMenuItems.length) % composerMenuItems.length;
-      const nextItem = composerMenuItems[nextIndex];
-      setComposerHighlightedItemId(nextItem?.id ?? null);
-    },
-    [composerHighlightedItemId, composerMenuItems],
-  );
+  const nudgeComposerMenuHighlight = (key: "ArrowDown" | "ArrowUp") => {
+    if (composerMenuItems.length === 0) {
+      return;
+    }
+    const highlightedIndex = composerMenuItems.findIndex(
+      (item) => item.id === composerHighlightedItemId,
+    );
+    const normalizedIndex = highlightedIndex >= 0 ? highlightedIndex : key === "ArrowDown" ? -1 : 0;
+    const offset = key === "ArrowDown" ? 1 : -1;
+    const nextIndex =
+      (normalizedIndex + offset + composerMenuItems.length) % composerMenuItems.length;
+    const nextItem = composerMenuItems[nextIndex];
+    setComposerHighlightedItemId(nextItem?.id ?? null);
+  };
 
   const onComposerCommandKey = (
     key: "ArrowDown" | "ArrowUp" | "Enter" | "Tab" | "Escape",
@@ -1225,50 +1183,38 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
     return false;
   };
 
-  const onPromptChange = useCallback(
-    (
-      nextPrompt: string,
-      nextCursor: number,
-      expandedCursor: number,
-      cursorAdjacentToMention: boolean,
-      terminalContextIds: string[],
-    ) => {
-      if (activePendingQuestion && activePendingUserInput) {
-        onPendingUserInputCustomAnswerChange(
-          activePendingQuestion.id,
-          nextPrompt,
-          nextCursor,
-          expandedCursor,
-          cursorAdjacentToMention,
-        );
-        return;
-      }
-      promptRef.current = nextPrompt;
-      setPrompt(nextPrompt);
-      if (!terminalContextIdListsEqual(composerTerminalContexts, terminalContextIds)) {
-        setComposerDraftTerminalContexts(
-          props.threadId,
-          syncTerminalContextsByIds(composerTerminalContexts, terminalContextIds),
-        );
-      }
-      setComposerCursor(nextCursor);
-      setComposerTrigger(
-        cursorAdjacentToMention
-          ? null
-          : detectComposerTriggerWithDismissal(nextPrompt, expandedCursor),
+  const onPromptChange = (
+    nextPrompt: string,
+    nextCursor: number,
+    expandedCursor: number,
+    cursorAdjacentToMention: boolean,
+    terminalContextIds: string[],
+  ) => {
+    if (activePendingQuestion && activePendingUserInput) {
+      onPendingUserInputCustomAnswerChange(
+        activePendingQuestion.id,
+        nextPrompt,
+        nextCursor,
+        expandedCursor,
+        cursorAdjacentToMention,
       );
-    },
-    [
-      composerTerminalContexts,
-      detectComposerTriggerWithDismissal,
-      activePendingUserInput,
-      activePendingQuestion,
-      onPendingUserInputCustomAnswerChange,
-      props.threadId,
-      setComposerDraftTerminalContexts,
-      setPrompt,
-    ],
-  );
+      return;
+    }
+    promptRef.current = nextPrompt;
+    setPrompt(nextPrompt);
+    if (!terminalContextIdListsEqual(composerTerminalContexts, terminalContextIds)) {
+      setComposerDraftTerminalContexts(
+        props.threadId,
+        syncTerminalContextsByIds(composerTerminalContexts, terminalContextIds),
+      );
+    }
+    setComposerCursor(nextCursor);
+    setComposerTrigger(
+      cursorAdjacentToMention
+        ? null
+        : detectComposerTriggerWithDismissal(nextPrompt, expandedCursor),
+    );
+  };
 
   useEffect(() => {
     promptRef.current = prompt;

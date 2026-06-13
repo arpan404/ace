@@ -313,25 +313,15 @@ export function useSidebarCommandPalette(
     searchPaletteMode,
   ]);
 
-  const searchPaletteActionItems = useMemo(
-    () =>
-      searchPaletteItems.filter(
-        (item) =>
-          item.type === "action.new-thread" ||
-          item.type === "action.new-project" ||
-          item.type === "action.open-settings" ||
-          item.type === "action.open-terminals",
-      ),
-    [searchPaletteItems],
+  const searchPaletteActionItems = searchPaletteItems.filter(
+    (item) =>
+      item.type === "action.new-thread" ||
+      item.type === "action.new-project" ||
+      item.type === "action.open-settings" ||
+      item.type === "action.open-terminals",
   );
-  const searchPaletteProjectItems = useMemo(
-    () => searchPaletteItems.filter((item) => item.type === "project"),
-    [searchPaletteItems],
-  );
-  const searchPaletteThreadItems = useMemo(
-    () => searchPaletteItems.filter((item) => item.type === "thread"),
-    [searchPaletteItems],
-  );
+  const searchPaletteProjectItems = searchPaletteItems.filter((item) => item.type === "project");
+  const searchPaletteThreadItems = searchPaletteItems.filter((item) => item.type === "thread");
   const searchPaletteIndexById = useMemo(
     () => new Map(searchPaletteItems.map((item, index) => [item.id, index] as const)),
     [searchPaletteItems],
@@ -358,25 +348,22 @@ export function useSidebarCommandPalette(
     setSearchPaletteActiveIndex(-1);
   }, []);
 
-  const handleSearchPaletteBack = useCallback(() => {
+  const handleSearchPaletteBack = () => {
     setSearchPaletteMode("root");
     setSearchPaletteQuery("");
     setSearchPaletteActiveIndex(0);
-  }, []);
+  };
 
-  const handleSearchPaletteQueryChange = useCallback((value: string) => {
+  const handleSearchPaletteQueryChange = (value: string) => {
     setSearchPaletteQuery(value);
     setSearchPaletteActiveIndex(0);
-  }, []);
-  const handleSearchPaletteItemHover = useCallback(
-    (itemId: string) => {
-      const index = searchPaletteIndexById.get(itemId);
-      if (index !== undefined) {
-        setSearchPaletteActiveIndex(index);
-      }
-    },
-    [searchPaletteIndexById],
-  );
+  };
+  const handleSearchPaletteItemHover = (itemId: string) => {
+    const index = searchPaletteIndexById.get(itemId);
+    if (index !== undefined) {
+      setSearchPaletteActiveIndex(index);
+    }
+  };
 
   const handleSearchPaletteSelect = useCallback(
     (item: SearchPaletteItem) => {
@@ -464,79 +451,66 @@ export function useSidebarCommandPalette(
     [closeSearchPalette, combinedSidebarSnapshot.projects, input, searchPaletteMode],
   );
 
-  const handleSearchPaletteInputKeyDown = useCallback(
-    (event: KeyboardEvent<HTMLInputElement>) => {
-      if (event.key === "ArrowDown") {
-        event.preventDefault();
-        setSearchPaletteActiveIndex((currentIndex) => {
-          if (searchPaletteItems.length === 0) {
-            return -1;
-          }
-          return Math.min(currentIndex + 1, searchPaletteItems.length - 1);
-        });
-        if (searchPaletteItems.length > 0) {
-          setSearchPaletteKeyboardNavigationId((current) => current + 1);
+  const handleSearchPaletteInputKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setSearchPaletteActiveIndex((currentIndex) => {
+        if (searchPaletteItems.length === 0) {
+          return -1;
         }
-        return;
+        return Math.min(currentIndex + 1, searchPaletteItems.length - 1);
+      });
+      if (searchPaletteItems.length > 0) {
+        setSearchPaletteKeyboardNavigationId((current) => current + 1);
       }
-      if (event.key === "ArrowUp") {
-        event.preventDefault();
-        setSearchPaletteActiveIndex((currentIndex) => {
-          if (searchPaletteItems.length === 0) {
-            return -1;
-          }
-          return currentIndex <= 0 ? 0 : currentIndex - 1;
-        });
-        if (searchPaletteItems.length > 0) {
-          setSearchPaletteKeyboardNavigationId((current) => current + 1);
+      return;
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setSearchPaletteActiveIndex((currentIndex) => {
+        if (searchPaletteItems.length === 0) {
+          return -1;
         }
-        return;
+        return currentIndex <= 0 ? 0 : currentIndex - 1;
+      });
+      if (searchPaletteItems.length > 0) {
+        setSearchPaletteKeyboardNavigationId((current) => current + 1);
       }
-      if (event.key === "Enter") {
-        event.preventDefault();
-        const selectedItem =
-          effectiveSearchPaletteActiveIndex >= 0
-            ? searchPaletteItems[effectiveSearchPaletteActiveIndex]
-            : searchPaletteItems[0];
-        if (selectedItem) {
-          handleSearchPaletteSelect(selectedItem);
-        }
-        return;
+      return;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      const selectedItem =
+        effectiveSearchPaletteActiveIndex >= 0
+          ? searchPaletteItems[effectiveSearchPaletteActiveIndex]
+          : searchPaletteItems[0];
+      if (selectedItem) {
+        handleSearchPaletteSelect(selectedItem);
       }
-      if (event.key === "Escape") {
-        event.preventDefault();
-        closeSearchPalette();
-        return;
-      }
-      if (
-        event.key === "Backspace" &&
-        searchPaletteMode === "new-thread-project" &&
-        searchPaletteQuery.trim().length === 0
-      ) {
-        event.preventDefault();
-        setSearchPaletteMode("root");
-      }
-    },
-    [
-      closeSearchPalette,
-      handleSearchPaletteSelect,
-      searchPaletteActiveIndex,
-      searchPaletteItems,
-      searchPaletteMode,
-      searchPaletteQuery,
-    ],
-  );
+      return;
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeSearchPalette();
+      return;
+    }
+    if (
+      event.key === "Backspace" &&
+      searchPaletteMode === "new-thread-project" &&
+      searchPaletteQuery.trim().length === 0
+    ) {
+      event.preventDefault();
+      setSearchPaletteMode("root");
+    }
+  };
 
-  const handleSearchPaletteOpenChange = useCallback(
-    (open: boolean) => {
-      if (!open) {
-        closeSearchPalette();
-        return;
-      }
-      openSearchPalette();
-    },
-    [closeSearchPalette, openSearchPalette],
-  );
+  const handleSearchPaletteOpenChange = (open: boolean) => {
+    if (!open) {
+      closeSearchPalette();
+      return;
+    }
+    openSearchPalette();
+  };
 
   useEffect(() => {
     if (!searchPaletteOpen) {

@@ -6,7 +6,7 @@ import {
   useNavigate,
   useLocation,
 } from "@tanstack/react-router";
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { QueryClient, useQueryClient } from "@tanstack/react-query";
 import { Throttler } from "@tanstack/react-pacer";
 import { CheckIcon, ChevronDownIcon, CopyIcon, RefreshCwIcon, RotateCcwIcon } from "lucide-react";
@@ -149,9 +149,9 @@ function MainRootRouteView() {
   useEffect(() => {
     setConnectionHealthToastsEnabled(reliabilityUxEnabled);
   }, [reliabilityUxEnabled]);
-  const handleRemoteBootstrapSettled = useCallback(() => {
+  const handleRemoteBootstrapSettled = () => {
     setRemoteBootstrapSettled(true);
-  }, []);
+  };
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -260,81 +260,78 @@ function DetachedBrowserWindow(props: {
         null)
       : null,
   );
-  const queueDetachedBrowserDesignRequest = useCallback(
-    async (submission: BrowserDesignRequestSubmission) => {
-      if (!threadId || !thread) {
-        toastManager.add({
-          type: "error",
-          title: "Could not queue design note",
-          description: "This browser window is not linked to a chat thread.",
-        });
-        return;
-      }
-      const api = readNativeApi();
-      if (!api) {
-        toastManager.add({
-          type: "error",
-          title: "Could not queue design note",
-          description: "The desktop API is unavailable.",
-        });
-        return;
-      }
-      const trimmedInstructions = submission.instructions.trim();
-      const normalizedMimeType =
-        submission.imageMimeType.trim().length > 0 ? submission.imageMimeType : "image/png";
-      const fileExtension = /^image\/([a-z0-9.+-]+)$/i.exec(normalizedMimeType)?.[1] ?? "png";
-      const prompt = appendBrowserDesignContextToPrompt(
-        trimmedInstructions || "Review this browser screenshot.",
-        {
-          requestId: submission.requestId,
-          pageUrl: submission.pageUrl,
-          pagePath: submission.pagePath,
-          selection: submission.selection,
-          targetElement: submission.targetElement,
-          mainContainer: submission.mainContainer,
+  const queueDetachedBrowserDesignRequest = async (submission: BrowserDesignRequestSubmission) => {
+    if (!threadId || !thread) {
+      toastManager.add({
+        type: "error",
+        title: "Could not queue design note",
+        description: "This browser window is not linked to a chat thread.",
+      });
+      return;
+    }
+    const api = readNativeApi();
+    if (!api) {
+      toastManager.add({
+        type: "error",
+        title: "Could not queue design note",
+        description: "The desktop API is unavailable.",
+      });
+      return;
+    }
+    const trimmedInstructions = submission.instructions.trim();
+    const normalizedMimeType =
+      submission.imageMimeType.trim().length > 0 ? submission.imageMimeType : "image/png";
+    const fileExtension = /^image\/([a-z0-9.+-]+)$/i.exec(normalizedMimeType)?.[1] ?? "png";
+    const prompt = appendBrowserDesignContextToPrompt(
+      trimmedInstructions || "Review this browser screenshot.",
+      {
+        requestId: submission.requestId,
+        pageUrl: submission.pageUrl,
+        pagePath: submission.pagePath,
+        selection: submission.selection,
+        targetElement: submission.targetElement,
+        mainContainer: submission.mainContainer,
+      },
+    );
+    try {
+      await api.orchestration.dispatchCommand({
+        type: "thread.queue.append",
+        commandId: newCommandId(),
+        threadId,
+        position: "back",
+        message: {
+          id: newMessageId(),
+          prompt,
+          images: [
+            {
+              type: "image",
+              id: randomUUID(),
+              name: `designer-comment.${fileExtension}`,
+              mimeType: normalizedMimeType,
+              sizeBytes: submission.imageSizeBytes,
+              dataUrl: submission.imageDataUrl,
+            },
+          ],
+          terminalContexts: [],
+          modelSelection: thread.modelSelection,
+          runtimeMode: thread.runtimeMode,
+          interactionMode: thread.interactionMode,
         },
-      );
-      try {
-        await api.orchestration.dispatchCommand({
-          type: "thread.queue.append",
-          commandId: newCommandId(),
-          threadId,
-          position: "back",
-          message: {
-            id: newMessageId(),
-            prompt,
-            images: [
-              {
-                type: "image",
-                id: randomUUID(),
-                name: `designer-comment.${fileExtension}`,
-                mimeType: normalizedMimeType,
-                sizeBytes: submission.imageSizeBytes,
-                dataUrl: submission.imageDataUrl,
-              },
-            ],
-            terminalContexts: [],
-            modelSelection: thread.modelSelection,
-            runtimeMode: thread.runtimeMode,
-            interactionMode: thread.interactionMode,
-          },
-        });
-        toastManager.add({
-          type: "success",
-          title: "Design note queued",
-          description: "It was added to the linked chat.",
-        });
-      } catch (error) {
-        toastManager.add({
-          type: "error",
-          title: "Could not queue design note",
-          description: error instanceof Error ? error.message : "Please try again.",
-        });
-      }
-    },
-    [thread, threadId],
-  );
-  const moveBrowserBackToAce = useCallback(async () => {
+      });
+      toastManager.add({
+        type: "success",
+        title: "Design note queued",
+        description: "It was added to the linked chat.",
+      });
+    } catch (error) {
+      toastManager.add({
+        type: "error",
+        title: "Could not queue design note",
+        description: error instanceof Error ? error.message : "Please try again.",
+      });
+    }
+  };
+  const moveBrowserBackToAce = async () => {
     const returnDetachedWindow = window.desktopBridge?.returnDetachedWindow;
     if (!returnDetachedWindow) {
       return;
@@ -353,7 +350,7 @@ function DetachedBrowserWindow(props: {
       title: "Could not move browser back",
       description: "The desktop app did not restore the browser panel.",
     });
-  }, [props.search.scopeId]);
+  };
 
   useEffect(() => {
     const clearDetachedBrowserState = () => {
@@ -510,10 +507,7 @@ function DetachedEditorWindowContent(props: {
   const availableEditors = useServerAvailableEditors();
   const clearEditorThreadState = useEditorStateStore((state) => state.clearThreadState);
   const returningToMainWindowRef = useRef(false);
-  const fallbackEditorStateInstanceId = useMemo(
-    () => `detached-${resolveEditorWindowStateInstanceId()}`,
-    [],
-  );
+  const fallbackEditorStateInstanceId = `detached-${resolveEditorWindowStateInstanceId()}`;
   const inputEditorStateInstanceId =
     typeof props.editorStateInstanceId === "string"
       ? props.editorStateInstanceId.trim() || undefined
@@ -529,7 +523,7 @@ function DetachedEditorWindowContent(props: {
       threadId,
     });
   }, [editorStateInstanceId, project, thread, threadId]);
-  const moveEditorBackToAce = useCallback(async () => {
+  const moveEditorBackToAce = async () => {
     const returnDetachedWindow = window.desktopBridge?.returnDetachedWindow;
     if (!returnDetachedWindow || !props.threadId) {
       return;
@@ -560,13 +554,7 @@ function DetachedEditorWindowContent(props: {
       title: "Could not move editor back",
       description: "The desktop app did not restore the editor panel.",
     });
-  }, [
-    props.connectionUrl,
-    editorStateInstanceId,
-    props.placement,
-    props.threadId,
-    props.workspaceMode,
-  ]);
+  };
 
   useEffect(() => {
     if (!editorStateScopeId) {
@@ -690,7 +678,7 @@ function RootRouteErrorView({ error, reset }: ErrorComponentProps) {
   const details = errorDetails(error);
   const [copiedDetails, setCopiedDetails] = useState(false);
 
-  const copyDetails = useCallback(async () => {
+  const copyDetails = async () => {
     try {
       await navigator.clipboard.writeText(details);
       setCopiedDetails(true);
@@ -698,7 +686,7 @@ function RootRouteErrorView({ error, reset }: ErrorComponentProps) {
     } catch {
       setCopiedDetails(false);
     }
-  }, [details]);
+  };
 
   return (
     <div className="flex min-h-screen flex-col bg-background text-foreground">

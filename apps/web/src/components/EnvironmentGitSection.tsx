@@ -540,14 +540,14 @@ function useEnvironmentGitSection({
     [threadToastData],
   );
 
-  const saveSshPassphrase = useCallback(() => {
+  const saveSshPassphrase = () => {
     persistSshPassphrase(sshPassphraseDraft);
-  }, [persistSshPassphrase, sshPassphraseDraft]);
+  };
 
-  const clearSshPassphrase = useCallback(() => {
+  const clearSshPassphrase = () => {
     dispatch({ type: "set-ssh-passphrase-draft", value: "" });
     persistSshPassphrase("");
-  }, [persistSshPassphrase]);
+  };
 
   const updateActiveProgressToast = useCallback(() => {
     const progress = activeGitActionProgressRef.current;
@@ -589,17 +589,14 @@ function useEnvironmentGitSection({
     [activeServerThread, activeThreadId, setThreadBranch],
   );
 
-  const syncThreadBranchAfterGitAction = useCallback(
-    (result: GitRunStackedActionResult) => {
-      const branchUpdate = resolveThreadBranchUpdate(result);
-      if (!branchUpdate) {
-        return;
-      }
+  const syncThreadBranchAfterGitAction = (result: GitRunStackedActionResult) => {
+    const branchUpdate = resolveThreadBranchUpdate(result);
+    if (!branchUpdate) {
+      return;
+    }
 
-      persistThreadBranchSync(branchUpdate.branch);
-    },
-    [persistThreadBranchSync],
-  );
+    persistThreadBranchSync(branchUpdate.branch);
+  };
 
   // Default to true while loading so we don't flash init controls.
   const isRepo = branchList?.isRepo ?? true;
@@ -667,9 +664,11 @@ function useEnvironmentGitSection({
     return current?.isDefault ?? (branchName === "main" || branchName === "master");
   }, [branchList?.branches, gitStatusForActions?.branch]);
 
-  const gitActionMenuItems = useMemo(
-    () => buildMenuItems(gitStatusForActions, isGitActionRunning, hasOriginRemote, isDefaultBranch),
-    [gitStatusForActions, hasOriginRemote, isDefaultBranch, isGitActionRunning],
+  const gitActionMenuItems = buildMenuItems(
+    gitStatusForActions,
+    isGitActionRunning,
+    hasOriginRemote,
+    isDefaultBranch,
   );
   const quickAction = useMemo(
     () =>
@@ -941,7 +940,7 @@ function useEnvironmentGitSection({
     }
   };
 
-  const continuePendingDefaultBranchAction = useCallback(() => {
+  const continuePendingDefaultBranchAction = () => {
     if (!pendingDefaultBranchAction) return;
     const { action, commitMessage, onConfirmed, filePaths } = pendingDefaultBranchAction;
     dispatch({ type: "set-pending-default-branch-action", value: null });
@@ -952,9 +951,9 @@ function useEnvironmentGitSection({
       ...(filePaths ? { filePaths } : {}),
       skipDefaultBranchPrompt: true,
     });
-  }, [pendingDefaultBranchAction]);
+  };
 
-  const checkoutFeatureBranchAndContinuePendingAction = useCallback(() => {
+  const checkoutFeatureBranchAndContinuePendingAction = () => {
     if (!pendingDefaultBranchAction) return;
     const { action, commitMessage, onConfirmed, filePaths } = pendingDefaultBranchAction;
     dispatch({ type: "set-pending-default-branch-action", value: null });
@@ -966,9 +965,9 @@ function useEnvironmentGitSection({
       featureBranch: true,
       skipDefaultBranchPrompt: true,
     });
-  }, [pendingDefaultBranchAction]);
+  };
 
-  const runDialogActionOnNewBranch = useCallback(() => {
+  const runDialogActionOnNewBranch = () => {
     if (!isCommitDialogOpen) return;
     const commitMessage = dialogCommitMessage.trim();
 
@@ -981,9 +980,9 @@ function useEnvironmentGitSection({
       featureBranch: true,
       skipDefaultBranchPrompt: true,
     });
-  }, [allSelected, isCommitDialogOpen, dialogCommitMessage, selectedFiles]);
+  };
 
-  const runQuickAction = useCallback(() => {
+  const runQuickAction = () => {
     if (quickAction.kind === "open_pr") {
       void openExistingPr();
       return;
@@ -1021,31 +1020,28 @@ function useEnvironmentGitSection({
     if (quickAction.action) {
       void runGitActionWithToast({ action: quickAction.action });
     }
-  }, [openExistingPr, pullMutation, quickAction, threadToastData]);
+  };
 
-  const openDialogForMenuItem = useCallback(
-    (item: GitActionMenuItem) => {
-      if (item.disabled) return;
-      if (item.kind === "open_pr") {
-        void openExistingPr();
-        return;
-      }
-      if (item.dialogAction === "push") {
-        void runGitActionWithToast({ action: "push" });
-        return;
-      }
-      if (item.dialogAction === "create_pr") {
-        void runGitActionWithToast({ action: "create_pr" });
-        return;
-      }
-      dispatch({ type: "set-excluded-files", value: new Set() });
-      dispatch({ type: "set-editing-files", value: false });
-      dispatch({ type: "set-commit-dialog-open", value: true });
-    },
-    [openExistingPr],
-  );
+  const openDialogForMenuItem = (item: GitActionMenuItem) => {
+    if (item.disabled) return;
+    if (item.kind === "open_pr") {
+      void openExistingPr();
+      return;
+    }
+    if (item.dialogAction === "push") {
+      void runGitActionWithToast({ action: "push" });
+      return;
+    }
+    if (item.dialogAction === "create_pr") {
+      void runGitActionWithToast({ action: "create_pr" });
+      return;
+    }
+    dispatch({ type: "set-excluded-files", value: new Set() });
+    dispatch({ type: "set-editing-files", value: false });
+    dispatch({ type: "set-commit-dialog-open", value: true });
+  };
 
-  const runDialogAction = useCallback(() => {
+  const runDialogAction = () => {
     if (!isCommitDialogOpen) return;
     const commitMessage = dialogCommitMessage.trim();
     dispatch({ type: "reset-commit-dialog" });
@@ -1054,52 +1050,41 @@ function useEnvironmentGitSection({
       ...(commitMessage ? { commitMessage } : {}),
       ...(!allSelected ? { filePaths: selectedFiles.map((f) => f.path) } : {}),
     });
-  }, [allSelected, dialogCommitMessage, isCommitDialogOpen, selectedFiles]);
+  };
 
-  const openChangedFileInEditor = useCallback(
-    (filePath: string) => {
-      if (!activeThreadId || !gitCwd) {
-        toastManager.add({
-          type: "error",
-          title: "Workspace editor is unavailable.",
-          data: threadToastData,
-        });
-        return;
-      }
-      const relativePath = filePath.trim();
-      if (!relativePath) {
-        return;
-      }
-      if (workspaceMode === "chat") {
-        onWorkspaceModeChange("editor");
-      }
-      openFileInWorkspace(
-        resolveEditorInstanceStateScopeId({
-          gitCwd,
-          instanceId: editorStateInstanceId,
-          threadId: activeThreadId,
-        }),
-        relativePath,
-      );
-    },
-    [
-      activeThreadId,
-      editorStateInstanceId,
-      gitCwd,
-      onWorkspaceModeChange,
-      openFileInWorkspace,
-      threadToastData,
-      workspaceMode,
-    ],
-  );
+  const openChangedFileInEditor = (filePath: string) => {
+    if (!activeThreadId || !gitCwd) {
+      toastManager.add({
+        type: "error",
+        title: "Workspace editor is unavailable.",
+        data: threadToastData,
+      });
+      return;
+    }
+    const relativePath = filePath.trim();
+    if (!relativePath) {
+      return;
+    }
+    if (workspaceMode === "chat") {
+      onWorkspaceModeChange("editor");
+    }
+    openFileInWorkspace(
+      resolveEditorInstanceStateScopeId({
+        gitCwd,
+        instanceId: editorStateInstanceId,
+        threadId: activeThreadId,
+      }),
+      relativePath,
+    );
+  };
 
-  const closeGitActionMenu = useCallback(() => {
+  const closeGitActionMenu = () => {
     setGitActionMenuOpen(false);
-  }, []);
+  };
 
-  const toggleGitActionMenu = useCallback(() => {
+  const toggleGitActionMenu = () => {
     setGitActionMenuOpen((open) => !open);
-  }, []);
+  };
 
   if (!gitCwd) return null;
 

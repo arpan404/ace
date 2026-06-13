@@ -288,19 +288,19 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     fallbackScopeIdRef.current = `unscoped:${randomUUID()}`;
   }
   const scopeId = providedScopeId?.trim() || fallbackScopeIdRef.current;
-  const browserPartition = useMemo(() => resolveBrowserWebviewPartition(scopeId), [scopeId]);
+  const browserPartition = resolveBrowserWebviewPartition(scopeId);
   const findInputRef = useRef<HTMLInputElement | null>(null);
   const [findOpen, setFindOpen] = useState(false);
   const [findQuery, setFindQuery] = useState("");
   const [findResultByTabId, setFindResultByTabId] = useState<Record<string, BrowserFindResult>>({});
   const [showAuthRecovery, setShowAuthRecovery] = useState(false);
-  const openFindBar = useCallback(() => {
+  const openFindBar = () => {
     setFindOpen(true);
     window.requestAnimationFrame(() => {
       findInputRef.current?.focus();
       findInputRef.current?.select();
     });
-  }, []);
+  };
   const {
     activeRuntime,
     activeTab,
@@ -361,7 +361,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
   const onDetached = props.onDetached;
   const onReturnToMainWindow = props.onReturnToMainWindow;
   const canDetachBrowser = detachEnabled && Boolean(window.desktopBridge?.openDetachedBrowser);
-  const detachBrowser = useCallback(async () => {
+  const detachBrowser = async () => {
     const openDetachedBrowser = window.desktopBridge?.openDetachedBrowser;
     if (!openDetachedBrowser) {
       return;
@@ -379,7 +379,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
       description: "The desktop app did not open a detached browser window.",
       type: "error",
     });
-  }, [activeTab?.url, activeTabIsInternal, onClose, onDetached, scopeId]);
+  };
   const latestBrowserSessionChangeHandlerRef = useRef(onBrowserSessionChange);
   const pendingBrowserSessionRef = useRef<BrowserSessionStorage | null>(null);
   const browserSessionPublishFrameRef = useRef<number | null>(null);
@@ -478,10 +478,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     updateThreadJumpHintsVisibility: updateDesignerToolShortcutHintsVisibility,
   } = useThreadJumpHintVisibility();
   const forceExpandedAddressField = activeTabIsInternal || activeTabIsNewTab;
-  const addressPresentation = useMemo(
-    () => resolveAddressFieldPresentation(activeTab?.url ?? draftUrl),
-    [activeTab?.url, draftUrl],
-  );
+  const addressPresentation = resolveAddressFieldPresentation(activeTab?.url ?? draftUrl);
   const avoidNativeWebviewTransforms = isElectron;
   const browserShellInitial = avoidNativeWebviewTransforms
     ? { opacity: 0 }
@@ -509,12 +506,9 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
       : addressPresentation.security === "insecure"
         ? LockOpenIcon
         : null;
-  const activeDesignerToolButton = useMemo(
-    () =>
-      DESIGNER_TOOL_BUTTONS.find((item) => item.tool === designerState.tool) ??
-      FALLBACK_DESIGNER_TOOL_BUTTON,
-    [designerState.tool],
-  );
+  const activeDesignerToolButton =
+    DESIGNER_TOOL_BUTTONS.find((item) => item.tool === designerState.tool) ??
+    FALLBACK_DESIGNER_TOOL_BUTTON;
   const collapsedDesignerSelectorActive = designerState.active;
   const activeTabUrl = activeTab && !activeTabIsInternal ? activeTab.url : null;
   const signInWindowAvailable =
@@ -530,19 +524,16 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     setFindOpen(false);
     setFindQuery("");
   }, [stopFindInPage]);
-  const runFind = useCallback(
-    (direction: "next" | "previous") => {
-      if (!findQuery.trim() || activeTabIsInternal) {
-        return;
-      }
-      findInPage(findQuery, {
-        findNext: true,
-        forward: direction === "next",
-      });
-    },
-    [activeTabIsInternal, findInPage, findQuery],
-  );
-  const handleFindResultChange = useCallback((tabId: string, result: BrowserFindResult | null) => {
+  const runFind = (direction: "next" | "previous") => {
+    if (!findQuery.trim() || activeTabIsInternal) {
+      return;
+    }
+    findInPage(findQuery, {
+      findNext: true,
+      forward: direction === "next",
+    });
+  };
+  const handleFindResultChange = (tabId: string, result: BrowserFindResult | null) => {
     setFindResultByTabId((current) => {
       if (!result) {
         if (!(tabId in current)) {
@@ -565,7 +556,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
         [tabId]: result,
       };
     });
-  }, []);
+  };
 
   useEffect(() => {
     if (!open) {
@@ -599,17 +590,13 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
       window.clearTimeout(timeout);
     };
   }, [activeRuntime.loading, activeTab?.id, activeTab?.url, signInWindowAvailable]);
-  const mountedBrowserTabs = useMemo(
-    () =>
-      deferWebviewMount
-        ? []
-        : resolveMountedBrowserTabs({
-            activeTabId: activeTab?.id ?? null,
-            retainInactiveTabs: visible,
-            tabs: browserSession.tabs,
-          }),
-    [activeTab?.id, browserSession.tabs, deferWebviewMount, visible],
-  );
+  const mountedBrowserTabs = deferWebviewMount
+    ? []
+    : resolveMountedBrowserTabs({
+        activeTabId: activeTab?.id ?? null,
+        retainInactiveTabs: visible,
+        tabs: browserSession.tabs,
+      });
 
   useEffect(() => {
     if (!window.desktopBridge?.onMenuAction) {
@@ -703,24 +690,18 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
       window.removeEventListener("blur", onWindowBlur);
     };
   }, [designerModeAvailable, updateDesignerToolShortcutHintsVisibility, visible]);
-  const designerShortcutLabelByTool = useMemo<Record<BrowserDesignerTool, string | null>>(
-    () => ({
-      "area-comment": designerAreaCommentShortcutLabel ?? null,
-      "element-comment": designerElementCommentShortcutLabel ?? null,
-    }),
-    [designerAreaCommentShortcutLabel, designerElementCommentShortcutLabel],
-  );
-  const setDesignerToolButtonRef = useCallback(
-    (tool: BrowserDesignerTool, node: HTMLButtonElement | null) => {
-      const nodeMap = designerToolButtonRefs.current;
-      if (node) {
-        nodeMap.set(tool, node);
-        return;
-      }
-      nodeMap.delete(tool);
-    },
-    [],
-  );
+  const designerShortcutLabelByTool = {
+    "area-comment": designerAreaCommentShortcutLabel ?? null,
+    "element-comment": designerElementCommentShortcutLabel ?? null,
+  };
+  const setDesignerToolButtonRef = (tool: BrowserDesignerTool, node: HTMLButtonElement | null) => {
+    const nodeMap = designerToolButtonRefs.current;
+    if (node) {
+      nodeMap.set(tool, node);
+      return;
+    }
+    nodeMap.delete(tool);
+  };
   const toggleOrSelectDesignerTool = useCallback(
     (tool: BrowserDesignerTool) => {
       if (designerState.active && designerState.tool === tool) {
@@ -731,62 +712,62 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     },
     [designerState.active, designerState.tool, selectDesignerTool, setDesignerModeActive],
   );
-  const handleDesignerToolPointerDown = useCallback(
-    (event: ReactPointerEvent<HTMLButtonElement>, tool: BrowserDesignerTool) => {
-      event.preventDefault();
-      event.stopPropagation();
-      toggleOrSelectDesignerTool(tool);
-    },
-    [toggleOrSelectDesignerTool],
-  );
-  const handleDesignerToolKeyDown = useCallback(
-    (event: ReactKeyboardEvent<HTMLButtonElement>, tool: BrowserDesignerTool) => {
-      const toolIndex = DESIGNER_TOOL_BUTTONS.findIndex((item) => item.tool === tool);
-      if (toolIndex < 0) {
-        return;
-      }
-      const focusTool = (nextTool: BrowserDesignerTool) => {
-        selectDesignerTool(nextTool);
-        designerToolButtonRefs.current.get(nextTool)?.focus();
-      };
+  const handleDesignerToolPointerDown = (
+    event: ReactPointerEvent<HTMLButtonElement>,
+    tool: BrowserDesignerTool,
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    toggleOrSelectDesignerTool(tool);
+  };
+  const handleDesignerToolKeyDown = (
+    event: ReactKeyboardEvent<HTMLButtonElement>,
+    tool: BrowserDesignerTool,
+  ) => {
+    const toolIndex = DESIGNER_TOOL_BUTTONS.findIndex((item) => item.tool === tool);
+    if (toolIndex < 0) {
+      return;
+    }
+    const focusTool = (nextTool: BrowserDesignerTool) => {
+      selectDesignerTool(nextTool);
+      designerToolButtonRefs.current.get(nextTool)?.focus();
+    };
 
-      if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
-        event.preventDefault();
-        const previous =
-          DESIGNER_TOOL_BUTTONS[
-            (toolIndex - 1 + DESIGNER_TOOL_BUTTONS.length) % DESIGNER_TOOL_BUTTONS.length
-          ]?.tool;
-        if (previous) {
-          focusTool(previous);
-        }
-        return;
+    if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+      event.preventDefault();
+      const previous =
+        DESIGNER_TOOL_BUTTONS[
+          (toolIndex - 1 + DESIGNER_TOOL_BUTTONS.length) % DESIGNER_TOOL_BUTTONS.length
+        ]?.tool;
+      if (previous) {
+        focusTool(previous);
       }
-      if (event.key === "ArrowRight" || event.key === "ArrowDown") {
-        event.preventDefault();
-        const next = DESIGNER_TOOL_BUTTONS[(toolIndex + 1) % DESIGNER_TOOL_BUTTONS.length]?.tool;
-        if (next) {
-          focusTool(next);
-        }
-        return;
+      return;
+    }
+    if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+      event.preventDefault();
+      const next = DESIGNER_TOOL_BUTTONS[(toolIndex + 1) % DESIGNER_TOOL_BUTTONS.length]?.tool;
+      if (next) {
+        focusTool(next);
       }
-      if (event.key === "Home") {
-        event.preventDefault();
-        const firstTool = DESIGNER_TOOL_BUTTONS[0]?.tool;
-        if (firstTool) {
-          focusTool(firstTool);
-        }
-        return;
+      return;
+    }
+    if (event.key === "Home") {
+      event.preventDefault();
+      const firstTool = DESIGNER_TOOL_BUTTONS[0]?.tool;
+      if (firstTool) {
+        focusTool(firstTool);
       }
-      if (event.key === "End") {
-        event.preventDefault();
-        const lastTool = DESIGNER_TOOL_BUTTONS[DESIGNER_TOOL_BUTTONS.length - 1]?.tool;
-        if (lastTool) {
-          focusTool(lastTool);
-        }
+      return;
+    }
+    if (event.key === "End") {
+      event.preventDefault();
+      const lastTool = DESIGNER_TOOL_BUTTONS[DESIGNER_TOOL_BUTTONS.length - 1]?.tool;
+      if (lastTool) {
+        focusTool(lastTool);
       }
-    },
-    [selectDesignerTool],
-  );
+    }
+  };
   useLayoutEffect(() => {
     if (!designerModeAvailable) {
       setDesignerToolsCollapsed(false);
@@ -833,47 +814,43 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
       window.removeEventListener("resize", syncDesignerOverflow);
     };
   }, [designerModeAvailable]);
-  const handleBrowserSectionKeyDownCapture = useCallback(
-    (event: ReactKeyboardEvent<HTMLElement>) => {
-      const isMac = typeof navigator !== "undefined" && /mac/i.test(navigator.platform);
-      const usesMod = isMac ? event.metaKey : event.ctrlKey;
-      if (
-        usesMod &&
-        event.shiftKey &&
-        !event.altKey &&
-        event.key.toLowerCase() === "e" &&
-        !isEditableKeyboardTarget(event.target)
-      ) {
-        event.preventDefault();
-        event.stopPropagation();
-        toggleDesignerMode();
-        return;
-      }
-      handleBrowserKeyDownCapture(event);
-    },
-    [handleBrowserKeyDownCapture, toggleDesignerMode],
-  );
+  const handleBrowserSectionKeyDownCapture = (event: ReactKeyboardEvent<HTMLElement>) => {
+    const isMac = typeof navigator !== "undefined" && /mac/i.test(navigator.platform);
+    const usesMod = isMac ? event.metaKey : event.ctrlKey;
+    if (
+      usesMod &&
+      event.shiftKey &&
+      !event.altKey &&
+      event.key.toLowerCase() === "e" &&
+      !isEditableKeyboardTarget(event.target)
+    ) {
+      event.preventDefault();
+      event.stopPropagation();
+      toggleDesignerMode();
+      return;
+    }
+    handleBrowserKeyDownCapture(event);
+  };
 
-  const queueDesignRequest = useCallback(
-    async (submission: Omit<BrowserDesignRequestSubmission, "pagePath" | "pageUrl">) => {
-      if (!activeTab || activeTabIsInternal || !onQueueDesignRequest) {
-        throw new Error("Design request queue is unavailable for this tab.");
-      }
-      let pagePath = "/";
-      try {
-        const parsedUrl = new URL(activeTab.url);
-        pagePath = `${parsedUrl.pathname}${parsedUrl.search}${parsedUrl.hash}` || "/";
-      } catch {
-        pagePath = "/";
-      }
-      await onQueueDesignRequest({
-        ...submission,
-        pageUrl: activeTab.url,
-        pagePath,
-      });
-    },
-    [activeTab, activeTabIsInternal, onQueueDesignRequest],
-  );
+  const queueDesignRequest = async (
+    submission: Omit<BrowserDesignRequestSubmission, "pagePath" | "pageUrl">,
+  ) => {
+    if (!activeTab || activeTabIsInternal || !onQueueDesignRequest) {
+      throw new Error("Design request queue is unavailable for this tab.");
+    }
+    let pagePath = "/";
+    try {
+      const parsedUrl = new URL(activeTab.url);
+      pagePath = `${parsedUrl.pathname}${parsedUrl.search}${parsedUrl.hash}` || "/";
+    } catch {
+      pagePath = "/";
+    }
+    await onQueueDesignRequest({
+      ...submission,
+      pageUrl: activeTab.url,
+      pagePath,
+    });
+  };
   if (!open) {
     return null;
   }

@@ -657,10 +657,9 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
   const tabStripRef = useRef<HTMLDivElement | null>(null);
   const syncRequestIdRef = useRef(0);
   const diagnosticsUnavailableRetryAtRef = useRef(0);
-  const activePreviewKind = useMemo<WorkspacePreviewKind | null>(
-    () => (pane.activeFilePath ? detectWorkspacePreviewKind(pane.activeFilePath) : null),
-    [pane.activeFilePath],
-  );
+  const activePreviewKind = pane.activeFilePath
+    ? detectWorkspacePreviewKind(pane.activeFilePath)
+    : null;
   const isBinaryPreviewMode = activePreviewKind === "image" || activePreviewKind === "video";
   const textPreviewAvailable = activePreviewKind === "markdown" || activePreviewKind === "mermaid";
   const openFilePathSet = new Set(pane.openFilePaths);
@@ -734,9 +733,9 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
         ? "Mermaid preview"
         : "Preview mode";
   const activeLanguageId = resolveWorkspaceLanguageFromFilePath(props.pane.activeFilePath);
-  const activeFileCommentCount = useMemo(
-    () => countOpenWorkspaceCodeComments(props.codeComments, props.pane.activeFilePath),
-    [props.codeComments, props.pane.activeFilePath],
+  const activeFileCommentCount = countOpenWorkspaceCodeComments(
+    props.codeComments,
+    props.pane.activeFilePath,
   );
   const workspaceCwd = props.gitCwd ?? props.diagnosticsCwd;
   const latestPaneStateRef = useRef({
@@ -757,34 +756,30 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
     onOpenFileInPaneRef.current = onOpenFileInPane;
   }, [onOpenFileInPane]);
 
-  const setActiveTextPreviewOpen = useCallback(
-    (open: boolean) => {
-      const activeFilePath = pane.activeFilePath;
-      if (!activeFilePath || !textPreviewAvailable) {
-        return;
+  const setActiveTextPreviewOpen = (open: boolean) => {
+    const activeFilePath = pane.activeFilePath;
+    if (!activeFilePath || !textPreviewAvailable) {
+      return;
+    }
+    setTextPreviewFilePaths((current) => {
+      const next = new Set(current);
+      if (open) {
+        next.add(activeFilePath);
+      } else {
+        next.delete(activeFilePath);
       }
-      setTextPreviewFilePaths((current) => {
-        const next = new Set(current);
-        if (open) {
-          next.add(activeFilePath);
-        } else {
-          next.delete(activeFilePath);
-        }
-        return next.size === current.size &&
-          next.has(activeFilePath) === current.has(activeFilePath)
-          ? current
-          : next;
-      });
-    },
-    [pane.activeFilePath, textPreviewAvailable],
-  );
+      return next.size === current.size && next.has(activeFilePath) === current.has(activeFilePath)
+        ? current
+        : next;
+    });
+  };
 
-  const handleSave = useCallback(() => {
+  const handleSave = () => {
     if (!pane.activeFilePath || !activeDraft) {
       return;
     }
     onSaveFile(pane.activeFilePath, activeDraft.draftContents);
-  }, [activeDraft, onSaveFile, pane.activeFilePath]);
+  };
 
   const activeFileReady =
     pane.activeFilePath !== null &&
@@ -864,14 +859,14 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
     [applyWorkspaceProblems, pane.activeFilePath],
   );
 
-  const handleEditorFocus = useCallback(() => {
+  const handleEditorFocus = () => {
     onFocusPane(pane.id);
     dispatchNavigationState({ type: "editor-mounted" });
-  }, [onFocusPane, pane.id]);
+  };
 
-  const handleCursorLabelChange = useCallback((cursorLabel: string) => {
+  const handleCursorLabelChange = (cursorLabel: string) => {
     dispatchSelectionState({ type: "set-cursor-label", cursorLabel });
-  }, []);
+  };
 
   const handleSymbolsChange = useCallback(
     (contents: string) => {
@@ -884,36 +879,33 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
     [isPreviewMode, onSymbolsChange, pane.activeFilePath, pane.id],
   );
 
-  const handleSelectionChange = useCallback(
-    (selection: WorkspaceCodeEditorSelection | null) => {
-      if (!selection || !workspaceCwd || isPreviewMode) {
-        dispatchSelectionState({ type: "clear-selection" });
-        activeSelectionIdRef.current = null;
-        return;
-      }
-      if (activeSelectionIdRef.current !== selection.id) {
-        activeSelectionIdRef.current = selection.id;
-        dispatchSelectionState({ type: "reset-selection-comment" });
-      }
-      const context = buildWorkspaceSelectionContext({
-        cwd: workspaceCwd,
-        diagnostics: diagnosticsForSelectionContext(problems),
-        languageId: activeLanguageId ?? null,
-        range: selection.location,
-        text: selection.text,
-      });
-      dispatchSelectionState({
-        type: "set-active-selection",
-        activeSelection: {
-          context,
-          id: selection.id,
-          left: selection.left,
-          top: selection.top,
-        },
-      });
-    },
-    [activeLanguageId, isPreviewMode, problems, workspaceCwd],
-  );
+  const handleSelectionChange = (selection: WorkspaceCodeEditorSelection | null) => {
+    if (!selection || !workspaceCwd || isPreviewMode) {
+      dispatchSelectionState({ type: "clear-selection" });
+      activeSelectionIdRef.current = null;
+      return;
+    }
+    if (activeSelectionIdRef.current !== selection.id) {
+      activeSelectionIdRef.current = selection.id;
+      dispatchSelectionState({ type: "reset-selection-comment" });
+    }
+    const context = buildWorkspaceSelectionContext({
+      cwd: workspaceCwd,
+      diagnostics: diagnosticsForSelectionContext(problems),
+      languageId: activeLanguageId ?? null,
+      range: selection.location,
+      text: selection.text,
+    });
+    dispatchSelectionState({
+      type: "set-active-selection",
+      activeSelection: {
+        context,
+        id: selection.id,
+        left: selection.left,
+        top: selection.top,
+      },
+    });
+  };
 
   const focusWorkspaceLocation = useCallback((location: WorkspaceEditorLocation) => {
     const editor = editorRef.current;
@@ -976,104 +968,95 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
     [api, props.connectionUrl, props.diagnosticsCwd],
   );
 
-  const handleDefinitionRequest = useCallback(
-    (input: { contents: string; line: number; column: number }) => {
-      const relativePath = latestPaneStateRef.current.activeFilePath;
-      if (!relativePath || isPreviewMode) {
-        return;
+  const handleDefinitionRequest = (input: { contents: string; line: number; column: number }) => {
+    const relativePath = latestPaneStateRef.current.activeFilePath;
+    if (!relativePath || isPreviewMode) {
+      return;
+    }
+    void loadDefinitionLocations({
+      relativePath,
+      contents: input.contents,
+      line: input.line,
+      column: input.column,
+    }).then((locations) => {
+      const firstLocation = locations[0];
+      if (firstLocation) {
+        focusWorkspaceLocation(firstLocation);
       }
-      void loadDefinitionLocations({
-        relativePath,
-        contents: input.contents,
-        line: input.line,
-        column: input.column,
-      }).then((locations) => {
-        const firstLocation = locations[0];
-        if (firstLocation) {
-          focusWorkspaceLocation(firstLocation);
-        }
-      });
-    },
-    [focusWorkspaceLocation, isPreviewMode, loadDefinitionLocations],
-  );
+    });
+  };
 
-  const handleCompletionRequest = useCallback(
-    async (input: {
-      contents: string;
-      line: number;
-      column: number;
-    }): Promise<readonly WorkspaceEditorCompletionItem[]> => {
-      if (!api || !props.diagnosticsCwd || !pane.activeFilePath || isPreviewMode) {
-        return [];
-      }
-      try {
-        const result = await api.workspaceEditor.complete(
-          withRpcRouteConnection(
-            {
-              cwd: props.diagnosticsCwd,
-              relativePath: pane.activeFilePath,
-              contents: input.contents,
-              line: input.line,
-              column: input.column,
-            },
-            props.connectionUrl,
-          ),
-        );
-        return result.items;
-      } catch {
-        return [];
-      }
-    },
-    [api, isPreviewMode, pane.activeFilePath, props.connectionUrl, props.diagnosticsCwd],
-  );
+  const handleCompletionRequest = async (input: {
+    contents: string;
+    line: number;
+    column: number;
+  }): Promise<readonly WorkspaceEditorCompletionItem[]> => {
+    if (!api || !props.diagnosticsCwd || !pane.activeFilePath || isPreviewMode) {
+      return [];
+    }
+    try {
+      const result = await api.workspaceEditor.complete(
+        withRpcRouteConnection(
+          {
+            cwd: props.diagnosticsCwd,
+            relativePath: pane.activeFilePath,
+            contents: input.contents,
+            line: input.line,
+            column: input.column,
+          },
+          props.connectionUrl,
+        ),
+      );
+      return result.items;
+    } catch {
+      return [];
+    }
+  };
 
-  const handleHoverRequest = useCallback(
-    async (input: {
-      contents: string;
-      line: number;
-      column: number;
-    }): Promise<WorkspaceEditorHoverResult | null> => {
-      if (!api || !props.diagnosticsCwd || !pane.activeFilePath || isPreviewMode) {
-        return null;
-      }
-      try {
-        const result = await api.workspaceEditor.hover(
-          withRpcRouteConnection(
-            {
-              cwd: props.diagnosticsCwd,
-              relativePath: pane.activeFilePath,
-              contents: input.contents,
-              line: input.line,
-              column: input.column,
-            },
-            props.connectionUrl,
-          ),
-        );
-        return result.contents.length > 0 ? result : null;
-      } catch {
-        return null;
-      }
-    },
-    [api, isPreviewMode, pane.activeFilePath, props.connectionUrl, props.diagnosticsCwd],
-  );
+  const handleHoverRequest = async (input: {
+    contents: string;
+    line: number;
+    column: number;
+  }): Promise<WorkspaceEditorHoverResult | null> => {
+    if (!api || !props.diagnosticsCwd || !pane.activeFilePath || isPreviewMode) {
+      return null;
+    }
+    try {
+      const result = await api.workspaceEditor.hover(
+        withRpcRouteConnection(
+          {
+            cwd: props.diagnosticsCwd,
+            relativePath: pane.activeFilePath,
+            contents: input.contents,
+            line: input.line,
+            column: input.column,
+          },
+          props.connectionUrl,
+        ),
+      );
+      return result.contents.length > 0 ? result : null;
+    } catch {
+      return null;
+    }
+  };
 
-  const openWorkspaceFind = useCallback((input: { replace: boolean; seed: string }) => {
+  const openWorkspaceFind = (input: { replace: boolean; seed: string }) => {
     setFindExpandedReplace(input.replace);
     setFindOpen(true);
     if (input.seed.length > 0) {
       setFindState((current) => ({ ...current, search: input.seed }));
     }
-  }, []);
+  };
 
-  const closeWorkspaceFind = useCallback(() => {
+  const closeWorkspaceFind = () => {
     setFindOpen(false);
     setClosedFindRequestToken(activeFindRequestToken);
     editorRef.current?.closeFindQuery();
-  }, [activeFindRequestToken]);
+  };
 
-  const updateFindState = useCallback((patch: Partial<WorkspaceFindState>) => {
+  const updateFindState = (patch: Partial<WorkspaceFindState>) => {
     setFindState((current) => ({ ...current, ...patch }));
-  }, []);
+  };
 
   useEffect(() => {
     if (!visibleFindOpen) {
@@ -1233,156 +1216,126 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
     }
   }, []);
 
-  const handleTabDrop = useCallback(
-    (event: ReactDragEvent<HTMLElement>, targetIndex?: number) => {
-      const draggedTab = readDraggedTab(event);
-      if (draggedTab) {
-        event.preventDefault();
-        setDropTargetIndex(null);
-        onMoveFile({
-          ...draggedTab,
-          targetPaneId: pane.id,
-          ...(targetIndex === undefined ? {} : { targetIndex }),
-        });
-        return;
-      }
-      const draggedEntry = readDraggedExplorerEntry(event);
-      if (!draggedEntry || draggedEntry.kind !== "file") {
-        return;
-      }
+  const handleTabDrop = (event: ReactDragEvent<HTMLElement>, targetIndex?: number) => {
+    const draggedTab = readDraggedTab(event);
+    if (draggedTab) {
       event.preventDefault();
       setDropTargetIndex(null);
-      onOpenFileInPane(pane.id, draggedEntry.path, targetIndex);
-    },
-    [onMoveFile, onOpenFileInPane, pane.id, readDraggedExplorerEntry, readDraggedTab],
-  );
+      onMoveFile({
+        ...draggedTab,
+        targetPaneId: pane.id,
+        ...(targetIndex === undefined ? {} : { targetIndex }),
+      });
+      return;
+    }
+    const draggedEntry = readDraggedExplorerEntry(event);
+    if (!draggedEntry || draggedEntry.kind !== "file") {
+      return;
+    }
+    event.preventDefault();
+    setDropTargetIndex(null);
+    onOpenFileInPane(pane.id, draggedEntry.path, targetIndex);
+  };
 
-  const handleTabDragOver = useCallback(
-    (event: ReactDragEvent<HTMLElement>, targetIndex?: number) => {
-      const draggedTab = readDraggedTab(event);
-      if (draggedTab) {
-        event.preventDefault();
-        event.dataTransfer.dropEffect = "move";
-        autoScrollTabStripOnDragOver(event.clientX);
-        setDropTargetIndex(targetIndex ?? pane.openFilePaths.length);
-        return;
-      }
-      const draggedEntry = readDraggedExplorerEntry(event);
-      if (!draggedEntry || draggedEntry.kind !== "file") {
-        return;
-      }
+  const handleTabDragOver = (event: ReactDragEvent<HTMLElement>, targetIndex?: number) => {
+    const draggedTab = readDraggedTab(event);
+    if (draggedTab) {
       event.preventDefault();
-      event.dataTransfer.dropEffect = "copy";
+      event.dataTransfer.dropEffect = "move";
       autoScrollTabStripOnDragOver(event.clientX);
       setDropTargetIndex(targetIndex ?? pane.openFilePaths.length);
-    },
-    [
-      autoScrollTabStripOnDragOver,
-      pane.openFilePaths.length,
-      readDraggedExplorerEntry,
-      readDraggedTab,
-    ],
-  );
+      return;
+    }
+    const draggedEntry = readDraggedExplorerEntry(event);
+    if (!draggedEntry || draggedEntry.kind !== "file") {
+      return;
+    }
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+    autoScrollTabStripOnDragOver(event.clientX);
+    setDropTargetIndex(targetIndex ?? pane.openFilePaths.length);
+  };
 
-  const clearDropTarget = useCallback(() => {
+  const clearDropTarget = () => {
     setDropTargetIndex(null);
-  }, []);
+  };
 
-  const openTabContextMenu = useCallback(
-    async (event: ReactMouseEvent<HTMLButtonElement>, filePath: string) => {
-      if (!api) {
+  const openTabContextMenu = async (
+    event: ReactMouseEvent<HTMLButtonElement>,
+    filePath: string,
+  ) => {
+    if (!api) {
+      return;
+    }
+
+    const tabIndex = pane.openFilePaths.indexOf(filePath);
+    if (tabIndex < 0) {
+      return;
+    }
+
+    const items = [
+      { id: "open-side", label: `Open ${basenameOfPath(filePath)} to the Side` },
+      { id: "close", label: `Close ${basenameOfPath(filePath)}` },
+      {
+        id: "close-others",
+        label: "Close Other Tabs",
+        disabled: pane.openFilePaths.length <= 1,
+      },
+      {
+        id: "close-right",
+        label: "Close Tabs to the Right",
+        disabled: tabIndex >= pane.openFilePaths.length - 1,
+      },
+      {
+        id: "reopen-closed",
+        label: "Reopen Closed Tab",
+        disabled: !canReopenClosedTab,
+      },
+    ] as const;
+
+    const clicked = await api.contextMenu.show(items, {
+      x: event.clientX,
+      y: event.clientY,
+    });
+
+    switch (clicked) {
+      case "open-side":
+        onOpenFileToSide(pane.id, filePath);
         return;
-      }
-
-      const tabIndex = pane.openFilePaths.indexOf(filePath);
-      if (tabIndex < 0) {
+      case "close":
+        onCloseFile(pane.id, filePath);
         return;
-      }
-
-      const items = [
-        { id: "open-side", label: `Open ${basenameOfPath(filePath)} to the Side` },
-        { id: "close", label: `Close ${basenameOfPath(filePath)}` },
-        {
-          id: "close-others",
-          label: "Close Other Tabs",
-          disabled: pane.openFilePaths.length <= 1,
-        },
-        {
-          id: "close-right",
-          label: "Close Tabs to the Right",
-          disabled: tabIndex >= pane.openFilePaths.length - 1,
-        },
-        {
-          id: "reopen-closed",
-          label: "Reopen Closed Tab",
-          disabled: !canReopenClosedTab,
-        },
-      ] as const;
-
-      const clicked = await api.contextMenu.show(items, {
-        x: event.clientX,
-        y: event.clientY,
-      });
-
-      switch (clicked) {
-        case "open-side":
-          onOpenFileToSide(pane.id, filePath);
-          return;
-        case "close":
-          onCloseFile(pane.id, filePath);
-          return;
-        case "close-others":
-          onCloseOtherTabs(pane.id, filePath);
-          return;
-        case "close-right":
-          onCloseTabsToRight(pane.id, filePath);
-          return;
-        case "reopen-closed":
-          onReopenClosedTab(pane.id);
-          return;
-        default:
-      }
-    },
-    [
-      api,
-      canReopenClosedTab,
-      onCloseFile,
-      onCloseOtherTabs,
-      onCloseTabsToRight,
-      onOpenFileToSide,
-      onReopenClosedTab,
-      pane.id,
-      pane.openFilePaths,
-    ],
-  );
-
-  const sortedProblems = useMemo(
-    () =>
-      problems.toSorted((left, right) => {
-        if (left.severity !== right.severity) {
-          return right.severity - left.severity;
-        }
-        if (left.startLineNumber !== right.startLineNumber) {
-          return left.startLineNumber - right.startLineNumber;
-        }
-        return left.startColumn - right.startColumn;
-      }),
-    [problems],
-  );
-
-  const handleProblemClick = useCallback(
-    (problem: WorkspaceEditorPaneProblem) => {
-      if (!pane.activeFilePath) {
+      case "close-others":
+        onCloseOtherTabs(pane.id, filePath);
         return;
-      }
-      editorRef.current?.revealLocation(
-        toWorkspaceLocationFromProblem(pane.activeFilePath, problem),
-      );
-    },
-    [pane.activeFilePath],
-  );
+      case "close-right":
+        onCloseTabsToRight(pane.id, filePath);
+        return;
+      case "reopen-closed":
+        onReopenClosedTab(pane.id);
+        return;
+      default:
+    }
+  };
 
-  const handleAddAndSendSelectionComment = useCallback(async () => {
+  const sortedProblems = problems.toSorted((left, right) => {
+    if (left.severity !== right.severity) {
+      return right.severity - left.severity;
+    }
+    if (left.startLineNumber !== right.startLineNumber) {
+      return left.startLineNumber - right.startLineNumber;
+    }
+    return left.startColumn - right.startColumn;
+  });
+
+  const handleProblemClick = (problem: WorkspaceEditorPaneProblem) => {
+    if (!pane.activeFilePath) {
+      return;
+    }
+    editorRef.current?.revealLocation(toWorkspaceLocationFromProblem(pane.activeFilePath, problem));
+  };
+
+  const handleAddAndSendSelectionComment = async () => {
     if (
       !activeSelection ||
       !workspaceCwd ||
@@ -1427,7 +1380,7 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
       return;
     }
     dispatchSelectionState({ type: "reset-selection-comment" });
-  }, [activeSelection, commentDraft, props, selectionCommentSubmitting, workspaceCwd]);
+  };
 
   const activeFileErrorMessage =
     activeFileError instanceof Error ? activeFileError.message : "An unexpected error occurred.";

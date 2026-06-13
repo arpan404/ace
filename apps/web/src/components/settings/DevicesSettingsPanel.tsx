@@ -442,7 +442,7 @@ function useDevicesSettingsPanelComponent() {
     sessionState;
   const registeredRouteConnectionUrlsRef = useRef<Set<string>>(new Set());
   const importingHostRef = useRef(importingHost);
-  const localDeviceConnection = useMemo(() => splitWsUrlAuthToken(resolveLocalDeviceWsUrl()), []);
+  const localDeviceConnection = splitWsUrlAuthToken(resolveLocalDeviceWsUrl());
   useEffect(() => {
     importingHostRef.current = importingHost;
   }, [importingHost]);
@@ -461,14 +461,10 @@ function useDevicesSettingsPanelComponent() {
     [localDeviceConnection.authToken, localDeviceConnection.wsUrl],
   );
   const localAdvertisedWsUrl = advertisedLocalWsUrl ?? localDeviceConnection.wsUrl;
-  const localShareConnectionUrl = useMemo(
-    () =>
-      resolveHostConnectionWsUrl({
-        wsUrl: localAdvertisedWsUrl,
-        authToken: localDeviceConnection.authToken,
-      }),
-    [localAdvertisedWsUrl, localDeviceConnection.authToken],
-  );
+  const localShareConnectionUrl = resolveHostConnectionWsUrl({
+    wsUrl: localAdvertisedWsUrl,
+    authToken: localDeviceConnection.authToken,
+  });
   const { copyToClipboard } = useCopyToClipboard<{ readonly label: string }>({
     onCopy: ({ label }) => {
       toastManager.add({
@@ -525,12 +521,8 @@ function useDevicesSettingsPanelComponent() {
     });
   }, [connectedHostIds, hosts]);
 
-  const pinnedRelayUrls = useMemo(
-    () =>
-      Array.from(
-        new Set(pairedSessions.flatMap((session) => (session.relayUrl ? [session.relayUrl] : []))),
-      ),
-    [pairedSessions],
+  const pinnedRelayUrls = Array.from(
+    new Set(pairedSessions.flatMap((session) => (session.relayUrl ? [session.relayUrl] : []))),
   );
   const relayRegistrations = serverConfig?.relay?.registrations ?? [];
   const hasPinnedRelayMismatch = pinnedRelayUrls.some(
@@ -603,7 +595,7 @@ function useDevicesSettingsPanelComponent() {
     });
   }, [localDeviceConnection.authToken, localDeviceConnection.wsUrl]);
 
-  const saveRelaySettings = useCallback(() => {
+  const saveRelaySettings = () => {
     try {
       const normalized = validateRelayWebSocketUrl(relayUrlDraft, {
         allowInsecureLocalUrls: remoteRelaySettings.allowInsecureLocalUrls,
@@ -627,38 +619,27 @@ function useDevicesSettingsPanelComponent() {
         description: error instanceof Error ? error.message : "Relay URL validation failed.",
       });
     }
-  }, [
-    relayUrlDraft,
-    remoteRelaySettings.allowInsecureLocalUrls,
-    remoteRelaySettings.enabled,
-    updateSettings,
-  ]);
+  };
 
-  const toggleInsecureRelayUrls = useCallback(
-    (allow: boolean) => {
-      updateSettings({
-        remoteRelay: {
-          enabled: remoteRelaySettings.enabled,
-          defaultUrl: relayUrlDraft,
-          allowInsecureLocalUrls: allow,
-        },
-      });
-    },
-    [relayUrlDraft, remoteRelaySettings.enabled, updateSettings],
-  );
+  const toggleInsecureRelayUrls = (allow: boolean) => {
+    updateSettings({
+      remoteRelay: {
+        enabled: remoteRelaySettings.enabled,
+        defaultUrl: relayUrlDraft,
+        allowInsecureLocalUrls: allow,
+      },
+    });
+  };
 
-  const toggleRemoteRelayEnabled = useCallback(
-    (enabled: boolean) => {
-      updateSettings({
-        remoteRelay: {
-          enabled,
-          defaultUrl: relayUrlDraft,
-          allowInsecureLocalUrls: remoteRelaySettings.allowInsecureLocalUrls,
-        },
-      });
-    },
-    [relayUrlDraft, remoteRelaySettings.allowInsecureLocalUrls, updateSettings],
-  );
+  const toggleRemoteRelayEnabled = (enabled: boolean) => {
+    updateSettings({
+      remoteRelay: {
+        enabled,
+        defaultUrl: relayUrlDraft,
+        allowInsecureLocalUrls: remoteRelaySettings.allowInsecureLocalUrls,
+      },
+    });
+  };
 
   const markHostLastConnected = useCallback(
     (hostId: string) => {
@@ -885,7 +866,7 @@ function useDevicesSettingsPanelComponent() {
     };
   }, [consumePendingDesktopPairingLink, desktopMode]);
 
-  const addRemoteHost = useCallback(async () => {
+  const addRemoteHost = async () => {
     dispatchPanelState({ type: "set-importing-host", importingHost: true });
     try {
       const editingHost = editingHostId
@@ -912,18 +893,9 @@ function useDevicesSettingsPanelComponent() {
       return;
     }
     dispatchPanelState({ type: "set-importing-host", importingHost: false });
-  }, [
-    clearHostDraft,
-    editingHostId,
-    hostDraft.connection,
-    hostDraft.iconColor,
-    hostDraft.iconGlyph,
-    hostDraft.name,
-    hosts,
-    importRemoteHostConnection,
-  ]);
+  };
 
-  const startEditingHost = useCallback((host: RemoteHostInstance) => {
+  const startEditingHost = (host: RemoteHostInstance) => {
     dispatchPanelState({ type: "set-editing-host-id", editingHostId: host.id });
     dispatchPanelState({
       type: "set-host-draft",
@@ -934,34 +906,31 @@ function useDevicesSettingsPanelComponent() {
         iconColor: host.iconColor ?? "slate",
       },
     });
-  }, []);
+  };
 
-  const removeHost = useCallback(
-    async (host: RemoteHostInstance) => {
-      const confirmed = await ensureNativeApi().dialogs.confirm(
-        `Remove "${host.name}" from saved remote hosts?`,
-      );
-      if (!confirmed) {
-        return;
-      }
-      saveConnectedHostIds(connectedHostIds.filter((hostId) => hostId !== host.id));
-      saveHosts(hosts.filter((candidate) => candidate.id !== host.id));
-      if (editingHostId === host.id) {
-        clearHostDraft();
-      }
-      try {
-        await disposeRemoteRouteClient(resolveHostConnectionWsUrl(host));
-      } catch (error) {
-        toastManager.add({
-          type: "warning",
-          title: "Removed host, but cleanup failed.",
-          description:
-            error instanceof Error ? error.message : "Remote route cleanup did not complete.",
-        });
-      }
-    },
-    [clearHostDraft, connectedHostIds, editingHostId, hosts, saveConnectedHostIds, saveHosts],
-  );
+  const removeHost = async (host: RemoteHostInstance) => {
+    const confirmed = await ensureNativeApi().dialogs.confirm(
+      `Remove "${host.name}" from saved remote hosts?`,
+    );
+    if (!confirmed) {
+      return;
+    }
+    saveConnectedHostIds(connectedHostIds.filter((hostId) => hostId !== host.id));
+    saveHosts(hosts.filter((candidate) => candidate.id !== host.id));
+    if (editingHostId === host.id) {
+      clearHostDraft();
+    }
+    try {
+      await disposeRemoteRouteClient(resolveHostConnectionWsUrl(host));
+    } catch (error) {
+      toastManager.add({
+        type: "warning",
+        title: "Removed host, but cleanup failed.",
+        description:
+          error instanceof Error ? error.message : "Remote route cleanup did not complete.",
+      });
+    }
+  };
 
   const checkHostAvailability = useCallback(
     async (host: RemoteHostInstance) => {
@@ -1046,39 +1015,36 @@ function useDevicesSettingsPanelComponent() {
     [connectedHostIds, connectingHostId, markHostLastConnected, saveConnectedHostIds],
   );
 
-  const disconnectHost = useCallback(
-    async (host: RemoteHostInstance) => {
-      if (connectingHostId !== null || !connectedHostIds.includes(host.id)) {
-        return;
+  const disconnectHost = async (host: RemoteHostInstance) => {
+    if (connectingHostId !== null || !connectedHostIds.includes(host.id)) {
+      return;
+    }
+    dispatchPanelState({ type: "set-connecting-host-id", connectingHostId: host.id });
+    try {
+      saveConnectedHostIds(
+        connectedHostIds.filter((candidateHostId) => candidateHostId !== host.id),
+      );
+      const connectionUrl = resolveHostConnectionWsUrl(host);
+      await disposeRemoteRouteClient(connectionUrl);
+      const ownership = useHostConnectionStore.getState().getOwnership(connectionUrl);
+      if (ownership) {
+        useStore.getState().removeReadModelEntities(ownership);
       }
-      dispatchPanelState({ type: "set-connecting-host-id", connectingHostId: host.id });
-      try {
-        saveConnectedHostIds(
-          connectedHostIds.filter((candidateHostId) => candidateHostId !== host.id),
-        );
-        const connectionUrl = resolveHostConnectionWsUrl(host);
-        await disposeRemoteRouteClient(connectionUrl);
-        const ownership = useHostConnectionStore.getState().getOwnership(connectionUrl);
-        if (ownership) {
-          useStore.getState().removeReadModelEntities(ownership);
-        }
-        useHostConnectionStore.getState().removeConnection(connectionUrl);
-      } catch (error) {
-        toastManager.add({
-          type: "warning",
-          title: "Disconnected host, but cleanup failed.",
-          description:
-            error instanceof Error ? error.message : "Remote route cleanup did not complete.",
-        });
-        dispatchPanelState({ type: "set-connecting-host-id", connectingHostId: null });
-        return;
-      }
+      useHostConnectionStore.getState().removeConnection(connectionUrl);
+    } catch (error) {
+      toastManager.add({
+        type: "warning",
+        title: "Disconnected host, but cleanup failed.",
+        description:
+          error instanceof Error ? error.message : "Remote route cleanup did not complete.",
+      });
       dispatchPanelState({ type: "set-connecting-host-id", connectingHostId: null });
-    },
-    [connectedHostIds, connectingHostId, saveConnectedHostIds],
-  );
+      return;
+    }
+    dispatchPanelState({ type: "set-connecting-host-id", connectingHostId: null });
+  };
 
-  const connectLocalHost = useCallback(async () => {
+  const connectLocalHost = async () => {
     if (connectingHostId !== null) {
       return;
     }
@@ -1096,9 +1062,9 @@ function useDevicesSettingsPanelComponent() {
       return;
     }
     dispatchPanelState({ type: "set-connecting-host-id", connectingHostId: null });
-  }, [connectingHostId, localControlConnectionUrl]);
+  };
 
-  const createPairingLink = useCallback(async () => {
+  const createPairingLink = async () => {
     if (!remoteRelaySettings.enabled) {
       toastManager.add({
         type: "warning",
@@ -1164,14 +1130,9 @@ function useDevicesSettingsPanelComponent() {
       return;
     }
     dispatchPairingUi({ type: "set-creating", creatingPairingLink: false });
-  }, [
-    localAdvertisedWsUrl,
-    localDeviceConnection.authToken,
-    pairingLabel,
-    remoteRelaySettings.enabled,
-  ]);
+  };
 
-  const revokePairingLink = useCallback(async () => {
+  const revokePairingLink = async () => {
     if (!pairingLink) {
       return;
     }
@@ -1197,7 +1158,7 @@ function useDevicesSettingsPanelComponent() {
       return;
     }
     dispatchPairingUi({ type: "set-revoking", revokingPairingLink: false });
-  }, [localAdvertisedWsUrl, localDeviceConnection.authToken, pairingLink]);
+  };
 
   useEffect(() => {
     if (!pairingLink) {
@@ -1277,67 +1238,62 @@ function useDevicesSettingsPanelComponent() {
     [localAdvertisedWsUrl, localDeviceConnection.authToken],
   );
 
-  const revokePairedSession = useCallback(
-    async (session: HostPairingSessionSummary) => {
-      const confirmed = await ensureNativeApi().dialogs.confirm(
-        `Revoke access for "${session.requesterName ?? session.name}"?`,
-      );
-      if (!confirmed) {
-        return;
-      }
-      dispatchSessionState({
-        type: "set-revoking-paired-session",
+  const revokePairedSession = async (session: HostPairingSessionSummary) => {
+    const confirmed = await ensureNativeApi().dialogs.confirm(
+      `Revoke access for "${session.requesterName ?? session.name}"?`,
+    );
+    if (!confirmed) {
+      return;
+    }
+    dispatchSessionState({
+      type: "set-revoking-paired-session",
+      sessionId: session.sessionId,
+      revoking: true,
+    });
+    try {
+      const revoked = await revokeHostPairingSession({
+        wsUrl: localAdvertisedWsUrl,
+        ...(localDeviceConnection.authToken ? { authToken: localDeviceConnection.authToken } : {}),
         sessionId: session.sessionId,
-        revoking: true,
       });
-      try {
-        const revoked = await revokeHostPairingSession({
-          wsUrl: localAdvertisedWsUrl,
-          ...(localDeviceConnection.authToken
-            ? { authToken: localDeviceConnection.authToken }
-            : {}),
-          sessionId: session.sessionId,
-        });
-        dispatchSessionState({
-          type: "set-paired-sessions",
-          pairedSessions: pairedSessions.map((entry) =>
-            entry.sessionId === session.sessionId
-              ? {
-                  ...entry,
-                  status: revoked.status,
-                  ...(revoked.requesterName ? { requesterName: revoked.requesterName } : {}),
-                  ...(revoked.claimId ? { claimId: revoked.claimId } : {}),
-                  ...(entry.resolvedAt ? { resolvedAt: entry.resolvedAt } : {}),
-                }
-              : entry,
-          ),
-        });
-        toastManager.add({
-          type: "success",
-          title: "Device access revoked.",
-        });
-        await refreshPairedSessions({ quiet: true });
-      } catch (error) {
-        toastManager.add({
-          type: "error",
-          title: "Could not revoke device access.",
-          description: error instanceof Error ? error.message : "Pairing session revoke failed.",
-        });
-        dispatchSessionState({
-          type: "set-revoking-paired-session",
-          sessionId: session.sessionId,
-          revoking: false,
-        });
-        return;
-      }
+      dispatchSessionState({
+        type: "set-paired-sessions",
+        pairedSessions: pairedSessions.map((entry) =>
+          entry.sessionId === session.sessionId
+            ? {
+                ...entry,
+                status: revoked.status,
+                ...(revoked.requesterName ? { requesterName: revoked.requesterName } : {}),
+                ...(revoked.claimId ? { claimId: revoked.claimId } : {}),
+                ...(entry.resolvedAt ? { resolvedAt: entry.resolvedAt } : {}),
+              }
+            : entry,
+        ),
+      });
+      toastManager.add({
+        type: "success",
+        title: "Device access revoked.",
+      });
+      await refreshPairedSessions({ quiet: true });
+    } catch (error) {
+      toastManager.add({
+        type: "error",
+        title: "Could not revoke device access.",
+        description: error instanceof Error ? error.message : "Pairing session revoke failed.",
+      });
       dispatchSessionState({
         type: "set-revoking-paired-session",
         sessionId: session.sessionId,
         revoking: false,
       });
-    },
-    [localAdvertisedWsUrl, localDeviceConnection.authToken, pairedSessions, refreshPairedSessions],
-  );
+      return;
+    }
+    dispatchSessionState({
+      type: "set-revoking-paired-session",
+      sessionId: session.sessionId,
+      revoking: false,
+    });
+  };
 
   useEffect(() => {
     void refreshPairedSessions({ quiet: true });

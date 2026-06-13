@@ -1406,29 +1406,21 @@ export default memo(function ThreadTerminalDrawer({
     layout === "panel"
       ? { id: activeTerminalGroup.id, terminalIds: [resolvedActiveTerminalId] }
       : activeTerminalGroup;
-  const activeGroupPaneRatios = useMemo(
-    () =>
-      resolveTerminalGroupPaneRatios(
-        splitRatiosByGroupId[visibleTerminalGroup.id],
-        visibleTerminalGroup.terminalIds.length,
-      ),
-    [splitRatiosByGroupId, visibleTerminalGroup.id, visibleTerminalGroup.terminalIds.length],
+  const activeGroupPaneRatios = resolveTerminalGroupPaneRatios(
+    splitRatiosByGroupId[visibleTerminalGroup.id],
+    visibleTerminalGroup.terminalIds.length,
   );
 
-  const terminalLabelById = useMemo(
-    () =>
-      new Map(
-        normalizedTerminalIds.map((terminalId) => [
-          terminalId,
-          resolveTerminalDisplayTitle({
-            autoTitle: autoTerminalTitlesById[terminalId],
-            cwd,
-            isRunning: runningTerminalIdSet.has(terminalId),
-            terminalId,
-          }),
-        ]),
-      ),
-    [autoTerminalTitlesById, cwd, normalizedTerminalIds, runningTerminalIdSet],
+  const terminalLabelById = new Map(
+    normalizedTerminalIds.map((terminalId) => [
+      terminalId,
+      resolveTerminalDisplayTitle({
+        autoTitle: autoTerminalTitlesById[terminalId],
+        cwd,
+        isRunning: runningTerminalIdSet.has(terminalId),
+        terminalId,
+      }),
+    ]),
   );
   const newTerminalActionLabel = newShortcutLabel
     ? `New Terminal (${newShortcutLabel})`
@@ -1436,34 +1428,31 @@ export default memo(function ThreadTerminalDrawer({
   const toggleTerminalActionLabel = toggleShortcutLabel
     ? `Hide Terminal (${toggleShortcutLabel})`
     : "Hide Terminal";
-  const onNewTerminalAction = useCallback(() => {
+  const onNewTerminalAction = () => {
     onNewTerminal();
-  }, [onNewTerminal]);
-  const handleTerminalTabDragStart = useCallback((event: DragStartEvent) => {
+  };
+  const handleTerminalTabDragStart = (event: DragStartEvent) => {
     suppressTerminalTabClickAfterDragRef.current = true;
     void event;
-  }, []);
-  const handleTerminalTabDragEnd = useCallback(
-    (event: DragEndEvent) => {
-      const draggedTerminalId = String(event.active.id);
-      const overTerminalId = event.over ? String(event.over.id) : null;
-      if (overTerminalId && draggedTerminalId !== overTerminalId) {
-        const target = resolveTerminalTabDropTarget(resolvedTerminalGroups, overTerminalId);
-        if (target) {
-          onMoveTerminal(draggedTerminalId, target.groupId, target.index);
-        }
+  };
+  const handleTerminalTabDragEnd = (event: DragEndEvent) => {
+    const draggedTerminalId = String(event.active.id);
+    const overTerminalId = event.over ? String(event.over.id) : null;
+    if (overTerminalId && draggedTerminalId !== overTerminalId) {
+      const target = resolveTerminalTabDropTarget(resolvedTerminalGroups, overTerminalId);
+      if (target) {
+        onMoveTerminal(draggedTerminalId, target.groupId, target.index);
       }
-      window.setTimeout(() => {
-        suppressTerminalTabClickAfterDragRef.current = false;
-      }, 0);
-    },
-    [onMoveTerminal, resolvedTerminalGroups],
-  );
-  const handleTerminalTabDragCancel = useCallback((_event: DragCancelEvent) => {
+    }
     window.setTimeout(() => {
       suppressTerminalTabClickAfterDragRef.current = false;
     }, 0);
-  }, []);
+  };
+  const handleTerminalTabDragCancel = (_event: DragCancelEvent) => {
+    window.setTimeout(() => {
+      suppressTerminalTabClickAfterDragRef.current = false;
+    }, 0);
+  };
 
   useEffect(() => {
     onHeightChangeRef.current = onHeightChange;
@@ -1480,7 +1469,7 @@ export default memo(function ThreadTerminalDrawer({
     onHeightChangeRef.current(clampedHeight);
   }, []);
 
-  const handleResizePointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+  const handleResizePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -1490,7 +1479,7 @@ export default memo(function ThreadTerminalDrawer({
       startY: event.clientY,
       startHeight: drawerHeightRef.current,
     };
-  }, []);
+  };
 
   const handleResizePointerMove = useStableCallback((event: PointerEvent) => {
     const resizeState = resizeStateRef.current;
@@ -1519,29 +1508,26 @@ export default memo(function ThreadTerminalDrawer({
     [syncHeight],
   );
 
-  const handlePaneResizePointerDown = useCallback(
-    (
-      event: ReactPointerEvent<HTMLDivElement>,
-      groupId: string,
-      dividerIndex: number,
-      ratios: number[],
-    ) => {
-      if (event.button !== 0) return;
-      const containerWidth = groupContainerRef.current?.clientWidth ?? 0;
-      if (containerWidth <= 0) return;
-      event.preventDefault();
-      event.currentTarget.setPointerCapture(event.pointerId);
-      paneResizeStateRef.current = {
-        pointerId: event.pointerId,
-        startX: event.clientX,
-        groupId,
-        dividerIndex,
-        startRatios: ratios,
-        containerWidth,
-      };
-    },
-    [],
-  );
+  const handlePaneResizePointerDown = (
+    event: ReactPointerEvent<HTMLDivElement>,
+    groupId: string,
+    dividerIndex: number,
+    ratios: number[],
+  ) => {
+    if (event.button !== 0) return;
+    const containerWidth = groupContainerRef.current?.clientWidth ?? 0;
+    if (containerWidth <= 0) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    paneResizeStateRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      groupId,
+      dividerIndex,
+      startRatios: ratios,
+      containerWidth,
+    };
+  };
 
   const handlePaneResizePointerMove = useCallback(
     (event: PointerEvent) => {
