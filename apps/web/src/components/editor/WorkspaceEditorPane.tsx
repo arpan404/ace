@@ -1813,7 +1813,6 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
                   >
                     <input
                       ref={selectionCommentInputRef}
-                      autoFocus
                       aria-label="Selection comment"
                       value={commentDraft}
                       onChange={(event) =>

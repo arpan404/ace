@@ -81,6 +81,7 @@ import { readNativeApi } from "~/nativeApi";
 import { useStore } from "~/store";
 import { resolveEditorInstanceStateScopeId, useEditorStateStore } from "~/editorStateStore";
 import type { ThreadWorkspaceMode } from "~/threadWorkspaceMode";
+import { useEffectEvent } from "~/hooks/useEffectEvent";
 import { useSettings } from "~/hooks/useSettings";
 import { applySettingsUpdated } from "~/rpc/serverState";
 
@@ -399,6 +400,8 @@ function EnvironmentGitActionMenuPortal({
     if (!triggerElement) return;
     setPosition(resolveGitActionMenuPosition(triggerElement));
   }, [triggerRef]);
+  const onCloseEvent = useEffectEvent(onClose);
+  const updatePositionEvent = useEffectEvent(updatePosition);
 
   useLayoutEffect(() => {
     if (!open) {
@@ -414,27 +417,27 @@ function EnvironmentGitActionMenuPortal({
       if (triggerElement?.contains(target) || popupRef.current?.contains(target)) {
         return;
       }
-      onClose();
+      onCloseEvent();
     };
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       event.preventDefault();
-      onClose();
+      onCloseEvent();
     };
 
     document.addEventListener("pointerdown", handlePointerDown, true);
     document.addEventListener("keydown", handleKeyDown);
-    window.addEventListener("resize", updatePosition);
-    window.addEventListener("scroll", updatePosition, true);
+    window.addEventListener("resize", updatePositionEvent);
+    window.addEventListener("scroll", updatePositionEvent, true);
 
     return () => {
       document.removeEventListener("pointerdown", handlePointerDown, true);
       document.removeEventListener("keydown", handleKeyDown);
-      window.removeEventListener("resize", updatePosition);
-      window.removeEventListener("scroll", updatePosition, true);
+      window.removeEventListener("resize", updatePositionEvent);
+      window.removeEventListener("scroll", updatePositionEvent, true);
     };
-  }, [onClose, open, triggerRef, updatePosition]);
+  }, [open, triggerRef]);
 
   if (!open || !position || typeof document === "undefined") return null;
 

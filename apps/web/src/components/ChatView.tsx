@@ -1846,14 +1846,8 @@ function useChatViewComponent({
   const [rightSidePanelResizing, setRightSidePanelResizing] = useState(false);
   const windowStateInstanceId = useMemo(() => resolveEditorWindowStateInstanceId(), []);
   const workspaceEditorStateInstanceId = `workspace-${windowStateInstanceId}`;
-  const rightPanelFallbackEditorStateInstanceId = useMemo(
-    () => `right-${windowStateInstanceId}`,
-    [windowStateInstanceId],
-  );
-  const bottomPanelFallbackEditorStateInstanceId = useMemo(
-    () => `bottom-${windowStateInstanceId}`,
-    [windowStateInstanceId],
-  );
+  const rightPanelFallbackEditorStateInstanceId = `right-${windowStateInstanceId}`;
+  const bottomPanelFallbackEditorStateInstanceId = `bottom-${windowStateInstanceId}`;
   const [rightPanelTabOrder, setRightPanelTabOrder] = useState<PanelTabOrderEntry[]>(() => [
     "summary",
     ...(rightSidePanelEditorOpen ? (["editor"] as const) : []),

@@ -31,6 +31,7 @@ import {
 import { Popover, PopoverPopup, PopoverTrigger } from "~/components/ui/popover";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { useStableCallback } from "~/hooks/useStableCallback";
+import { useEffectEvent } from "~/hooks/useEffectEvent";
 import { useTabStripOverflow } from "~/hooks/useTabStripOverflow";
 import { type TerminalContextSelection } from "~/lib/terminalContext";
 import {
@@ -1471,6 +1472,10 @@ export default memo(function ThreadTerminalDrawer({
     if (!resizeState || (event && resizeState.pointerId !== event.pointerId)) return;
     paneResizeStateRef.current = null;
   }, []);
+  const handleResizePointerMoveEvent = useEffectEvent(handleResizePointerMove);
+  const handlePaneResizePointerMoveEvent = useEffectEvent(handlePaneResizePointerMove);
+  const handleResizePointerEndEvent = useEffectEvent(handleResizePointerEnd);
+  const handlePaneResizePointerEndEvent = useEffectEvent(handlePaneResizePointerEnd);
 
   useEffect(() => {
     let resizeFrame: number | null = null;
@@ -1514,12 +1519,12 @@ export default memo(function ThreadTerminalDrawer({
 
   useEffect(() => {
     const handlePointerMove = (event: PointerEvent) => {
-      handleResizePointerMove(event);
-      handlePaneResizePointerMove(event);
+      handleResizePointerMoveEvent(event);
+      handlePaneResizePointerMoveEvent(event);
     };
     const handlePointerEnd = (event: PointerEvent) => {
-      handleResizePointerEnd(event);
-      handlePaneResizePointerEnd(event);
+      handleResizePointerEndEvent(event);
+      handlePaneResizePointerEndEvent(event);
     };
     window.addEventListener("pointermove", handlePointerMove);
     window.addEventListener("pointerup", handlePointerEnd);
@@ -1529,16 +1534,11 @@ export default memo(function ThreadTerminalDrawer({
       window.removeEventListener("pointerup", handlePointerEnd);
       window.removeEventListener("pointercancel", handlePointerEnd);
     };
-  }, [
-    handlePaneResizePointerEnd,
-    handlePaneResizePointerMove,
-    handleResizePointerEnd,
-    handleResizePointerMove,
-  ]);
+  }, []);
   useEffect(() => {
     const resetResizeInteractions = () => {
-      handleResizePointerEnd();
-      handlePaneResizePointerEnd();
+      handleResizePointerEndEvent();
+      handlePaneResizePointerEndEvent();
     };
     const handleVisibilityChange = () => {
       if (document.visibilityState === "hidden") {
@@ -1551,7 +1551,7 @@ export default memo(function ThreadTerminalDrawer({
       window.removeEventListener("blur", resetResizeInteractions);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [handlePaneResizePointerEnd, handleResizePointerEnd]);
+  }, []);
 
   const newTerminalButton = (
     <TerminalActionButton

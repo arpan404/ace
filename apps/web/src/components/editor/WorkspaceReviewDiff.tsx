@@ -800,7 +800,6 @@ function WorkspaceReviewDiffCommentPopover(props: {
       </span>
       <input
         ref={inputRef}
-        autoFocus
         aria-label="Review comment"
         className="h-8 min-w-0 flex-1 border-0 bg-transparent px-1 text-[12.5px] font-medium text-foreground outline-none placeholder:text-muted-foreground/55"
         placeholder={commentPlaceholder}
