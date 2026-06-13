@@ -7,7 +7,7 @@ import {
   TextWrapIcon,
   XIcon,
 } from "lucide-react";
-import { memo, useMemo, useState } from "react";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { APP_EDITOR_CHROME_HEADER_CLASS_NAME } from "~/lib/appChrome";
@@ -54,18 +54,14 @@ function WorkspaceReviewPane(props: WorkspaceReviewPaneProps) {
     }),
   );
   const renderablePatch = getRenderablePatch(diffData?.diff, `workspace-review:${props.filePath}`);
-  const fileDiff = useMemo(() => {
-    if (renderablePatch?.kind !== "files") {
-      return null;
-    }
-    return (
-      renderablePatch.files.find(
-        (candidate) => resolveFileDiffPath(candidate) === props.filePath,
-      ) ??
-      renderablePatch.files[0] ??
-      null
-    );
-  }, [props.filePath, renderablePatch]);
+  const fileDiff =
+    renderablePatch?.kind === "files"
+      ? (renderablePatch.files.find(
+          (candidate) => resolveFileDiffPath(candidate) === props.filePath,
+        ) ??
+        renderablePatch.files[0] ??
+        null)
+      : null;
   const stat = fileDiff ? summarizeFileDiff(fileDiff) : null;
 
   return (
@@ -252,4 +248,4 @@ function WorkspaceReviewPane(props: WorkspaceReviewPaneProps) {
   );
 }
 
-export default memo(WorkspaceReviewPane);
+export default WorkspaceReviewPane;

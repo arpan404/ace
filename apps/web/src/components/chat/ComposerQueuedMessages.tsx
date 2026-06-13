@@ -4,7 +4,6 @@ import {
   PointerSensor,
   useSensor,
   useSensors,
-  type CollisionDetection,
   type DragEndEvent,
 } from "@dnd-kit/core";
 import { restrictToFirstScrollableAncestor, restrictToVerticalAxis } from "@dnd-kit/modifiers";
@@ -18,7 +17,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { IconTerminal } from "@tabler/icons-react";
 import { ArrowUpIcon, GripVerticalIcon, ImageIcon, PencilIcon, Trash2Icon } from "lucide-react";
 import { type MessageId, type ModelSelection } from "@ace/contracts";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 
 import {
   APP_BADGE_CLASS_NAME,
@@ -224,10 +223,7 @@ export function ComposerQueuedMessages(props: {
   );
   const queueCollisionDetection = closestCorners;
 
-  const serverOrderIds = useMemo(
-    () => props.messages.map((message) => message.id),
-    [props.messages],
-  );
+  const serverOrderIds = props.messages.map((message) => message.id);
   const optimisticOrderIdSet =
     optimisticOrder && optimisticOrder.length === serverOrderIds.length
       ? new Set(optimisticOrder)
@@ -244,24 +240,18 @@ export function ComposerQueuedMessages(props: {
   const effectiveOptimisticOrder =
     optimisticOrderIsValid && !optimisticOrderIsSettled ? optimisticOrder : null;
 
-  const baseOrderIds = useMemo(() => {
-    const byId = new Map(props.messages.map((message) => [message.id, message] as const));
-    return effectiveOptimisticOrder && effectiveOptimisticOrder.every((id) => byId.has(id))
+  const messagesById = new Map(props.messages.map((message) => [message.id, message] as const));
+  const baseOrderIds =
+    effectiveOptimisticOrder && effectiveOptimisticOrder.every((id) => messagesById.has(id))
       ? effectiveOptimisticOrder
       : serverOrderIds;
-  }, [effectiveOptimisticOrder, props.messages, serverOrderIds]);
-
-  const orderedMessages = useMemo(() => {
-    const byId = new Map(props.messages.map((message) => [message.id, message] as const));
-    const nextOrderedMessages: ComposerQueuedMessageItem[] = [];
-    for (const id of baseOrderIds) {
-      const message = byId.get(id);
-      if (message) {
-        nextOrderedMessages.push(message);
-      }
+  const orderedMessages: ComposerQueuedMessageItem[] = [];
+  for (const id of baseOrderIds) {
+    const message = messagesById.get(id);
+    if (message) {
+      orderedMessages.push(message);
     }
-    return nextOrderedMessages;
-  }, [baseOrderIds, props.messages]);
+  }
 
   const persistedPositionByMessageId = new Map(serverOrderIds.map((id, index) => [id, index + 1]));
   const handleDragEnd = (event: DragEndEvent) => {

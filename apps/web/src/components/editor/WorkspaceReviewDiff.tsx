@@ -1,6 +1,6 @@
 import type { ChangeContent, ContextContent, FileDiffMetadata, Hunk } from "@pierre/diffs";
 import { ArrowUpRightIcon, MessageSquarePlusIcon, PlusIcon, XIcon } from "lucide-react";
-import { Fragment, memo, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 
 import {
   createPlainWorkspaceShikiHtmlLines,
@@ -123,25 +123,22 @@ function WorkspaceReviewDiff(props: WorkspaceReviewDiffProps) {
   const [commentTarget, setCommentTarget] = useState<WorkspaceReviewDiffCommentTarget | null>(null);
   const [commentDraft, setCommentDraft] = useState("");
 
-  const commentsByLineKey = useMemo(() => {
-    const next = new Map<string, WorkspaceCodeComment[]>();
-    for (const comment of props.codeComments) {
-      if (comment.status === "resolved") {
-        continue;
-      }
-      const key = createWorkspaceReviewDiffLineCommentKey(
-        comment.relativePath,
-        comment.range.startLine + 1,
-      );
-      const comments = next.get(key);
-      if (comments) {
-        comments.push(comment);
-      } else {
-        next.set(key, [comment]);
-      }
+  const commentsByLineKey = new Map<string, WorkspaceCodeComment[]>();
+  for (const comment of props.codeComments) {
+    if (comment.status === "resolved") {
+      continue;
     }
-    return next;
-  }, [props.codeComments]);
+    const key = createWorkspaceReviewDiffLineCommentKey(
+      comment.relativePath,
+      comment.range.startLine + 1,
+    );
+    const comments = commentsByLineKey.get(key);
+    if (comments) {
+      comments.push(comment);
+    } else {
+      commentsByLineKey.set(key, [comment]);
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -951,4 +948,4 @@ function createWorkspaceReviewDiffCommentTarget(input: {
   };
 }
 
-export default memo(WorkspaceReviewDiff);
+export default WorkspaceReviewDiff;

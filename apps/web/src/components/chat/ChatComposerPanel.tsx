@@ -18,7 +18,6 @@ import {
   XIcon,
 } from "lucide-react";
 import {
-  useMemo,
   type ClipboardEvent,
   type ComponentProps,
   type DragEvent,
@@ -388,26 +387,14 @@ export function ChatComposerPanel({
         isComplete: Boolean(props.activePendingResolvedAnswers),
       }
     : null;
-  const handoff = useMemo<ComponentProps<typeof ProviderModelPicker>["handoff"]>(() => {
-    if (
-      !props.isServerThread ||
-      props.handoffDisabled ||
-      props.handoffTargetProviders.length === 0
-    ) {
-      return undefined;
-    }
-
-    return {
-      providers: props.handoffTargetProviders,
-      disabled: false,
-      onSelect: props.onHandoffToProvider,
-    };
-  }, [
-    props.handoffDisabled,
-    props.handoffTargetProviders,
-    props.isServerThread,
-    props.onHandoffToProvider,
-  ]);
+  const handoff: ComponentProps<typeof ProviderModelPicker>["handoff"] =
+    !props.isServerThread || props.handoffDisabled || props.handoffTargetProviders.length === 0
+      ? undefined
+      : {
+          providers: props.handoffTargetProviders,
+          disabled: false,
+          onSelect: props.onHandoffToProvider,
+        };
 
   const isUltrathinkFrame =
     props.composerProviderState.composerFrameClassName === "ultrathink-frame";

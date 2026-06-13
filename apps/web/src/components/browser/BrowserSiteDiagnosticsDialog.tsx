@@ -20,7 +20,7 @@ import {
   WorkflowIcon,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
-import { type ComponentType, useMemo } from "react";
+import { type ComponentType } from "react";
 
 import { ensureNativeApi } from "~/nativeApi";
 import { cn } from "~/lib/utils";
@@ -240,13 +240,10 @@ export function BrowserSiteDiagnosticsDialog(props: {
     }
   };
 
-  const permissionsByName = useMemo(() => {
-    const next = new Map<DesktopBrowserPermission, DesktopBrowserPermissionSetting>();
-    for (const permission of siteInfo?.permissions ?? []) {
-      next.set(permission.permission, permission.setting);
-    }
-    return next;
-  }, [siteInfo?.permissions]);
+  const permissionsByName = new Map<DesktopBrowserPermission, DesktopBrowserPermissionSetting>();
+  for (const permission of siteInfo?.permissions ?? []) {
+    permissionsByName.set(permission.permission, permission.setting);
+  }
 
   const setPermission = async (
     permission: DesktopBrowserPermission,

@@ -10,7 +10,7 @@ import {
   WholeWordIcon,
   XIcon,
 } from "lucide-react";
-import { memo, useEffect, useRef, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useRef, type KeyboardEvent, type ReactNode } from "react";
 
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
@@ -236,4 +236,4 @@ function WorkspaceFindBar(props: WorkspaceFindBarProps) {
   );
 }
 
-export default memo(WorkspaceFindBar);
+export default WorkspaceFindBar;

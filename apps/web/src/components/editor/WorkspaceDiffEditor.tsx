@@ -2,7 +2,7 @@ import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { MergeView } from "@codemirror/merge";
 import { EditorState, type Extension } from "@codemirror/state";
 import { EditorView, highlightSpecialChars, keymap } from "@codemirror/view";
-import { memo, useEffect, useRef } from "react";
+import { useEffect, useRef } from "react";
 
 import {
   createWorkspaceCodeMirrorTheme,
@@ -119,4 +119,4 @@ function WorkspaceDiffEditor(props: WorkspaceDiffEditorProps) {
   );
 }
 
-export default memo(WorkspaceDiffEditor);
+export default WorkspaceDiffEditor;
