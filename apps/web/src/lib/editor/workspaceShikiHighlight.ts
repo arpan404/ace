@@ -1,11 +1,3 @@
-import { Facet, RangeSetBuilder, StateEffect, StateField, type Extension } from "@codemirror/state";
-import {
-  Decoration,
-  EditorView,
-  ViewPlugin,
-  type DecorationSet,
-  type ViewUpdate,
-} from "@codemirror/view";
 import {
   createBundledHighlighter,
   type HighlighterGeneric,
@@ -15,6 +7,15 @@ import {
   type ThemedToken,
 } from "shiki/core";
 import { createJavaScriptRegexEngine } from "shiki/engine/javascript";
+
+const { Facet, RangeSetBuilder, StateEffect, StateField } = await import("@codemirror/state");
+const { Decoration, EditorView, ViewPlugin } = await import("@codemirror/view");
+
+type Decoration = import("@codemirror/view").Decoration;
+type DecorationSet = import("@codemirror/view").DecorationSet;
+type EditorView = import("@codemirror/view").EditorView;
+type Extension = import("@codemirror/state").Extension;
+type ViewUpdate = import("@codemirror/view").ViewUpdate;
 
 const WORKSPACE_SHIKI_THEME_IDS = {
   dark: "github-dark-default",

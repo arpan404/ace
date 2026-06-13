@@ -53,24 +53,6 @@ import {
   selectMatches as cmSelectMatches,
   setSearchQuery,
 } from "@codemirror/search";
-import { Compartment, EditorSelection, EditorState, type Extension } from "@codemirror/state";
-import {
-  drawSelection,
-  dropCursor,
-  EditorView,
-  highlightActiveLine,
-  highlightActiveLineGutter,
-  highlightSpecialChars,
-  highlightTrailingWhitespace,
-  highlightWhitespace,
-  hoverTooltip,
-  keymap,
-  rectangularSelection,
-  type Panel,
-  type KeyBinding,
-  type Tooltip,
-  type ViewUpdate,
-} from "@codemirror/view";
 import {
   forwardRef,
   useEffect,
@@ -101,6 +83,30 @@ import {
   type WorkspaceFindState,
 } from "~/lib/editor/workspaceFind";
 import { cn } from "~/lib/utils";
+
+const { Compartment, EditorSelection, EditorState } = await import("@codemirror/state");
+const {
+  drawSelection,
+  dropCursor,
+  EditorView,
+  highlightActiveLine,
+  highlightActiveLineGutter,
+  highlightSpecialChars,
+  highlightTrailingWhitespace,
+  highlightWhitespace,
+  hoverTooltip,
+  keymap,
+  rectangularSelection,
+} = await import("@codemirror/view");
+
+type EditorState = import("@codemirror/state").EditorState;
+type Compartment = import("@codemirror/state").Compartment;
+type Extension = import("@codemirror/state").Extension;
+type EditorView = import("@codemirror/view").EditorView;
+type KeyBinding = import("@codemirror/view").KeyBinding;
+type Panel = import("@codemirror/view").Panel;
+type Tooltip = import("@codemirror/view").Tooltip;
+type ViewUpdate = import("@codemirror/view").ViewUpdate;
 
 const COMPLETION_TRIGGER_CHARACTERS = new Set([".", "/", '"', "'", ":", "<", "@"]);
 const COMPLETION_WORD_PATTERN = /[\w$.-]*$/u;

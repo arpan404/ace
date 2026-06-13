@@ -10,10 +10,14 @@ import { sql } from "@codemirror/lang-sql";
 import { xml } from "@codemirror/lang-xml";
 import { yaml } from "@codemirror/lang-yaml";
 import { bracketMatching, type LanguageSupport } from "@codemirror/language";
-import { EditorState, type Extension, type Text } from "@codemirror/state";
-import { EditorView, lineNumbers } from "@codemirror/view";
 
 import type { WorkspaceCodeEditorOptions } from "./workspaceEditorOptions";
+
+const { EditorState } = await import("@codemirror/state");
+const { EditorView, lineNumbers } = await import("@codemirror/view");
+
+type Extension = import("@codemirror/state").Extension;
+type Text = import("@codemirror/state").Text;
 
 export const WORKSPACE_CODE_EDITOR_PROBLEM_OWNER = "ace-workspace-editor";
 
