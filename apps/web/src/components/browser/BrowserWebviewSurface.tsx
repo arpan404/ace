@@ -1955,7 +1955,7 @@ function useBrowserTabWebviewComponent(props: {
     navigate(tab.url);
   }, [navigate, tab.url]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!active) {
       clearHoveredElementCapture();
     }
@@ -1982,7 +1982,7 @@ function useBrowserTabWebviewComponent(props: {
     };
   }, [active, cancelDesignCapture, designDraft]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (designerModeActive) {
       return;
     }
@@ -1995,14 +1995,14 @@ function useBrowserTabWebviewComponent(props: {
     cancelDesignCapture();
   }, [cancelDesignCapture, clearHoveredElementCapture, designDraft, designerModeActive]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (designerTool === "element-comment") {
       return;
     }
     clearHoveredElementCapture();
   }, [clearHoveredElementCapture, designerTool]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!designDraft || designDraft.tool === designerTool) {
       return;
     }
