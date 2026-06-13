@@ -1,6 +1,5 @@
 import { ThreadId } from "@ace/contracts";
 import { IconArrowsSort, IconFilter2, IconSearch } from "@tabler/icons-react";
-import { memo } from "react";
 
 import { formatRelativeTimeLabel } from "../../timestampFormat";
 import { cn } from "../../lib/utils";
@@ -35,7 +34,7 @@ interface SplitPickerThreadOption {
   readonly title: string;
 }
 
-export const SidebarSplitPickerDialog = memo(function SidebarSplitPickerDialog(props: {
+export function SidebarSplitPickerDialog(props: {
   readonly open: boolean;
   readonly availableThreadCount: number;
   readonly query: string;
@@ -221,4 +220,4 @@ export const SidebarSplitPickerDialog = memo(function SidebarSplitPickerDialog(p
       </DialogPopup>
     </Dialog>
   );
-});
+}

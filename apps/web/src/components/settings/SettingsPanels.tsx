@@ -926,12 +926,9 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
     settings.notifyOnAgentCompletion ||
     settings.notifyOnApprovalRequired ||
     settings.notifyOnUserInputRequired;
-  const setAgentAttentionNotificationToggles = useCallback(
-    (enabled: boolean) => {
-      updateSettings(buildAgentAttentionNotificationSettingsPatch(enabled));
-    },
-    [updateSettings],
-  );
+  const setAgentAttentionNotificationToggles = (enabled: boolean) => {
+    updateSettings(buildAgentAttentionNotificationSettingsPatch(enabled));
+  };
   const notificationPermissionDescription = useMemo(() => {
     switch (notificationPermission) {
       case "granted":
@@ -949,7 +946,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
     }
   }, [canOpenNotificationSystemSettings, notificationPermission]);
 
-  const refreshNotificationPermission = useCallback(() => {
+  const refreshNotificationPermission = () => {
     if (typeof window === "undefined") {
       return Promise.resolve<AgentAttentionNotificationPermission>("unsupported");
     }
@@ -957,7 +954,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
       dispatchNotificationState({ type: "set-permission", notificationPermission: permission });
       return permission;
     });
-  }, []);
+  };
 
   useEffect(() => {
     if (typeof window === "undefined" || typeof document === "undefined") {
@@ -984,7 +981,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
     };
   }, []);
 
-  const sendNotificationProbe = useCallback(() => {
+  const sendNotificationProbe = () => {
     const probeId = `ace-notification-permission-probe:${Date.now().toString(36)}`;
     if (isElectron && typeof window.desktopBridge?.showNotification === "function") {
       return window.desktopBridge.showNotification({
@@ -998,7 +995,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
       body: "You'll get alerts when agent work completes or needs input.",
       tag: probeId,
     }).then((result) => result.shown);
-  }, []);
+  };
 
   const handleSendNotificationTest = () => {
     dispatchNotificationState({ type: "set-updating", isUpdatingNotificationPermission: true });

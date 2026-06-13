@@ -171,13 +171,9 @@ function WorkspaceReviewDiff(props: WorkspaceReviewDiffProps) {
     };
   }, [highlightKey, props.fileDiff, props.filePath, props.resolvedTheme]);
 
-  const renderKey = useMemo(
-    () =>
-      `${props.fileDiff.cacheKey ?? props.filePath}:${props.renderMode}:${
-        props.wordWrap ? "wrap" : "scroll"
-      }`,
-    [props.fileDiff.cacheKey, props.filePath, props.renderMode, props.wordWrap],
-  );
+  const renderKey = `${props.fileDiff.cacheKey ?? props.filePath}:${props.renderMode}:${
+    props.wordWrap ? "wrap" : "scroll"
+  }`;
   const openCommentPopover = (
     target: WorkspaceReviewDiffCommentTarget,
     _anchorElement: HTMLElement,

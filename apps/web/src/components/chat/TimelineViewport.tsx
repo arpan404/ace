@@ -3,7 +3,7 @@ import { memo, type CSSProperties, type ReactNode } from "react";
 
 import type { TimelineRow } from "~/lib/chat/timelineRows";
 
-export const TimelineViewport = memo(function TimelineViewport(props: {
+export function TimelineViewport(props: {
   readonly buildRowContent: (row: TimelineRow, rowIndex: number) => ReactNode;
   readonly buildRowRenderCacheStyle: (row: TimelineRow, style?: CSSProperties) => CSSProperties;
   readonly measureVirtualizedRowElement: (element: HTMLElement | null) => void;
@@ -66,4 +66,4 @@ export const TimelineViewport = memo(function TimelineViewport(props: {
       ))}
     </>
   );
-});
+}

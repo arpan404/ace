@@ -177,15 +177,11 @@ function KeybindingsSettingsEditorContent(props: {
   );
   const { draftShortcuts, draftWhenByCommand, expandedGroups, isSaving, saveError } = state;
 
-  const dirtyCommands = useMemo(
-    () =>
-      KEYBINDING_COMMAND_DEFINITIONS.filter((definition) => {
-        const current = shortcutValueFingerprint(draftShortcuts[definition.command]);
-        const initial = shortcutValueFingerprint(initialByCommand.shortcuts[definition.command]);
-        return current !== initial;
-      }),
-    [draftShortcuts, initialByCommand.shortcuts],
-  );
+  const dirtyCommands = KEYBINDING_COMMAND_DEFINITIONS.filter((definition) => {
+    const current = shortcutValueFingerprint(draftShortcuts[definition.command]);
+    const initial = shortcutValueFingerprint(initialByCommand.shortcuts[definition.command]);
+    return current !== initial;
+  });
 
   const nonEditableShortcutFingerprints = useMemo(() => {
     const editableCommands = new Set(

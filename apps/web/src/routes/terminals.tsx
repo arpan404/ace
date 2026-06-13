@@ -2,7 +2,7 @@ import { ThreadId, type TerminalProcessSummary } from "@ace/contracts";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { RefreshCwIcon, SquareIcon } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState, type KeyboardEvent } from "react";
+import { useEffect, useState, type KeyboardEvent } from "react";
 
 import { AppPageTopBar } from "../components/AppPageTopBar";
 import { TopBarCluster } from "../components/thread/TopBarCluster";
@@ -118,16 +118,13 @@ function TerminalsPage() {
   const sortedProcesses = sortTerminalProcesses(processes);
   const runningCount = sortedProcesses.filter((process) => process.status === "running").length;
 
-  const openThread = useCallback(
-    (threadId: string) => {
-      void navigate({
-        to: "/$threadId",
-        params: { threadId: ThreadId.makeUnsafe(threadId) },
-        search: buildSingleThreadRouteSearch(),
-      });
-    },
-    [navigate],
-  );
+  const openThread = (threadId: string) => {
+    void navigate({
+      to: "/$threadId",
+      params: { threadId: ThreadId.makeUnsafe(threadId) },
+      search: buildSingleThreadRouteSearch(),
+    });
+  };
 
   const handleThreadRowKeyDown = (event: KeyboardEvent<HTMLButtonElement>, threadId: string) => {
     if (event.target !== event.currentTarget) {

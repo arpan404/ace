@@ -357,15 +357,12 @@ export default function BranchToolbar({
       effectiveEnvMode,
     ],
   );
-  const handleEnvModeSelect = useCallback(
-    (mode: EnvMode) => {
-      if (mode === "worktree" && !activeWorktreePath && !activeThreadBranch && currentBranchName) {
-        setThreadBranch(currentBranchName, null);
-      }
-      onEnvModeChange(mode);
-    },
-    [activeThreadBranch, activeWorktreePath, currentBranchName, onEnvModeChange, setThreadBranch],
-  );
+  const handleEnvModeSelect = (mode: EnvMode) => {
+    if (mode === "worktree" && !activeWorktreePath && !activeThreadBranch && currentBranchName) {
+      setThreadBranch(currentBranchName, null);
+    }
+    onEnvModeChange(mode);
+  };
 
   if (!activeThreadId || !activeProject) return null;
   const isEnvironmentPresentation = presentation === "environment";

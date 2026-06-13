@@ -119,7 +119,7 @@ function groupComposerCommandItems(
   });
 }
 
-export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
+export function ComposerCommandMenu(props: {
   items: ComposerCommandItem[];
   resolvedTheme: "light" | "dark";
   isLoading: boolean;
@@ -129,7 +129,7 @@ export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
   onSelect: (item: ComposerCommandItem) => void;
 }) {
   const listRef = useRef<HTMLDivElement>(null);
-  const sections = useMemo(() => groupComposerCommandItems(props.items), [props.items]);
+  const sections = groupComposerCommandItems(props.items);
 
   useLayoutEffect(() => {
     if (!props.activeItemId || !listRef.current) return;
@@ -187,9 +187,9 @@ export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
       </div>
     </Command>
   );
-});
+}
 
-const ComposerCommandMenuItem = memo(function ComposerCommandMenuItem(props: {
+function ComposerCommandMenuItem(props: {
   item: ComposerCommandItem;
   resolvedTheme: "light" | "dark";
   isActive: boolean;
@@ -253,4 +253,4 @@ const ComposerCommandMenuItem = memo(function ComposerCommandMenuItem(props: {
       </span>
     </CommandItem>
   );
-});
+}

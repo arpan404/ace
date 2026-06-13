@@ -201,23 +201,13 @@ export function useChatViewProviderSelectionState(
 
 function useChatViewModelState(input: UseChatViewModelStateInput): UseChatViewModelStateResult {
   const selectionState = useChatViewProviderSelectionState(input);
-  const composerProviderState = useMemo(
-    () =>
-      getComposerProviderState({
-        provider: selectionState.selectedProvider,
-        model: selectionState.selectedModel,
-        models: selectionState.selectedProviderModels,
-        prompt: input.prompt,
-        modelOptions: selectionState.composerModelOptions,
-      }),
-    [
-      input.prompt,
-      selectionState.composerModelOptions,
-      selectionState.selectedModel,
-      selectionState.selectedProvider,
-      selectionState.selectedProviderModels,
-    ],
-  );
+  const composerProviderState = getComposerProviderState({
+    provider: selectionState.selectedProvider,
+    model: selectionState.selectedModel,
+    models: selectionState.selectedProviderModels,
+    prompt: input.prompt,
+    modelOptions: selectionState.composerModelOptions,
+  });
 
   return {
     ...selectionState,

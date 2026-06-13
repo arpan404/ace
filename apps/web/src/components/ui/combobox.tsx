@@ -23,10 +23,7 @@ function Combobox<Value, Multiple extends boolean | undefined = false>(
 ) {
   const { defaultOpen, onOpenChange, open, ...rootProps } = props;
   const chipsRef = React.useRef<Element | null>(null);
-  const value = React.useMemo(
-    () => ({ chipsRef, multiple: !!rootProps.multiple }),
-    [rootProps.multiple],
-  );
+  const value = { chipsRef, multiple: !!rootProps.multiple };
   const boundaryDismissedOpen = useBoundaryDismissedOpen<ComboboxPrimitive.Root.ChangeEventDetails>(
     {
       defaultOpen,

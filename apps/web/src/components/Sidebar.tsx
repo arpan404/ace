@@ -2538,65 +2538,55 @@ function useSidebarComponent() {
     }
     navigateToBoardThreadRoute(target);
   };
-  const openThreadsInSplit = useCallback(
-    (
-      targets: ReadonlyArray<{
-        connectionUrl: string | null;
-        threadId: ThreadId;
-        title?: string | null | undefined;
-      }>,
-    ) => {
-      if (targets.length === 0) {
-        return;
-      }
-      for (const target of targets) {
-        if (target.connectionUrl) {
-          useHostConnectionStore
-            .getState()
-            .upsertThreadOwnership(target.connectionUrl, target.threadId);
-        }
-      }
-      const activeTarget = targets[targets.length - 1]!;
-      const shouldUpdateActiveSplit = activeStoreSplitId !== null;
-
-      if (shouldUpdateActiveSplit) {
-        useChatThreadBoardStore
+  const openThreadsInSplit = (
+    targets: ReadonlyArray<{
+      connectionUrl: string | null;
+      threadId: ThreadId;
+      title?: string | null | undefined;
+    }>,
+  ) => {
+    if (targets.length === 0) {
+      return;
+    }
+    for (const target of targets) {
+      if (target.connectionUrl) {
+        useHostConnectionStore
           .getState()
-          .openThreadsInBoard(targets, { sourcePaneId: savedSplitBoard.activePaneId });
-        navigateToBoardThreadRoute(activeTarget);
-        return;
+          .upsertThreadOwnership(target.connectionUrl, target.threadId);
       }
+    }
+    const activeTarget = targets[targets.length - 1]!;
+    const shouldUpdateActiveSplit = activeStoreSplitId !== null;
 
-      const threads =
-        routeThreadId === null
-          ? targets
-          : [
-              {
-                connectionUrl: resolveConnectionForThreadId(routeThreadId) ?? null,
-                threadId: routeThreadId,
-                title: sidebarThreadsById[routeThreadId]?.title ?? null,
-              },
-              ...targets,
-            ];
-      const splitId = useChatThreadBoardStore.getState().createSplit({
-        activeThread: activeTarget,
-        threads,
-        title: buildSplitTitle(threads),
-      });
-      if (!splitId) {
-        return;
-      }
+    if (shouldUpdateActiveSplit) {
+      useChatThreadBoardStore
+        .getState()
+        .openThreadsInBoard(targets, { sourcePaneId: savedSplitBoard.activePaneId });
       navigateToBoardThreadRoute(activeTarget);
-    },
-    [
-      activeStoreSplitId,
-      buildSplitTitle,
-      navigateToBoardThreadRoute,
-      routeThreadId,
-      savedSplitBoard.activePaneId,
-      sidebarThreadsById,
-    ],
-  );
+      return;
+    }
+
+    const threads =
+      routeThreadId === null
+        ? targets
+        : [
+            {
+              connectionUrl: resolveConnectionForThreadId(routeThreadId) ?? null,
+              threadId: routeThreadId,
+              title: sidebarThreadsById[routeThreadId]?.title ?? null,
+            },
+            ...targets,
+          ];
+    const splitId = useChatThreadBoardStore.getState().createSplit({
+      activeThread: activeTarget,
+      threads,
+      title: buildSplitTitle(threads),
+    });
+    if (!splitId) {
+      return;
+    }
+    navigateToBoardThreadRoute(activeTarget);
+  };
   const closeActiveSplitRoute = () => {
     if (!routeThreadId) {
       return;
@@ -3160,42 +3150,42 @@ function useSidebarComponent() {
     });
   };
 
-  const removeRemoteThreadFromSidebarById = useCallback(
-    (input: { connectionUrl: string; threadId: ThreadId }) => {
-      const normalizedConnectionUrl = normalizeWsUrl(input.connectionUrl);
-      setRemoteSidebarHosts((current) => {
-        let changed = false;
-        const nextHosts = current.map((entry) => {
-          if (!connectionUrlsEqual(entry.connectionUrl, normalizedConnectionUrl)) {
-            return entry;
+  const removeRemoteThreadFromSidebarById = (input: {
+    connectionUrl: string;
+    threadId: ThreadId;
+  }) => {
+    const normalizedConnectionUrl = normalizeWsUrl(input.connectionUrl);
+    setRemoteSidebarHosts((current) => {
+      let changed = false;
+      const nextHosts = current.map((entry) => {
+        if (!connectionUrlsEqual(entry.connectionUrl, normalizedConnectionUrl)) {
+          return entry;
+        }
+        let projectChanged = false;
+        const nextProjects = entry.projects.map((project) => {
+          const nextThreads = project.threads.filter((thread) => thread.id !== input.threadId);
+          if (nextThreads.length === project.threads.length) {
+            return project;
           }
-          let projectChanged = false;
-          const nextProjects = entry.projects.map((project) => {
-            const nextThreads = project.threads.filter((thread) => thread.id !== input.threadId);
-            if (nextThreads.length === project.threads.length) {
-              return project;
-            }
-            projectChanged = true;
-            return {
-              ...project,
-              threads: nextThreads,
-            };
-          });
-          if (!projectChanged) {
-            return entry;
-          }
-          changed = true;
+          projectChanged = true;
           return {
-            ...entry,
-            projects: nextProjects,
+            ...project,
+            threads: nextThreads,
           };
         });
-        return changed ? nextHosts : current;
+        if (!projectChanged) {
+          return entry;
+        }
+        changed = true;
+        return {
+          ...entry,
+          projects: nextProjects,
+        };
       });
-      removeFromSelection([input.threadId]);
-    },
-    [removeFromSelection, setRemoteSidebarHosts],
-  );
+      return changed ? nextHosts : current;
+    });
+    removeFromSelection([input.threadId]);
+  };
   const attemptArchiveThread = async (threadId: ThreadId, connectionUrl: string) => {
     const isRemoteThread = !connectionUrlsEqual(connectionUrl, localDeviceConnectionUrl);
     if (isRemoteThread) {
@@ -3308,127 +3298,105 @@ function useSidebarComponent() {
     addProjectInputRef.current?.focus();
   }, [addingProject]);
 
-  const addProjectFromPath = useCallback(
-    async (rawCwd: string, options?: { revealOnError?: boolean }) => {
-      const isLocalEnvironment = selectedProjectPickerIsLocal;
-      const targetConnectionUrl = selectedProjectPickerConnectionUrl;
-      const cwd = resolveProjectPath(
-        rawCwd,
-        isLocalEnvironment ? addProjectBaseDirectory : undefined,
-      ).trim();
-      if (!cwd || isAddingProject) return;
+  const addProjectFromPath = async (rawCwd: string, options?: { revealOnError?: boolean }) => {
+    const isLocalEnvironment = selectedProjectPickerIsLocal;
+    const targetConnectionUrl = selectedProjectPickerConnectionUrl;
+    const cwd = resolveProjectPath(
+      rawCwd,
+      isLocalEnvironment ? addProjectBaseDirectory : undefined,
+    ).trim();
+    if (!cwd || isAddingProject) return;
 
-      dispatchProjectPickerState({ type: "set-is-adding-project", isAddingProject: true });
-      const finishAddingProject = () => {
-        dispatchProjectPickerState({ type: "set-is-adding-project", isAddingProject: false });
-        dispatchProjectPickerState({ type: "set-new-cwd", newCwd: "" });
-        setAddProjectError(null);
-        setProjectBrowseState(EMPTY_PROJECT_BROWSE_STATE);
-        setActiveProjectBrowseIndex(-1);
-        dispatchProjectPickerState({ type: "set-adding-project", addingProject: false });
-      };
+    dispatchProjectPickerState({ type: "set-is-adding-project", isAddingProject: true });
+    const finishAddingProject = () => {
+      dispatchProjectPickerState({ type: "set-is-adding-project", isAddingProject: false });
+      dispatchProjectPickerState({ type: "set-new-cwd", newCwd: "" });
+      setAddProjectError(null);
+      setProjectBrowseState(EMPTY_PROJECT_BROWSE_STATE);
+      setActiveProjectBrowseIndex(-1);
+      dispatchProjectPickerState({ type: "set-adding-project", addingProject: false });
+    };
 
-      const shouldUseLocalProjectDedup = isLocalEnvironment;
-      const existing = shouldUseLocalProjectDedup ? findExistingProjectByPath(projects, cwd) : null;
-      if (existing) {
-        try {
-          if (existing.archivedAt !== null) {
-            await routeOrchestrationDispatchCommandToRemote(localDeviceConnectionUrl, {
-              type: "project.meta.update",
-              commandId: newCommandId(),
-              projectId: existing.id,
-              archivedAt: null,
-            });
-          }
-          focusMostRecentThreadForProject(existing.id);
-        } catch (error) {
-          toastManager.add({
-            type: "error",
-            title: `Failed to restore "${existing.name}"`,
-            description: error instanceof Error ? error.message : "An error occurred.",
-          });
-        }
-        finishAddingProject();
-        return;
-      }
-
-      const projectId = newProjectId();
-      const createdAt = new Date().toISOString();
-      const title = inferProjectTitle(cwd) || cwd;
+    const shouldUseLocalProjectDedup = isLocalEnvironment;
+    const existing = shouldUseLocalProjectDedup ? findExistingProjectByPath(projects, cwd) : null;
+    if (existing) {
       try {
-        const defaultModelSelection = {
-          provider: "codex" as const,
-          model: getDefaultServerModel(providerStatuses, "codex"),
-        };
-        await routeOrchestrationDispatchCommandToRemote(targetConnectionUrl, {
-          type: "project.create",
-          commandId: newCommandId(),
-          projectId,
-          title,
-          workspaceRoot: cwd,
-          createWorkspaceRootIfMissing: true,
-          defaultModelSelection,
-          createdAt,
-        });
-        if (isLocalEnvironment) {
-          useStore.getState().applyOrchestrationEvent(
-            createOptimisticProjectCreatedEvent({
-              projectId,
-              title,
-              workspaceRoot: cwd,
-              createdAt,
-              defaultModelSelection,
-            }),
-          );
-        }
-        finishAddingProject();
-        refreshRemoteSidebarHosts().catch(() => undefined);
-        if (!isLocalEnvironment) {
-          toastManager.add({
-            type: "success",
-            title: `Added project on ${selectedProjectPickerName}.`,
-          });
-        } else {
-          handleNewThread(projectId, {
-            envMode: defaultThreadEnvMode,
-          }).catch((error) => {
-            reportBackgroundError(
-              "Failed to create the initial thread for the new project.",
-              error,
-            );
+        if (existing.archivedAt !== null) {
+          await routeOrchestrationDispatchCommandToRemote(localDeviceConnectionUrl, {
+            type: "project.meta.update",
+            commandId: newCommandId(),
+            projectId: existing.id,
+            archivedAt: null,
           });
         }
+        focusMostRecentThreadForProject(existing.id);
       } catch (error) {
-        const description =
-          error instanceof Error ? error.message : "An error occurred while adding the project.";
-        dispatchProjectPickerState({ type: "set-is-adding-project", isAddingProject: false });
-        dispatchProjectPickerState({ type: "set-new-cwd", newCwd: cwd });
-        if (options?.revealOnError) {
-          dispatchProjectPickerState({ type: "set-adding-project", addingProject: true });
-        }
-        setAddProjectError(description);
-        return;
+        toastManager.add({
+          type: "error",
+          title: `Failed to restore "${existing.name}"`,
+          description: error instanceof Error ? error.message : "An error occurred.",
+        });
       }
       finishAddingProject();
-    },
-    [
-      addProjectBaseDirectory,
-      defaultThreadEnvMode,
-      focusMostRecentThreadForProject,
-      handleNewThread,
-      isAddingProject,
-      localDeviceConnectionUrl,
-      providerStatuses,
-      projects,
-      refreshRemoteSidebarHosts,
-      setActiveProjectBrowseIndex,
-      setAddProjectError,
-      setProjectBrowseState,
-      selectedProjectPickerConnectionUrl,
-      selectedProjectPickerIsLocal,
-      selectedProjectPickerName,
-    ],
-  );
+      return;
+    }
+
+    const projectId = newProjectId();
+    const createdAt = new Date().toISOString();
+    const title = inferProjectTitle(cwd) || cwd;
+    try {
+      const defaultModelSelection = {
+        provider: "codex" as const,
+        model: getDefaultServerModel(providerStatuses, "codex"),
+      };
+      await routeOrchestrationDispatchCommandToRemote(targetConnectionUrl, {
+        type: "project.create",
+        commandId: newCommandId(),
+        projectId,
+        title,
+        workspaceRoot: cwd,
+        createWorkspaceRootIfMissing: true,
+        defaultModelSelection,
+        createdAt,
+      });
+      if (isLocalEnvironment) {
+        useStore.getState().applyOrchestrationEvent(
+          createOptimisticProjectCreatedEvent({
+            projectId,
+            title,
+            workspaceRoot: cwd,
+            createdAt,
+            defaultModelSelection,
+          }),
+        );
+      }
+      finishAddingProject();
+      refreshRemoteSidebarHosts().catch(() => undefined);
+      if (!isLocalEnvironment) {
+        toastManager.add({
+          type: "success",
+          title: `Added project on ${selectedProjectPickerName}.`,
+        });
+      } else {
+        handleNewThread(projectId, {
+          envMode: defaultThreadEnvMode,
+        }).catch((error) => {
+          reportBackgroundError("Failed to create the initial thread for the new project.", error);
+        });
+      }
+    } catch (error) {
+      const description =
+        error instanceof Error ? error.message : "An error occurred while adding the project.";
+      dispatchProjectPickerState({ type: "set-is-adding-project", isAddingProject: false });
+      dispatchProjectPickerState({ type: "set-new-cwd", newCwd: cwd });
+      if (options?.revealOnError) {
+        dispatchProjectPickerState({ type: "set-adding-project", addingProject: true });
+      }
+      setAddProjectError(description);
+      return;
+    }
+    finishAddingProject();
+  };
 
   const handleAddProject = () => {
     void addProjectFromPath(newCwd);

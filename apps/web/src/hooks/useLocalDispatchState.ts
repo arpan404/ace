@@ -1,5 +1,5 @@
 import { type ApprovalRequestId } from "@ace/contracts";
-import { useCallback, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { type SessionPhase, type Thread } from "../types";
 import {
   createLocalDispatchSnapshot,
@@ -17,9 +17,9 @@ export function useLocalDispatchState(input: {
 }) {
   const [localDispatch, setLocalDispatch] = useState<LocalDispatchSnapshot | null>(null);
 
-  const resetLocalDispatch = useCallback(() => {
+  const resetLocalDispatch = () => {
     setLocalDispatch(null);
-  }, []);
+  };
 
   const serverAcknowledgedLocalDispatch = useMemo(
     () =>
@@ -43,20 +43,17 @@ export function useLocalDispatchState(input: {
     ],
   );
 
-  const beginLocalDispatch = useCallback(
-    (options?: { preparingWorktree?: boolean }) => {
-      const preparingWorktree = Boolean(options?.preparingWorktree);
-      setLocalDispatch((current) => {
-        if (current && !serverAcknowledgedLocalDispatch) {
-          return current.preparingWorktree === preparingWorktree
-            ? current
-            : { ...current, preparingWorktree };
-        }
-        return createLocalDispatchSnapshot(input.activeThread, options);
-      });
-    },
-    [input.activeThread, serverAcknowledgedLocalDispatch],
-  );
+  const beginLocalDispatch = (options?: { preparingWorktree?: boolean }) => {
+    const preparingWorktree = Boolean(options?.preparingWorktree);
+    setLocalDispatch((current) => {
+      if (current && !serverAcknowledgedLocalDispatch) {
+        return current.preparingWorktree === preparingWorktree
+          ? current
+          : { ...current, preparingWorktree };
+      }
+      return createLocalDispatchSnapshot(input.activeThread, options);
+    });
+  };
 
   const visibleLocalDispatch = serverAcknowledgedLocalDispatch ? null : localDispatch;
   const activeThreadLocalDispatch =

@@ -1,5 +1,5 @@
 import { AlertCircleIcon, LoaderCircleIcon, RefreshCwIcon, WrenchIcon } from "lucide-react";
-import { memo, useState } from "react";
+import { useState } from "react";
 
 import { useConnectionHealth } from "~/lib/reliability/connectionHealth";
 import { getWsRpcClient } from "~/wsRpcClient";
@@ -21,7 +21,7 @@ function formatTime(value: number | null): string {
   });
 }
 
-export const ConnectionHealthPill = memo(function ConnectionHealthPill({
+export function ConnectionHealthPill({
   onOpenDiagnostics,
   onRefreshProviders,
 }: ConnectionHealthPillProps) {
@@ -107,4 +107,4 @@ export const ConnectionHealthPill = memo(function ConnectionHealthPill({
       </PopoverPopup>
     </Popover>
   );
-});
+}

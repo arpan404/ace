@@ -1,6 +1,5 @@
 import { PROVIDER_DISPLAY_NAMES, type ProviderKind, type ThreadHandoffMode } from "@ace/contracts";
 import { ArrowRightLeftIcon } from "lucide-react";
-import { memo } from "react";
 import type { VariantProps } from "class-variance-authority";
 import { Button } from "../ui/button";
 import { buttonVariants } from "../ui/buttonVariants";
@@ -13,7 +12,7 @@ function formatProviderLabel(provider: ProviderKind): string {
   return PROVIDER_DISPLAY_NAMES[provider] ?? provider;
 }
 
-const HandoffMenuEntries = memo(function HandoffMenuEntries(props: {
+function HandoffMenuEntries(props: {
   providers: ReadonlyArray<ProviderKind>;
   disabled?: boolean;
   onSelect: (provider: ProviderKind, mode: ThreadHandoffMode) => void;
@@ -51,9 +50,9 @@ const HandoffMenuEntries = memo(function HandoffMenuEntries(props: {
       })}
     </>
   );
-});
+}
 
-export const HandoffMenuButton = memo(function HandoffMenuButton(props: {
+export function HandoffMenuButton(props: {
   providers: ReadonlyArray<ProviderKind>;
   /** Disables the trigger (e.g. composer disabled). */
   disabled?: boolean;
@@ -101,4 +100,4 @@ export const HandoffMenuButton = memo(function HandoffMenuButton(props: {
       </MenuPopup>
     </Menu>
   );
-});
+}

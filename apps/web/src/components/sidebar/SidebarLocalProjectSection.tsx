@@ -2,7 +2,6 @@ import {
   type KeyboardEvent,
   type MouseEvent,
   type PointerEventHandler,
-  memo,
   useEffect,
   useMemo,
 } from "react";
@@ -127,9 +126,7 @@ export interface SidebarLocalProjectSectionProps {
   readonly navigateToThread: SidebarThreadRowProps["navigateToThread"];
 }
 
-export const SidebarLocalProjectSection = memo(function SidebarLocalProjectSection(
-  props: SidebarLocalProjectSectionProps,
-) {
+export function SidebarLocalProjectSection(props: SidebarLocalProjectSectionProps) {
   const project = useProjectById(props.projectId);
   const allProjectThreads = useSidebarThreadSummariesByProjectId(props.projectId);
   const prefetchThreadHistory = props.prefetchThreadHistory;
@@ -145,37 +142,23 @@ export const SidebarLocalProjectSection = memo(function SidebarLocalProjectSecti
     () => visibleProjectThreads.map((thread) => thread.id),
     [visibleProjectThreads],
   );
-  const threadLastVisitedAtSelector = useMemo(
-    () => createThreadLastVisitedAtByIdsSelector(visibleProjectThreadIds),
-    [visibleProjectThreadIds],
-  );
+  const threadLastVisitedAtSelector =
+    createThreadLastVisitedAtByIdsSelector(visibleProjectThreadIds);
   const threadLastVisitedAtById = useUiStateStore(threadLastVisitedAtSelector);
   const projectListThreads = useMemo(
     () => visibleProjectThreads.filter((thread) => !props.pinnedThreadIdSet.has(thread.id)),
     [props.pinnedThreadIdSet, visibleProjectThreads],
   );
-  const renderState = useMemo(
-    () =>
-      deriveSidebarLocalProjectRenderState({
-        activeThreadId: props.activeSidebarRouteThreadId ?? undefined,
-        projectExpanded,
-        projectListThreads,
-        revealStep: 5,
-        threadLastVisitedAtById,
-        unsortedProjectThreads: visibleProjectThreads,
-        visibleThreadCount: props.threadRevealCount,
-        threadSortOrder: props.threadSortOrder,
-      }),
-    [
-      props.activeSidebarRouteThreadId,
-      props.threadRevealCount,
-      props.threadSortOrder,
-      projectExpanded,
-      projectListThreads,
-      threadLastVisitedAtById,
-      visibleProjectThreads,
-    ],
-  );
+  const renderState = deriveSidebarLocalProjectRenderState({
+    activeThreadId: props.activeSidebarRouteThreadId ?? undefined,
+    projectExpanded,
+    projectListThreads,
+    revealStep: 5,
+    threadLastVisitedAtById,
+    unsortedProjectThreads: visibleProjectThreads,
+    visibleThreadCount: props.threadRevealCount,
+    threadSortOrder: props.threadSortOrder,
+  });
 
   useEffect(() => {
     if (!projectExpanded || renderState.renderedThreadIds.length === 0) {
@@ -415,4 +398,4 @@ export const SidebarLocalProjectSection = memo(function SidebarLocalProjectSecti
       ) : null}
     </>
   );
-});
+}

@@ -1382,9 +1382,7 @@ export default memo(function ThreadTerminalDrawer({
     }),
   );
 
-  const normalizedTerminalIds = useMemo(() => {
-    return normalizeTerminalIdList(terminalIds);
-  }, [terminalIds]);
+  const normalizedTerminalIds = normalizeTerminalIdList(terminalIds);
 
   const resolvedActiveTerminalId = normalizedTerminalIds.includes(activeTerminalId)
     ? activeTerminalId

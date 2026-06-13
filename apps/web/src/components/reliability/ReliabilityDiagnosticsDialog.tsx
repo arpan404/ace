@@ -1,6 +1,6 @@
 import { type ServerProvider, PROVIDER_DISPLAY_NAMES } from "@ace/contracts";
 import { CopyIcon, RefreshCwIcon, SquareIcon } from "lucide-react";
-import { memo, useMemo, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 import { readNativeApi } from "~/nativeApi";
 import type { ConnectionHealthSnapshot } from "~/lib/reliability/connectionHealth";
@@ -72,7 +72,7 @@ function Section({
   );
 }
 
-export const ReliabilityDiagnosticsDialog = memo(function ReliabilityDiagnosticsDialog({
+export function ReliabilityDiagnosticsDialog({
   open,
   onOpenChange,
   connection,
@@ -83,10 +83,7 @@ export const ReliabilityDiagnosticsDialog = memo(function ReliabilityDiagnostics
   onStopTurn = null,
 }: ReliabilityDiagnosticsDialogProps) {
   const [refreshing, setRefreshing] = useState(false);
-  const copyText = useMemo(
-    () => buildReliabilityDiagnosticsCopy({ connection, provider, thread }),
-    [connection, provider, thread],
-  );
+  const copyText = buildReliabilityDiagnosticsCopy({ connection, provider, thread });
   const providerLabel = provider
     ? (PROVIDER_DISPLAY_NAMES[provider.provider] ?? provider.provider)
     : "None";
@@ -198,4 +195,4 @@ export const ReliabilityDiagnosticsDialog = memo(function ReliabilityDiagnostics
       </DialogPopup>
     </Dialog>
   );
-});
+}

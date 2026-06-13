@@ -505,40 +505,37 @@ function useEnvironmentGitSection({
     dispatch({ type: "set-ssh-passphrase-draft", value: configuredGitSshKeyPassphrase });
   }, [configuredGitSshKeyPassphrase, isSshPassphraseDialogOpen]);
 
-  const persistSshPassphrase = useCallback(
-    (passphrase: string) => {
-      const api = readNativeApi();
-      if (!api) {
-        toastManager.add({
-          type: "error",
-          title: "Settings are unavailable.",
-          data: threadToastData,
-        });
-        return;
-      }
+  const persistSshPassphrase = (passphrase: string) => {
+    const api = readNativeApi();
+    if (!api) {
+      toastManager.add({
+        type: "error",
+        title: "Settings are unavailable.",
+        data: threadToastData,
+      });
+      return;
+    }
 
-      dispatch({ type: "set-ssh-passphrase-saving", value: true });
-      runAsyncTask(
-        api.server
-          .updateSettings({ gitSshKeyPassphrase: passphrase })
-          .then((settings) => {
-            applySettingsUpdated(settings);
-            dispatch({ type: "set-ssh-passphrase-dialog-open", value: false });
-          })
-          .catch((err: unknown) => {
-            toastManager.add({
-              type: "error",
-              title: "Failed to save SSH passphrase",
-              description: err instanceof Error ? err.message : "An error occurred.",
-              data: threadToastData,
-            });
-          })
-          .finally(() => dispatch({ type: "set-ssh-passphrase-saving", value: false })),
-        "Failed to persist Git SSH key passphrase.",
-      );
-    },
-    [threadToastData],
-  );
+    dispatch({ type: "set-ssh-passphrase-saving", value: true });
+    runAsyncTask(
+      api.server
+        .updateSettings({ gitSshKeyPassphrase: passphrase })
+        .then((settings) => {
+          applySettingsUpdated(settings);
+          dispatch({ type: "set-ssh-passphrase-dialog-open", value: false });
+        })
+        .catch((err: unknown) => {
+          toastManager.add({
+            type: "error",
+            title: "Failed to save SSH passphrase",
+            description: err instanceof Error ? err.message : "An error occurred.",
+            data: threadToastData,
+          });
+        })
+        .finally(() => dispatch({ type: "set-ssh-passphrase-saving", value: false })),
+      "Failed to persist Git SSH key passphrase.",
+    );
+  };
 
   const saveSshPassphrase = () => {
     persistSshPassphrase(sshPassphraseDraft);
@@ -670,10 +667,11 @@ function useEnvironmentGitSection({
     hasOriginRemote,
     isDefaultBranch,
   );
-  const quickAction = useMemo(
-    () =>
-      resolveQuickAction(gitStatusForActions, isGitActionRunning, isDefaultBranch, hasOriginRemote),
-    [gitStatusForActions, hasOriginRemote, isDefaultBranch, isGitActionRunning],
+  const quickAction = resolveQuickAction(
+    gitStatusForActions,
+    isGitActionRunning,
+    isDefaultBranch,
+    hasOriginRemote,
   );
   const quickActionDisabledReason = quickAction.disabled
     ? (quickAction.hint ?? "This action is currently unavailable.")
@@ -699,7 +697,7 @@ function useEnvironmentGitSection({
     };
   }, [updateActiveProgressToast]);
 
-  const openExistingPr = useCallback(async () => {
+  const openExistingPr = async () => {
     const api = readNativeApi();
     if (!api) {
       toastManager.add({
@@ -726,7 +724,7 @@ function useEnvironmentGitSection({
         data: threadToastData,
       });
     });
-  }, [gitStatusForActions, threadToastData]);
+  };
 
   const runGitActionWithToast = async ({
     action,

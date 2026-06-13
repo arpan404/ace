@@ -1,4 +1,4 @@
-import { memo, useState, useId } from "react";
+import { useId, useState } from "react";
 import {
   buildCollapsedProposedPlanPreviewMarkdown,
   buildProposedPlanMarkdownFilename,
@@ -31,7 +31,7 @@ import {
 import { toastManager } from "../ui/toast";
 import { readNativeApi } from "~/nativeApi";
 
-export const ProposedPlanCard = memo(function ProposedPlanCard({
+export function ProposedPlanCard({
   planMarkdown,
   cwd,
   onLayoutChange,
@@ -270,4 +270,4 @@ export const ProposedPlanCard = memo(function ProposedPlanCard({
       </Dialog>
     </div>
   );
-});
+}

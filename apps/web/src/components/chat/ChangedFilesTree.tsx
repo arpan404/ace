@@ -1,5 +1,5 @@
 import { type TurnId } from "@ace/contracts";
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { type TurnDiffFileChange } from "../../types";
 import { buildTurnDiffTree, type TurnDiffTreeNode } from "../../lib/turnDiffTree";
 import { ChevronRightIcon, FileIcon, FolderIcon, FolderClosedIcon } from "lucide-react";
@@ -16,10 +16,7 @@ export function ChangedFilesTree(props: {
 }) {
   const { files, allDirectoriesExpanded, onLayoutChange, onOpenTurnDiff, turnId } = props;
   const treeNodes = useMemo(() => buildTurnDiffTree(files), [files]);
-  const directoryPathsKey = useMemo(
-    () => collectDirectoryPaths(treeNodes).join("\u0000"),
-    [treeNodes],
-  );
+  const directoryPathsKey = collectDirectoryPaths(treeNodes).join("\u0000");
   const allDirectoryExpansionState = buildDirectoryExpansionState(
     directoryPathsKey ? directoryPathsKey.split("\u0000") : [],
     allDirectoriesExpanded,

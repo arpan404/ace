@@ -1,6 +1,6 @@
 import { ChevronLeftIcon, ChevronRightIcon, XIcon } from "lucide-react";
 import { AnimatePresence, LazyMotion, domAnimation, m } from "motion/react";
-import { memo, useEffect, useRef, useState, type ComponentProps } from "react";
+import { useEffect, useRef, useState, type ComponentProps } from "react";
 import { createPortal } from "react-dom";
 
 import { InAppBrowser, type InAppBrowserMode } from "../InAppBrowser";
@@ -145,7 +145,7 @@ function ExpandedImageOverlay({
   );
 }
 
-export const ChatViewPanels = memo(function ChatViewPanels({
+export function ChatViewPanels({
   browserPanel,
   expandedImageOverlay,
 }: {
@@ -215,4 +215,4 @@ export const ChatViewPanels = memo(function ChatViewPanels({
         : expandedImageOverlayElement}
     </>
   );
-});
+}

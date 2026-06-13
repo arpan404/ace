@@ -222,7 +222,7 @@ export function ComposerQueuedMessages(props: {
       activationConstraint: { distance: 6 },
     }),
   );
-  const queueCollisionDetection = useMemo<CollisionDetection>(() => closestCorners, []);
+  const queueCollisionDetection = closestCorners;
 
   const serverOrderIds = useMemo(
     () => props.messages.map((message) => message.id),
@@ -263,10 +263,7 @@ export function ComposerQueuedMessages(props: {
     return nextOrderedMessages;
   }, [baseOrderIds, props.messages]);
 
-  const persistedPositionByMessageId = useMemo(
-    () => new Map(serverOrderIds.map((id, index) => [id, index + 1])),
-    [serverOrderIds],
-  );
+  const persistedPositionByMessageId = new Map(serverOrderIds.map((id, index) => [id, index + 1]));
   const handleDragEnd = (event: DragEndEvent) => {
     setDraggedMessageId(null);
     const activeId = String(event.active.id) as MessageId;

@@ -209,7 +209,7 @@ function buildRecommendationFingerprint(input: {
 }
 
 function useProjectThreads(projectId: ProjectId | null): ReadonlyArray<Thread> {
-  const threadIdsSelector = useMemo(() => selectThreadIdsByProjectId(projectId), [projectId]);
+  const threadIdsSelector = selectThreadIdsByProjectId(projectId);
   const threadIds = useStore(threadIdsSelector);
   const threadsById = useStore((state) => state.threadsById);
   const threads = useStore((state) => state.threads);

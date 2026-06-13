@@ -20,7 +20,7 @@ import {
   WorkflowIcon,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
-import { type ComponentType, useCallback, useMemo } from "react";
+import { type ComponentType, useMemo } from "react";
 
 import { ensureNativeApi } from "~/nativeApi";
 import { cn } from "~/lib/utils";
@@ -209,7 +209,7 @@ export function BrowserSiteDiagnosticsDialog(props: {
   readonly onOpenChange: (open: boolean) => void;
 }) {
   const { open, url, onOpenChange } = props;
-  const api = useMemo(() => ensureNativeApi(), []);
+  const api = ensureNativeApi();
   const { data: siteInfoData, refetch: refetchSiteInfo } = useQuery({
     enabled: open && Boolean(url),
     queryKey: ["browser-site-info", url],
@@ -225,7 +225,7 @@ export function BrowserSiteDiagnosticsDialog(props: {
   });
   const siteInfo = open && url && siteInfoData?.url === url ? siteInfoData.siteInfo : null;
 
-  const refresh = useCallback(async () => {
+  const refresh = async () => {
     if (!url || !open) {
       return;
     }
@@ -238,7 +238,7 @@ export function BrowserSiteDiagnosticsDialog(props: {
         description: error instanceof Error ? error.message : "An error occurred.",
       });
     }
-  }, [open, refetchSiteInfo, url]);
+  };
 
   const permissionsByName = useMemo(() => {
     const next = new Map<DesktopBrowserPermission, DesktopBrowserPermissionSetting>();

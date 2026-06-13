@@ -24,7 +24,6 @@ import {
 import {
   Suspense,
   lazy,
-  useCallback,
   useRef,
   type MutableRefObject,
   type ReactNode,
@@ -255,15 +254,12 @@ function SortablePanelTabGroup(props: {
       activationConstraint: { distance: 6 },
     }),
   );
-  const handleDragEnd = useCallback(
-    (event: DragEndEvent) => {
-      const { active, over } = event;
-      if (over && active.id !== over.id) {
-        onReorder(String(active.id), String(over.id));
-      }
-    },
-    [onReorder],
-  );
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (over && active.id !== over.id) {
+      onReorder(String(active.id), String(over.id));
+    }
+  };
 
   if (itemIds.length <= 1) {
     return children;

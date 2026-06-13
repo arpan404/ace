@@ -320,9 +320,9 @@ export function useUpdateSettings() {
     [setClientSettings],
   );
 
-  const resetSettings = useCallback(() => {
+  const resetSettings = () => {
     updateSettings(DEFAULT_UNIFIED_SETTINGS);
-  }, [updateSettings]);
+  };
 
   return {
     updateSettings,

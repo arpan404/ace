@@ -1,5 +1,5 @@
 import { BotIcon } from "lucide-react";
-import { useCallback, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
+import { useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import { MessageId, type ProviderKind } from "@ace/contracts";
 
 import type { WorkLogEntry } from "../../session-logic/types";
@@ -79,10 +79,7 @@ export function SubagentThreadsPanel(props: {
   provider?: ProviderKind | null;
   workEntries: ReadonlyArray<WorkLogEntry>;
 }) {
-  const threads = useMemo(
-    () => deriveSubagentThreads(props.workEntries, props.provider),
-    [props.provider, props.workEntries],
-  );
+  const threads = deriveSubagentThreads(props.workEntries, props.provider);
 
   if (threads.length === 0) {
     return null;
@@ -153,12 +150,12 @@ export function SubagentWorkspacePanel(props: {
 }) {
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const [expandedWorkGroups, setExpandedWorkGroups] = useState<Record<string, boolean>>({});
-  const onToggleWorkGroup = useCallback((groupId: string) => {
+  const onToggleWorkGroup = (groupId: string) => {
     setExpandedWorkGroups((existing) => ({
       ...existing,
       [groupId]: !existing[groupId],
     }));
-  }, []);
+  };
   const activeThread =
     props.threads.find((thread) => thread.id === props.activeThreadId) ?? props.threads[0] ?? null;
   const sideChatTimeline = useMemo(() => {
@@ -184,9 +181,10 @@ export function SubagentWorkspacePanel(props: {
       workEntries,
     };
   }, [activeThread?.entries]);
-  const timelineEntries = useMemo(
-    () => deriveTimelineEntries(sideChatTimeline.messages, [], sideChatTimeline.workEntries),
-    [sideChatTimeline],
+  const timelineEntries = deriveTimelineEntries(
+    sideChatTimeline.messages,
+    [],
+    sideChatTimeline.workEntries,
   );
 
   if (!activeThread) {

@@ -1,19 +1,16 @@
-import { memo, useMemo, useState } from "react";
+import { useState } from "react";
 import { getVscodeIconUrlForEntry } from "../../vscode-icons";
 import { FileIcon, FolderIcon } from "lucide-react";
 import { cn } from "~/lib/utils";
 
-export const VscodeEntryIcon = memo(function VscodeEntryIcon(props: {
+export function VscodeEntryIcon(props: {
   pathValue: string;
   kind: "file" | "directory";
   theme: "light" | "dark";
   className?: string;
 }) {
   const [failedIconUrl, setFailedIconUrl] = useState<string | null>(null);
-  const iconUrl = useMemo(
-    () => getVscodeIconUrlForEntry(props.pathValue, props.kind, props.theme),
-    [props.kind, props.pathValue, props.theme],
-  );
+  const iconUrl = getVscodeIconUrlForEntry(props.pathValue, props.kind, props.theme);
   const failed = failedIconUrl === iconUrl;
 
   if (failed) {
@@ -34,4 +31,4 @@ export const VscodeEntryIcon = memo(function VscodeEntryIcon(props: {
       onError={() => setFailedIconUrl(iconUrl)}
     />
   );
-});
+}

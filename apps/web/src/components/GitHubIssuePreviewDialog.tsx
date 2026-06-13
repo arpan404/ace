@@ -2,7 +2,6 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { XIcon } from "lucide-react";
-import { useMemo } from "react";
 
 import { gitGitHubIssueThreadQueryOptions, gitGitHubIssuesQueryOptions } from "~/lib/gitReactQuery";
 import {
@@ -41,9 +40,7 @@ export function GitHubIssuePreviewDialog({
     }),
   );
 
-  const issueMetadata = useMemo(() => {
-    return issuesData?.issues?.find((i) => i.number === issueNumber) ?? null;
-  }, [issuesData?.issues, issueNumber]);
+  const issueMetadata = issuesData?.issues?.find((i) => i.number === issueNumber) ?? null;
 
   const { data: threadData, isFetching: isThreadFetching } = useQuery(
     gitGitHubIssueThreadQueryOptions({

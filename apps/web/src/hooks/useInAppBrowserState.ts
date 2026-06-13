@@ -958,34 +958,24 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     webviewHandlesRef.current.get(activeTab.id)?.stopFindInPage("clearSelection");
   };
 
-  const openUrl = useCallback(
-    (rawUrl: string, options?: { newTab?: boolean }) => {
-      const nextUrl = normalizeBrowserInput(rawUrl, browserSearchEngine);
-      const shouldKeepAddressBarFocused = rawUrl.trim().length === 0;
-      if (!shouldKeepAddressBarFocused) {
-        dismissAddressBarSuggestionOverlayAndBlur();
+  const openUrl = (rawUrl: string, options?: { newTab?: boolean }) => {
+    const nextUrl = normalizeBrowserInput(rawUrl, browserSearchEngine);
+    const shouldKeepAddressBarFocused = rawUrl.trim().length === 0;
+    if (!shouldKeepAddressBarFocused) {
+      dismissAddressBarSuggestionOverlayAndBlur();
+    }
+    if (!activeTab || options?.newTab) {
+      clearBridgeReadCache();
+      updateBrowserSession((current) => addBrowserTab(current, { activate: true, url: nextUrl }));
+      if (shouldKeepAddressBarFocused) {
+        focusAddressBar();
       }
-      if (!activeTab || options?.newTab) {
-        clearBridgeReadCache();
-        updateBrowserSession((current) => addBrowserTab(current, { activate: true, url: nextUrl }));
-        if (shouldKeepAddressBarFocused) {
-          focusAddressBar();
-        }
-        return;
-      }
-      clearBridgeReadCache(activeTab.id);
-      updateBrowserSession((current) => updateBrowserTab(current, activeTab.id, { url: nextUrl }));
-      webviewHandlesRef.current.get(activeTab.id)?.navigate(nextUrl);
-    },
-    [
-      activeTab,
-      browserSearchEngine,
-      clearBridgeReadCache,
-      dismissAddressBarSuggestionOverlayAndBlur,
-      focusAddressBar,
-      updateBrowserSession,
-    ],
-  );
+      return;
+    }
+    clearBridgeReadCache(activeTab.id);
+    updateBrowserSession((current) => updateBrowserTab(current, activeTab.id, { url: nextUrl }));
+    webviewHandlesRef.current.get(activeTab.id)?.navigate(nextUrl);
+  };
 
   const applySuggestion = (suggestion: BrowserSuggestion) => {
     if (suggestion.kind === "tab" && suggestion.tabId) {
@@ -1000,7 +990,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     dismissAddressBarSuggestionOverlayAndBlur();
   };
 
-  const copyBrowserAddress = useCallback(async (url: string) => {
+  const copyBrowserAddress = async (url: string) => {
     try {
       await navigator.clipboard.writeText(url);
       toastManager.add({
@@ -1013,7 +1003,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
         title: "Unable to copy page address.",
       });
     }
-  }, []);
+  };
 
   const showBrowserContextMenuFallback = async (
     tabId: string,
@@ -1145,7 +1135,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     }
   };
 
-  const waitForWebviewHandle = useCallback((tabId: string): Promise<BrowserTabHandle> => {
+  const waitForWebviewHandle = (tabId: string): Promise<BrowserTabHandle> => {
     const existingHandle = webviewHandlesRef.current.get(tabId);
     if (existingHandle) {
       return Promise.resolve(existingHandle);
@@ -1172,7 +1162,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
         reject(new Error("Ace browser tab did not become ready in time."));
       }, BROWSER_BRIDGE_TARGET_WAIT_MS);
     });
-  }, []);
+  };
 
   const resolveBridgeTarget = async (args: Record<string, unknown>) => {
     const tabId = readStringArgAny(args, ["tabId", "tab_id"]) ?? browserSession.activeTabId;

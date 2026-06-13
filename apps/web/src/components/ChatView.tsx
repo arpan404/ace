@@ -3073,16 +3073,13 @@ function useChatViewComponent({
           now: stuckTurnNow,
         })
       : { isLikelyStuck: false, runningForMs: 0, reason: null };
-  const openDiagnostics = useCallback(
-    (focus: "connection" | "provider" | "thread") => {
-      if (!reliabilityUxEnabled) {
-        return;
-      }
-      setDiagnosticsFocus(focus);
-      setDiagnosticsOpen(true);
-    },
-    [reliabilityUxEnabled],
-  );
+  const openDiagnostics = (focus: "connection" | "provider" | "thread") => {
+    if (!reliabilityUxEnabled) {
+      return;
+    }
+    setDiagnosticsFocus(focus);
+    setDiagnosticsOpen(true);
+  };
   const refreshProviderStatus = () => {
     void readNativeApi()
       ?.server.refreshProviders()
@@ -4387,7 +4384,7 @@ function useChatViewComponent({
     },
     [focusComposer],
   );
-  const toQueuedComposerCommandMessage = useCallback((message: QueuedComposerMessage) => {
+  const toQueuedComposerCommandMessage = (message: QueuedComposerMessage) => {
     return {
       id: message.id,
       prompt: message.prompt,
@@ -4404,37 +4401,34 @@ function useChatViewComponent({
       runtimeMode: message.runtimeMode,
       interactionMode: message.interactionMode,
     };
-  }, []);
-  const dispatchQueuedComposerCommand = useCallback(
-    async (
-      targetThreadId: ThreadId,
-      buildCommand: (input: {
-        commandId: CommandId;
-        threadId: ThreadId;
-      }) => ClientOrchestrationCommand,
-    ) => {
-      const api = readNativeApi();
-      if (!api) {
-        return false;
-      }
-      try {
-        await api.orchestration.dispatchCommand(
-          buildCommand({
-            commandId: newCommandId(),
-            threadId: targetThreadId,
-          }),
-        );
-        return true;
-      } catch (error) {
-        setThreadError(
-          targetThreadId,
-          error instanceof Error ? error.message : "Failed to update queued messages.",
-        );
-        return false;
-      }
-    },
-    [setThreadError],
-  );
+  };
+  const dispatchQueuedComposerCommand = async (
+    targetThreadId: ThreadId,
+    buildCommand: (input: {
+      commandId: CommandId;
+      threadId: ThreadId;
+    }) => ClientOrchestrationCommand,
+  ) => {
+    const api = readNativeApi();
+    if (!api) {
+      return false;
+    }
+    try {
+      await api.orchestration.dispatchCommand(
+        buildCommand({
+          commandId: newCommandId(),
+          threadId: targetThreadId,
+        }),
+      );
+      return true;
+    } catch (error) {
+      setThreadError(
+        targetThreadId,
+        error instanceof Error ? error.message : "Failed to update queued messages.",
+      );
+      return false;
+    }
+  };
   const appendQueuedComposerMessage = async (
     targetThreadId: ThreadId,
     message: QueuedComposerMessage,
@@ -5274,13 +5268,11 @@ function useChatViewComponent({
     terminalState.activeTerminalId,
   ]);
   const openEditorFile = useEditorStateStore((state) => state.openFile);
-  const workspaceRootsForInAppFileOpen = useMemo(
-    () =>
-      [activeThread?.worktreePath, gitCwd, activeProject?.cwd].filter(
-        (root): root is string => typeof root === "string" && root.trim().length > 0,
-      ),
-    [activeProject?.cwd, activeThread?.worktreePath, gitCwd],
-  );
+  const workspaceRootsForInAppFileOpen = [
+    activeThread?.worktreePath,
+    gitCwd,
+    activeProject?.cwd,
+  ].filter((root): root is string => typeof root === "string" && root.trim().length > 0);
   const openMarkdownFileInAppEditor = async (targetPath: string) => {
     if (!activeThreadId || !gitCwd) {
       return;
@@ -7980,52 +7972,41 @@ function useChatViewComponent({
     toggleTerminalVisibility,
   ]);
 
-  const onRevertToTurnCount = useCallback(
-    async (turnCount: number) => {
-      const api = readNativeApi();
-      if (!api || !activeThread || isRevertingCheckpoint) return;
+  const onRevertToTurnCount = async (turnCount: number) => {
+    const api = readNativeApi();
+    if (!api || !activeThread || isRevertingCheckpoint) return;
 
-      if (liveTurnInProgress || isSendBusy || isConnecting) {
-        setThreadError(activeThread.id, "Interrupt the current turn before reverting checkpoints.");
-        return;
-      }
-      const confirmed = await api.dialogs.confirm(
-        buildCheckpointRestoreConfirmation(activeThread.session?.provider, turnCount),
+    if (liveTurnInProgress || isSendBusy || isConnecting) {
+      setThreadError(activeThread.id, "Interrupt the current turn before reverting checkpoints.");
+      return;
+    }
+    const confirmed = await api.dialogs.confirm(
+      buildCheckpointRestoreConfirmation(activeThread.session?.provider, turnCount),
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setIsRevertingCheckpoint(true);
+    setThreadError(activeThread.id, null);
+    try {
+      await api.orchestration.dispatchCommand({
+        type: "thread.checkpoint.revert",
+        commandId: newCommandId(),
+        threadId: activeThread.id,
+        turnCount,
+        createdAt: new Date().toISOString(),
+      });
+    } catch (err) {
+      setThreadError(
+        activeThread.id,
+        err instanceof Error
+          ? err.message
+          : checkpointRestoreFailureMessage(activeThread.session?.provider),
       );
-      if (!confirmed) {
-        return;
-      }
-
-      setIsRevertingCheckpoint(true);
-      setThreadError(activeThread.id, null);
-      try {
-        await api.orchestration.dispatchCommand({
-          type: "thread.checkpoint.revert",
-          commandId: newCommandId(),
-          threadId: activeThread.id,
-          turnCount,
-          createdAt: new Date().toISOString(),
-        });
-      } catch (err) {
-        setThreadError(
-          activeThread.id,
-          err instanceof Error
-            ? err.message
-            : checkpointRestoreFailureMessage(activeThread.session?.provider),
-        );
-      }
-      setIsRevertingCheckpoint(false);
-    },
-    [
-      activeThread,
-      isConnecting,
-      isRevertingCheckpoint,
-      isSendBusy,
-      liveTurnInProgress,
-      setIsRevertingCheckpoint,
-      setThreadError,
-    ],
-  );
+    }
+    setIsRevertingCheckpoint(false);
+  };
 
   const dispatchComposerMessage = async (
     submission: {
@@ -8747,16 +8728,13 @@ function useChatViewComponent({
     [setStoreThreadError],
   );
 
-  const scheduleInterruptStopFallback = useCallback(
-    (targetThreadId: ThreadId, targetTurnId: TurnId | null) => {
-      clearPendingInterruptStopFallback();
-      pendingInterruptStopFallbackRef.current = window.setTimeout(() => {
-        pendingInterruptStopFallbackRef.current = null;
-        void dispatchInterruptStopFallback(targetThreadId, targetTurnId);
-      }, INTERRUPT_STOP_FALLBACK_DELAY_MS);
-    },
-    [clearPendingInterruptStopFallback, dispatchInterruptStopFallback],
-  );
+  const scheduleInterruptStopFallback = (targetThreadId: ThreadId, targetTurnId: TurnId | null) => {
+    clearPendingInterruptStopFallback();
+    pendingInterruptStopFallbackRef.current = window.setTimeout(() => {
+      pendingInterruptStopFallbackRef.current = null;
+      void dispatchInterruptStopFallback(targetThreadId, targetTurnId);
+    }, INTERRUPT_STOP_FALLBACK_DELAY_MS);
+  };
 
   useEffect(() => {
     if (!liveTurnInProgress) {

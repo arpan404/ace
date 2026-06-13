@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useSyncExternalStore } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 
 type Theme = "light" | "dark" | "system";
 type ThemeSnapshot = {
@@ -106,11 +106,11 @@ export function useTheme() {
   const resolvedTheme: "light" | "dark" =
     theme === "system" ? (snapshot.systemDark ? "dark" : "light") : theme;
 
-  const setTheme = useCallback((next: Theme) => {
+  const setTheme = (next: Theme) => {
     localStorage.setItem(STORAGE_KEY, next);
     applyTheme(next, true);
     emitChange();
-  }, []);
+  };
 
   // Keep DOM in sync on mount/change
   useEffect(() => {

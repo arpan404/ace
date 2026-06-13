@@ -152,7 +152,7 @@ export function useSettingsRestore(onRestored?: () => void) {
     ],
   );
 
-  const restoreDefaults = useCallback(async () => {
+  const restoreDefaults = async () => {
     if (changedSettingLabels.length === 0) return;
     const api = readNativeApi();
     const confirmed = await (api ?? ensureNativeApi()).dialogs.confirm(
@@ -166,7 +166,7 @@ export function useSettingsRestore(onRestored?: () => void) {
     resetThemePresetToDefault();
     resetSettings();
     onRestored?.();
-  }, [changedSettingLabels, onRestored, resetSettings, setTheme]);
+  };
 
   return {
     changedSettingLabels,

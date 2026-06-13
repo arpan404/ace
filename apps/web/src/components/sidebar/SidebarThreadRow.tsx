@@ -20,7 +20,6 @@ import {
 } from "lucide-react";
 import { type GitStatusResult, ThreadId } from "@ace/contracts";
 import {
-  memo,
   type DragEvent,
   type Dispatch,
   type MouseEvent,
@@ -236,7 +235,7 @@ export interface SidebarThreadRowProps {
   } | null;
 }
 
-export const SidebarThreadRow = memo(function SidebarThreadRow({
+export function SidebarThreadRow({
   renamingCommittedRef,
   renamingInputRef,
   ...props
@@ -600,4 +599,4 @@ export const SidebarThreadRow = memo(function SidebarThreadRow({
       </SidebarMenuSubButton>
     </SidebarMenuSubItem>
   );
-});
+}

@@ -627,10 +627,7 @@ function useDiffPanelComponent({
       }),
     );
   }, [renderablePatch]);
-  const renderableFileKeys = useMemo(
-    () => renderableFiles.map((fileDiff) => buildFileDiffRenderKey(fileDiff)),
-    [renderableFiles],
-  );
+  const renderableFileKeys = renderableFiles.map((fileDiff) => buildFileDiffRenderKey(fileDiff));
   const renderableFileKeySet = new Set(renderableFileKeys);
   const visibleCollapsedFileKeys = new Set(
     Array.from(collapsedFileKeys).filter((fileKey) => renderableFileKeySet.has(fileKey)),
@@ -742,12 +739,12 @@ function useDiffPanelComponent({
   const visibleReviewCommentPopoverPosition = reviewCommentPopoverOpen
     ? reviewCommentPopoverPosition
     : null;
-  const closeReviewCommentPopover = useCallback(() => {
+  const closeReviewCommentPopover = () => {
     setActiveCommentFileKey(null);
     setActiveReviewLineSelection(null);
     setReviewCommentPopoverPosition(null);
     setReviewCommentDraft("");
-  }, []);
+  };
 
   useLayoutEffect(() => {
     if (!reviewCommentPopoverOpen || !activeReviewLineSelection) {

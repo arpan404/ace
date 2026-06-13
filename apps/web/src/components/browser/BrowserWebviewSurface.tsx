@@ -2760,7 +2760,7 @@ function useBrowserTabWebviewComponent(props: {
     },
     [],
   );
-  const flushElementCommentWheel = useCallback(() => {
+  const flushElementCommentWheel = () => {
     elementCommentWheelFrameRef.current = null;
     const pendingWheel = pendingElementCommentWheelRef.current;
     if (!pendingWheel) {
@@ -2768,7 +2768,7 @@ function useBrowserTabWebviewComponent(props: {
     }
     pendingElementCommentWheelRef.current = null;
     forwardElementCommentWheelToWebview(pendingWheel);
-  }, [forwardElementCommentWheelToWebview]);
+  };
 
   const onCaptureOverlayWheel = (event: ReactWheelEvent<HTMLDivElement>) => {
     if (!active || !designerModeActive || designerTool !== "element-comment" || designDraft) {

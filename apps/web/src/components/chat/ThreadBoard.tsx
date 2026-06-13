@@ -546,20 +546,14 @@ function useThreadBoardComponent(props: { connectionUrl?: string | null; threadI
   const setBranchRatios = useChatThreadBoardStore((state) => state.setBranchRatios);
   const syncRouteThread = useChatThreadBoardStore((state) => state.syncRouteThread);
   const routeSidebarThread = useSidebarThreadSummaryById(props.threadId);
-  const activeRouteThread = useMemo(
-    () => ({
-      connectionUrl: props.connectionUrl ?? null,
-      threadId: props.threadId,
-      title: routeSidebarThread?.title ?? null,
-    }),
-    [props.connectionUrl, props.threadId, routeSidebarThread?.title],
-  );
+  const activeRouteThread = {
+    connectionUrl: props.connectionUrl ?? null,
+    threadId: props.threadId,
+    title: routeSidebarThread?.title ?? null,
+  };
   const orderedPanes = useMemo(() => orderBoardPanes(panes, layoutRoot), [layoutRoot, panes]);
   const visibleBoardThreadIds = orderedPanes.map((pane) => pane.threadId);
-  const primaryPane = useMemo(
-    () => selectBoardPaneById(panes, activePaneId) ?? orderedPanes[0],
-    [activePaneId, orderedPanes, panes],
-  );
+  const primaryPane = selectBoardPaneById(panes, activePaneId) ?? orderedPanes[0];
   const paneById = new Map(panes.map((pane) => [pane.id, pane]));
   const firstPaneId = orderedPanes[0]?.id ?? null;
   const boardVisible =
@@ -588,36 +582,33 @@ function useThreadBoardComponent(props: { connectionUrl?: string | null; threadI
     deferredPaneContentFrameIdsRef.current = [];
   }, []);
 
-  const deferPaneContentMount = useCallback(
-    (paneIds: ReadonlyArray<string | null | undefined>) => {
-      const ids = paneIds.filter((paneId): paneId is string => Boolean(paneId));
-      if (ids.length === 0) {
-        return;
-      }
-      clearDeferredPaneContentFrames();
-      setDeferredPaneContentIds(new Set(ids));
+  const deferPaneContentMount = (paneIds: ReadonlyArray<string | null | undefined>) => {
+    const ids = paneIds.filter((paneId): paneId is string => Boolean(paneId));
+    if (ids.length === 0) {
+      return;
+    }
+    clearDeferredPaneContentFrames();
+    setDeferredPaneContentIds(new Set(ids));
 
-      let remainingFrames = BOARD_DEFER_CONTENT_FRAME_COUNT;
-      const scheduleNextFrame = () => {
-        const frameId = window.requestAnimationFrame(() => {
-          deferredPaneContentFrameIdsRef.current = deferredPaneContentFrameIdsRef.current.filter(
-            (id) => id !== frameId,
-          );
-          remainingFrames -= 1;
-          if (remainingFrames > 0) {
-            scheduleNextFrame();
-            return;
-          }
-          startTransition(() => {
-            setDeferredPaneContentIds(new Set());
-          });
+    let remainingFrames = BOARD_DEFER_CONTENT_FRAME_COUNT;
+    const scheduleNextFrame = () => {
+      const frameId = window.requestAnimationFrame(() => {
+        deferredPaneContentFrameIdsRef.current = deferredPaneContentFrameIdsRef.current.filter(
+          (id) => id !== frameId,
+        );
+        remainingFrames -= 1;
+        if (remainingFrames > 0) {
+          scheduleNextFrame();
+          return;
+        }
+        startTransition(() => {
+          setDeferredPaneContentIds(new Set());
         });
-        deferredPaneContentFrameIdsRef.current.push(frameId);
-      };
-      scheduleNextFrame();
-    },
-    [clearDeferredPaneContentFrames],
-  );
+      });
+      deferredPaneContentFrameIdsRef.current.push(frameId);
+    };
+    scheduleNextFrame();
+  };
 
   useEffect(
     () => () => {
@@ -626,32 +617,31 @@ function useThreadBoardComponent(props: { connectionUrl?: string | null; threadI
     [clearDeferredPaneContentFrames],
   );
 
-  const navigateToSingleThreadRoute = useCallback(
-    (pane: { connectionUrl: string | null; threadId: ThreadId }) => {
-      startTransition(() => {
-        void navigate({
-          to: "/$threadId",
-          params: { threadId: pane.threadId },
-          replace: true,
-          search: buildSingleThreadRouteSearch({ connectionUrl: pane.connectionUrl }),
-        });
+  const navigateToSingleThreadRoute = (pane: {
+    connectionUrl: string | null;
+    threadId: ThreadId;
+  }) => {
+    startTransition(() => {
+      void navigate({
+        to: "/$threadId",
+        params: { threadId: pane.threadId },
+        replace: true,
+        search: buildSingleThreadRouteSearch({ connectionUrl: pane.connectionUrl }),
       });
-    },
-    [navigate],
-  );
+    });
+  };
 
-  const buildBoardTitle = useCallback(
-    (threads: ReadonlyArray<{ threadId: ThreadId; title?: string | null | undefined }>) =>
-      buildThreadBoardTitle({
-        fallbackIndex: savedSplitCount + 1,
-        threads: threads.map((thread) => ({
-          threadId: thread.threadId,
-          title:
-            thread.title ?? useStore.getState().sidebarThreadsById[thread.threadId]?.title ?? null,
-        })),
-      }),
-    [savedSplitCount],
-  );
+  const buildBoardTitle = (
+    threads: ReadonlyArray<{ threadId: ThreadId; title?: string | null | undefined }>,
+  ) =>
+    buildThreadBoardTitle({
+      fallbackIndex: savedSplitCount + 1,
+      threads: threads.map((thread) => ({
+        threadId: thread.threadId,
+        title:
+          thread.title ?? useStore.getState().sidebarThreadsById[thread.threadId]?.title ?? null,
+      })),
+    });
 
   const handleClosePane = (pane: ChatThreadBoardPaneState) => {
     const nextPanes = panes.filter((candidate) => candidate.id !== pane.id);
@@ -720,52 +710,52 @@ function useThreadBoardComponent(props: { connectionUrl?: string | null; threadI
     setDropTarget(null);
   };
 
-  const updatePaneDropTarget = useCallback(
-    (pane: ChatThreadBoardPaneState, event: ReactDragEvent<HTMLDivElement>) => {
-      const draggedThread =
-        getActiveThreadBoardDrag() ?? readThreadBoardDragThread(event.dataTransfer);
-      if (!draggedThread) {
-        return false;
+  const updatePaneDropTarget = (
+    pane: ChatThreadBoardPaneState,
+    event: ReactDragEvent<HTMLDivElement>,
+  ) => {
+    const draggedThread =
+      getActiveThreadBoardDrag() ?? readThreadBoardDragThread(event.dataTransfer);
+    if (!draggedThread) {
+      return false;
+    }
+    const sourcePaneId = draggedThread.sourcePaneId ?? null;
+    const draggedThreadKey = getThreadBoardDragThreadKey(draggedThread);
+    const isSamePaneDrag = sourcePaneId === pane.id;
+    const isSameSidebarThreadDrop =
+      sourcePaneId === null && draggedThreadKey === getThreadBoardDragThreadKey(pane);
+    if (isSamePaneDrag || isSameSidebarThreadDrop) {
+      if (dropTargetRef.current?.paneId === pane.id) {
+        dropTargetRef.current = null;
+        setDropTarget(null);
       }
-      const sourcePaneId = draggedThread.sourcePaneId ?? null;
-      const draggedThreadKey = getThreadBoardDragThreadKey(draggedThread);
-      const isSamePaneDrag = sourcePaneId === pane.id;
-      const isSameSidebarThreadDrop =
-        sourcePaneId === null && draggedThreadKey === getThreadBoardDragThreadKey(pane);
-      if (isSamePaneDrag || isSameSidebarThreadDrop) {
-        if (dropTargetRef.current?.paneId === pane.id) {
-          dropTargetRef.current = null;
-          setDropTarget(null);
-        }
-        return false;
-      }
-      event.preventDefault();
-      event.dataTransfer.dropEffect = sourcePaneId ? "move" : "copy";
-      const rect =
-        paneDropRectCacheRef.current.get(pane.id) ?? event.currentTarget.getBoundingClientRect();
-      paneDropRectCacheRef.current.set(pane.id, rect);
-      const direction = resolveThreadBoardDropDirection(event, rect);
-      const currentDropTarget = dropTargetRef.current;
-      if (
-        currentDropTarget &&
-        currentDropTarget.paneId === pane.id &&
-        currentDropTarget.direction === direction &&
-        currentDropTarget.threadKey === draggedThreadKey
-      ) {
-        return true;
-      }
-      const nextDropTarget = {
-        direction,
-        paneId: pane.id,
-        thread: draggedThread,
-        threadKey: draggedThreadKey,
-      };
-      dropTargetRef.current = nextDropTarget;
-      setDropTarget(nextDropTarget);
+      return false;
+    }
+    event.preventDefault();
+    event.dataTransfer.dropEffect = sourcePaneId ? "move" : "copy";
+    const rect =
+      paneDropRectCacheRef.current.get(pane.id) ?? event.currentTarget.getBoundingClientRect();
+    paneDropRectCacheRef.current.set(pane.id, rect);
+    const direction = resolveThreadBoardDropDirection(event, rect);
+    const currentDropTarget = dropTargetRef.current;
+    if (
+      currentDropTarget &&
+      currentDropTarget.paneId === pane.id &&
+      currentDropTarget.direction === direction &&
+      currentDropTarget.threadKey === draggedThreadKey
+    ) {
       return true;
-    },
-    [],
-  );
+    }
+    const nextDropTarget = {
+      direction,
+      paneId: pane.id,
+      thread: draggedThread,
+      threadKey: draggedThreadKey,
+    };
+    dropTargetRef.current = nextDropTarget;
+    setDropTarget(nextDropTarget);
+    return true;
+  };
 
   const handlePaneDragEnter = (
     pane: ChatThreadBoardPaneState,

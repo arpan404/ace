@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useCallback, useMemo, useState, type ImgHTMLAttributes } from "react";
+import { memo, useMemo, useState, type ImgHTMLAttributes } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeRaw from "rehype-raw";
 import remarkBreaks from "remark-breaks";
@@ -111,15 +111,15 @@ function IssueImageSource(
   const [status, setStatus] = useState<"loading" | "loaded" | "error">("loading");
   const [resolvedSrc, setResolvedSrc] = useState(primarySrc);
 
-  const handleError = useCallback(() => {
+  const handleError = () => {
     if (fallbackSrc && resolvedSrc !== fallbackSrc) {
       setResolvedSrc(fallbackSrc);
       setStatus("loading");
       return;
     }
     setStatus("error");
-  }, [fallbackSrc, resolvedSrc]);
-  const handleLoad = useCallback(() => setStatus("loaded"), []);
+  };
+  const handleLoad = () => setStatus("loaded");
 
   if (status === "error") {
     return (
@@ -168,14 +168,11 @@ interface IssueMarkdownProps {
 
 function IssueMarkdownInner({ text, className, cwd }: IssueMarkdownProps) {
   const normalized = normalizeGitHubIssueMarkdown(text);
-  const components = useMemo(
-    () => ({
-      img: (props: ImgHTMLAttributes<HTMLImageElement>) => (
-        <IssueImage {...props} cwd={cwd ?? null} />
-      ),
-    }),
-    [cwd],
-  );
+  const components = {
+    img: (props: ImgHTMLAttributes<HTMLImageElement>) => (
+      <IssueImage {...props} cwd={cwd ?? null} />
+    ),
+  };
 
   return (
     <div

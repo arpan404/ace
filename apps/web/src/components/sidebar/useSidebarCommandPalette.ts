@@ -322,9 +322,8 @@ export function useSidebarCommandPalette(
   );
   const searchPaletteProjectItems = searchPaletteItems.filter((item) => item.type === "project");
   const searchPaletteThreadItems = searchPaletteItems.filter((item) => item.type === "thread");
-  const searchPaletteIndexById = useMemo(
-    () => new Map(searchPaletteItems.map((item, index) => [item.id, index] as const)),
-    [searchPaletteItems],
+  const searchPaletteIndexById = new Map(
+    searchPaletteItems.map((item, index) => [item.id, index] as const),
   );
   const effectiveSearchPaletteActiveIndex = !searchPaletteOpen
     ? -1
@@ -334,12 +333,12 @@ export function useSidebarCommandPalette(
         ? 0
         : Math.min(searchPaletteActiveIndex, searchPaletteItems.length - 1);
 
-  const openSearchPalette = useCallback(() => {
+  const openSearchPalette = () => {
     setSearchPaletteMode("root");
     setSearchPaletteQuery("");
     setSearchPaletteActiveIndex(-1);
     setSearchPaletteOpen(true);
-  }, []);
+  };
 
   const closeSearchPalette = useCallback(() => {
     setSearchPaletteOpen(false);
@@ -365,91 +364,87 @@ export function useSidebarCommandPalette(
     }
   };
 
-  const handleSearchPaletteSelect = useCallback(
-    (item: SearchPaletteItem) => {
-      if (item.type === "action.new-thread") {
-        setSearchPaletteMode("new-thread-project");
-        setSearchPaletteQuery("");
-        setSearchPaletteActiveIndex(0);
-        return;
-      }
-      if (item.type === "action.new-project") {
-        closeSearchPalette();
-        input.onStartAddProject();
-        return;
-      }
-      if (item.type === "action.open-settings") {
-        closeSearchPalette();
-        input.onNavigateSettings();
-        return;
-      }
-      if (item.type === "action.open-terminals") {
-        closeSearchPalette();
-        input.onNavigateTerminals();
-        return;
-      }
-      if (item.type === "project") {
-        const isRemoteProject =
-          item.connectionUrl !== undefined && item.connectionUrl !== input.activeWsUrl;
-        closeSearchPalette();
-        if (searchPaletteMode === "new-thread-project") {
-          if (isRemoteProject && item.connectionUrl) {
-            const remoteProject = input.remoteSidebarHosts
-              .find((entry) => entry.connectionUrl === item.connectionUrl)
-              ?.projects.find((project) => project.id === item.projectId);
-            if (!remoteProject) {
-              return;
-            }
-            input.onStartNewThreadForRemoteProject({
-              connectionUrl: item.connectionUrl,
-              project: remoteProject,
-            });
-            return;
-          }
-          input.onStartNewThreadForProject(item.projectId);
-          return;
-        }
+  const handleSearchPaletteSelect = (item: SearchPaletteItem) => {
+    if (item.type === "action.new-thread") {
+      setSearchPaletteMode("new-thread-project");
+      setSearchPaletteQuery("");
+      setSearchPaletteActiveIndex(0);
+      return;
+    }
+    if (item.type === "action.new-project") {
+      closeSearchPalette();
+      input.onStartAddProject();
+      return;
+    }
+    if (item.type === "action.open-settings") {
+      closeSearchPalette();
+      input.onNavigateSettings();
+      return;
+    }
+    if (item.type === "action.open-terminals") {
+      closeSearchPalette();
+      input.onNavigateTerminals();
+      return;
+    }
+    if (item.type === "project") {
+      const isRemoteProject =
+        item.connectionUrl !== undefined && item.connectionUrl !== input.activeWsUrl;
+      closeSearchPalette();
+      if (searchPaletteMode === "new-thread-project") {
         if (isRemoteProject && item.connectionUrl) {
           const remoteProject = input.remoteSidebarHosts
             .find((entry) => entry.connectionUrl === item.connectionUrl)
             ?.projects.find((project) => project.id === item.projectId);
-          const latestThread = remoteProject?.threads[0];
-          if (latestThread) {
-            input.onNavigateToThreadOnConnection(
-              item.connectionUrl,
-              ThreadId.makeUnsafe(latestThread.id),
-            );
+          if (!remoteProject) {
             return;
           }
-          if (remoteProject) {
-            input.onStartNewThreadForRemoteProject({
-              connectionUrl: item.connectionUrl,
-              project: remoteProject,
-            });
-          }
+          input.onStartNewThreadForRemoteProject({
+            connectionUrl: item.connectionUrl,
+            project: remoteProject,
+          });
           return;
         }
-        const projectSnapshot = combinedSidebarSnapshot.projects.find(
-          (project) =>
-            project.id === item.projectId &&
-            project.connectionUrl === input.localDeviceConnectionUrl,
-        );
-        if (!projectSnapshot || projectSnapshot.threads.length === 0) {
-          input.onStartNewThreadForProject(item.projectId);
+        input.onStartNewThreadForProject(item.projectId);
+        return;
+      }
+      if (isRemoteProject && item.connectionUrl) {
+        const remoteProject = input.remoteSidebarHosts
+          .find((entry) => entry.connectionUrl === item.connectionUrl)
+          ?.projects.find((project) => project.id === item.projectId);
+        const latestThread = remoteProject?.threads[0];
+        if (latestThread) {
+          input.onNavigateToThreadOnConnection(
+            item.connectionUrl,
+            ThreadId.makeUnsafe(latestThread.id),
+          );
           return;
         }
-        input.onFocusMostRecentThreadForProject(item.projectId);
+        if (remoteProject) {
+          input.onStartNewThreadForRemoteProject({
+            connectionUrl: item.connectionUrl,
+            project: remoteProject,
+          });
+        }
         return;
       }
-      closeSearchPalette();
-      if (item.connectionUrl && item.connectionUrl !== input.activeWsUrl) {
-        input.onNavigateToThreadOnConnection(item.connectionUrl, item.threadId);
+      const projectSnapshot = combinedSidebarSnapshot.projects.find(
+        (project) =>
+          project.id === item.projectId && project.connectionUrl === input.localDeviceConnectionUrl,
+      );
+      if (!projectSnapshot || projectSnapshot.threads.length === 0) {
+        input.onStartNewThreadForProject(item.projectId);
         return;
       }
-      input.onNavigateToThread(item.threadId);
-    },
-    [closeSearchPalette, combinedSidebarSnapshot.projects, input, searchPaletteMode],
-  );
+      input.onFocusMostRecentThreadForProject(item.projectId);
+      return;
+    }
+    closeSearchPalette();
+    if (item.connectionUrl && item.connectionUrl !== input.activeWsUrl) {
+      input.onNavigateToThreadOnConnection(item.connectionUrl, item.threadId);
+      return;
+    }
+    input.onNavigateToThread(item.threadId);
+  };
 
   const handleSearchPaletteInputKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === "ArrowDown") {

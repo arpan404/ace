@@ -21,7 +21,7 @@ import {
   hasContextWindowOption,
   resolveEffort,
 } from "@ace/shared/model";
-import { type ReactElement, useCallback, useState } from "react";
+import { type ReactElement, useState } from "react";
 import type { VariantProps } from "class-variance-authority";
 import { ChevronDownIcon, ZapIcon } from "lucide-react";
 import { Button } from "../ui/button";
@@ -582,19 +582,16 @@ export function TraitsMenuContent({
 }: TraitsMenuContentProps & TraitsPersistence) {
   const setProviderModelOptions = useComposerDraftStore((store) => store.setProviderModelOptions);
   const baseModelSelection = model ? buildProviderModelSelection(provider, model) : null;
-  const updateModelOptions = useCallback(
-    (nextOptions: ProviderOptions | undefined) => {
-      if ("onModelOptionsChange" in persistence) {
-        persistence.onModelOptionsChange(nextOptions);
-        return;
-      }
-      setProviderModelOptions(persistence.threadId, provider, nextOptions, {
-        persistSticky: true,
-        baseModelSelection,
-      });
-    },
-    [baseModelSelection, persistence, provider, setProviderModelOptions],
-  );
+  const updateModelOptions = (nextOptions: ProviderOptions | undefined) => {
+    if ("onModelOptionsChange" in persistence) {
+      persistence.onModelOptionsChange(nextOptions);
+      return;
+    }
+    setProviderModelOptions(persistence.threadId, provider, nextOptions, {
+      persistSticky: true,
+      baseModelSelection,
+    });
+  };
   const piThoughtOption =
     provider === "pi" ? findPiThoughtConfigOption(sessionConfigOptions) : undefined;
   const {

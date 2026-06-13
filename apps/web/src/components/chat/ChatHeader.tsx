@@ -28,7 +28,7 @@ interface ChatHeaderProps {
   showThreadIdentity?: boolean;
 }
 
-export const ChatHeader = memo(function ChatHeader({
+export function ChatHeader({
   activeThreadTitle,
   activeProjectId,
   activeProjectName,
@@ -189,4 +189,4 @@ export const ChatHeader = memo(function ChatHeader({
       </div>
     </div>
   );
-});
+}

@@ -1,4 +1,3 @@
-import { memo } from "react";
 import { BotIcon, ChevronDownIcon } from "lucide-react";
 import { cn } from "~/lib/utils";
 import { Button } from "../ui/button";
@@ -55,7 +54,7 @@ const SendArrowIcon = ({ size = 14 }: { size?: number }) => (
   </svg>
 );
 
-export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
+export function ComposerPrimaryActions({
   compact,
   pendingAction,
   isRunning,
@@ -269,4 +268,4 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
       )}
     </button>
   );
-});
+}

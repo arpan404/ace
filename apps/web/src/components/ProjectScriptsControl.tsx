@@ -600,12 +600,12 @@ export default function ProjectScriptsControl({
     });
   };
 
-  const confirmDeleteScript = useCallback(() => {
+  const confirmDeleteScript = () => {
     if (!editingScriptId) return;
     dispatchDialogState({ type: "set-delete-confirm-open", deleteConfirmOpen: false });
     dispatchDialogState({ type: "close-dialog" });
     void onDeleteScript(editingScriptId);
-  }, [editingScriptId, onDeleteScript]);
+  };
 
   return (
     <>

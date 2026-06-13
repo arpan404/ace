@@ -1,4 +1,3 @@
-import { memo } from "react";
 import { type PendingApproval } from "../../session-logic";
 
 interface ComposerPendingApprovalPanelProps {
@@ -6,7 +5,7 @@ interface ComposerPendingApprovalPanelProps {
   pendingCount: number;
 }
 
-export const ComposerPendingApprovalPanel = memo(function ComposerPendingApprovalPanel({
+export function ComposerPendingApprovalPanel({
   approval,
   pendingCount,
 }: ComposerPendingApprovalPanelProps) {
@@ -38,4 +37,4 @@ export const ComposerPendingApprovalPanel = memo(function ComposerPendingApprova
       </div>
     </div>
   );
-});
+}
