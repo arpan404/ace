@@ -17,7 +17,7 @@ import {
 import { IconArrowsDiagonal, IconArrowsDiagonalMinimize2 } from "@tabler/icons-react";
 import { useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useId, useMemo, useReducer, useRef, useState } from "react";
+import { useEffect, useId, useReducer, useRef, useState } from "react";
 import type {
   DesktopCliInstallState,
   ProviderKind,
@@ -56,6 +56,7 @@ import { ProviderModelPicker } from "../chat/ProviderModelPicker";
 import { TraitsPicker } from "../chat/TraitsPicker";
 import { isElectron } from "../../env";
 import { useTheme } from "../../hooks/useTheme";
+import { useStableCallback } from "../../hooks/useStableCallback";
 import { useSettings, useUpdateSettings } from "../../hooks/useSettings";
 import { useThreadActions } from "../../hooks/useThreadActions";
 import {
@@ -125,8 +126,6 @@ import { Checkbox } from "../ui/checkbox";
 import { Collapsible, CollapsibleContent } from "../ui/collapsible";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../ui/empty";
 import {
-  SETTINGS_CARD_BODY_CLASS_NAME,
-  SETTINGS_CARD_CLASS_NAME,
   SETTINGS_LIST_ROW_CLASS_NAME,
   SETTINGS_ROW_INSET_CLASS_NAME,
   SettingsChoiceGroup,
@@ -135,7 +134,6 @@ import {
   SettingsPageHeader,
   SettingsRow,
   SettingsSection,
-  SettingsInsetPanel,
   SettingResetButton,
 } from "./SettingsPanelPrimitives";
 import { getProviderSummary, getProviderVersionLabel } from "./providerSummary";
@@ -931,10 +929,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
   };
   const isUpgradingRuntime = (provider: ProviderKind, runtimeId: string) =>
     upgradingRuntimeKey === `${provider}:${runtimeId}`;
-  const canOpenNotificationSystemSettings = useMemo(
-    () => isElectron && resolveNotificationSettingsUrl() !== null,
-    [],
-  );
+  const canOpenNotificationSystemSettings = isElectron && resolveNotificationSettingsUrl() !== null;
   const hasAnyAgentAttentionNotificationsEnabled =
     settings.notifyOnAgentCompletion ||
     settings.notifyOnApprovalRequired ||
@@ -942,7 +937,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
   const setAgentAttentionNotificationToggles = (enabled: boolean) => {
     updateSettings(buildAgentAttentionNotificationSettingsPatch(enabled));
   };
-  const notificationPermissionDescription = useMemo(() => {
+  const notificationPermissionDescription = (() => {
     switch (notificationPermission) {
       case "granted":
         return "OS notifications are enabled for ace.";
@@ -957,7 +952,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
       default:
         return "Notifications are not supported in this runtime.";
     }
-  }, [canOpenNotificationSystemSettings, notificationPermission]);
+  })();
 
   const refreshNotificationPermission = () => {
     if (typeof window === "undefined") {
@@ -1227,14 +1222,11 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
   const isAboutPage = page === "about";
   const lspTools = lspToolsStatus?.tools ?? EMPTY_LSP_TOOL_LIST;
   const lspCoreTools = lspTools.filter((tool) => tool.builtin);
-  const lspCatalogTools = useMemo(
-    () => lspTools.filter((tool) => tool.source !== "custom"),
-    [lspTools],
-  );
+  const lspCatalogTools = lspTools.filter((tool) => tool.source !== "custom");
   const lspCustomTools = lspTools.filter((tool) => tool.source === "custom");
   const lspCoreToolsInstalled =
     lspCoreTools.length > 0 && lspCoreTools.every((tool) => tool.installed);
-  const filteredLspCatalogTools = useMemo(() => {
+  const filteredLspCatalogTools = (() => {
     const normalizedQuery = lspCatalogQuery.trim().toLowerCase();
     return lspCatalogTools.filter((tool) => {
       if (lspCatalogCategory !== "all" && tool.category !== lspCatalogCategory) {
@@ -1245,8 +1237,8 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
       }
       return getLspToolSearchText(tool).includes(normalizedQuery);
     });
-  }, [lspCatalogCategory, lspCatalogQuery, lspCatalogTools]);
-  const lspCatalogCategories = useMemo(() => {
+  })();
+  const lspCatalogCategories = (() => {
     const categories = new Set<ServerLspToolStatus["category"]>();
     for (const tool of lspCatalogTools) {
       if (tool.category !== "custom") {
@@ -1254,11 +1246,11 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
       }
     }
     return Array.from(categories);
-  }, [lspCatalogTools]);
+  })();
   const lspCatalogCategoryLabel =
     lspCatalogCategory === "all" ? "All categories" : LSP_CATEGORY_LABELS[lspCatalogCategory];
 
-  const refreshLspToolsStatus = useCallback(() => {
+  const refreshLspToolsStatus = useStableCallback(() => {
     void ensureNativeApi()
       .server.getLspToolsStatus()
       .then((status) => {
@@ -1271,7 +1263,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
           lspToolsError: getErrorMessage(error, "Unable to load LSP tool status."),
         });
       });
-  }, []);
+  });
 
   const installLspToolsFromSettings = (reinstall: boolean) => {
     dispatchLspState({ type: "set-installing-tools", isInstallingLspTools: true });
@@ -3405,7 +3397,7 @@ function getEnvironmentWorktreeEntries({
 }
 
 function ProjectWorktreeSetupEditor({ project }: { readonly project: Project }) {
-  const setupScript = useMemo(() => setupProjectScript(project.scripts), [project.scripts]);
+  const setupScript = setupProjectScript(project.scripts);
   const commandInputId = useId();
   const envFileInputId = useId();
   const environmentInputId = useId();
@@ -3689,31 +3681,24 @@ function ProjectEnvironmentWorktrees({
     }
     updateSettings({ gitSshKeyPassphraseByProjectRoot: nextPassphrases });
   };
-  const projectThreads = useMemo(
-    () => threads.filter((thread) => thread.projectId === project.id),
-    [project.id, threads],
-  );
-  const worktrees = useMemo(
-    () =>
-      getEnvironmentWorktreeEntries({
-        branches: branchesData?.branches ?? [],
-        project,
-        threads: projectThreads,
-      }),
-    [branchesData?.branches, project, projectThreads],
-  );
+  const projectThreads = threads.filter((thread) => thread.projectId === project.id);
+  const worktrees = getEnvironmentWorktreeEntries({
+    branches: branchesData?.branches ?? [],
+    project,
+    threads: projectThreads,
+  });
   const worktreePaths = worktrees.map((worktree) => worktree.path);
   const { data: statsData, isFetching: statsIsFetching } = useQuery(
     gitWorktreeStatsQueryOptions({ connectionUrl: projectConnectionUrl, paths: worktreePaths }),
   );
-  const statsByPath = useMemo(() => {
+  const statsByPath = (() => {
     const stats = new Map<string, EnvironmentWorktreeStats>();
     for (const worktreeStats of statsData?.worktrees ?? []) {
       stats.set(worktreeStats.path, worktreeStats);
     }
     return stats;
-  }, [statsData?.worktrees]);
-  const visibleWorktrees = useMemo(() => {
+  })();
+  const visibleWorktrees = (() => {
     const query = worktreeSearch.trim().toLowerCase();
     return worktrees
       .filter((worktree) => {
@@ -3760,7 +3745,7 @@ function ProjectEnvironmentWorktrees({
           left.displayName.localeCompare(right.displayName) || left.path.localeCompare(right.path)
         );
       });
-  }, [statsByPath, worktreeFilter, worktreeSearch, worktreeSort, worktrees]);
+  })();
   const availableWorktreePaths = new Set(worktrees.map((worktree) => worktree.path));
   const effectiveSelectedWorktreePaths = new Set(
     Array.from(selectedWorktreePaths).filter((path) => availableWorktreePaths.has(path)),
@@ -4320,15 +4305,11 @@ export function EnvironmentSettingsPanel() {
   const [projectMetricsById, setProjectMetricsById] = useState<
     Partial<Record<ProjectId, EnvironmentProjectMetrics>>
   >({});
-  const activeLocalProjects = useMemo(
-    () =>
-      projects
-        .filter((project) => project.archivedAt === null)
-        .toSorted(
-          (left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id),
-        ),
-    [projects],
-  );
+  const activeLocalProjects = projects
+    .filter((project) => project.archivedAt === null)
+    .toSorted(
+      (left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id),
+    );
   const updateProjectMetrics = (projectId: ProjectId, metrics: EnvironmentProjectMetrics) => {
     setProjectMetricsById((current) => {
       const previous = current[projectId];
@@ -4343,7 +4324,7 @@ export function EnvironmentSettingsPanel() {
       return { ...current, [projectId]: metrics };
     });
   };
-  const filteredProjects = useMemo(() => {
+  const filteredProjects = (() => {
     const query = projectSearch.trim().toLowerCase();
     const searchedProjects =
       query.length === 0
@@ -4389,7 +4370,7 @@ export function EnvironmentSettingsPanel() {
       }
       return left.name.localeCompare(right.name) || left.id.localeCompare(right.id);
     });
-  }, [activeLocalProjects, projectFilter, projectMetricsById, projectSearch, projectSort]);
+  })();
   const hasActiveFilter = projectFilter !== "all" || projectSort !== "name" || projectSearch.trim();
   const duplicateProjectNames = buildDuplicateProjectNameSet(activeLocalProjects);
 
@@ -4701,14 +4682,14 @@ export function ArchivedThreadsPanel() {
   const projects = useStore((store) => store.projects);
   const threads = useStore((store) => store.threads);
   const { unarchiveThread, confirmAndDeleteThread } = useThreadActions();
-  const threadCountByProjectId = useMemo(() => {
+  const threadCountByProjectId = (() => {
     const counts = new Map<string, number>();
     for (const thread of threads) {
       counts.set(thread.projectId, (counts.get(thread.projectId) ?? 0) + 1);
     }
     return counts;
-  }, [threads]);
-  const archivedGroups = useMemo(() => {
+  })();
+  const archivedGroups = (() => {
     const projectById = new Map(projects.map((project) => [project.id, project] as const));
     const nextGroups: ArchivedProjectGroup[] = [];
     for (const project of projectById.values()) {
@@ -4735,7 +4716,7 @@ export function ArchivedThreadsPanel() {
         left.project.name.localeCompare(right.project.name) ||
         right.project.id.localeCompare(left.project.id),
     );
-  }, [projects, threadCountByProjectId, threads]);
+  })();
   const [openGroupIds, setOpenGroupIds] = useState<Record<string, boolean>>({});
   const visibleOpenGroupIds = Object.fromEntries(
     archivedGroups.map((group) => [group.project.id, openGroupIds[group.project.id] ?? true]),
