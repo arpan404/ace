@@ -19,7 +19,8 @@ import {
   UsbIcon,
   WorkflowIcon,
 } from "lucide-react";
-import { type ComponentType, useCallback, useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { type ComponentType } from "react";
 
 import { ensureNativeApi } from "~/nativeApi";
 import { cn } from "~/lib/utils";
@@ -208,16 +209,28 @@ export function BrowserSiteDiagnosticsDialog(props: {
   readonly onOpenChange: (open: boolean) => void;
 }) {
   const { open, url, onOpenChange } = props;
-  const [siteInfo, setSiteInfo] = useState<DesktopBrowserSiteInfo | null>(null);
-  const api = useMemo(() => ensureNativeApi(), []);
+  const api = ensureNativeApi();
+  const { data: siteInfoData, refetch: refetchSiteInfo } = useQuery({
+    enabled: open && Boolean(url),
+    queryKey: ["browser-site-info", url],
+    queryFn: async () => {
+      if (!url) {
+        return null;
+      }
+      return {
+        url,
+        siteInfo: await api.browser.getSiteInfo(url),
+      };
+    },
+  });
+  const siteInfo = open && url && siteInfoData?.url === url ? siteInfoData.siteInfo : null;
 
-  const refresh = useCallback(async () => {
+  const refresh = async () => {
     if (!url || !open) {
-      setSiteInfo(null);
       return;
     }
     try {
-      setSiteInfo(await api.browser.getSiteInfo(url));
+      await refetchSiteInfo();
     } catch (error) {
       toastManager.add({
         type: "error",
@@ -225,36 +238,29 @@ export function BrowserSiteDiagnosticsDialog(props: {
         description: error instanceof Error ? error.message : "An error occurred.",
       });
     }
-  }, [api, open, url]);
+  };
 
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
+  const permissionsByName = new Map<DesktopBrowserPermission, DesktopBrowserPermissionSetting>();
+  for (const permission of siteInfo?.permissions ?? []) {
+    permissionsByName.set(permission.permission, permission.setting);
+  }
 
-  const permissionsByName = useMemo(() => {
-    const next = new Map<DesktopBrowserPermission, DesktopBrowserPermissionSetting>();
-    for (const permission of siteInfo?.permissions ?? []) {
-      next.set(permission.permission, permission.setting);
+  const setPermission = async (
+    permission: DesktopBrowserPermission,
+    setting: DesktopBrowserPermissionSetting,
+  ) => {
+    if (!url) {
+      return;
     }
-    return next;
-  }, [siteInfo?.permissions]);
+    const updated = await api.browser.setSitePermission({ permission, setting, url });
+    if (!updated) {
+      toastManager.add({ type: "error", title: "Permission update failed." });
+      return;
+    }
+    await refresh();
+  };
 
-  const setPermission = useCallback(
-    async (permission: DesktopBrowserPermission, setting: DesktopBrowserPermissionSetting) => {
-      if (!url) {
-        return;
-      }
-      const updated = await api.browser.setSitePermission({ permission, setting, url });
-      if (!updated) {
-        toastManager.add({ type: "error", title: "Permission update failed." });
-        return;
-      }
-      await refresh();
-    },
-    [api, refresh, url],
-  );
-
-  const clearSiteData = useCallback(async () => {
+  const clearSiteData = async () => {
     if (!url) {
       return;
     }
@@ -264,9 +270,9 @@ export function BrowserSiteDiagnosticsDialog(props: {
       title: cleared ? "Site data cleared." : "Site data was not cleared.",
     });
     await refresh();
-  }, [api, refresh, url]);
+  };
 
-  const resetPermissions = useCallback(async () => {
+  const resetPermissions = async () => {
     if (!url) {
       return;
     }
@@ -276,7 +282,7 @@ export function BrowserSiteDiagnosticsDialog(props: {
       title: reset ? "Permissions reset." : "Permissions were not reset.",
     });
     await refresh();
-  }, [api, refresh, url]);
+  };
 
   const hostLabel = resolveDialogHostLabel({ siteInfo, url });
 

@@ -30,15 +30,12 @@ export function useBoundaryDismissedOpen<Details>(input: {
   const [uncontrolledOpen, setUncontrolledOpen] = React.useState(defaultOpen ?? false);
   const open = controlledOpen ?? uncontrolledOpen;
 
-  const onOpenChange = React.useCallback<OpenChangeHandler<Details>>(
-    (nextOpen, eventDetails) => {
-      if (!isControlled) {
-        setUncontrolledOpen(nextOpen);
-      }
-      onInputOpenChange?.(nextOpen, eventDetails);
-    },
-    [onInputOpenChange, isControlled],
-  );
+  const onOpenChange: OpenChangeHandler<Details> = (nextOpen, eventDetails) => {
+    if (!isControlled) {
+      setUncontrolledOpen(nextOpen);
+    }
+    onInputOpenChange?.(nextOpen, eventDetails);
+  };
 
   React.useEffect(() => {
     if (!open) {
@@ -46,7 +43,10 @@ export function useBoundaryDismissedOpen<Details>(input: {
     }
 
     const closeForBoundary = (reason: "focus-out" | "window-resize", event: Event) => {
-      onOpenChange(false, createSyntheticOpenChangeDetails<Details>(reason, event));
+      if (!isControlled) {
+        setUncontrolledOpen(false);
+      }
+      onInputOpenChange?.(false, createSyntheticOpenChangeDetails<Details>(reason, event));
     };
     const handleBlur = (event: FocusEvent) => closeForBoundary("focus-out", event);
     const handleNativeResizeStart = (event: Event) => closeForBoundary("window-resize", event);
@@ -65,7 +65,7 @@ export function useBoundaryDismissedOpen<Details>(input: {
       window.removeEventListener("ace:native-window-resize-start", handleNativeResizeStart);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [onOpenChange, open]);
+  }, [isControlled, onInputOpenChange, open]);
 
   return { open, onOpenChange };
 }

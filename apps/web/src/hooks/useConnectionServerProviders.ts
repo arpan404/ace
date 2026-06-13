@@ -5,7 +5,7 @@ import {
   type ServerProvider,
   type ServerSettings,
 } from "@ace/contracts";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { reportBackgroundError } from "../lib/async";
 import { resolveLocalConnectionUrl } from "../lib/connectionRouting";
@@ -78,27 +78,31 @@ export function useConnectionServerConfig(
 ): ServerConfig | null {
   const serverConfig = useServerConfig();
   const localConnectionUrl = resolveLocalConnectionUrl();
-  const normalizedConnectionUrl = useMemo(
-    () => normalizeConnectionUrl(connectionUrl) ?? localConnectionUrl,
-    [connectionUrl, localConnectionUrl],
-  );
+  const normalizedConnectionUrl = normalizeConnectionUrl(connectionUrl) ?? localConnectionUrl;
   const isLocalConnection = normalizedConnectionUrl === localConnectionUrl;
-  const [remoteConfig, setRemoteConfig] = useState<ServerConfig | null>(
-    remoteServerConfigByConnectionUrl.get(normalizedConnectionUrl) ?? null,
-  );
+  const [remoteConfigState, setRemoteConfigState] = useState<{
+    connectionUrl: string;
+    config: ServerConfig | null;
+  }>(() => ({
+    connectionUrl: normalizedConnectionUrl,
+    config: remoteServerConfigByConnectionUrl.get(normalizedConnectionUrl) ?? null,
+  }));
+  const remoteConfig =
+    remoteConfigState.connectionUrl === normalizedConnectionUrl
+      ? remoteConfigState.config
+      : (remoteServerConfigByConnectionUrl.get(normalizedConnectionUrl) ?? null);
 
   useEffect(() => {
     if (isLocalConnection) {
       return;
     }
-    setRemoteConfig(remoteServerConfigByConnectionUrl.get(normalizedConnectionUrl) ?? null);
 
     let canceled = false;
     const client = getRouteRpcClient(normalizedConnectionUrl);
     const applyConfig = (config: ServerConfig) => {
       remoteServerConfigByConnectionUrl.set(normalizedConnectionUrl, config);
       if (!canceled) {
-        setRemoteConfig(config);
+        setRemoteConfigState({ connectionUrl: normalizedConnectionUrl, config });
       }
     };
 

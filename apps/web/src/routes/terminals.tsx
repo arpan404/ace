@@ -1,7 +1,8 @@
 import { ThreadId, type TerminalProcessSummary } from "@ace/contracts";
+import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { RefreshCwIcon, SquareIcon } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState, type KeyboardEvent } from "react";
+import { useEffect, useState, type KeyboardEvent } from "react";
 
 import { AppPageTopBar } from "../components/AppPageTopBar";
 import { TopBarCluster } from "../components/thread/TopBarCluster";
@@ -12,8 +13,6 @@ import { reportBackgroundError } from "../lib/async";
 import { buildSingleThreadRouteSearch } from "../lib/chatThreadBoardRouteSearch";
 import { cn } from "../lib/utils";
 import { readNativeApi } from "../nativeApi";
-
-type TerminalProcessLoadState = "idle" | "loading" | "ready" | "error";
 
 function terminalTitle(process: TerminalProcessSummary): string {
   return process.title?.trim() || process.terminalId;
@@ -86,83 +85,78 @@ function sortTerminalProcesses(
 
 function TerminalsPage() {
   const navigate = useNavigate();
-  const [processes, setProcesses] = useState<ReadonlyArray<TerminalProcessSummary>>([]);
-  const [loadState, setLoadState] = useState<TerminalProcessLoadState>("idle");
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [stoppingId, setStoppingId] = useState<string | null>(null);
+  const [stopErrorMessage, setStopErrorMessage] = useState<string | null>(null);
+  const {
+    data: processes = [],
+    error: processesError,
+    isFetching: processesFetching,
+    refetch: refreshProcesses,
+  } = useQuery({
+    queryKey: ["terminal-processes", "running"],
+    queryFn: async () => {
+      const api = readNativeApi();
+      if (!api) {
+        throw new Error("Terminal process management is unavailable.");
+      }
+      return api.terminal.list({ runningOnly: true });
+    },
+  });
+  const errorMessage =
+    stopErrorMessage ??
+    (processesError instanceof Error
+      ? processesError.message
+      : processesError
+        ? "Failed to load terminals."
+        : null);
+  const loadState = processesError
+    ? "error"
+    : processesFetching && processes.length === 0
+      ? "loading"
+      : "ready";
 
-  const sortedProcesses = useMemo(() => sortTerminalProcesses(processes), [processes]);
+  const sortedProcesses = sortTerminalProcesses(processes);
   const runningCount = sortedProcesses.filter((process) => process.status === "running").length;
 
-  const openThread = useCallback(
-    (threadId: string) => {
-      void navigate({
-        to: "/$threadId",
-        params: { threadId: ThreadId.makeUnsafe(threadId) },
-        search: buildSingleThreadRouteSearch(),
-      });
-    },
-    [navigate],
-  );
+  const openThread = (threadId: string) => {
+    void navigate({
+      to: "/$threadId",
+      params: { threadId: ThreadId.makeUnsafe(threadId) },
+      search: buildSingleThreadRouteSearch(),
+    });
+  };
 
-  const handleThreadRowKeyDown = useCallback(
-    (event: KeyboardEvent<HTMLButtonElement>, threadId: string) => {
-      if (event.target !== event.currentTarget) {
-        return;
-      }
-      if (event.key !== "Enter" && event.key !== " ") {
-        return;
-      }
-      event.preventDefault();
-      openThread(threadId);
-    },
-    [openThread],
-  );
-
-  const refreshProcesses = useCallback(async () => {
-    const api = readNativeApi();
-    if (!api) {
-      setLoadState("error");
-      setErrorMessage("Terminal process management is unavailable.");
+  const handleThreadRowKeyDown = (event: KeyboardEvent<HTMLButtonElement>, threadId: string) => {
+    if (event.target !== event.currentTarget) {
       return;
     }
-    setLoadState((current) => (current === "ready" ? current : "loading"));
-    setErrorMessage(null);
-    try {
-      const nextProcesses = await api.terminal.list({ runningOnly: true });
-      setProcesses(nextProcesses);
-      setLoadState("ready");
-    } catch (error) {
-      setLoadState("error");
-      setErrorMessage(error instanceof Error ? error.message : "Failed to load terminals.");
+    if (event.key !== "Enter" && event.key !== " ") {
+      return;
     }
-  }, []);
+    event.preventDefault();
+    openThread(threadId);
+  };
 
-  const stopProcess = useCallback(
-    async (process: TerminalProcessSummary) => {
-      const api = readNativeApi();
-      if (!api) return;
-      const id = `${process.threadId}:${process.terminalId}`;
-      setStoppingId(id);
-      try {
-        await api.terminal.terminate({
-          threadId: process.threadId,
-          terminalId: process.terminalId,
-        });
-        await refreshProcesses();
-      } catch (error) {
-        reportBackgroundError("Failed to stop terminal process.", error);
-        setErrorMessage(error instanceof Error ? error.message : "Failed to stop terminal.");
-      } finally {
-        setStoppingId(null);
-      }
-    },
-    [refreshProcesses],
-  );
-
-  useEffect(() => {
-    void refreshProcesses();
-  }, [refreshProcesses]);
+  const stopProcess = async (process: TerminalProcessSummary) => {
+    const api = readNativeApi();
+    if (!api) return;
+    const id = `${process.threadId}:${process.terminalId}`;
+    setStoppingId(id);
+    setStopErrorMessage(null);
+    try {
+      await api.terminal.terminate({
+        threadId: process.threadId,
+        terminalId: process.terminalId,
+      });
+      await refreshProcesses();
+    } catch (error) {
+      reportBackgroundError("Failed to stop terminal process.", error);
+      setStopErrorMessage(error instanceof Error ? error.message : "Failed to stop terminal.");
+      setStoppingId(null);
+      return;
+    }
+    setStoppingId(null);
+  };
 
   useEffect(() => {
     const api = readNativeApi();

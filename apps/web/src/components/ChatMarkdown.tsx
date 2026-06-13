@@ -9,10 +9,8 @@ import React, {
   Profiler,
   Suspense,
   isValidElement,
-  useCallback,
-  memo,
   useEffect,
-  useMemo,
+  useReducer,
   useRef,
   useState,
   useSyncExternalStore,
@@ -50,6 +48,7 @@ import { isRenderProfilingEnabled, recordReactRenderProfile } from "../lib/rende
 import { resolveMarkdownFileLinkTarget } from "../markdown-links";
 import { readNativeApi } from "../nativeApi";
 import type { ChatMessageStreamingTextState } from "../types";
+import { renderTrustedHighlightedHtml } from "./TrustedHighlightedHtml";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 const MermaidDiagram = React.lazy(() => import("./MermaidDiagram"));
 
@@ -265,6 +264,17 @@ function openLocalFilePath(input: {
   });
 }
 
+function openLinkExternally(href: string) {
+  const api = readNativeApi();
+  if (api) {
+    void api.shell.openExternal(href).catch((error) => {
+      console.warn("Failed to open link externally.", error);
+    });
+    return;
+  }
+  window.open(href, "_blank", "noopener,noreferrer");
+}
+
 function InlineCodeLocalFileLink(props: {
   readonly children: ReactNode;
   readonly code: string;
@@ -273,10 +283,7 @@ function InlineCodeLocalFileLink(props: {
   readonly enabled: boolean;
   readonly onOpenFilePath: ((path: string) => void | Promise<void>) | null;
 }) {
-  const targetPath = useMemo(
-    () => (props.enabled ? resolveMarkdownFileLinkTarget(props.code, props.cwd) : null),
-    [props.code, props.cwd, props.enabled],
-  );
+  const targetPath = props.enabled ? resolveMarkdownFileLinkTarget(props.code, props.cwd) : null;
   const cachedExists = useSyncExternalStore(
     subscribeLocalFilePathExistsCache,
     () => (props.enabled && targetPath ? localFilePathExistsCache.get(targetPath) : undefined),
@@ -320,6 +327,7 @@ function InlineCodeLocalFileLink(props: {
         render={
           <button
             type="button"
+            aria-label={`Open local file ${targetPath}`}
             className="chat-markdown-local-file-link"
             onClick={(event) => {
               event.stopPropagation();
@@ -445,16 +453,14 @@ function useCachedHighlightedCode(cacheKey: string, enabled: boolean): string | 
     readHighlightedCodeCacheRevision,
     readHighlightedCodeCacheRevision,
   );
-  return useMemo(
-    () => (enabled ? highlightedCodeCache.peek(cacheKey) : null),
-    [cacheKey, cacheRevision, enabled],
-  );
+  void cacheRevision;
+  return enabled ? highlightedCodeCache.peek(cacheKey) : null;
 }
 
 function MarkdownCodeBlock({ code, children }: { code: string; children: ReactNode }) {
   const [copied, setCopied] = useState(false);
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const handleCopy = useCallback(() => {
+  const handleCopy = () => {
     if (typeof navigator === "undefined" || navigator.clipboard == null) {
       return;
     }
@@ -471,7 +477,7 @@ function MarkdownCodeBlock({ code, children }: { code: string; children: ReactNo
       }),
       "Failed to copy markdown code to the clipboard.",
     );
-  }, [code]);
+  };
 
   useEffect(
     () => () => {
@@ -555,9 +561,8 @@ function ShikiCodeBlock({
 }
 
 function HighlightedShikiCodeBlock({ highlightedHtml }: { highlightedHtml: string }) {
-  return (
-    <div className="chat-markdown-shiki" dangerouslySetInnerHTML={{ __html: highlightedHtml }} />
-  );
+  const highlightedChildren = renderTrustedHighlightedHtml(highlightedHtml);
+  return <div className="chat-markdown-shiki">{highlightedChildren}</div>;
 }
 
 function StreamingMarkdownText({ text }: { text: string }) {
@@ -572,7 +577,10 @@ function StreamingMarkdownText({ text }: { text: string }) {
 }
 
 function useSmoothStreamingText(text: string, isStreaming: boolean): string {
-  const [displayText, setDisplayText] = useState(text);
+  const [displayText, dispatchDisplayText] = useReducer(
+    (_current: string, nextText: string) => nextText,
+    text,
+  );
   const displayTextRef = useRef(text);
   const targetTextRef = useRef(text);
   const frameRef = useRef<number | null>(null);
@@ -589,7 +597,6 @@ function useSmoothStreamingText(text: string, isStreaming: boolean): string {
     ) {
       targetTextRef.current = text;
       displayTextRef.current = text;
-      setDisplayText(text);
       return;
     }
 
@@ -597,7 +604,7 @@ function useSmoothStreamingText(text: string, isStreaming: boolean): string {
 
     if (!text.startsWith(displayTextRef.current)) {
       displayTextRef.current = text;
-      setDisplayText(text);
+      dispatchDisplayText(text);
       return;
     }
 
@@ -617,7 +624,7 @@ function useSmoothStreamingText(text: string, isStreaming: boolean): string {
       const remainingCharCount = targetText.length - currentText.length;
       if (remainingCharCount <= 0 || !targetText.startsWith(currentText)) {
         displayTextRef.current = targetText;
-        setDisplayText(targetText);
+        dispatchDisplayText(targetText);
         return;
       }
 
@@ -633,7 +640,7 @@ function useSmoothStreamingText(text: string, isStreaming: boolean): string {
       );
       const nextText = targetText.slice(0, currentText.length + revealCharCount);
       displayTextRef.current = nextText;
-      setDisplayText(nextText);
+      dispatchDisplayText(nextText);
 
       if (nextText !== targetText) {
         frameRef.current = window.requestAnimationFrame(revealNextFrame);
@@ -653,15 +660,15 @@ function useSmoothStreamingText(text: string, isStreaming: boolean): string {
   return isStreaming ? displayText : text;
 }
 
-const PlainMarkdownText = memo(function PlainMarkdownText({ text }: { text: string }) {
+function PlainMarkdownText({ text }: { text: string }) {
   return (
     <div className="chat-markdown w-full min-w-0 wrap-break-word whitespace-pre-wrap text-[13px] leading-[1.55] text-foreground/80">
       {text}
     </div>
   );
-});
+}
 
-const MarkdownBody = memo(function MarkdownBody({
+function MarkdownBody({
   children,
   isStreaming,
   markdownComponents,
@@ -694,7 +701,7 @@ const MarkdownBody = memo(function MarkdownBody({
       )}
     </div>
   );
-});
+}
 
 function PreviewTextPanel({
   text,
@@ -794,8 +801,36 @@ function useChatMarkdownRenderState(input: {
   streamingTextState: ChatMarkdownProps["streamingTextState"];
   text: string;
 }) {
-  const markdownRenderAnalysisInput = useMemo(
-    () => ({
+  const markdownRenderAnalysisInput = {
+    text: input.text,
+    isStreaming: input.isStreaming,
+    renderPlainText: input.renderPlainText,
+    ...(input.streamingTextState
+      ? {
+          streamingTextState: {
+            totalLineCount: input.streamingTextState.totalLineCount,
+            truncatedCharCount: input.streamingTextState.truncatedCharCount,
+            truncatedLineCount: input.streamingTextState.truncatedLineCount,
+          },
+        }
+      : {}),
+  };
+  const resolvedAnalysisCacheKey = buildMarkdownRenderAnalysisCacheKey(
+    markdownRenderAnalysisInput,
+    input.analysisCacheKey,
+  );
+  const cachedMarkdownRenderAnalysis = readCachedMarkdownRenderAnalysis(resolvedAnalysisCacheKey);
+  const markdownRenderAnalysis =
+    cachedMarkdownRenderAnalysis ?? analyzeMarkdownRender(markdownRenderAnalysisInput);
+  const effectiveRenderPreference = input.isStreaming ? "auto" : input.renderPreference;
+  const useLargePreview =
+    effectiveRenderPreference !== "markdown" && markdownRenderAnalysis.useLargePreview;
+  const shouldFastPathPlainText = markdownRenderAnalysis.shouldFastPathPlainText;
+  const shouldObserveLayout = markdownRenderAnalysis.shouldObserveLayout;
+
+  useEffect(() => {
+    if (cachedMarkdownRenderAnalysis) return;
+    const prewarmInput = {
       text: input.text,
       isStreaming: input.isStreaming,
       renderPlainText: input.renderPlainText,
@@ -808,32 +843,17 @@ function useChatMarkdownRenderState(input: {
             },
           }
         : {}),
-    }),
-    [input.isStreaming, input.renderPlainText, input.streamingTextState, input.text],
-  );
-  const resolvedAnalysisCacheKey = useMemo(
-    () => buildMarkdownRenderAnalysisCacheKey(markdownRenderAnalysisInput, input.analysisCacheKey),
-    [input.analysisCacheKey, markdownRenderAnalysisInput],
-  );
-  const cachedMarkdownRenderAnalysis = useMemo(
-    () => readCachedMarkdownRenderAnalysis(resolvedAnalysisCacheKey),
-    [resolvedAnalysisCacheKey],
-  );
-  const markdownRenderAnalysis = useMemo(
-    () => cachedMarkdownRenderAnalysis ?? analyzeMarkdownRender(markdownRenderAnalysisInput),
-    [cachedMarkdownRenderAnalysis, markdownRenderAnalysisInput],
-  );
-  const effectiveRenderPreference = input.isStreaming ? "auto" : input.renderPreference;
-  const useLargePreview =
-    effectiveRenderPreference !== "markdown" && markdownRenderAnalysis.useLargePreview;
-  const shouldFastPathPlainText = markdownRenderAnalysis.shouldFastPathPlainText;
-  const shouldObserveLayout = markdownRenderAnalysis.shouldObserveLayout;
-
-  useEffect(() => {
-    if (!shouldWorkerizeMarkdownRenderAnalysis(markdownRenderAnalysisInput)) return;
-    if (cachedMarkdownRenderAnalysis) return;
-    prewarmMarkdownRenderAnalysis(resolvedAnalysisCacheKey, markdownRenderAnalysisInput);
-  }, [cachedMarkdownRenderAnalysis, markdownRenderAnalysisInput, resolvedAnalysisCacheKey]);
+    };
+    if (!shouldWorkerizeMarkdownRenderAnalysis(prewarmInput)) return;
+    prewarmMarkdownRenderAnalysis(resolvedAnalysisCacheKey, prewarmInput);
+  }, [
+    cachedMarkdownRenderAnalysis,
+    input.isStreaming,
+    input.renderPlainText,
+    input.streamingTextState,
+    input.text,
+    resolvedAnalysisCacheKey,
+  ]);
 
   return {
     markdownRenderAnalysis,
@@ -877,178 +897,155 @@ function ChatMarkdown({
   const shouldObserveLayout = onLayoutChange !== undefined && shouldObserveLayoutFromAnalysis;
   const canOpenLocalFiles = enableLocalFileLinks && !isStreaming;
 
-  const openLinkExternally = useCallback((href: string) => {
-    const api = readNativeApi();
-    if (api) {
-      void api.shell.openExternal(href).catch((error) => {
-        console.warn("Failed to open link externally.", error);
-      });
-      return;
-    }
-    window.open(href, "_blank", "noopener,noreferrer");
-  }, []);
-
-  const markdownComponents = useMemo<Components>(
-    () => ({
-      a({ node: _node, href, children, className, title, ...props }) {
-        const targetPath = canOpenLocalFiles ? resolveMarkdownFileLinkTarget(href, cwd) : null;
-        if (!targetPath) {
-          const browserUrl = href ? normalizeBrowserHttpUrl(href) : null;
-          if (!browserUrl || !onOpenBrowserUrl) {
-            return (
-              <a {...props} href={href} target="_blank" rel="noopener noreferrer">
-                {children}
-              </a>
-            );
-          }
-
+  const markdownComponents: Components = {
+    a({ node: _node, href, children, className, title, ...props }) {
+      const targetPath = canOpenLocalFiles ? resolveMarkdownFileLinkTarget(href, cwd) : null;
+      if (!targetPath) {
+        const browserUrl = href ? normalizeBrowserHttpUrl(href) : null;
+        if (!browserUrl || !onOpenBrowserUrl) {
           return (
-            <span className="chat-markdown-link-shell">
-              <button
-                type="button"
-                className={joinClassNames("chat-markdown-link-button", className)}
-                title={title}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  if (event.metaKey || event.ctrlKey) {
-                    openLinkExternally(href ?? browserUrl);
-                    return;
-                  }
-                  onOpenBrowserUrl(browserUrl);
-                }}
-              >
-                {children}
-              </button>
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <button
-                      type="button"
-                      className="chat-markdown-link-open-browser"
-                      aria-label="Open link in the in-app browser"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        onOpenBrowserUrl(browserUrl);
-                      }}
-                    />
-                  }
-                >
-                  <GlobeIcon className="size-3" />
-                </TooltipTrigger>
-                <TooltipPopup side="top">Open in in-app browser</TooltipPopup>
-              </Tooltip>
-            </span>
-          );
-        }
-
-        return (
-          <button
-            type="button"
-            className={joinClassNames(
-              "chat-markdown-link-button",
-              "chat-markdown-local-file-link",
-              className,
-            )}
-            title={title}
-            onClick={(event) => {
-              event.stopPropagation();
-              openLocalFilePath({
-                targetPath,
-                onOpenFilePath,
-                preferExternalEditor: event.metaKey || event.ctrlKey,
-              });
-            }}
-          >
-            {children}
-          </button>
-        );
-      },
-      code({ node, className, children, ...props }) {
-        const code = nodeToPlainText(children);
-        const isInlineCode =
-          !className && !code.includes("\n") && code.length > 0 && isSingleLineMarkdownNode(node);
-        if (!isInlineCode) {
-          return (
-            <code {...props} className={className}>
+            <a {...props} href={href} target="_blank" rel="noopener noreferrer">
               {children}
-            </code>
+            </a>
           );
         }
+
         return (
-          <InlineCodeLocalFileLink
-            code={code}
-            codeProps={{ ...props, className }}
-            cwd={cwd}
-            enabled={canOpenLocalFiles}
-            onOpenFilePath={onOpenFilePath}
-          >
-            {children}
-          </InlineCodeLocalFileLink>
+          <span className="chat-markdown-link-shell">
+            <button
+              type="button"
+              className={joinClassNames("chat-markdown-link-button", className)}
+              title={title}
+              onClick={(event) => {
+                event.stopPropagation();
+                if (event.metaKey || event.ctrlKey) {
+                  openLinkExternally(href ?? browserUrl);
+                  return;
+                }
+                onOpenBrowserUrl(browserUrl);
+              }}
+            >
+              {children}
+            </button>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <button
+                    type="button"
+                    className="chat-markdown-link-open-browser"
+                    aria-label="Open link in the in-app browser"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onOpenBrowserUrl(browserUrl);
+                    }}
+                  />
+                }
+              >
+                <GlobeIcon className="size-3" />
+              </TooltipTrigger>
+              <TooltipPopup side="top">Open in in-app browser</TooltipPopup>
+            </Tooltip>
+          </span>
         );
-      },
-      pre({ node: _node, children, ...props }) {
-        const codeBlock = extractCodeBlock(children);
-        if (!codeBlock) {
-          return <pre {...props}>{children}</pre>;
-        }
-        if (isStreaming) {
-          return (
-            <MarkdownCodeBlock code={codeBlock.code}>
-              <pre {...props}>{children}</pre>
-            </MarkdownCodeBlock>
-          );
-        }
-        const language = extractFenceLanguage(codeBlock.className);
+      }
 
-        if (language === "mermaid") {
-          return (
-            <MarkdownCodeBlock code={codeBlock.code}>
-              <Suspense fallback={<MermaidDiagramLoading className="chat-markdown-mermaid" />}>
-                <MermaidDiagram
-                  source={codeBlock.code}
-                  theme={resolvedTheme}
-                  className="chat-markdown-mermaid"
-                />
-              </Suspense>
-            </MarkdownCodeBlock>
-          );
-        }
-
+      return (
+        <button
+          type="button"
+          className={joinClassNames(
+            "chat-markdown-link-button",
+            "chat-markdown-local-file-link",
+            className,
+          )}
+          title={title}
+          onClick={(event) => {
+            event.stopPropagation();
+            openLocalFilePath({
+              targetPath,
+              onOpenFilePath,
+              preferExternalEditor: event.metaKey || event.ctrlKey,
+            });
+          }}
+        >
+          {children}
+        </button>
+      );
+    },
+    code({ node, className, children, ...props }) {
+      const code = nodeToPlainText(children);
+      const isInlineCode =
+        !className && !code.includes("\n") && code.length > 0 && isSingleLineMarkdownNode(node);
+      if (!isInlineCode) {
+        return (
+          <code {...props} className={className}>
+            {children}
+          </code>
+        );
+      }
+      return (
+        <InlineCodeLocalFileLink
+          code={code}
+          codeProps={{ ...props, className }}
+          cwd={cwd}
+          enabled={canOpenLocalFiles}
+          onOpenFilePath={onOpenFilePath}
+        >
+          {children}
+        </InlineCodeLocalFileLink>
+      );
+    },
+    pre({ node: _node, children, ...props }) {
+      const codeBlock = extractCodeBlock(children);
+      if (!codeBlock) {
+        return <pre {...props}>{children}</pre>;
+      }
+      if (isStreaming) {
         return (
           <MarkdownCodeBlock code={codeBlock.code}>
-            <CodeHighlightErrorBoundary fallback={<pre {...props}>{children}</pre>}>
-              <ShikiCodeBlock
-                className={codeBlock.className}
-                code={codeBlock.code}
-                fallback={<pre {...props}>{children}</pre>}
-                themeName={diffThemeName}
-                isStreaming={isStreaming}
-              />
-            </CodeHighlightErrorBoundary>
+            <pre {...props}>{children}</pre>
           </MarkdownCodeBlock>
         );
-      },
-      img({ node: _node, alt, ...props }) {
+      }
+      const language = extractFenceLanguage(codeBlock.className);
+
+      if (language === "mermaid") {
         return (
-          <img
-            {...props}
-            alt={alt ?? ""}
-            className="my-2 max-h-[70vh] max-w-full rounded-lg border border-border/55 bg-background/70 object-contain"
-          />
+          <MarkdownCodeBlock code={codeBlock.code}>
+            <Suspense fallback={<MermaidDiagramLoading className="chat-markdown-mermaid" />}>
+              <MermaidDiagram
+                source={codeBlock.code}
+                theme={resolvedTheme}
+                className="chat-markdown-mermaid"
+              />
+            </Suspense>
+          </MarkdownCodeBlock>
         );
-      },
-    }),
-    [
-      canOpenLocalFiles,
-      cwd,
-      diffThemeName,
-      isStreaming,
-      onOpenBrowserUrl,
-      onOpenFilePath,
-      openLinkExternally,
-      resolvedTheme,
-    ],
-  );
+      }
+
+      return (
+        <MarkdownCodeBlock code={codeBlock.code}>
+          <CodeHighlightErrorBoundary fallback={<pre {...props}>{children}</pre>}>
+            <ShikiCodeBlock
+              className={codeBlock.className}
+              code={codeBlock.code}
+              fallback={<pre {...props}>{children}</pre>}
+              themeName={diffThemeName}
+              isStreaming={isStreaming}
+            />
+          </CodeHighlightErrorBoundary>
+        </MarkdownCodeBlock>
+      );
+    },
+    img({ node: _node, alt, ...props }) {
+      return (
+        <img
+          {...props}
+          alt={alt ?? ""}
+          className="my-2 max-h-[70vh] max-w-full rounded-lg border border-border/55 bg-background/70 object-contain"
+        />
+      );
+    },
+  };
   useEffect(() => {
     if (!onLayoutChange || !shouldObserveLayout || typeof ResizeObserver === "undefined") {
       return;
@@ -1086,51 +1083,30 @@ function ChatMarkdown({
     };
   }, [onLayoutChange, shouldObserveLayout]);
 
-  const content = useMemo<ReactNode>(() => {
-    if (renderPlainText) {
-      return <PreviewTextPanel text={displayText} />;
-    }
-    if (markdownRenderAnalysis.usesStreamingPreview && streamingTextState) {
-      return (
-        <StreamingMarkdownPreview text={displayText} streamingTextState={streamingTextState} />
-      );
-    }
-    if (useLargePreview) {
-      return (
-        <LargeMarkdownPreview
-          previewText={
-            markdownRenderAnalysis.largePreviewText ?? buildLargeMarkdownPreviewText(displayText)
-          }
-          totalCharacters={displayText.length}
-          isTransitionPending={isMarkdownTransitionPending}
-          onRenderMarkdown={() => {
-            startMarkdownTransition(() => {
-              setRenderPreference("markdown");
-            });
-          }}
-        />
-      );
-    }
-    if (shouldFastPathPlainText) {
-      return <PlainMarkdownText text={displayText} />;
-    }
-    return (
-      <MarkdownBody isStreaming={isStreaming} markdownComponents={markdownComponents}>
-        {displayText}
-      </MarkdownBody>
-    );
-  }, [
-    displayText,
-    isMarkdownTransitionPending,
-    isStreaming,
-    markdownRenderAnalysis,
-    markdownComponents,
-    renderPlainText,
-    startMarkdownTransition,
-    streamingTextState,
-    shouldFastPathPlainText,
-    useLargePreview,
-  ]);
+  const content = renderPlainText ? (
+    <PreviewTextPanel text={displayText} />
+  ) : markdownRenderAnalysis.usesStreamingPreview && streamingTextState ? (
+    <StreamingMarkdownPreview text={displayText} streamingTextState={streamingTextState} />
+  ) : useLargePreview ? (
+    <LargeMarkdownPreview
+      previewText={
+        markdownRenderAnalysis.largePreviewText ?? buildLargeMarkdownPreviewText(displayText)
+      }
+      totalCharacters={displayText.length}
+      isTransitionPending={isMarkdownTransitionPending}
+      onRenderMarkdown={() => {
+        startMarkdownTransition(() => {
+          setRenderPreference("markdown");
+        });
+      }}
+    />
+  ) : shouldFastPathPlainText ? (
+    <PlainMarkdownText text={displayText} />
+  ) : (
+    <MarkdownBody isStreaming={isStreaming} markdownComponents={markdownComponents}>
+      {displayText}
+    </MarkdownBody>
+  );
 
   return (
     <div
@@ -1143,4 +1119,4 @@ function ChatMarkdown({
   );
 }
 
-export default memo(ChatMarkdown);
+export default ChatMarkdown;

@@ -859,13 +859,6 @@ function mapThread(thread: OrchestrationThread, options?: SnapshotSyncOptions): 
   };
 }
 
-export function mapThreadFromReadModel(
-  thread: OrchestrationReadModel["threads"][number],
-  options?: SnapshotSyncOptions,
-): Thread {
-  return mapThread(thread, options);
-}
-
 function mapProject(project: OrchestrationReadModel["projects"][number]): Project {
   return {
     id: project.id,
@@ -1655,6 +1648,17 @@ function applyThreadActivityBatch(
   }));
 }
 
+function shouldRetainActivityInAppStore(activity: Thread["activities"][number]): boolean {
+  return (
+    activity.kind === "approval.requested" ||
+    activity.kind === "approval.resolved" ||
+    activity.kind === "provider.approval.respond.failed" ||
+    activity.kind === "user-input.requested" ||
+    activity.kind === "user-input.resolved" ||
+    activity.kind === "provider.user-input.respond.failed"
+  );
+}
+
 function compactSettledTurnActivities(thread: Thread, turnId: string, updatedAt: string): Thread {
   const originalActivityIds = new Set<string>();
   const compactedSettledActivities = compactOrchestrationThreadActivities(
@@ -1768,11 +1772,12 @@ function applyProjectEvent(state: AppState, event: OrchestrationEvent): AppState
       const threads = state.threads.filter(
         (thread) => thread.projectId !== event.payload.projectId,
       );
-      const removedThreadIds = new Set(
-        state.threads
-          .filter((thread) => thread.projectId === event.payload.projectId)
-          .map((thread) => thread.id),
-      );
+      const removedThreadIds = new Set<Thread["id"]>();
+      for (const thread of state.threads) {
+        if (thread.projectId === event.payload.projectId) {
+          removedThreadIds.add(thread.id);
+        }
+      }
       return {
         ...state,
         projects,
@@ -2015,6 +2020,68 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
       });
       if (shouldRecoverFinalAssistantSnapshot) {
         hydrateThreadTimelineRowsSnapshotInBackground(event.payload.threadId);
+      }
+      if (event.payload.role === "assistant") {
+        if (event.payload.turnId === null) {
+          return state;
+        }
+        const assistantTurnId = event.payload.turnId;
+        return updateThreadState(state, event.payload.threadId, (thread) => {
+          if (
+            event.payload.streaming &&
+            thread.latestTurn?.turnId === assistantTurnId &&
+            thread.latestTurn.state === "running" &&
+            thread.latestTurn.assistantMessageId === event.payload.messageId
+          ) {
+            return thread;
+          }
+          const turnDiffSummaries =
+            thread.historyLoaded !== false
+              ? rebindTurnDiffSummariesForAssistantMessage(
+                  thread.turnDiffSummaries,
+                  assistantTurnId,
+                  event.payload.messageId,
+                )
+              : thread.turnDiffSummaries;
+          const latestTurn =
+            thread.latestTurn === null || thread.latestTurn.turnId === assistantTurnId
+              ? buildLatestTurn({
+                  previous: thread.latestTurn,
+                  turnId: assistantTurnId,
+                  state: event.payload.streaming
+                    ? "running"
+                    : thread.latestTurn?.state === "interrupted"
+                      ? "interrupted"
+                      : thread.latestTurn?.state === "error"
+                        ? "error"
+                        : "completed",
+                  requestedAt:
+                    thread.latestTurn?.turnId === assistantTurnId
+                      ? thread.latestTurn.requestedAt
+                      : event.payload.createdAt,
+                  startedAt:
+                    thread.latestTurn?.turnId === assistantTurnId
+                      ? (thread.latestTurn.startedAt ?? event.payload.createdAt)
+                      : event.payload.createdAt,
+                  sourceProposedPlan: thread.pendingSourceProposedPlan,
+                  completedAt: event.payload.streaming
+                    ? thread.latestTurn?.turnId === assistantTurnId
+                      ? (thread.latestTurn.completedAt ?? null)
+                      : null
+                    : event.payload.updatedAt,
+                  assistantMessageId: event.payload.messageId,
+                })
+              : thread.latestTurn;
+          const nextThread = {
+            ...thread,
+            turnDiffSummaries,
+            latestTurn,
+            updatedAt: event.occurredAt,
+          };
+          return latestTurn?.turnId === assistantTurnId && latestTurn.state !== "running"
+            ? compactSettledTurnActivities(nextThread, String(assistantTurnId), event.occurredAt)
+            : nextThread;
+        });
       }
       return updateThreadState(state, event.payload.threadId, (thread) => {
         const message = mapTimelineMessage(orchestrationMessage, connectionUrl);
@@ -2320,6 +2387,9 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
         activity: event.payload.activity,
         updatedAt: event.occurredAt,
       });
+      if (!shouldRetainActivityInAppStore(event.payload.activity)) {
+        return state;
+      }
       return applyThreadActivityBatch(
         state,
         event.payload.threadId,
@@ -2588,30 +2658,39 @@ export function applyOrchestrationEvents(
       continue;
     }
 
-    const threadId = event.payload.threadId;
-    const activities = [event.payload.activity];
+    const { activity, threadId } = event.payload;
+    const activities = [activity];
     let updatedAt = event.occurredAt;
     primeThreadActivityTimelineRow({
       threadId,
-      activity: event.payload.activity,
+      activity,
       updatedAt: event.occurredAt,
     });
+    if (!shouldRetainActivityInAppStore(activity)) {
+      continue;
+    }
     let nextIndex = index + 1;
     while (nextIndex < events.length) {
       const nextEvent = events[nextIndex];
-      if (
-        nextEvent?.type !== "thread.activity-appended" ||
-        nextEvent.payload.threadId !== threadId
-      ) {
+      if (nextEvent?.type !== "thread.activity-appended") {
         break;
       }
-      activities.push(nextEvent.payload.activity);
-      updatedAt = nextEvent.occurredAt;
+      const nextPayload = nextEvent.payload;
+      if (nextPayload.threadId !== threadId) {
+        break;
+      }
+      const nextActivity = nextPayload.activity;
       primeThreadActivityTimelineRow({
         threadId,
-        activity: nextEvent.payload.activity,
+        activity: nextActivity,
         updatedAt: nextEvent.occurredAt,
       });
+      if (!shouldRetainActivityInAppStore(nextActivity)) {
+        nextIndex += 1;
+        continue;
+      }
+      activities.push(nextActivity);
+      updatedAt = nextEvent.occurredAt;
       nextIndex += 1;
     }
 

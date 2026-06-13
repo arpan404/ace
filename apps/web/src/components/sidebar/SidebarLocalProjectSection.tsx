@@ -1,11 +1,4 @@
-import {
-  type KeyboardEvent,
-  type MouseEvent,
-  type PointerEventHandler,
-  memo,
-  useEffect,
-  useMemo,
-} from "react";
+import { type KeyboardEvent, type MouseEvent, type PointerEventHandler } from "react";
 import { type GitStatusResult, type ProjectId, type ThreadId } from "@ace/contracts";
 import { type SidebarThreadSortOrder } from "@ace/contracts/settings";
 import { IconPin, IconPinFilled, IconPinnedOff } from "@tabler/icons-react";
@@ -127,68 +120,31 @@ export interface SidebarLocalProjectSectionProps {
   readonly navigateToThread: SidebarThreadRowProps["navigateToThread"];
 }
 
-export const SidebarLocalProjectSection = memo(function SidebarLocalProjectSection(
-  props: SidebarLocalProjectSectionProps,
-) {
+export function SidebarLocalProjectSection(props: SidebarLocalProjectSectionProps) {
   const project = useProjectById(props.projectId);
   const allProjectThreads = useSidebarThreadSummariesByProjectId(props.projectId);
-  const prefetchThreadHistory = props.prefetchThreadHistory;
   const projectExpanded = useUiStateStore(
     (state) => state.projectExpandedById[props.projectId] ?? true,
   );
 
-  const visibleProjectThreads = useMemo(
-    () => allProjectThreads.filter((thread) => thread.archivedAt === null),
-    [allProjectThreads],
-  );
-  const visibleProjectThreadIds = useMemo(
-    () => visibleProjectThreads.map((thread) => thread.id),
-    [visibleProjectThreads],
-  );
-  const threadLastVisitedAtSelector = useMemo(
-    () => createThreadLastVisitedAtByIdsSelector(visibleProjectThreadIds),
-    [visibleProjectThreadIds],
-  );
+  const visibleProjectThreads = allProjectThreads.filter((thread) => thread.archivedAt === null);
+  const visibleProjectThreadIds = visibleProjectThreads.map((thread) => thread.id);
+  const threadLastVisitedAtSelector =
+    createThreadLastVisitedAtByIdsSelector(visibleProjectThreadIds);
   const threadLastVisitedAtById = useUiStateStore(threadLastVisitedAtSelector);
-  const projectListThreads = useMemo(
-    () => visibleProjectThreads.filter((thread) => !props.pinnedThreadIdSet.has(thread.id)),
-    [props.pinnedThreadIdSet, visibleProjectThreads],
+  const projectListThreads = visibleProjectThreads.filter(
+    (thread) => !props.pinnedThreadIdSet.has(thread.id),
   );
-  const renderState = useMemo(
-    () =>
-      deriveSidebarLocalProjectRenderState({
-        activeThreadId: props.activeSidebarRouteThreadId ?? undefined,
-        projectExpanded,
-        projectListThreads,
-        revealStep: 5,
-        threadLastVisitedAtById,
-        unsortedProjectThreads: visibleProjectThreads,
-        visibleThreadCount: props.threadRevealCount,
-        threadSortOrder: props.threadSortOrder,
-      }),
-    [
-      props.activeSidebarRouteThreadId,
-      props.threadRevealCount,
-      props.threadSortOrder,
-      projectExpanded,
-      projectListThreads,
-      threadLastVisitedAtById,
-      visibleProjectThreads,
-    ],
-  );
-
-  useEffect(() => {
-    if (!projectExpanded || renderState.renderedThreadIds.length === 0) {
-      return;
-    }
-    for (const threadId of renderState.renderedThreadIds) {
-      prefetchThreadHistory(threadId, {
-        hydrateStore: false,
-        prewarmRows: true,
-        priority: "background",
-      });
-    }
-  }, [prefetchThreadHistory, projectExpanded, renderState.renderedThreadIds]);
+  const renderState = deriveSidebarLocalProjectRenderState({
+    activeThreadId: props.activeSidebarRouteThreadId ?? undefined,
+    projectExpanded,
+    projectListThreads,
+    revealStep: 5,
+    threadLastVisitedAtById,
+    unsortedProjectThreads: visibleProjectThreads,
+    visibleThreadCount: props.threadRevealCount,
+    threadSortOrder: props.threadSortOrder,
+  });
 
   if (!project) {
     return null;
@@ -382,7 +338,7 @@ export const SidebarLocalProjectSection = memo(function SidebarLocalProjectSecti
           {projectExpanded && renderState.hasHiddenThreads ? (
             <SidebarMenuSubItem className="w-full">
               <SidebarMenuSubButton
-                render={<button type="button" />}
+                render={<button type="button" aria-label="Show more project threads" />}
                 data-thread-selection-safe
                 size="sm"
                 className="h-6 w-full translate-x-0 justify-start bg-transparent px-2 text-left text-[10px] font-medium text-muted-foreground/60 transition-[filter,opacity,color] duration-150 hover:bg-transparent hover:text-foreground/90 hover:opacity-100 hover:brightness-90 dark:hover:text-foreground dark:hover:brightness-125"
@@ -399,7 +355,7 @@ export const SidebarLocalProjectSection = memo(function SidebarLocalProjectSecti
           {projectExpanded && renderState.canCollapseThreadList ? (
             <SidebarMenuSubItem className="w-full">
               <SidebarMenuSubButton
-                render={<button type="button" />}
+                render={<button type="button" aria-label="Show fewer project threads" />}
                 data-thread-selection-safe
                 size="sm"
                 className="h-6 w-full translate-x-0 justify-start bg-transparent px-2 text-left text-[10px] font-medium text-muted-foreground/60 transition-[filter,opacity,color] duration-150 hover:bg-transparent hover:text-foreground/90 hover:opacity-100 hover:brightness-90 dark:hover:text-foreground dark:hover:brightness-125"
@@ -415,4 +371,4 @@ export const SidebarLocalProjectSection = memo(function SidebarLocalProjectSecti
       ) : null}
     </>
   );
-});
+}

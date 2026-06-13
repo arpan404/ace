@@ -118,7 +118,7 @@ function groupComposerCommandItems(
   });
 }
 
-export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
+export function ComposerCommandMenu(props: {
   items: ComposerCommandItem[];
   resolvedTheme: "light" | "dark";
   isLoading: boolean;
@@ -128,7 +128,7 @@ export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
   onSelect: (item: ComposerCommandItem) => void;
 }) {
   const listRef = useRef<HTMLDivElement>(null);
-  const sections = useMemo(() => groupComposerCommandItems(props.items), [props.items]);
+  const sections = groupComposerCommandItems(props.items);
 
   useLayoutEffect(() => {
     if (!props.activeItemId || !listRef.current) return;
@@ -139,14 +139,10 @@ export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
   }, [props.activeItemId]);
 
   return (
-    <div
-      ref={listRef}
-      className="glass-surface relative overflow-hidden rounded-lg border"
-      role="listbox"
-    >
+    <div ref={listRef} className="glass-surface relative overflow-hidden rounded-lg border">
       <div className="max-h-64 overflow-y-auto p-2">
         {sections.map((section) => (
-          <div key={section.id} role="group">
+          <div key={section.id}>
             {section.label ? (
               <div className="px-2 pb-1 pt-2 font-medium text-muted-foreground/75 text-xs">
                 {section.label}
@@ -180,9 +176,9 @@ export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
       )}
     </div>
   );
-});
+}
 
-const ComposerCommandMenuItem = memo(function ComposerCommandMenuItem(props: {
+function ComposerCommandMenuItem(props: {
   item: ComposerCommandItem;
   resolvedTheme: "light" | "dark";
   isActive: boolean;
@@ -190,14 +186,18 @@ const ComposerCommandMenuItem = memo(function ComposerCommandMenuItem(props: {
   onSelect: (item: ComposerCommandItem) => void;
 }) {
   return (
-    <div
+    <button
+      type="button"
       data-composer-item-id={props.item.id}
       className={cn(
-        "flex min-h-8 cursor-pointer select-none items-center gap-2 rounded-[var(--chip-radius)] px-2 py-1.5 text-base outline-none sm:min-h-7 sm:text-sm",
+        "flex min-h-8 w-full cursor-pointer select-none items-center gap-2 rounded-[var(--chip-radius)] px-2 py-1.5 text-left text-base outline-none sm:min-h-7 sm:text-sm",
         props.isActive && "bg-accent! text-accent-foreground!",
       )}
       onMouseMove={() => {
         if (!props.isActive) props.onHighlight(props.item.id);
+      }}
+      onFocus={() => {
+        props.onHighlight(props.item.id);
       }}
       onMouseDown={(event) => {
         event.preventDefault();
@@ -205,8 +205,6 @@ const ComposerCommandMenuItem = memo(function ComposerCommandMenuItem(props: {
       onClick={() => {
         props.onSelect(props.item);
       }}
-      role="option"
-      aria-selected={props.isActive}
     >
       {props.item.type === "path" ? (
         <VscodeEntryIcon
@@ -245,6 +243,6 @@ const ComposerCommandMenuItem = memo(function ComposerCommandMenuItem(props: {
           {props.item.description}
         </span>
       </span>
-    </div>
+    </button>
   );
-});
+}

@@ -24,7 +24,6 @@ import {
 import {
   Suspense,
   lazy,
-  useCallback,
   useRef,
   type MutableRefObject,
   type ReactNode,
@@ -36,7 +35,9 @@ import { type BrowserSessionStorage, type BrowserTabState } from "~/lib/browser/
 import { cn } from "~/lib/utils";
 import { DiffWorkerPoolProvider } from "../DiffWorkerPoolProvider";
 import type { DiffReviewCommentInput } from "../DiffPanel";
-import { DiffPanelHeaderSkeleton, DiffPanelLoadingState, DiffPanelShell } from "../DiffPanelShell";
+import { DiffPanelHeaderSkeleton } from "../DiffPanelHeaderSkeleton";
+import { DiffPanelLoadingState } from "../DiffPanelLoadingState";
+import { DiffPanelShell } from "../DiffPanelShell";
 import { Menu, MenuItem, MenuPopup, MenuShortcut, MenuTrigger } from "../ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { SubagentPersonaIcon } from "./SubagentThreadsPanel";
@@ -45,6 +46,21 @@ import type { SubagentThread } from "./subagentThreads";
 const DiffPanel = lazy(() => import("../DiffPanel"));
 
 type RightSidePanelMode = "browser" | "diff" | "editor" | "subagent" | "summary" | "terminal";
+
+function rightSidePanelTabClassName(active: boolean, disabled = false) {
+  return cn(
+    "group/tab inline-flex h-8 min-w-max shrink-0 items-center gap-2 rounded-lg px-3 text-[13px] font-medium transition-all duration-200",
+    active
+      ? "bg-accent text-accent-foreground ring-1 ring-border/45"
+      : "text-muted-foreground hover:bg-foreground/[0.05] hover:text-foreground",
+    disabled &&
+      "cursor-not-allowed opacity-45 hover:bg-transparent hover:text-muted-foreground ring-0 shadow-none",
+  );
+}
+
+function rightSidePanelBrowserTabClassName(active: boolean) {
+  return cn(rightSidePanelTabClassName(active), "touch-none");
+}
 
 function FullscreenExpandChevronIcon(props: SVGProps<SVGSVGElement>) {
   return (
@@ -180,6 +196,7 @@ function RightSidePanelBrowserTab(props: {
         render={
           <button
             type="button"
+            aria-label={`Select browser tab ${props.tab.title || props.tab.url || props.tab.id}`}
             className={props.className(props.active)}
             aria-pressed={props.active}
             onClick={() => {
@@ -255,15 +272,12 @@ function SortablePanelTabGroup(props: {
       activationConstraint: { distance: 6 },
     }),
   );
-  const handleDragEnd = useCallback(
-    (event: DragEndEvent) => {
-      const { active, over } = event;
-      if (over && active.id !== over.id) {
-        onReorder(String(active.id), String(over.id));
-      }
-    },
-    [onReorder],
-  );
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (over && active.id !== over.id) {
+      onReorder(String(active.id), String(over.id));
+    }
+  };
 
   if (itemIds.length <= 1) {
     return children;
@@ -489,7 +503,7 @@ function RightSidePanelActionButtons(props: {
   );
 }
 
-export function RightSidePanelTabStrip(props: {
+interface RightSidePanelTabStripProps {
   activeMode: RightSidePanelMode | null;
   activeBrowserTabId: string | null;
   bottomPanelAvailable?: boolean | undefined;
@@ -541,7 +555,332 @@ export function RightSidePanelTabStrip(props: {
   showPanelActions?: boolean | undefined;
   showSummaryTab?: boolean | undefined;
   subagentThreads: ReadonlyArray<SubagentThread>;
+}
+
+function RightSidePanelScrollableTabs(props: {
+  activeBrowserTabId: string | null;
+  activeEditorTabId: string | null;
+  activeMode: RightSidePanelMode | null;
+  activeSubagentThreadId: string | null;
+  activeTerminalId: string;
+  browserTabs: readonly BrowserTabState[];
+  diffAvailable: boolean;
+  editorTabs: ReadonlyArray<EditorPanelTab>;
+  editorTooltipLabel: string;
+  onBrowserTabClose: (tabId: string) => void;
+  onBrowserTabSelect: (tabId: string) => void;
+  onDiffClose: () => void;
+  onEditorTabClose: (tabId: string) => void;
+  onEditorTabSelect: (tabId: string) => void;
+  onPanelTabOrderChange: (nextVisibleOrder: ReadonlyArray<PanelTabOrderEntry>) => void;
+  onSelectMode: (mode: RightSidePanelMode) => void;
+  onSelectSubagentThread: (threadId: string) => void;
+  onTerminalClose: () => void;
+  onTerminalTabClose: (terminalId: string) => void;
+  onTerminalTabSelect: (terminalId: string) => void;
+  subagentThreads: ReadonlyArray<SubagentThread>;
+  terminalTabs: ReadonlyArray<TerminalPanelTab>;
+  visibleTabEntries: readonly VisiblePanelTabEntry[];
 }) {
+  const suppressBrowserTabClickAfterDragRef = useRef(false);
+
+  return (
+    <SortablePanelTabGroup
+      itemIds={props.visibleTabEntries.map((entry) => entry.key)}
+      onReorder={(draggedTabKey, targetTabKey) => {
+        const visibleOrder = props.visibleTabEntries.map((entry) => entry.key);
+        const draggedIndex = visibleOrder.indexOf(draggedTabKey as PanelTabOrderEntry);
+        const targetIndex = visibleOrder.indexOf(targetTabKey as PanelTabOrderEntry);
+        if (draggedIndex >= 0 && targetIndex >= 0 && draggedIndex !== targetIndex) {
+          const nextVisibleOrder = [...visibleOrder];
+          const [draggedKey] = nextVisibleOrder.splice(draggedIndex, 1);
+          if (draggedKey) {
+            nextVisibleOrder.splice(targetIndex, 0, draggedKey);
+            props.onPanelTabOrderChange(nextVisibleOrder);
+          }
+        }
+        window.setTimeout(() => {
+          suppressBrowserTabClickAfterDragRef.current = false;
+        }, 0);
+      }}
+    >
+      {props.visibleTabEntries.map((entry, index) => {
+        const withSeparator = (children: ReactNode) => (
+          <SortablePanelTab key={entry.key} id={entry.key}>
+            <div className="flex min-w-max items-center gap-1.5">
+              {index > 0 ? <PanelTabSeparator /> : null}
+              {children}
+            </div>
+          </SortablePanelTab>
+        );
+
+        if (entry.mode === "summary") {
+          return withSeparator(
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <button
+                    type="button"
+                    aria-label="Select summary panel"
+                    className={rightSidePanelTabClassName(props.activeMode === "summary")}
+                    aria-pressed={props.activeMode === "summary"}
+                    onClick={() => props.onSelectMode("summary")}
+                  />
+                }
+              >
+                <ListTodoIcon className="size-4.5 shrink-0 text-muted-foreground" />
+                <span className="truncate">Summary</span>
+              </TooltipTrigger>
+              <TooltipPopup side="bottom" align="start">
+                Summary
+              </TooltipPopup>
+            </Tooltip>,
+          );
+        }
+
+        return (
+          <RightSidePanelTypedTab
+            key={entry.key}
+            activeBrowserTabId={props.activeBrowserTabId}
+            activeEditorTabId={props.activeEditorTabId}
+            activeMode={props.activeMode}
+            activeSubagentThreadId={props.activeSubagentThreadId}
+            activeTerminalId={props.activeTerminalId}
+            browserTabs={props.browserTabs}
+            diffAvailable={props.diffAvailable}
+            editorTabs={props.editorTabs}
+            editorTooltipLabel={props.editorTooltipLabel}
+            entry={entry}
+            onBrowserTabClose={props.onBrowserTabClose}
+            onBrowserTabSelect={props.onBrowserTabSelect}
+            onDiffClose={props.onDiffClose}
+            onEditorTabClose={props.onEditorTabClose}
+            onEditorTabSelect={props.onEditorTabSelect}
+            onSelectMode={props.onSelectMode}
+            onSelectSubagentThread={props.onSelectSubagentThread}
+            onTerminalClose={props.onTerminalClose}
+            onTerminalTabClose={props.onTerminalTabClose}
+            onTerminalTabSelect={props.onTerminalTabSelect}
+            suppressBrowserTabClickAfterDragRef={suppressBrowserTabClickAfterDragRef}
+            subagentThreads={props.subagentThreads}
+            terminalTabs={props.terminalTabs}
+            withSeparator={withSeparator}
+          />
+        );
+      })}
+    </SortablePanelTabGroup>
+  );
+}
+
+function RightSidePanelTypedTab(props: {
+  activeBrowserTabId: string | null;
+  activeEditorTabId: string | null;
+  activeMode: RightSidePanelMode | null;
+  activeSubagentThreadId: string | null;
+  activeTerminalId: string;
+  browserTabs: readonly BrowserTabState[];
+  diffAvailable: boolean;
+  editorTabs: ReadonlyArray<EditorPanelTab>;
+  editorTooltipLabel: string;
+  entry: VisiblePanelTabEntry;
+  onBrowserTabClose: (tabId: string) => void;
+  onBrowserTabSelect: (tabId: string) => void;
+  onDiffClose: () => void;
+  onEditorTabClose: (tabId: string) => void;
+  onEditorTabSelect: (tabId: string) => void;
+  onSelectMode: (mode: RightSidePanelMode) => void;
+  onSelectSubagentThread: (threadId: string) => void;
+  onTerminalClose: () => void;
+  onTerminalTabClose: (terminalId: string) => void;
+  onTerminalTabSelect: (terminalId: string) => void;
+  suppressBrowserTabClickAfterDragRef: MutableRefObject<boolean>;
+  subagentThreads: ReadonlyArray<SubagentThread>;
+  terminalTabs: ReadonlyArray<TerminalPanelTab>;
+  withSeparator: (children: ReactNode) => ReactNode;
+}) {
+  if (props.entry.mode === "subagent") {
+    const thread = props.subagentThreads.find((candidate) => candidate.id === props.entry.id);
+    if (!thread) return null;
+    return props.withSeparator(
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <button
+              type="button"
+              aria-label={`Select subagent thread ${thread.label}`}
+              className={rightSidePanelTabClassName(
+                props.activeMode === "subagent" && props.activeSubagentThreadId === thread.id,
+              )}
+              aria-pressed={
+                props.activeMode === "subagent" && props.activeSubagentThreadId === thread.id
+              }
+              onClick={() => {
+                props.onSelectSubagentThread(thread.id);
+                props.onSelectMode("subagent");
+              }}
+            />
+          }
+        >
+          <SubagentPersonaIcon className="size-4.5" status={thread.status} thread={thread} />
+          <span className="truncate">{thread.label}</span>
+        </TooltipTrigger>
+        <TooltipPopup side="bottom" align="start">
+          {thread.label}
+        </TooltipPopup>
+      </Tooltip>,
+    );
+  }
+  if (props.entry.mode === "diff") {
+    return props.withSeparator(
+      <div className="group/tab relative inline-flex">
+        <button
+          type="button"
+          className={rightSidePanelTabClassName(props.activeMode === "diff", !props.diffAvailable)}
+          disabled={!props.diffAvailable}
+          aria-pressed={props.activeMode === "diff"}
+          onClick={() => props.onSelectMode("diff")}
+        >
+          <span className="inline-flex size-4.5 shrink-0 items-center justify-center">
+            <DiffIcon className="size-4.5 text-muted-foreground transition-opacity group-hover/tab:opacity-0" />
+          </span>
+          <span className="min-w-0 truncate text-left">Review</span>
+        </button>
+        <span className="pointer-events-none absolute top-1/2 left-3 inline-flex size-4.5 -translate-y-1/2 items-center justify-center">
+          <button
+            type="button"
+            className="pointer-events-auto inline-flex size-4.5 items-center justify-center rounded-full bg-muted-foreground/80 text-background opacity-0 transition-opacity hover:bg-foreground group-hover/tab:opacity-100"
+            aria-label="Close review tab"
+            onPointerDown={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              props.onDiffClose();
+            }}
+          >
+            <XIcon className="size-3.5" />
+          </button>
+        </span>
+      </div>,
+    );
+  }
+
+  if (props.entry.mode === "editor") {
+    const tab = props.editorTabs.find((candidate) => candidate.id === props.entry.id);
+    if (!tab) return null;
+    return props.withSeparator(
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <button
+              type="button"
+              aria-label={`Select editor tab ${tab.label}`}
+              className={rightSidePanelTabClassName(
+                props.activeMode === "editor" && props.activeEditorTabId === tab.id,
+              )}
+              aria-pressed={props.activeMode === "editor" && props.activeEditorTabId === tab.id}
+              onClick={() => props.onEditorTabSelect(tab.id)}
+            />
+          }
+        >
+          <span className="relative inline-flex size-4.5 shrink-0 items-center justify-center">
+            <Code2Icon className="size-4.5 text-muted-foreground transition-opacity group-hover/tab:opacity-0" />
+            <button
+              type="button"
+              className="absolute inset-0 inline-flex items-center justify-center rounded-full bg-muted-foreground/80 text-background opacity-0 transition-opacity hover:bg-foreground group-hover/tab:opacity-100"
+              aria-label={`Close ${tab.label}`}
+              onPointerDown={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+              }}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                props.onEditorTabClose(tab.id);
+              }}
+            >
+              <XIcon className="size-3.5" />
+            </button>
+          </span>
+          <span className="min-w-0 truncate text-left">{tab.label}</span>
+        </TooltipTrigger>
+        <TooltipPopup side="bottom" align="start">
+          {props.editorTooltipLabel}: {tab.label}
+        </TooltipPopup>
+      </Tooltip>,
+    );
+  }
+
+  if (props.entry.mode === "terminal") {
+    const tab = props.terminalTabs.find((candidate) => candidate.id === props.entry.id);
+    if (!tab) return null;
+    return props.withSeparator(
+      <div className="group/tab relative inline-flex">
+        <button
+          type="button"
+          className={rightSidePanelTabClassName(
+            props.activeMode === "terminal" && props.activeTerminalId === tab.id,
+          )}
+          aria-pressed={props.activeMode === "terminal" && props.activeTerminalId === tab.id}
+          onClick={() => props.onTerminalTabSelect(tab.id)}
+        >
+          <span className="inline-flex size-4.5 shrink-0 items-center justify-center">
+            <TerminalIcon className="size-4.5 text-muted-foreground transition-opacity group-hover/tab:opacity-0" />
+          </span>
+          <span className="min-w-0 truncate text-left">{tab.label}</span>
+          <span
+            className={cn(
+              "shrink-0 rounded-full",
+              tab.running ? "size-2 bg-emerald-400" : "size-1.5 bg-border",
+            )}
+          />
+        </button>
+        <span className="pointer-events-none absolute top-1/2 left-3 inline-flex size-4.5 -translate-y-1/2 items-center justify-center">
+          <button
+            type="button"
+            className="pointer-events-auto inline-flex size-4.5 items-center justify-center rounded-full bg-muted-foreground/80 text-background opacity-0 transition-opacity hover:bg-foreground group-hover/tab:opacity-100"
+            aria-label={`Close ${tab.label}`}
+            onPointerDown={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              if (props.terminalTabs.length <= 1) {
+                props.onTerminalClose();
+              }
+              props.onTerminalTabClose(tab.id);
+            }}
+          >
+            <XIcon className="size-3.5" />
+          </button>
+        </span>
+      </div>,
+    );
+  }
+
+  if (props.entry.mode === "browser") {
+    const tab = props.browserTabs.find((candidate) => candidate.id === props.entry.id);
+    if (!tab) return null;
+    return props.withSeparator(
+      <RightSidePanelBrowserTab
+        active={props.activeMode === "browser" && props.activeBrowserTabId === tab.id}
+        className={rightSidePanelBrowserTabClassName}
+        onClose={props.onBrowserTabClose}
+        onSelect={props.onBrowserTabSelect}
+        suppressClickAfterDragRef={props.suppressBrowserTabClickAfterDragRef}
+        tab={tab}
+      />,
+    );
+  }
+
+  return null;
+}
+
+export function RightSidePanelTabStrip(props: RightSidePanelTabStripProps) {
   const { tabStripRef, tabsOverflow } = useTabStripOverflow<HTMLDivElement>();
   const editorTooltipLabel = props.editorShortcutLabel
     ? `Editor (${props.editorShortcutLabel})`
@@ -566,17 +905,6 @@ export function RightSidePanelTabStrip(props: {
   const fullscreenTooltipWithShortcut = props.fullscreenShortcutLabel
     ? `${fullscreenTooltipLabel} (${props.fullscreenShortcutLabel})`
     : fullscreenTooltipLabel;
-  const suppressBrowserTabClickAfterDragRef = useRef(false);
-  const tabClassName = (active: boolean, disabled = false) =>
-    cn(
-      "group/tab inline-flex h-8 min-w-max shrink-0 items-center gap-2 rounded-lg px-3 text-[13px] font-medium transition-all duration-200",
-      active
-        ? "bg-accent text-accent-foreground ring-1 ring-border/45"
-        : "text-muted-foreground hover:bg-foreground/[0.05] hover:text-foreground",
-      disabled &&
-        "cursor-not-allowed opacity-45 hover:bg-transparent hover:text-muted-foreground ring-0 shadow-none",
-    );
-  const browserTabClassName = (active: boolean) => cn(tabClassName(active), "touch-none");
   const showSummaryTab = props.showSummaryTab !== false;
   const hasSubagentTabs = props.activeMode === "subagent" && props.subagentThreads.length > 0;
   const hasReviewTab = props.reviewOpen;
@@ -627,6 +955,23 @@ export function RightSidePanelTabStrip(props: {
     const rightIndex = orderIndex(rightEntry.key, rightEntry.mode);
     return leftIndex - rightIndex;
   });
+  const addTabMenu = (
+    <RightSidePanelAddTabMenu
+      browserAvailable={props.browserAvailable}
+      browserShortcutLabel={props.browserShortcutLabel}
+      diffAvailable={props.diffAvailable}
+      editorShortcutLabel={props.editorShortcutLabel}
+      terminalNewShortcutLabel={props.terminalNewShortcutLabel}
+      terminalShortcutLabel={props.terminalShortcutLabel}
+      terminalOpen={props.terminalOpen}
+      reviewShortcutLabel={props.reviewShortcutLabel}
+      reviewOpen={props.reviewOpen}
+      onNewBrowserTab={props.onNewBrowserTab}
+      onNewEditorTab={props.onNewEditorTab}
+      onNewTerminalTab={props.onNewTerminalTab}
+      onSelectMode={props.onSelectMode}
+    />
+  );
   return (
     <div
       className={cn(
@@ -648,282 +993,38 @@ export function RightSidePanelTabStrip(props: {
           event.stopPropagation();
         }}
       >
-        <SortablePanelTabGroup
-          itemIds={visibleTabEntries.map((entry) => entry.key)}
-          onReorder={(draggedTabKey, targetTabKey) => {
-            const visibleOrder = visibleTabEntries.map((entry) => entry.key);
-            const draggedIndex = visibleOrder.indexOf(draggedTabKey as PanelTabOrderEntry);
-            const targetIndex = visibleOrder.indexOf(targetTabKey as PanelTabOrderEntry);
-            if (draggedIndex >= 0 && targetIndex >= 0 && draggedIndex !== targetIndex) {
-              const nextVisibleOrder = [...visibleOrder];
-              const [draggedKey] = nextVisibleOrder.splice(draggedIndex, 1);
-              if (draggedKey) {
-                nextVisibleOrder.splice(targetIndex, 0, draggedKey);
-                props.onPanelTabOrderChange(nextVisibleOrder);
-              }
-            }
-            window.setTimeout(() => {
-              suppressBrowserTabClickAfterDragRef.current = false;
-            }, 0);
-          }}
-        >
-          {visibleTabEntries.map((entry, index) => {
-            const withSeparator = (children: ReactNode) => (
-              <SortablePanelTab key={entry.key} id={entry.key}>
-                <div className="flex min-w-max items-center gap-1.5">
-                  {index > 0 ? <PanelTabSeparator /> : null}
-                  {children}
-                </div>
-              </SortablePanelTab>
-            );
-
-            if (entry.mode === "summary") {
-              return withSeparator(
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <button
-                        type="button"
-                        className={tabClassName(props.activeMode === "summary")}
-                        aria-pressed={props.activeMode === "summary"}
-                        onClick={() => props.onSelectMode("summary")}
-                      />
-                    }
-                  >
-                    <ListTodoIcon className="size-4.5 shrink-0 text-muted-foreground" />
-                    <span className="truncate">Summary</span>
-                  </TooltipTrigger>
-                  <TooltipPopup side="bottom" align="start">
-                    Summary
-                  </TooltipPopup>
-                </Tooltip>,
-              );
-            }
-
-            if (entry.mode === "subagent") {
-              const thread = props.subagentThreads.find((candidate) => candidate.id === entry.id);
-              if (!thread) return null;
-              return withSeparator(
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <button
-                        type="button"
-                        className={tabClassName(
-                          props.activeMode === "subagent" &&
-                            props.activeSubagentThreadId === thread.id,
-                        )}
-                        aria-pressed={
-                          props.activeMode === "subagent" &&
-                          props.activeSubagentThreadId === thread.id
-                        }
-                        onClick={() => {
-                          props.onSelectSubagentThread(thread.id);
-                          props.onSelectMode("subagent");
-                        }}
-                      />
-                    }
-                  >
-                    <SubagentPersonaIcon
-                      className="size-4.5"
-                      status={thread.status}
-                      thread={thread}
-                    />
-                    <span className="truncate">{thread.label}</span>
-                  </TooltipTrigger>
-                  <TooltipPopup side="bottom" align="start">
-                    {thread.label}
-                  </TooltipPopup>
-                </Tooltip>,
-              );
-            }
-
-            if (entry.mode === "diff") {
-              return withSeparator(
-                <button
-                  type="button"
-                  className={tabClassName(props.activeMode === "diff", !props.diffAvailable)}
-                  disabled={!props.diffAvailable}
-                  aria-pressed={props.activeMode === "diff"}
-                  onClick={() => props.onSelectMode("diff")}
-                >
-                  <span className="relative inline-flex size-4.5 shrink-0 items-center justify-center">
-                    <DiffIcon className="size-4.5 text-muted-foreground transition-opacity group-hover/tab:opacity-0" />
-                    <button
-                      type="button"
-                      className="absolute inset-0 inline-flex items-center justify-center rounded-full bg-muted-foreground/80 text-background opacity-0 transition-opacity hover:bg-foreground group-hover/tab:opacity-100"
-                      aria-label="Close review tab"
-                      onPointerDown={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                      }}
-                      onClick={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        props.onDiffClose();
-                      }}
-                    >
-                      <XIcon className="size-3.5" />
-                    </button>
-                  </span>
-                  <span className="min-w-0 truncate text-left">Review</span>
-                </button>,
-              );
-            }
-
-            if (entry.mode === "editor") {
-              const tab = props.editorTabs.find((candidate) => candidate.id === entry.id);
-              if (!tab) return null;
-              return withSeparator(
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <button
-                        type="button"
-                        className={tabClassName(
-                          props.activeMode === "editor" && props.activeEditorTabId === tab.id,
-                        )}
-                        aria-pressed={
-                          props.activeMode === "editor" && props.activeEditorTabId === tab.id
-                        }
-                        onClick={() => props.onEditorTabSelect(tab.id)}
-                      />
-                    }
-                  >
-                    <span className="relative inline-flex size-4.5 shrink-0 items-center justify-center">
-                      <Code2Icon className="size-4.5 text-muted-foreground transition-opacity group-hover/tab:opacity-0" />
-                      <button
-                        type="button"
-                        className="absolute inset-0 inline-flex items-center justify-center rounded-full bg-muted-foreground/80 text-background opacity-0 transition-opacity hover:bg-foreground group-hover/tab:opacity-100"
-                        aria-label={`Close ${tab.label}`}
-                        onPointerDown={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                        }}
-                        onClick={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          props.onEditorTabClose(tab.id);
-                        }}
-                      >
-                        <XIcon className="size-3.5" />
-                      </button>
-                    </span>
-                    <span className="min-w-0 truncate text-left">{tab.label}</span>
-                  </TooltipTrigger>
-                  <TooltipPopup side="bottom" align="start">
-                    {editorTooltipLabel}: {tab.label}
-                  </TooltipPopup>
-                </Tooltip>,
-              );
-            }
-
-            if (entry.mode === "terminal") {
-              const tab = props.terminalTabs.find((candidate) => candidate.id === entry.id);
-              if (!tab) return null;
-              return withSeparator(
-                <button
-                  type="button"
-                  className={tabClassName(
-                    props.activeMode === "terminal" && props.activeTerminalId === tab.id,
-                  )}
-                  aria-pressed={
-                    props.activeMode === "terminal" && props.activeTerminalId === tab.id
-                  }
-                  onClick={() => props.onTerminalTabSelect(tab.id)}
-                >
-                  <span className="relative inline-flex size-4.5 shrink-0 items-center justify-center">
-                    <TerminalIcon className="size-4.5 text-muted-foreground transition-opacity group-hover/tab:opacity-0" />
-                    <button
-                      type="button"
-                      className="absolute inset-0 inline-flex items-center justify-center rounded-full bg-muted-foreground/80 text-background opacity-0 transition-opacity hover:bg-foreground group-hover/tab:opacity-100"
-                      aria-label={`Close ${tab.label}`}
-                      onPointerDown={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                      }}
-                      onClick={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        if (props.terminalTabs.length <= 1) {
-                          props.onTerminalClose();
-                        }
-                        props.onTerminalTabClose(tab.id);
-                      }}
-                    >
-                      <XIcon className="size-3.5" />
-                    </button>
-                  </span>
-                  <span className="min-w-0 truncate text-left">{tab.label}</span>
-                  <span
-                    className={cn(
-                      "shrink-0 rounded-full",
-                      tab.running ? "size-2 bg-emerald-400" : "size-1.5 bg-border",
-                    )}
-                  />
-                </button>,
-              );
-            }
-
-            if (entry.mode === "browser") {
-              const tab = browserTabs.find((candidate) => candidate.id === entry.id);
-              if (!tab) return null;
-              return withSeparator(
-                <RightSidePanelBrowserTab
-                  active={props.activeMode === "browser" && props.activeBrowserTabId === tab.id}
-                  className={browserTabClassName}
-                  onClose={props.onBrowserTabClose}
-                  onSelect={props.onBrowserTabSelect}
-                  suppressClickAfterDragRef={suppressBrowserTabClickAfterDragRef}
-                  tab={tab}
-                />,
-              );
-            }
-
-            return null;
-          })}
-        </SortablePanelTabGroup>
+        <RightSidePanelScrollableTabs
+          activeBrowserTabId={props.activeBrowserTabId}
+          activeEditorTabId={props.activeEditorTabId}
+          activeMode={props.activeMode}
+          activeSubagentThreadId={props.activeSubagentThreadId}
+          activeTerminalId={props.activeTerminalId}
+          browserTabs={browserTabs}
+          diffAvailable={props.diffAvailable}
+          editorTabs={props.editorTabs}
+          editorTooltipLabel={editorTooltipLabel}
+          onBrowserTabClose={props.onBrowserTabClose}
+          onBrowserTabSelect={props.onBrowserTabSelect}
+          onDiffClose={props.onDiffClose}
+          onEditorTabClose={props.onEditorTabClose}
+          onEditorTabSelect={props.onEditorTabSelect}
+          onPanelTabOrderChange={props.onPanelTabOrderChange}
+          onSelectMode={props.onSelectMode}
+          onSelectSubagentThread={props.onSelectSubagentThread}
+          onTerminalClose={props.onTerminalClose}
+          onTerminalTabClose={props.onTerminalTabClose}
+          onTerminalTabSelect={props.onTerminalTabSelect}
+          subagentThreads={props.subagentThreads}
+          terminalTabs={props.terminalTabs}
+          visibleTabEntries={visibleTabEntries}
+        />
         {tabsOverflow ? (
           <span className="size-8 shrink-0" aria-hidden="true" />
         ) : (
-          <div style={{ order: 999 }}>
-            <RightSidePanelAddTabMenu
-              browserAvailable={props.browserAvailable}
-              browserShortcutLabel={props.browserShortcutLabel}
-              diffAvailable={props.diffAvailable}
-              editorShortcutLabel={props.editorShortcutLabel}
-              terminalNewShortcutLabel={props.terminalNewShortcutLabel}
-              terminalShortcutLabel={props.terminalShortcutLabel}
-              terminalOpen={props.terminalOpen}
-              reviewShortcutLabel={props.reviewShortcutLabel}
-              reviewOpen={props.reviewOpen}
-              onNewBrowserTab={props.onNewBrowserTab}
-              onNewEditorTab={props.onNewEditorTab}
-              onNewTerminalTab={props.onNewTerminalTab}
-              onSelectMode={props.onSelectMode}
-            />
-          </div>
+          <div style={{ order: 999 }}>{addTabMenu}</div>
         )}
       </div>
-      {tabsOverflow ? (
-        <div>
-          <RightSidePanelAddTabMenu
-            browserAvailable={props.browserAvailable}
-            browserShortcutLabel={props.browserShortcutLabel}
-            diffAvailable={props.diffAvailable}
-            editorShortcutLabel={props.editorShortcutLabel}
-            terminalNewShortcutLabel={props.terminalNewShortcutLabel}
-            terminalShortcutLabel={props.terminalShortcutLabel}
-            terminalOpen={props.terminalOpen}
-            reviewShortcutLabel={props.reviewShortcutLabel}
-            reviewOpen={props.reviewOpen}
-            onNewBrowserTab={props.onNewBrowserTab}
-            onNewEditorTab={props.onNewEditorTab}
-            onNewTerminalTab={props.onNewTerminalTab}
-            onSelectMode={props.onSelectMode}
-          />
-        </div>
-      ) : null}
+      {tabsOverflow ? <div>{addTabMenu}</div> : null}
       {props.showPanelActions !== false ? (
         <RightSidePanelActionButtons
           bottomPanelAvailable={props.bottomPanelAvailable ?? false}

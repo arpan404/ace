@@ -18,8 +18,6 @@ import {
   XIcon,
 } from "lucide-react";
 import {
-  memo,
-  useMemo,
   type ClipboardEvent,
   type ComponentProps,
   type DragEvent,
@@ -271,7 +269,7 @@ interface ChatComposerPanelProps {
   readonly onPromptChangeFromTraits: (prompt: string) => void;
 }
 
-const ComposerImageStrip = memo(function ComposerImageStrip(props: {
+function ComposerImageStrip(props: {
   readonly images: ReadonlyArray<ComposerImageAttachment>;
   readonly nonPersistedImageIds: ReadonlySet<string>;
   readonly onPreview: (imageId: string) => void;
@@ -332,57 +330,38 @@ const ComposerImageStrip = memo(function ComposerImageStrip(props: {
       ))}
     </div>
   );
-});
+}
 
-export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComposerPanelProps) {
+export function ChatComposerPanel({
+  composerEditorRef,
+  composerFooterActionsRef,
+  composerFooterLeadingRef,
+  composerFooterRef,
+  composerFormRef,
+  ...props
+}: ChatComposerPanelProps) {
   const interactionModeDisabledReason = null;
-  const providerTraitsMenuContent = useMemo(
-    () =>
-      renderProviderTraitsMenuContent({
-        provider: props.selectedProvider,
-        threadId: props.threadId,
-        model: props.selectedModel,
-        models: props.selectedProviderModels,
-        modelOptions: props.selectedProviderModelOptions,
-        prompt: props.prompt,
-        onPromptChange: props.onPromptChangeFromTraits,
-        sessionConfigOptions: props.sessionConfigOptions,
-      }),
-    [
-      props.onPromptChangeFromTraits,
-      props.prompt,
-      props.selectedModel,
-      props.selectedProvider,
-      props.selectedProviderModelOptions,
-      props.selectedProviderModels,
-      props.sessionConfigOptions,
-      props.threadId,
-    ],
-  );
-  const providerTraitsPicker = useMemo(
-    () =>
-      renderProviderTraitsPicker({
-        provider: props.selectedProvider,
-        threadId: props.threadId,
-        model: props.selectedModel,
-        models: props.selectedProviderModels,
-        modelOptions: props.selectedProviderModelOptions,
-        prompt: props.prompt,
-        onPromptChange: props.onPromptChangeFromTraits,
-        showFastInTriggerLabel: false,
-        sessionConfigOptions: props.sessionConfigOptions,
-      }),
-    [
-      props.onPromptChangeFromTraits,
-      props.prompt,
-      props.selectedModel,
-      props.selectedProvider,
-      props.selectedProviderModelOptions,
-      props.selectedProviderModels,
-      props.sessionConfigOptions,
-      props.threadId,
-    ],
-  );
+  const providerTraitsMenuContent = renderProviderTraitsMenuContent({
+    provider: props.selectedProvider,
+    threadId: props.threadId,
+    model: props.selectedModel,
+    models: props.selectedProviderModels,
+    modelOptions: props.selectedProviderModelOptions,
+    prompt: props.prompt,
+    onPromptChange: props.onPromptChangeFromTraits,
+    sessionConfigOptions: props.sessionConfigOptions,
+  });
+  const providerTraitsPicker = renderProviderTraitsPicker({
+    provider: props.selectedProvider,
+    threadId: props.threadId,
+    model: props.selectedModel,
+    models: props.selectedProviderModels,
+    modelOptions: props.selectedProviderModelOptions,
+    prompt: props.prompt,
+    onPromptChange: props.onPromptChangeFromTraits,
+    showFastInTriggerLabel: false,
+    sessionConfigOptions: props.sessionConfigOptions,
+  });
   const composerValue = props.isComposerApprovalState
     ? ""
     : (props.activePendingProgress?.customAnswer ?? props.prompt);
@@ -399,43 +378,23 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
         : props.placeholderOverride
           ? props.placeholderOverride
           : "Ask or follow-up changes";
-  const pendingAction = useMemo<ComponentProps<typeof ComposerPrimaryActions>["pendingAction"]>(
-    () =>
-      props.activePendingProgress
-        ? {
-            questionIndex: props.activePendingProgress.questionIndex,
-            isLastQuestion: props.activePendingProgress.isLastQuestion,
-            canAdvance: props.activePendingProgress.canAdvance,
-            isResponding: props.activePendingIsResponding,
-            isComplete: Boolean(props.activePendingResolvedAnswers),
-          }
-        : null,
-    [
-      props.activePendingIsResponding,
-      props.activePendingProgress,
-      props.activePendingResolvedAnswers,
-    ],
-  );
-  const handoff = useMemo<ComponentProps<typeof ProviderModelPicker>["handoff"]>(() => {
-    if (
-      !props.isServerThread ||
-      props.handoffDisabled ||
-      props.handoffTargetProviders.length === 0
-    ) {
-      return undefined;
-    }
-
-    return {
-      providers: props.handoffTargetProviders,
-      disabled: false,
-      onSelect: props.onHandoffToProvider,
-    };
-  }, [
-    props.handoffDisabled,
-    props.handoffTargetProviders,
-    props.isServerThread,
-    props.onHandoffToProvider,
-  ]);
+  const pendingAction = props.activePendingProgress
+    ? {
+        questionIndex: props.activePendingProgress.questionIndex,
+        isLastQuestion: props.activePendingProgress.isLastQuestion,
+        canAdvance: props.activePendingProgress.canAdvance,
+        isResponding: props.activePendingIsResponding,
+        isComplete: Boolean(props.activePendingResolvedAnswers),
+      }
+    : null;
+  const handoff: ComponentProps<typeof ProviderModelPicker>["handoff"] =
+    !props.isServerThread || props.handoffDisabled || props.handoffTargetProviders.length === 0
+      ? undefined
+      : {
+          providers: props.handoffTargetProviders,
+          disabled: false,
+          onSelect: props.onHandoffToProvider,
+        };
 
   const isUltrathinkFrame =
     props.composerProviderState.composerFrameClassName === "ultrathink-frame";
@@ -448,7 +407,7 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
       )}
     >
       <form
-        ref={props.composerFormRef}
+        ref={composerFormRef}
         onSubmit={props.onSubmit}
         className="mx-auto w-full min-w-0 max-w-208"
         data-chat-composer-form="true"
@@ -593,7 +552,7 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
               ) : null}
 
               <ComposerPromptEditor
-                ref={props.composerEditorRef}
+                ref={composerEditorRef}
                 value={composerValue}
                 cursor={props.composerCursor}
                 terminalContexts={composerTerminalContexts}
@@ -625,7 +584,7 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
               </div>
             ) : (
               <div
-                ref={props.composerFooterRef}
+                ref={composerFooterRef}
                 data-chat-composer-footer="true"
                 data-chat-composer-footer-compact={props.isComposerFooterCompact ? "true" : "false"}
                 className={cn(
@@ -634,7 +593,7 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
                 )}
               >
                 <div
-                  ref={props.composerFooterLeadingRef}
+                  ref={composerFooterLeadingRef}
                   className={cn(
                     "flex min-w-0 flex-1 items-center",
                     props.isComposerFooterCompact
@@ -733,7 +692,7 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
                 </div>
 
                 <div
-                  ref={props.composerFooterActionsRef}
+                  ref={composerFooterActionsRef}
                   data-chat-composer-actions="right"
                   data-chat-composer-primary-actions-compact={
                     props.isComposerPrimaryActionsCompact ? "true" : "false"
@@ -754,16 +713,17 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
                   <ComposerPrimaryActions
                     compact={props.isComposerPrimaryActionsCompact}
                     pendingAction={pendingAction}
-                    isRunning={props.liveTurnInProgress}
-                    showPlanFollowUpPrompt={
-                      props.pendingUserInputs.length === 0 && props.showPlanFollowUpPrompt
-                    }
-                    promptHasText={props.promptHasText}
-                    isSendBusy={props.isSendBusy}
-                    isConnecting={props.isConnecting}
-                    isPreparingWorktree={props.isPreparingWorktree}
-                    hasSendableContent={props.hasSendableContent}
-                    canQueueMessage={props.canQueueMessage}
+                    state={{
+                      isRunning: props.liveTurnInProgress,
+                      showPlanFollowUpPrompt:
+                        props.pendingUserInputs.length === 0 && props.showPlanFollowUpPrompt,
+                      promptHasText: props.promptHasText,
+                      isSendBusy: props.isSendBusy,
+                      isConnecting: props.isConnecting,
+                      isPreparingWorktree: props.isPreparingWorktree,
+                      hasSendableContent: props.hasSendableContent,
+                      canQueueMessage: props.canQueueMessage,
+                    }}
                     onInterrupt={props.onInterrupt}
                     onImplementPlanInNewThread={props.onImplementPlanInNewThread}
                     onQueueMessage={props.onQueueMessage}
@@ -776,4 +736,4 @@ export const ChatComposerPanel = memo(function ChatComposerPanel(props: ChatComp
       </form>
     </div>
   );
-});
+}

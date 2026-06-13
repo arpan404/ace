@@ -1,5 +1,5 @@
 import type { DesktopMenuAction } from "@ace/contracts";
-import { useCallback, useEffect, type ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { useNavigate } from "@tanstack/react-router";
 
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
@@ -97,61 +97,13 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
   const activeThreadId = useUiStateStore((store) => store.activeThreadId);
   const previousActiveThreadId = useUiStateStore((store) => store.previousActiveThreadId);
 
-  const openBrowserFromShell = useCallback(async () => {
-    await requestInAppBrowserFromShell({
-      routeThreadId,
-      fallbackThreadId: activeThreadId ?? previousActiveThreadId,
-      activeProjectId: activeThread?.projectId ?? activeDraftThread?.projectId ?? null,
-      activeThread: activeThread
-        ? {
-            projectId: activeThread.projectId,
-            branch: activeThread.branch,
-            worktreePath: activeThread.worktreePath,
-          }
-        : null,
-      activeDraftThread: activeDraftThread
-        ? {
-            projectId: activeDraftThread.projectId,
-            branch: activeDraftThread.branch,
-            worktreePath: activeDraftThread.worktreePath,
-            envMode: activeDraftThread.envMode,
-          }
-        : null,
-      defaultProjectId,
-      defaultThreadEnvMode: resolveSidebarNewThreadEnvMode({
-        defaultEnvMode: defaultThreadEnvMode,
-      }),
-      handleNewThread,
-      navigateToThread: async (threadId) => {
-        await navigate({
-          to: "/$threadId",
-          params: { threadId },
-          search: buildSingleThreadRouteSearch(),
-        });
-      },
-      request: { action: "open" },
-      onMissingProject: () => {
-        toastManager.add({
-          type: "error",
-          title: "Add a project to open the browser",
-          description: "The in-app browser opens from an active workspace thread.",
-        });
-      },
-    });
-  }, [
-    activeDraftThread,
-    activeThread,
-    activeThreadId,
-    defaultThreadEnvMode,
-    defaultProjectId,
-    handleNewThread,
-    navigate,
-    previousActiveThreadId,
-    routeThreadId,
-  ]);
+  useEffect(() => {
+    const onMenuAction = window.desktopBridge?.onMenuAction;
+    if (typeof onMenuAction !== "function") {
+      return;
+    }
 
-  const handleDesktopMenuAction = useCallback(
-    (action: DesktopMenuAction) => {
+    const handleDesktopMenuAction = (action: DesktopMenuAction) => {
       const settingsRoute = resolveDesktopMenuSettingsRoute(action);
       if (settingsRoute) {
         void navigate({ to: settingsRoute });
@@ -159,7 +111,46 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
       }
 
       if (action === "open-browser-tab") {
-        void openBrowserFromShell();
+        void requestInAppBrowserFromShell({
+          routeThreadId,
+          fallbackThreadId: activeThreadId ?? previousActiveThreadId,
+          activeProjectId: activeThread?.projectId ?? activeDraftThread?.projectId ?? null,
+          activeThread: activeThread
+            ? {
+                projectId: activeThread.projectId,
+                branch: activeThread.branch,
+                worktreePath: activeThread.worktreePath,
+              }
+            : null,
+          activeDraftThread: activeDraftThread
+            ? {
+                projectId: activeDraftThread.projectId,
+                branch: activeDraftThread.branch,
+                worktreePath: activeDraftThread.worktreePath,
+                envMode: activeDraftThread.envMode,
+              }
+            : null,
+          defaultProjectId,
+          defaultThreadEnvMode: resolveSidebarNewThreadEnvMode({
+            defaultEnvMode: defaultThreadEnvMode,
+          }),
+          handleNewThread,
+          navigateToThread: async (threadId) => {
+            await navigate({
+              to: "/$threadId",
+              params: { threadId },
+              search: buildSingleThreadRouteSearch(),
+            });
+          },
+          request: { action: "open" },
+          onMissingProject: () => {
+            toastManager.add({
+              type: "error",
+              title: "Add a project to open the browser",
+              description: "The in-app browser opens from an active workspace thread.",
+            });
+          },
+        });
         return;
       }
 
@@ -205,30 +196,24 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
           }),
         }),
       );
-    },
-    [
-      activeDraftThread,
-      activeThread,
-      defaultThreadEnvMode,
-      defaultProjectId,
-      handleNewThread,
-      navigate,
-      openBrowserFromShell,
-    ],
-  );
-
-  useEffect(() => {
-    const onMenuAction = window.desktopBridge?.onMenuAction;
-    if (typeof onMenuAction !== "function") {
-      return;
-    }
+    };
 
     const unsubscribe = onMenuAction(handleDesktopMenuAction);
 
     return () => {
       unsubscribe?.();
     };
-  }, [handleDesktopMenuAction]);
+  }, [
+    activeDraftThread,
+    activeThread,
+    activeThreadId,
+    defaultProjectId,
+    defaultThreadEnvMode,
+    handleNewThread,
+    navigate,
+    previousActiveThreadId,
+    routeThreadId,
+  ]);
 
   return (
     <SidebarProvider defaultOpen>

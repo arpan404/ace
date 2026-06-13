@@ -1,6 +1,6 @@
 import { DownloadIcon, RotateCwIcon, TriangleAlertIcon, XIcon } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useState } from "react";
+import { useState } from "react";
 import { isElectron } from "../../env";
 import { ensureNativeApi, readNativeApi } from "../../nativeApi";
 import {
@@ -43,7 +43,7 @@ export function SidebarUpdatePill() {
   const arm64Description =
     state && showArm64Warning ? getArm64IntelBuildWarningDescription(state) : null;
 
-  const handleAction = useCallback(() => {
+  const handleAction = () => {
     const bridge = window.desktopBridge;
     if (!bridge || !state) return;
     if (disabled || action === "none") return;
@@ -116,7 +116,7 @@ export function SidebarUpdatePill() {
         });
       });
     }
-  }, [action, disabled, queryClient, runningAgentCount, state]);
+  };
 
   if (!visible && !showArm64Warning) return null;
 

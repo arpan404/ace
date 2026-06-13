@@ -28,7 +28,7 @@ interface ChatHeaderProps {
   showThreadIdentity?: boolean;
 }
 
-export const ChatHeader = memo(function ChatHeader({
+export function ChatHeader({
   activeThreadTitle,
   activeProjectId,
   activeProjectName,
@@ -66,13 +66,9 @@ export const ChatHeader = memo(function ChatHeader({
             <Tooltip>
               <TooltipTrigger
                 render={
-                  <span
-                    role="heading"
-                    aria-level={2}
-                    className="flex min-w-0 shrink items-center truncate text-[13px] leading-[18px] font-medium tracking-tight text-foreground/80"
-                  >
+                  <h2 className="m-0 flex min-w-0 shrink items-center truncate text-[13px] leading-[18px] font-medium tracking-tight text-foreground/80">
                     {activeThreadTitle}
-                  </span>
+                  </h2>
                 }
               />
               <TooltipPopup side="bottom" className="max-w-96 whitespace-pre-wrap">
@@ -193,4 +189,4 @@ export const ChatHeader = memo(function ChatHeader({
       </div>
     </div>
   );
-});
+}

@@ -4,7 +4,6 @@ import {
   PointerSensor,
   useSensor,
   useSensors,
-  type CollisionDetection,
   type DragEndEvent,
 } from "@dnd-kit/core";
 import { restrictToFirstScrollableAncestor, restrictToVerticalAxis } from "@dnd-kit/modifiers";
@@ -18,7 +17,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { IconTerminal } from "@tabler/icons-react";
 import { ArrowUpIcon, GripVerticalIcon, ImageIcon, PencilIcon, Trash2Icon } from "lucide-react";
 import { type MessageId, type ModelSelection } from "@ace/contracts";
-import { useEffect, useMemo, useState } from "react";
+import { useState } from "react";
 
 import {
   APP_BADGE_CLASS_NAME,
@@ -222,39 +221,39 @@ export function ComposerQueuedMessages(props: {
       activationConstraint: { distance: 6 },
     }),
   );
-  const queueCollisionDetection = useMemo<CollisionDetection>(() => closestCorners, []);
+  const queueCollisionDetection = closestCorners;
 
-  const baseOrderIds = useMemo(() => {
-    const byId = new Map(props.messages.map((message) => [message.id, message] as const));
-    const serverOrderIds = props.messages.map((message) => message.id);
-    return optimisticOrder &&
-      optimisticOrder.length === serverOrderIds.length &&
-      optimisticOrder.every((id) => byId.has(id))
-      ? optimisticOrder
+  const serverOrderIds = props.messages.map((message) => message.id);
+  const optimisticOrderIdSet =
+    optimisticOrder && optimisticOrder.length === serverOrderIds.length
+      ? new Set(optimisticOrder)
+      : null;
+  const optimisticOrderIsValid = Boolean(
+    optimisticOrderIdSet && serverOrderIds.every((id) => optimisticOrderIdSet.has(id)),
+  );
+  const optimisticOrderIsSettled = Boolean(
+    optimisticOrderIsValid &&
+    optimisticOrder !== null &&
+    serverOrderIds.length === optimisticOrder.length &&
+    serverOrderIds.every((id, index) => id === optimisticOrder[index]),
+  );
+  const effectiveOptimisticOrder =
+    optimisticOrderIsValid && !optimisticOrderIsSettled ? optimisticOrder : null;
+
+  const messagesById = new Map(props.messages.map((message) => [message.id, message] as const));
+  const baseOrderIds =
+    effectiveOptimisticOrder && effectiveOptimisticOrder.every((id) => messagesById.has(id))
+      ? effectiveOptimisticOrder
       : serverOrderIds;
-  }, [optimisticOrder, props.messages]);
-
-  const orderedMessages = useMemo(() => {
-    const byId = new Map(props.messages.map((message) => [message.id, message] as const));
-    const nextOrderedMessages: ComposerQueuedMessageItem[] = [];
-    for (const id of baseOrderIds) {
-      const message = byId.get(id);
-      if (message) {
-        nextOrderedMessages.push(message);
-      }
+  const orderedMessages: ComposerQueuedMessageItem[] = [];
+  for (const id of baseOrderIds) {
+    const message = messagesById.get(id);
+    if (message) {
+      orderedMessages.push(message);
     }
-    return nextOrderedMessages;
-  }, [baseOrderIds, props.messages]);
+  }
 
-  const serverOrderIds = useMemo(
-    () => props.messages.map((message) => message.id),
-    [props.messages],
-  );
-
-  const persistedPositionByMessageId = useMemo(
-    () => new Map(serverOrderIds.map((id, index) => [id, index + 1])),
-    [serverOrderIds],
-  );
+  const persistedPositionByMessageId = new Map(serverOrderIds.map((id, index) => [id, index + 1]));
   const handleDragEnd = (event: DragEndEvent) => {
     setDraggedMessageId(null);
     const activeId = String(event.active.id) as MessageId;
@@ -270,37 +269,6 @@ export function ComposerQueuedMessages(props: {
     setOptimisticOrder(arrayMove([...baseOrderIds], activeIndex, overIndex));
     props.onReorder(activeId, overId);
   };
-
-  useEffect(() => {
-    if (!optimisticOrder) {
-      return;
-    }
-    const currentOrder = serverOrderIds;
-    let hasSameIds = currentOrder.length === optimisticOrder.length;
-    if (hasSameIds) {
-      const optimisticOrderSet = new Set(optimisticOrder);
-      for (const id of currentOrder) {
-        if (!optimisticOrderSet.has(id)) {
-          hasSameIds = false;
-          break;
-        }
-      }
-    }
-    if (!hasSameIds) {
-      setOptimisticOrder(null);
-      return;
-    }
-    let isSettled = true;
-    for (const [index, id] of currentOrder.entries()) {
-      if (id !== optimisticOrder[index]) {
-        isSettled = false;
-        break;
-      }
-    }
-    if (isSettled) {
-      setOptimisticOrder(null);
-    }
-  }, [optimisticOrder, serverOrderIds]);
 
   if (!hasMessages) {
     return null;

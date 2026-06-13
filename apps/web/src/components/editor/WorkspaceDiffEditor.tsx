@@ -1,8 +1,6 @@
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { MergeView } from "@codemirror/merge";
-import { EditorState, type Extension } from "@codemirror/state";
-import { EditorView, highlightSpecialChars, keymap } from "@codemirror/view";
-import { memo, useEffect, useRef } from "react";
+import { useEffect, useRef } from "react";
 
 import {
   createWorkspaceCodeMirrorTheme,
@@ -27,12 +25,17 @@ interface WorkspaceDiffEditorProps {
   readonly resolvedTheme: "light" | "dark";
 }
 
-function createDiffEditorExtensions(input: {
+async function createDiffEditorExtensions(input: {
   readonly activeFilePath: string;
   readonly languageId: string | null | undefined;
   readonly options: WorkspaceCodeEditorOptions;
   readonly resolvedTheme: "light" | "dark";
-}): Extension[] {
+}) {
+  const [{ EditorState }, { EditorView, highlightSpecialChars, keymap }] = await Promise.all([
+    import("@codemirror/state"),
+    import("@codemirror/view"),
+  ]);
+
   return [
     createWorkspaceCodeMirrorTheme(input),
     createWorkspaceShikiHighlightConfig({
@@ -73,33 +76,42 @@ function WorkspaceDiffEditor(props: WorkspaceDiffEditorProps) {
     if (!parent) {
       return;
     }
+    let cancelled = false;
+    let mergeView: MergeView | null = null;
     parent.textContent = "";
-    const extensions = createDiffEditorExtensions({
-      activeFilePath: props.activeFilePath,
-      languageId: props.languageId,
-      options: props.options,
-      resolvedTheme: props.resolvedTheme,
-    });
-    const mergeView = new MergeView({
-      a: {
-        doc: props.original,
-        extensions,
-      },
-      b: {
-        doc: props.modified,
-        extensions,
-      },
-      collapseUnchanged: { margin: 3, minSize: 8 },
-      diffConfig: { scanLimit: 4_000, timeout: 120 },
-      gutter: true,
-      highlightChanges: true,
-      parent,
-    });
-    mergeView.dom.style.height = "100%";
-    mergeView.dom.style.overflow = "auto";
+
+    void (async () => {
+      const extensions = await createDiffEditorExtensions({
+        activeFilePath: props.activeFilePath,
+        languageId: props.languageId,
+        options: props.options,
+        resolvedTheme: props.resolvedTheme,
+      });
+      if (cancelled) {
+        return;
+      }
+      mergeView = new MergeView({
+        a: {
+          doc: props.original,
+          extensions,
+        },
+        b: {
+          doc: props.modified,
+          extensions,
+        },
+        collapseUnchanged: { margin: 3, minSize: 8 },
+        diffConfig: { scanLimit: 4_000, timeout: 120 },
+        gutter: true,
+        highlightChanges: true,
+        parent,
+      });
+      mergeView.dom.style.height = "100%";
+      mergeView.dom.style.overflow = "auto";
+    })();
 
     return () => {
-      mergeView.destroy();
+      cancelled = true;
+      mergeView?.destroy();
     };
   }, [
     props.activeFilePath,
@@ -119,4 +131,4 @@ function WorkspaceDiffEditor(props: WorkspaceDiffEditorProps) {
   );
 }
 
-export default memo(WorkspaceDiffEditor);
+export default WorkspaceDiffEditor;

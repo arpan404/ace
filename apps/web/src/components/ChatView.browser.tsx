@@ -830,9 +830,9 @@ function resolveWsRpc(body: NormalizedWsRpcRequestBody): unknown {
 }
 
 const worker = setupWorker(
-  wsLink.addEventListener("connection", ({ client }) => {
-    void rpcHarness.connect(client);
-    client.addEventListener("message", (event) => {
+  wsLink.addEventListener("connection", ({ client: socket }) => {
+    void rpcHarness.connect(socket);
+    socket.addEventListener("message", (event) => {
       const rawData = event.data;
       if (typeof rawData !== "string") return;
       void rpcHarness.onMessage(rawData);
@@ -895,10 +895,12 @@ async function waitForElement<T extends Element>(
       interval: 16,
     },
   );
-  if (!element) {
-    throw new Error(errorMessage);
-  }
-  return element;
+  return (
+    element ??
+    (() => {
+      throw new Error(errorMessage);
+    })()
+  );
 }
 
 async function waitForURL(

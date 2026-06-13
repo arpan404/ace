@@ -1,5 +1,5 @@
 import { type ApprovalRequestId } from "@ace/contracts";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useState } from "react";
 import { type SessionPhase, type Thread } from "../types";
 import {
   createLocalDispatchSnapshot,
@@ -17,59 +17,43 @@ export function useLocalDispatchState(input: {
 }) {
   const [localDispatch, setLocalDispatch] = useState<LocalDispatchSnapshot | null>(null);
 
-  const beginLocalDispatch = useCallback(
-    (options?: { preparingWorktree?: boolean }) => {
-      const preparingWorktree = Boolean(options?.preparingWorktree);
-      setLocalDispatch((current) => {
-        if (current) {
-          return current.preparingWorktree === preparingWorktree
-            ? current
-            : { ...current, preparingWorktree };
-        }
-        return createLocalDispatchSnapshot(input.activeThread, options);
-      });
-    },
-    [input.activeThread],
-  );
-
-  const resetLocalDispatch = useCallback(() => {
+  const resetLocalDispatch = () => {
     setLocalDispatch(null);
-  }, []);
+  };
 
-  const serverAcknowledgedLocalDispatch = useMemo(
-    () =>
-      hasServerAcknowledgedLocalDispatch({
-        localDispatch,
-        phase: input.phase,
-        latestTurn: input.activeLatestTurn,
-        session: input.activeThread?.session ?? null,
-        hasPendingApproval: input.activePendingApproval !== null,
-        hasPendingUserInput: input.activePendingUserInput !== null,
-        threadError: input.threadError,
-      }),
-    [
-      input.activeLatestTurn,
-      input.activePendingApproval,
-      input.activePendingUserInput,
-      input.activeThread?.session,
-      input.phase,
-      input.threadError,
-      localDispatch,
-    ],
-  );
+  const serverAcknowledgedLocalDispatch = hasServerAcknowledgedLocalDispatch({
+    localDispatch,
+    phase: input.phase,
+    latestTurn: input.activeLatestTurn,
+    session: input.activeThread?.session ?? null,
+    hasPendingApproval: input.activePendingApproval !== null,
+    hasPendingUserInput: input.activePendingUserInput !== null,
+    threadError: input.threadError,
+  });
 
-  useEffect(() => {
-    if (!serverAcknowledgedLocalDispatch) {
-      return;
-    }
-    resetLocalDispatch();
-  }, [resetLocalDispatch, serverAcknowledgedLocalDispatch]);
+  const beginLocalDispatch = (options?: { preparingWorktree?: boolean }) => {
+    const preparingWorktree = Boolean(options?.preparingWorktree);
+    setLocalDispatch((current) => {
+      if (current && !serverAcknowledgedLocalDispatch) {
+        return current.preparingWorktree === preparingWorktree
+          ? current
+          : { ...current, preparingWorktree };
+      }
+      return createLocalDispatchSnapshot(input.activeThread, options);
+    });
+  };
+
+  const visibleLocalDispatch = serverAcknowledgedLocalDispatch ? null : localDispatch;
+  const activeThreadLocalDispatch =
+    visibleLocalDispatch?.threadId === (input.activeThread?.id ?? null)
+      ? visibleLocalDispatch
+      : null;
 
   return {
     beginLocalDispatch,
     resetLocalDispatch,
-    localDispatchStartedAt: localDispatch?.startedAt ?? null,
-    isPreparingWorktree: localDispatch?.preparingWorktree ?? false,
-    isSendBusy: localDispatch !== null && !serverAcknowledgedLocalDispatch,
+    localDispatchStartedAt: activeThreadLocalDispatch?.startedAt ?? null,
+    isPreparingWorktree: activeThreadLocalDispatch?.preparingWorktree ?? false,
+    isSendBusy: activeThreadLocalDispatch !== null,
   };
 }

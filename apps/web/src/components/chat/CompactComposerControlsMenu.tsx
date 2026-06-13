@@ -1,5 +1,5 @@
 import { ProviderInteractionMode } from "@ace/contracts";
-import { memo, type ReactNode } from "react";
+import { type ReactNode } from "react";
 import { EllipsisIcon } from "lucide-react";
 import { Button } from "../ui/button";
 import {
@@ -12,7 +12,7 @@ import {
   MenuTrigger,
 } from "../ui/menu";
 
-export const CompactComposerControlsMenu = memo(function CompactComposerControlsMenu(props: {
+export function CompactComposerControlsMenu(props: {
   interactionMode: ProviderInteractionMode;
   interactionModeShortcutLabel: string | null;
   interactionModeDisabledReason?: string | null;
@@ -78,4 +78,4 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
       </MenuPopup>
     </Menu>
   );
-});
+}

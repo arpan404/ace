@@ -5,7 +5,7 @@ import type {
   ResolvedKeybindingsConfig,
   ThreadId,
 } from "@ace/contracts";
-import { type ComponentProps, forwardRef, type ReactNode } from "react";
+import { type ComponentProps, type ReactNode, type Ref } from "react";
 import * as Schema from "effect/Schema";
 import {
   CheckIcon,
@@ -51,9 +51,17 @@ import {
   type PinnedMessageNavigationTarget,
   type PinnedMessages,
 } from "./pinnedMessagesStore";
+import {
+  EnvironmentPanelGroupOpenStateSchema,
+  resolveEnvironmentPanelGroupStorageKey,
+  type EnvironmentPanelGroupId,
+  type EnvironmentPanelGroupOpenState,
+} from "./environmentMiniPanelState";
+
+const diffCountFormatter = new Intl.NumberFormat();
 
 function formatDiffCount(value: number): string {
-  return new Intl.NumberFormat().format(value);
+  return diffCountFormatter.format(value);
 }
 
 function EnvironmentPanelGroup(props: {
@@ -84,17 +92,6 @@ function EnvironmentPanelGroup(props: {
   );
 }
 
-type EnvironmentPanelGroupId =
-  | "actions"
-  | "environment"
-  | "notes"
-  | "pinnedMessages"
-  | "progress"
-  | "subagents";
-type EnvironmentPanelGroupOpenState = Record<EnvironmentPanelGroupId, boolean>;
-
-const ENVIRONMENT_PANEL_GROUP_STORAGE_KEY = "ace:environment-mini-panel-groups:v3";
-
 const DEFAULT_ENVIRONMENT_PANEL_GROUP_OPEN_STATE: EnvironmentPanelGroupOpenState = {
   actions: false,
   environment: true,
@@ -103,19 +100,6 @@ const DEFAULT_ENVIRONMENT_PANEL_GROUP_OPEN_STATE: EnvironmentPanelGroupOpenState
   progress: true,
   subagents: false,
 };
-
-export const EnvironmentPanelGroupOpenStateSchema = Schema.Struct({
-  actions: Schema.Boolean,
-  environment: Schema.Boolean,
-  notes: Schema.Boolean,
-  pinnedMessages: Schema.Boolean,
-  progress: Schema.Boolean,
-  subagents: Schema.Boolean,
-});
-
-export function resolveEnvironmentPanelGroupStorageKey(threadId: ThreadId): string {
-  return `${ENVIRONMENT_PANEL_GROUP_STORAGE_KEY}:${threadId}`;
-}
 
 function resolveEnvironmentPanelGroupOpen(
   state: EnvironmentPanelGroupOpenState,
@@ -233,40 +217,134 @@ function EnvironmentSubagentIcon({ thread }: { thread: SubagentThread }) {
   );
 }
 
-export const EnvironmentMiniPanel = forwardRef<
-  HTMLElement,
-  {
-    activeProjectScripts: ProjectScript[] | undefined;
-    activePlan: ActivePlanState | null;
-    activeSubagentThreadId: string | null;
-    activeThreadId: ThreadId;
-    branchToolbarProps: ComponentProps<typeof BranchToolbar> | null;
-    editorStateInstanceId: string;
-    gitCwd: string | null;
-    gitStatus: GitStatusResult | null;
-    gitStatusError: Error | null;
-    branchList: GitListBranchesResult | null;
-    isGitRepo: boolean;
-    keybindings: ResolvedKeybindingsConfig;
-    layoutMode: "inline" | "popover";
-    style?: MotionStyle;
-    onAddProjectScript: (input: NewProjectScriptInput) => Promise<void>;
-    onDeleteProjectScript: (scriptId: string) => Promise<void>;
-    onOpenDiffPanel: () => void;
-    onOpenEnvironmentSettings: () => void;
-    onJumpToMessage: (messageId: string, target: PinnedMessageNavigationTarget) => void;
-    onOpenSummaryPanel: () => void;
-    onRunProjectScript: (script: ProjectScript) => void;
-    onSelectSubagentThread: (threadId: string) => void;
-    onSubagentPanelOpen: () => void;
-    onUpdateProjectScript: (scriptId: string, input: NewProjectScriptInput) => Promise<void>;
-    onWorkspaceModeChange: (mode: ThreadWorkspaceMode) => void;
-    preferredScriptId: string | null;
-    subagentThreads: ReadonlyArray<SubagentThread>;
-    workspaceChangeStat: { additions: number; deletions: number } | null;
-    workspaceMode: ThreadWorkspaceMode;
+function EnvironmentPinnedMessagesGroup({
+  messages,
+  onJumpToMessage,
+  open,
+  onOpenChange,
+  setPinnedMessages,
+}: {
+  messages: PinnedMessage[];
+  onJumpToMessage: (messageId: string, target: PinnedMessageNavigationTarget) => void;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  setPinnedMessages: (updater: (current: PinnedMessages) => PinnedMessages) => void;
+}) {
+  if (messages.length === 0) {
+    return null;
   }
->(function EnvironmentMiniPanel(props, ref) {
+
+  return (
+    <EnvironmentPanelGroup title="Pinned Messages" open={open} onOpenChange={onOpenChange}>
+      <div className="space-y-0.5 px-2">
+        {messages.map((message) => (
+          <div key={message.id} className="flex min-h-7 items-center gap-2">
+            <button
+              type="button"
+              className="inline-flex size-4 shrink-0 items-center justify-center rounded-[calc(var(--control-radius)-3px)] border border-muted-foreground/50 text-foreground transition-colors hover:text-foreground"
+              onClick={() =>
+                setPinnedMessages((current) => togglePinnedMessageChecked(current, message.id))
+              }
+              aria-label={
+                message.checked
+                  ? `Mark pinned message incomplete: ${message.title}`
+                  : `Mark pinned message complete: ${message.title}`
+              }
+            >
+              {message.checked ? <CheckSquareIcon className="size-3" /> : null}
+            </button>
+            <button
+              type="button"
+              className={cn(
+                "min-w-0 flex-1 truncate text-left text-[12px] transition-colors hover:text-foreground",
+                message.checked ? "text-muted-foreground/55 line-through" : "text-foreground",
+              )}
+              title={message.preview}
+              onClick={() =>
+                onJumpToMessage(message.messageId, resolvePinnedMessageNavigationTarget(message))
+              }
+            >
+              {message.title}
+            </button>
+            <button
+              type="button"
+              className="inline-flex size-5 shrink-0 items-center justify-center rounded-[calc(var(--control-radius)-2px)] text-muted-foreground/70 transition-colors hover:bg-foreground/[0.04] hover:text-foreground"
+              onClick={() =>
+                setPinnedMessages((current) => removePinnedMessageById(current, message.id))
+              }
+              aria-label={`Unpin message: ${message.title}`}
+            >
+              <XIcon className="size-3.5" />
+            </button>
+          </div>
+        ))}
+      </div>
+    </EnvironmentPanelGroup>
+  );
+}
+
+function EnvironmentNotesGroup({
+  body,
+  open,
+  onBodyChange,
+  onOpenChange,
+}: {
+  body: string;
+  open: boolean;
+  onBodyChange: (body: string) => void;
+  onOpenChange: (open: boolean) => void;
+}) {
+  return (
+    <EnvironmentPanelGroup title="Notes" open={open} onOpenChange={onOpenChange}>
+      <div className="space-y-2 px-2 pt-0.5">
+        <div className="glass-inset overflow-hidden rounded-[var(--control-radius)] border border-border/50 transition-colors focus-within:border-ring/45 focus-within:ring-2 focus-within:ring-ring/10">
+          <textarea
+            value={body}
+            aria-label="Scratchpad note"
+            onChange={(event) => onBodyChange(event.target.value)}
+            placeholder="Quick note..."
+            className="min-h-24 w-full resize-none bg-transparent px-3 py-3 font-sans text-[12px] leading-5 outline-none placeholder:text-muted-foreground/42"
+          />
+        </div>
+      </div>
+    </EnvironmentPanelGroup>
+  );
+}
+
+type EnvironmentMiniPanelProps = {
+  activeProjectScripts: ProjectScript[] | undefined;
+  activePlan: ActivePlanState | null;
+  activeSubagentThreadId: string | null;
+  activeThreadId: ThreadId;
+  branchToolbarProps: ComponentProps<typeof BranchToolbar> | null;
+  editorStateInstanceId: string;
+  gitCwd: string | null;
+  gitStatus: GitStatusResult | null;
+  gitStatusError: Error | null;
+  branchList: GitListBranchesResult | null;
+  isGitRepo: boolean;
+  keybindings: ResolvedKeybindingsConfig;
+  layoutMode: "inline" | "popover";
+  ref?: Ref<HTMLElement>;
+  style?: MotionStyle;
+  onAddProjectScript: (input: NewProjectScriptInput) => Promise<void>;
+  onDeleteProjectScript: (scriptId: string) => Promise<void>;
+  onOpenDiffPanel: () => void;
+  onOpenEnvironmentSettings: () => void;
+  onJumpToMessage: (messageId: string, target: PinnedMessageNavigationTarget) => void;
+  onOpenSummaryPanel: () => void;
+  onRunProjectScript: (script: ProjectScript) => void;
+  onSelectSubagentThread: (threadId: string) => void;
+  onSubagentPanelOpen: () => void;
+  onUpdateProjectScript: (scriptId: string, input: NewProjectScriptInput) => Promise<void>;
+  onWorkspaceModeChange: (mode: ThreadWorkspaceMode) => void;
+  preferredScriptId: string | null;
+  subagentThreads: ReadonlyArray<SubagentThread>;
+  workspaceChangeStat: { additions: number; deletions: number } | null;
+  workspaceMode: ThreadWorkspaceMode;
+};
+
+export function EnvironmentMiniPanel({ ref, ...props }: EnvironmentMiniPanelProps) {
   const activeThreadId = String(props.activeThreadId);
   const queryClient = useQueryClient();
   const initMutation = useMutation(
@@ -502,62 +580,13 @@ export const EnvironmentMiniPanel = forwardRef<
           ) : null}
         </EnvironmentPanelGroup>
 
-        {threadPinnedMessages.length > 0 ? (
-          <EnvironmentPanelGroup
-            title="Pinned Messages"
-            open={resolveEnvironmentPanelGroupOpen(groupOpenState, "pinnedMessages")}
-            onOpenChange={(open) => setGroupOpen("pinnedMessages", open)}
-          >
-            <div className="space-y-0.5 px-2">
-              {threadPinnedMessages.map((message) => (
-                <div key={message.id} className="flex min-h-7 items-center gap-2">
-                  <button
-                    type="button"
-                    className="inline-flex size-4 shrink-0 items-center justify-center rounded-[calc(var(--control-radius)-3px)] border border-muted-foreground/50 text-foreground transition-colors hover:text-foreground"
-                    onClick={() =>
-                      setPinnedMessages((current) =>
-                        togglePinnedMessageChecked(current, message.id),
-                      )
-                    }
-                    aria-label={
-                      message.checked
-                        ? `Mark pinned message incomplete: ${message.title}`
-                        : `Mark pinned message complete: ${message.title}`
-                    }
-                  >
-                    {message.checked ? <CheckSquareIcon className="size-3" /> : null}
-                  </button>
-                  <button
-                    type="button"
-                    className={cn(
-                      "min-w-0 flex-1 truncate text-left text-[12px] transition-colors hover:text-foreground",
-                      message.checked ? "text-muted-foreground/55 line-through" : "text-foreground",
-                    )}
-                    title={message.preview}
-                    onClick={() =>
-                      props.onJumpToMessage(
-                        message.messageId,
-                        resolvePinnedMessageNavigationTarget(message),
-                      )
-                    }
-                  >
-                    {message.title}
-                  </button>
-                  <button
-                    type="button"
-                    className="inline-flex size-5 shrink-0 items-center justify-center rounded-[calc(var(--control-radius)-2px)] text-muted-foreground/70 transition-colors hover:bg-foreground/[0.04] hover:text-foreground"
-                    onClick={() =>
-                      setPinnedMessages((current) => removePinnedMessageById(current, message.id))
-                    }
-                    aria-label={`Unpin message: ${message.title}`}
-                  >
-                    <XIcon className="size-3.5" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          </EnvironmentPanelGroup>
-        ) : null}
+        <EnvironmentPinnedMessagesGroup
+          messages={threadPinnedMessages}
+          onJumpToMessage={props.onJumpToMessage}
+          open={resolveEnvironmentPanelGroupOpen(groupOpenState, "pinnedMessages")}
+          onOpenChange={(open) => setGroupOpen("pinnedMessages", open)}
+          setPinnedMessages={setPinnedMessages}
+        />
 
         {activeProjectScripts ? (
           <EnvironmentPanelGroup
@@ -602,23 +631,13 @@ export const EnvironmentMiniPanel = forwardRef<
           </EnvironmentPanelGroup>
         ) : null}
 
-        <EnvironmentPanelGroup
-          title="Notes"
+        <EnvironmentNotesGroup
+          body={activeScratchPadNote?.body ?? ""}
           open={resolveEnvironmentPanelGroupOpen(groupOpenState, "notes")}
+          onBodyChange={updateActiveScratchPadBody}
           onOpenChange={(open) => setGroupOpen("notes", open)}
-        >
-          <div className="space-y-2 px-2 pt-0.5">
-            <div className="glass-inset overflow-hidden rounded-[var(--control-radius)] border border-border/50 transition-colors focus-within:border-ring/45 focus-within:ring-2 focus-within:ring-ring/10">
-              <textarea
-                value={activeScratchPadNote?.body ?? ""}
-                onChange={(event) => updateActiveScratchPadBody(event.target.value)}
-                placeholder="Quick note..."
-                className="min-h-24 w-full resize-none bg-transparent px-3 py-3 font-sans text-[12px] leading-5 outline-none placeholder:text-muted-foreground/42"
-              />
-            </div>
-          </div>
-        </EnvironmentPanelGroup>
+        />
       </div>
     </m.aside>
   );
-});
+}

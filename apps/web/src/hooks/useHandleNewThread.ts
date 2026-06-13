@@ -43,121 +43,116 @@ export function useHandleNewThread() {
   const activeDraftThread = useComposerDraftStore((store) =>
     routeThreadId ? (store.draftThreadsByThreadId[routeThreadId] ?? null) : null,
   );
-  const orderedProjects = useMemo(() => {
-    return orderItemsByPreferredIds({
-      items: projectIds,
-      preferredIds: projectOrder,
-      getId: (projectId) => projectId,
-    });
-  }, [projectIds, projectOrder]);
+  const orderedProjects = orderItemsByPreferredIds({
+    items: projectIds,
+    preferredIds: projectOrder,
+    getId: (projectId) => projectId,
+  });
 
-  const handleNewThread = useCallback(
-    (
-      projectId: ProjectId,
-      options?: {
-        branch?: string | null;
-        worktreePath?: string | null;
-        envMode?: DraftThreadEnvMode;
-        connectionUrl?: string;
-        replace?: boolean;
-      },
-    ): Promise<void> => {
-      const {
-        clearProjectDraftThreadId,
-        getDraftThread,
-        getDraftThreadByProjectId,
-        applyStickyState,
-        setDraftThreadContext,
-        setProjectDraftThreadId,
-      } = useComposerDraftStore.getState();
-      const hasBranchOption = options?.branch !== undefined;
-      const hasWorktreePathOption = options?.worktreePath !== undefined;
-      const hasEnvModeOption = options?.envMode !== undefined;
-      const replace = options?.replace ?? false;
-      const localConnectionUrl = resolveLocalConnectionUrl();
-      const resolvedConnectionUrl = (() => {
-        const candidateConnectionUrl =
-          options?.connectionUrl ??
-          resolveConnectionForProjectId(projectId) ??
-          readRouteConnectionUrlFromLocation() ??
-          localConnectionUrl;
-        try {
-          return normalizeWsUrl(candidateConnectionUrl);
-        } catch {
-          return localConnectionUrl;
-        }
-      })();
-      const threadRouteSearch = buildSingleThreadRouteSearch({
-        connectionUrl: resolvedConnectionUrl === localConnectionUrl ? null : resolvedConnectionUrl,
-      });
-      const storedDraftThread = getDraftThreadByProjectId(projectId);
-      const latestActiveDraftThread: DraftThreadState | null = routeThreadId
-        ? getDraftThread(routeThreadId)
-        : null;
-      if (storedDraftThread) {
-        return (async () => {
-          if (hasBranchOption || hasWorktreePathOption || hasEnvModeOption) {
-            setDraftThreadContext(storedDraftThread.threadId, {
-              ...(hasBranchOption ? { branch: options?.branch ?? null } : {}),
-              ...(hasWorktreePathOption ? { worktreePath: options?.worktreePath ?? null } : {}),
-              ...(hasEnvModeOption ? { envMode: options?.envMode } : {}),
-            });
-          }
-          setProjectDraftThreadId(projectId, storedDraftThread.threadId);
-          if (routeThreadId === storedDraftThread.threadId) {
-            return;
-          }
-          resetThreadRightSidePanelState(storedDraftThread.threadId);
-          await navigate({
-            to: "/$threadId",
-            params: { threadId: storedDraftThread.threadId },
-            search: threadRouteSearch,
-            replace,
-          });
-        })();
+  const handleNewThread = (
+    projectId: ProjectId,
+    options?: {
+      branch?: string | null;
+      worktreePath?: string | null;
+      envMode?: DraftThreadEnvMode;
+      connectionUrl?: string;
+      replace?: boolean;
+    },
+  ): Promise<void> => {
+    const {
+      clearProjectDraftThreadId,
+      getDraftThread,
+      getDraftThreadByProjectId,
+      applyStickyState,
+      setDraftThreadContext,
+      setProjectDraftThreadId,
+    } = useComposerDraftStore.getState();
+    const hasBranchOption = options?.branch !== undefined;
+    const hasWorktreePathOption = options?.worktreePath !== undefined;
+    const hasEnvModeOption = options?.envMode !== undefined;
+    const replace = options?.replace ?? false;
+    const localConnectionUrl = resolveLocalConnectionUrl();
+    const resolvedConnectionUrl = (() => {
+      const candidateConnectionUrl =
+        options?.connectionUrl ??
+        resolveConnectionForProjectId(projectId) ??
+        readRouteConnectionUrlFromLocation() ??
+        localConnectionUrl;
+      try {
+        return normalizeWsUrl(candidateConnectionUrl);
+      } catch {
+        return localConnectionUrl;
       }
-
-      clearProjectDraftThreadId(projectId);
-
-      if (
-        latestActiveDraftThread &&
-        routeThreadId &&
-        latestActiveDraftThread.projectId === projectId
-      ) {
+    })();
+    const threadRouteSearch = buildSingleThreadRouteSearch({
+      connectionUrl: resolvedConnectionUrl === localConnectionUrl ? null : resolvedConnectionUrl,
+    });
+    const storedDraftThread = getDraftThreadByProjectId(projectId);
+    const latestActiveDraftThread: DraftThreadState | null = routeThreadId
+      ? getDraftThread(routeThreadId)
+      : null;
+    if (storedDraftThread) {
+      return (async () => {
         if (hasBranchOption || hasWorktreePathOption || hasEnvModeOption) {
-          setDraftThreadContext(routeThreadId, {
+          setDraftThreadContext(storedDraftThread.threadId, {
             ...(hasBranchOption ? { branch: options?.branch ?? null } : {}),
             ...(hasWorktreePathOption ? { worktreePath: options?.worktreePath ?? null } : {}),
             ...(hasEnvModeOption ? { envMode: options?.envMode } : {}),
           });
         }
-        setProjectDraftThreadId(projectId, routeThreadId);
-        return Promise.resolve();
-      }
-
-      const threadId = newThreadId();
-      const createdAt = new Date().toISOString();
-      return (async () => {
-        setProjectDraftThreadId(projectId, threadId, {
-          createdAt,
-          branch: options?.branch ?? null,
-          worktreePath: options?.worktreePath ?? null,
-          envMode: options?.envMode ?? "local",
-          runtimeMode: DEFAULT_RUNTIME_MODE,
-        });
-        applyStickyState(threadId);
-        resetThreadRightSidePanelState(threadId);
-
+        setProjectDraftThreadId(projectId, storedDraftThread.threadId);
+        if (routeThreadId === storedDraftThread.threadId) {
+          return;
+        }
+        resetThreadRightSidePanelState(storedDraftThread.threadId);
         await navigate({
           to: "/$threadId",
-          params: { threadId },
+          params: { threadId: storedDraftThread.threadId },
           search: threadRouteSearch,
           replace,
         });
       })();
-    },
-    [navigate, routeThreadId],
-  );
+    }
+
+    clearProjectDraftThreadId(projectId);
+
+    if (
+      latestActiveDraftThread &&
+      routeThreadId &&
+      latestActiveDraftThread.projectId === projectId
+    ) {
+      if (hasBranchOption || hasWorktreePathOption || hasEnvModeOption) {
+        setDraftThreadContext(routeThreadId, {
+          ...(hasBranchOption ? { branch: options?.branch ?? null } : {}),
+          ...(hasWorktreePathOption ? { worktreePath: options?.worktreePath ?? null } : {}),
+          ...(hasEnvModeOption ? { envMode: options?.envMode } : {}),
+        });
+      }
+      setProjectDraftThreadId(projectId, routeThreadId);
+      return Promise.resolve();
+    }
+
+    const threadId = newThreadId();
+    const createdAt = new Date().toISOString();
+    return (async () => {
+      setProjectDraftThreadId(projectId, threadId, {
+        createdAt,
+        branch: options?.branch ?? null,
+        worktreePath: options?.worktreePath ?? null,
+        envMode: options?.envMode ?? "local",
+        runtimeMode: DEFAULT_RUNTIME_MODE,
+      });
+      applyStickyState(threadId);
+      resetThreadRightSidePanelState(threadId);
+
+      await navigate({
+        to: "/$threadId",
+        params: { threadId },
+        search: threadRouteSearch,
+        replace,
+      });
+    })();
+  };
 
   return {
     activeDraftThread,

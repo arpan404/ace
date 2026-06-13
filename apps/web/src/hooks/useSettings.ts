@@ -9,7 +9,7 @@
  * write. The hook transparently routes reads/writes to the correct backing
  * store.
  */
-import { useCallback, useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "react";
 import { ServerSettings, ServerSettingsPatch, ModelSelection, ThreadEnvMode } from "@ace/contracts";
 import {
   BrowserSearchEngine,
@@ -295,34 +295,31 @@ export function useUpdateSettings() {
     ClientSettingsSchema,
   );
 
-  const updateSettings = useCallback(
-    (patch: Partial<UnifiedSettings>) => {
-      const { serverPatch, clientPatch } = splitPatch(patch);
+  const updateSettings = (patch: Partial<UnifiedSettings>) => {
+    const { serverPatch, clientPatch } = splitPatch(patch);
 
-      if (Object.keys(serverPatch).length > 0) {
-        const currentServerConfig = getServerConfig();
-        if (currentServerConfig) {
-          applySettingsUpdated(deepMerge(currentServerConfig.settings, serverPatch));
-        }
-        // Fire-and-forget RPC — push will reconcile on success
-        void ensureNativeApi().server.updateSettings(serverPatch);
+    if (Object.keys(serverPatch).length > 0) {
+      const currentServerConfig = getServerConfig();
+      if (currentServerConfig) {
+        applySettingsUpdated(deepMerge(currentServerConfig.settings, serverPatch));
       }
+      // Fire-and-forget RPC — push will reconcile on success
+      void ensureNativeApi().server.updateSettings(serverPatch);
+    }
 
-      if (Object.keys(clientPatch).length > 0) {
-        const nextClientSettings = Schema.decodeSync(ClientSettingsSchema)({
-          ...getLatestClientSettingsSnapshot(),
-          ...clientPatch,
-        });
-        latestClientSettingsSnapshot = nextClientSettings;
-        setClientSettings(nextClientSettings);
-      }
-    },
-    [setClientSettings],
-  );
+    if (Object.keys(clientPatch).length > 0) {
+      const nextClientSettings = Schema.decodeSync(ClientSettingsSchema)({
+        ...getLatestClientSettingsSnapshot(),
+        ...clientPatch,
+      });
+      latestClientSettingsSnapshot = nextClientSettings;
+      setClientSettings(nextClientSettings);
+    }
+  };
 
-  const resetSettings = useCallback(() => {
+  const resetSettings = () => {
     updateSettings(DEFAULT_UNIFIED_SETTINGS);
-  }, [updateSettings]);
+  };
 
   return {
     updateSettings,

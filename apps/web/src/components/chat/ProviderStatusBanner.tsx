@@ -1,5 +1,5 @@
 import { PROVIDER_DISPLAY_NAMES, type ServerProvider } from "@ace/contracts";
-import { memo, useMemo, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "../ui/alert";
 import { CircleAlertIcon, RefreshCwIcon, WrenchIcon, XIcon } from "lucide-react";
@@ -98,7 +98,7 @@ function ProviderStatusOverlay({ children }: { children: ReactNode }) {
   );
 }
 
-export const ProviderStatusBanner = memo(function ProviderStatusBanner({
+export function ProviderStatusBanner({
   status,
   recoveryActionsEnabled = false,
   onOpenDiagnostics,
@@ -113,7 +113,7 @@ export const ProviderStatusBanner = memo(function ProviderStatusBanner({
   });
   const [refreshing, setRefreshing] = useState(false);
 
-  const statusKey = useMemo(() => resolveProviderStatusDismissalKey(status), [status]);
+  const statusKey = resolveProviderStatusDismissalKey(status);
 
   if (!status || status.status === "ready" || status.status === "disabled") {
     return null;
@@ -148,9 +148,10 @@ export const ProviderStatusBanner = memo(function ProviderStatusBanner({
         title: "Provider refresh failed",
         description: error instanceof Error ? error.message : "Unable to refresh provider status.",
       });
-    } finally {
       setRefreshing(false);
+      return;
     }
+    setRefreshing(false);
   };
 
   return (
@@ -213,4 +214,4 @@ export const ProviderStatusBanner = memo(function ProviderStatusBanner({
       </Alert>
     </ProviderStatusOverlay>
   );
-});
+}

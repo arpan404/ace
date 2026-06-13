@@ -57,6 +57,15 @@ interface RpcTransportLike {
   ) => () => void;
 }
 
+function requireGitRunStackedActionResult(
+  result: GitRunStackedActionResult | null,
+): GitRunStackedActionResult {
+  if (!result) {
+    throw new Error("Git action stream completed without a final result.");
+  }
+  return result;
+}
+
 export interface WsRpcClient {
   readonly dispose: () => Promise<void>;
   readonly subscribeConnectionState: (
@@ -306,11 +315,7 @@ export function createWsRpcClient(transport: RpcTransportLike = new WsTransport(
           },
         );
 
-        if (result) {
-          return result;
-        }
-
-        throw new Error("Git action stream completed without a final result.");
+        return requireGitRunStackedActionResult(result);
       },
       listBranches: (input) =>
         transport.request((client) => client[WS_METHODS.gitListBranches](input)),

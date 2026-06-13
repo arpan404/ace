@@ -1,5 +1,5 @@
 import { type TurnId } from "@ace/contracts";
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { type TurnDiffFileChange } from "../../types";
 import { buildTurnDiffTree, type TurnDiffTreeNode } from "../../lib/turnDiffTree";
 import { ChevronRightIcon, FileIcon, FolderIcon, FolderClosedIcon } from "lucide-react";
@@ -7,7 +7,7 @@ import { cn } from "~/lib/utils";
 import { DiffStatLabel } from "./DiffStatLabel";
 import { hasNonZeroStat } from "./diffStat";
 
-export const ChangedFilesTree = memo(function ChangedFilesTree(props: {
+export function ChangedFilesTree(props: {
   turnId: TurnId;
   files: ReadonlyArray<TurnDiffFileChange>;
   allDirectoriesExpanded: boolean;
@@ -15,18 +15,11 @@ export const ChangedFilesTree = memo(function ChangedFilesTree(props: {
   onLayoutChange?: () => void;
 }) {
   const { files, allDirectoriesExpanded, onLayoutChange, onOpenTurnDiff, turnId } = props;
-  const treeNodes = useMemo(() => buildTurnDiffTree(files), [files]);
-  const directoryPathsKey = useMemo(
-    () => collectDirectoryPaths(treeNodes).join("\u0000"),
-    [treeNodes],
-  );
-  const allDirectoryExpansionState = useMemo(
-    () =>
-      buildDirectoryExpansionState(
-        directoryPathsKey ? directoryPathsKey.split("\u0000") : [],
-        allDirectoriesExpanded,
-      ),
-    [allDirectoriesExpanded, directoryPathsKey],
+  const treeNodes = buildTurnDiffTree(files);
+  const directoryPathsKey = collectDirectoryPaths(treeNodes).join("\u0000");
+  const allDirectoryExpansionState = buildDirectoryExpansionState(
+    directoryPathsKey ? directoryPathsKey.split("\u0000") : [],
+    allDirectoriesExpanded,
   );
   const resetKey = `${allDirectoriesExpanded ? "expanded" : "collapsed"}:${directoryPathsKey}`;
 
@@ -40,9 +33,9 @@ export const ChangedFilesTree = memo(function ChangedFilesTree(props: {
       {...(onLayoutChange ? { onLayoutChange } : {})}
     />
   );
-});
+}
 
-const ChangedFilesTreeContent = memo(function ChangedFilesTreeContent(props: {
+function ChangedFilesTreeContent(props: {
   turnId: TurnId;
   treeNodes: ReadonlyArray<TurnDiffTreeNode>;
   allDirectoryExpansionState: Record<string, boolean>;
@@ -57,12 +50,12 @@ const ChangedFilesTreeContent = memo(function ChangedFilesTreeContent(props: {
     onLayoutChange?.();
   }, [expandedDirectories, onLayoutChange]);
 
-  const toggleDirectory = useCallback((pathValue: string, fallbackExpanded: boolean) => {
+  const toggleDirectory = (pathValue: string, fallbackExpanded: boolean) => {
     setExpandedDirectories((current) => ({
       ...current,
       [pathValue]: !(current[pathValue] ?? fallbackExpanded),
     }));
-  }, []);
+  };
 
   const renderTreeNode = (node: TurnDiffTreeNode, depth: number) => {
     const leftPadding = 8 + depth * 16;
@@ -128,7 +121,7 @@ const ChangedFilesTreeContent = memo(function ChangedFilesTreeContent(props: {
   };
 
   return <div className="space-y-0.5">{treeNodes.map((node) => renderTreeNode(node, 0))}</div>;
-});
+}
 
 function collectDirectoryPaths(nodes: ReadonlyArray<TurnDiffTreeNode>): string[] {
   const paths: string[] = [];

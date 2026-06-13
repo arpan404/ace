@@ -1,6 +1,6 @@
 import type { EditorLineNumbers } from "@ace/contracts";
 
-export const WORKSPACE_EDITOR_FONT_FAMILY =
+const WORKSPACE_EDITOR_FONT_FAMILY =
   '"SF Mono", "SFMono-Regular", ui-monospace, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace';
 
 export interface WorkspaceEditorSettingsSnapshot {

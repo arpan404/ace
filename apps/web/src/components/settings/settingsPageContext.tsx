@@ -1,4 +1,4 @@
-import { createContext, useContext, type ReactNode } from "react";
+import { createContext, type ReactNode } from "react";
 
 export type SettingsPageMeta = {
   readonly label: string;
@@ -18,12 +18,4 @@ export function SettingsPageProvider({
   return <SettingsPageContext.Provider value={value}>{children}</SettingsPageContext.Provider>;
 }
 
-export function useSettingsPageMeta() {
-  return useContext(SettingsPageContext);
-}
-
 export const SETTINGS_RESTORED_EVENT = "ace:settings-restored";
-
-export function notifySettingsRestored() {
-  window.dispatchEvent(new CustomEvent(SETTINGS_RESTORED_EVENT));
-}

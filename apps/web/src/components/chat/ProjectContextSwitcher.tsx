@@ -36,7 +36,7 @@ interface ProjectContextSwitcherProps {
   emptyLabel?: string;
 }
 
-export const ProjectContextSwitcher = memo(function ProjectContextSwitcher({
+export function ProjectContextSwitcher({
   activeProjectId,
   onSelectProject,
   variant = "compact",
@@ -45,15 +45,11 @@ export const ProjectContextSwitcher = memo(function ProjectContextSwitcher({
 }: ProjectContextSwitcherProps) {
   const projects = useStore((store) => store.projects);
   const projectOrder = useUiStateStore((store) => store.projectOrder);
-  const orderedProjects = useMemo<readonly ProjectContextProject[]>(
-    () =>
-      orderItemsByPreferredIds({
-        items: projects.filter((project) => project.archivedAt === null),
-        preferredIds: projectOrder,
-        getId: (project) => project.id,
-      }),
-    [projectOrder, projects],
-  );
+  const orderedProjects = orderItemsByPreferredIds({
+    items: projects.filter((project) => project.archivedAt === null),
+    preferredIds: projectOrder,
+    getId: (project) => project.id,
+  });
   const activeProject =
     orderedProjects.find((project) => project.id === activeProjectId) ?? orderedProjects[0] ?? null;
   const triggerLabel = activeProject ? `Switch project from ${activeProject.name}` : emptyLabel;
@@ -176,4 +172,4 @@ export const ProjectContextSwitcher = memo(function ProjectContextSwitcher({
       ) : null}
     </Menu>
   );
-});
+}

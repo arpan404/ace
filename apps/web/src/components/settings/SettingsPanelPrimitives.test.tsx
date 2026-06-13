@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ServerProvider } from "@ace/contracts";
 
-import { getProviderSummary } from "./SettingsPanelPrimitives";
+import { getProviderSummary } from "./providerSummary";
 
 function buildProvider(overrides: Partial<ServerProvider> = {}): ServerProvider {
   return {

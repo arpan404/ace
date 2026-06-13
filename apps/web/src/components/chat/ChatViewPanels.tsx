@@ -1,6 +1,6 @@
 import { ChevronLeftIcon, ChevronRightIcon, XIcon } from "lucide-react";
 import { AnimatePresence, LazyMotion, domAnimation, m } from "motion/react";
-import { memo, useEffect, useRef, useState, type ComponentProps } from "react";
+import { useEffect, useRef, useState, type ComponentProps } from "react";
 import { createPortal } from "react-dom";
 
 import { InAppBrowser, type InAppBrowserMode } from "../InAppBrowser";
@@ -22,8 +22,8 @@ function constrainedBrowserPanelWidth(width: number): string {
 interface BrowserPanelProps {
   mode: InAppBrowserMode;
   splitWidth: number;
-  onResizeKeyDown: ComponentProps<"div">["onKeyDown"];
-  onResizePointerDown: ComponentProps<"div">["onPointerDown"];
+  onResizeKeyDown: ComponentProps<"button">["onKeyDown"];
+  onResizePointerDown: ComponentProps<"button">["onPointerDown"];
   instances: ReadonlyArray<{
     key: string;
     inAppBrowserProps: ComponentProps<typeof InAppBrowser>;
@@ -44,7 +44,8 @@ function ExpandedImageOverlay({
   navigateExpandedImage,
 }: ExpandedImageOverlayProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
-  const [imageLoadFailed, setImageLoadFailed] = useState(false);
+  const [failedImageSrc, setFailedImageSrc] = useState<string | null>(null);
+  const imageLoadFailed = failedImageSrc === expandedImageItem.src;
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -61,21 +62,12 @@ function ExpandedImageOverlay({
     };
   }, []);
 
-  useEffect(() => {
-    setImageLoadFailed(false);
-  }, [expandedImageItem.src]);
-
   return (
     <dialog
       ref={dialogRef}
       className={`${MODAL_LAYER_CLASS_NAME} fixed inset-0 m-0 flex h-screen max-h-none w-screen max-w-none items-center justify-center border-0 bg-black/75 px-4 py-6 text-inherit [-webkit-app-region:no-drag] backdrop:bg-transparent`}
       aria-label="Expanded image preview"
       onCancel={closeExpandedImage}
-      onClick={(event) => {
-        if (event.target === event.currentTarget) {
-          closeExpandedImage();
-        }
-      }}
     >
       <button
         type="button"
@@ -119,7 +111,7 @@ function ExpandedImageOverlay({
             className="max-h-[86vh] max-w-[92vw] select-none rounded-lg border border-border bg-background object-contain shadow-2xl"
             draggable={false}
             onError={() => {
-              setImageLoadFailed(true);
+              setFailedImageSrc(expandedImageItem.src);
             }}
           />
         )}
@@ -148,7 +140,7 @@ function ExpandedImageOverlay({
   );
 }
 
-export const ChatViewPanels = memo(function ChatViewPanels({
+export function ChatViewPanels({
   browserPanel,
   expandedImageOverlay,
 }: {
@@ -174,10 +166,9 @@ export const ChatViewPanels = memo(function ChatViewPanels({
                 exit={{ width: 0, opacity: 0, x: 18 }}
                 transition={BROWSER_PANEL_TRANSITION}
               >
-                <hr
-                  aria-orientation="vertical"
+                <button
+                  type="button"
                   aria-label="Resize browser panel"
-                  aria-valuenow={browserPanel.splitWidth}
                   tabIndex={0}
                   className="group relative z-20 h-auto w-3 shrink-0 cursor-col-resize touch-none select-none border-0 bg-transparent before:absolute before:inset-y-0 before:left-1/2 before:w-px before:-translate-x-1/2 before:bg-border before:transition-colors before:content-[''] after:absolute after:inset-y-0 after:left-1/2 after:w-2 after:-translate-x-1/2 after:rounded-full after:bg-transparent after:content-[''] hover:before:bg-primary/55 hover:after:bg-primary/10"
                   onKeyDown={browserPanel.onResizeKeyDown}
@@ -218,4 +209,4 @@ export const ChatViewPanels = memo(function ChatViewPanels({
         : expandedImageOverlayElement}
     </>
   );
-});
+}

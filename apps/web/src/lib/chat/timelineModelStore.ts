@@ -1141,12 +1141,18 @@ function applyLiveTimelineRowRemovalsToState(
   let revisionByThreadId = state.revisionByThreadId;
   let changed = false;
   const changedThreadIds = new Set<ThreadId>();
+  const previousRowIdSetsByThreadId = new Map<ThreadId, ReadonlySet<string>>();
 
   for (const input of inputs) {
     const rowId = rowIdForSource(input.kind, input.id);
     const rowStoreKey = rowKey(input.threadId, rowId);
     const previousRowIds = rowIdsByThreadId[input.threadId] ?? [];
-    if (!previousRowIds.includes(rowId) && rowsById[rowStoreKey] === undefined) {
+    let previousRowIdSet = previousRowIdSetsByThreadId.get(input.threadId);
+    if (!previousRowIdSet) {
+      previousRowIdSet = new Set(previousRowIds);
+      previousRowIdSetsByThreadId.set(input.threadId, previousRowIdSet);
+    }
+    if (!previousRowIdSet.has(rowId) && rowsById[rowStoreKey] === undefined) {
       continue;
     }
 
@@ -1257,10 +1263,15 @@ function applyLiveTimelineRowPatchesToState(
   let changed = false;
 
   for (const input of patches) {
+    const entry = input.entry;
+    const entryKind = entry.kind;
+    const entryId = String(entry.id);
+    const entryTurnId = entry.turnId;
     const previousMetadata = metadataByThreadId[input.threadId];
-    const rowId = rowIdForSource(input.entry.kind, String(input.entry.id));
+    const rowId = rowIdForSource(entryKind, entryId);
     const previousRow = rowsById[rowKey(input.threadId, rowId)];
     const threadRowIds = rowIdsByThreadId[input.threadId] ?? [];
+    const threadRowIdSet = new Set(threadRowIds);
     const sourceIndex =
       previousRow?.startSourceIndex ??
       resolveNextLiveTimelineSourceIndex({
@@ -1272,13 +1283,13 @@ function applyLiveTimelineRowPatchesToState(
       });
     const row: OrchestrationTimelineRow = {
       id: rowId,
-      kind: rowKindForSourceKind(input.entry.kind),
-      createdAt: input.entry.createdAt,
+      kind: rowKindForSourceKind(entryKind),
+      createdAt: entry.createdAt,
       updatedAt: input.updatedAt,
       contentVersion: [
         "live",
-        input.entry.kind,
-        String(input.entry.id),
+        entryKind,
+        entryId,
         input.updatedAt,
         input.message?.text.length ??
           input.activity?.summary.length ??
@@ -1287,15 +1298,15 @@ function applyLiveTimelineRowPatchesToState(
       ].join(":"),
       startSourceIndex: sourceIndex,
       endSourceIndexExclusive: sourceIndex + 1,
-      ...(input.entry.turnId !== undefined ? { turnId: input.entry.turnId } : {}),
+      ...(entryTurnId !== undefined ? { turnId: entryTurnId } : {}),
       sourceRefs: [
         {
-          kind: input.entry.kind,
-          id: String(input.entry.id),
-          createdAt: input.entry.createdAt,
+          kind: entryKind,
+          id: entryId,
+          createdAt: entry.createdAt,
           sourceIndex,
-          ...(input.entry.turnId !== undefined ? { turnId: input.entry.turnId } : {}),
-          ...(input.entry.sequence !== undefined ? { sequence: input.entry.sequence } : {}),
+          ...(entryTurnId !== undefined ? { turnId: entryTurnId } : {}),
+          ...(entry.sequence !== undefined ? { sequence: entry.sequence } : {}),
         },
       ],
     };
@@ -1312,7 +1323,7 @@ function applyLiveTimelineRowPatchesToState(
       Math.max(nextSourceIndexByThreadId.get(input.threadId) ?? 0, row.endSourceIndexExclusive),
     );
 
-    const isExistingRow = threadRowIds.includes(rowId);
+    const isExistingRow = threadRowIdSet.has(rowId);
     const nextThreadRowIds = isExistingRow ? threadRowIds : [...threadRowIds, rowId];
     if (!isExistingRow) {
       if (rowIdsByThreadId === state.rowIdsByThreadId) {

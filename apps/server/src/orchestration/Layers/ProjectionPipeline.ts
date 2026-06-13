@@ -1342,6 +1342,116 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         apply: applyThreadsProjection,
       },
     ];
+    const projectorByName = new Map(projectors.map((projector) => [projector.name, projector]));
+    const selectProjectors = (
+      ...names: ReadonlyArray<ProjectorName | false | null | undefined>
+    ): ReadonlyArray<ProjectorDefinition> =>
+      names.flatMap((name) => {
+        if (!name) {
+          return [];
+        }
+        const projector = projectorByName.get(name);
+        return projector ? [projector] : [];
+      });
+    const projectorsForEvent = (event: OrchestrationEvent): ReadonlyArray<ProjectorDefinition> => {
+      switch (event.type) {
+        case "project.created":
+        case "project.meta-updated":
+        case "project.deleted":
+          return selectProjectors(ORCHESTRATION_PROJECTOR_NAMES.projects);
+
+        case "thread.created":
+        case "thread.archived":
+        case "thread.unarchived":
+        case "thread.meta-updated":
+        case "thread.runtime-mode-set":
+        case "thread.interaction-mode-set":
+          return selectProjectors(ORCHESTRATION_PROJECTOR_NAMES.threads);
+
+        case "thread.deleted":
+          return selectProjectors(
+            ORCHESTRATION_PROJECTOR_NAMES.threads,
+            ORCHESTRATION_PROJECTOR_NAMES.threadMessages,
+            ORCHESTRATION_PROJECTOR_NAMES.threadProposedPlans,
+            ORCHESTRATION_PROJECTOR_NAMES.threadActivities,
+            ORCHESTRATION_PROJECTOR_NAMES.threadTimelineEntries,
+            ORCHESTRATION_PROJECTOR_NAMES.threadSessions,
+            ORCHESTRATION_PROJECTOR_NAMES.threadTurns,
+            ORCHESTRATION_PROJECTOR_NAMES.pendingApprovals,
+          );
+
+        case "thread.turn-start-requested":
+        case "thread.turn-interrupt-requested":
+          return selectProjectors(ORCHESTRATION_PROJECTOR_NAMES.threadTurns);
+
+        case "thread.message-sent":
+          return selectProjectors(
+            !event.payload.streaming && ORCHESTRATION_PROJECTOR_NAMES.threads,
+            ORCHESTRATION_PROJECTOR_NAMES.threadMessages,
+            ORCHESTRATION_PROJECTOR_NAMES.threadTimelineEntries,
+            event.payload.role === "assistant" &&
+              event.payload.turnId !== null &&
+              ORCHESTRATION_PROJECTOR_NAMES.threadTurns,
+          );
+
+        case "thread.proposed-plan-upserted":
+          return selectProjectors(
+            ORCHESTRATION_PROJECTOR_NAMES.threads,
+            ORCHESTRATION_PROJECTOR_NAMES.threadProposedPlans,
+            ORCHESTRATION_PROJECTOR_NAMES.threadTimelineEntries,
+          );
+
+        case "thread.activity-appended": {
+          const activityKind = event.payload.activity.kind;
+          const affectsPendingApprovals =
+            activityKind === "approval.requested" ||
+            activityKind === "approval.resolved" ||
+            activityKind === "provider.approval.respond.failed";
+          return selectProjectors(
+            affectsPendingApprovals && ORCHESTRATION_PROJECTOR_NAMES.pendingApprovals,
+            ORCHESTRATION_PROJECTOR_NAMES.threadActivities,
+            ORCHESTRATION_PROJECTOR_NAMES.threadTimelineEntries,
+          );
+        }
+
+        case "thread.session-set":
+          return selectProjectors(
+            ORCHESTRATION_PROJECTOR_NAMES.threads,
+            ORCHESTRATION_PROJECTOR_NAMES.threadSessions,
+            event.payload.session.activeTurnId !== null &&
+              event.payload.session.status === "running" &&
+              ORCHESTRATION_PROJECTOR_NAMES.threadTurns,
+          );
+
+        case "thread.session-stop-requested":
+          return [];
+
+        case "thread.turn-diff-completed":
+          return selectProjectors(
+            ORCHESTRATION_PROJECTOR_NAMES.threads,
+            ORCHESTRATION_PROJECTOR_NAMES.threadTurns,
+          );
+
+        case "thread.reverted":
+          return selectProjectors(
+            ORCHESTRATION_PROJECTOR_NAMES.threads,
+            ORCHESTRATION_PROJECTOR_NAMES.threadMessages,
+            ORCHESTRATION_PROJECTOR_NAMES.threadProposedPlans,
+            ORCHESTRATION_PROJECTOR_NAMES.threadActivities,
+            ORCHESTRATION_PROJECTOR_NAMES.threadTimelineEntries,
+            ORCHESTRATION_PROJECTOR_NAMES.threadTurns,
+          );
+
+        case "thread.approval-response-requested":
+          return selectProjectors(ORCHESTRATION_PROJECTOR_NAMES.pendingApprovals);
+
+        case "thread.user-input-response-requested":
+          return [];
+
+        default:
+          return projectors;
+      }
+    };
 
     const runProjectorsForEvent = Effect.fn("runProjectorsForEvent")(function* (
       event: OrchestrationEvent,
@@ -1383,7 +1493,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
     });
 
     const projectEvent: OrchestrationProjectionPipelineShape["projectEvent"] = (event) =>
-      runProjectorsForEvent(event, projectors).pipe(
+      runProjectorsForEvent(event, projectorsForEvent(event)).pipe(
         Effect.provideService(FileSystem.FileSystem, fileSystem),
         Effect.provideService(Path.Path, path),
         Effect.provideService(ServerConfig, serverConfig),

@@ -1,10 +1,18 @@
 import { IconTerminal } from "@tabler/icons-react";
 import { BoxIcon, FlaskConicalIcon, FolderIcon, Code2Icon, RocketIcon } from "lucide-react";
+import { createElement, type ComponentType } from "react";
 
 import { cn } from "~/lib/utils";
 import type { Project, ProjectIcon } from "~/types";
 
 import { ProjectFavicon } from "./ProjectFavicon";
+
+type ProjectIconComponent = ComponentType<{
+  className?: string;
+  strokeLinecap?: "butt" | "round" | "square";
+  strokeLinejoin?: "bevel" | "miter" | "round";
+  strokeWidth?: number;
+}>;
 
 const PROJECT_ICON_ACCENT_CLASS_NAMES: Record<ProjectIcon["color"], string> = {
   slate: "text-slate-500 dark:text-slate-300",
@@ -15,7 +23,7 @@ const PROJECT_ICON_ACCENT_CLASS_NAMES: Record<ProjectIcon["color"], string> = {
   rose: "text-rose-600 dark:text-rose-300",
 };
 
-function iconComponentForGlyph(glyph: ProjectIcon["glyph"]) {
+function iconComponentForGlyph(glyph: ProjectIcon["glyph"]): ProjectIconComponent {
   switch (glyph) {
     case "terminal":
       return IconTerminal;
@@ -33,15 +41,15 @@ function iconComponentForGlyph(glyph: ProjectIcon["glyph"]) {
 }
 
 export function ProjectGlyphIcon({ icon, className }: { icon: ProjectIcon; className?: string }) {
-  const Icon = iconComponentForGlyph(icon.glyph);
+  const iconElement = createElement(iconComponentForGlyph(icon.glyph), {
+    className: cn("size-[92%]", PROJECT_ICON_ACCENT_CLASS_NAMES[icon.color]),
+    strokeLinecap: "square",
+    strokeLinejoin: "miter",
+    strokeWidth: 1.85,
+  });
   return (
     <span className={cn("inline-flex size-3.5 shrink-0 items-center justify-center", className)}>
-      <Icon
-        className={cn("size-[92%]", PROJECT_ICON_ACCENT_CLASS_NAMES[icon.color])}
-        strokeLinecap="square"
-        strokeLinejoin="miter"
-        strokeWidth={1.85}
-      />
+      {iconElement}
     </span>
   );
 }

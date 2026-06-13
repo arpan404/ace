@@ -40,7 +40,6 @@
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@effect/atom-react": "catalog:",
-    "@formkit/auto-animate": "^0.9.0",
     "@lexical/react": "^0.45.0",
     "@pierre/diffs": "^1.2.7",
     "@tabler/icons-react": "^3.44.0",
@@ -68,7 +67,6 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
-    "@effect/language-service": "catalog:",
     "@rolldown/plugin-babel": "^0.2.3",
     "@tailwindcss/vite": "^4.3.0",
     "@tanstack/router-plugin": "^1.168.18",

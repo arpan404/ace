@@ -347,6 +347,14 @@ export class WsTransport {
     }
   }
 
+  private completeSuccessfulRequest<TSuccess>(result: TSuccess): TSuccess {
+    if (this.disposed) {
+      throw new Error("Transport disposed");
+    }
+    this.noteConnected();
+    return result;
+  }
+
   async request<TSuccess>(
     execute: (client: WsRpcProtocolClient) => Effect.Effect<TSuccess, Error, never>,
     _options?: RequestOptions,
@@ -362,11 +370,7 @@ export class WsTransport {
       try {
         const client = await this.clientPromise;
         const result = await this.runtime.runPromise(Effect.suspend(() => execute(client)));
-        if (this.disposed) {
-          throw new Error("Transport disposed");
-        }
-        this.noteConnected();
-        return result;
+        return this.completeSuccessfulRequest(result);
       } catch (error) {
         if (this.disposed) {
           throw new Error("Transport disposed", { cause: error });
@@ -418,10 +422,7 @@ export class WsTransport {
           }),
         ),
       );
-      if (this.disposed) {
-        throw new Error("Transport disposed");
-      }
-      this.noteConnected();
+      this.completeSuccessfulRequest(undefined);
     } catch (error) {
       if (this.disposed) {
         throw new Error("Transport disposed", { cause: error });

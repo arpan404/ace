@@ -1,4 +1,3 @@
-/* eslint-disable react-doctor/async-parallel -- UI interaction timing assertions intentionally run sequentially in browser tests. */
 import "../../index.css";
 
 import {
@@ -13,7 +12,6 @@ import {
   ThreadId,
 } from "@ace/contracts";
 import { page } from "vitest/browser";
-import { useCallback } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
@@ -146,7 +144,7 @@ const TEST_PROVIDERS: ReadonlyArray<ServerProvider> = [
   },
 ];
 
-function ClaudeTraitsPickerHarness(props: {
+export function ClaudeTraitsPickerHarness(props: {
   model: string;
   fallbackModelSelection: ModelSelection | null;
   triggerVariant?: "ghost" | "outline";
@@ -164,12 +162,9 @@ function ClaudeTraitsPickerHarness(props: {
       ...DEFAULT_CLIENT_SETTINGS,
     },
   });
-  const handlePromptChange = useCallback(
-    (nextPrompt: string) => {
-      setPrompt(CLAUDE_THREAD_ID, nextPrompt);
-    },
-    [setPrompt],
-  );
+  const handlePromptChange = (nextPrompt: string) => {
+    setPrompt(CLAUDE_THREAD_ID, nextPrompt);
+  };
 
   return (
     <TraitsPicker
@@ -455,7 +450,7 @@ async function mountCodexPicker(props: { model?: string; options?: CodexModelOpt
   };
 }
 
-function CursorTraitsPickerHarness(props: {
+export function CursorTraitsPickerHarness(props: {
   model: string;
   fallbackModelSelection: ModelSelection | null;
 }) {
@@ -472,12 +467,9 @@ function CursorTraitsPickerHarness(props: {
       ...DEFAULT_CLIENT_SETTINGS,
     },
   });
-  const handlePromptChange = useCallback(
-    (nextPrompt: string) => {
-      setPrompt(CURSOR_THREAD_ID, nextPrompt);
-    },
-    [setPrompt],
-  );
+  const handlePromptChange = (nextPrompt: string) => {
+    setPrompt(CURSOR_THREAD_ID, nextPrompt);
+  };
 
   return (
     <TraitsPicker

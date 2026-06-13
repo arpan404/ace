@@ -1,5 +1,12 @@
 import * as React from "react";
 
+function clearTimeoutRef(timeoutRef: { current: NodeJS.Timeout | null }) {
+  if (timeoutRef.current) {
+    clearTimeout(timeoutRef.current);
+    timeoutRef.current = null;
+  }
+}
+
 export function useCopyToClipboard<TContext = void>({
   timeout = 2000,
   onCopy,
@@ -15,11 +22,13 @@ export function useCopyToClipboard<TContext = void>({
   const onErrorRef = React.useRef(onError);
   const timeoutRef = React.useRef(timeout);
 
-  onCopyRef.current = onCopy;
-  onErrorRef.current = onError;
-  timeoutRef.current = timeout;
+  React.useEffect(() => {
+    onCopyRef.current = onCopy;
+    onErrorRef.current = onError;
+    timeoutRef.current = timeout;
+  }, [onCopy, onError, timeout]);
 
-  const copyToClipboard = React.useCallback((value: string, ctx: TContext): void => {
+  const copyToClipboard = (value: string, ctx: TContext): void => {
     if (typeof window === "undefined" || !navigator.clipboard?.writeText) {
       onErrorRef.current?.(new Error("Clipboard API unavailable."), ctx);
       return;
@@ -29,9 +38,7 @@ export function useCopyToClipboard<TContext = void>({
 
     navigator.clipboard.writeText(value).then(
       () => {
-        if (timeoutIdRef.current) {
-          clearTimeout(timeoutIdRef.current);
-        }
+        clearTimeoutRef(timeoutIdRef);
         setIsCopied(true);
 
         onCopyRef.current?.(ctx);
@@ -51,14 +58,12 @@ export function useCopyToClipboard<TContext = void>({
         }
       },
     );
-  }, []);
+  };
 
   // Cleanup timeout on unmount
   React.useEffect(() => {
     return (): void => {
-      if (timeoutIdRef.current) {
-        clearTimeout(timeoutIdRef.current);
-      }
+      clearTimeoutRef(timeoutIdRef);
     };
   }, []);
 

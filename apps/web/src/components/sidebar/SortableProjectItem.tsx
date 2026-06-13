@@ -1,4 +1,4 @@
-import { type CSSProperties, type ReactNode, useCallback } from "react";
+import { type CSSProperties, type ReactNode } from "react";
 import { ProjectId } from "@ace/contracts";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -33,13 +33,10 @@ export function SortableProjectItem({
     isDragging,
     isOver,
   } = useSortable({ id: projectId, disabled });
-  const setMeasuredNodeRef = useCallback(
-    (element: HTMLLIElement | null) => {
-      setNodeRef(element);
-      measureElement?.(element);
-    },
-    [measureElement, setNodeRef],
-  );
+  const setMeasuredNodeRef = (element: HTMLLIElement | null) => {
+    setNodeRef(element);
+    measureElement?.(element);
+  };
   const sortableTransform = CSS.Translate.toString(transform);
   const composedTransform = [style?.transform, sortableTransform].filter(Boolean).join(" ");
 

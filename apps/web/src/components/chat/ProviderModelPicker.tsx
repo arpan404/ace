@@ -7,7 +7,7 @@ import {
 } from "@ace/contracts";
 import { resolveSelectableModel } from "@ace/shared/model";
 import * as Schema from "effect/Schema";
-import { memo, useMemo, useState } from "react";
+import { useState } from "react";
 import type { VariantProps } from "class-variance-authority";
 import { CheckIcon, ChevronDownIcon, PinIcon, SearchIcon, StarIcon } from "lucide-react";
 import { Button } from "../ui/button";
@@ -68,6 +68,36 @@ interface ModelPickerRow {
   readonly searchText: string;
   readonly selectionValue: string;
   readonly slug: string;
+}
+
+interface ProviderModelPickerProps {
+  provider: ProviderKind;
+  providerInstanceId?: string | undefined;
+  model: string;
+  lockedProvider: ProviderKind | null;
+  providers?: ReadonlyArray<ServerProvider>;
+  modelOptionsByProvider: Record<ProviderKind, ReadonlyArray<{ slug: string; name: string }>>;
+  modelSelectionByProvider?: Record<string, ModelSelection | undefined>;
+  providerInstancesByProvider?: Partial<
+    Record<ProviderKind, ReadonlyArray<ProviderInstancePickerOption>>
+  >;
+  activeProviderIconClassName?: string;
+  compact?: boolean;
+  disabled?: boolean;
+  triggerVariant?: VariantProps<typeof buttonVariants>["variant"];
+  triggerClassName?: string;
+  triggerSurface?: "composer" | "settings";
+  onProviderModelChange: (
+    provider: ProviderKind,
+    model: string,
+    providerInstanceId?: string,
+  ) => void;
+  /** Icon-only control beside the picker; opens a separate handoff menu. */
+  handoff?: {
+    providers: ReadonlyArray<ProviderKind>;
+    disabled: boolean;
+    onSelect: (provider: ProviderKind, mode: ThreadHandoffMode) => void;
+  };
 }
 
 function isSelectableLiveProvider(provider: ServerProvider | undefined): boolean {
@@ -299,43 +329,372 @@ function isRowSelected(
   return row.selectionValue === selectedModel || row.slug === selectedModel;
 }
 
-export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
-  provider: ProviderKind;
-  providerInstanceId?: string | undefined;
-  model: string;
-  lockedProvider: ProviderKind | null;
-  providers?: ReadonlyArray<ServerProvider>;
-  modelOptionsByProvider: Record<ProviderKind, ReadonlyArray<{ slug: string; name: string }>>;
-  modelSelectionByProvider?: Record<string, ModelSelection | undefined>;
-  providerInstancesByProvider?: Partial<
-    Record<ProviderKind, ReadonlyArray<ProviderInstancePickerOption>>
-  >;
-  activeProviderIconClassName?: string;
-  compact?: boolean;
-  disabled?: boolean;
-  triggerVariant?: VariantProps<typeof buttonVariants>["variant"];
-  triggerClassName?: string;
-  triggerSurface?: "composer" | "settings";
-  onProviderModelChange: (
-    provider: ProviderKind,
-    model: string,
-    providerInstanceId?: string,
-  ) => void;
-  /** Icon-only control beside the picker; opens a separate handoff menu. */
-  handoff?: {
-    providers: ReadonlyArray<ProviderKind>;
-    disabled: boolean;
-    onSelect: (provider: ProviderKind, mode: ThreadHandoffMode) => void;
-  };
+function ProviderModelPickerModelRow(props: {
+  readonly favorited: boolean;
+  readonly row: ModelPickerRow;
+  readonly section: "favorite" | "all";
+  readonly selected: boolean;
+  readonly onFavoriteModelToggle: (favoriteKey: string) => void;
+  readonly onModelSelect: (value: string) => void;
 }) {
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [focusedProviderEntryKey, setFocusedProviderEntryKey] = useState<string | null>(null);
-  const [query, setQuery] = useState("");
-  const [prefs, setPrefs] = useLocalStorage(
-    PROVIDER_PICKER_PREFS_STORAGE_KEY,
-    EMPTY_PROVIDER_MODEL_PICKER_PREFS,
-    ProviderModelPickerPrefsSchema,
+  return (
+    <div
+      key={`${props.section}:${props.row.favoriteKey}`}
+      className={cn(
+        "grid grid-cols-[1fr_auto] items-center gap-1 rounded-[var(--chip-radius)]",
+        props.selected ? "bg-accent/90 text-accent-foreground" : "hover:bg-accent/70",
+      )}
+    >
+      <button
+        type="button"
+        role="menuitemradio"
+        aria-checked={props.selected}
+        className="grid min-h-7 min-w-0 grid-cols-[0.875rem_1fr] items-center gap-1.5 rounded-[var(--chip-radius)] px-1.5 py-0.5 text-left text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        onClick={() => props.onModelSelect(props.row.selectionValue)}
+      >
+        <span className="flex size-3.5 items-center justify-center">
+          {props.selected ? <CheckIcon aria-hidden="true" className="size-3" /> : null}
+        </span>
+        <span className="min-w-0">
+          <span className="block truncate">{props.row.label}</span>
+          {props.row.groupLabel ? (
+            <span className="block truncate text-[10px] text-muted-foreground">
+              {props.row.groupLabel}
+            </span>
+          ) : null}
+        </span>
+      </button>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <button
+              type="button"
+              aria-label={`${props.favorited ? "Remove favorite" : "Favorite"} ${props.row.label}`}
+              className={cn(
+                "me-0.5 inline-flex size-6 items-center justify-center rounded-[var(--chip-radius)] text-muted-foreground outline-none transition-colors hover:bg-foreground/[0.05] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring",
+                props.favorited ? "text-warning-foreground" : undefined,
+              )}
+              onClick={(event) => {
+                event.stopPropagation();
+                props.onFavoriteModelToggle(props.row.favoriteKey);
+              }}
+            />
+          }
+        >
+          <StarIcon
+            aria-hidden="true"
+            className={cn("size-3", props.favorited ? "fill-current" : undefined)}
+          />
+        </TooltipTrigger>
+        <TooltipPopup side="left">
+          {props.favorited ? "Remove favorite" : "Favorite model"}
+        </TooltipPopup>
+      </Tooltip>
+    </div>
   );
+}
+
+function ProviderModelPickerMenu(props: {
+  readonly activeProvider: ProviderKind;
+  readonly activeProviderEntryKey: string;
+  readonly activeProviderIconClassName?: string | undefined;
+  readonly compact?: boolean | undefined;
+  readonly disabled?: boolean | undefined;
+  readonly displayedProviderEntries: ReadonlyArray<ProviderPickerEntry>;
+  readonly favoriteModelSet: ReadonlySet<string>;
+  readonly favoriteRows: ReadonlyArray<ModelPickerRow>;
+  readonly isMenuOpen: boolean;
+  readonly modelRows: ReadonlyArray<ModelPickerRow>;
+  readonly pickerProvider: ProviderKind;
+  readonly pickerProviderEntry: ProviderPickerEntry;
+  readonly pickerProviderEntryKey: string;
+  readonly pickerProviderEntryPinned: boolean;
+  readonly pickerProviderInstanceId?: string | undefined;
+  readonly pickerProviderOption: (typeof AVAILABLE_PROVIDER_OPTIONS)[number];
+  readonly pickerRows: ReadonlyArray<ModelPickerRow>;
+  readonly providerInstanceId?: string | undefined;
+  readonly query: string;
+  readonly selectedModel: string;
+  readonly selectedModelLabel: string;
+  readonly selectedProviderInstance?: ProviderInstancePickerOption | undefined;
+  readonly showProviderRail: boolean;
+  readonly triggerClassName?: string | undefined;
+  readonly triggerSurface?: "composer" | "settings" | undefined;
+  readonly triggerVariant?: VariantProps<typeof buttonVariants>["variant"];
+  readonly onFavoriteModelToggle: (favoriteKey: string) => void;
+  readonly onMenuOpenChange: (open: boolean) => void;
+  readonly onModelSelect: (value: string) => void;
+  readonly onProviderEntryFocus: (entry: ProviderPickerEntry) => void;
+  readonly onProviderPinToggle: (providerEntryKey: string) => void;
+  readonly onQueryChange: (query: string) => void;
+}) {
+  const ProviderIcon = PROVIDER_ICON_BY_PROVIDER[props.activeProvider];
+  const PickerProviderIcon = PROVIDER_ICON_BY_PROVIDER[props.pickerProvider];
+
+  const renderModelRow = (row: ModelPickerRow, section: "favorite" | "all") => {
+    const selected =
+      props.activeProvider === props.pickerProvider &&
+      normalizeProviderInstanceId(props.providerInstanceId) ===
+        normalizeProviderInstanceId(props.pickerProviderInstanceId) &&
+      isRowSelected(props.pickerProvider, row, props.selectedModel);
+    const favorited = props.favoriteModelSet.has(row.favoriteKey);
+    return (
+      <ProviderModelPickerModelRow
+        key={`${section}:${row.favoriteKey}`}
+        favorited={favorited}
+        row={row}
+        section={section}
+        selected={selected}
+        onFavoriteModelToggle={props.onFavoriteModelToggle}
+        onModelSelect={props.onModelSelect}
+      />
+    );
+  };
+
+  return (
+    <Menu open={props.isMenuOpen} onOpenChange={props.onMenuOpenChange}>
+      <MenuTrigger
+        render={
+          <Button
+            size="sm"
+            variant={
+              props.triggerSurface === "settings" ? "ghost" : (props.triggerVariant ?? "ghost")
+            }
+            data-chat-provider-model-picker="true"
+            className={cn(
+              props.triggerSurface === "settings"
+                ? cn(
+                    APP_SETTINGS_PICKER_TRIGGER_CLASS_NAME,
+                    "min-w-0 max-w-none shrink-0 justify-start overflow-hidden whitespace-nowrap px-2.5 text-[13px] [&_svg]:mx-0",
+                  )
+                : cn(
+                    APP_COMPOSER_CONTROL_CLASS_NAME,
+                    "min-w-0 justify-start overflow-hidden whitespace-nowrap px-2 [&_svg]:mx-0",
+                    props.compact ? "max-w-42 shrink-0" : "max-w-56 shrink sm:max-w-72 sm:px-2.5",
+                  ),
+              props.triggerClassName,
+            )}
+            disabled={props.disabled}
+          />
+        }
+      >
+        <span
+          className={cn(
+            "flex min-w-0 w-full box-border items-center gap-2 overflow-hidden",
+            props.compact ? "max-w-36 sm:pl-1" : undefined,
+          )}
+        >
+          <span className="relative inline-flex size-4 shrink-0 items-center justify-center">
+            <ProviderIcon
+              aria-hidden="true"
+              className={cn(
+                "size-4 shrink-0",
+                providerIconClassName(props.activeProvider, "text-muted-foreground"),
+                props.activeProviderIconClassName,
+              )}
+            />
+            {props.selectedProviderInstance ? (
+              <ProviderInstanceBadge
+                color={props.selectedProviderInstance.badgeColor}
+                icon={props.selectedProviderInstance.badgeIcon}
+                className="absolute -bottom-1 -right-1 size-3.5 border-[1.5px] p-[2px]"
+              />
+            ) : null}
+          </span>
+          <span className="min-w-0 flex-1 truncate">{props.selectedModelLabel}</span>
+          <ChevronDownIcon aria-hidden="true" className="size-3 shrink-0 opacity-60" />
+        </span>
+      </MenuTrigger>
+      <MenuPopup
+        align="start"
+        className="w-[min(calc(100vw-1rem),22rem)]"
+        listClassName="overflow-hidden"
+        listHeight={MODEL_MENU_MAX_HEIGHT}
+        listMaxHeight={MODEL_MENU_MAX_HEIGHT}
+      >
+        {props.displayedProviderEntries.length === 0 ? (
+          <MenuItem disabled>No providers available.</MenuItem>
+        ) : (
+          <div
+            className={cn(
+              "grid h-full min-h-0 w-full overflow-hidden",
+              props.showProviderRail ? "grid-cols-[2.75rem_minmax(0,1fr)]" : "grid-cols-1",
+            )}
+          >
+            {props.showProviderRail ? (
+              <div className="glass-inset min-h-0 overflow-hidden border-r border-border/40 p-1">
+                <div
+                  className="h-full space-y-0.5 overflow-y-auto overscroll-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                  data-provider-model-picker-provider-rail="true"
+                >
+                  {props.displayedProviderEntries.map((entry) => {
+                    const OptionIcon = PROVIDER_ICON_BY_PROVIDER[entry.provider];
+                    const selected =
+                      props.pickerProviderEntryKey ===
+                      makeProviderEntryKey(entry.provider, entry.instanceId);
+                    return (
+                      <Tooltip key={makeProviderEntryKey(entry.provider, entry.instanceId)}>
+                        <TooltipTrigger
+                          render={
+                            <button
+                              type="button"
+                              aria-label={entry.label}
+                              className={cn(
+                                "relative flex size-8 items-center justify-center rounded-[var(--control-radius)] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+                                selected
+                                  ? "bg-accent text-accent-foreground"
+                                  : "text-muted-foreground hover:bg-accent/70 hover:text-foreground",
+                              )}
+                              onClick={() => props.onProviderEntryFocus(entry)}
+                            />
+                          }
+                        >
+                          <OptionIcon
+                            aria-hidden="true"
+                            className={cn(
+                              "size-4 shrink-0",
+                              providerIconClassName(entry.provider, "text-muted-foreground"),
+                            )}
+                          />
+                          {entry.instanceId ? (
+                            <ProviderInstanceBadge
+                              color={entry.badgeColor}
+                              icon={entry.badgeIcon}
+                              className="absolute bottom-0 right-0 size-3.5 border-[1.5px] p-[2px]"
+                            />
+                          ) : null}
+                        </TooltipTrigger>
+                        <TooltipPopup side="right">{entry.label}</TooltipPopup>
+                      </Tooltip>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
+
+            <div className="flex min-w-0 flex-col overflow-hidden">
+              <div className="border-b border-border/35 px-2.5 py-1.5">
+                <div className="flex min-w-0 items-center gap-1.5">
+                  <PickerProviderIcon
+                    aria-hidden="true"
+                    className={cn(
+                      "size-3.5 shrink-0",
+                      providerIconClassName(props.pickerProvider, "text-muted-foreground"),
+                    )}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-xs font-medium">
+                      {props.pickerProviderOption.label}
+                    </div>
+                    <div className="flex min-w-0 items-center gap-1 text-[10px] text-muted-foreground">
+                      {props.pickerProviderEntry.instanceId ? (
+                        <>
+                          <span className="truncate">{props.pickerProviderEntry.accountLabel}</span>
+                          <span className="shrink-0 text-muted-foreground/50">·</span>
+                        </>
+                      ) : null}
+                      <span className="shrink-0">
+                        {props.pickerRows.length}{" "}
+                        {props.pickerRows.length === 1 ? "model" : "models"}
+                      </span>
+                    </div>
+                  </div>
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <button
+                          type="button"
+                          aria-label={`${props.pickerProviderEntryPinned ? "Unpin" : "Pin"} ${props.pickerProviderEntry.label}`}
+                          className="inline-flex size-6 items-center justify-center rounded-[var(--control-radius)] text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                          onClick={() => props.onProviderPinToggle(props.pickerProviderEntryKey)}
+                        />
+                      }
+                    >
+                      <PinIcon
+                        aria-hidden="true"
+                        className={cn(
+                          "size-3",
+                          props.pickerProviderEntryPinned
+                            ? "fill-current text-foreground"
+                            : undefined,
+                        )}
+                      />
+                    </TooltipTrigger>
+                    <TooltipPopup side="left">
+                      {props.pickerProviderEntryPinned ? "Unpin provider" : "Pin provider"}
+                    </TooltipPopup>
+                  </Tooltip>
+                </div>
+              </div>
+              <div className="border-b border-border/35 px-2.5 py-1.5">
+                <div className="glass-inset flex h-7 items-center gap-1.5 rounded-[var(--control-radius)] border px-2">
+                  <SearchIcon
+                    aria-hidden="true"
+                    className="size-3 shrink-0 text-muted-foreground"
+                  />
+                  <input
+                    type="search"
+                    aria-label="Search models"
+                    value={props.query}
+                    onChange={(event) => props.onQueryChange(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key !== "Escape") {
+                        event.stopPropagation();
+                      }
+                    }}
+                    placeholder="Search models"
+                    className="h-full min-w-0 flex-1 border-0 bg-transparent p-0 text-xs text-foreground outline-none placeholder:text-muted-foreground/60"
+                  />
+                </div>
+              </div>
+              <div
+                className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-1"
+                data-provider-model-picker-model-list="true"
+              >
+                {props.favoriteRows.length > 0 ? (
+                  <>
+                    <div className="px-1.5 pb-0.5 pt-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground/70">
+                      Favorites
+                    </div>
+                    <div className="space-y-0.5">
+                      {props.favoriteRows.map((row) => renderModelRow(row, "favorite"))}
+                    </div>
+                    <div
+                      aria-hidden="true"
+                      className="mx-5 my-1 h-px origin-center scale-y-50 bg-border/35"
+                    />
+                  </>
+                ) : null}
+
+                <div className="px-1.5 pb-0.5 pt-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground/70">
+                  Models
+                </div>
+                {props.modelRows.length === 0 ? (
+                  <div className="px-1.5 py-1 text-xs text-muted-foreground/75">
+                    {props.query.trim().length > 0
+                      ? "No models match your search."
+                      : "No models available."}
+                  </div>
+                ) : (
+                  <div className="space-y-0.5">
+                    {props.modelRows.map((row) => renderModelRow(row, "all"))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+      </MenuPopup>
+    </Menu>
+  );
+}
+
+function deriveProviderModelPickerViewState(input: {
+  readonly focusedProviderEntryKey: string | null;
+  readonly prefs: ProviderModelPickerPrefs;
+  readonly props: ProviderModelPickerProps;
+}) {
+  const props = input.props;
   const activeProvider = props.lockedProvider ?? props.provider;
   const selectedProviderSnapshot = props.providers
     ? getProviderSnapshot(props.providers, activeProvider, props.providerInstanceId)
@@ -346,40 +705,29 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
       : selectedProviderSnapshot
         ? modelOptionsFromServerModels(selectedProviderSnapshot.models)
         : props.modelOptionsByProvider[activeProvider];
-  const cursorModels = useMemo(
-    () =>
-      props.providers
-        ? (getProviderSnapshot(
-            props.providers,
-            "cursor",
-            activeProvider === "cursor" ? props.providerInstanceId : undefined,
-          )?.models ?? [])
-        : [],
-    [activeProvider, props.providerInstanceId, props.providers],
-  );
-  const selectedCursorModel = useMemo(
-    () =>
-      activeProvider === "cursor"
-        ? resolveExactCursorModelSelection({
-            models: cursorModels,
-            model: props.model,
-          })
-        : null,
-    [activeProvider, cursorModels, props.model],
-  );
-  const selectedCursorFamily = useMemo(
-    () =>
-      activeProvider === "cursor" && selectedCursorModel
-        ? resolveCursorSelectorFamily(cursorModels, selectedCursorModel)
-        : null,
-    [activeProvider, cursorModels, selectedCursorModel],
-  );
+  const cursorModels = props.providers
+    ? (getProviderSnapshot(
+        props.providers,
+        "cursor",
+        activeProvider === "cursor" ? props.providerInstanceId : undefined,
+      )?.models ?? [])
+    : [];
+  const selectedCursorModel =
+    activeProvider === "cursor"
+      ? resolveExactCursorModelSelection({
+          models: cursorModels,
+          model: props.model,
+        })
+      : null;
+  const selectedCursorFamily =
+    activeProvider === "cursor" && selectedCursorModel
+      ? resolveCursorSelectorFamily(cursorModels, selectedCursorModel)
+      : null;
   const selectedModelLabel =
     activeProvider === "cursor"
       ? (selectedCursorFamily?.familyName ?? props.model)
       : (selectedProviderOptions.find((option) => option.slug === props.model)?.name ??
         props.model);
-  const ProviderIcon = PROVIDER_ICON_BY_PROVIDER[activeProvider];
   const selectedProviderInstance =
     props.providerInstanceId && props.providerInstanceId !== "default"
       ? props.providerInstancesByProvider?.[activeProvider]?.find(
@@ -387,7 +735,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
         )
       : undefined;
 
-  const selectableProviderOptions = useMemo(() => {
+  const selectableProviderOptions = (() => {
     const providers = props.providers;
     return !providers
       ? AVAILABLE_PROVIDER_OPTIONS
@@ -399,8 +747,8 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
             ) ??
               false),
         );
-  }, [props.providerInstancesByProvider, props.providers]);
-  const selectableProviderEntries = useMemo(() => {
+  })();
+  const selectableProviderEntries = (() => {
     const providers = props.providers;
     return buildProviderEntryRows(
       buildProviderPickerEntries({
@@ -415,15 +763,10 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
         options: selectableProviderOptions,
         providerInstancesByProvider: props.providerInstancesByProvider,
       }),
-      prefs.pinnedProviders,
+      input.prefs.pinnedProviders,
     );
-  }, [
-    prefs.pinnedProviders,
-    props.providerInstancesByProvider,
-    props.providers,
-    selectableProviderOptions,
-  ]);
-  const lockedProviderEntries = useMemo(() => {
+  })();
+  const lockedProviderEntries = (() => {
     if (props.lockedProvider === null) {
       return [];
     }
@@ -448,28 +791,21 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
         options: [option],
         providerInstancesByProvider: props.providerInstancesByProvider,
       }),
-      prefs.pinnedProviders,
+      input.prefs.pinnedProviders,
     );
-  }, [
-    prefs.pinnedProviders,
-    props.lockedProvider,
-    props.provider,
-    props.providerInstanceId,
-    props.providerInstancesByProvider,
-    props.providers,
-  ]);
+  })();
   const displayedProviderEntries =
     props.lockedProvider === null ? selectableProviderEntries : lockedProviderEntries;
-  const showProviderRail = displayedProviderEntries.length > 1;
   const activeProviderEntryKey = makeProviderEntryKey(activeProvider, props.providerInstanceId);
 
-  const pickerProviderEntry = useMemo(() => {
+  const pickerProviderEntry = (() => {
     const scopedEntries =
       props.lockedProvider === null ? selectableProviderEntries : lockedProviderEntries;
-    const focusedEntry = focusedProviderEntryKey
+    const focusedEntry = input.focusedProviderEntryKey
       ? scopedEntries.find(
           (entry) =>
-            makeProviderEntryKey(entry.provider, entry.instanceId) === focusedProviderEntryKey,
+            makeProviderEntryKey(entry.provider, entry.instanceId) ===
+            input.focusedProviderEntryKey,
         )
       : undefined;
     if (focusedEntry) {
@@ -514,24 +850,10 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
           props.provider,
       }
     );
-  }, [
-    activeProviderEntryKey,
-    focusedProviderEntryKey,
-    props.lockedProvider,
-    props.provider,
-    props.providerInstanceId,
-    props.providerInstancesByProvider,
-    lockedProviderEntries,
-    selectableProviderEntries,
-  ]);
+  })();
   const pickerProvider = pickerProviderEntry.provider;
   const pickerProviderInstanceId = pickerProviderEntry.instanceId;
   const pickerProviderEntryKey = makeProviderEntryKey(pickerProvider, pickerProviderInstanceId);
-
-  const pickerProviderOption =
-    AVAILABLE_PROVIDER_OPTIONS.find((option) => option.value === pickerProvider) ??
-    AVAILABLE_PROVIDER_OPTIONS[0]!;
-  const PickerProviderIcon = PROVIDER_ICON_BY_PROVIDER[pickerProvider];
   const pickerProviderSnapshot = props.providers
     ? getProviderSnapshot(props.providers, pickerProvider, pickerProviderInstanceId)
     : undefined;
@@ -542,57 +864,100 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
       : pickerProviderSnapshot
         ? modelOptionsFromServerModels(pickerProviderSnapshot.models)
         : props.modelOptionsByProvider[pickerProvider];
-  const pickerRows = useMemo(
-    () =>
-      pickerProvider === "cursor" && pickerProviderModels.length > 0
-        ? buildCursorModelRows({
-            models: pickerProviderModels,
-            providerInstanceId: pickerProviderInstanceId,
-            selectedModel: props.model,
-          })
-        : buildStandardModelRows(pickerProvider, pickerProviderInstanceId, pickerModelOptions),
-    [
-      pickerModelOptions,
-      pickerProvider,
-      pickerProviderInstanceId,
-      pickerProviderModels,
-      props.model,
-    ],
-  );
-  const normalizedQuery = query.trim().toLowerCase();
-  const visibleRows = useMemo(
-    () =>
-      normalizedQuery.length === 0
-        ? pickerRows
-        : pickerRows.filter((row) => row.searchText.includes(normalizedQuery)),
-    [normalizedQuery, pickerRows],
-  );
-  const favoriteModelSet = useMemo(() => new Set(prefs.favoriteModels), [prefs.favoriteModels]);
-  const favoriteRows = visibleRows.filter((row) => favoriteModelSet.has(row.favoriteKey));
-  const modelRows = visibleRows.filter((row) => !favoriteModelSet.has(row.favoriteKey));
+  const pickerRows =
+    pickerProvider === "cursor" && pickerProviderModels.length > 0
+      ? buildCursorModelRows({
+          models: pickerProviderModels,
+          providerInstanceId: pickerProviderInstanceId,
+          selectedModel: props.model,
+        })
+      : buildStandardModelRows(pickerProvider, pickerProviderInstanceId, pickerModelOptions);
+  const favoriteModelSet = new Set(input.prefs.favoriteModels);
   const pickerProviderEntryPinned = isProviderEntryPinned(
-    prefs.pinnedProviders,
+    input.prefs.pinnedProviders,
     pickerProviderEntry,
   );
+
+  return {
+    activeProvider,
+    activeProviderEntryKey,
+    displayedProviderEntries,
+    favoriteModelSet,
+    pickerModelOptions,
+    pickerProvider,
+    pickerProviderEntry,
+    pickerProviderEntryKey,
+    pickerProviderEntryPinned,
+    pickerProviderInstanceId,
+    pickerProviderOption:
+      AVAILABLE_PROVIDER_OPTIONS.find((option) => option.value === pickerProvider) ??
+      AVAILABLE_PROVIDER_OPTIONS[0]!,
+    pickerRows,
+    selectedModelLabel,
+    selectedProviderInstance,
+    showProviderRail: displayedProviderEntries.length > 1,
+  };
+}
+
+export function ProviderModelPicker(props: ProviderModelPickerProps) {
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [focusedProviderEntryKey, setFocusedProviderEntryKey] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [prefs, setPrefs] = useLocalStorage(
+    PROVIDER_PICKER_PREFS_STORAGE_KEY,
+    EMPTY_PROVIDER_MODEL_PICKER_PREFS,
+    ProviderModelPickerPrefsSchema,
+  );
+  const {
+    activeProvider,
+    activeProviderEntryKey,
+    displayedProviderEntries,
+    favoriteModelSet,
+    pickerModelOptions,
+    pickerProvider,
+    pickerProviderEntry,
+    pickerProviderEntryKey,
+    pickerProviderEntryPinned,
+    pickerProviderInstanceId,
+    pickerProviderOption,
+    pickerRows,
+    selectedModelLabel,
+    selectedProviderInstance,
+    showProviderRail,
+  } = deriveProviderModelPickerViewState({
+    focusedProviderEntryKey,
+    prefs,
+    props,
+  });
+  const normalizedQuery = query.trim().toLowerCase();
+  const visibleRows =
+    normalizedQuery.length === 0
+      ? pickerRows
+      : pickerRows.filter((row) => row.searchText.includes(normalizedQuery));
+  const favoriteRows = visibleRows.filter((row) => favoriteModelSet.has(row.favoriteKey));
+  const modelRows = visibleRows.filter((row) => !favoriteModelSet.has(row.favoriteKey));
 
   const handleModelChange = (
     provider: ProviderKind,
     value: string,
-    options: ReadonlyArray<{ slug: string; name: string }> = provider === pickerProvider
-      ? pickerModelOptions
-      : props.modelOptionsByProvider[provider],
+    options?: ReadonlyArray<{ slug: string; name: string }>,
     closeMenu = true,
-    providerInstanceId = pickerProvider === provider ? pickerProviderInstanceId : undefined,
+    providerInstanceId?: string,
   ) => {
     if (props.disabled) return;
     if (!value) return;
+    const modelOptions =
+      options ??
+      (provider === pickerProvider ? pickerModelOptions : props.modelOptionsByProvider[provider]);
+    const nextProviderInstanceId =
+      providerInstanceId ?? (pickerProvider === provider ? pickerProviderInstanceId : undefined);
     const resolvedModel =
-      provider === "cursor" ? value : resolveSelectableModel(provider, value, options);
+      provider === "cursor" ? value : resolveSelectableModel(provider, value, modelOptions);
     if (!resolvedModel) return;
-    if (providerInstanceId === undefined) {
+    if (nextProviderInstanceId === undefined) {
       props.onProviderModelChange(provider, resolvedModel);
     } else {
-      props.onProviderModelChange(provider, resolvedModel, providerInstanceId);
+      props.onProviderModelChange(provider, resolvedModel, nextProviderInstanceId);
     }
     if (closeMenu) {
       setIsMenuOpen(false);
@@ -617,74 +982,36 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
     }));
   };
 
-  const renderModelRow = (row: ModelPickerRow, section: "favorite" | "all") => {
-    const selected =
-      props.provider === pickerProvider &&
-      normalizeProviderInstanceId(props.providerInstanceId) ===
-        normalizeProviderInstanceId(pickerProviderInstanceId) &&
-      isRowSelected(pickerProvider, row, props.model);
-    const favorited = favoriteModelSet.has(row.favoriteKey);
-    return (
-      <div
-        key={`${section}:${row.favoriteKey}`}
-        className={cn(
-          "grid grid-cols-[1fr_auto] items-center gap-1 rounded-[var(--chip-radius)]",
-          selected ? "bg-accent/90 text-accent-foreground" : "hover:bg-accent/70",
-        )}
-      >
-        <button
-          type="button"
-          role="menuitemradio"
-          aria-checked={selected}
-          className="grid min-h-7 min-w-0 grid-cols-[0.875rem_1fr] items-center gap-1.5 rounded-[var(--chip-radius)] px-1.5 py-0.5 text-left text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          onClick={() => handleModelChange(pickerProvider, row.selectionValue)}
-        >
-          <span className="flex size-3.5 items-center justify-center">
-            {selected ? <CheckIcon aria-hidden="true" className="size-3" /> : null}
-          </span>
-          <span className="min-w-0">
-            <span className="block truncate">{row.label}</span>
-            {row.groupLabel ? (
-              <span className="block truncate text-[10px] text-muted-foreground">
-                {row.groupLabel}
-              </span>
-            ) : null}
-          </span>
-        </button>
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <button
-                type="button"
-                aria-label={`${favorited ? "Remove favorite" : "Favorite"} ${row.label}`}
-                className={cn(
-                  "me-0.5 inline-flex size-6 items-center justify-center rounded-[var(--chip-radius)] text-muted-foreground outline-none transition-colors hover:bg-foreground/[0.05] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring",
-                  favorited ? "text-warning-foreground" : undefined,
-                )}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  toggleFavoriteModel(row.favoriteKey);
-                }}
-              />
-            }
-          >
-            <StarIcon
-              aria-hidden="true"
-              className={cn("size-3", favorited ? "fill-current" : undefined)}
-            />
-          </TooltipTrigger>
-          <TooltipPopup side="left">
-            {favorited ? "Remove favorite" : "Favorite model"}
-          </TooltipPopup>
-        </Tooltip>
-      </div>
-    );
-  };
-
   const modelMenu = (
-    <Menu
-      open={isMenuOpen}
-      onOpenChange={(open) => {
+    <ProviderModelPickerMenu
+      activeProvider={activeProvider}
+      activeProviderEntryKey={activeProviderEntryKey}
+      activeProviderIconClassName={props.activeProviderIconClassName}
+      compact={props.compact}
+      disabled={props.disabled}
+      displayedProviderEntries={displayedProviderEntries}
+      favoriteModelSet={favoriteModelSet}
+      favoriteRows={favoriteRows}
+      isMenuOpen={isMenuOpen}
+      modelRows={modelRows}
+      pickerProvider={pickerProvider}
+      pickerProviderEntry={pickerProviderEntry}
+      pickerProviderEntryKey={pickerProviderEntryKey}
+      pickerProviderEntryPinned={pickerProviderEntryPinned}
+      pickerProviderInstanceId={pickerProviderInstanceId}
+      pickerProviderOption={pickerProviderOption}
+      pickerRows={pickerRows}
+      providerInstanceId={props.providerInstanceId}
+      query={query}
+      selectedModel={props.model}
+      selectedModelLabel={selectedModelLabel}
+      selectedProviderInstance={selectedProviderInstance}
+      showProviderRail={showProviderRail}
+      triggerClassName={props.triggerClassName}
+      triggerSurface={props.triggerSurface}
+      triggerVariant={props.triggerVariant}
+      onFavoriteModelToggle={toggleFavoriteModel}
+      onMenuOpenChange={(open) => {
         if (props.disabled) {
           setIsMenuOpen(false);
           return;
@@ -694,234 +1021,11 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
         }
         setIsMenuOpen(open);
       }}
-    >
-      <MenuTrigger
-        render={
-          <Button
-            size="sm"
-            variant={
-              props.triggerSurface === "settings" ? "ghost" : (props.triggerVariant ?? "ghost")
-            }
-            data-chat-provider-model-picker="true"
-            className={cn(
-              props.triggerSurface === "settings"
-                ? cn(
-                    APP_SETTINGS_PICKER_TRIGGER_CLASS_NAME,
-                    "min-w-0 max-w-none shrink-0 justify-start overflow-hidden whitespace-nowrap px-2.5 text-[13px] [&_svg]:mx-0",
-                  )
-                : cn(
-                    APP_COMPOSER_CONTROL_CLASS_NAME,
-                    "min-w-0 justify-start overflow-hidden whitespace-nowrap px-2 [&_svg]:mx-0",
-                    props.compact ? "max-w-42 shrink-0" : "max-w-56 shrink sm:max-w-72 sm:px-2.5",
-                  ),
-              props.triggerClassName,
-            )}
-            disabled={props.disabled}
-          />
-        }
-      >
-        <span
-          className={cn(
-            "flex min-w-0 w-full box-border items-center gap-2 overflow-hidden",
-            props.compact ? "max-w-36 sm:pl-1" : undefined,
-          )}
-        >
-          <span className="relative inline-flex size-4 shrink-0 items-center justify-center">
-            <ProviderIcon
-              aria-hidden="true"
-              className={cn(
-                "size-4 shrink-0",
-                providerIconClassName(activeProvider, "text-muted-foreground"),
-                props.activeProviderIconClassName,
-              )}
-            />
-            {selectedProviderInstance ? (
-              <ProviderInstanceBadge
-                color={selectedProviderInstance.badgeColor}
-                icon={selectedProviderInstance.badgeIcon}
-                className="absolute -bottom-1 -right-1 size-3.5 border-[1.5px] p-[2px]"
-              />
-            ) : null}
-          </span>
-          <span className="min-w-0 flex-1 truncate">{selectedModelLabel}</span>
-          <ChevronDownIcon aria-hidden="true" className="size-3 shrink-0 opacity-60" />
-        </span>
-      </MenuTrigger>
-      <MenuPopup
-        align="start"
-        className="w-[min(calc(100vw-1rem),22rem)]"
-        listClassName="overflow-hidden"
-        listHeight={MODEL_MENU_MAX_HEIGHT}
-        listMaxHeight={MODEL_MENU_MAX_HEIGHT}
-      >
-        {displayedProviderEntries.length === 0 ? (
-          <MenuItem disabled>No providers available.</MenuItem>
-        ) : (
-          <div
-            className={cn(
-              "grid h-full min-h-0 w-full overflow-hidden",
-              showProviderRail ? "grid-cols-[2.75rem_minmax(0,1fr)]" : "grid-cols-1",
-            )}
-          >
-            {showProviderRail ? (
-              <div className="glass-inset min-h-0 overflow-hidden border-r border-border/40 p-1">
-                <div
-                  className="h-full space-y-0.5 overflow-y-auto overscroll-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-                  data-provider-model-picker-provider-rail="true"
-                >
-                  {displayedProviderEntries.map((entry) => {
-                    const OptionIcon = PROVIDER_ICON_BY_PROVIDER[entry.provider];
-                    const selected =
-                      pickerProviderEntryKey ===
-                      makeProviderEntryKey(entry.provider, entry.instanceId);
-                    return (
-                      <Tooltip key={makeProviderEntryKey(entry.provider, entry.instanceId)}>
-                        <TooltipTrigger
-                          render={
-                            <button
-                              type="button"
-                              aria-label={entry.label}
-                              className={cn(
-                                "relative flex size-8 items-center justify-center rounded-[var(--control-radius)] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
-                                selected
-                                  ? "bg-accent text-accent-foreground"
-                                  : "text-muted-foreground hover:bg-accent/70 hover:text-foreground",
-                              )}
-                              onClick={() => handleProviderEntryFocus(entry)}
-                            />
-                          }
-                        >
-                          <OptionIcon
-                            aria-hidden="true"
-                            className={cn(
-                              "size-4 shrink-0",
-                              providerIconClassName(entry.provider, "text-muted-foreground"),
-                            )}
-                          />
-                          {entry.instanceId ? (
-                            <ProviderInstanceBadge
-                              color={entry.badgeColor}
-                              icon={entry.badgeIcon}
-                              className="absolute bottom-0 right-0 size-3.5 border-[1.5px] p-[2px]"
-                            />
-                          ) : null}
-                        </TooltipTrigger>
-                        <TooltipPopup side="right">{entry.label}</TooltipPopup>
-                      </Tooltip>
-                    );
-                  })}
-                </div>
-              </div>
-            ) : null}
-
-            <div className="flex min-w-0 flex-col overflow-hidden">
-              <div className="border-b border-border/35 px-2.5 py-1.5">
-                <div className="flex min-w-0 items-center gap-1.5">
-                  <PickerProviderIcon
-                    aria-hidden="true"
-                    className={cn(
-                      "size-3.5 shrink-0",
-                      providerIconClassName(pickerProvider, "text-muted-foreground"),
-                    )}
-                  />
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-xs font-medium">{pickerProviderOption.label}</div>
-                    <div className="flex min-w-0 items-center gap-1 text-[10px] text-muted-foreground">
-                      {pickerProviderEntry.instanceId ? (
-                        <>
-                          <span className="truncate">{pickerProviderEntry.accountLabel}</span>
-                          <span className="shrink-0 text-muted-foreground/50">·</span>
-                        </>
-                      ) : null}
-                      <span className="shrink-0">
-                        {pickerRows.length} {pickerRows.length === 1 ? "model" : "models"}
-                      </span>
-                    </div>
-                  </div>
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={
-                        <button
-                          type="button"
-                          aria-label={`${pickerProviderEntryPinned ? "Unpin" : "Pin"} ${pickerProviderEntry.label}`}
-                          className="inline-flex size-6 items-center justify-center rounded-[var(--control-radius)] text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-                          onClick={() => togglePinnedProvider(pickerProviderEntryKey)}
-                        />
-                      }
-                    >
-                      <PinIcon
-                        aria-hidden="true"
-                        className={cn(
-                          "size-3",
-                          pickerProviderEntryPinned ? "fill-current text-foreground" : undefined,
-                        )}
-                      />
-                    </TooltipTrigger>
-                    <TooltipPopup side="left">
-                      {pickerProviderEntryPinned ? "Unpin provider" : "Pin provider"}
-                    </TooltipPopup>
-                  </Tooltip>
-                </div>
-              </div>
-              <div className="border-b border-border/35 px-2.5 py-1.5">
-                <div className="glass-inset flex h-7 items-center gap-1.5 rounded-[var(--control-radius)] border px-2">
-                  <SearchIcon
-                    aria-hidden="true"
-                    className="size-3 shrink-0 text-muted-foreground"
-                  />
-                  <input
-                    type="search"
-                    value={query}
-                    onChange={(event) => setQuery(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key !== "Escape") {
-                        event.stopPropagation();
-                      }
-                    }}
-                    placeholder="Search models"
-                    className="h-full min-w-0 flex-1 border-0 bg-transparent p-0 text-xs text-foreground outline-none placeholder:text-muted-foreground/60"
-                  />
-                </div>
-              </div>
-              <div
-                className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-1"
-                data-provider-model-picker-model-list="true"
-              >
-                {favoriteRows.length > 0 ? (
-                  <>
-                    <div className="px-1.5 pb-0.5 pt-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground/70">
-                      Favorites
-                    </div>
-                    <div className="space-y-0.5">
-                      {favoriteRows.map((row) => renderModelRow(row, "favorite"))}
-                    </div>
-                    <div
-                      aria-hidden="true"
-                      className="mx-5 my-1 h-px origin-center scale-y-50 bg-border/35"
-                    />
-                  </>
-                ) : null}
-
-                <div className="px-1.5 pb-0.5 pt-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground/70">
-                  Models
-                </div>
-                {modelRows.length === 0 ? (
-                  <div className="px-1.5 py-1 text-xs text-muted-foreground/75">
-                    {query.trim().length > 0
-                      ? "No models match your search."
-                      : "No models available."}
-                  </div>
-                ) : (
-                  <div className="space-y-0.5">
-                    {modelRows.map((row) => renderModelRow(row, "all"))}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-      </MenuPopup>
-    </Menu>
+      onModelSelect={(value) => handleModelChange(pickerProvider, value)}
+      onProviderEntryFocus={handleProviderEntryFocus}
+      onProviderPinToggle={togglePinnedProvider}
+      onQueryChange={setQuery}
+    />
   );
 
   if (!props.handoff || props.handoff.disabled || props.handoff.providers.length === 0) {
@@ -944,4 +1048,4 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
       />
     </div>
   );
-});
+}

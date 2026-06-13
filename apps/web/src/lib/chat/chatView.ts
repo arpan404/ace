@@ -356,6 +356,7 @@ export async function waitForStartedServerThread(
 }
 
 export interface LocalDispatchSnapshot {
+  threadId: ThreadId | null;
   startedAt: string;
   preparingWorktree: boolean;
   latestTurnTurnId: TurnId | null;
@@ -373,6 +374,7 @@ export function createLocalDispatchSnapshot(
   const latestTurn = activeThread?.latestTurn ?? null;
   const session = activeThread?.session ?? null;
   return {
+    threadId: activeThread?.id ?? null,
     startedAt: new Date().toISOString(),
     preparingWorktree: Boolean(options?.preparingWorktree),
     latestTurnTurnId: latestTurn?.turnId ?? null,

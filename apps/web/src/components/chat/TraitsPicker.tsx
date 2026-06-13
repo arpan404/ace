@@ -14,14 +14,9 @@ import {
 import {
   applyClaudePromptEffortPrefix,
   buildProviderModelSelection,
-  isClaudeUltrathinkPrompt,
-  trimOrNull,
   getDefaultEffort,
-  getDefaultContextWindow,
-  hasContextWindowOption,
-  resolveEffort,
 } from "@ace/shared/model";
-import { memo, type ReactElement, useCallback, useState } from "react";
+import { type ReactElement, useState } from "react";
 import type { VariantProps } from "class-variance-authority";
 import { ChevronDownIcon, ZapIcon } from "lucide-react";
 import { Button } from "../ui/button";
@@ -36,9 +31,16 @@ import {
   MenuTrigger,
 } from "../ui/menu";
 import { useComposerDraftStore } from "../../composerDraftStore";
-import { getProviderModelCapabilities } from "../../providerModels";
 import { cn } from "~/lib/utils";
 import { APP_SETTINGS_PICKER_TRIGGER_CLASS_NAME } from "~/lib/appChrome";
+import {
+  findPiThoughtConfigOption,
+  getRawEffort,
+  getSelectedTraits,
+  hasVisibleTraits,
+  hasVisibleCursorTraits,
+  type TraitsProviderOptions,
+} from "./traitsPickerVisibility";
 
 function traitsPickerTriggerVariant(
   triggerSurface: "composer" | "settings" | undefined,
@@ -76,7 +78,7 @@ import {
   type CursorSelectorReasoningEffort,
 } from "../../cursorModelSelector";
 
-type ProviderOptions = ProviderModelOptions[ProviderKind];
+type ProviderOptions = TraitsProviderOptions;
 type TraitsPersistence =
   | {
       threadId: ThreadId;
@@ -95,44 +97,6 @@ const CURSOR_REASONING_LABELS: Record<CursorSelectorReasoningEffort, string> = {
   xhigh: "Extra High",
 };
 
-function getRawEffort(
-  provider: ProviderKind,
-  modelOptions: ProviderOptions | null | undefined,
-): string | null {
-  switch (provider) {
-    case "codex":
-    case "githubCopilot":
-    case "cursor":
-      return trimOrNull(
-        (
-          modelOptions as
-            | CodexModelOptions
-            | GitHubCopilotModelOptions
-            | CursorModelOptions
-            | undefined
-        )?.reasoningEffort,
-      );
-    case "claudeAgent":
-      return trimOrNull((modelOptions as ClaudeModelOptions | undefined)?.effort);
-    case "pi":
-      return (
-        trimOrNull((modelOptions as PiModelOptions | undefined)?.thoughtLevel) ??
-        trimOrNull((modelOptions as PiModelOptions | undefined)?.reasoningEffort)
-      );
-    case "gemini":
-    case "opencode":
-      return null;
-  }
-}
-
-function findPiThoughtConfigOption(
-  sessionConfigOptions: ReadonlyArray<ProviderSessionConfigOption> | undefined,
-): ProviderSessionConfigOption | undefined {
-  return (sessionConfigOptions ?? []).find(
-    (option) => option.category === "thought_level" || option.id === "thought_level",
-  );
-}
-
 function buildPiOptionsFromThoughtLevel(
   modelOptions: ProviderOptions | null | undefined,
   value: string,
@@ -146,19 +110,6 @@ function buildPiOptionsFromThoughtLevel(
         }
       : {}),
   };
-}
-
-function getRawContextWindow(
-  provider: ProviderKind,
-  modelOptions: ProviderOptions | null | undefined,
-): string | null {
-  if (provider === "claudeAgent") {
-    return trimOrNull((modelOptions as ClaudeModelOptions | undefined)?.contextWindow);
-  }
-  if (provider === "opencode") {
-    return trimOrNull((modelOptions as OpenCodeModelOptions | undefined)?.variant);
-  }
-  return null;
 }
 
 function buildNextOptions(
@@ -203,98 +154,6 @@ function buildNextOptions(
   }
 }
 
-function getSelectedTraits(
-  provider: ProviderKind,
-  models: ReadonlyArray<ServerProviderModel>,
-  model: string | null | undefined,
-  prompt: string,
-  modelOptions: ProviderOptions | null | undefined,
-  allowPromptInjectedEffort: boolean,
-) {
-  const caps = getProviderModelCapabilities(models, model, provider);
-  const effortLevels = allowPromptInjectedEffort
-    ? caps.reasoningEffortLevels
-    : caps.reasoningEffortLevels.filter(
-        (option) => !caps.promptInjectedEffortLevels.includes(option.value),
-      );
-
-  // Resolve effort from options (provider-specific key)
-  const rawEffort = getRawEffort(provider, modelOptions);
-  const effort = resolveEffort(caps, rawEffort) ?? null;
-
-  // Thinking toggle (only for models that support it)
-  const thinkingEnabled = caps.supportsThinkingToggle
-    ? ((modelOptions as ClaudeModelOptions | undefined)?.thinking ?? true)
-    : null;
-
-  // Fast mode
-  const fastModeEnabled =
-    caps.supportsFastMode &&
-    (modelOptions as { fastMode?: boolean } | undefined)?.fastMode === true;
-
-  // Context window
-  const contextWindowOptions = caps.contextWindowOptions;
-  const rawContextWindow = getRawContextWindow(provider, modelOptions);
-  const defaultContextWindow = getDefaultContextWindow(caps);
-  const contextWindow =
-    rawContextWindow && hasContextWindowOption(caps, rawContextWindow)
-      ? rawContextWindow
-      : defaultContextWindow;
-
-  // Prompt-controlled effort (e.g. ultrathink in prompt text)
-  const ultrathinkPromptControlled =
-    allowPromptInjectedEffort &&
-    caps.promptInjectedEffortLevels.length > 0 &&
-    isClaudeUltrathinkPrompt(prompt);
-
-  // Check if "ultrathink" appears in the body text (not just our prefix)
-  const ultrathinkInBodyText =
-    ultrathinkPromptControlled && isClaudeUltrathinkPrompt(prompt.replace(/^Ultrathink:\s*/i, ""));
-
-  return {
-    caps,
-    effort,
-    effortLevels,
-    thinkingEnabled,
-    fastModeEnabled,
-    contextWindowOptions,
-    contextWindow,
-    defaultContextWindow,
-    ultrathinkPromptControlled,
-    ultrathinkInBodyText,
-  };
-}
-
-function hasVisibleTraits(input: {
-  effortLevels: ReadonlyArray<{ value: string }>;
-  thinkingEnabled: boolean | null;
-  supportsFastMode: boolean;
-  contextWindowOptions: ReadonlyArray<{ value: string }>;
-}): boolean {
-  return (
-    input.effortLevels.length > 0 ||
-    input.thinkingEnabled !== null ||
-    input.supportsFastMode ||
-    input.contextWindowOptions.length > 1
-  );
-}
-
-function hasVisibleCursorTraits(
-  models: ReadonlyArray<ServerProviderModel>,
-  model: string | null | undefined,
-): boolean {
-  const family = resolveCursorSelectorFamily(models, model);
-  if (!family) {
-    return false;
-  }
-  return (
-    family.reasoningEffortOptions.length > 0 ||
-    family.supportsThinkingToggle ||
-    family.supportsFastMode ||
-    family.supportsMaxMode
-  );
-}
-
 function readDefaultCursorTraits(
   family: CursorSelectorFamily,
 ): ReturnType<typeof readCursorSelectedTraits> {
@@ -333,43 +192,7 @@ function buildCursorTriggerLabel(input: {
     .join(" · ");
 }
 
-export function shouldRenderTraitsPicker(input: {
-  provider: ProviderKind;
-  models: ReadonlyArray<ServerProviderModel>;
-  model: string | null | undefined;
-  prompt: string;
-  modelOptions?: ProviderOptions | null | undefined;
-  sessionConfigOptions?: ReadonlyArray<ProviderSessionConfigOption> | undefined;
-  allowPromptInjectedEffort?: boolean;
-}): boolean {
-  if (input.provider === "cursor") {
-    return hasVisibleCursorTraits(input.models, input.model);
-  }
-  if (input.provider === "pi") {
-    const piThoughtOption = findPiThoughtConfigOption(input.sessionConfigOptions);
-    if (piThoughtOption && piThoughtOption.options.length > 0) {
-      return true;
-    }
-  }
-
-  const { caps, effortLevels, thinkingEnabled, contextWindowOptions } = getSelectedTraits(
-    input.provider,
-    input.models,
-    input.model,
-    input.prompt,
-    input.modelOptions,
-    input.allowPromptInjectedEffort ?? true,
-  );
-
-  return hasVisibleTraits({
-    effortLevels,
-    thinkingEnabled,
-    supportsFastMode: caps.supportsFastMode,
-    contextWindowOptions,
-  });
-}
-
-export const CursorTraitsMenuContent = memo(function CursorTraitsMenuContent(props: {
+export function CursorTraitsMenuContent(props: {
   threadId: ThreadId;
   models: ReadonlyArray<ServerProviderModel>;
   model: string | null | undefined;
@@ -379,15 +202,12 @@ export const CursorTraitsMenuContent = memo(function CursorTraitsMenuContent(pro
   const setStickyModelSelection = useComposerDraftStore((store) => store.setStickyModelSelection);
   const family = resolveCursorSelectorFamily(props.models, props.model);
 
-  const applySelection = useCallback(
-    (nextModelSlug: string) => {
-      const modelSelection = buildProviderModelSelection("cursor", nextModelSlug);
-      setModelSelection(props.threadId, modelSelection);
-      setProviderModelOptions(props.threadId, "cursor", undefined, { persistSticky: true });
-      setStickyModelSelection(modelSelection);
-    },
-    [props.threadId, setModelSelection, setProviderModelOptions, setStickyModelSelection],
-  );
+  const applySelection = (nextModelSlug: string) => {
+    const modelSelection = buildProviderModelSelection("cursor", nextModelSlug);
+    setModelSelection(props.threadId, modelSelection);
+    setProviderModelOptions(props.threadId, "cursor", undefined, { persistSticky: true });
+    setStickyModelSelection(modelSelection);
+  };
 
   if (!family) {
     return null;
@@ -494,9 +314,9 @@ export const CursorTraitsMenuContent = memo(function CursorTraitsMenuContent(pro
       ))}
     </>
   );
-});
+}
 
-export const CursorTraitsPicker = memo(function CursorTraitsPicker(props: {
+export function CursorTraitsPicker(props: {
   threadId: ThreadId;
   models: ReadonlyArray<ServerProviderModel>;
   model: string | null | undefined;
@@ -555,7 +375,7 @@ export const CursorTraitsPicker = memo(function CursorTraitsPicker(props: {
       </MenuPopup>
     </Menu>
   );
-});
+}
 
 export interface TraitsMenuContentProps {
   provider: ProviderKind;
@@ -572,7 +392,7 @@ export interface TraitsMenuContentProps {
   sessionConfigOptions?: ReadonlyArray<ProviderSessionConfigOption> | undefined;
 }
 
-export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
+export function TraitsMenuContent({
   provider,
   models,
   model,
@@ -585,19 +405,16 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
 }: TraitsMenuContentProps & TraitsPersistence) {
   const setProviderModelOptions = useComposerDraftStore((store) => store.setProviderModelOptions);
   const baseModelSelection = model ? buildProviderModelSelection(provider, model) : null;
-  const updateModelOptions = useCallback(
-    (nextOptions: ProviderOptions | undefined) => {
-      if ("onModelOptionsChange" in persistence) {
-        persistence.onModelOptionsChange(nextOptions);
-        return;
-      }
-      setProviderModelOptions(persistence.threadId, provider, nextOptions, {
-        persistSticky: true,
-        baseModelSelection,
-      });
-    },
-    [baseModelSelection, persistence, provider, setProviderModelOptions],
-  );
+  const updateModelOptions = (nextOptions: ProviderOptions | undefined) => {
+    if ("onModelOptionsChange" in persistence) {
+      persistence.onModelOptionsChange(nextOptions);
+      return;
+    }
+    setProviderModelOptions(persistence.threadId, provider, nextOptions, {
+      persistSticky: true,
+      baseModelSelection,
+    });
+  };
   const piThoughtOption =
     provider === "pi" ? findPiThoughtConfigOption(sessionConfigOptions) : undefined;
   const {
@@ -614,47 +431,34 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
   } = getSelectedTraits(provider, models, model, prompt, modelOptions, allowPromptInjectedEffort);
   const defaultEffort = getDefaultEffort(caps);
 
-  const handleEffortChange = useCallback(
-    (value: string) => {
-      if (!value) return;
-      const nextOption = effortLevels.find((option) => option.value === value);
-      if (!nextOption) return;
-      if (caps.promptInjectedEffortLevels.includes(nextOption.value)) {
-        const nextPrompt =
-          prompt.trim().length === 0
-            ? ULTRATHINK_PROMPT_PREFIX
-            : applyClaudePromptEffortPrefix(prompt, "ultrathink");
-        onPromptChange(nextPrompt);
-        return;
-      }
-      if (ultrathinkInBodyText) return;
-      if (ultrathinkPromptControlled) {
-        const stripped = prompt.replace(/^Ultrathink:\s*/i, "");
-        onPromptChange(stripped);
-      }
-      if (provider === "pi") {
-        updateModelOptions(buildPiOptionsFromThoughtLevel(modelOptions, nextOption.value));
-        return;
-      }
-      const effortKey = provider === "claudeAgent" ? "effort" : "reasoningEffort";
-      updateModelOptions(
-        buildNextOptions(provider, modelOptions, {
-          [effortKey]: nextOption.value,
-        }),
-      );
-    },
-    [
-      ultrathinkPromptControlled,
-      ultrathinkInBodyText,
-      modelOptions,
-      onPromptChange,
-      updateModelOptions,
-      effortLevels,
-      prompt,
-      caps.promptInjectedEffortLevels,
-      provider,
-    ],
-  );
+  const handleEffortChange = (value: string) => {
+    if (!value) return;
+    const nextOption = effortLevels.find((option) => option.value === value);
+    if (!nextOption) return;
+    if (caps.promptInjectedEffortLevels.includes(nextOption.value)) {
+      const nextPrompt =
+        prompt.trim().length === 0
+          ? ULTRATHINK_PROMPT_PREFIX
+          : applyClaudePromptEffortPrefix(prompt, "ultrathink");
+      onPromptChange(nextPrompt);
+      return;
+    }
+    if (ultrathinkInBodyText) return;
+    if (ultrathinkPromptControlled) {
+      const stripped = prompt.replace(/^Ultrathink:\s*/i, "");
+      onPromptChange(stripped);
+    }
+    if (provider === "pi") {
+      updateModelOptions(buildPiOptionsFromThoughtLevel(modelOptions, nextOption.value));
+      return;
+    }
+    const effortKey = provider === "claudeAgent" ? "effort" : "reasoningEffort";
+    updateModelOptions(
+      buildNextOptions(provider, modelOptions, {
+        [effortKey]: nextOption.value,
+      }),
+    );
+  };
   if (provider === "pi" && piThoughtOption && piThoughtOption.options.length > 0) {
     const selectedThoughtLevel =
       getRawEffort(provider, modelOptions) ?? piThoughtOption.currentValue;
@@ -793,9 +597,9 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
       ))}
     </>
   );
-});
+}
 
-export const TraitsPicker = memo(function TraitsPicker({
+export function TraitsPicker({
   provider,
   models,
   model,
@@ -950,4 +754,4 @@ export const TraitsPicker = memo(function TraitsPicker({
       </MenuPopup>
     </Menu>
   );
-});
+}

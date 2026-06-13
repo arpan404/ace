@@ -95,7 +95,7 @@ const makeTimelineVirtualItem = (index: number) =>
 
 describe("MessagesTimeline", { timeout: 30_000 }, () => {
   it("derives timeline snapshot prefetch direction from scroll speed", async () => {
-    const { deriveTimelineScrollPrefetchRequest } = await import("./MessagesTimeline");
+    const { deriveTimelineScrollPrefetchRequest } = await import("./messagesTimelineUtils");
 
     expect(
       deriveTimelineScrollPrefetchRequest({
@@ -127,7 +127,7 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("derives rendered window state from loaded rows only", async () => {
-    const { deriveTimelineRenderedWindowState } = await import("./MessagesTimeline");
+    const { deriveTimelineRenderedWindowState } = await import("./messagesTimelineUtils");
 
     expect(
       deriveTimelineRenderedWindowState({
@@ -155,7 +155,7 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
 
   it("maps rendered row windows back to global timeline indexes", async () => {
     const { deriveGlobalTimelineRenderedWindowState, deriveTimelineRenderedWindowState } =
-      await import("./MessagesTimeline");
+      await import("./messagesTimelineUtils");
     const rows = [
       {
         id: "entry-5000",
@@ -198,7 +198,7 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("returns null when no loaded rows are rendered", async () => {
-    const { deriveTimelineRenderedWindowState } = await import("./MessagesTimeline");
+    const { deriveTimelineRenderedWindowState } = await import("./messagesTimelineUtils");
 
     expect(
       deriveTimelineRenderedWindowState({
@@ -209,7 +209,7 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("derives a rendered window for underfilled unvirtualized timelines", async () => {
-    const { deriveTimelineRenderedWindowState } = await import("./MessagesTimeline");
+    const { deriveTimelineRenderedWindowState } = await import("./messagesTimelineUtils");
 
     expect(
       deriveTimelineRenderedWindowState({
@@ -599,7 +599,7 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("falls back to a small unvirtualized tail once work is no longer actively running", async () => {
-    const { deriveFirstUnvirtualizedTimelineRowIndex } = await import("./MessagesTimeline");
+    const { deriveFirstUnvirtualizedTimelineRowIndex } = await import("./messagesTimelineUtils");
     const rows = [
       {
         kind: "message" as const,
@@ -639,7 +639,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("schedules deferred assistant markdown from newest to oldest", async () => {
-    const { derivePendingAssistantMarkdownMessageIdsBottomUp } = await import("./MessagesTimeline");
+    const { derivePendingAssistantMarkdownMessageIdsBottomUp } =
+      await import("./messagesTimelineUtils");
     const rows = Array.from({ length: 5 }, (_, index) => ({
       kind: "message" as const,
       id: `assistant-${index + 1}`,
@@ -666,7 +667,7 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("keeps the current turn tail expanded only while work is actively running", async () => {
-    const { deriveFirstUnvirtualizedTimelineRowIndex } = await import("./MessagesTimeline");
+    const { deriveFirstUnvirtualizedTimelineRowIndex } = await import("./messagesTimelineUtils");
     const rows = [
       {
         kind: "message" as const,
@@ -812,7 +813,7 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("renders the virtualized buffer whenever historical rows exist", async () => {
-    const { shouldRenderTimelineVirtualizedBuffer } = await import("./MessagesTimeline");
+    const { shouldRenderTimelineVirtualizedBuffer } = await import("./messagesTimelineUtils");
 
     expect(
       shouldRenderTimelineVirtualizedBuffer({
@@ -827,7 +828,7 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("derives a concrete fallback virtual range when the virtualizer has not mounted items yet", async () => {
-    const { deriveFallbackTimelineVirtualItems } = await import("./MessagesTimeline");
+    const { deriveFallbackTimelineVirtualItems } = await import("./messagesTimelineUtils");
 
     const items = deriveFallbackTimelineVirtualItems({
       rowCount: 100,

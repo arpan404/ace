@@ -79,6 +79,9 @@ export function subscribeToBrowserLaunchRequests(listener: () => void): () => vo
   };
 
   window.addEventListener(BROWSER_LAUNCH_REQUEST_EVENT, handleRequest);
+  if (pendingBrowserLaunchRequest) {
+    window.queueMicrotask(handleRequest);
+  }
   return () => {
     window.removeEventListener(BROWSER_LAUNCH_REQUEST_EVENT, handleRequest);
   };

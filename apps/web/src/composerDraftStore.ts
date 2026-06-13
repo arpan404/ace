@@ -16,7 +16,6 @@ import * as Schema from "effect/Schema";
 import * as Equal from "effect/Equal";
 import { DeepMutable } from "effect/Types";
 import { buildProviderModelSelection, normalizeModelSlug } from "@ace/shared/model";
-import { useMemo } from "react";
 import { getLocalStorageItem } from "./hooks/useLocalStorage";
 import { resolveAppModelSelection } from "./modelSelection";
 import { DEFAULT_INTERACTION_MODE, DEFAULT_RUNTIME_MODE, type ChatImageAttachment } from "./types";
@@ -2380,25 +2379,14 @@ export function useEffectiveComposerModelState(input: {
 }): EffectiveComposerModelState {
   const draft = useComposerThreadDraft(input.threadId);
 
-  return useMemo(
-    () =>
-      deriveEffectiveComposerModelState({
-        draft,
-        providers: input.providers,
-        selectedProvider: input.selectedProvider,
-        threadModelSelection: input.threadModelSelection,
-        projectModelSelection: input.projectModelSelection,
-        settings: input.settings,
-      }),
-    [
-      draft,
-      input.providers,
-      input.settings,
-      input.projectModelSelection,
-      input.selectedProvider,
-      input.threadModelSelection,
-    ],
-  );
+  return deriveEffectiveComposerModelState({
+    draft,
+    providers: input.providers,
+    selectedProvider: input.selectedProvider,
+    threadModelSelection: input.threadModelSelection,
+    projectModelSelection: input.projectModelSelection,
+    settings: input.settings,
+  });
 }
 
 /**

@@ -4,7 +4,7 @@ import {
   type SidebarProjectSortOrder,
   type SidebarThreadSortOrder,
 } from "@ace/contracts";
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 
 import type { Project, SidebarThreadSummary } from "../../types";
 import type {
@@ -92,7 +92,7 @@ export function useSidebarCommandPalette(
   const [searchPaletteKeyboardNavigationId, setSearchPaletteKeyboardNavigationId] = useState(0);
   const searchPaletteInputRef = useRef<HTMLInputElement | null>(null);
 
-  const combinedSidebarSnapshot = useMemo<CombinedSidebarSnapshot>(() => {
+  const combinedSidebarSnapshot: CombinedSidebarSnapshot = (() => {
     const localProjectSnapshots: CombinedSidebarSnapshotProject[] = input.sortedProjects.map(
       (project) => {
         const threads = sortByUpdatedAtDescending(
@@ -216,19 +216,10 @@ export function useSidebarCommandPalette(
       projects,
       threads,
     };
-  }, [
-    input.activeWsUrl,
-    input.projectById,
-    input.projectSortOrder,
-    input.remoteSidebarHosts,
-    input.sortedActiveThreads,
-    input.sortedProjects,
-    input.threadSortOrder,
-    input.visibleProjectThreadsByProjectId,
-  ]);
+  })();
 
   const normalizedSearchPaletteQuery = searchPaletteQuery.trim().toLowerCase();
-  const searchPaletteItems = useMemo<SearchPaletteItem[]>(() => {
+  const searchPaletteItems: SearchPaletteItem[] = (() => {
     const actionItems: SearchPaletteItem[] = [
       {
         id: "action-new-thread",
@@ -306,230 +297,201 @@ export function useSidebarCommandPalette(
       (item) => matchesQuery(item.label) || matchesQuery(item.description),
     );
     return [...matchedActions, ...matchedProjects, ...matchedThreads].slice(0, 40);
-  }, [
-    combinedSidebarSnapshot,
-    input.localDeviceConnectionUrl,
-    normalizedSearchPaletteQuery,
-    searchPaletteMode,
-  ]);
+  })();
 
-  const searchPaletteActionItems = useMemo(
-    () =>
-      searchPaletteItems.filter(
-        (item) =>
-          item.type === "action.new-thread" ||
-          item.type === "action.new-project" ||
-          item.type === "action.open-settings" ||
-          item.type === "action.open-terminals",
-      ),
-    [searchPaletteItems],
+  const searchPaletteActionItems = searchPaletteItems.filter(
+    (item) =>
+      item.type === "action.new-thread" ||
+      item.type === "action.new-project" ||
+      item.type === "action.open-settings" ||
+      item.type === "action.open-terminals",
   );
-  const searchPaletteProjectItems = useMemo(
-    () => searchPaletteItems.filter((item) => item.type === "project"),
-    [searchPaletteItems],
+  const searchPaletteProjectItems = searchPaletteItems.filter((item) => item.type === "project");
+  const searchPaletteThreadItems = searchPaletteItems.filter((item) => item.type === "thread");
+  const searchPaletteIndexById = new Map(
+    searchPaletteItems.map((item, index) => [item.id, index] as const),
   );
-  const searchPaletteThreadItems = useMemo(
-    () => searchPaletteItems.filter((item) => item.type === "thread"),
-    [searchPaletteItems],
-  );
-  const searchPaletteIndexById = useMemo(
-    () => new Map(searchPaletteItems.map((item, index) => [item.id, index] as const)),
-    [searchPaletteItems],
-  );
+  const effectiveSearchPaletteActiveIndex = !searchPaletteOpen
+    ? -1
+    : searchPaletteItems.length === 0
+      ? -1
+      : searchPaletteActiveIndex < 0
+        ? 0
+        : Math.min(searchPaletteActiveIndex, searchPaletteItems.length - 1);
 
-  const openSearchPalette = useCallback(() => {
+  const openSearchPalette = () => {
     setSearchPaletteMode("root");
     setSearchPaletteQuery("");
     setSearchPaletteActiveIndex(-1);
     setSearchPaletteOpen(true);
-  }, []);
+  };
 
-  const closeSearchPalette = useCallback(() => {
+  const closeSearchPalette = () => {
     setSearchPaletteOpen(false);
     setSearchPaletteMode("root");
     setSearchPaletteQuery("");
     setSearchPaletteActiveIndex(-1);
-  }, []);
+  };
 
-  const handleSearchPaletteBack = useCallback(() => {
+  const handleSearchPaletteBack = () => {
     setSearchPaletteMode("root");
     setSearchPaletteQuery("");
     setSearchPaletteActiveIndex(0);
-  }, []);
+  };
 
-  const handleSearchPaletteQueryChange = useCallback((value: string) => {
+  const handleSearchPaletteQueryChange = (value: string) => {
     setSearchPaletteQuery(value);
     setSearchPaletteActiveIndex(0);
-  }, []);
-  const handleSearchPaletteItemHover = useCallback(
-    (itemId: string) => {
-      const index = searchPaletteIndexById.get(itemId);
-      if (index !== undefined) {
-        setSearchPaletteActiveIndex(index);
-      }
-    },
-    [searchPaletteIndexById],
-  );
+  };
+  const handleSearchPaletteItemHover = (itemId: string) => {
+    const index = searchPaletteIndexById.get(itemId);
+    if (index !== undefined) {
+      setSearchPaletteActiveIndex(index);
+    }
+  };
 
-  const handleSearchPaletteSelect = useCallback(
-    (item: SearchPaletteItem) => {
-      if (item.type === "action.new-thread") {
-        setSearchPaletteMode("new-thread-project");
-        setSearchPaletteQuery("");
-        setSearchPaletteActiveIndex(0);
-        return;
-      }
-      if (item.type === "action.new-project") {
-        closeSearchPalette();
-        input.onStartAddProject();
-        return;
-      }
-      if (item.type === "action.open-settings") {
-        closeSearchPalette();
-        input.onNavigateSettings();
-        return;
-      }
-      if (item.type === "action.open-terminals") {
-        closeSearchPalette();
-        input.onNavigateTerminals();
-        return;
-      }
-      if (item.type === "project") {
-        const isRemoteProject =
-          item.connectionUrl !== undefined && item.connectionUrl !== input.activeWsUrl;
-        closeSearchPalette();
-        if (searchPaletteMode === "new-thread-project") {
-          if (isRemoteProject && item.connectionUrl) {
-            const remoteProject = input.remoteSidebarHosts
-              .find((entry) => entry.connectionUrl === item.connectionUrl)
-              ?.projects.find((project) => project.id === item.projectId);
-            if (!remoteProject) {
-              return;
-            }
-            input.onStartNewThreadForRemoteProject({
-              connectionUrl: item.connectionUrl,
-              project: remoteProject,
-            });
-            return;
-          }
-          input.onStartNewThreadForProject(item.projectId);
-          return;
-        }
+  const handleSearchPaletteSelect = (item: SearchPaletteItem) => {
+    if (item.type === "action.new-thread") {
+      setSearchPaletteMode("new-thread-project");
+      setSearchPaletteQuery("");
+      setSearchPaletteActiveIndex(0);
+      return;
+    }
+    if (item.type === "action.new-project") {
+      closeSearchPalette();
+      input.onStartAddProject();
+      return;
+    }
+    if (item.type === "action.open-settings") {
+      closeSearchPalette();
+      input.onNavigateSettings();
+      return;
+    }
+    if (item.type === "action.open-terminals") {
+      closeSearchPalette();
+      input.onNavigateTerminals();
+      return;
+    }
+    if (item.type === "project") {
+      const isRemoteProject =
+        item.connectionUrl !== undefined && item.connectionUrl !== input.activeWsUrl;
+      closeSearchPalette();
+      if (searchPaletteMode === "new-thread-project") {
         if (isRemoteProject && item.connectionUrl) {
           const remoteProject = input.remoteSidebarHosts
             .find((entry) => entry.connectionUrl === item.connectionUrl)
             ?.projects.find((project) => project.id === item.projectId);
-          const latestThread = remoteProject?.threads[0];
-          if (latestThread) {
-            input.onNavigateToThreadOnConnection(
-              item.connectionUrl,
-              ThreadId.makeUnsafe(latestThread.id),
-            );
+          if (!remoteProject) {
             return;
           }
-          if (remoteProject) {
-            input.onStartNewThreadForRemoteProject({
-              connectionUrl: item.connectionUrl,
-              project: remoteProject,
-            });
-          }
+          input.onStartNewThreadForRemoteProject({
+            connectionUrl: item.connectionUrl,
+            project: remoteProject,
+          });
           return;
         }
-        const projectSnapshot = combinedSidebarSnapshot.projects.find(
-          (project) =>
-            project.id === item.projectId &&
-            project.connectionUrl === input.localDeviceConnectionUrl,
-        );
-        if (!projectSnapshot || projectSnapshot.threads.length === 0) {
-          input.onStartNewThreadForProject(item.projectId);
-          return;
-        }
-        input.onFocusMostRecentThreadForProject(item.projectId);
+        input.onStartNewThreadForProject(item.projectId);
         return;
       }
+      if (isRemoteProject && item.connectionUrl) {
+        const remoteProject = input.remoteSidebarHosts
+          .find((entry) => entry.connectionUrl === item.connectionUrl)
+          ?.projects.find((project) => project.id === item.projectId);
+        const latestThread = remoteProject?.threads[0];
+        if (latestThread) {
+          input.onNavigateToThreadOnConnection(
+            item.connectionUrl,
+            ThreadId.makeUnsafe(latestThread.id),
+          );
+          return;
+        }
+        if (remoteProject) {
+          input.onStartNewThreadForRemoteProject({
+            connectionUrl: item.connectionUrl,
+            project: remoteProject,
+          });
+        }
+        return;
+      }
+      const projectSnapshot = combinedSidebarSnapshot.projects.find(
+        (project) =>
+          project.id === item.projectId && project.connectionUrl === input.localDeviceConnectionUrl,
+      );
+      if (!projectSnapshot || projectSnapshot.threads.length === 0) {
+        input.onStartNewThreadForProject(item.projectId);
+        return;
+      }
+      input.onFocusMostRecentThreadForProject(item.projectId);
+      return;
+    }
+    closeSearchPalette();
+    if (item.connectionUrl && item.connectionUrl !== input.activeWsUrl) {
+      input.onNavigateToThreadOnConnection(item.connectionUrl, item.threadId);
+      return;
+    }
+    input.onNavigateToThread(item.threadId);
+  };
+
+  const handleSearchPaletteInputKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setSearchPaletteActiveIndex((currentIndex) => {
+        if (searchPaletteItems.length === 0) {
+          return -1;
+        }
+        return Math.min(currentIndex + 1, searchPaletteItems.length - 1);
+      });
+      if (searchPaletteItems.length > 0) {
+        setSearchPaletteKeyboardNavigationId((current) => current + 1);
+      }
+      return;
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setSearchPaletteActiveIndex((currentIndex) => {
+        if (searchPaletteItems.length === 0) {
+          return -1;
+        }
+        return currentIndex <= 0 ? 0 : currentIndex - 1;
+      });
+      if (searchPaletteItems.length > 0) {
+        setSearchPaletteKeyboardNavigationId((current) => current + 1);
+      }
+      return;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      const selectedItem =
+        effectiveSearchPaletteActiveIndex >= 0
+          ? searchPaletteItems[effectiveSearchPaletteActiveIndex]
+          : searchPaletteItems[0];
+      if (selectedItem) {
+        handleSearchPaletteSelect(selectedItem);
+      }
+      return;
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
       closeSearchPalette();
-      if (item.connectionUrl && item.connectionUrl !== input.activeWsUrl) {
-        input.onNavigateToThreadOnConnection(item.connectionUrl, item.threadId);
-        return;
-      }
-      input.onNavigateToThread(item.threadId);
-    },
-    [closeSearchPalette, combinedSidebarSnapshot.projects, input, searchPaletteMode],
-  );
+      return;
+    }
+    if (
+      event.key === "Backspace" &&
+      searchPaletteMode === "new-thread-project" &&
+      searchPaletteQuery.trim().length === 0
+    ) {
+      event.preventDefault();
+      setSearchPaletteMode("root");
+    }
+  };
 
-  const handleSearchPaletteInputKeyDown = useCallback(
-    (event: KeyboardEvent<HTMLInputElement>) => {
-      if (event.key === "ArrowDown") {
-        event.preventDefault();
-        setSearchPaletteActiveIndex((currentIndex) => {
-          if (searchPaletteItems.length === 0) {
-            return -1;
-          }
-          return Math.min(currentIndex + 1, searchPaletteItems.length - 1);
-        });
-        if (searchPaletteItems.length > 0) {
-          setSearchPaletteKeyboardNavigationId((current) => current + 1);
-        }
-        return;
-      }
-      if (event.key === "ArrowUp") {
-        event.preventDefault();
-        setSearchPaletteActiveIndex((currentIndex) => {
-          if (searchPaletteItems.length === 0) {
-            return -1;
-          }
-          return currentIndex <= 0 ? 0 : currentIndex - 1;
-        });
-        if (searchPaletteItems.length > 0) {
-          setSearchPaletteKeyboardNavigationId((current) => current + 1);
-        }
-        return;
-      }
-      if (event.key === "Enter") {
-        event.preventDefault();
-        const selectedItem =
-          searchPaletteActiveIndex >= 0
-            ? searchPaletteItems[searchPaletteActiveIndex]
-            : searchPaletteItems[0];
-        if (selectedItem) {
-          handleSearchPaletteSelect(selectedItem);
-        }
-        return;
-      }
-      if (event.key === "Escape") {
-        event.preventDefault();
-        closeSearchPalette();
-        return;
-      }
-      if (
-        event.key === "Backspace" &&
-        searchPaletteMode === "new-thread-project" &&
-        searchPaletteQuery.trim().length === 0
-      ) {
-        event.preventDefault();
-        setSearchPaletteMode("root");
-      }
-    },
-    [
-      closeSearchPalette,
-      handleSearchPaletteSelect,
-      searchPaletteActiveIndex,
-      searchPaletteItems,
-      searchPaletteMode,
-      searchPaletteQuery,
-    ],
-  );
-
-  const handleSearchPaletteOpenChange = useCallback(
-    (open: boolean) => {
-      if (!open) {
-        closeSearchPalette();
-        return;
-      }
-      openSearchPalette();
-    },
-    [closeSearchPalette, openSearchPalette],
-  );
+  const handleSearchPaletteOpenChange = (open: boolean) => {
+    if (!open) {
+      closeSearchPalette();
+      return;
+    }
+    openSearchPalette();
+  };
 
   useEffect(() => {
     if (!searchPaletteOpen) {
@@ -538,27 +500,11 @@ export function useSidebarCommandPalette(
     searchPaletteInputRef.current?.focus();
   }, [searchPaletteOpen]);
 
-  useEffect(() => {
-    if (!searchPaletteOpen) {
-      setSearchPaletteActiveIndex(-1);
-      return;
-    }
-    setSearchPaletteActiveIndex((currentIndex) => {
-      if (searchPaletteItems.length === 0) {
-        return -1;
-      }
-      if (currentIndex < 0) {
-        return 0;
-      }
-      return Math.min(currentIndex, searchPaletteItems.length - 1);
-    });
-  }, [searchPaletteItems, searchPaletteOpen]);
-
   return {
     searchPaletteOpen,
     searchPaletteMode,
     searchPaletteQuery,
-    searchPaletteActiveIndex,
+    searchPaletteActiveIndex: effectiveSearchPaletteActiveIndex,
     searchPaletteKeyboardNavigationId,
     searchPaletteInputRef,
     normalizedSearchPaletteQuery,

@@ -10,7 +10,7 @@ import {
   normalizeModelSlug,
   resolveSelectableModel,
 } from "@ace/shared/model";
-import { getComposerProviderState } from "./components/chat/composerProviderRegistry";
+import { getComposerProviderState } from "./components/chat/composerProviderState";
 import { UnifiedSettings } from "@ace/contracts/settings";
 import {
   getDefaultServerModel,

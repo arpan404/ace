@@ -1,6 +1,6 @@
 import { ThreadId } from "@ace/contracts";
 import { createFileRoute, retainSearchParams, useNavigate } from "@tanstack/react-router";
-import { useCallback, useEffect, useRef } from "react";
+import { useEffect, useReducer, useRef } from "react";
 
 import { ThreadBoard } from "../components/chat/ThreadBoard";
 import { useComposerDraftStore } from "../composerDraftStore";
@@ -21,6 +21,10 @@ import { normalizeWsUrl } from "../lib/remoteHosts";
 import { THREAD_ROUTE_CONNECTION_SEARCH_PARAM } from "../lib/connectionRouting";
 import { useHostConnectionStore } from "../hostConnectionStore";
 import { resolveThreadLineageSourceThreadId } from "../lib/chat/handoff";
+
+function preloadDiffPanel() {
+  return import("../components/DiffPanel");
+}
 
 export interface ChatThreadRouteSearch extends DiffRouteSearch {
   readonly connection?: string;
@@ -61,9 +65,13 @@ function ChatThreadRouteView() {
   const routeThreadExists = threadExists || draftThreadExists;
   const threadHydrationInFlightRef = useRef<ThreadId | null>(null);
   const threadHydrationRequestIdRef = useRef(0);
+  const [threadHydrationRetryNonce, bumpThreadHydrationRetryNonce] = useReducer(
+    (value: number) => value + 1,
+    0,
+  );
   useEffect(() => {
     const preloadTimer = window.setTimeout(() => {
-      void import("../components/DiffPanel");
+      void preloadDiffPanel();
     }, 350);
     return () => {
       window.clearTimeout(preloadTimer);
@@ -93,7 +101,7 @@ function ChatThreadRouteView() {
     }
   }, [bootstrapComplete, navigate, routeThreadExists, threadId]);
 
-  const runThreadHydration = useCallback(() => {
+  useEffect(() => {
     if (
       !bootstrapComplete ||
       !serverThread ||
@@ -151,17 +159,16 @@ function ChatThreadRouteView() {
         }
       } catch {
         // Full timeline snapshots are opportunistic here; active view recovery can retry on reconnect.
-      } finally {
-        if (fallbackTimer !== null) {
-          window.clearTimeout(fallbackTimer);
-          fallbackTimer = null;
-        }
-        if (
-          requestId === threadHydrationRequestIdRef.current &&
-          threadHydrationInFlightRef.current === threadId
-        ) {
-          threadHydrationInFlightRef.current = null;
-        }
+      }
+      if (fallbackTimer !== null) {
+        window.clearTimeout(fallbackTimer);
+        fallbackTimer = null;
+      }
+      if (
+        requestId === threadHydrationRequestIdRef.current &&
+        threadHydrationInFlightRef.current === threadId
+      ) {
+        threadHydrationInFlightRef.current = null;
       }
     })();
 
@@ -180,11 +187,7 @@ function ChatThreadRouteView() {
         threadHydrationInFlightRef.current = null;
       }
     };
-  }, [bootstrapComplete, routeConnectionUrl, serverThread, threadId]);
-
-  useEffect(() => {
-    return runThreadHydration();
-  }, [runThreadHydration]);
+  }, [bootstrapComplete, routeConnectionUrl, serverThread, threadHydrationRetryNonce, threadId]);
 
   useEffect(
     () =>
@@ -192,9 +195,9 @@ function ChatThreadRouteView() {
         if (state.kind !== "reconnected") {
           return;
         }
-        runThreadHydration();
+        bumpThreadHydrationRetryNonce();
       }),
-    [runThreadHydration],
+    [],
   );
 
   const lineageSourceThreadId = serverThread

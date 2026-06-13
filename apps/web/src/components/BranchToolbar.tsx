@@ -9,7 +9,7 @@ import {
   LaptopIcon,
   MonitorIcon,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { runAsyncTask } from "../lib/async";
 import { cn, newCommandId } from "../lib/utils";
@@ -84,9 +84,18 @@ function loadConnectedRemoteEnvironments(): ConnectedRemoteEnvironment[] {
   const localConnectionUrl = normalizeWsUrl(resolveLocalDeviceWsUrl());
   const connectedHostIds = new Set(loadConnectedRemoteHostIds());
   return loadRemoteHostInstances()
-    .filter((host) => connectedHostIds.has(host.id))
-    .map((host) => ({ host, connectionUrl: resolveHostConnectionWsUrl(host) }))
-    .filter((environment) => normalizeWsUrl(environment.connectionUrl) !== localConnectionUrl)
+    .flatMap((host) => {
+      if (!connectedHostIds.has(host.id)) {
+        return [];
+      }
+
+      const connectionUrl = resolveHostConnectionWsUrl(host);
+      if (normalizeWsUrl(connectionUrl) === localConnectionUrl) {
+        return [];
+      }
+
+      return [{ host, connectionUrl }];
+    })
     .toSorted((left, right) => left.host.name.localeCompare(right.host.name));
 }
 
@@ -287,76 +296,59 @@ export default function BranchToolbar({
   const canCreateNewWorktree =
     !activeWorktreePath && (!serverThread || serverThread.messages.length === 0);
   const connectedRemoteEnvironments = useConnectedRemoteEnvironments();
-  const normalizedConnectionUrl = useMemo(() => {
-    if (!connectionUrl) {
-      return null;
-    }
-    const localConnectionUrl = normalizeWsUrl(resolveLocalDeviceWsUrl());
-    const nextConnectionUrl = normalizeWsUrl(connectionUrl);
-    return nextConnectionUrl === localConnectionUrl ? null : nextConnectionUrl;
-  }, [connectionUrl]);
+  const localConnectionUrl = normalizeWsUrl(resolveLocalDeviceWsUrl());
+  const nextConnectionUrl = connectionUrl ? normalizeWsUrl(connectionUrl) : null;
+  const normalizedConnectionUrl =
+    nextConnectionUrl === null || nextConnectionUrl === localConnectionUrl
+      ? null
+      : nextConnectionUrl;
 
-  const setThreadBranch = useCallback(
-    (branch: string | null, worktreePath: string | null) => {
-      if (!activeThreadId) return;
-      const api = readNativeApi();
-      // If the effective cwd is about to change, stop the running session so the
-      // next message creates a new one with the correct cwd.
-      if (serverThread?.session && worktreePath !== activeWorktreePath && api) {
-        runAsyncTask(
-          api.orchestration.dispatchCommand({
-            type: "thread.session.stop",
-            commandId: newCommandId(),
-            threadId: activeThreadId,
-            createdAt: new Date().toISOString(),
-          }),
-          "Failed to stop the previous session after switching thread environment mode.",
-        );
-      }
-      if (api && hasServerThread) {
-        void api.orchestration.dispatchCommand({
-          type: "thread.meta.update",
+  const setThreadBranch = (branch: string | null, worktreePath: string | null) => {
+    if (!activeThreadId) return;
+    const api = readNativeApi();
+    // If the effective cwd is about to change, stop the running session so the
+    // next message creates a new one with the correct cwd.
+    if (serverThread?.session && worktreePath !== activeWorktreePath && api) {
+      runAsyncTask(
+        api.orchestration.dispatchCommand({
+          type: "thread.session.stop",
           commandId: newCommandId(),
           threadId: activeThreadId,
-          branch,
-          worktreePath,
-        });
-      }
-      if (hasServerThread) {
-        setThreadBranchAction(activeThreadId, branch, worktreePath);
-        return;
-      }
-      const nextDraftEnvMode = resolveDraftEnvModeAfterBranchChange({
-        nextWorktreePath: worktreePath,
-        currentWorktreePath: activeWorktreePath,
-        effectiveEnvMode,
-      });
-      setDraftThreadContext(threadId, {
+          createdAt: new Date().toISOString(),
+        }),
+        "Failed to stop the previous session after switching thread environment mode.",
+      );
+    }
+    if (api && hasServerThread) {
+      void api.orchestration.dispatchCommand({
+        type: "thread.meta.update",
+        commandId: newCommandId(),
+        threadId: activeThreadId,
         branch,
         worktreePath,
-        envMode: nextDraftEnvMode,
       });
-    },
-    [
-      activeThreadId,
-      serverThread?.session,
-      activeWorktreePath,
-      hasServerThread,
-      setThreadBranchAction,
-      setDraftThreadContext,
-      threadId,
+    }
+    if (hasServerThread) {
+      setThreadBranchAction(activeThreadId, branch, worktreePath);
+      return;
+    }
+    const nextDraftEnvMode = resolveDraftEnvModeAfterBranchChange({
+      nextWorktreePath: worktreePath,
+      currentWorktreePath: activeWorktreePath,
       effectiveEnvMode,
-    ],
-  );
-  const handleEnvModeSelect = useCallback(
-    (mode: EnvMode) => {
-      if (mode === "worktree" && !activeWorktreePath && !activeThreadBranch && currentBranchName) {
-        setThreadBranch(currentBranchName, null);
-      }
-      onEnvModeChange(mode);
-    },
-    [activeThreadBranch, activeWorktreePath, currentBranchName, onEnvModeChange, setThreadBranch],
-  );
+    });
+    setDraftThreadContext(threadId, {
+      branch,
+      worktreePath,
+      envMode: nextDraftEnvMode,
+    });
+  };
+  const handleEnvModeSelect = (mode: EnvMode) => {
+    if (mode === "worktree" && !activeWorktreePath && !activeThreadBranch && currentBranchName) {
+      setThreadBranch(currentBranchName, null);
+    }
+    onEnvModeChange(mode);
+  };
 
   if (!activeThreadId || !activeProject) return null;
   const isEnvironmentPresentation = presentation === "environment";

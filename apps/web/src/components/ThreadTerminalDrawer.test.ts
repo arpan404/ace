@@ -7,7 +7,7 @@ import {
   shouldHandleTerminalSelectionMouseUp,
   terminalFitSignature,
   terminalSelectionActionDelayForClickCount,
-} from "./ThreadTerminalDrawer";
+} from "./threadTerminalDrawerLogic";
 
 describe("resolveTerminalTabDropTarget", () => {
   it("resolves the group and insertion index for tab sorting", () => {

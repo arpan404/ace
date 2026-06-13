@@ -146,32 +146,6 @@ function normalizeRecommendedPrompts(
   return normalized.length === MAX_RECOMMENDED_PROMPTS ? normalized : EMPTY_RECOMMENDED_PROMPTS;
 }
 
-function recommendedPromptsEqual(
-  left: ReadonlyArray<NewThreadRecommendedPrompt>,
-  right: ReadonlyArray<NewThreadRecommendedPrompt>,
-): boolean {
-  if (left === right) {
-    return true;
-  }
-  if (left.length !== right.length) {
-    return false;
-  }
-  for (let index = 0; index < left.length; index += 1) {
-    const leftPrompt = left[index];
-    const rightPrompt = right[index];
-    if (
-      !leftPrompt ||
-      !rightPrompt ||
-      leftPrompt.title !== rightPrompt.title ||
-      leftPrompt.description !== rightPrompt.description ||
-      leftPrompt.prompt !== rightPrompt.prompt
-    ) {
-      return false;
-    }
-  }
-  return true;
-}
-
 function hashString(value: string): string {
   let hash = 5381;
   for (let index = 0; index < value.length; index += 1) {
@@ -344,8 +318,14 @@ export function useNewThreadRecommendedPrompts(
   }, [activeProjectCwd, stableContextTurns, stableModelSelection]);
   const requestKey = activeProjectId && fingerprint ? `${activeProjectId}:${fingerprint}` : null;
   const lastCompletedRequestKeyRef = useRef<string | null>(null);
-  const [recommendations, setRecommendations] =
-    useState<ReadonlyArray<NewThreadRecommendedPrompt>>(EMPTY_RECOMMENDED_PROMPTS);
+  const [generatedRecommendations, setGeneratedRecommendations] = useState<{
+    readonly requestKey: string;
+    readonly recommendations: ReadonlyArray<NewThreadRecommendedPrompt>;
+  } | null>(null);
+  const recommendations =
+    generatedRecommendations?.requestKey === requestKey
+      ? generatedRecommendations.recommendations
+      : EMPTY_RECOMMENDED_PROMPTS;
 
   useEffect(() => {
     if (
@@ -356,9 +336,6 @@ export function useNewThreadRecommendedPrompts(
       !requestKey
     ) {
       lastCompletedRequestKeyRef.current = null;
-      setRecommendations((existingRecommendations) =>
-        existingRecommendations.length === 0 ? existingRecommendations : EMPTY_RECOMMENDED_PROMPTS,
-      );
       return;
     }
 
@@ -387,11 +364,7 @@ export function useNewThreadRecommendedPrompts(
         }
         const normalizedRecommendations = normalizeRecommendedPrompts(generatedRecommendations);
         lastCompletedRequestKeyRef.current = requestKey;
-        setRecommendations((existingRecommendations) =>
-          recommendedPromptsEqual(existingRecommendations, normalizedRecommendations)
-            ? existingRecommendations
-            : normalizedRecommendations,
-        );
+        setGeneratedRecommendations({ requestKey, recommendations: normalizedRecommendations });
       })
       .catch(() => {
         recommendationFailureCooldownByFingerprint.set(

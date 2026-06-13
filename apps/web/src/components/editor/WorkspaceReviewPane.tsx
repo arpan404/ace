@@ -7,7 +7,7 @@ import {
   TextWrapIcon,
   XIcon,
 } from "lucide-react";
-import { memo, useMemo, useState } from "react";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { APP_EDITOR_CHROME_HEADER_CLASS_NAME } from "~/lib/appChrome";
@@ -40,7 +40,12 @@ function WorkspaceReviewPane(props: WorkspaceReviewPaneProps) {
   const diffWordWrapSetting = useSetting("diffWordWrap");
   const [diffRenderMode, setDiffRenderMode] = useState<WorkspaceReviewDiffRenderMode>("stacked");
   const [diffWordWrap, setDiffWordWrap] = useState(diffWordWrapSetting);
-  const diffQuery = useQuery(
+  const {
+    data: diffData,
+    fetchStatus: diffFetchStatus,
+    isError: isDiffError,
+    isPending: isDiffPending,
+  } = useQuery(
     gitWorkingTreeDiffQueryOptions({
       connectionUrl: props.connectionUrl ?? null,
       cwd: props.cwd,
@@ -48,22 +53,15 @@ function WorkspaceReviewPane(props: WorkspaceReviewPaneProps) {
       relativePath: props.filePath,
     }),
   );
-  const renderablePatch = useMemo(
-    () => getRenderablePatch(diffQuery.data?.diff, `workspace-review:${props.filePath}`),
-    [diffQuery.data?.diff, props.filePath],
-  );
-  const fileDiff = useMemo(() => {
-    if (renderablePatch?.kind !== "files") {
-      return null;
-    }
-    return (
-      renderablePatch.files.find(
-        (candidate) => resolveFileDiffPath(candidate) === props.filePath,
-      ) ??
-      renderablePatch.files[0] ??
-      null
-    );
-  }, [props.filePath, renderablePatch]);
+  const renderablePatch = getRenderablePatch(diffData?.diff, `workspace-review:${props.filePath}`);
+  const fileDiff =
+    renderablePatch?.kind === "files"
+      ? (renderablePatch.files.find(
+          (candidate) => resolveFileDiffPath(candidate) === props.filePath,
+        ) ??
+        renderablePatch.files[0] ??
+        null)
+      : null;
   const stat = fileDiff ? summarizeFileDiff(fileDiff) : null;
 
   return (
@@ -207,12 +205,12 @@ function WorkspaceReviewPane(props: WorkspaceReviewPaneProps) {
       </header>
 
       <div className="min-h-0 flex-1 overflow-auto">
-        {diffQuery.isPending || diffQuery.fetchStatus === "fetching" ? (
+        {isDiffPending || diffFetchStatus === "fetching" ? (
           <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
             <Loader2Icon className="mr-2 size-4 animate-spin" />
             Loading file diff
           </div>
-        ) : diffQuery.isError ? (
+        ) : isDiffError ? (
           <div className="flex h-full items-center justify-center px-6 text-center text-sm text-destructive">
             Failed to load file diff.
           </div>
@@ -250,4 +248,4 @@ function WorkspaceReviewPane(props: WorkspaceReviewPaneProps) {
   );
 }
 
-export default memo(WorkspaceReviewPane);
+export default WorkspaceReviewPane;

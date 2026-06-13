@@ -1,15 +1,13 @@
 import {
   DownloadIcon,
-  InfoIcon,
   LoaderIcon,
   PlusIcon,
   RefreshCwIcon,
   SaveIcon,
   Trash2Icon,
   Undo2Icon,
-  XIcon,
 } from "lucide-react";
-import { useEffect, useMemo, useReducer } from "react";
+import { useReducer } from "react";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import type { Dispatch, MutableRefObject, ReactNode, SetStateAction } from "react";
 import type {
@@ -64,19 +62,14 @@ import {
   SettingsInput,
   SettingsSection,
   SettingResetButton,
-  getProviderSummary,
-  getProviderVersionLabel,
 } from "./SettingsPanelPrimitives";
+import { getProviderSummary, getProviderVersionLabel } from "./providerSummary";
 import {
   SETTINGS_COLOR_SWATCH_BUTTON_CLASS,
   SETTINGS_COMPACT_ACTION_BUTTON_CLASS,
-  SETTINGS_FIELD_HINT_CLASS,
   SETTINGS_ICON_CHOICE_BUTTON_CLASS,
   SETTINGS_LIST_ROW_BUTTON_CLASS,
-  SETTINGS_PROVIDER_DETAIL_HEADER_CLASS,
   SETTINGS_PROVIDER_DETAIL_SECTION_CLASS,
-  SETTINGS_PROVIDER_DETAIL_STATUS_CLASS,
-  SETTINGS_PROVIDER_DETAIL_TITLE_CLASS,
   SETTINGS_PROVIDER_FIELD_LABEL_CLASS,
   SETTINGS_PROVIDER_LAYOUT_CLASS,
   SETTINGS_PROVIDER_LIST_ITEM_CLASS,
@@ -199,6 +192,7 @@ interface AddProviderDraft {
 
 type ProviderSettingsSectionState = {
   draftProviders: UnifiedSettings["providers"];
+  draftProvidersSource: UnifiedSettings["providers"];
   selectedEntryKey: string;
   addProviderOpen: boolean;
   addProviderStep: AddProviderStep;
@@ -206,7 +200,11 @@ type ProviderSettingsSectionState = {
 };
 
 type ProviderSettingsSectionAction =
-  | { type: "set-draft-providers"; draftProviders: UnifiedSettings["providers"] }
+  | {
+      type: "set-draft-providers";
+      draftProviders: UnifiedSettings["providers"];
+      draftProvidersSource: UnifiedSettings["providers"];
+    }
   | { type: "set-selected-entry-key"; selectedEntryKey: string }
   | { type: "set-add-provider-open"; addProviderOpen: boolean }
   | { type: "set-add-provider-step"; addProviderStep: AddProviderStep }
@@ -228,9 +226,14 @@ function providerSettingsSectionStateReducer(
 ): ProviderSettingsSectionState {
   switch (action.type) {
     case "set-draft-providers":
-      return state.draftProviders === action.draftProviders
+      return state.draftProviders === action.draftProviders &&
+        state.draftProvidersSource === action.draftProvidersSource
         ? state
-        : { ...state, draftProviders: action.draftProviders };
+        : {
+            ...state,
+            draftProviders: action.draftProviders,
+            draftProvidersSource: action.draftProvidersSource,
+          };
     case "set-selected-entry-key":
       return state.selectedEntryKey === action.selectedEntryKey
         ? state
@@ -461,11 +464,18 @@ function getCliUpdateStatusLabel(
   return null;
 }
 
+function setProviderModelListRef(
+  modelListRefs: MutableRefObject<Partial<Record<ProviderKind, HTMLDivElement | null>>>,
+  provider: ProviderKind,
+  element: HTMLDivElement | null,
+) {
+  modelListRefs.current[provider] = element;
+}
+
 function useProviderSettingsSectionComponent({
   customModelErrorByProvider,
   customModelInputByProvider,
   isRefreshingProviders,
-  isUpgradingProvider,
   isUpgradingRuntime,
   lastCheckedAt,
   modelListRefs,
@@ -481,7 +491,6 @@ function useProviderSettingsSectionComponent({
   customModelErrorByProvider: Partial<Record<ProviderKind, string | null>>;
   customModelInputByProvider: Record<ProviderKind, string>;
   isRefreshingProviders: boolean;
-  isUpgradingProvider: (provider: ProviderKind) => boolean;
   isUpgradingRuntime: (provider: ProviderKind, runtimeId: string) => boolean;
   lastCheckedAt: string | null;
   modelListRefs: MutableRefObject<Partial<Record<ProviderKind, HTMLDivElement | null>>>;
@@ -501,6 +510,7 @@ function useProviderSettingsSectionComponent({
     undefined,
     (): ProviderSettingsSectionState => ({
       draftProviders: settings.providers,
+      draftProvidersSource: settings.providers,
       selectedEntryKey: providerEntryKey(providerCards[0]?.provider ?? "codex"),
       addProviderOpen: false,
       addProviderStep: "provider",
@@ -510,24 +520,16 @@ function useProviderSettingsSectionComponent({
       ),
     }),
   );
-  const { addProviderDraft, addProviderOpen, addProviderStep, draftProviders, selectedEntryKey } =
-    sectionState;
-  useEffect(() => {
-    dispatchSectionState({ type: "set-draft-providers", draftProviders: settings.providers });
-  }, [settings.providers]);
-  const providerEntries = useMemo(
-    () => buildProviderSettingsEntries(providerCards, draftProviders),
-    [draftProviders, providerCards],
-  );
-  useEffect(() => {
-    if (providerEntries.some((entry) => entry.key === selectedEntryKey)) {
-      return;
-    }
-    const firstEntry = providerEntries[0];
-    if (firstEntry) {
-      dispatchSectionState({ type: "set-selected-entry-key", selectedEntryKey: firstEntry.key });
-    }
-  }, [providerEntries, selectedEntryKey]);
+  const { addProviderDraft, addProviderOpen, addProviderStep, selectedEntryKey } = sectionState;
+  const draftProviders =
+    sectionState.draftProvidersSource === settings.providers
+      ? sectionState.draftProviders
+      : settings.providers;
+  const providerEntries = buildProviderSettingsEntries(providerCards, draftProviders);
+  const effectiveSelectedEntryKey =
+    providerEntries.some((entry) => entry.key === selectedEntryKey) || !providerEntries[0]
+      ? selectedEntryKey
+      : providerEntries[0].key;
 
   const hasProviderDraftChanges =
     allProviderSettingsFingerprint(draftProviders) !==
@@ -539,6 +541,7 @@ function useProviderSettingsSectionComponent({
   ) => {
     dispatchSectionState({
       type: "set-draft-providers",
+      draftProvidersSource: settings.providers,
       draftProviders: {
         ...draftProviders,
         [provider]: config,
@@ -561,7 +564,11 @@ function useProviderSettingsSectionComponent({
   };
 
   const revertProviderDraft = () => {
-    dispatchSectionState({ type: "set-draft-providers", draftProviders: settings.providers });
+    dispatchSectionState({
+      type: "set-draft-providers",
+      draftProviders: settings.providers,
+      draftProvidersSource: settings.providers,
+    });
   };
 
   const addProviderInstance = (draft: AddProviderDraft) => {
@@ -627,7 +634,7 @@ function useProviderSettingsSectionComponent({
       ...providerConfig,
       instances: providerConfig.instances.filter((instance) => instance.id !== instanceId),
     } as UnifiedSettings["providers"][typeof provider]);
-    if (selectedEntryKey === providerEntryKey(provider, instanceId)) {
+    if (effectiveSelectedEntryKey === providerEntryKey(provider, instanceId)) {
       dispatchSectionState({
         type: "set-selected-entry-key",
         selectedEntryKey: providerEntryKey(provider),
@@ -736,7 +743,7 @@ function useProviderSettingsSectionComponent({
   };
 
   const selectedEntry =
-    providerEntries.find((entry) => entry.key === selectedEntryKey) ?? providerEntries[0];
+    providerEntries.find((entry) => entry.key === effectiveSelectedEntryKey) ?? providerEntries[0];
   const selectedProviderCard = selectedEntry
     ? providerCards.find((providerCard) => providerCard.provider === selectedEntry.provider)
     : providerCards[0];
@@ -925,7 +932,7 @@ function useProviderSettingsSectionComponent({
                   const entrySnapshot = resolveProviderCardSnapshot(entryCard, entry.instanceId);
                   const entryStatusStyle = resolveProviderEntryStatusStyle(entry, entrySnapshot);
                   const entryDisplayName = getProviderCardDisplayName(entryCard);
-                  const isSelected = entry.key === selectedEntryKey;
+                  const isSelected = entry.key === effectiveSelectedEntryKey;
                   return (
                     <Button
                       key={entry.key}
@@ -1449,7 +1456,7 @@ function useProviderSettingsSectionComponent({
                 <SettingsInsetPanel className="overflow-hidden border border-border/40 shadow-xs">
                   <ScrollArea
                     ref={(element) => {
-                      modelListRefs.current[providerCard.provider] = element;
+                      setProviderModelListRef(modelListRefs, providerCard.provider, element);
                     }}
                     className="max-h-64"
                   >

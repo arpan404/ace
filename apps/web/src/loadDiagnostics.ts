@@ -1,5 +1,3 @@
-import { useSyncExternalStore } from "react";
-
 export type LoadDiagnosticLevel = "info" | "success" | "warning" | "error";
 
 export interface LoadDiagnosticEntry {
@@ -25,8 +23,6 @@ const LOAD_DIAGNOSTICS_STORAGE_KEY = "ace.loadDiagnostics.enabled";
 const LOAD_DIAGNOSTICS_EXPANDED_STORAGE_KEY = "ace.loadDiagnostics.expanded";
 const LOAD_DIAGNOSTICS_QUERY_PARAM = "loadDebug";
 const MAX_ENTRIES = 200;
-const listeners = new Set<() => void>();
-
 type LoadDiagnosticsOrigin =
   | {
       readonly kind: "renderer";
@@ -53,19 +49,6 @@ let state: LoadDiagnosticsState = {
 
 function now(): number {
   return typeof performance !== "undefined" ? performance.now() : Date.now();
-}
-
-function subscribe(listener: () => void): () => void {
-  listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
-  };
-}
-
-function emit(): void {
-  for (const listener of listeners) {
-    listener();
-  }
 }
 
 function getSnapshot(): LoadDiagnosticsState {
@@ -128,17 +111,8 @@ function resolveInitialExpanded(): boolean {
   return persisted === "1" || persisted === "true";
 }
 
-function persistBoolean(key: string, value: boolean): void {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  globalThis.localStorage?.setItem?.(key, value ? "1" : "0");
-}
-
 function updateState(nextState: LoadDiagnosticsState): void {
   state = nextState;
-  emit();
 }
 
 function formatDetail(detail: unknown): string | undefined {
@@ -333,25 +307,6 @@ export function initLoadDiagnostics(): void {
   }
 }
 
-export function setLoadDiagnosticsEnabled(enabled: boolean): void {
-  persistBoolean(LOAD_DIAGNOSTICS_STORAGE_KEY, enabled);
-  updateState({ ...state, enabled });
-  logLoadDiagnostic({
-    phase: "console",
-    message: enabled ? "On-screen diagnostics enabled" : "On-screen diagnostics disabled",
-  });
-}
-
-export function setLoadDiagnosticsExpanded(expanded: boolean): void {
-  persistBoolean(LOAD_DIAGNOSTICS_EXPANDED_STORAGE_KEY, expanded);
-  updateState({ ...state, expanded });
-}
-
-export function clearLoadDiagnostics(): void {
-  updateState({ ...state, entries: [] });
-  logLoadDiagnostic({ phase: "console", message: "Diagnostics log cleared" });
-}
-
 export function formatLoadDiagnosticsReport(entries = state.entries): string {
   return entries
     .map((entry) =>
@@ -369,10 +324,6 @@ export function formatLoadDiagnosticsReport(entries = state.entries): string {
     .join("\n\n");
 }
 
-export function useLoadDiagnostics(): LoadDiagnosticsState {
-  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
-}
-
 export function getLoadDiagnosticsState(): LoadDiagnosticsState {
   return getSnapshot();
 }
@@ -388,5 +339,4 @@ export function __resetLoadDiagnosticsForTests(): void {
     startTimestamp: origin.startedAtTimestamp,
     origin: origin.kind,
   };
-  listeners.clear();
 }

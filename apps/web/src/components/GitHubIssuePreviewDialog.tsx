@@ -2,7 +2,6 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { XIcon } from "lucide-react";
-import { useMemo } from "react";
 
 import { gitGitHubIssueThreadQueryOptions, gitGitHubIssuesQueryOptions } from "~/lib/gitReactQuery";
 import {
@@ -31,7 +30,7 @@ export function GitHubIssuePreviewDialog({
   cwd,
   onOpenChange,
 }: GitHubIssuePreviewDialogProps) {
-  const issuesQuery = useQuery(
+  const { data: issuesData } = useQuery(
     gitGitHubIssuesQueryOptions({
       cwd,
       limit: 120,
@@ -41,18 +40,16 @@ export function GitHubIssuePreviewDialog({
     }),
   );
 
-  const issueMetadata = useMemo(() => {
-    return issuesQuery.data?.issues?.find((i) => i.number === issueNumber) ?? null;
-  }, [issuesQuery.data?.issues, issueNumber]);
+  const issueMetadata = issuesData?.issues?.find((i) => i.number === issueNumber) ?? null;
 
-  const threadQuery = useQuery(
+  const { data: threadData, isFetching: isThreadFetching } = useQuery(
     gitGitHubIssueThreadQueryOptions({
       cwd,
       issueNumber: open ? issueNumber : null,
       enabled: open && issueNumber > 0,
     }),
   );
-  const thread = threadQuery.data?.issue;
+  const thread = threadData?.issue;
   const displayIssue = issueMetadata;
 
   return (
@@ -88,7 +85,7 @@ export function GitHubIssuePreviewDialog({
 
           <ScrollArea className="min-h-0 flex-1" scrollbarGutter scrollFade>
             <div className="px-4 py-4 pb-6 sm:px-5">
-              {threadQuery.isFetching && !thread ? (
+              {isThreadFetching && !thread ? (
                 <GitHubIssueThreadSkeleton />
               ) : thread ? (
                 <GitHubIssueThreadReader thread={thread} cwd={cwd} />

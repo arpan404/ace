@@ -20,7 +20,6 @@ import {
 } from "lucide-react";
 import { type GitStatusResult, ThreadId } from "@ace/contracts";
 import {
-  memo,
   type DragEvent,
   type Dispatch,
   type MouseEvent,
@@ -177,6 +176,319 @@ function ForkedThreadIndicator() {
   );
 }
 
+interface ThreadRowTitleProps {
+  readonly canPin: boolean;
+  readonly cancelRename: () => void;
+  readonly commitRename: SidebarThreadRowProps["commitRename"];
+  readonly isPinned: boolean;
+  readonly renamingCommittedRef: MutableRefObject<boolean>;
+  readonly renamingInputRef: MutableRefObject<HTMLInputElement | null>;
+  readonly renamingThreadId: ThreadId | null;
+  readonly renamingTitle: string;
+  readonly setRenamingTitle: (title: string) => void;
+  readonly showPinnedIndicator: boolean;
+  readonly thread: NonNullable<ReturnType<typeof useSidebarThreadSummaryById>>;
+  readonly threadStatus: ReturnType<typeof resolveThreadStatusPill>;
+}
+
+function ThreadRowTitle({
+  canPin,
+  cancelRename,
+  commitRename,
+  isPinned,
+  renamingCommittedRef,
+  renamingInputRef,
+  renamingThreadId,
+  renamingTitle,
+  setRenamingTitle,
+  showPinnedIndicator,
+  thread,
+  threadStatus,
+}: ThreadRowTitleProps) {
+  return (
+    <div className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
+      {threadStatus && <ThreadStatusLabel status={threadStatus} />}
+      {canPin && isPinned && showPinnedIndicator && (
+        <IconPinFilled className="size-3 shrink-0 text-sidebar-accent-foreground" />
+      )}
+      {thread.fork && <ForkedThreadIndicator />}
+      {renamingThreadId === thread.id ? (
+        <input
+          aria-label="Thread title"
+          ref={(element) => {
+            if (element && renamingInputRef.current !== element) {
+              renamingInputRef.current = element;
+              element.focus();
+              element.select();
+            }
+          }}
+          className="min-w-0 flex-1 truncate rounded border border-ring bg-transparent px-0.5 text-xs outline-none"
+          value={renamingTitle}
+          onChange={(event) => setRenamingTitle(event.target.value)}
+          onKeyDown={(event) => {
+            event.stopPropagation();
+            if (event.key === "Enter") {
+              event.preventDefault();
+              renamingCommittedRef.current = true;
+              void commitRename(thread.id, renamingTitle, thread.title);
+            } else if (event.key === "Escape") {
+              event.preventDefault();
+              renamingCommittedRef.current = true;
+              cancelRename();
+            }
+          }}
+          onBlur={() => {
+            if (!renamingCommittedRef.current) {
+              void commitRename(thread.id, renamingTitle, thread.title);
+            }
+          }}
+          onClick={(event) => event.stopPropagation()}
+        />
+      ) : (
+        <span className="min-w-0 flex-1 truncate text-xs">{thread.title}</span>
+      )}
+    </div>
+  );
+}
+
+interface ThreadRowTrailingProps {
+  readonly archiveMode: "archive-now" | "confirm-before-archive" | "confirming" | "disabled";
+  readonly attemptArchiveThread: SidebarThreadRowProps["attemptArchiveThread"];
+  readonly confirmArchiveButtonRefs: SidebarThreadRowProps["confirmArchiveButtonRefs"];
+  readonly connectionUrl: string;
+  readonly metaLabel: string;
+  readonly metaLabelActive: boolean;
+  readonly metaTone: "active" | "muted";
+  readonly pinState: "pinned" | "unpinned" | null;
+  readonly onTogglePinnedThread: (threadId: ThreadId) => void;
+  readonly openPrLink: SidebarThreadRowProps["openPrLink"];
+  readonly prStatus: PrStatusIndicator | null;
+  readonly setConfirmingArchiveThreadId: SidebarThreadRowProps["setConfirmingArchiveThreadId"];
+  readonly terminalStatus: TerminalStatusIndicator | null;
+  readonly thread: NonNullable<ReturnType<typeof useSidebarThreadSummaryById>>;
+  readonly threadGitMetaClassName: string;
+  readonly threadMetaClassName: string;
+  readonly worktreeStatus: WorktreeStatusIndicator | null;
+}
+
+function ThreadRowTrailing({
+  archiveMode,
+  attemptArchiveThread,
+  confirmArchiveButtonRefs,
+  connectionUrl,
+  metaLabel,
+  metaLabelActive,
+  metaTone,
+  pinState,
+  onTogglePinnedThread,
+  openPrLink,
+  prStatus,
+  setConfirmingArchiveThreadId,
+  terminalStatus,
+  thread,
+  threadGitMetaClassName,
+  threadMetaClassName,
+  worktreeStatus,
+}: ThreadRowTrailingProps) {
+  const PrStatusIcon = prStatus?.Icon ?? GitPullRequestIcon;
+  const pinButtonClassName =
+    "pointer-events-none opacity-0 group-hover/menu-sub-item:pointer-events-auto group-hover/menu-sub-item:opacity-100 group-focus-within/menu-sub-item:pointer-events-auto group-focus-within/menu-sub-item:opacity-100";
+
+  return (
+    <div className="ml-auto flex shrink-0 items-center gap-1.5">
+      {terminalStatus && (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <span
+                className={`inline-flex items-center justify-center ${terminalStatus.colorClass}`}
+              >
+                <IconTerminal
+                  className={`size-3 ${terminalStatus.pulse ? "animate-pulse" : ""}`}
+                  aria-label={terminalStatus.label}
+                />
+              </span>
+            }
+          />
+          <TooltipPopup side="top">{terminalStatus.label}</TooltipPopup>
+        </Tooltip>
+      )}
+      <div className="flex min-w-12 justify-end">
+        {archiveMode === "confirming" ? (
+          <button
+            ref={(element) => {
+              if (element) {
+                confirmArchiveButtonRefs.current.set(thread.id, element);
+              } else {
+                confirmArchiveButtonRefs.current.delete(thread.id);
+              }
+            }}
+            type="button"
+            data-thread-selection-safe
+            data-testid={`thread-archive-confirm-${thread.id}`}
+            aria-label={`Confirm archive ${thread.title}`}
+            className="absolute top-1/2 right-1 inline-flex h-5 -translate-y-1/2 cursor-pointer items-center rounded-full bg-destructive/12 px-2 text-[10px] font-medium text-destructive transition-colors hover:bg-destructive/18 focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-destructive/40"
+            onPointerDown={(event) => {
+              event.stopPropagation();
+            }}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              setConfirmingArchiveThreadId((current) => (current === thread.id ? null : current));
+              void attemptArchiveThread(thread.id, connectionUrl);
+            }}
+          >
+            Confirm
+          </button>
+        ) : (
+          <>
+            {pinState && (
+              <div
+                className={`absolute top-1/2 right-6 -translate-y-1/2 transition-opacity duration-150 ${pinButtonClassName}`}
+              >
+                <button
+                  type="button"
+                  data-thread-selection-safe
+                  data-testid={`thread-pin-${thread.id}`}
+                  aria-label={`${pinState === "pinned" ? "Unpin" : "Pin"} ${thread.title}`}
+                  className={`group/thread-pin inline-flex size-5 cursor-pointer items-center justify-center transition-colors focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring ${
+                    pinState === "pinned"
+                      ? "text-sidebar-accent-foreground"
+                      : "text-sidebar-foreground/60 hover:text-sidebar-accent-foreground"
+                  }`}
+                  onPointerDown={(event) => {
+                    event.stopPropagation();
+                  }}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    onTogglePinnedThread(thread.id);
+                  }}
+                >
+                  {pinState === "pinned" ? (
+                    <span className="relative inline-flex size-4 items-center justify-center">
+                      <IconPinFilled className="absolute size-4 opacity-100 transition-opacity duration-150 group-hover/thread-pin:opacity-0 group-focus-visible/thread-pin:opacity-0" />
+                      <IconPinnedOff className="absolute size-4 opacity-0 transition-opacity duration-150 group-hover/thread-pin:opacity-100 group-focus-visible/thread-pin:opacity-100" />
+                    </span>
+                  ) : (
+                    <IconPin className="size-4" />
+                  )}
+                </button>
+              </div>
+            )}
+            {archiveMode === "confirm-before-archive" ? (
+              <div className="pointer-events-none absolute top-1/2 right-1 -translate-y-1/2 opacity-0 transition-opacity duration-150 group-hover/menu-sub-item:pointer-events-auto group-hover/menu-sub-item:opacity-100 group-focus-within/menu-sub-item:pointer-events-auto group-focus-within/menu-sub-item:opacity-100">
+                <button
+                  type="button"
+                  data-thread-selection-safe
+                  data-testid={`thread-archive-${thread.id}`}
+                  aria-label={`Archive ${thread.title}`}
+                  className="inline-flex size-5 cursor-pointer items-center justify-center text-sidebar-foreground/60 transition-colors hover:text-sidebar-accent-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
+                  onPointerDown={(event) => {
+                    event.stopPropagation();
+                  }}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setConfirmingArchiveThreadId(thread.id);
+                    requestAnimationFrame(() => {
+                      confirmArchiveButtonRefs.current.get(thread.id)?.focus();
+                    });
+                  }}
+                >
+                  <IconArchive className="size-3.5" />
+                </button>
+              </div>
+            ) : archiveMode === "archive-now" ? (
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <div className="pointer-events-none absolute top-1/2 right-1 -translate-y-1/2 opacity-0 transition-opacity duration-150 group-hover/menu-sub-item:pointer-events-auto group-hover/menu-sub-item:opacity-100 group-focus-within/menu-sub-item:pointer-events-auto group-focus-within/menu-sub-item:opacity-100">
+                      <button
+                        type="button"
+                        data-thread-selection-safe
+                        data-testid={`thread-archive-${thread.id}`}
+                        aria-label={`Archive ${thread.title}`}
+                        className="inline-flex size-5 cursor-pointer items-center justify-center text-sidebar-foreground/60 transition-colors hover:text-sidebar-accent-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
+                        onPointerDown={(event) => {
+                          event.stopPropagation();
+                        }}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          void attemptArchiveThread(thread.id, connectionUrl);
+                        }}
+                      >
+                        <IconArchive className="size-3.5" />
+                      </button>
+                    </div>
+                  }
+                />
+                <TooltipPopup side="top">Archive</TooltipPopup>
+              </Tooltip>
+            ) : null}
+          </>
+        )}
+        {(worktreeStatus || prStatus) && (
+          <span className={cn(threadGitMetaClassName, "mr-2 inline-flex items-center gap-1")}>
+            {worktreeStatus && (
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <span
+                      aria-label={worktreeStatus.label}
+                      className="inline-flex items-center justify-center rounded-sm text-sidebar-foreground/45 outline-hidden transition-colors hover:text-sidebar-foreground/70 focus-visible:ring-1 focus-visible:ring-ring"
+                    >
+                      <GitBranchPlusIcon className="size-3" />
+                    </span>
+                  }
+                />
+                <TooltipPopup side="top">{worktreeStatus.label}</TooltipPopup>
+              </Tooltip>
+            )}
+            {prStatus && (
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <button
+                      type="button"
+                      aria-label={prStatus.tooltip}
+                      className="inline-flex cursor-pointer items-center justify-center rounded-sm text-sidebar-foreground/45 outline-hidden transition-colors hover:text-sidebar-foreground/70 focus-visible:ring-1 focus-visible:ring-ring"
+                      onClick={(event) => {
+                        openPrLink(event, prStatus.url);
+                      }}
+                    >
+                      <PrStatusIcon className="size-3" />
+                    </button>
+                  }
+                />
+                <TooltipPopup side="top">{prStatus.tooltip}</TooltipPopup>
+              </Tooltip>
+            )}
+          </span>
+        )}
+        <span className={cn(threadMetaClassName, "inline-flex items-center")}>
+          {metaLabelActive ? (
+            <span className="inline-flex h-5 items-center rounded-full border border-sidebar-border bg-sidebar-accent px-1.5 font-mono text-[10px] font-medium tracking-tight text-sidebar-accent-foreground ">
+              {metaLabel}
+            </span>
+          ) : (
+            <span
+              className={`text-[10px] ${
+                metaTone === "active"
+                  ? "text-sidebar-accent-foreground/70"
+                  : "text-sidebar-foreground/50"
+              }`}
+            >
+              {metaLabel}
+            </span>
+          )}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 export interface SidebarThreadRowProps {
   threadId: ThreadId;
   orderedProjectThreadIds: readonly ThreadId[];
@@ -236,7 +548,11 @@ export interface SidebarThreadRowProps {
   } | null;
 }
 
-export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowProps) {
+export function SidebarThreadRow({
+  renamingCommittedRef,
+  renamingInputRef,
+  ...props
+}: SidebarThreadRowProps) {
   const thread = useSidebarThreadSummaryById(props.threadId);
   const lastVisitedAt = useUiStateStore((state) => state.threadLastVisitedAtById[props.threadId]);
   const runningTerminalIds = useTerminalStateStore(
@@ -262,12 +578,25 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
     },
   });
   const prStatus = prStatusIndicator(props.pr);
-  const PrStatusIcon = prStatus?.Icon ?? GitPullRequestIcon;
   const worktreeStatus = worktreeStatusIndicator(thread);
   const terminalStatus = terminalStatusFromRunningIds(runningTerminalIds);
   const isConfirmingArchive = props.confirmingArchiveThreadId === thread.id && !isThreadRunning;
   const canPin = props.pinEnabled ?? true;
   const showPinnedIndicator = props.showPinnedIndicator ?? true;
+  const archiveMode = isConfirmingArchive
+    ? "confirming"
+    : isThreadRunning
+      ? "disabled"
+      : props.appSettingsConfirmThreadArchive
+        ? "confirm-before-archive"
+        : "archive-now";
+  const pinState = canPin ? (props.isPinned ? "pinned" : "unpinned") : null;
+  const metaLabel =
+    props.showThreadJumpHints && props.jumpLabel
+      ? props.jumpLabel
+      : formatRelativeTimeLabel(thread.updatedAt ?? thread.createdAt);
+  const metaLabelActive = props.showThreadJumpHints && props.jumpLabel !== null;
+  const metaTone = isHighlighted ? "active" : "muted";
   const threadMetaClassName = isConfirmingArchive
     ? "pointer-events-none opacity-0"
     : !isThreadRunning || canPin
@@ -282,8 +611,6 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
     }
     props.prefetchThreadHistory(thread.id);
   };
-  const pinButtonClassName =
-    "pointer-events-none opacity-0 group-hover/menu-sub-item:pointer-events-auto group-hover/menu-sub-item:opacity-100 group-focus-within/menu-sub-item:pointer-events-auto group-focus-within/menu-sub-item:opacity-100";
 
   return (
     <SidebarMenuSubItem
@@ -309,7 +636,7 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
       }}
     >
       <SidebarMenuSubButton
-        render={<div role="button" tabIndex={0} />}
+        render={<button type="button" aria-label={`Open thread ${thread.title}`} />}
         size="sm"
         isActive={isActive}
         data-testid={`thread-row-${thread.id}`}
@@ -357,243 +684,40 @@ export const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThr
           }
         }}
       >
-        <div className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
-          {threadStatus && <ThreadStatusLabel status={threadStatus} />}
-          {canPin && props.isPinned && showPinnedIndicator && (
-            <IconPinFilled className="size-3 shrink-0 text-sidebar-accent-foreground" />
-          )}
-          {thread.fork && <ForkedThreadIndicator />}
-          {props.renamingThreadId === thread.id ? (
-            <input
-              ref={(element) => {
-                if (element && props.renamingInputRef.current !== element) {
-                  props.renamingInputRef.current = element;
-                  element.focus();
-                  element.select();
-                }
-              }}
-              className="min-w-0 flex-1 truncate rounded border border-ring bg-transparent px-0.5 text-xs outline-none"
-              value={props.renamingTitle}
-              onChange={(event) => props.setRenamingTitle(event.target.value)}
-              onKeyDown={(event) => {
-                event.stopPropagation();
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  props.renamingCommittedRef.current = true;
-                  void props.commitRename(thread.id, props.renamingTitle, thread.title);
-                } else if (event.key === "Escape") {
-                  event.preventDefault();
-                  props.renamingCommittedRef.current = true;
-                  props.cancelRename();
-                }
-              }}
-              onBlur={() => {
-                if (!props.renamingCommittedRef.current) {
-                  void props.commitRename(thread.id, props.renamingTitle, thread.title);
-                }
-              }}
-              onClick={(event) => event.stopPropagation()}
-            />
-          ) : (
-            <span className="min-w-0 flex-1 truncate text-xs">{thread.title}</span>
-          )}
-        </div>
-        <div className="ml-auto flex shrink-0 items-center gap-1.5">
-          {terminalStatus && (
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <span
-                    className={`inline-flex items-center justify-center ${terminalStatus.colorClass}`}
-                  >
-                    <IconTerminal
-                      className={`size-3 ${terminalStatus.pulse ? "animate-pulse" : ""}`}
-                      aria-label={terminalStatus.label}
-                    />
-                  </span>
-                }
-              />
-              <TooltipPopup side="top">{terminalStatus.label}</TooltipPopup>
-            </Tooltip>
-          )}
-          <div className="flex min-w-12 justify-end">
-            {isConfirmingArchive ? (
-              <button
-                ref={(element) => {
-                  if (element) {
-                    props.confirmArchiveButtonRefs.current.set(thread.id, element);
-                  } else {
-                    props.confirmArchiveButtonRefs.current.delete(thread.id);
-                  }
-                }}
-                type="button"
-                data-thread-selection-safe
-                data-testid={`thread-archive-confirm-${thread.id}`}
-                aria-label={`Confirm archive ${thread.title}`}
-                className="absolute top-1/2 right-1 inline-flex h-5 -translate-y-1/2 cursor-pointer items-center rounded-full bg-destructive/12 px-2 text-[10px] font-medium text-destructive transition-colors hover:bg-destructive/18 focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-destructive/40"
-                onPointerDown={(event) => {
-                  event.stopPropagation();
-                }}
-                onClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  props.setConfirmingArchiveThreadId((current) =>
-                    current === thread.id ? null : current,
-                  );
-                  void props.attemptArchiveThread(thread.id, props.connectionUrl);
-                }}
-              >
-                Confirm
-              </button>
-            ) : (
-              <>
-                {canPin && (
-                  <div
-                    className={`absolute top-1/2 right-6 -translate-y-1/2 transition-opacity duration-150 ${pinButtonClassName}`}
-                  >
-                    <button
-                      type="button"
-                      data-thread-selection-safe
-                      data-testid={`thread-pin-${thread.id}`}
-                      aria-label={`${props.isPinned ? "Unpin" : "Pin"} ${thread.title}`}
-                      className={`group/thread-pin inline-flex size-5 cursor-pointer items-center justify-center transition-colors focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring ${
-                        props.isPinned
-                          ? "text-sidebar-accent-foreground"
-                          : "text-sidebar-foreground/60 hover:text-sidebar-accent-foreground"
-                      }`}
-                      onPointerDown={(event) => {
-                        event.stopPropagation();
-                      }}
-                      onClick={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        props.onTogglePinnedThread(thread.id);
-                      }}
-                    >
-                      {props.isPinned ? (
-                        <span className="relative inline-flex size-4 items-center justify-center">
-                          <IconPinFilled className="absolute size-4 opacity-100 transition-opacity duration-150 group-hover/thread-pin:opacity-0 group-focus-visible/thread-pin:opacity-0" />
-                          <IconPinnedOff className="absolute size-4 opacity-0 transition-opacity duration-150 group-hover/thread-pin:opacity-100 group-focus-visible/thread-pin:opacity-100" />
-                        </span>
-                      ) : (
-                        <IconPin className="size-4" />
-                      )}
-                    </button>
-                  </div>
-                )}
-                {!isThreadRunning ? (
-                  props.appSettingsConfirmThreadArchive ? (
-                    <div className="pointer-events-none absolute top-1/2 right-1 -translate-y-1/2 opacity-0 transition-opacity duration-150 group-hover/menu-sub-item:pointer-events-auto group-hover/menu-sub-item:opacity-100 group-focus-within/menu-sub-item:pointer-events-auto group-focus-within/menu-sub-item:opacity-100">
-                      <button
-                        type="button"
-                        data-thread-selection-safe
-                        data-testid={`thread-archive-${thread.id}`}
-                        aria-label={`Archive ${thread.title}`}
-                        className="inline-flex size-5 cursor-pointer items-center justify-center text-sidebar-foreground/60 transition-colors hover:text-sidebar-accent-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
-                        onPointerDown={(event) => {
-                          event.stopPropagation();
-                        }}
-                        onClick={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          props.setConfirmingArchiveThreadId(thread.id);
-                          requestAnimationFrame(() => {
-                            props.confirmArchiveButtonRefs.current.get(thread.id)?.focus();
-                          });
-                        }}
-                      >
-                        <IconArchive className="size-3.5" />
-                      </button>
-                    </div>
-                  ) : (
-                    <Tooltip>
-                      <TooltipTrigger
-                        render={
-                          <div className="pointer-events-none absolute top-1/2 right-1 -translate-y-1/2 opacity-0 transition-opacity duration-150 group-hover/menu-sub-item:pointer-events-auto group-hover/menu-sub-item:opacity-100 group-focus-within/menu-sub-item:pointer-events-auto group-focus-within/menu-sub-item:opacity-100">
-                            <button
-                              type="button"
-                              data-thread-selection-safe
-                              data-testid={`thread-archive-${thread.id}`}
-                              aria-label={`Archive ${thread.title}`}
-                              className="inline-flex size-5 cursor-pointer items-center justify-center text-sidebar-foreground/60 transition-colors hover:text-sidebar-accent-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
-                              onPointerDown={(event) => {
-                                event.stopPropagation();
-                              }}
-                              onClick={(event) => {
-                                event.preventDefault();
-                                event.stopPropagation();
-                                void props.attemptArchiveThread(thread.id, props.connectionUrl);
-                              }}
-                            >
-                              <IconArchive className="size-3.5" />
-                            </button>
-                          </div>
-                        }
-                      />
-                      <TooltipPopup side="top">Archive</TooltipPopup>
-                    </Tooltip>
-                  )
-                ) : null}
-              </>
-            )}
-            {(worktreeStatus || prStatus) && (
-              <span className={cn(threadGitMetaClassName, "mr-2 inline-flex items-center gap-1")}>
-                {worktreeStatus && (
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={
-                        <span
-                          aria-label={worktreeStatus.label}
-                          className="inline-flex items-center justify-center rounded-sm text-sidebar-foreground/45 outline-hidden transition-colors hover:text-sidebar-foreground/70 focus-visible:ring-1 focus-visible:ring-ring"
-                        >
-                          <GitBranchPlusIcon className="size-3" />
-                        </span>
-                      }
-                    />
-                    <TooltipPopup side="top">{worktreeStatus.label}</TooltipPopup>
-                  </Tooltip>
-                )}
-                {prStatus && (
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={
-                        <button
-                          type="button"
-                          aria-label={prStatus.tooltip}
-                          className="inline-flex cursor-pointer items-center justify-center rounded-sm text-sidebar-foreground/45 outline-hidden transition-colors hover:text-sidebar-foreground/70 focus-visible:ring-1 focus-visible:ring-ring"
-                          onClick={(event) => {
-                            props.openPrLink(event, prStatus.url);
-                          }}
-                        >
-                          <PrStatusIcon className="size-3" />
-                        </button>
-                      }
-                    />
-                    <TooltipPopup side="top">{prStatus.tooltip}</TooltipPopup>
-                  </Tooltip>
-                )}
-              </span>
-            )}
-            <span className={cn(threadMetaClassName, "inline-flex items-center")}>
-              {props.showThreadJumpHints && props.jumpLabel ? (
-                <span className="inline-flex h-5 items-center rounded-full border border-sidebar-border bg-sidebar-accent px-1.5 font-mono text-[10px] font-medium tracking-tight text-sidebar-accent-foreground ">
-                  {props.jumpLabel}
-                </span>
-              ) : (
-                <span
-                  className={`text-[10px] ${
-                    isHighlighted
-                      ? "text-sidebar-accent-foreground/70"
-                      : "text-sidebar-foreground/50"
-                  }`}
-                >
-                  {formatRelativeTimeLabel(thread.updatedAt ?? thread.createdAt)}
-                </span>
-              )}
-            </span>
-          </div>
-        </div>
+        <ThreadRowTitle
+          canPin={canPin}
+          cancelRename={props.cancelRename}
+          commitRename={props.commitRename}
+          isPinned={props.isPinned}
+          renamingCommittedRef={renamingCommittedRef}
+          renamingInputRef={renamingInputRef}
+          renamingThreadId={props.renamingThreadId}
+          renamingTitle={props.renamingTitle}
+          setRenamingTitle={props.setRenamingTitle}
+          showPinnedIndicator={showPinnedIndicator}
+          thread={thread}
+          threadStatus={threadStatus}
+        />
+        <ThreadRowTrailing
+          archiveMode={archiveMode}
+          attemptArchiveThread={props.attemptArchiveThread}
+          confirmArchiveButtonRefs={props.confirmArchiveButtonRefs}
+          connectionUrl={props.connectionUrl}
+          metaLabel={metaLabel}
+          metaLabelActive={metaLabelActive}
+          metaTone={metaTone}
+          pinState={pinState}
+          onTogglePinnedThread={props.onTogglePinnedThread}
+          openPrLink={props.openPrLink}
+          prStatus={prStatus}
+          setConfirmingArchiveThreadId={props.setConfirmingArchiveThreadId}
+          terminalStatus={terminalStatus}
+          thread={thread}
+          threadGitMetaClassName={threadGitMetaClassName}
+          threadMetaClassName={threadMetaClassName}
+          worktreeStatus={worktreeStatus}
+        />
       </SidebarMenuSubButton>
     </SidebarMenuSubItem>
   );
-});
+}

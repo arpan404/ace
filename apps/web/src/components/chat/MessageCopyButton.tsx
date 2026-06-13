@@ -1,11 +1,11 @@
-import { memo, type ComponentProps } from "react";
+import { type ComponentProps } from "react";
 import { CopyIcon, CheckIcon } from "lucide-react";
 import { Button } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { cn } from "~/lib/utils";
 
-export const MessageCopyButton = memo(function MessageCopyButton(props: {
+export function MessageCopyButton(props: {
   text: string;
   className?: string;
   size?: ComponentProps<typeof Button>["size"];
@@ -37,4 +37,4 @@ export const MessageCopyButton = memo(function MessageCopyButton(props: {
       <TooltipPopup side="top">{isCopied ? "Copied" : "Copy message"}</TooltipPopup>
     </Tooltip>
   );
-});
+}

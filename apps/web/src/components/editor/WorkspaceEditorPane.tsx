@@ -18,10 +18,8 @@ import {
   XIcon,
 } from "lucide-react";
 import {
-  memo,
-  useCallback,
   useEffect,
-  useMemo,
+  useLayoutEffect,
   useReducer,
   useRef,
   useState,
@@ -40,6 +38,8 @@ import {
 } from "~/lib/editor/workspaceCodeMirror";
 import type { WorkspaceCodeEditorOptions } from "~/lib/editor/workspaceEditorOptions";
 import {
+  countWorkspaceFindMatches,
+  createWorkspaceFindQuery,
   EMPTY_WORKSPACE_FIND_STATE,
   type WorkspaceFindMatchSummary,
   type WorkspaceFindState,
@@ -53,6 +53,7 @@ import {
   type WorkspaceSelectionContext,
 } from "~/lib/editor/workspaceDesigner";
 import { useWorkspaceCommentPlaceholder } from "~/lib/editor/workspaceCommentPlaceholders";
+import { useStableCallback } from "~/hooks/useStableCallback";
 import { projectReadFileQueryOptions } from "~/lib/projectReactQuery";
 import {
   APP_FLOATING_CHIP_CLASS_NAME,
@@ -79,11 +80,15 @@ import WorkspaceCodeEditor, {
   type WorkspaceCodeEditorSelection,
 } from "./WorkspaceCodeEditor";
 import WorkspaceFindBar from "./WorkspaceFindBar";
-import {
-  buildWorkspacePreviewUrl,
-  detectWorkspacePreviewKind,
-  type WorkspacePreviewKind,
-} from "./workspaceFileUtils";
+import { buildWorkspacePreviewUrl, detectWorkspacePreviewKind } from "./workspaceFileUtils";
+
+function readDraggedWorkspaceTab(event: ReactDragEvent<HTMLElement>) {
+  return readEditorTabTransfer(event.dataTransfer);
+}
+
+function readDraggedWorkspaceExplorerEntry(event: ReactDragEvent<HTMLElement>) {
+  return readExplorerEntryTransfer(event.dataTransfer);
+}
 
 interface WorkspaceEditorPaneProps {
   active: boolean;
@@ -174,6 +179,7 @@ interface ActiveSelectionState {
 }
 
 type WorkspaceEditorFeedbackState = {
+  filePath: string | null;
   actionError: string | null;
   diagnosticSummary: string | null;
   diagnosticError: string | null;
@@ -184,6 +190,7 @@ type WorkspaceEditorFeedbackState = {
 };
 
 const EMPTY_WORKSPACE_EDITOR_FEEDBACK_STATE: WorkspaceEditorFeedbackState = {
+  filePath: null,
   actionError: null,
   diagnosticSummary: null,
   diagnosticError: null,
@@ -624,15 +631,6 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
   const [editorFeedbackState, setEditorFeedbackState] = useState<WorkspaceEditorFeedbackState>(
     EMPTY_WORKSPACE_EDITOR_FEEDBACK_STATE,
   );
-  const {
-    actionError,
-    diagnosticError,
-    diagnosticSummary,
-    diagnostics,
-    previewError,
-    problems,
-    problemsOpen,
-  } = editorFeedbackState;
   const [navigationState, dispatchNavigationState] = useReducer(
     workspaceEditorNavigationStateReducer,
     EMPTY_WORKSPACE_EDITOR_NAVIGATION_STATE,
@@ -655,25 +653,26 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
   const [findOpen, setFindOpen] = useState(false);
   const [findExpandedReplace, setFindExpandedReplace] = useState(false);
   const [findState, setFindState] = useState<WorkspaceFindState>(EMPTY_WORKSPACE_FIND_STATE);
-  const [findMatchSummary, setFindMatchSummary] = useState<WorkspaceFindMatchSummary>(
-    EMPTY_WORKSPACE_FIND_MATCH_SUMMARY,
-  );
+  const [closedFindRequestToken, setClosedFindRequestToken] = useState(0);
   const commentPlaceholder = useWorkspaceCommentPlaceholder("code", activeSelection?.id ?? null);
   const editorRef = useRef<WorkspaceCodeEditorHandle | null>(null);
   const selectionCommentInputRef = useRef<HTMLInputElement | null>(null);
   const tabStripRef = useRef<HTMLDivElement | null>(null);
   const syncRequestIdRef = useRef(0);
   const diagnosticsUnavailableRetryAtRef = useRef(0);
-  const activePreviewKind = useMemo<WorkspacePreviewKind | null>(
-    () => (pane.activeFilePath ? detectWorkspacePreviewKind(pane.activeFilePath) : null),
-    [pane.activeFilePath],
-  );
+  const activePreviewKind = pane.activeFilePath
+    ? detectWorkspacePreviewKind(pane.activeFilePath)
+    : null;
   const isBinaryPreviewMode = activePreviewKind === "image" || activePreviewKind === "video";
   const textPreviewAvailable = activePreviewKind === "markdown" || activePreviewKind === "mermaid";
+  const openFilePathSet = new Set(pane.openFilePaths);
+  const visibleTextPreviewFilePaths = new Set(
+    Array.from(textPreviewFilePaths).filter((filePath) => openFilePathSet.has(filePath)),
+  );
   const isTextPreviewMode =
     textPreviewAvailable &&
     pane.activeFilePath !== null &&
-    textPreviewFilePaths.has(pane.activeFilePath);
+    visibleTextPreviewFilePaths.has(pane.activeFilePath);
   const isPreviewMode =
     (isBinaryPreviewMode || isTextPreviewMode) &&
     pane.activeFilePath !== null &&
@@ -685,7 +684,12 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
   const hasUnsavedBufferEdits = activeDraftInStore
     ? activeDraftInStore.draftContents !== activeDraftInStore.savedContents
     : false;
-  const activeFileQuery = useQuery({
+  const {
+    data: activeFileData,
+    error: activeFileError,
+    isError: isActiveFileError,
+    isPending: isActiveFilePending,
+  } = useQuery({
     ...projectReadFileQueryOptions({
       connectionUrl: props.connectionUrl,
       cwd: props.gitCwd,
@@ -703,24 +707,24 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
     refetchOnWindowFocus: false,
   });
 
-  useEffect(() => {
-    if (isPreviewMode || !pane.activeFilePath || activeFileQuery.data?.contents === undefined) {
+  useLayoutEffect(() => {
+    if (isPreviewMode || !pane.activeFilePath || activeFileData?.contents === undefined) {
       return;
     }
-    onHydrateFile(pane.activeFilePath, activeFileQuery.data.contents);
-  }, [activeFileQuery.data?.contents, isPreviewMode, onHydrateFile, pane.activeFilePath]);
+    onHydrateFile(pane.activeFilePath, activeFileData.contents);
+  }, [activeFileData?.contents, isPreviewMode, onHydrateFile, pane.activeFilePath]);
 
   const activeDraft =
     isPreviewMode || !pane.activeFilePath
       ? null
       : (props.draftsByFilePath[pane.activeFilePath] ?? null);
-  const activeFileContents = activeDraft?.draftContents ?? activeFileQuery.data?.contents ?? "";
+  const activeFileContents = activeDraft?.draftContents ?? activeFileData?.contents ?? "";
   const activeFileDirty = activeDraft
     ? activeDraft.draftContents !== activeDraft.savedContents
     : false;
   const activeFileSizeBytes = isPreviewMode
     ? null
-    : (activeFileQuery.data?.sizeBytes ?? new Blob([activeFileContents]).size);
+    : (activeFileData?.sizeBytes ?? new Blob([activeFileContents]).size);
   const previewUrl =
     isBinaryPreviewMode && pane.activeFilePath && props.gitCwd
       ? buildWorkspacePreviewUrl(props.gitCwd, pane.activeFilePath)
@@ -732,9 +736,9 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
         ? "Mermaid preview"
         : "Preview mode";
   const activeLanguageId = resolveWorkspaceLanguageFromFilePath(props.pane.activeFilePath);
-  const activeFileCommentCount = useMemo(
-    () => countOpenWorkspaceCodeComments(props.codeComments, props.pane.activeFilePath),
-    [props.codeComments, props.pane.activeFilePath],
+  const activeFileCommentCount = countOpenWorkspaceCodeComments(
+    props.codeComments,
+    props.pane.activeFilePath,
   );
   const workspaceCwd = props.gitCwd ?? props.diagnosticsCwd;
   const latestPaneStateRef = useRef({
@@ -755,52 +759,81 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
     onOpenFileInPaneRef.current = onOpenFileInPane;
   }, [onOpenFileInPane]);
 
-  useEffect(() => {
+  const setActiveTextPreviewOpen = (open: boolean) => {
+    const activeFilePath = pane.activeFilePath;
+    if (!activeFilePath || !textPreviewAvailable) {
+      return;
+    }
     setTextPreviewFilePaths((current) => {
-      if (current.size === 0) {
-        return current;
+      const next = new Set(current);
+      if (open) {
+        next.add(activeFilePath);
+      } else {
+        next.delete(activeFilePath);
       }
-      const next = new Set(
-        Array.from(current).filter((filePath) => props.pane.openFilePaths.includes(filePath)),
-      );
-      return next.size === current.size ? current : next;
+      return next.size === current.size && next.has(activeFilePath) === current.has(activeFilePath)
+        ? current
+        : next;
     });
-  }, [props.pane.openFilePaths]);
+  };
 
-  const setActiveTextPreviewOpen = useCallback(
-    (open: boolean) => {
-      const activeFilePath = pane.activeFilePath;
-      if (!activeFilePath || !textPreviewAvailable) {
-        return;
-      }
-      setTextPreviewFilePaths((current) => {
-        const next = new Set(current);
-        if (open) {
-          next.add(activeFilePath);
-        } else {
-          next.delete(activeFilePath);
-        }
-        return next.size === current.size &&
-          next.has(activeFilePath) === current.has(activeFilePath)
-          ? current
-          : next;
-      });
-    },
-    [pane.activeFilePath, textPreviewAvailable],
-  );
-
-  const handleSave = useCallback(() => {
+  const handleSave = () => {
     if (!pane.activeFilePath || !activeDraft) {
       return;
     }
     onSaveFile(pane.activeFilePath, activeDraft.draftContents);
-  }, [activeDraft, onSaveFile, pane.activeFilePath]);
+  };
 
   const activeFileReady =
     pane.activeFilePath !== null &&
-    (isPreviewMode || activeDraft !== null || activeFileQuery.data?.contents !== undefined);
+    (isPreviewMode || activeDraft !== null || activeFileData?.contents !== undefined);
+  const activeFindRequestToken = props.active ? (props.findRequestToken ?? 0) : 0;
+  const requestedFindOpen = activeFindRequestToken > closedFindRequestToken;
+  const requestedFindSeed =
+    requestedFindOpen && findState.search.length === 0 ? (activeSelection?.context.text ?? "") : "";
+  const visibleFindState =
+    requestedFindSeed.length > 0 ? { ...findState, search: requestedFindSeed } : findState;
+  const visibleFindOpen = findOpen || requestedFindOpen;
+  const visibleFindExpandedReplace = findOpen ? findExpandedReplace : false;
+  const findMatchSummary: WorkspaceFindMatchSummary = visibleFindOpen
+    ? countWorkspaceFindMatches(activeFileContents, createWorkspaceFindQuery(visibleFindState))
+    : EMPTY_WORKSPACE_FIND_MATCH_SUMMARY;
+  const canShowWorkspaceDiagnostics =
+    !isPreviewMode &&
+    Boolean(api && props.diagnosticsCwd && pane.activeFilePath && activeFileReady);
+  const visibleEditorFeedbackState =
+    editorFeedbackState.filePath === pane.activeFilePath
+      ? canShowWorkspaceDiagnostics
+        ? editorFeedbackState
+        : {
+            ...editorFeedbackState,
+            diagnosticError: null,
+            diagnosticSummary: null,
+            diagnostics: [],
+            problems: [],
+            problemsOpen: false,
+          }
+      : {
+          ...editorFeedbackState,
+          actionError: null,
+          diagnosticError: null,
+          diagnosticSummary: null,
+          diagnostics: [],
+          previewError: null,
+          problems: [],
+          problemsOpen: false,
+        };
+  const {
+    actionError,
+    diagnosticError,
+    diagnosticSummary,
+    diagnostics,
+    previewError,
+    problems,
+    problemsOpen,
+  } = visibleEditorFeedbackState;
 
-  const applyWorkspaceProblems = useCallback(
+  const applyWorkspaceProblems = useStableCallback(
     (
       activeFilePath: string | null,
       nextDiagnostics: readonly WorkspaceEditorDiagnostic[],
@@ -809,6 +842,7 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
       const nextProblems = nextDiagnostics.map(toWorkspaceEditorPaneProblem);
       setEditorFeedbackState((current) => ({
         ...current,
+        filePath: activeFilePath,
         diagnostics: nextDiagnostics,
         diagnosticSummary: formatProblemSummary(nextProblems),
         problems: nextProblems,
@@ -818,68 +852,60 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
       }));
       onProblemsChange(pane.id, activeFilePath, nextProblems);
     },
-    [onProblemsChange, pane.id],
   );
 
-  const clearWorkspaceProblems = useCallback(
+  const clearWorkspaceProblems = useStableCallback(
     (input?: { diagnosticError?: string | null }) => {
       applyWorkspaceProblems(pane.activeFilePath, [], input);
     },
-    [applyWorkspaceProblems, pane.activeFilePath],
   );
 
-  const handleEditorFocus = useCallback(() => {
+  const handleEditorFocus = () => {
     onFocusPane(pane.id);
     dispatchNavigationState({ type: "editor-mounted" });
-  }, [onFocusPane, pane.id]);
+  };
 
-  const handleCursorLabelChange = useCallback((cursorLabel: string) => {
+  const handleCursorLabelChange = (cursorLabel: string) => {
     dispatchSelectionState({ type: "set-cursor-label", cursorLabel });
-  }, []);
+  };
 
-  const handleSymbolsChange = useCallback(
-    (contents: string) => {
-      if (isPreviewMode) {
-        onSymbolsChange(pane.id, pane.activeFilePath, []);
-        return;
-      }
-      onSymbolsChange(pane.id, pane.activeFilePath, extractWorkspaceEditorPaneSymbols(contents));
-    },
-    [isPreviewMode, onSymbolsChange, pane.activeFilePath, pane.id],
-  );
+  const handleSymbolsChange = (contents: string) => {
+    if (isPreviewMode) {
+      onSymbolsChange(pane.id, pane.activeFilePath, []);
+      return;
+    }
+    onSymbolsChange(pane.id, pane.activeFilePath, extractWorkspaceEditorPaneSymbols(contents));
+  };
 
-  const handleSelectionChange = useCallback(
-    (selection: WorkspaceCodeEditorSelection | null) => {
-      if (!selection || !workspaceCwd || isPreviewMode) {
-        dispatchSelectionState({ type: "clear-selection" });
-        activeSelectionIdRef.current = null;
-        return;
-      }
-      if (activeSelectionIdRef.current !== selection.id) {
-        activeSelectionIdRef.current = selection.id;
-        dispatchSelectionState({ type: "reset-selection-comment" });
-      }
-      const context = buildWorkspaceSelectionContext({
-        cwd: workspaceCwd,
-        diagnostics: diagnosticsForSelectionContext(problems),
-        languageId: activeLanguageId ?? null,
-        range: selection.location,
-        text: selection.text,
-      });
-      dispatchSelectionState({
-        type: "set-active-selection",
-        activeSelection: {
-          context,
-          id: selection.id,
-          left: selection.left,
-          top: selection.top,
-        },
-      });
-    },
-    [activeLanguageId, isPreviewMode, problems, workspaceCwd],
-  );
+  const handleSelectionChange = (selection: WorkspaceCodeEditorSelection | null) => {
+    if (!selection || !workspaceCwd || isPreviewMode) {
+      dispatchSelectionState({ type: "clear-selection" });
+      activeSelectionIdRef.current = null;
+      return;
+    }
+    if (activeSelectionIdRef.current !== selection.id) {
+      activeSelectionIdRef.current = selection.id;
+      dispatchSelectionState({ type: "reset-selection-comment" });
+    }
+    const context = buildWorkspaceSelectionContext({
+      cwd: workspaceCwd,
+      diagnostics: diagnosticsForSelectionContext(problems),
+      languageId: activeLanguageId ?? null,
+      range: selection.location,
+      text: selection.text,
+    });
+    dispatchSelectionState({
+      type: "set-active-selection",
+      activeSelection: {
+        context,
+        id: selection.id,
+        left: selection.left,
+        top: selection.top,
+      },
+    });
+  };
 
-  const focusWorkspaceLocation = useCallback((location: WorkspaceEditorLocation) => {
+  const focusWorkspaceLocation = (location: WorkspaceEditorLocation) => {
     const editor = editorRef.current;
     const latestPaneState = latestPaneStateRef.current;
     if (!editor) {
@@ -891,153 +917,148 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
     }
     dispatchNavigationState({ type: "set-pending-navigation-target", location });
     onOpenFileInPaneRef.current(latestPaneState.paneId, location.relativePath);
-  }, []);
+  };
 
-  const loadDefinitionLocations = useCallback(
-    async (input: {
-      relativePath: string;
-      contents: string;
-      line: number;
-      column: number;
-    }): Promise<readonly WorkspaceEditorLocation[]> => {
-      if (!api || !props.diagnosticsCwd) {
-        return [];
-      }
-      try {
-        setEditorFeedbackState((current) => ({ ...current, actionError: null }));
-        const result = await api.workspaceEditor.definition(
-          withRpcRouteConnection(
-            {
-              cwd: props.diagnosticsCwd,
-              relativePath: input.relativePath,
-              contents: input.contents,
-              line: input.line,
-              column: input.column,
-            },
-            props.connectionUrl,
-          ),
-        );
-        return result.locations;
-      } catch (error) {
-        const message = toErrorMessage(error);
-        setEditorFeedbackState((current) => ({ ...current, actionError: message }));
-        console.error("Failed to resolve workspace editor definitions", {
-          diagnosticsCwd: props.diagnosticsCwd,
-          relativePath: input.relativePath,
-          error,
-        });
-        return [];
-      }
-    },
-    [api, props.connectionUrl, props.diagnosticsCwd],
-  );
-
-  const handleDefinitionRequest = useCallback(
-    (input: { contents: string; line: number; column: number }) => {
-      const relativePath = latestPaneStateRef.current.activeFilePath;
-      if (!relativePath || isPreviewMode) {
-        return;
-      }
-      void loadDefinitionLocations({
-        relativePath,
-        contents: input.contents,
-        line: input.line,
-        column: input.column,
-      }).then((locations) => {
-        const firstLocation = locations[0];
-        if (firstLocation) {
-          focusWorkspaceLocation(firstLocation);
-        }
+  const loadDefinitionLocations = async (input: {
+    relativePath: string;
+    contents: string;
+    line: number;
+    column: number;
+  }): Promise<readonly WorkspaceEditorLocation[]> => {
+    if (!api || !props.diagnosticsCwd) {
+      return [];
+    }
+    try {
+      setEditorFeedbackState((current) => ({
+        ...current,
+        filePath: input.relativePath,
+        actionError: null,
+      }));
+      const result = await api.workspaceEditor.definition(
+        withRpcRouteConnection(
+          {
+            cwd: props.diagnosticsCwd,
+            relativePath: input.relativePath,
+            contents: input.contents,
+            line: input.line,
+            column: input.column,
+          },
+          props.connectionUrl,
+        ),
+      );
+      return result.locations;
+    } catch (error) {
+      const message = toErrorMessage(error);
+      setEditorFeedbackState((current) => ({
+        ...current,
+        filePath: input.relativePath,
+        actionError: message,
+      }));
+      console.error("Failed to resolve workspace editor definitions", {
+        diagnosticsCwd: props.diagnosticsCwd,
+        relativePath: input.relativePath,
+        error,
       });
-    },
-    [focusWorkspaceLocation, isPreviewMode, loadDefinitionLocations],
-  );
+      return [];
+    }
+  };
 
-  const handleCompletionRequest = useCallback(
-    async (input: {
-      contents: string;
-      line: number;
-      column: number;
-    }): Promise<readonly WorkspaceEditorCompletionItem[]> => {
-      if (!api || !props.diagnosticsCwd || !pane.activeFilePath || isPreviewMode) {
-        return [];
+  const handleDefinitionRequest = (input: { contents: string; line: number; column: number }) => {
+    const relativePath = latestPaneStateRef.current.activeFilePath;
+    if (!relativePath || isPreviewMode) {
+      return;
+    }
+    void loadDefinitionLocations({
+      relativePath,
+      contents: input.contents,
+      line: input.line,
+      column: input.column,
+    }).then((locations) => {
+      const firstLocation = locations[0];
+      if (firstLocation) {
+        focusWorkspaceLocation(firstLocation);
       }
-      try {
-        const result = await api.workspaceEditor.complete(
-          withRpcRouteConnection(
-            {
-              cwd: props.diagnosticsCwd,
-              relativePath: pane.activeFilePath,
-              contents: input.contents,
-              line: input.line,
-              column: input.column,
-            },
-            props.connectionUrl,
-          ),
-        );
-        return result.items;
-      } catch {
-        return [];
-      }
-    },
-    [api, isPreviewMode, pane.activeFilePath, props.connectionUrl, props.diagnosticsCwd],
-  );
+    });
+  };
 
-  const handleHoverRequest = useCallback(
-    async (input: {
-      contents: string;
-      line: number;
-      column: number;
-    }): Promise<WorkspaceEditorHoverResult | null> => {
-      if (!api || !props.diagnosticsCwd || !pane.activeFilePath || isPreviewMode) {
-        return null;
-      }
-      try {
-        const result = await api.workspaceEditor.hover(
-          withRpcRouteConnection(
-            {
-              cwd: props.diagnosticsCwd,
-              relativePath: pane.activeFilePath,
-              contents: input.contents,
-              line: input.line,
-              column: input.column,
-            },
-            props.connectionUrl,
-          ),
-        );
-        return result.contents.length > 0 ? result : null;
-      } catch {
-        return null;
-      }
-    },
-    [api, isPreviewMode, pane.activeFilePath, props.connectionUrl, props.diagnosticsCwd],
-  );
+  const handleCompletionRequest = async (input: {
+    contents: string;
+    line: number;
+    column: number;
+  }): Promise<readonly WorkspaceEditorCompletionItem[]> => {
+    if (!api || !props.diagnosticsCwd || !pane.activeFilePath || isPreviewMode) {
+      return [];
+    }
+    try {
+      const result = await api.workspaceEditor.complete(
+        withRpcRouteConnection(
+          {
+            cwd: props.diagnosticsCwd,
+            relativePath: pane.activeFilePath,
+            contents: input.contents,
+            line: input.line,
+            column: input.column,
+          },
+          props.connectionUrl,
+        ),
+      );
+      return result.items;
+    } catch {
+      return [];
+    }
+  };
 
-  const openWorkspaceFind = useCallback((input: { replace: boolean; seed: string }) => {
+  const handleHoverRequest = async (input: {
+    contents: string;
+    line: number;
+    column: number;
+  }): Promise<WorkspaceEditorHoverResult | null> => {
+    if (!api || !props.diagnosticsCwd || !pane.activeFilePath || isPreviewMode) {
+      return null;
+    }
+    try {
+      const result = await api.workspaceEditor.hover(
+        withRpcRouteConnection(
+          {
+            cwd: props.diagnosticsCwd,
+            relativePath: pane.activeFilePath,
+            contents: input.contents,
+            line: input.line,
+            column: input.column,
+          },
+          props.connectionUrl,
+        ),
+      );
+      return result.contents.length > 0 ? result : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const openWorkspaceFind = (input: { replace: boolean; seed: string }) => {
     setFindExpandedReplace(input.replace);
     setFindOpen(true);
     if (input.seed.length > 0) {
       setFindState((current) => ({ ...current, search: input.seed }));
     }
-  }, []);
+  };
 
-  const closeWorkspaceFind = useCallback(() => {
+  const closeWorkspaceFind = () => {
     setFindOpen(false);
-    setFindMatchSummary(EMPTY_WORKSPACE_FIND_MATCH_SUMMARY);
+    setClosedFindRequestToken(activeFindRequestToken);
     editorRef.current?.closeFindQuery();
-  }, []);
+  };
 
-  const updateFindState = useCallback((patch: Partial<WorkspaceFindState>) => {
+  const updateFindState = (patch: Partial<WorkspaceFindState>) => {
     setFindState((current) => ({ ...current, ...patch }));
-  }, []);
+  };
 
   useEffect(() => {
-    if (!findOpen) {
+    if (!visibleFindOpen) {
       return;
     }
-    const summary = editorRef.current?.updateFindQuery(findState);
-    setFindMatchSummary(summary ?? EMPTY_WORKSPACE_FIND_MATCH_SUMMARY);
-  }, [activeFileContents, editorMountVersion, findOpen, findState]);
+    editorRef.current?.updateFindQuery(visibleFindState);
+  }, [activeFileContents, editorMountVersion, visibleFindOpen, visibleFindState]);
 
   useEffect(() => {
     const editor = editorRef.current;
@@ -1071,14 +1092,6 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
   }, [editorMountVersion, pane.activeFilePath, props.symbolNavigationTarget]);
 
   useEffect(() => {
-    const editor = editorRef.current;
-    if (!editor || !props.active || !props.findRequestToken) {
-      return;
-    }
-    openWorkspaceFind({ replace: false, seed: editor.getFindSeed() });
-  }, [editorMountVersion, openWorkspaceFind, props.active, props.findRequestToken]);
-
-  useEffect(() => {
     if (!selectionActionsExpanded || !activeSelection) {
       return;
     }
@@ -1096,7 +1109,6 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
     const activeFilePath = pane.activeFilePath;
 
     if (isPreviewMode || !api || !props.diagnosticsCwd || !activeFilePath || !activeFileReady) {
-      clearWorkspaceProblems({ diagnosticError: null });
       return;
     }
 
@@ -1159,10 +1171,6 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
     props.gitCwd,
   ]);
 
-  useEffect(() => {
-    handleSymbolsChange(activeFileContents);
-  }, [activeFileContents, handleSymbolsChange]);
-
   useEffect(
     () => () => {
       syncRequestIdRef.current += 1;
@@ -1171,13 +1179,7 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
     [clearWorkspaceProblems],
   );
 
-  const readDraggedTab = useCallback((event: ReactDragEvent<HTMLElement>) => {
-    return readEditorTabTransfer(event.dataTransfer);
-  }, []);
-  const readDraggedExplorerEntry = useCallback((event: ReactDragEvent<HTMLElement>) => {
-    return readExplorerEntryTransfer(event.dataTransfer);
-  }, []);
-  const autoScrollTabStripOnDragOver = useCallback((clientX: number) => {
+  const autoScrollTabStripOnDragOver = (clientX: number) => {
     const tabStrip = tabStripRef.current;
     if (!tabStrip) {
       return;
@@ -1197,158 +1199,125 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
       const intensity = (clientX - (bounds.right - edgeThreshold)) / edgeThreshold;
       tabStrip.scrollLeft += Math.ceil(maxStep * Math.min(1, intensity));
     }
-  }, []);
+  };
 
-  const handleTabDrop = useCallback(
-    (event: ReactDragEvent<HTMLElement>, targetIndex?: number) => {
-      const draggedTab = readDraggedTab(event);
-      if (draggedTab) {
-        event.preventDefault();
-        setDropTargetIndex(null);
-        onMoveFile({
-          ...draggedTab,
-          targetPaneId: pane.id,
-          ...(targetIndex === undefined ? {} : { targetIndex }),
-        });
-        return;
-      }
-      const draggedEntry = readDraggedExplorerEntry(event);
-      if (!draggedEntry || draggedEntry.kind !== "file") {
-        return;
-      }
+  const handleTabDrop = (event: ReactDragEvent<HTMLElement>, targetIndex?: number) => {
+    const draggedTab = readDraggedWorkspaceTab(event);
+    if (draggedTab) {
       event.preventDefault();
       setDropTargetIndex(null);
-      onOpenFileInPane(pane.id, draggedEntry.path, targetIndex);
-    },
-    [onMoveFile, onOpenFileInPane, pane.id, readDraggedExplorerEntry, readDraggedTab],
-  );
+      onMoveFile({
+        ...draggedTab,
+        targetPaneId: pane.id,
+        ...(targetIndex === undefined ? {} : { targetIndex }),
+      });
+      return;
+    }
+    const draggedEntry = readDraggedWorkspaceExplorerEntry(event);
+    if (!draggedEntry || draggedEntry.kind !== "file") {
+      return;
+    }
+    event.preventDefault();
+    setDropTargetIndex(null);
+    onOpenFileInPane(pane.id, draggedEntry.path, targetIndex);
+  };
 
-  const handleTabDragOver = useCallback(
-    (event: ReactDragEvent<HTMLElement>, targetIndex?: number) => {
-      const draggedTab = readDraggedTab(event);
-      if (draggedTab) {
-        event.preventDefault();
-        event.dataTransfer.dropEffect = "move";
-        autoScrollTabStripOnDragOver(event.clientX);
-        setDropTargetIndex(targetIndex ?? pane.openFilePaths.length);
-        return;
-      }
-      const draggedEntry = readDraggedExplorerEntry(event);
-      if (!draggedEntry || draggedEntry.kind !== "file") {
-        return;
-      }
+  const handleTabDragOver = (event: ReactDragEvent<HTMLElement>, targetIndex?: number) => {
+    const draggedTab = readDraggedWorkspaceTab(event);
+    if (draggedTab) {
       event.preventDefault();
-      event.dataTransfer.dropEffect = "copy";
+      event.dataTransfer.dropEffect = "move";
       autoScrollTabStripOnDragOver(event.clientX);
       setDropTargetIndex(targetIndex ?? pane.openFilePaths.length);
-    },
-    [
-      autoScrollTabStripOnDragOver,
-      pane.openFilePaths.length,
-      readDraggedExplorerEntry,
-      readDraggedTab,
-    ],
-  );
+      return;
+    }
+    const draggedEntry = readDraggedWorkspaceExplorerEntry(event);
+    if (!draggedEntry || draggedEntry.kind !== "file") {
+      return;
+    }
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+    autoScrollTabStripOnDragOver(event.clientX);
+    setDropTargetIndex(targetIndex ?? pane.openFilePaths.length);
+  };
 
-  const clearDropTarget = useCallback(() => {
+  const clearDropTarget = () => {
     setDropTargetIndex(null);
-  }, []);
+  };
 
-  const openTabContextMenu = useCallback(
-    async (event: ReactMouseEvent<HTMLButtonElement>, filePath: string) => {
-      if (!api) {
+  const openTabContextMenu = async (event: ReactMouseEvent<HTMLElement>, filePath: string) => {
+    if (!api) {
+      return;
+    }
+
+    const tabIndex = pane.openFilePaths.indexOf(filePath);
+    if (tabIndex < 0) {
+      return;
+    }
+
+    const items = [
+      { id: "open-side", label: `Open ${basenameOfPath(filePath)} to the Side` },
+      { id: "close", label: `Close ${basenameOfPath(filePath)}` },
+      {
+        id: "close-others",
+        label: "Close Other Tabs",
+        disabled: pane.openFilePaths.length <= 1,
+      },
+      {
+        id: "close-right",
+        label: "Close Tabs to the Right",
+        disabled: tabIndex >= pane.openFilePaths.length - 1,
+      },
+      {
+        id: "reopen-closed",
+        label: "Reopen Closed Tab",
+        disabled: !canReopenClosedTab,
+      },
+    ] as const;
+
+    const clicked = await api.contextMenu.show(items, {
+      x: event.clientX,
+      y: event.clientY,
+    });
+
+    switch (clicked) {
+      case "open-side":
+        onOpenFileToSide(pane.id, filePath);
         return;
-      }
-
-      const tabIndex = pane.openFilePaths.indexOf(filePath);
-      if (tabIndex < 0) {
+      case "close":
+        onCloseFile(pane.id, filePath);
         return;
-      }
-
-      const items = [
-        { id: "open-side", label: `Open ${basenameOfPath(filePath)} to the Side` },
-        { id: "close", label: `Close ${basenameOfPath(filePath)}` },
-        {
-          id: "close-others",
-          label: "Close Other Tabs",
-          disabled: pane.openFilePaths.length <= 1,
-        },
-        {
-          id: "close-right",
-          label: "Close Tabs to the Right",
-          disabled: tabIndex >= pane.openFilePaths.length - 1,
-        },
-        {
-          id: "reopen-closed",
-          label: "Reopen Closed Tab",
-          disabled: !canReopenClosedTab,
-        },
-      ] as const;
-
-      const clicked = await api.contextMenu.show(items, {
-        x: event.clientX,
-        y: event.clientY,
-      });
-
-      switch (clicked) {
-        case "open-side":
-          onOpenFileToSide(pane.id, filePath);
-          return;
-        case "close":
-          onCloseFile(pane.id, filePath);
-          return;
-        case "close-others":
-          onCloseOtherTabs(pane.id, filePath);
-          return;
-        case "close-right":
-          onCloseTabsToRight(pane.id, filePath);
-          return;
-        case "reopen-closed":
-          onReopenClosedTab(pane.id);
-          return;
-        default:
-      }
-    },
-    [
-      api,
-      canReopenClosedTab,
-      onCloseFile,
-      onCloseOtherTabs,
-      onCloseTabsToRight,
-      onOpenFileToSide,
-      onReopenClosedTab,
-      pane.id,
-      pane.openFilePaths,
-    ],
-  );
-
-  const sortedProblems = useMemo(
-    () =>
-      problems.toSorted((left, right) => {
-        if (left.severity !== right.severity) {
-          return right.severity - left.severity;
-        }
-        if (left.startLineNumber !== right.startLineNumber) {
-          return left.startLineNumber - right.startLineNumber;
-        }
-        return left.startColumn - right.startColumn;
-      }),
-    [problems],
-  );
-
-  const handleProblemClick = useCallback(
-    (problem: WorkspaceEditorPaneProblem) => {
-      if (!pane.activeFilePath) {
+      case "close-others":
+        onCloseOtherTabs(pane.id, filePath);
         return;
-      }
-      editorRef.current?.revealLocation(
-        toWorkspaceLocationFromProblem(pane.activeFilePath, problem),
-      );
-    },
-    [pane.activeFilePath],
-  );
+      case "close-right":
+        onCloseTabsToRight(pane.id, filePath);
+        return;
+      case "reopen-closed":
+        onReopenClosedTab(pane.id);
+        return;
+      default:
+    }
+  };
 
-  const handleAddAndSendSelectionComment = useCallback(async () => {
+  const sortedProblems = problems.toSorted((left, right) => {
+    if (left.severity !== right.severity) {
+      return right.severity - left.severity;
+    }
+    if (left.startLineNumber !== right.startLineNumber) {
+      return left.startLineNumber - right.startLineNumber;
+    }
+    return left.startColumn - right.startColumn;
+  });
+
+  const handleProblemClick = (problem: WorkspaceEditorPaneProblem) => {
+    if (!pane.activeFilePath) {
+      return;
+    }
+    editorRef.current?.revealLocation(toWorkspaceLocationFromProblem(pane.activeFilePath, problem));
+  };
+
+  const handleAddAndSendSelectionComment = async () => {
     if (
       !activeSelection ||
       !workspaceCwd ||
@@ -1379,31 +1348,24 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
       );
     } catch {
       sent = false;
-    } finally {
       dispatchSelectionState({
         type: "set-selection-comment-submitting",
         selectionCommentSubmitting: false,
       });
+      return;
     }
+    dispatchSelectionState({
+      type: "set-selection-comment-submitting",
+      selectionCommentSubmitting: false,
+    });
     if (!sent) {
       return;
     }
     dispatchSelectionState({ type: "reset-selection-comment" });
-  }, [activeSelection, commentDraft, props, selectionCommentSubmitting, workspaceCwd]);
-
-  useEffect(() => {
-    setEditorFeedbackState((current) => ({
-      ...current,
-      actionError: null,
-      previewError: null,
-      problemsOpen: false,
-    }));
-  }, [pane.activeFilePath]);
+  };
 
   const activeFileErrorMessage =
-    activeFileQuery.error instanceof Error
-      ? activeFileQuery.error.message
-      : "An unexpected error occurred.";
+    activeFileError instanceof Error ? activeFileError.message : "An unexpected error occurred.";
   const activeFileName = pane.activeFilePath ? basenameOfPath(pane.activeFilePath) : "File";
 
   return (
@@ -1442,8 +1404,10 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
                 <Tooltip>
                   <TooltipTrigger
                     render={
-                      <button
-                        type="button"
+                      <div
+                        role="tab"
+                        tabIndex={0}
+                        aria-selected={isActive}
                         data-editor-tab="true"
                         className={cn(
                           "group/tab relative flex h-7 shrink-0 items-center gap-1.5 rounded-lg border px-2.5 text-[12px] transition-colors",
@@ -1453,6 +1417,13 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
                         )}
                         draggable
                         onClick={() => props.onSetActiveFile(props.pane.id, filePath)}
+                        onKeyDown={(event) => {
+                          if (event.key !== "Enter" && event.key !== " ") {
+                            return;
+                          }
+                          event.preventDefault();
+                          props.onSetActiveFile(props.pane.id, filePath);
+                        }}
                         onContextMenu={(event) => {
                           event.preventDefault();
                           props.onSetActiveFile(props.pane.id, filePath);
@@ -1496,8 +1467,8 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
                         {isDirty ? (
                           <span className="size-1.5 shrink-0 rounded-full bg-foreground/45 group-hover/tab:hidden" />
                         ) : null}
-                        <span
-                          role="button"
+                        <button
+                          type="button"
                           tabIndex={-1}
                           className={cn(
                             "flex size-4 shrink-0 items-center justify-center rounded-md opacity-0 transition-opacity",
@@ -1512,8 +1483,8 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
                           aria-label={`Close ${filePath}`}
                         >
                           <XIcon className="size-3" />
-                        </span>
-                      </button>
+                        </button>
+                      </div>
                     }
                   />
                   <TooltipPopup side="bottom" className="max-w-96 whitespace-pre-wrap">
@@ -1649,6 +1620,7 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
                     onError={() => {
                       setEditorFeedbackState((current) => ({
                         ...current,
+                        filePath: pane.activeFilePath,
                         previewError: "Unable to preview this image in the embedded editor.",
                       }));
                     }}
@@ -1657,14 +1629,18 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
                   <video
                     src={previewUrl}
                     controls
+                    aria-label={`Preview ${props.pane.activeFilePath}`}
                     className="max-h-full max-w-full"
                     onError={() => {
                       setEditorFeedbackState((current) => ({
                         ...current,
+                        filePath: pane.activeFilePath,
                         previewError: "Unable to preview this video in the embedded editor.",
                       }));
                     }}
-                  />
+                  >
+                    <track kind="captions" />
+                  </video>
                 )}
               </div>
             </div>
@@ -1672,13 +1648,13 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
               <span className="truncate">{previewModeLabel}</span>
             </div>
           </div>
-        ) : isTextPreviewMode && activeFileQuery.data?.contents !== undefined ? (
+        ) : isTextPreviewMode && activeFileData?.contents !== undefined ? (
           <div className="flex h-full min-h-0 flex-col">
             {activePreviewKind === "markdown" ? (
               <div className="min-h-0 flex-1 overflow-auto bg-background">
                 <div className="workspace-markdown-preview mx-auto w-full max-w-4xl px-5 py-5 sm:px-8 sm:py-7">
                   <ChatMarkdown
-                    text={activeFileQuery.data.contents}
+                    text={activeFileData.contents}
                     cwd={props.gitCwd ?? undefined}
                     isStreaming={false}
                   />
@@ -1688,7 +1664,7 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
               <div className="min-h-0 flex-1 overflow-auto p-4">
                 <div className={cn(APP_WORKSPACE_INSET_CLASS_NAME, "min-h-[220px] p-4")}>
                   <MermaidDiagram
-                    source={activeFileQuery.data.contents}
+                    source={activeFileData.contents}
                     theme={props.resolvedTheme}
                     className="h-full"
                   />
@@ -1699,7 +1675,7 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
               <span className="truncate">{previewModeLabel}</span>
             </div>
           </div>
-        ) : activeFileQuery.isPending && !activeDraft ? (
+        ) : isActiveFilePending && !activeDraft ? (
           <div className="space-y-4 p-6">
             <p className="text-xs font-medium tracking-[0.16em] text-muted-foreground uppercase">
               Opening file
@@ -1709,7 +1685,7 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
             <div className="h-4 w-[88%] rounded bg-foreground/4" />
             <div className="h-4 w-[76%] rounded bg-foreground/4" />
           </div>
-        ) : activeFileQuery.isError && !activeDraft ? (
+        ) : isActiveFileError && !activeDraft ? (
           <div className="h-full min-h-0 overflow-auto bg-background px-8 py-12 text-foreground sm:px-10">
             <div className="mx-auto flex w-full max-w-2xl flex-col items-start gap-4">
               <div className="flex min-w-0 items-center gap-2 text-muted-foreground/76">
@@ -1768,6 +1744,7 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
               onToggleProblems={() => {
                 setEditorFeedbackState((current) => ({
                   ...current,
+                  filePath: pane.activeFilePath,
                   problemsOpen: !current.problemsOpen,
                 }));
               }}
@@ -1776,7 +1753,7 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
               value={activeFileContents}
             />
             <WorkspaceFindBar
-              expandedReplace={findExpandedReplace}
+              expandedReplace={visibleFindExpandedReplace}
               matchSummary={findMatchSummary}
               onClose={closeWorkspaceFind}
               onFindNext={() => editorRef.current?.findNext()}
@@ -1786,8 +1763,8 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
               onSelectAll={() => editorRef.current?.selectFindMatches()}
               onStateChange={updateFindState}
               onToggleReplace={() => setFindExpandedReplace((current) => !current)}
-              open={findOpen}
-              state={findState}
+              open={visibleFindOpen}
+              state={visibleFindState}
             />
             {activeSelection ? (
               <div
@@ -1830,7 +1807,7 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
                   >
                     <input
                       ref={selectionCommentInputRef}
-                      autoFocus
+                      aria-label="Selection comment"
                       value={commentDraft}
                       onChange={(event) =>
                         dispatchSelectionState({
@@ -2041,6 +2018,7 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
                     onClick={() => {
                       setEditorFeedbackState((current) => ({
                         ...current,
+                        filePath: pane.activeFilePath,
                         problemsOpen: !current.problemsOpen,
                       }));
                     }}
@@ -2092,7 +2070,4 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
   return useWorkspaceEditorPaneComponent(props);
 }
 
-const MemoizedWorkspaceEditorPane = memo(WorkspaceEditorPane);
-MemoizedWorkspaceEditorPane.displayName = "WorkspaceEditorPane";
-
-export default MemoizedWorkspaceEditorPane;
+export default WorkspaceEditorPane;

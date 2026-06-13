@@ -53,31 +53,12 @@ import {
   selectMatches as cmSelectMatches,
   setSearchQuery,
 } from "@codemirror/search";
-import { Compartment, EditorSelection, EditorState, type Extension } from "@codemirror/state";
-import {
-  drawSelection,
-  dropCursor,
-  EditorView,
-  highlightActiveLine,
-  highlightActiveLineGutter,
-  highlightSpecialChars,
-  highlightTrailingWhitespace,
-  highlightWhitespace,
-  hoverTooltip,
-  keymap,
-  rectangularSelection,
-  type Panel,
-  type KeyBinding,
-  type Tooltip,
-  type ViewUpdate,
-} from "@codemirror/view";
 import {
   forwardRef,
-  memo,
   useEffect,
   useImperativeHandle,
-  useMemo,
   useRef,
+  useState,
   type MutableRefObject,
 } from "react";
 
@@ -102,6 +83,30 @@ import {
   type WorkspaceFindState,
 } from "~/lib/editor/workspaceFind";
 import { cn } from "~/lib/utils";
+
+const { Compartment, EditorSelection, EditorState } = await import("@codemirror/state");
+const {
+  drawSelection,
+  dropCursor,
+  EditorView,
+  highlightActiveLine,
+  highlightActiveLineGutter,
+  highlightSpecialChars,
+  highlightTrailingWhitespace,
+  highlightWhitespace,
+  hoverTooltip,
+  keymap,
+  rectangularSelection,
+} = await import("@codemirror/view");
+
+type EditorState = import("@codemirror/state").EditorState;
+type Compartment = import("@codemirror/state").Compartment;
+type Extension = import("@codemirror/state").Extension;
+type EditorView = import("@codemirror/view").EditorView;
+type KeyBinding = import("@codemirror/view").KeyBinding;
+type Panel = import("@codemirror/view").Panel;
+type Tooltip = import("@codemirror/view").Tooltip;
+type ViewUpdate = import("@codemirror/view").ViewUpdate;
 
 const COMPLETION_TRIGGER_CHARACTERS = new Set([".", "/", '"', "'", ":", "<", "@"]);
 const COMPLETION_WORD_PATTERN = /[\w$.-]*$/u;
@@ -299,19 +304,21 @@ function createCompletionSource(
     const word = context.matchBefore(COMPLETION_WORD_PATTERN);
     const line = context.state.doc.lineAt(context.pos);
     try {
+      if (context.aborted) {
+        return null;
+      }
       const items = await callbacks.completionProvider({
         column: Math.max(0, context.pos - line.from),
         contents: context.state.doc.toString(),
         line: Math.max(0, line.number - 1),
       });
-      if (context.aborted) {
-        return null;
-      }
-      return {
-        from: word?.from ?? context.pos,
-        options: items.map(toCodeMirrorCompletion),
-        validFor: COMPLETION_VALID_FOR_PATTERN,
-      };
+      return context.aborted
+        ? null
+        : {
+            from: word?.from ?? context.pos,
+            options: items.map(toCodeMirrorCompletion),
+            validFor: COMPLETION_VALID_FOR_PATTERN,
+          };
     } catch {
       return null;
     }
@@ -1107,319 +1114,315 @@ function locationToSelection(
   return { from, to: Math.max(from, to) };
 }
 
-const WorkspaceCodeEditor = memo(
-  forwardRef<WorkspaceCodeEditorHandle, WorkspaceCodeEditorProps>(
-    function WorkspaceCodeEditor(props, forwardedRef) {
-      const hostRef = useRef<HTMLDivElement | null>(null);
-      const viewRef = useRef<EditorView | null>(null);
-      const valueRef = useRef(props.value);
-      const syncingFromPropsRef = useRef(false);
-      const completionCompartment = useMemo(() => new Compartment(), []);
-      const indentUnitCompartment = useMemo(() => new Compartment(), []);
-      const languageCompartment = useMemo(() => new Compartment(), []);
-      const lineNumbersCompartment = useMemo(() => new Compartment(), []);
-      const readOnlyCompartment = useMemo(() => new Compartment(), []);
-      const shikiHighlightCompartment = useMemo(() => new Compartment(), []);
-      const tabSizeCompartment = useMemo(() => new Compartment(), []);
-      const themeCompartment = useMemo(() => new Compartment(), []);
-      const whitespaceCompartment = useMemo(() => new Compartment(), []);
-      const wrappingCompartment = useMemo(() => new Compartment(), []);
-      const callbacksRef = useRef<WorkspaceCodeEditorCallbacks>({
-        activeFilePath: props.activeFilePath,
-        completionProvider: props.completionProvider,
-        languageId: props.languageId,
-        onChange: props.onChange,
-        onCursorLabelChange: props.onCursorLabelChange,
-        onDefinitionRequest: props.onDefinitionRequest,
-        onFindRequest: props.onFindRequest,
-        onFocus: props.onFocus,
-        onHoverRequest: props.onHoverRequest,
-        onSave: props.onSave,
-        onSelectionChange: props.onSelectionChange,
-        onSymbolsChange: props.onSymbolsChange,
-        onToggleProblems: props.onToggleProblems,
-      });
-      updateCallbacksRef(callbacksRef, props);
-      const createSnapshotRef = useRef<WorkspaceCodeEditorCreateSnapshot>({
-        languageId: props.languageId,
-        options: props.options,
-        readOnly: props.readOnly ?? false,
-        resolvedTheme: props.resolvedTheme,
-        value: props.value,
-      });
-      createSnapshotRef.current = {
-        languageId: props.languageId,
-        options: props.options,
-        readOnly: props.readOnly ?? false,
-        resolvedTheme: props.resolvedTheme,
-        value: props.value,
-      };
+const WorkspaceCodeEditor = forwardRef<WorkspaceCodeEditorHandle, WorkspaceCodeEditorProps>(
+  function WorkspaceCodeEditor(props, forwardedRef) {
+    const hostRef = useRef<HTMLDivElement | null>(null);
+    const viewRef = useRef<EditorView | null>(null);
+    const valueRef = useRef(props.value);
+    const syncingFromPropsRef = useRef(false);
+    const [completionCompartment] = useState(() => new Compartment());
+    const [indentUnitCompartment] = useState(() => new Compartment());
+    const [languageCompartment] = useState(() => new Compartment());
+    const [lineNumbersCompartment] = useState(() => new Compartment());
+    const [readOnlyCompartment] = useState(() => new Compartment());
+    const [shikiHighlightCompartment] = useState(() => new Compartment());
+    const [tabSizeCompartment] = useState(() => new Compartment());
+    const [themeCompartment] = useState(() => new Compartment());
+    const [whitespaceCompartment] = useState(() => new Compartment());
+    const [wrappingCompartment] = useState(() => new Compartment());
+    const callbacksRef = useRef<WorkspaceCodeEditorCallbacks>({
+      activeFilePath: props.activeFilePath,
+      completionProvider: props.completionProvider,
+      languageId: props.languageId,
+      onChange: props.onChange,
+      onCursorLabelChange: props.onCursorLabelChange,
+      onDefinitionRequest: props.onDefinitionRequest,
+      onFindRequest: props.onFindRequest,
+      onFocus: props.onFocus,
+      onHoverRequest: props.onHoverRequest,
+      onSave: props.onSave,
+      onSelectionChange: props.onSelectionChange,
+      onSymbolsChange: props.onSymbolsChange,
+      onToggleProblems: props.onToggleProblems,
+    });
+    updateCallbacksRef(callbacksRef, props);
+    const createSnapshotRef = useRef<WorkspaceCodeEditorCreateSnapshot>({
+      languageId: props.languageId,
+      options: props.options,
+      readOnly: props.readOnly ?? false,
+      resolvedTheme: props.resolvedTheme,
+      value: props.value,
+    });
+    createSnapshotRef.current = {
+      languageId: props.languageId,
+      options: props.options,
+      readOnly: props.readOnly ?? false,
+      resolvedTheme: props.resolvedTheme,
+      value: props.value,
+    };
 
-      useImperativeHandle(
-        forwardedRef,
-        () => ({
-          closeFindQuery() {
-            const view = viewRef.current;
-            if (!view) {
-              return;
-            }
-            closeSearchPanel(view);
-            view.focus();
-          },
-          findNext() {
-            const view = viewRef.current;
-            if (!view) {
-              return;
-            }
-            cmFindNext(view);
-            view.focus();
-          },
-          findPrevious() {
-            const view = viewRef.current;
-            if (!view) {
-              return;
-            }
-            cmFindPrevious(view);
-            view.focus();
-          },
-          focus() {
-            viewRef.current?.focus();
-          },
-          getFindSeed() {
-            const view = viewRef.current;
-            if (!view) {
-              return "";
-            }
-            return findSeedForState(view.state);
-          },
-          replaceAll() {
-            const view = viewRef.current;
-            if (!view) {
-              return;
-            }
-            cmReplaceAll(view);
-            view.focus();
-          },
-          replaceNext() {
-            const view = viewRef.current;
-            if (!view) {
-              return;
-            }
-            cmReplaceNext(view);
-            view.focus();
-          },
-          revealLocation(location) {
-            const view = viewRef.current;
-            if (!view) {
-              return;
-            }
-            const selection = locationToSelection(view.state, location);
-            const editorSelection = EditorSelection.create([
-              EditorSelection.range(selection.from, selection.to),
-            ]);
-            view.dispatch({
-              effects: EditorView.scrollIntoView(editorSelection.main, { y: "center" }),
-              selection: editorSelection,
-            });
-            view.focus();
-          },
-          selectFindMatches() {
-            const view = viewRef.current;
-            if (!view) {
-              return;
-            }
-            cmSelectMatches(view);
-            view.focus();
-          },
-          setPosition(position) {
-            const view = viewRef.current;
-            if (!view) {
-              return;
-            }
-            const offset = workspaceDocOffsetFromPosition({
-              column: position.column,
-              doc: view.state.doc,
-              line: position.line,
-            });
-            view.dispatch({
-              effects: EditorView.scrollIntoView(offset, { y: "center" }),
-              selection: { anchor: offset },
-            });
-            view.focus();
-          },
-          triggerCompletion() {
-            const view = viewRef.current;
-            if (!view) {
-              return;
-            }
-            startCompletion(view);
-            view.focus();
-          },
-          updateFindQuery(state) {
-            const view = viewRef.current;
-            if (!view) {
-              return { capped: false, count: 0 };
-            }
-            const query = createWorkspaceFindQuery(state);
-            if (state.search.length === 0) {
-              view.dispatch({ effects: setSearchQuery.of(query) });
-              closeSearchPanel(view);
-              return { capped: false, count: 0 };
-            }
-            openSearchPanel(view);
-            view.dispatch({ effects: setSearchQuery.of(query) });
-            return countWorkspaceFindMatches(view.state, query);
-          },
-        }),
-        [],
-      );
-
-      useEffect(() => {
-        const parent = hostRef.current;
-        if (!parent) {
-          return;
-        }
-        const createSnapshot = createSnapshotRef.current;
-        valueRef.current = createSnapshot.value;
-
-        const view = new EditorView({
-          doc: createSnapshot.value,
-          extensions: createEditorExtensions({
-            activeFilePath: props.activeFilePath,
-            callbacksRef,
-            completionCompartment,
-            indentUnitCompartment,
-            languageCompartment,
-            languageId: createSnapshot.languageId,
-            lineNumbersCompartment,
-            options: createSnapshot.options,
-            readOnly: createSnapshot.readOnly,
-            readOnlyCompartment,
-            resolvedTheme: createSnapshot.resolvedTheme,
-            shikiHighlightCompartment,
-            tabSizeCompartment,
-            themeCompartment,
-            transientRefs: { syncingFromPropsRef, valueRef },
-            whitespaceCompartment,
-            wrappingCompartment,
-          }),
-          parent,
-        });
-        viewRef.current = view;
-        callbacksRef.current.onCursorLabelChange(cursorLabelForState(view.state));
-        callbacksRef.current.onSymbolsChange(view.state.doc.toString());
-        forceLinting(view);
-
-        return () => {
-          view.destroy();
-          if (viewRef.current === view) {
-            viewRef.current = null;
+    useImperativeHandle(
+      forwardedRef,
+      () => ({
+        closeFindQuery() {
+          const view = viewRef.current;
+          if (!view) {
+            return;
           }
-        };
-      }, [
-        callbacksRef,
-        completionCompartment,
-        indentUnitCompartment,
-        languageCompartment,
-        props.activeFilePath,
-        lineNumbersCompartment,
-        readOnlyCompartment,
-        shikiHighlightCompartment,
-        tabSizeCompartment,
-        themeCompartment,
-        whitespaceCompartment,
-        wrappingCompartment,
-      ]);
+          closeSearchPanel(view);
+          view.focus();
+        },
+        findNext() {
+          const view = viewRef.current;
+          if (!view) {
+            return;
+          }
+          cmFindNext(view);
+          view.focus();
+        },
+        findPrevious() {
+          const view = viewRef.current;
+          if (!view) {
+            return;
+          }
+          cmFindPrevious(view);
+          view.focus();
+        },
+        focus() {
+          viewRef.current?.focus();
+        },
+        getFindSeed() {
+          const view = viewRef.current;
+          if (!view) {
+            return "";
+          }
+          return findSeedForState(view.state);
+        },
+        replaceAll() {
+          const view = viewRef.current;
+          if (!view) {
+            return;
+          }
+          cmReplaceAll(view);
+          view.focus();
+        },
+        replaceNext() {
+          const view = viewRef.current;
+          if (!view) {
+            return;
+          }
+          cmReplaceNext(view);
+          view.focus();
+        },
+        revealLocation(location) {
+          const view = viewRef.current;
+          if (!view) {
+            return;
+          }
+          const selection = locationToSelection(view.state, location);
+          const editorSelection = EditorSelection.create([
+            EditorSelection.range(selection.from, selection.to),
+          ]);
+          view.dispatch({
+            effects: EditorView.scrollIntoView(editorSelection.main, { y: "center" }),
+            selection: editorSelection,
+          });
+          view.focus();
+        },
+        selectFindMatches() {
+          const view = viewRef.current;
+          if (!view) {
+            return;
+          }
+          cmSelectMatches(view);
+          view.focus();
+        },
+        setPosition(position) {
+          const view = viewRef.current;
+          if (!view) {
+            return;
+          }
+          const offset = workspaceDocOffsetFromPosition({
+            column: position.column,
+            doc: view.state.doc,
+            line: position.line,
+          });
+          view.dispatch({
+            effects: EditorView.scrollIntoView(offset, { y: "center" }),
+            selection: { anchor: offset },
+          });
+          view.focus();
+        },
+        triggerCompletion() {
+          const view = viewRef.current;
+          if (!view) {
+            return;
+          }
+          startCompletion(view);
+          view.focus();
+        },
+        updateFindQuery(state) {
+          const view = viewRef.current;
+          if (!view) {
+            return { capped: false, count: 0 };
+          }
+          const query = createWorkspaceFindQuery(state);
+          if (state.search.length === 0) {
+            view.dispatch({ effects: setSearchQuery.of(query) });
+            closeSearchPanel(view);
+            return { capped: false, count: 0 };
+          }
+          openSearchPanel(view);
+          view.dispatch({ effects: setSearchQuery.of(query) });
+          return countWorkspaceFindMatches(view.state, query);
+        },
+      }),
+      [],
+    );
 
-      useEffect(() => {
-        const view = viewRef.current;
-        if (!view || props.value === valueRef.current) {
-          return;
+    useEffect(() => {
+      const parent = hostRef.current;
+      if (!parent) {
+        return;
+      }
+      const createSnapshot = createSnapshotRef.current;
+      valueRef.current = createSnapshot.value;
+
+      const view = new EditorView({
+        doc: createSnapshot.value,
+        extensions: createEditorExtensions({
+          activeFilePath: props.activeFilePath,
+          callbacksRef,
+          completionCompartment,
+          indentUnitCompartment,
+          languageCompartment,
+          languageId: createSnapshot.languageId,
+          lineNumbersCompartment,
+          options: createSnapshot.options,
+          readOnly: createSnapshot.readOnly,
+          readOnlyCompartment,
+          resolvedTheme: createSnapshot.resolvedTheme,
+          shikiHighlightCompartment,
+          tabSizeCompartment,
+          themeCompartment,
+          transientRefs: { syncingFromPropsRef, valueRef },
+          whitespaceCompartment,
+          wrappingCompartment,
+        }),
+        parent,
+      });
+      viewRef.current = view;
+      callbacksRef.current.onCursorLabelChange(cursorLabelForState(view.state));
+      callbacksRef.current.onSymbolsChange(view.state.doc.toString());
+      forceLinting(view);
+
+      return () => {
+        view.destroy();
+        if (viewRef.current === view) {
+          viewRef.current = null;
         }
-        valueRef.current = props.value;
-        syncingFromPropsRef.current = true;
-        view.dispatch({
-          changes: { from: 0, insert: props.value, to: view.state.doc.length },
-        });
-        syncingFromPropsRef.current = false;
-      }, [props.value]);
+      };
+    }, [
+      callbacksRef,
+      completionCompartment,
+      indentUnitCompartment,
+      languageCompartment,
+      props.activeFilePath,
+      lineNumbersCompartment,
+      readOnlyCompartment,
+      shikiHighlightCompartment,
+      tabSizeCompartment,
+      themeCompartment,
+      whitespaceCompartment,
+      wrappingCompartment,
+    ]);
 
-      useEffect(() => {
-        const view = viewRef.current;
-        if (!view) {
-          return;
-        }
-        const nextDiagnostics = toCodeMirrorDiagnostics(view.state, props.diagnostics);
-        view.dispatch(setDiagnostics(view.state, nextDiagnostics));
-      }, [props.diagnostics]);
+    useEffect(() => {
+      const view = viewRef.current;
+      if (!view || props.value === valueRef.current) {
+        return;
+      }
+      valueRef.current = props.value;
+      syncingFromPropsRef.current = true;
+      view.dispatch({
+        changes: { from: 0, insert: props.value, to: view.state.doc.length },
+      });
+      syncingFromPropsRef.current = false;
+    }, [props.value]);
 
-      useEffect(() => {
-        const view = viewRef.current;
-        if (!view) {
-          return;
-        }
-        view.dispatch({
-          effects: [
-            themeCompartment.reconfigure(
-              createWorkspaceCodeMirrorTheme({
-                options: props.options,
-                resolvedTheme: props.resolvedTheme,
-              }),
-            ),
-            languageCompartment.reconfigure(
-              createWorkspaceLanguageExtensions({
-                filePath: props.activeFilePath,
-                languageId: props.languageId,
-              }),
-            ),
-            shikiHighlightCompartment.reconfigure(
-              createWorkspaceShikiHighlightConfig({
-                filePath: props.activeFilePath,
-                languageId: props.languageId,
-                resolvedTheme: props.resolvedTheme,
-              }),
-            ),
-            wrappingCompartment.reconfigure(props.options.wordWrap ? EditorView.lineWrapping : []),
-            readOnlyCompartment.reconfigure(setWorkspaceEditorReadOnly(props.readOnly ?? false)),
-            lineNumbersCompartment.reconfigure(
-              createWorkspaceLineNumberExtension(props.options.lineNumbers),
-            ),
-            tabSizeCompartment.reconfigure(EditorState.tabSize.of(props.options.tabSize)),
-            indentUnitCompartment.reconfigure(indentUnit.of(" ".repeat(props.options.tabSize))),
-            whitespaceCompartment.reconfigure(createWhitespaceExtension(props.options)),
-            completionCompartment.reconfigure(
-              createCompletionExtension(callbacksRef, props.options),
-            ),
-          ],
-        });
-      }, [
-        callbacksRef,
-        completionCompartment,
-        indentUnitCompartment,
-        languageCompartment,
-        lineNumbersCompartment,
-        props.activeFilePath,
-        props.languageId,
-        props.options,
-        props.readOnly,
-        props.resolvedTheme,
-        readOnlyCompartment,
-        shikiHighlightCompartment,
-        tabSizeCompartment,
-        themeCompartment,
-        whitespaceCompartment,
-        wrappingCompartment,
-      ]);
+    useEffect(() => {
+      const view = viewRef.current;
+      if (!view) {
+        return;
+      }
+      const nextDiagnostics = toCodeMirrorDiagnostics(view.state, props.diagnostics);
+      view.dispatch(setDiagnostics(view.state, nextDiagnostics));
+    }, [props.diagnostics]);
 
-      return (
-        <div
-          ref={hostRef}
-          className={cn("h-full min-h-0 w-full min-w-0 overflow-hidden", props.className)}
-          data-workspace-code-editor="true"
-        />
-      );
-    },
-  ),
+    useEffect(() => {
+      const view = viewRef.current;
+      if (!view) {
+        return;
+      }
+      view.dispatch({
+        effects: [
+          themeCompartment.reconfigure(
+            createWorkspaceCodeMirrorTheme({
+              options: props.options,
+              resolvedTheme: props.resolvedTheme,
+            }),
+          ),
+          languageCompartment.reconfigure(
+            createWorkspaceLanguageExtensions({
+              filePath: props.activeFilePath,
+              languageId: props.languageId,
+            }),
+          ),
+          shikiHighlightCompartment.reconfigure(
+            createWorkspaceShikiHighlightConfig({
+              filePath: props.activeFilePath,
+              languageId: props.languageId,
+              resolvedTheme: props.resolvedTheme,
+            }),
+          ),
+          wrappingCompartment.reconfigure(props.options.wordWrap ? EditorView.lineWrapping : []),
+          readOnlyCompartment.reconfigure(setWorkspaceEditorReadOnly(props.readOnly ?? false)),
+          lineNumbersCompartment.reconfigure(
+            createWorkspaceLineNumberExtension(props.options.lineNumbers),
+          ),
+          tabSizeCompartment.reconfigure(EditorState.tabSize.of(props.options.tabSize)),
+          indentUnitCompartment.reconfigure(indentUnit.of(" ".repeat(props.options.tabSize))),
+          whitespaceCompartment.reconfigure(createWhitespaceExtension(props.options)),
+          completionCompartment.reconfigure(createCompletionExtension(callbacksRef, props.options)),
+        ],
+      });
+    }, [
+      callbacksRef,
+      completionCompartment,
+      indentUnitCompartment,
+      languageCompartment,
+      lineNumbersCompartment,
+      props.activeFilePath,
+      props.languageId,
+      props.options,
+      props.readOnly,
+      props.resolvedTheme,
+      readOnlyCompartment,
+      shikiHighlightCompartment,
+      tabSizeCompartment,
+      themeCompartment,
+      whitespaceCompartment,
+      wrappingCompartment,
+    ]);
+
+    return (
+      <div
+        ref={hostRef}
+        className={cn("h-full min-h-0 w-full min-w-0 overflow-hidden", props.className)}
+        data-workspace-code-editor="true"
+      />
+    );
+  },
 );
 
 WorkspaceCodeEditor.displayName = "WorkspaceCodeEditor";

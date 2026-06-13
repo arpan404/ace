@@ -5,44 +5,18 @@ import {
   type ServerProviderModel,
   type ThreadId,
 } from "@ace/contracts";
-import { isClaudeUltrathinkPrompt, resolveEffort } from "@ace/shared/model";
 import type { ReactNode } from "react";
-import { getProviderModelCapabilities } from "../../providerModels";
 import {
-  shouldRenderTraitsPicker,
   TraitsMenuContent,
   TraitsPicker,
   CursorTraitsMenuContent,
   CursorTraitsPicker,
 } from "./TraitsPicker";
-import {
-  normalizeClaudeModelOptionsWithCapabilities,
-  normalizeCodexModelOptionsWithCapabilities,
-  normalizeCursorModelOptionsWithCapabilities,
-  normalizeGitHubCopilotModelOptionsWithCapabilities,
-  normalizeOpenCodeModelOptionsWithCapabilities,
-  normalizePiModelOptionsWithCapabilities,
-} from "@ace/shared/model";
-
-export type ComposerProviderStateInput = {
-  provider: ProviderKind;
-  model: string;
-  models: ReadonlyArray<ServerProviderModel>;
-  prompt: string;
-  modelOptions: ProviderModelOptions | null | undefined;
-};
-
-export type ComposerProviderState = {
-  provider: ProviderKind;
-  promptEffort: string | null;
-  modelOptionsForDispatch: ProviderModelOptions[ProviderKind] | undefined;
-  composerFrameClassName?: string;
-  composerSurfaceClassName?: string;
-  modelPickerIconClassName?: string;
-};
+import { shouldRenderTraitsPicker } from "./traitsPickerVisibility";
+export { getComposerProviderState } from "./composerProviderState";
+export type { ComposerProviderState, ComposerProviderStateInput } from "./composerProviderState";
 
 type ProviderRegistryEntry = {
-  getState: (input: ComposerProviderStateInput) => ComposerProviderState;
   renderTraitsMenuContent: (input: {
     threadId: ThreadId;
     model: string;
@@ -64,77 +38,8 @@ type ProviderRegistryEntry = {
   }) => ReactNode;
 };
 
-function getProviderStateFromCapabilities(
-  input: ComposerProviderStateInput,
-): ComposerProviderState {
-  const { provider, model, models, prompt, modelOptions } = input;
-  const caps = getProviderModelCapabilities(models, model, provider);
-  const providerOptions = modelOptions?.[provider];
-
-  // Resolve effort
-  const rawEffort =
-    provider === "claudeAgent"
-      ? providerOptions && "effort" in providerOptions
-        ? providerOptions.effort
-        : null
-      : provider === "pi"
-        ? providerOptions && typeof providerOptions === "object"
-          ? "thoughtLevel" in providerOptions &&
-            typeof providerOptions.thoughtLevel === "string" &&
-            providerOptions.thoughtLevel.trim().length > 0
-            ? providerOptions.thoughtLevel
-            : "reasoningEffort" in providerOptions &&
-                typeof providerOptions.reasoningEffort === "string" &&
-                providerOptions.reasoningEffort.trim().length > 0
-              ? providerOptions.reasoningEffort
-              : null
-          : null
-        : providerOptions && "reasoningEffort" in providerOptions
-          ? providerOptions.reasoningEffort
-          : null;
-
-  const promptEffort = resolveEffort(caps, rawEffort) ?? null;
-
-  // Normalize options for dispatch
-  const normalizedOptions =
-    provider === "codex"
-      ? normalizeCodexModelOptionsWithCapabilities(caps, modelOptions?.codex)
-      : provider === "claudeAgent"
-        ? normalizeClaudeModelOptionsWithCapabilities(caps, modelOptions?.claudeAgent)
-        : provider === "githubCopilot"
-          ? normalizeGitHubCopilotModelOptionsWithCapabilities(caps, modelOptions?.githubCopilot)
-          : provider === "cursor"
-            ? normalizeCursorModelOptionsWithCapabilities(caps, modelOptions?.cursor)
-            : provider === "pi"
-              ? (normalizePiModelOptionsWithCapabilities(caps, modelOptions?.pi) ??
-                modelOptions?.pi)
-              : provider === "gemini"
-                ? undefined
-                : provider === "opencode"
-                  ? normalizeOpenCodeModelOptionsWithCapabilities(caps, modelOptions?.opencode)
-                  : undefined;
-
-  // Ultrathink styling (driven by capabilities data, not provider identity)
-  const ultrathinkActive =
-    caps.promptInjectedEffortLevels.length > 0 && isClaudeUltrathinkPrompt(prompt);
-
-  return {
-    provider,
-    promptEffort,
-    modelOptionsForDispatch: normalizedOptions,
-    ...(ultrathinkActive ? { composerFrameClassName: "ultrathink-frame" } : {}),
-    ...(ultrathinkActive
-      ? {
-          composerSurfaceClassName: "ring-2 ring-primary/30",
-        }
-      : {}),
-    ...(ultrathinkActive ? { modelPickerIconClassName: "ultrathink-chroma" } : {}),
-  };
-}
-
 const composerProviderRegistry: Record<ProviderKind, ProviderRegistryEntry> = {
   codex: {
-    getState: (input) => getProviderStateFromCapabilities(input),
     renderTraitsMenuContent: ({
       threadId,
       model,
@@ -175,7 +80,6 @@ const composerProviderRegistry: Record<ProviderKind, ProviderRegistryEntry> = {
     ),
   },
   claudeAgent: {
-    getState: (input) => getProviderStateFromCapabilities(input),
     renderTraitsMenuContent: ({
       threadId,
       model,
@@ -216,7 +120,6 @@ const composerProviderRegistry: Record<ProviderKind, ProviderRegistryEntry> = {
     ),
   },
   githubCopilot: {
-    getState: (input) => getProviderStateFromCapabilities(input),
     renderTraitsMenuContent: ({
       threadId,
       model,
@@ -257,11 +160,6 @@ const composerProviderRegistry: Record<ProviderKind, ProviderRegistryEntry> = {
     ),
   },
   cursor: {
-    getState: (input) => ({
-      ...getProviderStateFromCapabilities(input),
-      promptEffort: null,
-      modelOptionsForDispatch: undefined,
-    }),
     renderTraitsMenuContent: ({ threadId, model, models }) => (
       <CursorTraitsMenuContent threadId={threadId} model={model} models={models} />
     ),
@@ -275,7 +173,6 @@ const composerProviderRegistry: Record<ProviderKind, ProviderRegistryEntry> = {
     ),
   },
   pi: {
-    getState: (input) => getProviderStateFromCapabilities(input),
     renderTraitsMenuContent: ({
       threadId,
       model,
@@ -318,7 +215,6 @@ const composerProviderRegistry: Record<ProviderKind, ProviderRegistryEntry> = {
     ),
   },
   gemini: {
-    getState: (input) => getProviderStateFromCapabilities(input),
     renderTraitsMenuContent: ({
       threadId,
       model,
@@ -359,7 +255,6 @@ const composerProviderRegistry: Record<ProviderKind, ProviderRegistryEntry> = {
     ),
   },
   opencode: {
-    getState: (input) => getProviderStateFromCapabilities(input),
     renderTraitsMenuContent: ({
       threadId,
       model,
@@ -400,10 +295,6 @@ const composerProviderRegistry: Record<ProviderKind, ProviderRegistryEntry> = {
     ),
   },
 };
-
-export function getComposerProviderState(input: ComposerProviderStateInput): ComposerProviderState {
-  return composerProviderRegistry[input.provider].getState(input);
-}
 
 export function renderProviderTraitsMenuContent(input: {
   provider: ProviderKind;

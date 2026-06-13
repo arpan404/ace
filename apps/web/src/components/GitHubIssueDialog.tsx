@@ -12,7 +12,7 @@ import {
   SearchIcon,
   XIcon,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
+import { useEffect, useReducer, useRef } from "react";
 
 import type { ComposerImageAttachment } from "~/composerDraftStore";
 import { buildGitHubIssueSelectionPayload } from "~/lib/chat/githubIssueSelection";
@@ -228,7 +228,13 @@ function useGitHubIssueDialogComponent({
   }, [open]);
 
   const trimmedDebouncedSearch = debouncedSearch.trim();
-  const issuesQuery = useQuery(
+  const {
+    data: issuesData,
+    error: issuesError,
+    isError: isIssuesError,
+    isFetching: isIssuesFetching,
+    isPending: isIssuesPending,
+  } = useQuery(
     gitGitHubIssuesQueryOptions({
       cwd,
       limit: issueLimit,
@@ -239,17 +245,11 @@ function useGitHubIssueDialogComponent({
     }),
   );
 
-  const issues = issuesQuery.data?.issues ?? EMPTY_ISSUES;
+  const issues = issuesData?.issues ?? EMPTY_ISSUES;
   const isSearchStale = searchDebouncer.state.isPending && search.trim() !== trimmedDebouncedSearch;
-  const issueByNumber = useMemo(
-    () => new Map(issues.map((issue) => [issue.number, issue])),
-    [issues],
-  );
-  const selectedIssueNumberSet = useMemo(
-    () => new Set(normalizeIssueNumbers(selectedIssueNumbers)),
-    [selectedIssueNumbers],
-  );
-  const availableLabels = useMemo(() => {
+  const issueByNumber = new Map(issues.map((issue) => [issue.number, issue]));
+  const selectedIssueNumberSet = new Set(normalizeIssueNumbers(selectedIssueNumbers));
+  const availableLabels = (() => {
     const counts = new Map<string, number>();
     for (const issue of issues) {
       for (const label of issue.labels) {
@@ -265,17 +265,17 @@ function useGitHubIssueDialogComponent({
       })
       .slice(0, 24)
       .map(([label, count]) => ({ label, count }));
-  }, [issues]);
+  })();
 
-  const focusedIssue = useMemo(() => {
+  const focusedIssue = (() => {
     const effectiveFocusedIssueNumber = focusedIssueNumber ?? issues[0]?.number ?? null;
     if (effectiveFocusedIssueNumber !== null) {
       return issueByNumber.get(effectiveFocusedIssueNumber) ?? issues[0] ?? null;
     }
     return issues[0] ?? null;
-  }, [focusedIssueNumber, issueByNumber, issues]);
+  })();
 
-  const threadQuery = useQuery(
+  const { data: threadData, isFetching: isThreadFetching } = useQuery(
     gitGitHubIssueThreadQueryOptions({
       cwd,
       issueNumber: focusedIssue?.number ?? null,
@@ -283,63 +283,55 @@ function useGitHubIssueDialogComponent({
     }),
   );
 
-  const selectedIssueNumbersForSolve = useMemo(() => {
+  const selectedIssueNumbersForSolve = (() => {
     if (selectedIssueNumberSet.size > 0) {
       return Array.from(selectedIssueNumberSet);
     }
     return focusedIssue ? [focusedIssue.number] : [];
-  }, [focusedIssue, selectedIssueNumberSet]);
+  })();
 
-  const handleToggleIssueSelection = useCallback((issueNumber: number) => {
+  const handleToggleIssueSelection = (issueNumber: number) => {
     dispatch({ type: "toggle-issue-selection", value: issueNumber });
-  }, []);
+  };
 
-  const handleToggleLabelFilter = useCallback((label: string) => {
+  const handleToggleLabelFilter = (label: string) => {
     dispatch({ type: "toggle-label-filter", value: label });
-  }, []);
+  };
 
-  const handleSolveSelectedIssues = useCallback(
-    async (action: "current-thread" | "parallel-worktrees") => {
-      if (isSolving || selectedIssueNumbersForSolve.length === 0) {
+  const handleSolveSelectedIssues = async (action: "current-thread" | "parallel-worktrees") => {
+    if (isSolving || selectedIssueNumbersForSolve.length === 0) {
+      return;
+    }
+    dispatch({ type: "set-solve-action", value: action });
+    try {
+      if (action === "parallel-worktrees") {
+        await onFixIssuesInParallelWorktrees(selectedIssueNumbersForSolve);
         return;
       }
-      dispatch({ type: "set-solve-action", value: action });
-      try {
-        if (action === "parallel-worktrees") {
-          await onFixIssuesInParallelWorktrees(selectedIssueNumbersForSolve);
-          return;
-        }
-        if (!cwd) {
-          return;
-        }
-        const payload = await buildGitHubIssueSelectionPayload({
-          cwd,
-          issueNumbers: selectedIssueNumbersForSolve,
-          queryClient,
-        });
-        await onFixIssue({ prompt: payload.prompt, images: payload.images });
-      } finally {
-        dispatch({ type: "set-solve-action", value: null });
+      if (!cwd) {
+        return;
       }
-    },
-    [
-      cwd,
-      isSolving,
-      onFixIssue,
-      onFixIssuesInParallelWorktrees,
-      queryClient,
-      selectedIssueNumbersForSolve,
-    ],
-  );
+      const payload = await buildGitHubIssueSelectionPayload({
+        cwd,
+        issueNumbers: selectedIssueNumbersForSolve,
+        queryClient,
+      });
+      await onFixIssue({ prompt: payload.prompt, images: payload.images });
+    } catch (error) {
+      dispatch({ type: "set-solve-action", value: null });
+      throw error;
+    }
+    dispatch({ type: "set-solve-action", value: null });
+  };
 
   const errorMessage =
-    issuesQuery.isError && issuesQuery.error instanceof Error
-      ? issuesQuery.error.message
-      : issuesQuery.isError
+    isIssuesError && issuesError instanceof Error
+      ? issuesError.message
+      : isIssuesError
         ? "Failed to load GitHub issues."
         : null;
 
-  const thread = threadQuery.data?.issue;
+  const thread = threadData?.issue;
   const allVisibleSelected =
     issues.length > 0 && issues.every((issue) => selectedIssueNumberSet.has(issue.number));
 
@@ -475,9 +467,7 @@ function useGitHubIssueDialogComponent({
                     isSearchStale && "opacity-50",
                   )}
                 >
-                  {issuesQuery.isFetching && !issuesQuery.isPending ? (
-                    <Spinner className="size-2.5" />
-                  ) : null}
+                  {isIssuesFetching && !isIssuesPending ? <Spinner className="size-2.5" /> : null}
                   {issues.length} shown
                 </span>
                 {selectedIssueNumbersForSolve.length > 0 ? (
@@ -542,7 +532,7 @@ function useGitHubIssueDialogComponent({
 
               <ScrollArea className="min-h-0 flex-1" scrollbarGutter scrollFade>
                 <div aria-label="Issues" className="pb-1">
-                  {issuesQuery.isPending && issues.length === 0 ? (
+                  {isIssuesPending && issues.length === 0 ? (
                     <GitHubIssueListSkeleton count={ISSUE_SKELETON_KEYS.length} />
                   ) : issues.length === 0 ? (
                     <p className="py-10 text-center text-xs text-muted-foreground">
@@ -632,7 +622,7 @@ function useGitHubIssueDialogComponent({
 
                 <ScrollArea className="min-h-0 flex-1" scrollbarGutter scrollFade>
                   <div className="max-w-[50rem] px-5 py-4 sm:px-6">
-                    {threadQuery.isFetching && !thread ? (
+                    {isThreadFetching && !thread ? (
                       <GitHubIssueThreadSkeleton className="py-1" />
                     ) : thread ? (
                       <GitHubIssueThreadReader thread={thread} cwd={cwd} />

@@ -13,7 +13,7 @@ interface ThreadErrorBannerProps {
   onRetryLastMessage?: () => void;
 }
 
-export const ThreadErrorBanner = memo(function ThreadErrorBanner({
+export function ThreadErrorBanner({
   error,
   onDismiss,
   onOpenDiagnostics,
@@ -77,4 +77,4 @@ export const ThreadErrorBanner = memo(function ThreadErrorBanner({
       </div>
     </div>
   );
-});
+}

@@ -27,7 +27,6 @@ export function desktopUpdateStateQueryOptions() {
 
 export function useDesktopUpdateState() {
   const queryClient = useQueryClient();
-  const query = useQuery(desktopUpdateStateQueryOptions());
 
   useEffect(() => {
     const bridge = window.desktopBridge;
@@ -38,5 +37,5 @@ export function useDesktopUpdateState() {
     });
   }, [queryClient]);
 
-  return query;
+  return useQuery(desktopUpdateStateQueryOptions());
 }

@@ -66,7 +66,7 @@ export function getConnectionHealthSnapshot(): ConnectionHealthSnapshot {
   return snapshot;
 }
 
-export function subscribeConnectionHealth(listener: Listener): () => void {
+function subscribeConnectionHealth(listener: Listener): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);
 }
@@ -87,14 +87,14 @@ export function setConnectionHealthToastsEnabled(enabled: boolean): void {
   }
 }
 
-export function noteConnectionHealthConnected(): void {
+function noteConnectionHealthConnected(): void {
   transition("healthy", {
     lastConnectedAt: Date.now(),
     lastError: null,
   });
 }
 
-export function noteConnectionHealthDisconnected(error: string | null): void {
+function noteConnectionHealthDisconnected(error: string | null): void {
   if (snapshot.kind === "disconnected" && snapshot.lastError === error) {
     return;
   }
@@ -117,7 +117,7 @@ export function noteConnectionHealthDisconnected(error: string | null): void {
   }
 }
 
-export function noteConnectionHealthReconnecting(error?: string | null): void {
+function noteConnectionHealthReconnecting(error?: string | null): void {
   if (snapshot.kind === "healthy") {
     return;
   }
@@ -126,7 +126,7 @@ export function noteConnectionHealthReconnecting(error?: string | null): void {
   });
 }
 
-export function noteConnectionHealthReconnected(): void {
+function noteConnectionHealthReconnected(): void {
   const reconnectCount = snapshot.reconnectCount + 1;
   transition("healthy", {
     lastConnectedAt: Date.now(),

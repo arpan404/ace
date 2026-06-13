@@ -40,7 +40,7 @@ export function GitHubIssueLabelStrip({
   );
 }
 
-export function GitHubIssueByline({ issue }: { issue: GitHubIssue | GitHubIssueThread }) {
+function GitHubIssueByline({ issue }: { issue: GitHubIssue | GitHubIssueThread }) {
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground/72">
       <span className="capitalize">{issue.state}</span>
@@ -99,9 +99,15 @@ export function GitHubIssueExternalLink({ url }: { url: string }) {
       variant="outline"
       size="icon-sm"
       className="size-7 text-muted-foreground hover:text-foreground"
-      render={<a href={url} target="_blank" rel="noreferrer" />}
-      aria-label="Open issue on GitHub"
-      title="Open issue on GitHub"
+      render={
+        <a
+          href={url}
+          target="_blank"
+          rel="noreferrer"
+          aria-label="Open issue on GitHub"
+          title="Open issue on GitHub"
+        />
+      }
     >
       <ExternalLinkIcon className="size-3.5 opacity-70" />
     </Button>

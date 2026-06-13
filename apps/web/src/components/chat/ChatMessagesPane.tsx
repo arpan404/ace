@@ -1,5 +1,5 @@
 import { ChevronDownIcon } from "lucide-react";
-import { memo, type ComponentProps, type Ref } from "react";
+import { type ComponentProps, type Ref } from "react";
 import { cn } from "~/lib/utils";
 import { APP_FLOATING_CHIP_CLASS_NAME } from "~/lib/appChrome";
 import { Button } from "~/components/ui/button";
@@ -9,7 +9,7 @@ import { MessagesTimeline } from "./MessagesTimeline";
 
 type MessagesContainerProps = ComponentProps<"div">;
 
-export const ChatMessagesPane = memo(function ChatMessagesPane({
+export function ChatMessagesPane({
   messagesContainerRef,
   messagesTimelineProps,
   onMessagesPointerCancel,
@@ -78,4 +78,4 @@ export const ChatMessagesPane = memo(function ChatMessagesPane({
       )}
     </div>
   );
-});
+}

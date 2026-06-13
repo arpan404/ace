@@ -1,5 +1,5 @@
 import type { SelectedLineRange } from "@pierre/diffs";
-import { FileDiff, type FileDiffMetadata, Virtualizer } from "@pierre/diffs/react";
+import { FileDiff, Virtualizer } from "@pierre/diffs/react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { ThreadId, TurnId } from "@ace/contracts";
@@ -13,13 +13,13 @@ import {
   XIcon,
 } from "lucide-react";
 import {
-  useCallback,
   useDeferredValue,
   useEffect,
   useLayoutEffect,
-  useMemo,
+  useReducer,
   useRef,
   useState,
+  type SetStateAction,
 } from "react";
 import { openInPreferredEditor } from "../editorPreferences";
 import {
@@ -49,7 +49,8 @@ import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
 import { useStore } from "../store";
 import { useSetting } from "../hooks/useSettings";
 import { formatShortTimestamp } from "../timestampFormat";
-import { DiffPanelLoadingState, DiffPanelShell, type DiffPanelMode } from "./DiffPanelShell";
+import { DiffPanelLoadingState } from "./DiffPanelLoadingState";
+import { DiffPanelShell, type DiffPanelMode } from "./DiffPanelShell";
 import { buildDiffPanelUnsafeCss } from "./diffPanelUnsafeCss";
 import { Select, SelectItem, SelectPopup, SelectTrigger } from "./ui/select";
 import { ToggleGroup, Toggle } from "./ui/toggle-group";
@@ -310,6 +311,13 @@ function createFallbackReviewCommentPopoverPosition(
   };
 }
 
+function reviewCommentPopoverPositionReducer(
+  current: ReviewCommentPopoverPosition | null,
+  action: SetStateAction<ReviewCommentPopoverPosition | null>,
+): ReviewCommentPopoverPosition | null {
+  return typeof action === "function" ? action(current) : action;
+}
+
 function resolveTurnCheckpointLabel(
   summary: {
     turnId: TurnId;
@@ -355,7 +363,7 @@ function useDiffPanelComponent({
   selectedTurnId: selectedTurnIdOverride,
   threadId,
 }: DiffPanelProps) {
-  const diffPanelUnsafeCss = useMemo(() => buildDiffPanelUnsafeCss(mode), [mode]);
+  const diffPanelUnsafeCss = buildDiffPanelUnsafeCss(mode);
   const navigate = useNavigate();
   const { resolvedTheme } = useTheme();
   const diffWordWrapSetting = useSetting("diffWordWrap");
@@ -372,11 +380,13 @@ function useDiffPanelComponent({
       ? `${activeReviewLineSelection.fileKey}:${activeReviewLineSelection.lineRange.startSide}:${activeReviewLineSelection.lineRange.startLine}:${activeReviewLineSelection.lineRange.endSide}:${activeReviewLineSelection.lineRange.endLine}`
       : null,
   );
-  const [reviewCommentPopoverPosition, setReviewCommentPopoverPosition] =
-    useState<ReviewCommentPopoverPosition | null>(null);
+  const [reviewCommentPopoverPosition, dispatchReviewCommentPopoverPosition] = useReducer(
+    reviewCommentPopoverPositionReducer,
+    null,
+  );
   const [reviewCommentDraft, setReviewCommentDraft] = useState("");
+  const reviewCommentInputRef = useRef<HTMLInputElement>(null);
   const patchViewportRef = useRef<HTMLDivElement>(null);
-  const previousDiffOpenRef = useRef(false);
   const routeThreadId = useParams({
     strict: false,
     select: (params) => (params.threadId ? ThreadId.makeUnsafe(params.threadId) : null),
@@ -393,49 +403,46 @@ function useDiffPanelComponent({
     activeProjectId ? store.projects.find((project) => project.id === activeProjectId) : undefined,
   );
   const activeCwd = activeThread?.worktreePath ?? activeProject?.cwd;
-  const gitBranchesQuery = useQuery(gitBranchesQueryOptions(activeCwd ?? null));
-  const gitStatusQuery = useQuery(
+  const {
+    data: gitBranchesData,
+    error: gitBranchesError,
+    fetchStatus: gitBranchesFetchStatus,
+    isPending: isGitBranchesPending,
+  } = useQuery(gitBranchesQueryOptions(activeCwd ?? null));
+  const { data: gitStatusData } = useQuery(
     gitStatusQueryOptions(
       activeThread?.latestTurn?.state === "running" ? (activeCwd ?? null) : null,
     ),
   );
-  const gitRepoStatus = gitBranchesQuery.data?.isRepo;
+  const gitRepoStatus = gitBranchesData?.isRepo;
   const gitRepoCheckError =
-    gitBranchesQuery.error instanceof Error
-      ? gitBranchesQuery.error.message
-      : gitBranchesQuery.error
+    gitBranchesError instanceof Error
+      ? gitBranchesError.message
+      : gitBranchesError
         ? "Failed to inspect git repository status."
         : null;
   const isCheckingGitRepo =
     activeCwd !== null &&
-    (gitBranchesQuery.isPending ||
-      (gitBranchesQuery.fetchStatus === "fetching" && typeof gitRepoStatus !== "boolean"));
+    (isGitBranchesPending ||
+      (gitBranchesFetchStatus === "fetching" && typeof gitRepoStatus !== "boolean"));
   const isGitRepo = gitRepoStatus === true;
   const { turnDiffSummaries, inferredCheckpointTurnCountByTurnId } =
     useTurnDiffSummaries(activeThread);
-  const orderedTurnDiffSummaries = useMemo(
-    () =>
-      [...turnDiffSummaries].toSorted((left, right) => {
-        const leftTurnCount =
-          left.checkpointTurnCount ?? inferredCheckpointTurnCountByTurnId[left.turnId] ?? 0;
-        const rightTurnCount =
-          right.checkpointTurnCount ?? inferredCheckpointTurnCountByTurnId[right.turnId] ?? 0;
-        if (leftTurnCount !== rightTurnCount) {
-          return rightTurnCount - leftTurnCount;
-        }
-        return right.completedAt.localeCompare(left.completedAt);
-      }),
-    [inferredCheckpointTurnCountByTurnId, turnDiffSummaries],
-  );
-  const queryableTurnDiffSummaries = useMemo(
-    () =>
-      orderedTurnDiffSummaries.filter((summary) =>
-        isCheckpointSummaryQueryable(
-          summary,
-          summary.checkpointTurnCount ?? inferredCheckpointTurnCountByTurnId[summary.turnId],
-        ),
-      ),
-    [inferredCheckpointTurnCountByTurnId, orderedTurnDiffSummaries],
+  const orderedTurnDiffSummaries = [...turnDiffSummaries].toSorted((left, right) => {
+    const leftTurnCount =
+      left.checkpointTurnCount ?? inferredCheckpointTurnCountByTurnId[left.turnId] ?? 0;
+    const rightTurnCount =
+      right.checkpointTurnCount ?? inferredCheckpointTurnCountByTurnId[right.turnId] ?? 0;
+    if (leftTurnCount !== rightTurnCount) {
+      return rightTurnCount - leftTurnCount;
+    }
+    return right.completedAt.localeCompare(left.completedAt);
+  });
+  const queryableTurnDiffSummaries = orderedTurnDiffSummaries.filter((summary) =>
+    isCheckpointSummaryQueryable(
+      summary,
+      summary.checkpointTurnCount ?? inferredCheckpointTurnCountByTurnId[summary.turnId],
+    ),
   );
 
   const selectedTurnId =
@@ -472,68 +479,52 @@ function useDiffPanelComponent({
     selectedTurn?.status === "missing" &&
     !selectedTurnLiveDiff &&
     (liveTurnDiffMode === undefined || liveTurnDiffMode === "workspace") &&
-    gitStatusQuery.data?.hasWorkingTreeChanges === true;
-  const selectedTurnUnavailableReason = useMemo(() => {
-    if (
-      !selectedTurn ||
-      selectedTurnQueryable ||
-      selectedTurnLiveDiff ||
-      selectedTurnWorkspaceFallback
-    ) {
-      return null;
+    gitStatusData?.hasWorkingTreeChanges === true;
+  const selectedTurnUnavailableReason =
+    !selectedTurn || selectedTurnQueryable || selectedTurnLiveDiff || selectedTurnWorkspaceFallback
+      ? null
+      : selectedTurn.status === "missing"
+        ? "Diff is still being prepared for this turn."
+        : selectedTurn.status === "error"
+          ? "Diff generation failed for this turn."
+          : "Diff is unavailable for this turn.";
+  const selectedCheckpointRange =
+    selectedTurn && selectedTurnQueryable && typeof selectedCheckpointTurnCount === "number"
+      ? {
+          fromTurnCount: Math.max(0, selectedCheckpointTurnCount - 1),
+          toTurnCount: selectedCheckpointTurnCount,
+        }
+      : null;
+  const conversationCheckpointTurnCounts: number[] = [];
+  for (const summary of queryableTurnDiffSummaries) {
+    const turnCount =
+      summary.checkpointTurnCount ?? inferredCheckpointTurnCountByTurnId[summary.turnId];
+    if (typeof turnCount === "number") {
+      conversationCheckpointTurnCounts.push(turnCount);
     }
-    if (selectedTurn.status === "missing") {
-      return "Diff is still being prepared for this turn.";
-    }
-    if (selectedTurn.status === "error") {
-      return "Diff generation failed for this turn.";
-    }
-    return "Diff is unavailable for this turn.";
-  }, [selectedTurn, selectedTurnLiveDiff, selectedTurnQueryable, selectedTurnWorkspaceFallback]);
-  const selectedCheckpointRange = useMemo(
-    () =>
-      selectedTurn && selectedTurnQueryable && typeof selectedCheckpointTurnCount === "number"
-        ? {
-            fromTurnCount: Math.max(0, selectedCheckpointTurnCount - 1),
-            toTurnCount: selectedCheckpointTurnCount,
-          }
-        : null,
-    [selectedCheckpointTurnCount, selectedTurn, selectedTurnQueryable],
-  );
-  const conversationCheckpointTurnCount = useMemo(() => {
-    const turnCounts: number[] = [];
-    for (const summary of queryableTurnDiffSummaries) {
-      const turnCount =
-        summary.checkpointTurnCount ?? inferredCheckpointTurnCountByTurnId[summary.turnId];
-      if (typeof turnCount === "number") {
-        turnCounts.push(turnCount);
-      }
-    }
-    if (turnCounts.length === 0) {
-      return undefined;
-    }
-    const latest = Math.max(...turnCounts);
-    return latest > 0 ? latest : undefined;
-  }, [inferredCheckpointTurnCountByTurnId, queryableTurnDiffSummaries]);
-  const conversationCheckpointRange = useMemo(
-    () =>
-      !selectedTurn && typeof conversationCheckpointTurnCount === "number"
-        ? {
-            fromTurnCount: 0,
-            toTurnCount: conversationCheckpointTurnCount,
-          }
-        : null,
-    [conversationCheckpointTurnCount, selectedTurn],
-  );
+  }
+  const latestConversationCheckpointTurnCount =
+    conversationCheckpointTurnCounts.length > 0
+      ? Math.max(...conversationCheckpointTurnCounts)
+      : undefined;
+  const conversationCheckpointTurnCount =
+    latestConversationCheckpointTurnCount && latestConversationCheckpointTurnCount > 0
+      ? latestConversationCheckpointTurnCount
+      : undefined;
+  const conversationCheckpointRange =
+    !selectedTurn && typeof conversationCheckpointTurnCount === "number"
+      ? {
+          fromTurnCount: 0,
+          toTurnCount: conversationCheckpointTurnCount,
+        }
+      : null;
   const activeCheckpointRange = selectedTurn
     ? selectedCheckpointRange
     : conversationCheckpointRange;
-  const conversationCacheScope = useMemo(() => {
-    if (selectedTurn || queryableTurnDiffSummaries.length === 0) {
-      return null;
-    }
-    return `conversation:${queryableTurnDiffSummaries.map((summary) => summary.turnId).join(",")}`;
-  }, [queryableTurnDiffSummaries, selectedTurn]);
+  const conversationCacheScope =
+    selectedTurn || queryableTurnDiffSummaries.length === 0
+      ? null
+      : `conversation:${queryableTurnDiffSummaries.map((summary) => summary.turnId).join(",")}`;
   const canQueryCheckpointDiff =
     diffOpen &&
     !isCheckingGitRepo &&
@@ -542,7 +533,12 @@ function useDiffPanelComponent({
     activeCheckpointRange !== null &&
     !selectedTurnLiveDiff &&
     !selectedTurnWorkspaceFallback;
-  const activeCheckpointDiffQuery = useQuery(
+  const {
+    data: activeCheckpointDiffData,
+    error: activeCheckpointDiffError,
+    fetchStatus: activeCheckpointDiffFetchStatus,
+    isPending: isActiveCheckpointDiffPending,
+  } = useQuery(
     checkpointDiffQueryOptions({
       threadId: activeThreadId,
       fromTurnCount: activeCheckpointRange?.fromTurnCount ?? null,
@@ -551,44 +547,44 @@ function useDiffPanelComponent({
       enabled: canQueryCheckpointDiff,
     }),
   );
-  const selectedTurnCheckpointDiff = selectedTurn
-    ? activeCheckpointDiffQuery.data?.diff
-    : undefined;
-  const workingTreeDiffQuery = useQuery(
+  const selectedTurnCheckpointDiff = selectedTurn ? activeCheckpointDiffData?.diff : undefined;
+  const {
+    data: workingTreeDiffData,
+    error: workingTreeDiffError,
+    fetchStatus: workingTreeDiffFetchStatus,
+    isPending: isWorkingTreeDiffPending,
+  } = useQuery(
     gitWorkingTreeDiffQueryOptions({
       cwd: activeCwd ?? null,
       enabled: diffOpen && selectedTurnWorkspaceFallback,
     }),
   );
-  const conversationCheckpointDiff = selectedTurn
-    ? undefined
-    : activeCheckpointDiffQuery.data?.diff;
+  const conversationCheckpointDiff = selectedTurn ? undefined : activeCheckpointDiffData?.diff;
   const isLoadingCheckpointDiff =
     (canQueryCheckpointDiff &&
-      (activeCheckpointDiffQuery.isPending ||
-        activeCheckpointDiffQuery.fetchStatus === "fetching")) ||
+      (isActiveCheckpointDiffPending || activeCheckpointDiffFetchStatus === "fetching")) ||
     (selectedTurnWorkspaceFallback &&
-      (workingTreeDiffQuery.isPending || workingTreeDiffQuery.fetchStatus === "fetching"));
+      (isWorkingTreeDiffPending || workingTreeDiffFetchStatus === "fetching"));
   const checkpointDiffError = selectedTurnWorkspaceFallback
-    ? workingTreeDiffQuery.error instanceof Error
-      ? workingTreeDiffQuery.error.message
-      : workingTreeDiffQuery.error
+    ? workingTreeDiffError instanceof Error
+      ? workingTreeDiffError.message
+      : workingTreeDiffError
         ? "Failed to load workspace diff."
         : null
-    : activeCheckpointDiffQuery.error instanceof Error
-      ? activeCheckpointDiffQuery.error.message
-      : activeCheckpointDiffQuery.error
+    : activeCheckpointDiffError instanceof Error
+      ? activeCheckpointDiffError.message
+      : activeCheckpointDiffError
         ? "Failed to load checkpoint diff."
         : null;
   const checkpointDiffIsTemporarilyUnavailable =
     !selectedTurnLiveDiff &&
     !selectedTurnWorkspaceFallback &&
-    activeCheckpointDiffQuery.error !== null &&
-    isCheckpointTemporarilyUnavailable(activeCheckpointDiffQuery.error);
+    activeCheckpointDiffError !== null &&
+    isCheckpointTemporarilyUnavailable(activeCheckpointDiffError);
 
   const selectedPatch = diffOpen
     ? selectedTurn
-      ? (selectedTurnLiveDiff ?? workingTreeDiffQuery.data?.diff ?? selectedTurnCheckpointDiff)
+      ? (selectedTurnLiveDiff ?? workingTreeDiffData?.diff ?? selectedTurnCheckpointDiff)
       : conversationCheckpointDiff
     : undefined;
   const deferredSelectedPatch = useDeferredValue(selectedPatch);
@@ -608,43 +604,25 @@ function useDiffPanelComponent({
           ? "No net changes in the current turn."
           : "No net changes in this selection."
         : "No patch available for this selection.");
-  const renderablePatch = useMemo(
-    () => getRenderablePatch(deferredSelectedPatch, "diff-panel"),
-    [deferredSelectedPatch],
-  );
-  const renderableFiles = useMemo(() => {
-    if (!renderablePatch || renderablePatch.kind !== "files") {
-      return [];
-    }
-    return renderablePatch.files.toSorted((left, right) =>
-      resolveFileDiffPath(left).localeCompare(resolveFileDiffPath(right), undefined, {
-        numeric: true,
-        sensitivity: "base",
-      }),
-    );
-  }, [renderablePatch]);
-  const renderableFileKeys = useMemo(
-    () => renderableFiles.map((fileDiff) => buildFileDiffRenderKey(fileDiff)),
-    [renderableFiles],
-  );
+  const renderablePatch = getRenderablePatch(deferredSelectedPatch, "diff-panel");
+  const renderableFiles =
+    renderablePatch?.kind === "files"
+      ? renderablePatch.files.toSorted((left, right) =>
+          resolveFileDiffPath(left).localeCompare(resolveFileDiffPath(right), undefined, {
+            numeric: true,
+            sensitivity: "base",
+          }),
+        )
+      : [];
+  const renderableFileKeys = renderableFiles.map((fileDiff) => buildFileDiffRenderKey(fileDiff));
   const renderableFileKeysSignature = renderableFileKeys.join("\u0000");
-  const expandedFileCount = renderableFiles.length - collapsedFileKeys.size;
+  const renderableFileKeySet = new Set(renderableFileKeys);
+  const visibleCollapsedFileKeys = new Set(
+    Array.from(collapsedFileKeys).filter((fileKey) => renderableFileKeySet.has(fileKey)),
+  );
+  const visibleCollapsedFileKeysSignature = Array.from(visibleCollapsedFileKeys).join("\u0000");
+  const expandedFileCount = renderableFiles.length - visibleCollapsedFileKeys.size;
   const allFilesCollapsed = renderableFiles.length > 0 && expandedFileCount === 0;
-
-  useEffect(() => {
-    if (diffOpen && !previousDiffOpenRef.current) {
-      setDiffWordWrap(diffWordWrapSetting);
-    }
-    previousDiffOpenRef.current = diffOpen;
-  }, [diffOpen, diffWordWrapSetting]);
-
-  useEffect(() => {
-    setCollapsedFileKeys(new Set());
-    setActiveCommentFileKey(null);
-    setActiveReviewLineSelection(null);
-    setReviewCommentPopoverPosition(null);
-    setReviewCommentDraft("");
-  }, [renderableFileKeysSignature]);
 
   useEffect(() => {
     if (!selectedFilePath || !patchViewportRef.current) {
@@ -654,42 +632,18 @@ function useDiffPanelComponent({
       patchViewportRef.current.querySelectorAll<HTMLElement>("[data-diff-file-path]"),
     ).find((element) => element.dataset.diffFilePath === selectedFilePath);
     target?.scrollIntoView({ block: "nearest" });
-  }, [selectedFilePath, renderableFiles]);
+  }, [selectedFilePath, renderableFileKeysSignature]);
 
-  useEffect(() => {
-    if (!selectedFilePath) {
-      return;
-    }
-    const selectedFile = renderableFiles.find(
-      (fileDiff) => resolveFileDiffPath(fileDiff) === selectedFilePath,
-    );
-    if (!selectedFile) {
-      return;
-    }
-    const selectedFileKey = buildFileDiffRenderKey(selectedFile);
-    setCollapsedFileKeys((current) => {
-      if (!current.has(selectedFileKey)) {
-        return current;
-      }
-      const next = new Set(current);
-      next.delete(selectedFileKey);
-      return next;
+  const openDiffFileInEditor = (filePath: string) => {
+    const api = readNativeApi();
+    if (!api) return;
+    const targetPath = activeCwd ? resolvePathLinkTarget(filePath, activeCwd) : filePath;
+    void openInPreferredEditor(api, targetPath).catch((error) => {
+      console.warn("Failed to open diff file in editor.", error);
     });
-  }, [renderableFiles, selectedFilePath]);
+  };
 
-  const openDiffFileInEditor = useCallback(
-    (filePath: string) => {
-      const api = readNativeApi();
-      if (!api) return;
-      const targetPath = activeCwd ? resolvePathLinkTarget(filePath, activeCwd) : filePath;
-      void openInPreferredEditor(api, targetPath).catch((error) => {
-        console.warn("Failed to open diff file in editor.", error);
-      });
-    },
-    [activeCwd],
-  );
-
-  const toggleFileCollapsed = useCallback((fileKey: string) => {
+  const toggleFileCollapsed = (fileKey: string) => {
     setCollapsedFileKeys((current) => {
       const next = new Set(current);
       if (next.has(fileKey)) {
@@ -699,89 +653,84 @@ function useDiffPanelComponent({
       }
       return next;
     });
-  }, []);
+  };
 
-  const setAllFilesCollapsed = useCallback(
-    (collapsed: boolean) => {
-      setCollapsedFileKeys(collapsed ? new Set(renderableFileKeys) : new Set());
-    },
-    [renderableFileKeys],
-  );
+  const setAllFilesCollapsed = (collapsed: boolean) => {
+    setCollapsedFileKeys(collapsed ? new Set(renderableFileKeys) : new Set());
+  };
 
-  const openReviewLineSelection = useCallback(
-    (fileKey: string, filePath: string, range: SelectedLineRange | null) => {
-      if (!range) {
-        setActiveReviewLineSelection((current) => (current?.fileKey === fileKey ? null : current));
-        setActiveCommentFileKey((current) => (current === fileKey ? null : current));
-        if (activeReviewLineSelection?.fileKey === fileKey) {
-          setReviewCommentPopoverPosition(null);
-          setReviewCommentDraft("");
-        }
-        return;
-      }
-      const lineRange = formatDiffReviewLineRange(range);
-      const sameSelection =
-        activeReviewLineSelection?.fileKey === fileKey &&
-        activeReviewLineSelection.filePath === filePath &&
-        areSelectedLineRangesEqual(activeReviewLineSelection.range, range);
-      if (!sameSelection) {
-        setReviewCommentPopoverPosition(
-          createFallbackReviewCommentPopoverPosition(fileKey, "pending"),
-        );
+  const openReviewLineSelection = (
+    fileKey: string,
+    filePath: string,
+    range: SelectedLineRange | null,
+  ) => {
+    if (!range) {
+      setActiveReviewLineSelection((current) => (current?.fileKey === fileKey ? null : current));
+      setActiveCommentFileKey((current) => (current === fileKey ? null : current));
+      if (activeReviewLineSelection?.fileKey === fileKey) {
+        dispatchReviewCommentPopoverPosition(null);
         setReviewCommentDraft("");
       }
-      setActiveReviewLineSelection((current) => {
-        if (
-          current?.fileKey === fileKey &&
-          current.filePath === filePath &&
-          areSelectedLineRangesEqual(current.range, range)
-        ) {
-          return current;
-        }
-        return {
-          fileKey,
-          filePath,
-          label: lineRange.label,
-          lineRange,
-          range,
-        };
-      });
-      setActiveCommentFileKey(fileKey);
-      setCollapsedFileKeys((current) => {
-        if (!current.has(fileKey)) {
-          return current;
-        }
-        const next = new Set(current);
-        next.delete(fileKey);
-        return next;
-      });
-    },
-    [activeReviewLineSelection],
-  );
-  const activeReviewFileDiff = useMemo(() => {
-    if (!activeReviewLineSelection) {
-      return null;
+      return;
     }
-    return (
-      renderableFiles.find(
+    const lineRange = formatDiffReviewLineRange(range);
+    const sameSelection =
+      activeReviewLineSelection?.fileKey === fileKey &&
+      activeReviewLineSelection.filePath === filePath &&
+      areSelectedLineRangesEqual(activeReviewLineSelection.range, range);
+    if (!sameSelection) {
+      dispatchReviewCommentPopoverPosition(
+        createFallbackReviewCommentPopoverPosition(fileKey, "pending"),
+      );
+      setReviewCommentDraft("");
+    }
+    setActiveReviewLineSelection((current) => {
+      if (
+        current?.fileKey === fileKey &&
+        current.filePath === filePath &&
+        areSelectedLineRangesEqual(current.range, range)
+      ) {
+        return current;
+      }
+      return {
+        fileKey,
+        filePath,
+        label: lineRange.label,
+        lineRange,
+        range,
+      };
+    });
+    setActiveCommentFileKey(fileKey);
+    setCollapsedFileKeys((current) => {
+      if (!current.has(fileKey)) {
+        return current;
+      }
+      const next = new Set(current);
+      next.delete(fileKey);
+      return next;
+    });
+  };
+  const activeReviewFileDiff = activeReviewLineSelection
+    ? (renderableFiles.find(
         (fileDiff) => buildFileDiffRenderKey(fileDiff) === activeReviewLineSelection.fileKey,
-      ) ?? null
-    );
-  }, [activeReviewLineSelection, renderableFiles]);
+      ) ?? null)
+    : null;
   const reviewCommentPopoverOpen =
     activeCommentFileKey !== null &&
     activeReviewLineSelection !== null &&
     activeReviewFileDiff !== null;
-  const closeReviewCommentPopover = useCallback(() => {
+  const visibleReviewCommentPopoverPosition = reviewCommentPopoverOpen
+    ? reviewCommentPopoverPosition
+    : null;
+  const closeReviewCommentPopover = () => {
     setActiveCommentFileKey(null);
     setActiveReviewLineSelection(null);
-    setReviewCommentPopoverPosition(null);
+    dispatchReviewCommentPopoverPosition(null);
     setReviewCommentDraft("");
-  }, []);
+  };
 
   useLayoutEffect(() => {
     if (!reviewCommentPopoverOpen || !activeReviewLineSelection) {
-      setReviewCommentPopoverPosition(null);
       return;
     }
 
@@ -799,7 +748,7 @@ function useDiffPanelComponent({
     const measure = () => {
       const viewport = patchViewportRef.current;
       if (!viewport) {
-        setReviewCommentPopoverPosition(fallbackPosition);
+        dispatchReviewCommentPopoverPosition(fallbackPosition);
         return;
       }
 
@@ -809,13 +758,13 @@ function useDiffPanelComponent({
         : null;
 
       if (!fileElement || !anchorElement) {
-        setReviewCommentPopoverPosition((current) => current ?? pendingPosition);
+        dispatchReviewCommentPopoverPosition((current) => current ?? pendingPosition);
         if (retryCount < 10) {
           retryCount += 1;
           animationFrameId = window.requestAnimationFrame(measure);
           return;
         }
-        setReviewCommentPopoverPosition(fallbackPosition);
+        dispatchReviewCommentPopoverPosition(fallbackPosition);
         return;
       }
 
@@ -824,7 +773,7 @@ function useDiffPanelComponent({
         anchorElement,
         activeReviewLineSelection.fileKey,
       );
-      setReviewCommentPopoverPosition((current) =>
+      dispatchReviewCommentPopoverPosition((current) =>
         current?.fileKey === nextPosition.fileKey &&
         current.left === nextPosition.left &&
         current.placement === nextPosition.placement &&
@@ -842,11 +791,22 @@ function useDiffPanelComponent({
     };
   }, [
     activeReviewLineSelection,
-    collapsedFileKeys,
+    visibleCollapsedFileKeysSignature,
     diffRenderMode,
     diffWordWrap,
     resolvedTheme,
     reviewCommentPopoverOpen,
+  ]);
+
+  useEffect(() => {
+    if (!reviewCommentPopoverOpen || visibleReviewCommentPopoverPosition?.placement === "pending") {
+      return;
+    }
+    reviewCommentInputRef.current?.focus({ preventScroll: true });
+  }, [
+    activeReviewLineSelection,
+    reviewCommentPopoverOpen,
+    visibleReviewCommentPopoverPosition?.placement,
   ]);
 
   const selectedTurnSelectValue = selectedTurn?.turnId ?? ALL_TURNS_SELECT_VALUE;
@@ -855,7 +815,7 @@ function useDiffPanelComponent({
     : "All turns";
   const turnSelectorDisabled = orderedTurnDiffSummaries.length === 0;
 
-  const submitReviewComment = useCallback(() => {
+  const submitReviewComment = () => {
     const body = reviewCommentDraft.trim();
     if (
       !body ||
@@ -888,15 +848,7 @@ function useDiffPanelComponent({
       next.delete(activeReviewLineSelection.fileKey);
       return next;
     });
-  }, [
-    activeCwd,
-    activeReviewFileDiff,
-    activeReviewLineSelection,
-    closeReviewCommentPopover,
-    onAddReviewComment,
-    reviewCommentDraft,
-    selectedTurnLabel,
-  ]);
+  };
 
   const selectTurn = (turnId: TurnId) => {
     if (onSelectTurn) {
@@ -1124,7 +1076,7 @@ function useDiffPanelComponent({
                   const themedFileKey = `${fileKey}:${resolvedTheme}`;
                   const stat = summarizeFileDiff(fileDiff);
                   const changeType = formatFileChangeType(fileDiff);
-                  const collapsed = collapsedFileKeys.has(fileKey);
+                  const collapsed = visibleCollapsedFileKeys.has(fileKey);
                   const commentSelection =
                     activeReviewLineSelection?.fileKey === fileKey
                       ? activeReviewLineSelection
@@ -1134,8 +1086,8 @@ function useDiffPanelComponent({
                     activeCommentFileKey === fileKey &&
                     commentSelection !== null;
                   const commentPopoverPosition =
-                    reviewCommentPopoverPosition?.fileKey === fileKey
-                      ? reviewCommentPopoverPosition
+                    visibleReviewCommentPopoverPosition?.fileKey === fileKey
+                      ? visibleReviewCommentPopoverPosition
                       : commentPopoverOpen
                         ? createFallbackReviewCommentPopoverPosition(fileKey, "pending")
                         : null;
@@ -1219,6 +1171,8 @@ function useDiffPanelComponent({
                             {commentSelection.label}
                           </span>
                           <input
+                            ref={reviewCommentInputRef}
+                            aria-label="Review comment"
                             value={reviewCommentDraft}
                             onChange={(event) => setReviewCommentDraft(event.target.value)}
                             onKeyDown={(event) => {
@@ -1229,7 +1183,6 @@ function useDiffPanelComponent({
                             }}
                             placeholder={commentPlaceholder}
                             className="h-9 min-w-0 flex-1 border-0 bg-transparent px-1 text-[13px] font-medium text-foreground outline-none placeholder:text-muted-foreground/55"
-                            autoFocus
                           />
                           <Tooltip>
                             <TooltipTrigger

@@ -2,7 +2,7 @@ import * as Schema from "effect/Schema";
 
 export const PINNED_MESSAGES_STORAGE_KEY = "ace:pinned-messages:v1";
 
-export const PinnedMessageSchema = Schema.Struct({
+const PinnedMessageSchema = Schema.Struct({
   id: Schema.String,
   threadId: Schema.String,
   messageId: Schema.String,
@@ -34,7 +34,7 @@ function truncatePinnedMessageText(text: string, maxLength: number): string {
   return `${text.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
 }
 
-export function resolvePinnedMessageTitle(text: string): string {
+function resolvePinnedMessageTitle(text: string): string {
   const firstLine = text
     .split(/\r?\n/u)
     .map((line) => line.trim())
@@ -42,7 +42,7 @@ export function resolvePinnedMessageTitle(text: string): string {
   return truncatePinnedMessageText(firstLine ?? "Pinned message", 72);
 }
 
-export function resolvePinnedMessagePreview(text: string): string {
+function resolvePinnedMessagePreview(text: string): string {
   return truncatePinnedMessageText(normalizePinnedMessageText(text), 140);
 }
 

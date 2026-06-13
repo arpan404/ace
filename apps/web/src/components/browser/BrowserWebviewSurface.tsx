@@ -1,7 +1,7 @@
-import { ArrowUpRightIcon, GlobeIcon, MousePointer2Icon, RotateCwIcon } from "lucide-react";
+import { ArrowUpRightIcon, MousePointer2Icon } from "lucide-react";
 import {
-  useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useReducer,
   useRef,
@@ -11,6 +11,7 @@ import {
   type WheelEvent as ReactWheelEvent,
 } from "react";
 
+import { buildBrowserElementCaptureScript } from "./browserElementCaptureScript";
 import { cn, isMacPlatform, randomUUID } from "~/lib/utils";
 import { runAsyncTask } from "~/lib/async";
 import type { BrowserDesignerTool } from "~/lib/browser/designer";
@@ -46,8 +47,9 @@ import {
 } from "~/lib/browser/url";
 import { resolveLocalConnectionUrl } from "~/lib/connectionRouting";
 import { useWorkspaceCommentPlaceholder } from "~/lib/editor/workspaceCommentPlaceholders";
-import { useEffectEvent } from "~/hooks/useEffectEvent";
+import { useStableCallback } from "~/hooks/useStableCallback";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { BrowserLoadErrorPage } from "./BrowserLoadErrorPage";
 
 const BROWSER_ZOOM_STEP = 0.1;
 const MIN_BROWSER_ZOOM_FACTOR = 0.25;
@@ -101,19 +103,6 @@ function normalizeConsoleLogLevel(value: unknown): BrowserConsoleLogEntry["level
   return "log";
 }
 
-function resolveBrowserFaviconSources(url: string): string[] {
-  try {
-    const parsed = new URL(url);
-    const domainUrl = encodeURIComponent(parsed.origin);
-    return [
-      `https://www.google.com/s2/favicons?domain_url=${domainUrl}&sz=64`,
-      new URL("/favicon.ico", parsed.origin).toString(),
-    ];
-  } catch {
-    return [];
-  }
-}
-
 function formatBrowserLoadFailureMessage(input: { code?: number; description?: string }): string {
   const description = input.description?.trim();
   if (description) {
@@ -131,7 +120,7 @@ interface BrowserPageElementCapture {
   mainContainer: BrowserDesignElementDescriptor | null;
 }
 
-interface BrowserLoadFailure {
+export interface BrowserLoadFailure {
   code: number | null;
   message: string;
   url: string;
@@ -730,590 +719,6 @@ function normalizeCapturedSelectionRect(value: unknown): BrowserDesignSelectionR
   };
 }
 
-export function buildBrowserElementCaptureScript(
-  point: { x: number; y: number },
-  overlayViewport?: { width: number; height: number },
-): string {
-  const serializedPayload = JSON.stringify({
-    overlayViewport: overlayViewport
-      ? {
-          width: Math.max(1, Math.round(overlayViewport.width)),
-          height: Math.max(1, Math.round(overlayViewport.height)),
-        }
-      : null,
-    point: {
-      x: Math.max(0, Math.floor(point.x)),
-      y: Math.max(0, Math.floor(point.y)),
-    },
-  });
-  return `(() => {
-  const payload = ${serializedPayload};
-  const rawPoint = payload.point;
-  const overlayViewport = payload.overlayViewport;
-  const toSnippet = (value, maxLength) => {
-    if (typeof value !== "string") return null;
-    const collapsed = value.replace(/\\s+/g, " ").trim();
-    if (!collapsed) return null;
-    return collapsed.length > maxLength ? collapsed.slice(0, maxLength - 1) + "…" : collapsed;
-  };
-  const parseAlpha = (value) => {
-    if (typeof value !== "string") return 0;
-    const normalized = value.trim().toLowerCase();
-    if (!normalized || normalized === "transparent") return 0;
-    const rgbaMatch = normalized.match(/^rgba\\((.+)\\)$/);
-    if (!rgbaMatch) return 1;
-    const parts = rgbaMatch[1].split(",").map((part) => part.trim());
-    if (parts.length < 4) return 1;
-    const alpha = Number(parts[3]);
-    return Number.isFinite(alpha) ? alpha : 1;
-  };
-  const isElementNode = (value) => Boolean(value) && value.nodeType === 1 && typeof value.tagName === "string";
-  const clampNumber = (value, minimum, maximum) => Math.min(maximum, Math.max(minimum, value));
-  const escapeCss = (value) => {
-    if (typeof value !== "string") return "";
-    if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
-      return CSS.escape(value);
-    }
-    return value.replace(/[^a-zA-Z0-9_-]/g, "_");
-  };
-  const resolveViewportMetrics = () => {
-    const visualViewport = typeof window.visualViewport === "object" ? window.visualViewport : null;
-    const guestWidth = Math.max(
-      1,
-      Math.round(
-        window.innerWidth || visualViewport?.width || document.documentElement?.clientWidth || 1,
-      ),
-    );
-    const guestHeight = Math.max(
-      1,
-      Math.round(
-        window.innerHeight || visualViewport?.height || document.documentElement?.clientHeight || 1,
-      ),
-    );
-    const hostWidth = Math.max(1, Math.round(overlayViewport?.width || guestWidth));
-    const hostHeight = Math.max(1, Math.round(overlayViewport?.height || guestHeight));
-    const offsetLeft = Number.isFinite(visualViewport?.offsetLeft) ? visualViewport.offsetLeft : 0;
-    const offsetTop = Number.isFinite(visualViewport?.offsetTop) ? visualViewport.offsetTop : 0;
-    return {
-      guestHeight,
-      guestWidth,
-      hostHeight,
-      hostWidth,
-      offsetLeft,
-      offsetTop,
-      scaleX: guestWidth / hostWidth,
-      scaleY: guestHeight / hostHeight,
-    };
-  };
-  const viewport = resolveViewportMetrics();
-  const point = {
-    x: Math.round(
-      clampNumber(
-        viewport.offsetLeft + rawPoint.x * viewport.scaleX,
-        viewport.offsetLeft,
-        viewport.offsetLeft + viewport.guestWidth - 1,
-      ),
-    ),
-    y: Math.round(
-      clampNumber(
-        viewport.offsetTop + rawPoint.y * viewport.scaleY,
-        viewport.offsetTop,
-        viewport.offsetTop + viewport.guestHeight - 1,
-      ),
-    ),
-  };
-  const mapGuestRectToHost = (rect) => {
-    if (!rect || rect.width <= 0 || rect.height <= 0) {
-      return null;
-    }
-    const left = Math.max(0, (rect.left - viewport.offsetLeft) / viewport.scaleX);
-    const top = Math.max(0, (rect.top - viewport.offsetTop) / viewport.scaleY);
-    const right = Math.max(left + 1, (rect.right - viewport.offsetLeft) / viewport.scaleX);
-    const bottom = Math.max(top + 1, (rect.bottom - viewport.offsetTop) / viewport.scaleY);
-    const width = Math.max(1, right - left);
-    const height = Math.max(1, bottom - top);
-    return {
-      x: Math.round(left),
-      y: Math.round(top),
-      width: Math.round(width),
-      height: Math.round(height),
-    };
-  };
-  const selectorFromElement = (element) => {
-    if (!isElementNode(element)) return null;
-    if (element.id) return "#" + escapeCss(element.id);
-    const segments = [];
-    let current = element;
-    for (let depth = 0; depth < 4 && current && isElementNode(current); depth += 1) {
-      let segment = current.tagName.toLowerCase();
-      const classList = Array.from(current.classList).slice(0, 2);
-      if (classList.length > 0) {
-        segment += "." + classList.map(escapeCss).join(".");
-      }
-      const parent = current.parentElement;
-      if (parent) {
-        const sameTagSiblings = Array.from(parent.children).filter(
-          (child) => child.tagName === current.tagName,
-        );
-        if (sameTagSiblings.length > 1) {
-          const index = sameTagSiblings.indexOf(current);
-          if (index >= 0) {
-            segment += ":nth-of-type(" + String(index + 1) + ")";
-          }
-        }
-      }
-      segments.unshift(segment);
-      if (!parent || current.tagName.toLowerCase() === "body") break;
-      current = parent;
-    }
-    return segments.join(" > ");
-  };
-  const describe = (element) => {
-    if (!isElementNode(element)) return null;
-    return {
-      tagName: element.tagName.toLowerCase(),
-      id: element.id || null,
-      className: element.className ? String(element.className) : null,
-      selector: selectorFromElement(element),
-      textSnippet: toSnippet(element.textContent ?? "", 320),
-      htmlSnippet: toSnippet(element.outerHTML ?? "", 1200),
-    };
-  };
-  const toRect = (element) => {
-    if (!isElementNode(element)) return null;
-    return mapGuestRectToHost(element.getBoundingClientRect());
-  };
-  const toRoundedRect = (rect) => {
-    if (!rect || rect.width <= 0 || rect.height <= 0) {
-      return null;
-    }
-    return mapGuestRectToHost(rect);
-  };
-  const pointWithinRect = (rect) =>
-    rect &&
-    point.x >= rect.left &&
-    point.x <= rect.right &&
-    point.y >= rect.top &&
-    point.y <= rect.bottom;
-  const strongPreferredRoles = new Set([
-    "article",
-    "button",
-    "cell",
-    "checkbox",
-    "gridcell",
-    "link",
-    "listitem",
-    "menuitem",
-    "option",
-    "radio",
-    "row",
-    "switch",
-    "tab",
-  ]);
-  const strongPreferredTags = new Set([
-    "a",
-    "article",
-    "button",
-    "figure",
-    "img",
-    "input",
-    "label",
-    "li",
-    "summary",
-  ]);
-  const weakPreferredTags = new Set(["aside", "header", "nav", "section"]);
-  const ignoredLeafTags = new Set(["b", "em", "i", "path", "small", "span", "strong", "svg"]);
-  const mediaTags = new Set(["canvas", "figure", "img", "svg", "video"]);
-  const textLikeTags = new Set([
-    "blockquote",
-    "button",
-    "figcaption",
-    "h1",
-    "h2",
-    "h3",
-    "h4",
-    "h5",
-    "h6",
-    "label",
-    "legend",
-    "li",
-    "p",
-    "span",
-    "summary",
-    "yt-formatted-string",
-  ]);
-  const blockDisplays = new Set([
-    "block",
-    "flex",
-    "grid",
-    "inline-block",
-    "inline-flex",
-    "inline-grid",
-    "list-item",
-  ]);
-  const viewportArea = Math.max(1, window.innerWidth * window.innerHeight);
-  const pageHeight = Math.max(
-    window.innerHeight,
-    document.documentElement?.scrollHeight || 0,
-    document.body?.scrollHeight || 0,
-  );
-  const measureTextRect = (element) => {
-    if (!isElementNode(element)) return null;
-    const textContent = (element.textContent || "").replace(/\\s+/g, " ").trim();
-    if (!textContent) return null;
-    const range = document.createRange();
-    try {
-      range.selectNodeContents(element);
-      const rect = range.getBoundingClientRect();
-      if (!pointWithinRect(rect) || rect.width < 6 || rect.height < 6) {
-        return null;
-      }
-      return rect;
-    } finally {
-      range.detach?.();
-    }
-  };
-  const getMetrics = (element) => {
-    if (!isElementNode(element)) return null;
-    const rect = element.getBoundingClientRect();
-    if (!pointWithinRect(rect) || rect.width < 8 || rect.height < 8) {
-      return null;
-    }
-    const style = window.getComputedStyle(element);
-    const tagName = element.tagName.toLowerCase();
-    const role = (element.getAttribute("role") || "").toLowerCase();
-    const area = rect.width * rect.height;
-    const isInline =
-      style.display.startsWith("inline") &&
-      style.display !== "inline-block" &&
-      style.display !== "inline-flex" &&
-      style.display !== "inline-grid";
-    const hasVisualBox =
-      parseAlpha(style.backgroundColor) > 0.04 ||
-      style.backgroundImage !== "none" ||
-      parseFloat(style.borderTopWidth || "0") > 0 ||
-      parseFloat(style.borderRightWidth || "0") > 0 ||
-      parseFloat(style.borderBottomWidth || "0") > 0 ||
-      parseFloat(style.borderLeftWidth || "0") > 0 ||
-      style.boxShadow !== "none" ||
-      parseFloat(style.borderRadius || "0") > 0;
-    const isInteractive =
-      strongPreferredTags.has(tagName) ||
-      strongPreferredRoles.has(role) ||
-      element.hasAttribute("tabindex") ||
-      element.hasAttribute("aria-current") ||
-      element.hasAttribute("aria-pressed");
-    const textLength = (element.textContent || "").replace(/\\s+/g, " ").trim().length;
-    const textRect = measureTextRect(element);
-    const childCount = element.childElementCount;
-    const isCustomElement = tagName.includes("-");
-    const isHuge =
-      area > viewportArea * 0.72 ||
-      (rect.width > window.innerWidth * 0.97 && rect.height > window.innerHeight * 0.52) ||
-      rect.height > window.innerHeight * 0.88;
-    const isPageSized =
-      rect.width >= window.innerWidth * 0.96 &&
-      (rect.height >= window.innerHeight * 0.86 || rect.height >= pageHeight * 0.72);
-    const isDecorativeBackground =
-      !isInteractive &&
-      hasVisualBox &&
-      isPageSized &&
-      textLength < 24 &&
-      childCount <= 2;
-    return {
-      area,
-      areaRatio: area / viewportArea,
-      childCount,
-      display: style.display,
-      hasVisualBox,
-      isDecorativeBackground,
-      isCustomElement,
-      isHuge,
-      isPageSized,
-      isInline,
-      isInteractive,
-      rect,
-      role,
-      tagName,
-      textRect,
-      textLength,
-    };
-  };
-  const isTextSelectable = (metrics) => {
-    if (!metrics || metrics.isHuge || metrics.textLength < 14) {
-      return false;
-    }
-    const selectionRect = metrics.textRect ?? metrics.rect;
-    const textArea = selectionRect.width * selectionRect.height;
-    if (textArea < 120 || selectionRect.height > window.innerHeight * 0.28) {
-      return false;
-    }
-    if (
-      selectionRect.width > window.innerWidth * 0.96 &&
-      selectionRect.height > window.innerHeight * 0.18
-    ) {
-      return false;
-    }
-    return (
-      textLikeTags.has(metrics.tagName) ||
-      (!metrics.hasVisualBox && (metrics.childCount <= 3 || blockDisplays.has(metrics.display))) ||
-      (!metrics.hasVisualBox &&
-        metrics.isCustomElement &&
-        metrics.textLength >= 18 &&
-        selectionRect.height <= 120)
-    );
-  };
-  const isSurfaceSelectable = (metrics, childMetrics) => {
-    if (!metrics || metrics.isHuge || metrics.isDecorativeBackground) {
-      return false;
-    }
-    const hasOwnSurface =
-      metrics.hasVisualBox ||
-      mediaTags.has(metrics.tagName) ||
-      strongPreferredTags.has(metrics.tagName);
-    if (!hasOwnSurface || metrics.area < 900 || metrics.rect.width < 32 || metrics.rect.height < 24) {
-      return false;
-    }
-    if (
-      !metrics.isInteractive &&
-      metrics.rect.width > window.innerWidth * 0.86 &&
-      metrics.rect.height > window.innerHeight * 0.2
-    ) {
-      return false;
-    }
-    if (childMetrics?.hasVisualBox && !metrics.isInteractive) {
-      const widthGrowth = metrics.rect.width / Math.max(1, childMetrics.rect.width);
-      const heightGrowth = metrics.rect.height / Math.max(1, childMetrics.rect.height);
-      const centeredAlongX =
-        Math.abs(
-          (metrics.rect.left + metrics.rect.right) / 2 -
-            (childMetrics.rect.left + childMetrics.rect.right) / 2,
-        ) <= Math.min(48, metrics.rect.width * 0.08);
-      if (centeredAlongX && widthGrowth > 1.1 && heightGrowth < 1.4) {
-        return false;
-      }
-    }
-    if (isTextSelectable(childMetrics) && !metrics.isInteractive) {
-      const widthGrowth = metrics.rect.width / Math.max(1, childMetrics.rect.width);
-      const heightGrowth = metrics.rect.height / Math.max(1, childMetrics.rect.height);
-      if (metrics.hasVisualBox && (widthGrowth > 1.14 || heightGrowth > 1.14)) {
-        return false;
-      }
-    }
-    return true;
-  };
-  const isMeaningfulChild = (metrics) => {
-    if (!metrics) return false;
-    if (metrics.isDecorativeBackground) return false;
-    return (
-      metrics.hasVisualBox ||
-      metrics.isInteractive ||
-      isTextSelectable(metrics) ||
-      strongPreferredTags.has(metrics.tagName) ||
-      strongPreferredRoles.has(metrics.role) ||
-      metrics.area > 2600 ||
-      metrics.rect.width >= 120 ||
-      metrics.rect.height >= 56 ||
-      metrics.textLength >= 40
-    );
-  };
-  const isWeakLeafCandidate = (metrics) => {
-    if (!metrics) return false;
-    if (metrics.isDecorativeBackground) return true;
-    if (
-      metrics.isInteractive ||
-      metrics.hasVisualBox ||
-      strongPreferredTags.has(metrics.tagName) ||
-      strongPreferredRoles.has(metrics.role)
-    ) {
-      return false;
-    }
-    return (
-      ignoredLeafTags.has(metrics.tagName) ||
-      (metrics.isInline && metrics.area < 24000) ||
-      (metrics.childCount === 0 &&
-        metrics.rect.height < 48 &&
-        metrics.rect.width < window.innerWidth * 0.55)
-    );
-  };
-  const resolveSelectableCandidate = (element, depth, pathChild) => {
-    const metrics = getMetrics(element);
-    if (!metrics) return null;
-    if (metrics.isDecorativeBackground) return null;
-    const childMetrics = getMetrics(pathChild);
-    const isTextCandidate = isTextSelectable(metrics);
-    const isSurfaceCandidate = isSurfaceSelectable(metrics, childMetrics);
-    const isControlCandidate = metrics.isInteractive;
-    if (!isControlCandidate && !isTextCandidate && !isSurfaceCandidate) {
-      return null;
-    }
-    const selectionRect =
-      isTextCandidate && !metrics.hasVisualBox ? (metrics.textRect ?? metrics.rect) : metrics.rect;
-    if (!selectionRect) {
-      return null;
-    }
-    let score = 0;
-    if (isControlCandidate) score += 12;
-    if (isTextCandidate) score += 10;
-    if (isSurfaceCandidate) score += 8;
-    if (strongPreferredTags.has(metrics.tagName)) score += 5;
-    if (strongPreferredRoles.has(metrics.role)) score += 4;
-    if (!isTextCandidate && weakPreferredTags.has(metrics.tagName)) score += 1.5;
-    if (metrics.isCustomElement) score += 4;
-    if (metrics.hasVisualBox) score += 5;
-    if (blockDisplays.has(metrics.display)) score += 3;
-    if (metrics.childCount > 0) score += Math.min(2, metrics.childCount * 0.35);
-    if (metrics.textLength > 0) score += Math.min(3, Math.ceil(metrics.textLength / 42));
-    if (isTextCandidate && metrics.textRect) {
-      score += Math.min(6, metrics.textLength / 18);
-    }
-    if (metrics.isInline) score -= 7;
-    if (!isTextCandidate && ignoredLeafTags.has(metrics.tagName)) score -= 4;
-    if (metrics.area < 420) score -= 5;
-    if (metrics.isHuge) score -= 12;
-    if (!metrics.isInteractive && metrics.rect.width > window.innerWidth * 0.8) score -= 3.5;
-    if (
-      !metrics.isInteractive &&
-      metrics.rect.height < window.innerHeight * 0.34 &&
-      metrics.rect.width / Math.max(1, metrics.rect.height) > 5.6
-    ) {
-      score -= 3;
-    }
-    if (isMeaningfulChild(childMetrics)) {
-      const areaGrowth = metrics.area / Math.max(1, childMetrics.area);
-      const widthGrowth = metrics.rect.width / Math.max(1, childMetrics.rect.width);
-      const heightGrowth = metrics.rect.height / Math.max(1, childMetrics.rect.height);
-      const centeredAlongX =
-        Math.abs(
-          (metrics.rect.left + metrics.rect.right) / 2 -
-            (childMetrics.rect.left + childMetrics.rect.right) / 2,
-        ) <= Math.min(48, metrics.rect.width * 0.1);
-      const similarHeight = heightGrowth <= 1.45;
-      if (areaGrowth > 1.45) {
-        score -= Math.min(10, (areaGrowth - 1.45) * 4.5);
-      }
-      if (widthGrowth > 1.16 && similarHeight) {
-        score -= Math.min(8, (widthGrowth - 1.16) * 18);
-      }
-      if (centeredAlongX && widthGrowth > 1.12 && similarHeight) {
-        score -= 4;
-      }
-      if (childMetrics.hasVisualBox && metrics.hasVisualBox && widthGrowth > 1.08) {
-        score -= 3;
-      }
-      if (isTextSelectable(childMetrics) && !isTextCandidate && !metrics.isInteractive) {
-        score -= 8;
-      }
-    }
-    score -= depth * 0.45;
-    score -= metrics.areaRatio * 8;
-    const roundedRect = toRoundedRect(selectionRect);
-    if (!roundedRect) {
-      return null;
-    }
-    return {
-      depth,
-      element,
-      rect: roundedRect,
-      score,
-    };
-  };
-  const resolveTargetElement = (initialTarget) => {
-    if (!isElementNode(initialTarget)) return null;
-    const candidates = [];
-    const bestCandidateByElement = new Map();
-    const resolvePreferredTextCandidate = (elements) => {
-      for (const hit of elements.slice(0, 4)) {
-        let current = hit;
-        for (let depth = 0; current && depth < 4; depth += 1) {
-          const metrics = getMetrics(current);
-          if (!metrics) {
-            break;
-          }
-          if (isTextSelectable(metrics) && !metrics.hasVisualBox) {
-            const rect = toRoundedRect(metrics.textRect ?? metrics.rect);
-            if (rect) {
-              return {
-                depth,
-                element: current,
-                rect,
-                score: Number.POSITIVE_INFINITY,
-              };
-            }
-          }
-          if (metrics.hasVisualBox || metrics.isInteractive) {
-            break;
-          }
-          current = current.parentElement;
-        }
-      }
-      return null;
-    };
-    const considerChain = (start) => {
-      let current = start;
-      let pathChild = null;
-      for (let depth = 0; current && depth < 8; depth += 1) {
-        if (isElementNode(current)) {
-          const candidate = resolveSelectableCandidate(current, depth, pathChild);
-          if (candidate) {
-            const existing = bestCandidateByElement.get(current);
-            if (!existing || candidate.score > existing.score) {
-              bestCandidateByElement.set(current, candidate);
-            }
-          }
-        }
-        pathChild = current;
-        current = current.parentElement;
-      }
-    };
-    const hitElements =
-      typeof document.elementsFromPoint === "function"
-        ? document.elementsFromPoint(point.x, point.y)
-        : [initialTarget];
-    const filteredHitElements = hitElements.filter((element) => {
-      return !isWeakLeafCandidate(getMetrics(element));
-    });
-    const preferredTextCandidate = resolvePreferredTextCandidate(
-      filteredHitElements.length > 0 ? filteredHitElements : hitElements,
-    );
-    if (preferredTextCandidate) {
-      return preferredTextCandidate;
-    }
-    for (const hit of (filteredHitElements.length > 0 ? filteredHitElements : hitElements).slice(0, 6)) {
-      considerChain(hit);
-    }
-    candidates.push(...bestCandidateByElement.values());
-    if (candidates.length === 0) {
-      const initialMetrics = getMetrics(initialTarget);
-      if (
-        !initialMetrics ||
-        initialMetrics.isDecorativeBackground ||
-        (initialMetrics.isHuge && !initialMetrics.isInteractive)
-      ) {
-        return null;
-      }
-      return { element: initialTarget, rect: toRect(initialTarget), score: 0, depth: 0 };
-    }
-    candidates.sort((left, right) => right.score - left.score || left.depth - right.depth);
-    return candidates[0] ?? { element: initialTarget, rect: toRect(initialTarget), score: 0, depth: 0 };
-  };
-  const x = Math.max(0, Math.floor(point.x));
-  const y = Math.max(0, Math.floor(point.y));
-  const rawTarget = document.elementFromPoint(x, y);
-  const resolvedTarget = resolveTargetElement(rawTarget);
-  const target = resolvedTarget?.element ?? null;
-  const mainContainer =
-     isElementNode(target)
-       ? target.closest("main, [role='main'], article, section, [data-testid], [class*='container'], [class*='content']") ?? target.parentElement
-       : null;
-  return {
-    targetRect: resolvedTarget?.rect ?? toRect(target),
-    target: describe(target),
-    mainContainer: describe(mainContainer),
-  };
-})();`;
-}
-
 function buildElementCommentScrollScript(input: {
   deltaX: number;
   deltaY: number;
@@ -1485,92 +890,6 @@ function normalizeFindInPageResult(value: unknown): BrowserFindResult | null {
   };
 }
 
-function BrowserFavicon(props: {
-  url: string;
-  title: string;
-  className?: string;
-  fallbackClassName?: string;
-}) {
-  const { className, fallbackClassName, url } = props;
-  const sources = useMemo(() => resolveBrowserFaviconSources(url), [url]);
-
-  return (
-    <BrowserFaviconImage
-      key={sources.join("\u0000")}
-      sources={sources}
-      {...(className !== undefined ? { className } : {})}
-      {...(fallbackClassName !== undefined ? { fallbackClassName } : {})}
-    />
-  );
-}
-
-function BrowserFaviconImage(props: {
-  sources: readonly string[];
-  className?: string | undefined;
-  fallbackClassName?: string | undefined;
-}) {
-  const { className, fallbackClassName, sources } = props;
-  const [sourceIndex, setSourceIndex] = useState(0);
-  const source = sources[sourceIndex];
-  if (!source) {
-    return (
-      <GlobeIcon className={cn("shrink-0", fallbackClassName, className)} aria-hidden="true" />
-    );
-  }
-
-  return (
-    <img
-      alt=""
-      aria-hidden="true"
-      className={cn("shrink-0 rounded-sm object-cover", className)}
-      src={source}
-      onError={() => {
-        setSourceIndex((current) => {
-          const nextIndex = current + 1;
-          return nextIndex < sources.length ? nextIndex : current;
-        });
-      }}
-    />
-  );
-}
-
-function BrowserLoadErrorPage(props: { failure: BrowserLoadFailure; onRetry: () => void }) {
-  const hostLabel = useMemo(() => {
-    try {
-      return new URL(props.failure.url).host;
-    } catch {
-      return props.failure.url;
-    }
-  }, [props.failure.url]);
-
-  return (
-    <div className="absolute inset-0 z-10 min-h-0 overflow-auto bg-background px-10 py-16 text-foreground">
-      <div className="mx-auto flex w-full max-w-3xl flex-col items-start gap-5">
-        <GlobeIcon className="size-10 text-muted-foreground" aria-hidden="true" />
-        <div className="space-y-2">
-          <h2 className="text-2xl font-semibold tracking-normal">This page could not load</h2>
-          <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
-            Ace could not reach <span className="font-medium text-foreground">{hostLabel}</span>.
-            Check the address or your connection, then try again.
-          </p>
-          <p className="font-mono text-xs text-muted-foreground">
-            {props.failure.code !== null ? `ERR ${String(props.failure.code)}: ` : ""}
-            {props.failure.message}
-          </p>
-        </div>
-        <button
-          type="button"
-          className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          onClick={props.onRetry}
-        >
-          <RotateCwIcon className="size-4" aria-hidden="true" />
-          Retry
-        </button>
-      </div>
-    </div>
-  );
-}
-
 function useBrowserTabWebviewComponent(props: {
   active: boolean;
   browserPartition: string;
@@ -1631,6 +950,7 @@ function useBrowserTabWebviewComponent(props: {
     viewport: OverlayViewportSize;
   } | null>(null);
   const elementHoverFrameRef = useRef<number | null>(null);
+  const flushHoveredElementInspectionRef = useRef<(() => void) | null>(null);
   const pendingElementHoverPointRef = useRef<{ x: number; y: number } | null>(null);
   const elementHoverRequestInFlightRef = useRef(false);
   const hoveredElementCaptureRef = useRef<BrowserPageElementCapture | null>(null);
@@ -1645,9 +965,11 @@ function useBrowserTabWebviewComponent(props: {
   const agentPointerFrameRef = useRef<number | null>(null);
   const agentPointerPositionRef = useRef<BrowserAgentPointerPoint | null>(null);
   const requestedUrlRef = useRef(tab.url);
-  const localConnectionUrl = useMemo(() => resolveLocalConnectionUrl(), []);
+  const localConnectionUrl = resolveLocalConnectionUrl();
   const activeRef = useRef(active);
-  activeRef.current = active;
+  useLayoutEffect(() => {
+    activeRef.current = active;
+  }, [active]);
   const [designOverlayState, dispatchDesignOverlayState] = useReducer(
     browserDesignOverlayStateReducer,
     EMPTY_BROWSER_DESIGN_OVERLAY_STATE,
@@ -1668,43 +990,44 @@ function useBrowserTabWebviewComponent(props: {
     "design",
     designDraft?.requestId ?? null,
   );
-  const setDesignRequestInputRef = useCallback(
-    (node: HTMLInputElement | null) => {
-      const requestId = designDraft?.requestId ?? null;
-      if (!node || !requestId || focusedDesignRequestIdRef.current === requestId) {
-        return;
-      }
-      focusedDesignRequestIdRef.current = requestId;
-      node.focus();
-    },
-    [designDraft?.requestId],
-  );
-  const emitTabSnapshotChange = useEffectEvent(
+  const setDesignRequestInputRef = (node: HTMLInputElement | null) => {
+    const requestId = designDraft?.requestId ?? null;
+    if (!node || !requestId || focusedDesignRequestIdRef.current === requestId) {
+      return;
+    }
+    focusedDesignRequestIdRef.current = requestId;
+    node.focus();
+  };
+  const emitTabSnapshotChange = useStableCallback(
     (snapshot: BrowserTabSnapshot, options?: BrowserTabSnapshotOptions) => {
       onSnapshotChange(tab.id, snapshot, options);
     },
   );
-  const cancelDesignCaptureEvent = useEffectEvent(() => {
-    onDesignCaptureCancel?.();
-  });
-  const reportBrowserLoadError = useEffectEvent((message: string) => {
+  const reportBrowserLoadError = useStableCallback((message: string) => {
     onBrowserLoadError?.(message);
   });
-  const reportDesignCaptureError = useEffectEvent((message: string) => {
+  const reportDesignCaptureError = useStableCallback((message: string) => {
     onDesignCaptureError?.(message);
   });
-  const requestContextMenuFallback = useEffectEvent(
+  const cancelDesignCapture = useStableCallback(() => {
+    dispatchDesignOverlayState({ type: "clear-design-capture" });
+    dragSelectionRef.current = null;
+    designRequestPanelRequestIdRef.current = null;
+    pendingElementHoverPointRef.current = null;
+    onDesignCaptureCancel?.();
+  });
+  const requestContextMenuFallback = useStableCallback(
     (position: { x: number; y: number }, requestedAt: number) => {
       onContextMenuFallbackRequest(tab.id, position, requestedAt);
     },
   );
-  const requestOpenUrlInNewTab = useEffectEvent((url: string) => {
+  const requestOpenUrlInNewTab = useStableCallback((url: string) => {
     onOpenUrlInNewTab?.(url);
   });
-  const emitFindResultChange = useEffectEvent((result: BrowserFindResult | null) => {
+  const emitFindResultChange = useStableCallback((result: BrowserFindResult | null) => {
     onFindResultChange?.(tab.id, result);
   });
-  const commitHoveredElementCapture = useCallback(
+  const commitHoveredElementCapture = useStableCallback(
     (capture: BrowserPageElementCapture | null, point: { x: number; y: number } | null) => {
       hoveredElementCaptureRef.current = capture;
       hoveredElementPointRef.current = point;
@@ -1730,9 +1053,8 @@ function useBrowserTabWebviewComponent(props: {
         hoveredElementCapture: nextCapture,
       });
     },
-    [],
   );
-  const clearHoveredElementCapture = useCallback(() => {
+  const clearHoveredElementCapture = useStableCallback(() => {
     elementHoverRequestTokenRef.current += 1;
     latestElementHoverPointRef.current = null;
     pendingElementHoverPointRef.current = null;
@@ -1741,51 +1063,53 @@ function useBrowserTabWebviewComponent(props: {
       elementHoverFrameRef.current = null;
     }
     commitHoveredElementCapture(null, null);
-  }, [commitHoveredElementCapture]);
+  });
+  const clearElementInteractionFrames = useStableCallback(() => {
+    clearHoveredElementCapture();
+    if (elementCommentWheelFrameRef.current !== null) {
+      window.cancelAnimationFrame(elementCommentWheelFrameRef.current);
+      elementCommentWheelFrameRef.current = null;
+    }
+  });
 
-  const resolveLoadUrl = useCallback(
-    (url: string) =>
-      resolveBrowserRelayUrl({
-        url,
-        ownerConnectionUrl: connectionUrl,
-        localConnectionUrl,
-      }),
-    [connectionUrl, localConnectionUrl],
+  const resolveLoadUrl = useStableCallback((url: string) =>
+    resolveBrowserRelayUrl({
+      url,
+      ownerConnectionUrl: connectionUrl,
+      localConnectionUrl,
+    }),
   );
 
-  const resolveSnapshotUrl = useCallback((currentUrl: string) => {
+  const resolveSnapshotUrl = useStableCallback((currentUrl: string) => {
     const displayUrl = resolveBrowserDisplayUrl(currentUrl);
     return normalizeBrowserHttpUrl(displayUrl) ?? requestedUrlRef.current;
-  }, []);
+  });
 
-  const emitSnapshotNow = useCallback(
-    (options?: BrowserTabSnapshotOptions) => {
-      const webview = webviewRef.current;
-      if (!webview || !readyRef.current) {
-        return;
-      }
-      const resolvedUrl = resolveSnapshotUrl(
-        readWebviewValue(() => webview.getURL(), requestedUrlRef.current),
-      );
-      emitTabSnapshotChange(
-        {
-          canGoBack: readWebviewValue(() => webview.canGoBack(), false),
-          canGoForward: readWebviewValue(() => webview.canGoForward(), false),
-          devToolsOpen: readWebviewValue(() => webview.isDevToolsOpened(), false),
-          loading: readWebviewValue(() => webview.isLoading(), false),
-          title: resolveBrowserTabTitle(
-            resolvedUrl,
-            readWebviewValue(() => webview.getTitle(), ""),
-          ),
-          url: resolvedUrl,
-        },
-        options,
-      );
-    },
-    [resolveSnapshotUrl],
-  );
+  const emitSnapshotNow = useStableCallback((options?: BrowserTabSnapshotOptions) => {
+    const webview = webviewRef.current;
+    if (!webview || !readyRef.current) {
+      return;
+    }
+    const resolvedUrl = resolveSnapshotUrl(
+      readWebviewValue(() => webview.getURL(), requestedUrlRef.current),
+    );
+    emitTabSnapshotChange(
+      {
+        canGoBack: readWebviewValue(() => webview.canGoBack(), false),
+        canGoForward: readWebviewValue(() => webview.canGoForward(), false),
+        devToolsOpen: readWebviewValue(() => webview.isDevToolsOpened(), false),
+        loading: readWebviewValue(() => webview.isLoading(), false),
+        title: resolveBrowserTabTitle(
+          resolvedUrl,
+          readWebviewValue(() => webview.getTitle(), ""),
+        ),
+        url: resolvedUrl,
+      },
+      options,
+    );
+  });
 
-  const readSnapshot = useCallback((): BrowserTabSnapshot | null => {
+  const readSnapshot = useStableCallback((): BrowserTabSnapshot | null => {
     const webview = webviewRef.current;
     if (!webview || !readyRef.current) {
       return null;
@@ -1804,178 +1128,169 @@ function useBrowserTabWebviewComponent(props: {
       ),
       url: resolvedUrl,
     };
-  }, [resolveSnapshotUrl]);
+  });
 
-  const flushScheduledSnapshot = useCallback(() => {
+  const flushScheduledSnapshot = useStableCallback(() => {
     snapshotFlushTimerRef.current = null;
     const options = pendingSnapshotOptionsRef.current ?? undefined;
     pendingSnapshotOptionsRef.current = null;
     emitSnapshotNow(options);
-  }, [emitSnapshotNow]);
+  });
 
-  const scheduleEmitSnapshot = useCallback(
-    (options: BrowserTabSnapshotOptions = {}) => {
-      const pending = pendingSnapshotOptionsRef.current;
-      pendingSnapshotOptionsRef.current = {
-        persistTab: pending?.persistTab === true || options.persistTab === true,
-        recordHistory: pending?.recordHistory === true || options.recordHistory === true,
-      };
-      if (snapshotFlushTimerRef.current !== null) {
-        return;
-      }
-      snapshotFlushTimerRef.current = window.setTimeout(
-        flushScheduledSnapshot,
-        BROWSER_SNAPSHOT_COALESCE_MS,
-      );
-    },
-    [flushScheduledSnapshot],
-  );
+  const scheduleEmitSnapshot = useStableCallback((options: BrowserTabSnapshotOptions = {}) => {
+    const pending = pendingSnapshotOptionsRef.current;
+    pendingSnapshotOptionsRef.current = {
+      persistTab: pending?.persistTab === true || options.persistTab === true,
+      recordHistory: pending?.recordHistory === true || options.recordHistory === true,
+    };
+    if (snapshotFlushTimerRef.current !== null) {
+      return;
+    }
+    snapshotFlushTimerRef.current = window.setTimeout(
+      flushScheduledSnapshot,
+      BROWSER_SNAPSHOT_COALESCE_MS,
+    );
+  });
 
-  const cancelScheduledSnapshot = useCallback(() => {
+  const cancelScheduledSnapshot = useStableCallback(() => {
     if (snapshotFlushTimerRef.current !== null) {
       window.clearTimeout(snapshotFlushTimerRef.current);
       snapshotFlushTimerRef.current = null;
     }
     pendingSnapshotOptionsRef.current = null;
-  }, []);
-  const resolveLoadUrlEvent = useEffectEvent((url: string) => resolveLoadUrl(url));
-  const resolveSnapshotUrlEvent = useEffectEvent((currentUrl: string) =>
+  });
+  const resolveLoadUrlEvent = useStableCallback((url: string) => resolveLoadUrl(url));
+  const resolveSnapshotUrlEvent = useStableCallback((currentUrl: string) =>
     resolveSnapshotUrl(currentUrl),
   );
-  const scheduleEmitSnapshotEvent = useEffectEvent((options?: BrowserTabSnapshotOptions) => {
+  const scheduleEmitSnapshotEvent = useStableCallback((options?: BrowserTabSnapshotOptions) => {
     scheduleEmitSnapshot(options);
   });
 
-  const navigate = useCallback(
-    (url: string) => {
-      dispatchDesignOverlayState({ type: "set-load-failure", loadFailure: null });
-      requestedUrlRef.current = url;
-      const webview = webviewRef.current;
-      if (!webview || !readyRef.current) {
-        pendingUrlRef.current = url;
-        return;
-      }
-      const currentUrl = normalizeBrowserHttpUrl(
-        resolveBrowserDisplayUrl(readWebviewValue(() => webview.getURL(), requestedUrlRef.current)),
-      );
-      if (currentUrl === normalizeBrowserHttpUrl(url)) {
-        scheduleEmitSnapshot({ persistTab: true });
-        return;
-      }
+  const navigate = useStableCallback((url: string) => {
+    dispatchDesignOverlayState({ type: "set-load-failure", loadFailure: null });
+    requestedUrlRef.current = url;
+    const webview = webviewRef.current;
+    if (!webview || !readyRef.current) {
+      pendingUrlRef.current = url;
+      return;
+    }
+    const currentUrl = normalizeBrowserHttpUrl(
+      resolveBrowserDisplayUrl(readWebviewValue(() => webview.getURL(), requestedUrlRef.current)),
+    );
+    if (currentUrl === normalizeBrowserHttpUrl(url)) {
+      scheduleEmitSnapshot({ persistTab: true });
+      return;
+    }
 
-      loadWebviewUrl(webview, resolveLoadUrl(url), (message) => {
-        dispatchDesignOverlayState({
-          type: "set-load-failure",
-          loadFailure: {
-            code: null,
-            message,
-            url,
-          },
-        });
-        reportBrowserLoadError(message);
+    loadWebviewUrl(webview, resolveLoadUrl(url), (message) => {
+      dispatchDesignOverlayState({
+        type: "set-load-failure",
+        loadFailure: {
+          code: null,
+          message,
+          url,
+        },
       });
-    },
-    [resolveLoadUrl, scheduleEmitSnapshot],
-  );
+      reportBrowserLoadError(message);
+    });
+  });
 
-  const inspectBrowserPoint = useCallback(
-    async (point: { x: number; y: number }): Promise<BrowserPageElementCapture | null> => {
-      const webview = webviewRef.current;
-      if (!activeRef.current || !webview || !readyRef.current || !webview.executeJavaScript) {
-        return null;
-      }
-      const overlayHost = overlayRef.current ?? hostRef.current;
-      const capture = await webview.executeJavaScript<BrowserPageElementCapture | null>(
-        buildBrowserElementCaptureScript(
-          point,
-          overlayHost
-            ? {
-                width: overlayHost.clientWidth,
-                height: overlayHost.clientHeight,
-              }
-            : undefined,
-        ),
-        true,
-      );
-      return capture
-        ? {
-            targetRect: normalizeCapturedSelectionRect(capture.targetRect),
-            target: normalizeCapturedDescriptor(capture.target ?? null),
-            mainContainer: normalizeCapturedDescriptor(capture.mainContainer ?? null),
-          }
-        : null;
-    },
-    [],
-  );
+  const inspectBrowserPoint = async (point: {
+    x: number;
+    y: number;
+  }): Promise<BrowserPageElementCapture | null> => {
+    const webview = webviewRef.current;
+    if (!activeRef.current || !webview || !readyRef.current || !webview.executeJavaScript) {
+      return null;
+    }
+    const overlayHost = overlayRef.current ?? hostRef.current;
+    const capture = await webview.executeJavaScript<BrowserPageElementCapture | null>(
+      buildBrowserElementCaptureScript(
+        point,
+        overlayHost
+          ? {
+              width: overlayHost.clientWidth,
+              height: overlayHost.clientHeight,
+            }
+          : undefined,
+      ),
+      true,
+    );
+    return capture
+      ? {
+          targetRect: normalizeCapturedSelectionRect(capture.targetRect),
+          target: normalizeCapturedDescriptor(capture.target ?? null),
+          mainContainer: normalizeCapturedDescriptor(capture.mainContainer ?? null),
+        }
+      : null;
+  };
 
-  const captureDesignSelection = useCallback(
-    async (
-      selection: BrowserDesignSelectionRect,
-      requestId: string,
-      inspectedPoint?: BrowserPageElementCapture | null,
-    ): Promise<BrowserDesignCaptureResult> => {
-      const webview = webviewRef.current;
-      if (!webview || !readyRef.current) {
-        throw new Error("The browser tab is not ready yet.");
-      }
-      if (!webview.capturePage || !webview.executeJavaScript) {
-        throw new Error("Design capture is unavailable for this browser tab.");
-      }
+  const captureDesignSelection = async (
+    selection: BrowserDesignSelectionRect,
+    requestId: string,
+    inspectedPoint?: BrowserPageElementCapture | null,
+  ): Promise<BrowserDesignCaptureResult> => {
+    const webview = webviewRef.current;
+    if (!webview || !readyRef.current) {
+      throw new Error("The browser tab is not ready yet.");
+    }
+    if (!webview.capturePage || !webview.executeJavaScript) {
+      throw new Error("Design capture is unavailable for this browser tab.");
+    }
 
-      const overlayHost = overlayRef.current ?? hostRef.current;
-      const viewportWidth = Math.max(1, Math.round(overlayHost?.clientWidth ?? selection.width));
-      const viewportHeight = Math.max(1, Math.round(overlayHost?.clientHeight ?? selection.height));
-      const capturedImage = await webview.capturePage();
-      const imageDataUrl = await cropCapturedImageDataUrl({
-        dataUrl: capturedImage.toDataURL(),
-        selection,
-        viewportHeight,
-        viewportWidth,
-      });
-      const centerPoint = {
-        x: selection.x + Math.floor(selection.width / 2),
-        y: selection.y + Math.floor(selection.height / 2),
-      };
-      const elementCapture = inspectedPoint ?? (await inspectBrowserPoint(centerPoint));
+    const overlayHost = overlayRef.current ?? hostRef.current;
+    const viewportWidth = Math.max(1, Math.round(overlayHost?.clientWidth ?? selection.width));
+    const viewportHeight = Math.max(1, Math.round(overlayHost?.clientHeight ?? selection.height));
+    const capturedImage = await webview.capturePage();
+    const imageDataUrl = await cropCapturedImageDataUrl({
+      dataUrl: capturedImage.toDataURL(),
+      selection,
+      viewportHeight,
+      viewportWidth,
+    });
+    const centerPoint = {
+      x: selection.x + Math.floor(selection.width / 2),
+      y: selection.y + Math.floor(selection.height / 2),
+    };
+    const elementCapture = inspectedPoint ?? (await inspectBrowserPoint(centerPoint));
 
-      return {
-        requestId,
-        selection,
-        imageDataUrl,
-        imageMimeType: resolveDataUrlMimeType(imageDataUrl),
-        imageSizeBytes: estimateDataUrlBytes(imageDataUrl),
-        targetElement: elementCapture?.target ?? null,
-        mainContainer: elementCapture?.mainContainer ?? null,
-      };
-    },
-    [inspectBrowserPoint],
-  );
+    return {
+      requestId,
+      selection,
+      imageDataUrl,
+      imageMimeType: resolveDataUrlMimeType(imageDataUrl),
+      imageSizeBytes: estimateDataUrlBytes(imageDataUrl),
+      targetElement: elementCapture?.target ?? null,
+      mainContainer: elementCapture?.mainContainer ?? null,
+    };
+  };
 
-  const clearAgentPointerActionTimer = useCallback(() => {
+  const clearAgentPointerActionTimer = useStableCallback(() => {
     if (agentPointerActionTimerRef.current === null) {
       return;
     }
     window.clearTimeout(agentPointerActionTimerRef.current);
     agentPointerActionTimerRef.current = null;
-  }, []);
+  });
 
-  const cancelAgentPointerAnimation = useCallback(() => {
+  const cancelAgentPointerAnimation = useStableCallback(() => {
     if (agentPointerFrameRef.current === null) {
       return;
     }
     window.cancelAnimationFrame(agentPointerFrameRef.current);
     agentPointerFrameRef.current = null;
-  }, []);
+  });
 
-  const resolveAgentPointerViewport = useCallback(() => {
+  const resolveAgentPointerViewport = useStableCallback(() => {
     const host = overlayRef.current ?? hostRef.current;
     return {
       height: Math.max(1, Math.round(host?.clientHeight ?? 1)),
       width: Math.max(1, Math.round(host?.clientWidth ?? 1)),
     };
-  }, []);
+  });
 
-  const clampAgentPointerPoint = useCallback(
+  const clampAgentPointerPoint = useStableCallback(
     (point: { x: number; y: number }): { x: number; y: number } => {
       const viewport = resolveAgentPointerViewport();
       return {
@@ -1983,10 +1298,9 @@ function useBrowserTabWebviewComponent(props: {
         y: Math.max(0, Math.min(viewport.height, Math.round(point.y))),
       };
     },
-    [resolveAgentPointerViewport],
   );
 
-  const resolveAgentPointerPoint = useCallback(
+  const resolveAgentPointerPoint = useStableCallback(
     (effect: BrowserAgentPointerEffect): { x: number; y: number } => {
       const pathEnd = effect.path?.at(-1);
       if (pathEnd && Number.isFinite(pathEnd.x) && Number.isFinite(pathEnd.y)) {
@@ -2017,10 +1331,9 @@ function useBrowserTabWebviewComponent(props: {
         y: Math.round(viewport.height / 2),
       };
     },
-    [clampAgentPointerPoint, resolveAgentPointerViewport],
   );
 
-  const setAgentPointerFrame = useCallback(
+  const setAgentPointerFrame = useStableCallback(
     (
       effect: BrowserAgentPointerEffect,
       point: { x: number; y: number },
@@ -2039,42 +1352,42 @@ function useBrowserTabWebviewComponent(props: {
         ...nextPoint,
       });
     },
-    [clampAgentPointerPoint],
   );
 
-  const scheduleAgentPointerRest = useCallback(
-    (token: number, delayMs: number) => {
-      clearAgentPointerActionTimer();
-      agentPointerActionTimerRef.current = window.setTimeout(() => {
-        agentPointerActionTimerRef.current = null;
-        if (agentPointerTokenRef.current === token) {
-          setAgentPointer((current) =>
-            current
-              ? {
-                  ...current,
-                  mode: "move",
-                  pressed: false,
-                  scrollX: 0,
-                  scrollY: 0,
-                  visible: true,
-                }
-              : current,
-          );
-        }
-      }, delayMs);
-    },
-    [clearAgentPointerActionTimer],
-  );
+  const scheduleAgentPointerRest = useStableCallback((token: number, delayMs: number) => {
+    clearAgentPointerActionTimer();
+    agentPointerActionTimerRef.current = window.setTimeout(() => {
+      agentPointerActionTimerRef.current = null;
+      if (agentPointerTokenRef.current === token) {
+        setAgentPointer((current) =>
+          current
+            ? {
+                ...current,
+                mode: "move",
+                pressed: false,
+                scrollX: 0,
+                scrollY: 0,
+                visible: true,
+              }
+            : current,
+        );
+      }
+    }, delayMs);
+  });
 
-  const clearAgentPointer = useCallback(() => {
+  const clearAgentPointerRuntime = useStableCallback(() => {
     agentPointerTokenRef.current += 1;
     clearAgentPointerActionTimer();
     cancelAgentPointerAnimation();
     agentPointerPositionRef.current = null;
-    setAgentPointer(null);
-  }, [cancelAgentPointerAnimation, clearAgentPointerActionTimer]);
+  });
 
-  const animateAgentPointerTo = useCallback(
+  const clearAgentPointer = useStableCallback(() => {
+    clearAgentPointerRuntime();
+    setAgentPointer(null);
+  });
+
+  const animateAgentPointerTo = useStableCallback(
     (
       effect: BrowserAgentPointerEffect,
       point: BrowserAgentPointerPoint,
@@ -2127,11 +1440,28 @@ function useBrowserTabWebviewComponent(props: {
         agentPointerFrameRef.current = window.requestAnimationFrame(step);
       });
     },
-    [cancelAgentPointerAnimation, clampAgentPointerPoint, setAgentPointerFrame],
   );
-
-  const animateAgentPointer = useCallback(
+  const animateAgentPointer = useStableCallback(
     async (effect: BrowserAgentPointerEffect): Promise<void> => {
+      const animateActiveAgentPointerTo = async (
+        point: BrowserAgentPointerPoint,
+        options: {
+          durationMultiplier?: number;
+          pressed?: boolean | undefined;
+          token: number;
+        },
+      ): Promise<boolean> => {
+        await animateAgentPointerTo(effect, point, options);
+        return agentPointerTokenRef.current === options.token;
+      };
+      const waitForActiveAgentPointerFrame = async (
+        activeToken: number,
+        ms: number,
+      ): Promise<boolean> => {
+        await waitForBrowserPointerFrame(ms);
+        return agentPointerTokenRef.current === activeToken;
+      };
+
       if (!activeRef.current) {
         return;
       }
@@ -2149,17 +1479,17 @@ function useBrowserTabWebviewComponent(props: {
         : undefined;
 
       if (effect.type === "drag" && path && path.length >= 2) {
-        await animateAgentPointerTo(effect, path[0]!, {
-          durationMultiplier: 0.82,
-          pressed: false,
-          token,
-        });
-        if (agentPointerTokenRef.current !== token) {
+        if (
+          !(await animateActiveAgentPointerTo(path[0]!, {
+            durationMultiplier: 0.82,
+            pressed: false,
+            token,
+          }))
+        ) {
           return;
         }
         setAgentPointerFrame(effect, path[0]!, { pressed: true });
-        await waitForBrowserPointerFrame(80);
-        if (agentPointerTokenRef.current !== token) {
+        if (!(await waitForActiveAgentPointerFrame(token, 80))) {
           return;
         }
         const steps = path.slice(1);
@@ -2168,15 +1498,18 @@ function useBrowserTabWebviewComponent(props: {
           if (!point || agentPointerTokenRef.current !== token) {
             return;
           }
-          await animateAgentPointerTo(effect, point, {
-            durationMultiplier: 0.62,
-            pressed: true,
-            token,
-          });
+          if (
+            !(await animateActiveAgentPointerTo(point, {
+              durationMultiplier: 0.62,
+              pressed: true,
+              token,
+            }))
+          ) {
+            return;
+          }
           await animateDragMovement(index + 1);
         };
-        await animateDragMovement(0);
-        if (agentPointerTokenRef.current !== token) {
+        if (!(await animateDragMovement(0).then(() => agentPointerTokenRef.current === token))) {
           return;
         }
         setAgentPointerFrame(effect, path[path.length - 1]!, { pressed: false });
@@ -2185,29 +1518,29 @@ function useBrowserTabWebviewComponent(props: {
       }
 
       const point = resolveAgentPointerPoint(effect);
-      await animateAgentPointerTo(effect, point, {
-        durationMultiplier: effect.type === "scroll" ? 0.78 : 1,
-        pressed: false,
-        token,
-      });
-      if (agentPointerTokenRef.current !== token) {
+      if (
+        !(await animateActiveAgentPointerTo(point, {
+          durationMultiplier: effect.type === "scroll" ? 0.78 : 1,
+          pressed: false,
+          token,
+        }))
+      ) {
         return;
       }
       if (effect.type === "click" || effect.type === "double_click") {
         setAgentPointerFrame(effect, point, { pressed: true });
-        await waitForBrowserPointerFrame(effect.type === "double_click" ? 90 : 80);
-        if (agentPointerTokenRef.current !== token) {
+        if (
+          !(await waitForActiveAgentPointerFrame(token, effect.type === "double_click" ? 90 : 80))
+        ) {
           return;
         }
         setAgentPointerFrame(effect, point, { pressed: false });
         if (effect.type === "double_click") {
-          await waitForBrowserPointerFrame(80);
-          if (agentPointerTokenRef.current !== token) {
+          if (!(await waitForActiveAgentPointerFrame(token, 80))) {
             return;
           }
           setAgentPointerFrame(effect, point, { pressed: true });
-          await waitForBrowserPointerFrame(80);
-          if (agentPointerTokenRef.current !== token) {
+          if (!(await waitForActiveAgentPointerFrame(token, 80))) {
             return;
           }
           setAgentPointerFrame(effect, point, { pressed: false });
@@ -2217,14 +1550,6 @@ function useBrowserTabWebviewComponent(props: {
       }
       scheduleAgentPointerRest(token, effect.type === "scroll" ? 620 : 180);
     },
-    [
-      animateAgentPointerTo,
-      clampAgentPointerPoint,
-      clearAgentPointerActionTimer,
-      resolveAgentPointerPoint,
-      scheduleAgentPointerRest,
-      setAgentPointerFrame,
-    ],
   );
 
   const browserTabHandle = useMemo<BrowserTabHandle>(
@@ -2393,8 +1718,8 @@ function useBrowserTabWebviewComponent(props: {
     if (active) {
       return;
     }
-    clearAgentPointer();
-  }, [active, clearAgentPointer]);
+    clearAgentPointerRuntime();
+  }, [active, clearAgentPointerRuntime]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -2566,7 +1891,7 @@ function useBrowserTabWebviewComponent(props: {
       dispatchDesignOverlayState({ type: "clear-design-capture" });
       hoveredElementCaptureRef.current = null;
       dragSelectionRef.current = null;
-      cancelDesignCaptureEvent();
+      cancelDesignCapture();
     };
     const handleFoundInPage = (event: Event) => {
       const detail = event as Event & { result?: unknown };
@@ -2612,21 +1937,25 @@ function useBrowserTabWebviewComponent(props: {
       readyRef.current = false;
       cancelScheduledSnapshot();
     };
-  }, [browserPartition, cancelScheduledSnapshot]);
+  }, [
+    browserPartition,
+    cancelDesignCapture,
+    cancelScheduledSnapshot,
+    emitFindResultChange,
+    emitTabSnapshotChange,
+    reportBrowserLoadError,
+    requestContextMenuFallback,
+    requestOpenUrlInNewTab,
+    resolveLoadUrlEvent,
+    resolveSnapshotUrlEvent,
+    scheduleEmitSnapshotEvent,
+  ]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     navigate(tab.url);
   }, [navigate, tab.url]);
 
-  const cancelDesignCapture = useEffectEvent(() => {
-    dispatchDesignOverlayState({ type: "clear-design-capture" });
-    dragSelectionRef.current = null;
-    designRequestPanelRequestIdRef.current = null;
-    pendingElementHoverPointRef.current = null;
-    cancelDesignCaptureEvent();
-  });
-
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!active) {
       clearHoveredElementCapture();
     }
@@ -2651,9 +1980,9 @@ function useBrowserTabWebviewComponent(props: {
     return () => {
       window.removeEventListener("keydown", onWindowKeyDownCapture, true);
     };
-  }, [active, designDraft]);
+  }, [active, cancelDesignCapture, designDraft]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (designerModeActive) {
       return;
     }
@@ -2664,87 +1993,83 @@ function useBrowserTabWebviewComponent(props: {
       return;
     }
     cancelDesignCapture();
-  }, [clearHoveredElementCapture, designDraft, designerModeActive]);
+  }, [cancelDesignCapture, clearHoveredElementCapture, designDraft, designerModeActive]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (designerTool === "element-comment") {
       return;
     }
     clearHoveredElementCapture();
   }, [clearHoveredElementCapture, designerTool]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!designDraft || designDraft.tool === designerTool) {
       return;
     }
     cancelDesignCapture();
-  }, [designDraft, designerTool]);
+  }, [cancelDesignCapture, designDraft, designerTool]);
 
   useEffect(() => {
     return () => {
-      elementHoverRequestTokenRef.current += 1;
-      if (elementHoverFrameRef.current !== null) {
-        window.cancelAnimationFrame(elementHoverFrameRef.current);
-      }
-      if (elementCommentWheelFrameRef.current !== null) {
-        window.cancelAnimationFrame(elementCommentWheelFrameRef.current);
-      }
+      clearElementInteractionFrames();
     };
-  }, []);
+  }, [clearElementInteractionFrames]);
 
-  const forwardElementCommentWheelToWebview = useCallback(
-    (input: { deltaX: number; deltaY: number; clientX: number; clientY: number }) => {
-      const webview = webviewRef.current;
-      if (!webview || !readyRef.current) {
-        return;
-      }
-      const overlayBounds = overlayRef.current?.getBoundingClientRect();
-      const x = overlayBounds
-        ? Math.round(
-            clampPoint(input.clientX - overlayBounds.left, 0, Math.max(0, overlayBounds.width - 1)),
-          )
-        : 0;
-      const y = overlayBounds
-        ? Math.round(
-            clampPoint(input.clientY - overlayBounds.top, 0, Math.max(0, overlayBounds.height - 1)),
-          )
-        : 0;
-      const forwardingMode = resolveElementCommentWheelForwardingMode({
-        hasSendInputEvent: typeof webview.sendInputEvent === "function",
-        platform: typeof navigator === "undefined" ? "" : navigator.platform,
+  const forwardElementCommentWheelToWebview = (input: {
+    deltaX: number;
+    deltaY: number;
+    clientX: number;
+    clientY: number;
+  }) => {
+    const webview = webviewRef.current;
+    if (!webview || !readyRef.current) {
+      return;
+    }
+    const overlayBounds = overlayRef.current?.getBoundingClientRect();
+    const x = overlayBounds
+      ? Math.round(
+          clampPoint(input.clientX - overlayBounds.left, 0, Math.max(0, overlayBounds.width - 1)),
+        )
+      : 0;
+    const y = overlayBounds
+      ? Math.round(
+          clampPoint(input.clientY - overlayBounds.top, 0, Math.max(0, overlayBounds.height - 1)),
+        )
+      : 0;
+    const forwardingMode = resolveElementCommentWheelForwardingMode({
+      hasSendInputEvent: typeof webview.sendInputEvent === "function",
+      platform: typeof navigator === "undefined" ? "" : navigator.platform,
+    });
+    if (forwardingMode === "electron-input" && webview.sendInputEvent) {
+      webview.sendInputEvent({
+        type: "mouseWheel",
+        x,
+        y,
+        deltaX: input.deltaX,
+        deltaY: input.deltaY,
+        canScroll: true,
       });
-      if (forwardingMode === "electron-input" && webview.sendInputEvent) {
-        webview.sendInputEvent({
-          type: "mouseWheel",
-          x,
-          y,
+      return;
+    }
+    if (!webview.executeJavaScript) {
+      return;
+    }
+    runAsyncTask(
+      webview.executeJavaScript(
+        buildElementCommentScrollScript({
           deltaX: input.deltaX,
           deltaY: input.deltaY,
-          canScroll: true,
-        });
-        return;
-      }
-      if (!webview.executeJavaScript) {
-        return;
-      }
-      runAsyncTask(
-        webview.executeJavaScript(
-          buildElementCommentScrollScript({
-            deltaX: input.deltaX,
-            deltaY: input.deltaY,
-            point: { x, y },
-            ...(overlayBounds
-              ? { overlayViewport: { width: overlayBounds.width, height: overlayBounds.height } }
-              : {}),
-          }),
-          true,
-        ),
-        "Failed to forward element-comment scroll to the browser webview.",
-      );
-    },
-    [],
-  );
-  const flushElementCommentWheel = useCallback(() => {
+          point: { x, y },
+          ...(overlayBounds
+            ? { overlayViewport: { width: overlayBounds.width, height: overlayBounds.height } }
+            : {}),
+        }),
+        true,
+      ),
+      "Failed to forward element-comment scroll to the browser webview.",
+    );
+  };
+  const flushElementCommentWheel = () => {
     elementCommentWheelFrameRef.current = null;
     const pendingWheel = pendingElementCommentWheelRef.current;
     if (!pendingWheel) {
@@ -2752,107 +2077,93 @@ function useBrowserTabWebviewComponent(props: {
     }
     pendingElementCommentWheelRef.current = null;
     forwardElementCommentWheelToWebview(pendingWheel);
-  }, [forwardElementCommentWheelToWebview]);
+  };
 
-  const onCaptureOverlayWheel = useCallback(
-    (event: ReactWheelEvent<HTMLDivElement>) => {
-      if (!active || !designerModeActive || designerTool !== "element-comment" || designDraft) {
-        return;
-      }
-      event.preventDefault();
-      event.stopPropagation();
-      lastElementCommentWheelAtRef.current = Date.now();
-      elementHoverRequestTokenRef.current += 1;
-      pendingElementHoverPointRef.current = null;
-      commitHoveredElementCapture(null, null);
-      if (elementHoverFrameRef.current !== null) {
-        window.cancelAnimationFrame(elementHoverFrameRef.current);
-        elementHoverFrameRef.current = null;
-      }
-      const deltaMultiplier =
-        event.deltaMode === 1
-          ? 16
-          : event.deltaMode === 2
-            ? (overlayRef.current?.clientHeight ?? 1)
-            : 1;
-      const deltaX = event.deltaX * deltaMultiplier;
-      const deltaY = event.deltaY * deltaMultiplier;
-      pendingElementCommentWheelRef.current = pendingElementCommentWheelRef.current
-        ? {
-            clientX: event.clientX,
-            clientY: event.clientY,
-            deltaX: pendingElementCommentWheelRef.current.deltaX + deltaX,
-            deltaY: pendingElementCommentWheelRef.current.deltaY + deltaY,
-          }
-        : {
-            clientX: event.clientX,
-            clientY: event.clientY,
-            deltaX,
-            deltaY,
-          };
-      if (elementCommentWheelFrameRef.current === null) {
-        elementCommentWheelFrameRef.current =
-          window.requestAnimationFrame(flushElementCommentWheel);
-      }
-    },
-    [
-      active,
-      commitHoveredElementCapture,
-      designDraft,
-      designerModeActive,
-      designerTool,
-      flushElementCommentWheel,
-    ],
-  );
+  const onCaptureOverlayWheel = (event: ReactWheelEvent<HTMLDivElement>) => {
+    if (!active || !designerModeActive || designerTool !== "element-comment" || designDraft) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    lastElementCommentWheelAtRef.current = Date.now();
+    elementHoverRequestTokenRef.current += 1;
+    pendingElementHoverPointRef.current = null;
+    commitHoveredElementCapture(null, null);
+    if (elementHoverFrameRef.current !== null) {
+      window.cancelAnimationFrame(elementHoverFrameRef.current);
+      elementHoverFrameRef.current = null;
+    }
+    const deltaMultiplier =
+      event.deltaMode === 1
+        ? 16
+        : event.deltaMode === 2
+          ? (overlayRef.current?.clientHeight ?? 1)
+          : 1;
+    const deltaX = event.deltaX * deltaMultiplier;
+    const deltaY = event.deltaY * deltaMultiplier;
+    pendingElementCommentWheelRef.current = pendingElementCommentWheelRef.current
+      ? {
+          clientX: event.clientX,
+          clientY: event.clientY,
+          deltaX: pendingElementCommentWheelRef.current.deltaX + deltaX,
+          deltaY: pendingElementCommentWheelRef.current.deltaY + deltaY,
+        }
+      : {
+          clientX: event.clientX,
+          clientY: event.clientY,
+          deltaX,
+          deltaY,
+        };
+    if (elementCommentWheelFrameRef.current === null) {
+      elementCommentWheelFrameRef.current = window.requestAnimationFrame(flushElementCommentWheel);
+    }
+  };
 
-  const startCapturedDraft = useCallback(
-    (
-      selection: BrowserDesignSelectionRect,
-      inspectedPoint?: BrowserPageElementCapture | null,
-      failureMessage = "Could not capture the selected browser area.",
-    ) => {
-      elementHoverRequestTokenRef.current += 1;
-      dispatchDesignOverlayState({ type: "set-selection-rect", selectionRect: selection });
-      const requestId = generateDesignRequestId();
-      const host = overlayRef.current;
-      const viewportWidth = host?.clientWidth ?? 0;
-      const viewportHeight = host?.clientHeight ?? 0;
-      dispatchDesignOverlayState({ type: "set-design-instructions", designInstructions: "" });
-      dispatchDesignOverlayState({
-        type: "set-design-draft",
-        designDraft: {
-          capture: null,
+  const startCapturedDraft = (
+    selection: BrowserDesignSelectionRect,
+    inspectedPoint?: BrowserPageElementCapture | null,
+    failureMessage = "Could not capture the selected browser area.",
+  ) => {
+    elementHoverRequestTokenRef.current += 1;
+    dispatchDesignOverlayState({ type: "set-selection-rect", selectionRect: selection });
+    const requestId = generateDesignRequestId();
+    const host = overlayRef.current;
+    const viewportWidth = host?.clientWidth ?? 0;
+    const viewportHeight = host?.clientHeight ?? 0;
+    dispatchDesignOverlayState({ type: "set-design-instructions", designInstructions: "" });
+    dispatchDesignOverlayState({
+      type: "set-design-draft",
+      designDraft: {
+        capture: null,
+        requestId,
+        selection,
+        tool: designerTool,
+        viewportWidth,
+        viewportHeight,
+      },
+    });
+    void captureDesignSelection(selection, requestId, inspectedPoint)
+      .then((capture) => {
+        if (!mountedRef.current) {
+          return;
+        }
+        dispatchDesignOverlayState({
+          type: "resolve-design-draft-capture",
+          capture,
           requestId,
-          selection,
-          tool: designerTool,
-          viewportWidth,
-          viewportHeight,
-        },
-      });
-      void captureDesignSelection(selection, requestId, inspectedPoint)
-        .then((capture) => {
-          if (!mountedRef.current) {
-            return;
-          }
-          dispatchDesignOverlayState({
-            type: "resolve-design-draft-capture",
-            capture,
-            requestId,
-          });
-        })
-        .catch((error: unknown) => {
-          if (!mountedRef.current) {
-            return;
-          }
-          const message = error instanceof Error ? error.message : failureMessage;
-          reportDesignCaptureError(message);
-          cancelDesignCapture();
         });
-    },
-    [captureDesignSelection, designerTool],
-  );
+      })
+      .catch((error: unknown) => {
+        if (!mountedRef.current) {
+          return;
+        }
+        const message = error instanceof Error ? error.message : failureMessage;
+        reportDesignCaptureError(message);
+        cancelDesignCapture();
+      });
+  };
 
-  const flushHoveredElementInspection = useCallback(() => {
+  const flushHoveredElementInspection = useStableCallback(() => {
     if (elementHoverFrameRef.current !== null) {
       window.cancelAnimationFrame(elementHoverFrameRef.current);
       elementHoverFrameRef.current = null;
@@ -2893,196 +2204,175 @@ function useBrowserTabWebviewComponent(props: {
       .finally(() => {
         elementHoverRequestInFlightRef.current = false;
         if (activeRef.current && pendingElementHoverPointRef.current) {
-          elementHoverFrameRef.current = window.requestAnimationFrame(
-            flushHoveredElementInspection,
-          );
+          elementHoverFrameRef.current = window.requestAnimationFrame(() => {
+            flushHoveredElementInspectionRef.current?.();
+          });
         }
       });
-  }, [
-    commitHoveredElementCapture,
-    designDraft,
-    designerModeActive,
-    designerTool,
-    inspectBrowserPoint,
-  ]);
+  });
+  useLayoutEffect(() => {
+    flushHoveredElementInspectionRef.current = flushHoveredElementInspection;
+  }, [flushHoveredElementInspection]);
 
-  const onCaptureOverlayPointerDown = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>) => {
-      if (!active || !designerModeActive || designDraft || event.button !== 0) {
-        return;
-      }
+  const onCaptureOverlayPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!active || !designerModeActive || designDraft || event.button !== 0) {
+      return;
+    }
+    const host = overlayRef.current;
+    if (!host) {
+      return;
+    }
+    const bounds = host.getBoundingClientRect();
+    const startX = event.clientX - bounds.left;
+    const startY = event.clientY - bounds.top;
+    if (designerTool === "element-comment") {
+      latestElementHoverPointRef.current = { x: startX, y: startY };
+      pendingElementHoverPointRef.current = { x: startX, y: startY };
+      flushHoveredElementInspection();
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+    dragSelectionRef.current = {
+      pointerId: event.pointerId,
+      startX,
+      startY,
+      hostWidth: host.clientWidth,
+      hostHeight: host.clientHeight,
+    };
+    const initialRect = normalizeSelectionRect({
+      startX,
+      startY,
+      currentX: startX,
+      currentY: startY,
+      hostWidth: host.clientWidth,
+      hostHeight: host.clientHeight,
+    });
+    dispatchDesignOverlayState({ type: "set-selection-rect", selectionRect: initialRect });
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const onCaptureOverlayPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const dragSelection = dragSelectionRef.current;
+    if (dragSelection && dragSelection.pointerId === event.pointerId) {
       const host = overlayRef.current;
       if (!host) {
         return;
       }
       const bounds = host.getBoundingClientRect();
-      const startX = event.clientX - bounds.left;
-      const startY = event.clientY - bounds.top;
-      if (designerTool === "element-comment") {
-        latestElementHoverPointRef.current = { x: startX, y: startY };
-        pendingElementHoverPointRef.current = { x: startX, y: startY };
-        flushHoveredElementInspection();
-        event.preventDefault();
-        event.stopPropagation();
-        return;
-      }
-      dragSelectionRef.current = {
-        pointerId: event.pointerId,
-        startX,
-        startY,
-        hostWidth: host.clientWidth,
-        hostHeight: host.clientHeight,
-      };
-      const initialRect = normalizeSelectionRect({
-        startX,
-        startY,
-        currentX: startX,
-        currentY: startY,
-        hostWidth: host.clientWidth,
-        hostHeight: host.clientHeight,
+      dispatchDesignOverlayState({
+        type: "set-selection-rect",
+        selectionRect: normalizeSelectionRect({
+          startX: dragSelection.startX,
+          startY: dragSelection.startY,
+          currentX: event.clientX - bounds.left,
+          currentY: event.clientY - bounds.top,
+          hostWidth: dragSelection.hostWidth,
+          hostHeight: dragSelection.hostHeight,
+        }),
       });
-      dispatchDesignOverlayState({ type: "set-selection-rect", selectionRect: initialRect });
       event.preventDefault();
       event.stopPropagation();
-      event.currentTarget.setPointerCapture(event.pointerId);
-    },
-    [active, designDraft, designerModeActive, designerTool, flushHoveredElementInspection],
-  );
+      return;
+    }
+    if (!active || !designerModeActive || designerTool !== "element-comment" || designDraft) {
+      return;
+    }
+    if (
+      Date.now() - lastElementCommentWheelAtRef.current <
+      ELEMENT_HOVER_INSPECTION_SCROLL_PAUSE_MS
+    ) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+    const host = overlayRef.current;
+    if (!host) {
+      return;
+    }
+    const bounds = host.getBoundingClientRect();
+    const point = {
+      x: event.clientX - bounds.left,
+      y: event.clientY - bounds.top,
+    };
+    latestElementHoverPointRef.current = point;
+    pendingElementHoverPointRef.current = point;
+    if (elementHoverFrameRef.current === null) {
+      elementHoverFrameRef.current = window.requestAnimationFrame(flushHoveredElementInspection);
+    }
+    event.preventDefault();
+    event.stopPropagation();
+  };
 
-  const onCaptureOverlayPointerMove = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>) => {
-      const dragSelection = dragSelectionRef.current;
-      if (dragSelection && dragSelection.pointerId === event.pointerId) {
-        const host = overlayRef.current;
-        if (!host) {
+  const onCaptureOverlayPointerEnd = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const dragSelection = dragSelectionRef.current;
+    if (dragSelection && dragSelection.pointerId === event.pointerId) {
+      dragSelectionRef.current = null;
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      const finalSelection = selectionRect;
+      if (!hasMinimumSelectionSize(finalSelection)) {
+        dispatchDesignOverlayState({ type: "set-selection-rect", selectionRect: null });
+        return;
+      }
+      startCapturedDraft(finalSelection);
+      return;
+    }
+
+    if (
+      !active ||
+      !designerModeActive ||
+      designerTool !== "element-comment" ||
+      designDraft ||
+      event.button !== 0
+    ) {
+      return;
+    }
+    const host = overlayRef.current;
+    if (!host) {
+      return;
+    }
+    const bounds = host.getBoundingClientRect();
+    const point = {
+      x: event.clientX - bounds.left,
+      y: event.clientY - bounds.top,
+    };
+    latestElementHoverPointRef.current = point;
+    event.preventDefault();
+    event.stopPropagation();
+    const hoveredCapture = hoveredElementCaptureRef.current;
+    const stableCapture =
+      hoveredCapture && isPointInsideSelectionRect(point, hoveredCapture.targetRect)
+        ? hoveredCapture
+        : null;
+    const capturePromise = stableCapture
+      ? Promise.resolve(stableCapture)
+      : inspectBrowserPoint(point);
+    void capturePromise
+      .then((capture) => {
+        if (!activeRef.current) {
           return;
         }
-        const bounds = host.getBoundingClientRect();
-        dispatchDesignOverlayState({
-          type: "set-selection-rect",
-          selectionRect: normalizeSelectionRect({
-            startX: dragSelection.startX,
-            startY: dragSelection.startY,
-            currentX: event.clientX - bounds.left,
-            currentY: event.clientY - bounds.top,
-            hostWidth: dragSelection.hostWidth,
-            hostHeight: dragSelection.hostHeight,
-          }),
-        });
-        event.preventDefault();
-        event.stopPropagation();
-        return;
-      }
-      if (!active || !designerModeActive || designerTool !== "element-comment" || designDraft) {
-        return;
-      }
-      if (
-        Date.now() - lastElementCommentWheelAtRef.current <
-        ELEMENT_HOVER_INSPECTION_SCROLL_PAUSE_MS
-      ) {
-        event.preventDefault();
-        event.stopPropagation();
-        return;
-      }
-      const host = overlayRef.current;
-      if (!host) {
-        return;
-      }
-      const bounds = host.getBoundingClientRect();
-      const point = {
-        x: event.clientX - bounds.left,
-        y: event.clientY - bounds.top,
-      };
-      latestElementHoverPointRef.current = point;
-      pendingElementHoverPointRef.current = point;
-      if (elementHoverFrameRef.current === null) {
-        elementHoverFrameRef.current = window.requestAnimationFrame(flushHoveredElementInspection);
-      }
-      event.preventDefault();
-      event.stopPropagation();
-    },
-    [active, designDraft, designerModeActive, designerTool, flushHoveredElementInspection],
-  );
-
-  const onCaptureOverlayPointerEnd = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>) => {
-      const dragSelection = dragSelectionRef.current;
-      if (dragSelection && dragSelection.pointerId === event.pointerId) {
-        dragSelectionRef.current = null;
-        if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-          event.currentTarget.releasePointerCapture(event.pointerId);
+        const selection = capture?.targetRect ?? null;
+        if (!hasMinimumSelectionSize(selection, MIN_ELEMENT_CAPTURE_SIZE_PX)) {
+          throw new Error("Click a visible page element to leave a comment.");
         }
-        event.preventDefault();
-        event.stopPropagation();
-        const finalSelection = selectionRect;
-        if (!hasMinimumSelectionSize(finalSelection)) {
-          dispatchDesignOverlayState({ type: "set-selection-rect", selectionRect: null });
-          return;
-        }
-        startCapturedDraft(finalSelection);
-        return;
-      }
+        commitHoveredElementCapture(capture, point);
+        startCapturedDraft(selection, capture, "Could not capture the selected page element.");
+      })
+      .catch((error: unknown) => {
+        const message =
+          error instanceof Error ? error.message : "Could not capture the selected page element.";
+        reportDesignCaptureError(message);
+      });
+  };
 
-      if (
-        !active ||
-        !designerModeActive ||
-        designerTool !== "element-comment" ||
-        designDraft ||
-        event.button !== 0
-      ) {
-        return;
-      }
-      const host = overlayRef.current;
-      if (!host) {
-        return;
-      }
-      const bounds = host.getBoundingClientRect();
-      const point = {
-        x: event.clientX - bounds.left,
-        y: event.clientY - bounds.top,
-      };
-      latestElementHoverPointRef.current = point;
-      event.preventDefault();
-      event.stopPropagation();
-      const hoveredCapture = hoveredElementCaptureRef.current;
-      const stableCapture =
-        hoveredCapture && isPointInsideSelectionRect(point, hoveredCapture.targetRect)
-          ? hoveredCapture
-          : null;
-      const capturePromise = stableCapture
-        ? Promise.resolve(stableCapture)
-        : inspectBrowserPoint(point);
-      void capturePromise
-        .then((capture) => {
-          if (!activeRef.current) {
-            return;
-          }
-          const selection = capture?.targetRect ?? null;
-          if (!hasMinimumSelectionSize(selection, MIN_ELEMENT_CAPTURE_SIZE_PX)) {
-            throw new Error("Click a visible page element to leave a comment.");
-          }
-          commitHoveredElementCapture(capture, point);
-          startCapturedDraft(selection, capture, "Could not capture the selected page element.");
-        })
-        .catch((error: unknown) => {
-          const message =
-            error instanceof Error ? error.message : "Could not capture the selected page element.";
-          reportDesignCaptureError(message);
-        });
-    },
-    [
-      active,
-      commitHoveredElementCapture,
-      designDraft,
-      designerModeActive,
-      designerTool,
-      inspectBrowserPoint,
-      selectionRect,
-      startCapturedDraft,
-    ],
-  );
-
-  const submitDesignDraft = useCallback(async () => {
+  const submitDesignDraft = async () => {
     if (!designDraft?.capture || !onDesignCaptureSubmit || isSubmittingDesignRequest) {
       return;
     }
@@ -3104,13 +2394,17 @@ function useBrowserTabWebviewComponent(props: {
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not add the comment.";
       reportDesignCaptureError(message);
-    } finally {
       dispatchDesignOverlayState({
         type: "set-submitting-design-request",
         isSubmittingDesignRequest: false,
       });
+      return;
     }
-  }, [designDraft, designInstructions, isSubmittingDesignRequest, onDesignCaptureSubmit]);
+    dispatchDesignOverlayState({
+      type: "set-submitting-design-request",
+      isSubmittingDesignRequest: false,
+    });
+  };
 
   useEffect(() => {
     if (!designDraft) {
@@ -3179,7 +2473,7 @@ function useBrowserTabWebviewComponent(props: {
     };
   }, [designDraft]);
 
-  const designRequestPanelViewport = useMemo<OverlayViewportSize | null>(() => {
+  const designRequestPanelViewport: OverlayViewportSize | null = (() => {
     if (!designDraft) {
       return null;
     }
@@ -3189,8 +2483,8 @@ function useBrowserTabWebviewComponent(props: {
         height: designDraft.viewportHeight,
       }
     );
-  }, [designDraft, overlayViewportSize]);
-  const defaultDesignRequestPanelPosition = useMemo<DesignRequestPanelPosition | null>(() => {
+  })();
+  const defaultDesignRequestPanelPosition: DesignRequestPanelPosition | null = (() => {
     if (!designDraft) {
       return null;
     }
@@ -3199,7 +2493,7 @@ function useBrowserTabWebviewComponent(props: {
       return null;
     }
     return resolveDefaultDesignRequestPanelPosition(designDraft, viewport, designRequestPanelSize);
-  }, [designDraft, designRequestPanelSize, designRequestPanelViewport]);
+  })();
   useEffect(() => {
     if (!designDraft || !defaultDesignRequestPanelPosition) {
       designRequestPanelRequestIdRef.current = null;
@@ -3280,7 +2574,7 @@ function useBrowserTabWebviewComponent(props: {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, []);
-  const designRequestPanelStyle = useMemo<CSSProperties | undefined>(() => {
+  const designRequestPanelStyle: CSSProperties | undefined = (() => {
     const position = designRequestPanelPosition ?? defaultDesignRequestPanelPosition;
     if (!position || !designRequestPanelViewport) {
       return undefined;
@@ -3289,18 +2583,22 @@ function useBrowserTabWebviewComponent(props: {
       ...position,
       maxWidth: `${Math.max(160, designRequestPanelViewport.width - DESIGN_REQUEST_PANEL_MARGIN_PX * 2)}px`,
     };
-  }, [defaultDesignRequestPanelPosition, designRequestPanelPosition, designRequestPanelViewport]);
+  })();
   const activeOverlaySelection =
     selectionRect ??
     (designerTool === "element-comment" ? (hoveredElementCapture?.targetRect ?? null) : null);
+  const visibleAgentPointer = active ? agentPointer : null;
   const agentPointerScrollAxis =
-    agentPointer && Math.abs(agentPointer.scrollX) > Math.abs(agentPointer.scrollY) ? "x" : "y";
+    visibleAgentPointer &&
+    Math.abs(visibleAgentPointer.scrollX) > Math.abs(visibleAgentPointer.scrollY)
+      ? "x"
+      : "y";
   const agentPointerScrollDirection =
     agentPointerScrollAxis === "x"
-      ? (agentPointer?.scrollX ?? 0) >= 0
+      ? (visibleAgentPointer?.scrollX ?? 0) >= 0
         ? 1
         : -1
-      : (agentPointer?.scrollY ?? 0) >= 0
+      : (visibleAgentPointer?.scrollY ?? 0) >= 0
         ? 1
         : -1;
   const agentPointerScrollRotation =
@@ -3312,13 +2610,13 @@ function useBrowserTabWebviewComponent(props: {
         ? 0
         : 180;
   const canSubmitDesignDraft = designDraft?.capture ? designInstructions.trim().length > 0 : false;
-  const retryFailedLoad = useCallback(() => {
+  const retryFailedLoad = () => {
     const failedUrl = loadFailure?.url;
     if (!failedUrl) {
       return;
     }
     navigate(failedUrl);
-  }, [loadFailure?.url, navigate]);
+  };
 
   return (
     <div
@@ -3329,20 +2627,20 @@ function useBrowserTabWebviewComponent(props: {
       {loadFailure ? (
         <BrowserLoadErrorPage failure={loadFailure} onRetry={retryFailedLoad} />
       ) : null}
-      {agentPointer?.visible ? (
+      {visibleAgentPointer?.visible ? (
         <div className="pointer-events-none absolute inset-0 z-[35] overflow-hidden">
           <div
             className="absolute left-0 top-0"
             style={{
-              transform: `translate3d(${agentPointer.x}px, ${agentPointer.y}px, 0) scale(${
-                agentPointer.pressed ? 0.96 : 1
+              transform: `translate3d(${visibleAgentPointer.x}px, ${visibleAgentPointer.y}px, 0) scale(${
+                visibleAgentPointer.pressed ? 0.96 : 1
               })`,
             }}
           >
-            {agentPointer.pressed ? (
+            {visibleAgentPointer.pressed ? (
               <span className="absolute -left-3 -top-3 size-7 rounded-full border border-primary/70 bg-primary/12 shadow-[0_0_18px_color-mix(in_srgb,var(--primary)_26%,transparent)]" />
             ) : null}
-            {agentPointer.mode === "scroll" ? (
+            {visibleAgentPointer.mode === "scroll" ? (
               <span
                 className="absolute left-5 top-4 flex size-8 items-center justify-center rounded-full border border-primary/35 bg-background/78 text-primary shadow-lg shadow-black/10 backdrop-blur-md"
                 style={{ transform: `rotate(${agentPointerScrollRotation}deg)` }}
@@ -3391,6 +2689,7 @@ function useBrowserTabWebviewComponent(props: {
             >
               <input
                 ref={setDesignRequestInputRef}
+                aria-label="Design change request"
                 value={designInstructions}
                 onChange={(event) =>
                   dispatchDesignOverlayState({

@@ -1,4 +1,4 @@
-import { LexicalComposer, type InitialConfigType } from "@lexical/react/LexicalComposer";
+import { LexicalComposer } from "@lexical/react/LexicalComposer";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { ContentEditable } from "@lexical/react/LexicalContentEditable";
 import { LexicalErrorBoundary } from "@lexical/react/LexicalErrorBoundary";
@@ -40,11 +40,9 @@ import {
 } from "lexical";
 import {
   createContext,
-  useCallback,
   useEffect,
   useImperativeHandle,
   useLayoutEffect,
-  useMemo,
   useRef,
   use,
   type ClipboardEventHandler,
@@ -1252,10 +1250,7 @@ function ComposerPromptEditorInner({
     terminalContextIds: terminalContexts.map((context) => context.id),
   });
   const isApplyingControlledUpdateRef = useRef(false);
-  const terminalContextActions = useMemo(
-    () => ({ onRemoveTerminalContext }),
-    [onRemoveTerminalContext],
-  );
+  const terminalContextActions = { onRemoveTerminalContext };
 
   useEffect(() => {
     onChangeRef.current = onChange;
@@ -1306,8 +1301,8 @@ function ComposerPromptEditorInner({
     });
   }, [cursor, editor, terminalContexts, terminalContextsSignature, value]);
 
-  const focusAt = useCallback(
-    (nextCursor: number) => {
+  useImperativeHandle(editorRef, () => {
+    const focusAt = (nextCursor: number) => {
       const rootElement = editor.getRootElement();
       if (!rootElement) return false;
       const boundedCursor = clampCollapsedComposerCursor(snapshotRef.current.value, nextCursor);
@@ -1329,47 +1324,36 @@ function ComposerPromptEditorInner({
         snapshotRef.current.terminalContextIds,
       );
       return true;
-    },
-    [editor],
-  );
-
-  const readSnapshot = useCallback((): {
-    value: string;
-    cursor: number;
-    expandedCursor: number;
-    terminalContextIds: string[];
-  } => {
-    let snapshot = snapshotRef.current;
-    editor.getEditorState().read(() => {
-      const nextValue = $getRoot().getTextContent();
-      const fallbackCursor = clampCollapsedComposerCursor(nextValue, snapshotRef.current.cursor);
-      const nextCursor = clampCollapsedComposerCursor(
-        nextValue,
-        $readSelectionOffsetFromEditorState(fallbackCursor),
-      );
-      const fallbackExpandedCursor = clampExpandedCursor(
-        nextValue,
-        snapshotRef.current.expandedCursor,
-      );
-      const nextExpandedCursor = clampExpandedCursor(
-        nextValue,
-        $readExpandedSelectionOffsetFromEditorState(fallbackExpandedCursor),
-      );
-      const terminalContextIds = collectTerminalContextIds($getRoot());
-      snapshot = {
-        value: nextValue,
-        cursor: nextCursor,
-        expandedCursor: nextExpandedCursor,
-        terminalContextIds,
-      };
-    });
-    snapshotRef.current = snapshot;
-    return snapshot;
-  }, [editor]);
-
-  useImperativeHandle(
-    editorRef,
-    () => ({
+    };
+    const readSnapshot = () => {
+      let snapshot = snapshotRef.current;
+      editor.getEditorState().read(() => {
+        const nextValue = $getRoot().getTextContent();
+        const fallbackCursor = clampCollapsedComposerCursor(nextValue, snapshotRef.current.cursor);
+        const nextCursor = clampCollapsedComposerCursor(
+          nextValue,
+          $readSelectionOffsetFromEditorState(fallbackCursor),
+        );
+        const fallbackExpandedCursor = clampExpandedCursor(
+          nextValue,
+          snapshotRef.current.expandedCursor,
+        );
+        const nextExpandedCursor = clampExpandedCursor(
+          nextValue,
+          $readExpandedSelectionOffsetFromEditorState(fallbackExpandedCursor),
+        );
+        const terminalContextIds = collectTerminalContextIds($getRoot());
+        snapshot = {
+          value: nextValue,
+          cursor: nextCursor,
+          expandedCursor: nextExpandedCursor,
+          terminalContextIds,
+        };
+      });
+      snapshotRef.current = snapshot;
+      return snapshot;
+    };
+    return {
       focus: () => focusAt(snapshotRef.current.cursor),
       focusAt,
       focusAtEnd: () =>
@@ -1380,11 +1364,10 @@ function ComposerPromptEditorInner({
           ),
         ),
       readSnapshot,
-    }),
-    [focusAt, readSnapshot],
-  );
+    };
+  }, [editor]);
 
-  const handleEditorChange = useCallback((editorState: EditorState) => {
+  const handleEditorChange = (editorState: EditorState) => {
     editorState.read(() => {
       const nextValue = $getRoot().getTextContent();
       const fallbackCursor = clampCollapsedComposerCursor(nextValue, snapshotRef.current.cursor);
@@ -1438,7 +1421,7 @@ function ComposerPromptEditorInner({
         terminalContextIds,
       );
     });
-  }, []);
+  };
 
   return (
     <ComposerTerminalContextActionsContext.Provider value={terminalContextActions}>
@@ -1501,25 +1484,22 @@ export function ComposerPromptEditor({
 }) {
   const initialValueRef = useRef(value);
   const initialTerminalContextsRef = useRef(terminalContexts);
-  const initialConfig = useMemo<InitialConfigType>(
-    () => ({
-      namespace: "ace-composer-editor",
-      editable: true,
-      nodes: [
-        ComposerMentionNode,
-        ComposerIssueReferenceNode,
-        ComposerProviderCommandNode,
-        ComposerTerminalContextNode,
-      ],
-      editorState: () => {
-        $setComposerEditorPrompt(initialValueRef.current, initialTerminalContextsRef.current);
-      },
-      onError: (error) => {
-        throw error;
-      },
-    }),
-    [],
-  );
+  const initialConfig = {
+    namespace: "ace-composer-editor",
+    editable: true,
+    nodes: [
+      ComposerMentionNode,
+      ComposerIssueReferenceNode,
+      ComposerProviderCommandNode,
+      ComposerTerminalContextNode,
+    ],
+    editorState: () => {
+      $setComposerEditorPrompt(initialValueRef.current, initialTerminalContextsRef.current);
+    },
+    onError: (error: Error) => {
+      throw error;
+    },
+  };
 
   return (
     <LexicalComposer key={COMPOSER_EDITOR_HMR_KEY} initialConfig={initialConfig}>

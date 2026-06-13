@@ -1,8 +1,6 @@
-import { useRef } from "react";
-
 export type WorkspaceCommentPlaceholderContext = "general" | "code" | "diff" | "design";
 
-export const WORKSPACE_COMMENT_PLACEHOLDERS = [
+const WORKSPACE_COMMENT_PLACEHOLDERS = [
   "Leave a note",
   "Ask for review",
   "Request a tweak",
@@ -166,27 +164,23 @@ export function getWorkspaceCommentPlaceholder(
   return placeholders[index]!;
 }
 
+function hashWorkspaceCommentPlaceholderSeed(value: string): number {
+  let hash = 2_166_136_261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16_777_619);
+  }
+  return hash >>> 0;
+}
+
 export function useWorkspaceCommentPlaceholder(
   context: WorkspaceCommentPlaceholderContext = "general",
   sessionKey: string | number | null | undefined = null,
 ): string {
-  const placeholderRef = useRef<{
-    context: WorkspaceCommentPlaceholderContext;
-    placeholder: string;
-    sessionKey: string | number | null | undefined;
-  } | null>(null);
-
-  if (
-    !placeholderRef.current ||
-    placeholderRef.current.context !== context ||
-    placeholderRef.current.sessionKey !== sessionKey
-  ) {
-    placeholderRef.current = {
-      context,
-      placeholder: getWorkspaceCommentPlaceholder({ context }),
-      sessionKey,
-    };
-  }
-
-  return placeholderRef.current.placeholder;
+  const seed =
+    sessionKey === null || sessionKey === undefined ? context : `${context}:${sessionKey}`;
+  return getWorkspaceCommentPlaceholder({
+    context,
+    timestampMs: hashWorkspaceCommentPlaceholderSeed(seed),
+  });
 }

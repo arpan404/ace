@@ -1,6 +1,6 @@
 import type { ChangeContent, ContextContent, FileDiffMetadata, Hunk } from "@pierre/diffs";
 import { ArrowUpRightIcon, MessageSquarePlusIcon, PlusIcon, XIcon } from "lucide-react";
-import { Fragment, memo, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 
 import {
   createPlainWorkspaceShikiHtmlLines,
@@ -10,6 +10,7 @@ import {
   createWorkspaceCodeComment,
   type WorkspaceCodeComment,
 } from "~/lib/editor/workspaceDesigner";
+import { renderTrustedHighlightedHtml } from "~/components/TrustedHighlightedHtml";
 import { useWorkspaceCommentPlaceholder } from "~/lib/editor/workspaceCommentPlaceholders";
 import {
   APP_FLOATING_CHIP_CLASS_NAME,
@@ -106,39 +107,41 @@ interface WorkspaceReviewDiffRenderProps {
 }
 
 function WorkspaceReviewDiff(props: WorkspaceReviewDiffProps) {
-  const [highlightedLines, setHighlightedLines] = useState<WorkspaceReviewDiffHighlights>(() => ({
+  const highlightKey = `${props.fileDiff.cacheKey ?? props.filePath}:${props.resolvedTheme}`;
+  const plainHighlightedLines: WorkspaceReviewDiffHighlights = {
     additions: createPlainWorkspaceShikiHtmlLines(props.fileDiff.additionLines),
     deletions: createPlainWorkspaceShikiHtmlLines(props.fileDiff.deletionLines),
-  }));
+  };
+  const [highlightedLinesState, setHighlightedLinesState] = useState<{
+    key: string;
+    highlightedLines: WorkspaceReviewDiffHighlights;
+  } | null>(null);
+  const highlightedLines =
+    highlightedLinesState?.key === highlightKey
+      ? highlightedLinesState.highlightedLines
+      : plainHighlightedLines;
   const [commentTarget, setCommentTarget] = useState<WorkspaceReviewDiffCommentTarget | null>(null);
   const [commentDraft, setCommentDraft] = useState("");
 
-  const commentsByLineKey = useMemo(() => {
-    const next = new Map<string, WorkspaceCodeComment[]>();
-    for (const comment of props.codeComments) {
-      if (comment.status === "resolved") {
-        continue;
-      }
-      const key = createWorkspaceReviewDiffLineCommentKey(
-        comment.relativePath,
-        comment.range.startLine + 1,
-      );
-      const comments = next.get(key);
-      if (comments) {
-        comments.push(comment);
-      } else {
-        next.set(key, [comment]);
-      }
+  const commentsByLineKey = new Map<string, WorkspaceCodeComment[]>();
+  for (const comment of props.codeComments) {
+    if (comment.status === "resolved") {
+      continue;
     }
-    return next;
-  }, [props.codeComments]);
+    const key = createWorkspaceReviewDiffLineCommentKey(
+      comment.relativePath,
+      comment.range.startLine + 1,
+    );
+    const comments = commentsByLineKey.get(key);
+    if (comments) {
+      comments.push(comment);
+    } else {
+      commentsByLineKey.set(key, [comment]);
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
-    setHighlightedLines({
-      additions: createPlainWorkspaceShikiHtmlLines(props.fileDiff.additionLines),
-      deletions: createPlainWorkspaceShikiHtmlLines(props.fileDiff.deletionLines),
-    });
 
     void Promise.all([
       highlightWorkspaceShikiHtmlLines({
@@ -153,22 +156,21 @@ function WorkspaceReviewDiff(props: WorkspaceReviewDiffProps) {
       }),
     ]).then(([additions, deletions]) => {
       if (!cancelled) {
-        setHighlightedLines({ additions, deletions });
+        setHighlightedLinesState({
+          key: highlightKey,
+          highlightedLines: { additions, deletions },
+        });
       }
     });
 
     return () => {
       cancelled = true;
     };
-  }, [props.fileDiff, props.filePath, props.resolvedTheme]);
+  }, [highlightKey, props.fileDiff, props.filePath, props.resolvedTheme]);
 
-  const renderKey = useMemo(
-    () =>
-      `${props.fileDiff.cacheKey ?? props.filePath}:${props.renderMode}:${
-        props.wordWrap ? "wrap" : "scroll"
-      }`,
-    [props.fileDiff.cacheKey, props.filePath, props.renderMode, props.wordWrap],
-  );
+  const renderKey = `${props.fileDiff.cacheKey ?? props.filePath}:${props.renderMode}:${
+    props.wordWrap ? "wrap" : "scroll"
+  }`;
   const openCommentPopover = (
     target: WorkspaceReviewDiffCommentTarget,
     _anchorElement: HTMLElement,
@@ -323,7 +325,7 @@ function renderUnifiedContextContent(input: {
     const rawLine = input.props.fileDiff.additionLines[additionIndex] ?? "";
     return (
       <WorkspaceReviewDiffLine
-        key={`${input.key}:${index}`}
+        key={`${input.key}:context:${additionIndex}`}
         activeCommentTargetId={input.props.activeCommentTargetId}
         commentDraft={input.props.commentDraft}
         comments={getWorkspaceReviewDiffLineComments(
@@ -364,7 +366,7 @@ function renderUnifiedChangeContent(input: {
     const rawLine = input.props.fileDiff.deletionLines[deletionIndex] ?? "";
     rows.push(
       <WorkspaceReviewDiffLine
-        key={`${input.key}:deletion:${index}`}
+        key={`${input.key}:deletion:${deletionIndex}`}
         activeCommentTargetId={input.props.activeCommentTargetId}
         commentDraft={input.props.commentDraft}
         comments={getWorkspaceReviewDiffLineComments(
@@ -396,7 +398,7 @@ function renderUnifiedChangeContent(input: {
     const rawLine = input.props.fileDiff.additionLines[additionIndex] ?? "";
     rows.push(
       <WorkspaceReviewDiffLine
-        key={`${input.key}:addition:${index}`}
+        key={`${input.key}:addition:${additionIndex}`}
         activeCommentTargetId={input.props.activeCommentTargetId}
         commentDraft={input.props.commentDraft}
         comments={getWorkspaceReviewDiffLineComments(
@@ -438,7 +440,7 @@ function renderSplitContextContent(input: {
     const additionLineNumber = getAdditionLineNumber(input.hunk, additionIndex);
     return (
       <WorkspaceReviewDiffSplitLine
-        key={`${input.key}:${index}`}
+        key={`${input.key}:context:${deletionIndex}:${additionIndex}`}
         activeCommentTargetId={input.props.activeCommentTargetId}
         commentDraft={input.props.commentDraft}
         leftComments={getWorkspaceReviewDiffLineComments(
@@ -505,7 +507,7 @@ function renderSplitChangeContent(input: {
       : null;
     return (
       <WorkspaceReviewDiffSplitLine
-        key={`${input.key}:${index}`}
+        key={`${input.key}:change:${hasDeletion ? deletionIndex : "none"}:${hasAddition ? additionIndex : "none"}`}
         activeCommentTargetId={input.props.activeCommentTargetId}
         commentDraft={input.props.commentDraft}
         leftComments={
@@ -798,7 +800,7 @@ function WorkspaceReviewDiffCommentPopover(props: {
       </span>
       <input
         ref={inputRef}
-        autoFocus
+        aria-label="Review comment"
         className="h-8 min-w-0 flex-1 border-0 bg-transparent px-1 text-[12.5px] font-medium text-foreground outline-none placeholder:text-muted-foreground/55"
         placeholder={commentPlaceholder}
         value={props.commentDraft}
@@ -875,6 +877,7 @@ function WorkspaceReviewDiffCode(props: {
   readonly kind: WorkspaceReviewDiffLineProps["kind"];
   readonly wordWrap: boolean;
 }) {
+  const children = renderTrustedHighlightedHtml(props.html ?? "&nbsp;");
   return (
     <code
       className={cn(
@@ -882,8 +885,9 @@ function WorkspaceReviewDiffCode(props: {
         props.wordWrap ? "whitespace-pre-wrap break-words" : "whitespace-pre",
         props.kind === "empty" && "text-muted-foreground/35",
       )}
-      dangerouslySetInnerHTML={{ __html: props.html ?? "&nbsp;" }}
-    />
+    >
+      {children}
+    </code>
   );
 }
 
@@ -943,4 +947,4 @@ function createWorkspaceReviewDiffCommentTarget(input: {
   };
 }
 
-export default memo(WorkspaceReviewDiff);
+export default WorkspaceReviewDiff;

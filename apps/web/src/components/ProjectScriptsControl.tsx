@@ -11,7 +11,7 @@ import {
   WrenchIcon,
   XIcon,
 } from "lucide-react";
-import React, { type FormEvent, type KeyboardEvent, useCallback, useMemo, useReducer } from "react";
+import React, { type FormEvent, type KeyboardEvent, useCallback, useReducer } from "react";
 
 import {
   keybindingValueForCommand,
@@ -290,7 +290,7 @@ function ProjectScriptEditorDialog(props: {
               onSubmit={props.submitAddScript}
             >
               <div className="grid gap-3 pb-4 sm:grid-cols-[minmax(0,1fr)_16rem]">
-                <label className="space-y-1.5">
+                <label htmlFor="script-name" className="space-y-1.5">
                   <span className={HEADER_ACTION_FIELD_LABEL_CLASS_NAME}>Name</span>
                   <Input
                     id="script-name"
@@ -511,13 +511,10 @@ export default function ProjectScriptsControl({
     deleteConfirmOpen,
   } = dialogState;
 
-  const primaryScript = useMemo(() => {
-    if (preferredScriptId) {
-      const preferred = scripts.find((script) => script.id === preferredScriptId);
-      if (preferred) return preferred;
-    }
-    return primaryProjectScript(scripts);
-  }, [preferredScriptId, scripts]);
+  const preferredScript = preferredScriptId
+    ? scripts.find((script) => script.id === preferredScriptId)
+    : undefined;
+  const primaryScript = preferredScript ?? primaryProjectScript(scripts);
   const isEditing = editingScriptId !== null;
 
   const captureKeybinding = (event: KeyboardEvent<HTMLInputElement>) => {
@@ -600,12 +597,12 @@ export default function ProjectScriptsControl({
     });
   };
 
-  const confirmDeleteScript = useCallback(() => {
+  const confirmDeleteScript = () => {
     if (!editingScriptId) return;
     dispatchDialogState({ type: "set-delete-confirm-open", deleteConfirmOpen: false });
     dispatchDialogState({ type: "close-dialog" });
     void onDeleteScript(editingScriptId);
-  }, [editingScriptId, onDeleteScript]);
+  };
 
   return (
     <>

@@ -4,7 +4,7 @@ import {
   isLikelyBrowserAuthenticationUrl,
   resolveMountedBrowserTabs,
   shouldPublishBrowserSessionChange,
-} from "./InAppBrowser";
+} from "~/lib/browser/inAppBrowserPresentation";
 
 describe("resolveMountedBrowserTabs", () => {
   const tabs = [

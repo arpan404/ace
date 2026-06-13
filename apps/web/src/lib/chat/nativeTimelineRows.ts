@@ -42,6 +42,20 @@ export interface NativeCompletionAttachment {
   readonly turnId: string | null;
 }
 
+type NativeTimelineSourceRef = OrchestrationTimelineRow["sourceRefs"][number];
+
+function findNativeTimelineSourceRef(
+  sourceRefs: readonly NativeTimelineSourceRef[],
+  kind: NativeTimelineSourceRef["kind"],
+): NativeTimelineSourceRef | null {
+  for (const sourceRef of sourceRefs) {
+    if (sourceRef.kind === kind) {
+      return sourceRef;
+    }
+  }
+  return null;
+}
+
 export function toPagedChatMessage(message: OrchestrationMessage): ChatMessage {
   const attachments = message.attachments?.map((attachment) => ({
     type: "image" as const,
@@ -49,6 +63,9 @@ export function toPagedChatMessage(message: OrchestrationMessage): ChatMessage {
     name: attachment.name,
     mimeType: attachment.mimeType,
     sizeBytes: attachment.sizeBytes,
+    ...("previewUrl" in attachment && typeof attachment.previewUrl === "string"
+      ? { previewUrl: attachment.previewUrl }
+      : {}),
   }));
 
   return {
@@ -67,7 +84,7 @@ export function toPagedChatMessage(message: OrchestrationMessage): ChatMessage {
   };
 }
 
-export function toPagedProposedPlan(plan: OrchestrationProposedPlan): ProposedPlan {
+function toPagedProposedPlan(plan: OrchestrationProposedPlan): ProposedPlan {
   return {
     id: plan.id,
     turnId: plan.turnId,
@@ -344,7 +361,7 @@ export function buildNativeTimelineRows(input: NativeTimelineRowsInput): Timelin
 
     if (row.kind === "message") {
       flushPendingWorkGroup();
-      const sourceRef = row.sourceRefs.find((source) => source.kind === "message");
+      const sourceRef = findNativeTimelineSourceRef(row.sourceRefs, "message");
       const message = sourceRef ? messageById.get(String(sourceRef.id)) : undefined;
       if (!sourceRef || !message) {
         continue;
@@ -401,7 +418,7 @@ export function buildNativeTimelineRows(input: NativeTimelineRowsInput): Timelin
 
     if (row.kind === "proposed-plan") {
       flushPendingWorkGroup();
-      const sourceRef = row.sourceRefs.find((source) => source.kind === "proposed-plan");
+      const sourceRef = findNativeTimelineSourceRef(row.sourceRefs, "proposed-plan");
       const proposedPlan = sourceRef ? proposedPlanById.get(String(sourceRef.id)) : undefined;
       if (!sourceRef || !proposedPlan) {
         continue;
@@ -708,7 +725,7 @@ function buildNativeCompletionWorkSummary(input: {
       if (row.id === input.completionDividerBeforeEntryId) {
         continue;
       }
-      const sourceRef = row.sourceRefs.find((source) => source.kind === "message");
+      const sourceRef = findNativeTimelineSourceRef(row.sourceRefs, "message");
       const message = sourceRef ? input.messageById.get(String(sourceRef.id)) : undefined;
       if (
         !message ||
@@ -895,7 +912,7 @@ export function deriveNativeCompletionDividerBeforeRowId(input: {
     if (row.kind !== "message") {
       continue;
     }
-    const sourceRef = row.sourceRefs.find((source) => source.kind === "message");
+    const sourceRef = findNativeTimelineSourceRef(row.sourceRefs, "message");
     const message = sourceRef ? messageById.get(String(sourceRef.id)) : undefined;
     if (!message || message.role !== "assistant") {
       continue;
@@ -913,7 +930,7 @@ export function deriveNativeCompletionDividerBeforeRowId(input: {
       if (row.kind !== "message") {
         continue;
       }
-      const sourceRef = row.sourceRefs.find((source) => source.kind === "message");
+      const sourceRef = findNativeTimelineSourceRef(row.sourceRefs, "message");
       if (sourceRef && String(sourceRef.id) === String(latestTurn.assistantMessageId)) {
         return row.id;
       }
@@ -932,7 +949,7 @@ export function deriveNativeCompletionDividerBeforeRowId(input: {
     if (row.kind !== "message") {
       continue;
     }
-    const sourceRef = row.sourceRefs.find((source) => source.kind === "message");
+    const sourceRef = findNativeTimelineSourceRef(row.sourceRefs, "message");
     const message = sourceRef ? messageById.get(String(sourceRef.id)) : undefined;
     if (!message || message.role !== "assistant") {
       continue;
@@ -984,7 +1001,7 @@ export function deriveNativeCompletionAttachment(input: {
     if (row.kind !== "message") {
       continue;
     }
-    const sourceRef = row.sourceRefs.find((source) => source.kind === "message");
+    const sourceRef = findNativeTimelineSourceRef(row.sourceRefs, "message");
     const message = sourceRef ? messageById.get(String(sourceRef.id)) : undefined;
     if (!message) {
       continue;
@@ -1045,7 +1062,7 @@ function deriveLoadedTerminalAssistantMessageIds(
     if (row.kind !== "message") {
       continue;
     }
-    const sourceRef = row.sourceRefs.find((source) => source.kind === "message");
+    const sourceRef = findNativeTimelineSourceRef(row.sourceRefs, "message");
     const message = sourceRef ? input.messageById.get(String(sourceRef.id)) : undefined;
     if (!message) {
       continue;

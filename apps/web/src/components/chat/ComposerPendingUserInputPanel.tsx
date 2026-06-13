@@ -1,5 +1,5 @@
 import { type ApprovalRequestId } from "@ace/contracts";
-import { memo, useCallback, useEffect, useRef } from "react";
+import { useEffect, useRef } from "react";
 import { type PendingUserInput } from "../../session-logic";
 import {
   derivePendingUserInputProgress,
@@ -9,6 +9,13 @@ import { CheckIcon, ChevronLeftIcon, ChevronRightIcon, ListChecksIcon } from "lu
 import { APP_BADGE_CLASS_NAME, APP_COMPOSER_INSET_PANEL_CLASS_NAME } from "~/lib/appChrome";
 import { cn } from "~/lib/utils";
 import { Button } from "../ui/button";
+
+function clearWindowTimeoutRef(timeoutRef: { current: number | null }) {
+  if (timeoutRef.current !== null) {
+    window.clearTimeout(timeoutRef.current);
+    timeoutRef.current = null;
+  }
+}
 
 interface PendingUserInputPanelProps {
   pendingUserInputs: PendingUserInput[];
@@ -20,7 +27,7 @@ interface PendingUserInputPanelProps {
   onAdvance: () => void;
 }
 
-export const ComposerPendingUserInputPanel = memo(function ComposerPendingUserInputPanel({
+export function ComposerPendingUserInputPanel({
   pendingUserInputs,
   respondingRequestIds,
   answers,
@@ -45,9 +52,9 @@ export const ComposerPendingUserInputPanel = memo(function ComposerPendingUserIn
       onAdvance={onAdvance}
     />
   );
-});
+}
 
-const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard({
+function ComposerPendingUserInputCard({
   prompt,
   isResponding,
   answers,
@@ -71,32 +78,22 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
   // Clear auto-advance timer on unmount
   useEffect(() => {
     return () => {
-      if (autoAdvanceTimerRef.current !== null) {
-        window.clearTimeout(autoAdvanceTimerRef.current);
-      }
+      clearWindowTimeoutRef(autoAdvanceTimerRef);
     };
   }, []);
 
-  const selectOptionAndAutoAdvance = useCallback(
-    (questionId: string, optionLabel: string) => {
-      onSelectOption(questionId, optionLabel);
-      if (activeQuestion?.multiSelect === true) {
-        if (autoAdvanceTimerRef.current !== null) {
-          window.clearTimeout(autoAdvanceTimerRef.current);
-          autoAdvanceTimerRef.current = null;
-        }
-        return;
-      }
-      if (autoAdvanceTimerRef.current !== null) {
-        window.clearTimeout(autoAdvanceTimerRef.current);
-      }
-      autoAdvanceTimerRef.current = window.setTimeout(() => {
-        autoAdvanceTimerRef.current = null;
-        onAdvance();
-      }, 200);
-    },
-    [activeQuestion?.multiSelect, onSelectOption, onAdvance],
-  );
+  const selectOptionAndAutoAdvance = (questionId: string, optionLabel: string) => {
+    onSelectOption(questionId, optionLabel);
+    if (activeQuestion?.multiSelect === true) {
+      clearWindowTimeoutRef(autoAdvanceTimerRef);
+      return;
+    }
+    clearWindowTimeoutRef(autoAdvanceTimerRef);
+    autoAdvanceTimerRef.current = window.setTimeout(() => {
+      autoAdvanceTimerRef.current = null;
+      onAdvance();
+    }, 200);
+  };
 
   // Keyboard shortcut: number keys 1-9 pick the corresponding option. Single-select
   // prompts auto-advance; multi-select prompts toggle the option in place.
@@ -121,11 +118,25 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
       const option = activeQuestion.options[optionIndex];
       if (!option) return;
       event.preventDefault();
-      selectOptionAndAutoAdvance(activeQuestion.id, option.label);
+      onSelectOption(activeQuestion.id, option.label);
+      if (activeQuestion.multiSelect === true) {
+        if (autoAdvanceTimerRef.current !== null) {
+          window.clearTimeout(autoAdvanceTimerRef.current);
+          autoAdvanceTimerRef.current = null;
+        }
+        return;
+      }
+      if (autoAdvanceTimerRef.current !== null) {
+        window.clearTimeout(autoAdvanceTimerRef.current);
+      }
+      autoAdvanceTimerRef.current = window.setTimeout(() => {
+        autoAdvanceTimerRef.current = null;
+        onAdvance();
+      }, 200);
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, [activeQuestion, isResponding, selectOptionAndAutoAdvance, progress.customAnswer.length]);
+  }, [activeQuestion, isResponding, onAdvance, onSelectOption, progress.customAnswer.length]);
 
   if (!activeQuestion) {
     return null;
@@ -232,4 +243,4 @@ const ComposerPendingUserInputCard = memo(function ComposerPendingUserInputCard(
       </div>
     </section>
   );
-});
+}
