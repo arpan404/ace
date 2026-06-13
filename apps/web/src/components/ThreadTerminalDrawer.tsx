@@ -22,6 +22,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
 } from "react";
@@ -981,7 +982,7 @@ function useTerminalViewportComponent({
     };
   }, [cwd, runtimeEnvKey, terminalId, threadId]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const terminal = terminalRef.current;
     if (!terminal) return;
     terminal.options.cursorBlink = interactive;
