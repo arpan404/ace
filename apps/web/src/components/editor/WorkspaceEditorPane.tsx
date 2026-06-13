@@ -18,7 +18,6 @@ import {
   XIcon,
 } from "lucide-react";
 import {
-  useCallback,
   useEffect,
   useReducer,
   useRef,
@@ -53,6 +52,7 @@ import {
   type WorkspaceSelectionContext,
 } from "~/lib/editor/workspaceDesigner";
 import { useWorkspaceCommentPlaceholder } from "~/lib/editor/workspaceCommentPlaceholders";
+import { useStableCallback } from "~/hooks/useStableCallback";
 import { projectReadFileQueryOptions } from "~/lib/projectReactQuery";
 import {
   APP_FLOATING_CHIP_CLASS_NAME,
@@ -832,7 +832,7 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
     problemsOpen,
   } = visibleEditorFeedbackState;
 
-  const applyWorkspaceProblems = useCallback(
+  const applyWorkspaceProblems = useStableCallback(
     (
       activeFilePath: string | null,
       nextDiagnostics: readonly WorkspaceEditorDiagnostic[],
@@ -851,14 +851,12 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
       }));
       onProblemsChange(pane.id, activeFilePath, nextProblems);
     },
-    [onProblemsChange, pane.id],
   );
 
-  const clearWorkspaceProblems = useCallback(
+  const clearWorkspaceProblems = useStableCallback(
     (input?: { diagnosticError?: string | null }) => {
       applyWorkspaceProblems(pane.activeFilePath, [], input);
     },
-    [applyWorkspaceProblems, pane.activeFilePath],
   );
 
   const handleEditorFocus = () => {
