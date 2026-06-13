@@ -1180,10 +1180,6 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
     props.gitCwd,
   ]);
 
-  useEffect(() => {
-    handleSymbolsChange(activeFileContents);
-  }, [activeFileContents, handleSymbolsChange]);
-
   useEffect(
     () => () => {
       syncRequestIdRef.current += 1;
