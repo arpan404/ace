@@ -1539,13 +1539,13 @@ function BrowserFaviconImage(props: {
 }
 
 function BrowserLoadErrorPage(props: { failure: BrowserLoadFailure; onRetry: () => void }) {
-  const hostLabel = useMemo(() => {
+  const hostLabel = (() => {
     try {
       return new URL(props.failure.url).host;
     } catch {
       return props.failure.url;
     }
-  }, [props.failure.url]);
+  })();
 
   return (
     <div className="absolute inset-0 z-10 min-h-0 overflow-auto bg-background px-10 py-16 text-foreground">
@@ -1650,7 +1650,7 @@ function useBrowserTabWebviewComponent(props: {
   const agentPointerFrameRef = useRef<number | null>(null);
   const agentPointerPositionRef = useRef<BrowserAgentPointerPoint | null>(null);
   const requestedUrlRef = useRef(tab.url);
-  const localConnectionUrl = useMemo(() => resolveLocalConnectionUrl(), []);
+  const localConnectionUrl = resolveLocalConnectionUrl();
   const activeRef = useRef(active);
   useLayoutEffect(() => {
     activeRef.current = active;
@@ -3167,7 +3167,7 @@ function useBrowserTabWebviewComponent(props: {
     };
   }, [designDraft]);
 
-  const designRequestPanelViewport = useMemo<OverlayViewportSize | null>(() => {
+  const designRequestPanelViewport: OverlayViewportSize | null = (() => {
     if (!designDraft) {
       return null;
     }
@@ -3177,8 +3177,8 @@ function useBrowserTabWebviewComponent(props: {
         height: designDraft.viewportHeight,
       }
     );
-  }, [designDraft, overlayViewportSize]);
-  const defaultDesignRequestPanelPosition = useMemo<DesignRequestPanelPosition | null>(() => {
+  })();
+  const defaultDesignRequestPanelPosition: DesignRequestPanelPosition | null = (() => {
     if (!designDraft) {
       return null;
     }
@@ -3187,7 +3187,7 @@ function useBrowserTabWebviewComponent(props: {
       return null;
     }
     return resolveDefaultDesignRequestPanelPosition(designDraft, viewport, designRequestPanelSize);
-  }, [designDraft, designRequestPanelSize, designRequestPanelViewport]);
+  })();
   useEffect(() => {
     if (!designDraft || !defaultDesignRequestPanelPosition) {
       designRequestPanelRequestIdRef.current = null;
@@ -3268,7 +3268,7 @@ function useBrowserTabWebviewComponent(props: {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, []);
-  const designRequestPanelStyle = useMemo<CSSProperties | undefined>(() => {
+  const designRequestPanelStyle: CSSProperties | undefined = (() => {
     const position = designRequestPanelPosition ?? defaultDesignRequestPanelPosition;
     if (!position || !designRequestPanelViewport) {
       return undefined;
@@ -3277,7 +3277,7 @@ function useBrowserTabWebviewComponent(props: {
       ...position,
       maxWidth: `${Math.max(160, designRequestPanelViewport.width - DESIGN_REQUEST_PANEL_MARGIN_PX * 2)}px`,
     };
-  }, [defaultDesignRequestPanelPosition, designRequestPanelPosition, designRequestPanelViewport]);
+  })();
   const activeOverlaySelection =
     selectionRect ??
     (designerTool === "element-comment" ? (hoveredElementCapture?.targetRect ?? null) : null);

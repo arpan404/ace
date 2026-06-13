@@ -298,19 +298,21 @@ function createCompletionSource(
     const word = context.matchBefore(COMPLETION_WORD_PATTERN);
     const line = context.state.doc.lineAt(context.pos);
     try {
+      if (context.aborted) {
+        return null;
+      }
       const items = await callbacks.completionProvider({
         column: Math.max(0, context.pos - line.from),
         contents: context.state.doc.toString(),
         line: Math.max(0, line.number - 1),
       });
-      if (context.aborted) {
-        return null;
-      }
-      return {
-        from: word?.from ?? context.pos,
-        options: items.map(toCodeMirrorCompletion),
-        validFor: COMPLETION_VALID_FOR_PATTERN,
-      };
+      return context.aborted
+        ? null
+        : {
+            from: word?.from ?? context.pos,
+            options: items.map(toCodeMirrorCompletion),
+            validFor: COMPLETION_VALID_FOR_PATTERN,
+          };
     } catch {
       return null;
     }

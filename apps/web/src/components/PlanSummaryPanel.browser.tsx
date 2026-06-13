@@ -75,18 +75,16 @@ describe("PlanSummaryPanel", () => {
       );
       expect(scrollContainer).toBeTruthy();
 
-      await vi.waitFor(
-        () => {
-          expect(scrollContainer?.scrollHeight ?? 0).toBeGreaterThan(
-            scrollContainer?.clientHeight ?? 0,
-          );
-        },
-        { timeout: 8_000, interval: 16 },
-      );
-
       if (!scrollContainer) {
         throw new Error("Missing summary scroll container.");
       }
+
+      await vi.waitFor(
+        () => {
+          expect(scrollContainer.scrollHeight).toBeGreaterThan(scrollContainer.clientHeight);
+        },
+        { timeout: 8_000, interval: 16 },
+      );
 
       scrollContainer.scrollTop = 240;
       scrollContainer.dispatchEvent(new Event("scroll"));

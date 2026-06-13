@@ -895,10 +895,12 @@ async function waitForElement<T extends Element>(
       interval: 16,
     },
   );
-  if (!element) {
-    throw new Error(errorMessage);
-  }
-  return element;
+  return (
+    element ??
+    (() => {
+      throw new Error(errorMessage);
+    })()
+  );
 }
 
 async function waitForURL(

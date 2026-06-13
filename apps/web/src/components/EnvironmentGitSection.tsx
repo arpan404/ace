@@ -10,10 +10,8 @@ import { useIsMutating, useMutation, useQueryClient } from "@tanstack/react-quer
 import {
   type ReactNode,
   type RefObject,
-  useCallback,
   useEffect,
   useLayoutEffect,
-  useMemo,
   useReducer,
   useRef,
   useState,
@@ -395,11 +393,11 @@ function EnvironmentGitActionMenuPortal({
   const popupRef = useRef<HTMLDivElement | null>(null);
   const [position, setPosition] = useState<GitActionMenuPosition | null>(null);
 
-  const updatePosition = useCallback(() => {
+  const updatePosition = () => {
     const triggerElement = triggerRef.current;
     if (!triggerElement) return;
     setPosition(resolveGitActionMenuPosition(triggerElement));
-  }, [triggerRef]);
+  };
   const onCloseEvent = useEffectEvent(onClose);
   const updatePositionEvent = useEffectEvent(updatePosition);
 
@@ -408,7 +406,7 @@ function EnvironmentGitActionMenuPortal({
       return;
     }
 
-    updatePosition();
+    updatePositionEvent();
 
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target;
@@ -473,10 +471,7 @@ function useEnvironmentGitSection({
   workspaceMode,
   onWorkspaceModeChange,
 }: EnvironmentGitSectionProps) {
-  const threadToastData = useMemo(
-    () => (activeThreadId ? { threadId: activeThreadId } : undefined),
-    [activeThreadId],
-  );
+  const threadToastData = activeThreadId ? { threadId: activeThreadId } : undefined;
   const activeServerThread = useStore((store) =>
     activeThreadId ? store.threads.find((thread) => thread.id === activeThreadId) : undefined,
   );
@@ -548,7 +543,7 @@ function useEnvironmentGitSection({
     persistSshPassphrase("");
   };
 
-  const updateActiveProgressToast = useCallback(() => {
+  const updateActiveProgressToast = () => {
     const progress = activeGitActionProgressRef.current;
     if (!progress) {
       return;
@@ -560,33 +555,32 @@ function useEnvironmentGitSection({
       timeout: 0,
       data: threadToastData,
     });
-  }, [threadToastData]);
+  };
+  const updateActiveProgressToastEvent = useEffectEvent(updateActiveProgressToast);
 
-  const persistThreadBranchSync = useCallback(
-    (branch: string | null) => {
-      if (!activeThreadId || !activeServerThread || activeServerThread.branch === branch) {
-        return;
-      }
+  const persistThreadBranchSync = (branch: string | null) => {
+    if (!activeThreadId || !activeServerThread || activeServerThread.branch === branch) {
+      return;
+    }
 
-      const worktreePath = activeServerThread.worktreePath;
-      const api = readNativeApi();
-      if (api) {
-        runAsyncTask(
-          api.orchestration.dispatchCommand({
-            type: "thread.meta.update",
-            commandId: newCommandId(),
-            threadId: activeThreadId,
-            branch,
-            worktreePath,
-          }),
-          "Failed to sync thread branch metadata after the git action.",
-        );
-      }
+    const worktreePath = activeServerThread.worktreePath;
+    const api = readNativeApi();
+    if (api) {
+      runAsyncTask(
+        api.orchestration.dispatchCommand({
+          type: "thread.meta.update",
+          commandId: newCommandId(),
+          threadId: activeThreadId,
+          branch,
+          worktreePath,
+        }),
+        "Failed to sync thread branch metadata after the git action.",
+      );
+    }
 
-      setThreadBranch(activeThreadId, branch, worktreePath);
-    },
-    [activeServerThread, activeThreadId, setThreadBranch],
-  );
+    setThreadBranch(activeThreadId, branch, worktreePath);
+  };
+  const persistThreadBranchSyncEvent = useEffectEvent(persistThreadBranchSync);
 
   const syncThreadBranchAfterGitAction = (result: GitRunStackedActionResult) => {
     const branchUpdate = resolveThreadBranchUpdate(result);
@@ -648,13 +642,8 @@ function useEnvironmentGitSection({
       return;
     }
 
-    persistThreadBranchSync(branchUpdate.branch);
-  }, [
-    activeServerThread?.branch,
-    gitStatusForActions,
-    isGitActionRunning,
-    persistThreadBranchSync,
-  ]);
+    persistThreadBranchSyncEvent(branchUpdate.branch);
+  }, [activeServerThread?.branch, gitStatusForActions, isGitActionRunning]);
 
   const branchName = gitStatusForActions?.branch;
   const currentBranchInfo = branchName
@@ -691,13 +680,13 @@ function useEnvironmentGitSection({
       if (!activeGitActionProgressRef.current) {
         return;
       }
-      updateActiveProgressToast();
+      updateActiveProgressToastEvent();
     }, 1000);
 
     return () => {
       window.clearInterval(interval);
     };
-  }, [updateActiveProgressToast]);
+  }, []);
 
   const openExistingPr = async () => {
     const api = readNativeApi();
