@@ -78,6 +78,18 @@ type ThreadBoardPaneDragStartHandler = (
 const NO_OP_THREAD_BOARD_CLOSE_PANE = (_pane: ChatThreadBoardPaneState) => {};
 const NO_OP_THREAD_BOARD_SET_ACTIVE_PANE = (_paneId: string) => {};
 
+function handleThreadBoardDragEnter(event: ReactDragEvent<HTMLDivElement>) {
+  if (!isThreadBoardDrag(event.dataTransfer)) {
+    return;
+  }
+}
+
+function handleThreadBoardDragOverCapture(event: ReactDragEvent<HTMLDivElement>) {
+  if (!isThreadBoardDrag(event.dataTransfer)) {
+    return;
+  }
+}
+
 type ThreadBoardLayoutNodeRendererProps = {
   node: ChatThreadBoardLayoutNode | null;
   renderPaneNode: (paneId: string) => ReactNode;
@@ -667,18 +679,6 @@ function useThreadBoardComponent(props: { connectionUrl?: string | null; threadI
     setDropTarget(null);
   }, []);
 
-  const handleBoardDragEnter = (event: ReactDragEvent<HTMLDivElement>) => {
-    if (!isThreadBoardDrag(event.dataTransfer)) {
-      return;
-    }
-  };
-
-  const handleBoardDragOverCapture = (event: ReactDragEvent<HTMLDivElement>) => {
-    if (!isThreadBoardDrag(event.dataTransfer)) {
-      return;
-    }
-  };
-
   const handleBoardDragLeave = (event: ReactDragEvent<HTMLDivElement>) => {
     if (!isThreadBoardDrag(event.dataTransfer)) {
       return;
@@ -1066,9 +1066,9 @@ function useThreadBoardComponent(props: { connectionUrl?: string | null; threadI
       <LazyMotion features={domAnimation}>
         <div
           className={boardRootClassName}
-          onDragEnter={handleBoardDragEnter}
+          onDragEnter={handleThreadBoardDragEnter}
           onDragLeave={handleBoardDragLeave}
-          onDragOverCapture={handleBoardDragOverCapture}
+          onDragOverCapture={handleThreadBoardDragOverCapture}
           onDropCapture={handleBoardDropCapture}
         >
           <ThreadBoardPane
@@ -1099,9 +1099,9 @@ function useThreadBoardComponent(props: { connectionUrl?: string | null; threadI
     <LazyMotion features={domAnimation}>
       <div
         className={boardRootClassName}
-        onDragEnter={handleBoardDragEnter}
+        onDragEnter={handleThreadBoardDragEnter}
         onDragLeave={handleBoardDragLeave}
-        onDragOverCapture={handleBoardDragOverCapture}
+        onDragOverCapture={handleThreadBoardDragOverCapture}
         onDropCapture={handleBoardDropCapture}
       >
         <ThreadBoardLayoutNode

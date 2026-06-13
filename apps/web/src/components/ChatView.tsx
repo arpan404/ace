@@ -1003,9 +1003,12 @@ function appendOptimisticUserMessagesToNativeTimeline(input: {
   }
 
   const existingMessageIds = new Set(input.messages.map((message) => String(message.id)));
-  const optimisticMessages = input.optimisticUserMessages
-    .filter((message) => !existingMessageIds.has(String(message.id)))
-    .map(toOptimisticOrchestrationMessage);
+  const optimisticMessages: OrchestrationMessage[] = [];
+  for (const message of input.optimisticUserMessages) {
+    if (!existingMessageIds.has(String(message.id))) {
+      optimisticMessages.push(toOptimisticOrchestrationMessage(message));
+    }
+  }
   if (optimisticMessages.length === 0) {
     return { rows: input.rows, messages: input.messages };
   }

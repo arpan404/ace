@@ -139,7 +139,6 @@ export function createWorkspaceCodeSearchResult(input: {
   if (terms.length === 0) {
     return null;
   }
-  const termSet = new Set(terms);
 
   const normalizedPath = input.entry.path.toLowerCase();
   const normalizedName = basenameOfPath(input.entry.path).toLowerCase();
@@ -259,11 +258,12 @@ export function highlightWorkspaceCodeSearchText(
     if (match.index > index) {
       parts.push({ highlight: false, text: text.slice(index, match.index) });
     }
+    const matchTermLength = match.term.length;
     parts.push({
       highlight: true,
-      text: text.slice(match.index, match.index + match.term.length),
+      text: text.slice(match.index, match.index + matchTermLength),
     });
-    index = match.index + match.term.length;
+    index = match.index + matchTermLength;
   }
 
   return parts;

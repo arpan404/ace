@@ -82,6 +82,16 @@ function clearDraftsForDeletedWorktree(rawWorktreePath: string) {
   }
 }
 
+async function unarchiveThread(threadId: ThreadId) {
+  const api = readNativeApi();
+  if (!api) return;
+  await api.orchestration.dispatchCommand({
+    type: "thread.unarchive",
+    commandId: newCommandId(),
+    threadId,
+  });
+}
+
 export function useThreadActions() {
   const sidebarThreadSortOrder = useSetting("sidebarThreadSortOrder");
   const confirmThreadDelete = useSetting("confirmThreadDelete");
@@ -116,16 +126,6 @@ export function useThreadActions() {
     if (routeThreadId === threadId) {
       await handleNewThread(thread.projectId);
     }
-  };
-
-  const unarchiveThread = async (threadId: ThreadId) => {
-    const api = readNativeApi();
-    if (!api) return;
-    await api.orchestration.dispatchCommand({
-      type: "thread.unarchive",
-      commandId: newCommandId(),
-      threadId,
-    });
   };
 
   const deleteThread = useCallback(

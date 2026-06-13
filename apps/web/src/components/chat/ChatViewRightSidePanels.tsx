@@ -45,6 +45,21 @@ const DiffPanel = lazy(() => import("../DiffPanel"));
 
 type RightSidePanelMode = "browser" | "diff" | "editor" | "subagent" | "summary" | "terminal";
 
+function rightSidePanelTabClassName(active: boolean, disabled = false) {
+  return cn(
+    "group/tab inline-flex h-8 min-w-max shrink-0 items-center gap-2 rounded-lg px-3 text-[13px] font-medium transition-all duration-200",
+    active
+      ? "bg-accent text-accent-foreground ring-1 ring-border/45"
+      : "text-muted-foreground hover:bg-foreground/[0.05] hover:text-foreground",
+    disabled &&
+      "cursor-not-allowed opacity-45 hover:bg-transparent hover:text-muted-foreground ring-0 shadow-none",
+  );
+}
+
+function rightSidePanelBrowserTabClassName(active: boolean) {
+  return cn(rightSidePanelTabClassName(active), "touch-none");
+}
+
 function FullscreenExpandChevronIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg
@@ -564,16 +579,6 @@ export function RightSidePanelTabStrip(props: {
     ? `${fullscreenTooltipLabel} (${props.fullscreenShortcutLabel})`
     : fullscreenTooltipLabel;
   const suppressBrowserTabClickAfterDragRef = useRef(false);
-  const tabClassName = (active: boolean, disabled = false) =>
-    cn(
-      "group/tab inline-flex h-8 min-w-max shrink-0 items-center gap-2 rounded-lg px-3 text-[13px] font-medium transition-all duration-200",
-      active
-        ? "bg-accent text-accent-foreground ring-1 ring-border/45"
-        : "text-muted-foreground hover:bg-foreground/[0.05] hover:text-foreground",
-      disabled &&
-        "cursor-not-allowed opacity-45 hover:bg-transparent hover:text-muted-foreground ring-0 shadow-none",
-    );
-  const browserTabClassName = (active: boolean) => cn(tabClassName(active), "touch-none");
   const showSummaryTab = props.showSummaryTab !== false;
   const hasSubagentTabs = props.activeMode === "subagent" && props.subagentThreads.length > 0;
   const hasReviewTab = props.reviewOpen;
@@ -682,7 +687,7 @@ export function RightSidePanelTabStrip(props: {
                       <button
                         type="button"
                         aria-label="Select summary panel"
-                        className={tabClassName(props.activeMode === "summary")}
+                        className={rightSidePanelTabClassName(props.activeMode === "summary")}
                         aria-pressed={props.activeMode === "summary"}
                         onClick={() => props.onSelectMode("summary")}
                       />
@@ -708,7 +713,7 @@ export function RightSidePanelTabStrip(props: {
                       <button
                         type="button"
                         aria-label={`Select subagent thread ${thread.label}`}
-                        className={tabClassName(
+                        className={rightSidePanelTabClassName(
                           props.activeMode === "subagent" &&
                             props.activeSubagentThreadId === thread.id,
                         )}
@@ -742,7 +747,10 @@ export function RightSidePanelTabStrip(props: {
                 <div className="group/tab relative inline-flex">
                   <button
                     type="button"
-                    className={tabClassName(props.activeMode === "diff", !props.diffAvailable)}
+                    className={rightSidePanelTabClassName(
+                      props.activeMode === "diff",
+                      !props.diffAvailable,
+                    )}
                     disabled={!props.diffAvailable}
                     aria-pressed={props.activeMode === "diff"}
                     onClick={() => props.onSelectMode("diff")}
@@ -784,7 +792,7 @@ export function RightSidePanelTabStrip(props: {
                       <button
                         type="button"
                         aria-label={`Select editor tab ${tab.label}`}
-                        className={tabClassName(
+                        className={rightSidePanelTabClassName(
                           props.activeMode === "editor" && props.activeEditorTabId === tab.id,
                         )}
                         aria-pressed={
@@ -829,7 +837,7 @@ export function RightSidePanelTabStrip(props: {
                 <div className="group/tab relative inline-flex">
                   <button
                     type="button"
-                    className={tabClassName(
+                    className={rightSidePanelTabClassName(
                       props.activeMode === "terminal" && props.activeTerminalId === tab.id,
                     )}
                     aria-pressed={
@@ -879,7 +887,7 @@ export function RightSidePanelTabStrip(props: {
               return withSeparator(
                 <RightSidePanelBrowserTab
                   active={props.activeMode === "browser" && props.activeBrowserTabId === tab.id}
-                  className={browserTabClassName}
+                  className={rightSidePanelBrowserTabClassName}
                   onClose={props.onBrowserTabClose}
                   onSelect={props.onBrowserTabSelect}
                   suppressClickAfterDragRef={suppressBrowserTabClickAfterDragRef}

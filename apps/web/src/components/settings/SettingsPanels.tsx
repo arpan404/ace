@@ -3276,11 +3276,13 @@ function buildDuplicateProjectNameSet(projects: readonly Project[]): ReadonlySet
   for (const project of projects) {
     counts.set(project.name, (counts.get(project.name) ?? 0) + 1);
   }
-  return new Set(
-    Array.from(counts.entries())
-      .filter(([, count]) => count > 1)
-      .map(([name]) => name),
-  );
+  const duplicateNames = new Set<string>();
+  for (const [name, count] of counts) {
+    if (count > 1) {
+      duplicateNames.add(name);
+    }
+  }
+  return duplicateNames;
 }
 
 function formatEnvironmentProjectPathLine(project: Project): string {
@@ -3309,10 +3311,17 @@ function getWorktreeActivityTimeMs(
   if (Number.isFinite(statTime)) {
     return statTime;
   }
-  const threadTimes = worktree.relatedThreads
-    .flatMap((thread) => (thread.updatedAt ? [Date.parse(thread.updatedAt)] : []))
-    .filter(Number.isFinite);
-  return threadTimes.length > 0 ? Math.max(...threadTimes) : 0;
+  let latestThreadTime = 0;
+  for (const thread of worktree.relatedThreads) {
+    if (!thread.updatedAt) {
+      continue;
+    }
+    const threadTime = Date.parse(thread.updatedAt);
+    if (Number.isFinite(threadTime)) {
+      latestThreadTime = Math.max(latestThreadTime, threadTime);
+    }
+  }
+  return latestThreadTime;
 }
 
 function formatWorktreeActivityLabel(
@@ -3705,9 +3714,6 @@ function ProjectEnvironmentWorktrees({
         if (worktreeFilter === "linked") {
           return worktree.relatedThreads.length > 0;
         }
-        return true;
-      })
-      .filter((worktree) => {
         if (query.length === 0) {
           return true;
         }
@@ -3795,14 +3801,15 @@ function ProjectEnvironmentWorktrees({
     setSelectedWorktreePaths(new Set());
   };
   const cleanupCandidates = worktrees
-    .filter((worktree) => worktree.activeThread === null)
-    .filter((worktree) =>
-      isWorktreeOlderThan(
-        worktree,
-        statsByPath.get(worktree.path),
-        cleanupAge,
-        cleanupReferenceTimeMs,
-      ),
+    .filter(
+      (worktree) =>
+        worktree.activeThread === null &&
+        isWorktreeOlderThan(
+          worktree,
+          statsByPath.get(worktree.path),
+          cleanupAge,
+          cleanupReferenceTimeMs,
+        ),
     )
     .toSorted(
       (left, right) =>
