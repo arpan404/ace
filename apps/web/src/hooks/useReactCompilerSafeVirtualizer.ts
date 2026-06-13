@@ -1,9 +1,13 @@
+"use no memo";
+
 import {
   type PartialKeys,
   useVirtualizer,
   type ReactVirtualizer,
   type ReactVirtualizerOptions,
 } from "@tanstack/react-virtual";
+
+const useCompilerIsolatedVirtualizer = useVirtualizer;
 
 type SafeVirtualizerOptions<
   TScrollElement extends Element,
@@ -20,5 +24,5 @@ export function useReactCompilerSafeVirtualizer<
   options: SafeVirtualizerOptions<TScrollElement, TItemElement>,
 ): ReactVirtualizer<TScrollElement, TItemElement> {
   "use no memo";
-  return useVirtualizer(options);
+  return useCompilerIsolatedVirtualizer(options);
 }

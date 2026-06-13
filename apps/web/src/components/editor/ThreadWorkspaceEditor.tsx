@@ -60,7 +60,6 @@ import {
 } from "~/editorStateStore";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
 import { useSetting, useUpdateSettings } from "~/hooks/useSettings";
-import { useStableCallback } from "~/hooks/useStableCallback";
 import { useReactCompilerSafeVirtualizer } from "~/hooks/useReactCompilerSafeVirtualizer";
 import { useTheme } from "~/hooks/useTheme";
 import { isTerminalFocused } from "~/lib/terminalFocus";
@@ -1039,7 +1038,6 @@ const FileTreeRow = memo(function FileTreeRow(props: {
 
 const InlineExplorerRow = memo(function InlineExplorerRow(props: {
   depth: number;
-  inputRef: (element: HTMLInputElement | null) => void;
   onCancel: () => void;
   onChangeValue: (value: string) => void;
   onCommit: () => void;
@@ -1047,6 +1045,17 @@ const InlineExplorerRow = memo(function InlineExplorerRow(props: {
   searchMode: boolean;
   state: ExplorerInlineEntryState;
 }) {
+  const inputElementRef = useRef<HTMLInputElement | null>(null);
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      inputElementRef.current?.focus();
+      inputElementRef.current?.select();
+    }, 0);
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, []);
+
   return (
     <div
       className={cn(WORKSPACE_EXPLORER_ROW_CLASS, WORKSPACE_EXPLORER_SELECTED_ROW_CLASS)}
@@ -1062,7 +1071,7 @@ const InlineExplorerRow = memo(function InlineExplorerRow(props: {
         className="size-[15px]"
       />
       <Input
-        ref={props.inputRef}
+        ref={inputElementRef}
         value={props.state.value}
         onChange={(event) => props.onChangeValue(event.target.value)}
         onBlur={() => {
@@ -1363,7 +1372,6 @@ function useThreadWorkspaceEditorComponent(inputProps: {
   );
   const treeScrollRef = useRef<HTMLDivElement | null>(null);
   const treeSearchInputRef = useRef<HTMLInputElement | null>(null);
-  const entryDialogInputRef = useRef<HTMLInputElement | null>(null);
   const editorGridRef = useRef<HTMLDivElement | null>(null);
   const rowGroupRefs = useRef(new Map<string, HTMLDivElement | null>());
   const pendingExplorerRevealPathRef = useRef<string | null>(null);
@@ -1393,12 +1401,6 @@ function useThreadWorkspaceEditorComponent(inputProps: {
   const addCodeComment = useEditorStateStore((state) => state.addCodeComment);
   const removeCodeComment = useEditorStateStore((state) => state.removeCodeComment);
   const updateCodeCommentStatus = useEditorStateStore((state) => state.updateCodeCommentStatus);
-  const inlineEntryFocusKey =
-    inlineEntryState?.kind === "rename"
-      ? `rename:${inlineEntryState.entry.path}`
-      : inlineEntryState
-        ? `${inlineEntryState.kind}:${inlineEntryState.parentPath ?? "root"}`
-        : null;
   const hasRecentlyClosedFiles = useEditorStateStore(
     useCallback(
       (state) =>
@@ -1635,10 +1637,6 @@ function useThreadWorkspaceEditorComponent(inputProps: {
   );
   const diffEditorOptions = useMemo(() => createWorkspaceDiffEditorOptions(), []);
   const fileEventsConnected = Boolean(api && props.gitCwd);
-  const setEntryDialogInputElement = useStableCallback((element: HTMLInputElement | null) => {
-    entryDialogInputRef.current = element;
-  });
-
   useEffect(() => {
     const previous = previousWorkspaceBufferStateRef.current;
     const nextFilePaths = new Set(openWorkspaceFilePaths);
@@ -1939,19 +1937,6 @@ function useThreadWorkspaceEditorComponent(inputProps: {
       treeEntries.map((entry) => entry.path),
     );
   }, [props.threadId, syncTree, treeEntries]);
-
-  useEffect(() => {
-    if (!inlineEntryFocusKey) {
-      return;
-    }
-    const timer = window.setTimeout(() => {
-      entryDialogInputRef.current?.focus();
-      entryDialogInputRef.current?.select();
-    }, 0);
-    return () => {
-      window.clearTimeout(timer);
-    };
-  }, [inlineEntryFocusKey]);
 
   const saveMutation = useMutation({
     mutationFn: async (input: {
@@ -4318,7 +4303,6 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                               ) : (
                                 <InlineExplorerRow
                                   depth={row.depth}
-                                  inputRef={setEntryDialogInputElement}
                                   onCancel={cancelInlineEntry}
                                   onChangeValue={handleInlineExplorerValueChange}
                                   onCommit={submitInlineEntry}

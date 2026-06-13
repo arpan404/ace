@@ -650,6 +650,7 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
   const [findOpen, setFindOpen] = useState(false);
   const [findExpandedReplace, setFindExpandedReplace] = useState(false);
   const [findState, setFindState] = useState<WorkspaceFindState>(EMPTY_WORKSPACE_FIND_STATE);
+  const [closedFindRequestToken, setClosedFindRequestToken] = useState(0);
   const commentPlaceholder = useWorkspaceCommentPlaceholder("code", activeSelection?.id ?? null);
   const editorRef = useRef<WorkspaceCodeEditorHandle | null>(null);
   const selectionCommentInputRef = useRef<HTMLInputElement | null>(null);
@@ -788,8 +789,16 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
   const activeFileReady =
     pane.activeFilePath !== null &&
     (isPreviewMode || activeDraft !== null || activeFileData?.contents !== undefined);
-  const findMatchSummary: WorkspaceFindMatchSummary = findOpen
-    ? countWorkspaceFindMatches(activeFileContents, createWorkspaceFindQuery(findState))
+  const activeFindRequestToken = props.active ? (props.findRequestToken ?? 0) : 0;
+  const requestedFindOpen = activeFindRequestToken > closedFindRequestToken;
+  const requestedFindSeed =
+    requestedFindOpen && findState.search.length === 0 ? (activeSelection?.context.text ?? "") : "";
+  const visibleFindState =
+    requestedFindSeed.length > 0 ? { ...findState, search: requestedFindSeed } : findState;
+  const visibleFindOpen = findOpen || requestedFindOpen;
+  const visibleFindExpandedReplace = findOpen ? findExpandedReplace : false;
+  const findMatchSummary: WorkspaceFindMatchSummary = visibleFindOpen
+    ? countWorkspaceFindMatches(activeFileContents, createWorkspaceFindQuery(visibleFindState))
     : EMPTY_WORKSPACE_FIND_MATCH_SUMMARY;
   const canShowWorkspaceDiagnostics =
     !isPreviewMode &&
@@ -1058,19 +1067,20 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
 
   const closeWorkspaceFind = useCallback(() => {
     setFindOpen(false);
+    setClosedFindRequestToken(activeFindRequestToken);
     editorRef.current?.closeFindQuery();
-  }, []);
+  }, [activeFindRequestToken]);
 
   const updateFindState = useCallback((patch: Partial<WorkspaceFindState>) => {
     setFindState((current) => ({ ...current, ...patch }));
   }, []);
 
   useEffect(() => {
-    if (!findOpen) {
+    if (!visibleFindOpen) {
       return;
     }
-    editorRef.current?.updateFindQuery(findState);
-  }, [activeFileContents, editorMountVersion, findOpen, findState]);
+    editorRef.current?.updateFindQuery(visibleFindState);
+  }, [activeFileContents, editorMountVersion, visibleFindOpen, visibleFindState]);
 
   useEffect(() => {
     const editor = editorRef.current;
@@ -1102,14 +1112,6 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
     }
     editor.revealLocation(target.location);
   }, [editorMountVersion, pane.activeFilePath, props.symbolNavigationTarget]);
-
-  useEffect(() => {
-    const editor = editorRef.current;
-    if (!editor || !props.active || !props.findRequestToken) {
-      return;
-    }
-    openWorkspaceFind({ replace: false, seed: editor.getFindSeed() });
-  }, [editorMountVersion, openWorkspaceFind, props.active, props.findRequestToken]);
 
   useEffect(() => {
     if (!selectionActionsExpanded || !activeSelection) {
@@ -1804,7 +1806,7 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
               value={activeFileContents}
             />
             <WorkspaceFindBar
-              expandedReplace={findExpandedReplace}
+              expandedReplace={visibleFindExpandedReplace}
               matchSummary={findMatchSummary}
               onClose={closeWorkspaceFind}
               onFindNext={() => editorRef.current?.findNext()}
@@ -1814,8 +1816,8 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
               onSelectAll={() => editorRef.current?.selectFindMatches()}
               onStateChange={updateFindState}
               onToggleReplace={() => setFindExpandedReplace((current) => !current)}
-              open={findOpen}
-              state={findState}
+              open={visibleFindOpen}
+              state={visibleFindState}
             />
             {activeSelection ? (
               <div
