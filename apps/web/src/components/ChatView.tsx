@@ -3658,7 +3658,7 @@ function useChatViewComponent({
     },
     [setBrowserDevToolsOpen],
   );
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!rightSidePanelEnabled || rightSidePanelMode !== "diff" || rightSidePanelDiffOpen) {
       return;
     }
@@ -3669,7 +3669,7 @@ function useChatViewComponent({
       setRightSidePanelReviewOpen(true);
     }
   }, [diffOpen, rightSidePanelEnabled, setRightSidePanelReviewOpen]);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (
       rightSidePanelEnabled &&
       browserOpen &&
@@ -3688,12 +3688,12 @@ function useChatViewComponent({
     rightSidePanelMode,
     setRightSidePanelMode,
   ]);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!splitPane && (routeWorkspaceMode === "editor" || routeWorkspaceMode === "split")) {
       ensureWorkspaceEditorPanelVisible();
     }
   }, [routeWorkspaceMode, splitPane]);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!rightSidePanelInteractive) {
       activeBrowserThreadIdRef.current = null;
       browserControllerRef.current = null;
@@ -3826,7 +3826,7 @@ function useChatViewComponent({
       resetBrowserCacheState({ resetVisibleState: false });
     };
   }, [resetBrowserCacheState]);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (splitPane || routeWorkspaceMode === "chat") {
       return;
     }
@@ -5666,7 +5666,7 @@ function useChatViewComponent({
       window.removeEventListener("pointercancel", handlePointerEnd);
     };
   }, [browserMode, rightSidePanelInteractive, setBrowserSplitWidth]);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!rightSidePanelInteractive) {
       return;
     }
@@ -5779,7 +5779,7 @@ function useChatViewComponent({
     didResizeWorkspaceEditorSplitDuringDragRef.current = false;
   };
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (workspaceMode !== "split" || editorHostedInRightPanel) {
       return;
     }
@@ -5845,7 +5845,7 @@ function useChatViewComponent({
     };
   }, [editorHostedInRightPanel, setWorkspaceEditorSplitWidth, workspaceMode]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (workspaceMode !== "split" || editorHostedInRightPanel) {
       return;
     }
@@ -6187,7 +6187,7 @@ function useChatViewComponent({
     };
   }, [ownsGlobalSideEffects]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!rightSidePanelInteractive) {
       return;
     }
@@ -7101,7 +7101,7 @@ function useChatViewComponent({
     if (pendingUserScrollUpIntentRef.current || isPointerScrollActiveRef.current) return;
     stickToBottomBeforePaint();
   }, [activeForSideEffects, stickToBottomBeforePaint, timelineTailStickKey]);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!activeForSideEffects) return;
     if (!liveTurnInProgress) return;
     if (!shouldAutoScrollRef.current) return;
@@ -7219,7 +7219,7 @@ function useChatViewComponent({
         ? (threadEnvModeOverrideById[activeThread.id] ?? "local")
         : "local";
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!activeThreadId) return;
     const current = Boolean(terminalState.terminalOpen);
     if (!ownsGlobalSideEffects) {
