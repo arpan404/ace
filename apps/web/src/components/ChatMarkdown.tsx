@@ -274,10 +274,7 @@ function InlineCodeLocalFileLink(props: {
   readonly enabled: boolean;
   readonly onOpenFilePath: ((path: string) => void | Promise<void>) | null;
 }) {
-  const targetPath = useMemo(
-    () => (props.enabled ? resolveMarkdownFileLinkTarget(props.code, props.cwd) : null),
-    [props.code, props.cwd, props.enabled],
-  );
+  const targetPath = props.enabled ? resolveMarkdownFileLinkTarget(props.code, props.cwd) : null;
   const cachedExists = useSyncExternalStore(
     subscribeLocalFilePathExistsCache,
     () => (props.enabled && targetPath ? localFilePathExistsCache.get(targetPath) : undefined),
@@ -447,10 +444,8 @@ function useCachedHighlightedCode(cacheKey: string, enabled: boolean): string | 
     readHighlightedCodeCacheRevision,
     readHighlightedCodeCacheRevision,
   );
-  return useMemo(
-    () => (enabled ? highlightedCodeCache.peek(cacheKey) : null),
-    [cacheKey, cacheRevision, enabled],
-  );
+  void cacheRevision;
+  return enabled ? highlightedCodeCache.peek(cacheKey) : null;
 }
 
 function MarkdownCodeBlock({ code, children }: { code: string; children: ReactNode }) {
@@ -794,8 +789,36 @@ function useChatMarkdownRenderState(input: {
   streamingTextState: ChatMarkdownProps["streamingTextState"];
   text: string;
 }) {
-  const markdownRenderAnalysisInput = useMemo(
-    () => ({
+  const markdownRenderAnalysisInput = {
+    text: input.text,
+    isStreaming: input.isStreaming,
+    renderPlainText: input.renderPlainText,
+    ...(input.streamingTextState
+      ? {
+          streamingTextState: {
+            totalLineCount: input.streamingTextState.totalLineCount,
+            truncatedCharCount: input.streamingTextState.truncatedCharCount,
+            truncatedLineCount: input.streamingTextState.truncatedLineCount,
+          },
+        }
+      : {}),
+  };
+  const resolvedAnalysisCacheKey = buildMarkdownRenderAnalysisCacheKey(
+    markdownRenderAnalysisInput,
+    input.analysisCacheKey,
+  );
+  const cachedMarkdownRenderAnalysis = readCachedMarkdownRenderAnalysis(resolvedAnalysisCacheKey);
+  const markdownRenderAnalysis =
+    cachedMarkdownRenderAnalysis ?? analyzeMarkdownRender(markdownRenderAnalysisInput);
+  const effectiveRenderPreference = input.isStreaming ? "auto" : input.renderPreference;
+  const useLargePreview =
+    effectiveRenderPreference !== "markdown" && markdownRenderAnalysis.useLargePreview;
+  const shouldFastPathPlainText = markdownRenderAnalysis.shouldFastPathPlainText;
+  const shouldObserveLayout = markdownRenderAnalysis.shouldObserveLayout;
+
+  useEffect(() => {
+    if (cachedMarkdownRenderAnalysis) return;
+    const prewarmInput = {
       text: input.text,
       isStreaming: input.isStreaming,
       renderPlainText: input.renderPlainText,
@@ -808,32 +831,17 @@ function useChatMarkdownRenderState(input: {
             },
           }
         : {}),
-    }),
-    [input.isStreaming, input.renderPlainText, input.streamingTextState, input.text],
-  );
-  const resolvedAnalysisCacheKey = useMemo(
-    () => buildMarkdownRenderAnalysisCacheKey(markdownRenderAnalysisInput, input.analysisCacheKey),
-    [input.analysisCacheKey, markdownRenderAnalysisInput],
-  );
-  const cachedMarkdownRenderAnalysis = useMemo(
-    () => readCachedMarkdownRenderAnalysis(resolvedAnalysisCacheKey),
-    [resolvedAnalysisCacheKey],
-  );
-  const markdownRenderAnalysis = useMemo(
-    () => cachedMarkdownRenderAnalysis ?? analyzeMarkdownRender(markdownRenderAnalysisInput),
-    [cachedMarkdownRenderAnalysis, markdownRenderAnalysisInput],
-  );
-  const effectiveRenderPreference = input.isStreaming ? "auto" : input.renderPreference;
-  const useLargePreview =
-    effectiveRenderPreference !== "markdown" && markdownRenderAnalysis.useLargePreview;
-  const shouldFastPathPlainText = markdownRenderAnalysis.shouldFastPathPlainText;
-  const shouldObserveLayout = markdownRenderAnalysis.shouldObserveLayout;
-
-  useEffect(() => {
-    if (!shouldWorkerizeMarkdownRenderAnalysis(markdownRenderAnalysisInput)) return;
-    if (cachedMarkdownRenderAnalysis) return;
-    prewarmMarkdownRenderAnalysis(resolvedAnalysisCacheKey, markdownRenderAnalysisInput);
-  }, [cachedMarkdownRenderAnalysis, markdownRenderAnalysisInput, resolvedAnalysisCacheKey]);
+    };
+    if (!shouldWorkerizeMarkdownRenderAnalysis(prewarmInput)) return;
+    prewarmMarkdownRenderAnalysis(resolvedAnalysisCacheKey, prewarmInput);
+  }, [
+    cachedMarkdownRenderAnalysis,
+    input.isStreaming,
+    input.renderPlainText,
+    input.streamingTextState,
+    input.text,
+    resolvedAnalysisCacheKey,
+  ]);
 
   return {
     markdownRenderAnalysis,

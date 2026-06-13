@@ -4,7 +4,7 @@ import {
   type SidebarProjectSortOrder,
   type SidebarThreadSortOrder,
 } from "@ace/contracts";
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 
 import type { Project, SidebarThreadSummary } from "../../types";
 import type {
@@ -92,7 +92,7 @@ export function useSidebarCommandPalette(
   const [searchPaletteKeyboardNavigationId, setSearchPaletteKeyboardNavigationId] = useState(0);
   const searchPaletteInputRef = useRef<HTMLInputElement | null>(null);
 
-  const combinedSidebarSnapshot = useMemo<CombinedSidebarSnapshot>(() => {
+  const combinedSidebarSnapshot: CombinedSidebarSnapshot = (() => {
     const localProjectSnapshots: CombinedSidebarSnapshotProject[] = input.sortedProjects.map(
       (project) => {
         const threads = sortByUpdatedAtDescending(
@@ -216,19 +216,10 @@ export function useSidebarCommandPalette(
       projects,
       threads,
     };
-  }, [
-    input.activeWsUrl,
-    input.projectById,
-    input.projectSortOrder,
-    input.remoteSidebarHosts,
-    input.sortedActiveThreads,
-    input.sortedProjects,
-    input.threadSortOrder,
-    input.visibleProjectThreadsByProjectId,
-  ]);
+  })();
 
   const normalizedSearchPaletteQuery = searchPaletteQuery.trim().toLowerCase();
-  const searchPaletteItems = useMemo<SearchPaletteItem[]>(() => {
+  const searchPaletteItems: SearchPaletteItem[] = (() => {
     const actionItems: SearchPaletteItem[] = [
       {
         id: "action-new-thread",
@@ -306,12 +297,7 @@ export function useSidebarCommandPalette(
       (item) => matchesQuery(item.label) || matchesQuery(item.description),
     );
     return [...matchedActions, ...matchedProjects, ...matchedThreads].slice(0, 40);
-  }, [
-    combinedSidebarSnapshot,
-    input.localDeviceConnectionUrl,
-    normalizedSearchPaletteQuery,
-    searchPaletteMode,
-  ]);
+  })();
 
   const searchPaletteActionItems = searchPaletteItems.filter(
     (item) =>
@@ -340,12 +326,12 @@ export function useSidebarCommandPalette(
     setSearchPaletteOpen(true);
   };
 
-  const closeSearchPalette = useCallback(() => {
+  const closeSearchPalette = () => {
     setSearchPaletteOpen(false);
     setSearchPaletteMode("root");
     setSearchPaletteQuery("");
     setSearchPaletteActiveIndex(-1);
-  }, []);
+  };
 
   const handleSearchPaletteBack = () => {
     setSearchPaletteMode("root");
