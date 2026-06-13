@@ -22,6 +22,12 @@ import { cn } from "../../lib/utils";
 
 type BoardDragProps = NonNullable<SidebarThreadRowProps["boardDrag"]>;
 const EMPTY_THREAD_LAST_VISITED_AT_BY_ID: Record<string, string> = {};
+const THREAD_LAST_VISITED_SELECTOR_CACHE_LIMIT = 500;
+const threadLastVisitedAtSelectorCache = new Map<
+  string,
+  ReturnType<typeof createThreadLastVisitedAtByIdsSelector>
+>();
+const selectEmptyThreadLastVisitedAtById = () => EMPTY_THREAD_LAST_VISITED_AT_BY_ID;
 
 function createThreadLastVisitedAtByIdsSelector(threadIds: readonly ThreadId[]) {
   let previousResult: Record<string, string> = EMPTY_THREAD_LAST_VISITED_AT_BY_ID;
@@ -58,6 +64,27 @@ function createThreadLastVisitedAtByIdsSelector(threadIds: readonly ThreadId[]) 
       Object.keys(nextResult).length === 0 ? EMPTY_THREAD_LAST_VISITED_AT_BY_ID : nextResult;
     return previousResult;
   };
+}
+
+function getThreadLastVisitedAtByIdsSelector(threadIds: readonly ThreadId[]) {
+  if (threadIds.length === 0) {
+    return selectEmptyThreadLastVisitedAtById;
+  }
+  const cacheKey = threadIds.join("\0");
+  const cachedSelector = threadLastVisitedAtSelectorCache.get(cacheKey);
+  if (cachedSelector) {
+    return cachedSelector;
+  }
+
+  const selector = createThreadLastVisitedAtByIdsSelector(threadIds);
+  threadLastVisitedAtSelectorCache.set(cacheKey, selector);
+  if (threadLastVisitedAtSelectorCache.size > THREAD_LAST_VISITED_SELECTOR_CACHE_LIMIT) {
+    const oldestKey = threadLastVisitedAtSelectorCache.keys().next().value;
+    if (oldestKey !== undefined) {
+      threadLastVisitedAtSelectorCache.delete(oldestKey);
+    }
+  }
+  return selector;
 }
 
 export interface SidebarLocalProjectSectionProps {
@@ -129,8 +156,7 @@ export function SidebarLocalProjectSection(props: SidebarLocalProjectSectionProp
 
   const visibleProjectThreads = allProjectThreads.filter((thread) => thread.archivedAt === null);
   const visibleProjectThreadIds = visibleProjectThreads.map((thread) => thread.id);
-  const threadLastVisitedAtSelector =
-    createThreadLastVisitedAtByIdsSelector(visibleProjectThreadIds);
+  const threadLastVisitedAtSelector = getThreadLastVisitedAtByIdsSelector(visibleProjectThreadIds);
   const threadLastVisitedAtById = useUiStateStore(threadLastVisitedAtSelector);
   const projectListThreads = visibleProjectThreads.filter(
     (thread) => !props.pinnedThreadIdSet.has(thread.id),

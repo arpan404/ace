@@ -95,6 +95,37 @@ describe("timelineModelStore", () => {
     expect(useTimelineModelStore.getState().revision).toBe(stateAfterBatch.revision);
   });
 
+  it("does not notify subscribers for unchanged active timeline windows", () => {
+    const activeWindow = {
+      startRowIndex: 8,
+      endRowIndexExclusive: 18,
+      overscanStartRowIndex: 4,
+      overscanEndRowIndexExclusive: 22,
+      revision: "rev:window",
+    };
+
+    useTimelineModelStore.getState().setActiveWindow(threadId, activeWindow);
+    const stateAfterFirstWrite = useTimelineModelStore.getState();
+    const listener = vi.fn();
+    const unsubscribe = useTimelineModelStore.subscribe(listener);
+
+    try {
+      useTimelineModelStore.getState().setActiveWindow(threadId, { ...activeWindow });
+
+      expect(useTimelineModelStore.getState()).toBe(stateAfterFirstWrite);
+      expect(listener).not.toHaveBeenCalled();
+
+      useTimelineModelStore.getState().setActiveWindow(threadId, {
+        ...activeWindow,
+        endRowIndexExclusive: 19,
+      });
+
+      expect(listener).toHaveBeenCalledTimes(1);
+    } finally {
+      unsubscribe();
+    }
+  });
+
   it("primes local snapshot metadata without deriving timeline rows", () => {
     useTimelineModelStore.getState().primeMetadata({
       threadId,

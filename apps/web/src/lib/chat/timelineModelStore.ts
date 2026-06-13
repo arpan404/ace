@@ -679,13 +679,18 @@ export const useTimelineModelStore = create<TimelineModelState>((set) => ({
       };
     }),
   setActiveWindow: (threadId, window) =>
-    set((state) => ({
-      ...state,
-      activeWindowByThreadId: {
-        ...state.activeWindowByThreadId,
-        [threadId]: window,
-      },
-    })),
+    set((state) => {
+      if (timelineRowsActiveWindowEquals(state.activeWindowByThreadId[threadId], window)) {
+        return state;
+      }
+      return {
+        ...state,
+        activeWindowByThreadId: {
+          ...state.activeWindowByThreadId,
+          [threadId]: window,
+        },
+      };
+    }),
   noteRowHeightWrite: () =>
     set((state) => ({ ...state, rowHeightRevision: state.rowHeightRevision + 1 })),
   clearThread: (threadId) => {
@@ -750,6 +755,20 @@ function timelineRowsMetadataEquals(
     left.updatedAt === right.updatedAt &&
     left.totalRows === right.totalRows &&
     left.tailStartRowIndex === right.tailStartRowIndex
+  );
+}
+
+function timelineRowsActiveWindowEquals(
+  left: TimelineRowsActiveWindow | undefined,
+  right: TimelineRowsActiveWindow,
+): boolean {
+  return (
+    left !== undefined &&
+    left.startRowIndex === right.startRowIndex &&
+    left.endRowIndexExclusive === right.endRowIndexExclusive &&
+    left.overscanStartRowIndex === right.overscanStartRowIndex &&
+    left.overscanEndRowIndexExclusive === right.overscanEndRowIndexExclusive &&
+    left.revision === right.revision
   );
 }
 

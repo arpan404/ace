@@ -15,12 +15,15 @@ import {
   useReducer,
   useRef,
   useState,
+  useSyncExternalStore,
   type ComponentProps,
   type CSSProperties,
   type DragEvent,
   type KeyboardEvent,
   type MouseEvent,
   type PointerEvent,
+  type ReactNode,
+  type RefObject,
 } from "react";
 import { useShallow } from "zustand/react/shallow";
 import {
@@ -236,6 +239,7 @@ const sidebarProjectCollisionDetection: CollisionDetection = (args) => {
 
   return closestCorners(args);
 };
+const SIDEBAR_PROJECT_DND_MODIFIERS = [restrictToVerticalAxis, restrictToFirstScrollableAncestor];
 
 const THREAD_REVEAL_STEP = 5;
 const SPLIT_REVEAL_STEP = 5;
@@ -983,6 +987,276 @@ function getVirtualProjectRowStyle(virtualRow: VirtualItem, scrollMargin: number
     width: "100%",
     transform: `translateY(${virtualRow.start - scrollMargin}px)`,
   };
+}
+
+type SidebarThreadHistoryPrefetch = (
+  threadId: ThreadId,
+  options?: {
+    readonly hydrateStore?: boolean;
+    readonly prewarmRows?: boolean;
+    readonly priority?: "background" | "immediate";
+  },
+) => void;
+
+type SidebarProjectListRenderItemArgs = {
+  item: SidebarProjectListItem;
+  measureElement: (element: HTMLElement | null) => void;
+  virtualRow: VirtualItem;
+  virtualStyle: CSSProperties;
+};
+
+function createSidebarProjectScrollMarginStore() {
+  let scrollMargin = 0;
+  const listeners = new Set<() => void>();
+
+  return {
+    getServerSnapshot: () => 0,
+    getSnapshot: () => scrollMargin,
+    subscribe: (listener: () => void) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+    set: (nextScrollMargin: number) => {
+      if (Math.abs(scrollMargin - nextScrollMargin) < 0.5) {
+        return;
+      }
+      scrollMargin = nextScrollMargin;
+      for (const listener of listeners) {
+        listener();
+      }
+    },
+  };
+}
+
+function SidebarProjectVirtualList({
+  items,
+  layoutMeasureKey,
+  layoutSignature,
+  localProjectThreadGroupById,
+  offsetSourceRef,
+  prefetchThreadHistory,
+  projectsSectionExpanded,
+  renderItem,
+  scrollElementRef,
+}: {
+  readonly items: readonly SidebarProjectListItem[];
+  readonly layoutMeasureKey: string;
+  readonly layoutSignature: string;
+  readonly localProjectThreadGroupById: ReadonlyMap<ProjectId, SidebarLocalProjectThreadGroup>;
+  readonly offsetSourceRef: RefObject<HTMLDivElement | null>;
+  readonly prefetchThreadHistory: SidebarThreadHistoryPrefetch;
+  readonly projectsSectionExpanded: boolean;
+  readonly renderItem: (args: SidebarProjectListRenderItemArgs) => ReactNode;
+  readonly scrollElementRef: RefObject<HTMLDivElement | null>;
+}) {
+  const projectListRef = useRef<HTMLUListElement | null>(null);
+  const scrollMarginFrameRef = useRef<number | null>(null);
+  const [scrollMarginStore] = useState(createSidebarProjectScrollMarginStore);
+  const scrollMargin = useSyncExternalStore(
+    scrollMarginStore.subscribe,
+    scrollMarginStore.getSnapshot,
+    scrollMarginStore.getServerSnapshot,
+  );
+  const itemCount = projectsSectionExpanded ? items.length : 0;
+  const estimateItemSizeByIndex = (index: number) =>
+    estimateSidebarProjectListItemSize(items[index]);
+  const getItemKey = (index: number): VirtualItem["key"] => items[index]?.key ?? index;
+  const estimatedTotalSize = items.reduce(
+    (total, item) => total + estimateSidebarProjectListItemSize(item),
+    0,
+  );
+  const virtualizer = useReactCompilerSafeVirtualizer({
+    count: itemCount,
+    estimateSize: estimateItemSizeByIndex,
+    getItemKey,
+    getScrollElement: () => scrollElementRef.current,
+    initialRect: { width: 0, height: SIDEBAR_PROJECT_LIST_INITIAL_VIEWPORT_HEIGHT_PX },
+    overscan: SIDEBAR_PROJECT_LIST_VIRTUALIZER_OVERSCAN,
+    scrollMargin,
+    useAnimationFrameWithResizeObserver: true,
+  });
+  const virtualRows = virtualizer.getVirtualItems();
+  const totalSize = Math.max(virtualizer.getTotalSize(), estimatedTotalSize);
+  const fallbackVirtualRows = deriveReactCompilerSafeFallbackSidebarVirtualItems({
+    estimateSize: estimateItemSizeByIndex,
+    getItemKey,
+    rowCount: itemCount,
+    scrollMargin,
+    scrollTop: virtualizer.scrollOffset ?? 0,
+    totalSize,
+    virtualItems: virtualRows,
+    viewportHeight:
+      virtualizer.scrollRect?.height ?? SIDEBAR_PROJECT_LIST_INITIAL_VIEWPORT_HEIGHT_PX,
+  });
+  const renderedVirtualRows = fallbackVirtualRows.length > 0 ? fallbackVirtualRows : virtualRows;
+  const mountedThreadPrefetchKey = (() => {
+    const threadIds: ThreadId[] = [];
+    const seenThreadIds = new Set<ThreadId>();
+    const pushThreadId = (threadId: ThreadId) => {
+      if (
+        seenThreadIds.has(threadId) ||
+        threadIds.length >= SIDEBAR_MOUNTED_THREAD_PREFETCH_LIMIT
+      ) {
+        return;
+      }
+      seenThreadIds.add(threadId);
+      threadIds.push(threadId);
+    };
+
+    for (const virtualRow of renderedVirtualRows) {
+      if (threadIds.length >= SIDEBAR_MOUNTED_THREAD_PREFETCH_LIMIT) {
+        break;
+      }
+      const item = items[virtualRow.index];
+      if (!item) {
+        continue;
+      }
+      if (item.kind === "local") {
+        const threadGroup = localProjectThreadGroupById.get(item.projectId);
+        if (!threadGroup?.projectExpanded) {
+          continue;
+        }
+        for (const threadId of threadGroup.renderedThreadIds) {
+          pushThreadId(threadId);
+        }
+        continue;
+      }
+      if (!item.renderedProject.projectExpanded) {
+        continue;
+      }
+      for (const thread of item.renderedProject.visibleThreads) {
+        pushThreadId(ThreadId.makeUnsafe(thread.id));
+      }
+    }
+
+    return threadIds.join("\0");
+  })();
+
+  const measureScrollMargin = useEffectEvent(() => {
+    const scrollElement = scrollElementRef.current;
+    const projectListElement = projectListRef.current;
+    if (!scrollElement || !projectListElement) {
+      scrollMarginStore.set(0);
+      return;
+    }
+    const nextScrollTop = scrollElement.scrollTop;
+    const scrollElementTop = scrollElement.getBoundingClientRect().top;
+    const projectListTop = projectListElement.getBoundingClientRect().top;
+    const nextScrollMargin = Math.max(0, projectListTop - scrollElementTop + nextScrollTop);
+    scrollMarginStore.set(nextScrollMargin);
+  });
+
+  const scheduleMeasure = useEffectEvent(() => {
+    if (scrollMarginFrameRef.current !== null) {
+      window.cancelAnimationFrame(scrollMarginFrameRef.current);
+    }
+    scrollMarginFrameRef.current = window.requestAnimationFrame(() => {
+      scrollMarginFrameRef.current = null;
+      measureScrollMargin();
+    });
+  });
+  const cancelMeasure = useEffectEvent(() => {
+    if (scrollMarginFrameRef.current === null) {
+      return;
+    }
+    window.cancelAnimationFrame(scrollMarginFrameRef.current);
+    scrollMarginFrameRef.current = null;
+  });
+
+  const setProjectListElement = useStableCallback((element: HTMLUListElement | null) => {
+    projectListRef.current = element;
+  });
+
+  useEffect(() => {
+    scheduleMeasure();
+  }, [layoutMeasureKey]);
+
+  useEffect(() => {
+    const scrollElement = scrollElementRef.current;
+    const offsetSourceElement = offsetSourceRef.current;
+    const projectListElement = projectListRef.current;
+    if (!scrollElement || !projectListElement || typeof ResizeObserver === "undefined") {
+      return;
+    }
+    const resizeObserver = new ResizeObserver(() => {
+      scheduleMeasure();
+    });
+    resizeObserver.observe(scrollElement);
+    if (offsetSourceElement) {
+      resizeObserver.observe(offsetSourceElement);
+    }
+    resizeObserver.observe(projectListElement);
+    return () => {
+      resizeObserver.disconnect();
+    };
+  }, [layoutMeasureKey, offsetSourceRef, scrollElementRef]);
+
+  useEffect(() => {
+    return () => {
+      cancelMeasure();
+    };
+  }, []);
+
+  useEffect(() => {
+    virtualizer.measure();
+  }, [layoutSignature, projectsSectionExpanded, scrollMargin, virtualizer]);
+
+  useEffect(() => {
+    const threadIdsToPrefetch =
+      mountedThreadPrefetchKey.length > 0
+        ? mountedThreadPrefetchKey.split("\0").map((threadId) => ThreadId.makeUnsafe(threadId))
+        : [];
+    if (threadIdsToPrefetch.length === 0) {
+      return;
+    }
+
+    let cancelled = false;
+    const cancelScheduledPrefetch = scheduleSidebarSpeculativePrefetch(() => {
+      void mapWithConcurrencyLimit(
+        threadIdsToPrefetch,
+        SIDEBAR_THREAD_PREFETCH_CONCURRENCY,
+        async (threadId, index) => {
+          if (cancelled) {
+            return;
+          }
+          const shouldHydrateStore = index < SIDEBAR_MOUNTED_THREAD_STORE_HYDRATE_COUNT;
+          await prefetchThreadHistory(threadId, {
+            hydrateStore: shouldHydrateStore,
+            prewarmRows: true,
+            priority: shouldHydrateStore ? "immediate" : "background",
+          });
+        },
+      );
+    });
+
+    return () => {
+      cancelled = true;
+      cancelScheduledPrefetch();
+    };
+  }, [mountedThreadPrefetchKey, prefetchThreadHistory]);
+
+  return (
+    <SidebarMenu
+      ref={setProjectListElement}
+      className="relative gap-0"
+      style={{ height: `${totalSize}px` }}
+    >
+      {renderedVirtualRows.map((virtualRow) => {
+        const item = items[virtualRow.index];
+        if (!item) {
+          return null;
+        }
+        return renderItem({
+          item,
+          measureElement: virtualizer.measureElement,
+          virtualRow,
+          virtualStyle: getVirtualProjectRowStyle(virtualRow, scrollMargin),
+        });
+      })}
+    </SidebarMenu>
+  );
 }
 
 function createOptimisticProjectCreatedEvent(input: {
@@ -2029,13 +2303,6 @@ function useSidebarComponent() {
   const searchPaletteListRef = useRef<HTMLDivElement | null>(null);
   const sidebarContentScrollRef = useRef<HTMLDivElement | null>(null);
   const sidebarProjectListOffsetSourceRef = useRef<HTMLDivElement | null>(null);
-  const sidebarProjectListRef = useRef<HTMLUListElement | null>(null);
-  const sidebarProjectListScrollMarginFrameRef = useRef<number | null>(null);
-  const [sidebarProjectListScrollMargin, setSidebarProjectListScrollMargin] = useState(0);
-  const [sidebarProjectListViewport, setSidebarProjectListViewport] = useState({
-    scrollTop: 0,
-    viewportHeight: SIDEBAR_PROJECT_LIST_INITIAL_VIEWPORT_HEIGHT_PX,
-  });
   const browseRequestVersionRef = useRef(0);
   const [sidebarEditorState, dispatchSidebarEditorState] = useReducer(
     sidebarEditorStateReducer,
@@ -5016,224 +5283,15 @@ function useSidebarComponent() {
   const sidebarProjectListLayoutSignature = sidebarProjectListItems
     .map(getSidebarProjectListItemLayoutSignature)
     .join("|");
-  const sidebarProjectListItemCount = projectsSectionExpanded ? sidebarProjectListItems.length : 0;
-  const estimateSidebarProjectListItemSizeByIndex = (index: number) =>
-    estimateSidebarProjectListItemSize(sidebarProjectListItems[index]);
-  const getSidebarProjectListItemKey = (index: number): VirtualItem["key"] =>
-    sidebarProjectListItems[index]?.key ?? index;
-  const estimatedSidebarProjectListTotalSize = sidebarProjectListItems.reduce(
-    (total, item) => total + estimateSidebarProjectListItemSize(item),
-    0,
-  );
-  const sidebarProjectListVirtualizer = useReactCompilerSafeVirtualizer({
-    count: sidebarProjectListItemCount,
-    estimateSize: estimateSidebarProjectListItemSizeByIndex,
-    getItemKey: getSidebarProjectListItemKey,
-    getScrollElement: () => sidebarContentScrollRef.current,
-    initialRect: { width: 0, height: SIDEBAR_PROJECT_LIST_INITIAL_VIEWPORT_HEIGHT_PX },
-    overscan: SIDEBAR_PROJECT_LIST_VIRTUALIZER_OVERSCAN,
-    scrollMargin: sidebarProjectListScrollMargin,
-    useAnimationFrameWithResizeObserver: true,
-  });
-  const virtualSidebarProjectRows = sidebarProjectListVirtualizer.getVirtualItems();
-  const sidebarProjectListTotalSize = Math.max(
-    sidebarProjectListVirtualizer.getTotalSize(),
-    estimatedSidebarProjectListTotalSize,
-  );
-  const fallbackVirtualSidebarProjectRows = deriveReactCompilerSafeFallbackSidebarVirtualItems({
-    estimateSize: estimateSidebarProjectListItemSizeByIndex,
-    getItemKey: getSidebarProjectListItemKey,
-    rowCount: sidebarProjectListItemCount,
-    scrollMargin: sidebarProjectListScrollMargin,
-    scrollTop: sidebarProjectListViewport.scrollTop,
-    totalSize: sidebarProjectListTotalSize,
-    virtualItems: virtualSidebarProjectRows,
-    viewportHeight: sidebarProjectListViewport.viewportHeight,
-  });
-  const renderedVirtualSidebarProjectRows =
-    fallbackVirtualSidebarProjectRows.length > 0
-      ? fallbackVirtualSidebarProjectRows
-      : virtualSidebarProjectRows;
-  const mountedSidebarThreadIdsForPrefetch = (() => {
-    const threadIds: ThreadId[] = [];
-    const seenThreadIds = new Set<ThreadId>();
-    const pushThreadId = (threadId: ThreadId) => {
-      if (
-        seenThreadIds.has(threadId) ||
-        threadIds.length >= SIDEBAR_MOUNTED_THREAD_PREFETCH_LIMIT
-      ) {
-        return;
-      }
-      seenThreadIds.add(threadId);
-      threadIds.push(threadId);
-    };
-
-    for (const virtualRow of renderedVirtualSidebarProjectRows) {
-      if (threadIds.length >= SIDEBAR_MOUNTED_THREAD_PREFETCH_LIMIT) {
-        break;
-      }
-      const item = sidebarProjectListItems[virtualRow.index];
-      if (!item) {
-        continue;
-      }
-      if (item.kind === "local") {
-        const threadGroup = localProjectThreadGroupById.get(item.projectId);
-        if (!threadGroup?.projectExpanded) {
-          continue;
-        }
-        for (const threadId of threadGroup.renderedThreadIds) {
-          pushThreadId(threadId);
-        }
-        continue;
-      }
-      if (!item.renderedProject.projectExpanded) {
-        continue;
-      }
-      for (const thread of item.renderedProject.visibleThreads) {
-        pushThreadId(ThreadId.makeUnsafe(thread.id));
-      }
-    }
-
-    return threadIds;
-  })();
-  const mountedSidebarThreadPrefetchKey = mountedSidebarThreadIdsForPrefetch.join("\0");
-
-  useEffect(() => {
-    const threadIdsToPrefetch = mountedSidebarThreadIdsForPrefetch;
-    if (threadIdsToPrefetch.length === 0) {
-      return;
-    }
-
-    let cancelled = false;
-    const cancelScheduledPrefetch = scheduleSidebarSpeculativePrefetch(() => {
-      void mapWithConcurrencyLimit(
-        threadIdsToPrefetch,
-        SIDEBAR_THREAD_PREFETCH_CONCURRENCY,
-        async (threadId, index) => {
-          if (cancelled) {
-            return;
-          }
-          const shouldHydrateStore = index < SIDEBAR_MOUNTED_THREAD_STORE_HYDRATE_COUNT;
-          await prefetchThreadHistory(threadId, {
-            hydrateStore: shouldHydrateStore,
-            prewarmRows: true,
-            priority: shouldHydrateStore ? "immediate" : "background",
-          });
-        },
-      );
-    });
-
-    return () => {
-      cancelled = true;
-      cancelScheduledPrefetch();
-    };
-  }, [mountedSidebarThreadIdsForPrefetch, mountedSidebarThreadPrefetchKey, prefetchThreadHistory]);
-
-  const measureSidebarProjectListScrollMargin = () => {
-    const scrollElement = sidebarContentScrollRef.current;
-    const projectListElement = sidebarProjectListRef.current;
-    if (!scrollElement || !projectListElement) {
-      setSidebarProjectListScrollMargin(0);
-      setSidebarProjectListViewport((current) =>
-        current.scrollTop === 0 &&
-        current.viewportHeight === SIDEBAR_PROJECT_LIST_INITIAL_VIEWPORT_HEIGHT_PX
-          ? current
-          : {
-              scrollTop: 0,
-              viewportHeight: SIDEBAR_PROJECT_LIST_INITIAL_VIEWPORT_HEIGHT_PX,
-            },
-      );
-      return;
-    }
-    const nextScrollTop = scrollElement.scrollTop;
-    const nextViewportHeight =
-      scrollElement.clientHeight || SIDEBAR_PROJECT_LIST_INITIAL_VIEWPORT_HEIGHT_PX;
-    const scrollElementTop = scrollElement.getBoundingClientRect().top;
-    const projectListTop = projectListElement.getBoundingClientRect().top;
-    const nextScrollMargin = Math.max(0, projectListTop - scrollElementTop + nextScrollTop);
-    setSidebarProjectListViewport((current) =>
-      Math.abs(current.scrollTop - nextScrollTop) < 0.5 &&
-      Math.abs(current.viewportHeight - nextViewportHeight) < 0.5
-        ? current
-        : {
-            scrollTop: nextScrollTop,
-            viewportHeight: nextViewportHeight,
-          },
-    );
-    setSidebarProjectListScrollMargin((current) =>
-      Math.abs(current - nextScrollMargin) < 0.5 ? current : nextScrollMargin,
-    );
-  };
-
-  const scheduleSidebarProjectListScrollMarginMeasure = useStableCallback(() => {
-    if (sidebarProjectListScrollMarginFrameRef.current !== null) {
-      window.cancelAnimationFrame(sidebarProjectListScrollMarginFrameRef.current);
-    }
-    sidebarProjectListScrollMarginFrameRef.current = window.requestAnimationFrame(() => {
-      sidebarProjectListScrollMarginFrameRef.current = null;
-      measureSidebarProjectListScrollMargin();
-    });
-  });
-  const cancelSidebarProjectListScrollMarginMeasure = useEffectEvent(() => {
-    if (sidebarProjectListScrollMarginFrameRef.current === null) {
-      return;
-    }
-    window.cancelAnimationFrame(sidebarProjectListScrollMarginFrameRef.current);
-    sidebarProjectListScrollMarginFrameRef.current = null;
-  });
-
-  const setSidebarProjectListElement = (element: HTMLUListElement | null) => {
-    sidebarProjectListRef.current = element;
-    scheduleSidebarProjectListScrollMarginMeasure();
-  };
-
-  useEffect(() => {
-    scheduleSidebarProjectListScrollMarginMeasure();
-  }, [
-    boardsSectionExpanded,
-    pinnedSectionExpanded,
+  const sidebarProjectListMeasureKey = [
+    boardsSectionExpanded ? 1 : 0,
+    pinnedSectionExpanded ? 1 : 0,
     projectsSectionExpanded,
     savedBoards.length,
-    scheduleSidebarProjectListScrollMarginMeasure,
-    shouldShowProjectPathEntry,
+    shouldShowProjectPathEntry ? 1 : 0,
     sortedRenderedPinnedItems.length,
     visibleSavedBoardItems.length,
-  ]);
-
-  useEffect(() => {
-    const scrollElement = sidebarContentScrollRef.current;
-    const offsetSourceElement = sidebarProjectListOffsetSourceRef.current;
-    const projectListElement = sidebarProjectListRef.current;
-    if (!scrollElement || !projectListElement || typeof ResizeObserver === "undefined") {
-      return;
-    }
-    const resizeObserver = new ResizeObserver(() => {
-      scheduleSidebarProjectListScrollMarginMeasure();
-    });
-    resizeObserver.observe(scrollElement);
-    if (offsetSourceElement) {
-      resizeObserver.observe(offsetSourceElement);
-    }
-    resizeObserver.observe(projectListElement);
-    return () => {
-      resizeObserver.disconnect();
-    };
-  }, [scheduleSidebarProjectListScrollMarginMeasure]);
-
-  useEffect(() => {
-    return () => {
-      cancelSidebarProjectListScrollMarginMeasure();
-    };
-  }, []);
-
-  useEffect(() => {
-    sidebarProjectListVirtualizer.measure();
-  }, [
-    projectsSectionExpanded,
-    sidebarProjectListLayoutSignature,
-    sidebarProjectListScrollMargin,
-    sidebarProjectListVirtualizer,
-  ]);
+  ].join("|");
 
   const hasExpandedVisibleProjects =
     filteredLocalProjectIds.some((projectId) => {
@@ -5782,19 +5840,19 @@ function useSidebarComponent() {
   };
   const getRemoteThreadPr = (threadId: ThreadId) => prByThreadId.get(threadId) ?? null;
 
-  function renderVirtualProjectListItem(virtualRow: VirtualItem) {
-    const item = sidebarProjectListItems[virtualRow.index];
-    if (!item) {
-      return null;
-    }
-    const virtualStyle = getVirtualProjectRowStyle(virtualRow, sidebarProjectListScrollMargin);
+  function renderVirtualProjectListItem({
+    item,
+    measureElement,
+    virtualRow,
+    virtualStyle,
+  }: SidebarProjectListRenderItemArgs) {
     if (item.kind === "local") {
       if (item.sortable) {
         return (
           <SortableProjectItem
             key={item.key}
             projectId={item.projectId}
-            measureElement={sidebarProjectListVirtualizer.measureElement}
+            measureElement={measureElement}
             style={virtualStyle}
             virtualIndex={virtualRow.index}
           >
@@ -5853,7 +5911,7 @@ function useSidebarComponent() {
       return (
         <SidebarMenuItem
           key={item.key}
-          ref={sidebarProjectListVirtualizer.measureElement}
+          ref={measureElement}
           className="rounded-md"
           data-index={virtualRow.index}
           style={virtualStyle}
@@ -5911,7 +5969,7 @@ function useSidebarComponent() {
     return (
       <SidebarMenuItem
         key={item.key}
-        ref={sidebarProjectListVirtualizer.measureElement}
+        ref={measureElement}
         className="rounded-md"
         data-index={virtualRow.index}
         style={virtualStyle}
@@ -6902,11 +6960,7 @@ function useSidebarComponent() {
               </Button>
             </div>
           </SidebarGroup>
-          <SidebarContent
-            ref={sidebarContentScrollRef}
-            className="gap-0 pt-1.5"
-            onScroll={scheduleSidebarProjectListScrollMarginMeasure}
-          >
+          <SidebarContent ref={sidebarContentScrollRef} className="gap-0 pt-1.5">
             <div ref={sidebarProjectListOffsetSourceRef} className="flex shrink-0 flex-col">
               {sortedRenderedPinnedItems.length > 0 ? (
                 <SidebarGroup className="shrink-0 px-2.5 pt-5 pb-2">
@@ -7082,36 +7136,40 @@ function useSidebarComponent() {
                     <DndContext
                       sensors={projectDnDSensors}
                       collisionDetection={sidebarProjectCollisionDetection}
-                      modifiers={[restrictToVerticalAxis, restrictToFirstScrollableAncestor]}
+                      modifiers={SIDEBAR_PROJECT_DND_MODIFIERS}
                       onDragStart={handleProjectDragStart}
                       onDragEnd={handleProjectDragEnd}
                       onDragCancel={handleProjectDragCancel}
                     >
-                      <SidebarMenu
-                        ref={setSidebarProjectListElement}
-                        className="relative gap-0"
-                        style={{ height: `${sidebarProjectListTotalSize}px` }}
+                      <SortableContext
+                        items={filteredLocalProjectIds}
+                        strategy={verticalListSortingStrategy}
                       >
-                        <SortableContext
-                          items={filteredLocalProjectIds}
-                          strategy={verticalListSortingStrategy}
-                        >
-                          {renderedVirtualSidebarProjectRows.map((virtualRow) =>
-                            renderVirtualProjectListItem(virtualRow),
-                          )}
-                        </SortableContext>
-                      </SidebarMenu>
+                        <SidebarProjectVirtualList
+                          items={sidebarProjectListItems}
+                          layoutMeasureKey={sidebarProjectListMeasureKey}
+                          layoutSignature={sidebarProjectListLayoutSignature}
+                          localProjectThreadGroupById={localProjectThreadGroupById}
+                          offsetSourceRef={sidebarProjectListOffsetSourceRef}
+                          prefetchThreadHistory={prefetchThreadHistory}
+                          projectsSectionExpanded={projectsSectionExpanded}
+                          renderItem={renderVirtualProjectListItem}
+                          scrollElementRef={sidebarContentScrollRef}
+                        />
+                      </SortableContext>
                     </DndContext>
                   ) : (
-                    <SidebarMenu
-                      ref={setSidebarProjectListElement}
-                      className="relative gap-0"
-                      style={{ height: `${sidebarProjectListTotalSize}px` }}
-                    >
-                      {renderedVirtualSidebarProjectRows.map((virtualRow) =>
-                        renderVirtualProjectListItem(virtualRow),
-                      )}
-                    </SidebarMenu>
+                    <SidebarProjectVirtualList
+                      items={sidebarProjectListItems}
+                      layoutMeasureKey={sidebarProjectListMeasureKey}
+                      layoutSignature={sidebarProjectListLayoutSignature}
+                      localProjectThreadGroupById={localProjectThreadGroupById}
+                      offsetSourceRef={sidebarProjectListOffsetSourceRef}
+                      prefetchThreadHistory={prefetchThreadHistory}
+                      projectsSectionExpanded={projectsSectionExpanded}
+                      renderItem={renderVirtualProjectListItem}
+                      scrollElementRef={sidebarContentScrollRef}
+                    />
                   )}
                   {projects.length === 0 &&
                     renderedRemoteProjects.length === 0 &&

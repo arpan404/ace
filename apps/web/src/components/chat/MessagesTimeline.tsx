@@ -50,6 +50,7 @@ import { summarizeTurnDiffStats } from "../../lib/turnDiffTree";
 import ChatMarkdown from "../ChatMarkdown";
 import { useReactCompilerSafeVirtualizer } from "~/hooks/useReactCompilerSafeVirtualizer";
 import { useEffectEvent } from "~/hooks/useEffectEvent";
+import { useStableCallback } from "~/hooks/useStableCallback";
 import {
   ArrowLeftRightIcon,
   BrainIcon,
@@ -437,8 +438,8 @@ function highlightPinnedSelectionText(
       `width: ${rect.width + 4}px`,
       `height: ${rect.height + 4}px`,
       "border-radius: 0.25rem",
-      "background: hsl(var(--primary) / 0.22)",
-      "box-shadow: 0 0 0 1px hsl(var(--primary) / 0.36)",
+      "background: color-mix(in oklch, var(--primary) 22%, transparent)",
+      "box-shadow: 0 0 0 1px color-mix(in oklch, var(--primary) 36%, transparent)",
       "pointer-events: none",
     ].join("; ");
     overlay.appendChild(highlight);
@@ -747,6 +748,9 @@ export function MessagesTimeline({
     timelineRootElement,
     timelineWidthPx,
   } = uiState;
+  const setTimelineRootElement = useStableCallback((element: HTMLDivElement | null) => {
+    dispatchUiState({ type: "set-timeline-root-element", timelineRootElement: element });
+  });
   const updateSelectionPinTarget = () => {
     if (!activeThreadId) {
       dispatchUiState({ type: "set-selection-pin-target", selectionPinTarget: null });
@@ -1845,9 +1849,7 @@ export function MessagesTimeline({
 
   return (
     <div
-      ref={(element) =>
-        dispatchUiState({ type: "set-timeline-root-element", timelineRootElement: element })
-      }
+      ref={setTimelineRootElement}
       role="presentation"
       data-timeline-root="true"
       className="mx-auto mt-3 w-full min-w-0 max-w-3xl overflow-x-hidden"
@@ -2763,17 +2765,18 @@ function TimelineDisclosureBody(props: {
   readonly children: ReactNode;
   readonly dataAttribute?: Record<string, string>;
 }) {
+  if (!props.open) {
+    return null;
+  }
+
   return (
     <div
       className={cn(
         "grid overflow-hidden transition-[grid-template-rows,opacity,transform] duration-200 ease-out motion-reduce:transition-none",
-        props.open
-          ? "grid-rows-[1fr] translate-y-0 opacity-100"
-          : "grid-rows-[0fr] -translate-y-1 opacity-0",
+        "grid-rows-[1fr] translate-y-0 opacity-100",
         props.className,
       )}
-      aria-hidden={props.open ? undefined : "true"}
-      data-disclosure-state={props.open ? "open" : "closed"}
+      data-disclosure-state="open"
       {...props.dataAttribute}
     >
       <div className="min-h-0 overflow-hidden">{props.children}</div>

@@ -1260,6 +1260,13 @@ function chatViewDialogStateReducer(
           action.gitHubIssueDialogInitialSelectedIssueNumbers,
       };
     case "close-github-issue-dialog":
+      if (
+        !state.gitHubIssueDialogOpen &&
+        state.gitHubIssueDialogInitialIssueNumber === null &&
+        state.gitHubIssueDialogInitialSelectedIssueNumbers.length === 0
+      ) {
+        return state;
+      }
       return {
         ...state,
         gitHubIssueDialogOpen: false,
@@ -1277,6 +1284,9 @@ function chatViewDialogStateReducer(
         pullRequestDialogState: action.pullRequestDialogState,
       };
     case "close-pull-request-dialog":
+      if (state.pullRequestDialogState === null) {
+        return state;
+      }
       return {
         ...state,
         pullRequestDialogState: null,
@@ -1293,6 +1303,19 @@ function chatViewDialogStateReducer(
 
 function resolveStateUpdate<T>(current: T, next: T | ((value: T) => T)): T {
   return typeof next === "function" ? (next as (value: T) => T)(current) : next;
+}
+
+function booleanRecordEquals(
+  left: Readonly<Record<string, boolean>>,
+  right: Readonly<Record<string, boolean>>,
+): boolean {
+  if (left === right) {
+    return true;
+  }
+
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  return leftKeys.length === rightKeys.length && leftKeys.every((key) => left[key] === right[key]);
 }
 
 function chatViewTransientStateReducer(
@@ -1360,7 +1383,7 @@ function chatViewTransientStateReducer(
         state.expandedWorkGroups,
         action.expandedWorkGroups,
       );
-      return expandedWorkGroups === state.expandedWorkGroups
+      return booleanRecordEquals(state.expandedWorkGroups, expandedWorkGroups)
         ? state
         : { ...state, expandedWorkGroups };
     }
@@ -2527,9 +2550,19 @@ function useChatViewComponent({
   });
 
   const resetThreadScopedUi = useEffectEvent(() => {
-    setExpandedWorkGroups({});
-    closeGitHubIssueDialog();
-    dispatchChatViewDialogState({ type: "close-pull-request-dialog" });
+    if (Object.keys(expandedWorkGroups).length > 0) {
+      setExpandedWorkGroups({});
+    }
+    if (
+      gitHubIssueDialogOpen ||
+      gitHubIssueDialogInitialIssueNumber !== null ||
+      gitHubIssueDialogInitialSelectedIssueNumbers.length > 0
+    ) {
+      closeGitHubIssueDialog();
+    }
+    if (pullRequestDialogState !== null) {
+      dispatchChatViewDialogState({ type: "close-pull-request-dialog" });
+    }
   });
 
   const onComposerIssueTokenClick = (issueNumber: number) => {
