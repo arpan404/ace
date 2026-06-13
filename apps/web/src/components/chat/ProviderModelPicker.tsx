@@ -7,7 +7,7 @@ import {
 } from "@ace/contracts";
 import { resolveSelectableModel } from "@ace/shared/model";
 import * as Schema from "effect/Schema";
-import { memo, useMemo, useState } from "react";
+import { useState } from "react";
 import type { VariantProps } from "class-variance-authority";
 import { CheckIcon, ChevronDownIcon, PinIcon, SearchIcon, StarIcon } from "lucide-react";
 import { Button } from "../ui/button";
@@ -299,7 +299,7 @@ function isRowSelected(
   return row.selectionValue === selectedModel || row.slug === selectedModel;
 }
 
-export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
+export function ProviderModelPicker(props: {
   provider: ProviderKind;
   providerInstanceId?: string | undefined;
   model: string;
@@ -346,34 +346,24 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
       : selectedProviderSnapshot
         ? modelOptionsFromServerModels(selectedProviderSnapshot.models)
         : props.modelOptionsByProvider[activeProvider];
-  const cursorModels = useMemo(
-    () =>
-      props.providers
-        ? (getProviderSnapshot(
-            props.providers,
-            "cursor",
-            activeProvider === "cursor" ? props.providerInstanceId : undefined,
-          )?.models ?? [])
-        : [],
-    [activeProvider, props.providerInstanceId, props.providers],
-  );
-  const selectedCursorModel = useMemo(
-    () =>
-      activeProvider === "cursor"
-        ? resolveExactCursorModelSelection({
-            models: cursorModels,
-            model: props.model,
-          })
-        : null,
-    [activeProvider, cursorModels, props.model],
-  );
-  const selectedCursorFamily = useMemo(
-    () =>
-      activeProvider === "cursor" && selectedCursorModel
-        ? resolveCursorSelectorFamily(cursorModels, selectedCursorModel)
-        : null,
-    [activeProvider, cursorModels, selectedCursorModel],
-  );
+  const cursorModels = props.providers
+    ? (getProviderSnapshot(
+        props.providers,
+        "cursor",
+        activeProvider === "cursor" ? props.providerInstanceId : undefined,
+      )?.models ?? [])
+    : [];
+  const selectedCursorModel =
+    activeProvider === "cursor"
+      ? resolveExactCursorModelSelection({
+          models: cursorModels,
+          model: props.model,
+        })
+      : null;
+  const selectedCursorFamily =
+    activeProvider === "cursor" && selectedCursorModel
+      ? resolveCursorSelectorFamily(cursorModels, selectedCursorModel)
+      : null;
   const selectedModelLabel =
     activeProvider === "cursor"
       ? (selectedCursorFamily?.familyName ?? props.model)
@@ -387,7 +377,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
         )
       : undefined;
 
-  const selectableProviderOptions = useMemo(() => {
+  const selectableProviderOptions = (() => {
     const providers = props.providers;
     return !providers
       ? AVAILABLE_PROVIDER_OPTIONS
@@ -399,8 +389,8 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
             ) ??
               false),
         );
-  }, [props.providerInstancesByProvider, props.providers]);
-  const selectableProviderEntries = useMemo(() => {
+  })();
+  const selectableProviderEntries = (() => {
     const providers = props.providers;
     return buildProviderEntryRows(
       buildProviderPickerEntries({
@@ -417,13 +407,8 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
       }),
       prefs.pinnedProviders,
     );
-  }, [
-    prefs.pinnedProviders,
-    props.providerInstancesByProvider,
-    props.providers,
-    selectableProviderOptions,
-  ]);
-  const lockedProviderEntries = useMemo(() => {
+  })();
+  const lockedProviderEntries = (() => {
     if (props.lockedProvider === null) {
       return [];
     }
@@ -450,20 +435,13 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
       }),
       prefs.pinnedProviders,
     );
-  }, [
-    prefs.pinnedProviders,
-    props.lockedProvider,
-    props.provider,
-    props.providerInstanceId,
-    props.providerInstancesByProvider,
-    props.providers,
-  ]);
+  })();
   const displayedProviderEntries =
     props.lockedProvider === null ? selectableProviderEntries : lockedProviderEntries;
   const showProviderRail = displayedProviderEntries.length > 1;
   const activeProviderEntryKey = makeProviderEntryKey(activeProvider, props.providerInstanceId);
 
-  const pickerProviderEntry = useMemo(() => {
+  const pickerProviderEntry = (() => {
     const scopedEntries =
       props.lockedProvider === null ? selectableProviderEntries : lockedProviderEntries;
     const focusedEntry = focusedProviderEntryKey
@@ -514,16 +492,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
           props.provider,
       }
     );
-  }, [
-    activeProviderEntryKey,
-    focusedProviderEntryKey,
-    props.lockedProvider,
-    props.provider,
-    props.providerInstanceId,
-    props.providerInstancesByProvider,
-    lockedProviderEntries,
-    selectableProviderEntries,
-  ]);
+  })();
   const pickerProvider = pickerProviderEntry.provider;
   const pickerProviderInstanceId = pickerProviderEntry.instanceId;
   const pickerProviderEntryKey = makeProviderEntryKey(pickerProvider, pickerProviderInstanceId);
@@ -542,32 +511,20 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
       : pickerProviderSnapshot
         ? modelOptionsFromServerModels(pickerProviderSnapshot.models)
         : props.modelOptionsByProvider[pickerProvider];
-  const pickerRows = useMemo(
-    () =>
-      pickerProvider === "cursor" && pickerProviderModels.length > 0
-        ? buildCursorModelRows({
-            models: pickerProviderModels,
-            providerInstanceId: pickerProviderInstanceId,
-            selectedModel: props.model,
-          })
-        : buildStandardModelRows(pickerProvider, pickerProviderInstanceId, pickerModelOptions),
-    [
-      pickerModelOptions,
-      pickerProvider,
-      pickerProviderInstanceId,
-      pickerProviderModels,
-      props.model,
-    ],
-  );
+  const pickerRows =
+    pickerProvider === "cursor" && pickerProviderModels.length > 0
+      ? buildCursorModelRows({
+          models: pickerProviderModels,
+          providerInstanceId: pickerProviderInstanceId,
+          selectedModel: props.model,
+        })
+      : buildStandardModelRows(pickerProvider, pickerProviderInstanceId, pickerModelOptions);
   const normalizedQuery = query.trim().toLowerCase();
-  const visibleRows = useMemo(
-    () =>
-      normalizedQuery.length === 0
-        ? pickerRows
-        : pickerRows.filter((row) => row.searchText.includes(normalizedQuery)),
-    [normalizedQuery, pickerRows],
-  );
-  const favoriteModelSet = useMemo(() => new Set(prefs.favoriteModels), [prefs.favoriteModels]);
+  const visibleRows =
+    normalizedQuery.length === 0
+      ? pickerRows
+      : pickerRows.filter((row) => row.searchText.includes(normalizedQuery));
+  const favoriteModelSet = new Set(prefs.favoriteModels);
   const favoriteRows = visibleRows.filter((row) => favoriteModelSet.has(row.favoriteKey));
   const modelRows = visibleRows.filter((row) => !favoriteModelSet.has(row.favoriteKey));
   const pickerProviderEntryPinned = isProviderEntryPinned(
@@ -578,21 +535,24 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   const handleModelChange = (
     provider: ProviderKind,
     value: string,
-    options: ReadonlyArray<{ slug: string; name: string }> = provider === pickerProvider
-      ? pickerModelOptions
-      : props.modelOptionsByProvider[provider],
+    options?: ReadonlyArray<{ slug: string; name: string }>,
     closeMenu = true,
-    providerInstanceId = pickerProvider === provider ? pickerProviderInstanceId : undefined,
+    providerInstanceId?: string,
   ) => {
     if (props.disabled) return;
     if (!value) return;
+    const modelOptions =
+      options ??
+      (provider === pickerProvider ? pickerModelOptions : props.modelOptionsByProvider[provider]);
+    const nextProviderInstanceId =
+      providerInstanceId ?? (pickerProvider === provider ? pickerProviderInstanceId : undefined);
     const resolvedModel =
-      provider === "cursor" ? value : resolveSelectableModel(provider, value, options);
+      provider === "cursor" ? value : resolveSelectableModel(provider, value, modelOptions);
     if (!resolvedModel) return;
-    if (providerInstanceId === undefined) {
+    if (nextProviderInstanceId === undefined) {
       props.onProviderModelChange(provider, resolvedModel);
     } else {
-      props.onProviderModelChange(provider, resolvedModel, providerInstanceId);
+      props.onProviderModelChange(provider, resolvedModel, nextProviderInstanceId);
     }
     if (closeMenu) {
       setIsMenuOpen(false);
@@ -945,4 +905,4 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
       />
     </div>
   );
-});
+}
