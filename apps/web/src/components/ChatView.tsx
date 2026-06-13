@@ -91,6 +91,7 @@ import {
   type TimelineEntry,
 } from "../session-logic";
 import {
+  hasScrolledUp,
   isScrollContainerNearBottom,
   resolveAutoScrollOnScroll,
   shouldShowScrollToBottomButton,
@@ -7010,19 +7011,28 @@ function useChatViewComponent({
     const scrollContainer = messagesScrollRef.current;
     if (!scrollContainer) return;
     const activeThreadId = activeThread?.id ?? null;
+    const currentScrollTop = scrollContainer.scrollTop;
     if (
       activeThreadId !== null &&
       pendingInitialBottomScrollThreadIdRef.current === activeThreadId &&
       !pendingUserScrollUpIntentRef.current &&
       !isPointerScrollActiveRef.current
     ) {
-      lastKnownScrollTopRef.current = scrollContainer.scrollTop;
+      if (hasScrolledUp(currentScrollTop, lastKnownScrollTopRef.current)) {
+        shouldAutoScrollRef.current = false;
+        pendingUserScrollUpIntentRef.current = true;
+        cancelPendingStickToBottom();
+        cancelInitialBottomPin();
+        scheduleShowScrollToBottom(shouldShowScrollToBottomButton(scrollContainer));
+        lastKnownScrollTopRef.current = currentScrollTop;
+        return;
+      }
+      lastKnownScrollTopRef.current = currentScrollTop;
       shouldAutoScrollRef.current = true;
       scheduleShowScrollToBottom(false);
       scheduleStickToBottom();
       return;
     }
-    const currentScrollTop = scrollContainer.scrollTop;
     const isNearBottom = isScrollContainerNearBottom(scrollContainer);
     const autoScrollDecision = resolveAutoScrollOnScroll({
       shouldAutoScroll: shouldAutoScrollRef.current,

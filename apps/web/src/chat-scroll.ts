@@ -46,6 +46,10 @@ export function shouldShowScrollToBottomButton(position: ScrollPosition): boolea
   return !isScrollContainerNearBottom(position, SCROLL_TO_BOTTOM_BUTTON_THRESHOLD_PX);
 }
 
+export function hasScrolledUp(currentScrollTop: number, previousScrollTop: number): boolean {
+  return currentScrollTop < previousScrollTop - AUTO_SCROLL_DISABLE_UP_DELTA_PX;
+}
+
 export interface AutoScrollOnScrollInput {
   shouldAutoScroll: boolean;
   isNearBottom: boolean;
@@ -90,8 +94,7 @@ export function resolveAutoScrollOnScroll(
     };
   }
 
-  const scrolledUp =
-    input.currentScrollTop < input.previousScrollTop - AUTO_SCROLL_DISABLE_UP_DELTA_PX;
+  const scrolledUp = hasScrolledUp(input.currentScrollTop, input.previousScrollTop);
   const hasExplicitScrollUpIntent =
     input.hasPendingUserScrollUpIntent || input.isPointerScrollActive;
   if (scrolledUp) {
