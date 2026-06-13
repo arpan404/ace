@@ -12,6 +12,7 @@ import {
 import {
   startTransition,
   useEffect,
+  useLayoutEffect,
   useReducer,
   useRef,
   useState,
@@ -181,6 +182,7 @@ import {
   prefetchThreadTimelineRows,
   primeThreadTimelineRowsMetadataFromReadModelThread,
 } from "../lib/chat/timelineModelStore";
+import { isThreadLiveWorkActive } from "../lib/chat/activeThreadHydration";
 import { shouldAvoidSpeculativeWork } from "../lib/resourceProfile";
 import { describeHostConnection } from "@ace/shared/hostConnections";
 import {
@@ -261,6 +263,27 @@ const SIDEBAR_MOUNTED_THREAD_PREFETCH_LIMIT = 24;
 const SIDEBAR_MOUNTED_THREAD_STORE_HYDRATE_COUNT = 0;
 const SIDEBAR_SPECULATIVE_PREFETCH_IDLE_TIMEOUT_MS = 2_500;
 const SIDEBAR_SPECULATIVE_PREFETCH_FALLBACK_DELAY_MS = 900;
+
+function deriveCurrentSortedActiveThreads(): SidebarThreadSummary[] {
+  const activeThreads: SidebarThreadSummary[] = [];
+  for (const thread of Object.values(useStore.getState().sidebarThreadsById)) {
+    if (thread === undefined || thread.archivedAt !== null) continue;
+    activeThreads.push(thread);
+  }
+  return activeThreads.toSorted(
+    (left, right) =>
+      Math.max(
+        resolveIsoTimestamp(right.latestUserMessageAt ?? undefined),
+        resolveIsoTimestamp(right.updatedAt),
+        resolveIsoTimestamp(right.createdAt),
+      ) -
+      Math.max(
+        resolveIsoTimestamp(left.latestUserMessageAt ?? undefined),
+        resolveIsoTimestamp(left.updatedAt),
+        resolveIsoTimestamp(left.createdAt),
+      ),
+  );
+}
 
 function openPrLink(event: MouseEvent<HTMLElement>, prUrl: string): void {
   event.preventDefault();
@@ -1133,7 +1156,6 @@ function SidebarProjectVirtualList({
 
     return threadIds.join("\0");
   })();
-
   const measureScrollMargin = useEffectEvent(() => {
     const scrollElement = scrollElementRef.current;
     const projectListElement = projectListRef.current;
@@ -1169,11 +1191,11 @@ function SidebarProjectVirtualList({
     projectListRef.current = element;
   });
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     scheduleMeasure();
   }, [layoutMeasureKey]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const scrollElement = scrollElementRef.current;
     const offsetSourceElement = offsetSourceRef.current;
     const projectListElement = projectListRef.current;
@@ -1204,10 +1226,7 @@ function SidebarProjectVirtualList({
   }, [layoutSignature, projectsSectionExpanded, scrollMargin, virtualizer]);
 
   useEffect(() => {
-    const threadIdsToPrefetch =
-      mountedThreadPrefetchKey.length > 0
-        ? mountedThreadPrefetchKey.split("\0").map((threadId) => ThreadId.makeUnsafe(threadId))
-        : [];
+    const threadIdsToPrefetch = parseSidebarMountedThreadPrefetchKey(mountedThreadPrefetchKey);
     if (threadIdsToPrefetch.length === 0) {
       return;
     }
@@ -1451,6 +1470,13 @@ async function mapWithConcurrencyLimit<TInput, TResult>(
   const workers = Array.from({ length: limitedConcurrency }, () => runWorker());
   await Promise.all(workers);
   return results;
+}
+
+function parseSidebarMountedThreadPrefetchKey(prefetchKey: string): ThreadId[] {
+  if (prefetchKey.length === 0) {
+    return [];
+  }
+  return prefetchKey.split("\0").map((threadId) => ThreadId.makeUnsafe(threadId));
 }
 
 function scheduleSidebarSpeculativePrefetch(callback: () => void): () => void {
@@ -4269,6 +4295,9 @@ function useSidebarComponent() {
       if (!thread) {
         return Promise.resolve();
       }
+      if (isThreadLiveWorkActive(thread)) {
+        return Promise.resolve();
+      }
       const priority = options?.priority ?? "immediate";
       const shouldHydrateStore = options?.hydrateStore === true;
       const shouldPrewarmRows = options?.prewarmRows !== false;
@@ -4959,20 +4988,9 @@ function useSidebarComponent() {
       );
     });
   })();
-  const localProjectThreadGroups = filteredLocalProjectIds.map((projectId) =>
-    deriveSidebarLocalProjectThreadGroup({
-      activeThreadId,
-      projectExpanded: projectExpandedById[projectId] ?? true,
-      projectListThreads: projectListThreadsByProjectId.get(projectId) ?? EMPTY_SIDEBAR_THREADS,
-      revealStep: THREAD_REVEAL_STEP,
-      unsortedProjectThreads:
-        visibleProjectThreadsByProjectId.get(projectId) ?? EMPTY_SIDEBAR_THREADS,
-      visibleThreadCount: threadRevealCountByProject[projectId] ?? THREAD_REVEAL_STEP,
-      threadSortOrder: sidebarThreadSortOrder,
-    }),
-  );
-  const localProjectThreadGroupById = new Map(
-    sortedLocalProjectIds.map((projectId) => [
+  const localProjectThreadGroupById = new Map<ProjectId, SidebarLocalProjectThreadGroup>();
+  for (const projectId of sortedLocalProjectIds) {
+    localProjectThreadGroupById.set(
       projectId,
       deriveSidebarLocalProjectThreadGroup({
         activeThreadId,
@@ -4984,7 +5002,16 @@ function useSidebarComponent() {
         visibleThreadCount: threadRevealCountByProject[projectId] ?? THREAD_REVEAL_STEP,
         threadSortOrder: sidebarThreadSortOrder,
       }),
-    ]),
+    );
+  }
+  const localProjectThreadGroups = filteredLocalProjectIds.flatMap((projectId) => {
+    const threadGroup = localProjectThreadGroupById.get(projectId);
+    return threadGroup ? [threadGroup] : [];
+  });
+  const getSortedActiveThreads = useStableCallback(deriveCurrentSortedActiveThreads);
+  const activeSidebarThreadCount = Object.values(sidebarThreadsById).reduce(
+    (count, thread) => count + (thread !== undefined && thread.archivedAt === null ? 1 : 0),
+    0,
   );
   const renderedPinnedItems = pinnedItems.flatMap<
     { kind: "project"; projectId: ProjectId } | { kind: "thread"; threadId: ThreadId }
@@ -5325,32 +5352,15 @@ function useSidebarComponent() {
       return changed ? next : current;
     });
   };
-  const sortedActiveThreads = (() => {
-    const activeThreads: SidebarThreadSummary[] = [];
-    for (const thread of Object.values(sidebarThreadsById)) {
-      if (thread === undefined || thread.archivedAt !== null) continue;
-      activeThreads.push(thread);
-    }
-    return activeThreads.toSorted(
-      (left, right) =>
-        Math.max(
-          resolveIsoTimestamp(right.latestUserMessageAt ?? undefined),
-          resolveIsoTimestamp(right.updatedAt),
-          resolveIsoTimestamp(right.createdAt),
-        ) -
-        Math.max(
-          resolveIsoTimestamp(left.latestUserMessageAt ?? undefined),
-          resolveIsoTimestamp(left.updatedAt),
-          resolveIsoTimestamp(left.createdAt),
-        ),
-    );
-  })();
-  const splitPickerAvailableThreadCount = sortedActiveThreads.length;
+  const sortedActiveThreadsForSplitPicker = splitPickerOpen ? getSortedActiveThreads() : [];
+  const splitPickerAvailableThreadCount = splitPickerOpen
+    ? sortedActiveThreadsForSplitPicker.length
+    : activeSidebarThreadCount;
   const splitPickerThreadOptions = (() => {
     if (!splitPickerOpen) {
       return [];
     }
-    return sortedActiveThreads.map((thread) => ({
+    return sortedActiveThreadsForSplitPicker.map((thread) => ({
       activityAt: thread.latestUserMessageAt ?? thread.updatedAt ?? thread.createdAt,
       connectionUrl: resolveConnectionForThreadId(thread.id) ?? null,
       id: thread.id,
@@ -5540,7 +5550,7 @@ function useSidebarComponent() {
     sortedProjects,
     visibleProjectThreadsByProjectId,
     remoteSidebarHosts,
-    sortedActiveThreads,
+    getSortedActiveThreads,
     projectById,
     activeWsUrl,
     localDeviceConnectionUrl,
@@ -5592,7 +5602,7 @@ function useSidebarComponent() {
   });
   const { visibleSidebarThreadIds, prByThreadId } = useSidebarThreadPrStatus({
     renderedProjects: renderedSidebarThreadGroups,
-    sidebarThreadsById,
+    readThreadSummary: readSidebarThreadSummary,
     projectCwdById,
   });
   const threadJumpCommandById = (() => {

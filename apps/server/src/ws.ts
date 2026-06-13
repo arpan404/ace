@@ -1017,8 +1017,13 @@ const WsRpcLayer = WsRpcGroup.toLayer(
       [WS_METHODS.subscribeOrchestrationDomainEvents]: (input) =>
         Stream.unwrap(
           Effect.gen(function* () {
-            const snapshot = yield* orchestrationEngine.getReadModel();
-            const fromSequenceExclusive = snapshot.snapshotSequence;
+            const fromSequenceExclusive =
+              input.fromSequenceExclusive !== undefined
+                ? clamp(input.fromSequenceExclusive, {
+                    maximum: Number.MAX_SAFE_INTEGER,
+                    minimum: 0,
+                  })
+                : (yield* orchestrationEngine.getReadModel()).snapshotSequence;
             const replayEvents: Array<OrchestrationEvent> = yield* Stream.runCollect(
               orchestrationEngine.readEvents(fromSequenceExclusive),
             ).pipe(

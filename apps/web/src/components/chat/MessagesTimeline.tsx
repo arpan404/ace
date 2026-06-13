@@ -1216,7 +1216,7 @@ export function MessagesTimeline({
     });
   }, [activeThreadId, globalRenderedWindowState, timelineCacheScope]);
   useEffect(() => {
-    if (!activeThreadId || !renderedWindowState || rows.length === 0) {
+    if (!activeThreadId || activeTurnInProgress || !renderedWindowState || rows.length === 0) {
       return;
     }
     const scrollContainer = getScrollContainerEffect();
@@ -1244,7 +1244,7 @@ export function MessagesTimeline({
     void prefetchThreadTimelineRows({
       threadId: activeThreadId as ThreadId,
     }).catch(() => undefined);
-  }, [activeThreadId, renderedWindowState, rows.length]);
+  }, [activeThreadId, activeTurnInProgress, renderedWindowState, rows.length]);
   useEffect(() => {
     if (!targetMessageNavigation) return;
     const targetMessageId = targetMessageNavigation.messageId;

@@ -13,6 +13,7 @@ import { getThreadById, getThreadByIdFromState, useStore } from "../store";
 import { hydrateThreadFromCache } from "../lib/threadHydrationCache";
 import {
   ACTIVE_THREAD_HYDRATION_FALLBACK_DELAY_MS,
+  isThreadLiveWorkActive,
   shouldHydrateActiveThreadFromReadModelFallback,
 } from "../lib/chat/activeThreadHydration";
 import { SidebarInset } from "~/components/ui/sidebar";
@@ -212,6 +213,9 @@ function ChatThreadRouteView() {
     }
     const sourceThread = lineageSourceThread;
     if (sourceThread && sourceThread.historyLoaded !== false) {
+      return;
+    }
+    if (isThreadLiveWorkActive(sourceThread)) {
       return;
     }
     let canceled = false;

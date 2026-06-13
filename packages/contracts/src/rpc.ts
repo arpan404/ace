@@ -2,6 +2,7 @@ import { Schema } from "effect";
 import * as Rpc from "effect/unstable/rpc/Rpc";
 import * as RpcGroup from "effect/unstable/rpc/RpcGroup";
 
+import { NonNegativeInt } from "./baseSchemas";
 import {
   OpenError,
   OpenInEditorInput,
@@ -237,6 +238,12 @@ export const WS_METHODS = {
 const WsClientStreamIdentity = Schema.Struct({
   clientSessionId: Schema.optional(Schema.String),
   connectionId: Schema.optional(Schema.String),
+});
+
+const WsOrchestrationDomainEventsSubscribeInput = Schema.Struct({
+  clientSessionId: Schema.optional(Schema.String),
+  connectionId: Schema.optional(Schema.String),
+  fromSequenceExclusive: Schema.optional(NonNegativeInt),
 });
 
 const WsClientDisconnectInput = Schema.Struct({
@@ -630,7 +637,7 @@ export const WsOrchestrationReplayEventsRpc = Rpc.make(ORCHESTRATION_WS_METHODS.
 export const WsSubscribeOrchestrationDomainEventsRpc = Rpc.make(
   WS_METHODS.subscribeOrchestrationDomainEvents,
   {
-    payload: WsClientStreamIdentity,
+    payload: WsOrchestrationDomainEventsSubscribeInput,
     success: OrchestrationEvent,
     stream: true,
   },

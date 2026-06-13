@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { shouldHydrateActiveThreadFromReadModelFallback } from "./activeThreadHydration";
+import {
+  isThreadLiveWorkActive,
+  shouldHydrateActiveThreadFromReadModelFallback,
+} from "./activeThreadHydration";
 import type { Thread } from "../../types";
 
 function thread(partial: Pick<Thread, "historyLoaded" | "latestTurn" | "session">) {
@@ -33,31 +36,29 @@ describe("active thread hydration", () => {
   });
 
   it("skips threads with a running latest turn", () => {
-    expect(
-      shouldHydrateActiveThreadFromReadModelFallback(
-        thread({
-          historyLoaded: false,
-          latestTurn: {
-            state: "running",
-          } as Thread["latestTurn"],
-          session: null,
-        }),
-      ),
-    ).toBe(false);
+    const runningThread = thread({
+      historyLoaded: false,
+      latestTurn: {
+        state: "running",
+      } as Thread["latestTurn"],
+      session: null,
+    });
+
+    expect(isThreadLiveWorkActive(runningThread)).toBe(true);
+    expect(shouldHydrateActiveThreadFromReadModelFallback(runningThread)).toBe(false);
   });
 
   it("skips threads with a running provider session", () => {
-    expect(
-      shouldHydrateActiveThreadFromReadModelFallback(
-        thread({
-          historyLoaded: false,
-          latestTurn: null,
-          session: {
-            status: "running",
-            orchestrationStatus: "running",
-          } as Thread["session"],
-        }),
-      ),
-    ).toBe(false);
+    const runningThread = thread({
+      historyLoaded: false,
+      latestTurn: null,
+      session: {
+        status: "running",
+        orchestrationStatus: "running",
+      } as Thread["session"],
+    });
+
+    expect(isThreadLiveWorkActive(runningThread)).toBe(true);
+    expect(shouldHydrateActiveThreadFromReadModelFallback(runningThread)).toBe(false);
   });
 });

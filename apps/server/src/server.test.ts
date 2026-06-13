@@ -2502,6 +2502,61 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
   );
 
   it.effect(
+    "routes websocket rpc subscribeOrchestrationDomainEvents from caller replay cursor",
+    () =>
+      Effect.gen(function* () {
+        const now = new Date().toISOString();
+        const threadId = ThreadId.makeUnsafe("thread-1");
+        let replayCursor: number | null = null;
+        const makeEvent = (sequence: number): OrchestrationEvent =>
+          ({
+            sequence,
+            eventId: `event-${sequence}`,
+            aggregateKind: "thread",
+            aggregateId: threadId,
+            occurredAt: now,
+            commandId: null,
+            causationEventId: null,
+            correlationId: null,
+            metadata: {},
+            type: "thread.reverted",
+            payload: {
+              threadId,
+              turnCount: sequence,
+            },
+          }) as OrchestrationEvent;
+
+        yield* buildAppUnderTest({
+          layers: {
+            orchestrationEngine: {
+              getReadModel: () => Effect.die("snapshot cursor should not be used"),
+              readEvents: (fromSequenceExclusive) => {
+                replayCursor = fromSequenceExclusive;
+                return Stream.make(makeEvent(3));
+              },
+              streamDomainEvents: Stream.make(makeEvent(4)),
+            },
+          },
+        });
+
+        const wsUrl = yield* getWsServerUrl("/ws");
+        const events = yield* Effect.scoped(
+          withWsRpcClient(wsUrl, (client) =>
+            client[WS_METHODS.subscribeOrchestrationDomainEvents]({
+              fromSequenceExclusive: 2,
+            }).pipe(Stream.take(2), Stream.runCollect),
+          ),
+        );
+
+        assert.equal(replayCursor, 2);
+        assert.deepEqual(
+          Array.from(events).map((event) => event.sequence),
+          [3, 4],
+        );
+      }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect(
     "routes websocket rpc orchestration.getSnapshot without targeted hydration side effects",
     () =>
       Effect.gen(function* () {
