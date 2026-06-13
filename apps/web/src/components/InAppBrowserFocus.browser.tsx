@@ -37,7 +37,7 @@ function queryAddressInput(): HTMLInputElement | null {
   return document.querySelector<HTMLInputElement>('input[aria-label="Browser address bar"]');
 }
 
-function BrowserFocusHarnessPanel(props: { mode: InAppBrowserMode }) {
+export function BrowserFocusHarnessPanel(props: { mode: InAppBrowserMode }) {
   const { addressInputRef, browserSession, draftUrl, openNewTab, openUrl } = useInAppBrowserState({
     mode: props.mode,
     open: true,
@@ -61,7 +61,7 @@ function BrowserFocusHarnessPanel(props: { mode: InAppBrowserMode }) {
   );
 }
 
-function BrowserFocusHarness() {
+export function BrowserFocusHarness() {
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<InAppBrowserMode>("full");
 
@@ -145,7 +145,7 @@ describe("InAppBrowser address bar focus", () => {
   });
 });
 
-function BrowserScopeHarnessPanel(props: { scopeId: string }) {
+export function BrowserScopeHarnessPanel(props: { scopeId: string }) {
   const state = useInAppBrowserState({ mode: "full", open: true, scopeId: props.scopeId });
 
   return (
@@ -158,7 +158,7 @@ function BrowserScopeHarnessPanel(props: { scopeId: string }) {
   );
 }
 
-function BrowserScopeHarness() {
+export function BrowserScopeHarness() {
   const [scopeId, setScopeId] = useState("thread-a");
 
   return (

@@ -1,4 +1,3 @@
-/* eslint-disable react-doctor/async-parallel -- UI interaction timing assertions intentionally run sequentially in browser tests. */
 import "../../index.css";
 
 import {
@@ -145,7 +144,7 @@ const TEST_PROVIDERS: ReadonlyArray<ServerProvider> = [
   },
 ];
 
-function ClaudeTraitsPickerHarness(props: {
+export function ClaudeTraitsPickerHarness(props: {
   model: string;
   fallbackModelSelection: ModelSelection | null;
   triggerVariant?: "ghost" | "outline";
@@ -451,7 +450,7 @@ async function mountCodexPicker(props: { model?: string; options?: CodexModelOpt
   };
 }
 
-function CursorTraitsPickerHarness(props: {
+export function CursorTraitsPickerHarness(props: {
   model: string;
   fallbackModelSelection: ModelSelection | null;
 }) {
