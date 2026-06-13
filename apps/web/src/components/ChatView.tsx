@@ -3493,8 +3493,12 @@ function useChatViewComponent({
     browserActionShortcutLabelOptions,
   );
   const browserControllerRef = useRef<InAppBrowserController | null>(null);
-  const browserControllerByThreadRef = useRef(new Map<string, InAppBrowserController>());
-  const browserRuntimeStateByThreadRef = useRef(new Map<string, { devToolsOpen: boolean }>());
+  const [browserControllerByThread] = useState(() => new Map<string, InAppBrowserController>());
+  const browserControllerByThreadRef = useRef(browserControllerByThread);
+  const [browserRuntimeStateByThread] = useState(
+    () => new Map<string, { devToolsOpen: boolean }>(),
+  );
+  const browserRuntimeStateByThreadRef = useRef(browserRuntimeStateByThread);
   const lastBrowserPointerClearedTurnRef = useRef<string | null>(null);
   const activeBrowserThreadIdRef = useRef<string | null>(null);
   const pendingBrowserOpenUrlRef = useRef<string | null>(null);
@@ -3716,7 +3720,7 @@ function useChatViewComponent({
       activeController.openUrl(pendingUrl);
     }
   }, [primaryBrowserInstanceId, rightSidePanelInteractive, setBrowserDevToolsOpen]);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!rightSidePanelInteractive) {
       return;
     }
@@ -3805,7 +3809,7 @@ function useChatViewComponent({
       );
     });
   }, [activeThreadId, primaryBrowserInstanceId, rightSidePanelInteractive]);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const previousThreadIds = previousMountedBrowserInstancesRef.current.map(
       (entry) => entry.instanceId,
     );
