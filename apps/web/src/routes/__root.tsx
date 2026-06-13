@@ -6,7 +6,7 @@ import {
   useNavigate,
   useLocation,
 } from "@tanstack/react-router";
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { QueryClient, useQueryClient } from "@tanstack/react-query";
 import { Throttler } from "@tanstack/react-pacer";
 import { CheckIcon, ChevronDownIcon, CopyIcon, RefreshCwIcon, RotateCcwIcon } from "lucide-react";
@@ -507,16 +507,14 @@ function DetachedEditorWindowContent(props: {
       ? props.editorStateInstanceId.trim() || undefined
       : undefined;
   const editorStateInstanceId = inputEditorStateInstanceId ?? fallbackEditorStateInstanceId;
-  const editorStateScopeId = useMemo(() => {
-    if (!threadId || !thread || !project) {
-      return null;
-    }
-    return resolveEditorInstanceStateScopeId({
-      gitCwd: thread.worktreePath ?? project.cwd,
-      instanceId: editorStateInstanceId,
-      threadId,
-    });
-  }, [editorStateInstanceId, project, thread, threadId]);
+  const editorStateScopeId =
+    threadId && thread && project
+      ? resolveEditorInstanceStateScopeId({
+          gitCwd: thread.worktreePath ?? project.cwd,
+          instanceId: editorStateInstanceId,
+          threadId,
+        })
+      : null;
   const moveEditorBackToAce = async () => {
     const returnDetachedWindow = window.desktopBridge?.returnDetachedWindow;
     if (!returnDetachedWindow || !props.threadId) {

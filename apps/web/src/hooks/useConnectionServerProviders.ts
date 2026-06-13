@@ -5,7 +5,7 @@ import {
   type ServerProvider,
   type ServerSettings,
 } from "@ace/contracts";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { reportBackgroundError } from "../lib/async";
 import { resolveLocalConnectionUrl } from "../lib/connectionRouting";
@@ -78,10 +78,7 @@ export function useConnectionServerConfig(
 ): ServerConfig | null {
   const serverConfig = useServerConfig();
   const localConnectionUrl = resolveLocalConnectionUrl();
-  const normalizedConnectionUrl = useMemo(
-    () => normalizeConnectionUrl(connectionUrl) ?? localConnectionUrl,
-    [connectionUrl, localConnectionUrl],
-  );
+  const normalizedConnectionUrl = normalizeConnectionUrl(connectionUrl) ?? localConnectionUrl;
   const isLocalConnection = normalizedConnectionUrl === localConnectionUrl;
   const [remoteConfigState, setRemoteConfigState] = useState<{
     connectionUrl: string;

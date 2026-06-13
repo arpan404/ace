@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useMemo, useState, type ImgHTMLAttributes } from "react";
+import { useState, type ImgHTMLAttributes } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeRaw from "rehype-raw";
 import remarkBreaks from "remark-breaks";
@@ -86,10 +86,7 @@ function buildIssueImageSource(
 
 function IssueImage(props: ImgHTMLAttributes<HTMLImageElement> & { cwd?: string | null }) {
   const { cwd, ...imgProps } = props;
-  const { primarySrc, fallbackSrc } = useMemo(
-    () => buildIssueImageSource(imgProps.src, cwd),
-    [cwd, imgProps.src],
-  );
+  const { primarySrc, fallbackSrc } = buildIssueImageSource(imgProps.src, cwd);
 
   return (
     <IssueImageSource
@@ -205,4 +202,4 @@ function IssueMarkdownInner({ text, className, cwd }: IssueMarkdownProps) {
   );
 }
 
-export const IssueMarkdown = memo(IssueMarkdownInner);
+export const IssueMarkdown = IssueMarkdownInner;

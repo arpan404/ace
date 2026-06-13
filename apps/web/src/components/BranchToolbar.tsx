@@ -9,7 +9,7 @@ import {
   LaptopIcon,
   MonitorIcon,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { runAsyncTask } from "../lib/async";
 import { cn, newCommandId } from "../lib/utils";
@@ -296,14 +296,12 @@ export default function BranchToolbar({
   const canCreateNewWorktree =
     !activeWorktreePath && (!serverThread || serverThread.messages.length === 0);
   const connectedRemoteEnvironments = useConnectedRemoteEnvironments();
-  const normalizedConnectionUrl = useMemo(() => {
-    if (!connectionUrl) {
-      return null;
-    }
-    const localConnectionUrl = normalizeWsUrl(resolveLocalDeviceWsUrl());
-    const nextConnectionUrl = normalizeWsUrl(connectionUrl);
-    return nextConnectionUrl === localConnectionUrl ? null : nextConnectionUrl;
-  }, [connectionUrl]);
+  const localConnectionUrl = normalizeWsUrl(resolveLocalDeviceWsUrl());
+  const nextConnectionUrl = connectionUrl ? normalizeWsUrl(connectionUrl) : null;
+  const normalizedConnectionUrl =
+    nextConnectionUrl === null || nextConnectionUrl === localConnectionUrl
+      ? null
+      : nextConnectionUrl;
 
   const setThreadBranch = useCallback(
     (branch: string | null, worktreePath: string | null) => {

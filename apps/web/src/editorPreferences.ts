@@ -1,6 +1,5 @@
 import { EDITORS, EditorId, NativeApi } from "@ace/contracts";
 import { getLocalStorageItem, setLocalStorageItem, useLocalStorage } from "./hooks/useLocalStorage";
-import { useMemo } from "react";
 
 const LAST_EDITOR_KEY = "ace:last-editor:v1";
 const LEGACY_LAST_EDITOR_KEY = "ace:last-editor";
@@ -24,10 +23,10 @@ function usePreferredEditor(availableEditors: ReadonlyArray<EditorId>) {
     EditorId,
   );
 
-  const effectiveEditor = useMemo(() => {
-    if (lastEditor && availableEditors.includes(lastEditor)) return lastEditor;
-    return EDITORS.find((editor) => availableEditors.includes(editor.id))?.id ?? null;
-  }, [lastEditor, availableEditors]);
+  const effectiveEditor =
+    lastEditor && availableEditors.includes(lastEditor)
+      ? lastEditor
+      : (EDITORS.find((editor) => availableEditors.includes(editor.id))?.id ?? null);
 
   return [effectiveEditor, setLastEditor] as const;
 }

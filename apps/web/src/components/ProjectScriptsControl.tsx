@@ -11,7 +11,7 @@ import {
   WrenchIcon,
   XIcon,
 } from "lucide-react";
-import React, { type FormEvent, type KeyboardEvent, useCallback, useMemo, useReducer } from "react";
+import React, { type FormEvent, type KeyboardEvent, useCallback, useReducer } from "react";
 
 import {
   keybindingValueForCommand,
@@ -511,13 +511,10 @@ export default function ProjectScriptsControl({
     deleteConfirmOpen,
   } = dialogState;
 
-  const primaryScript = useMemo(() => {
-    if (preferredScriptId) {
-      const preferred = scripts.find((script) => script.id === preferredScriptId);
-      if (preferred) return preferred;
-    }
-    return primaryProjectScript(scripts);
-  }, [preferredScriptId, scripts]);
+  const preferredScript = preferredScriptId
+    ? scripts.find((script) => script.id === preferredScriptId)
+    : undefined;
+  const primaryScript = preferredScript ?? primaryProjectScript(scripts);
   const isEditing = editingScriptId !== null;
 
   const captureKeybinding = (event: KeyboardEvent<HTMLInputElement>) => {

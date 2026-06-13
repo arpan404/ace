@@ -65,6 +65,23 @@ function getProjectThreadActionEntries(input: {
   return getThreadActionEntries(input).filter((thread) => thread.projectId === input.projectId);
 }
 
+function clearDraftsForDeletedWorktree(rawWorktreePath: string) {
+  const worktreePath = normalizeWorktreePath(rawWorktreePath);
+  if (!worktreePath) return;
+
+  const draftStore = useComposerDraftStore.getState();
+  const draftThreadIds = Object.entries(draftStore.draftThreadsByThreadId).flatMap(
+    ([threadId, draftThread]) =>
+      normalizeWorktreePath(draftThread.worktreePath) === worktreePath
+        ? [ThreadId.makeUnsafe(threadId)]
+        : [],
+  );
+
+  for (const draftThreadId of draftThreadIds) {
+    draftStore.clearDraftThread(draftThreadId);
+  }
+}
+
 export function useThreadActions() {
   const sidebarThreadSortOrder = useSetting("sidebarThreadSortOrder");
   const confirmThreadDelete = useSetting("confirmThreadDelete");
@@ -81,23 +98,6 @@ export function useThreadActions() {
   const { handleNewThread } = useHandleNewThread();
   const queryClient = useQueryClient();
   const removeWorktreeMutation = useMutation(gitRemoveWorktreeMutationOptions({ queryClient }));
-  const clearDraftsForDeletedWorktree = useCallback((rawWorktreePath: string) => {
-    const worktreePath = normalizeWorktreePath(rawWorktreePath);
-    if (!worktreePath) return;
-
-    const draftStore = useComposerDraftStore.getState();
-    const draftThreadIds = Object.entries(draftStore.draftThreadsByThreadId).flatMap(
-      ([threadId, draftThread]) =>
-        normalizeWorktreePath(draftThread.worktreePath) === worktreePath
-          ? [ThreadId.makeUnsafe(threadId)]
-          : [],
-    );
-
-    for (const draftThreadId of draftThreadIds) {
-      draftStore.clearDraftThread(draftThreadId);
-    }
-  }, []);
-
   const archiveThread = async (threadId: ThreadId) => {
     const api = readNativeApi();
     if (!api) return;
@@ -251,7 +251,6 @@ export function useThreadActions() {
     [
       clearComposerDraftForThread,
       clearProjectDraftThreadById,
-      clearDraftsForDeletedWorktree,
       clearTerminalState,
       sidebarThreadSortOrder,
       navigate,
