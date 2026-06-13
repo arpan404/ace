@@ -2408,7 +2408,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     );
   }, [activeTabIsInternal, designerState.active, setDesignerState]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     onControllerChange?.(browserController);
     return () => {
       onControllerChange?.(null);

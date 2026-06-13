@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import {
   useEffect,
+  useLayoutEffect,
   useReducer,
   useRef,
   useState,
@@ -706,7 +707,7 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
     refetchOnWindowFocus: false,
   });
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (isPreviewMode || !pane.activeFilePath || activeFileData?.contents === undefined) {
       return;
     }
