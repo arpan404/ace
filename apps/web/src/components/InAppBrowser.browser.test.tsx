@@ -5,10 +5,8 @@ import { render } from "vitest-browser-react";
 import { useState } from "react";
 
 import type { BrowserTabState } from "~/lib/browser/session";
-import {
-  BrowserTabWebview,
-  buildBrowserElementCaptureScript,
-} from "./browser/BrowserWebviewSurface";
+import { BrowserTabWebview } from "./browser/BrowserWebviewSurface";
+import { buildBrowserElementCaptureScript } from "./browser/browserElementCaptureScript";
 
 const originalElementFromPoint = document.elementFromPoint.bind(document);
 const originalElementsFromPoint = document.elementsFromPoint.bind(document);

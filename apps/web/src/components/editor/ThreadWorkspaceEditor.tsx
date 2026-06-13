@@ -142,10 +142,8 @@ const WORKSPACE_SEARCH_RESULT_LIMIT = 400;
 const WORKSPACE_CODE_SEARCH_LOCAL_CANDIDATE_LIMIT = 32;
 const WORKSPACE_CODE_SEARCH_REMOTE_LIMIT = 48;
 const WORKSPACE_CODE_SEARCH_MAX_CANDIDATE_FILES = 36;
-const WORKSPACE_CODE_SEARCH_READ_BATCH_SIZE = 8;
 const WORKSPACE_CODE_SEARCH_PATH_RESULT_LIMIT = 24;
 const WORKSPACE_CODE_SEARCH_DEBOUNCE_MS = 250;
-const WORKSPACE_OPEN_FILE_PREFETCH_BATCH_SIZE = 4;
 const WORKSPACE_EXPLORER_FILE_PREFETCH_LIMIT = 24;
 const WORKSPACE_FILE_CONFLICT_DIFF_HEIGHT = 420;
 const WORKSPACE_CODE_SEARCH_RECENTS_STORAGE_KEY = "ace:workspace-code-search-recents:v1";
@@ -1730,47 +1728,37 @@ function useThreadWorkspaceEditorComponent(inputProps: {
         0,
         WORKSPACE_CODE_SEARCH_MAX_CANDIDATE_FILES,
       );
-      const results: WorkspaceCodeSearchResult[] = [];
-      for (
-        let startIndex = 0;
-        startIndex < candidateEntries.length;
-        startIndex += WORKSPACE_CODE_SEARCH_READ_BATCH_SIZE
-      ) {
-        signal.throwIfAborted();
-        const batchEntries = candidateEntries.slice(
-          startIndex,
-          startIndex + WORKSPACE_CODE_SEARCH_READ_BATCH_SIZE,
-        );
-        const batchFiles = await Promise.all(
-          batchEntries.map((entry) =>
-            api.projects
-              .readFile(
-                withRpcRouteConnection(
-                  {
-                    cwd: props.gitCwd!,
-                    relativePath: entry.path,
-                  },
-                  inputProps.connectionUrl,
-                ),
-              )
-              .then((file) => ({ entry, file }))
-              .catch(() => null),
-          ),
-        );
-        signal.throwIfAborted();
+      signal.throwIfAborted();
+      const candidateFiles = await Promise.all(
+        candidateEntries.map((entry) =>
+          api.projects
+            .readFile(
+              withRpcRouteConnection(
+                {
+                  cwd: props.gitCwd!,
+                  relativePath: entry.path,
+                },
+                inputProps.connectionUrl,
+              ),
+            )
+            .then((file) => ({ entry, file }))
+            .catch(() => null),
+        ),
+      );
+      signal.throwIfAborted();
 
-        for (const batchFile of batchFiles) {
-          if (!batchFile) {
-            continue;
-          }
-          const result = createWorkspaceCodeSearchResult({
-            contents: batchFile.file.contents,
-            entry: batchFile.entry,
-            query: debouncedCodeSearchQuery,
-          });
-          if (result) {
-            results.push(result);
-          }
+      const results: WorkspaceCodeSearchResult[] = [];
+      for (const candidateFile of candidateFiles) {
+        if (!candidateFile) {
+          continue;
+        }
+        const result = createWorkspaceCodeSearchResult({
+          contents: candidateFile.file.contents,
+          entry: candidateFile.entry,
+          query: debouncedCodeSearchQuery,
+        });
+        if (result) {
+          results.push(result);
         }
       }
 
@@ -2146,20 +2134,12 @@ function useThreadWorkspaceEditorComponent(inputProps: {
 
     let cancelled = false;
     const prefetchOpenFiles = async () => {
-      for (
-        let startIndex = 0;
-        startIndex < prefetchFilePaths.length;
-        startIndex += WORKSPACE_OPEN_FILE_PREFETCH_BATCH_SIZE
-      ) {
-        if (cancelled) {
-          return;
-        }
-        const batch = prefetchFilePaths.slice(
-          startIndex,
-          startIndex + WORKSPACE_OPEN_FILE_PREFETCH_BATCH_SIZE,
-        );
-        await Promise.all(batch.map((relativePath) => prefetchWorkspaceEditorFile(relativePath)));
+      if (cancelled) {
+        return;
       }
+      await Promise.all(
+        prefetchFilePaths.map((relativePath) => prefetchWorkspaceEditorFile(relativePath)),
+      );
     };
 
     void prefetchOpenFiles();
