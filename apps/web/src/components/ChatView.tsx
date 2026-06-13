@@ -5184,7 +5184,7 @@ function useChatViewComponent({
       onOpenRightSidePanelEditor(request.editorStateInstanceId);
     },
   );
-  useEffect(() => {
+  useLayoutEffect(() => {
     const pendingRequest = consumePendingDetachedWindowReturnRequest(threadId);
     if (pendingRequest) {
       handleDetachedWindowReturnRequest(pendingRequest);
