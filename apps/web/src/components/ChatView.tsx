@@ -6275,7 +6275,6 @@ function useChatViewComponent({
       return;
     }
 
-    handleBrowserLaunchRequest();
     return subscribeToBrowserLaunchRequests(handleBrowserLaunchRequest);
   }, [handleBrowserLaunchRequest, ownsGlobalSideEffects, rightSidePanelInteractive]);
 

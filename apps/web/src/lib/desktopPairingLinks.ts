@@ -30,6 +30,9 @@ export function subscribeToDesktopPairingLinks(listener: () => void): () => void
   };
 
   window.addEventListener(DESKTOP_PAIRING_LINK_EVENT, handleRequest);
+  if (pendingDesktopPairingLinks.length > 0) {
+    window.queueMicrotask(handleRequest);
+  }
   return () => {
     window.removeEventListener(DESKTOP_PAIRING_LINK_EVENT, handleRequest);
   };

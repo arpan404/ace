@@ -61,6 +61,7 @@ import {
 } from "~/editorStateStore";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
 import { useSetting, useUpdateSettings } from "~/hooks/useSettings";
+import { useStableCallback } from "~/hooks/useStableCallback";
 import { useTheme } from "~/hooks/useTheme";
 import { isTerminalFocused } from "~/lib/terminalFocus";
 import {
@@ -1042,7 +1043,7 @@ const FileTreeRow = memo(function FileTreeRow(props: {
 
 const InlineExplorerRow = memo(function InlineExplorerRow(props: {
   depth: number;
-  inputRef: React.RefObject<HTMLInputElement | null>;
+  inputRef: (element: HTMLInputElement | null) => void;
   onCancel: () => void;
   onChangeValue: (value: string) => void;
   onCommit: () => void;
@@ -1372,7 +1373,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
   const entryDialogInputRef = useRef<HTMLInputElement | null>(null);
   const editorGridRef = useRef<HTMLDivElement | null>(null);
   const rowGroupRefs = useRef(new Map<string, HTMLDivElement | null>());
-  const [pendingExplorerRevealPath, setPendingExplorerRevealPath] = useState<string | null>(null);
+  const pendingExplorerRevealPathRef = useRef<string | null>(null);
   const closeFile = useEditorStateStore((state) => state.closeFile);
   const closeFilesToRight = useEditorStateStore((state) => state.closeFilesToRight);
   const closeOtherFiles = useEditorStateStore((state) => state.closeOtherFiles);
@@ -1640,7 +1641,10 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     [editorSettings],
   );
   const diffEditorOptions = useMemo(() => createWorkspaceDiffEditorOptions(), []);
-  const [fileEventsConnected, setFileEventsConnected] = useState(false);
+  const fileEventsConnected = Boolean(api && props.gitCwd);
+  const setEntryDialogInputElement = useStableCallback((element: HTMLInputElement | null) => {
+    entryDialogInputRef.current = element;
+  });
 
   useEffect(() => {
     const previous = previousWorkspaceBufferStateRef.current;
@@ -1944,16 +1948,6 @@ function useThreadWorkspaceEditorComponent(inputProps: {
   }, [props.threadId, syncTree, treeEntries]);
 
   useEffect(() => {
-    if (pendingExplorerRevealPath) {
-      return;
-    }
-    if (selectedEntryPath && entryByPath.has(selectedEntryPath)) {
-      return;
-    }
-    setSelectedEntryPath(activePane?.activeFilePath ?? null);
-  }, [activePane?.activeFilePath, entryByPath, pendingExplorerRevealPath, selectedEntryPath]);
-
-  useEffect(() => {
     if (!inlineEntryFocusKey) {
       return;
     }
@@ -2210,7 +2204,6 @@ function useThreadWorkspaceEditorComponent(inputProps: {
 
   useEffect(() => {
     if (!api || !props.gitCwd) {
-      setFileEventsConnected(false);
       return;
     }
     const unsubscribe = api.projects.onFileEvents(
@@ -2249,9 +2242,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
         }
       },
     );
-    setFileEventsConnected(true);
     return () => {
-      setFileEventsConnected(false);
       unsubscribe();
     };
   }, [api, inputProps.connectionUrl, props.gitCwd, queryClient]);
@@ -3249,6 +3240,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
   );
 
   useEffect(() => {
+    const pendingExplorerRevealPath = pendingExplorerRevealPathRef.current;
     if (!pendingExplorerRevealPath || explorerPending) {
       return;
     }
@@ -3260,14 +3252,8 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     }
     setSelectedEntryPath(pendingExplorerRevealPath);
     focusExplorerEntry(pendingExplorerRevealPath, { align: "center" });
-    setPendingExplorerRevealPath(null);
-  }, [
-    explorerPending,
-    explorerRows,
-    focusExplorerEntry,
-    pendingExplorerRevealPath,
-    setSelectedEntryPath,
-  ]);
+    pendingExplorerRevealPathRef.current = null;
+  }, [explorerPending, explorerRows, focusExplorerEntry, setSelectedEntryPath]);
 
   const startInlineEntry = useCallback(
     (state: ExplorerInlineEntryState) => {
@@ -3305,7 +3291,11 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     setInlineEntryState((current) => (current ? { ...current, value } : current));
   }, []);
 
-  const focusedExplorerEntryPath = selectedEntryPath ?? activePane?.activeFilePath ?? null;
+  const visibleSelectedEntryPath =
+    selectedEntryPath && entryByPath.has(selectedEntryPath)
+      ? selectedEntryPath
+      : (activePane?.activeFilePath ?? null);
+  const focusedExplorerEntryPath = visibleSelectedEntryPath;
   const focusedExplorerEntry = focusedExplorerEntryPath
     ? (entryByPath.get(focusedExplorerEntryPath) ?? null)
     : null;
@@ -3341,7 +3331,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
         ...(result.kind === "directory" ? [result.relativePath] : []),
       ]);
       setSelectedEntryPath(result.relativePath);
-      setPendingExplorerRevealPath(result.relativePath);
+      pendingExplorerRevealPathRef.current = result.relativePath;
       setTreeSearch("");
       if (result.kind === "file") {
         markFileSaved(props.threadId, result.relativePath, "");
@@ -3395,7 +3385,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
         ...(variables.kind === "directory" ? [result.relativePath] : []),
       ]);
       setSelectedEntryPath(result.relativePath);
-      setPendingExplorerRevealPath(result.relativePath);
+      pendingExplorerRevealPathRef.current = result.relativePath;
       setTreeSearch("");
       clearReadFileCache(result.previousRelativePath);
       void queryClient.invalidateQueries({
@@ -4345,12 +4335,12 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                                   resolvedTheme={resolvedTheme}
                                   row={row.row}
                                   searchMode={searchMode}
-                                  selectedEntryPath={selectedEntryPath}
+                                  selectedEntryPath={visibleSelectedEntryPath}
                                 />
                               ) : (
                                 <InlineExplorerRow
                                   depth={row.depth}
-                                  inputRef={entryDialogInputRef}
+                                  inputRef={setEntryDialogInputElement}
                                   onCancel={cancelInlineEntry}
                                   onChangeValue={handleInlineExplorerValueChange}
                                   onCommit={submitInlineEntry}

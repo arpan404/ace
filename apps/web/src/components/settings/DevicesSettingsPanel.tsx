@@ -24,6 +24,7 @@ import { validateRelayWebSocketUrl } from "@ace/shared/relay";
 import { isElectron } from "../../env";
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import { useSettings, useUpdateSettings } from "../../hooks/useSettings";
+import { useStableCallback } from "../../hooks/useStableCallback";
 import {
   subscribeToDesktopPairingLinks,
   takePendingDesktopPairingLink,
@@ -441,7 +442,6 @@ function useDevicesSettingsPanelComponent() {
     sessionState;
   const registeredRouteConnectionUrlsRef = useRef<Set<string>>(new Set());
   const importingHostRef = useRef(importingHost);
-  const pendingDesktopPairingCleanupRef = useRef<(() => void) | null>(null);
   const localDeviceConnection = useMemo(() => splitWsUrlAuthToken(resolveLocalDeviceWsUrl()), []);
   useEffect(() => {
     importingHostRef.current = importingHost;
@@ -818,7 +818,7 @@ function useDevicesSettingsPanelComponent() {
     [desktopMode, upsertHost],
   );
 
-  const consumePendingDesktopPairingLink = useCallback(() => {
+  const consumePendingDesktopPairingLink = useStableCallback((onSettled?: () => void) => {
     if (!desktopMode || importingHostRef.current) {
       return;
     }
@@ -852,7 +852,7 @@ function useDevicesSettingsPanelComponent() {
         });
       })
       .finally(() => {
-        pendingDesktopPairingCleanupRef.current = null;
+        onSettled?.();
         if (active) {
           importingHostRef.current = false;
           dispatchPanelState({ type: "set-importing-host", importingHost: false });
@@ -861,22 +861,26 @@ function useDevicesSettingsPanelComponent() {
     return () => {
       active = false;
     };
-  }, [desktopMode, importRemoteHostConnection]);
+  });
 
   useEffect(() => {
     if (!desktopMode) {
       return;
     }
-    pendingDesktopPairingCleanupRef.current = consumePendingDesktopPairingLink() ?? null;
+    let pendingDesktopPairingCleanup: (() => void) | null = null;
+    const clearPendingDesktopPairingCleanup = () => {
+      pendingDesktopPairingCleanup = null;
+    };
     const unsubscribe = subscribeToDesktopPairingLinks(() => {
-      if (pendingDesktopPairingCleanupRef.current !== null) {
+      if (pendingDesktopPairingCleanup !== null) {
         return;
       }
-      pendingDesktopPairingCleanupRef.current = consumePendingDesktopPairingLink() ?? null;
+      pendingDesktopPairingCleanup =
+        consumePendingDesktopPairingLink(clearPendingDesktopPairingCleanup) ?? null;
     });
     return () => {
-      pendingDesktopPairingCleanupRef.current?.();
-      pendingDesktopPairingCleanupRef.current = null;
+      pendingDesktopPairingCleanup?.();
+      pendingDesktopPairingCleanup = null;
       unsubscribe();
     };
   }, [consumePendingDesktopPairingLink, desktopMode]);
