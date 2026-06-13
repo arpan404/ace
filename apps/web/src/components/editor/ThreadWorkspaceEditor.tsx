@@ -1222,9 +1222,9 @@ function useThreadWorkspaceEditorComponent(inputProps: {
   const handleCodeSearchExampleClick = (query: string) => {
     dispatchUiState({ type: "set-code-search-query", codeSearchQuery: query });
   };
-  const setSidebarMode = useCallback((sidebarMode: WorkspaceSidebarMode) => {
+  const setSidebarMode = (sidebarMode: WorkspaceSidebarMode) => {
     dispatchUiState({ type: "set-sidebar-mode", sidebarMode });
-  }, []);
+  };
   const setSelectedReviewFilePath = useCallback((selectedReviewFilePath: string | null) => {
     dispatchUiState({ type: "set-selected-review-file-path", selectedReviewFilePath });
   }, []);
@@ -1370,21 +1370,14 @@ function useThreadWorkspaceEditorComponent(inputProps: {
   const removeCodeComment = useEditorStateStore((state) => state.removeCodeComment);
   const updateCodeCommentStatus = useEditorStateStore((state) => state.updateCodeCommentStatus);
   const hasRecentlyClosedFiles = useEditorStateStore(
-    useCallback(
-      (state) =>
-        (state.runtimeStateByThreadId[props.threadId]?.recentlyClosedEntries.length ?? 0) > 0,
-      [props.threadId],
-    ),
+    (state) =>
+      (state.runtimeStateByThreadId[props.threadId]?.recentlyClosedEntries.length ?? 0) > 0,
   );
-  const editorState = useEditorStateStore(
-    useCallback(
-      (state) =>
-        selectThreadEditorState(
-          state.threadStateByThreadId,
-          state.runtimeStateByThreadId,
-          props.threadId,
-        ),
-      [props.threadId],
+  const editorState = useEditorStateStore((state) =>
+    selectThreadEditorState(
+      state.threadStateByThreadId,
+      state.runtimeStateByThreadId,
+      props.threadId,
     ),
   );
   const {
@@ -2188,31 +2181,28 @@ function useThreadWorkspaceEditorComponent(inputProps: {
   const changedFiles = gitStatusData?.workingTree.files ?? [];
   const openCodeCommentCount = countOpenWorkspaceCodeComments(codeComments);
   const unresolvedCodeComments = codeComments.filter((comment) => comment.status !== "resolved");
-  const queueWorkspaceSelectionContext = useCallback(
-    (context: WorkspaceSelectionContext, prompt: string) => {
-      const id =
-        typeof crypto.randomUUID === "function"
-          ? crypto.randomUUID()
-          : `selection-${Date.now().toString(36)}`;
-      setQueuedWorkspaceContexts((current) => [
-        ...current,
-        {
-          context,
-          createdAt: new Date().toISOString(),
-          id,
-          prompt,
-        },
-      ]);
-      setSidebarMode("review");
-      setExplorerOpen(props.threadId, true);
-      toastManager.add({
-        description: `${context.relativePath}:${context.range.startLine + 1}-${context.range.endLine + 1}`,
-        title: "Editor context queued",
-        type: "success",
-      });
-    },
-    [props.threadId, setExplorerOpen, setSidebarMode],
-  );
+  const queueWorkspaceSelectionContext = (context: WorkspaceSelectionContext, prompt: string) => {
+    const id =
+      typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `selection-${Date.now().toString(36)}`;
+    setQueuedWorkspaceContexts((current) => [
+      ...current,
+      {
+        context,
+        createdAt: new Date().toISOString(),
+        id,
+        prompt,
+      },
+    ]);
+    setSidebarMode("review");
+    setExplorerOpen(props.threadId, true);
+    toastManager.add({
+      description: `${context.relativePath}:${context.range.startLine + 1}-${context.range.endLine + 1}`,
+      title: "Editor context queued",
+      type: "success",
+    });
+  };
   const queueWorkspaceFileContext = (relativePath: string, prompt: string) => {
     const cwd = props.gitCwd ?? props.lspCwd;
     if (!cwd) {
@@ -2377,6 +2367,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
       props.threadId,
       setActivePane,
       setSelectedReviewFilePath,
+      setSymbolNavigationTarget,
     ],
   );
   const handleOpenCodeSearchResult = useCallback(
@@ -3210,29 +3201,26 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     },
   });
 
-  const handleDeleteEntry = useCallback(
-    async (entry: ProjectEntry) => {
-      if (!api) {
-        return;
-      }
-      const confirmed = await api.dialogs.confirm(
-        [
-          `Delete ${entry.kind === "directory" ? "folder" : "file"} "${basenameOfPath(entry.path)}"?`,
-          entry.kind === "directory"
-            ? "This permanently removes the folder and its contents."
-            : "This permanently removes the file.",
-        ].join("\n"),
-      );
-      if (!confirmed) {
-        return;
-      }
-      void deleteEntryMutation.mutate({
-        kind: entry.kind,
-        relativePath: entry.path,
-      });
-    },
-    [api, deleteEntryMutation],
-  );
+  const handleDeleteEntry = async (entry: ProjectEntry) => {
+    if (!api) {
+      return;
+    }
+    const confirmed = await api.dialogs.confirm(
+      [
+        `Delete ${entry.kind === "directory" ? "folder" : "file"} "${basenameOfPath(entry.path)}"?`,
+        entry.kind === "directory"
+          ? "This permanently removes the folder and its contents."
+          : "This permanently removes the file.",
+      ].join("\n"),
+    );
+    if (!confirmed) {
+      return;
+    }
+    void deleteEntryMutation.mutate({
+      kind: entry.kind,
+      relativePath: entry.path,
+    });
+  };
 
   const openExplorerContextMenu = async (
     entry: ProjectEntry | null,

@@ -300,12 +300,14 @@ export function useThreadActions() {
     }
 
     const deletedThreadIds = new Set<ThreadId>(relatedThreadIds);
-    for (const relatedThreadId of relatedThreadIds) {
-      await deleteThread(relatedThreadId, {
-        deletedThreadIds,
-        worktreeRemovalPrompt: "skip",
-      });
-    }
+    await Promise.all(
+      relatedThreadIds.map((relatedThreadId) =>
+        deleteThread(relatedThreadId, {
+          deletedThreadIds,
+          worktreeRemovalPrompt: "skip",
+        }),
+      ),
+    );
 
     try {
       await removeWorktreeMutation.mutateAsync({

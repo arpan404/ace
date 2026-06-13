@@ -18,7 +18,6 @@ import {
   XIcon,
 } from "lucide-react";
 import {
-  memo,
   useCallback,
   useEffect,
   useMemo,
@@ -2084,7 +2083,4 @@ function WorkspaceEditorPane(props: WorkspaceEditorPaneProps) {
   return useWorkspaceEditorPaneComponent(props);
 }
 
-const MemoizedWorkspaceEditorPane = memo(WorkspaceEditorPane);
-MemoizedWorkspaceEditorPane.displayName = "WorkspaceEditorPane";
-
-export default MemoizedWorkspaceEditorPane;
+export default WorkspaceEditorPane;

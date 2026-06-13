@@ -78,7 +78,6 @@ import { clearPromotedDraftThreads, useComposerDraftStore } from "../composerDra
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useReactCompilerSafeVirtualizer } from "../hooks/useReactCompilerSafeVirtualizer";
 import { getDefaultServerModel } from "../providerModels";
-
 import { useThreadActions } from "../hooks/useThreadActions";
 import { ProjectAvatar, ProjectGlyphIcon } from "./ProjectAvatar";
 import { PROJECT_ICON_COLOR_OPTIONS, PROJECT_ICON_OPTIONS } from "./projectAvatarOptions";
@@ -228,6 +227,16 @@ import {
   type ChatThreadBoardPaneState,
   useChatThreadBoardStore,
 } from "../chatThreadBoardStore";
+
+const sidebarProjectCollisionDetection: CollisionDetection = (args) => {
+  const pointerCollisions = pointerWithin(args);
+  if (pointerCollisions.length > 0) {
+    return pointerCollisions;
+  }
+
+  return closestCorners(args);
+};
+
 const THREAD_REVEAL_STEP = 5;
 const SPLIT_REVEAL_STEP = 5;
 const SIDEBAR_PROJECT_HEADER_ROW_ESTIMATE_PX = 28;
@@ -3193,28 +3202,25 @@ function useSidebarComponent() {
     }
   };
 
-  const focusMostRecentThreadForProject = useCallback(
-    (projectId: ProjectId) => {
-      const sourceThreads = threadIdsByProjectId[projectId] ?? [];
-      const filteredThreads: SidebarThreadSummary[] = [];
-      for (const threadId of sourceThreads) {
-        const thread = sidebarThreadsById[threadId];
-        if (thread === undefined || thread.archivedAt !== null) {
-          continue;
-        }
-        filteredThreads.push(thread);
+  const focusMostRecentThreadForProject = (projectId: ProjectId) => {
+    const sourceThreads = threadIdsByProjectId[projectId] ?? [];
+    const filteredThreads: SidebarThreadSummary[] = [];
+    for (const threadId of sourceThreads) {
+      const thread = sidebarThreadsById[threadId];
+      if (thread === undefined || thread.archivedAt !== null) {
+        continue;
       }
-      const sortedThreads = sortThreadsForSidebar(filteredThreads, sidebarThreadSortOrder);
-      const latestThread = sortedThreads[0];
-      if (!latestThread) return;
+      filteredThreads.push(thread);
+    }
+    const sortedThreads = sortThreadsForSidebar(filteredThreads, sidebarThreadSortOrder);
+    const latestThread = sortedThreads[0];
+    if (!latestThread) return;
 
-      void navigate({
-        to: "/$threadId",
-        params: { threadId: latestThread.id },
-      });
-    },
-    [sidebarThreadSortOrder, navigate, sidebarThreadsById, threadIdsByProjectId],
-  );
+    void navigate({
+      to: "/$threadId",
+      params: { threadId: latestThread.id },
+    });
+  };
 
   const refreshProjectBrowse = async (partialPath: string) => {
     const trimmedPath = partialPath.trim();
@@ -4584,15 +4590,6 @@ function useSidebarComponent() {
       activationConstraint: { distance: 6 },
     }),
   );
-  const projectCollisionDetection = useCallback<CollisionDetection>((args) => {
-    const pointerCollisions = pointerWithin(args);
-    if (pointerCollisions.length > 0) {
-      return pointerCollisions;
-    }
-
-    return closestCorners(args);
-  }, []);
-
   const handleProjectDragEnd = (event: DragEndEvent) => {
     dragInProgressRef.current = false;
     const { active, over } = event;
@@ -7094,7 +7091,7 @@ function useSidebarComponent() {
                   {isProjectDraggingEnabled ? (
                     <DndContext
                       sensors={projectDnDSensors}
-                      collisionDetection={projectCollisionDetection}
+                      collisionDetection={sidebarProjectCollisionDetection}
                       modifiers={[restrictToVerticalAxis, restrictToFirstScrollableAncestor]}
                       onDragStart={handleProjectDragStart}
                       onDragEnd={handleProjectDragEnd}
