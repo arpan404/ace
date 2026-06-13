@@ -2,6 +2,7 @@ import {
   type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -2248,7 +2249,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
       ? "Loading"
       : null;
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     syncDraftUrlFromActiveTab({ activeTabIsInternal, activeTabUrl });
   }, [activeTabIsInternal, activeTabUrl, syncDraftUrlFromActiveTab]);
 
@@ -2256,7 +2257,7 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     initialAddressBarAutoFocusHandledRef.current = false;
   }, [browserSessionStorageKey]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     onActiveRuntimeStateChange?.({
       devToolsOpen: activeRuntime.devToolsOpen,
       loading: activeRuntime.loading,
