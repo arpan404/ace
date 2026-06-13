@@ -3397,18 +3397,65 @@ function getEnvironmentWorktreeEntries({
     );
 }
 
+interface ProjectWorktreeSetupEditorState {
+  readonly command: string;
+  readonly envText: string;
+  readonly envFilePath: string;
+  readonly validationError: string | null;
+  readonly saving: boolean;
+}
+
+type ProjectWorktreeSetupEditorAction =
+  | { readonly type: "set-command"; readonly command: string }
+  | { readonly type: "set-env-text"; readonly envText: string }
+  | { readonly type: "set-env-file-path"; readonly envFilePath: string }
+  | { readonly type: "set-validation-error"; readonly validationError: string | null }
+  | { readonly type: "start-saving" }
+  | { readonly type: "finish-saving" };
+
+function projectWorktreeSetupEditorStateReducer(
+  state: ProjectWorktreeSetupEditorState,
+  action: ProjectWorktreeSetupEditorAction,
+): ProjectWorktreeSetupEditorState {
+  switch (action.type) {
+    case "set-command":
+      return state.command === action.command ? state : { ...state, command: action.command };
+    case "set-env-text":
+      return state.envText === action.envText ? state : { ...state, envText: action.envText };
+    case "set-env-file-path":
+      return state.envFilePath === action.envFilePath
+        ? state
+        : { ...state, envFilePath: action.envFilePath };
+    case "set-validation-error":
+      return state.validationError === action.validationError
+        ? state
+        : { ...state, validationError: action.validationError };
+    case "start-saving":
+      return state.saving && state.validationError === null
+        ? state
+        : { ...state, saving: true, validationError: null };
+    case "finish-saving":
+      return state.saving ? { ...state, saving: false } : state;
+  }
+}
+
 function ProjectWorktreeSetupEditor({ project }: { readonly project: Project }) {
   const setupScript = setupProjectScript(project.scripts);
   const commandInputId = useId();
   const envFileInputId = useId();
   const environmentInputId = useId();
-  const [command, setCommand] = useState(() => setupScript?.command ?? "");
-  const [envText, setEnvText] = useState(() => formatProjectScriptEnv(setupScript?.env));
-  const [envFilePath, setEnvFilePath] = useState(
-    () => setupScript?.envFilePath ?? DEFAULT_PROJECT_SCRIPT_ENV_FILE_PATH,
+  const [state, dispatchState] = useReducer(
+    projectWorktreeSetupEditorStateReducer,
+    undefined,
+    (): ProjectWorktreeSetupEditorState => ({
+      command: setupScript?.command ?? "",
+      envText: formatProjectScriptEnv(setupScript?.env),
+      envFilePath: setupScript?.envFilePath ?? DEFAULT_PROJECT_SCRIPT_ENV_FILE_PATH,
+      validationError: null,
+      saving: false,
+    }),
   );
-  const [validationError, setValidationError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
+  const { command, envText, envFilePath, validationError, saving } = state;
 
   const saveSetup = async () => {
     const api = readNativeApi();
@@ -3417,7 +3464,10 @@ function ProjectWorktreeSetupEditor({ project }: { readonly project: Project }) 
     }
     const trimmedCommand = command.trim();
     if (!trimmedCommand) {
-      setValidationError("Setup command is required.");
+      dispatchState({
+        type: "set-validation-error",
+        validationError: "Setup command is required.",
+      });
       return;
     }
 
@@ -3425,19 +3475,24 @@ function ProjectWorktreeSetupEditor({ project }: { readonly project: Project }) 
     try {
       parsedEnv = parseProjectScriptEnv(envText);
     } catch (error) {
-      setValidationError(error instanceof Error ? error.message : "Invalid environment variables.");
+      dispatchState({
+        type: "set-validation-error",
+        validationError: error instanceof Error ? error.message : "Invalid environment variables.",
+      });
       return;
     }
     let normalizedEnvFilePath: string;
     try {
       normalizedEnvFilePath = normalizeProjectScriptEnvFilePath(envFilePath);
     } catch (error) {
-      setValidationError(error instanceof Error ? error.message : "Invalid environment file path.");
+      dispatchState({
+        type: "set-validation-error",
+        validationError: error instanceof Error ? error.message : "Invalid environment file path.",
+      });
       return;
     }
 
-    setSaving(true);
-    setValidationError(null);
+    dispatchState({ type: "start-saving" });
     try {
       const setupScriptId =
         setupScript?.id ??
@@ -3480,11 +3535,14 @@ function ProjectWorktreeSetupEditor({ project }: { readonly project: Project }) 
         title: "Saved worktree setup.",
       });
     } catch (error) {
-      setValidationError(error instanceof Error ? error.message : "Failed to save setup command.");
-      setSaving(false);
+      dispatchState({
+        type: "set-validation-error",
+        validationError: error instanceof Error ? error.message : "Failed to save setup command.",
+      });
+      dispatchState({ type: "finish-saving" });
       return;
     }
-    setSaving(false);
+    dispatchState({ type: "finish-saving" });
   };
 
   const disableSetup = async () => {
@@ -3493,8 +3551,7 @@ function ProjectWorktreeSetupEditor({ project }: { readonly project: Project }) 
     if (!api) {
       return;
     }
-    setSaving(true);
-    setValidationError(null);
+    dispatchState({ type: "start-saving" });
     try {
       await api.orchestration.dispatchCommand({
         type: "project.meta.update",
@@ -3505,11 +3562,14 @@ function ProjectWorktreeSetupEditor({ project }: { readonly project: Project }) 
         ),
       });
     } catch (error) {
-      setValidationError(error instanceof Error ? error.message : "Failed to disable setup.");
-      setSaving(false);
+      dispatchState({
+        type: "set-validation-error",
+        validationError: error instanceof Error ? error.message : "Failed to disable setup.",
+      });
+      dispatchState({ type: "finish-saving" });
       return;
     }
-    setSaving(false);
+    dispatchState({ type: "finish-saving" });
   };
 
   const hasEnv = Object.keys(setupScript?.env ?? {}).length > 0;
@@ -3578,7 +3638,9 @@ function ProjectWorktreeSetupEditor({ project }: { readonly project: Project }) 
             placeholder="bun install"
             size="sm"
             className="font-mono text-sm"
-            onChange={(event) => setCommand(event.target.value)}
+            onChange={(event) =>
+              dispatchState({ type: "set-command", command: event.target.value })
+            }
           />
         </div>
         <div className="grid gap-3">
@@ -3591,7 +3653,9 @@ function ProjectWorktreeSetupEditor({ project }: { readonly project: Project }) 
               value={envFilePath}
               placeholder=".env"
               className="font-mono text-sm"
-              onChange={(event) => setEnvFilePath(event.target.value)}
+              onChange={(event) =>
+                dispatchState({ type: "set-env-file-path", envFilePath: event.target.value })
+              }
             />
             <p className="text-[10px] text-muted-foreground/60">
               Copied from the project root into each new worktree before setup runs.
@@ -3610,7 +3674,9 @@ function ProjectWorktreeSetupEditor({ project }: { readonly project: Project }) 
               placeholder={"NODE_ENV=development\nAPI_BASE_URL=http://localhost:3000"}
               size="sm"
               className="font-mono text-sm"
-              onChange={(event) => setEnvText(event.target.value)}
+              onChange={(event) =>
+                dispatchState({ type: "set-env-text", envText: event.target.value })
+              }
             />
             <p className="text-[10px] text-muted-foreground/60">
               Passed to the setup command and used if the source env file is missing.
@@ -3638,6 +3704,78 @@ function projectWorktreeSetupEditorKey(project: Project): string {
   });
 }
 
+interface ProjectEnvironmentWorktreesState {
+  readonly worktreeSearch: string;
+  readonly worktreeFilter: EnvironmentWorktreeFilter;
+  readonly worktreeSort: EnvironmentWorktreeSort;
+  readonly cleanupAge: EnvironmentWorktreeCleanupAge;
+  readonly cleanupReferenceTimeMs: number;
+  readonly isCleaningWorktrees: boolean;
+  readonly isDeletingSelectedWorktrees: boolean;
+  readonly selectedWorktreePaths: ReadonlySet<string>;
+}
+
+type ProjectEnvironmentWorktreesAction =
+  | { readonly type: "set-worktree-search"; readonly worktreeSearch: string }
+  | { readonly type: "set-worktree-filter"; readonly worktreeFilter: EnvironmentWorktreeFilter }
+  | { readonly type: "set-worktree-sort"; readonly worktreeSort: EnvironmentWorktreeSort }
+  | { readonly type: "set-cleanup-age"; readonly cleanupAge: EnvironmentWorktreeCleanupAge }
+  | { readonly type: "set-cleaning-worktrees"; readonly isCleaningWorktrees: boolean }
+  | {
+      readonly type: "set-deleting-selected-worktrees";
+      readonly isDeletingSelectedWorktrees: boolean;
+    }
+  | {
+      readonly type: "set-selected-worktree-paths";
+      readonly selectedWorktreePaths: ReadonlySet<string>;
+    }
+  | {
+      readonly type: "update-selected-worktree-paths";
+      readonly update: (current: ReadonlySet<string>) => ReadonlySet<string>;
+    };
+
+function projectEnvironmentWorktreesStateReducer(
+  state: ProjectEnvironmentWorktreesState,
+  action: ProjectEnvironmentWorktreesAction,
+): ProjectEnvironmentWorktreesState {
+  switch (action.type) {
+    case "set-worktree-search":
+      return state.worktreeSearch === action.worktreeSearch
+        ? state
+        : { ...state, worktreeSearch: action.worktreeSearch };
+    case "set-worktree-filter":
+      return state.worktreeFilter === action.worktreeFilter
+        ? state
+        : { ...state, worktreeFilter: action.worktreeFilter };
+    case "set-worktree-sort":
+      return state.worktreeSort === action.worktreeSort
+        ? state
+        : { ...state, worktreeSort: action.worktreeSort };
+    case "set-cleanup-age":
+      return state.cleanupAge === action.cleanupAge
+        ? state
+        : { ...state, cleanupAge: action.cleanupAge };
+    case "set-cleaning-worktrees":
+      return state.isCleaningWorktrees === action.isCleaningWorktrees
+        ? state
+        : { ...state, isCleaningWorktrees: action.isCleaningWorktrees };
+    case "set-deleting-selected-worktrees":
+      return state.isDeletingSelectedWorktrees === action.isDeletingSelectedWorktrees
+        ? state
+        : { ...state, isDeletingSelectedWorktrees: action.isDeletingSelectedWorktrees };
+    case "set-selected-worktree-paths":
+      return state.selectedWorktreePaths === action.selectedWorktreePaths
+        ? state
+        : { ...state, selectedWorktreePaths: action.selectedWorktreePaths };
+    case "update-selected-worktree-paths": {
+      const selectedWorktreePaths = action.update(state.selectedWorktreePaths);
+      return state.selectedWorktreePaths === selectedWorktreePaths
+        ? state
+        : { ...state, selectedWorktreePaths };
+    }
+  }
+}
+
 function ProjectEnvironmentWorktrees({
   project,
   threads,
@@ -3658,16 +3796,30 @@ function ProjectEnvironmentWorktrees({
   const settings = useSettings();
   const { updateSettings } = useUpdateSettings();
   const worktreeSearchInputId = useId();
-  const [worktreeSearch, setWorktreeSearch] = useState("");
-  const [worktreeFilter, setWorktreeFilter] = useState<EnvironmentWorktreeFilter>("inactive");
-  const [worktreeSort, setWorktreeSort] = useState<EnvironmentWorktreeSort>("oldest");
-  const [cleanupAge, setCleanupAge] = useState<EnvironmentWorktreeCleanupAge>("30d");
-  const [cleanupReferenceTimeMs] = useState(() => Date.now());
-  const [isCleaningWorktrees, setIsCleaningWorktrees] = useState(false);
-  const [isDeletingSelectedWorktrees, setIsDeletingSelectedWorktrees] = useState(false);
-  const [selectedWorktreePaths, setSelectedWorktreePaths] = useState<ReadonlySet<string>>(
-    () => new Set(),
+  const [worktreesState, dispatchWorktreesState] = useReducer(
+    projectEnvironmentWorktreesStateReducer,
+    undefined,
+    (): ProjectEnvironmentWorktreesState => ({
+      worktreeSearch: "",
+      worktreeFilter: "inactive",
+      worktreeSort: "oldest",
+      cleanupAge: "30d",
+      cleanupReferenceTimeMs: Date.now(),
+      isCleaningWorktrees: false,
+      isDeletingSelectedWorktrees: false,
+      selectedWorktreePaths: new Set(),
+    }),
   );
+  const {
+    cleanupAge,
+    cleanupReferenceTimeMs,
+    isCleaningWorktrees,
+    isDeletingSelectedWorktrees,
+    selectedWorktreePaths,
+    worktreeFilter,
+    worktreeSearch,
+    worktreeSort,
+  } = worktreesState;
   const { deleteWorktreeAndRelatedData } = useThreadActions();
   const projectSshKeyPassphrase =
     settings.gitSshKeyPassphraseByProjectRoot[project.cwd] ??
@@ -3772,31 +3924,40 @@ function ProjectEnvironmentWorktrees({
       effectiveSelectedWorktreePaths.has(worktree.path),
     );
   const toggleWorktreeSelected = (path: string, selected: boolean) => {
-    setSelectedWorktreePaths((current) => {
-      const next = new Set(current);
-      if (selected) {
-        next.add(path);
-      } else {
-        next.delete(path);
-      }
-      return next;
+    dispatchWorktreesState({
+      type: "update-selected-worktree-paths",
+      update: (current) => {
+        const next = new Set(current);
+        if (selected) {
+          next.add(path);
+        } else {
+          next.delete(path);
+        }
+        return next;
+      },
     });
   };
   const setVisibleWorktreesSelected = (selected: boolean) => {
-    setSelectedWorktreePaths((current) => {
-      const next = new Set(current);
-      for (const worktree of visibleSelectableWorktrees) {
-        if (selected) {
-          next.add(worktree.path);
-        } else {
-          next.delete(worktree.path);
+    dispatchWorktreesState({
+      type: "update-selected-worktree-paths",
+      update: (current) => {
+        const next = new Set(current);
+        for (const worktree of visibleSelectableWorktrees) {
+          if (selected) {
+            next.add(worktree.path);
+          } else {
+            next.delete(worktree.path);
+          }
         }
-      }
-      return next;
+        return next;
+      },
     });
   };
   const clearSelectedWorktrees = () => {
-    setSelectedWorktreePaths(new Set());
+    dispatchWorktreesState({
+      type: "set-selected-worktree-paths",
+      selectedWorktreePaths: new Set(),
+    });
   };
   const cleanupCandidates = worktrees
     .filter(
@@ -3844,7 +4005,7 @@ function ProjectEnvironmentWorktrees({
       return;
     }
 
-    setIsCleaningWorktrees(true);
+    dispatchWorktreesState({ type: "set-cleaning-worktrees", isCleaningWorktrees: true });
     try {
       await Promise.all(
         cleanupCandidates.map((worktree) =>
@@ -3867,10 +4028,10 @@ function ProjectEnvironmentWorktrees({
       });
       void refetchBranches();
     } catch (error) {
-      setIsCleaningWorktrees(false);
+      dispatchWorktreesState({ type: "set-cleaning-worktrees", isCleaningWorktrees: false });
       throw error;
     }
-    setIsCleaningWorktrees(false);
+    dispatchWorktreesState({ type: "set-cleaning-worktrees", isCleaningWorktrees: false });
   };
   const handleDeleteSelectedWorktrees = async () => {
     const api = readNativeApi();
@@ -3892,7 +4053,10 @@ function ProjectEnvironmentWorktrees({
       return;
     }
 
-    setIsDeletingSelectedWorktrees(true);
+    dispatchWorktreesState({
+      type: "set-deleting-selected-worktrees",
+      isDeletingSelectedWorktrees: true,
+    });
     try {
       await Promise.all(
         selectedWorktrees.map((worktree) =>
@@ -3906,7 +4070,10 @@ function ProjectEnvironmentWorktrees({
           }),
         ),
       );
-      setSelectedWorktreePaths(new Set());
+      dispatchWorktreesState({
+        type: "set-selected-worktree-paths",
+        selectedWorktreePaths: new Set(),
+      });
       toastManager.add({
         type: "success",
         title: "Selected worktrees deleted",
@@ -3916,10 +4083,16 @@ function ProjectEnvironmentWorktrees({
       });
       void refetchBranches();
     } catch (error) {
-      setIsDeletingSelectedWorktrees(false);
+      dispatchWorktreesState({
+        type: "set-deleting-selected-worktrees",
+        isDeletingSelectedWorktrees: false,
+      });
       throw error;
     }
-    setIsDeletingSelectedWorktrees(false);
+    dispatchWorktreesState({
+      type: "set-deleting-selected-worktrees",
+      isDeletingSelectedWorktrees: false,
+    });
   };
 
   return (
@@ -4012,7 +4185,12 @@ function ProjectEnvironmentWorktrees({
                   value={worktreeSearch}
                   placeholder="Name, path, branch"
                   className="h-8 pl-8"
-                  onChange={(event) => setWorktreeSearch(event.target.value)}
+                  onChange={(event) =>
+                    dispatchWorktreesState({
+                      type: "set-worktree-search",
+                      worktreeSearch: event.target.value,
+                    })
+                  }
                 />
               </span>
             </label>
@@ -4020,7 +4198,12 @@ function ProjectEnvironmentWorktrees({
               <span className="block text-[10px] font-medium text-muted-foreground/58">Filter</span>
               <Select
                 value={worktreeFilter}
-                onValueChange={(value) => setWorktreeFilter(value as EnvironmentWorktreeFilter)}
+                onValueChange={(value) =>
+                  dispatchWorktreesState({
+                    type: "set-worktree-filter",
+                    worktreeFilter: value as EnvironmentWorktreeFilter,
+                  })
+                }
               >
                 <SelectTrigger size="sm" className={SETTINGS_SELECT_TRIGGER_CLASS}>
                   <SelectValue>{ENVIRONMENT_WORKTREE_FILTER_LABELS[worktreeFilter]}</SelectValue>
@@ -4038,7 +4221,12 @@ function ProjectEnvironmentWorktrees({
               <span className="block text-[10px] font-medium text-muted-foreground/58">Sort</span>
               <Select
                 value={worktreeSort}
-                onValueChange={(value) => setWorktreeSort(value as EnvironmentWorktreeSort)}
+                onValueChange={(value) =>
+                  dispatchWorktreesState({
+                    type: "set-worktree-sort",
+                    worktreeSort: value as EnvironmentWorktreeSort,
+                  })
+                }
               >
                 <SelectTrigger size="sm" className={SETTINGS_SELECT_TRIGGER_CLASS}>
                   <SelectValue>{ENVIRONMENT_WORKTREE_SORT_LABELS[worktreeSort]}</SelectValue>
@@ -4258,7 +4446,12 @@ function ProjectEnvironmentWorktrees({
                   </span>
                   <Select
                     value={cleanupAge}
-                    onValueChange={(value) => setCleanupAge(value as EnvironmentWorktreeCleanupAge)}
+                    onValueChange={(value) =>
+                      dispatchWorktreesState({
+                        type: "set-cleanup-age",
+                        cleanupAge: value as EnvironmentWorktreeCleanupAge,
+                      })
+                    }
                   >
                     <SelectTrigger size="sm" className={SETTINGS_SELECT_TRIGGER_CLASS}>
                       <SelectValue>

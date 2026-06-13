@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useReducer } from "react";
 import { type ProviderKind } from "@ace/contracts";
 import {
   CheckIcon,
@@ -94,6 +94,51 @@ interface PlanSummaryPanelProps {
 }
 
 type WorkspaceDiffSummary = NonNullable<PlanSummaryPanelProps["workspaceDiffSummary"]>;
+
+interface PlanSummaryPanelUiState {
+  readonly summaryDetailsExpanded: boolean;
+  readonly planDetailsExpanded: boolean;
+  readonly todoDetailsExpanded: boolean;
+  readonly isSavingToWorkspace: boolean;
+  readonly summaryRequestStartedAt: string | null;
+}
+
+type PlanSummaryPanelUiAction =
+  | { readonly type: "toggle-summary-details" }
+  | { readonly type: "toggle-plan-details" }
+  | { readonly type: "toggle-todo-details" }
+  | { readonly type: "set-saving-to-workspace"; readonly isSavingToWorkspace: boolean }
+  | { readonly type: "set-summary-request-started-at"; readonly startedAt: string | null };
+
+const INITIAL_PLAN_SUMMARY_PANEL_UI_STATE: PlanSummaryPanelUiState = {
+  summaryDetailsExpanded: true,
+  planDetailsExpanded: true,
+  todoDetailsExpanded: true,
+  isSavingToWorkspace: false,
+  summaryRequestStartedAt: null,
+};
+
+function planSummaryPanelUiStateReducer(
+  state: PlanSummaryPanelUiState,
+  action: PlanSummaryPanelUiAction,
+): PlanSummaryPanelUiState {
+  switch (action.type) {
+    case "toggle-summary-details":
+      return { ...state, summaryDetailsExpanded: !state.summaryDetailsExpanded };
+    case "toggle-plan-details":
+      return { ...state, planDetailsExpanded: !state.planDetailsExpanded };
+    case "toggle-todo-details":
+      return { ...state, todoDetailsExpanded: !state.todoDetailsExpanded };
+    case "set-saving-to-workspace":
+      return state.isSavingToWorkspace === action.isSavingToWorkspace
+        ? state
+        : { ...state, isSavingToWorkspace: action.isSavingToWorkspace };
+    case "set-summary-request-started-at":
+      return state.summaryRequestStartedAt === action.startedAt
+        ? state
+        : { ...state, summaryRequestStartedAt: action.startedAt };
+  }
+}
 
 function formatDiffCount(value: number) {
   return diffCountFormatter.format(value);
@@ -192,6 +237,302 @@ function DiffSummaryOverview({
   );
 }
 
+function PlanSummaryTextSection({
+  generatedWorkspaceSummary,
+  workspaceDiffSummary,
+  actions,
+  isRegeneratingSummary,
+  summaryDetailsExpanded,
+  markdownCwd,
+  onOpenBrowserUrl,
+  onOpenFilePath,
+  enableLocalFileLinks,
+  onToggleSummaryDetails,
+}: {
+  readonly generatedWorkspaceSummary: GeneratedWorkspaceSummary;
+  readonly workspaceDiffSummary: WorkspaceDiffSummary | null;
+  readonly actions: ReactNode;
+  readonly isRegeneratingSummary: boolean;
+  readonly summaryDetailsExpanded: boolean;
+  readonly markdownCwd: string | undefined;
+  readonly onOpenBrowserUrl: ((url: string) => void) | null;
+  readonly onOpenFilePath: ((path: string) => void) | null;
+  readonly enableLocalFileLinks: boolean;
+  readonly onToggleSummaryDetails: () => void;
+}) {
+  return (
+    <SummaryPanelSection>
+      <div className="space-y-4">
+        {workspaceDiffSummary ? (
+          <DiffSummaryOverview workspaceDiffSummary={workspaceDiffSummary} actions={actions} />
+        ) : null}
+        <div>
+          <div className="flex items-start justify-between gap-3">
+            <Button
+              type="button"
+              variant="ghost"
+              className={cn(PLAN_SUMMARY_DISCLOSURE_BUTTON_CLASS_NAME, "gap-2")}
+              onClick={onToggleSummaryDetails}
+              aria-expanded={summaryDetailsExpanded}
+              aria-label={
+                summaryDetailsExpanded ? "Collapse summary details" : "Expand summary details"
+              }
+            >
+              {summaryDetailsExpanded ? (
+                <ChevronDownIcon className="size-3 shrink-0 text-muted-foreground transition-transform group-hover:text-foreground/85" />
+              ) : (
+                <ChevronRightIcon className="size-3 shrink-0 text-muted-foreground transition-transform group-hover:text-foreground/85" />
+              )}
+              <SummaryPanelSectionLabel>Summary</SummaryPanelSectionLabel>
+            </Button>
+            {!workspaceDiffSummary ? actions : null}
+          </div>
+          {isRegeneratingSummary ? (
+            <div className="mt-3">
+              <SummaryGenerationNotice hasExistingSummary={true} />
+            </div>
+          ) : null}
+          {summaryDetailsExpanded ? (
+            <div className="mt-3.5">
+              <ChatMarkdown
+                text={generatedWorkspaceSummary.markdown}
+                cwd={markdownCwd}
+                isStreaming={false}
+                onOpenBrowserUrl={onOpenBrowserUrl}
+                onOpenFilePath={onOpenFilePath}
+                enableLocalFileLinks={enableLocalFileLinks}
+              />
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </SummaryPanelSection>
+  );
+}
+
+function DiffOnlySummarySection({
+  workspaceDiffSummary,
+  actions,
+  isRegeneratingSummary,
+}: {
+  readonly workspaceDiffSummary: WorkspaceDiffSummary;
+  readonly actions: ReactNode;
+  readonly isRegeneratingSummary: boolean;
+}) {
+  return (
+    <SummaryPanelSection>
+      <div className="space-y-4">
+        <DiffSummaryOverview workspaceDiffSummary={workspaceDiffSummary} actions={actions} />
+        {isRegeneratingSummary ? <SummaryGenerationNotice hasExistingSummary={false} /> : null}
+      </div>
+    </SummaryPanelSection>
+  );
+}
+
+function EmptyChangesSection() {
+  return (
+    <SummaryPanelSection>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 space-y-2">
+          <SummaryPanelSectionLabel>Changes</SummaryPanelSectionLabel>
+          <p className="text-sm font-semibold text-foreground">No changes</p>
+          <p className="max-w-[52ch] text-sm leading-relaxed text-muted-foreground">
+            There are no uncommitted code changes.
+          </p>
+        </div>
+      </div>
+    </SummaryPanelSection>
+  );
+}
+
+function PlanMarkdownSection({
+  planTitle,
+  displayedPlanMarkdown,
+  markdownCwd,
+  onOpenBrowserUrl,
+  onOpenFilePath,
+  enableLocalFileLinks,
+  planDetailsExpanded,
+  isCopied,
+  isSavingToWorkspace,
+  workspaceRoot,
+  onTogglePlanDetails,
+  onCopyPlan,
+  onDownload,
+  onSaveToWorkspace,
+}: {
+  readonly planTitle: string | null;
+  readonly displayedPlanMarkdown: string | null;
+  readonly markdownCwd: string | undefined;
+  readonly onOpenBrowserUrl: ((url: string) => void) | null;
+  readonly onOpenFilePath: ((path: string) => void) | null;
+  readonly enableLocalFileLinks: boolean;
+  readonly planDetailsExpanded: boolean;
+  readonly isCopied: boolean;
+  readonly isSavingToWorkspace: boolean;
+  readonly workspaceRoot: string | undefined;
+  readonly onTogglePlanDetails: () => void;
+  readonly onCopyPlan: () => void;
+  readonly onDownload: () => void;
+  readonly onSaveToWorkspace: () => void;
+}) {
+  return (
+    <SummaryPanelSection>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 space-y-2">
+          <SummaryPanelSectionLabel>Plan</SummaryPanelSectionLabel>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              className={cn(
+                PLAN_SUMMARY_DISCLOSURE_BUTTON_CLASS_NAME,
+                "text-sm font-medium tracking-tight text-foreground",
+              )}
+              onClick={onTogglePlanDetails}
+              aria-expanded={planDetailsExpanded}
+              aria-label={planDetailsExpanded ? "Collapse plan details" : "Expand plan details"}
+            >
+              {planDetailsExpanded ? (
+                <ChevronDownIcon className="size-3 shrink-0 text-muted-foreground transition-transform group-hover:text-foreground/85" />
+              ) : (
+                <ChevronRightIcon className="size-3 shrink-0 text-muted-foreground transition-transform group-hover:text-foreground/85" />
+              )}
+              <span>{planTitle ?? "Proposed plan"}</span>
+            </Button>
+          </div>
+        </div>
+        <Menu>
+          <MenuTrigger
+            render={
+              <Button
+                size="icon-xs"
+                variant="ghost"
+                className="text-muted-foreground hover:text-foreground"
+                aria-label="Plan actions"
+              />
+            }
+          >
+            <EllipsisIcon className="size-3.5" />
+          </MenuTrigger>
+          <MenuPopup align="end">
+            <MenuItem onClick={onCopyPlan}>{isCopied ? "Copied!" : "Copy to clipboard"}</MenuItem>
+            <MenuItem onClick={onDownload}>Download as markdown</MenuItem>
+            <MenuItem onClick={onSaveToWorkspace} disabled={!workspaceRoot || isSavingToWorkspace}>
+              Save to workspace
+            </MenuItem>
+          </MenuPopup>
+        </Menu>
+      </div>
+      {planDetailsExpanded ? (
+        <div className="mt-3.5 overflow-hidden">
+          <div className="pb-1">
+            <ChatMarkdown
+              text={displayedPlanMarkdown ?? ""}
+              cwd={markdownCwd}
+              isStreaming={false}
+              onOpenBrowserUrl={onOpenBrowserUrl}
+              onOpenFilePath={onOpenFilePath}
+              enableLocalFileLinks={enableLocalFileLinks}
+            />
+          </div>
+        </div>
+      ) : null}
+    </SummaryPanelSection>
+  );
+}
+
+function TodoChecklistSection({
+  displaySteps,
+  planProgress,
+  completedPercent,
+  todoDetailsExpanded,
+  onToggleTodoDetails,
+}: {
+  readonly displaySteps: ActivePlanState["steps"];
+  readonly planProgress: ReturnType<typeof summarizeActivePlan>;
+  readonly completedPercent: number;
+  readonly todoDetailsExpanded: boolean;
+  readonly onToggleTodoDetails: () => void;
+}) {
+  return (
+    <SummaryPanelSection>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 space-y-2">
+          <SummaryPanelSectionLabel>Todos</SummaryPanelSectionLabel>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              type="button"
+              className={cn(
+                PLAN_SUMMARY_DISCLOSURE_BUTTON_CLASS_NAME,
+                "text-sm font-medium tracking-tight text-foreground",
+              )}
+              onClick={onToggleTodoDetails}
+              aria-expanded={todoDetailsExpanded}
+              aria-label={todoDetailsExpanded ? "Collapse todo details" : "Expand todo details"}
+            >
+              {todoDetailsExpanded ? (
+                <ChevronDownIcon className="size-3 shrink-0 text-muted-foreground transition-transform group-hover:text-foreground/85" />
+              ) : (
+                <ChevronRightIcon className="size-3 shrink-0 text-muted-foreground transition-transform group-hover:text-foreground/85" />
+              )}
+              <span>Checklist</span>
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      {todoDetailsExpanded && planProgress ? (
+        <div className="mt-4 p-0">
+          <div className="h-1.5 overflow-hidden rounded-full bg-muted/60">
+            <div
+              className="h-full rounded-full bg-muted-foreground/55 transition-[width] duration-300 ease-out"
+              style={{ width: `${completedPercent}%` }}
+            />
+          </div>
+        </div>
+      ) : null}
+
+      {todoDetailsExpanded && displaySteps.length > 0 ? (
+        <div className="mt-3 space-y-1.5">
+          {(() => {
+            const stepOccurrenceByText = new Map<string, number>();
+            return displaySteps.map((step) => {
+              const seenCount = stepOccurrenceByText.get(step.step) ?? 0;
+              stepOccurrenceByText.set(step.step, seenCount + 1);
+              const stepKey = seenCount === 0 ? step.step : `${step.step}:${seenCount}`;
+              return (
+                <div
+                  key={stepKey}
+                  className="flex items-start gap-2.5 py-2 transition-colors duration-200"
+                >
+                  <div className="mt-0.5">{stepStatusIcon(step.status)}</div>
+                  <div className="min-w-0 flex-1">
+                    <p
+                      className={cn(
+                        "text-[13px] leading-snug",
+                        step.status === "completed"
+                          ? "text-muted-foreground"
+                          : step.status === "inProgress"
+                            ? "text-foreground"
+                            : "text-muted-foreground",
+                      )}
+                    >
+                      {step.step}
+                    </p>
+                  </div>
+                </div>
+              );
+            });
+          })()}
+        </div>
+      ) : null}
+    </SummaryPanelSection>
+  );
+}
+
 export function PlanSummaryPanel({
   activePlan,
   activeProposedPlan,
@@ -205,11 +546,17 @@ export function PlanSummaryPanel({
   workspaceDiffSummary,
   workspaceRoot,
 }: PlanSummaryPanelProps) {
-  const [summaryDetailsExpanded, setSummaryDetailsExpanded] = useState(true);
-  const [planDetailsExpanded, setPlanDetailsExpanded] = useState(true);
-  const [todoDetailsExpanded, setTodoDetailsExpanded] = useState(true);
-  const [isSavingToWorkspace, setIsSavingToWorkspace] = useState(false);
-  const [summaryRequestStartedAt, setSummaryRequestStartedAt] = useState<string | null>(null);
+  const [uiState, dispatchUiState] = useReducer(
+    planSummaryPanelUiStateReducer,
+    INITIAL_PLAN_SUMMARY_PANEL_UI_STATE,
+  );
+  const {
+    isSavingToWorkspace,
+    planDetailsExpanded,
+    summaryDetailsExpanded,
+    summaryRequestStartedAt,
+    todoDetailsExpanded,
+  } = uiState;
   const { copyToClipboard, isCopied } = useCopyToClipboard();
 
   const effectivePlan = activePlan;
@@ -236,7 +583,7 @@ export function PlanSummaryPanel({
       return;
     }
     const timeout = window.setTimeout(() => {
-      setSummaryRequestStartedAt(null);
+      dispatchUiState({ type: "set-summary-request-started-at", startedAt: null });
     }, 90_000);
     return () => window.clearTimeout(timeout);
   }, [summaryRequestStartedAt]);
@@ -256,7 +603,7 @@ export function PlanSummaryPanel({
     const api = readNativeApi();
     if (!api || !workspaceRoot || !effectivePlanMarkdown) return;
     const filename = buildProposedPlanMarkdownFilename(effectivePlanMarkdown);
-    setIsSavingToWorkspace(true);
+    dispatchUiState({ type: "set-saving-to-workspace", isSavingToWorkspace: true });
     void api.projects
       .writeFile({
         cwd: workspaceRoot,
@@ -278,8 +625,8 @@ export function PlanSummaryPanel({
         });
       })
       .then(
-        () => setIsSavingToWorkspace(false),
-        () => setIsSavingToWorkspace(false),
+        () => dispatchUiState({ type: "set-saving-to-workspace", isSavingToWorkspace: false }),
+        () => dispatchUiState({ type: "set-saving-to-workspace", isSavingToWorkspace: false }),
       );
   };
 
@@ -289,9 +636,9 @@ export function PlanSummaryPanel({
     }
 
     const requestStartedAt = new Date().toISOString();
-    setSummaryRequestStartedAt(requestStartedAt);
+    dispatchUiState({ type: "set-summary-request-started-at", startedAt: requestStartedAt });
     void Promise.resolve(onRegenerateSummary()).catch((error: unknown) => {
-      setSummaryRequestStartedAt(null);
+      dispatchUiState({ type: "set-summary-request-started-at", startedAt: null });
       toastManager.add({
         type: "error",
         title: "Could not regenerate summary",
@@ -363,6 +710,15 @@ export function PlanSummaryPanel({
       ) : null}
     </>
   ) : null;
+  const handleToggleSummaryDetails = () => {
+    dispatchUiState({ type: "toggle-summary-details" });
+  };
+  const handleTogglePlanDetails = () => {
+    dispatchUiState({ type: "toggle-plan-details" });
+  };
+  const handleToggleTodoDetails = () => {
+    dispatchUiState({ type: "toggle-todo-details" });
+  };
 
   return (
     <div className={cn("flex min-h-0 flex-1 overflow-hidden", APP_PANEL_CLASS_NAME)}>
@@ -372,237 +728,59 @@ export function PlanSummaryPanel({
             {!hasAnyContent ? null : (
               <>
                 {effectiveGeneratedWorkspaceSummary ? (
-                  <SummaryPanelSection>
-                    <div className="space-y-4">
-                      {effectiveWorkspaceDiffSummary ? (
-                        <DiffSummaryOverview
-                          workspaceDiffSummary={effectiveWorkspaceDiffSummary}
-                          actions={diffSummaryActions}
-                        />
-                      ) : null}
-                      <div>
-                        <div className="flex items-start justify-between gap-3">
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            className={cn(PLAN_SUMMARY_DISCLOSURE_BUTTON_CLASS_NAME, "gap-2")}
-                            onClick={() => setSummaryDetailsExpanded((value) => !value)}
-                            aria-expanded={summaryDetailsExpanded}
-                            aria-label={
-                              summaryDetailsExpanded
-                                ? "Collapse summary details"
-                                : "Expand summary details"
-                            }
-                          >
-                            {summaryDetailsExpanded ? (
-                              <ChevronDownIcon className="size-3 shrink-0 text-muted-foreground transition-transform group-hover:text-foreground/85" />
-                            ) : (
-                              <ChevronRightIcon className="size-3 shrink-0 text-muted-foreground transition-transform group-hover:text-foreground/85" />
-                            )}
-                            <SummaryPanelSectionLabel>Summary</SummaryPanelSectionLabel>
-                          </Button>
-                          {!effectiveWorkspaceDiffSummary ? regenerateSummaryButton : null}
-                        </div>
-                        {isRegeneratingSummary ? (
-                          <div className="mt-3">
-                            <SummaryGenerationNotice hasExistingSummary={true} />
-                          </div>
-                        ) : null}
-                        {summaryDetailsExpanded ? (
-                          <div className="mt-3.5">
-                            <ChatMarkdown
-                              text={effectiveGeneratedWorkspaceSummary.markdown}
-                              cwd={markdownCwd}
-                              isStreaming={false}
-                              onOpenBrowserUrl={onOpenBrowserUrl}
-                              onOpenFilePath={onOpenFilePath}
-                              enableLocalFileLinks={enableLocalFileLinks}
-                            />
-                          </div>
-                        ) : null}
-                      </div>
-                    </div>
-                  </SummaryPanelSection>
+                  <PlanSummaryTextSection
+                    generatedWorkspaceSummary={effectiveGeneratedWorkspaceSummary}
+                    workspaceDiffSummary={effectiveWorkspaceDiffSummary}
+                    actions={diffSummaryActions}
+                    isRegeneratingSummary={isRegeneratingSummary}
+                    summaryDetailsExpanded={summaryDetailsExpanded}
+                    markdownCwd={markdownCwd}
+                    onOpenBrowserUrl={onOpenBrowserUrl}
+                    onOpenFilePath={onOpenFilePath}
+                    enableLocalFileLinks={enableLocalFileLinks}
+                    onToggleSummaryDetails={handleToggleSummaryDetails}
+                  />
                 ) : null}
 
                 {effectiveWorkspaceDiffSummary && !effectiveGeneratedWorkspaceSummary ? (
-                  <SummaryPanelSection>
-                    <div className="space-y-4">
-                      <DiffSummaryOverview
-                        workspaceDiffSummary={effectiveWorkspaceDiffSummary}
-                        actions={diffSummaryActions}
-                      />
-                      {isRegeneratingSummary ? (
-                        <SummaryGenerationNotice hasExistingSummary={false} />
-                      ) : null}
-                    </div>
-                  </SummaryPanelSection>
+                  <DiffOnlySummarySection
+                    workspaceDiffSummary={effectiveWorkspaceDiffSummary}
+                    actions={diffSummaryActions}
+                    isRegeneratingSummary={isRegeneratingSummary}
+                  />
                 ) : null}
 
                 {!effectiveGeneratedWorkspaceSummary && !effectiveWorkspaceDiffSummary ? (
-                  <SummaryPanelSection>
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0 space-y-2">
-                        <SummaryPanelSectionLabel>Changes</SummaryPanelSectionLabel>
-                        <p className="text-sm font-semibold text-foreground">No changes</p>
-                        <p className="max-w-[52ch] text-sm leading-relaxed text-muted-foreground">
-                          There are no uncommitted code changes.
-                        </p>
-                      </div>
-                    </div>
-                  </SummaryPanelSection>
+                  <EmptyChangesSection />
                 ) : null}
 
                 {effectivePlanMarkdown ? (
-                  <SummaryPanelSection>
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0 space-y-2">
-                        <SummaryPanelSectionLabel>Plan</SummaryPanelSectionLabel>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            className={cn(
-                              PLAN_SUMMARY_DISCLOSURE_BUTTON_CLASS_NAME,
-                              "text-sm font-medium tracking-tight text-foreground",
-                            )}
-                            onClick={() => setPlanDetailsExpanded((value) => !value)}
-                            aria-expanded={planDetailsExpanded}
-                            aria-label={
-                              planDetailsExpanded ? "Collapse plan details" : "Expand plan details"
-                            }
-                          >
-                            {planDetailsExpanded ? (
-                              <ChevronDownIcon className="size-3 shrink-0 text-muted-foreground transition-transform group-hover:text-foreground/85" />
-                            ) : (
-                              <ChevronRightIcon className="size-3 shrink-0 text-muted-foreground transition-transform group-hover:text-foreground/85" />
-                            )}
-                            <span>{planTitle ?? "Proposed plan"}</span>
-                          </Button>
-                        </div>
-                      </div>
-                      <Menu>
-                        <MenuTrigger
-                          render={
-                            <Button
-                              size="icon-xs"
-                              variant="ghost"
-                              className="text-muted-foreground hover:text-foreground"
-                              aria-label="Plan actions"
-                            />
-                          }
-                        >
-                          <EllipsisIcon className="size-3.5" />
-                        </MenuTrigger>
-                        <MenuPopup align="end">
-                          <MenuItem onClick={handleCopyPlan}>
-                            {isCopied ? "Copied!" : "Copy to clipboard"}
-                          </MenuItem>
-                          <MenuItem onClick={handleDownload}>Download as markdown</MenuItem>
-                          <MenuItem
-                            onClick={handleSaveToWorkspace}
-                            disabled={!workspaceRoot || isSavingToWorkspace}
-                          >
-                            Save to workspace
-                          </MenuItem>
-                        </MenuPopup>
-                      </Menu>
-                    </div>
-                    {planDetailsExpanded ? (
-                      <div className="mt-3.5 overflow-hidden">
-                        <div className="pb-1">
-                          <ChatMarkdown
-                            text={displayedPlanMarkdown ?? ""}
-                            cwd={markdownCwd}
-                            isStreaming={false}
-                            onOpenBrowserUrl={onOpenBrowserUrl}
-                            onOpenFilePath={onOpenFilePath}
-                            enableLocalFileLinks={enableLocalFileLinks}
-                          />
-                        </div>
-                      </div>
-                    ) : null}
-                  </SummaryPanelSection>
+                  <PlanMarkdownSection
+                    planTitle={planTitle}
+                    displayedPlanMarkdown={displayedPlanMarkdown}
+                    markdownCwd={markdownCwd}
+                    onOpenBrowserUrl={onOpenBrowserUrl}
+                    onOpenFilePath={onOpenFilePath}
+                    enableLocalFileLinks={enableLocalFileLinks}
+                    planDetailsExpanded={planDetailsExpanded}
+                    isCopied={isCopied}
+                    isSavingToWorkspace={isSavingToWorkspace}
+                    workspaceRoot={workspaceRoot}
+                    onTogglePlanDetails={handleTogglePlanDetails}
+                    onCopyPlan={handleCopyPlan}
+                    onDownload={handleDownload}
+                    onSaveToWorkspace={handleSaveToWorkspace}
+                  />
                 ) : null}
 
                 {todoPlan ? (
-                  <SummaryPanelSection>
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0 space-y-2">
-                        <SummaryPanelSectionLabel>Todos</SummaryPanelSectionLabel>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            type="button"
-                            className={cn(
-                              PLAN_SUMMARY_DISCLOSURE_BUTTON_CLASS_NAME,
-                              "text-sm font-medium tracking-tight text-foreground",
-                            )}
-                            onClick={() => setTodoDetailsExpanded((value) => !value)}
-                            aria-expanded={todoDetailsExpanded}
-                            aria-label={
-                              todoDetailsExpanded ? "Collapse todo details" : "Expand todo details"
-                            }
-                          >
-                            {todoDetailsExpanded ? (
-                              <ChevronDownIcon className="size-3 shrink-0 text-muted-foreground transition-transform group-hover:text-foreground/85" />
-                            ) : (
-                              <ChevronRightIcon className="size-3 shrink-0 text-muted-foreground transition-transform group-hover:text-foreground/85" />
-                            )}
-                            <span>Checklist</span>
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-
-                    {todoDetailsExpanded && planProgress ? (
-                      <div className="mt-4 p-0">
-                        <div className="h-1.5 overflow-hidden rounded-full bg-muted/60">
-                          <div
-                            className="h-full rounded-full bg-muted-foreground/55 transition-[width] duration-300 ease-out"
-                            style={{ width: `${completedPercent}%` }}
-                          />
-                        </div>
-                      </div>
-                    ) : null}
-
-                    {todoDetailsExpanded && displaySteps.length > 0 ? (
-                      <div className="mt-3 space-y-1.5">
-                        {(() => {
-                          const stepOccurrenceByText = new Map<string, number>();
-                          return displaySteps.map((step) => {
-                            const seenCount = stepOccurrenceByText.get(step.step) ?? 0;
-                            stepOccurrenceByText.set(step.step, seenCount + 1);
-                            const stepKey =
-                              seenCount === 0 ? step.step : `${step.step}:${seenCount}`;
-                            return (
-                              <div
-                                key={stepKey}
-                                className="flex items-start gap-2.5 py-2 transition-colors duration-200"
-                              >
-                                <div className="mt-0.5">{stepStatusIcon(step.status)}</div>
-                                <div className="min-w-0 flex-1">
-                                  <p
-                                    className={cn(
-                                      "text-[13px] leading-snug",
-                                      step.status === "completed"
-                                        ? "text-muted-foreground"
-                                        : step.status === "inProgress"
-                                          ? "text-foreground"
-                                          : "text-muted-foreground",
-                                    )}
-                                  >
-                                    {step.step}
-                                  </p>
-                                </div>
-                              </div>
-                            );
-                          });
-                        })()}
-                      </div>
-                    ) : null}
-                  </SummaryPanelSection>
+                  <TodoChecklistSection
+                    displaySteps={displaySteps}
+                    planProgress={planProgress}
+                    completedPercent={completedPercent}
+                    todoDetailsExpanded={todoDetailsExpanded}
+                    onToggleTodoDetails={handleToggleTodoDetails}
+                  />
                 ) : null}
               </>
             )}

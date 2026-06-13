@@ -1,6 +1,6 @@
 import { ThreadId } from "@ace/contracts";
 import { createFileRoute, retainSearchParams, useNavigate } from "@tanstack/react-router";
-import { useCallback, useEffect, useRef } from "react";
+import { useEffect, useReducer, useRef } from "react";
 
 import { ThreadBoard } from "../components/chat/ThreadBoard";
 import { useComposerDraftStore } from "../composerDraftStore";
@@ -65,6 +65,10 @@ function ChatThreadRouteView() {
   const routeThreadExists = threadExists || draftThreadExists;
   const threadHydrationInFlightRef = useRef<ThreadId | null>(null);
   const threadHydrationRequestIdRef = useRef(0);
+  const [threadHydrationRetryNonce, bumpThreadHydrationRetryNonce] = useReducer(
+    (value: number) => value + 1,
+    0,
+  );
   useEffect(() => {
     const preloadTimer = window.setTimeout(() => {
       void preloadDiffPanel();
@@ -97,7 +101,7 @@ function ChatThreadRouteView() {
     }
   }, [bootstrapComplete, navigate, routeThreadExists, threadId]);
 
-  const runThreadHydration = useCallback(() => {
+  useEffect(() => {
     if (
       !bootstrapComplete ||
       !serverThread ||
@@ -183,11 +187,7 @@ function ChatThreadRouteView() {
         threadHydrationInFlightRef.current = null;
       }
     };
-  }, [bootstrapComplete, routeConnectionUrl, serverThread, threadId]);
-
-  useEffect(() => {
-    return runThreadHydration();
-  }, [runThreadHydration]);
+  }, [bootstrapComplete, routeConnectionUrl, serverThread, threadHydrationRetryNonce, threadId]);
 
   useEffect(
     () =>
@@ -195,9 +195,9 @@ function ChatThreadRouteView() {
         if (state.kind !== "reconnected") {
           return;
         }
-        runThreadHydration();
+        bumpThreadHydrationRetryNonce();
       }),
-    [runThreadHydration],
+    [],
   );
 
   const lineageSourceThreadId = serverThread

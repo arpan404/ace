@@ -738,8 +738,14 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
     }, []);
   })();
   const composerMenuOpen = Boolean(composerTrigger);
+  const effectiveComposerHighlightedItemId =
+    composerMenuOpen && composerMenuItems.some((item) => item.id === composerHighlightedItemId)
+      ? composerHighlightedItemId
+      : composerMenuOpen
+        ? (composerMenuItems[0]?.id ?? null)
+        : null;
   const activeComposerMenuItem =
-    composerMenuItems.find((item) => item.id === composerHighlightedItemId) ??
+    composerMenuItems.find((item) => item.id === effectiveComposerHighlightedItemId) ??
     composerMenuItems[0] ??
     null;
   composerMenuOpenRef.current = composerMenuOpen;
@@ -1094,7 +1100,7 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
       return;
     }
     const highlightedIndex = composerMenuItems.findIndex(
-      (item) => item.id === composerHighlightedItemId,
+      (item) => item.id === effectiveComposerHighlightedItemId,
     );
     const normalizedIndex = highlightedIndex >= 0 ? highlightedIndex : key === "ArrowDown" ? -1 : 0;
     const offset = key === "ArrowDown" ? 1 : -1;
@@ -1201,16 +1207,6 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
     promptRef.current = nextCustomAnswer;
     resetUi(nextCustomAnswer);
   }, [activePendingQuestion?.id, props.activePendingProgress?.customAnswer, resetUi]);
-
-  useEffect(() => {
-    setComposerHighlightedItemId((existing) =>
-      composerMenuOpen && composerMenuItems.some((item) => item.id === existing)
-        ? existing
-        : composerMenuOpen
-          ? (composerMenuItems[0]?.id ?? null)
-          : null,
-    );
-  }, [composerMenuItems, composerMenuOpen]);
 
   useEffect(() => {
     dragDepthRef.current = 0;

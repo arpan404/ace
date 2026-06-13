@@ -17,6 +17,7 @@ import {
   startTransition,
   useEffect,
   useLayoutEffect,
+  useReducer,
   useRef,
   useState,
   type CSSProperties,
@@ -178,6 +179,81 @@ type AssistantSelectionPinTarget = {
   text: string;
   top: number;
 };
+
+interface MessagesTimelineUiState {
+  readonly selectionPinTarget: AssistantSelectionPinTarget | null;
+  readonly allDirectoriesExpandedByTurnId: Record<string, boolean>;
+  readonly timelineRootElement: HTMLDivElement | null;
+  readonly timelineWidthPx: number | null;
+  readonly renderedAssistantMarkdownMessageIds: ReadonlySet<string>;
+}
+
+type MessagesTimelineUiAction =
+  | {
+      readonly type: "set-selection-pin-target";
+      readonly selectionPinTarget: AssistantSelectionPinTarget | null;
+    }
+  | {
+      readonly type: "toggle-all-directories";
+      readonly turnId: TurnId;
+    }
+  | {
+      readonly type: "set-timeline-root-element";
+      readonly timelineRootElement: HTMLDivElement | null;
+    }
+  | { readonly type: "set-timeline-width"; readonly timelineWidthPx: number }
+  | {
+      readonly type: "update-rendered-assistant-markdown-message-ids";
+      readonly update: (current: ReadonlySet<string>) => ReadonlySet<string>;
+    };
+
+const INITIAL_MESSAGES_TIMELINE_UI_STATE: MessagesTimelineUiState = {
+  selectionPinTarget: null,
+  allDirectoriesExpandedByTurnId: {},
+  timelineRootElement: null,
+  timelineWidthPx: null,
+  renderedAssistantMarkdownMessageIds: new Set(),
+};
+
+function messagesTimelineUiStateReducer(
+  state: MessagesTimelineUiState,
+  action: MessagesTimelineUiAction,
+): MessagesTimelineUiState {
+  switch (action.type) {
+    case "set-selection-pin-target":
+      return state.selectionPinTarget === action.selectionPinTarget
+        ? state
+        : { ...state, selectionPinTarget: action.selectionPinTarget };
+    case "toggle-all-directories":
+      return {
+        ...state,
+        allDirectoriesExpandedByTurnId: {
+          ...state.allDirectoriesExpandedByTurnId,
+          [action.turnId]: !(
+            state.allDirectoriesExpandedByTurnId[action.turnId] ??
+            DEFAULT_TURN_DIFF_DIRECTORIES_EXPANDED
+          ),
+        },
+      };
+    case "set-timeline-root-element":
+      return state.timelineRootElement === action.timelineRootElement
+        ? state
+        : { ...state, timelineRootElement: action.timelineRootElement };
+    case "set-timeline-width":
+      return state.timelineWidthPx !== null &&
+        Math.abs(state.timelineWidthPx - action.timelineWidthPx) < 0.5
+        ? state
+        : { ...state, timelineWidthPx: action.timelineWidthPx };
+    case "update-rendered-assistant-markdown-message-ids": {
+      const renderedAssistantMarkdownMessageIds = action.update(
+        state.renderedAssistantMarkdownMessageIds,
+      );
+      return renderedAssistantMarkdownMessageIds === state.renderedAssistantMarkdownMessageIds
+        ? state
+        : { ...state, renderedAssistantMarkdownMessageIds };
+    }
+  }
+}
 
 type TargetMessageNavigation = {
   messageId: string;
@@ -660,17 +736,25 @@ export function MessagesTimeline({
     PinnedMessagesSchema,
   );
   const pinnedMessageIdSet = new Set(pinnedMessages.map((message) => message.id));
-  const [selectionPinTarget, setSelectionPinTarget] = useState<AssistantSelectionPinTarget | null>(
-    null,
+  const [uiState, dispatchUiState] = useReducer(
+    messagesTimelineUiStateReducer,
+    INITIAL_MESSAGES_TIMELINE_UI_STATE,
   );
+  const {
+    allDirectoriesExpandedByTurnId,
+    renderedAssistantMarkdownMessageIds,
+    selectionPinTarget,
+    timelineRootElement,
+    timelineWidthPx,
+  } = uiState;
   const updateSelectionPinTarget = () => {
     if (!activeThreadId) {
-      setSelectionPinTarget(null);
+      dispatchUiState({ type: "set-selection-pin-target", selectionPinTarget: null });
       return;
     }
     const currentSelectionPinTarget = readCurrentAssistantSelectionPinTarget();
     if (!currentSelectionPinTarget) {
-      setSelectionPinTarget(null);
+      dispatchUiState({ type: "set-selection-pin-target", selectionPinTarget: null });
       return;
     }
 
@@ -680,7 +764,7 @@ export function MessagesTimeline({
     const anchorRect =
       selectionRects.at(-1) ?? currentSelectionPinTarget.range.getBoundingClientRect();
     if (anchorRect.width <= 0 || anchorRect.height <= 0) {
-      setSelectionPinTarget(null);
+      dispatchUiState({ type: "set-selection-pin-target", selectionPinTarget: null });
       return;
     }
 
@@ -689,14 +773,17 @@ export function MessagesTimeline({
       preferredTop >= 8
         ? preferredTop
         : Math.min(window.innerHeight - SELECTION_PIN_BUTTON_HEIGHT_PX - 8, anchorRect.bottom + 8);
-    setSelectionPinTarget({
-      left: Math.min(
-        window.innerWidth - SELECTION_PIN_BUTTON_WIDTH_PX - 8,
-        Math.max(8, anchorRect.right - SELECTION_PIN_BUTTON_WIDTH_PX),
-      ),
-      messageId: currentSelectionPinTarget.messageId,
-      text: currentSelectionPinTarget.text,
-      top,
+    dispatchUiState({
+      type: "set-selection-pin-target",
+      selectionPinTarget: {
+        left: Math.min(
+          window.innerWidth - SELECTION_PIN_BUTTON_WIDTH_PX - 8,
+          Math.max(8, anchorRect.right - SELECTION_PIN_BUTTON_WIDTH_PX),
+        ),
+        messageId: currentSelectionPinTarget.messageId,
+        text: currentSelectionPinTarget.text,
+        top,
+      },
     });
   };
   const updateSelectionPinTargetEffect = useEffectEvent(updateSelectionPinTarget);
@@ -711,7 +798,7 @@ export function MessagesTimeline({
       }),
     );
     window.getSelection()?.removeAllRanges();
-    setSelectionPinTarget(null);
+    dispatchUiState({ type: "set-selection-pin-target", selectionPinTarget: null });
   };
   useEffect(() => {
     const updateAfterSelectionSettles = () => {
@@ -837,7 +924,7 @@ export function MessagesTimeline({
                   }),
                 );
                 window.getSelection()?.removeAllRanges();
-                setSelectionPinTarget(null);
+                dispatchUiState({ type: "set-selection-pin-target", selectionPinTarget: null });
                 return;
               }
 
@@ -896,19 +983,8 @@ export function MessagesTimeline({
   );
   const activeTurnStartedAtMs =
     activeTurnInProgress && activeTurnStartedAt ? Date.parse(activeTurnStartedAt) : Number.NaN;
-  const [allDirectoriesExpandedByTurnId, setAllDirectoriesExpandedByTurnId] = useState<
-    Record<string, boolean>
-  >({});
-  const [timelineRootElement, setTimelineRootElement] = useState<HTMLDivElement | null>(null);
-  const [timelineWidthPx, setTimelineWidthPx] = useState<number | null>(null);
-  const [renderedAssistantMarkdownMessageIds, setRenderedAssistantMarkdownMessageIds] = useState<
-    ReadonlySet<string>
-  >(() => new Set());
   const onToggleAllDirectories = (turnId: TurnId) => {
-    setAllDirectoriesExpandedByTurnId((current) => ({
-      ...current,
-      [turnId]: !(current[turnId] ?? DEFAULT_TURN_DIFF_DIRECTORIES_EXPANDED),
-    }));
+    dispatchUiState({ type: "toggle-all-directories", turnId });
   };
 
   useEffect(() => {
@@ -920,9 +996,7 @@ export function MessagesTimeline({
     let timeoutId: number | null = null;
 
     const updateWidth = (nextWidth: number) => {
-      setTimelineWidthPx((current) =>
-        current !== null && Math.abs(current - nextWidth) < 0.5 ? current : nextWidth,
-      );
+      dispatchUiState({ type: "set-timeline-width", timelineWidthPx: nextWidth });
     };
     const scheduleWidthUpdate = (nextWidth: number) => {
       pendingWidth = nextWidth;
@@ -1318,22 +1392,25 @@ export function MessagesTimeline({
       ...pendingAssistantMarkdownMessageIdKey.split("\0").filter(Boolean),
     ];
     const timeoutId = window.setTimeout(() => {
-      setRenderedAssistantMarkdownMessageIds((current) => {
-        const next = new Set<string>();
-        for (const messageId of priorityMessageIds) {
-          if (!next.has(messageId)) {
-            next.add(messageId);
+      dispatchUiState({
+        type: "update-rendered-assistant-markdown-message-ids",
+        update: (current) => {
+          const next = new Set<string>();
+          for (const messageId of priorityMessageIds) {
+            if (!next.has(messageId)) {
+              next.add(messageId);
+            }
           }
-        }
-        for (const messageId of current) {
-          if (!next.has(messageId)) {
-            next.add(messageId);
+          for (const messageId of current) {
+            if (!next.has(messageId)) {
+              next.add(messageId);
+            }
+            if (next.size >= MAX_RENDERED_ASSISTANT_MARKDOWN_MESSAGE_IDS) {
+              break;
+            }
           }
-          if (next.size >= MAX_RENDERED_ASSISTANT_MARKDOWN_MESSAGE_IDS) {
-            break;
-          }
-        }
-        return areStringSetsEqual(next, current) ? current : next;
+          return areStringSetsEqual(next, current) ? current : next;
+        },
       });
     }, 0);
     return () => {
@@ -1382,16 +1459,19 @@ export function MessagesTimeline({
       }
       if (batch.length > 0) {
         startTransition(() => {
-          setRenderedAssistantMarkdownMessageIds((current) => {
-            let changed = false;
-            const next = new Set(current);
-            for (const messageId of batch) {
-              if (!next.has(messageId)) {
-                changed = true;
-                next.add(messageId);
+          dispatchUiState({
+            type: "update-rendered-assistant-markdown-message-ids",
+            update: (current) => {
+              let changed = false;
+              const next = new Set(current);
+              for (const messageId of batch) {
+                if (!next.has(messageId)) {
+                  changed = true;
+                  next.add(messageId);
+                }
               }
-            }
-            return changed ? next : current;
+              return changed ? next : current;
+            },
           });
         });
       }
@@ -1765,7 +1845,9 @@ export function MessagesTimeline({
 
   return (
     <div
-      ref={setTimelineRootElement}
+      ref={(element) =>
+        dispatchUiState({ type: "set-timeline-root-element", timelineRootElement: element })
+      }
       role="presentation"
       data-timeline-root="true"
       className="mx-auto mt-3 w-full min-w-0 max-w-3xl overflow-x-hidden"
