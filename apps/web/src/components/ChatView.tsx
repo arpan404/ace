@@ -2303,7 +2303,7 @@ function useChatViewComponent({
   const projectConnectionUrl = useProjectConnectionUrl(
     serverThread?.projectId ?? draftThread?.projectId,
   );
-  const routeConnectionUrl = useMemo(() => {
+  const routeConnectionUrl = (() => {
     const value = new URLSearchParams(locationSearch)
       .get(THREAD_ROUTE_CONNECTION_SEARCH_PARAM)
       ?.trim();
@@ -2315,17 +2315,13 @@ function useChatViewComponent({
     } catch {
       return null;
     }
-  }, [locationSearch]);
-  const activeServerConnectionUrl = useMemo(
-    () =>
-      resolveThreadOriginConnectionUrl({
-        explicitConnectionUrl: connectionUrl,
-        projectConnectionUrl,
-        routeConnectionUrl,
-        threadConnectionUrl,
-      }),
-    [connectionUrl, projectConnectionUrl, routeConnectionUrl, threadConnectionUrl],
-  );
+  })();
+  const activeServerConnectionUrl = resolveThreadOriginConnectionUrl({
+    explicitConnectionUrl: connectionUrl,
+    projectConnectionUrl,
+    routeConnectionUrl,
+    threadConnectionUrl,
+  });
   const resolveBrowserThreadConnectionUrl = (browserThreadId: ThreadId): string => {
     const browserThread =
       browserThreadId === threadId
@@ -2345,10 +2341,7 @@ function useChatViewComponent({
   const fallbackDraftProject = useProjectById(draftThread?.projectId);
   const localDraftError = serverThread ? null : (localDraftErrorsByThreadId[threadId] ?? null);
   const connectionServerConfig = useConnectionServerConfig(activeServerConnectionUrl);
-  const providerStatuses = useMemo(
-    () => connectionServerConfig?.providers ?? EMPTY_PROVIDER_STATUSES,
-    [connectionServerConfig?.providers],
-  );
+  const providerStatuses = connectionServerConfig?.providers ?? EMPTY_PROVIDER_STATUSES;
   const providerSettings =
     connectionServerConfig?.settings.providers ?? DEFAULT_UNIFIED_SETTINGS.providers;
   const modelSettings = { providers: providerSettings };
@@ -2364,15 +2357,11 @@ function useChatViewComponent({
       )
     : undefined;
   const activeThread = serverThread ?? localDraftThread;
-  const { runtimeMode, interactionMode } = useMemo(
-    () =>
-      deriveEffectiveComposerExecutionModeState({
-        draft: composerShellDraft,
-        threadRuntimeMode: activeThread?.runtimeMode ?? null,
-        threadInteractionMode: activeThread?.interactionMode ?? null,
-      }),
-    [activeThread?.interactionMode, activeThread?.runtimeMode, composerShellDraft],
-  );
+  const { runtimeMode, interactionMode } = deriveEffectiveComposerExecutionModeState({
+    draft: composerShellDraft,
+    threadRuntimeMode: activeThread?.runtimeMode ?? null,
+    threadInteractionMode: activeThread?.interactionMode ?? null,
+  });
   const isServerThread = serverThread !== undefined;
   const isLocalDraftThread = !isServerThread && localDraftThread !== undefined;
   const activeThreadLineageSourceThreadId =
@@ -3415,13 +3404,13 @@ function useChatViewComponent({
     optimisticUserMessages,
     turnDiffSummaryByAssistantMessageId,
   ]);
-  const nativeTurnDiffSummaryKey = useMemo(() => {
+  const nativeTurnDiffSummaryKey = (() => {
     if (!nativeTimelineRowsInput || turnDiffSummaryByAssistantMessageId.size === 0) {
       return "";
     }
     return [...turnDiffSummaryByAssistantMessageId.keys()].join("\0");
-  }, [nativeTimelineRowsInput, turnDiffSummaryByAssistantMessageId]);
-  const nativeTimelineRowsContentKey = useMemo(() => {
+  })();
+  const nativeTimelineRowsContentKey = (() => {
     if (!nativeTimelineRowsInput) {
       return "";
     }
@@ -3429,9 +3418,9 @@ function useChatViewComponent({
       .slice(-NATIVE_TIMELINE_ROWS_CONTENT_KEY_TAIL_ROWS)
       .map((row) => [row.id, row.contentVersion, row.updatedAt].join(":"))
       .join("\0");
-  }, [nativeTimelineRowsInput]);
+  })();
   const nativeTimelineRowsThreadId = activeThread?.id ?? null;
-  const nativeTimelineRowsInputKey = useMemo(() => {
+  const nativeTimelineRowsInputKey = (() => {
     if (!nativeTimelineRowsInput) {
       return null;
     }
@@ -3453,19 +3442,7 @@ function useChatViewComponent({
       hideCompletedWorkMessages,
       turnDiffSummaryKey: nativeTurnDiffSummaryKey,
     });
-  }, [
-    activeThreadTimelineCompleteSnapshot,
-    activeThreadTimelineRevision,
-    activeWorkStartedAt,
-    completionSummary,
-    hideCompletedWorkMessages,
-    isWorking,
-    nativeCompletionDividerBeforeEntryId,
-    nativeTimelineRowsContentKey,
-    nativeTimelineRowsInput,
-    nativeTimelineRowsThreadId,
-    nativeTurnDiffSummaryKey,
-  ]);
+  })();
   const [resolvedNativeTimelineRows, setResolvedNativeTimelineRows] = useState<{
     readonly key: string;
     readonly rows: ReadonlyArray<TimelineRow>;
@@ -3631,21 +3608,14 @@ function useChatViewComponent({
     return byAssistantMessageId;
   }, [inferredCheckpointTurnCountByTurnId, turnDiffSummaryByAssistantMessageId]);
 
-  const completionDividerBeforeEntryId = useMemo(() => {
+  const completionDividerBeforeEntryId = (() => {
     if (nativeTimelineRowsOverride !== null) {
       return nativeCompletionDividerBeforeEntryId;
     }
     if (!latestTurnSettled) return null;
     if (!completionSummary) return null;
     return deriveCompletionDividerBeforeEntryId(timelineEntries, activeLatestTurn);
-  }, [
-    activeLatestTurn,
-    completionSummary,
-    latestTurnSettled,
-    nativeCompletionDividerBeforeEntryId,
-    nativeTimelineRowsOverride,
-    timelineEntries,
-  ]);
+  })();
   const timelineCacheScope = useMemo(() => {
     if (nativeTimelineRowsOverride !== null) {
       return null;
@@ -3731,7 +3701,7 @@ function useChatViewComponent({
     activeThread?.branch ?? branchesData?.branches.find((branch) => branch.current)?.name ?? null;
   const keybindings = useServerKeybindings({ enabled: activeForSideEffects });
   const availableEditors = useServerAvailableEditors({ enabled: activeForSideEffects });
-  const handoffDisabledReason = useMemo(() => {
+  const handoffDisabledReason = (() => {
     if (!activeThread || !isServerThread) {
       return "Handoff is only available for saved threads.";
     }
@@ -3745,7 +3715,7 @@ function useChatViewComponent({
       return "No other providers are available.";
     }
     return null;
-  }, [activeThread, handoffInFlight, handoffTargetProviders.length, isServerThread, isWorking]);
+  })();
   const handoffDisabled = handoffDisabledReason !== null;
   const activeProjectCwd = activeProject?.cwd ?? null;
   const activeThreadWorktreePath = activeThread?.worktreePath ?? null;

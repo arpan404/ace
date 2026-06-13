@@ -11,7 +11,6 @@ import React, {
   isValidElement,
   memo,
   useEffect,
-  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -895,166 +894,155 @@ function ChatMarkdown({
   const shouldObserveLayout = onLayoutChange !== undefined && shouldObserveLayoutFromAnalysis;
   const canOpenLocalFiles = enableLocalFileLinks && !isStreaming;
 
-  const markdownComponents = useMemo<Components>(
-    () => ({
-      a({ node: _node, href, children, className, title, ...props }) {
-        const targetPath = canOpenLocalFiles ? resolveMarkdownFileLinkTarget(href, cwd) : null;
-        if (!targetPath) {
-          const browserUrl = href ? normalizeBrowserHttpUrl(href) : null;
-          if (!browserUrl || !onOpenBrowserUrl) {
-            return (
-              <a {...props} href={href} target="_blank" rel="noopener noreferrer">
-                {children}
-              </a>
-            );
-          }
-
+  const markdownComponents: Components = {
+    a({ node: _node, href, children, className, title, ...props }) {
+      const targetPath = canOpenLocalFiles ? resolveMarkdownFileLinkTarget(href, cwd) : null;
+      if (!targetPath) {
+        const browserUrl = href ? normalizeBrowserHttpUrl(href) : null;
+        if (!browserUrl || !onOpenBrowserUrl) {
           return (
-            <span className="chat-markdown-link-shell">
-              <button
-                type="button"
-                className={joinClassNames("chat-markdown-link-button", className)}
-                title={title}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  if (event.metaKey || event.ctrlKey) {
-                    openLinkExternally(href ?? browserUrl);
-                    return;
-                  }
-                  onOpenBrowserUrl(browserUrl);
-                }}
-              >
-                {children}
-              </button>
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <button
-                      type="button"
-                      className="chat-markdown-link-open-browser"
-                      aria-label="Open link in the in-app browser"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        onOpenBrowserUrl(browserUrl);
-                      }}
-                    />
-                  }
-                >
-                  <GlobeIcon className="size-3" />
-                </TooltipTrigger>
-                <TooltipPopup side="top">Open in in-app browser</TooltipPopup>
-              </Tooltip>
-            </span>
-          );
-        }
-
-        return (
-          <button
-            type="button"
-            className={joinClassNames(
-              "chat-markdown-link-button",
-              "chat-markdown-local-file-link",
-              className,
-            )}
-            title={title}
-            onClick={(event) => {
-              event.stopPropagation();
-              openLocalFilePath({
-                targetPath,
-                onOpenFilePath,
-                preferExternalEditor: event.metaKey || event.ctrlKey,
-              });
-            }}
-          >
-            {children}
-          </button>
-        );
-      },
-      code({ node, className, children, ...props }) {
-        const code = nodeToPlainText(children);
-        const isInlineCode =
-          !className && !code.includes("\n") && code.length > 0 && isSingleLineMarkdownNode(node);
-        if (!isInlineCode) {
-          return (
-            <code {...props} className={className}>
+            <a {...props} href={href} target="_blank" rel="noopener noreferrer">
               {children}
-            </code>
+            </a>
           );
         }
+
         return (
-          <InlineCodeLocalFileLink
-            code={code}
-            codeProps={{ ...props, className }}
-            cwd={cwd}
-            enabled={canOpenLocalFiles}
-            onOpenFilePath={onOpenFilePath}
-          >
-            {children}
-          </InlineCodeLocalFileLink>
+          <span className="chat-markdown-link-shell">
+            <button
+              type="button"
+              className={joinClassNames("chat-markdown-link-button", className)}
+              title={title}
+              onClick={(event) => {
+                event.stopPropagation();
+                if (event.metaKey || event.ctrlKey) {
+                  openLinkExternally(href ?? browserUrl);
+                  return;
+                }
+                onOpenBrowserUrl(browserUrl);
+              }}
+            >
+              {children}
+            </button>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <button
+                    type="button"
+                    className="chat-markdown-link-open-browser"
+                    aria-label="Open link in the in-app browser"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onOpenBrowserUrl(browserUrl);
+                    }}
+                  />
+                }
+              >
+                <GlobeIcon className="size-3" />
+              </TooltipTrigger>
+              <TooltipPopup side="top">Open in in-app browser</TooltipPopup>
+            </Tooltip>
+          </span>
         );
-      },
-      pre({ node: _node, children, ...props }) {
-        const codeBlock = extractCodeBlock(children);
-        if (!codeBlock) {
-          return <pre {...props}>{children}</pre>;
-        }
-        if (isStreaming) {
-          return (
-            <MarkdownCodeBlock code={codeBlock.code}>
-              <pre {...props}>{children}</pre>
-            </MarkdownCodeBlock>
-          );
-        }
-        const language = extractFenceLanguage(codeBlock.className);
+      }
 
-        if (language === "mermaid") {
-          return (
-            <MarkdownCodeBlock code={codeBlock.code}>
-              <Suspense fallback={<MermaidDiagramLoading className="chat-markdown-mermaid" />}>
-                <MermaidDiagram
-                  source={codeBlock.code}
-                  theme={resolvedTheme}
-                  className="chat-markdown-mermaid"
-                />
-              </Suspense>
-            </MarkdownCodeBlock>
-          );
-        }
-
+      return (
+        <button
+          type="button"
+          className={joinClassNames(
+            "chat-markdown-link-button",
+            "chat-markdown-local-file-link",
+            className,
+          )}
+          title={title}
+          onClick={(event) => {
+            event.stopPropagation();
+            openLocalFilePath({
+              targetPath,
+              onOpenFilePath,
+              preferExternalEditor: event.metaKey || event.ctrlKey,
+            });
+          }}
+        >
+          {children}
+        </button>
+      );
+    },
+    code({ node, className, children, ...props }) {
+      const code = nodeToPlainText(children);
+      const isInlineCode =
+        !className && !code.includes("\n") && code.length > 0 && isSingleLineMarkdownNode(node);
+      if (!isInlineCode) {
+        return (
+          <code {...props} className={className}>
+            {children}
+          </code>
+        );
+      }
+      return (
+        <InlineCodeLocalFileLink
+          code={code}
+          codeProps={{ ...props, className }}
+          cwd={cwd}
+          enabled={canOpenLocalFiles}
+          onOpenFilePath={onOpenFilePath}
+        >
+          {children}
+        </InlineCodeLocalFileLink>
+      );
+    },
+    pre({ node: _node, children, ...props }) {
+      const codeBlock = extractCodeBlock(children);
+      if (!codeBlock) {
+        return <pre {...props}>{children}</pre>;
+      }
+      if (isStreaming) {
         return (
           <MarkdownCodeBlock code={codeBlock.code}>
-            <CodeHighlightErrorBoundary fallback={<pre {...props}>{children}</pre>}>
-              <ShikiCodeBlock
-                className={codeBlock.className}
-                code={codeBlock.code}
-                fallback={<pre {...props}>{children}</pre>}
-                themeName={diffThemeName}
-                isStreaming={isStreaming}
-              />
-            </CodeHighlightErrorBoundary>
+            <pre {...props}>{children}</pre>
           </MarkdownCodeBlock>
         );
-      },
-      img({ node: _node, alt, ...props }) {
+      }
+      const language = extractFenceLanguage(codeBlock.className);
+
+      if (language === "mermaid") {
         return (
-          <img
-            {...props}
-            alt={alt ?? ""}
-            className="my-2 max-h-[70vh] max-w-full rounded-lg border border-border/55 bg-background/70 object-contain"
-          />
+          <MarkdownCodeBlock code={codeBlock.code}>
+            <Suspense fallback={<MermaidDiagramLoading className="chat-markdown-mermaid" />}>
+              <MermaidDiagram
+                source={codeBlock.code}
+                theme={resolvedTheme}
+                className="chat-markdown-mermaid"
+              />
+            </Suspense>
+          </MarkdownCodeBlock>
         );
-      },
-    }),
-    [
-      canOpenLocalFiles,
-      cwd,
-      diffThemeName,
-      isStreaming,
-      onOpenBrowserUrl,
-      onOpenFilePath,
-      resolvedTheme,
-    ],
-  );
+      }
+
+      return (
+        <MarkdownCodeBlock code={codeBlock.code}>
+          <CodeHighlightErrorBoundary fallback={<pre {...props}>{children}</pre>}>
+            <ShikiCodeBlock
+              className={codeBlock.className}
+              code={codeBlock.code}
+              fallback={<pre {...props}>{children}</pre>}
+              themeName={diffThemeName}
+              isStreaming={isStreaming}
+            />
+          </CodeHighlightErrorBoundary>
+        </MarkdownCodeBlock>
+      );
+    },
+    img({ node: _node, alt, ...props }) {
+      return (
+        <img
+          {...props}
+          alt={alt ?? ""}
+          className="my-2 max-h-[70vh] max-w-full rounded-lg border border-border/55 bg-background/70 object-contain"
+        />
+      );
+    },
+  };
   useEffect(() => {
     if (!onLayoutChange || !shouldObserveLayout || typeof ResizeObserver === "undefined") {
       return;
