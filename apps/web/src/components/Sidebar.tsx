@@ -2003,21 +2003,17 @@ function useSidebarComponent() {
   });
   const addProjectInputRef = useRef<HTMLInputElement | null>(null);
   const projectPickerListRef = useRef<HTMLDivElement | null>(null);
-  const setProjectBrowseState = useCallback(
-    (nextState: ProjectBrowseState | ((current: ProjectBrowseState) => ProjectBrowseState)) => {
-      dispatchProjectPickerBrowseUiState({ type: "set-project-browse-state", nextState });
-    },
-    [],
-  );
-  const setActiveProjectBrowseIndex = useCallback(
-    (nextIndex: number | ((current: number) => number)) => {
-      dispatchProjectPickerBrowseUiState({ type: "set-active-project-browse-index", nextIndex });
-    },
-    [],
-  );
-  const setAddProjectError = useCallback((error: string | null) => {
+  const setProjectBrowseState = (
+    nextState: ProjectBrowseState | ((current: ProjectBrowseState) => ProjectBrowseState),
+  ) => {
+    dispatchProjectPickerBrowseUiState({ type: "set-project-browse-state", nextState });
+  };
+  const setActiveProjectBrowseIndex = (nextIndex: number | ((current: number) => number)) => {
+    dispatchProjectPickerBrowseUiState({ type: "set-active-project-browse-index", nextIndex });
+  };
+  const setAddProjectError = (error: string | null) => {
     dispatchProjectPickerBrowseUiState({ type: "set-add-project-error", error });
-  }, []);
+  };
   const requestProjectPickerKeyboardScroll = (eventTimeStamp: number) => {
     lastKeyboardNavigationTimeRef.current = eventTimeStamp;
     dispatchProjectPickerBrowseUiState({ type: "bump-keyboard-navigation-id" });
@@ -2254,18 +2250,15 @@ function useSidebarComponent() {
       nextCount: SPLIT_REVEAL_STEP,
     });
   }, [splitSortOrder]);
-  const buildSplitTitle = useCallback(
-    (threads: ReadonlyArray<{ threadId: ThreadId }>) => {
-      return buildThreadBoardTitle({
-        fallbackIndex: savedSplitBoard.splits.length + 1,
-        threads: threads.map((thread) => ({
-          threadId: thread.threadId,
-          title: sidebarThreadsById[thread.threadId]?.title,
-        })),
-      });
-    },
-    [savedSplitBoard.splits.length, sidebarThreadsById],
-  );
+  const buildSplitTitle = (threads: ReadonlyArray<{ threadId: ThreadId }>) => {
+    return buildThreadBoardTitle({
+      fallbackIndex: savedSplitBoard.splits.length + 1,
+      threads: threads.map((thread) => ({
+        threadId: thread.threadId,
+        title: sidebarThreadsById[thread.threadId]?.title,
+      })),
+    });
+  };
   const clearBoardThreadDrag = () => {
     setActiveThreadBoardDrag(null);
     dispatchSidebarSplitBoardUiState({
@@ -2321,18 +2314,18 @@ function useSidebarComponent() {
       });
     });
   };
-  const navigateToBoardThreadRoute = useCallback(
-    (activePane: { connectionUrl: string | null; threadId: ThreadId }) => {
-      startTransition(() => {
-        void navigate({
-          to: "/$threadId",
-          params: { threadId: activePane.threadId },
-          search: buildSingleThreadRouteSearch({ connectionUrl: activePane.connectionUrl }),
-        });
+  const navigateToBoardThreadRoute = (activePane: {
+    connectionUrl: string | null;
+    threadId: ThreadId;
+  }) => {
+    startTransition(() => {
+      void navigate({
+        to: "/$threadId",
+        params: { threadId: activePane.threadId },
+        search: buildSingleThreadRouteSearch({ connectionUrl: activePane.connectionUrl }),
       });
-    },
-    [navigate],
-  );
+    });
+  };
   const buildBoardFromDraggedThreads = (
     threads: ReadonlyArray<{
       connectionUrl: string | null;

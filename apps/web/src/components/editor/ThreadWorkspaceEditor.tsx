@@ -1808,7 +1808,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
       trimmedCodeSearchQuery !== debouncedCodeSearchQuery) ||
     isCodeSearchResultsPending ||
     isCodeSearchResultsFetching;
-  const visibleRecentCodeSearches = useMemo(() => {
+  const visibleRecentCodeSearches = (() => {
     const seenQueries = new Set<string>();
     const visibleQueries: string[] = [];
     for (const query of recentCodeSearches) {
@@ -1824,7 +1824,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
       }
     }
     return visibleQueries;
-  }, [recentCodeSearches]);
+  })();
 
   useEffect(() => {
     if (
@@ -1998,7 +1998,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
   };
 
   const normalizedRowRatios = normalizePaneRatios(paneRatios, rows.length);
-  const layoutRows = useMemo(() => {
+  const layoutRows = (() => {
     const nextRows: Array<ThreadEditorRowState & { panes: typeof panes }> = [];
     for (const row of rows) {
       const rowPanes: typeof panes = [];
@@ -2017,18 +2017,17 @@ function useThreadWorkspaceEditorComponent(inputProps: {
       }
     }
     return nextRows;
-  }, [panesById, rows]);
-  const orderedPaneIds = useMemo(() => layoutRows.flatMap((row) => row.paneIds), [layoutRows]);
+  })();
+  const orderedPaneIds = layoutRows.flatMap((row) => row.paneIds);
 
-  const activeDirtyPaths = useMemo(
-    () =>
-      Object.entries(draftsByFilePath).reduce<Set<string>>((paths, [path, draft]) => {
-        if (draft.draftContents !== draft.savedContents) {
-          paths.add(path);
-        }
-        return paths;
-      }, new Set<string>()),
-    [draftsByFilePath],
+  const activeDirtyPaths = Object.entries(draftsByFilePath).reduce<Set<string>>(
+    (paths, [path, draft]) => {
+      if (draft.draftContents !== draft.savedContents) {
+        paths.add(path);
+      }
+      return paths;
+    },
+    new Set<string>(),
   );
   const activeDirtyPathsRef = useRef(activeDirtyPaths);
 
@@ -2176,7 +2175,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     };
   }, [api, openWorkspaceFilePaths, prefetchWorkspaceEditorFile, props.gitCwd]);
 
-  const gitStatusByPath = useMemo(() => {
+  const gitStatusByPath = (() => {
     const files = gitStatusData?.workingTree.files ?? [];
     const statusByPath = new Map<string, GitWorkingTreeFileStatus>();
     for (const file of files) {
@@ -2185,7 +2184,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
       }
     }
     return statusByPath;
-  }, [gitStatusData?.workingTree.files]);
+  })();
   const changedFiles = gitStatusData?.workingTree.files ?? [];
   const openCodeCommentCount = countOpenWorkspaceCodeComments(codeComments);
   const unresolvedCodeComments = codeComments.filter((comment) => comment.status !== "resolved");
