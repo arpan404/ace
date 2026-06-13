@@ -1496,7 +1496,7 @@ function BrowserFavicon(props: {
   fallbackClassName?: string;
 }) {
   const { className, fallbackClassName, url } = props;
-  const sources = useMemo(() => resolveBrowserFaviconSources(url), [url]);
+  const sources = resolveBrowserFaviconSources(url);
 
   return (
     <BrowserFaviconImage
@@ -1675,17 +1675,14 @@ function useBrowserTabWebviewComponent(props: {
     "design",
     designDraft?.requestId ?? null,
   );
-  const setDesignRequestInputRef = useCallback(
-    (node: HTMLInputElement | null) => {
-      const requestId = designDraft?.requestId ?? null;
-      if (!node || !requestId || focusedDesignRequestIdRef.current === requestId) {
-        return;
-      }
-      focusedDesignRequestIdRef.current = requestId;
-      node.focus();
-    },
-    [designDraft?.requestId],
-  );
+  const setDesignRequestInputRef = (node: HTMLInputElement | null) => {
+    const requestId = designDraft?.requestId ?? null;
+    if (!node || !requestId || focusedDesignRequestIdRef.current === requestId) {
+      return;
+    }
+    focusedDesignRequestIdRef.current = requestId;
+    node.focus();
+  };
   const emitTabSnapshotChange = useStableCallback(
     (snapshot: BrowserTabSnapshot, options?: BrowserTabSnapshotOptions) => {
       onSnapshotChange(tab.id, snapshot, options);
@@ -2773,56 +2770,45 @@ function useBrowserTabWebviewComponent(props: {
     forwardElementCommentWheelToWebview(pendingWheel);
   }, [forwardElementCommentWheelToWebview]);
 
-  const onCaptureOverlayWheel = useCallback(
-    (event: ReactWheelEvent<HTMLDivElement>) => {
-      if (!active || !designerModeActive || designerTool !== "element-comment" || designDraft) {
-        return;
-      }
-      event.preventDefault();
-      event.stopPropagation();
-      lastElementCommentWheelAtRef.current = Date.now();
-      elementHoverRequestTokenRef.current += 1;
-      pendingElementHoverPointRef.current = null;
-      commitHoveredElementCapture(null, null);
-      if (elementHoverFrameRef.current !== null) {
-        window.cancelAnimationFrame(elementHoverFrameRef.current);
-        elementHoverFrameRef.current = null;
-      }
-      const deltaMultiplier =
-        event.deltaMode === 1
-          ? 16
-          : event.deltaMode === 2
-            ? (overlayRef.current?.clientHeight ?? 1)
-            : 1;
-      const deltaX = event.deltaX * deltaMultiplier;
-      const deltaY = event.deltaY * deltaMultiplier;
-      pendingElementCommentWheelRef.current = pendingElementCommentWheelRef.current
-        ? {
-            clientX: event.clientX,
-            clientY: event.clientY,
-            deltaX: pendingElementCommentWheelRef.current.deltaX + deltaX,
-            deltaY: pendingElementCommentWheelRef.current.deltaY + deltaY,
-          }
-        : {
-            clientX: event.clientX,
-            clientY: event.clientY,
-            deltaX,
-            deltaY,
-          };
-      if (elementCommentWheelFrameRef.current === null) {
-        elementCommentWheelFrameRef.current =
-          window.requestAnimationFrame(flushElementCommentWheel);
-      }
-    },
-    [
-      active,
-      commitHoveredElementCapture,
-      designDraft,
-      designerModeActive,
-      designerTool,
-      flushElementCommentWheel,
-    ],
-  );
+  const onCaptureOverlayWheel = (event: ReactWheelEvent<HTMLDivElement>) => {
+    if (!active || !designerModeActive || designerTool !== "element-comment" || designDraft) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    lastElementCommentWheelAtRef.current = Date.now();
+    elementHoverRequestTokenRef.current += 1;
+    pendingElementHoverPointRef.current = null;
+    commitHoveredElementCapture(null, null);
+    if (elementHoverFrameRef.current !== null) {
+      window.cancelAnimationFrame(elementHoverFrameRef.current);
+      elementHoverFrameRef.current = null;
+    }
+    const deltaMultiplier =
+      event.deltaMode === 1
+        ? 16
+        : event.deltaMode === 2
+          ? (overlayRef.current?.clientHeight ?? 1)
+          : 1;
+    const deltaX = event.deltaX * deltaMultiplier;
+    const deltaY = event.deltaY * deltaMultiplier;
+    pendingElementCommentWheelRef.current = pendingElementCommentWheelRef.current
+      ? {
+          clientX: event.clientX,
+          clientY: event.clientY,
+          deltaX: pendingElementCommentWheelRef.current.deltaX + deltaX,
+          deltaY: pendingElementCommentWheelRef.current.deltaY + deltaY,
+        }
+      : {
+          clientX: event.clientX,
+          clientY: event.clientY,
+          deltaX,
+          deltaY,
+        };
+    if (elementCommentWheelFrameRef.current === null) {
+      elementCommentWheelFrameRef.current = window.requestAnimationFrame(flushElementCommentWheel);
+    }
+  };
 
   const startCapturedDraft = useCallback(
     (
@@ -2922,184 +2908,165 @@ function useBrowserTabWebviewComponent(props: {
     flushHoveredElementInspectionRef.current = flushHoveredElementInspection;
   }, [flushHoveredElementInspection]);
 
-  const onCaptureOverlayPointerDown = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>) => {
-      if (!active || !designerModeActive || designDraft || event.button !== 0) {
-        return;
-      }
+  const onCaptureOverlayPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!active || !designerModeActive || designDraft || event.button !== 0) {
+      return;
+    }
+    const host = overlayRef.current;
+    if (!host) {
+      return;
+    }
+    const bounds = host.getBoundingClientRect();
+    const startX = event.clientX - bounds.left;
+    const startY = event.clientY - bounds.top;
+    if (designerTool === "element-comment") {
+      latestElementHoverPointRef.current = { x: startX, y: startY };
+      pendingElementHoverPointRef.current = { x: startX, y: startY };
+      flushHoveredElementInspection();
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+    dragSelectionRef.current = {
+      pointerId: event.pointerId,
+      startX,
+      startY,
+      hostWidth: host.clientWidth,
+      hostHeight: host.clientHeight,
+    };
+    const initialRect = normalizeSelectionRect({
+      startX,
+      startY,
+      currentX: startX,
+      currentY: startY,
+      hostWidth: host.clientWidth,
+      hostHeight: host.clientHeight,
+    });
+    dispatchDesignOverlayState({ type: "set-selection-rect", selectionRect: initialRect });
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const onCaptureOverlayPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const dragSelection = dragSelectionRef.current;
+    if (dragSelection && dragSelection.pointerId === event.pointerId) {
       const host = overlayRef.current;
       if (!host) {
         return;
       }
       const bounds = host.getBoundingClientRect();
-      const startX = event.clientX - bounds.left;
-      const startY = event.clientY - bounds.top;
-      if (designerTool === "element-comment") {
-        latestElementHoverPointRef.current = { x: startX, y: startY };
-        pendingElementHoverPointRef.current = { x: startX, y: startY };
-        flushHoveredElementInspection();
-        event.preventDefault();
-        event.stopPropagation();
-        return;
-      }
-      dragSelectionRef.current = {
-        pointerId: event.pointerId,
-        startX,
-        startY,
-        hostWidth: host.clientWidth,
-        hostHeight: host.clientHeight,
-      };
-      const initialRect = normalizeSelectionRect({
-        startX,
-        startY,
-        currentX: startX,
-        currentY: startY,
-        hostWidth: host.clientWidth,
-        hostHeight: host.clientHeight,
+      dispatchDesignOverlayState({
+        type: "set-selection-rect",
+        selectionRect: normalizeSelectionRect({
+          startX: dragSelection.startX,
+          startY: dragSelection.startY,
+          currentX: event.clientX - bounds.left,
+          currentY: event.clientY - bounds.top,
+          hostWidth: dragSelection.hostWidth,
+          hostHeight: dragSelection.hostHeight,
+        }),
       });
-      dispatchDesignOverlayState({ type: "set-selection-rect", selectionRect: initialRect });
       event.preventDefault();
       event.stopPropagation();
-      event.currentTarget.setPointerCapture(event.pointerId);
-    },
-    [active, designDraft, designerModeActive, designerTool, flushHoveredElementInspection],
-  );
+      return;
+    }
+    if (!active || !designerModeActive || designerTool !== "element-comment" || designDraft) {
+      return;
+    }
+    if (
+      Date.now() - lastElementCommentWheelAtRef.current <
+      ELEMENT_HOVER_INSPECTION_SCROLL_PAUSE_MS
+    ) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+    const host = overlayRef.current;
+    if (!host) {
+      return;
+    }
+    const bounds = host.getBoundingClientRect();
+    const point = {
+      x: event.clientX - bounds.left,
+      y: event.clientY - bounds.top,
+    };
+    latestElementHoverPointRef.current = point;
+    pendingElementHoverPointRef.current = point;
+    if (elementHoverFrameRef.current === null) {
+      elementHoverFrameRef.current = window.requestAnimationFrame(flushHoveredElementInspection);
+    }
+    event.preventDefault();
+    event.stopPropagation();
+  };
 
-  const onCaptureOverlayPointerMove = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>) => {
-      const dragSelection = dragSelectionRef.current;
-      if (dragSelection && dragSelection.pointerId === event.pointerId) {
-        const host = overlayRef.current;
-        if (!host) {
+  const onCaptureOverlayPointerEnd = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const dragSelection = dragSelectionRef.current;
+    if (dragSelection && dragSelection.pointerId === event.pointerId) {
+      dragSelectionRef.current = null;
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      const finalSelection = selectionRect;
+      if (!hasMinimumSelectionSize(finalSelection)) {
+        dispatchDesignOverlayState({ type: "set-selection-rect", selectionRect: null });
+        return;
+      }
+      startCapturedDraft(finalSelection);
+      return;
+    }
+
+    if (
+      !active ||
+      !designerModeActive ||
+      designerTool !== "element-comment" ||
+      designDraft ||
+      event.button !== 0
+    ) {
+      return;
+    }
+    const host = overlayRef.current;
+    if (!host) {
+      return;
+    }
+    const bounds = host.getBoundingClientRect();
+    const point = {
+      x: event.clientX - bounds.left,
+      y: event.clientY - bounds.top,
+    };
+    latestElementHoverPointRef.current = point;
+    event.preventDefault();
+    event.stopPropagation();
+    const hoveredCapture = hoveredElementCaptureRef.current;
+    const stableCapture =
+      hoveredCapture && isPointInsideSelectionRect(point, hoveredCapture.targetRect)
+        ? hoveredCapture
+        : null;
+    const capturePromise = stableCapture
+      ? Promise.resolve(stableCapture)
+      : inspectBrowserPoint(point);
+    void capturePromise
+      .then((capture) => {
+        if (!activeRef.current) {
           return;
         }
-        const bounds = host.getBoundingClientRect();
-        dispatchDesignOverlayState({
-          type: "set-selection-rect",
-          selectionRect: normalizeSelectionRect({
-            startX: dragSelection.startX,
-            startY: dragSelection.startY,
-            currentX: event.clientX - bounds.left,
-            currentY: event.clientY - bounds.top,
-            hostWidth: dragSelection.hostWidth,
-            hostHeight: dragSelection.hostHeight,
-          }),
-        });
-        event.preventDefault();
-        event.stopPropagation();
-        return;
-      }
-      if (!active || !designerModeActive || designerTool !== "element-comment" || designDraft) {
-        return;
-      }
-      if (
-        Date.now() - lastElementCommentWheelAtRef.current <
-        ELEMENT_HOVER_INSPECTION_SCROLL_PAUSE_MS
-      ) {
-        event.preventDefault();
-        event.stopPropagation();
-        return;
-      }
-      const host = overlayRef.current;
-      if (!host) {
-        return;
-      }
-      const bounds = host.getBoundingClientRect();
-      const point = {
-        x: event.clientX - bounds.left,
-        y: event.clientY - bounds.top,
-      };
-      latestElementHoverPointRef.current = point;
-      pendingElementHoverPointRef.current = point;
-      if (elementHoverFrameRef.current === null) {
-        elementHoverFrameRef.current = window.requestAnimationFrame(flushHoveredElementInspection);
-      }
-      event.preventDefault();
-      event.stopPropagation();
-    },
-    [active, designDraft, designerModeActive, designerTool, flushHoveredElementInspection],
-  );
-
-  const onCaptureOverlayPointerEnd = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>) => {
-      const dragSelection = dragSelectionRef.current;
-      if (dragSelection && dragSelection.pointerId === event.pointerId) {
-        dragSelectionRef.current = null;
-        if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-          event.currentTarget.releasePointerCapture(event.pointerId);
+        const selection = capture?.targetRect ?? null;
+        if (!hasMinimumSelectionSize(selection, MIN_ELEMENT_CAPTURE_SIZE_PX)) {
+          throw new Error("Click a visible page element to leave a comment.");
         }
-        event.preventDefault();
-        event.stopPropagation();
-        const finalSelection = selectionRect;
-        if (!hasMinimumSelectionSize(finalSelection)) {
-          dispatchDesignOverlayState({ type: "set-selection-rect", selectionRect: null });
-          return;
-        }
-        startCapturedDraft(finalSelection);
-        return;
-      }
+        commitHoveredElementCapture(capture, point);
+        startCapturedDraft(selection, capture, "Could not capture the selected page element.");
+      })
+      .catch((error: unknown) => {
+        const message =
+          error instanceof Error ? error.message : "Could not capture the selected page element.";
+        reportDesignCaptureError(message);
+      });
+  };
 
-      if (
-        !active ||
-        !designerModeActive ||
-        designerTool !== "element-comment" ||
-        designDraft ||
-        event.button !== 0
-      ) {
-        return;
-      }
-      const host = overlayRef.current;
-      if (!host) {
-        return;
-      }
-      const bounds = host.getBoundingClientRect();
-      const point = {
-        x: event.clientX - bounds.left,
-        y: event.clientY - bounds.top,
-      };
-      latestElementHoverPointRef.current = point;
-      event.preventDefault();
-      event.stopPropagation();
-      const hoveredCapture = hoveredElementCaptureRef.current;
-      const stableCapture =
-        hoveredCapture && isPointInsideSelectionRect(point, hoveredCapture.targetRect)
-          ? hoveredCapture
-          : null;
-      const capturePromise = stableCapture
-        ? Promise.resolve(stableCapture)
-        : inspectBrowserPoint(point);
-      void capturePromise
-        .then((capture) => {
-          if (!activeRef.current) {
-            return;
-          }
-          const selection = capture?.targetRect ?? null;
-          if (!hasMinimumSelectionSize(selection, MIN_ELEMENT_CAPTURE_SIZE_PX)) {
-            throw new Error("Click a visible page element to leave a comment.");
-          }
-          commitHoveredElementCapture(capture, point);
-          startCapturedDraft(selection, capture, "Could not capture the selected page element.");
-        })
-        .catch((error: unknown) => {
-          const message =
-            error instanceof Error ? error.message : "Could not capture the selected page element.";
-          reportDesignCaptureError(message);
-        });
-    },
-    [
-      active,
-      commitHoveredElementCapture,
-      designDraft,
-      designerModeActive,
-      designerTool,
-      inspectBrowserPoint,
-      reportDesignCaptureError,
-      selectionRect,
-      startCapturedDraft,
-    ],
-  );
-
-  const submitDesignDraft = useCallback(async () => {
+  const submitDesignDraft = async () => {
     if (!designDraft?.capture || !onDesignCaptureSubmit || isSubmittingDesignRequest) {
       return;
     }
@@ -3131,14 +3098,7 @@ function useBrowserTabWebviewComponent(props: {
       type: "set-submitting-design-request",
       isSubmittingDesignRequest: false,
     });
-  }, [
-    cancelDesignCapture,
-    designDraft,
-    designInstructions,
-    isSubmittingDesignRequest,
-    onDesignCaptureSubmit,
-    reportDesignCaptureError,
-  ]);
+  };
 
   useEffect(() => {
     if (!designDraft) {
@@ -3344,13 +3304,13 @@ function useBrowserTabWebviewComponent(props: {
         ? 0
         : 180;
   const canSubmitDesignDraft = designDraft?.capture ? designInstructions.trim().length > 0 : false;
-  const retryFailedLoad = useCallback(() => {
+  const retryFailedLoad = () => {
     const failedUrl = loadFailure?.url;
     if (!failedUrl) {
       return;
     }
     navigate(failedUrl);
-  }, [loadFailure?.url, navigate]);
+  };
 
   return (
     <div

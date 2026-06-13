@@ -93,7 +93,7 @@ type ThreadBoardLayoutNodeRendererProps = {
   handleBranchResizeEnd: (event: ReactPointerEvent<HTMLDivElement>) => void;
 };
 
-const ThreadBoardLayoutNode = memo(function ThreadBoardLayoutNode({
+function ThreadBoardLayoutNode({
   node,
   renderPaneNode,
   branchRefs,
@@ -163,7 +163,7 @@ const ThreadBoardLayoutNode = memo(function ThreadBoardLayoutNode({
       ))}
     </div>
   );
-});
+}
 
 function resolveThreadBoardDropDirection(
   event: Pick<ReactDragEvent<HTMLElement>, "clientX" | "clientY">,
@@ -277,7 +277,7 @@ function useThreadBoardDragActive(): boolean {
   );
 }
 
-const ThreadBoardPaneContent = memo(function ThreadBoardPaneContent(props: {
+function ThreadBoardPaneContent(props: {
   deferContent: boolean;
   isDimmedPane: boolean;
   isFocusedPane: boolean;
@@ -358,9 +358,9 @@ const ThreadBoardPaneContent = memo(function ThreadBoardPaneContent(props: {
       />
     </div>
   );
-});
+}
 
-const ThreadBoardPaneDropLayer = memo(function ThreadBoardPaneDropLayer(props: {
+function ThreadBoardPaneDropLayer(props: {
   dropPreviewDirection: ThreadBoardDropDirection | null | undefined;
   isSinglePane: boolean;
   pane: ChatThreadBoardPaneState;
@@ -422,9 +422,9 @@ const ThreadBoardPaneDropLayer = memo(function ThreadBoardPaneDropLayer(props: {
       </AnimatePresence>
     </>
   );
-});
+}
 
-const ThreadBoardPane = memo(function ThreadBoardPane(props: {
+function ThreadBoardPane(props: {
   deferContent: boolean;
   dropPreviewDirection?: ThreadBoardDropDirection | null;
   isFocusedPane: boolean;
@@ -530,7 +530,7 @@ const ThreadBoardPane = memo(function ThreadBoardPane(props: {
       ) : null}
     </div>
   );
-});
+}
 
 function useThreadBoardComponent(props: { connectionUrl?: string | null; threadId: ThreadId }) {
   const navigate = useNavigate();
@@ -685,41 +685,35 @@ function useThreadBoardComponent(props: { connectionUrl?: string | null; threadI
     setDropTarget(null);
   }, []);
 
-  const handleBoardDragEnter = useCallback((event: ReactDragEvent<HTMLDivElement>) => {
+  const handleBoardDragEnter = (event: ReactDragEvent<HTMLDivElement>) => {
     if (!isThreadBoardDrag(event.dataTransfer)) {
       return;
     }
-  }, []);
+  };
 
-  const handleBoardDragOverCapture = useCallback((event: ReactDragEvent<HTMLDivElement>) => {
+  const handleBoardDragOverCapture = (event: ReactDragEvent<HTMLDivElement>) => {
     if (!isThreadBoardDrag(event.dataTransfer)) {
       return;
     }
-  }, []);
+  };
 
-  const handleBoardDragLeave = useCallback(
-    (event: ReactDragEvent<HTMLDivElement>) => {
-      if (!isThreadBoardDrag(event.dataTransfer)) {
-        return;
-      }
-      const relatedTarget = event.relatedTarget instanceof Node ? event.relatedTarget : null;
-      if (relatedTarget && event.currentTarget.contains(relatedTarget)) {
-        return;
-      }
-      clearDropTarget();
-    },
-    [clearDropTarget],
-  );
+  const handleBoardDragLeave = (event: ReactDragEvent<HTMLDivElement>) => {
+    if (!isThreadBoardDrag(event.dataTransfer)) {
+      return;
+    }
+    const relatedTarget = event.relatedTarget instanceof Node ? event.relatedTarget : null;
+    if (relatedTarget && event.currentTarget.contains(relatedTarget)) {
+      return;
+    }
+    clearDropTarget();
+  };
 
-  const handleBoardDropCapture = useCallback(
-    (event: ReactDragEvent<HTMLDivElement>) => {
-      if (!isThreadBoardDrag(event.dataTransfer)) {
-        return;
-      }
-      clearDropTarget();
-    },
-    [clearDropTarget],
-  );
+  const handleBoardDropCapture = (event: ReactDragEvent<HTMLDivElement>) => {
+    if (!isThreadBoardDrag(event.dataTransfer)) {
+      return;
+    }
+    clearDropTarget();
+  };
 
   const handlePaneDragLeave = useCallback(
     (paneId: string, event: ReactDragEvent<HTMLDivElement>) => {
@@ -986,62 +980,56 @@ function useThreadBoardComponent(props: { connectionUrl?: string | null; threadI
     [layoutRoot],
   );
 
-  const handleBranchResizeMove = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>) => {
-      const resizeState = branchResizeStateRef.current;
-      if (!resizeState || resizeState.pointerId !== event.pointerId) {
+  const handleBranchResizeMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const resizeState = branchResizeStateRef.current;
+    if (!resizeState || resizeState.pointerId !== event.pointerId) {
+      return;
+    }
+    event.preventDefault();
+    const deltaPx =
+      (resizeState.axis === "horizontal" ? event.clientX : event.clientY) -
+      resizeState.startPosition;
+    resizeState.pendingRatios = resizePaneRatios({
+      containerWidthPx: resizeState.startSize,
+      deltaPx,
+      dividerIndex: resizeState.dividerIndex,
+      minPaneWidthPx:
+        resizeState.axis === "horizontal" ? BOARD_MIN_COLUMN_WIDTH_PX : BOARD_MIN_ROW_HEIGHT_PX,
+      ratios: resizeState.startRatios,
+    });
+    if (resizeState.rafId !== null) {
+      return;
+    }
+    resizeState.rafId = window.requestAnimationFrame(() => {
+      const currentResizeState = branchResizeStateRef.current;
+      if (!currentResizeState) {
         return;
       }
-      event.preventDefault();
-      const deltaPx =
-        (resizeState.axis === "horizontal" ? event.clientX : event.clientY) -
-        resizeState.startPosition;
-      resizeState.pendingRatios = resizePaneRatios({
-        containerWidthPx: resizeState.startSize,
-        deltaPx,
-        dividerIndex: resizeState.dividerIndex,
-        minPaneWidthPx:
-          resizeState.axis === "horizontal" ? BOARD_MIN_COLUMN_WIDTH_PX : BOARD_MIN_ROW_HEIGHT_PX,
-        ratios: resizeState.startRatios,
-      });
-      if (resizeState.rafId !== null) {
-        return;
-      }
-      resizeState.rafId = window.requestAnimationFrame(() => {
-        const currentResizeState = branchResizeStateRef.current;
-        if (!currentResizeState) {
-          return;
-        }
-        currentResizeState.rafId = null;
-        applyBranchResizePreview(
-          currentResizeState.previewChildren,
-          currentResizeState.pendingRatios,
-        );
-      });
-    },
-    [applyBranchResizePreview],
-  );
+      currentResizeState.rafId = null;
+      applyBranchResizePreview(
+        currentResizeState.previewChildren,
+        currentResizeState.pendingRatios,
+      );
+    });
+  };
 
-  const handleBranchResizeEnd = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>) => {
-      const resizeState = branchResizeStateRef.current;
-      if (!resizeState || resizeState.pointerId !== event.pointerId) {
-        return;
-      }
-      if (resizeState.rafId !== null) {
-        window.cancelAnimationFrame(resizeState.rafId);
-      }
-      applyBranchResizePreview(resizeState.previewChildren, resizeState.pendingRatios);
-      setBranchRatios(resizeState.branchId, resizeState.pendingRatios);
-      branchResizeStateRef.current = null;
-      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-        event.currentTarget.releasePointerCapture(event.pointerId);
-      }
-      document.body.style.removeProperty("cursor");
-      document.body.style.removeProperty("user-select");
-    },
-    [applyBranchResizePreview, setBranchRatios],
-  );
+  const handleBranchResizeEnd = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const resizeState = branchResizeStateRef.current;
+    if (!resizeState || resizeState.pointerId !== event.pointerId) {
+      return;
+    }
+    if (resizeState.rafId !== null) {
+      window.cancelAnimationFrame(resizeState.rafId);
+    }
+    applyBranchResizePreview(resizeState.previewChildren, resizeState.pendingRatios);
+    setBranchRatios(resizeState.branchId, resizeState.pendingRatios);
+    branchResizeStateRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    document.body.style.removeProperty("cursor");
+    document.body.style.removeProperty("user-select");
+  };
 
   useEffect(() => {
     const clear = () => {
@@ -1070,52 +1058,33 @@ function useThreadBoardComponent(props: { connectionUrl?: string | null; threadI
     };
   }, [setBranchRatios]);
 
-  const renderPaneNode = useCallback(
-    (paneId: string) => {
-      const pane = paneById.get(paneId);
-      if (!pane || !primaryPane) {
-        return null;
-      }
-      return (
-        <ThreadBoardPane
-          key={pane.id}
-          deferContent={deferredPaneContentIds.has(pane.id)}
-          dropPreviewDirection={dropTarget?.paneId === pane.id ? dropTarget.direction : null}
-          isFocusedPane={(activePaneId ?? primaryPane.id) === pane.id}
-          isSinglePane={false}
-          pane={pane}
-          shortcutsEnabled={(activePaneId ?? primaryPane.id) === pane.id}
-          showSidebarTrigger={pane.id === firstPaneId}
-          visibleBoardThreadIds={visibleBoardThreadIds}
-          onClosePane={handleClosePane}
-          onPaneDragEnter={handlePaneDragEnter}
-          onPaneDragLeave={handlePaneDragLeave}
-          onPaneDragOver={handlePaneDragOver}
-          onPaneDrop={handlePaneDrop}
-          onPaneDragEnd={handlePaneDragEnd}
-          onPaneDragStart={handlePaneDragStart}
-          setActivePane={setActivePane}
-        />
-      );
-    },
-    [
-      activePaneId,
-      deferredPaneContentIds,
-      dropTarget,
-      firstPaneId,
-      handleClosePane,
-      handlePaneDragEnter,
-      handlePaneDragLeave,
-      handlePaneDragOver,
-      handlePaneDrop,
-      handlePaneDragEnd,
-      handlePaneDragStart,
-      paneById,
-      primaryPane,
-      setActivePane,
-      visibleBoardThreadIds,
-    ],
-  );
+  const renderPaneNode = (paneId: string) => {
+    const pane = paneById.get(paneId);
+    if (!pane || !primaryPane) {
+      return null;
+    }
+    return (
+      <ThreadBoardPane
+        key={pane.id}
+        deferContent={deferredPaneContentIds.has(pane.id)}
+        dropPreviewDirection={dropTarget?.paneId === pane.id ? dropTarget.direction : null}
+        isFocusedPane={(activePaneId ?? primaryPane.id) === pane.id}
+        isSinglePane={false}
+        pane={pane}
+        shortcutsEnabled={(activePaneId ?? primaryPane.id) === pane.id}
+        showSidebarTrigger={pane.id === firstPaneId}
+        visibleBoardThreadIds={visibleBoardThreadIds}
+        onClosePane={handleClosePane}
+        onPaneDragEnter={handlePaneDragEnter}
+        onPaneDragLeave={handlePaneDragLeave}
+        onPaneDragOver={handlePaneDragOver}
+        onPaneDrop={handlePaneDrop}
+        onPaneDragEnd={handlePaneDragEnd}
+        onPaneDragStart={handlePaneDragStart}
+        setActivePane={setActivePane}
+      />
+    );
+  };
 
   if (!boardVisible || !primaryPane) {
     const singlePane: ChatThreadBoardPaneState = {
