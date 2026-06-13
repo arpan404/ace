@@ -6353,7 +6353,7 @@ function useChatViewComponent({
     }
     return result;
   };
-  const handleRightSidePanelResizePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+  const handleRightSidePanelResizePointerDown = (event: ReactPointerEvent<HTMLElement>) => {
     if (event.button !== 0) {
       return;
     }
@@ -6374,7 +6374,7 @@ function useChatViewComponent({
     didResizeRightSidePanelDuringDragRef.current = false;
   };
 
-  const handleRightSidePanelResizeKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+  const handleRightSidePanelResizeKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
     if (!rightSidePanelOpen) {
       return;
     }
@@ -10983,8 +10983,8 @@ function useChatViewComponent({
                   transition={PANEL_SPRING_TRANSITION}
                 >
                   {!rightSidePanelFullscreen ? (
-                    <hr
-                      aria-orientation="vertical"
+                    <button
+                      type="button"
                       aria-label="Resize right side panel"
                       tabIndex={0}
                       className="group relative z-20 h-auto w-3 shrink-0 cursor-col-resize touch-none select-none border-0 bg-transparent outline-none before:absolute before:inset-y-0 before:left-1/2 before:w-px before:-translate-x-1/2 before:bg-border/75 before:transition-colors before:duration-200 before:ease-out before:content-[''] after:absolute after:inset-y-1 after:left-1/2 after:w-2 after:-translate-x-1/2 after:rounded-full after:bg-transparent after:transition-[background-color,transform] after:duration-200 after:ease-out after:content-[''] hover:before:bg-border hover:after:scale-x-100 hover:after:bg-foreground/5 focus-visible:before:bg-border focus-visible:after:scale-x-100 focus-visible:after:bg-foreground/5"
@@ -11185,8 +11185,8 @@ function useChatViewComponent({
                 {...BOTTOM_EDGE_PANEL_SPRING_ANIMATION}
                 transition={PANEL_SPRING_TRANSITION}
               >
-                <hr
-                  aria-orientation="horizontal"
+                <button
+                  type="button"
                   aria-label="Resize bottom panel"
                   tabIndex={0}
                   className="group absolute inset-x-0 top-0 z-30 h-2 cursor-row-resize touch-none select-none border-0 bg-transparent outline-none before:absolute before:inset-x-8 before:top-0 before:h-px before:bg-transparent before:transition-colors before:content-[''] after:absolute after:inset-x-0 after:top-0 after:h-2 after:bg-transparent after:transition-colors after:content-[''] hover:before:bg-border/65 hover:after:bg-foreground/4 focus-visible:before:bg-border/75 focus-visible:after:bg-foreground/5"

@@ -739,18 +739,23 @@ export function RightSidePanelTabStrip(props: {
 
             if (entry.mode === "diff") {
               return withSeparator(
-                <button
-                  type="button"
-                  className={tabClassName(props.activeMode === "diff", !props.diffAvailable)}
-                  disabled={!props.diffAvailable}
-                  aria-pressed={props.activeMode === "diff"}
-                  onClick={() => props.onSelectMode("diff")}
-                >
-                  <span className="relative inline-flex size-4.5 shrink-0 items-center justify-center">
-                    <DiffIcon className="size-4.5 text-muted-foreground transition-opacity group-hover/tab:opacity-0" />
+                <div className="group/tab relative inline-flex">
+                  <button
+                    type="button"
+                    className={tabClassName(props.activeMode === "diff", !props.diffAvailable)}
+                    disabled={!props.diffAvailable}
+                    aria-pressed={props.activeMode === "diff"}
+                    onClick={() => props.onSelectMode("diff")}
+                  >
+                    <span className="inline-flex size-4.5 shrink-0 items-center justify-center">
+                      <DiffIcon className="size-4.5 text-muted-foreground transition-opacity group-hover/tab:opacity-0" />
+                    </span>
+                    <span className="min-w-0 truncate text-left">Review</span>
+                  </button>
+                  <span className="pointer-events-none absolute top-1/2 left-3 inline-flex size-4.5 -translate-y-1/2 items-center justify-center">
                     <button
                       type="button"
-                      className="absolute inset-0 inline-flex items-center justify-center rounded-full bg-muted-foreground/80 text-background opacity-0 transition-opacity hover:bg-foreground group-hover/tab:opacity-100"
+                      className="pointer-events-auto inline-flex size-4.5 items-center justify-center rounded-full bg-muted-foreground/80 text-background opacity-0 transition-opacity hover:bg-foreground group-hover/tab:opacity-100"
                       aria-label="Close review tab"
                       onPointerDown={(event) => {
                         event.preventDefault();
@@ -765,8 +770,7 @@ export function RightSidePanelTabStrip(props: {
                       <XIcon className="size-3.5" />
                     </button>
                   </span>
-                  <span className="min-w-0 truncate text-left">Review</span>
-                </button>,
+                </div>,
               );
             }
 
@@ -822,21 +826,32 @@ export function RightSidePanelTabStrip(props: {
               const tab = props.terminalTabs.find((candidate) => candidate.id === entry.id);
               if (!tab) return null;
               return withSeparator(
-                <button
-                  type="button"
-                  className={tabClassName(
-                    props.activeMode === "terminal" && props.activeTerminalId === tab.id,
-                  )}
-                  aria-pressed={
-                    props.activeMode === "terminal" && props.activeTerminalId === tab.id
-                  }
-                  onClick={() => props.onTerminalTabSelect(tab.id)}
-                >
-                  <span className="relative inline-flex size-4.5 shrink-0 items-center justify-center">
-                    <TerminalIcon className="size-4.5 text-muted-foreground transition-opacity group-hover/tab:opacity-0" />
+                <div className="group/tab relative inline-flex">
+                  <button
+                    type="button"
+                    className={tabClassName(
+                      props.activeMode === "terminal" && props.activeTerminalId === tab.id,
+                    )}
+                    aria-pressed={
+                      props.activeMode === "terminal" && props.activeTerminalId === tab.id
+                    }
+                    onClick={() => props.onTerminalTabSelect(tab.id)}
+                  >
+                    <span className="inline-flex size-4.5 shrink-0 items-center justify-center">
+                      <TerminalIcon className="size-4.5 text-muted-foreground transition-opacity group-hover/tab:opacity-0" />
+                    </span>
+                    <span className="min-w-0 truncate text-left">{tab.label}</span>
+                    <span
+                      className={cn(
+                        "shrink-0 rounded-full",
+                        tab.running ? "size-2 bg-emerald-400" : "size-1.5 bg-border",
+                      )}
+                    />
+                  </button>
+                  <span className="pointer-events-none absolute top-1/2 left-3 inline-flex size-4.5 -translate-y-1/2 items-center justify-center">
                     <button
                       type="button"
-                      className="absolute inset-0 inline-flex items-center justify-center rounded-full bg-muted-foreground/80 text-background opacity-0 transition-opacity hover:bg-foreground group-hover/tab:opacity-100"
+                      className="pointer-events-auto inline-flex size-4.5 items-center justify-center rounded-full bg-muted-foreground/80 text-background opacity-0 transition-opacity hover:bg-foreground group-hover/tab:opacity-100"
                       aria-label={`Close ${tab.label}`}
                       onPointerDown={(event) => {
                         event.preventDefault();
@@ -854,14 +869,7 @@ export function RightSidePanelTabStrip(props: {
                       <XIcon className="size-3.5" />
                     </button>
                   </span>
-                  <span className="min-w-0 truncate text-left">{tab.label}</span>
-                  <span
-                    className={cn(
-                      "shrink-0 rounded-full",
-                      tab.running ? "size-2 bg-emerald-400" : "size-1.5 bg-border",
-                    )}
-                  />
-                </button>,
+                </div>,
               );
             }
 

@@ -3998,7 +3998,8 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                   ) : null}
                   <div
                     ref={treeScrollRef}
-                    role="presentation"
+                    role="tree"
+                    aria-label="Workspace files"
                     className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-1 py-1.5"
                     tabIndex={0}
                     onKeyDown={handleExplorerKeyDown}
@@ -4881,18 +4882,15 @@ function useThreadWorkspaceEditorComponent(inputProps: {
               )}
             </aside>
 
-            <div
+            <hr
               aria-label="Resize workspace sidebar"
-              role="separator"
               aria-orientation="vertical"
-              className="group relative cursor-col-resize bg-background hover:bg-accent"
+              className="group relative cursor-col-resize border-0 bg-background before:absolute before:inset-y-0 before:left-1/2 before:w-px before:-translate-x-1/2 before:bg-border before:transition-colors before:content-[''] hover:bg-accent hover:before:bg-border"
               onPointerDown={handleTreeResizeStart}
               onPointerMove={handleTreeResizeMove}
               onPointerUp={handleTreeResizeEnd}
               onPointerCancel={handleTreeResizeEnd}
-            >
-              <div className="mx-auto h-full w-px bg-border transition-colors group-hover:bg-border" />
-            </div>
+            />
           </>
         ) : null}
 
@@ -5054,11 +5052,10 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                               findRequestToken={pane.id === activePaneId ? findRequestToken : 0}
                             />
                             {paneIndex < row.panes.length - 1 ? (
-                              <div
+                              <hr
                                 aria-label={`Resize between editor windows ${paneIndex + 1} and ${paneIndex + 2}`}
-                                role="separator"
                                 aria-orientation="vertical"
-                                className="group relative z-10 -mx-px flex w-2 shrink-0 cursor-col-resize items-center justify-center touch-none select-none"
+                                className="group relative z-10 -mx-px w-2 shrink-0 cursor-col-resize touch-none select-none border-0 before:absolute before:inset-y-0 before:left-1/2 before:w-px before:-translate-x-1/2 before:bg-border/55 before:transition-colors before:content-[''] group-hover:before:bg-foreground/30"
                                 onPointerDown={handlePaneResizeStart(
                                   row.id,
                                   paneIndex,
@@ -5067,27 +5064,22 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                                 onPointerMove={handlePaneResizeMove}
                                 onPointerUp={handlePaneResizeEnd}
                                 onPointerCancel={handlePaneResizeEnd}
-                              >
-                                <div className="h-full w-px bg-border/55 transition-colors group-hover:bg-foreground/30" />
-                              </div>
+                              />
                             ) : null}
                           </div>
                         ))}
                       </div>
                     </div>
                     {rowIndex < layoutRows.length - 1 ? (
-                      <div
+                      <hr
                         aria-label={`Resize between editor rows ${rowIndex + 1} and ${rowIndex + 2}`}
-                        role="separator"
                         aria-orientation="horizontal"
-                        className="group relative z-10 -my-px flex h-2 shrink-0 cursor-row-resize items-center justify-center touch-none select-none"
+                        className="group relative z-10 -my-px h-2 shrink-0 cursor-row-resize touch-none select-none border-0 before:absolute before:top-1/2 before:left-0 before:h-px before:w-full before:-translate-y-1/2 before:bg-border/55 before:transition-colors before:content-[''] group-hover:before:bg-foreground/30"
                         onPointerDown={handleRowResizeStart(rowIndex)}
                         onPointerMove={handleRowResizeMove}
                         onPointerUp={handleRowResizeEnd}
                         onPointerCancel={handleRowResizeEnd}
-                      >
-                        <div className="h-px w-full bg-border/55 transition-colors group-hover:bg-foreground/30" />
-                      </div>
+                      />
                     ) : null}
                   </div>
                 ))}

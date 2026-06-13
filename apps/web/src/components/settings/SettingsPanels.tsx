@@ -17,7 +17,7 @@ import {
 import { IconArrowsDiagonal, IconArrowsDiagonalMinimize2 } from "@tabler/icons-react";
 import { useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useReducer, useRef, useState } from "react";
 import type {
   DesktopCliInstallState,
   ProviderKind,
@@ -3385,6 +3385,9 @@ function getEnvironmentWorktreeEntries({
 
 function ProjectWorktreeSetupEditor({ project }: { readonly project: Project }) {
   const setupScript = useMemo(() => setupProjectScript(project.scripts), [project.scripts]);
+  const commandInputId = useId();
+  const envFileInputId = useId();
+  const environmentInputId = useId();
   const [command, setCommand] = useState(() => setupScript?.command ?? "");
   const [envText, setEnvText] = useState(() => formatProjectScriptEnv(setupScript?.env));
   const [envFilePath, setEnvFilePath] = useState(
@@ -3552,8 +3555,11 @@ function ProjectWorktreeSetupEditor({ project }: { readonly project: Project }) 
       </div>
       <div className="mt-3 flex flex-col gap-4">
         <div className="space-y-1.5">
-          <label className="text-xs font-medium text-muted-foreground">Command</label>
+          <label htmlFor={commandInputId} className="text-xs font-medium text-muted-foreground">
+            Command
+          </label>
           <Textarea
+            id={commandInputId}
             value={command}
             placeholder="bun install"
             size="sm"
@@ -3563,8 +3569,11 @@ function ProjectWorktreeSetupEditor({ project }: { readonly project: Project }) 
         </div>
         <div className="grid gap-3">
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">Env file</label>
+            <label htmlFor={envFileInputId} className="text-xs font-medium text-muted-foreground">
+              Env file
+            </label>
             <SettingsInput
+              id={envFileInputId}
               value={envFilePath}
               placeholder=".env"
               className="font-mono text-sm"
@@ -3575,8 +3584,14 @@ function ProjectWorktreeSetupEditor({ project }: { readonly project: Project }) 
             </p>
           </div>
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">Environment</label>
+            <label
+              htmlFor={environmentInputId}
+              className="text-xs font-medium text-muted-foreground"
+            >
+              Environment
+            </label>
             <Textarea
+              id={environmentInputId}
               value={envText}
               placeholder={"NODE_ENV=development\nAPI_BASE_URL=http://localhost:3000"}
               size="sm"
@@ -3628,6 +3643,7 @@ function ProjectEnvironmentWorktrees({
   const navigate = useNavigate();
   const settings = useSettings();
   const { updateSettings } = useUpdateSettings();
+  const worktreeSearchInputId = useId();
   const [worktreeSearch, setWorktreeSearch] = useState("");
   const [worktreeFilter, setWorktreeFilter] = useState<EnvironmentWorktreeFilter>("inactive");
   const [worktreeSort, setWorktreeSort] = useState<EnvironmentWorktreeSort>("oldest");
@@ -3982,11 +3998,12 @@ function ProjectEnvironmentWorktrees({
       >
         <div className={SETTINGS_ROW_INSET_CLASS_NAME}>
           <div className="flex min-w-0 flex-col gap-3">
-            <label className="min-w-0 space-y-1">
+            <label htmlFor={worktreeSearchInputId} className="min-w-0 space-y-1">
               <span className="block text-[10px] font-medium text-muted-foreground/58">Search</span>
               <span className="relative block">
                 <SearchIcon className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground/55" />
                 <SettingsInput
+                  id={worktreeSearchInputId}
                   value={worktreeSearch}
                   placeholder="Name, path, branch"
                   className="h-8 pl-8"
