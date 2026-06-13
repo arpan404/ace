@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   AUTO_SCROLL_BOTTOM_THRESHOLD_PX,
   SCROLL_TO_BOTTOM_BUTTON_THRESHOLD_PX,
+  hasScrolledUp,
   isScrollContainerNearBottom,
   resolveAutoScrollOnScroll,
   shouldShowScrollToBottomButton,
@@ -88,6 +89,13 @@ describe("shouldShowScrollToBottomButton", () => {
         scrollHeight: 1_000,
       }),
     ).toBe(true);
+  });
+});
+
+describe("hasScrolledUp", () => {
+  it("ignores sub-pixel drift but detects intentional upward movement", () => {
+    expect(hasScrolledUp(99.5, 100)).toBe(false);
+    expect(hasScrolledUp(98, 100)).toBe(true);
   });
 });
 

@@ -1,12 +1,36 @@
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { ProjectId, ThreadId, type GitStatusResult } from "@ace/contracts";
+import { afterEach, describe, expect, it } from "vitest";
 
 import {
   SidebarMenuAction,
   SidebarMenuButton,
+  SidebarMenuSub,
   SidebarMenuSubButton,
   SidebarProvider,
 } from "./sidebar";
+import { SidebarThreadRow } from "../sidebar/SidebarThreadRow";
+import { useStore } from "../../store";
+import { useTerminalStateStore } from "../../terminalStateStore";
+import type { SidebarThreadSummary } from "../../types";
+import { useUiStateStore } from "../../uiStateStore";
+
+function countNestedButtonDescendants(html: string): number {
+  let nestedButtonCount = 0;
+  let buttonDepth = 0;
+  const buttonTagPattern = /<\/?button\b[^>]*>/g;
+  for (const match of html.matchAll(buttonTagPattern)) {
+    if (match[0].startsWith("</")) {
+      buttonDepth = Math.max(0, buttonDepth - 1);
+      continue;
+    }
+    if (buttonDepth > 0) {
+      nestedButtonCount += 1;
+    }
+    buttonDepth += 1;
+  }
+  return nestedButtonCount;
+}
 
 function renderSidebarButton(className?: string) {
   return renderToStaticMarkup(
@@ -17,6 +41,24 @@ function renderSidebarButton(className?: string) {
 }
 
 describe("sidebar interactive cursors", () => {
+  afterEach(() => {
+    const initialAppState = useStore.getInitialState();
+    initialAppState.projects = [];
+    initialAppState.threads = [];
+    initialAppState.threadsById = {};
+    initialAppState.sidebarThreadsById = {};
+    initialAppState.threadIdsByProjectId = {};
+    initialAppState.dismissedThreadErrorKeysById = {};
+    initialAppState.bootstrapComplete = false;
+    useStore.getState().resetToInitialState();
+    useUiStateStore.setState({
+      activeThreadId: null,
+      previousActiveThreadId: null,
+      threadLastVisitedAtById: {},
+    });
+    useTerminalStateStore.setState({ terminalStateByThreadId: {} });
+  });
+
   it("uses a pointer cursor for menu buttons by default", () => {
     const html = renderSidebarButton();
 
@@ -49,5 +91,93 @@ describe("sidebar interactive cursors", () => {
 
     expect(html).toContain('data-slot="sidebar-menu-sub-button"');
     expect(html).toContain("cursor-pointer");
+  });
+
+  it("keeps thread row actions outside the primary thread button", () => {
+    const projectId = ProjectId.makeUnsafe("project-sidebar-row-test");
+    const threadId = ThreadId.makeUnsafe("thread-sidebar-row-test");
+    const now = "2026-03-09T10:00:00.000Z";
+    const sidebarThreadsById = {
+      [threadId]: {
+        id: threadId,
+        projectId,
+        title: "Thread with actions",
+        interactionMode: "default",
+        session: null,
+        createdAt: now,
+        archivedAt: null,
+        updatedAt: now,
+        latestTurn: null,
+        branch: "feature/sidebar",
+        worktreePath: "/tmp/sidebar-row-test",
+        latestUserMessageAt: now,
+        hasPendingApprovals: false,
+        hasPendingUserInput: false,
+        hasActionableProposedPlan: false,
+        isErrorDismissed: false,
+      },
+    } satisfies Record<string, SidebarThreadSummary>;
+    const threadIdsByProjectId = {
+      [projectId]: [threadId],
+    };
+    useStore.getInitialState().sidebarThreadsById = sidebarThreadsById;
+    useStore.getInitialState().threadIdsByProjectId = threadIdsByProjectId;
+    useStore.setState((state) => ({
+      ...state,
+      sidebarThreadsById,
+      threadIdsByProjectId,
+    }));
+
+    const pr = {
+      number: 42,
+      title: "Sidebar row",
+      url: "https://example.com/pull/42",
+      baseBranch: "main",
+      headBranch: "feature/sidebar",
+      state: "open",
+    } satisfies NonNullable<GitStatusResult["pr"]>;
+    const html = renderToStaticMarkup(
+      <SidebarProvider>
+        <SidebarMenuSub>
+          <SidebarThreadRow
+            threadId={threadId}
+            orderedProjectThreadIds={[threadId]}
+            routeThreadId={null}
+            activeRouteConnectionUrl="ws://localhost"
+            connectionUrl="ws://localhost"
+            selectedThreadIds={new Set()}
+            showThreadJumpHints={false}
+            jumpLabel={null}
+            appSettingsConfirmThreadArchive
+            isPinned
+            renamingThreadId={null}
+            renamingTitle=""
+            setRenamingTitle={() => {}}
+            renamingInputRef={{ current: null }}
+            renamingCommittedRef={{ current: false }}
+            confirmingArchiveThreadId={null}
+            setConfirmingArchiveThreadId={() => {}}
+            confirmArchiveButtonRefs={{ current: new Map() }}
+            handleThreadClick={() => {}}
+            navigateToThread={() => {}}
+            prefetchThreadHistory={() => {}}
+            handleMultiSelectContextMenu={async () => {}}
+            handleThreadContextMenu={async () => {}}
+            clearSelection={() => {}}
+            commitRename={async () => {}}
+            cancelRename={() => {}}
+            attemptArchiveThread={async () => {}}
+            onTogglePinnedThread={() => {}}
+            openPrLink={() => {}}
+            pr={pr}
+          />
+        </SidebarMenuSub>
+      </SidebarProvider>,
+    );
+
+    expect(html).toContain(`data-testid="thread-row-${threadId}"`);
+    expect(html).toContain(`data-testid="thread-pin-${threadId}"`);
+    expect(html).toContain(`data-testid="thread-archive-${threadId}"`);
+    expect(countNestedButtonDescendants(html)).toBe(0);
   });
 });

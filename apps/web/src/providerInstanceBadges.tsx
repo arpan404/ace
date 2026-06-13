@@ -59,7 +59,7 @@ export function ProviderInstanceBadge({
       aria-hidden="true"
       data-provider-instance-badge="true"
       className={cn(
-        "inline-flex size-4 items-center justify-center rounded-full border border-background p-[2px] text-white shadow-[0_0_0_1px_hsl(var(--border))]",
+        "inline-flex size-4 items-center justify-center rounded-full border border-background p-[2px] text-white shadow-[0_0_0_1px_var(--border)]",
         getProviderInstanceBadgeColorClass(color),
         className,
       )}
