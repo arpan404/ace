@@ -41,12 +41,6 @@ import {
   SETTINGS_SUBSECTION_CLASS,
 } from "./settingsUi";
 
-export const SETTINGS_NEUTRAL_ACTION_CLASS_NAME =
-  "border-border/40 bg-foreground/[0.06] text-foreground hover:bg-foreground/[0.10] active:bg-foreground/[0.14]";
-
-export const SETTINGS_FIELD_SURFACE_CLASS_NAME = SETTINGS_FIELD_CLASS;
-export const SETTINGS_INLINE_DIVIDER_CLASS_NAME = "bg-transparent shadow-none";
-
 type SettingsInputProps = ComponentProps<typeof Input>;
 
 export function SettingsInput({ className, ...props }: SettingsInputProps) {
@@ -56,9 +50,7 @@ export function SettingsInput({ className, ...props }: SettingsInputProps) {
 export { SETTINGS_GROUP_CLASS_NAME } from "./settingsUi";
 export const SETTINGS_ROW_INSET_CLASS_NAME = SETTINGS_ROW_CLASS;
 export const SETTINGS_LIST_ROW_CLASS_NAME = SETTINGS_ROW_CLASS;
-export const SETTINGS_SUBSECTION_LABEL_CLASS_NAME = SETTINGS_SECTION_TITLE_CLASS;
 export const SETTINGS_CARD_CLASS_NAME = SETTINGS_SECTION_CARD_CLASS;
-export const SETTINGS_CARD_HEADER_CLASS_NAME = "pb-2";
 export const SETTINGS_CARD_BODY_CLASS_NAME = SETTINGS_SECTION_CARD_BODY_CLASS;
 
 function maskEmailAddress(value: string): string {
@@ -244,26 +236,6 @@ export function SettingsPageHeader({
         {action ? <div className="shrink-0">{action}</div> : null}
       </div>
     </header>
-  );
-}
-
-export function SettingsSubsection({
-  title,
-  description,
-  className,
-  children,
-}: {
-  title: string;
-  description?: ReactNode;
-  className?: string;
-  children?: ReactNode;
-}) {
-  return (
-    <div className={cn(SETTINGS_SUBSECTION_CLASS, className)}>
-      <h3 className={SETTINGS_SECTION_TITLE_CLASS}>{title}</h3>
-      {description ? <p className={SETTINGS_SECTION_DESCRIPTION_CLASS}>{description}</p> : null}
-      {children}
-    </div>
   );
 }
 

@@ -40,8 +40,6 @@ export const SETTINGS_ROW_DESCRIPTION_CLASS =
 
 export const SETTINGS_ROW_STATUS_CLASS = "mt-1 text-[11px] text-muted-foreground/60";
 
-export const SETTINGS_FIELD_LABEL_CLASS = "text-[13px] font-medium text-foreground";
-
 export const SETTINGS_SUBSECTION_CLASS =
   "border-t border-border/40 pt-4 first:border-t-0 first:pt-0";
 
@@ -74,13 +72,8 @@ export const SETTINGS_FIELD_CLASS = cn(
 
 export const SETTINGS_SELECT_TRIGGER_CLASS = cn("w-full min-w-0", SETTINGS_FIELD_CLASS);
 
-export const SETTINGS_SIDEBAR_FOCUS_RING_CLASS =
+const SETTINGS_SIDEBAR_FOCUS_RING_CLASS =
   "outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background";
-
-export const SETTINGS_PICKER_TRIGGER_CLASS = cn(
-  APP_SETTINGS_PICKER_TRIGGER_CLASS_NAME,
-  "max-w-none",
-);
 
 export const SETTINGS_ICON_CHOICE_BUTTON_CLASS = cn(
   "size-7 shrink-0 rounded-[var(--control-radius)] shadow-none",

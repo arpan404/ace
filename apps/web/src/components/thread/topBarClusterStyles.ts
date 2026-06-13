@@ -7,19 +7,6 @@ export const HEADER_PILL_SURFACE_CLASS_NAME =
 export const HEADER_PILL_CONTROL_CLASS_NAME =
   "!h-7 !rounded-[var(--control-radius)] !border !border-transparent !bg-transparent !shadow-none gap-1 px-2.25 sm:px-2.75 text-[10px]/none font-medium text-pill-foreground/76 transition-[background-color,color,border-color,transform,opacity] duration-150 ease-out hover:!bg-foreground/[0.06] hover:text-pill-foreground active:!bg-foreground/[0.08] aria-expanded:!bg-foreground/[0.08] aria-expanded:text-pill-foreground disabled:text-pill-foreground/35 disabled:hover:!bg-transparent";
 
-export const HEADER_ACTION_GROUP_CLASS_NAME =
-  "flex h-8 min-w-0 items-center gap-px overflow-hidden rounded-lg border border-pill-border/72 bg-pill/92 p-0.5 shadow-none supports-[backdrop-filter]:bg-pill/84 supports-[backdrop-filter]:backdrop-blur-lg";
-
-export const HEADER_ACTION_CONTROL_CLASS_NAME =
-  "!h-7 !rounded-md !border !border-transparent !bg-transparent !shadow-none gap-1.5 px-2.25 sm:px-2.75 text-[11px]/none font-medium text-pill-foreground/76 transition-[background-color,color,border-color,opacity] duration-150 ease-out hover:!bg-foreground/[0.06] hover:text-pill-foreground active:!bg-foreground/[0.08] aria-expanded:!bg-foreground/[0.08] aria-expanded:text-pill-foreground disabled:text-pill-foreground/35 disabled:hover:!bg-transparent";
-
-export const HEADER_ACTION_ICON_CONTROL_CLASS_NAME = cn(
-  HEADER_ACTION_CONTROL_CLASS_NAME,
-  "!size-7 !px-0",
-);
-
-export const HEADER_ACTION_DIVIDER_CLASS_NAME = "mx-0.5 h-4 w-px bg-pill-border/55";
-
 export const HEADER_ACTION_DIALOG_POPUP_CLASS_NAME = cn(
   "overflow-hidden",
   GLASS_SURFACE_CLASS_NAME,
