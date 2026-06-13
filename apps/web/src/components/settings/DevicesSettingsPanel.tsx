@@ -68,11 +68,10 @@ import {
   SettingsRow,
   SettingsSection,
 } from "./SettingsPanelPrimitives";
-import {
-  SETTINGS_FIELD_CLASS,
-  SETTINGS_ROW_STATUS_CLASS,
-  SETTINGS_COMPACT_ACTION_BUTTON_CLASS,
-} from "./settingsUi";
+import { SETTINGS_FIELD_CLASS, SETTINGS_COMPACT_ACTION_BUTTON_CLASS } from "./settingsUi";
+import { DeviceSection } from "./DeviceSection";
+import { DeviceStatusBadge } from "./DeviceStatusBadge";
+import { DeviceSubPanel } from "./DeviceSubPanel";
 const SETTINGS_NEUTRAL_ACTION_BUTTON_CLASS_NAME =
   "border-border/40 bg-foreground/[0.08] text-foreground hover:bg-foreground/[0.12] active:bg-foreground/[0.16]";
 const DEVICE_ACTION_BUTTON_CLASS_NAME = SETTINGS_COMPACT_ACTION_BUTTON_CLASS;
@@ -80,8 +79,6 @@ const DEVICE_NEUTRAL_ACTION_BUTTON_CLASS_NAME = cn(
   SETTINGS_COMPACT_ACTION_BUTTON_CLASS,
   SETTINGS_NEUTRAL_ACTION_BUTTON_CLASS_NAME,
 );
-const DEVICE_ACTION_GROUP_CLASS_NAME = "flex flex-wrap items-center gap-1.5";
-const DEVICE_META_TEXT_CLASS_NAME = SETTINGS_ROW_STATUS_CLASS;
 const DEVICE_INSET_PANEL_CLASS_NAME =
   "overflow-hidden rounded-[var(--control-radius)] border border-border/40 glass-inset";
 const DEVICE_INSET_PANEL_MUTED_CLASS_NAME =
@@ -287,85 +284,6 @@ function pairingUiStateReducer(state: PairingUiState, action: PairingUiAction): 
 }
 
 const URL_MODE_MAX_HOSTS = 1;
-
-function DeviceSection({
-  title,
-  description,
-  actions,
-  children,
-}: {
-  title: string;
-  description?: ReactNode;
-  actions?: ReactNode;
-  children: ReactNode;
-}) {
-  return (
-    <SettingsSection
-      title={title}
-      description={description}
-      headerAction={
-        actions ? <div className={DEVICE_ACTION_GROUP_CLASS_NAME}>{actions}</div> : null
-      }
-    >
-      {children}
-    </SettingsSection>
-  );
-}
-
-function DeviceSubPanel({
-  title,
-  description,
-  actions,
-  children,
-  className,
-}: {
-  title: string;
-  description?: ReactNode;
-  actions?: ReactNode;
-  children: ReactNode;
-  className?: string;
-}) {
-  const rowProps = {
-    title,
-    ...(typeof description === "string" ? { description } : {}),
-    ...(actions
-      ? { control: <div className={DEVICE_ACTION_GROUP_CLASS_NAME}>{actions}</div> }
-      : {}),
-    ...(className ? { controlClassName: className } : {}),
-  };
-
-  return (
-    <SettingsRow {...rowProps}>
-      {typeof description !== "string" && description ? (
-        <p className={cn(DEVICE_META_TEXT_CLASS_NAME, "mt-1")}>{description}</p>
-      ) : null}
-      <div className="min-w-0 pt-3">{children}</div>
-    </SettingsRow>
-  );
-}
-
-function DeviceStatusBadge({
-  tone = "neutral",
-  children,
-}: {
-  tone?: "neutral" | "info" | "success" | "warning" | "danger";
-  children: ReactNode;
-}) {
-  return (
-    <span
-      className={cn(
-        "inline-flex h-5 w-fit max-w-full shrink-0 items-center gap-1 self-start rounded-[var(--control-radius)] border px-1.5 text-[10px] font-medium uppercase tracking-wide",
-        tone === "neutral" && "border-border/40 bg-background/42 text-muted-foreground",
-        tone === "info" && "border-border/45 bg-foreground/[0.08] text-foreground/82",
-        tone === "success" && "border-success/30 bg-success/10 text-success-foreground",
-        tone === "warning" && "border-warning/35 bg-warning/10 text-warning-foreground",
-        tone === "danger" && "border-destructive/35 bg-destructive/10 text-destructive-foreground",
-      )}
-    >
-      {children}
-    </span>
-  );
-}
 
 function normalizeHostsForMode(hosts: ReadonlyArray<RemoteHostInstance>, desktopMode: boolean) {
   if (desktopMode) {

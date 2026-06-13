@@ -17,24 +17,12 @@ import {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
-import {
-  AlertTriangleIcon,
-  ChevronDownIcon,
-  CloudUploadIcon,
-  GitBranchPlusIcon,
-  GitCommitIcon,
-  InfoIcon,
-  KeyRoundIcon,
-  RefreshCwIcon,
-} from "lucide-react";
-import { GitHubIcon } from "./Icons";
+import { AlertTriangleIcon, ChevronDownIcon, GitBranchPlusIcon, KeyRoundIcon } from "lucide-react";
 import { runAsyncTask } from "../lib/async";
 import {
   buildGitActionProgressStages,
   buildMenuItems,
-  type GitActionIconName,
   type GitActionMenuItem,
-  type GitQuickAction,
   type DefaultBranchConfirmableAction,
   requiresDefaultBranchConfirmation,
   resolveDefaultBranchActionDialogCopy,
@@ -78,6 +66,9 @@ import { cn, newCommandId, randomUUID } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
 import { useStore } from "~/store";
 import { resolveEditorInstanceStateScopeId, useEditorStateStore } from "~/editorStateStore";
+import { EnvironmentGitStatusMessage } from "./EnvironmentGitStatusMessage";
+import { GitActionItemIcon } from "./GitActionItemIcon";
+import { GitQuickActionIcon } from "./GitQuickActionIcon";
 import type { ThreadWorkspaceMode } from "~/threadWorkspaceMode";
 import { useEffectEvent } from "~/hooks/useEffectEvent";
 import { useSettings } from "~/hooks/useSettings";
@@ -292,60 +283,8 @@ const COMMIT_DIALOG_TITLE = "Commit changes";
 const COMMIT_DIALOG_DESCRIPTION =
   "Review and confirm your commit. Leave the message blank to auto-generate one.";
 
-function GitActionItemIcon({ icon }: { icon: GitActionIconName }) {
-  if (icon === "commit") return <GitCommitIcon />;
-  if (icon === "push") return <CloudUploadIcon />;
-  return <GitHubIcon />;
-}
-
 const gitCardRowClassName =
   "flex min-h-8 w-full items-center gap-2 rounded-[var(--control-radius)] px-2 py-1 text-left text-[13px] leading-none text-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-0 disabled:pointer-events-none disabled:opacity-45 [&>svg:not([class*='size-'])]:size-3.5 [&>svg]:shrink-0 [&>svg]:text-muted-foreground";
-
-function GitQuickActionIcon({
-  busy = false,
-  quickAction,
-}: {
-  busy?: boolean;
-  quickAction: GitQuickAction;
-}) {
-  const iconClassName = "size-3.5";
-  if (busy) return <Spinner className={iconClassName} />;
-  if (quickAction.kind === "open_pr") return <GitHubIcon className={iconClassName} />;
-  if (quickAction.kind === "run_pull") return <RefreshCwIcon className={iconClassName} />;
-  if (quickAction.kind === "run_action") {
-    if (quickAction.action === "commit") return <GitCommitIcon className={iconClassName} />;
-    if (quickAction.action === "push" || quickAction.action === "commit_push") {
-      return <CloudUploadIcon className={iconClassName} />;
-    }
-    return <GitHubIcon className={iconClassName} />;
-  }
-  if (quickAction.label === "Commit") return <GitCommitIcon className={iconClassName} />;
-  return <InfoIcon className={iconClassName} />;
-}
-
-function EnvironmentGitStatusMessage({
-  children,
-  tone = "muted",
-}: {
-  children: ReactNode;
-  tone?: "muted" | "warning" | "error";
-}) {
-  const Icon = tone === "muted" ? Spinner : AlertTriangleIcon;
-  return (
-    <output
-      className={cn(
-        "flex min-h-7 items-center gap-2 rounded-[var(--control-radius)] px-2 py-1 text-[11px] leading-4",
-        tone === "muted" && "bg-muted/18 text-muted-foreground",
-        tone === "warning" && "bg-warning/8 text-warning",
-        tone === "error" && "bg-destructive/8 text-destructive",
-      )}
-      {...(tone === "muted" ? { "aria-live": "polite" as const } : { role: "status" })}
-    >
-      <Icon className="size-3 shrink-0" />
-      <span className="min-w-0 flex-1 truncate">{children}</span>
-    </output>
-  );
-}
 
 interface GitActionMenuPosition {
   left: number;

@@ -35,7 +35,9 @@ import { type BrowserSessionStorage, type BrowserTabState } from "~/lib/browser/
 import { cn } from "~/lib/utils";
 import { DiffWorkerPoolProvider } from "../DiffWorkerPoolProvider";
 import type { DiffReviewCommentInput } from "../DiffPanel";
-import { DiffPanelHeaderSkeleton, DiffPanelLoadingState, DiffPanelShell } from "../DiffPanelShell";
+import { DiffPanelHeaderSkeleton } from "../DiffPanelHeaderSkeleton";
+import { DiffPanelLoadingState } from "../DiffPanelLoadingState";
+import { DiffPanelShell } from "../DiffPanelShell";
 import { Menu, MenuItem, MenuPopup, MenuShortcut, MenuTrigger } from "../ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { SubagentPersonaIcon } from "./SubagentThreadsPanel";
