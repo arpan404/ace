@@ -1,6 +1,5 @@
 import { ArrowUpRightIcon, MousePointer2Icon } from "lucide-react";
 import {
-  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -1028,7 +1027,7 @@ function useBrowserTabWebviewComponent(props: {
   const emitFindResultChange = useStableCallback((result: BrowserFindResult | null) => {
     onFindResultChange?.(tab.id, result);
   });
-  const commitHoveredElementCapture = useCallback(
+  const commitHoveredElementCapture = useStableCallback(
     (capture: BrowserPageElementCapture | null, point: { x: number; y: number } | null) => {
       hoveredElementCaptureRef.current = capture;
       hoveredElementPointRef.current = point;
@@ -1054,9 +1053,8 @@ function useBrowserTabWebviewComponent(props: {
         hoveredElementCapture: nextCapture,
       });
     },
-    [],
   );
-  const clearHoveredElementCapture = useCallback(() => {
+  const clearHoveredElementCapture = useStableCallback(() => {
     elementHoverRequestTokenRef.current += 1;
     latestElementHoverPointRef.current = null;
     pendingElementHoverPointRef.current = null;
@@ -1065,7 +1063,7 @@ function useBrowserTabWebviewComponent(props: {
       elementHoverFrameRef.current = null;
     }
     commitHoveredElementCapture(null, null);
-  }, [commitHoveredElementCapture]);
+  });
   const clearElementInteractionFrames = useStableCallback(() => {
     clearHoveredElementCapture();
     if (elementCommentWheelFrameRef.current !== null) {
@@ -1074,49 +1072,44 @@ function useBrowserTabWebviewComponent(props: {
     }
   });
 
-  const resolveLoadUrl = useCallback(
-    (url: string) =>
-      resolveBrowserRelayUrl({
-        url,
-        ownerConnectionUrl: connectionUrl,
-        localConnectionUrl,
-      }),
-    [connectionUrl, localConnectionUrl],
+  const resolveLoadUrl = useStableCallback((url: string) =>
+    resolveBrowserRelayUrl({
+      url,
+      ownerConnectionUrl: connectionUrl,
+      localConnectionUrl,
+    }),
   );
 
-  const resolveSnapshotUrl = useCallback((currentUrl: string) => {
+  const resolveSnapshotUrl = useStableCallback((currentUrl: string) => {
     const displayUrl = resolveBrowserDisplayUrl(currentUrl);
     return normalizeBrowserHttpUrl(displayUrl) ?? requestedUrlRef.current;
-  }, []);
+  });
 
-  const emitSnapshotNow = useCallback(
-    (options?: BrowserTabSnapshotOptions) => {
-      const webview = webviewRef.current;
-      if (!webview || !readyRef.current) {
-        return;
-      }
-      const resolvedUrl = resolveSnapshotUrl(
-        readWebviewValue(() => webview.getURL(), requestedUrlRef.current),
-      );
-      emitTabSnapshotChange(
-        {
-          canGoBack: readWebviewValue(() => webview.canGoBack(), false),
-          canGoForward: readWebviewValue(() => webview.canGoForward(), false),
-          devToolsOpen: readWebviewValue(() => webview.isDevToolsOpened(), false),
-          loading: readWebviewValue(() => webview.isLoading(), false),
-          title: resolveBrowserTabTitle(
-            resolvedUrl,
-            readWebviewValue(() => webview.getTitle(), ""),
-          ),
-          url: resolvedUrl,
-        },
-        options,
-      );
-    },
-    [emitTabSnapshotChange, resolveSnapshotUrl],
-  );
+  const emitSnapshotNow = useStableCallback((options?: BrowserTabSnapshotOptions) => {
+    const webview = webviewRef.current;
+    if (!webview || !readyRef.current) {
+      return;
+    }
+    const resolvedUrl = resolveSnapshotUrl(
+      readWebviewValue(() => webview.getURL(), requestedUrlRef.current),
+    );
+    emitTabSnapshotChange(
+      {
+        canGoBack: readWebviewValue(() => webview.canGoBack(), false),
+        canGoForward: readWebviewValue(() => webview.canGoForward(), false),
+        devToolsOpen: readWebviewValue(() => webview.isDevToolsOpened(), false),
+        loading: readWebviewValue(() => webview.isLoading(), false),
+        title: resolveBrowserTabTitle(
+          resolvedUrl,
+          readWebviewValue(() => webview.getTitle(), ""),
+        ),
+        url: resolvedUrl,
+      },
+      options,
+    );
+  });
 
-  const readSnapshot = useCallback((): BrowserTabSnapshot | null => {
+  const readSnapshot = useStableCallback((): BrowserTabSnapshot | null => {
     const webview = webviewRef.current;
     if (!webview || !readyRef.current) {
       return null;
@@ -1135,40 +1128,37 @@ function useBrowserTabWebviewComponent(props: {
       ),
       url: resolvedUrl,
     };
-  }, [resolveSnapshotUrl]);
+  });
 
-  const flushScheduledSnapshot = useCallback(() => {
+  const flushScheduledSnapshot = useStableCallback(() => {
     snapshotFlushTimerRef.current = null;
     const options = pendingSnapshotOptionsRef.current ?? undefined;
     pendingSnapshotOptionsRef.current = null;
     emitSnapshotNow(options);
-  }, [emitSnapshotNow]);
+  });
 
-  const scheduleEmitSnapshot = useCallback(
-    (options: BrowserTabSnapshotOptions = {}) => {
-      const pending = pendingSnapshotOptionsRef.current;
-      pendingSnapshotOptionsRef.current = {
-        persistTab: pending?.persistTab === true || options.persistTab === true,
-        recordHistory: pending?.recordHistory === true || options.recordHistory === true,
-      };
-      if (snapshotFlushTimerRef.current !== null) {
-        return;
-      }
-      snapshotFlushTimerRef.current = window.setTimeout(
-        flushScheduledSnapshot,
-        BROWSER_SNAPSHOT_COALESCE_MS,
-      );
-    },
-    [flushScheduledSnapshot],
-  );
+  const scheduleEmitSnapshot = useStableCallback((options: BrowserTabSnapshotOptions = {}) => {
+    const pending = pendingSnapshotOptionsRef.current;
+    pendingSnapshotOptionsRef.current = {
+      persistTab: pending?.persistTab === true || options.persistTab === true,
+      recordHistory: pending?.recordHistory === true || options.recordHistory === true,
+    };
+    if (snapshotFlushTimerRef.current !== null) {
+      return;
+    }
+    snapshotFlushTimerRef.current = window.setTimeout(
+      flushScheduledSnapshot,
+      BROWSER_SNAPSHOT_COALESCE_MS,
+    );
+  });
 
-  const cancelScheduledSnapshot = useCallback(() => {
+  const cancelScheduledSnapshot = useStableCallback(() => {
     if (snapshotFlushTimerRef.current !== null) {
       window.clearTimeout(snapshotFlushTimerRef.current);
       snapshotFlushTimerRef.current = null;
     }
     pendingSnapshotOptionsRef.current = null;
-  }, []);
+  });
   const resolveLoadUrlEvent = useStableCallback((url: string) => resolveLoadUrl(url));
   const resolveSnapshotUrlEvent = useStableCallback((currentUrl: string) =>
     resolveSnapshotUrl(currentUrl),
@@ -1177,37 +1167,34 @@ function useBrowserTabWebviewComponent(props: {
     scheduleEmitSnapshot(options);
   });
 
-  const navigate = useCallback(
-    (url: string) => {
-      dispatchDesignOverlayState({ type: "set-load-failure", loadFailure: null });
-      requestedUrlRef.current = url;
-      const webview = webviewRef.current;
-      if (!webview || !readyRef.current) {
-        pendingUrlRef.current = url;
-        return;
-      }
-      const currentUrl = normalizeBrowserHttpUrl(
-        resolveBrowserDisplayUrl(readWebviewValue(() => webview.getURL(), requestedUrlRef.current)),
-      );
-      if (currentUrl === normalizeBrowserHttpUrl(url)) {
-        scheduleEmitSnapshot({ persistTab: true });
-        return;
-      }
+  const navigate = useStableCallback((url: string) => {
+    dispatchDesignOverlayState({ type: "set-load-failure", loadFailure: null });
+    requestedUrlRef.current = url;
+    const webview = webviewRef.current;
+    if (!webview || !readyRef.current) {
+      pendingUrlRef.current = url;
+      return;
+    }
+    const currentUrl = normalizeBrowserHttpUrl(
+      resolveBrowserDisplayUrl(readWebviewValue(() => webview.getURL(), requestedUrlRef.current)),
+    );
+    if (currentUrl === normalizeBrowserHttpUrl(url)) {
+      scheduleEmitSnapshot({ persistTab: true });
+      return;
+    }
 
-      loadWebviewUrl(webview, resolveLoadUrl(url), (message) => {
-        dispatchDesignOverlayState({
-          type: "set-load-failure",
-          loadFailure: {
-            code: null,
-            message,
-            url,
-          },
-        });
-        reportBrowserLoadError(message);
+    loadWebviewUrl(webview, resolveLoadUrl(url), (message) => {
+      dispatchDesignOverlayState({
+        type: "set-load-failure",
+        loadFailure: {
+          code: null,
+          message,
+          url,
+        },
       });
-    },
-    [reportBrowserLoadError, resolveLoadUrl, scheduleEmitSnapshot],
-  );
+      reportBrowserLoadError(message);
+    });
+  });
 
   const inspectBrowserPoint = async (point: {
     x: number;
@@ -1279,31 +1266,31 @@ function useBrowserTabWebviewComponent(props: {
     };
   };
 
-  const clearAgentPointerActionTimer = useCallback(() => {
+  const clearAgentPointerActionTimer = useStableCallback(() => {
     if (agentPointerActionTimerRef.current === null) {
       return;
     }
     window.clearTimeout(agentPointerActionTimerRef.current);
     agentPointerActionTimerRef.current = null;
-  }, []);
+  });
 
-  const cancelAgentPointerAnimation = useCallback(() => {
+  const cancelAgentPointerAnimation = useStableCallback(() => {
     if (agentPointerFrameRef.current === null) {
       return;
     }
     window.cancelAnimationFrame(agentPointerFrameRef.current);
     agentPointerFrameRef.current = null;
-  }, []);
+  });
 
-  const resolveAgentPointerViewport = useCallback(() => {
+  const resolveAgentPointerViewport = useStableCallback(() => {
     const host = overlayRef.current ?? hostRef.current;
     return {
       height: Math.max(1, Math.round(host?.clientHeight ?? 1)),
       width: Math.max(1, Math.round(host?.clientWidth ?? 1)),
     };
-  }, []);
+  });
 
-  const clampAgentPointerPoint = useCallback(
+  const clampAgentPointerPoint = useStableCallback(
     (point: { x: number; y: number }): { x: number; y: number } => {
       const viewport = resolveAgentPointerViewport();
       return {
@@ -1311,10 +1298,9 @@ function useBrowserTabWebviewComponent(props: {
         y: Math.max(0, Math.min(viewport.height, Math.round(point.y))),
       };
     },
-    [resolveAgentPointerViewport],
   );
 
-  const resolveAgentPointerPoint = useCallback(
+  const resolveAgentPointerPoint = useStableCallback(
     (effect: BrowserAgentPointerEffect): { x: number; y: number } => {
       const pathEnd = effect.path?.at(-1);
       if (pathEnd && Number.isFinite(pathEnd.x) && Number.isFinite(pathEnd.y)) {
@@ -1345,10 +1331,9 @@ function useBrowserTabWebviewComponent(props: {
         y: Math.round(viewport.height / 2),
       };
     },
-    [clampAgentPointerPoint, resolveAgentPointerViewport],
   );
 
-  const setAgentPointerFrame = useCallback(
+  const setAgentPointerFrame = useStableCallback(
     (
       effect: BrowserAgentPointerEffect,
       point: { x: number; y: number },
@@ -1367,32 +1352,28 @@ function useBrowserTabWebviewComponent(props: {
         ...nextPoint,
       });
     },
-    [clampAgentPointerPoint],
   );
 
-  const scheduleAgentPointerRest = useCallback(
-    (token: number, delayMs: number) => {
-      clearAgentPointerActionTimer();
-      agentPointerActionTimerRef.current = window.setTimeout(() => {
-        agentPointerActionTimerRef.current = null;
-        if (agentPointerTokenRef.current === token) {
-          setAgentPointer((current) =>
-            current
-              ? {
-                  ...current,
-                  mode: "move",
-                  pressed: false,
-                  scrollX: 0,
-                  scrollY: 0,
-                  visible: true,
-                }
-              : current,
-          );
-        }
-      }, delayMs);
-    },
-    [clearAgentPointerActionTimer],
-  );
+  const scheduleAgentPointerRest = useStableCallback((token: number, delayMs: number) => {
+    clearAgentPointerActionTimer();
+    agentPointerActionTimerRef.current = window.setTimeout(() => {
+      agentPointerActionTimerRef.current = null;
+      if (agentPointerTokenRef.current === token) {
+        setAgentPointer((current) =>
+          current
+            ? {
+                ...current,
+                mode: "move",
+                pressed: false,
+                scrollX: 0,
+                scrollY: 0,
+                visible: true,
+              }
+            : current,
+        );
+      }
+    }, delayMs);
+  });
 
   const clearAgentPointerRuntime = useStableCallback(() => {
     agentPointerTokenRef.current += 1;
@@ -1401,12 +1382,12 @@ function useBrowserTabWebviewComponent(props: {
     agentPointerPositionRef.current = null;
   });
 
-  const clearAgentPointer = useCallback(() => {
+  const clearAgentPointer = useStableCallback(() => {
     clearAgentPointerRuntime();
     setAgentPointer(null);
-  }, [clearAgentPointerRuntime]);
+  });
 
-  const animateAgentPointerTo = useCallback(
+  const animateAgentPointerTo = useStableCallback(
     (
       effect: BrowserAgentPointerEffect,
       point: BrowserAgentPointerPoint,
@@ -1459,9 +1440,8 @@ function useBrowserTabWebviewComponent(props: {
         agentPointerFrameRef.current = window.requestAnimationFrame(step);
       });
     },
-    [cancelAgentPointerAnimation, clampAgentPointerPoint, setAgentPointerFrame],
   );
-  const animateAgentPointer = useCallback(
+  const animateAgentPointer = useStableCallback(
     async (effect: BrowserAgentPointerEffect): Promise<void> => {
       const animateActiveAgentPointerTo = async (
         point: BrowserAgentPointerPoint,
@@ -1570,14 +1550,6 @@ function useBrowserTabWebviewComponent(props: {
       }
       scheduleAgentPointerRest(token, effect.type === "scroll" ? 620 : 180);
     },
-    [
-      animateAgentPointerTo,
-      clampAgentPointerPoint,
-      clearAgentPointerActionTimer,
-      resolveAgentPointerPoint,
-      scheduleAgentPointerRest,
-      setAgentPointerFrame,
-    ],
   );
 
   const browserTabHandle = useMemo<BrowserTabHandle>(
