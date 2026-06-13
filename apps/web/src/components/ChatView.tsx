@@ -2024,21 +2024,18 @@ function useChatViewComponent({
       attachmentPreviewHandoffByMessageId,
     });
   };
-  const setPendingComposerCommentsByThreadId = useCallback(
-    (
-      pendingComposerCommentsByThreadId:
-        | Record<ThreadId, PendingComposerComment[]>
-        | ((
-            current: Record<ThreadId, PendingComposerComment[]>,
-          ) => Record<ThreadId, PendingComposerComment[]>),
-    ) => {
-      dispatchChatViewTransientState({
-        type: "set-pending-composer-comments-by-thread-id",
-        pendingComposerCommentsByThreadId,
-      });
-    },
-    [],
-  );
+  const setPendingComposerCommentsByThreadId = (
+    pendingComposerCommentsByThreadId:
+      | Record<ThreadId, PendingComposerComment[]>
+      | ((
+          current: Record<ThreadId, PendingComposerComment[]>,
+        ) => Record<ThreadId, PendingComposerComment[]>),
+  ) => {
+    dispatchChatViewTransientState({
+      type: "set-pending-composer-comments-by-thread-id",
+      pendingComposerCommentsByThreadId,
+    });
+  };
   const [lastInvokedScriptByProjectId, setLastInvokedScriptByProjectId] = useLocalStorage(
     LAST_INVOKED_SCRIPT_BY_PROJECT_KEY,
     {},
@@ -2075,20 +2072,17 @@ function useChatViewComponent({
     chatShellRef.current = element;
     setChatShellElement(element);
   });
-  const setMessagesScrollContainerRef = useCallback(
-    (element: HTMLDivElement | null) => {
-      messagesScrollRef.current = element;
-      if (!element || pendingInitialBottomScrollThreadIdRef.current !== threadId) {
-        return;
-      }
-      scrollContainerToBottom(element);
-      lastKnownScrollTopRef.current = element.scrollTop;
-      shouldAutoScrollRef.current = true;
-      pendingUserScrollUpIntentRef.current = false;
-      setShowScrollToBottom(false);
-    },
-    [setShowScrollToBottom, threadId],
-  );
+  const setMessagesScrollContainerRef = (element: HTMLDivElement | null) => {
+    messagesScrollRef.current = element;
+    if (!element || pendingInitialBottomScrollThreadIdRef.current !== threadId) {
+      return;
+    }
+    scrollContainerToBottom(element);
+    lastKnownScrollTopRef.current = element.scrollTop;
+    shouldAutoScrollRef.current = true;
+    pendingUserScrollUpIntentRef.current = false;
+    setShowScrollToBottom(false);
+  };
   const getMessagesScrollContainer = useCallback(() => messagesScrollRef.current, []);
   useEffect(() => {
     const syncComposerDraftRefs = (state: ReturnType<typeof useComposerDraftStore.getState>) => {
@@ -2781,9 +2775,9 @@ function useChatViewComponent({
     [],
   );
 
-  const closeGitHubIssueDialog = useCallback(() => {
+  const closeGitHubIssueDialog = () => {
     dispatchChatViewDialogState({ type: "close-github-issue-dialog" });
-  }, []);
+  };
 
   const openRightSidePanelDiff = useEffectEvent(() => {
     setRightSidePanelDiffOpenState(true);
@@ -2803,7 +2797,7 @@ function useChatViewComponent({
     dispatchChatViewDialogState({ type: "close-pull-request-dialog" });
   });
 
-  const onComposerIssueTokenClick = useCallback((issueNumber: number) => {
+  const onComposerIssueTokenClick = (issueNumber: number) => {
     if (!Number.isInteger(issueNumber) || issueNumber <= 0) {
       return;
     }
@@ -2811,59 +2805,50 @@ function useChatViewComponent({
       type: "set-issue-preview-number",
       issuePreviewNumber: issueNumber,
     });
-  }, []);
+  };
 
-  const openOrReuseProjectDraftThread = useCallback(
-    async (input: { branch: string; worktreePath: string | null; envMode: DraftThreadEnvMode }) => {
-      if (!activeProject) {
-        throw new Error("No active project is available for this pull request.");
+  const openOrReuseProjectDraftThread = async (input: {
+    branch: string;
+    worktreePath: string | null;
+    envMode: DraftThreadEnvMode;
+  }) => {
+    if (!activeProject) {
+      throw new Error("No active project is available for this pull request.");
+    }
+    const storedDraftThread = getDraftThreadByProjectId(activeProject.id);
+    if (storedDraftThread) {
+      setDraftThreadContext(storedDraftThread.threadId, input);
+      setProjectDraftThreadId(activeProject.id, storedDraftThread.threadId, input);
+      if (storedDraftThread.threadId !== threadId) {
+        await navigate({
+          to: "/$threadId",
+          params: { threadId: storedDraftThread.threadId },
+        });
       }
-      const storedDraftThread = getDraftThreadByProjectId(activeProject.id);
-      if (storedDraftThread) {
-        setDraftThreadContext(storedDraftThread.threadId, input);
-        setProjectDraftThreadId(activeProject.id, storedDraftThread.threadId, input);
-        if (storedDraftThread.threadId !== threadId) {
-          await navigate({
-            to: "/$threadId",
-            params: { threadId: storedDraftThread.threadId },
-          });
-        }
-        return storedDraftThread.threadId;
-      }
+      return storedDraftThread.threadId;
+    }
 
-      const activeDraftThread = getDraftThread(threadId);
-      if (!isServerThread && activeDraftThread?.projectId === activeProject.id) {
-        setDraftThreadContext(threadId, input);
-        setProjectDraftThreadId(activeProject.id, threadId, input);
-        return threadId;
-      }
+    const activeDraftThread = getDraftThread(threadId);
+    if (!isServerThread && activeDraftThread?.projectId === activeProject.id) {
+      setDraftThreadContext(threadId, input);
+      setProjectDraftThreadId(activeProject.id, threadId, input);
+      return threadId;
+    }
 
-      clearProjectDraftThreadId(activeProject.id);
-      const nextThreadId = newThreadId();
-      setProjectDraftThreadId(activeProject.id, nextThreadId, {
-        createdAt: new Date().toISOString(),
-        runtimeMode: DEFAULT_RUNTIME_MODE,
-        interactionMode: DEFAULT_INTERACTION_MODE,
-        ...input,
-      });
-      await navigate({
-        to: "/$threadId",
-        params: { threadId: nextThreadId },
-      });
-      return nextThreadId;
-    },
-    [
-      activeProject,
-      clearProjectDraftThreadId,
-      getDraftThread,
-      getDraftThreadByProjectId,
-      isServerThread,
-      navigate,
-      setDraftThreadContext,
-      setProjectDraftThreadId,
-      threadId,
-    ],
-  );
+    clearProjectDraftThreadId(activeProject.id);
+    const nextThreadId = newThreadId();
+    setProjectDraftThreadId(activeProject.id, nextThreadId, {
+      createdAt: new Date().toISOString(),
+      runtimeMode: DEFAULT_RUNTIME_MODE,
+      interactionMode: DEFAULT_INTERACTION_MODE,
+      ...input,
+    });
+    await navigate({
+      to: "/$threadId",
+      params: { threadId: nextThreadId },
+    });
+    return nextThreadId;
+  };
 
   const handlePreparedPullRequestThread = async (input: {
     branch: string;
@@ -2968,18 +2953,15 @@ function useChatViewComponent({
     sessionProvider: activeThread?.session?.provider ?? null,
     threadModelSelection: activeThread?.modelSelection,
   });
-  const providerInstancesByProvider = useMemo(
-    () => ({
-      codex: modelSettings.providers.codex.instances,
-      claudeAgent: modelSettings.providers.claudeAgent.instances,
-      githubCopilot: modelSettings.providers.githubCopilot.instances,
-      cursor: modelSettings.providers.cursor.instances,
-      pi: modelSettings.providers.pi.instances,
-      gemini: modelSettings.providers.gemini.instances,
-      opencode: modelSettings.providers.opencode.instances,
-    }),
-    [modelSettings.providers],
-  );
+  const providerInstancesByProvider = {
+    codex: modelSettings.providers.codex.instances,
+    claudeAgent: modelSettings.providers.claudeAgent.instances,
+    githubCopilot: modelSettings.providers.githubCopilot.instances,
+    cursor: modelSettings.providers.cursor.instances,
+    pi: modelSettings.providers.pi.instances,
+    gemini: modelSettings.providers.gemini.instances,
+    opencode: modelSettings.providers.opencode.instances,
+  };
   const composerProviderCommands = useMemo(() => {
     const commandProvider = activeThread?.session?.provider ?? selectedProvider;
     const selectedProviderCommands =
@@ -2995,7 +2977,7 @@ function useChatViewComponent({
     providerStatuses,
     selectedProvider,
   ]);
-  const readCurrentSelectedPromptEffort = useCallback(() => {
+  const readCurrentSelectedPromptEffort = () => {
     return getComposerProviderState({
       provider: selectedProvider,
       model: selectedModel,
@@ -3003,7 +2985,7 @@ function useChatViewComponent({
       prompt: promptRef.current,
       modelOptions: composerModelOptions,
     }).promptEffort;
-  }, [composerModelOptions, selectedModel, selectedProvider, selectedProviderModels]);
+  };
   const activeContextWindow = useMemo(() => {
     if (!hasThreadStarted) {
       return null;
@@ -3026,14 +3008,10 @@ function useChatViewComponent({
     () => deriveThreadActivityRenderState(threadActivities, activityVisibilitySettings),
     [activityVisibilitySettings, threadActivities],
   );
-  const activeWorkTurnId = useMemo(
-    () =>
-      deriveVisibleWorkTurnId(
-        activeLatestTurn,
-        activeThread?.session ?? null,
-        visibleThreadActivities,
-      ),
-    [activeLatestTurn, activeThread?.session, visibleThreadActivities],
+  const activeWorkTurnId = deriveVisibleWorkTurnId(
+    activeLatestTurn,
+    activeThread?.session ?? null,
+    visibleThreadActivities,
   );
   const activePendingUserInput = pendingUserInputs[0] ?? null;
   const activePendingDraftAnswers = useMemo(
@@ -3047,24 +3025,16 @@ function useChatViewComponent({
   const activePendingQuestionIndex = activePendingUserInput
     ? (pendingUserInputQuestionIndexByRequestId[activePendingUserInput.requestId] ?? 0)
     : 0;
-  const activePendingProgress = useMemo(
-    () =>
-      activePendingUserInput
-        ? derivePendingUserInputProgress(
-            activePendingUserInput.questions,
-            activePendingDraftAnswers,
-            activePendingQuestionIndex,
-          )
-        : null,
-    [activePendingDraftAnswers, activePendingQuestionIndex, activePendingUserInput],
-  );
-  const activePendingResolvedAnswers = useMemo(
-    () =>
-      activePendingUserInput
-        ? buildPendingUserInputAnswers(activePendingUserInput.questions, activePendingDraftAnswers)
-        : null,
-    [activePendingDraftAnswers, activePendingUserInput],
-  );
+  const activePendingProgress = activePendingUserInput
+    ? derivePendingUserInputProgress(
+        activePendingUserInput.questions,
+        activePendingDraftAnswers,
+        activePendingQuestionIndex,
+      )
+    : null;
+  const activePendingResolvedAnswers = activePendingUserInput
+    ? buildPendingUserInputAnswers(activePendingUserInput.questions, activePendingDraftAnswers)
+    : null;
   const activePendingIsResponding = activePendingUserInput
     ? respondingUserInputRequestIds.includes(activePendingUserInput.requestId)
     : false;
@@ -3769,15 +3739,12 @@ function useChatViewComponent({
       worktreePath: activeThreadWorktreePath,
     });
   }, [activeProjectCwd, activeThreadWorktreePath]);
-  const terminalShortcutLabelOptions = useMemo(
-    () => ({
-      context: {
-        terminalFocus: true,
-        terminalOpen: Boolean(terminalState.terminalOpen),
-      },
-    }),
-    [terminalState.terminalOpen],
-  );
+  const terminalShortcutLabelOptions = {
+    context: {
+      terminalFocus: true,
+      terminalOpen: Boolean(terminalState.terminalOpen),
+    },
+  };
   const nonTerminalShortcutLabelOptions = useMemo(
     () => ({
       context: {
@@ -3803,17 +3770,14 @@ function useChatViewComponent({
     "rightPanel.toggle",
     nonTerminalShortcutLabelOptions,
   );
-  const rightSidePanelShortcutLabelOptions = useMemo(
-    () => ({
-      context: {
-        terminalFocus: false,
-        terminalOpen: Boolean(terminalState.terminalOpen),
-        rightPanelOpen: rightSidePanelOpen,
-        rightPanelFullscreen: rightSidePanelFullscreen,
-      },
-    }),
-    [rightSidePanelFullscreen, rightSidePanelOpen, terminalState.terminalOpen],
-  );
+  const rightSidePanelShortcutLabelOptions = {
+    context: {
+      terminalFocus: false,
+      terminalOpen: Boolean(terminalState.terminalOpen),
+      rightPanelOpen: rightSidePanelOpen,
+      rightPanelFullscreen: rightSidePanelFullscreen,
+    },
+  };
   const rightSidePanelFullscreenShortcutLabel = shortcutLabelForCommand(
     keybindings,
     "rightPanel.fullscreen.toggle",
@@ -3829,14 +3793,10 @@ function useChatViewComponent({
     "rightPanel.review.open",
     nonTerminalShortcutLabelOptions,
   );
-  const rightPanelBrowserShortcutLabel = useMemo(
-    () =>
-      shortcutLabelForCommand(
-        keybindings,
-        "rightPanel.browser.open",
-        nonTerminalShortcutLabelOptions,
-      ),
-    [keybindings, nonTerminalShortcutLabelOptions],
+  const rightPanelBrowserShortcutLabel = shortcutLabelForCommand(
+    keybindings,
+    "rightPanel.browser.open",
+    nonTerminalShortcutLabelOptions,
   );
   const rightPanelEditorShortcutLabel = shortcutLabelForCommand(
     keybindings,
@@ -3848,21 +3808,18 @@ function useChatViewComponent({
     "rightPanel.terminal.open",
     nonTerminalShortcutLabelOptions,
   );
-  const togglePlanModeShortcutLabel = useMemo(
-    () =>
-      shortcutLabelForCommand(keybindings, "chat.togglePlanMode", nonTerminalShortcutLabelOptions),
-    [keybindings, nonTerminalShortcutLabelOptions],
+  const togglePlanModeShortcutLabel = shortcutLabelForCommand(
+    keybindings,
+    "chat.togglePlanMode",
+    nonTerminalShortcutLabelOptions,
   );
-  const browserActionShortcutLabelOptions = useMemo(
-    () => ({
-      context: {
-        terminalFocus: false,
-        terminalOpen: Boolean(terminalState.terminalOpen),
-        browserOpen: true,
-      },
-    }),
-    [terminalState.terminalOpen],
-  );
+  const browserActionShortcutLabelOptions = {
+    context: {
+      terminalFocus: false,
+      terminalOpen: Boolean(terminalState.terminalOpen),
+      browserOpen: true,
+    },
+  };
   const browserBackShortcutLabel = shortcutLabelForCommand(
     keybindings,
     "browser.back",
@@ -4526,70 +4483,55 @@ function useChatViewComponent({
       })),
     [dispatchQueuedComposerCommand, toQueuedComposerCommandMessage],
   );
-  const deleteQueuedComposerMessage = useCallback(
-    async (targetThreadId: ThreadId, messageId: MessageId) =>
-      await dispatchQueuedComposerCommand(targetThreadId, ({ commandId, threadId }) => ({
-        type: "thread.queue.delete",
-        commandId,
-        threadId,
-        messageId,
-      })),
-    [dispatchQueuedComposerCommand],
-  );
-  const clearQueuedComposerState = useCallback(
-    async (targetThreadId: ThreadId) =>
-      await dispatchQueuedComposerCommand(targetThreadId, ({ commandId, threadId }) => ({
-        type: "thread.queue.clear",
-        commandId,
-        threadId,
-      })),
-    [dispatchQueuedComposerCommand],
-  );
-  const reorderQueuedComposerState = useCallback(
-    async (targetThreadId: ThreadId, messageIds: ReadonlyArray<MessageId>) =>
-      await dispatchQueuedComposerCommand(targetThreadId, ({ commandId, threadId }) => ({
-        type: "thread.queue.reorder",
-        commandId,
-        threadId,
-        messageIds: [...messageIds],
-      })),
-    [dispatchQueuedComposerCommand],
-  );
-  const steerQueuedComposerMessage = useCallback(
-    async (
-      targetThreadId: ThreadId,
-      messageId: MessageId,
-      options: { baselineWorkLogEntryCount: number; interruptRequested?: boolean },
-    ) =>
-      await dispatchQueuedComposerCommand(targetThreadId, ({ commandId, threadId }) => ({
-        type: "thread.queue.steer",
-        commandId,
-        threadId,
-        messageId,
-        baselineWorkLogEntryCount: options.baselineWorkLogEntryCount,
-        interruptRequested: options.interruptRequested ?? false,
-      })),
-    [dispatchQueuedComposerCommand],
-  );
-  const clearQueuedSteerRequest = useCallback(
-    async (targetThreadId: ThreadId) =>
-      await dispatchQueuedComposerCommand(targetThreadId, ({ commandId, threadId }) => ({
-        type: "thread.queue.steer.clear",
-        commandId,
-        threadId,
-      })),
-    [dispatchQueuedComposerCommand],
-  );
-  const dispatchQueuedComposerMessage = useCallback(
-    async (targetThreadId: ThreadId, messageId: MessageId) =>
-      await dispatchQueuedComposerCommand(targetThreadId, ({ commandId, threadId }) => ({
-        type: "thread.queue.dispatch",
-        commandId,
-        threadId,
-        messageId,
-      })),
-    [dispatchQueuedComposerCommand],
-  );
+  const deleteQueuedComposerMessage = async (targetThreadId: ThreadId, messageId: MessageId) =>
+    await dispatchQueuedComposerCommand(targetThreadId, ({ commandId, threadId }) => ({
+      type: "thread.queue.delete",
+      commandId,
+      threadId,
+      messageId,
+    }));
+  const clearQueuedComposerState = async (targetThreadId: ThreadId) =>
+    await dispatchQueuedComposerCommand(targetThreadId, ({ commandId, threadId }) => ({
+      type: "thread.queue.clear",
+      commandId,
+      threadId,
+    }));
+  const reorderQueuedComposerState = async (
+    targetThreadId: ThreadId,
+    messageIds: ReadonlyArray<MessageId>,
+  ) =>
+    await dispatchQueuedComposerCommand(targetThreadId, ({ commandId, threadId }) => ({
+      type: "thread.queue.reorder",
+      commandId,
+      threadId,
+      messageIds: [...messageIds],
+    }));
+  const steerQueuedComposerMessage = async (
+    targetThreadId: ThreadId,
+    messageId: MessageId,
+    options: { baselineWorkLogEntryCount: number; interruptRequested?: boolean },
+  ) =>
+    await dispatchQueuedComposerCommand(targetThreadId, ({ commandId, threadId }) => ({
+      type: "thread.queue.steer",
+      commandId,
+      threadId,
+      messageId,
+      baselineWorkLogEntryCount: options.baselineWorkLogEntryCount,
+      interruptRequested: options.interruptRequested ?? false,
+    }));
+  const clearQueuedSteerRequest = async (targetThreadId: ThreadId) =>
+    await dispatchQueuedComposerCommand(targetThreadId, ({ commandId, threadId }) => ({
+      type: "thread.queue.steer.clear",
+      commandId,
+      threadId,
+    }));
+  const dispatchQueuedComposerMessage = async (targetThreadId: ThreadId, messageId: MessageId) =>
+    await dispatchQueuedComposerCommand(targetThreadId, ({ commandId, threadId }) => ({
+      type: "thread.queue.dispatch",
+      commandId,
+      threadId,
+      messageId,
+    }));
   const ensureQueuedComposerThread = useCallback(
     async (options: {
       titleSeed: string;
@@ -4725,40 +4667,29 @@ function useChatViewComponent({
       return;
     }
   };
-  const restoreQueuedComposerMessageToDraft = useCallback(
-    (message: QueuedComposerMessage, restoredImages: ReadonlyArray<ComposerImageAttachment>) => {
-      promptRef.current = message.prompt;
-      setPrompt(message.prompt);
-      addComposerImagesToDraft([...restoredImages]);
-      setComposerDraftTerminalContexts(
-        threadId,
-        message.terminalContexts.map((context) => ({ ...context, threadId })),
-      );
-      setComposerDraftModelSelection(threadId, message.modelSelection);
-      setComposerDraftRuntimeMode(threadId, message.runtimeMode);
-      setComposerDraftInteractionMode(threadId, message.interactionMode);
-      if (isLocalDraftThread) {
-        setDraftThreadContext(threadId, {
-          runtimeMode: message.runtimeMode,
-          interactionMode: message.interactionMode,
-        });
-      }
-      composerPanelsRef.current?.resetUi(message.prompt);
-      scheduleComposerFocus();
-    },
-    [
-      addComposerImagesToDraft,
-      isLocalDraftThread,
-      scheduleComposerFocus,
-      setComposerDraftInteractionMode,
-      setComposerDraftModelSelection,
-      setComposerDraftRuntimeMode,
-      setComposerDraftTerminalContexts,
-      setDraftThreadContext,
-      setPrompt,
+  const restoreQueuedComposerMessageToDraft = (
+    message: QueuedComposerMessage,
+    restoredImages: ReadonlyArray<ComposerImageAttachment>,
+  ) => {
+    promptRef.current = message.prompt;
+    setPrompt(message.prompt);
+    addComposerImagesToDraft([...restoredImages]);
+    setComposerDraftTerminalContexts(
       threadId,
-    ],
-  );
+      message.terminalContexts.map((context) => ({ ...context, threadId })),
+    );
+    setComposerDraftModelSelection(threadId, message.modelSelection);
+    setComposerDraftRuntimeMode(threadId, message.runtimeMode);
+    setComposerDraftInteractionMode(threadId, message.interactionMode);
+    if (isLocalDraftThread) {
+      setDraftThreadContext(threadId, {
+        runtimeMode: message.runtimeMode,
+        interactionMode: message.interactionMode,
+      });
+    }
+    composerPanelsRef.current?.resetUi(message.prompt);
+    scheduleComposerFocus();
+  };
   const onEditQueuedComposerMessage = async (messageId: MessageId) => {
     const nextMessage = queuedComposerMessagesRef.current.find(
       (message) => message.id === messageId,
@@ -4795,139 +4726,28 @@ function useChatViewComponent({
       restoredImages,
     );
   };
-  const queueCurrentComposerMessage = useCallback(
-    async (mode: "queue" | "steer" = "queue") => {
-      const api = readNativeApi();
-      if (!api || !activeThread || (sendInFlightRef.current && !isServerThread)) {
-        return false;
-      }
-      const hiddenDesignMessage = queuedDesignMessageEditRef.current;
-      const composerImages = composerImagesRef.current;
-      const pendingCommentsForQueue = pendingComposerComments;
-      const hasPendingComposerComments = pendingCommentsForQueue.length > 0;
-      const promptForQueueWithoutInlineMarkers = stripComposerInlineMarkers(promptRef.current);
-      const composerTerminalContexts = composerTerminalContextsRef.current;
-      const { sendableTerminalContexts, expiredTerminalContextCount, hasSendableContent } =
-        deriveComposerSendState({
-          prompt: promptForQueueWithoutInlineMarkers,
-          imageCount: composerImages.length,
-          terminalContexts: composerTerminalContexts,
-        });
-      if (!hasSendableContent && !hasPendingComposerComments) {
-        if (expiredTerminalContextCount > 0) {
-          const toastCopy = buildExpiredTerminalContextToastCopy(
-            expiredTerminalContextCount,
-            "empty",
-          );
-          toastManager.add({
-            type: "warning",
-            title: toastCopy.title,
-            description: toastCopy.description,
-          });
-        }
-        return false;
-      }
-
-      let queuedImages: QueuedComposerImageAttachment[];
-      try {
-        queuedImages = await buildQueuedComposerImages(composerImages);
-      } catch (error) {
-        setThreadError(
-          threadId,
-          error instanceof Error ? error.message : "Failed to queue message attachments.",
-        );
-        return false;
-      }
-      const providerSlashCommandPayload =
-        composerImages.length === 0 && sendableTerminalContexts.length === 0
-          ? parseProviderComposerSlashCommand(
-              promptForQueueWithoutInlineMarkers.trim(),
-              composerProviderCommands,
-            )
-          : null;
-      const promptForQueueBase =
-        providerSlashCommandPayload?.promptText ?? promptForQueueWithoutInlineMarkers;
-      const promptForQueue =
-        hiddenDesignMessage === null
-          ? buildAccumulatedCommentsPrompt(promptForQueueBase, pendingCommentsForQueue)
-          : buildAccumulatedCommentsPrompt(
-              appendHiddenBrowserDesignContextFromOriginalPrompt(
-                promptForQueueBase,
-                hiddenDesignMessage.prompt,
-              ),
-              pendingCommentsForQueue,
-            );
-      const mergedQueuedImagesBeforeComments =
-        hiddenDesignMessage === null
-          ? queuedImages
-          : [...hiddenDesignMessage.images, ...queuedImages].filter(
-              (image, index, allImages) =>
-                allImages.findIndex((candidate) => candidate.id === image.id) === index,
-            );
-      const mergedQueuedImages = mergePendingCommentImages(
-        mergedQueuedImagesBeforeComments,
-        pendingCommentsForQueue,
-      );
-      if (mergedQueuedImages.length > PROVIDER_SEND_TURN_MAX_ATTACHMENTS) {
-        toastManager.add({
-          type: "warning",
-          title: "Too many screenshots",
-          description: `Send at most ${PROVIDER_SEND_TURN_MAX_ATTACHMENTS} images at a time.`,
-        });
-        return false;
-      }
-      const queuedTerminalContexts = sendableTerminalContexts.map((context) => ({
-        id: context.id,
-        createdAt: context.createdAt,
-        terminalId: context.terminalId,
-        terminalLabel: context.terminalLabel,
-        lineStart: context.lineStart,
-        lineEnd: context.lineEnd,
-        text: context.text,
-      }));
-      const mergedQueuedTerminalContexts =
-        hiddenDesignMessage === null
-          ? queuedTerminalContexts
-          : [...hiddenDesignMessage.terminalContexts, ...queuedTerminalContexts].filter(
-              (context, index, allContexts) =>
-                allContexts.findIndex((candidate) => candidate.id === context.id) === index,
-            );
-      const queuedMessage: QueuedComposerMessage = {
-        id: newMessageId(),
-        prompt: promptForQueue,
-        images: mergedQueuedImages,
-        terminalContexts: mergedQueuedTerminalContexts,
-        modelSelection: selectedModelSelection,
-        runtimeMode: activeThread.runtimeMode,
-        interactionMode: activeThread.interactionMode,
-      };
-      const targetThreadId = await ensureQueuedComposerThread({
-        titleSeed: promptForQueueBase || pendingCommentsForQueue[0]?.body || "Pending comments",
-        modelSelection: selectedModelSelection,
-        runtimeMode,
-        interactionMode,
+  const queueCurrentComposerMessage = async (mode: "queue" | "steer" = "queue") => {
+    const api = readNativeApi();
+    if (!api || !activeThread || (sendInFlightRef.current && !isServerThread)) {
+      return false;
+    }
+    const hiddenDesignMessage = queuedDesignMessageEditRef.current;
+    const composerImages = composerImagesRef.current;
+    const pendingCommentsForQueue = pendingComposerComments;
+    const hasPendingComposerComments = pendingCommentsForQueue.length > 0;
+    const promptForQueueWithoutInlineMarkers = stripComposerInlineMarkers(promptRef.current);
+    const composerTerminalContexts = composerTerminalContextsRef.current;
+    const { sendableTerminalContexts, expiredTerminalContextCount, hasSendableContent } =
+      deriveComposerSendState({
+        prompt: promptForQueueWithoutInlineMarkers,
+        imageCount: composerImages.length,
+        terminalContexts: composerTerminalContexts,
       });
-      if (!targetThreadId) {
-        return false;
-      }
-      const appendOptions =
-        mode === "steer"
-          ? {
-              steerRequest: {
-                messageId: queuedMessage.id,
-                baselineWorkLogEntryCount: workLogEntries.length,
-                interruptRequested: false,
-              },
-            }
-          : undefined;
-      if (!(await appendQueuedComposerMessage(targetThreadId, queuedMessage, appendOptions))) {
-        return false;
-      }
-
+    if (!hasSendableContent && !hasPendingComposerComments) {
       if (expiredTerminalContextCount > 0) {
         const toastCopy = buildExpiredTerminalContextToastCopy(
           expiredTerminalContextCount,
-          "omitted",
+          "empty",
         );
         toastManager.add({
           type: "warning",
@@ -4935,79 +4755,160 @@ function useChatViewComponent({
           description: toastCopy.description,
         });
       }
+      return false;
+    }
 
-      promptRef.current = "";
-      clearComposerDraftContent(threadId);
-      queuedDesignMessageEditRef.current = null;
-      if (hasPendingComposerComments) {
-        setPendingComposerCommentsByThreadId((current) => ({
-          ...current,
-          [threadId]: [],
-        }));
-      }
-      composerPanelsRef.current?.resetUi("");
-      return true;
-    },
-    [
-      buildQueuedComposerImages,
-      clearComposerDraftContent,
-      composerProviderCommands,
-      ensureQueuedComposerThread,
-      interactionMode,
-      appendQueuedComposerMessage,
-      pendingComposerComments,
+    let queuedImages: QueuedComposerImageAttachment[];
+    try {
+      queuedImages = await buildQueuedComposerImages(composerImages);
+    } catch (error) {
+      setThreadError(
+        threadId,
+        error instanceof Error ? error.message : "Failed to queue message attachments.",
+      );
+      return false;
+    }
+    const providerSlashCommandPayload =
+      composerImages.length === 0 && sendableTerminalContexts.length === 0
+        ? parseProviderComposerSlashCommand(
+            promptForQueueWithoutInlineMarkers.trim(),
+            composerProviderCommands,
+          )
+        : null;
+    const promptForQueueBase =
+      providerSlashCommandPayload?.promptText ?? promptForQueueWithoutInlineMarkers;
+    const promptForQueue =
+      hiddenDesignMessage === null
+        ? buildAccumulatedCommentsPrompt(promptForQueueBase, pendingCommentsForQueue)
+        : buildAccumulatedCommentsPrompt(
+            appendHiddenBrowserDesignContextFromOriginalPrompt(
+              promptForQueueBase,
+              hiddenDesignMessage.prompt,
+            ),
+            pendingCommentsForQueue,
+          );
+    const mergedQueuedImagesBeforeComments =
+      hiddenDesignMessage === null
+        ? queuedImages
+        : [...hiddenDesignMessage.images, ...queuedImages].filter(
+            (image, index, allImages) =>
+              allImages.findIndex((candidate) => candidate.id === image.id) === index,
+          );
+    const mergedQueuedImages = mergePendingCommentImages(
+      mergedQueuedImagesBeforeComments,
+      pendingCommentsForQueue,
+    );
+    if (mergedQueuedImages.length > PROVIDER_SEND_TURN_MAX_ATTACHMENTS) {
+      toastManager.add({
+        type: "warning",
+        title: "Too many screenshots",
+        description: `Send at most ${PROVIDER_SEND_TURN_MAX_ATTACHMENTS} images at a time.`,
+      });
+      return false;
+    }
+    const queuedTerminalContexts = sendableTerminalContexts.map((context) => ({
+      id: context.id,
+      createdAt: context.createdAt,
+      terminalId: context.terminalId,
+      terminalLabel: context.terminalLabel,
+      lineStart: context.lineStart,
+      lineEnd: context.lineEnd,
+      text: context.text,
+    }));
+    const mergedQueuedTerminalContexts =
+      hiddenDesignMessage === null
+        ? queuedTerminalContexts
+        : [...hiddenDesignMessage.terminalContexts, ...queuedTerminalContexts].filter(
+            (context, index, allContexts) =>
+              allContexts.findIndex((candidate) => candidate.id === context.id) === index,
+          );
+    const queuedMessage: QueuedComposerMessage = {
+      id: newMessageId(),
+      prompt: promptForQueue,
+      images: mergedQueuedImages,
+      terminalContexts: mergedQueuedTerminalContexts,
+      modelSelection: selectedModelSelection,
+      runtimeMode: activeThread.runtimeMode,
+      interactionMode: activeThread.interactionMode,
+    };
+    const targetThreadId = await ensureQueuedComposerThread({
+      titleSeed: promptForQueueBase || pendingCommentsForQueue[0]?.body || "Pending comments",
+      modelSelection: selectedModelSelection,
       runtimeMode,
-      selectedModelSelection,
-      setThreadError,
-      workLogEntries.length,
-      isServerThread,
-      activeThread,
-      threadId,
-    ],
-  );
-  const queuePreparedMessage = useCallback(
-    async (
-      preparedPrompt: string,
-      images: ReadonlyArray<ComposerImageAttachment> = [],
-      options?: { targetThreadId?: ThreadId },
-    ) => {
-      const queuedImages = images.length === 0 ? [] : await buildQueuedComposerImages([...images]);
-      const queuedMessage: QueuedComposerMessage = {
-        id: newMessageId(),
-        prompt: preparedPrompt,
-        images: queuedImages,
-        terminalContexts: [],
-        modelSelection: selectedModelSelection,
-        runtimeMode,
-        interactionMode,
-      };
-      const activeComposerThreadId = activeThread?.id ?? threadId;
-      const requestedTargetThreadId = options?.targetThreadId ?? activeComposerThreadId;
-      const targetThreadId =
-        requestedTargetThreadId === activeComposerThreadId
-          ? await ensureQueuedComposerThread({
-              titleSeed: preparedPrompt,
-              modelSelection: selectedModelSelection,
-              runtimeMode,
-              interactionMode,
-            })
-          : requestedTargetThreadId;
-      if (!targetThreadId) {
-        return false;
-      }
-      return appendQueuedComposerMessage(targetThreadId, queuedMessage);
-    },
-    [
-      appendQueuedComposerMessage,
-      buildQueuedComposerImages,
-      ensureQueuedComposerThread,
       interactionMode,
+    });
+    if (!targetThreadId) {
+      return false;
+    }
+    const appendOptions =
+      mode === "steer"
+        ? {
+            steerRequest: {
+              messageId: queuedMessage.id,
+              baselineWorkLogEntryCount: workLogEntries.length,
+              interruptRequested: false,
+            },
+          }
+        : undefined;
+    if (!(await appendQueuedComposerMessage(targetThreadId, queuedMessage, appendOptions))) {
+      return false;
+    }
+
+    if (expiredTerminalContextCount > 0) {
+      const toastCopy = buildExpiredTerminalContextToastCopy(
+        expiredTerminalContextCount,
+        "omitted",
+      );
+      toastManager.add({
+        type: "warning",
+        title: toastCopy.title,
+        description: toastCopy.description,
+      });
+    }
+
+    promptRef.current = "";
+    clearComposerDraftContent(threadId);
+    queuedDesignMessageEditRef.current = null;
+    if (hasPendingComposerComments) {
+      setPendingComposerCommentsByThreadId((current) => ({
+        ...current,
+        [threadId]: [],
+      }));
+    }
+    composerPanelsRef.current?.resetUi("");
+    return true;
+  };
+  const queuePreparedMessage = async (
+    preparedPrompt: string,
+    images: ReadonlyArray<ComposerImageAttachment> = [],
+    options?: { targetThreadId?: ThreadId },
+  ) => {
+    const queuedImages = images.length === 0 ? [] : await buildQueuedComposerImages([...images]);
+    const queuedMessage: QueuedComposerMessage = {
+      id: newMessageId(),
+      prompt: preparedPrompt,
+      images: queuedImages,
+      terminalContexts: [],
+      modelSelection: selectedModelSelection,
       runtimeMode,
-      selectedModelSelection,
-      activeThread?.id,
-      threadId,
-    ],
-  );
+      interactionMode,
+    };
+    const activeComposerThreadId = activeThread?.id ?? threadId;
+    const requestedTargetThreadId = options?.targetThreadId ?? activeComposerThreadId;
+    const targetThreadId =
+      requestedTargetThreadId === activeComposerThreadId
+        ? await ensureQueuedComposerThread({
+            titleSeed: preparedPrompt,
+            modelSelection: selectedModelSelection,
+            runtimeMode,
+            interactionMode,
+          })
+        : requestedTargetThreadId;
+    if (!targetThreadId) {
+      return false;
+    }
+    return appendQueuedComposerMessage(targetThreadId, queuedMessage);
+  };
   const queueBrowserDesignRequest = async (
     targetThreadId: ThreadId,
     submission: BrowserDesignRequestSubmission,
@@ -5272,7 +5173,7 @@ function useChatViewComponent({
     },
     [activeThreadId, ensureBrowserRightSidePanelOpenWidth, openBrowser, windowStateInstanceId],
   );
-  const closeBrowser = useCallback(() => {
+  const closeBrowser = () => {
     setBrowserMode("closed");
     setBrowserDevToolsOpen(false);
     removeRightPanelTabOrder("browser");
@@ -5283,14 +5184,7 @@ function useChatViewComponent({
       );
       cleanupBrowserInstanceState(rightBrowserInstanceId, { clearPersistentSession: true });
     }
-  }, [
-    cleanupBrowserInstanceState,
-    removeRightPanelTabOrder,
-    rightBrowserInstanceId,
-    setBrowserDevToolsOpen,
-    setBrowserMode,
-    setRightSidePanelMode,
-  ]);
+  };
   const detachRightSidePanelBrowser = () => {
     setBrowserMode("closed");
     setBrowserDevToolsOpen(false);
@@ -5333,35 +5227,26 @@ function useChatViewComponent({
     setRightSidePanelMode("editor");
     setRightSidePanelVisible(true);
   };
-  const onCloseRightSidePanelEditorTab = useCallback(
-    (tabId: string) => {
-      const tabIndex = rightPanelEditorTabs.findIndex((tab) => tab.id === tabId);
-      if (tabIndex < 0) return;
-      const nextTabs = rightPanelEditorTabs.filter((tab) => tab.id !== tabId);
-      setRightPanelEditorTabs(nextTabs);
-      setRightPanelTabOrder((current) => removePanelTabOrder(current, `editor:${tabId}`));
-      if (nextTabs.length === 0) {
-        setActiveRightPanelEditorTabId(null);
-        setRightSidePanelEditorOpen(false);
-        removeRightPanelTabOrder("editor");
-        setRightSidePanelMode((current) => (current === "editor" ? "summary" : current));
-        return;
+  const onCloseRightSidePanelEditorTab = (tabId: string) => {
+    const tabIndex = rightPanelEditorTabs.findIndex((tab) => tab.id === tabId);
+    if (tabIndex < 0) return;
+    const nextTabs = rightPanelEditorTabs.filter((tab) => tab.id !== tabId);
+    setRightPanelEditorTabs(nextTabs);
+    setRightPanelTabOrder((current) => removePanelTabOrder(current, `editor:${tabId}`));
+    if (nextTabs.length === 0) {
+      setActiveRightPanelEditorTabId(null);
+      setRightSidePanelEditorOpen(false);
+      removeRightPanelTabOrder("editor");
+      setRightSidePanelMode((current) => (current === "editor" ? "summary" : current));
+      return;
+    }
+    setActiveRightPanelEditorTabId((current) => {
+      if (current && current !== tabId && nextTabs.some((tab) => tab.id === current)) {
+        return current;
       }
-      setActiveRightPanelEditorTabId((current) => {
-        if (current && current !== tabId && nextTabs.some((tab) => tab.id === current)) {
-          return current;
-        }
-        return nextTabs[Math.min(tabIndex, nextTabs.length - 1)]?.id ?? null;
-      });
-    },
-    [
-      rightPanelEditorTabs,
-      removeRightPanelTabOrder,
-      setRightSidePanelEditorOpen,
-      setRightSidePanelMode,
-      setRightPanelEditorTabs,
-    ],
-  );
+      return nextTabs[Math.min(tabIndex, nextTabs.length - 1)]?.id ?? null;
+    });
+  };
   const onReorderRightSidePanelEditorTab = (draggedTabId: string, targetTabId: string) => {
     setRightPanelEditorTabs((current) => {
       const draggedIndex = current.findIndex((tab) => tab.id === draggedTabId);
@@ -5619,29 +5504,26 @@ function useChatViewComponent({
     setActiveBottomPanelEditorTabId(tabId);
     setBottomPanelMode("editor");
   };
-  const onCloseBottomPanelEditorTab = useCallback(
-    (tabId: string) => {
-      const tabIndex = bottomPanelEditorTabs.findIndex((tab) => tab.id === tabId);
-      if (tabIndex < 0) return;
-      const nextTabs = bottomPanelEditorTabs.filter((tab) => tab.id !== tabId);
-      setBottomPanelEditorTabs(nextTabs);
-      setBottomPanelTabOrder((current) => removePanelTabOrder(current, `editor:${tabId}`));
-      if (nextTabs.length === 0) {
-        setActiveBottomPanelEditorTabId(null);
-        removeBottomPanelTabOrder("editor");
-        setBottomPanelMode((current) => (current === "editor" ? "terminal" : current));
-        setTerminalOpen(true);
-        return;
+  const onCloseBottomPanelEditorTab = (tabId: string) => {
+    const tabIndex = bottomPanelEditorTabs.findIndex((tab) => tab.id === tabId);
+    if (tabIndex < 0) return;
+    const nextTabs = bottomPanelEditorTabs.filter((tab) => tab.id !== tabId);
+    setBottomPanelEditorTabs(nextTabs);
+    setBottomPanelTabOrder((current) => removePanelTabOrder(current, `editor:${tabId}`));
+    if (nextTabs.length === 0) {
+      setActiveBottomPanelEditorTabId(null);
+      removeBottomPanelTabOrder("editor");
+      setBottomPanelMode((current) => (current === "editor" ? "terminal" : current));
+      setTerminalOpen(true);
+      return;
+    }
+    setActiveBottomPanelEditorTabId((current) => {
+      if (current && current !== tabId && nextTabs.some((tab) => tab.id === current)) {
+        return current;
       }
-      setActiveBottomPanelEditorTabId((current) => {
-        if (current && current !== tabId && nextTabs.some((tab) => tab.id === current)) {
-          return current;
-        }
-        return nextTabs[Math.min(tabIndex, nextTabs.length - 1)]?.id ?? null;
-      });
-    },
-    [bottomPanelEditorTabs, removeBottomPanelTabOrder, setTerminalOpen],
-  );
+      return nextTabs[Math.min(tabIndex, nextTabs.length - 1)]?.id ?? null;
+    });
+  };
   const onReorderBottomPanelEditorTab = (draggedTabId: string, targetTabId: string) => {
     setBottomPanelEditorTabs((current) => {
       const draggedIndex = current.findIndex((tab) => tab.id === draggedTabId);
@@ -5827,7 +5709,7 @@ function useChatViewComponent({
     }
     setTerminalOpen(true);
   };
-  const onCloseBottomPanelBrowser = useCallback(() => {
+  const onCloseBottomPanelBrowser = () => {
     setBottomPanelBrowserOpen(false);
     removeBottomPanelTabOrder("browser");
     setBottomPanelMode((current) => (current === "browser" ? "terminal" : current));
@@ -5838,12 +5720,7 @@ function useChatViewComponent({
       );
       cleanupBrowserInstanceState(bottomBrowserInstanceId, { clearPersistentSession: true });
     }
-  }, [
-    bottomBrowserInstanceId,
-    cleanupBrowserInstanceState,
-    removeBottomPanelTabOrder,
-    setTerminalOpen,
-  ]);
+  };
   const detachBottomPanelBrowser = () => {
     setBottomPanelBrowserOpen(false);
     removeBottomPanelTabOrder("browser");
@@ -7110,36 +6987,33 @@ function useChatViewComponent({
     pendingPullRequestSetupRequest,
     runProjectScript,
   ]);
-  const persistProjectScripts = useCallback(
-    async (input: {
-      projectId: ProjectId;
-      projectCwd: string;
-      previousScripts: ProjectScript[];
-      nextScripts: ProjectScript[];
-      keybinding?: string | null;
-      keybindingCommand: KeybindingCommand;
-    }) => {
-      const api = readNativeApi();
-      if (!api) return;
+  const persistProjectScripts = async (input: {
+    projectId: ProjectId;
+    projectCwd: string;
+    previousScripts: ProjectScript[];
+    nextScripts: ProjectScript[];
+    keybinding?: string | null;
+    keybindingCommand: KeybindingCommand;
+  }) => {
+    const api = readNativeApi();
+    if (!api) return;
 
-      await api.orchestration.dispatchCommand({
-        type: "project.meta.update",
-        commandId: newCommandId(),
-        projectId: input.projectId,
-        scripts: input.nextScripts,
-      });
+    await api.orchestration.dispatchCommand({
+      type: "project.meta.update",
+      commandId: newCommandId(),
+      projectId: input.projectId,
+      scripts: input.nextScripts,
+    });
 
-      const keybindingRule = decodeProjectScriptKeybindingRule({
-        keybinding: input.keybinding,
-        command: input.keybindingCommand,
-      });
+    const keybindingRule = decodeProjectScriptKeybindingRule({
+      keybinding: input.keybinding,
+      command: input.keybindingCommand,
+    });
 
-      if (keybindingRule) {
-        await api.server.upsertKeybinding(keybindingRule);
-      }
-    },
-    [],
-  );
+    if (keybindingRule) {
+      await api.server.upsertKeybinding(keybindingRule);
+    }
+  };
   const saveProjectScript = async (input: NewProjectScriptInput) => {
     if (!activeProject) return;
     const nextId = nextProjectScriptId(
@@ -7528,7 +7402,7 @@ function useChatViewComponent({
     },
     [forceStickToBottom, scrollMessagesToBottom, setShowScrollToBottom],
   );
-  const onMessagesScroll = useCallback(() => {
+  const onMessagesScroll = () => {
     const scrollContainer = messagesScrollRef.current;
     if (!scrollContainer) return;
     const activeThreadId = activeThread?.id ?? null;
@@ -7570,64 +7444,52 @@ function useChatViewComponent({
 
     setShowScrollToBottom(shouldShowScrollToBottomButton(scrollContainer));
     lastKnownScrollTopRef.current = currentScrollTop;
-  }, [
-    activeThread?.id,
-    cancelInitialBottomPin,
-    cancelPendingStickToBottom,
-    scheduleStickToBottom,
-    setShowScrollToBottom,
-  ]);
-  const onMessagesWheel = useCallback(
-    (event: React.WheelEvent<HTMLDivElement>) => {
-      if (event.deltaY < 0) {
-        shouldAutoScrollRef.current = false;
-        pendingUserScrollUpIntentRef.current = true;
-        cancelPendingStickToBottom();
-        cancelInitialBottomPin();
-        const scrollContainer = messagesScrollRef.current;
-        setShowScrollToBottom(
-          scrollContainer ? shouldShowScrollToBottomButton(scrollContainer) : true,
-        );
-      }
-    },
-    [cancelInitialBottomPin, cancelPendingStickToBottom, setShowScrollToBottom],
-  );
-  const onMessagesPointerDown = useCallback((_event: React.PointerEvent<HTMLDivElement>) => {
+  };
+  const onMessagesWheel = (event: React.WheelEvent<HTMLDivElement>) => {
+    if (event.deltaY < 0) {
+      shouldAutoScrollRef.current = false;
+      pendingUserScrollUpIntentRef.current = true;
+      cancelPendingStickToBottom();
+      cancelInitialBottomPin();
+      const scrollContainer = messagesScrollRef.current;
+      setShowScrollToBottom(
+        scrollContainer ? shouldShowScrollToBottomButton(scrollContainer) : true,
+      );
+    }
+  };
+  const onMessagesPointerDown = (_event: React.PointerEvent<HTMLDivElement>) => {
     isPointerScrollActiveRef.current = true;
-  }, []);
-  const onMessagesPointerUp = useCallback((_event: React.PointerEvent<HTMLDivElement>) => {
+  };
+  const onMessagesPointerUp = (_event: React.PointerEvent<HTMLDivElement>) => {
     isPointerScrollActiveRef.current = false;
-  }, []);
-  const onMessagesPointerCancel = useCallback((_event: React.PointerEvent<HTMLDivElement>) => {
+  };
+  const onMessagesPointerCancel = (_event: React.PointerEvent<HTMLDivElement>) => {
     isPointerScrollActiveRef.current = false;
-  }, []);
-  const onMessagesTouchStart = useCallback((event: React.TouchEvent<HTMLDivElement>) => {
+  };
+  const onMessagesTouchStart = (event: React.TouchEvent<HTMLDivElement>) => {
     const touch = event.touches[0];
     if (!touch) return;
     lastTouchClientYRef.current = touch.clientY;
-  }, []);
-  const onMessagesTouchMove = useCallback(
-    (event: React.TouchEvent<HTMLDivElement>) => {
-      const touch = event.touches[0];
-      if (!touch) return;
-      const previousTouchY = lastTouchClientYRef.current;
-      if (previousTouchY !== null && touch.clientY > previousTouchY + 1) {
-        shouldAutoScrollRef.current = false;
-        pendingUserScrollUpIntentRef.current = true;
-        cancelPendingStickToBottom();
-        cancelInitialBottomPin();
-        const scrollContainer = messagesScrollRef.current;
-        setShowScrollToBottom(
-          scrollContainer ? shouldShowScrollToBottomButton(scrollContainer) : true,
-        );
-      }
-      lastTouchClientYRef.current = touch.clientY;
-    },
-    [cancelInitialBottomPin, cancelPendingStickToBottom, setShowScrollToBottom],
-  );
-  const onMessagesTouchEnd = useCallback((_event: React.TouchEvent<HTMLDivElement>) => {
+  };
+  const onMessagesTouchMove = (event: React.TouchEvent<HTMLDivElement>) => {
+    const touch = event.touches[0];
+    if (!touch) return;
+    const previousTouchY = lastTouchClientYRef.current;
+    if (previousTouchY !== null && touch.clientY > previousTouchY + 1) {
+      shouldAutoScrollRef.current = false;
+      pendingUserScrollUpIntentRef.current = true;
+      cancelPendingStickToBottom();
+      cancelInitialBottomPin();
+      const scrollContainer = messagesScrollRef.current;
+      setShowScrollToBottom(
+        scrollContainer ? shouldShowScrollToBottomButton(scrollContainer) : true,
+      );
+    }
+    lastTouchClientYRef.current = touch.clientY;
+  };
+  const onMessagesTouchEnd = (_event: React.TouchEvent<HTMLDivElement>) => {
     lastTouchClientYRef.current = null;
-  }, []);
+  };
   useEffect(() => {
     return () => {
       cancelPendingStickToBottom();
@@ -8227,333 +8089,308 @@ function useChatViewComponent({
     ],
   );
 
-  const dispatchComposerMessage = useCallback(
-    async (
-      submission: {
-        prompt: string;
-        images: Array<ComposerImageAttachment | QueuedComposerImageAttachment>;
-        terminalContexts: TerminalContextDraft[];
-        modelSelection: ModelSelection;
-        runtimeMode: RuntimeMode;
-        interactionMode: ProviderInteractionMode;
-      },
-      options?: {
-        onFailure?: () => void;
-        restorePrompt?: string;
-      },
-    ) => {
-      const api = readNativeApi();
-      if (!api || !activeThread || sendInFlightRef.current) return false;
-      if (!activeProject) return false;
+  const dispatchComposerMessage = async (
+    submission: {
+      prompt: string;
+      images: Array<ComposerImageAttachment | QueuedComposerImageAttachment>;
+      terminalContexts: TerminalContextDraft[];
+      modelSelection: ModelSelection;
+      runtimeMode: RuntimeMode;
+      interactionMode: ProviderInteractionMode;
+    },
+    options?: {
+      onFailure?: () => void;
+      restorePrompt?: string;
+    },
+  ) => {
+    const api = readNativeApi();
+    if (!api || !activeThread || sendInFlightRef.current) return false;
+    if (!activeProject) return false;
 
-      const promptForSend = stripComposerInlineMarkers(submission.prompt);
-      const composerImagesSnapshot = [...submission.images];
-      const composerTerminalContextsSnapshot = [...submission.terminalContexts];
-      const threadIdForSend = activeThread.id;
-      const submissionModelOptions = submission.modelSelection.options
-        ? {
-            [submission.modelSelection.provider]: submission.modelSelection.options,
-          }
+    const promptForSend = stripComposerInlineMarkers(submission.prompt);
+    const composerImagesSnapshot = [...submission.images];
+    const composerTerminalContextsSnapshot = [...submission.terminalContexts];
+    const threadIdForSend = activeThread.id;
+    const submissionModelOptions = submission.modelSelection.options
+      ? {
+          [submission.modelSelection.provider]: submission.modelSelection.options,
+        }
+      : null;
+    const submissionProviderModels = getProviderModels(
+      providerStatuses,
+      submission.modelSelection.provider,
+      submission.modelSelection.providerInstanceId,
+    );
+    const submissionProviderState = getComposerProviderState({
+      provider: submission.modelSelection.provider,
+      model: submission.modelSelection.model,
+      models: submissionProviderModels,
+      prompt: promptForSend,
+      modelOptions: submissionModelOptions,
+    });
+    const isFirstMessage = !isServerThread || activeThread.messages.length === 0;
+    const baseBranchForWorktree =
+      isFirstMessage && envMode === "worktree" && !activeThread.worktreePath
+        ? activeThread.branch
         : null;
-      const submissionProviderModels = getProviderModels(
-        providerStatuses,
-        submission.modelSelection.provider,
-        submission.modelSelection.providerInstanceId,
-      );
-      const submissionProviderState = getComposerProviderState({
-        provider: submission.modelSelection.provider,
-        model: submission.modelSelection.model,
-        models: submissionProviderModels,
-        prompt: promptForSend,
-        modelOptions: submissionModelOptions,
-      });
-      const isFirstMessage = !isServerThread || activeThread.messages.length === 0;
-      const baseBranchForWorktree =
-        isFirstMessage && envMode === "worktree" && !activeThread.worktreePath
-          ? activeThread.branch
-          : null;
 
-      const shouldCreateWorktree =
-        isFirstMessage && envMode === "worktree" && !activeThread.worktreePath;
-      if (shouldCreateWorktree && !activeThread.branch) {
-        setStoreThreadError(
-          threadIdForSend,
-          "Select a base branch before sending in New worktree mode.",
-        );
-        return false;
-      }
+    const shouldCreateWorktree =
+      isFirstMessage && envMode === "worktree" && !activeThread.worktreePath;
+    if (shouldCreateWorktree && !activeThread.branch) {
+      setStoreThreadError(
+        threadIdForSend,
+        "Select a base branch before sending in New worktree mode.",
+      );
+      return false;
+    }
 
-      const strippedPrompt = deriveDisplayedUserMessageState(promptForSend).visibleText.trim();
-      const messageTextForSend = appendTerminalContextsToPrompt(
-        promptForSend,
-        composerTerminalContextsSnapshot,
-      );
-      const messageIdForSend = newMessageId();
-      const messageCreatedAt = new Date().toISOString();
-      const outgoingMessageText = formatOutgoingPrompt({
-        provider: submission.modelSelection.provider,
-        model: submission.modelSelection.model,
-        models: submissionProviderModels,
-        effort: submissionProviderState.promptEffort,
-        text: messageTextForSend || IMAGE_ONLY_BOOTSTRAP_PROMPT,
-      });
-      const failureContext: ComposerDispatchFailureContext = {
-        provider: submission.modelSelection.provider,
-        model: submission.modelSelection.model,
-        visiblePromptLength: strippedPrompt.length,
-        outgoingPromptLength: outgoingMessageText.length,
-        imageCount: composerImagesSnapshot.length,
-        imageBytes: composerImagesSnapshot.reduce((total, image) => total + image.sizeBytes, 0),
-        terminalContextCount: composerTerminalContextsSnapshot.length,
-        terminalContextChars: composerTerminalContextsSnapshot.reduce(
-          (total, context) => total + context.text.length,
-          0,
-        ),
-      };
-      const turnAttachmentsPromise = Promise.all(
-        composerImagesSnapshot.map(async (image) => ({
-          type: "image" as const,
-          name: image.name,
-          mimeType: image.mimeType,
-          sizeBytes: image.sizeBytes,
-          dataUrl: "dataUrl" in image ? image.dataUrl : await readFileAsDataUrl(image.file),
-        })),
-      );
-      const optimisticAttachments = composerImagesSnapshot.map((image) => ({
+    const strippedPrompt = deriveDisplayedUserMessageState(promptForSend).visibleText.trim();
+    const messageTextForSend = appendTerminalContextsToPrompt(
+      promptForSend,
+      composerTerminalContextsSnapshot,
+    );
+    const messageIdForSend = newMessageId();
+    const messageCreatedAt = new Date().toISOString();
+    const outgoingMessageText = formatOutgoingPrompt({
+      provider: submission.modelSelection.provider,
+      model: submission.modelSelection.model,
+      models: submissionProviderModels,
+      effort: submissionProviderState.promptEffort,
+      text: messageTextForSend || IMAGE_ONLY_BOOTSTRAP_PROMPT,
+    });
+    const failureContext: ComposerDispatchFailureContext = {
+      provider: submission.modelSelection.provider,
+      model: submission.modelSelection.model,
+      visiblePromptLength: strippedPrompt.length,
+      outgoingPromptLength: outgoingMessageText.length,
+      imageCount: composerImagesSnapshot.length,
+      imageBytes: composerImagesSnapshot.reduce((total, image) => total + image.sizeBytes, 0),
+      terminalContextCount: composerTerminalContextsSnapshot.length,
+      terminalContextChars: composerTerminalContextsSnapshot.reduce(
+        (total, context) => total + context.text.length,
+        0,
+      ),
+    };
+    const turnAttachmentsPromise = Promise.all(
+      composerImagesSnapshot.map(async (image) => ({
         type: "image" as const,
-        id: image.id,
         name: image.name,
         mimeType: image.mimeType,
         sizeBytes: image.sizeBytes,
-        previewUrl: image.previewUrl,
-      }));
+        dataUrl: "dataUrl" in image ? image.dataUrl : await readFileAsDataUrl(image.file),
+      })),
+    );
+    const optimisticAttachments = composerImagesSnapshot.map((image) => ({
+      type: "image" as const,
+      id: image.id,
+      name: image.name,
+      mimeType: image.mimeType,
+      sizeBytes: image.sizeBytes,
+      previewUrl: image.previewUrl,
+    }));
 
-      setSendInFlightState(true);
-      beginLocalDispatch({ preparingWorktree: Boolean(baseBranchForWorktree) });
-      const optimisticUserMessage: ChatMessage = {
-        id: messageIdForSend,
-        role: "user",
-        text: outgoingMessageText,
-        ...(optimisticAttachments.length > 0 ? { attachments: optimisticAttachments } : {}),
-        createdAt: messageCreatedAt,
-        streaming: false,
-      };
-      setThreadOptimisticUserMessages(threadIdForSend, (existing) => [
-        ...existing,
-        optimisticUserMessage,
-      ]);
-      primeOptimisticUserTimelineRow({
-        threadId: threadIdForSend,
-        message: optimisticUserMessage,
-      });
-      shouldAutoScrollRef.current = true;
-      forceStickToBottom();
+    setSendInFlightState(true);
+    beginLocalDispatch({ preparingWorktree: Boolean(baseBranchForWorktree) });
+    const optimisticUserMessage: ChatMessage = {
+      id: messageIdForSend,
+      role: "user",
+      text: outgoingMessageText,
+      ...(optimisticAttachments.length > 0 ? { attachments: optimisticAttachments } : {}),
+      createdAt: messageCreatedAt,
+      streaming: false,
+    };
+    setThreadOptimisticUserMessages(threadIdForSend, (existing) => [
+      ...existing,
+      optimisticUserMessage,
+    ]);
+    primeOptimisticUserTimelineRow({
+      threadId: threadIdForSend,
+      message: optimisticUserMessage,
+    });
+    shouldAutoScrollRef.current = true;
+    forceStickToBottom();
 
-      setThreadError(threadIdForSend, null);
+    setThreadError(threadIdForSend, null);
 
-      let createdServerThreadForLocalDraft = false;
-      let turnStartSucceeded = false;
-      let nextThreadBranch = activeThread.branch;
-      let nextThreadWorktreePath = activeThread.worktreePath;
-      await (async () => {
-        if (baseBranchForWorktree) {
-          beginLocalDispatch({ preparingWorktree: true });
-          const newBranch = buildTemporaryWorktreeBranchName();
-          const result = await createWorktreeMutation.mutateAsync({
-            connectionUrl: activeServerConnectionUrl,
-            cwd: activeProject.cwd,
-            branch: baseBranchForWorktree,
-            newBranch,
-          });
-          nextThreadBranch = result.worktree.branch;
-          nextThreadWorktreePath = result.worktree.path;
-          if (isServerThread) {
-            await api.orchestration.dispatchCommand({
-              type: "thread.meta.update",
-              commandId: newCommandId(),
-              threadId: threadIdForSend,
-              branch: result.worktree.branch,
-              worktreePath: result.worktree.path,
-            });
-            setStoreThreadBranch(threadIdForSend, result.worktree.branch, result.worktree.path);
-          }
-          setThreadEnvModeOverrideById((existing) => {
-            const remaining = { ...existing };
-            delete remaining[threadIdForSend];
-            return remaining;
-          });
-        }
-
-        let firstComposerImageName: string | null = null;
-        if (composerImagesSnapshot.length > 0) {
-          const firstComposerImage = composerImagesSnapshot[0];
-          if (firstComposerImage) {
-            firstComposerImageName = firstComposerImage.name;
-          }
-        }
-        let titleSeed = strippedPrompt;
-        if (!titleSeed) {
-          if (firstComposerImageName) {
-            titleSeed = `Image: ${firstComposerImageName}`;
-          } else if (composerTerminalContextsSnapshot.length > 0) {
-            titleSeed = formatTerminalContextLabel(composerTerminalContextsSnapshot[0]!);
-          } else {
-            titleSeed = DEFAULT_THREAD_TITLE;
-          }
-        }
-        const title = truncate(titleSeed);
-        const threadCreateModelSelection: ModelSelection = buildProviderModelSelection(
-          submission.modelSelection.provider,
-          submission.modelSelection.model ||
-            activeProject.defaultModelSelection?.model ||
-            DEFAULT_MODEL_BY_PROVIDER[submission.modelSelection.provider],
-          submission.modelSelection.options,
-          submission.modelSelection.providerInstanceId,
-        );
-
-        if (isLocalDraftThread) {
-          const { orchestration } = api;
-
-          await orchestration.dispatchCommand({
-            type: "thread.create",
-            commandId: newCommandId(),
-            threadId: threadIdForSend,
-            projectId: activeProject.id,
-            title,
-            modelSelection: threadCreateModelSelection,
-            runtimeMode: submission.runtimeMode,
-            interactionMode: submission.interactionMode,
-            branch: nextThreadBranch,
-            worktreePath: nextThreadWorktreePath,
-            createdAt: activeThread.createdAt,
-          });
-          createdServerThreadForLocalDraft = true;
-        }
-
-        let setupScript: ProjectScript | null = null;
-        if (baseBranchForWorktree) {
-          setupScript = setupProjectScript(activeProject.scripts);
-        }
-        if (setupScript) {
-          let shouldRunSetupScript = false;
-          if (isServerThread) {
-            shouldRunSetupScript = true;
-          } else if (createdServerThreadForLocalDraft) {
-            shouldRunSetupScript = true;
-          }
-          if (shouldRunSetupScript) {
-            const setupScriptOptions: Parameters<typeof runProjectScript>[1] = {
-              worktreePath: nextThreadWorktreePath,
-              rememberAsLastInvoked: false,
-            };
-            if (nextThreadWorktreePath) {
-              setupScriptOptions.cwd = nextThreadWorktreePath;
-            }
-            await runProjectScript(setupScript, setupScriptOptions);
-          }
-        }
-
-        if (isFirstMessage && isServerThread) {
+    let createdServerThreadForLocalDraft = false;
+    let turnStartSucceeded = false;
+    let nextThreadBranch = activeThread.branch;
+    let nextThreadWorktreePath = activeThread.worktreePath;
+    await (async () => {
+      if (baseBranchForWorktree) {
+        beginLocalDispatch({ preparingWorktree: true });
+        const newBranch = buildTemporaryWorktreeBranchName();
+        const result = await createWorktreeMutation.mutateAsync({
+          connectionUrl: activeServerConnectionUrl,
+          cwd: activeProject.cwd,
+          branch: baseBranchForWorktree,
+          newBranch,
+        });
+        nextThreadBranch = result.worktree.branch;
+        nextThreadWorktreePath = result.worktree.path;
+        if (isServerThread) {
           await api.orchestration.dispatchCommand({
             type: "thread.meta.update",
             commandId: newCommandId(),
             threadId: threadIdForSend,
-            title,
+            branch: result.worktree.branch,
+            worktreePath: result.worktree.path,
           });
+          setStoreThreadBranch(threadIdForSend, result.worktree.branch, result.worktree.path);
         }
+        setThreadEnvModeOverrideById((existing) => {
+          const remaining = { ...existing };
+          delete remaining[threadIdForSend];
+          return remaining;
+        });
+      }
 
-        if (isServerThread) {
-          await persistThreadSettingsForNextTurn({
-            threadId: threadIdForSend,
-            createdAt: messageCreatedAt,
-            modelSelection: submission.modelSelection,
-            runtimeMode: submission.runtimeMode,
-            interactionMode: submission.interactionMode,
-          });
+      let firstComposerImageName: string | null = null;
+      if (composerImagesSnapshot.length > 0) {
+        const firstComposerImage = composerImagesSnapshot[0];
+        if (firstComposerImage) {
+          firstComposerImageName = firstComposerImage.name;
         }
+      }
+      let titleSeed = strippedPrompt;
+      if (!titleSeed) {
+        if (firstComposerImageName) {
+          titleSeed = `Image: ${firstComposerImageName}`;
+        } else if (composerTerminalContextsSnapshot.length > 0) {
+          titleSeed = formatTerminalContextLabel(composerTerminalContextsSnapshot[0]!);
+        } else {
+          titleSeed = DEFAULT_THREAD_TITLE;
+        }
+      }
+      const title = truncate(titleSeed);
+      const threadCreateModelSelection: ModelSelection = buildProviderModelSelection(
+        submission.modelSelection.provider,
+        submission.modelSelection.model ||
+          activeProject.defaultModelSelection?.model ||
+          DEFAULT_MODEL_BY_PROVIDER[submission.modelSelection.provider],
+        submission.modelSelection.options,
+        submission.modelSelection.providerInstanceId,
+      );
 
-        beginLocalDispatch({ preparingWorktree: false });
-        const turnAttachments = await turnAttachmentsPromise;
-        await api.orchestration.dispatchCommand({
-          type: "thread.turn.start",
+      if (isLocalDraftThread) {
+        const { orchestration } = api;
+
+        await orchestration.dispatchCommand({
+          type: "thread.create",
           commandId: newCommandId(),
           threadId: threadIdForSend,
-          message: {
-            messageId: messageIdForSend,
-            role: "user",
-            text: outgoingMessageText,
-            attachments: turnAttachments,
-          },
-          modelSelection: submission.modelSelection,
-          titleSeed: title,
+          projectId: activeProject.id,
+          title,
+          modelSelection: threadCreateModelSelection,
           runtimeMode: submission.runtimeMode,
           interactionMode: submission.interactionMode,
-          createdAt: messageCreatedAt,
+          branch: nextThreadBranch,
+          worktreePath: nextThreadWorktreePath,
+          createdAt: activeThread.createdAt,
         });
-        turnStartSucceeded = true;
-      })().catch(async (err: unknown) => {
-        const promptForRestore = options?.restorePrompt ?? promptForSend;
-        if (
-          !turnStartSucceeded &&
-          promptRef.current.length === 0 &&
-          composerImagesRef.current.length === 0 &&
-          composerTerminalContextsRef.current.length === 0
-        ) {
-          setThreadOptimisticUserMessages(threadIdForSend, (existing) => {
-            const removed = existing.filter((message) => message.id === messageIdForSend);
-            for (const message of removed) {
-              revokeUserMessagePreviewUrls(message);
-            }
-            const next = existing.filter((message) => message.id !== messageIdForSend);
-            return next.length === existing.length ? existing : next;
-          });
-          removeOptimisticUserTimelineRow({
-            threadId: threadIdForSend,
-            messageId: messageIdForSend,
-          });
-          promptRef.current = promptForRestore;
-          setPrompt(promptForRestore);
-          addComposerImagesToDraft(
-            composerImagesSnapshot.flatMap((image) =>
-              "dataUrl" in image ? [] : [cloneComposerImageForRetry(image)],
-            ),
-          );
-          addComposerTerminalContextsToDraft(composerTerminalContextsSnapshot);
-          composerPanelsRef.current?.resetUi(promptForRestore);
-        }
-        options?.onFailure?.();
-        setThreadError(threadIdForSend, formatComposerDispatchFailureMessage(err, failureContext));
-      });
-      setSendInFlightState(false);
-      if (!turnStartSucceeded) {
-        resetLocalDispatch();
+        createdServerThreadForLocalDraft = true;
       }
-      return turnStartSucceeded;
-    },
-    [
-      activeProject,
-      activeServerConnectionUrl,
-      activeThread,
-      addComposerImagesToDraft,
-      addComposerTerminalContextsToDraft,
-      beginLocalDispatch,
-      createWorktreeMutation,
-      envMode,
-      forceStickToBottom,
-      isLocalDraftThread,
-      isServerThread,
-      persistThreadSettingsForNextTurn,
-      providerStatuses,
-      resetLocalDispatch,
-      runProjectScript,
-      setSendInFlightState,
-      setPrompt,
-      setStoreThreadBranch,
-      setStoreThreadError,
-      setThreadError,
-      setThreadOptimisticUserMessages,
-    ],
-  );
+
+      let setupScript: ProjectScript | null = null;
+      if (baseBranchForWorktree) {
+        setupScript = setupProjectScript(activeProject.scripts);
+      }
+      if (setupScript) {
+        let shouldRunSetupScript = false;
+        if (isServerThread) {
+          shouldRunSetupScript = true;
+        } else if (createdServerThreadForLocalDraft) {
+          shouldRunSetupScript = true;
+        }
+        if (shouldRunSetupScript) {
+          const setupScriptOptions: Parameters<typeof runProjectScript>[1] = {
+            worktreePath: nextThreadWorktreePath,
+            rememberAsLastInvoked: false,
+          };
+          if (nextThreadWorktreePath) {
+            setupScriptOptions.cwd = nextThreadWorktreePath;
+          }
+          await runProjectScript(setupScript, setupScriptOptions);
+        }
+      }
+
+      if (isFirstMessage && isServerThread) {
+        await api.orchestration.dispatchCommand({
+          type: "thread.meta.update",
+          commandId: newCommandId(),
+          threadId: threadIdForSend,
+          title,
+        });
+      }
+
+      if (isServerThread) {
+        await persistThreadSettingsForNextTurn({
+          threadId: threadIdForSend,
+          createdAt: messageCreatedAt,
+          modelSelection: submission.modelSelection,
+          runtimeMode: submission.runtimeMode,
+          interactionMode: submission.interactionMode,
+        });
+      }
+
+      beginLocalDispatch({ preparingWorktree: false });
+      const turnAttachments = await turnAttachmentsPromise;
+      await api.orchestration.dispatchCommand({
+        type: "thread.turn.start",
+        commandId: newCommandId(),
+        threadId: threadIdForSend,
+        message: {
+          messageId: messageIdForSend,
+          role: "user",
+          text: outgoingMessageText,
+          attachments: turnAttachments,
+        },
+        modelSelection: submission.modelSelection,
+        titleSeed: title,
+        runtimeMode: submission.runtimeMode,
+        interactionMode: submission.interactionMode,
+        createdAt: messageCreatedAt,
+      });
+      turnStartSucceeded = true;
+    })().catch(async (err: unknown) => {
+      const promptForRestore = options?.restorePrompt ?? promptForSend;
+      if (
+        !turnStartSucceeded &&
+        promptRef.current.length === 0 &&
+        composerImagesRef.current.length === 0 &&
+        composerTerminalContextsRef.current.length === 0
+      ) {
+        setThreadOptimisticUserMessages(threadIdForSend, (existing) => {
+          const removed = existing.filter((message) => message.id === messageIdForSend);
+          for (const message of removed) {
+            revokeUserMessagePreviewUrls(message);
+          }
+          const next = existing.filter((message) => message.id !== messageIdForSend);
+          return next.length === existing.length ? existing : next;
+        });
+        removeOptimisticUserTimelineRow({
+          threadId: threadIdForSend,
+          messageId: messageIdForSend,
+        });
+        promptRef.current = promptForRestore;
+        setPrompt(promptForRestore);
+        addComposerImagesToDraft(
+          composerImagesSnapshot.flatMap((image) =>
+            "dataUrl" in image ? [] : [cloneComposerImageForRetry(image)],
+          ),
+        );
+        addComposerTerminalContextsToDraft(composerTerminalContextsSnapshot);
+        composerPanelsRef.current?.resetUi(promptForRestore);
+      }
+      options?.onFailure?.();
+      setThreadError(threadIdForSend, formatComposerDispatchFailureMessage(err, failureContext));
+    });
+    setSendInFlightState(false);
+    if (!turnStartSucceeded) {
+      resetLocalDispatch();
+    }
+    return turnStartSucceeded;
+  };
   const sendQueuedComposerMessage = async (messageId: MessageId) => {
     if (!serverThread || liveTurnInProgress || isSendBusy || isConnecting) {
       return;
@@ -9047,50 +8884,47 @@ function useChatViewComponent({
     setRespondingRequestIds((existing) => existing.filter((id) => id !== requestId));
   };
 
-  const onRespondToUserInput = useCallback(
-    async (requestId: ApprovalRequestId, answers: Record<string, unknown>) => {
-      if (!activeThreadId) return;
+  const onRespondToUserInput = async (
+    requestId: ApprovalRequestId,
+    answers: Record<string, unknown>,
+  ) => {
+    if (!activeThreadId) return;
 
-      setRespondingUserInputRequestIds((existing) =>
-        existing.includes(requestId) ? existing : [...existing, requestId],
-      );
-      const api = readNativeApi();
-      if (!api) {
-        setRespondingUserInputRequestIds((existing) => existing.filter((id) => id !== requestId));
-        return;
-      }
-      await api.orchestration
-        .dispatchCommand({
-          type: "thread.user-input.respond",
-          commandId: newCommandId(),
-          threadId: activeThreadId,
-          requestId,
-          answers,
-          createdAt: new Date().toISOString(),
-        })
-        .catch((err: unknown) => {
-          setStoreThreadError(
-            activeThreadId,
-            err instanceof Error ? err.message : "Failed to submit user input.",
-          );
-        });
+    setRespondingUserInputRequestIds((existing) =>
+      existing.includes(requestId) ? existing : [...existing, requestId],
+    );
+    const api = readNativeApi();
+    if (!api) {
       setRespondingUserInputRequestIds((existing) => existing.filter((id) => id !== requestId));
-    },
-    [activeThreadId, setStoreThreadError],
-  );
+      return;
+    }
+    await api.orchestration
+      .dispatchCommand({
+        type: "thread.user-input.respond",
+        commandId: newCommandId(),
+        threadId: activeThreadId,
+        requestId,
+        answers,
+        createdAt: new Date().toISOString(),
+      })
+      .catch((err: unknown) => {
+        setStoreThreadError(
+          activeThreadId,
+          err instanceof Error ? err.message : "Failed to submit user input.",
+        );
+      });
+    setRespondingUserInputRequestIds((existing) => existing.filter((id) => id !== requestId));
+  };
 
-  const setActivePendingUserInputQuestionIndex = useCallback(
-    (nextQuestionIndex: number) => {
-      if (!activePendingUserInput) {
-        return;
-      }
-      setPendingUserInputQuestionIndexByRequestId((existing) => ({
-        ...existing,
-        [activePendingUserInput.requestId]: nextQuestionIndex,
-      }));
-    },
-    [activePendingUserInput],
-  );
+  const setActivePendingUserInputQuestionIndex = (nextQuestionIndex: number) => {
+    if (!activePendingUserInput) {
+      return;
+    }
+    setPendingUserInputQuestionIndexByRequestId((existing) => ({
+      ...existing,
+      [activePendingUserInput.requestId]: nextQuestionIndex,
+    }));
+  };
 
   const onSelectActivePendingUserInputOption = (questionId: string, optionLabel: string) => {
     if (!activePendingUserInput) {
@@ -9839,114 +9673,64 @@ function useChatViewComponent({
   const openThreadDiagnostics = useCallback(() => {
     openDiagnostics("thread");
   }, [openDiagnostics]);
-  const messagesTimelineProps = useMemo(
-    () => ({
-      ...(activeThreadIdValue ? { activeThreadId: activeThreadIdValue } : {}),
-      hasMessages:
-        (nativeTimelineRowsOverride?.length ?? 0) > 0 ||
-        timelineEntries.length > 0 ||
-        isThreadHistoryMetadataOnly ||
-        isThreadHistoryLoading ||
-        isLineageThread,
-      isWorking,
-      onStartConversationFromMessage: scheduleComposerFocus,
-      onContinueWithGitHubIssues: openGitHubIssueDialog,
-      isContinueWithGitHubIssuesDisabled: !codingGitCwd || !isGitRepo,
-      ...(!codingGitCwd || !isGitRepo
-        ? {
-            continueWithGitHubIssuesDisabledReason:
-              "GitHub issues are available only for Git repositories.",
-          }
-        : {}),
-      activeTurnInProgress: isWorking,
-      activeTurnStartedAt: activeWorkStartedAt,
-      stuckTurnSnapshot,
-      onStopStuckTurn: onInterrupt,
-      onOpenStuckTurnDiagnostics: openThreadDiagnostics,
-      backgroundMarkdownPrewarm: activeForSideEffects,
-      hideCompletedWorkMessages,
-      liveTimers: activeForSideEffects,
-      getScrollContainer: getMessagesScrollContainer,
-      timelineCacheScope,
-      timelineEntries,
-      timelineRowsLoading: nativeTimelineRowsLoading,
-      timelineRowsOverride: nativeTimelineRowsOverride,
-      timelineIndexByEntryId: activeThreadTimelineIndexByEntryId,
-      completionDividerBeforeEntryId,
-      completionSummary,
-      turnDiffSummaryByAssistantMessageId,
-      expandedWorkGroups,
-      onToggleWorkGroup,
-      onOpenTurnDiff,
-      revertTurnCountByUserMessageId,
-      onRevertUserMessage,
-      revertTurnCountByAssistantMessageId,
-      onRevertAssistantMessage,
-      revertActionTitle: checkpointRestoreActionTitle(activeThreadProvider),
-      isRevertingCheckpoint,
-      onImageExpand: onExpandTimelineImage,
-      markdownCwd: codingGitCwd ?? undefined,
-      onOpenBrowserUrl: isElectron ? openBrowserUrlInNewTab : null,
-      onOpenFilePath: canOpenLocalMarkdownFiles ? openMarkdownFileInAppEditor : null,
-      enableLocalFileLinks: canOpenLocalMarkdownFiles,
-      providerCommands: composerProviderCommands,
-      onForkConversation: canForkActiveThread ? onForkConversation : null,
-      isForkConversationDisabled: isWorking || handoffInFlight,
-      enableGoalWorkingState: (activeThreadProvider ?? activeThreadModelProvider) === "codex",
-      resolvedTheme,
-      targetMessageNavigation,
-      timestampFormat,
-      workspaceRoot: activeProject?.cwd ?? undefined,
-    }),
-    [
-      activeProject?.cwd,
-      activeThreadIdValue,
-      activeThreadProvider,
-      activeThreadModelProvider,
-      canForkActiveThread,
-      activeForSideEffects,
-      activeWorkStartedAt,
-      stuckTurnSnapshot,
-      activeThreadTimelineIndexByEntryId,
-      canOpenLocalMarkdownFiles,
-      completionDividerBeforeEntryId,
-      completionSummary,
-      expandedWorkGroups,
-      codingGitCwd,
-      composerProviderCommands,
-      isGitRepo,
+  const messagesTimelineProps = {
+    ...(activeThreadIdValue ? { activeThreadId: activeThreadIdValue } : {}),
+    hasMessages:
+      (nativeTimelineRowsOverride?.length ?? 0) > 0 ||
+      timelineEntries.length > 0 ||
+      isThreadHistoryMetadataOnly ||
+      isThreadHistoryLoading ||
       isLineageThread,
-      hideCompletedWorkMessages,
-      handoffInFlight,
-      isThreadHistoryMetadataOnly,
-      isThreadHistoryLoading,
-      isRevertingCheckpoint,
-      isWorking,
-      nativeTimelineRowsLoading,
-      nativeTimelineRowsOverride,
-      getMessagesScrollContainer,
-      onExpandTimelineImage,
-      onForkConversation,
-      onInterrupt,
-      onOpenTurnDiff,
-      openThreadDiagnostics,
-      onRevertAssistantMessage,
-      onRevertUserMessage,
-      onToggleWorkGroup,
-      openGitHubIssueDialog,
-      openBrowserUrlInNewTab,
-      openMarkdownFileInAppEditor,
-      resolvedTheme,
-      revertTurnCountByAssistantMessageId,
-      revertTurnCountByUserMessageId,
-      scheduleComposerFocus,
-      targetMessageNavigation,
-      timelineCacheScope,
-      timelineEntries,
-      timestampFormat,
-      turnDiffSummaryByAssistantMessageId,
-    ],
-  );
+    isWorking,
+    onStartConversationFromMessage: scheduleComposerFocus,
+    onContinueWithGitHubIssues: openGitHubIssueDialog,
+    isContinueWithGitHubIssuesDisabled: !codingGitCwd || !isGitRepo,
+    ...(!codingGitCwd || !isGitRepo
+      ? {
+          continueWithGitHubIssuesDisabledReason:
+            "GitHub issues are available only for Git repositories.",
+        }
+      : {}),
+    activeTurnInProgress: isWorking,
+    activeTurnStartedAt: activeWorkStartedAt,
+    stuckTurnSnapshot,
+    onStopStuckTurn: onInterrupt,
+    onOpenStuckTurnDiagnostics: openThreadDiagnostics,
+    backgroundMarkdownPrewarm: activeForSideEffects,
+    hideCompletedWorkMessages,
+    liveTimers: activeForSideEffects,
+    getScrollContainer: getMessagesScrollContainer,
+    timelineCacheScope,
+    timelineEntries,
+    timelineRowsLoading: nativeTimelineRowsLoading,
+    timelineRowsOverride: nativeTimelineRowsOverride,
+    timelineIndexByEntryId: activeThreadTimelineIndexByEntryId,
+    completionDividerBeforeEntryId,
+    completionSummary,
+    turnDiffSummaryByAssistantMessageId,
+    expandedWorkGroups,
+    onToggleWorkGroup,
+    onOpenTurnDiff,
+    revertTurnCountByUserMessageId,
+    onRevertUserMessage,
+    revertTurnCountByAssistantMessageId,
+    onRevertAssistantMessage,
+    revertActionTitle: checkpointRestoreActionTitle(activeThreadProvider),
+    isRevertingCheckpoint,
+    onImageExpand: onExpandTimelineImage,
+    markdownCwd: codingGitCwd ?? undefined,
+    onOpenBrowserUrl: isElectron ? openBrowserUrlInNewTab : null,
+    onOpenFilePath: canOpenLocalMarkdownFiles ? openMarkdownFileInAppEditor : null,
+    enableLocalFileLinks: canOpenLocalMarkdownFiles,
+    providerCommands: composerProviderCommands,
+    onForkConversation: canForkActiveThread ? onForkConversation : null,
+    isForkConversationDisabled: isWorking || handoffInFlight,
+    enableGoalWorkingState: (activeThreadProvider ?? activeThreadModelProvider) === "codex",
+    resolvedTheme,
+    targetMessageNavigation,
+    timestampFormat,
+    workspaceRoot: activeProject?.cwd ?? undefined,
+  };
   const showDraftNewThreadLanding =
     activeThread !== undefined &&
     activeThread.messages.length === 0 &&
@@ -10462,114 +10246,28 @@ function useChatViewComponent({
       ThreadId.makeUnsafe(`subagent:${activeThread?.id ?? threadId}:${subagent.id}`),
     [activeThread?.id, threadId],
   );
-  const handleSubagentComposerSubmit = useCallback(
-    async (event: FormEvent<HTMLFormElement>, subagent: SubagentThread) => {
-      event.preventDefault();
-      const api = readNativeApi();
-      if (!api || !activeThread) return;
-      const draftThreadId = subagentComposerThreadId(subagent);
-      const draft = getComposerThreadDraft(draftThreadId);
-      const promptForSend = draft.prompt;
-      const promptForSendWithoutInlineMarkers = stripComposerInlineMarkers(promptForSend);
-      const { sendableTerminalContexts, expiredTerminalContextCount, hasSendableContent } =
-        deriveComposerSendState({
-          prompt: promptForSendWithoutInlineMarkers,
-          imageCount: draft.images.length,
-          terminalContexts: draft.terminalContexts,
-        });
-      if (!hasSendableContent) {
-        if (expiredTerminalContextCount > 0) {
-          const toastCopy = buildExpiredTerminalContextToastCopy(
-            expiredTerminalContextCount,
-            "empty",
-          );
-          toastManager.add({
-            type: "warning",
-            title: toastCopy.title,
-            description: toastCopy.description,
-          });
-        }
-        return;
-      }
-
-      const { interactionMode, runtimeMode } = deriveEffectiveComposerExecutionModeState({
-        draft,
-        threadRuntimeMode: activeThread.runtimeMode,
-        threadInteractionMode: activeThread.interactionMode,
-      });
-      const { selectedModel, modelOptions } = deriveEffectiveComposerModelState({
-        draft,
-        providers: providerStatuses,
-        selectedProvider: "codex",
-        threadModelSelection: activeThread.modelSelection,
-        projectModelSelection: activeProject?.defaultModelSelection,
-        settings: modelSettings,
-      });
-      const sideProviderInstanceId =
-        draft.modelSelectionByProvider.codex?.providerInstanceId ??
-        (activeThread.modelSelection.provider === "codex"
-          ? activeThread.modelSelection.providerInstanceId
-          : undefined);
-      const sideProviderModels = getProviderModels(
-        providerStatuses,
-        "codex",
-        sideProviderInstanceId,
-      );
-      const sideProviderState = getComposerProviderState({
-        provider: "codex",
-        model: selectedModel,
-        models: sideProviderModels,
+  const handleSubagentComposerSubmit = async (
+    event: FormEvent<HTMLFormElement>,
+    subagent: SubagentThread,
+  ) => {
+    event.preventDefault();
+    const api = readNativeApi();
+    if (!api || !activeThread) return;
+    const draftThreadId = subagentComposerThreadId(subagent);
+    const draft = getComposerThreadDraft(draftThreadId);
+    const promptForSend = draft.prompt;
+    const promptForSendWithoutInlineMarkers = stripComposerInlineMarkers(promptForSend);
+    const { sendableTerminalContexts, expiredTerminalContextCount, hasSendableContent } =
+      deriveComposerSendState({
         prompt: promptForSendWithoutInlineMarkers,
-        modelOptions,
+        imageCount: draft.images.length,
+        terminalContexts: draft.terminalContexts,
       });
-      const modelSelection = buildProviderModelSelection(
-        "codex",
-        selectedModel,
-        sideProviderState.modelOptionsForDispatch,
-        sideProviderInstanceId,
-      );
-      const textWithTerminalContext = appendTerminalContextsToPrompt(
-        promptForSendWithoutInlineMarkers,
-        sendableTerminalContexts,
-      );
-      const outgoingMessageText = formatOutgoingPrompt({
-        provider: "codex",
-        model: selectedModel,
-        models: sideProviderModels,
-        effort: sideProviderState.promptEffort,
-        text: textWithTerminalContext,
-      });
-      let attachments: Array<{
-        type: "image";
-        name: string;
-        mimeType: string;
-        sizeBytes: number;
-        dataUrl: string;
-      }>;
-      try {
-        attachments = await Promise.all(
-          draft.images.map(async (image) => ({
-            type: "image" as const,
-            name: image.name,
-            mimeType: image.mimeType,
-            sizeBytes: image.sizeBytes,
-            dataUrl:
-              "dataUrl" in image && typeof image.dataUrl === "string"
-                ? image.dataUrl
-                : await readFileAsDataUrl(image.file),
-          })),
-        );
-      } catch (error) {
-        setThreadError(
-          draftThreadId,
-          error instanceof Error ? error.message : "Failed to read message attachments.",
-        );
-        return;
-      }
+    if (!hasSendableContent) {
       if (expiredTerminalContextCount > 0) {
         const toastCopy = buildExpiredTerminalContextToastCopy(
           expiredTerminalContextCount,
-          "omitted",
+          "empty",
         );
         toastManager.add({
           type: "warning",
@@ -10577,44 +10275,118 @@ function useChatViewComponent({
           description: toastCopy.description,
         });
       }
-      const createdAt = new Date().toISOString();
-      try {
-        setThreadError(draftThreadId, null);
-        await api.orchestration.dispatchCommand({
-          type: "thread.subagent.turn.start",
-          commandId: newCommandId(),
-          threadId: activeThread.id,
-          subagentThreadId: TrimmedNonEmptyString.makeUnsafe(subagent.id),
-          message: {
-            messageId: newMessageId(),
-            role: "user",
-            text: outgoingMessageText,
-            attachments,
-          },
-          modelSelection,
-          runtimeMode,
-          interactionMode,
-          createdAt,
-        });
-        clearComposerDraftContent(draftThreadId);
-        subagentComposerPanelsRef.current?.resetUi("");
-      } catch (error) {
-        setThreadError(
-          draftThreadId,
-          error instanceof Error ? error.message : "Failed to send subagent message.",
-        );
-      }
-    },
-    [
-      activeProject?.defaultModelSelection,
-      activeThread,
-      clearComposerDraftContent,
-      modelSettings,
-      providerStatuses,
-      setThreadError,
-      subagentComposerThreadId,
-    ],
-  );
+      return;
+    }
+
+    const { interactionMode, runtimeMode } = deriveEffectiveComposerExecutionModeState({
+      draft,
+      threadRuntimeMode: activeThread.runtimeMode,
+      threadInteractionMode: activeThread.interactionMode,
+    });
+    const { selectedModel, modelOptions } = deriveEffectiveComposerModelState({
+      draft,
+      providers: providerStatuses,
+      selectedProvider: "codex",
+      threadModelSelection: activeThread.modelSelection,
+      projectModelSelection: activeProject?.defaultModelSelection,
+      settings: modelSettings,
+    });
+    const sideProviderInstanceId =
+      draft.modelSelectionByProvider.codex?.providerInstanceId ??
+      (activeThread.modelSelection.provider === "codex"
+        ? activeThread.modelSelection.providerInstanceId
+        : undefined);
+    const sideProviderModels = getProviderModels(providerStatuses, "codex", sideProviderInstanceId);
+    const sideProviderState = getComposerProviderState({
+      provider: "codex",
+      model: selectedModel,
+      models: sideProviderModels,
+      prompt: promptForSendWithoutInlineMarkers,
+      modelOptions,
+    });
+    const modelSelection = buildProviderModelSelection(
+      "codex",
+      selectedModel,
+      sideProviderState.modelOptionsForDispatch,
+      sideProviderInstanceId,
+    );
+    const textWithTerminalContext = appendTerminalContextsToPrompt(
+      promptForSendWithoutInlineMarkers,
+      sendableTerminalContexts,
+    );
+    const outgoingMessageText = formatOutgoingPrompt({
+      provider: "codex",
+      model: selectedModel,
+      models: sideProviderModels,
+      effort: sideProviderState.promptEffort,
+      text: textWithTerminalContext,
+    });
+    let attachments: Array<{
+      type: "image";
+      name: string;
+      mimeType: string;
+      sizeBytes: number;
+      dataUrl: string;
+    }>;
+    try {
+      attachments = await Promise.all(
+        draft.images.map(async (image) => ({
+          type: "image" as const,
+          name: image.name,
+          mimeType: image.mimeType,
+          sizeBytes: image.sizeBytes,
+          dataUrl:
+            "dataUrl" in image && typeof image.dataUrl === "string"
+              ? image.dataUrl
+              : await readFileAsDataUrl(image.file),
+        })),
+      );
+    } catch (error) {
+      setThreadError(
+        draftThreadId,
+        error instanceof Error ? error.message : "Failed to read message attachments.",
+      );
+      return;
+    }
+    if (expiredTerminalContextCount > 0) {
+      const toastCopy = buildExpiredTerminalContextToastCopy(
+        expiredTerminalContextCount,
+        "omitted",
+      );
+      toastManager.add({
+        type: "warning",
+        title: toastCopy.title,
+        description: toastCopy.description,
+      });
+    }
+    const createdAt = new Date().toISOString();
+    try {
+      setThreadError(draftThreadId, null);
+      await api.orchestration.dispatchCommand({
+        type: "thread.subagent.turn.start",
+        commandId: newCommandId(),
+        threadId: activeThread.id,
+        subagentThreadId: TrimmedNonEmptyString.makeUnsafe(subagent.id),
+        message: {
+          messageId: newMessageId(),
+          role: "user",
+          text: outgoingMessageText,
+          attachments,
+        },
+        modelSelection,
+        runtimeMode,
+        interactionMode,
+        createdAt,
+      });
+      clearComposerDraftContent(draftThreadId);
+      subagentComposerPanelsRef.current?.resetUi("");
+    } catch (error) {
+      setThreadError(
+        draftThreadId,
+        error instanceof Error ? error.message : "Failed to send subagent message.",
+      );
+    }
+  };
   const renderSubagentComposer = (subagent: SubagentThread) => {
     if (!activeThread) {
       return null;

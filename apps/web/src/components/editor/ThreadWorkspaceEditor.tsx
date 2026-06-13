@@ -882,7 +882,7 @@ function shouldPrefetchWorkspaceEditorFile(filePath: string): boolean {
   return previewKind !== "image" && previewKind !== "video";
 }
 
-const FileTreeRow = memo(function FileTreeRow(props: {
+function FileTreeRow(props: {
   dragTargetPath: string | null;
   expandedDirectoryPaths: ReadonlySet<string>;
   focusedFilePath: string | null;
@@ -1034,9 +1034,9 @@ const FileTreeRow = memo(function FileTreeRow(props: {
       ) : null}
     </button>
   );
-});
+}
 
-const InlineExplorerRow = memo(function InlineExplorerRow(props: {
+function InlineExplorerRow(props: {
   depth: number;
   onCancel: () => void;
   onChangeValue: (value: string) => void;
@@ -1097,7 +1097,7 @@ const InlineExplorerRow = memo(function InlineExplorerRow(props: {
       />
     </div>
   );
-});
+}
 
 function useThreadWorkspaceEditorComponent(inputProps: {
   availableEditors: ReadonlyArray<EditorId>;
@@ -1176,15 +1176,12 @@ function useThreadWorkspaceEditorComponent(inputProps: {
   const editorRenderWhitespace = useSetting("editorRenderWhitespace");
   const editorStickyScroll = useSetting("editorStickyScroll");
   const editorWordWrap = useSetting("editorWordWrap");
-  const editorSettings = useMemo(
-    () => ({
-      lineNumbers: editorLineNumbers,
-      renderWhitespace: editorRenderWhitespace,
-      stickyScroll: editorStickyScroll,
-      wordWrap: editorWordWrap,
-    }),
-    [editorLineNumbers, editorRenderWhitespace, editorStickyScroll, editorWordWrap],
-  );
+  const editorSettings = {
+    lineNumbers: editorLineNumbers,
+    renderWhitespace: editorRenderWhitespace,
+    stickyScroll: editorStickyScroll,
+    wordWrap: editorWordWrap,
+  };
   const queryClient = useQueryClient();
   const api = readNativeApi();
   const [recentCodeSearches, setRecentCodeSearches] = useLocalStorage(
@@ -1217,9 +1214,9 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     collapsedOutlineIds,
     activeOutlineSymbolId,
   } = uiState;
-  const setTreeSearch = useCallback((treeSearch: string) => {
+  const setTreeSearch = (treeSearch: string) => {
     dispatchUiState({ type: "set-tree-search", treeSearch });
-  }, []);
+  };
   const setCodeSearchQuery = (codeSearchQuery: string) => {
     dispatchUiState({ type: "set-code-search-query", codeSearchQuery });
   };
@@ -1692,10 +1689,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     () => localSearchEntries.slice(0, WORKSPACE_SEARCH_RESULT_LIMIT),
     [localSearchEntries],
   );
-  const searchableFileEntries = useMemo(
-    () => treeEntries.filter((candidate) => candidate.kind === "file"),
-    [treeEntries],
-  );
+  const searchableFileEntries = treeEntries.filter((candidate) => candidate.kind === "file");
   const entryByPath = useMemo(
     () => new Map(treeEntries.map((entry) => [entry.path, entry] as const)),
     [treeEntries],
@@ -1814,9 +1808,8 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     placeholderData: (previous) => previous ?? [],
   });
   const codeSearchResultGroups = groupWorkspaceCodeSearchResults(codeSearchResultsData ?? []);
-  const codeSearchResultPathSet = useMemo(
-    () => new Set((codeSearchResultsData ?? []).map((result) => result.entry.path)),
-    [codeSearchResultsData],
+  const codeSearchResultPathSet = new Set(
+    (codeSearchResultsData ?? []).map((result) => result.entry.path),
   );
   const codeSearchFileResults =
     debouncedCodeSearchQuery.length >= 2
@@ -2020,10 +2013,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     hydrateFile(props.threadId, filePath, contents);
   };
 
-  const normalizedRowRatios = useMemo(
-    () => normalizePaneRatios(paneRatios, rows.length),
-    [paneRatios, rows.length],
-  );
+  const normalizedRowRatios = normalizePaneRatios(paneRatios, rows.length);
   const layoutRows = useMemo(() => {
     const nextRows: Array<ThreadEditorRowState & { panes: typeof panes }> = [];
     for (const row of rows) {
@@ -2214,10 +2204,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
   }, [gitStatusData?.workingTree.files]);
   const changedFiles = gitStatusData?.workingTree.files ?? [];
   const openCodeCommentCount = countOpenWorkspaceCodeComments(codeComments);
-  const unresolvedCodeComments = useMemo(
-    () => codeComments.filter((comment) => comment.status !== "resolved"),
-    [codeComments],
-  );
+  const unresolvedCodeComments = codeComments.filter((comment) => comment.status !== "resolved");
   const queueWorkspaceSelectionContext = useCallback(
     (context: WorkspaceSelectionContext, prompt: string) => {
       const id =
@@ -2243,33 +2230,30 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     },
     [props.threadId, setExplorerOpen, setSidebarMode],
   );
-  const queueWorkspaceFileContext = useCallback(
-    (relativePath: string, prompt: string) => {
-      const cwd = props.gitCwd ?? props.lspCwd;
-      if (!cwd) {
-        return;
-      }
-      queueWorkspaceSelectionContext(
-        {
-          cwd,
-          diagnostics: [],
-          kind: "workspace-selection",
-          languageId: resolveWorkspaceLanguageFromFilePath(relativePath) ?? null,
-          range: {
-            relativePath,
-            startLine: 0,
-            startColumn: 0,
-            endLine: 0,
-            endColumn: 0,
-          },
+  const queueWorkspaceFileContext = (relativePath: string, prompt: string) => {
+    const cwd = props.gitCwd ?? props.lspCwd;
+    if (!cwd) {
+      return;
+    }
+    queueWorkspaceSelectionContext(
+      {
+        cwd,
+        diagnostics: [],
+        kind: "workspace-selection",
+        languageId: resolveWorkspaceLanguageFromFilePath(relativePath) ?? null,
+        range: {
           relativePath,
-          text: "",
+          startLine: 0,
+          startColumn: 0,
+          endLine: 0,
+          endColumn: 0,
         },
-        prompt,
-      );
-    },
-    [props.gitCwd, props.lspCwd, queueWorkspaceSelectionContext],
-  );
+        relativePath,
+        text: "",
+      },
+      prompt,
+    );
+  };
   const handlePaneProblemsChange = (
     paneId: string,
     activeFilePath: string | null,
@@ -2469,31 +2453,28 @@ function useThreadWorkspaceEditorComponent(inputProps: {
   const handleAddCodeComment = (comment: WorkspaceCodeComment) => {
     addCodeComment(props.threadId, comment);
   };
-  const submitAgentNotePrompt = useCallback(
-    async (submission: WorkspaceAgentNoteSubmission) => {
-      if (!inputProps.onSubmitAgentNote || agentNoteSubmissionBusy) {
-        return false;
-      }
-      const trimmedPrompt = submission.prompt.trim();
-      if (trimmedPrompt.length === 0) {
-        return false;
-      }
-      setAgentNoteSubmissionBusy(true);
-      try {
-        const sent = await inputProps.onSubmitAgentNote({
-          ...submission,
-          prompt: trimmedPrompt,
-          threadId: agentNoteThreadId,
-        });
-        setAgentNoteSubmissionBusy(false);
-        return sent;
-      } catch (error) {
-        setAgentNoteSubmissionBusy(false);
-        throw error;
-      }
-    },
-    [agentNoteSubmissionBusy, agentNoteThreadId, inputProps],
-  );
+  const submitAgentNotePrompt = async (submission: WorkspaceAgentNoteSubmission) => {
+    if (!inputProps.onSubmitAgentNote || agentNoteSubmissionBusy) {
+      return false;
+    }
+    const trimmedPrompt = submission.prompt.trim();
+    if (trimmedPrompt.length === 0) {
+      return false;
+    }
+    setAgentNoteSubmissionBusy(true);
+    try {
+      const sent = await inputProps.onSubmitAgentNote({
+        ...submission,
+        prompt: trimmedPrompt,
+        threadId: agentNoteThreadId,
+      });
+      setAgentNoteSubmissionBusy(false);
+      return sent;
+    } catch (error) {
+      setAgentNoteSubmissionBusy(false);
+      throw error;
+    }
+  };
   const handleQueueCodeSearchResult = (result: WorkspaceCodeSearchResult, lineNumber?: number) => {
     const line = lineNumber ?? result.snippets[0]?.lineNumber;
     queueWorkspaceFileContext(
@@ -2602,10 +2583,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     return buildTreeRows(treeEntries, new Set(expandedDirectoryPaths));
   }, [deferredTreeSearch, expandedDirectoryPaths, searchEntries, treeEntries]);
 
-  const expandedDirectoryPathSet = useMemo(
-    () => new Set(expandedDirectoryPaths),
-    [expandedDirectoryPaths],
-  );
+  const expandedDirectoryPathSet = new Set(expandedDirectoryPaths);
   const explorerRows = useMemo(
     () => buildExplorerRenderRows(visibleRows, inlineEntryState),
     [inlineEntryState, visibleRows],
@@ -2843,29 +2821,18 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     [props.threadId, splitPane],
   );
 
-  const handleOpenFile = useCallback(
-    (filePath: string, openInNewPane: boolean) => {
-      setSelectedReviewFilePath(null);
-      prepareWorkspaceFileOpen(filePath);
-      if (openInNewPane) {
-        handleSplitPane(activePane?.id, filePath);
-        if (panes.length >= MAX_THREAD_EDITOR_PANES) {
-          openFile(props.threadId, filePath, activePane?.id);
-        }
-        return;
+  const handleOpenFile = (filePath: string, openInNewPane: boolean) => {
+    setSelectedReviewFilePath(null);
+    prepareWorkspaceFileOpen(filePath);
+    if (openInNewPane) {
+      handleSplitPane(activePane?.id, filePath);
+      if (panes.length >= MAX_THREAD_EDITOR_PANES) {
+        openFile(props.threadId, filePath, activePane?.id);
       }
-      openFile(props.threadId, filePath, activePane?.id);
-    },
-    [
-      activePane?.id,
-      handleSplitPane,
-      openFile,
-      panes.length,
-      prepareWorkspaceFileOpen,
-      props.threadId,
-      setSelectedReviewFilePath,
-    ],
-  );
+      return;
+    }
+    openFile(props.threadId, filePath, activePane?.id);
+  };
   const openCommandPalette = useCallback((mode: WorkspaceCommandPaletteMode) => {
     setCommandPaletteMode(mode);
     setCommandPaletteOpen(true);
@@ -2873,17 +2840,14 @@ function useThreadWorkspaceEditorComponent(inputProps: {
   const requestFindInActiveEditor = useCallback(() => {
     bumpFindRequestToken();
   }, [bumpFindRequestToken]);
-  const editorShortcutLabelOptions = useMemo(
-    () => ({
-      context: {
-        browserOpen: props.browserOpen,
-        editorFocus: true,
-        terminalFocus: false,
-        terminalOpen: props.terminalOpen,
-      },
-    }),
-    [props.browserOpen, props.terminalOpen],
-  );
+  const editorShortcutLabelOptions = {
+    context: {
+      browserOpen: props.browserOpen,
+      editorFocus: true,
+      terminalFocus: false,
+      terminalOpen: props.terminalOpen,
+    },
+  };
   const openFilePaletteShortcutLabel = shortcutLabelForCommand(
     props.keybindings,
     "editor.openFilePalette",
@@ -3287,82 +3251,71 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     [api, deleteEntryMutation],
   );
 
-  const openExplorerContextMenu = useCallback(
-    async (entry: ProjectEntry | null, position: { x: number; y: number }) => {
-      if (!api) {
-        return;
-      }
-      const items = [
-        { id: "new-file", label: "New File" },
-        { id: "new-folder", label: "New Folder" },
-        { id: "reveal", label: entry ? revealEntryLabel : revealWorkspaceLabel },
-        ...(entry
-          ? [
-              { id: "rename", label: "Rename" },
-              { id: "delete", label: "Delete", destructive: true },
-            ]
-          : []),
-      ] as const;
-      const clicked = await api.contextMenu.show(items, position);
-      const parentPath = entry?.kind === "directory" ? entry.path : (entry?.parentPath ?? null);
+  const openExplorerContextMenu = async (
+    entry: ProjectEntry | null,
+    position: { x: number; y: number },
+  ) => {
+    if (!api) {
+      return;
+    }
+    const items = [
+      { id: "new-file", label: "New File" },
+      { id: "new-folder", label: "New Folder" },
+      { id: "reveal", label: entry ? revealEntryLabel : revealWorkspaceLabel },
+      ...(entry
+        ? [
+            { id: "rename", label: "Rename" },
+            { id: "delete", label: "Delete", destructive: true },
+          ]
+        : []),
+    ] as const;
+    const clicked = await api.contextMenu.show(items, position);
+    const parentPath = entry?.kind === "directory" ? entry.path : (entry?.parentPath ?? null);
 
-      if (clicked === "new-file") {
-        startInlineEntry({ kind: "create-file", parentPath, value: "" });
-        return;
-      }
-      if (clicked === "new-folder") {
-        startInlineEntry({ kind: "create-folder", parentPath, value: "" });
-        return;
-      }
-      if (clicked === "reveal") {
-        if (!props.gitCwd) {
-          toastManager.add({
-            description: "This thread does not have an active workspace path.",
-            title: "Workspace unavailable",
-            type: "error",
-          });
-          return;
-        }
-        const targetPath = entry
-          ? joinWorkspaceAbsolutePath(props.gitCwd, entry.path)
-          : props.gitCwd;
-        try {
-          await api.shell.revealInFileManager(targetPath, {
-            connectionUrl: inputProps.connectionUrl,
-          });
-        } catch (error) {
-          toastManager.add({
-            description:
-              error instanceof Error ? error.message : "Unable to open the file manager.",
-            title: "Could not reveal entry",
-            type: "error",
-          });
-        }
-        return;
-      }
-      if (clicked === "rename" && entry) {
-        startInlineEntry({
-          kind: "rename",
-          entry,
-          parentPath: entry.parentPath ?? null,
-          value: basenameOfPath(entry.path),
+    if (clicked === "new-file") {
+      startInlineEntry({ kind: "create-file", parentPath, value: "" });
+      return;
+    }
+    if (clicked === "new-folder") {
+      startInlineEntry({ kind: "create-folder", parentPath, value: "" });
+      return;
+    }
+    if (clicked === "reveal") {
+      if (!props.gitCwd) {
+        toastManager.add({
+          description: "This thread does not have an active workspace path.",
+          title: "Workspace unavailable",
+          type: "error",
         });
         return;
       }
-      if (clicked === "delete" && entry) {
-        await handleDeleteEntry(entry);
+      const targetPath = entry ? joinWorkspaceAbsolutePath(props.gitCwd, entry.path) : props.gitCwd;
+      try {
+        await api.shell.revealInFileManager(targetPath, {
+          connectionUrl: inputProps.connectionUrl,
+        });
+      } catch (error) {
+        toastManager.add({
+          description: error instanceof Error ? error.message : "Unable to open the file manager.",
+          title: "Could not reveal entry",
+          type: "error",
+        });
       }
-    },
-    [
-      api,
-      handleDeleteEntry,
-      inputProps.connectionUrl,
-      props.gitCwd,
-      revealEntryLabel,
-      revealWorkspaceLabel,
-      startInlineEntry,
-    ],
-  );
+      return;
+    }
+    if (clicked === "rename" && entry) {
+      startInlineEntry({
+        kind: "rename",
+        entry,
+        parentPath: entry.parentPath ?? null,
+        value: basenameOfPath(entry.path),
+      });
+      return;
+    }
+    if (clicked === "delete" && entry) {
+      await handleDeleteEntry(entry);
+    }
+  };
 
   const submitInlineEntry = () => {
     if (!inlineEntryState) {
@@ -3398,32 +3351,29 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     });
   };
 
-  const moveExplorerEntry = useCallback(
-    (sourcePath: string, targetParentPath: string | null) => {
-      const sourceEntry = entryByPath.get(sourcePath);
-      if (!sourceEntry) {
-        return;
-      }
-      if (
-        targetParentPath !== null &&
-        sourceEntry.kind === "directory" &&
-        isAncestorPath(targetParentPath, sourcePath)
-      ) {
-        return;
-      }
-      const nextRelativePath = movePathToParent(sourcePath, targetParentPath);
-      if (nextRelativePath === sourcePath) {
-        return;
-      }
-      void renameEntryMutation.mutate({
-        kind: sourceEntry.kind,
-        nextRelativePath,
-        relativePath: sourcePath,
-      });
-      setDragTargetParentPath(null);
-    },
-    [entryByPath, renameEntryMutation],
-  );
+  const moveExplorerEntry = (sourcePath: string, targetParentPath: string | null) => {
+    const sourceEntry = entryByPath.get(sourcePath);
+    if (!sourceEntry) {
+      return;
+    }
+    if (
+      targetParentPath !== null &&
+      sourceEntry.kind === "directory" &&
+      isAncestorPath(targetParentPath, sourcePath)
+    ) {
+      return;
+    }
+    const nextRelativePath = movePathToParent(sourcePath, targetParentPath);
+    if (nextRelativePath === sourcePath) {
+      return;
+    }
+    void renameEntryMutation.mutate({
+      kind: sourceEntry.kind,
+      nextRelativePath,
+      relativePath: sourcePath,
+    });
+    setDragTargetParentPath(null);
+  };
   const handleExplorerDropEntry = (sourcePath: string, targetParentPath: string | null) => {
     moveExplorerEntry(sourcePath, targetParentPath);
   };
@@ -3434,9 +3384,8 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     void openExplorerContextMenu(entry, position);
   };
 
-  const selectedVisibleEntryIndex = useMemo(
-    () => visibleRows.findIndex((row) => row.entry.path === focusedExplorerEntryPath),
-    [focusedExplorerEntryPath, visibleRows],
+  const selectedVisibleEntryIndex = visibleRows.findIndex(
+    (row) => row.entry.path === focusedExplorerEntryPath,
   );
 
   const handleExplorerKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
