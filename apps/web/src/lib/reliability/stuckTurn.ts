@@ -26,7 +26,7 @@ function maxDefined(values: ReadonlyArray<number | null>): number | null {
   return max;
 }
 
-export function deriveLatestTurnActivityAt(input: {
+function deriveLatestTurnActivityAt(input: {
   readonly latestTurn: OrchestrationLatestTurn | null;
   readonly messages: ReadonlyArray<ChatMessage>;
   readonly activities: ReadonlyArray<OrchestrationThreadActivity>;

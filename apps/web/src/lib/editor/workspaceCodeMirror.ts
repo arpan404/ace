@@ -17,7 +17,7 @@ import type { WorkspaceCodeEditorOptions } from "./workspaceEditorOptions";
 
 export const WORKSPACE_CODE_EDITOR_PROBLEM_OWNER = "ace-workspace-editor";
 
-export const WORKSPACE_CODE_EDITOR_SEVERITY = {
+const WORKSPACE_CODE_EDITOR_SEVERITY = {
   error: 8,
   hint: 1,
   info: 2,

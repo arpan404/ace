@@ -218,9 +218,7 @@ function shouldCollapseMetaEntries(entries: ReadonlyArray<TimelineMetaGroupEntry
   );
 }
 
-export function classifyTimelineToolSummaryEntry(
-  workEntry: TimelineWorkEntry,
-): TimelineToolSummaryKind {
+function classifyTimelineToolSummaryEntry(workEntry: TimelineWorkEntry): TimelineToolSummaryKind {
   const textHint = `${workEntry.toolTitle ?? ""} ${workEntry.label}`.trim().toLowerCase();
   if (
     workEntry.requestKind === "command" ||

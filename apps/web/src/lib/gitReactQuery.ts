@@ -76,7 +76,7 @@ export function invalidateGitStatusQuery(queryClient: QueryClient, cwd: string |
   return queryClient.invalidateQueries({ queryKey: gitQueryKeys.status(cwd) });
 }
 
-export function invalidateGitWorktreeStatsQueries(queryClient: QueryClient) {
+function invalidateGitWorktreeStatsQueries(queryClient: QueryClient) {
   return queryClient.invalidateQueries({
     predicate: (query) => query.queryKey[0] === "git" && query.queryKey[1] === "worktree-stats",
   });

@@ -1,4 +1,4 @@
-import { useCallback, useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "react";
 
 const BREAKPOINTS = {
   "2xl": 1536,
@@ -61,7 +61,7 @@ type MediaQueryInput = {
   pointer?: "coarse" | "fine";
 };
 
-export function useMediaQuery(query: BreakpointQuery | MediaQueryInput | (string & {})): boolean {
+function useMediaQuery(query: BreakpointQuery | MediaQueryInput | (string & {})): boolean {
   const mediaQuery = parseQuery(query);
 
   const subscribe = (callback: () => void) => {

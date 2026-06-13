@@ -1,6 +1,6 @@
 export type WorkspaceCommentPlaceholderContext = "general" | "code" | "diff" | "design";
 
-export const WORKSPACE_COMMENT_PLACEHOLDERS = [
+const WORKSPACE_COMMENT_PLACEHOLDERS = [
   "Leave a note",
   "Ask for review",
   "Request a tweak",

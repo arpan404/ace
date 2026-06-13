@@ -859,13 +859,6 @@ function mapThread(thread: OrchestrationThread, options?: SnapshotSyncOptions): 
   };
 }
 
-export function mapThreadFromReadModel(
-  thread: OrchestrationReadModel["threads"][number],
-  options?: SnapshotSyncOptions,
-): Thread {
-  return mapThread(thread, options);
-}
-
 function mapProject(project: OrchestrationReadModel["projects"][number]): Project {
   return {
     id: project.id,

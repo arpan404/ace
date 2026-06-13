@@ -4,8 +4,6 @@ export const GLASS_BACKDROP_CLASS_NAME = "glass-backdrop";
 
 export const GLASS_SURFACE_CLASS_NAME = "glass-surface border text-popover-foreground";
 
-export const GLASS_INSET_CLASS_NAME = "glass-inset border border-border/40";
-
 export const GLASS_CONTROL_CLASS_NAME =
   "border border-border/50 bg-background/55 shadow-none transition-[border-color,background-color,box-shadow] supports-[backdrop-filter]:bg-background/35 supports-[backdrop-filter]:backdrop-blur-md has-focus-visible:border-ring/55 has-focus-visible:ring-2 has-focus-visible:ring-ring/15 dark:bg-input/35 dark:has-focus-visible:bg-input/45";
 

@@ -4,7 +4,7 @@ import { randomUUID } from "~/lib/utils";
 
 export const SCRATCH_PAD_STORAGE_KEY = "ace:scratch-pads:v1";
 
-export const ScratchPadNoteSchema = Schema.Struct({
+const ScratchPadNoteSchema = Schema.Struct({
   body: Schema.String,
   createdAt: Schema.Number,
   id: Schema.String,

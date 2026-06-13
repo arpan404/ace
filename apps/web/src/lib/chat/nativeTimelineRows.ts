@@ -70,7 +70,7 @@ export function toPagedChatMessage(message: OrchestrationMessage): ChatMessage {
   };
 }
 
-export function toPagedProposedPlan(plan: OrchestrationProposedPlan): ProposedPlan {
+function toPagedProposedPlan(plan: OrchestrationProposedPlan): ProposedPlan {
   return {
     id: plan.id,
     turnId: plan.turnId,

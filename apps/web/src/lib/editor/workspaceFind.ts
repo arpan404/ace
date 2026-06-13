@@ -1,7 +1,7 @@
 import { SearchQuery } from "@codemirror/search";
 import { EditorState, type Text } from "@codemirror/state";
 
-export const WORKSPACE_FIND_MAX_MATCH_COUNT = 1_000;
+const WORKSPACE_FIND_MAX_MATCH_COUNT = 1_000;
 const WORKSPACE_FIND_MAX_SEED_LENGTH = 200;
 
 export interface WorkspaceFindState {
