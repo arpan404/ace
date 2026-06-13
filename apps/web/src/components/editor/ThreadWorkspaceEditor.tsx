@@ -40,11 +40,9 @@ import {
 import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
-  useCallback,
   useDeferredValue,
   useEffect,
   useId,
-  useMemo,
   useReducer,
   useRef,
 } from "react";
@@ -60,6 +58,7 @@ import {
 import { useLocalStorage } from "~/hooks/useLocalStorage";
 import { useSetting, useUpdateSettings } from "~/hooks/useSettings";
 import { useReactCompilerSafeVirtualizer } from "~/hooks/useReactCompilerSafeVirtualizer";
+import { useStableCallback } from "~/hooks/useStableCallback";
 import { useTheme } from "~/hooks/useTheme";
 import { isTerminalFocused } from "~/lib/terminalFocus";
 import {
@@ -1242,9 +1241,9 @@ function useThreadWorkspaceEditorComponent(inputProps: {
   const setAgentNoteSubmissionBusy = (agentNoteSubmissionBusy: boolean) => {
     dispatchUiState({ type: "set-agent-note-submission-busy", agentNoteSubmissionBusy });
   };
-  const setSelectedEntryPath = useCallback((selectedEntryPath: string | null) => {
+  const setSelectedEntryPath = useStableCallback((selectedEntryPath: string | null) => {
     dispatchUiState({ type: "set-selected-entry-path", selectedEntryPath });
-  }, []);
+  });
   const setInlineEntryState = (
     inlineEntryState:
       | ExplorerInlineEntryState
@@ -1310,9 +1309,9 @@ function useThreadWorkspaceEditorComponent(inputProps: {
   ) => {
     dispatchUiState({ type: "set-symbol-navigation-target", symbolNavigationTarget });
   };
-  const bumpFindRequestToken = useCallback(() => {
+  const bumpFindRequestToken = useStableCallback(() => {
     dispatchUiState({ type: "bump-find-request-token" });
-  }, []);
+  });
   const setCollapsedOutlineIds = (
     nextCollapsedOutlineIds:
       | ReadonlySet<string>
@@ -1563,7 +1562,6 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     }
     return "Reveal Workspace in File Manager";
   })();
-  const panesById = useMemo(() => new Map(panes.map((pane) => [pane.id, pane] as const)), [panes]);
   const diagnosticsCwd = props.gitCwd ?? props.lspCwd ?? null;
   const openWorkspaceFilePaths = Array.from(
     new Set(panes.flatMap((pane) => pane.openFilePaths)),
@@ -1981,10 +1979,11 @@ function useThreadWorkspaceEditorComponent(inputProps: {
   const normalizedRowRatios = normalizePaneRatios(paneRatios, rows.length);
   const layoutRows = (() => {
     const nextRows: Array<ThreadEditorRowState & { panes: typeof panes }> = [];
+    const paneById = new Map(panes.map((pane) => [pane.id, pane] as const));
     for (const row of rows) {
       const rowPanes: typeof panes = [];
       for (const paneId of row.paneIds) {
-        const pane = panesById.get(paneId);
+        const pane = paneById.get(paneId);
         if (pane) {
           rowPanes.push(pane);
         }
@@ -2016,7 +2015,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     activeDirtyPathsRef.current = activeDirtyPaths;
   }, [activeDirtyPaths]);
 
-  const getCachedReadFileResult = useCallback(
+  const getCachedReadFileResult = useStableCallback(
     (filePath: string): ProjectReadFileResult | null => {
       if (!props.gitCwd) {
         return null;
@@ -2027,22 +2026,18 @@ function useThreadWorkspaceEditorComponent(inputProps: {
         ) ?? null
       );
     },
-    [inputProps.connectionUrl, props.gitCwd, queryClient],
   );
 
-  const hydrateFileFromReadCache = useCallback(
-    (filePath: string): boolean => {
-      const cached = getCachedReadFileResult(filePath);
-      if (!cached) {
-        return false;
-      }
-      hydrateFile(props.threadId, filePath, cached.contents);
-      return true;
-    },
-    [getCachedReadFileResult, hydrateFile, props.threadId],
-  );
+  const hydrateFileFromReadCache = useStableCallback((filePath: string): boolean => {
+    const cached = getCachedReadFileResult(filePath);
+    if (!cached) {
+      return false;
+    }
+    hydrateFile(props.threadId, filePath, cached.contents);
+    return true;
+  });
 
-  const prefetchWorkspaceEditorFile = useCallback(
+  const prefetchWorkspaceEditorFile = useStableCallback(
     (filePath: string): Promise<unknown> | undefined => {
       if (
         !props.gitCwd ||
@@ -2063,16 +2058,12 @@ function useThreadWorkspaceEditorComponent(inputProps: {
         )
         .catch(() => undefined);
     },
-    [getCachedReadFileResult, inputProps.connectionUrl, props.gitCwd, queryClient],
   );
 
-  const prepareWorkspaceFileOpen = useCallback(
-    (filePath: string) => {
-      hydrateFileFromReadCache(filePath);
-      void prefetchWorkspaceEditorFile(filePath);
-    },
-    [hydrateFileFromReadCache, prefetchWorkspaceEditorFile],
-  );
+  const prepareWorkspaceFileOpen = useStableCallback((filePath: string) => {
+    hydrateFileFromReadCache(filePath);
+    void prefetchWorkspaceEditorFile(filePath);
+  });
 
   useEffect(() => {
     if (!api || !props.gitCwd) {
@@ -2285,7 +2276,9 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     });
   };
   const handleOpenProblem = (report: WorkspaceProblemReport) => {
-    const targetPaneId = panesById.has(report.paneId) ? report.paneId : (activePane?.id ?? null);
+    const targetPaneId = panes.some((pane) => pane.id === report.paneId)
+      ? report.paneId
+      : (activePane?.id ?? null);
     if (!targetPaneId) {
       return;
     }
@@ -2307,7 +2300,9 @@ function useThreadWorkspaceEditorComponent(inputProps: {
   };
   const handleOpenSymbol = (report: WorkspaceSymbolReport) => {
     setActiveOutlineSymbolId(workspaceSymbolNodeId(report));
-    const targetPaneId = panesById.has(report.paneId) ? report.paneId : (activePane?.id ?? null);
+    const targetPaneId = panes.some((pane) => pane.id === report.paneId)
+      ? report.paneId
+      : (activePane?.id ?? null);
     if (!targetPaneId) {
       return;
     }
@@ -2488,7 +2483,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     expandDirectories(props.threadId, collectAncestorDirectories(activePane.activeFilePath));
   }, [activePane?.activeFilePath, expandDirectories, props.threadId]);
 
-  const visibleRows = useMemo(() => {
+  const visibleRows = (() => {
     if (deferredTreeSearch.length > 0) {
       return searchEntries.map<TreeRow>((entry) => ({
         depth: 0,
@@ -2500,13 +2495,10 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     }
 
     return buildTreeRows(treeEntries, new Set(expandedDirectoryPaths));
-  }, [deferredTreeSearch, expandedDirectoryPaths, searchEntries, treeEntries]);
+  })();
 
   const expandedDirectoryPathSet = new Set(expandedDirectoryPaths);
-  const explorerRows = useMemo(
-    () => buildExplorerRenderRows(visibleRows, inlineEntryState),
-    [inlineEntryState, visibleRows],
-  );
+  const explorerRows = buildExplorerRenderRows(visibleRows, inlineEntryState);
   const explorerPending =
     isWorkspaceTreePending || (searchMode && isWorkspaceTreeFetching && treeEntries.length === 0);
 
@@ -2721,7 +2713,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
   const workspaceFileCount = treeEntries.filter((entry) => entry.kind === "file").length;
   const activeWorktreePath = props.worktreePath ?? null;
 
-  const handleSplitPane = useCallback(
+  const handleSplitPane = useStableCallback(
     (paneId?: string, filePath?: string, direction: "down" | "right" = "right") => {
       const createdPaneId = splitPane(props.threadId, {
         direction,
@@ -2737,7 +2729,6 @@ function useThreadWorkspaceEditorComponent(inputProps: {
         type: "info",
       });
     },
-    [props.threadId, splitPane],
   );
 
   const handleOpenFile = (filePath: string, openInNewPane: boolean) => {
@@ -2752,13 +2743,13 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     }
     openFile(props.threadId, filePath, activePane?.id);
   };
-  const openCommandPalette = useCallback((mode: WorkspaceCommandPaletteMode) => {
+  const openCommandPalette = useStableCallback((mode: WorkspaceCommandPaletteMode) => {
     setCommandPaletteMode(mode);
     setCommandPaletteOpen(true);
-  }, []);
-  const requestFindInActiveEditor = useCallback(() => {
+  });
+  const requestFindInActiveEditor = useStableCallback(() => {
     bumpFindRequestToken();
-  }, [bumpFindRequestToken]);
+  });
   const editorShortcutLabelOptions = {
     context: {
       browserOpen: props.browserOpen,
@@ -2874,15 +2865,12 @@ function useThreadWorkspaceEditorComponent(inputProps: {
       });
     }
   };
-  const handleSetActiveFile = useCallback(
-    (paneId: string, filePath: string | null) => {
-      if (filePath) {
-        prepareWorkspaceFileOpen(filePath);
-      }
-      setActiveFile(props.threadId, filePath, paneId);
-    },
-    [prepareWorkspaceFileOpen, props.threadId, setActiveFile],
-  );
+  const handleSetActiveFile = useStableCallback((paneId: string, filePath: string | null) => {
+    if (filePath) {
+      prepareWorkspaceFileOpen(filePath);
+    }
+    setActiveFile(props.threadId, filePath, paneId);
+  });
   const handleRetryActiveFile = () => {
     if (!activePane?.activeFilePath) {
       return;
@@ -2919,7 +2907,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     });
   };
 
-  const focusMountedExplorerEntry = useCallback((path: string): boolean => {
+  const focusMountedExplorerEntry = useStableCallback((path: string): boolean => {
     const target = treeScrollRef.current?.querySelector<HTMLElement>(
       `[data-explorer-path="${CSS.escape(path)}"]`,
     );
@@ -2929,9 +2917,9 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     target.focus({ preventScroll: true });
     target.scrollIntoView({ block: "nearest" });
     return true;
-  }, []);
+  });
 
-  const focusExplorerEntry = useCallback(
+  const focusExplorerEntry = useStableCallback(
     (path: string, options?: { readonly align?: "auto" | "center" }) => {
       const rowIndex = explorerRows.findIndex(
         (row) => row.kind === "entry" && row.row.entry.path === path,
@@ -2948,7 +2936,6 @@ function useThreadWorkspaceEditorComponent(inputProps: {
         });
       });
     },
-    [explorerRows, focusMountedExplorerEntry, rowVirtualizer],
   );
 
   useEffect(() => {
@@ -2967,18 +2954,15 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     pendingExplorerRevealPathRef.current = null;
   }, [explorerPending, explorerRows, focusExplorerEntry, setSelectedEntryPath]);
 
-  const startInlineEntry = useCallback(
-    (state: ExplorerInlineEntryState) => {
-      if (state.parentPath) {
-        expandDirectories(
-          props.threadId,
-          collectAncestorDirectories(state.parentPath).concat(state.parentPath),
-        );
-      }
-      setInlineEntryState(state);
-    },
-    [expandDirectories, props.threadId],
-  );
+  const startInlineEntry = useStableCallback((state: ExplorerInlineEntryState) => {
+    if (state.parentPath) {
+      expandDirectories(
+        props.threadId,
+        collectAncestorDirectories(state.parentPath).concat(state.parentPath),
+      );
+    }
+    setInlineEntryState(state);
+  });
 
   const cancelInlineEntry = () => {
     setInlineEntryState(null);
@@ -3387,26 +3371,23 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     }
   };
 
-  const handleReopenClosedTab = useCallback(
-    (paneId?: string) => {
-      const reopenedPath = reopenClosedFile(props.threadId, paneId);
-      if (reopenedPath) {
-        toastManager.add({
-          description: reopenedPath,
-          title: "Tab reopened",
-          type: "success",
-        });
-        return true;
-      }
+  const handleReopenClosedTab = useStableCallback((paneId?: string) => {
+    const reopenedPath = reopenClosedFile(props.threadId, paneId);
+    if (reopenedPath) {
       toastManager.add({
-        description: "There are no recently closed tabs for this workspace.",
-        title: "Nothing to reopen",
-        type: "info",
+        description: reopenedPath,
+        title: "Tab reopened",
+        type: "success",
       });
-      return false;
-    },
-    [props.threadId, reopenClosedFile],
-  );
+      return true;
+    }
+    toastManager.add({
+      description: "There are no recently closed tabs for this workspace.",
+      title: "Nothing to reopen",
+      type: "info",
+    });
+    return false;
+  });
 
   const handleOpenFileToSide = (paneId: string, filePath: string) => {
     prepareWorkspaceFileOpen(filePath);
@@ -3592,7 +3573,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
         const offset = command === "editor.focusNextWindow" ? 1 : -1;
         const nextPaneId =
           orderedPaneIds[(currentIndex + offset + orderedPaneIds.length) % orderedPaneIds.length];
-        const nextPane = panesById.get(nextPaneId ?? "") ?? null;
+        const nextPane = panes.find((pane) => pane.id === nextPaneId) ?? null;
         if (!nextPane) {
           return;
         }
@@ -3682,7 +3663,6 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     openCommandPalette,
     orderedPaneIds,
     panes,
-    panesById,
     props.browserOpen,
     props.keybindings,
     props.terminalOpen,
