@@ -17,14 +17,11 @@ import { PlusIcon, XIcon } from "lucide-react";
 import { type ThreadId } from "@ace/contracts";
 import { Terminal, type ITheme } from "@xterm/xterm";
 import {
-  memo,
   type MutableRefObject,
   type MouseEventHandler,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
-  useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
 } from "react";
@@ -369,7 +366,7 @@ function useTerminalViewportComponent({
   const onOpenBrowserUrlRef = useRef(onOpenBrowserUrl);
   const onOpenFilePathRef = useRef(onOpenFilePath);
   const runtimeEnvRef = useRef(runtimeEnv);
-  const runtimeEnvKey = useMemo(() => stableRuntimeEnvKey(runtimeEnv), [runtimeEnv]);
+  const runtimeEnvKey = stableRuntimeEnvKey(runtimeEnv);
   const terminalLabelRef = useRef(terminalLabel);
   const hasHandledExitRef = useRef(false);
   const commandBufferRef = useRef("");
@@ -1241,7 +1238,7 @@ function SortableTerminalTab(props: {
   );
 }
 
-export default memo(function ThreadTerminalDrawer({
+export default function ThreadTerminalDrawer({
   threadId,
   cwd,
   runtimeEnv,
@@ -1384,12 +1381,12 @@ export default memo(function ThreadTerminalDrawer({
     drawerHeightRef.current = drawerHeight;
   }, [drawerHeight]);
 
-  const syncHeight = useCallback((nextHeight: number) => {
+  const syncHeight = useStableCallback((nextHeight: number) => {
     const clampedHeight = clampDrawerHeight(nextHeight);
     if (lastSyncedHeightRef.current === clampedHeight) return;
     lastSyncedHeightRef.current = clampedHeight;
     onHeightChangeRef.current(clampedHeight);
-  }, []);
+  });
 
   const handleResizePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
@@ -1417,18 +1414,15 @@ export default memo(function ThreadTerminalDrawer({
     setDrawerHeightState({ threadId, propHeight: clampedPropHeight, height: clampedHeight });
   });
 
-  const handleResizePointerEnd = useCallback(
-    (event?: PointerEvent) => {
-      const resizeState = resizeStateRef.current;
-      if (!resizeState || (event && resizeState.pointerId !== event.pointerId)) return;
-      resizeStateRef.current = null;
-      if (!didResizeDuringDragRef.current) {
-        return;
-      }
-      syncHeight(drawerHeightRef.current);
-    },
-    [syncHeight],
-  );
+  const handleResizePointerEnd = (event?: PointerEvent) => {
+    const resizeState = resizeStateRef.current;
+    if (!resizeState || (event && resizeState.pointerId !== event.pointerId)) return;
+    resizeStateRef.current = null;
+    if (!didResizeDuringDragRef.current) {
+      return;
+    }
+    syncHeight(drawerHeightRef.current);
+  };
 
   const handlePaneResizePointerDown = (
     event: ReactPointerEvent<HTMLDivElement>,
@@ -1451,27 +1445,24 @@ export default memo(function ThreadTerminalDrawer({
     };
   };
 
-  const handlePaneResizePointerMove = useCallback(
-    (event: PointerEvent) => {
-      const resizeState = paneResizeStateRef.current;
-      if (!resizeState || resizeState.pointerId !== event.pointerId) return;
-      const nextRatios = resizeTerminalPaneRatios({
-        ratios: resizeState.startRatios,
-        dividerIndex: resizeState.dividerIndex,
-        deltaPx: event.clientX - resizeState.startX,
-        containerWidthPx: resizeState.containerWidth,
-        minPaneWidthPx: MIN_TERMINAL_PANE_WIDTH,
-      });
-      onSplitRatiosChange(resizeState.groupId, nextRatios);
-    },
-    [onSplitRatiosChange],
-  );
+  const handlePaneResizePointerMove = (event: PointerEvent) => {
+    const resizeState = paneResizeStateRef.current;
+    if (!resizeState || resizeState.pointerId !== event.pointerId) return;
+    const nextRatios = resizeTerminalPaneRatios({
+      ratios: resizeState.startRatios,
+      dividerIndex: resizeState.dividerIndex,
+      deltaPx: event.clientX - resizeState.startX,
+      containerWidthPx: resizeState.containerWidth,
+      minPaneWidthPx: MIN_TERMINAL_PANE_WIDTH,
+    });
+    onSplitRatiosChange(resizeState.groupId, nextRatios);
+  };
 
-  const handlePaneResizePointerEnd = useCallback((event?: PointerEvent) => {
+  const handlePaneResizePointerEnd = (event?: PointerEvent) => {
     const resizeState = paneResizeStateRef.current;
     if (!resizeState || (event && resizeState.pointerId !== event.pointerId)) return;
     paneResizeStateRef.current = null;
-  }, []);
+  };
   const handleResizePointerMoveEvent = useEffectEvent(handleResizePointerMove);
   const handlePaneResizePointerMoveEvent = useEffectEvent(handlePaneResizePointerMove);
   const handleResizePointerEndEvent = useEffectEvent(handleResizePointerEnd);
@@ -1718,4 +1709,4 @@ export default memo(function ThreadTerminalDrawer({
       </div>
     </aside>
   );
-});
+}

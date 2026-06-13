@@ -1,5 +1,5 @@
 import { type KeybindingShortcut, type StaticKeybindingCommand } from "@ace/contracts";
-import { type KeyboardEvent, useMemo, useReducer } from "react";
+import { type KeyboardEvent, useReducer } from "react";
 import { cn } from "~/lib/utils";
 import { ensureNativeApi } from "~/nativeApi";
 import {
@@ -38,6 +38,22 @@ const CATEGORY_DESCRIPTIONS: Partial<Record<KeybindingCategory, string>> = {
   "Right Panel": "Open and focus Browser, Review, and Editor tabs in the right side panel.",
 };
 
+const KEYBINDING_CATEGORY_GROUPS: Array<{
+  category: KeybindingCategory;
+  items: readonly KeybindingCommandDefinition[];
+}> = [];
+for (const category of CATEGORY_ORDER) {
+  const items: KeybindingCommandDefinition[] = [];
+  for (const definition of KEYBINDING_COMMAND_DEFINITIONS) {
+    if (definition.category === category) {
+      items.push(definition);
+    }
+  }
+  if (items.length > 0) {
+    KEYBINDING_CATEGORY_GROUPS.push({ category, items });
+  }
+}
+
 function shortcutRuleFingerprint(
   shortcut: KeybindingShortcut,
   platform: string,
@@ -55,7 +71,7 @@ export function KeybindingsSettingsEditor() {
   const keybindings = useServerKeybindings();
   const platform = typeof navigator === "undefined" ? "unknown" : navigator.platform;
 
-  const initialByCommand = useMemo(() => {
+  const initialByCommand = (() => {
     const nextShortcuts: DraftShortcutByCommand = {};
     const nextWhenByCommand: DraftWhenByCommand = {};
     for (const definition of KEYBINDING_COMMAND_DEFINITIONS) {
@@ -73,7 +89,7 @@ export function KeybindingsSettingsEditor() {
       shortcuts: nextShortcuts,
       whenByCommand: nextWhenByCommand,
     };
-  }, [keybindings]);
+  })();
   const editorStateKey = KEYBINDING_COMMAND_DEFINITIONS.map((definition) => {
     const shortcut = shortcutValueFingerprint(initialByCommand.shortcuts[definition.command]);
     const when = initialByCommand.whenByCommand[definition.command] ?? "";
@@ -183,7 +199,7 @@ function KeybindingsSettingsEditorContent(props: {
     return current !== initial;
   });
 
-  const nonEditableShortcutFingerprints = useMemo(() => {
+  const nonEditableShortcutFingerprints = (() => {
     const editableCommands = new Set(
       KEYBINDING_COMMAND_DEFINITIONS.map((definition) => definition.command),
     );
@@ -201,9 +217,9 @@ function KeybindingsSettingsEditorContent(props: {
     }
 
     return commandByFingerprint;
-  }, [keybindings, platform]);
+  })();
 
-  const collisionByCommand = useMemo(() => {
+  const collisionByCommand = (() => {
     const ownerByFingerprint = new Map<string, StaticKeybindingCommand>();
     const collisions = new Map<StaticKeybindingCommand, string>();
 
@@ -229,7 +245,7 @@ function KeybindingsSettingsEditorContent(props: {
     }
 
     return collisions;
-  }, [draftShortcuts, draftWhenByCommand, nonEditableShortcutFingerprints, platform]);
+  })();
 
   const hasUnsupportedClear = dirtyCommands.some((definition) => {
     const initialShortcut = initialByCommand.shortcuts[definition.command];
@@ -240,27 +256,7 @@ function KeybindingsSettingsEditorContent(props: {
   const canSave =
     dirtyCommands.length > 0 && collisionByCommand.size === 0 && !hasUnsupportedClear && !isSaving;
 
-  const categoryGroups = useMemo(() => {
-    const groups: Array<{
-      category: (typeof CATEGORY_ORDER)[number];
-      items: readonly KeybindingCommandDefinition[];
-    }> = [];
-    for (const category of CATEGORY_ORDER) {
-      const items: KeybindingCommandDefinition[] = [];
-      for (const definition of KEYBINDING_COMMAND_DEFINITIONS) {
-        if (definition.category === category) {
-          items.push(definition);
-        }
-      }
-      if (items.length > 0) {
-        groups.push({
-          category,
-          items,
-        });
-      }
-    }
-    return groups;
-  }, []);
+  const categoryGroups = KEYBINDING_CATEGORY_GROUPS;
 
   const captureShortcut = (
     command: StaticKeybindingCommand,
