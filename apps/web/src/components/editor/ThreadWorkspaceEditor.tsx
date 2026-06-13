@@ -1125,15 +1125,11 @@ function useThreadWorkspaceEditorComponent(inputProps: {
       ? inputProps.editorStateInstanceId.trim() || undefined
       : undefined;
   const editorStateInstanceId = inputEditorStateInstanceId ?? fallbackEditorStateInstanceId;
-  const editorStateScopeId = useMemo(
-    () =>
-      resolveEditorInstanceStateScopeId({
-        gitCwd: inputProps.gitCwd,
-        instanceId: editorStateInstanceId,
-        threadId: inputProps.threadId,
-      }),
-    [editorStateInstanceId, inputProps.gitCwd, inputProps.threadId],
-  );
+  const editorStateScopeId = resolveEditorInstanceStateScopeId({
+    gitCwd: inputProps.gitCwd,
+    instanceId: editorStateInstanceId,
+    threadId: inputProps.threadId,
+  });
   const agentNoteThreadId = inputProps.threadId;
   const props = { ...inputProps, threadId: editorStateScopeId as ThreadId };
   const detachedEditorConnectionUrl = inputProps.connectionUrl;
@@ -1149,7 +1145,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
   const onReturnToMainWindow = inputProps.onReturnToMainWindow;
   const canDetachEditor =
     inputProps.detachEnabled !== false && Boolean(window.desktopBridge?.openDetachedEditor);
-  const detachEditor = useCallback(async () => {
+  const detachEditor = async () => {
     const openDetachedEditor = window.desktopBridge?.openDetachedEditor;
     if (!openDetachedEditor) {
       return;
@@ -1172,14 +1168,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
       description: "The desktop app did not open a detached editor window.",
       type: "error",
     });
-  }, [
-    detachedEditorConnectionUrl,
-    detachedEditorStateInstanceId,
-    detachedEditorThreadId,
-    detachedReturnPlacement,
-    detachedWorkspaceMode,
-    onEditorDetached,
-  ]);
+  };
 
   const { resolvedTheme } = useTheme();
   const { updateSettings } = useUpdateSettings();
@@ -1231,113 +1220,97 @@ function useThreadWorkspaceEditorComponent(inputProps: {
   const setTreeSearch = useCallback((treeSearch: string) => {
     dispatchUiState({ type: "set-tree-search", treeSearch });
   }, []);
-  const setCodeSearchQuery = useCallback((codeSearchQuery: string) => {
+  const setCodeSearchQuery = (codeSearchQuery: string) => {
     dispatchUiState({ type: "set-code-search-query", codeSearchQuery });
-  }, []);
-  const handleCodeSearchExampleClick = useCallback((query: string) => {
+  };
+  const handleCodeSearchExampleClick = (query: string) => {
     dispatchUiState({ type: "set-code-search-query", codeSearchQuery: query });
-  }, []);
+  };
   const setSidebarMode = useCallback((sidebarMode: WorkspaceSidebarMode) => {
     dispatchUiState({ type: "set-sidebar-mode", sidebarMode });
   }, []);
   const setSelectedReviewFilePath = useCallback((selectedReviewFilePath: string | null) => {
     dispatchUiState({ type: "set-selected-review-file-path", selectedReviewFilePath });
   }, []);
-  const setCommandPaletteOpen = useCallback((commandPaletteOpen: boolean) => {
+  const setCommandPaletteOpen = (commandPaletteOpen: boolean) => {
     dispatchUiState({ type: "set-command-palette-open", commandPaletteOpen });
-  }, []);
-  const setCommandPaletteMode = useCallback((commandPaletteMode: WorkspaceCommandPaletteMode) => {
+  };
+  const setCommandPaletteMode = (commandPaletteMode: WorkspaceCommandPaletteMode) => {
     dispatchUiState({ type: "set-command-palette-mode", commandPaletteMode });
-  }, []);
-  const setQueuedWorkspaceContexts = useCallback(
-    (
-      nextQueuedWorkspaceContexts:
-        | readonly QueuedWorkspaceContext[]
-        | ((current: readonly QueuedWorkspaceContext[]) => readonly QueuedWorkspaceContext[]),
-    ) => {
-      dispatchUiState({ type: "set-queued-workspace-contexts", nextQueuedWorkspaceContexts });
-    },
-    [],
-  );
-  const setAgentNoteSubmissionBusy = useCallback((agentNoteSubmissionBusy: boolean) => {
+  };
+  const setQueuedWorkspaceContexts = (
+    nextQueuedWorkspaceContexts:
+      | readonly QueuedWorkspaceContext[]
+      | ((current: readonly QueuedWorkspaceContext[]) => readonly QueuedWorkspaceContext[]),
+  ) => {
+    dispatchUiState({ type: "set-queued-workspace-contexts", nextQueuedWorkspaceContexts });
+  };
+  const setAgentNoteSubmissionBusy = (agentNoteSubmissionBusy: boolean) => {
     dispatchUiState({ type: "set-agent-note-submission-busy", agentNoteSubmissionBusy });
-  }, []);
+  };
   const setSelectedEntryPath = useCallback((selectedEntryPath: string | null) => {
     dispatchUiState({ type: "set-selected-entry-path", selectedEntryPath });
   }, []);
-  const setInlineEntryState = useCallback(
-    (
-      inlineEntryState:
-        | ExplorerInlineEntryState
-        | null
-        | ((current: ExplorerInlineEntryState | null) => ExplorerInlineEntryState | null),
-    ) => {
-      dispatchUiState({ type: "set-inline-entry-state", inlineEntryState });
-    },
-    [],
-  );
-  const setDragTargetParentPath = useCallback((dragTargetParentPath: string | null) => {
+  const setInlineEntryState = (
+    inlineEntryState:
+      | ExplorerInlineEntryState
+      | null
+      | ((current: ExplorerInlineEntryState | null) => ExplorerInlineEntryState | null),
+  ) => {
+    dispatchUiState({ type: "set-inline-entry-state", inlineEntryState });
+  };
+  const setDragTargetParentPath = (dragTargetParentPath: string | null) => {
     dispatchUiState({ type: "set-drag-target-parent-path", dragTargetParentPath });
-  }, []);
-  const setSaveConflict = useCallback(
-    (
-      saveConflict:
-        | SaveConflictState
-        | null
-        | ((current: SaveConflictState | null) => SaveConflictState | null),
-    ) => {
-      dispatchUiState({ type: "set-save-conflict", saveConflict });
-    },
-    [],
-  );
-  const setProblemReportsByPaneId = useCallback(
-    (
-      nextProblemReportsByPaneId:
-        | Record<
+  };
+  const setSaveConflict = (
+    saveConflict:
+      | SaveConflictState
+      | null
+      | ((current: SaveConflictState | null) => SaveConflictState | null),
+  ) => {
+    dispatchUiState({ type: "set-save-conflict", saveConflict });
+  };
+  const setProblemReportsByPaneId = (
+    nextProblemReportsByPaneId:
+      | Record<
+          string,
+          { activeFilePath: string | null; problems: readonly WorkspaceEditorPaneProblem[] }
+        >
+      | ((
+          current: Record<
             string,
             { activeFilePath: string | null; problems: readonly WorkspaceEditorPaneProblem[] }
-          >
-        | ((
-            current: Record<
-              string,
-              { activeFilePath: string | null; problems: readonly WorkspaceEditorPaneProblem[] }
-            >,
-          ) => Record<
-            string,
-            { activeFilePath: string | null; problems: readonly WorkspaceEditorPaneProblem[] }
-          >),
-    ) => {
-      dispatchUiState({ type: "set-problem-reports-by-pane-id", nextProblemReportsByPaneId });
-    },
-    [],
-  );
-  const setSymbolReportsByPaneId = useCallback(
-    (
-      nextSymbolReportsByPaneId:
-        | Record<
+          >,
+        ) => Record<
+          string,
+          { activeFilePath: string | null; problems: readonly WorkspaceEditorPaneProblem[] }
+        >),
+  ) => {
+    dispatchUiState({ type: "set-problem-reports-by-pane-id", nextProblemReportsByPaneId });
+  };
+  const setSymbolReportsByPaneId = (
+    nextSymbolReportsByPaneId:
+      | Record<
+          string,
+          { activeFilePath: string | null; symbols: readonly WorkspaceEditorPaneSymbol[] }
+        >
+      | ((
+          current: Record<
             string,
             { activeFilePath: string | null; symbols: readonly WorkspaceEditorPaneSymbol[] }
-          >
-        | ((
-            current: Record<
-              string,
-              { activeFilePath: string | null; symbols: readonly WorkspaceEditorPaneSymbol[] }
-            >,
-          ) => Record<
-            string,
-            { activeFilePath: string | null; symbols: readonly WorkspaceEditorPaneSymbol[] }
-          >),
-    ) => {
-      dispatchUiState({ type: "set-symbol-reports-by-pane-id", nextSymbolReportsByPaneId });
-    },
-    [],
-  );
-  const setProblemNavigationTarget = useCallback(
-    (problemNavigationTarget: WorkspaceEditorProblemNavigationTarget | null) => {
-      dispatchUiState({ type: "set-problem-navigation-target", problemNavigationTarget });
-    },
-    [],
-  );
+          >,
+        ) => Record<
+          string,
+          { activeFilePath: string | null; symbols: readonly WorkspaceEditorPaneSymbol[] }
+        >),
+  ) => {
+    dispatchUiState({ type: "set-symbol-reports-by-pane-id", nextSymbolReportsByPaneId });
+  };
+  const setProblemNavigationTarget = (
+    problemNavigationTarget: WorkspaceEditorProblemNavigationTarget | null,
+  ) => {
+    dispatchUiState({ type: "set-problem-navigation-target", problemNavigationTarget });
+  };
   const setSymbolNavigationTarget = useCallback(
     (symbolNavigationTarget: WorkspaceEditorSymbolNavigationTarget | null) => {
       dispatchUiState({ type: "set-symbol-navigation-target", symbolNavigationTarget });
@@ -1347,22 +1320,18 @@ function useThreadWorkspaceEditorComponent(inputProps: {
   const bumpFindRequestToken = useCallback(() => {
     dispatchUiState({ type: "bump-find-request-token" });
   }, []);
-  const setCollapsedOutlineIds = useCallback(
-    (
-      nextCollapsedOutlineIds:
-        | ReadonlySet<string>
-        | ((current: ReadonlySet<string>) => ReadonlySet<string>),
-    ) => {
-      dispatchUiState({ type: "set-collapsed-outline-ids", nextCollapsedOutlineIds });
-    },
-    [],
-  );
-  const setActiveOutlineSymbolId = useCallback(
-    (activeOutlineSymbolId: string | null | ((current: string | null) => string | null)) => {
-      dispatchUiState({ type: "set-active-outline-symbol-id", activeOutlineSymbolId });
-    },
-    [],
-  );
+  const setCollapsedOutlineIds = (
+    nextCollapsedOutlineIds:
+      | ReadonlySet<string>
+      | ((current: ReadonlySet<string>) => ReadonlySet<string>),
+  ) => {
+    dispatchUiState({ type: "set-collapsed-outline-ids", nextCollapsedOutlineIds });
+  };
+  const setActiveOutlineSymbolId = (
+    activeOutlineSymbolId: string | null | ((current: string | null) => string | null),
+  ) => {
+    dispatchUiState({ type: "set-active-outline-symbol-id", activeOutlineSymbolId });
+  };
   const deferredTreeSearch = useDeferredValue(treeSearch.trim());
   const trimmedCodeSearchQuery = codeSearchQuery.trim();
   const [debouncedCodeSearchQuery, codeSearchDebouncer] = useDebouncedValue(
@@ -1434,36 +1403,31 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     () => panes.find((pane) => pane.id === activePaneId) ?? panes[0] ?? null,
     [activePaneId, panes],
   );
-  const workspaceProblems = useMemo<readonly WorkspaceProblemReport[]>(
-    () =>
-      Object.entries(problemReportsByPaneId)
-        .flatMap(([paneId, report]) =>
-          report.activeFilePath
-            ? report.problems.map((problem) => ({
-                paneId,
-                problem,
-                relativePath: report.activeFilePath!,
-              }))
-            : [],
-        )
-        .toSorted((left, right) => {
-          const severityDelta =
-            problemSeverityRank(right.problem.severity) -
-            problemSeverityRank(left.problem.severity);
-          if (severityDelta !== 0) {
-            return severityDelta;
-          }
-          const pathDelta = left.relativePath.localeCompare(right.relativePath);
-          if (pathDelta !== 0) {
-            return pathDelta;
-          }
-          if (left.problem.startLineNumber !== right.problem.startLineNumber) {
-            return left.problem.startLineNumber - right.problem.startLineNumber;
-          }
-          return left.problem.startColumn - right.problem.startColumn;
-        }),
-    [problemReportsByPaneId],
-  );
+  const workspaceProblems = Object.entries(problemReportsByPaneId)
+    .flatMap(([paneId, report]) =>
+      report.activeFilePath
+        ? report.problems.map((problem) => ({
+            paneId,
+            problem,
+            relativePath: report.activeFilePath!,
+          }))
+        : [],
+    )
+    .toSorted((left, right) => {
+      const severityDelta =
+        problemSeverityRank(right.problem.severity) - problemSeverityRank(left.problem.severity);
+      if (severityDelta !== 0) {
+        return severityDelta;
+      }
+      const pathDelta = left.relativePath.localeCompare(right.relativePath);
+      if (pathDelta !== 0) {
+        return pathDelta;
+      }
+      if (left.problem.startLineNumber !== right.problem.startLineNumber) {
+        return left.problem.startLineNumber - right.problem.startLineNumber;
+      }
+      return left.problem.startColumn - right.problem.startColumn;
+    });
   const workspaceSymbols = useMemo<readonly WorkspaceSymbolReport[]>(
     () =>
       Object.entries(symbolReportsByPaneId)
@@ -1542,28 +1506,26 @@ function useThreadWorkspaceEditorComponent(inputProps: {
       };
     });
   }, [workspaceSymbols]);
-  const visibleOutlineGroups = useMemo<readonly WorkspaceOutlineFileGroup[]>(() => {
-    return outlineFileGroups.map((group) => {
-      if (collapsedOutlineIds.has(group.id)) {
-        return { ...group, symbols: [] };
-      }
-      const visibleSymbols: WorkspaceOutlineSymbolNode[] = [];
-      let hiddenDepth: number | null = null;
-      for (const node of group.symbols) {
-        if (hiddenDepth !== null) {
-          if (node.depth > hiddenDepth) {
-            continue;
-          }
-          hiddenDepth = null;
+  const visibleOutlineGroups = outlineFileGroups.map((group) => {
+    if (collapsedOutlineIds.has(group.id)) {
+      return { ...group, symbols: [] };
+    }
+    const visibleSymbols: WorkspaceOutlineSymbolNode[] = [];
+    let hiddenDepth: number | null = null;
+    for (const node of group.symbols) {
+      if (hiddenDepth !== null) {
+        if (node.depth > hiddenDepth) {
+          continue;
         }
-        visibleSymbols.push(node);
-        if (node.hasChildren && collapsedOutlineIds.has(node.id)) {
-          hiddenDepth = node.depth;
-        }
+        hiddenDepth = null;
       }
-      return { ...group, symbols: visibleSymbols };
-    });
-  }, [collapsedOutlineIds, outlineFileGroups]);
+      visibleSymbols.push(node);
+      if (node.hasChildren && collapsedOutlineIds.has(node.id)) {
+        hiddenDepth = node.depth;
+      }
+    }
+    return { ...group, symbols: visibleSymbols };
+  });
   useEffect(() => {
     const validIds = new Set<string>();
     for (const group of outlineFileGroups) {
@@ -1631,11 +1593,8 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     cwd: null,
     filePaths: new Set<string>(),
   });
-  const editorOptions = useMemo(
-    () => createWorkspaceEditorOptions(editorSettings),
-    [editorSettings],
-  );
-  const diffEditorOptions = useMemo(() => createWorkspaceDiffEditorOptions(), []);
+  const editorOptions = createWorkspaceEditorOptions(editorSettings);
+  const diffEditorOptions = createWorkspaceDiffEditorOptions();
   const fileEventsConnected = Boolean(api && props.gitCwd);
   useEffect(() => {
     const previous = previousWorkspaceBufferStateRef.current;
@@ -1854,23 +1813,17 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     staleTime: 20_000,
     placeholderData: (previous) => previous ?? [],
   });
-  const codeSearchResultGroups = useMemo(
-    () => groupWorkspaceCodeSearchResults(codeSearchResultsData ?? []),
-    [codeSearchResultsData],
-  );
+  const codeSearchResultGroups = groupWorkspaceCodeSearchResults(codeSearchResultsData ?? []);
   const codeSearchResultPathSet = useMemo(
     () => new Set((codeSearchResultsData ?? []).map((result) => result.entry.path)),
     [codeSearchResultsData],
   );
-  const codeSearchFileResults = useMemo(
-    () =>
-      debouncedCodeSearchQuery.length >= 2
-        ? searchWorkspaceEntriesLocally(searchableFileEntries, debouncedCodeSearchQuery, {
-            limit: WORKSPACE_CODE_SEARCH_PATH_RESULT_LIMIT,
-          }).filter((entry) => !codeSearchResultPathSet.has(entry.path))
-        : EMPTY_PROJECT_ENTRIES,
-    [codeSearchResultPathSet, debouncedCodeSearchQuery, searchableFileEntries],
-  );
+  const codeSearchFileResults =
+    debouncedCodeSearchQuery.length >= 2
+      ? searchWorkspaceEntriesLocally(searchableFileEntries, debouncedCodeSearchQuery, {
+          limit: WORKSPACE_CODE_SEARCH_PATH_RESULT_LIMIT,
+        }).filter((entry) => !codeSearchResultPathSet.has(entry.path))
+      : EMPTY_PROJECT_ENTRIES;
   const codeSearchResultCount = codeSearchFileResults.length + (codeSearchResultsData?.length ?? 0);
   const codeSearchBusy =
     (trimmedCodeSearchQuery.length >= 2 &&
@@ -1994,30 +1947,27 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     },
   });
 
-  const handleSaveFile = useCallback(
-    (relativePath: string, contents: string) => {
-      if (saveMutation.isPending) {
-        return;
-      }
-      const readFileCache = queryClient.getQueryData<ProjectReadFileResult>(
-        projectQueryKeys.readFile(props.gitCwd, relativePath, inputProps.connectionUrl),
-      );
-      const payload: {
-        contents: string;
-        expectedVersion?: string;
-        relativePath: string;
-      } = {
-        contents,
-        relativePath,
-      };
-      if (typeof readFileCache?.version === "string") {
-        payload.expectedVersion = readFileCache.version;
-      }
-      void saveMutation.mutate(payload);
-    },
-    [inputProps.connectionUrl, props.gitCwd, queryClient, saveMutation],
-  );
-  const handleOverwriteSaveConflict = useCallback(() => {
+  const handleSaveFile = (relativePath: string, contents: string) => {
+    if (saveMutation.isPending) {
+      return;
+    }
+    const readFileCache = queryClient.getQueryData<ProjectReadFileResult>(
+      projectQueryKeys.readFile(props.gitCwd, relativePath, inputProps.connectionUrl),
+    );
+    const payload: {
+      contents: string;
+      expectedVersion?: string;
+      relativePath: string;
+    } = {
+      contents,
+      relativePath,
+    };
+    if (typeof readFileCache?.version === "string") {
+      payload.expectedVersion = readFileCache.version;
+    }
+    void saveMutation.mutate(payload);
+  };
+  const handleOverwriteSaveConflict = () => {
     if (!saveConflict || saveMutation.isPending) {
       return;
     }
@@ -2035,8 +1985,8 @@ function useThreadWorkspaceEditorComponent(inputProps: {
       payload.expectedVersion = saveConflict.currentVersion;
     }
     void saveMutation.mutate(payload);
-  }, [saveConflict, saveMutation]);
-  const handleUseDiskVersion = useCallback(() => {
+  };
+  const handleUseDiskVersion = () => {
     if (!saveConflict) {
       return;
     }
@@ -2065,20 +2015,10 @@ function useThreadWorkspaceEditorComponent(inputProps: {
       });
     }
     setSaveConflict(null);
-  }, [
-    inputProps.connectionUrl,
-    markFileSaved,
-    props.gitCwd,
-    props.threadId,
-    queryClient,
-    saveConflict,
-  ]);
-  const handleHydrateFile = useCallback(
-    (filePath: string, contents: string) => {
-      hydrateFile(props.threadId, filePath, contents);
-    },
-    [hydrateFile, props.threadId],
-  );
+  };
+  const handleHydrateFile = (filePath: string, contents: string) => {
+    hydrateFile(props.threadId, filePath, contents);
+  };
 
   const normalizedRowRatios = useMemo(
     () => normalizePaneRatios(paneRatios, rows.length),
@@ -2273,10 +2213,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     return statusByPath;
   }, [gitStatusData?.workingTree.files]);
   const changedFiles = gitStatusData?.workingTree.files ?? [];
-  const openCodeCommentCount = useMemo(
-    () => countOpenWorkspaceCodeComments(codeComments),
-    [codeComments],
-  );
+  const openCodeCommentCount = countOpenWorkspaceCodeComments(codeComments);
   const unresolvedCodeComments = useMemo(
     () => codeComments.filter((comment) => comment.status !== "resolved"),
     [codeComments],
@@ -2333,89 +2270,83 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     },
     [props.gitCwd, props.lspCwd, queueWorkspaceSelectionContext],
   );
-  const handlePaneProblemsChange = useCallback(
-    (
-      paneId: string,
-      activeFilePath: string | null,
-      problems: readonly WorkspaceEditorPaneProblem[],
-    ) => {
-      setProblemReportsByPaneId((current) => {
-        const previous = current[paneId];
-        let hasSameProblems = previous?.activeFilePath === activeFilePath;
+  const handlePaneProblemsChange = (
+    paneId: string,
+    activeFilePath: string | null,
+    problems: readonly WorkspaceEditorPaneProblem[],
+  ) => {
+    setProblemReportsByPaneId((current) => {
+      const previous = current[paneId];
+      let hasSameProblems = previous?.activeFilePath === activeFilePath;
+      if (hasSameProblems) {
+        const previousProblems = previous?.problems ?? [];
+        hasSameProblems = previousProblems.length === problems.length;
         if (hasSameProblems) {
-          const previousProblems = previous?.problems ?? [];
-          hasSameProblems = previousProblems.length === problems.length;
-          if (hasSameProblems) {
-            for (const [index, problem] of previousProblems.entries()) {
-              const next = problems[index];
-              if (
-                !next ||
-                problem.message !== next.message ||
-                problem.severity !== next.severity ||
-                problem.startLineNumber !== next.startLineNumber ||
-                problem.startColumn !== next.startColumn ||
-                problem.endLineNumber !== next.endLineNumber ||
-                problem.endColumn !== next.endColumn
-              ) {
-                hasSameProblems = false;
-                break;
-              }
+          for (const [index, problem] of previousProblems.entries()) {
+            const next = problems[index];
+            if (
+              !next ||
+              problem.message !== next.message ||
+              problem.severity !== next.severity ||
+              problem.startLineNumber !== next.startLineNumber ||
+              problem.startColumn !== next.startColumn ||
+              problem.endLineNumber !== next.endLineNumber ||
+              problem.endColumn !== next.endColumn
+            ) {
+              hasSameProblems = false;
+              break;
             }
           }
         }
-        if (hasSameProblems) {
-          return current;
-        }
-        return {
-          ...current,
-          [paneId]: { activeFilePath, problems },
-        };
-      });
-    },
-    [],
-  );
-  const handlePaneSymbolsChange = useCallback(
-    (
-      paneId: string,
-      activeFilePath: string | null,
-      symbols: readonly WorkspaceEditorPaneSymbol[],
-    ) => {
-      setSymbolReportsByPaneId((current) => {
-        const previous = current[paneId];
-        let hasSameSymbols = previous?.activeFilePath === activeFilePath;
+      }
+      if (hasSameProblems) {
+        return current;
+      }
+      return {
+        ...current,
+        [paneId]: { activeFilePath, problems },
+      };
+    });
+  };
+  const handlePaneSymbolsChange = (
+    paneId: string,
+    activeFilePath: string | null,
+    symbols: readonly WorkspaceEditorPaneSymbol[],
+  ) => {
+    setSymbolReportsByPaneId((current) => {
+      const previous = current[paneId];
+      let hasSameSymbols = previous?.activeFilePath === activeFilePath;
+      if (hasSameSymbols) {
+        const previousSymbols = previous?.symbols ?? [];
+        hasSameSymbols = previousSymbols.length === symbols.length;
         if (hasSameSymbols) {
-          const previousSymbols = previous?.symbols ?? [];
-          hasSameSymbols = previousSymbols.length === symbols.length;
-          if (hasSameSymbols) {
-            for (const [index, symbol] of previousSymbols.entries()) {
-              const next = symbols[index];
-              if (
-                !next ||
-                symbol.name !== next.name ||
-                symbol.kind !== next.kind ||
-                symbol.startLineNumber !== next.startLineNumber ||
-                symbol.startColumn !== next.startColumn ||
-                symbol.endLineNumber !== next.endLineNumber ||
-                symbol.endColumn !== next.endColumn ||
-                symbol.depth !== next.depth
-              ) {
-                hasSameSymbols = false;
-                break;
-              }
+          for (const [index, symbol] of previousSymbols.entries()) {
+            const next = symbols[index];
+            if (
+              !next ||
+              symbol.name !== next.name ||
+              symbol.kind !== next.kind ||
+              symbol.startLineNumber !== next.startLineNumber ||
+              symbol.startColumn !== next.startColumn ||
+              symbol.endLineNumber !== next.endLineNumber ||
+              symbol.endColumn !== next.endColumn ||
+              symbol.depth !== next.depth
+            ) {
+              hasSameSymbols = false;
+              break;
             }
           }
         }
-        if (hasSameSymbols) {
-          return current;
-        }
-        return {
-          ...current,
-          [paneId]: { activeFilePath, symbols },
-        };
-      });
-    },
-    [],
-  );
+      }
+      if (hasSameSymbols) {
+        return current;
+      }
+      return {
+        ...current,
+        [paneId]: { activeFilePath, symbols },
+      };
+    });
+  };
   const handleOpenProblem = useCallback(
     (report: WorkspaceProblemReport) => {
       const targetPaneId = panesById.has(report.paneId) ? report.paneId : (activePane?.id ?? null);
@@ -2514,28 +2445,17 @@ function useThreadWorkspaceEditorComponent(inputProps: {
       setSymbolNavigationTarget,
     ],
   );
-  const handleOpenCodeSearchFileResult = useCallback(
-    (entry: ProjectEntry) => {
-      const targetPaneId = activePane?.id ?? panes[0]?.id;
-      if (!targetPaneId) {
-        return;
-      }
-      setSelectedReviewFilePath(null);
-      setActivePane(props.threadId, targetPaneId);
-      prepareWorkspaceFileOpen(entry.path);
-      openFile(props.threadId, entry.path, targetPaneId);
-    },
-    [
-      activePane?.id,
-      openFile,
-      panes,
-      prepareWorkspaceFileOpen,
-      props.threadId,
-      setActivePane,
-      setSelectedReviewFilePath,
-    ],
-  );
-  const toggleOutlineId = useCallback((id: string) => {
+  const handleOpenCodeSearchFileResult = (entry: ProjectEntry) => {
+    const targetPaneId = activePane?.id ?? panes[0]?.id;
+    if (!targetPaneId) {
+      return;
+    }
+    setSelectedReviewFilePath(null);
+    setActivePane(props.threadId, targetPaneId);
+    prepareWorkspaceFileOpen(entry.path);
+    openFile(props.threadId, entry.path, targetPaneId);
+  };
+  const toggleOutlineId = (id: string) => {
     setCollapsedOutlineIds((current) => {
       const next = new Set(current);
       if (next.has(id)) {
@@ -2545,13 +2465,10 @@ function useThreadWorkspaceEditorComponent(inputProps: {
       }
       return next;
     });
-  }, []);
-  const handleAddCodeComment = useCallback(
-    (comment: WorkspaceCodeComment) => {
-      addCodeComment(props.threadId, comment);
-    },
-    [addCodeComment, props.threadId],
-  );
+  };
+  const handleAddCodeComment = (comment: WorkspaceCodeComment) => {
+    addCodeComment(props.threadId, comment);
+  };
   const submitAgentNotePrompt = useCallback(
     async (submission: WorkspaceAgentNoteSubmission) => {
       if (!inputProps.onSubmitAgentNote || agentNoteSubmissionBusy) {
@@ -2577,88 +2494,76 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     },
     [agentNoteSubmissionBusy, agentNoteThreadId, inputProps],
   );
-  const handleQueueCodeSearchResult = useCallback(
-    (result: WorkspaceCodeSearchResult, lineNumber?: number) => {
-      const line = lineNumber ?? result.snippets[0]?.lineNumber;
-      queueWorkspaceFileContext(
-        result.entry.path,
-        line
-          ? `Use ${result.entry.path}:${line} as context for the next agent step.`
-          : `Use ${result.entry.path} as context for the next agent step.`,
-      );
-    },
-    [queueWorkspaceFileContext],
-  );
-  const handleSendCodeSearchResultToAgent = useCallback(
-    async (result: WorkspaceCodeSearchResult, lineNumber?: number) => {
-      const line = lineNumber ?? result.snippets[0]?.lineNumber;
-      const sent = await submitAgentNotePrompt({
-        mode: "send",
-        prompt: line
-          ? `Inspect ${result.entry.path}:${line} and explain how it relates to the current task.`
-          : `Inspect ${result.entry.path} and explain how it relates to the current task.`,
+  const handleQueueCodeSearchResult = (result: WorkspaceCodeSearchResult, lineNumber?: number) => {
+    const line = lineNumber ?? result.snippets[0]?.lineNumber;
+    queueWorkspaceFileContext(
+      result.entry.path,
+      line
+        ? `Use ${result.entry.path}:${line} as context for the next agent step.`
+        : `Use ${result.entry.path} as context for the next agent step.`,
+    );
+  };
+  const handleSendCodeSearchResultToAgent = async (
+    result: WorkspaceCodeSearchResult,
+    lineNumber?: number,
+  ) => {
+    const line = lineNumber ?? result.snippets[0]?.lineNumber;
+    const sent = await submitAgentNotePrompt({
+      mode: "send",
+      prompt: line
+        ? `Inspect ${result.entry.path}:${line} and explain how it relates to the current task.`
+        : `Inspect ${result.entry.path} and explain how it relates to the current task.`,
+    });
+    if (sent) {
+      toastManager.add({
+        title: "Sent to agent",
+        description: result.entry.path,
+        type: "success",
       });
-      if (sent) {
-        toastManager.add({
-          title: "Sent to agent",
-          description: result.entry.path,
-          type: "success",
-        });
-      }
-    },
-    [submitAgentNotePrompt],
-  );
-  const handleAddAndSendCodeComment = useCallback(
-    async (comment: WorkspaceCodeComment) => {
-      addCodeComment(props.threadId, comment);
-      const sent = await submitAgentNotePrompt({
-        mode: "send",
-        prompt: buildWorkspaceCodeCommentPrompt(comment),
-      });
-      if (sent) {
-        updateCodeCommentStatus(props.threadId, comment.id, "resolved");
-        return true;
-      }
-      const queued = await submitAgentNotePrompt({
-        mode: "queue",
-        prompt: buildWorkspaceCodeCommentPrompt(comment),
-      });
-      if (queued) {
-        updateCodeCommentStatus(props.threadId, comment.id, "queued");
-      }
-      return queued;
-    },
-    [addCodeComment, props.threadId, submitAgentNotePrompt, updateCodeCommentStatus],
-  );
-  const handleSendQueuedContext = useCallback(
-    async (entry: QueuedWorkspaceContext) => {
-      const sent = await submitAgentNotePrompt({ mode: "send", prompt: entry.prompt });
-      if (!sent) {
-        return;
-      }
-      setQueuedWorkspaceContexts((current) => current.filter((item) => item.id !== entry.id));
-    },
-    [submitAgentNotePrompt],
-  );
-  const handleUpdateQueuedContextPrompt = useCallback((entryId: string, prompt: string) => {
+    }
+  };
+  const handleAddAndSendCodeComment = async (comment: WorkspaceCodeComment) => {
+    addCodeComment(props.threadId, comment);
+    const sent = await submitAgentNotePrompt({
+      mode: "send",
+      prompt: buildWorkspaceCodeCommentPrompt(comment),
+    });
+    if (sent) {
+      updateCodeCommentStatus(props.threadId, comment.id, "resolved");
+      return true;
+    }
+    const queued = await submitAgentNotePrompt({
+      mode: "queue",
+      prompt: buildWorkspaceCodeCommentPrompt(comment),
+    });
+    if (queued) {
+      updateCodeCommentStatus(props.threadId, comment.id, "queued");
+    }
+    return queued;
+  };
+  const handleSendQueuedContext = async (entry: QueuedWorkspaceContext) => {
+    const sent = await submitAgentNotePrompt({ mode: "send", prompt: entry.prompt });
+    if (!sent) {
+      return;
+    }
+    setQueuedWorkspaceContexts((current) => current.filter((item) => item.id !== entry.id));
+  };
+  const handleUpdateQueuedContextPrompt = (entryId: string, prompt: string) => {
     setQueuedWorkspaceContexts((current) =>
       current.map((entry) => (entry.id === entryId ? { ...entry, prompt } : entry)),
     );
-  }, []);
-  const handleSendCodeComment = useCallback(
-    async (comment: WorkspaceCodeComment) => {
-      const sent = await submitAgentNotePrompt({
-        mode: "send",
-        prompt: buildWorkspaceCodeCommentPrompt(comment),
-      });
-      if (!sent) {
-        return;
-      }
-      updateCodeCommentStatus(props.threadId, comment.id, "resolved");
-    },
-    [props.threadId, submitAgentNotePrompt, updateCodeCommentStatus],
-  );
-  const handleSendAllAgentNotes = useCallback(async () => {
+  };
+  const handleSendCodeComment = async (comment: WorkspaceCodeComment) => {
+    const sent = await submitAgentNotePrompt({
+      mode: "send",
+      prompt: buildWorkspaceCodeCommentPrompt(comment),
+    });
+    if (!sent) {
+      return;
+    }
+    updateCodeCommentStatus(props.threadId, comment.id, "resolved");
+  };
+  const handleSendAllAgentNotes = async () => {
     if (queuedWorkspaceContexts.length === 0 && unresolvedCodeComments.length === 0) {
       return;
     }
@@ -2674,13 +2579,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     for (const comment of unresolvedCodeComments) {
       updateCodeCommentStatus(props.threadId, comment.id, "resolved");
     }
-  }, [
-    props.threadId,
-    queuedWorkspaceContexts,
-    submitAgentNotePrompt,
-    unresolvedCodeComments,
-    updateCodeCommentStatus,
-  ]);
+  };
 
   useEffect(() => {
     if (!activePane?.activeFilePath) {
@@ -2764,32 +2663,26 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     startWidth: number;
     startX: number;
   } | null>(null);
-  const handleTreeResizeStart = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>) => {
-      treeResizeStateRef.current = {
-        pointerId: event.pointerId,
-        startWidth: treeWidth,
-        startX: event.clientX,
-      };
-      event.currentTarget.setPointerCapture(event.pointerId);
-      Object.assign(document.body.style, {
-        cursor: "col-resize",
-        userSelect: "none",
-      });
-    },
-    [treeWidth],
-  );
-  const handleTreeResizeMove = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>) => {
-      const state = treeResizeStateRef.current;
-      if (!state || state.pointerId !== event.pointerId) {
-        return;
-      }
-      setTreeWidth(props.threadId, state.startWidth + (event.clientX - state.startX));
-    },
-    [props.threadId, setTreeWidth],
-  );
-  const handleTreeResizeEnd = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+  const handleTreeResizeStart = (event: ReactPointerEvent<HTMLDivElement>) => {
+    treeResizeStateRef.current = {
+      pointerId: event.pointerId,
+      startWidth: treeWidth,
+      startX: event.clientX,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    Object.assign(document.body.style, {
+      cursor: "col-resize",
+      userSelect: "none",
+    });
+  };
+  const handleTreeResizeMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const state = treeResizeStateRef.current;
+    if (!state || state.pointerId !== event.pointerId) {
+      return;
+    }
+    setTreeWidth(props.threadId, state.startWidth + (event.clientX - state.startX));
+  };
+  const handleTreeResizeEnd = (event: ReactPointerEvent<HTMLDivElement>) => {
     const state = treeResizeStateRef.current;
     if (!state || state.pointerId !== event.pointerId) {
       return;
@@ -2800,7 +2693,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     }
     document.body.style.removeProperty("cursor");
     document.body.style.removeProperty("user-select");
-  }, []);
+  };
 
   const paneResizeStateRef = useRef<{
     dividerIndex: number;
@@ -2809,47 +2702,42 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     startRatios: number[];
     startX: number;
   } | null>(null);
-  const handlePaneResizeStart = useCallback(
+  const handlePaneResizeStart =
     (rowId: string, dividerIndex: number, ratios: readonly number[]) =>
-      (event: ReactPointerEvent<HTMLDivElement>) => {
-        paneResizeStateRef.current = {
-          dividerIndex,
-          pointerId: event.pointerId,
-          rowId,
-          startRatios: [...ratios],
-          startX: event.clientX,
-        };
-        event.currentTarget.setPointerCapture(event.pointerId);
-        Object.assign(document.body.style, {
-          cursor: "col-resize",
-          userSelect: "none",
-        });
-      },
-    [],
-  );
-  const handlePaneResizeMove = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
-      const resizeState = paneResizeStateRef.current;
-      const container = rowGroupRefs.current.get(resizeState?.rowId ?? "") ?? null;
-      if (!resizeState || resizeState.pointerId !== event.pointerId || !container) {
-        return;
-      }
-      event.preventDefault();
-      setPaneRatios(
-        props.threadId,
-        resizeState.rowId,
-        resizePaneRatios({
-          containerWidthPx: container.clientWidth,
-          deltaPx: event.clientX - resizeState.startX,
-          dividerIndex: resizeState.dividerIndex,
-          minPaneWidthPx: 320,
-          ratios: resizeState.startRatios,
-        }),
-      );
-    },
-    [props.threadId, setPaneRatios],
-  );
-  const handlePaneResizeEnd = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+      paneResizeStateRef.current = {
+        dividerIndex,
+        pointerId: event.pointerId,
+        rowId,
+        startRatios: [...ratios],
+        startX: event.clientX,
+      };
+      event.currentTarget.setPointerCapture(event.pointerId);
+      Object.assign(document.body.style, {
+        cursor: "col-resize",
+        userSelect: "none",
+      });
+    };
+  const handlePaneResizeMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const resizeState = paneResizeStateRef.current;
+    const container = rowGroupRefs.current.get(resizeState?.rowId ?? "") ?? null;
+    if (!resizeState || resizeState.pointerId !== event.pointerId || !container) {
+      return;
+    }
+    event.preventDefault();
+    setPaneRatios(
+      props.threadId,
+      resizeState.rowId,
+      resizePaneRatios({
+        containerWidthPx: container.clientWidth,
+        deltaPx: event.clientX - resizeState.startX,
+        dividerIndex: resizeState.dividerIndex,
+        minPaneWidthPx: 320,
+        ratios: resizeState.startRatios,
+      }),
+    );
+  };
+  const handlePaneResizeEnd = (event: ReactPointerEvent<HTMLDivElement>) => {
     const resizeState = paneResizeStateRef.current;
     if (!resizeState || resizeState.pointerId !== event.pointerId) {
       return;
@@ -2860,7 +2748,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     }
     document.body.style.removeProperty("cursor");
     document.body.style.removeProperty("user-select");
-  }, []);
+  };
 
   const rowResizeStateRef = useRef<{
     dividerIndex: number;
@@ -2868,7 +2756,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     startRatios: number[];
     startY: number;
   } | null>(null);
-  const handleRowResizeStart = useCallback(
+  const handleRowResizeStart =
     (dividerIndex: number) => (event: ReactPointerEvent<HTMLDivElement>) => {
       rowResizeStateRef.current = {
         dividerIndex,
@@ -2881,31 +2769,26 @@ function useThreadWorkspaceEditorComponent(inputProps: {
         cursor: "row-resize",
         userSelect: "none",
       });
-    },
-    [normalizedRowRatios],
-  );
-  const handleRowResizeMove = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>) => {
-      const resizeState = rowResizeStateRef.current;
-      const container = editorGridRef.current;
-      if (!resizeState || resizeState.pointerId !== event.pointerId || !container) {
-        return;
-      }
-      event.preventDefault();
-      setRowRatios(
-        props.threadId,
-        resizePaneRatios({
-          containerWidthPx: container.clientHeight,
-          deltaPx: event.clientY - resizeState.startY,
-          dividerIndex: resizeState.dividerIndex,
-          minPaneWidthPx: 220,
-          ratios: resizeState.startRatios,
-        }),
-      );
-    },
-    [props.threadId, setRowRatios],
-  );
-  const handleRowResizeEnd = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    };
+  const handleRowResizeMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const resizeState = rowResizeStateRef.current;
+    const container = editorGridRef.current;
+    if (!resizeState || resizeState.pointerId !== event.pointerId || !container) {
+      return;
+    }
+    event.preventDefault();
+    setRowRatios(
+      props.threadId,
+      resizePaneRatios({
+        containerWidthPx: container.clientHeight,
+        deltaPx: event.clientY - resizeState.startY,
+        dividerIndex: resizeState.dividerIndex,
+        minPaneWidthPx: 220,
+        ratios: resizeState.startRatios,
+      }),
+    );
+  };
+  const handleRowResizeEnd = (event: ReactPointerEvent<HTMLDivElement>) => {
     const resizeState = rowResizeStateRef.current;
     if (!resizeState || resizeState.pointerId !== event.pointerId) {
       return;
@@ -2916,7 +2799,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     }
     document.body.style.removeProperty("cursor");
     document.body.style.removeProperty("user-select");
-  }, []);
+  };
   useEffect(() => {
     const resetResizeInteractions = () => {
       treeResizeStateRef.current = null;
@@ -2938,10 +2821,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     };
   }, []);
 
-  const workspaceFileCount = useMemo(
-    () => treeEntries.filter((entry) => entry.kind === "file").length,
-    [treeEntries],
-  );
+  const workspaceFileCount = treeEntries.filter((entry) => entry.kind === "file").length;
   const activeWorktreePath = props.worktreePath ?? null;
 
   const handleSplitPane = useCallback(
@@ -3004,23 +2884,15 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     }),
     [props.browserOpen, props.terminalOpen],
   );
-  const openFilePaletteShortcutLabel = useMemo(
-    () =>
-      shortcutLabelForCommand(
-        props.keybindings,
-        "editor.openFilePalette",
-        editorShortcutLabelOptions,
-      ),
-    [editorShortcutLabelOptions, props.keybindings],
+  const openFilePaletteShortcutLabel = shortcutLabelForCommand(
+    props.keybindings,
+    "editor.openFilePalette",
+    editorShortcutLabelOptions,
   );
-  const findInActiveEditorShortcutLabel = useMemo(
-    () =>
-      shortcutLabelForCommand(
-        props.keybindings,
-        "editor.findInActiveEditor",
-        editorShortcutLabelOptions,
-      ),
-    [editorShortcutLabelOptions, props.keybindings],
+  const findInActiveEditorShortcutLabel = shortcutLabelForCommand(
+    props.keybindings,
+    "editor.findInActiveEditor",
+    editorShortcutLabelOptions,
   );
   const workspaceCommandActions: readonly WorkspaceCommandAction[] = [
     {
@@ -3107,21 +2979,18 @@ function useThreadWorkspaceEditorComponent(inputProps: {
       },
     },
   ];
-  const handleOpenFileInPane = useCallback(
-    (paneId: string, filePath: string, targetIndex?: number) => {
-      prepareWorkspaceFileOpen(filePath);
-      openFile(props.threadId, filePath, paneId);
-      if (typeof targetIndex === "number" && Number.isFinite(targetIndex)) {
-        moveFile(props.threadId, {
-          filePath,
-          sourcePaneId: paneId,
-          targetPaneId: paneId,
-          targetIndex,
-        });
-      }
-    },
-    [moveFile, openFile, prepareWorkspaceFileOpen, props.threadId],
-  );
+  const handleOpenFileInPane = (paneId: string, filePath: string, targetIndex?: number) => {
+    prepareWorkspaceFileOpen(filePath);
+    openFile(props.threadId, filePath, paneId);
+    if (typeof targetIndex === "number" && Number.isFinite(targetIndex)) {
+      moveFile(props.threadId, {
+        filePath,
+        sourcePaneId: paneId,
+        targetPaneId: paneId,
+        targetIndex,
+      });
+    }
+  };
   const handleSetActiveFile = useCallback(
     (paneId: string, filePath: string | null) => {
       if (filePath) {
@@ -3144,31 +3013,28 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     });
   };
 
-  const invalidateWorkspaceTree = useCallback(() => {
+  const invalidateWorkspaceTree = () => {
     void queryClient.invalidateQueries({
       queryKey: projectQueryKeys.listTree(props.gitCwd, inputProps.connectionUrl),
     });
-  }, [inputProps.connectionUrl, props.gitCwd, queryClient]);
+  };
 
-  const clearReadFileCache = useCallback(
-    (relativePath: string) => {
-      queryClient.removeQueries({
-        predicate: (query) => {
-          const queryKey = query.queryKey;
-          const cachedRelativePath = queryKey[4];
-          return (
-            queryKey[0] === "projects" &&
-            queryKey[1] === "read-file" &&
-            queryKey[2] === (inputProps.connectionUrl ?? null) &&
-            queryKey[3] === props.gitCwd &&
-            typeof cachedRelativePath === "string" &&
-            isAncestorPath(cachedRelativePath, relativePath)
-          );
-        },
-      });
-    },
-    [inputProps.connectionUrl, props.gitCwd, queryClient],
-  );
+  const clearReadFileCache = (relativePath: string) => {
+    queryClient.removeQueries({
+      predicate: (query) => {
+        const queryKey = query.queryKey;
+        const cachedRelativePath = queryKey[4];
+        return (
+          queryKey[0] === "projects" &&
+          queryKey[1] === "read-file" &&
+          queryKey[2] === (inputProps.connectionUrl ?? null) &&
+          queryKey[3] === props.gitCwd &&
+          typeof cachedRelativePath === "string" &&
+          isAncestorPath(cachedRelativePath, relativePath)
+        );
+      },
+    });
+  };
 
   const focusMountedExplorerEntry = useCallback((path: string): boolean => {
     const target = treeScrollRef.current?.querySelector<HTMLElement>(
@@ -3231,28 +3097,22 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     [expandDirectories, props.threadId],
   );
 
-  const cancelInlineEntry = useCallback(() => {
+  const cancelInlineEntry = () => {
     setInlineEntryState(null);
-  }, []);
-  const handleExplorerToggleDirectory = useCallback(
-    (directoryPath: string) => {
-      toggleDirectory(props.threadId, directoryPath);
-    },
-    [props.threadId, toggleDirectory],
-  );
-  const handleExplorerRevealDirectoryFromSearch = useCallback(
-    (directoryPath: string) => {
-      const directoriesToExpand = collectAncestorDirectories(directoryPath).concat(directoryPath);
-      expandDirectories(props.threadId, directoriesToExpand);
-      setSelectedEntryPath(directoryPath);
-      setTreeSearch("");
-      window.requestAnimationFrame(() => focusExplorerEntry(directoryPath));
-    },
-    [expandDirectories, focusExplorerEntry, props.threadId, setTreeSearch],
-  );
-  const handleInlineExplorerValueChange = useCallback((value: string) => {
+  };
+  const handleExplorerToggleDirectory = (directoryPath: string) => {
+    toggleDirectory(props.threadId, directoryPath);
+  };
+  const handleExplorerRevealDirectoryFromSearch = (directoryPath: string) => {
+    const directoriesToExpand = collectAncestorDirectories(directoryPath).concat(directoryPath);
+    expandDirectories(props.threadId, directoriesToExpand);
+    setSelectedEntryPath(directoryPath);
+    setTreeSearch("");
+    window.requestAnimationFrame(() => focusExplorerEntry(directoryPath));
+  };
+  const handleInlineExplorerValueChange = (value: string) => {
     setInlineEntryState((current) => (current ? { ...current, value } : current));
-  }, []);
+  };
 
   const visibleSelectedEntryPath =
     selectedEntryPath && entryByPath.has(selectedEntryPath)
@@ -3504,7 +3364,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     ],
   );
 
-  const submitInlineEntry = useCallback(() => {
+  const submitInlineEntry = () => {
     if (!inlineEntryState) {
       return;
     }
@@ -3536,7 +3396,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
       kind: inlineEntryState.kind === "create-folder" ? "directory" : "file",
       relativePath,
     });
-  }, [createEntryMutation, inlineEntryState, renameEntryMutation]);
+  };
 
   const moveExplorerEntry = useCallback(
     (sourcePath: string, targetParentPath: string | null) => {
@@ -3564,124 +3424,103 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     },
     [entryByPath, renameEntryMutation],
   );
-  const handleExplorerDropEntry = useCallback(
-    (sourcePath: string, targetParentPath: string | null) => {
-      moveExplorerEntry(sourcePath, targetParentPath);
-    },
-    [moveExplorerEntry],
-  );
-  const handleExplorerRowContextMenu = useCallback(
-    (entry: ProjectEntry, position: { x: number; y: number }) => {
-      void openExplorerContextMenu(entry, position);
-    },
-    [openExplorerContextMenu],
-  );
+  const handleExplorerDropEntry = (sourcePath: string, targetParentPath: string | null) => {
+    moveExplorerEntry(sourcePath, targetParentPath);
+  };
+  const handleExplorerRowContextMenu = (
+    entry: ProjectEntry,
+    position: { x: number; y: number },
+  ) => {
+    void openExplorerContextMenu(entry, position);
+  };
 
   const selectedVisibleEntryIndex = useMemo(
     () => visibleRows.findIndex((row) => row.entry.path === focusedExplorerEntryPath),
     [focusedExplorerEntryPath, visibleRows],
   );
 
-  const handleExplorerKeyDown = useCallback(
-    (event: React.KeyboardEvent<HTMLDivElement>) => {
-      if (inlineEntryState || visibleRows.length === 0) {
-        return;
-      }
-      const currentIndex = selectedVisibleEntryIndex >= 0 ? selectedVisibleEntryIndex : 0;
-      const currentRow = visibleRows[currentIndex];
-      if (!currentRow) {
-        return;
-      }
+  const handleExplorerKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (inlineEntryState || visibleRows.length === 0) {
+      return;
+    }
+    const currentIndex = selectedVisibleEntryIndex >= 0 ? selectedVisibleEntryIndex : 0;
+    const currentRow = visibleRows[currentIndex];
+    if (!currentRow) {
+      return;
+    }
 
-      const selectRowAtIndex = (index: number) => {
-        const nextRow = visibleRows[Math.max(0, Math.min(index, visibleRows.length - 1))];
-        if (!nextRow) {
-          return;
-        }
-        setSelectedEntryPath(nextRow.entry.path);
-        focusExplorerEntry(nextRow.entry.path);
-      };
+    const selectRowAtIndex = (index: number) => {
+      const nextRow = visibleRows[Math.max(0, Math.min(index, visibleRows.length - 1))];
+      if (!nextRow) {
+        return;
+      }
+      setSelectedEntryPath(nextRow.entry.path);
+      focusExplorerEntry(nextRow.entry.path);
+    };
 
-      if (event.key === "ArrowDown") {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      selectRowAtIndex(currentIndex + 1);
+      return;
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      selectRowAtIndex(currentIndex - 1);
+      return;
+    }
+    if (event.key === "ArrowRight") {
+      if (currentRow.kind === "directory") {
         event.preventDefault();
-        selectRowAtIndex(currentIndex + 1);
-        return;
-      }
-      if (event.key === "ArrowUp") {
-        event.preventDefault();
-        selectRowAtIndex(currentIndex - 1);
-        return;
-      }
-      if (event.key === "ArrowRight") {
-        if (currentRow.kind === "directory") {
-          event.preventDefault();
-          if (!expandedDirectoryPathSet.has(currentRow.entry.path)) {
-            toggleDirectory(props.threadId, currentRow.entry.path);
-            return;
-          }
-          const nextRow = visibleRows[currentIndex + 1];
-          if (nextRow && nextRow.depth > currentRow.depth) {
-            setSelectedEntryPath(nextRow.entry.path);
-            focusExplorerEntry(nextRow.entry.path);
-          }
-        }
-        return;
-      }
-      if (event.key === "ArrowLeft") {
-        if (
-          currentRow.kind === "directory" &&
-          expandedDirectoryPathSet.has(currentRow.entry.path)
-        ) {
-          event.preventDefault();
+        if (!expandedDirectoryPathSet.has(currentRow.entry.path)) {
           toggleDirectory(props.threadId, currentRow.entry.path);
           return;
         }
-        const parentPath = currentRow.entry.parentPath ?? null;
-        if (parentPath) {
-          event.preventDefault();
-          setSelectedEntryPath(parentPath);
-          focusExplorerEntry(parentPath);
+        const nextRow = visibleRows[currentIndex + 1];
+        if (nextRow && nextRow.depth > currentRow.depth) {
+          setSelectedEntryPath(nextRow.entry.path);
+          focusExplorerEntry(nextRow.entry.path);
         }
+      }
+      return;
+    }
+    if (event.key === "ArrowLeft") {
+      if (currentRow.kind === "directory" && expandedDirectoryPathSet.has(currentRow.entry.path)) {
+        event.preventDefault();
+        toggleDirectory(props.threadId, currentRow.entry.path);
         return;
       }
-      if (event.key === "Enter") {
+      const parentPath = currentRow.entry.parentPath ?? null;
+      if (parentPath) {
         event.preventDefault();
-        if (currentRow.kind === "directory") {
-          toggleDirectory(props.threadId, currentRow.entry.path);
-          return;
-        }
-        handleOpenFile(currentRow.entry.path, false);
+        setSelectedEntryPath(parentPath);
+        focusExplorerEntry(parentPath);
+      }
+      return;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      if (currentRow.kind === "directory") {
+        toggleDirectory(props.threadId, currentRow.entry.path);
         return;
       }
-      if (event.key === "F2") {
-        event.preventDefault();
-        startInlineEntry({
-          kind: "rename",
-          entry: currentRow.entry,
-          parentPath: currentRow.entry.parentPath ?? null,
-          value: basenameOfPath(currentRow.entry.path),
-        });
-        return;
-      }
-      if ((event.key === "Backspace" || event.key === "Delete") && focusedExplorerEntry) {
-        event.preventDefault();
-        void handleDeleteEntry(focusedExplorerEntry);
-      }
-    },
-    [
-      expandedDirectoryPathSet,
-      focusExplorerEntry,
-      focusedExplorerEntry,
-      handleDeleteEntry,
-      handleOpenFile,
-      inlineEntryState,
-      props.threadId,
-      selectedVisibleEntryIndex,
-      startInlineEntry,
-      toggleDirectory,
-      visibleRows,
-    ],
-  );
+      handleOpenFile(currentRow.entry.path, false);
+      return;
+    }
+    if (event.key === "F2") {
+      event.preventDefault();
+      startInlineEntry({
+        kind: "rename",
+        entry: currentRow.entry,
+        parentPath: currentRow.entry.parentPath ?? null,
+        value: basenameOfPath(currentRow.entry.path),
+      });
+      return;
+    }
+    if ((event.key === "Backspace" || event.key === "Delete") && focusedExplorerEntry) {
+      event.preventDefault();
+      void handleDeleteEntry(focusedExplorerEntry);
+    }
+  };
 
   const handleReopenClosedTab = useCallback(
     (paneId?: string) => {
@@ -3704,13 +3543,10 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     [props.threadId, reopenClosedFile],
   );
 
-  const handleOpenFileToSide = useCallback(
-    (paneId: string, filePath: string) => {
-      prepareWorkspaceFileOpen(filePath);
-      handleSplitPane(paneId, filePath, "right");
-    },
-    [handleSplitPane, prepareWorkspaceFileOpen],
-  );
+  const handleOpenFileToSide = (paneId: string, filePath: string) => {
+    prepareWorkspaceFileOpen(filePath);
+    handleSplitPane(paneId, filePath, "right");
+  };
 
   useEffect(() => {
     const onWindowKeyDown = (event: KeyboardEvent) => {
