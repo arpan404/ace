@@ -38,9 +38,7 @@ import {
   type ComponentProps,
   type FormEvent,
   type PointerEvent as ReactPointerEvent,
-  type Ref,
   type ReactNode,
-  Profiler,
   Suspense,
   lazy,
   startTransition,
@@ -52,7 +50,6 @@ import {
   useRef,
   useState,
 } from "react";
-import { createPortal } from "react-dom";
 import { AnimatePresence, LazyMotion, LayoutGroup, domAnimation, m } from "motion/react";
 import { ChevronDownIcon, GitBranchPlusIcon, LaptopIcon } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -165,11 +162,7 @@ import {
 import { newCommandId, newMessageId, newThreadId } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
 import { reportBackgroundError } from "~/lib/async";
-import {
-  isRenderProfilingEnabled,
-  measureRenderWork,
-  recordReactRenderProfile,
-} from "~/lib/renderProfiling";
+import { measureRenderWork } from "~/lib/renderProfiling";
 import {
   deriveTerminalTitleFromCommand,
   resolveTerminalDisplayTitle,
@@ -229,11 +222,7 @@ import {
   deriveThreadCompletionSummary,
 } from "~/lib/chat/timelineCacheScope";
 import { THREAD_ROUTE_CONNECTION_SEARCH_PARAM } from "../lib/connectionRouting";
-import {
-  selectThreadTerminalState,
-  type TerminalPanelPlacement,
-  useTerminalStateStore,
-} from "../terminalStateStore";
+import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
 import {
   resolveEditorInstanceStateScopeId,
   resolveEditorWindowStateInstanceId,
@@ -249,9 +238,17 @@ import { ChatMessagesPane } from "./chat/ChatMessagesPane";
 import { PlanSummaryPanel } from "./PlanSummaryPanel";
 import type { DiffReviewCommentInput } from "./DiffPanel";
 import { ChatViewPanels } from "./chat/ChatViewPanels";
-import BranchToolbar from "./BranchToolbar";
-import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
 import { resolveExpandedImageItem, type ExpandedImagePreview } from "./chat/ExpandedImagePreview";
+import { ConnectedThreadTerminalPanel } from "./chat/ConnectedThreadTerminalPanel";
+import { DraftBranchToolbar } from "./chat/DraftBranchToolbar";
+import {
+  EnvironmentMiniPanelPortal,
+  InlineEnvironmentMiniPanel,
+} from "./chat/ChatViewEnvironmentMiniPanels";
+import {
+  RetainedBrowserInstances,
+  type BrowserPanelInstance,
+} from "./chat/ChatViewBrowserRetainedInstances";
 import { NewThreadStartSurface, useNewThreadRecommendedPrompts } from "./chat/NewThreadLanding";
 import { ProjectContextSwitcher } from "./chat/ProjectContextSwitcher";
 import {
@@ -589,262 +586,6 @@ function clampBottomPanelHeight(height: number): number {
     maxBottomPanelHeight(),
   );
 }
-type ThreadTerminalDrawerProps = ComponentProps<typeof ThreadTerminalDrawer>;
-
-interface RetainedThreadTerminalDrawerEntry {
-  readonly threadId: ThreadId;
-  readonly props: ThreadTerminalDrawerProps;
-}
-
-function upsertRetainedThreadTerminalDrawerEntry(
-  entries: readonly RetainedThreadTerminalDrawerEntry[],
-  nextEntry: RetainedThreadTerminalDrawerEntry,
-): RetainedThreadTerminalDrawerEntry[] {
-  const filteredEntries = entries.filter((entry) => entry.threadId !== nextEntry.threadId);
-  return [...filteredEntries, nextEntry];
-}
-
-// Preserve a small set of recent terminal drawers so thread switches can reuse
-// the mounted xterm instance instead of reopening it on every navigation.
-function RetainedThreadTerminalDrawers(props: {
-  activeThreadId: ThreadId;
-  activeDrawerProps: ThreadTerminalDrawerProps | null;
-}) {
-  const { activeDrawerProps, activeThreadId } = props;
-  const [retainedEntries, setRetainedEntries] = useState<RetainedThreadTerminalDrawerEntry[]>([]);
-  const previousVisibleEntryRef = useRef<RetainedThreadTerminalDrawerEntry | null>(null);
-  const renderEntries = (() => {
-    const hiddenEntries = retainedEntries.filter((entry) => entry.threadId !== activeThreadId);
-    if (!activeDrawerProps) {
-      return hiddenEntries;
-    }
-
-    return [
-      ...hiddenEntries,
-      {
-        threadId: activeThreadId,
-        props: activeDrawerProps,
-      },
-    ];
-  })();
-
-  useLayoutEffect(() => {
-    const previousEntry = previousVisibleEntryRef.current;
-    if (previousEntry && previousEntry.threadId !== activeThreadId) {
-      setRetainedEntries((currentEntries) =>
-        upsertRetainedThreadTerminalDrawerEntry(currentEntries, previousEntry),
-      );
-    }
-    if (activeDrawerProps === null) {
-      setRetainedEntries((currentEntries) => {
-        const nextEntries = currentEntries.filter((entry) => entry.threadId !== activeThreadId);
-        return nextEntries.length === currentEntries.length ? currentEntries : nextEntries;
-      });
-    }
-    previousVisibleEntryRef.current = activeDrawerProps
-      ? {
-          threadId: activeThreadId,
-          props: activeDrawerProps,
-        }
-      : null;
-  }, [activeDrawerProps, activeThreadId]);
-
-  return (
-    <m.div
-      className="min-w-0 shrink-0 overflow-hidden"
-      initial={false}
-      animate={
-        activeDrawerProps ? { height: "auto", opacity: 1, y: 0 } : { height: 0, opacity: 0, y: 18 }
-      }
-      transition={PANEL_SPRING_TRANSITION}
-    >
-      {renderEntries.map((entry) => {
-        const isActive = activeDrawerProps !== null && entry.threadId === activeThreadId;
-        return (
-          <div
-            key={entry.threadId}
-            className={isActive ? "min-w-0" : "hidden"}
-            aria-hidden={!isActive}
-          >
-            <ThreadTerminalDrawer {...(isActive ? activeDrawerProps : entry.props)} />
-          </div>
-        );
-      })}
-    </m.div>
-  );
-}
-
-interface ConnectedRetainedThreadTerminalDrawersProps {
-  activeThreadId: ThreadId;
-  activeProjectAvailable: boolean;
-  cwd: string | null;
-  runtimeEnv: Record<string, string> | undefined;
-  focusRequestId: number;
-  interactive: boolean;
-  newShortcutLabel?: string | undefined;
-  toggleShortcutLabel?: string | undefined;
-  onNewTerminal: () => void;
-  onActiveTerminalChange: (terminalId: string) => void;
-  onMoveTerminal: (terminalId: string, targetGroupId: string, targetIndex: number) => void;
-  onSplitRatiosChange: (groupId: string, ratios: number[]) => void;
-  onAutoTerminalTitleChange: (terminalId: string, title: string | null) => void;
-  onCloseTerminal: (terminalId: string) => void;
-  onToggleTerminal: () => void;
-  onHeightChange: (height: number) => void;
-  onAddTerminalContext: (selection: TerminalContextSelection) => void;
-  onOpenBrowserUrl?: ((url: string) => void) | null;
-  onOpenFilePath?: ((path: string) => void | Promise<void>) | null;
-}
-
-interface ConnectedThreadTerminalPanelProps extends ConnectedRetainedThreadTerminalDrawersProps {
-  placement: TerminalPanelPlacement;
-  onClosePanelTerminal: () => void;
-}
-
-function ConnectedRetainedThreadTerminalDrawers({
-  activeThreadId,
-  activeProjectAvailable,
-  cwd,
-  runtimeEnv,
-  focusRequestId,
-  interactive,
-  newShortcutLabel,
-  toggleShortcutLabel,
-  onNewTerminal,
-  onActiveTerminalChange,
-  onMoveTerminal,
-  onSplitRatiosChange,
-  onAutoTerminalTitleChange,
-  onCloseTerminal,
-  onToggleTerminal,
-  onHeightChange,
-  onAddTerminalContext,
-  onOpenBrowserUrl = null,
-  onOpenFilePath = null,
-}: ConnectedRetainedThreadTerminalDrawersProps) {
-  const terminalDrawerState = useTerminalStateStore((state) =>
-    selectThreadTerminalState(state.terminalStateByThreadId, activeThreadId),
-  );
-  const activeDrawerProps: ThreadTerminalDrawerProps | null =
-    terminalDrawerState.terminalOpen && activeProjectAvailable && cwd
-      ? {
-          threadId: activeThreadId,
-          cwd,
-          ...(runtimeEnv ? { runtimeEnv } : {}),
-          height: terminalDrawerState.terminalHeight,
-          terminalIds: terminalDrawerState.terminalIds,
-          activeTerminalId: terminalDrawerState.activeTerminalId,
-          terminalGroups: terminalDrawerState.terminalGroups,
-          runningTerminalIds: terminalDrawerState.runningTerminalIds,
-          autoTerminalTitlesById: terminalDrawerState.autoTerminalTitlesById,
-          splitRatiosByGroupId: terminalDrawerState.splitRatiosByGroupId,
-          focusRequestId,
-          interactive,
-          onNewTerminal,
-          newShortcutLabel,
-          toggleShortcutLabel,
-          onActiveTerminalChange,
-          onMoveTerminal,
-          onSplitRatiosChange,
-          onAutoTerminalTitleChange,
-          onCloseTerminal,
-          onToggleTerminal,
-          onHeightChange,
-          onAddTerminalContext,
-          onOpenBrowserUrl,
-          onOpenFilePath,
-        }
-      : null;
-
-  return (
-    <RetainedThreadTerminalDrawers
-      activeThreadId={activeThreadId}
-      activeDrawerProps={activeDrawerProps}
-    />
-  );
-}
-
-function ConnectedThreadTerminalPanel({
-  placement,
-  activeThreadId,
-  activeProjectAvailable,
-  cwd,
-  runtimeEnv,
-  focusRequestId,
-  interactive,
-  newShortcutLabel,
-  toggleShortcutLabel,
-  onNewTerminal,
-  onActiveTerminalChange,
-  onMoveTerminal,
-  onSplitRatiosChange,
-  onAutoTerminalTitleChange,
-  onCloseTerminal,
-  onClosePanelTerminal,
-  onHeightChange,
-  onAddTerminalContext,
-  onOpenBrowserUrl = null,
-  onOpenFilePath = null,
-}: ConnectedThreadTerminalPanelProps) {
-  const terminalDrawerState = useTerminalStateStore(
-    useShallow((state) => {
-      const selectedThreadState = selectThreadTerminalState(
-        state.terminalStateByThreadId,
-        activeThreadId,
-      );
-      const selectedPanelState = selectedThreadState.terminalPanelStateByPlacement[placement];
-      return {
-        terminalHeight: selectedPanelState.terminalHeight,
-        terminalIds: selectedPanelState.terminalIds,
-        activeTerminalId: selectedPanelState.activeTerminalId,
-        terminalGroups: selectedPanelState.terminalGroups,
-        runningTerminalIds: selectedThreadState.runningTerminalIds,
-        autoTerminalTitlesById: selectedThreadState.autoTerminalTitlesById,
-        splitRatiosByGroupId: selectedPanelState.splitRatiosByGroupId,
-      };
-    }),
-  );
-
-  if (!activeProjectAvailable || !cwd) {
-    return (
-      <div className="flex min-h-0 flex-1 items-center justify-center bg-terminal px-4 text-center text-[13px] text-muted-foreground">
-        Terminal is unavailable until this thread has an active project.
-      </div>
-    );
-  }
-
-  return (
-    <ThreadTerminalDrawer
-      threadId={activeThreadId}
-      cwd={cwd}
-      {...(runtimeEnv ? { runtimeEnv } : {})}
-      layout="panel"
-      height={terminalDrawerState.terminalHeight}
-      terminalIds={terminalDrawerState.terminalIds}
-      activeTerminalId={terminalDrawerState.activeTerminalId}
-      terminalGroups={terminalDrawerState.terminalGroups}
-      runningTerminalIds={terminalDrawerState.runningTerminalIds}
-      autoTerminalTitlesById={terminalDrawerState.autoTerminalTitlesById}
-      splitRatiosByGroupId={terminalDrawerState.splitRatiosByGroupId}
-      focusRequestId={focusRequestId}
-      interactive={interactive}
-      onNewTerminal={onNewTerminal}
-      newShortcutLabel={newShortcutLabel}
-      toggleShortcutLabel={toggleShortcutLabel}
-      onActiveTerminalChange={onActiveTerminalChange}
-      onMoveTerminal={onMoveTerminal}
-      onSplitRatiosChange={onSplitRatiosChange}
-      onAutoTerminalTitleChange={onAutoTerminalTitleChange}
-      onCloseTerminal={onCloseTerminal}
-      onToggleTerminal={onClosePanelTerminal}
-      onHeightChange={onHeightChange}
-      onAddTerminalContext={onAddTerminalContext}
-      onOpenBrowserUrl={onOpenBrowserUrl}
-      onOpenFilePath={onOpenFilePath}
-    />
-  );
-}
-
 const BROWSER_BRIDGE_CONTROLLER_WAIT_MS = 5_000;
 const BROWSER_BRIDGE_CONTROLLER_POLL_MS = 50;
 
@@ -1151,11 +892,6 @@ function timelineEntryStickKey(entry: TimelineEntry | undefined): string {
   return ["intent", entry.id, entry.text.length].join(":");
 }
 
-type BrowserPanelInstance = {
-  key: string;
-  inAppBrowserProps: ComponentProps<typeof InAppBrowser>;
-};
-
 function resolveBrowserInstanceId(
   threadId: ThreadId,
   placement: BrowserPanelPlacement,
@@ -1167,90 +903,6 @@ function resolveBrowserInstanceId(
 function resolveBrowserThreadIdFromInstanceId(instanceId: string): ThreadId {
   const threadId = resolveBrowserThreadIdFromScopeId(instanceId);
   return ThreadId.makeUnsafe(threadId ?? instanceId);
-}
-
-function RetainedBrowserInstances({ instances }: { instances: readonly BrowserPanelInstance[] }) {
-  const content = (
-    <>
-      {instances.map((instance) => (
-        <InAppBrowser key={instance.key} {...instance.inAppBrowserProps} />
-      ))}
-    </>
-  );
-
-  return isRenderProfilingEnabled() ? (
-    <Profiler
-      id="retained-browser-instances"
-      onRender={(_id, phase, actualDuration) => {
-        recordReactRenderProfile("retained-browser-instances", phase, actualDuration);
-      }}
-    >
-      {content}
-    </Profiler>
-  ) : (
-    content
-  );
-}
-
-type DraftBranchToolbarProps = {
-  branchToolbarProps: ComponentProps<typeof BranchToolbar> | null;
-};
-
-function DraftBranchToolbar({ branchToolbarProps }: DraftBranchToolbarProps) {
-  return branchToolbarProps ? <BranchToolbar {...branchToolbarProps} presentation="draft" /> : null;
-}
-
-type EnvironmentMiniPanelBaseProps = Omit<
-  ComponentProps<typeof EnvironmentMiniPanel>,
-  "layoutMode" | "style"
->;
-
-function EnvironmentMiniPanelPortal({
-  open,
-  panelProps,
-  panelRef,
-  style,
-}: {
-  open: boolean;
-  panelProps: EnvironmentMiniPanelBaseProps | null;
-  panelRef: Ref<HTMLElement>;
-  style: ComponentProps<typeof EnvironmentMiniPanel>["style"] | null;
-}) {
-  if (!open || !panelProps || !style || typeof document === "undefined") {
-    return null;
-  }
-  return createPortal(
-    <AnimatePresence initial={false}>
-      <EnvironmentMiniPanel
-        key="environment-mini-panel-popover"
-        ref={panelRef}
-        {...panelProps}
-        layoutMode="popover"
-        style={style}
-      />
-    </AnimatePresence>,
-    document.body,
-  );
-}
-
-function InlineEnvironmentMiniPanel({
-  open,
-  panelProps,
-}: {
-  open: boolean;
-  panelProps: EnvironmentMiniPanelBaseProps | null;
-}) {
-  return (
-    <AnimatePresence initial={false}>
-      {open && panelProps ? (
-        <EnvironmentMiniPanel
-          key="environment-mini-panel-inline"
-          {...panelProps}
-          layoutMode="inline"
-        />
-      ) : null}
-    </AnimatePresence>
-  );
 }
 
 function BrowserPanelInstanceList({
@@ -6808,8 +6460,8 @@ function useChatViewComponent({
         },
         worktreePath: options?.worktreePath ?? activeThread.worktreePath ?? null,
         extraEnv: {
-          ...(script.env ?? {}),
-          ...(options?.env ?? {}),
+          ...script.env,
+          ...options?.env,
         },
       });
       const envFilePath =

@@ -40,9 +40,6 @@ export const SETTINGS_ROW_DESCRIPTION_CLASS =
 
 export const SETTINGS_ROW_STATUS_CLASS = "mt-1 text-[11px] text-muted-foreground/60";
 
-export const SETTINGS_SUBSECTION_CLASS =
-  "border-t border-border/40 pt-4 first:border-t-0 first:pt-0";
-
 export const SETTINGS_GROUP_CLASS_NAME = "divide-y divide-border/40";
 
 /** One card per settings section — rows stay flat inside. */

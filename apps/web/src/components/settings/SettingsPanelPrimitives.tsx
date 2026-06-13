@@ -33,10 +33,8 @@ import {
   SETTINGS_SECTION_DESCRIPTION_CLASS,
   SETTINGS_SECTION_CARD_BODY_CLASS,
   SETTINGS_SECTION_CARD_CLASS,
-  SETTINGS_SECTION_CARD_FLUSH_BODY_CLASS,
   SETTINGS_SECTION_FRAME_CLASS,
   SETTINGS_SECTION_TITLE_CLASS,
-  SETTINGS_SUBSECTION_CLASS,
 } from "./settingsUi";
 
 type SettingsInputProps = ComponentProps<typeof Input>;
@@ -48,8 +46,6 @@ export function SettingsInput({ className, ...props }: SettingsInputProps) {
 export { SETTINGS_GROUP_CLASS_NAME } from "./settingsUi";
 export const SETTINGS_ROW_INSET_CLASS_NAME = SETTINGS_ROW_CLASS;
 export const SETTINGS_LIST_ROW_CLASS_NAME = SETTINGS_ROW_CLASS;
-export const SETTINGS_CARD_CLASS_NAME = SETTINGS_SECTION_CARD_CLASS;
-export const SETTINGS_CARD_BODY_CLASS_NAME = SETTINGS_SECTION_CARD_BODY_CLASS;
 
 function useRelativeTimeTick(intervalMs = 1_000) {
   const [tick, setTick] = useState(() => Date.now());
