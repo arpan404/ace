@@ -250,6 +250,28 @@ const SIDEBAR_MOUNTED_THREAD_STORE_HYDRATE_COUNT = 0;
 const SIDEBAR_SPECULATIVE_PREFETCH_IDLE_TIMEOUT_MS = 2_500;
 const SIDEBAR_SPECULATIVE_PREFETCH_FALLBACK_DELAY_MS = 900;
 
+function openPrLink(event: MouseEvent<HTMLElement>, prUrl: string): void {
+  event.preventDefault();
+  event.stopPropagation();
+
+  const api = readNativeApi();
+  if (!api) {
+    toastManager.add({
+      type: "error",
+      title: "Link opening is unavailable.",
+    });
+    return;
+  }
+
+  void api.shell.openExternal(prUrl).catch((error) => {
+    toastManager.add({
+      type: "error",
+      title: "Unable to open PR link",
+      description: error instanceof Error ? error.message : "An error occurred.",
+    });
+  });
+}
+
 type SplitContextMenuState = {
   position: { x: number; y: number };
   splitId: string;
@@ -3127,28 +3149,6 @@ function useSidebarComponent() {
     }),
     [platform, routeTerminalOpen],
   );
-
-  const openPrLink = (event: MouseEvent<HTMLElement>, prUrl: string) => {
-    event.preventDefault();
-    event.stopPropagation();
-
-    const api = readNativeApi();
-    if (!api) {
-      toastManager.add({
-        type: "error",
-        title: "Link opening is unavailable.",
-      });
-      return;
-    }
-
-    void api.shell.openExternal(prUrl).catch((error) => {
-      toastManager.add({
-        type: "error",
-        title: "Unable to open PR link",
-        description: error instanceof Error ? error.message : "An error occurred.",
-      });
-    });
-  };
 
   const removeRemoteThreadFromSidebarById = (input: {
     connectionUrl: string;

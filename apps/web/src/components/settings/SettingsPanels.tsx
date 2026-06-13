@@ -463,6 +463,22 @@ async function requestSettingsNotificationPermission(): Promise<AgentAttentionNo
   }
 }
 
+function sendNotificationProbe() {
+  const probeId = `ace-notification-permission-probe:${Date.now().toString(36)}`;
+  if (isElectron && typeof window.desktopBridge?.showNotification === "function") {
+    return window.desktopBridge.showNotification({
+      id: probeId,
+      title: "ace notifications",
+      body: "You'll get alerts when agent work completes or needs input.",
+    });
+  }
+  return showBrowserNotification({
+    title: "ace notifications",
+    body: "You'll get alerts when agent work completes or needs input.",
+    tag: probeId,
+  }).then((result) => result.shown);
+}
+
 function getErrorMessage(error: unknown, fallback: string): string {
   if (error instanceof Error && error.message.trim().length > 0) {
     return error.message;
@@ -978,22 +994,6 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
       window.removeEventListener("focus", syncPermission);
     };
   }, []);
-
-  const sendNotificationProbe = () => {
-    const probeId = `ace-notification-permission-probe:${Date.now().toString(36)}`;
-    if (isElectron && typeof window.desktopBridge?.showNotification === "function") {
-      return window.desktopBridge.showNotification({
-        id: probeId,
-        title: "ace notifications",
-        body: "You'll get alerts when agent work completes or needs input.",
-      });
-    }
-    return showBrowserNotification({
-      title: "ace notifications",
-      body: "You'll get alerts when agent work completes or needs input.",
-      tag: probeId,
-    }).then((result) => result.shown);
-  };
 
   const handleSendNotificationTest = () => {
     dispatchNotificationState({ type: "set-updating", isUpdatingNotificationPermission: true });
@@ -3349,6 +3349,19 @@ function isWorktreeOlderThan(
   return activityTimeMs > 0 && activityTimeMs <= now - days * 24 * 60 * 60_000;
 }
 
+async function restoreArchivedProject(projectId: Project["id"]) {
+  const api = readNativeApi();
+  if (!api) {
+    throw new Error("Project restore is unavailable.");
+  }
+  await api.orchestration.dispatchCommand({
+    type: "project.meta.update",
+    commandId: newCommandId(),
+    projectId,
+    archivedAt: null,
+  });
+}
+
 function getEnvironmentWorktreeEntries({
   branches,
   project,
@@ -4760,18 +4773,6 @@ export function ArchivedThreadsPanel() {
       await confirmAndDeleteThread(threadId);
     }
   };
-  const restoreProject = async (projectId: Project["id"]) => {
-    const api = readNativeApi();
-    if (!api) {
-      throw new Error("Project restore is unavailable.");
-    }
-    await api.orchestration.dispatchCommand({
-      type: "project.meta.update",
-      commandId: newCommandId(),
-      projectId,
-      archivedAt: null,
-    });
-  };
   const hasArchivedItems = archivedGroups.length > 0;
   const allGroupsExpanded = archivedGroups.every(
     (group) => visibleOpenGroupIds[group.project.id] !== false,
@@ -4905,7 +4906,7 @@ export function ArchivedThreadsPanel() {
                               size="sm"
                               className="h-6 shrink-0 cursor-pointer gap-1 rounded-md px-1.5 text-[10px] font-medium text-muted-foreground/64 hover:bg-muted/25 hover:text-foreground"
                               onClick={() =>
-                                void restoreProject(project.id).catch((error) => {
+                                void restoreArchivedProject(project.id).catch((error) => {
                                   toastManager.add({
                                     type: "error",
                                     title: "Failed to restore project",

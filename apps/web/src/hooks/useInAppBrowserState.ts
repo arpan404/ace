@@ -148,6 +148,21 @@ interface UseInAppBrowserStateOptions {
 
 const EMPTY_BROWSER_SUGGESTIONS: BrowserSuggestion[] = [];
 
+async function copyBrowserAddress(url: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(url);
+    toastManager.add({
+      type: "success",
+      title: "Copied page address.",
+    });
+  } catch {
+    toastManager.add({
+      type: "error",
+      title: "Unable to copy page address.",
+    });
+  }
+}
+
 function useStableCallback<TArgs extends readonly unknown[], TResult>(
   callback: (...args: TArgs) => TResult,
 ): (...args: TArgs) => TResult {
@@ -988,21 +1003,6 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     setDraftUrl(resolveBrowserSuggestionDraftValue(suggestion));
     openUrl(suggestion.url);
     dismissAddressBarSuggestionOverlayAndBlur();
-  };
-
-  const copyBrowserAddress = async (url: string) => {
-    try {
-      await navigator.clipboard.writeText(url);
-      toastManager.add({
-        type: "success",
-        title: "Copied page address.",
-      });
-    } catch {
-      toastManager.add({
-        type: "error",
-        title: "Unable to copy page address.",
-      });
-    }
   };
 
   const showBrowserContextMenuFallback = async (

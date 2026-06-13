@@ -90,6 +90,12 @@ function handleThreadBoardDragOverCapture(event: ReactDragEvent<HTMLDivElement>)
   }
 }
 
+function applyBranchResizePreview(children: readonly HTMLElement[], ratios: readonly number[]) {
+  for (const [index, child] of children.entries()) {
+    child.style.flexGrow = String(ratios[index] ?? 1);
+  }
+}
+
 type ThreadBoardLayoutNodeRendererProps = {
   node: ChatThreadBoardLayoutNode | null;
   renderPaneNode: (paneId: string) => ReactNode;
@@ -873,14 +879,6 @@ function useThreadBoardComponent(props: { connectionUrl?: string | null; threadI
     startSize: number;
   } | null>(null);
 
-  const applyBranchResizePreview = (
-    children: readonly HTMLElement[],
-    ratios: readonly number[],
-  ) => {
-    for (const [index, child] of children.entries()) {
-      child.style.flexGrow = String(ratios[index] ?? 1);
-    }
-  };
   const resetBranchResizeInteractions = useEffectEvent(() => {
     const resizeState = branchResizeStateRef.current;
     if (resizeState?.rafId !== null && resizeState?.rafId !== undefined) {

@@ -87,6 +87,14 @@ import {
   type WorkspacePreviewKind,
 } from "./workspaceFileUtils";
 
+function readDraggedWorkspaceTab(event: ReactDragEvent<HTMLElement>) {
+  return readEditorTabTransfer(event.dataTransfer);
+}
+
+function readDraggedWorkspaceExplorerEntry(event: ReactDragEvent<HTMLElement>) {
+  return readExplorerEntryTransfer(event.dataTransfer);
+}
+
 interface WorkspaceEditorPaneProps {
   active: boolean;
   canClosePane: boolean;
@@ -1185,12 +1193,6 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
     [clearWorkspaceProblems],
   );
 
-  const readDraggedTab = (event: ReactDragEvent<HTMLElement>) => {
-    return readEditorTabTransfer(event.dataTransfer);
-  };
-  const readDraggedExplorerEntry = (event: ReactDragEvent<HTMLElement>) => {
-    return readExplorerEntryTransfer(event.dataTransfer);
-  };
   const autoScrollTabStripOnDragOver = (clientX: number) => {
     const tabStrip = tabStripRef.current;
     if (!tabStrip) {
@@ -1214,7 +1216,7 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
   };
 
   const handleTabDrop = (event: ReactDragEvent<HTMLElement>, targetIndex?: number) => {
-    const draggedTab = readDraggedTab(event);
+    const draggedTab = readDraggedWorkspaceTab(event);
     if (draggedTab) {
       event.preventDefault();
       setDropTargetIndex(null);
@@ -1225,7 +1227,7 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
       });
       return;
     }
-    const draggedEntry = readDraggedExplorerEntry(event);
+    const draggedEntry = readDraggedWorkspaceExplorerEntry(event);
     if (!draggedEntry || draggedEntry.kind !== "file") {
       return;
     }
@@ -1235,7 +1237,7 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
   };
 
   const handleTabDragOver = (event: ReactDragEvent<HTMLElement>, targetIndex?: number) => {
-    const draggedTab = readDraggedTab(event);
+    const draggedTab = readDraggedWorkspaceTab(event);
     if (draggedTab) {
       event.preventDefault();
       event.dataTransfer.dropEffect = "move";
@@ -1243,7 +1245,7 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
       setDropTargetIndex(targetIndex ?? pane.openFilePaths.length);
       return;
     }
-    const draggedEntry = readDraggedExplorerEntry(event);
+    const draggedEntry = readDraggedWorkspaceExplorerEntry(event);
     if (!draggedEntry || draggedEntry.kind !== "file") {
       return;
     }

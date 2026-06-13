@@ -43,6 +43,12 @@ function applyTheme(theme: Theme, suppressTransitions = false) {
   }
 }
 
+function setTheme(next: Theme) {
+  localStorage.setItem(STORAGE_KEY, next);
+  applyTheme(next, true);
+  emitChange();
+}
+
 function syncDesktopTheme(theme: Theme) {
   const bridge = window.desktopBridge;
   if (!bridge || lastDesktopTheme === theme) {
@@ -105,12 +111,6 @@ export function useTheme() {
 
   const resolvedTheme: "light" | "dark" =
     theme === "system" ? (snapshot.systemDark ? "dark" : "light") : theme;
-
-  const setTheme = (next: Theme) => {
-    localStorage.setItem(STORAGE_KEY, next);
-    applyTheme(next, true);
-    emitChange();
-  };
 
   // Keep DOM in sync on mount/change
   useEffect(() => {
