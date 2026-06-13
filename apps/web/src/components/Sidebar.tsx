@@ -13,7 +13,6 @@ import {
   startTransition,
   useCallback,
   useEffect,
-  useMemo,
   useReducer,
   useRef,
   useState,
@@ -1949,14 +1948,10 @@ function useSidebarComponent() {
   const sidebarProjectSortOrder = useSetting("sidebarProjectSortOrder");
   const sidebarThreadSortOrder = useSetting("sidebarThreadSortOrder");
   const { updateSettings } = useUpdateSettings();
-  const pinnedProjectIds = useMemo(
-    () => pinnedItems.flatMap((item) => (item.kind === "project" ? [item.id] : [])),
-    [pinnedItems],
+  const pinnedProjectIds = pinnedItems.flatMap((item) =>
+    item.kind === "project" ? [item.id] : [],
   );
-  const pinnedThreadIds = useMemo(
-    () => pinnedItems.flatMap((item) => (item.kind === "thread" ? [item.id] : [])),
-    [pinnedItems],
-  );
+  const pinnedThreadIds = pinnedItems.flatMap((item) => (item.kind === "thread" ? [item.id] : []));
   const { activeDraftThread, activeThread, defaultProjectId, handleNewThread } =
     useHandleNewThread();
   const { archiveThread, deleteThread, deleteWorktreeAndRelatedThreads } = useThreadActions();
@@ -2023,8 +2018,8 @@ function useSidebarComponent() {
   const setAddProjectError = useCallback((error: string | null) => {
     dispatchProjectPickerBrowseUiState({ type: "set-add-project-error", error });
   }, []);
-  const requestProjectPickerKeyboardScroll = () => {
-    lastKeyboardNavigationTimeRef.current = Date.now();
+  const requestProjectPickerKeyboardScroll = (eventTimeStamp: number) => {
+    lastKeyboardNavigationTimeRef.current = eventTimeStamp;
     dispatchProjectPickerBrowseUiState({ type: "bump-keyboard-navigation-id" });
   };
   const searchPaletteListRef = useRef<HTMLDivElement | null>(null);
@@ -2212,7 +2207,7 @@ function useSidebarComponent() {
   const routeThreadConnectionUrl = useHostConnectionStore((store) =>
     routeThreadId ? store.threadConnectionById[routeThreadId] : undefined,
   );
-  const activeRouteConnectionUrl = useMemo(() => {
+  const activeRouteConnectionUrl = (() => {
     const routeConnection = resolveRouteConnectionUrlFromSearch(locationSearch);
     if (routeConnection) {
       return routeConnection;
@@ -2225,12 +2220,12 @@ function useSidebarComponent() {
       }
     }
     return localDeviceConnectionUrl;
-  }, [localDeviceConnectionUrl, locationSearch, routeThreadConnectionUrl]);
+  })();
   const activeStoreSplitId =
     savedSplitBoard.activeSplitId && savedSplitBoard.panes.length > 1
       ? savedSplitBoard.activeSplitId
       : null;
-  const savedBoards = useMemo(() => {
+  const savedBoards = (() => {
     const activeBoards = savedSplitBoard.splits.filter((split) => split.archivedAt === null);
     return activeBoards.toSorted((left, right) => {
       const updatedSort =
@@ -2246,7 +2241,7 @@ function useSidebarComponent() {
       }
       return updatedSort;
     });
-  }, [savedSplitBoard.splits, splitSortOrder]);
+  })();
   const visibleSavedBoards = savedBoards.slice(0, splitRevealCount);
   const hiddenSavedSplitCount = Math.max(0, savedBoards.length - visibleSavedBoards.length);
   const canCollapseSplitList = splitRevealCount > SPLIT_REVEAL_STEP;
@@ -2730,30 +2725,23 @@ function useSidebarComponent() {
   }, [remoteSidebarHosts]);
   const shouldShowProjectPathEntry = addingProject;
   const normalizedProjectSearchQuery = "";
-  const activeProjects = useMemo(
-    () =>
-      projects.filter((project) => {
-        if (project.archivedAt !== null) {
-          return false;
-        }
-        const ownerConnectionUrl = projectConnectionById[project.id];
-        return (
-          ownerConnectionUrl === undefined ||
-          connectionUrlsEqual(ownerConnectionUrl, localDeviceConnectionUrl)
-        );
-      }),
-    [localDeviceConnectionUrl, projectConnectionById, projects],
-  );
+  const activeProjects = projects.filter((project) => {
+    if (project.archivedAt !== null) {
+      return false;
+    }
+    const ownerConnectionUrl = projectConnectionById[project.id];
+    return (
+      ownerConnectionUrl === undefined ||
+      connectionUrlsEqual(ownerConnectionUrl, localDeviceConnectionUrl)
+    );
+  });
   const orderedProjects = orderItemsByPreferredIds({
     items: activeProjects,
     preferredIds: projectOrder,
     getId: (project) => project.id,
   });
   const projectCwdById = new Map(projects.map((project) => [project.id, project.cwd] as const));
-  const projectById = useMemo(
-    () => new Map(activeProjects.map((project) => [project.id, project] as const)),
-    [activeProjects],
-  );
+  const projectById = new Map(activeProjects.map((project) => [project.id, project] as const));
   const savedBoardItems = savedBoards.map((split) =>
     buildSidebarBoardListItem({
       projectById,
@@ -2762,7 +2750,7 @@ function useSidebarComponent() {
     }),
   );
   const visibleSavedBoardItems = savedBoardItems.slice(0, splitRevealCount);
-  const pickerEnvironments = useMemo((): ProjectPickerEnvironment[] => {
+  const pickerEnvironments = ((): ProjectPickerEnvironment[] => {
     const uniqueByConnection = new Map<string, ProjectPickerEnvironment>();
     const connectedHostIds = new Set(projectPickerConnectedHostIds);
     const localConnectionDescriptor = describeHostConnection(localDeviceHost);
@@ -2813,13 +2801,8 @@ function useSidebarComponent() {
     }
 
     return [...uniqueByConnection.values()];
-  }, [
-    localDeviceConnectionUrl,
-    localDeviceHost,
-    projectPickerConnectedHostIds,
-    projectPickerRemoteHosts,
-  ]);
-  const selectedProjectPickerEnvironment = useMemo(() => {
+  })();
+  const selectedProjectPickerEnvironment = (() => {
     if (projectPickerSelectedConnectionUrl === null) {
       return pickerEnvironments[0] ?? null;
     }
@@ -2830,7 +2813,7 @@ function useSidebarComponent() {
       pickerEnvironments[0] ??
       null
     );
-  }, [pickerEnvironments, projectPickerSelectedConnectionUrl]);
+  })();
   const selectedProjectPickerConnectionUrl =
     selectedProjectPickerEnvironment?.connectionUrl ?? localDeviceConnectionUrl;
   const selectedProjectPickerIsLocal = selectedProjectPickerEnvironment?.isLocal ?? true;
@@ -2838,7 +2821,7 @@ function useSidebarComponent() {
   const normalizedProjectPickerEnvironmentQuery = projectPickerEnvironmentQuery
     .trim()
     .toLowerCase();
-  const filteredPickerEnvironments = useMemo(() => {
+  const filteredPickerEnvironments = (() => {
     if (normalizedProjectPickerEnvironmentQuery.length === 0) {
       return pickerEnvironments;
     }
@@ -2847,7 +2830,7 @@ function useSidebarComponent() {
         environment.name.toLowerCase().includes(normalizedProjectPickerEnvironmentQuery) ||
         environment.subtitle.toLowerCase().includes(normalizedProjectPickerEnvironmentQuery),
     );
-  }, [normalizedProjectPickerEnvironmentQuery, pickerEnvironments]);
+  })();
   const reconcileThreadDerivedState = useCallback(() => {
     const threads = useStore.getState().threads;
     useUiStateStore.getState().syncThreads(
@@ -2921,7 +2904,7 @@ function useSidebarComponent() {
     const handleId = window.setTimeout(runFlush, REMOTE_SNAPSHOT_BACKGROUND_MERGE_DELAY_MS);
     remoteSnapshotMergeHandleRef.current = { kind: "timeout", id: handleId };
   }, [flushRemoteSnapshotMergeQueue]);
-  const refreshRemoteSidebarHosts = useCallback(async () => {
+  const refreshRemoteSidebarHosts = async () => {
     const existingRefresh = remoteSidebarRefreshInFlightRef.current;
     if (existingRefresh) {
       return existingRefresh;
@@ -3063,14 +3046,8 @@ function useSidebarComponent() {
     if (remoteSidebarRefreshInFlightRef.current === refreshPromise) {
       remoteSidebarRefreshInFlightRef.current = null;
     }
-  }, [
-    sidebarProjectSortOrder,
-    clearRemoteSnapshotMergeHandle,
-    localDeviceConnectionUrl,
-    reconcileThreadDerivedState,
-    scheduleRemoteSnapshotMergeFlush,
-    setRemoteSidebarHosts,
-  ]);
+  };
+  const refreshRemoteSidebarHostsEffect = useEffectEvent(refreshRemoteSidebarHosts);
   useEffect(() => {
     if (!bootstrapComplete) {
       return;
@@ -3098,7 +3075,7 @@ function useSidebarComponent() {
         return;
       }
       try {
-        await refreshRemoteSidebarHosts();
+        await refreshRemoteSidebarHostsEffect();
       } catch (error) {
         schedule(resolveRefreshDelay());
         throw error;
@@ -3132,15 +3109,14 @@ function useSidebarComponent() {
       }
       registeredRemoteRouteConnectionUrlsRef.current.clear();
     };
-  }, [bootstrapComplete, clearRemoteSnapshotMergeHandle, refreshRemoteSidebarHosts]);
-  const addProjectBaseDirectory = useMemo(() => {
-    const configuredBaseDirectory = configuredAddProjectBaseDirectory.trim();
-    return configuredBaseDirectory.length > 0 ? configuredBaseDirectory : "~";
-  }, [configuredAddProjectBaseDirectory]);
+  }, [bootstrapComplete, clearRemoteSnapshotMergeHandle]);
+  const configuredBaseDirectory = configuredAddProjectBaseDirectory.trim();
+  const addProjectBaseDirectory =
+    configuredBaseDirectory.length > 0 ? configuredBaseDirectory : "~";
   const editingProject = editingProjectId
     ? (projects.find((project) => project.id === editingProjectId) ?? null)
     : null;
-  const editingRemoteProject = useMemo(() => {
+  const editingRemoteProject = (() => {
     if (!editingProjectId || !editingProjectConnectionUrl) {
       return null;
     }
@@ -3152,21 +3128,18 @@ function useSidebarComponent() {
         )
         ?.projects.find((project) => project.id === editingProjectId) ?? null
     );
-  }, [editingProjectConnectionUrl, editingProjectId, remoteSidebarHosts]);
+  })();
   const editingProjectTarget = editingProject ?? editingRemoteProject;
   const routeTerminalOpen = routeThreadId
     ? selectThreadTerminalState(terminalStateByThreadId, routeThreadId).terminalOpen
     : false;
-  const sidebarShortcutLabelOptions = useMemo(
-    () => ({
-      platform,
-      context: {
-        terminalFocus: false,
-        terminalOpen: routeTerminalOpen,
-      },
-    }),
-    [platform, routeTerminalOpen],
-  );
+  const sidebarShortcutLabelOptions = {
+    platform,
+    context: {
+      terminalFocus: false,
+      terminalOpen: routeTerminalOpen,
+    },
+  };
 
   const removeRemoteThreadFromSidebarById = (input: {
     connectionUrl: string;
@@ -3250,51 +3223,46 @@ function useSidebarComponent() {
     [sidebarThreadSortOrder, navigate, sidebarThreadsById, threadIdsByProjectId],
   );
 
-  const refreshProjectBrowse = useCallback(
-    async (partialPath: string) => {
-      const trimmedPath = partialPath.trim();
-      if (!addingProject || projectPickerStep !== "directory" || !trimmedPath) {
-        dispatchProjectPickerBrowseUiState({ type: "reset-project-browse-ui" });
+  const refreshProjectBrowse = async (partialPath: string) => {
+    const trimmedPath = partialPath.trim();
+    if (!addingProject || projectPickerStep !== "directory" || !trimmedPath) {
+      dispatchProjectPickerBrowseUiState({ type: "reset-project-browse-ui" });
+      return;
+    }
+
+    const requestVersion = browseRequestVersionRef.current + 1;
+    browseRequestVersionRef.current = requestVersion;
+    dispatchProjectPickerBrowseUiState({ type: "project-browse-start", path: trimmedPath });
+    try {
+      const browseResult = await routeFilesystemBrowseToRemote(selectedProjectPickerConnectionUrl, {
+        partialPath: trimmedPath,
+      });
+      if (browseRequestVersionRef.current !== requestVersion) {
         return;
       }
-
-      const requestVersion = browseRequestVersionRef.current + 1;
-      browseRequestVersionRef.current = requestVersion;
-      dispatchProjectPickerBrowseUiState({ type: "project-browse-start", path: trimmedPath });
-      try {
-        const browseResult = await routeFilesystemBrowseToRemote(
-          selectedProjectPickerConnectionUrl,
-          {
-            partialPath: trimmedPath,
-          },
-        );
-        if (browseRequestVersionRef.current !== requestVersion) {
-          return;
-        }
-        dispatchProjectPickerBrowseUiState({
-          type: "project-browse-success",
-          path: trimmedPath,
-          result: browseResult,
-        });
-        if (browseRequestVersionRef.current === requestVersion) {
-          dispatchProjectPickerBrowseUiState({ type: "project-browse-finish" });
-        }
-      } catch (error) {
-        if (browseRequestVersionRef.current !== requestVersion) {
-          return;
-        }
-        dispatchProjectPickerBrowseUiState({
-          type: "project-browse-failure",
-          path: trimmedPath,
-          error: error instanceof Error ? error.message : "Unable to browse this directory path.",
-        });
-        if (browseRequestVersionRef.current === requestVersion) {
-          dispatchProjectPickerBrowseUiState({ type: "project-browse-finish" });
-        }
+      dispatchProjectPickerBrowseUiState({
+        type: "project-browse-success",
+        path: trimmedPath,
+        result: browseResult,
+      });
+      if (browseRequestVersionRef.current === requestVersion) {
+        dispatchProjectPickerBrowseUiState({ type: "project-browse-finish" });
       }
-    },
-    [addingProject, projectPickerStep, selectedProjectPickerConnectionUrl],
-  );
+    } catch (error) {
+      if (browseRequestVersionRef.current !== requestVersion) {
+        return;
+      }
+      dispatchProjectPickerBrowseUiState({
+        type: "project-browse-failure",
+        path: trimmedPath,
+        error: error instanceof Error ? error.message : "Unable to browse this directory path.",
+      });
+      if (browseRequestVersionRef.current === requestVersion) {
+        dispatchProjectPickerBrowseUiState({ type: "project-browse-finish" });
+      }
+    }
+  };
+  const refreshProjectBrowseEffect = useEffectEvent(refreshProjectBrowse);
 
   useEffect(() => {
     if (!addingProject || projectPickerStep !== "directory") {
@@ -3306,8 +3274,8 @@ function useSidebarComponent() {
       dispatchProjectPickerBrowseUiState({ type: "reset-project-browse-ui" });
       return;
     }
-    void refreshProjectBrowse(trimmedPath);
-  }, [addingProject, newCwd, projectPickerStep, refreshProjectBrowse]);
+    void refreshProjectBrowseEffect(trimmedPath);
+  }, [addingProject, newCwd, projectPickerStep]);
 
   useEffect(() => {
     if (!addingProject) {
@@ -3468,13 +3436,14 @@ function useSidebarComponent() {
     setAddProjectError(null);
   };
 
-  const normalizedResolvedProjectPath = useMemo(() => {
-    const shouldResolveAsLocal = selectedProjectPickerIsLocal;
-    return resolveProjectPath(newCwd, shouldResolveAsLocal ? addProjectBaseDirectory : undefined)
-      .trim()
-      .toLowerCase();
-  }, [addProjectBaseDirectory, newCwd, selectedProjectPickerIsLocal]);
-  const isBrowsePathExactDirectoryMatch = useMemo(() => {
+  const shouldResolveProjectPathAsLocal = selectedProjectPickerIsLocal;
+  const normalizedResolvedProjectPath = resolveProjectPath(
+    newCwd,
+    shouldResolveProjectPathAsLocal ? addProjectBaseDirectory : undefined,
+  )
+    .trim()
+    .toLowerCase();
+  const isBrowsePathExactDirectoryMatch = (() => {
     const trimmedPath = newCwd.trim();
     if (!trimmedPath) {
       return false;
@@ -3487,7 +3456,7 @@ function useSidebarComponent() {
         (entry) => entry.fullPath.trim().toLowerCase() === normalizedResolvedProjectPath,
       ) ?? false
     );
-  }, [currentProjectBrowseResult, newCwd, normalizedResolvedProjectPath]);
+  })();
   const addProjectActionLabel = isAddingProject
     ? "Adding..."
     : isBrowsePathExactDirectoryMatch
@@ -3563,7 +3532,7 @@ function useSidebarComponent() {
           return Math.min(index + 1, filteredPickerEnvironments.length - 1);
         });
         if (filteredPickerEnvironments.length > 0) {
-          requestProjectPickerKeyboardScroll();
+          requestProjectPickerKeyboardScroll(event.timeStamp);
         }
         return;
       }
@@ -3576,7 +3545,7 @@ function useSidebarComponent() {
           return index <= 0 ? 0 : index - 1;
         });
         if (filteredPickerEnvironments.length > 0) {
-          requestProjectPickerKeyboardScroll();
+          requestProjectPickerKeyboardScroll(event.timeStamp);
         }
         return;
       }
@@ -3623,7 +3592,7 @@ function useSidebarComponent() {
         return Math.min(index + 1, entryCount - 1);
       });
       if ((currentProjectBrowseResult?.entries.length ?? 0) > 0) {
-        requestProjectPickerKeyboardScroll();
+        requestProjectPickerKeyboardScroll(event.timeStamp);
       }
       return;
     }
@@ -3637,7 +3606,7 @@ function useSidebarComponent() {
         return index <= 0 ? 0 : index - 1;
       });
       if ((currentProjectBrowseResult?.entries.length ?? 0) > 0) {
-        requestProjectPickerKeyboardScroll();
+        requestProjectPickerKeyboardScroll(event.timeStamp);
       }
       return;
     }
@@ -3669,7 +3638,7 @@ function useSidebarComponent() {
           projectPickerEnvironmentQuery: "",
         });
         setActiveProjectBrowseIndex(0);
-        requestProjectPickerKeyboardScroll();
+        requestProjectPickerKeyboardScroll(event.timeStamp);
         return;
       }
       const target = event.currentTarget;
@@ -4671,9 +4640,9 @@ function useSidebarComponent() {
   const routeIsBoard = activeStoreSplitId !== null;
   const activeThreadId = routeIsBoard ? undefined : (routeThreadId ?? undefined);
   const activeSidebarRouteThreadId = activeThreadId ?? null;
-  const pinnedProjectIdSet = useMemo(() => new Set(pinnedProjectIds), [pinnedProjectIds]);
-  const pinnedThreadIdSet = useMemo(() => new Set(pinnedThreadIds), [pinnedThreadIds]);
-  const visibleProjectThreadsByProjectId = useMemo(() => {
+  const pinnedProjectIdSet = new Set(pinnedProjectIds);
+  const pinnedThreadIdSet = new Set(pinnedThreadIds);
+  const visibleProjectThreadsByProjectId = (() => {
     const next = new Map<ProjectId, SidebarThreadSummary[]>();
     for (const project of activeProjects) {
       const projectThreads: SidebarThreadSummary[] = [];
@@ -4688,8 +4657,8 @@ function useSidebarComponent() {
       next.set(project.id, projectThreads);
     }
     return next;
-  }, [activeProjects, sidebarThreadsById, threadIdsByProjectId]);
-  const projectListThreadsByProjectId = useMemo(() => {
+  })();
+  const projectListThreadsByProjectId = (() => {
     const next = new Map<ProjectId, SidebarThreadSummary[]>();
     for (const [projectId, projectThreads] of visibleProjectThreadsByProjectId) {
       const unpinnedThreads = projectThreads.filter((thread) => !pinnedThreadIdSet.has(thread.id));
@@ -4699,8 +4668,8 @@ function useSidebarComponent() {
       );
     }
     return next;
-  }, [pinnedThreadIdSet, visibleProjectThreadsByProjectId]);
-  const sortedProjects = useMemo(() => {
+  })();
+  const sortedProjects = (() => {
     const sortOrder = sidebarProjectSortOrder;
     const baseProjects =
       sortOrder === "manual"
@@ -4715,19 +4684,10 @@ function useSidebarComponent() {
           })
         : sortProjectsByTimestamp(activeProjects, visibleProjectThreadsByProjectId, sortOrder);
     return prioritizePinnedItems(baseProjects, (project) => pinnedProjectIdSet.has(project.id));
-  }, [
-    activeProjects,
-    sidebarProjectSortOrder,
-    projectOrder,
-    pinnedProjectIdSet,
-    visibleProjectThreadsByProjectId,
-  ]);
+  })();
   const isProjectDraggingEnabled = normalizedProjectSearchQuery.length === 0;
-  const sortedLocalProjectIds = useMemo(
-    () => sortedProjects.map((project) => project.id),
-    [sortedProjects],
-  );
-  const filteredLocalProjectIds = useMemo(() => {
+  const sortedLocalProjectIds = sortedProjects.map((project) => project.id);
+  const filteredLocalProjectIds = (() => {
     const unpinnedProjectIds = sortedLocalProjectIds.filter(
       (projectId) => !pinnedProjectIdSet.has(projectId),
     );
@@ -4751,13 +4711,7 @@ function useSidebarComponent() {
         thread.title.toLowerCase().includes(normalizedProjectSearchQuery),
       );
     });
-  }, [
-    normalizedProjectSearchQuery,
-    pinnedProjectIdSet,
-    projectById,
-    sortedLocalProjectIds,
-    visibleProjectThreadsByProjectId,
-  ]);
+  })();
   const localProjectThreadGroups = filteredLocalProjectIds.map((projectId) =>
     deriveSidebarLocalProjectThreadGroup({
       activeThreadId,
@@ -4770,64 +4724,42 @@ function useSidebarComponent() {
       threadSortOrder: sidebarThreadSortOrder,
     }),
   );
-  const localProjectThreadGroupById = useMemo(
-    () =>
-      new Map(
-        sortedLocalProjectIds.map((projectId) => [
-          projectId,
-          deriveSidebarLocalProjectThreadGroup({
-            activeThreadId,
-            projectExpanded: projectExpandedById[projectId] ?? true,
-            projectListThreads:
-              projectListThreadsByProjectId.get(projectId) ?? EMPTY_SIDEBAR_THREADS,
-            revealStep: THREAD_REVEAL_STEP,
-            unsortedProjectThreads:
-              visibleProjectThreadsByProjectId.get(projectId) ?? EMPTY_SIDEBAR_THREADS,
-            visibleThreadCount: threadRevealCountByProject[projectId] ?? THREAD_REVEAL_STEP,
-            threadSortOrder: sidebarThreadSortOrder,
-          }),
-        ]),
-      ),
-    [
-      activeThreadId,
-      projectExpandedById,
-      projectListThreadsByProjectId,
-      sidebarThreadSortOrder,
-      sortedLocalProjectIds,
-      threadRevealCountByProject,
-      visibleProjectThreadsByProjectId,
-    ],
-  );
-  const renderedPinnedItems = useMemo<
-    Array<{ kind: "project"; projectId: ProjectId } | { kind: "thread"; threadId: ThreadId }>
-  >(
-    () =>
-      pinnedItems.flatMap<
-        { kind: "project"; projectId: ProjectId } | { kind: "thread"; threadId: ThreadId }
-      >((item) => {
-        if (item.kind === "project") {
-          return projectById.has(item.id) ? [{ kind: "project" as const, projectId: item.id }] : [];
-        }
-        const thread = sidebarThreadsById[item.id];
-        if (!thread || thread.archivedAt !== null || !projectById.has(thread.projectId)) {
-          return [];
-        }
-        return [{ kind: "thread" as const, threadId: item.id }];
+  const localProjectThreadGroupById = new Map(
+    sortedLocalProjectIds.map((projectId) => [
+      projectId,
+      deriveSidebarLocalProjectThreadGroup({
+        activeThreadId,
+        projectExpanded: projectExpandedById[projectId] ?? true,
+        projectListThreads: projectListThreadsByProjectId.get(projectId) ?? EMPTY_SIDEBAR_THREADS,
+        revealStep: THREAD_REVEAL_STEP,
+        unsortedProjectThreads:
+          visibleProjectThreadsByProjectId.get(projectId) ?? EMPTY_SIDEBAR_THREADS,
+        visibleThreadCount: threadRevealCountByProject[projectId] ?? THREAD_REVEAL_STEP,
+        threadSortOrder: sidebarThreadSortOrder,
       }),
-    [pinnedItems, projectById, sidebarThreadsById],
+    ]),
   );
-  const sortedRenderedPinnedItems = useMemo(
-    () => [
-      ...renderedPinnedItems.filter((item) => item.kind === "thread"),
-      ...renderedPinnedItems.filter((item) => item.kind === "project"),
-    ],
-    [renderedPinnedItems],
-  );
+  const renderedPinnedItems = pinnedItems.flatMap<
+    { kind: "project"; projectId: ProjectId } | { kind: "thread"; threadId: ThreadId }
+  >((item) => {
+    if (item.kind === "project") {
+      return projectById.has(item.id) ? [{ kind: "project" as const, projectId: item.id }] : [];
+    }
+    const thread = sidebarThreadsById[item.id];
+    if (!thread || thread.archivedAt !== null || !projectById.has(thread.projectId)) {
+      return [];
+    }
+    return [{ kind: "thread" as const, threadId: item.id }];
+  });
+  const sortedRenderedPinnedItems = [
+    ...renderedPinnedItems.filter((item) => item.kind === "thread"),
+    ...renderedPinnedItems.filter((item) => item.kind === "project"),
+  ];
   const renderedPinnedThreadIds = sortedRenderedPinnedItems.flatMap((item) =>
     item.kind === "thread" ? [item.threadId] : [],
   );
   const remoteSidebarHostSearchMatcher = createContainsMatcher(normalizedProjectSearchQuery);
-  const filteredRemoteSidebarHosts = useMemo(() => {
+  const filteredRemoteSidebarHosts = (() => {
     const visibleRemoteSidebarHosts = remoteSidebarHosts.filter(
       (entry) => !isHostConnectionActive(entry.host, activeWsUrl),
     );
@@ -4865,8 +4797,8 @@ function useSidebarComponent() {
       });
     }
     return nextEntries;
-  }, [activeWsUrl, normalizedProjectSearchQuery, remoteSidebarHosts]);
-  const renderedRemoteProjects = useMemo(() => {
+  })();
+  const renderedRemoteProjects = (() => {
     const nextRenderedRemoteProjects: Array<{
       project: RemoteSidebarProjectEntry;
       projectKey: string;
@@ -4921,13 +4853,7 @@ function useSidebarComponent() {
       }
     }
     return nextRenderedRemoteProjects;
-  }, [
-    activeRouteConnectionUrl,
-    filteredRemoteSidebarHosts,
-    remoteProjectExpandedById,
-    remoteThreadRevealCountByProject,
-    activeThreadId,
-  ]);
+  })();
   useEffect(() => {
     setThreadRevealCountByProject((current) => {
       if (Object.keys(current).length === 0) {
@@ -5008,7 +4934,7 @@ function useSidebarComponent() {
       return next;
     });
   }, [remoteSidebarHosts, setRemoteThreadRevealCountByProject]);
-  const unifiedRenderedProjects = useMemo(() => {
+  const unifiedRenderedProjects = (() => {
     const localProjects = filteredLocalProjectIds.flatMap((projectId) => {
       const project = projectById.get(projectId);
       if (!project) {
@@ -5059,14 +4985,8 @@ function useSidebarComponent() {
       }
       return left.projectId.localeCompare(right.projectId);
     });
-  }, [
-    filteredLocalProjectIds,
-    projectById,
-    sidebarProjectSortOrder,
-    renderedRemoteProjects,
-    visibleProjectThreadsByProjectId,
-  ]);
-  const sidebarProjectListItems = useMemo<SidebarProjectListItem[]>(() => {
+  })();
+  const sidebarProjectListItems: SidebarProjectListItem[] = (() => {
     if (isProjectDraggingEnabled) {
       return [
         ...filteredLocalProjectIds.map((projectId) => {
@@ -5112,17 +5032,10 @@ function useSidebarComponent() {
         renderedProject: renderedProject.payload,
       };
     });
-  }, [
-    filteredLocalProjectIds,
-    isProjectDraggingEnabled,
-    localProjectThreadGroupById,
-    renderedRemoteProjects,
-    unifiedRenderedProjects,
-  ]);
-  const sidebarProjectListLayoutSignature = useMemo(
-    () => sidebarProjectListItems.map(getSidebarProjectListItemLayoutSignature).join("|"),
-    [sidebarProjectListItems],
-  );
+  })();
+  const sidebarProjectListLayoutSignature = sidebarProjectListItems
+    .map(getSidebarProjectListItemLayoutSignature)
+    .join("|");
   const sidebarProjectListItemCount = projectsSectionExpanded ? sidebarProjectListItems.length : 0;
   const estimateSidebarProjectListItemSizeByIndex = (index: number) =>
     estimateSidebarProjectListItemSize(sidebarProjectListItems[index]);
@@ -5161,7 +5074,7 @@ function useSidebarComponent() {
     fallbackVirtualSidebarProjectRows.length > 0
       ? fallbackVirtualSidebarProjectRows
       : virtualSidebarProjectRows;
-  const mountedSidebarThreadIdsForPrefetch = useMemo(() => {
+  const mountedSidebarThreadIdsForPrefetch = (() => {
     const threadIds: ThreadId[] = [];
     const seenThreadIds = new Set<ThreadId>();
     const pushThreadId = (threadId: ThreadId) => {
@@ -5202,7 +5115,7 @@ function useSidebarComponent() {
     }
 
     return threadIds;
-  }, [localProjectThreadGroupById, renderedVirtualSidebarProjectRows, sidebarProjectListItems]);
+  })();
   const mountedSidebarThreadPrefetchKey = mountedSidebarThreadIdsForPrefetch.join("\0");
 
   useEffect(() => {
@@ -5371,7 +5284,7 @@ function useSidebarComponent() {
       return changed ? next : current;
     });
   };
-  const sortedActiveThreads = useMemo(() => {
+  const sortedActiveThreads = (() => {
     const activeThreads: SidebarThreadSummary[] = [];
     for (const thread of Object.values(sidebarThreadsById)) {
       if (thread === undefined || thread.archivedAt !== null) continue;
@@ -5390,9 +5303,9 @@ function useSidebarComponent() {
           resolveIsoTimestamp(left.createdAt),
         ),
     );
-  }, [sidebarThreadsById]);
+  })();
   const splitPickerAvailableThreadCount = sortedActiveThreads.length;
-  const splitPickerThreadOptions = useMemo(() => {
+  const splitPickerThreadOptions = (() => {
     if (!splitPickerOpen) {
       return [];
     }
@@ -5409,8 +5322,8 @@ function useSidebarComponent() {
         resolveIsoTimestamp(thread.createdAt),
       ),
     }));
-  }, [projectById, sortedActiveThreads, splitPickerOpen]);
-  const splitPickerProjectFilterOptions = useMemo(() => {
+  })();
+  const splitPickerProjectFilterOptions = (() => {
     const projectOptions = new Map<string, string>();
     for (const thread of splitPickerThreadOptions) {
       projectOptions.set(thread.projectId, thread.projectName);
@@ -5418,9 +5331,9 @@ function useSidebarComponent() {
     return [...projectOptions.entries()]
       .map(([projectId, projectName]) => ({ projectId, projectName }))
       .toSorted((left, right) => left.projectName.localeCompare(right.projectName));
-  }, [splitPickerThreadOptions]);
+  })();
   const normalizedSplitPickerQuery = splitPickerQuery.trim().toLowerCase();
-  const visibleSplitPickerThreadOptions = useMemo(() => {
+  const visibleSplitPickerThreadOptions = (() => {
     const filteredThreads = splitPickerThreadOptions.filter((thread) => {
       if (splitPickerProjectFilter !== "all" && thread.projectId !== splitPickerProjectFilter) {
         return false;
@@ -5448,12 +5361,7 @@ function useSidebarComponent() {
       }
       return right.updatedAt - left.updatedAt;
     });
-  }, [
-    normalizedSplitPickerQuery,
-    splitPickerProjectFilter,
-    splitPickerSortOrder,
-    splitPickerThreadOptions,
-  ]);
+  })();
   const selectedSplitThreadCount = splitPickerSelectedThreadIds.size;
   const openSplitPicker = () => {
     dispatchSidebarSplitBoardUiState({ type: "open-split-picker" });
@@ -5613,12 +5521,10 @@ function useSidebarComponent() {
     onNavigateToThreadOnConnection: navigateToThreadOnConnection,
   });
 
-  const pinnedRenderedThreadGroups = useMemo<
-    Array<
-      | { kind: "thread"; threadId: ThreadId }
-      | { kind: "project"; renderedProject: SidebarLocalProjectThreadGroup }
-    >
-  >(() => {
+  const pinnedRenderedThreadGroups: Array<
+    | { kind: "thread"; threadId: ThreadId }
+    | { kind: "project"; renderedProject: SidebarLocalProjectThreadGroup }
+  > = (() => {
     const next: Array<
       | { kind: "thread"; threadId: ThreadId }
       | { kind: "project"; renderedProject: SidebarLocalProjectThreadGroup }
@@ -5634,7 +5540,7 @@ function useSidebarComponent() {
       }
     }
     return next;
-  }, [localProjectThreadGroupById, sortedRenderedPinnedItems]);
+  })();
   const renderedSidebarThreadGroups = buildRenderedSidebarThreadGroups<
     ThreadId,
     SidebarLocalProjectThreadGroup
@@ -5648,7 +5554,7 @@ function useSidebarComponent() {
     sidebarThreadsById,
     projectCwdById,
   });
-  const threadJumpCommandById = useMemo(() => {
+  const threadJumpCommandById = (() => {
     const mapping = new Map<ThreadId, NonNullable<ReturnType<typeof threadJumpCommandForIndex>>>();
     for (const [visibleThreadIndex, threadId] of visibleSidebarThreadIds.entries()) {
       const jumpCommand = threadJumpCommandForIndex(visibleThreadIndex);
@@ -5659,12 +5565,8 @@ function useSidebarComponent() {
     }
 
     return mapping;
-  }, [visibleSidebarThreadIds]);
-  const threadJumpThreadIds = useMemo(
-    () => [...threadJumpCommandById.keys()],
-    [threadJumpCommandById],
-  );
-  const threadJumpLabelById = useMemo(() => {
+  })();
+  const threadJumpLabelById = (() => {
     const mapping = new Map<ThreadId, string>();
     for (const [threadId, command] of threadJumpCommandById) {
       const label = shortcutLabelForCommand(keybindings, command, sidebarShortcutLabelOptions);
@@ -5673,7 +5575,7 @@ function useSidebarComponent() {
       }
     }
     return mapping;
-  }, [keybindings, sidebarShortcutLabelOptions, threadJumpCommandById]);
+  })();
   const orderedSidebarThreadIds = visibleSidebarThreadIds;
 
   useEffect(() => {
@@ -5777,7 +5679,7 @@ function useSidebarComponent() {
         return;
       }
 
-      const targetThreadId = threadJumpThreadIds[jumpIndex];
+      const targetThreadId = visibleSidebarThreadIds[jumpIndex];
       if (!targetThreadId) {
         return;
       }
@@ -5819,7 +5721,7 @@ function useSidebarComponent() {
     routeTerminalOpen,
     routeThreadId,
     searchPaletteOpen,
-    threadJumpThreadIds,
+    visibleSidebarThreadIds,
     updateThreadJumpHintsVisibility,
   ]);
 
