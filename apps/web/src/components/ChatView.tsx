@@ -1763,6 +1763,9 @@ function useChatViewComponent({
   const lastTouchClientYRef = useRef<number | null>(null);
   const pendingUserScrollUpIntentRef = useRef(false);
   const pendingAutoScrollFrameRef = useRef<number | null>(null);
+  const showScrollToBottomRef = useRef(showScrollToBottom);
+  const pendingShowScrollToBottomFrameRef = useRef<number | null>(null);
+  const pendingShowScrollToBottomValueRef = useRef<boolean | null>(null);
   const composerImagesRef = useRef<ComposerImageAttachment[]>([]);
   const attachmentPreviewHandoffByMessageIdRef = useRef<Record<string, string[]>>({});
   const attachmentPreviewHandoffTimeoutByMessageIdRef = useRef<Record<string, number>>({});
@@ -1783,6 +1786,38 @@ function useChatViewComponent({
     chatShellRef.current = element;
     setChatShellElement(element);
   });
+  useEffect(() => {
+    showScrollToBottomRef.current = showScrollToBottom;
+  }, [showScrollToBottom]);
+  const setShowScrollToBottomIfChanged = useStableCallback((nextVisible: boolean) => {
+    pendingShowScrollToBottomValueRef.current = null;
+    if (showScrollToBottomRef.current === nextVisible) {
+      return;
+    }
+    showScrollToBottomRef.current = nextVisible;
+    setShowScrollToBottom(nextVisible);
+  });
+  const scheduleShowScrollToBottom = useStableCallback((nextVisible: boolean) => {
+    pendingShowScrollToBottomValueRef.current = nextVisible;
+    if (pendingShowScrollToBottomFrameRef.current !== null) {
+      return;
+    }
+    pendingShowScrollToBottomFrameRef.current = window.requestAnimationFrame(() => {
+      pendingShowScrollToBottomFrameRef.current = null;
+      const scheduledVisible =
+        pendingShowScrollToBottomValueRef.current ?? showScrollToBottomRef.current;
+      setShowScrollToBottomIfChanged(scheduledVisible);
+    });
+  });
+  const cancelPendingShowScrollToBottom = useStableCallback(() => {
+    const pendingFrame = pendingShowScrollToBottomFrameRef.current;
+    pendingShowScrollToBottomValueRef.current = null;
+    if (pendingFrame === null) {
+      return;
+    }
+    pendingShowScrollToBottomFrameRef.current = null;
+    window.cancelAnimationFrame(pendingFrame);
+  });
   const setMessagesScrollContainerRef = useStableCallback((element: HTMLDivElement | null) => {
     if (messagesScrollRef.current === element) {
       return;
@@ -1795,9 +1830,7 @@ function useChatViewComponent({
     lastKnownScrollTopRef.current = element.scrollTop;
     shouldAutoScrollRef.current = true;
     pendingUserScrollUpIntentRef.current = false;
-    if (showScrollToBottom) {
-      setShowScrollToBottom(false);
-    }
+    setShowScrollToBottomIfChanged(false);
   });
   const getMessagesScrollContainer = () => messagesScrollRef.current;
   useEffect(() => {
@@ -6824,9 +6857,9 @@ function useChatViewComponent({
       pendingUserScrollUpIntentRef.current = false;
       isPointerScrollActiveRef.current = false;
       lastTouchClientYRef.current = null;
-      setShowScrollToBottom(false);
+      setShowScrollToBottomIfChanged(false);
     },
-    [setShowScrollToBottom],
+    [setShowScrollToBottomIfChanged],
   );
   const scrollMessagesToBottom = useCallback(
     (behavior: ScrollBehavior = "auto") => {
@@ -6894,7 +6927,7 @@ function useChatViewComponent({
       pendingInitialBottomPinResizeObserverRef.current = null;
 
       shouldAutoScrollRef.current = true;
-      setShowScrollToBottom(false);
+      setShowScrollToBottomIfChanged(false);
       forceStickToBottom(true);
 
       const startedAtMs = performance.now();
@@ -6971,7 +7004,7 @@ function useChatViewComponent({
       frameId = window.requestAnimationFrame(keepBottomPinnedThroughHydration);
       pendingInitialBottomPinFrameRef.current = frameId;
     },
-    [forceStickToBottom, scrollMessagesToBottom, setShowScrollToBottom],
+    [forceStickToBottom, scrollMessagesToBottom, setShowScrollToBottomIfChanged],
   );
   const onMessagesScroll = () => {
     const scrollContainer = messagesScrollRef.current;
@@ -6985,7 +7018,7 @@ function useChatViewComponent({
     ) {
       lastKnownScrollTopRef.current = scrollContainer.scrollTop;
       shouldAutoScrollRef.current = true;
-      setShowScrollToBottom(false);
+      scheduleShowScrollToBottom(false);
       scheduleStickToBottom();
       return;
     }
@@ -7013,7 +7046,7 @@ function useChatViewComponent({
       scheduleStickToBottom();
     }
 
-    setShowScrollToBottom(shouldShowScrollToBottomButton(scrollContainer));
+    scheduleShowScrollToBottom(shouldShowScrollToBottomButton(scrollContainer));
     lastKnownScrollTopRef.current = currentScrollTop;
   };
   const onMessagesWheel = (event: React.WheelEvent<HTMLDivElement>) => {
@@ -7023,7 +7056,7 @@ function useChatViewComponent({
       cancelPendingStickToBottom();
       cancelInitialBottomPin();
       const scrollContainer = messagesScrollRef.current;
-      setShowScrollToBottom(
+      setShowScrollToBottomIfChanged(
         scrollContainer ? shouldShowScrollToBottomButton(scrollContainer) : true,
       );
     }
@@ -7052,7 +7085,7 @@ function useChatViewComponent({
       cancelPendingStickToBottom();
       cancelInitialBottomPin();
       const scrollContainer = messagesScrollRef.current;
-      setShowScrollToBottom(
+      setShowScrollToBottomIfChanged(
         scrollContainer ? shouldShowScrollToBottomButton(scrollContainer) : true,
       );
     }
@@ -7065,8 +7098,9 @@ function useChatViewComponent({
     return () => {
       cancelPendingStickToBottom();
       cancelInitialBottomPin();
+      cancelPendingShowScrollToBottom();
     };
-  }, [cancelInitialBottomPin, cancelPendingStickToBottom]);
+  }, [cancelInitialBottomPin, cancelPendingShowScrollToBottom, cancelPendingStickToBottom]);
   useLayoutEffect(() => {
     if (!activeForSideEffects) return;
     const nextThreadId = activeThread?.id ?? null;
@@ -7081,7 +7115,7 @@ function useChatViewComponent({
     lastKnownScrollTopRef.current = messagesScrollRef.current?.scrollTop ?? 0;
     shouldAutoScrollRef.current = true;
     pendingInitialBottomScrollThreadIdRef.current = nextThreadId;
-    setShowScrollToBottom(false);
+    setShowScrollToBottomIfChanged(false);
     forceStickToBottom(jumpImmediately);
     startInitialBottomPin(nextThreadId);
 
@@ -7108,7 +7142,7 @@ function useChatViewComponent({
     cancelPendingStickToBottom,
     forceStickToBottom,
     scheduleStickToBottom,
-    setShowScrollToBottom,
+    setShowScrollToBottomIfChanged,
     startInitialBottomPin,
   ]);
   useLayoutEffect(() => {
