@@ -325,7 +325,7 @@ function renderUnifiedContextContent(input: {
     const rawLine = input.props.fileDiff.additionLines[additionIndex] ?? "";
     return (
       <WorkspaceReviewDiffLine
-        key={`${input.key}:${index}`}
+        key={`${input.key}:context:${additionIndex}`}
         activeCommentTargetId={input.props.activeCommentTargetId}
         commentDraft={input.props.commentDraft}
         comments={getWorkspaceReviewDiffLineComments(
@@ -366,7 +366,7 @@ function renderUnifiedChangeContent(input: {
     const rawLine = input.props.fileDiff.deletionLines[deletionIndex] ?? "";
     rows.push(
       <WorkspaceReviewDiffLine
-        key={`${input.key}:deletion:${index}`}
+        key={`${input.key}:deletion:${deletionIndex}`}
         activeCommentTargetId={input.props.activeCommentTargetId}
         commentDraft={input.props.commentDraft}
         comments={getWorkspaceReviewDiffLineComments(
@@ -398,7 +398,7 @@ function renderUnifiedChangeContent(input: {
     const rawLine = input.props.fileDiff.additionLines[additionIndex] ?? "";
     rows.push(
       <WorkspaceReviewDiffLine
-        key={`${input.key}:addition:${index}`}
+        key={`${input.key}:addition:${additionIndex}`}
         activeCommentTargetId={input.props.activeCommentTargetId}
         commentDraft={input.props.commentDraft}
         comments={getWorkspaceReviewDiffLineComments(
@@ -440,7 +440,7 @@ function renderSplitContextContent(input: {
     const additionLineNumber = getAdditionLineNumber(input.hunk, additionIndex);
     return (
       <WorkspaceReviewDiffSplitLine
-        key={`${input.key}:${index}`}
+        key={`${input.key}:context:${deletionIndex}:${additionIndex}`}
         activeCommentTargetId={input.props.activeCommentTargetId}
         commentDraft={input.props.commentDraft}
         leftComments={getWorkspaceReviewDiffLineComments(
@@ -507,7 +507,7 @@ function renderSplitChangeContent(input: {
       : null;
     return (
       <WorkspaceReviewDiffSplitLine
-        key={`${input.key}:${index}`}
+        key={`${input.key}:change:${hasDeletion ? deletionIndex : "none"}:${hasAddition ? additionIndex : "none"}`}
         activeCommentTargetId={input.props.activeCommentTargetId}
         commentDraft={input.props.commentDraft}
         leftComments={
