@@ -1,6 +1,6 @@
 import { type ModelSelection, type ProjectId, type ThreadId } from "@ace/contracts";
 import { PlusIcon } from "lucide-react";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import { ensureNativeApi } from "~/nativeApi";
 import { DEFAULT_THREAD_TITLE } from "~/lib/chat/chatView";
@@ -214,22 +214,20 @@ function useProjectThreads(projectId: ProjectId | null): ReadonlyArray<Thread> {
   const threadsById = useStore((state) => state.threadsById);
   const threads = useStore((state) => state.threads);
 
-  return useMemo(() => {
-    if (!projectId || threadIds.length === 0) {
-      return EMPTY_PROJECT_THREADS;
-    }
+  if (!projectId || threadIds.length === 0) {
+    return EMPTY_PROJECT_THREADS;
+  }
 
-    const lookup =
-      threadsById ?? Object.fromEntries(threads.map((thread) => [thread.id, thread] as const));
-    const projectThreads: Thread[] = [];
-    for (const threadId of threadIds) {
-      const thread = lookup[threadId];
-      if (thread) {
-        projectThreads.push(thread);
-      }
+  const lookup =
+    threadsById ?? Object.fromEntries(threads.map((thread) => [thread.id, thread] as const));
+  const projectThreads: Thread[] = [];
+  for (const threadId of threadIds) {
+    const thread = lookup[threadId];
+    if (thread) {
+      projectThreads.push(thread);
     }
-    return projectThreads.length > 0 ? projectThreads : EMPTY_PROJECT_THREADS;
-  }, [projectId, threadIds, threads, threadsById]);
+  }
+  return projectThreads.length > 0 ? projectThreads : EMPTY_PROJECT_THREADS;
 }
 
 function buildRecommendationContextTurns(input: {
@@ -320,20 +318,14 @@ export function useNewThreadRecommendedPrompts(
 ): ReadonlyArray<NewThreadRecommendedPrompt> {
   const allProjectThreads = useSidebarThreadSummariesByProjectId(activeProjectId);
   const projectThreads = useProjectThreads(activeProjectId);
-  const contextTurns = useMemo(
-    () =>
-      buildRecommendationContextTurns({
-        projectThreads,
-        sidebarThreads: allProjectThreads,
-      }),
-    [allProjectThreads, projectThreads],
-  );
-  const fingerprint = useMemo(() => {
-    if (!modelSelection || contextTurns.length === 0) {
-      return null;
-    }
-    return buildRecommendationFingerprint({ modelSelection, turns: contextTurns });
-  }, [contextTurns, modelSelection]);
+  const contextTurns = buildRecommendationContextTurns({
+    projectThreads,
+    sidebarThreads: allProjectThreads,
+  });
+  const fingerprint =
+    !modelSelection || contextTurns.length === 0
+      ? null
+      : buildRecommendationFingerprint({ modelSelection, turns: contextTurns });
   const [generatedRecommendations, setGeneratedRecommendations] = useState<{
     fingerprint: string;
     recommendations: ReadonlyArray<NewThreadRecommendedPrompt>;

@@ -1,8 +1,6 @@
 import type { ModelSelection, ProviderKind, ServerProvider } from "@ace/contracts";
 import type { UnifiedSettings } from "@ace/contracts/settings";
 import { buildProviderModelSelection, normalizeModelSlug } from "@ace/shared/model";
-import { useMemo } from "react";
-
 import type { ComposerThreadDraftState } from "../../composerDraftStore";
 import { deriveEffectiveComposerModelState } from "../../composerDraftStore";
 import { getCustomModelOptionsByProvider } from "../../modelSelection";
@@ -172,31 +170,17 @@ export function useChatViewProviderSelectionState(
     threadModelSelection,
   } = input;
 
-  return useMemo(
-    () =>
-      deriveChatViewProviderSelectionState({
-        draft,
-        hasThreadStarted,
-        isServerThread,
-        lockProvider,
-        modelSettings,
-        projectModelSelection,
-        providers,
-        sessionProvider,
-        threadModelSelection,
-      }),
-    [
-      draft,
-      hasThreadStarted,
-      isServerThread,
-      lockProvider,
-      modelSettings,
-      projectModelSelection,
-      providers,
-      sessionProvider,
-      threadModelSelection,
-    ],
-  );
+  return deriveChatViewProviderSelectionState({
+    draft,
+    hasThreadStarted,
+    isServerThread,
+    lockProvider,
+    modelSettings,
+    projectModelSelection,
+    providers,
+    sessionProvider,
+    threadModelSelection,
+  });
 }
 
 function useChatViewModelState(input: UseChatViewModelStateInput): UseChatViewModelStateResult {

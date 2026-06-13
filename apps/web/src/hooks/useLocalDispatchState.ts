@@ -1,5 +1,5 @@
 import { type ApprovalRequestId } from "@ace/contracts";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { type SessionPhase, type Thread } from "../types";
 import {
   createLocalDispatchSnapshot,
@@ -21,27 +21,15 @@ export function useLocalDispatchState(input: {
     setLocalDispatch(null);
   };
 
-  const serverAcknowledgedLocalDispatch = useMemo(
-    () =>
-      hasServerAcknowledgedLocalDispatch({
-        localDispatch,
-        phase: input.phase,
-        latestTurn: input.activeLatestTurn,
-        session: input.activeThread?.session ?? null,
-        hasPendingApproval: input.activePendingApproval !== null,
-        hasPendingUserInput: input.activePendingUserInput !== null,
-        threadError: input.threadError,
-      }),
-    [
-      input.activeLatestTurn,
-      input.activePendingApproval,
-      input.activePendingUserInput,
-      input.activeThread?.session,
-      input.phase,
-      input.threadError,
-      localDispatch,
-    ],
-  );
+  const serverAcknowledgedLocalDispatch = hasServerAcknowledgedLocalDispatch({
+    localDispatch,
+    phase: input.phase,
+    latestTurn: input.activeLatestTurn,
+    session: input.activeThread?.session ?? null,
+    hasPendingApproval: input.activePendingApproval !== null,
+    hasPendingUserInput: input.activePendingUserInput !== null,
+    threadError: input.threadError,
+  });
 
   const beginLocalDispatch = (options?: { preparingWorktree?: boolean }) => {
     const preparingWorktree = Boolean(options?.preparingWorktree);

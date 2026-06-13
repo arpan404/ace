@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
+import { useRef, useState, type ComponentProps, type ReactNode } from "react";
 import { MessageId } from "@ace/contracts";
 
 import type { WorkLogEntry } from "../../session-logic/types";
@@ -76,29 +76,28 @@ export function SubagentWorkspacePanel(props: {
   };
   const activeThread =
     props.threads.find((thread) => thread.id === props.activeThreadId) ?? props.threads[0] ?? null;
-  const sideChatTimeline = useMemo(() => {
-    const messages: ChatMessage[] = [];
-    const workEntries: WorkLogEntry[] = [];
-    for (const entry of activeThread?.entries ?? []) {
-      if (entry.sideChatMessageRole && entry.sideChatMessageText) {
-        messages.push({
-          id: MessageId.makeUnsafe(entry.sideChatMessageId ?? entry.id),
-          role: entry.sideChatMessageRole,
-          text: entry.sideChatMessageText,
-          turnId: null,
-          createdAt: entry.createdAt,
-          ...(entry.sequence !== undefined ? { sequence: entry.sequence } : {}),
-          streaming: false,
-        });
-      } else {
-        workEntries.push(entry);
-      }
+  const sideChatTimeline: {
+    messages: ChatMessage[];
+    workEntries: WorkLogEntry[];
+  } = {
+    messages: [],
+    workEntries: [],
+  };
+  for (const entry of activeThread?.entries ?? []) {
+    if (entry.sideChatMessageRole && entry.sideChatMessageText) {
+      sideChatTimeline.messages.push({
+        id: MessageId.makeUnsafe(entry.sideChatMessageId ?? entry.id),
+        role: entry.sideChatMessageRole,
+        text: entry.sideChatMessageText,
+        turnId: null,
+        createdAt: entry.createdAt,
+        ...(entry.sequence !== undefined ? { sequence: entry.sequence } : {}),
+        streaming: false,
+      });
+    } else {
+      sideChatTimeline.workEntries.push(entry);
     }
-    return {
-      messages,
-      workEntries,
-    };
-  }, [activeThread?.entries]);
+  }
   const timelineEntries = deriveTimelineEntries(
     sideChatTimeline.messages,
     [],

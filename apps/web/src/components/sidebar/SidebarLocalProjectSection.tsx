@@ -1,10 +1,4 @@
-import {
-  type KeyboardEvent,
-  type MouseEvent,
-  type PointerEventHandler,
-  useEffect,
-  useMemo,
-} from "react";
+import { type KeyboardEvent, type MouseEvent, type PointerEventHandler, useEffect } from "react";
 import { type GitStatusResult, type ProjectId, type ThreadId } from "@ace/contracts";
 import { type SidebarThreadSortOrder } from "@ace/contracts/settings";
 import { IconPin, IconPinFilled, IconPinnedOff } from "@tabler/icons-react";
@@ -134,20 +128,13 @@ export function SidebarLocalProjectSection(props: SidebarLocalProjectSectionProp
     (state) => state.projectExpandedById[props.projectId] ?? true,
   );
 
-  const visibleProjectThreads = useMemo(
-    () => allProjectThreads.filter((thread) => thread.archivedAt === null),
-    [allProjectThreads],
-  );
-  const visibleProjectThreadIds = useMemo(
-    () => visibleProjectThreads.map((thread) => thread.id),
-    [visibleProjectThreads],
-  );
+  const visibleProjectThreads = allProjectThreads.filter((thread) => thread.archivedAt === null);
+  const visibleProjectThreadIds = visibleProjectThreads.map((thread) => thread.id);
   const threadLastVisitedAtSelector =
     createThreadLastVisitedAtByIdsSelector(visibleProjectThreadIds);
   const threadLastVisitedAtById = useUiStateStore(threadLastVisitedAtSelector);
-  const projectListThreads = useMemo(
-    () => visibleProjectThreads.filter((thread) => !props.pinnedThreadIdSet.has(thread.id)),
-    [props.pinnedThreadIdSet, visibleProjectThreads],
+  const projectListThreads = visibleProjectThreads.filter(
+    (thread) => !props.pinnedThreadIdSet.has(thread.id),
   );
   const renderState = deriveSidebarLocalProjectRenderState({
     activeThreadId: props.activeSidebarRouteThreadId ?? undefined,
