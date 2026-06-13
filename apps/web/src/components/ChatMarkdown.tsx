@@ -321,6 +321,7 @@ function InlineCodeLocalFileLink(props: {
         render={
           <button
             type="button"
+            aria-label={`Open local file ${targetPath}`}
             className="chat-markdown-local-file-link"
             onClick={(event) => {
               event.stopPropagation();

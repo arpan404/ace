@@ -365,7 +365,7 @@ export function SidebarLocalProjectSection(props: SidebarLocalProjectSectionProp
           {projectExpanded && renderState.hasHiddenThreads ? (
             <SidebarMenuSubItem className="w-full">
               <SidebarMenuSubButton
-                render={<button type="button" />}
+                render={<button type="button" aria-label="Show more project threads" />}
                 data-thread-selection-safe
                 size="sm"
                 className="h-6 w-full translate-x-0 justify-start bg-transparent px-2 text-left text-[10px] font-medium text-muted-foreground/60 transition-[filter,opacity,color] duration-150 hover:bg-transparent hover:text-foreground/90 hover:opacity-100 hover:brightness-90 dark:hover:text-foreground dark:hover:brightness-125"
@@ -382,7 +382,7 @@ export function SidebarLocalProjectSection(props: SidebarLocalProjectSectionProp
           {projectExpanded && renderState.canCollapseThreadList ? (
             <SidebarMenuSubItem className="w-full">
               <SidebarMenuSubButton
-                render={<button type="button" />}
+                render={<button type="button" aria-label="Show fewer project threads" />}
                 data-thread-selection-safe
                 size="sm"
                 className="h-6 w-full translate-x-0 justify-start bg-transparent px-2 text-left text-[10px] font-medium text-muted-foreground/60 transition-[filter,opacity,color] duration-150 hover:bg-transparent hover:text-foreground/90 hover:opacity-100 hover:brightness-90 dark:hover:text-foreground dark:hover:brightness-125"

@@ -312,7 +312,7 @@ export function SidebarThreadRow({
       }}
     >
       <SidebarMenuSubButton
-        render={<div role="button" tabIndex={0} />}
+        render={<div role="button" tabIndex={0} aria-label={`Open thread ${thread.title}`} />}
         size="sm"
         isActive={isActive}
         data-testid={`thread-row-${thread.id}`}
@@ -368,6 +368,7 @@ export function SidebarThreadRow({
           {thread.fork && <ForkedThreadIndicator />}
           {props.renamingThreadId === thread.id ? (
             <input
+              aria-label="Thread title"
               ref={(element) => {
                 if (element && renamingInputRef.current !== element) {
                   renamingInputRef.current = element;

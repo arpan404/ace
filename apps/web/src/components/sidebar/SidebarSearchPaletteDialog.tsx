@@ -100,6 +100,11 @@ export const SidebarSearchPaletteDialog = memo(function SidebarSearchPaletteDial
           )}
           <input
             ref={props.inputRef}
+            aria-label={
+              props.mode === "new-thread-project"
+                ? "Select project for a new thread"
+                : "Search commands, projects, and threads"
+            }
             className={`h-9 min-w-0 flex-1 rounded-lg px-3 text-sm font-medium text-foreground transition-all placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/30 ${APP_SETTINGS_FIELD_CLASS_NAME}`}
             placeholder={
               props.mode === "new-thread-project"

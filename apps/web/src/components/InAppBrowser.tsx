@@ -1364,6 +1364,7 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
                 <SearchIcon className="size-3.5 shrink-0 text-muted-foreground" />
                 <input
                   ref={findInputRef}
+                  aria-label="Find in page"
                   value={findQuery}
                   onChange={(event) => {
                     setFindQuery(event.target.value);

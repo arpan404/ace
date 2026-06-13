@@ -2120,6 +2120,7 @@ export function MessagesTimeline({
                   render={
                     <button
                       type="button"
+                      aria-label="Continue with an open GitHub issue"
                       onClick={() => onContinueWithGitHubIssues()}
                       disabled={isContinueWithGitHubIssuesDisabled}
                       className={cn(

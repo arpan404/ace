@@ -1635,6 +1635,7 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
                   <video
                     src={previewUrl}
                     controls
+                    aria-label={`Preview ${props.pane.activeFilePath}`}
                     className="max-h-full max-w-full"
                     onError={() => {
                       setEditorFeedbackState((current) => ({
@@ -1811,6 +1812,7 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
                     <input
                       ref={selectionCommentInputRef}
                       autoFocus
+                      aria-label="Selection comment"
                       value={commentDraft}
                       onChange={(event) =>
                         dispatchSelectionState({

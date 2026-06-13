@@ -205,7 +205,9 @@ export function SidebarBoardsSection(props: {
                         <TooltipTrigger
                           render={
                             <SidebarMenuButton
-                              render={<button type="button" />}
+                              render={
+                                <button type="button" aria-label={`Open board ${split.title}`} />
+                              }
                               size="sm"
                               className={cn(
                                 "h-auto w-full cursor-pointer gap-2 px-2 py-1.5 text-left text-xs transition-colors duration-150 focus-visible:!ring-1 focus-visible:!ring-ring/35 focus-visible:ring-inset",

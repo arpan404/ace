@@ -1189,6 +1189,7 @@ function useDiffPanelComponent({
                           </span>
                           <input
                             ref={reviewCommentInputRef}
+                            aria-label="Review comment"
                             value={reviewCommentDraft}
                             onChange={(event) => setReviewCommentDraft(event.target.value)}
                             onKeyDown={(event) => {

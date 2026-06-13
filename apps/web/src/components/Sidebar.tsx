@@ -1824,7 +1824,7 @@ function SidebarRemoteProjectItem({
           {projectExpanded && hasHiddenThreads ? (
             <SidebarMenuSubItem className="w-full">
               <SidebarMenuSubButton
-                render={<button type="button" />}
+                render={<button type="button" aria-label="Show more remote project threads" />}
                 data-thread-selection-safe
                 size="sm"
                 className="h-6 w-full translate-x-0 justify-start bg-transparent px-2 text-left text-[10px] font-medium text-muted-foreground/60 transition-[filter,opacity,color] duration-150 hover:bg-transparent hover:text-foreground/90 hover:opacity-100 hover:brightness-90 dark:hover:text-foreground dark:hover:brightness-125"
@@ -1839,7 +1839,7 @@ function SidebarRemoteProjectItem({
           {projectExpanded && canCollapseThreadList ? (
             <SidebarMenuSubItem className="w-full">
               <SidebarMenuSubButton
-                render={<button type="button" />}
+                render={<button type="button" aria-label="Show fewer remote project threads" />}
                 data-thread-selection-safe
                 size="sm"
                 className="h-6 w-full translate-x-0 justify-start bg-transparent px-2 text-left text-[10px] font-medium text-muted-foreground/60 transition-[filter,opacity,color] duration-150 hover:bg-transparent hover:text-foreground/90 hover:opacity-100 hover:brightness-90 dark:hover:text-foreground dark:hover:brightness-125"
@@ -6705,6 +6705,9 @@ function useSidebarComponent() {
             </Button>
             <input
               ref={addProjectInputRef}
+              aria-label={
+                projectPickerStep === "environment" ? "Search environments" : "Project path"
+              }
               className={`h-9 min-w-0 flex-1 rounded-lg border bg-background/60 px-3 text-sm font-medium text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/50 transition-all ${
                 addProjectError
                   ? "border-red-500/50 focus:ring-red-500/20 focus:border-red-500"

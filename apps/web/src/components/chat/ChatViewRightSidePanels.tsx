@@ -179,6 +179,7 @@ function RightSidePanelBrowserTab(props: {
         render={
           <button
             type="button"
+            aria-label={`Select browser tab ${props.tab.title || props.tab.url || props.tab.id}`}
             className={props.className(props.active)}
             aria-pressed={props.active}
             onClick={() => {
@@ -680,6 +681,7 @@ export function RightSidePanelTabStrip(props: {
                     render={
                       <button
                         type="button"
+                        aria-label="Select summary panel"
                         className={tabClassName(props.activeMode === "summary")}
                         aria-pressed={props.activeMode === "summary"}
                         onClick={() => props.onSelectMode("summary")}
@@ -705,6 +707,7 @@ export function RightSidePanelTabStrip(props: {
                     render={
                       <button
                         type="button"
+                        aria-label={`Select subagent thread ${thread.label}`}
                         className={tabClassName(
                           props.activeMode === "subagent" &&
                             props.activeSubagentThreadId === thread.id,
@@ -776,6 +779,7 @@ export function RightSidePanelTabStrip(props: {
                     render={
                       <button
                         type="button"
+                        aria-label={`Select editor tab ${tab.label}`}
                         className={tabClassName(
                           props.activeMode === "editor" && props.activeEditorTabId === tab.id,
                         )}

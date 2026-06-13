@@ -613,6 +613,7 @@ export const EnvironmentMiniPanel = forwardRef<
             <div className="glass-inset overflow-hidden rounded-[var(--control-radius)] border border-border/50 transition-colors focus-within:border-ring/45 focus-within:ring-2 focus-within:ring-ring/10">
               <textarea
                 value={activeScratchPadNote?.body ?? ""}
+                aria-label="Scratchpad note"
                 onChange={(event) => updateActiveScratchPadBody(event.target.value)}
                 placeholder="Quick note..."
                 className="min-h-24 w-full resize-none bg-transparent px-3 py-3 font-sans text-[12px] leading-5 outline-none placeholder:text-muted-foreground/42"

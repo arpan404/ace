@@ -3383,6 +3383,7 @@ function useBrowserTabWebviewComponent(props: {
             >
               <input
                 ref={setDesignRequestInputRef}
+                aria-label="Design change request"
                 value={designInstructions}
                 onChange={(event) =>
                   dispatchDesignOverlayState({

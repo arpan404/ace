@@ -871,6 +871,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
                   />
                   <input
                     type="search"
+                    aria-label="Search models"
                     value={query}
                     onChange={(event) => setQuery(event.target.value)}
                     onKeyDown={(event) => {
