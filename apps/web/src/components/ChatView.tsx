@@ -1469,7 +1469,6 @@ function useChatViewComponent({
     setRightSidePanelEditorOpen,
     setRightSidePanelFloatingChatOpen,
     setRightSidePanelFullscreen,
-    setRightSidePanelLastNonDiffMode,
     setRightSidePanelMode,
     setRightSidePanelReviewOpen,
     setRightSidePanelTerminalOpen,
@@ -3670,23 +3669,6 @@ function useChatViewComponent({
       setRightSidePanelReviewOpen(true);
     }
   }, [diffOpen, rightSidePanelEnabled, setRightSidePanelReviewOpen]);
-  useEffect(() => {
-    if (!rightSidePanelEnabled) {
-      return;
-    }
-    if (!rightSidePanelMode || rightSidePanelMode === "diff") {
-      return;
-    }
-    if (rightSidePanelLastNonDiffMode === rightSidePanelMode) {
-      return;
-    }
-    setRightSidePanelLastNonDiffMode(rightSidePanelMode);
-  }, [
-    rightSidePanelEnabled,
-    rightSidePanelLastNonDiffMode,
-    rightSidePanelMode,
-    setRightSidePanelLastNonDiffMode,
-  ]);
   useEffect(() => {
     if (
       rightSidePanelEnabled &&

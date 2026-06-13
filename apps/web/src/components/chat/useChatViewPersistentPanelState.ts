@@ -55,6 +55,8 @@ type ChatViewPanelState = {
   rightSidePanelWidth: number;
 };
 
+type StoredRightSidePanelMode = RightSidePanelMode | null;
+
 type ChatViewPanelAction =
   | { type: "set-show-scroll-to-bottom"; showScrollToBottom: boolean }
   | { type: "set-reverting-checkpoint-thread-id"; revertingCheckpointThreadId: ThreadId | null }
@@ -210,6 +212,19 @@ export function useChatViewPersistentPanelState(threadId: ThreadId) {
     "summary" satisfies Exclude<RightSidePanelMode, "diff">,
     Schema.Literals(["browser", "editor", "subagent", "summary", "terminal"]),
   );
+  const setRightSidePanelModeAndTrackLastNonDiff = (
+    next:
+      | StoredRightSidePanelMode
+      | ((previous: StoredRightSidePanelMode) => StoredRightSidePanelMode),
+  ) => {
+    setRightSidePanelMode((previous) => {
+      const nextMode = typeof next === "function" ? next(previous) : next;
+      if (nextMode !== null && nextMode !== "diff") {
+        setRightSidePanelLastNonDiffMode(nextMode);
+      }
+      return nextMode;
+    });
+  };
   const [rightSidePanelDiffOpen, setRightSidePanelDiffOpenState] = useLocalStorage(
     rightSidePanelDiffOpenStorageKey,
     false,
@@ -372,7 +387,7 @@ export function useChatViewPersistentPanelState(threadId: ThreadId) {
     setRightSidePanelFloatingChatOpen,
     setRightSidePanelFullscreen,
     setRightSidePanelLastNonDiffMode,
-    setRightSidePanelMode,
+    setRightSidePanelMode: setRightSidePanelModeAndTrackLastNonDiff,
     setRightSidePanelReviewOpen,
     setRightSidePanelTerminalOpen,
     setRightSidePanelVisible,
