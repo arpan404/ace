@@ -872,6 +872,69 @@ async function waitForBrowserBridgeController<TResult>(options: {
 
 type QueuedComposerMessage = Thread["queuedComposerMessages"][number];
 
+function refreshProviderStatus(): void {
+  void readNativeApi()
+    ?.server.refreshProviders()
+    .catch((error: unknown) => {
+      toastManager.add({
+        type: "error",
+        title: "Provider refresh failed",
+        description: error instanceof Error ? error.message : "Unable to refresh provider status.",
+      });
+    });
+}
+
+function toQueuedComposerCommandMessage(message: QueuedComposerMessage) {
+  return {
+    id: message.id,
+    prompt: message.prompt,
+    images: message.images.map((image) => ({
+      type: "image" as const,
+      id: image.id,
+      name: image.name,
+      mimeType: image.mimeType,
+      sizeBytes: image.sizeBytes,
+      dataUrl: image.dataUrl,
+    })),
+    terminalContexts: message.terminalContexts.map((context) => ({ ...context })),
+    modelSelection: message.modelSelection,
+    runtimeMode: message.runtimeMode,
+    interactionMode: message.interactionMode,
+  };
+}
+
+function onBrowserSessionChange(browserInstanceId: string, session: BrowserSessionStorage): void {
+  setBrowserSession(browserInstanceId, session);
+}
+
+async function persistProjectScripts(input: {
+  projectId: ProjectId;
+  projectCwd: string;
+  previousScripts: ProjectScript[];
+  nextScripts: ProjectScript[];
+  keybinding?: string | null;
+  keybindingCommand: KeybindingCommand;
+}): Promise<void> {
+  const api = readNativeApi();
+  if (!api) return;
+
+  await api.orchestration.dispatchCommand({
+    type: "project.meta.update",
+    commandId: newCommandId(),
+    projectId: input.projectId,
+    scripts: input.nextScripts,
+  });
+
+  const keybindingRule = decodeProjectScriptKeybindingRule({
+    keybinding: input.keybinding,
+    command: input.keybindingCommand,
+  });
+
+  if (keybindingRule) {
+    await api.server.upsertKeybinding(keybindingRule);
+  }
+}
+
 interface ComposerDispatchFailureContext {
   provider: ProviderKind;
   model: string | null;
@@ -3083,18 +3146,6 @@ function useChatViewComponent({
     setDiagnosticsFocus(focus);
     setDiagnosticsOpen(true);
   };
-  const refreshProviderStatus = () => {
-    void readNativeApi()
-      ?.server.refreshProviders()
-      .catch((error: unknown) => {
-        toastManager.add({
-          type: "error",
-          title: "Provider refresh failed",
-          description:
-            error instanceof Error ? error.message : "Unable to refresh provider status.",
-        });
-      });
-  };
   useEffect(() => {
     attachmentPreviewHandoffByMessageIdRef.current = attachmentPreviewHandoffByMessageId;
   }, [attachmentPreviewHandoffByMessageId]);
@@ -4387,24 +4438,6 @@ function useChatViewComponent({
     },
     [focusComposer],
   );
-  const toQueuedComposerCommandMessage = (message: QueuedComposerMessage) => {
-    return {
-      id: message.id,
-      prompt: message.prompt,
-      images: message.images.map((image) => ({
-        type: "image" as const,
-        id: image.id,
-        name: image.name,
-        mimeType: image.mimeType,
-        sizeBytes: image.sizeBytes,
-        dataUrl: image.dataUrl,
-      })),
-      terminalContexts: message.terminalContexts.map((context) => ({ ...context })),
-      modelSelection: message.modelSelection,
-      runtimeMode: message.runtimeMode,
-      interactionMode: message.interactionMode,
-    };
-  };
   const dispatchQueuedComposerCommand = async (
     targetThreadId: ThreadId,
     buildCommand: (input: {
@@ -5831,9 +5864,6 @@ function useChatViewComponent({
     if (!rightSidePanelFullscreen) return;
     setRightSidePanelFloatingChatOpen((current) => !current);
   }, [rightSidePanelFullscreen, setRightSidePanelFloatingChatOpen]);
-  const onBrowserSessionChange = (browserInstanceId: string, session: BrowserSessionStorage) => {
-    setBrowserSession(browserInstanceId, session);
-  };
   const setBrowserController = (
     browserInstanceId: string,
     controller: InAppBrowserController | null,
@@ -6923,33 +6953,6 @@ function useChatViewComponent({
     pendingPullRequestSetupRequest,
     runProjectScript,
   ]);
-  const persistProjectScripts = async (input: {
-    projectId: ProjectId;
-    projectCwd: string;
-    previousScripts: ProjectScript[];
-    nextScripts: ProjectScript[];
-    keybinding?: string | null;
-    keybindingCommand: KeybindingCommand;
-  }) => {
-    const api = readNativeApi();
-    if (!api) return;
-
-    await api.orchestration.dispatchCommand({
-      type: "project.meta.update",
-      commandId: newCommandId(),
-      projectId: input.projectId,
-      scripts: input.nextScripts,
-    });
-
-    const keybindingRule = decodeProjectScriptKeybindingRule({
-      keybinding: input.keybinding,
-      command: input.keybindingCommand,
-    });
-
-    if (keybindingRule) {
-      await api.server.upsertKeybinding(keybindingRule);
-    }
-  };
   const saveProjectScript = async (input: NewProjectScriptInput) => {
     if (!activeProject) return;
     const nextId = nextProjectScriptId(
