@@ -11,12 +11,13 @@ export function DetachedThreadSnapshotBootstrap(props: {
   connectionUrl: string | null;
 }) {
   const mergeServerReadModel = useStore((store) => store.mergeServerReadModel);
+  const { connectionUrl: inputConnectionUrl, threadId } = props;
 
   useEffect(() => {
-    if (!props.threadId) {
+    if (!threadId) {
       return;
     }
-    const connectionUrl = props.connectionUrl?.trim() || null;
+    const connectionUrl = inputConnectionUrl?.trim() || null;
     let disposed = false;
 
     runAsyncTask(
@@ -40,7 +41,7 @@ export function DetachedThreadSnapshotBootstrap(props: {
     return () => {
       disposed = true;
     };
-  }, [mergeServerReadModel, props.connectionUrl, props.threadId]);
+  }, [inputConnectionUrl, mergeServerReadModel, threadId]);
 
   return null;
 }

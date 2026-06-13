@@ -1504,8 +1504,9 @@ export default function ThreadTerminalDrawer({
   }, [clampedPropHeight, syncHeight, threadId]);
 
   useEffect(() => {
+    const drawerHeight = drawerHeightRef.current;
     return () => {
-      syncHeight(drawerHeightRef.current);
+      syncHeight(drawerHeight);
     };
   }, [syncHeight]);
 

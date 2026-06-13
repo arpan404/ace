@@ -5,7 +5,7 @@ import type {
   ResolvedKeybindingsConfig,
   ThreadId,
 } from "@ace/contracts";
-import { type ComponentProps, forwardRef, type ReactNode } from "react";
+import { type ComponentProps, type ReactNode, type Ref } from "react";
 import * as Schema from "effect/Schema";
 import {
   CheckIcon,
@@ -217,40 +217,40 @@ function EnvironmentSubagentIcon({ thread }: { thread: SubagentThread }) {
   );
 }
 
-export const EnvironmentMiniPanel = forwardRef<
-  HTMLElement,
-  {
-    activeProjectScripts: ProjectScript[] | undefined;
-    activePlan: ActivePlanState | null;
-    activeSubagentThreadId: string | null;
-    activeThreadId: ThreadId;
-    branchToolbarProps: ComponentProps<typeof BranchToolbar> | null;
-    editorStateInstanceId: string;
-    gitCwd: string | null;
-    gitStatus: GitStatusResult | null;
-    gitStatusError: Error | null;
-    branchList: GitListBranchesResult | null;
-    isGitRepo: boolean;
-    keybindings: ResolvedKeybindingsConfig;
-    layoutMode: "inline" | "popover";
-    style?: MotionStyle;
-    onAddProjectScript: (input: NewProjectScriptInput) => Promise<void>;
-    onDeleteProjectScript: (scriptId: string) => Promise<void>;
-    onOpenDiffPanel: () => void;
-    onOpenEnvironmentSettings: () => void;
-    onJumpToMessage: (messageId: string, target: PinnedMessageNavigationTarget) => void;
-    onOpenSummaryPanel: () => void;
-    onRunProjectScript: (script: ProjectScript) => void;
-    onSelectSubagentThread: (threadId: string) => void;
-    onSubagentPanelOpen: () => void;
-    onUpdateProjectScript: (scriptId: string, input: NewProjectScriptInput) => Promise<void>;
-    onWorkspaceModeChange: (mode: ThreadWorkspaceMode) => void;
-    preferredScriptId: string | null;
-    subagentThreads: ReadonlyArray<SubagentThread>;
-    workspaceChangeStat: { additions: number; deletions: number } | null;
-    workspaceMode: ThreadWorkspaceMode;
-  }
->(function EnvironmentMiniPanel(props, ref) {
+type EnvironmentMiniPanelProps = {
+  activeProjectScripts: ProjectScript[] | undefined;
+  activePlan: ActivePlanState | null;
+  activeSubagentThreadId: string | null;
+  activeThreadId: ThreadId;
+  branchToolbarProps: ComponentProps<typeof BranchToolbar> | null;
+  editorStateInstanceId: string;
+  gitCwd: string | null;
+  gitStatus: GitStatusResult | null;
+  gitStatusError: Error | null;
+  branchList: GitListBranchesResult | null;
+  isGitRepo: boolean;
+  keybindings: ResolvedKeybindingsConfig;
+  layoutMode: "inline" | "popover";
+  ref?: Ref<HTMLElement>;
+  style?: MotionStyle;
+  onAddProjectScript: (input: NewProjectScriptInput) => Promise<void>;
+  onDeleteProjectScript: (scriptId: string) => Promise<void>;
+  onOpenDiffPanel: () => void;
+  onOpenEnvironmentSettings: () => void;
+  onJumpToMessage: (messageId: string, target: PinnedMessageNavigationTarget) => void;
+  onOpenSummaryPanel: () => void;
+  onRunProjectScript: (script: ProjectScript) => void;
+  onSelectSubagentThread: (threadId: string) => void;
+  onSubagentPanelOpen: () => void;
+  onUpdateProjectScript: (scriptId: string, input: NewProjectScriptInput) => Promise<void>;
+  onWorkspaceModeChange: (mode: ThreadWorkspaceMode) => void;
+  preferredScriptId: string | null;
+  subagentThreads: ReadonlyArray<SubagentThread>;
+  workspaceChangeStat: { additions: number; deletions: number } | null;
+  workspaceMode: ThreadWorkspaceMode;
+};
+
+export function EnvironmentMiniPanel({ ref, ...props }: EnvironmentMiniPanelProps) {
   const activeThreadId = String(props.activeThreadId);
   const queryClient = useQueryClient();
   const initMutation = useMutation(
@@ -606,4 +606,4 @@ export const EnvironmentMiniPanel = forwardRef<
       </div>
     </m.aside>
   );
-});
+}

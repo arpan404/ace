@@ -1795,78 +1795,75 @@ function useBrowserTabWebviewComponent(props: {
     [reportBrowserLoadError, resolveLoadUrl, scheduleEmitSnapshot],
   );
 
-  const inspectBrowserPoint = useCallback(
-    async (point: { x: number; y: number }): Promise<BrowserPageElementCapture | null> => {
-      const webview = webviewRef.current;
-      if (!activeRef.current || !webview || !readyRef.current || !webview.executeJavaScript) {
-        return null;
-      }
-      const overlayHost = overlayRef.current ?? hostRef.current;
-      const capture = await webview.executeJavaScript<BrowserPageElementCapture | null>(
-        buildBrowserElementCaptureScript(
-          point,
-          overlayHost
-            ? {
-                width: overlayHost.clientWidth,
-                height: overlayHost.clientHeight,
-              }
-            : undefined,
-        ),
-        true,
-      );
-      return capture
-        ? {
-            targetRect: normalizeCapturedSelectionRect(capture.targetRect),
-            target: normalizeCapturedDescriptor(capture.target ?? null),
-            mainContainer: normalizeCapturedDescriptor(capture.mainContainer ?? null),
-          }
-        : null;
-    },
-    [],
-  );
+  const inspectBrowserPoint = async (point: {
+    x: number;
+    y: number;
+  }): Promise<BrowserPageElementCapture | null> => {
+    const webview = webviewRef.current;
+    if (!activeRef.current || !webview || !readyRef.current || !webview.executeJavaScript) {
+      return null;
+    }
+    const overlayHost = overlayRef.current ?? hostRef.current;
+    const capture = await webview.executeJavaScript<BrowserPageElementCapture | null>(
+      buildBrowserElementCaptureScript(
+        point,
+        overlayHost
+          ? {
+              width: overlayHost.clientWidth,
+              height: overlayHost.clientHeight,
+            }
+          : undefined,
+      ),
+      true,
+    );
+    return capture
+      ? {
+          targetRect: normalizeCapturedSelectionRect(capture.targetRect),
+          target: normalizeCapturedDescriptor(capture.target ?? null),
+          mainContainer: normalizeCapturedDescriptor(capture.mainContainer ?? null),
+        }
+      : null;
+  };
 
-  const captureDesignSelection = useCallback(
-    async (
-      selection: BrowserDesignSelectionRect,
-      requestId: string,
-      inspectedPoint?: BrowserPageElementCapture | null,
-    ): Promise<BrowserDesignCaptureResult> => {
-      const webview = webviewRef.current;
-      if (!webview || !readyRef.current) {
-        throw new Error("The browser tab is not ready yet.");
-      }
-      if (!webview.capturePage || !webview.executeJavaScript) {
-        throw new Error("Design capture is unavailable for this browser tab.");
-      }
+  const captureDesignSelection = async (
+    selection: BrowserDesignSelectionRect,
+    requestId: string,
+    inspectedPoint?: BrowserPageElementCapture | null,
+  ): Promise<BrowserDesignCaptureResult> => {
+    const webview = webviewRef.current;
+    if (!webview || !readyRef.current) {
+      throw new Error("The browser tab is not ready yet.");
+    }
+    if (!webview.capturePage || !webview.executeJavaScript) {
+      throw new Error("Design capture is unavailable for this browser tab.");
+    }
 
-      const overlayHost = overlayRef.current ?? hostRef.current;
-      const viewportWidth = Math.max(1, Math.round(overlayHost?.clientWidth ?? selection.width));
-      const viewportHeight = Math.max(1, Math.round(overlayHost?.clientHeight ?? selection.height));
-      const capturedImage = await webview.capturePage();
-      const imageDataUrl = await cropCapturedImageDataUrl({
-        dataUrl: capturedImage.toDataURL(),
-        selection,
-        viewportHeight,
-        viewportWidth,
-      });
-      const centerPoint = {
-        x: selection.x + Math.floor(selection.width / 2),
-        y: selection.y + Math.floor(selection.height / 2),
-      };
-      const elementCapture = inspectedPoint ?? (await inspectBrowserPoint(centerPoint));
+    const overlayHost = overlayRef.current ?? hostRef.current;
+    const viewportWidth = Math.max(1, Math.round(overlayHost?.clientWidth ?? selection.width));
+    const viewportHeight = Math.max(1, Math.round(overlayHost?.clientHeight ?? selection.height));
+    const capturedImage = await webview.capturePage();
+    const imageDataUrl = await cropCapturedImageDataUrl({
+      dataUrl: capturedImage.toDataURL(),
+      selection,
+      viewportHeight,
+      viewportWidth,
+    });
+    const centerPoint = {
+      x: selection.x + Math.floor(selection.width / 2),
+      y: selection.y + Math.floor(selection.height / 2),
+    };
+    const elementCapture = inspectedPoint ?? (await inspectBrowserPoint(centerPoint));
 
-      return {
-        requestId,
-        selection,
-        imageDataUrl,
-        imageMimeType: resolveDataUrlMimeType(imageDataUrl),
-        imageSizeBytes: estimateDataUrlBytes(imageDataUrl),
-        targetElement: elementCapture?.target ?? null,
-        mainContainer: elementCapture?.mainContainer ?? null,
-      };
-    },
-    [inspectBrowserPoint],
-  );
+    return {
+      requestId,
+      selection,
+      imageDataUrl,
+      imageMimeType: resolveDataUrlMimeType(imageDataUrl),
+      imageSizeBytes: estimateDataUrlBytes(imageDataUrl),
+      targetElement: elementCapture?.target ?? null,
+      mainContainer: elementCapture?.mainContainer ?? null,
+    };
+  };
 
   const clearAgentPointerActionTimer = useCallback(() => {
     if (agentPointerActionTimerRef.current === null) {
@@ -2611,58 +2608,60 @@ function useBrowserTabWebviewComponent(props: {
     };
   }, [clearElementInteractionFrames]);
 
-  const forwardElementCommentWheelToWebview = useCallback(
-    (input: { deltaX: number; deltaY: number; clientX: number; clientY: number }) => {
-      const webview = webviewRef.current;
-      if (!webview || !readyRef.current) {
-        return;
-      }
-      const overlayBounds = overlayRef.current?.getBoundingClientRect();
-      const x = overlayBounds
-        ? Math.round(
-            clampPoint(input.clientX - overlayBounds.left, 0, Math.max(0, overlayBounds.width - 1)),
-          )
-        : 0;
-      const y = overlayBounds
-        ? Math.round(
-            clampPoint(input.clientY - overlayBounds.top, 0, Math.max(0, overlayBounds.height - 1)),
-          )
-        : 0;
-      const forwardingMode = resolveElementCommentWheelForwardingMode({
-        hasSendInputEvent: typeof webview.sendInputEvent === "function",
-        platform: typeof navigator === "undefined" ? "" : navigator.platform,
+  const forwardElementCommentWheelToWebview = (input: {
+    deltaX: number;
+    deltaY: number;
+    clientX: number;
+    clientY: number;
+  }) => {
+    const webview = webviewRef.current;
+    if (!webview || !readyRef.current) {
+      return;
+    }
+    const overlayBounds = overlayRef.current?.getBoundingClientRect();
+    const x = overlayBounds
+      ? Math.round(
+          clampPoint(input.clientX - overlayBounds.left, 0, Math.max(0, overlayBounds.width - 1)),
+        )
+      : 0;
+    const y = overlayBounds
+      ? Math.round(
+          clampPoint(input.clientY - overlayBounds.top, 0, Math.max(0, overlayBounds.height - 1)),
+        )
+      : 0;
+    const forwardingMode = resolveElementCommentWheelForwardingMode({
+      hasSendInputEvent: typeof webview.sendInputEvent === "function",
+      platform: typeof navigator === "undefined" ? "" : navigator.platform,
+    });
+    if (forwardingMode === "electron-input" && webview.sendInputEvent) {
+      webview.sendInputEvent({
+        type: "mouseWheel",
+        x,
+        y,
+        deltaX: input.deltaX,
+        deltaY: input.deltaY,
+        canScroll: true,
       });
-      if (forwardingMode === "electron-input" && webview.sendInputEvent) {
-        webview.sendInputEvent({
-          type: "mouseWheel",
-          x,
-          y,
+      return;
+    }
+    if (!webview.executeJavaScript) {
+      return;
+    }
+    runAsyncTask(
+      webview.executeJavaScript(
+        buildElementCommentScrollScript({
           deltaX: input.deltaX,
           deltaY: input.deltaY,
-          canScroll: true,
-        });
-        return;
-      }
-      if (!webview.executeJavaScript) {
-        return;
-      }
-      runAsyncTask(
-        webview.executeJavaScript(
-          buildElementCommentScrollScript({
-            deltaX: input.deltaX,
-            deltaY: input.deltaY,
-            point: { x, y },
-            ...(overlayBounds
-              ? { overlayViewport: { width: overlayBounds.width, height: overlayBounds.height } }
-              : {}),
-          }),
-          true,
-        ),
-        "Failed to forward element-comment scroll to the browser webview.",
-      );
-    },
-    [],
-  );
+          point: { x, y },
+          ...(overlayBounds
+            ? { overlayViewport: { width: overlayBounds.width, height: overlayBounds.height } }
+            : {}),
+        }),
+        true,
+      ),
+      "Failed to forward element-comment scroll to the browser webview.",
+    );
+  };
   const flushElementCommentWheel = () => {
     elementCommentWheelFrameRef.current = null;
     const pendingWheel = pendingElementCommentWheelRef.current;
@@ -2713,52 +2712,49 @@ function useBrowserTabWebviewComponent(props: {
     }
   };
 
-  const startCapturedDraft = useCallback(
-    (
-      selection: BrowserDesignSelectionRect,
-      inspectedPoint?: BrowserPageElementCapture | null,
-      failureMessage = "Could not capture the selected browser area.",
-    ) => {
-      elementHoverRequestTokenRef.current += 1;
-      dispatchDesignOverlayState({ type: "set-selection-rect", selectionRect: selection });
-      const requestId = generateDesignRequestId();
-      const host = overlayRef.current;
-      const viewportWidth = host?.clientWidth ?? 0;
-      const viewportHeight = host?.clientHeight ?? 0;
-      dispatchDesignOverlayState({ type: "set-design-instructions", designInstructions: "" });
-      dispatchDesignOverlayState({
-        type: "set-design-draft",
-        designDraft: {
-          capture: null,
+  const startCapturedDraft = (
+    selection: BrowserDesignSelectionRect,
+    inspectedPoint?: BrowserPageElementCapture | null,
+    failureMessage = "Could not capture the selected browser area.",
+  ) => {
+    elementHoverRequestTokenRef.current += 1;
+    dispatchDesignOverlayState({ type: "set-selection-rect", selectionRect: selection });
+    const requestId = generateDesignRequestId();
+    const host = overlayRef.current;
+    const viewportWidth = host?.clientWidth ?? 0;
+    const viewportHeight = host?.clientHeight ?? 0;
+    dispatchDesignOverlayState({ type: "set-design-instructions", designInstructions: "" });
+    dispatchDesignOverlayState({
+      type: "set-design-draft",
+      designDraft: {
+        capture: null,
+        requestId,
+        selection,
+        tool: designerTool,
+        viewportWidth,
+        viewportHeight,
+      },
+    });
+    void captureDesignSelection(selection, requestId, inspectedPoint)
+      .then((capture) => {
+        if (!mountedRef.current) {
+          return;
+        }
+        dispatchDesignOverlayState({
+          type: "resolve-design-draft-capture",
+          capture,
           requestId,
-          selection,
-          tool: designerTool,
-          viewportWidth,
-          viewportHeight,
-        },
-      });
-      void captureDesignSelection(selection, requestId, inspectedPoint)
-        .then((capture) => {
-          if (!mountedRef.current) {
-            return;
-          }
-          dispatchDesignOverlayState({
-            type: "resolve-design-draft-capture",
-            capture,
-            requestId,
-          });
-        })
-        .catch((error: unknown) => {
-          if (!mountedRef.current) {
-            return;
-          }
-          const message = error instanceof Error ? error.message : failureMessage;
-          reportDesignCaptureError(message);
-          cancelDesignCapture();
         });
-    },
-    [cancelDesignCapture, captureDesignSelection, designerTool, reportDesignCaptureError],
-  );
+      })
+      .catch((error: unknown) => {
+        if (!mountedRef.current) {
+          return;
+        }
+        const message = error instanceof Error ? error.message : failureMessage;
+        reportDesignCaptureError(message);
+        cancelDesignCapture();
+      });
+  };
 
   const flushHoveredElementInspection = useStableCallback(() => {
     if (elementHoverFrameRef.current !== null) {

@@ -334,15 +334,11 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
   const composerImages = composerDraft.images;
   const composerTerminalContexts = composerDraft.terminalContexts;
   const nonPersistedComposerImageIds = composerDraft.nonPersistedImageIds;
-  const { interactionMode, runtimeMode } = useMemo(
-    () =>
-      deriveEffectiveComposerExecutionModeState({
-        draft: composerDraft,
-        threadRuntimeMode: props.threadRuntimeMode,
-        threadInteractionMode: props.threadInteractionMode,
-      }),
-    [composerDraft, props.threadInteractionMode, props.threadRuntimeMode],
-  );
+  const { interactionMode, runtimeMode } = deriveEffectiveComposerExecutionModeState({
+    draft: composerDraft,
+    threadRuntimeMode: props.threadRuntimeMode,
+    threadInteractionMode: props.threadInteractionMode,
+  });
   const composerSendState = deriveComposerSendState({
     prompt,
     imageCount: composerImages.length,
@@ -442,7 +438,7 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
     isComposerApprovalState || (showPlanFollowUpPrompt && props.planFollowUpId !== null);
   const composerFooterHasWideActions =
     showPlanFollowUpPrompt || props.activePendingProgress !== null;
-  const composerFooterActionLayoutKey = useMemo(() => {
+  const composerFooterActionLayoutKey = (() => {
     if (props.activePendingProgress) {
       return `pending:${props.activePendingProgress.questionIndex}:${props.activePendingProgress.isLastQuestion}:${props.activePendingIsResponding}`;
     }
@@ -450,42 +446,27 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
       return `plan-follow-up:${props.planFollowUpId ?? "none"}`;
     }
     return `idle:${composerSendState.hasSendableContent}:${props.isSendBusy}:${props.isConnecting}:${props.isPreparingWorktree}`;
-  }, [
-    composerSendState.hasSendableContent,
-    props.activePendingIsResponding,
-    props.activePendingProgress,
-    props.isConnecting,
-    props.isPreparingWorktree,
-    props.isSendBusy,
-    props.planFollowUpId,
-    showPlanFollowUpPrompt,
-  ]);
+  })();
 
-  const focusComposer = useCallback(() => {
-    return composerEditorRef.current?.focusAtEnd() ?? false;
-  }, []);
-  const scheduleComposerFocus = useCallback(
-    (attempts = 4) => {
-      let frameId: number | null = null;
-      const requestFocus = (remainingAttempts: number) => {
-        frameId = window.requestAnimationFrame(() => {
-          frameId = null;
-          if (focusComposer() || remainingAttempts <= 1) {
-            return;
-          }
-          requestFocus(remainingAttempts - 1);
-        });
-      };
-
-      requestFocus(Math.max(1, attempts));
-      return () => {
-        if (frameId !== null) {
-          window.cancelAnimationFrame(frameId);
+  const scheduleComposerFocus = useCallback((attempts = 4) => {
+    let frameId: number | null = null;
+    const requestFocus = (remainingAttempts: number) => {
+      frameId = window.requestAnimationFrame(() => {
+        frameId = null;
+        if (composerEditorRef.current?.focusAtEnd() || remainingAttempts <= 1) {
+          return;
         }
-      };
-    },
-    [focusComposer],
-  );
+        requestFocus(remainingAttempts - 1);
+      });
+    };
+
+    requestFocus(Math.max(1, attempts));
+    return () => {
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+      }
+    };
+  }, []);
 
   const detectComposerTriggerWithDismissal = useCallback(
     (text: string, expandedCursor: number): ComposerTrigger | null => {

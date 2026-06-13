@@ -3098,6 +3098,7 @@ function useSidebarComponent() {
 
     schedule(REMOTE_HOST_INITIAL_RESOLVE_DELAY_MS);
     document.addEventListener("visibilitychange", onVisibilityChange);
+    const registeredRemoteRouteConnectionUrls = registeredRemoteRouteConnectionUrlsRef.current;
     return () => {
       cancelled = true;
       if (timeoutHandle !== null) {
@@ -3106,10 +3107,10 @@ function useSidebarComponent() {
       clearRemoteSnapshotMergeHandle();
       pendingRemoteSnapshotMergeByConnection.clear();
       document.removeEventListener("visibilitychange", onVisibilityChange);
-      for (const connectionUrl of registeredRemoteRouteConnectionUrlsRef.current) {
+      for (const connectionUrl of registeredRemoteRouteConnectionUrls) {
         unregisterRemoteRoute(connectionUrl);
       }
-      registeredRemoteRouteConnectionUrlsRef.current.clear();
+      registeredRemoteRouteConnectionUrls.clear();
     };
   }, [bootstrapComplete, clearRemoteSnapshotMergeHandle]);
   const configuredBaseDirectory = configuredAddProjectBaseDirectory.trim();
