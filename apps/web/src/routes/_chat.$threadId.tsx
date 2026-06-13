@@ -6,7 +6,7 @@ import { ThreadBoard } from "../components/chat/ThreadBoard";
 import { useComposerDraftStore } from "../composerDraftStore";
 import { type DiffRouteSearch, parseDiffRouteSearch } from "../diffRouteSearch";
 import {
-  prefetchThreadTimelineRowsSnapshot,
+  prefetchThreadTimelineRows,
   startThreadTimelineRowsOpenPrefetch,
 } from "../lib/chat/timelineModelStore";
 import { getThreadById, getThreadByIdFromState, useStore } from "../store";
@@ -158,7 +158,7 @@ function ChatThreadRouteView() {
           return;
         }
       } catch {
-        // Full timeline snapshots are opportunistic here; active view recovery can retry on reconnect.
+        // Full thread hydration is opportunistic here; active view recovery can retry on reconnect.
       }
       if (fallbackTimer !== null) {
         window.clearTimeout(fallbackTimer);
@@ -174,7 +174,7 @@ function ChatThreadRouteView() {
 
     return () => {
       canceled = true;
-      // The route owns the active-open timeline snapshot. In-flight RPCs may finish and stay cached.
+      // The route owns the active-open timeline hydration. In-flight requests may finish and stay cached.
       prefetch.stop();
       if (fallbackTimer !== null) {
         window.clearTimeout(fallbackTimer);
@@ -217,7 +217,7 @@ function ChatThreadRouteView() {
     let canceled = false;
     void (async () => {
       try {
-        await prefetchThreadTimelineRowsSnapshot({ threadId: lineageSourceThreadId });
+        await prefetchThreadTimelineRows({ threadId: lineageSourceThreadId });
         if (canceled) {
           return;
         }

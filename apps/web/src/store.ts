@@ -34,9 +34,10 @@ import {
   finalizeChatMessageText,
   getChatMessageFullText,
 } from "./lib/chat/messageText";
+import { resolveAttachmentPreviewUrl } from "./lib/chat/attachmentPreviewUrls";
 import { primeHydratedThreadCache } from "./lib/threadHydrationCache";
 import {
-  hydrateThreadTimelineRowsSnapshotInBackground,
+  hydrateThreadTimelineRowsInBackground,
   primeLiveTimelineRow,
   primeThreadTimelineRowsMetadataFromReadModelThread,
   primeThreadTimelineRowsMetadataFromReadModelThreads,
@@ -44,7 +45,6 @@ import {
   useTimelineModelStore,
 } from "./lib/chat/timelineModelStore";
 import { resolveConnectionForThreadId } from "./lib/connectionRouting";
-import { resolveServerUrl } from "./lib/utils";
 import { type ChatMessage, type Project, type SidebarThreadSummary, type Thread } from "./types";
 
 // ── State ────────────────────────────────────────────────────────────
@@ -277,7 +277,7 @@ function mapMessageAttachments(
     name: attachment.name,
     mimeType: attachment.mimeType,
     sizeBytes: attachment.sizeBytes,
-    previewUrl: toAttachmentPreviewUrl(attachmentPreviewRoutePath(attachment.id), connectionUrl),
+    previewUrl: resolveAttachmentPreviewUrl(attachment.id, connectionUrl),
   }));
 }
 
@@ -306,7 +306,7 @@ function mapOrchestrationMessageForClient(
 ): OrchestrationMessage {
   const attachments = message.attachments?.map((attachment) => ({
     ...attachment,
-    previewUrl: toAttachmentPreviewUrl(attachmentPreviewRoutePath(attachment.id), connectionUrl),
+    previewUrl: resolveAttachmentPreviewUrl(attachment.id, connectionUrl),
   }));
   return {
     ...message,
@@ -1491,46 +1491,6 @@ function toLegacyProvider(providerName: string | null): ProviderKind {
   return "codex";
 }
 
-function toAttachmentPreviewUrl(rawUrl: string, connectionUrl?: string): string {
-  if (rawUrl.startsWith("/")) {
-    try {
-      let connectionToken: string | null = null;
-      const resolveBaseUrl = (): URL => {
-        if (connectionUrl) {
-          const parsedConnectionUrl = new URL(connectionUrl);
-          connectionToken = parsedConnectionUrl.searchParams.get("token");
-          const protocol =
-            parsedConnectionUrl.protocol === "wss:"
-              ? "https:"
-              : parsedConnectionUrl.protocol === "ws:"
-                ? "http:"
-                : parsedConnectionUrl.protocol;
-          return new URL(`${protocol}//${parsedConnectionUrl.host}/`);
-        }
-        return new URL(resolveServerUrl({ pathname: "/" }));
-      };
-      const resolvedUrl = new URL(rawUrl, resolveBaseUrl());
-      if (connectionToken && !resolvedUrl.searchParams.has("token")) {
-        resolvedUrl.searchParams.set("token", connectionToken);
-      }
-      resolvedUrl.protocol =
-        resolvedUrl.protocol === "wss:"
-          ? "https:"
-          : resolvedUrl.protocol === "ws:"
-            ? "http:"
-            : resolvedUrl.protocol;
-      return resolvedUrl.toString();
-    } catch {
-      return rawUrl;
-    }
-  }
-  return rawUrl;
-}
-
-function attachmentPreviewRoutePath(attachmentId: string): string {
-  return `/attachments/${encodeURIComponent(attachmentId)}`;
-}
-
 function updateThreadState(
   state: AppState,
   threadId: ThreadId,
@@ -2019,7 +1979,7 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
         message: mapOrchestrationMessageForClient(orchestrationMessage, connectionUrl),
       });
       if (shouldRecoverFinalAssistantSnapshot) {
-        hydrateThreadTimelineRowsSnapshotInBackground(event.payload.threadId);
+        hydrateThreadTimelineRowsInBackground(event.payload.threadId);
       }
       if (event.payload.role === "assistant") {
         if (event.payload.turnId === null) {

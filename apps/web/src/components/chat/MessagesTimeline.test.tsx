@@ -1,8 +1,14 @@
 import { MessageId, type OrchestrationProposedPlanId } from "@ace/contracts";
 import { renderToStaticMarkup } from "react-dom/server";
+import type { ComponentProps, ComponentType } from "react";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import { TurnId } from "@ace/contracts";
+import { buildTimelineRows, type TimelineRow } from "../../lib/chat/timelineRows";
+import {
+  completedWorkDetailGroupDisclosureKey,
+  completedWorkSummaryDisclosureKey,
+} from "../../lib/chat/timelineDisclosureState";
 
 vi.mock("../ChatMarkdown", () => ({
   default: ({
@@ -93,8 +99,45 @@ const makeTimelineVirtualItem = (index: number) =>
     start: index * 100,
   }) as const;
 
+type MessagesTimelineComponent = typeof import("./MessagesTimeline").MessagesTimeline;
+type MessagesTimelineProps = ComponentProps<MessagesTimelineComponent>;
+type TestMessagesTimelineProps = Omit<MessagesTimelineProps, "rows"> & {
+  readonly rows?: ReadonlyArray<TimelineRow>;
+  readonly timelineEntries?: Parameters<typeof buildTimelineRows>[0]["timelineEntries"];
+};
+
+function createTestMessagesTimeline(
+  Component: MessagesTimelineComponent,
+): ComponentType<TestMessagesTimelineProps> {
+  return function TestMessagesTimeline({
+    rows,
+    timelineEntries = [],
+    ...props
+  }: TestMessagesTimelineProps) {
+    const resolvedRows =
+      rows ??
+      buildTimelineRows({
+        timelineEntries,
+        activeTurnInProgress: props.activeTurnInProgress,
+        activeTurnStartedAt: props.activeTurnStartedAt,
+        ...(props.timelineCacheScope ? { cacheScopeKey: props.timelineCacheScope } : {}),
+        completionDividerBeforeEntryId: props.completionDividerBeforeEntryId,
+        completionSummary: props.completionSummary,
+        ...(props.hideCompletedWorkMessages !== undefined
+          ? { hideCompletedWorkMessages: props.hideCompletedWorkMessages }
+          : {}),
+        isWorking: props.isWorking,
+        ...(props.enableGoalWorkingState !== undefined
+          ? { enableGoalWorkingState: props.enableGoalWorkingState }
+          : {}),
+      });
+
+    return <Component {...props} rows={resolvedRows} />;
+  };
+}
+
 describe("MessagesTimeline", { timeout: 30_000 }, () => {
-  it("derives timeline snapshot prefetch direction from scroll speed", async () => {
+  it("derives timeline row prefetch direction from scroll speed", async () => {
     const { deriveTimelineScrollPrefetchRequest } = await import("./messagesTimelineUtils");
 
     expect(
@@ -226,142 +269,9 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     });
   });
 
-  it("keeps active thread rows visible while rows are temporarily empty", async () => {
-    const { resolveVisibleTimelineRows } = await import("./useTimelineRowsController");
-    const retainedRows = [
-      {
-        id: "previous-user-row",
-        kind: "message",
-      },
-    ] as unknown as ReturnType<typeof resolveVisibleTimelineRows>["rows"];
-
-    const result = resolveVisibleTimelineRows({
-      activeThreadId: "thread-1",
-      retainedRows: {
-        activeThreadId: "thread-1",
-        rows: retainedRows,
-      },
-      syncRows: [],
-    });
-
-    expect(result.loading).toBe(false);
-    expect(result.rows).toBe(retainedRows);
-  });
-
-  it("can opt out of retaining previous rows", async () => {
-    const { resolveVisibleTimelineRows } = await import("./useTimelineRowsController");
-    const retainedRows = [
-      {
-        id: "previous-user-row",
-        kind: "message",
-      },
-    ] as unknown as ReturnType<typeof resolveVisibleTimelineRows>["rows"];
-
-    const result = resolveVisibleTimelineRows({
-      activeThreadId: "thread-1",
-      retainedRows: {
-        activeThreadId: "thread-1",
-        rows: retainedRows,
-      },
-      retainRowsWhileLoading: false,
-      syncRows: [],
-    });
-
-    expect(result.loading).toBe(false);
-    expect(result.rows).toEqual([]);
-  });
-
-  it("keeps active thread rows visible while snapshot hydration catches up", async () => {
-    const { resolveVisibleTimelineRows } = await import("./useTimelineRowsController");
-    const retainedRows = [
-      {
-        id: "previous-user-row",
-        kind: "message",
-      },
-    ] as unknown as ReturnType<typeof resolveVisibleTimelineRows>["rows"];
-
-    const result = resolveVisibleTimelineRows({
-      activeThreadId: "thread-1",
-      loading: true,
-      retainedRows: {
-        activeThreadId: "thread-1",
-        rows: retainedRows,
-      },
-      syncRows: [],
-    });
-
-    expect(result.loading).toBe(false);
-    expect(result.rows).toBe(retainedRows);
-  });
-
-  it("shows loading while an empty thread snapshot is in flight", async () => {
-    const { resolveVisibleTimelineRows } = await import("./useTimelineRowsController");
-
-    const result = resolveVisibleTimelineRows({
-      activeThreadId: "thread-1",
-      loading: true,
-      retainedRows: null,
-      syncRows: [],
-    });
-
-    expect(result.loading).toBe(true);
-    expect(result.rows).toEqual([]);
-  });
-
-  it("uses sync rows before retained rows", async () => {
-    const { resolveVisibleTimelineRows } = await import("./useTimelineRowsController");
-    const syncRows = [
-      {
-        id: "sync-row",
-        kind: "message",
-      },
-    ] as unknown as ReturnType<typeof resolveVisibleTimelineRows>["rows"];
-
-    const result = resolveVisibleTimelineRows({
-      activeThreadId: "thread-1",
-      retainedRows: {
-        activeThreadId: "thread-2",
-        rows: [],
-      },
-      syncRows,
-    });
-
-    expect(result.loading).toBe(false);
-    expect(result.rows).toBe(syncRows);
-  });
-
-  it("can prefer retained rows over sync rows during native row rebuilds", async () => {
-    const { resolveVisibleTimelineRows } = await import("./useTimelineRowsController");
-    const retainedRows = [
-      {
-        id: "retained-native-row",
-        kind: "message",
-      },
-    ] as unknown as ReturnType<typeof resolveVisibleTimelineRows>["rows"];
-    const syncRows = [
-      {
-        id: "fallback-legacy-row",
-        kind: "message",
-      },
-    ] as unknown as ReturnType<typeof resolveVisibleTimelineRows>["rows"];
-
-    const result = resolveVisibleTimelineRows({
-      activeThreadId: "thread-1",
-      loading: true,
-      preferRetainedRows: true,
-      retainedRows: {
-        activeThreadId: "thread-1",
-        rows: retainedRows,
-      },
-      syncRows,
-    });
-
-    expect(result.loading).toBe(false);
-    expect(result.rows).toBe(retainedRows);
-  });
-
   it("does not show the async loading skeleton on cache misses or history restore", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
     const previousDocument = globalThis.document;
     const previousWindow = globalThis.window;
     const previousWorker = globalThis.Worker;
@@ -451,7 +361,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("does not show thread fetching chrome over already rendered rows", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -497,7 +408,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("renders terminal assistant output through markdown instead of forcing plain text", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -554,7 +466,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("keeps reasoning work as plain timeline text", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -744,7 +657,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("keeps historical rows virtualized while the active turn is in progress", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
     const timelineEntries = Array.from({ length: 24 }, (_, index) => ({
       id: `entry-${index + 1}`,
       kind: "message" as const,
@@ -846,7 +760,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("renders inline terminal labels with the composer chip UI", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -904,7 +819,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("highlights provider command tokens in user messages", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -955,7 +871,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("highlights Codex goal command tokens in user messages", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -1002,7 +919,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("does not highlight Codex goal command tokens in the middle of user messages", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -1049,7 +967,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("renders at-prefixed file mentions as mention chips", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -1097,7 +1016,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("hides design request ids while still showing captured images", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
     const designPrompt = [
       "Increase spacing around this card title",
       "",
@@ -1170,7 +1090,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("renders assistant image attachments as assistant output", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -1228,7 +1149,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("renders assistant image generation placeholders without markdown or tool rows", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -1279,7 +1201,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("does not infer image generation placeholders from command or assistant text", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -1337,7 +1260,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("does not infer image generation placeholders from generic tool detail text", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -1397,7 +1321,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("does not infer image generation placeholders from tool names or dimensions", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -1458,7 +1383,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("uses custom restore copy for the revert action tooltip", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
     const messageId = MessageId.makeUnsafe("user-rebuildable-provider");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
@@ -1503,7 +1429,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("renders context compaction entries as normal work rows", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -1546,7 +1473,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("renders assistant, tool, follow-up, thinking, and tool rows in chronological order", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -1661,7 +1589,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("skips blank assistant placeholder rows", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -1735,7 +1664,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("prefers human-readable detail over noisy wrapper commands in tool rows", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -1782,7 +1712,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("renders command work entries as shell cards with status and output", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -1842,7 +1773,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("collapses completed tool-only runs until expanded", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
     type ToolFixtureEntry = {
       label: string;
       toolTitle: string;
@@ -1940,7 +1872,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("keeps the current live work row visible while earlier live work can expand", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
     const timelineEntries = Array.from({ length: 10 }, (_, index) => ({
       id: `live-work-tool-${index + 1}`,
       kind: "work" as const,
@@ -1989,7 +1922,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("keeps completed tool rows before the active turn alongside live rows", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -2049,7 +1983,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("summarizes mixed tool groups by activity type", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -2137,7 +2072,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("shows accumulated thinking text instead of a single truncated token line", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -2187,7 +2123,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("keeps thinking disclosures collapsed by default until expanded", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -2254,7 +2191,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("summarizes completed thinking without fabricating thinking duration", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -2322,7 +2260,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("hides grouped elapsed metadata while the current turn is still running", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -2389,7 +2328,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("moves completed thinking behind a disclosure once assistant output starts", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -2450,7 +2390,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("renders thinking rows inside the thread log without the old card treatment", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -2506,7 +2447,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("keeps assistant follow-ups beneath the preceding work row in order", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -2570,7 +2512,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("keeps changed-files summaries visible after a newer user message", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
     const assistantMessageId = MessageId.makeUnsafe("assistant-with-diff");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
@@ -2670,7 +2613,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("renders changed-files summaries at the end of the latest assistant turn", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
     const assistantMessageId = MessageId.makeUnsafe("assistant-with-diff-latest");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
@@ -2764,7 +2708,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("hides raw proposed-plan markers and renders the plan as a timeline panel", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -2827,7 +2772,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("shows compact changed-files actions with assistant revert when available", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
     const assistantMessageId = MessageId.makeUnsafe("assistant-with-revertable-diff");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
@@ -2898,7 +2844,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("hides the changed-files expand action when there are no directories", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
     const assistantMessageId = MessageId.makeUnsafe("assistant-with-flat-diff");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
@@ -2964,7 +2911,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("hides changed-files summaries while the latest turn is still active", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
     const assistantMessageId = MessageId.makeUnsafe("assistant-with-active-diff");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
@@ -3042,7 +2990,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("shows completed intent and tool activity after completion", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -3098,7 +3047,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("shows a compact worked-for pill when completed work details are hidden", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -3172,8 +3122,104 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     expect(markup).not.toContain("README.md");
   });
 
+  it("keeps completed work details open from stable expanded group state", async () => {
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
+    const timelineEntries: NonNullable<TestMessagesTimelineProps["timelineEntries"]> = [
+      {
+        id: "user-for-open-hidden-work",
+        kind: "message",
+        createdAt: "2026-03-17T19:12:30.000Z",
+        message: {
+          id: MessageId.makeUnsafe("user-for-open-hidden-work"),
+          role: "user",
+          text: "Check the file",
+          createdAt: "2026-03-17T19:12:30.000Z",
+          streaming: false,
+        },
+      },
+      {
+        id: "hidden-open-tool",
+        kind: "work",
+        createdAt: "2026-03-17T19:12:31.000Z",
+        entry: {
+          id: "hidden-open-tool",
+          createdAt: "2026-03-17T19:12:31.000Z",
+          label: "Read file",
+          toolTitle: "Read file",
+          detail: "README.md",
+          tone: "tool",
+        },
+      },
+      {
+        id: "assistant-open-final",
+        kind: "message",
+        createdAt: "2026-03-17T19:12:34.000Z",
+        message: {
+          id: MessageId.makeUnsafe("assistant-open-final"),
+          role: "assistant",
+          text: "Done.",
+          createdAt: "2026-03-17T19:12:34.000Z",
+          completedAt: "2026-03-17T19:12:35.000Z",
+          streaming: false,
+        },
+      },
+    ];
+    const rows = buildTimelineRows({
+      timelineEntries,
+      activeTurnInProgress: false,
+      activeTurnStartedAt: null,
+      completionDividerBeforeEntryId: null,
+      completionSummary: null,
+      hideCompletedWorkMessages: true,
+      isWorking: false,
+    });
+    const completedWorkRow = rows.find((row) => row.kind === "completed-work-summary");
+
+    if (!completedWorkRow) {
+      throw new Error("Expected completed work summary row.");
+    }
+
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        hasMessages
+        hideCompletedWorkMessages
+        isWorking={false}
+        activeTurnInProgress={false}
+        activeTurnStartedAt={null}
+        getScrollContainer={() => null}
+        rows={rows}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        expandedWorkGroups={{
+          [completedWorkSummaryDisclosureKey(completedWorkRow.id)]: true,
+          [completedWorkDetailGroupDisclosureKey(
+            completedWorkRow.id,
+            completedWorkRow.detailRows[0]?.id ?? "",
+          )]: true,
+        }}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        resolvedTheme="light"
+        timestampFormat="locale"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup).toContain('data-completed-work-summary-open="true"');
+    expect(markup).toContain('aria-label="Hide hidden work logs"');
+    expect(markup).toContain("README.md");
+  });
+
   it("collapses non-terminal assistant progress messages without turn ids when completed work is hidden", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -3261,7 +3307,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("does not render completed work summaries that have no expandable details", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -3269,8 +3316,7 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
         activeTurnInProgress={false}
         activeTurnStartedAt={null}
         getScrollContainer={() => null}
-        timelineEntries={[]}
-        timelineRowsOverride={[
+        rows={[
           {
             id: "user-before-empty-work-summary",
             kind: "message",
@@ -3338,7 +3384,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("omits runtime errors from completed work diagnostics", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -3429,7 +3476,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("shows completed image-view tool calls", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -3483,7 +3531,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("groups completed intent and thinking work into the same disclosure", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -3539,7 +3588,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("counts info entries as events without double-counting intents", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -3588,7 +3638,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("keeps repeated completed intent bursts with tool calls in chronological order", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -3674,7 +3725,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("keeps repeated live intent bursts separate while only the current tool stays inline", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -3751,7 +3803,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("moves the final response summary into the assistant footer", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -3811,7 +3864,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("shows previous assistant time metadata after a later user reply", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -3877,7 +3931,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("shows the latest assistant time metadata without hover when no later user reply exists", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -3929,7 +3984,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("shows a fork action when the provider supports conversation forking", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -3984,7 +4040,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("hides assistant copy and fork actions while the assistant is working", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
     const turnId = TurnId.makeUnsafe("turn-working-actions-hidden");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
@@ -4047,7 +4104,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("hides assistant footer for completed partial output in the active turn", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
     const turnId = TurnId.makeUnsafe("turn-active-partial-footer-hidden");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
@@ -4123,7 +4181,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("hides assistant copy and fork actions for completed responses without elapsed timing", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -4171,7 +4230,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("does not require a provider slash command to render the fork action", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -4217,7 +4277,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("shows hover metadata only on the last assistant message within a turn", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
     const turnId = TurnId.makeUnsafe("turn-multi-assistant");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
@@ -4292,7 +4353,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("copies only the visible terminal assistant message when completed work is hidden", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
     const turnId = TurnId.makeUnsafe("turn-hidden-work-copy");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
@@ -4367,7 +4429,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("shows fork only on the latest assistant turn while copy remains on each terminal turn", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
     const firstTurnId = TurnId.makeUnsafe("turn-copy-fork-first");
     const secondTurnId = TurnId.makeUnsafe("turn-copy-fork-second");
     const markup = renderToStaticMarkup(
@@ -4433,7 +4496,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("renders assistant footer before trailing work rows for the turn", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
     const turnId = TurnId.makeUnsafe("turn-footer-after-work");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
@@ -4504,7 +4568,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("renders hidden trailing work summary before terminal assistant content", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
     const turnId = TurnId.makeUnsafe("turn-footer-after-hidden-work");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
@@ -4588,7 +4653,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("does not render an assistant header for assistant messages", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -4634,7 +4700,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("keeps a trailing live intent inside the live status row when no tool has started yet", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -4680,7 +4747,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     vi.setSystemTime(new Date("2026-03-17T19:13:00.000Z"));
 
     try {
-      const { MessagesTimeline } = await import("./MessagesTimeline");
+      const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+      const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
       const markup = renderToStaticMarkup(
         <MessagesTimeline
           hasMessages
@@ -4758,7 +4826,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
     vi.setSystemTime(new Date("2026-03-17T19:13:00.000Z"));
 
     try {
-      const { MessagesTimeline } = await import("./MessagesTimeline");
+      const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+      const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
       const markup = renderToStaticMarkup(
         <MessagesTimeline
           hasMessages
@@ -4822,7 +4891,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("uses the matching group id when expanding completed tool calls", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages
@@ -4894,7 +4964,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
   });
 
   it("keeps separate work disclosures isolated when they share a timestamp", async () => {
-    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
     const markup = renderToStaticMarkup(
       <MessagesTimeline
         hasMessages

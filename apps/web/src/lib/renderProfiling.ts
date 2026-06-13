@@ -38,6 +38,20 @@ export function measureRenderWork<T>(name: string, work: () => T): T {
   }
 }
 
+export function recordRenderProfileEvent(name: string, detail?: Record<string, unknown>): void {
+  if (!isRenderProfilingEnabled() || typeof performance === "undefined") {
+    return;
+  }
+
+  const markName = `${name}:${profileSequence}`;
+  profileSequence = (profileSequence + 1) % Number.MAX_SAFE_INTEGER;
+  try {
+    performance.mark(markName, detail ? { detail } : undefined);
+  } catch {
+    performance.mark(markName);
+  }
+}
+
 export function recordReactRenderProfile(
   name: string,
   phase: "mount" | "update" | "nested-update",

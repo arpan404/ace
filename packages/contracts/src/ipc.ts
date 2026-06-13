@@ -98,10 +98,6 @@ import type {
   ClientOrchestrationCommand,
   OrchestrationGetSnapshotInput,
   OrchestrationGetThreadInput,
-  OrchestrationGetThreadTimelineRowsSnapshotChunkInput,
-  OrchestrationGetThreadTimelineRowsSnapshotChunkResult,
-  OrchestrationGetThreadTimelineRowsSnapshotInput,
-  OrchestrationGetThreadTimelineRowsSnapshotResult,
   OrchestrationGetFullThreadDiffInput,
   OrchestrationGetFullThreadDiffResult,
   OrchestrationGetTurnDiffInput,
@@ -584,12 +580,6 @@ export interface NativeApi {
   orchestration: {
     getSnapshot: (input?: OrchestrationGetSnapshotInput) => Promise<OrchestrationReadModel>;
     getThread: (input: OrchestrationGetThreadInput) => Promise<OrchestrationThread>;
-    getThreadTimelineRowsSnapshot: (
-      input: OrchestrationGetThreadTimelineRowsSnapshotInput,
-    ) => Promise<OrchestrationGetThreadTimelineRowsSnapshotResult>;
-    getThreadTimelineRowsSnapshotChunk: (
-      input: OrchestrationGetThreadTimelineRowsSnapshotChunkInput,
-    ) => Promise<OrchestrationGetThreadTimelineRowsSnapshotChunkResult>;
     dispatchCommand: (command: ClientOrchestrationCommand) => Promise<{ sequence: number }>;
     getTurnDiff: (input: OrchestrationGetTurnDiffInput) => Promise<OrchestrationGetTurnDiffResult>;
     getFullThreadDiff: (

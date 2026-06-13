@@ -2,8 +2,7 @@ import { EventId, MessageId, ThreadId, TurnId, type OrchestrationReadModel } fro
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const nativeApiMock = vi.hoisted(() => ({
-  getThreadTimelineRowsSnapshot: vi.fn(),
-  getThreadTimelineRowsSnapshotChunk: vi.fn(),
+  getThread: vi.fn(),
 }));
 
 vi.mock("../../nativeApi", () => ({
@@ -13,7 +12,7 @@ vi.mock("../../nativeApi", () => ({
 }));
 
 import {
-  fetchThreadTimelineRowsSnapshot,
+  fetchThreadTimelineRowsHydration,
   isThreadTimelineRowsFullyHydrated,
   readTimelineRow,
   readTimelineRowsProjection,
@@ -53,8 +52,7 @@ function readModelThreadForMetadata(input: {
 
 afterEach(() => {
   useTimelineModelStore.getState().reset();
-  nativeApiMock.getThreadTimelineRowsSnapshot.mockReset();
-  nativeApiMock.getThreadTimelineRowsSnapshotChunk.mockReset();
+  nativeApiMock.getThread.mockReset();
   vi.useRealTimers();
 });
 
@@ -65,30 +63,26 @@ describe("timelineModelStore", () => {
       readModelThreadForMetadata({
         id: threadId,
         updatedAt: "2026-01-01T00:00:00.000Z",
-        messageCount: 2,
       }),
       readModelThreadForMetadata({
         id: otherThreadId,
         updatedAt: "2026-01-01T00:00:01.000Z",
-        messageCount: 1,
       }),
     ]);
 
     const stateAfterBatch = useTimelineModelStore.getState();
     expect(stateAfterBatch.revision).toBe(initialRevision + 1);
-    expect(stateAfterBatch.metadataByThreadId[threadId]?.totalRows).toBe(2);
-    expect(stateAfterBatch.metadataByThreadId[otherThreadId]?.totalRows).toBe(1);
+    expect(stateAfterBatch.metadataByThreadId[threadId]?.totalRows).toBe(0);
+    expect(stateAfterBatch.metadataByThreadId[otherThreadId]?.totalRows).toBe(0);
 
     primeThreadTimelineRowsMetadataFromReadModelThreads([
       readModelThreadForMetadata({
         id: threadId,
         updatedAt: "2026-01-01T00:00:00.000Z",
-        messageCount: 2,
       }),
       readModelThreadForMetadata({
         id: otherThreadId,
         updatedAt: "2026-01-01T00:00:01.000Z",
-        messageCount: 1,
       }),
     ]);
 
@@ -139,7 +133,7 @@ describe("timelineModelStore", () => {
     expect(state.metadataByThreadId[threadId]?.totalRows).toBe(10_000);
     expect(state.rowIdsByThreadId[threadId]).toBeUndefined();
     expect(readTimelineRowsProjection(threadId).messages).toEqual([]);
-    expect(nativeApiMock.getThreadTimelineRowsSnapshot).not.toHaveBeenCalled();
+    expect(nativeApiMock.getThread).not.toHaveBeenCalled();
   });
 
   it("patches a single streaming row in place by row id", () => {
@@ -189,6 +183,38 @@ describe("timelineModelStore", () => {
       "message:message-row-store",
     ]);
     expect(readTimelineRow(threadId, "message:message-row-store")?.contentVersion).toBe("chunk:2");
+  });
+
+  it("does not bump timeline revisions for unchanged row patches", () => {
+    const row = {
+      id: "message:message-row-store",
+      kind: "message" as const,
+      createdAt: "2026-01-01T00:00:01.000Z",
+      updatedAt: "2026-01-01T00:00:02.000Z",
+      contentVersion: "chunk:1",
+      startSourceIndex: 0,
+      endSourceIndexExclusive: 1,
+      turnId,
+      sourceRefs: [
+        {
+          kind: "message" as const,
+          id: "message-row-store",
+          createdAt: "2026-01-01T00:00:01.000Z",
+          sourceIndex: 0,
+          turnId,
+          sequence: 1,
+        },
+      ],
+    };
+
+    useTimelineModelStore.getState().patchRow(threadId, row);
+    const stateAfterFirstPatch = useTimelineModelStore.getState();
+    useTimelineModelStore
+      .getState()
+      .patchRow(threadId, { ...row, sourceRefs: [...row.sourceRefs] });
+
+    expect(useTimelineModelStore.getState()).toBe(stateAfterFirstPatch);
+    expect(useTimelineModelStore.getState().revisionByThreadId[threadId]).toBe(1);
   });
 
   it("coalesces live streaming row patches per frame", async () => {
@@ -1072,54 +1098,10 @@ describe("timelineModelStore", () => {
     expect(windowProjection.slots.every((slot) => slot.kind === "placeholder")).toBe(true);
   });
 
-  it("hydrates all thread timeline rows in one snapshot and reuses it", async () => {
-    nativeApiMock.getThreadTimelineRowsSnapshot.mockResolvedValue({
-      threadId,
-      revision: "rev:snapshot",
+  it("hydrates all thread timeline rows from the thread source model and reuses them", async () => {
+    nativeApiMock.getThread.mockResolvedValue({
+      id: threadId,
       updatedAt: "2026-01-01T00:00:02.000Z",
-      totalRows: 2,
-      rows: [
-        {
-          id: "message:user-row-store",
-          kind: "message",
-          createdAt: "2026-01-01T00:00:00.000Z",
-          updatedAt: "2026-01-01T00:00:00.000Z",
-          contentVersion: "v1:message:user-row-store:1",
-          startSourceIndex: 0,
-          endSourceIndexExclusive: 1,
-          turnId,
-          sourceRefs: [
-            {
-              kind: "message",
-              id: "user-row-store",
-              createdAt: "2026-01-01T00:00:00.000Z",
-              sourceIndex: 0,
-              turnId,
-              sequence: 0,
-            },
-          ],
-        },
-        {
-          id: "message:message-row-store",
-          kind: "message",
-          createdAt: "2026-01-01T00:00:01.000Z",
-          updatedAt: "2026-01-01T00:00:02.000Z",
-          contentVersion: "v1:message:message-row-store:2",
-          startSourceIndex: 1,
-          endSourceIndexExclusive: 2,
-          turnId,
-          sourceRefs: [
-            {
-              kind: "message",
-              id: "message-row-store",
-              createdAt: "2026-01-01T00:00:01.000Z",
-              sourceIndex: 1,
-              turnId,
-              sequence: 1,
-            },
-          ],
-        },
-      ],
       messages: [
         {
           id: MessageId.makeUnsafe("user-row-store"),
@@ -1146,10 +1128,10 @@ describe("timelineModelStore", () => {
       proposedPlans: [],
     });
 
-    await fetchThreadTimelineRowsSnapshot(threadId);
-    await fetchThreadTimelineRowsSnapshot(threadId);
+    await fetchThreadTimelineRowsHydration(threadId);
+    await fetchThreadTimelineRowsHydration(threadId);
 
-    expect(nativeApiMock.getThreadTimelineRowsSnapshot).toHaveBeenCalledTimes(1);
+    expect(nativeApiMock.getThread).toHaveBeenCalledTimes(1);
     expect(isThreadTimelineRowsFullyHydrated(threadId)).toBe(true);
     expect(readTimelineRowsProjection(threadId).rowIds).toEqual([
       "message:user-row-store",
@@ -1225,33 +1207,9 @@ describe("timelineModelStore", () => {
         },
       },
     }));
-    nativeApiMock.getThreadTimelineRowsSnapshot.mockResolvedValue({
-      threadId,
-      revision: "rev:fresh-cache",
+    nativeApiMock.getThread.mockResolvedValue({
+      id: threadId,
       updatedAt: "2026-01-01T00:00:03.000Z",
-      totalRows: 1,
-      rows: [
-        {
-          id: "message:message-row-store",
-          kind: "message",
-          createdAt: "2026-01-01T00:00:01.000Z",
-          updatedAt: "2026-01-01T00:00:03.000Z",
-          contentVersion: "snapshot:fresh",
-          startSourceIndex: 0,
-          endSourceIndexExclusive: 1,
-          turnId,
-          sourceRefs: [
-            {
-              kind: "message",
-              id: "message-row-store",
-              createdAt: "2026-01-01T00:00:01.000Z",
-              sourceIndex: 0,
-              turnId,
-              sequence: 1,
-            },
-          ],
-        },
-      ],
       messages: [
         {
           id: messageId,
@@ -1269,10 +1227,10 @@ describe("timelineModelStore", () => {
     });
 
     expect(isThreadTimelineRowsFullyHydrated(threadId)).toBe(false);
-    const snapshot = await fetchThreadTimelineRowsSnapshot(threadId);
+    const hydration = await fetchThreadTimelineRowsHydration(threadId);
 
-    expect(nativeApiMock.getThreadTimelineRowsSnapshot).toHaveBeenCalledTimes(1);
-    expect(snapshot.revision).toBe("rev:fresh-cache");
+    expect(nativeApiMock.getThread).toHaveBeenCalledTimes(1);
+    expect(hydration.revision).toBe(`${threadId}:2026-01-01T00:00:03.000Z:1`);
     expect(readTimelineRowsProjection(threadId).messages.map((message) => message.text)).toEqual([
       "Fresh backend answer",
     ]);
@@ -1398,7 +1356,7 @@ describe("timelineModelStore", () => {
     expect(changedProjection.rows[0]?.contentVersion).toBe("snapshot:2");
   });
 
-  it("recovers replayed live rows without duplicating hydrated snapshot rows", async () => {
+  it("recovers replayed live rows without duplicating hydrated source rows", async () => {
     vi.useFakeTimers();
     useTimelineModelStore.getState().primeSnapshot({
       threadId,

@@ -178,7 +178,7 @@ import type {
 } from "./sidebar/sidebarTypes";
 import { hydrateThreadFromCache, readCachedHydratedThread } from "../lib/threadHydrationCache";
 import {
-  prefetchThreadTimelineRowsSnapshot,
+  prefetchThreadTimelineRows,
   primeThreadTimelineRowsMetadataFromReadModelThread,
 } from "../lib/chat/timelineModelStore";
 import { shouldAvoidSpeculativeWork } from "../lib/resourceProfile";
@@ -4276,14 +4276,14 @@ function useSidebarComponent() {
         return Promise.resolve();
       }
       const expectedUpdatedAt = thread.updatedAt ?? null;
-      const prefetchTimelineSnapshot = () => {
+      const prefetchTimelineRows = () => {
         if (!shouldPrewarmRows) {
           return Promise.resolve();
         }
-        return prefetchThreadTimelineRowsSnapshot({ threadId })
+        return prefetchThreadTimelineRows({ threadId })
           .then(() => undefined)
           .catch((error) => {
-            reportBackgroundError("Failed to prefetch thread timeline snapshot.", error);
+            reportBackgroundError("Failed to prefetch thread timeline rows.", error);
           });
       };
       const storeThread = useStore.getState().threadsById?.[threadId];
@@ -4292,7 +4292,7 @@ function useSidebarComponent() {
         storeThread.historyLoaded !== false &&
         (expectedUpdatedAt === null || storeThread.updatedAt === expectedUpdatedAt)
       ) {
-        return prefetchTimelineSnapshot();
+        return prefetchTimelineRows();
       }
 
       const cached = readCachedHydratedThread(threadId, expectedUpdatedAt);
@@ -4303,10 +4303,10 @@ function useSidebarComponent() {
             useStore.getState().hydrateThreadFromReadModel(cached);
           });
         }
-        return prefetchTimelineSnapshot();
+        return prefetchTimelineRows();
       }
       if (shouldPrewarmRows && !shouldHydrateStore) {
-        return prefetchTimelineSnapshot();
+        return prefetchTimelineRows();
       }
 
       if (shouldHydrateStore) {
@@ -4323,7 +4323,7 @@ function useSidebarComponent() {
             .catch(() => undefined);
         }
 
-        const timelineSnapshotRequest = prefetchTimelineSnapshot();
+        const timelineRowsRequest = prefetchTimelineRows();
         const threadHydrationRequest = request
           .then((readModelThread) => {
             primeThreadTimelineRowsMetadataFromReadModelThread(readModelThread);
@@ -4336,7 +4336,7 @@ function useSidebarComponent() {
           .catch((error) => {
             reportBackgroundError("Failed to prefetch thread history.", error);
           });
-        return Promise.all([threadHydrationRequest, timelineSnapshotRequest]).then(() => undefined);
+        return Promise.all([threadHydrationRequest, timelineRowsRequest]).then(() => undefined);
       }
       return Promise.resolve();
     },

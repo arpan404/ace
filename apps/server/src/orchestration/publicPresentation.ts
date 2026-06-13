@@ -1,7 +1,5 @@
 import type {
   OrchestrationEvent,
-  OrchestrationGetThreadTimelineRowsSnapshotChunkResult,
-  OrchestrationGetThreadTimelineRowsSnapshotResult,
   OrchestrationReadModel,
   OrchestrationThread,
 } from "@ace/contracts";
@@ -24,24 +22,6 @@ export function sanitizeThreadForClient(thread: OrchestrationThread): Orchestrat
     ...thread,
     activities: thread.activities.map(compactActivityForClient),
     checkpoints: thread.checkpoints.map(compactCheckpointSummaryForClient),
-  };
-}
-
-export function sanitizeTimelineRowsSnapshotForClient(
-  snapshot: OrchestrationGetThreadTimelineRowsSnapshotResult,
-): OrchestrationGetThreadTimelineRowsSnapshotResult {
-  return {
-    ...snapshot,
-    activities: snapshot.activities.map(compactActivityForClient),
-  };
-}
-
-export function sanitizeTimelineRowsSnapshotChunkForClient(
-  snapshot: OrchestrationGetThreadTimelineRowsSnapshotChunkResult,
-): OrchestrationGetThreadTimelineRowsSnapshotChunkResult {
-  return {
-    ...snapshot,
-    activities: snapshot.activities.map(compactActivityForClient),
   };
 }
 

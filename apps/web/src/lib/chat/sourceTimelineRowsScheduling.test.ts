@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  shouldBuildNativeTimelineRowsOnMainThread,
+  shouldBuildSourceTimelineRowsOnMainThread,
   SYNCHRONOUS_NATIVE_TIMELINE_ROW_LIMIT,
-} from "./nativeTimelineRowsScheduling";
+} from "./sourceTimelineRowsScheduling";
 
-describe("native timeline row scheduling", () => {
+describe("source timeline row scheduling", () => {
   it("builds small completed snapshots on the main thread", () => {
     expect(
-      shouldBuildNativeTimelineRowsOnMainThread({
+      shouldBuildSourceTimelineRowsOnMainThread({
         hasCompleteSnapshot: true,
         rowCount: SYNCHRONOUS_NATIVE_TIMELINE_ROW_LIMIT,
       }),
@@ -17,7 +17,7 @@ describe("native timeline row scheduling", () => {
 
   it("uses the worker for large completed snapshots", () => {
     expect(
-      shouldBuildNativeTimelineRowsOnMainThread({
+      shouldBuildSourceTimelineRowsOnMainThread({
         hasCompleteSnapshot: true,
         rowCount: SYNCHRONOUS_NATIVE_TIMELINE_ROW_LIMIT + 1,
       }),
@@ -26,7 +26,7 @@ describe("native timeline row scheduling", () => {
 
   it("does not delay partial live rows behind worker startup", () => {
     expect(
-      shouldBuildNativeTimelineRowsOnMainThread({
+      shouldBuildSourceTimelineRowsOnMainThread({
         hasCompleteSnapshot: false,
         rowCount: SYNCHRONOUS_NATIVE_TIMELINE_ROW_LIMIT + 1,
       }),
@@ -35,7 +35,7 @@ describe("native timeline row scheduling", () => {
 
   it("does not build empty inputs", () => {
     expect(
-      shouldBuildNativeTimelineRowsOnMainThread({
+      shouldBuildSourceTimelineRowsOnMainThread({
         hasCompleteSnapshot: false,
         rowCount: 0,
       }),

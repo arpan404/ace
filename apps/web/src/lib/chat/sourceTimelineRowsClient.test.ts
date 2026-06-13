@@ -1,17 +1,13 @@
-import {
-  MessageId,
-  TurnId,
-  type OrchestrationMessage,
-  type OrchestrationTimelineRow,
-} from "@ace/contracts";
+import { MessageId, TurnId, type OrchestrationMessage } from "@ace/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
-  clearCachedNativeTimelineRows,
-  createNativeTimelineRowsCacheKey,
-  readCachedNativeTimelineRows,
-  resolveNativeTimelineRows,
-} from "./nativeTimelineRowsClient";
+  clearCachedSourceTimelineRows,
+  createSourceTimelineRowsCacheKey,
+  readCachedSourceTimelineRows,
+  resolveSourceTimelineRows,
+} from "./sourceTimelineRowsClient";
+import type { TimelineSourceRow } from "./timelineModelStore";
 
 const turnId = TurnId.makeUnsafe("turn-native-rows-client");
 const messageId = MessageId.makeUnsafe("message-native-rows-client");
@@ -30,7 +26,7 @@ function createMessage(): OrchestrationMessage {
   };
 }
 
-function createTimelineRow(message: OrchestrationMessage): OrchestrationTimelineRow {
+function createTimelineRow(message: OrchestrationMessage): TimelineSourceRow {
   return {
     id: `message:${message.id}`,
     kind: "message",
@@ -47,20 +43,20 @@ function createTimelineRow(message: OrchestrationMessage): OrchestrationTimeline
         createdAt: message.createdAt,
         sourceIndex: 0,
         turnId: message.turnId,
-        sequence: message.sequence,
+        ...(message.sequence !== undefined ? { sequence: message.sequence } : {}),
       },
     ],
   };
 }
 
 afterEach(() => {
-  clearCachedNativeTimelineRows(cacheKey);
+  clearCachedSourceTimelineRows(cacheKey);
   vi.unstubAllGlobals();
 });
 
-describe("nativeTimelineRowsClient", () => {
+describe("sourceTimelineRowsClient", () => {
   it("creates a cache key for live rows before a complete snapshot exists", () => {
-    const firstKey = createNativeTimelineRowsCacheKey({
+    const firstKey = createSourceTimelineRowsCacheKey({
       threadId: "thread-live-only",
       snapshotRevision: null,
       snapshotTotalRows: null,
@@ -74,7 +70,7 @@ describe("nativeTimelineRowsClient", () => {
       hideCompletedWorkMessages: false,
       turnDiffSummaryKey: "",
     });
-    const secondKey = createNativeTimelineRowsCacheKey({
+    const secondKey = createSourceTimelineRowsCacheKey({
       threadId: "thread-live-only",
       snapshotRevision: null,
       snapshotTotalRows: null,
@@ -90,14 +86,14 @@ describe("nativeTimelineRowsClient", () => {
     });
 
     expect(firstKey).not.toBeNull();
-    expect(firstKey?.startsWith("native-timeline-rows:v6\0")).toBe(true);
+    expect(firstKey?.startsWith("source-timeline-rows:v7\0")).toBe(true);
     expect(firstKey).toContain("live");
-    expect(secondKey).not.toBe(firstKey);
+    expect(secondKey).toBe(firstKey);
   });
 
   it("does not create a cache key before any timeline rows exist", () => {
     expect(
-      createNativeTimelineRowsCacheKey({
+      createSourceTimelineRowsCacheKey({
         threadId: "thread-live-only",
         snapshotRevision: null,
         snapshotTotalRows: null,
@@ -129,11 +125,11 @@ describe("nativeTimelineRowsClient", () => {
       turnDiffSummaryKey: "",
     };
 
-    const firstKey = createNativeTimelineRowsCacheKey({
+    const firstKey = createSourceTimelineRowsCacheKey({
       ...baseInput,
       rowContentKey: "message:1:v1\0message:2:optimistic",
     });
-    const secondKey = createNativeTimelineRowsCacheKey({
+    const secondKey = createSourceTimelineRowsCacheKey({
       ...baseInput,
       rowContentKey: "message:1:v1\0message:2:server-stream",
     });
@@ -157,11 +153,11 @@ describe("nativeTimelineRowsClient", () => {
       turnDiffSummaryKey: "",
     };
 
-    const visibleKey = createNativeTimelineRowsCacheKey({
+    const visibleKey = createSourceTimelineRowsCacheKey({
       ...baseInput,
       hideCompletedWorkMessages: false,
     });
-    const hiddenKey = createNativeTimelineRowsCacheKey({
+    const hiddenKey = createSourceTimelineRowsCacheKey({
       ...baseInput,
       hideCompletedWorkMessages: true,
     });
@@ -186,10 +182,10 @@ describe("nativeTimelineRowsClient", () => {
       turnDiffSummaryByAssistantMessageId: new Map(),
     };
 
-    const firstRows = await resolveNativeTimelineRows({ cacheKey, rowsInput });
-    const secondRows = await resolveNativeTimelineRows({ cacheKey, rowsInput });
+    const firstRows = await resolveSourceTimelineRows({ cacheKey, rowsInput });
+    const secondRows = await resolveSourceTimelineRows({ cacheKey, rowsInput });
 
-    expect(readCachedNativeTimelineRows(cacheKey)).toBe(firstRows);
+    expect(readCachedSourceTimelineRows(cacheKey)).toBe(firstRows);
     expect(secondRows).toBe(firstRows);
     expect(firstRows).toHaveLength(1);
     expect(firstRows[0]).toMatchObject({ kind: "message", id: `message:${messageId}` });

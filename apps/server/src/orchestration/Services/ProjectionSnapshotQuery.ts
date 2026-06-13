@@ -8,10 +8,6 @@
  */
 import type {
   OrchestrationCheckpointSummary,
-  OrchestrationGetThreadTimelineRowsSnapshotChunkInput,
-  OrchestrationGetThreadTimelineRowsSnapshotChunkResult,
-  OrchestrationGetThreadTimelineRowsSnapshotInput,
-  OrchestrationGetThreadTimelineRowsSnapshotResult,
   OrchestrationGetSnapshotInput,
   OrchestrationProject,
   OrchestrationReadModel,
@@ -58,26 +54,6 @@ export interface ProjectionSnapshotQueryShape {
   readonly getThread: (
     threadId: ThreadId,
   ) => Effect.Effect<Option.Option<OrchestrationThread>, ProjectionRepositoryError>;
-
-  /**
-   * Read the complete server-rendered row timeline for one thread in a single request.
-   */
-  readonly getThreadTimelineRowsSnapshot: (
-    input: OrchestrationGetThreadTimelineRowsSnapshotInput,
-  ) => Effect.Effect<
-    Option.Option<OrchestrationGetThreadTimelineRowsSnapshotResult>,
-    ProjectionRepositoryError
-  >;
-
-  /**
-   * Read a normalized UI row slice for one thread.
-   */
-  readonly getThreadTimelineRowsSnapshotChunk: (
-    input: OrchestrationGetThreadTimelineRowsSnapshotChunkInput,
-  ) => Effect.Effect<
-    Option.Option<OrchestrationGetThreadTimelineRowsSnapshotChunkResult>,
-    ProjectionRepositoryError
-  >;
 
   /**
    * Read aggregate projection counts without hydrating the full read model.

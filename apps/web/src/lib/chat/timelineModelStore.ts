@@ -1,27 +1,63 @@
 import {
-  type OrchestrationGetThreadTimelineRowsSnapshotResult,
   type OrchestrationMessage,
   type OrchestrationProposedPlan,
-  type OrchestrationThreadActivity,
-  type OrchestrationThreadTimelineEntryReference,
-  type OrchestrationTimelineRow,
-  type ThreadId,
   type OrchestrationReadModel,
+  type OrchestrationThread,
+  type OrchestrationThreadActivity,
+  type ThreadId,
 } from "@ace/contracts";
+import { compareOrchestrationTimelineSources } from "@ace/shared/orchestrationTimelineSources";
 import { create } from "zustand";
 
 import { ensureNativeApi } from "../../nativeApi";
+import { resolveConnectionForThreadId } from "../connectionRouting";
 import { LRUCache } from "../lruCache";
 import { clampCacheEntryCount } from "../resourceProfile";
+import { resolveAttachmentPreviewUrl } from "./attachmentPreviewUrls";
 
 const DEFAULT_TIMELINE_TAIL_WINDOW_ROWS = 100;
 const BACKGROUND_TIMELINE_ROWS_PREFETCH_DELAY_MS = 750;
-const TIMELINE_ROWS_SNAPSHOT_RPC_TIMEOUT_MS = 10_000;
+const THREAD_TIMELINE_HYDRATION_TIMEOUT_MS = 10_000;
 const TIMELINE_MODEL_CACHE_VERSION = "timeline-model:v4";
 const MAX_ROW_HEIGHT_CACHE_ENTRIES = clampCacheEntryCount(32_000, {
   moderateCapEntries: 16_000,
   constrainedCapEntries: 8_000,
 });
+
+export type TimelineSourceKind = "message" | "activity" | "proposed-plan";
+export type TimelineSourceRowKind = "message" | "work" | "proposed-plan";
+
+export interface TimelineSourceReference {
+  readonly kind: TimelineSourceKind;
+  readonly id: string;
+  readonly createdAt: string;
+  readonly sourceIndex: number;
+  readonly turnId?: string | null;
+  readonly sequence?: number;
+}
+
+export interface TimelineSourceRow {
+  readonly id: string;
+  readonly kind: TimelineSourceRowKind;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly contentVersion: string;
+  readonly startSourceIndex: number;
+  readonly endSourceIndexExclusive: number;
+  readonly turnId?: string | null;
+  readonly sourceRefs: readonly TimelineSourceReference[];
+}
+
+export interface TimelineRowsSnapshot {
+  readonly threadId: ThreadId;
+  readonly revision: string;
+  readonly updatedAt: string;
+  readonly totalRows: number;
+  readonly rows: readonly TimelineSourceRow[];
+  readonly messages: readonly OrchestrationMessage[];
+  readonly activities: readonly OrchestrationThreadActivity[];
+  readonly proposedPlans: readonly OrchestrationProposedPlan[];
+}
 
 export interface TimelineRowsMetadata {
   readonly cacheVersion?: string;
@@ -55,7 +91,7 @@ export interface TimelineRowsActiveWindow {
 
 export interface TimelineRowsProjection {
   readonly rowIds: readonly string[];
-  readonly rows: readonly OrchestrationTimelineRow[];
+  readonly rows: readonly TimelineSourceRow[];
   readonly messages: readonly OrchestrationMessage[];
   readonly activities: readonly OrchestrationThreadActivity[];
   readonly proposedPlans: readonly OrchestrationProposedPlan[];
@@ -73,7 +109,7 @@ export type TimelineRowsWindowSlot =
       readonly kind: "row";
       readonly rowIndex: number;
       readonly rowId: string;
-      readonly row: OrchestrationTimelineRow;
+      readonly row: TimelineSourceRow;
     }
   | {
       readonly kind: "placeholder";
@@ -93,7 +129,13 @@ export interface TimelineRowsWindowProjection {
 interface PrimeLiveTimelineRowInput {
   readonly threadId: ThreadId;
   readonly updatedAt: string;
-  readonly entry: Omit<OrchestrationThreadTimelineEntryReference, "index">;
+  readonly entry: {
+    readonly kind: TimelineSourceKind;
+    readonly id: string;
+    readonly createdAt: string;
+    readonly turnId?: string | null;
+    readonly sequence?: number;
+  };
   readonly message?: OrchestrationMessage;
   readonly activity?: OrchestrationThreadActivity;
   readonly proposedPlan?: OrchestrationProposedPlan;
@@ -105,7 +147,7 @@ interface PrimeLiveTimelineRowOptions {
 
 interface RemoveLiveTimelineRowInput {
   readonly threadId: ThreadId;
-  readonly kind: OrchestrationThreadTimelineEntryReference["kind"];
+  readonly kind: TimelineSourceKind;
   readonly id: string;
 }
 
@@ -117,9 +159,10 @@ function mergeQueuedLiveTimelineRowPatch(
   pending: PrimeLiveTimelineRowInput,
   input: PrimeLiveTimelineRowInput,
 ): PrimeLiveTimelineRowInput {
+  const connectionUrl = resolveConnectionForThreadId(input.threadId);
   const message =
     pending.message && input.message
-      ? chooseFreshestMessage(pending.message, input.message)
+      ? chooseFreshestMessage(pending.message, input.message, connectionUrl)
       : (input.message ?? pending.message);
   const activity = input.activity ?? pending.activity;
   const proposedPlan =
@@ -137,7 +180,7 @@ function mergeQueuedLiveTimelineRowPatch(
 interface TimelineModelState {
   readonly metadataByThreadId: Record<string, TimelineRowsMetadata>;
   readonly rowIdsByThreadId: Record<string, readonly string[]>;
-  readonly rowsById: Record<string, OrchestrationTimelineRow>;
+  readonly rowsById: Record<string, TimelineSourceRow>;
   readonly messagesById: Record<string, OrchestrationMessage>;
   readonly activitiesById: Record<string, OrchestrationThreadActivity>;
   readonly proposedPlansById: Record<string, OrchestrationProposedPlan>;
@@ -150,8 +193,8 @@ interface TimelineModelState {
   readonly beginFetches: (threadId: ThreadId, count: number) => void;
   readonly finishFetches: (threadId: ThreadId, count: number) => void;
   readonly primeMetadata: (metadata: TimelineRowsMetadata) => void;
-  readonly primeSnapshot: (snapshot: OrchestrationGetThreadTimelineRowsSnapshotResult) => void;
-  readonly patchRow: (threadId: ThreadId, row: OrchestrationTimelineRow) => void;
+  readonly primeSnapshot: (snapshot: TimelineRowsSnapshot) => void;
+  readonly patchRow: (threadId: ThreadId, row: TimelineSourceRow) => void;
   readonly setActiveWindow: (threadId: ThreadId, window: TimelineRowsActiveWindow) => void;
   readonly noteRowHeightWrite: () => void;
   readonly clearThread: (threadId: ThreadId) => void;
@@ -162,9 +205,9 @@ const rowHeightCache = new LRUCache<number>(
   MAX_ROW_HEIGHT_CACHE_ENTRIES,
   MAX_ROW_HEIGHT_CACHE_ENTRIES * 24,
 );
-const inFlightRowsSnapshotByThreadId = new Map<
+const inFlightThreadTimelineHydrationByThreadId = new Map<
   ThreadId,
-  Promise<OrchestrationGetThreadTimelineRowsSnapshotResult>
+  Promise<TimelineRowsSnapshot>
 >();
 const projectionCacheByThreadId = new Map<string, TimelineRowsProjectionCacheEntry>();
 const liveTimelineRowPatchQueue = new Map<string, PrimeLiveTimelineRowInput>();
@@ -202,17 +245,17 @@ function cancelRowHeightRevisionFrame(): void {
   rowHeightRevisionFrame = null;
 }
 
-function createTimelineRowsSnapshotTimeout(threadId: ThreadId): Promise<never> {
+function createThreadTimelineHydrationTimeout(threadId: ThreadId): Promise<never> {
   return new Promise((_, reject) => {
     globalThis.setTimeout(() => {
       reject(
         new Error(
-          `Timed out loading timeline snapshot for thread ${String(
+          `Timed out hydrating timeline rows for thread ${String(
             threadId,
-          )} after ${String(TIMELINE_ROWS_SNAPSHOT_RPC_TIMEOUT_MS)}ms.`,
+          )} after ${String(THREAD_TIMELINE_HYDRATION_TIMEOUT_MS)}ms.`,
         ),
       );
-    }, TIMELINE_ROWS_SNAPSHOT_RPC_TIMEOUT_MS);
+    }, THREAD_TIMELINE_HYDRATION_TIMEOUT_MS);
   });
 }
 
@@ -220,18 +263,13 @@ function rowKey(threadId: ThreadId, rowId: string): string {
   return `${threadId}:${rowId}`;
 }
 
-function rowKindForSourceKind(
-  kind: OrchestrationThreadTimelineEntryReference["kind"],
-): OrchestrationTimelineRow["kind"] {
+function rowKindForSourceKind(kind: TimelineSourceKind): TimelineSourceRow["kind"] {
   if (kind === "message") return "message";
   if (kind === "activity") return "work";
   return "proposed-plan";
 }
 
-function rowIdForSource(
-  kind: OrchestrationThreadTimelineEntryReference["kind"],
-  id: string,
-): string {
+function rowIdForSource(kind: TimelineSourceKind, id: string): string {
   return `${kind}:${id}`;
 }
 
@@ -277,12 +315,9 @@ type TimelineMessageAttachment = NonNullable<OrchestrationMessage["attachments"]
   readonly previewUrl?: string;
 };
 
-function attachmentPreviewRoutePath(attachmentId: string): string {
-  return `/attachments/${encodeURIComponent(attachmentId)}`;
-}
-
 function normalizeTimelineMessageAttachments(
   attachments: OrchestrationMessage["attachments"],
+  connectionUrl?: string,
 ): OrchestrationMessage["attachments"] {
   if (!attachments || attachments.length === 0) {
     return attachments;
@@ -294,7 +329,7 @@ function normalizeTimelineMessageAttachments(
     }
     return {
       ...attachment,
-      previewUrl: attachmentPreviewRoutePath(String(attachment.id)),
+      previewUrl: resolveAttachmentPreviewUrl(String(attachment.id), connectionUrl),
     };
   }) as OrchestrationMessage["attachments"];
 }
@@ -302,8 +337,9 @@ function normalizeTimelineMessageAttachments(
 function mergeTimelineMessageAttachments(
   existing: OrchestrationMessage["attachments"],
   incoming: OrchestrationMessage["attachments"],
+  connectionUrl?: string,
 ): OrchestrationMessage["attachments"] {
-  const normalizedIncoming = normalizeTimelineMessageAttachments(incoming);
+  const normalizedIncoming = normalizeTimelineMessageAttachments(incoming, connectionUrl);
   if (!normalizedIncoming || normalizedIncoming.length === 0) {
     return normalizedIncoming;
   }
@@ -330,8 +366,11 @@ function mergeTimelineMessageAttachments(
   }) as OrchestrationMessage["attachments"];
 }
 
-function normalizeTimelineMessage(message: OrchestrationMessage): OrchestrationMessage {
-  const attachments = normalizeTimelineMessageAttachments(message.attachments);
+function normalizeTimelineMessage(
+  message: OrchestrationMessage,
+  connectionUrl?: string,
+): OrchestrationMessage {
+  const attachments = normalizeTimelineMessageAttachments(message.attachments, connectionUrl);
   return attachments && attachments.length > 0 ? { ...message, attachments } : message;
 }
 
@@ -355,11 +394,12 @@ function mergeStreamingMessageText(existingText: string, incomingText: string): 
 function chooseFreshestMessage(
   existing: OrchestrationMessage | undefined,
   incoming: OrchestrationMessage,
+  connectionUrl?: string,
 ): OrchestrationMessage {
   if (!existing) {
-    return normalizeTimelineMessage(incoming);
+    return normalizeTimelineMessage(incoming, connectionUrl);
   }
-  const normalizedIncoming = normalizeTimelineMessage(incoming);
+  const normalizedIncoming = normalizeTimelineMessage(incoming, connectionUrl);
   const updatedAtComparison = existing.updatedAt.localeCompare(incoming.updatedAt);
   if (updatedAtComparison > 0) {
     return existing;
@@ -375,6 +415,7 @@ function chooseFreshestMessage(
     const attachments = mergeTimelineMessageAttachments(
       existing.attachments,
       normalizedIncoming.attachments,
+      connectionUrl,
     );
     return {
       ...normalizedIncoming,
@@ -395,6 +436,7 @@ function chooseFreshestMessage(
     const attachments = mergeTimelineMessageAttachments(
       existing.attachments,
       normalizedIncoming.attachments,
+      connectionUrl,
     );
     return {
       ...existing,
@@ -407,6 +449,7 @@ function chooseFreshestMessage(
     const attachments = mergeTimelineMessageAttachments(
       existing.attachments,
       normalizedIncoming.attachments,
+      connectionUrl,
     );
     return {
       ...existing,
@@ -418,6 +461,7 @@ function chooseFreshestMessage(
   const attachments = mergeTimelineMessageAttachments(
     existing.attachments,
     normalizedIncoming.attachments,
+    connectionUrl,
   );
   return attachments && attachments.length > 0
     ? { ...normalizedIncoming, attachments }
@@ -435,9 +479,30 @@ function chooseFreshestProposedPlan(
 }
 
 function compareTimelineRowsBySourceOrder(
-  left: OrchestrationTimelineRow,
-  right: OrchestrationTimelineRow,
+  left: TimelineSourceRow,
+  right: TimelineSourceRow,
 ): number {
+  const leftSource = left.sourceRefs[0];
+  const rightSource = right.sourceRefs[0];
+  if (leftSource && rightSource) {
+    const sourceOrder = compareOrchestrationTimelineSources(
+      {
+        kind: leftSource.kind,
+        id: leftSource.id,
+        createdAt: leftSource.createdAt,
+        sequence: leftSource.sequence ?? null,
+      },
+      {
+        kind: rightSource.kind,
+        id: rightSource.id,
+        createdAt: rightSource.createdAt,
+        sequence: rightSource.sequence ?? null,
+      },
+    );
+    if (sourceOrder !== 0) {
+      return sourceOrder;
+    }
+  }
   return (
     compareLiveTimelineRowSourceSequence(left, right) ||
     left.startSourceIndex - right.startSourceIndex ||
@@ -446,9 +511,50 @@ function compareTimelineRowsBySourceOrder(
   );
 }
 
+function timelineRowSourceRefsEqual(
+  left: readonly TimelineSourceRow["sourceRefs"][number][],
+  right: readonly TimelineSourceRow["sourceRefs"][number][],
+): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+  for (let index = 0; index < left.length; index += 1) {
+    const leftRef = left[index];
+    const rightRef = right[index];
+    if (
+      !leftRef ||
+      !rightRef ||
+      leftRef.kind !== rightRef.kind ||
+      leftRef.id !== rightRef.id ||
+      leftRef.createdAt !== rightRef.createdAt ||
+      leftRef.sourceIndex !== rightRef.sourceIndex ||
+      leftRef.turnId !== rightRef.turnId ||
+      leftRef.sequence !== rightRef.sequence
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function timelineRowsEqual(left: TimelineSourceRow | undefined, right: TimelineSourceRow): boolean {
+  return (
+    left !== undefined &&
+    left.id === right.id &&
+    left.kind === right.kind &&
+    left.createdAt === right.createdAt &&
+    left.updatedAt === right.updatedAt &&
+    left.contentVersion === right.contentVersion &&
+    left.startSourceIndex === right.startSourceIndex &&
+    left.endSourceIndexExclusive === right.endSourceIndexExclusive &&
+    left.turnId === right.turnId &&
+    timelineRowSourceRefsEqual(left.sourceRefs, right.sourceRefs)
+  );
+}
+
 function compareLiveTimelineRowSourceSequence(
-  left: OrchestrationTimelineRow,
-  right: OrchestrationTimelineRow,
+  left: TimelineSourceRow,
+  right: TimelineSourceRow,
 ): number {
   if (!isLiveTimelineRow(left) && !isLiveTimelineRow(right)) {
     return 0;
@@ -461,11 +567,11 @@ function compareLiveTimelineRowSourceSequence(
   return leftSequence - rightSequence;
 }
 
-function isLiveTimelineRow(row: OrchestrationTimelineRow): boolean {
+function isLiveTimelineRow(row: TimelineSourceRow): boolean {
   return row.contentVersion.startsWith("live:");
 }
 
-function timelineRowFirstSequence(row: OrchestrationTimelineRow): number | undefined {
+function timelineRowFirstSequence(row: TimelineSourceRow): number | undefined {
   let sequence: number | undefined;
   for (const sourceRef of row.sourceRefs) {
     if (sourceRef.sequence === undefined) {
@@ -479,7 +585,7 @@ function timelineRowFirstSequence(row: OrchestrationTimelineRow): number | undef
 function sortTimelineRowIds(
   rowIds: readonly string[],
   threadId: ThreadId,
-  rowsById: Readonly<Record<string, OrchestrationTimelineRow>>,
+  rowsById: Readonly<Record<string, TimelineSourceRow>>,
 ): string[] {
   return rowIds.toSorted((leftId, rightId) => {
     const left = rowsById[rowKey(threadId, leftId)];
@@ -493,7 +599,7 @@ function sortTimelineRowIds(
 
 function primeTimelineRowsSnapshotIntoState(
   state: TimelineModelState,
-  snapshot: OrchestrationGetThreadTimelineRowsSnapshotResult,
+  snapshot: TimelineRowsSnapshot,
 ): TimelineModelState {
   const snapshotRowIds = new Set(snapshot.rows.map((row) => row.id));
   const previousRowIds = state.rowIdsByThreadId[snapshot.threadId] ?? [];
@@ -547,10 +653,12 @@ function primeTimelineRowsSnapshotIntoState(
   }
 
   const messagesById = { ...state.messagesById };
+  const connectionUrl = resolveConnectionForThreadId(snapshot.threadId);
   for (const message of snapshot.messages) {
     messagesById[String(message.id)] = chooseFreshestMessage(
       messagesById[String(message.id)],
       message,
+      connectionUrl,
     );
   }
   const activitiesById = { ...state.activitiesById };
@@ -659,6 +767,10 @@ export const useTimelineModelStore = create<TimelineModelState>((set) => ({
   primeSnapshot: (snapshot) => set((state) => primeTimelineRowsSnapshotIntoState(state, snapshot)),
   patchRow: (threadId, row) =>
     set((state) => {
+      const previousRow = state.rowsById[rowKey(threadId, row.id)];
+      if (timelineRowsEqual(previousRow, row)) {
+        return state;
+      }
       const rowsById = {
         ...state.rowsById,
         [rowKey(threadId, row.id)]: row,
@@ -722,7 +834,7 @@ export const useTimelineModelStore = create<TimelineModelState>((set) => ({
   },
   reset: () => {
     rowHeightCache.clear();
-    inFlightRowsSnapshotByThreadId.clear();
+    inFlightThreadTimelineHydrationByThreadId.clear();
     projectionCacheByThreadId.clear();
     cancelLiveTimelineRowPatchFrame();
     cancelRowHeightRevisionFrame();
@@ -741,6 +853,113 @@ function timelineRowsMetadataFromReadModelThread(
     updatedAt: thread.updatedAt,
     totalRows,
     tailStartRowIndex: Math.max(0, totalRows - DEFAULT_TIMELINE_TAIL_WINDOW_ROWS),
+  };
+}
+
+type ThreadTimelineSource =
+  | {
+      readonly kind: "message";
+      readonly id: string;
+      readonly turnId: string | null;
+      readonly sequence?: number;
+      readonly createdAt: string;
+      readonly updatedAt: string;
+      readonly textLength: number;
+    }
+  | {
+      readonly kind: "activity";
+      readonly id: string;
+      readonly turnId: string | null;
+      readonly sequence?: number;
+      readonly createdAt: string;
+      readonly updatedAt: string;
+      readonly textLength: number;
+    }
+  | {
+      readonly kind: "proposed-plan";
+      readonly id: string;
+      readonly turnId: string | null;
+      readonly sequence?: number;
+      readonly createdAt: string;
+      readonly updatedAt: string;
+      readonly textLength: number;
+    };
+
+function toThreadTimelineSources(thread: OrchestrationThread): ThreadTimelineSource[] {
+  return [
+    ...thread.messages.map(
+      (message): ThreadTimelineSource => ({
+        kind: "message",
+        id: String(message.id),
+        turnId: message.turnId,
+        ...(message.sequence !== undefined ? { sequence: message.sequence } : {}),
+        createdAt: message.createdAt,
+        updatedAt: message.updatedAt,
+        textLength: message.text.length,
+      }),
+    ),
+    ...thread.activities.map(
+      (activity): ThreadTimelineSource => ({
+        kind: "activity",
+        id: String(activity.id),
+        turnId: activity.turnId,
+        ...(activity.sequence !== undefined ? { sequence: activity.sequence } : {}),
+        createdAt: activity.createdAt,
+        updatedAt: activity.createdAt,
+        textLength: activity.summary.length + JSON.stringify(activity.payload ?? null).length,
+      }),
+    ),
+    ...thread.proposedPlans.map(
+      (proposedPlan): ThreadTimelineSource => ({
+        kind: "proposed-plan",
+        id: String(proposedPlan.id),
+        turnId: proposedPlan.turnId,
+        createdAt: proposedPlan.createdAt,
+        updatedAt: proposedPlan.updatedAt,
+        textLength: proposedPlan.planMarkdown.length,
+      }),
+    ),
+  ].toSorted(compareOrchestrationTimelineSources);
+}
+
+function contentVersionForSource(source: ThreadTimelineSource): string {
+  return ["source", source.kind, source.id, source.updatedAt, source.textLength].join(":");
+}
+
+function buildTimelineRowsSnapshotFromThread(thread: OrchestrationThread): TimelineRowsSnapshot {
+  const connectionUrl = resolveConnectionForThreadId(thread.id);
+  const sources = toThreadTimelineSources(thread);
+  const rows = sources.map(
+    (source, sourceIndex): TimelineSourceRow => ({
+      id: rowIdForSource(source.kind, source.id),
+      kind: rowKindForSourceKind(source.kind),
+      createdAt: source.createdAt,
+      updatedAt: source.updatedAt,
+      contentVersion: contentVersionForSource(source),
+      startSourceIndex: sourceIndex,
+      endSourceIndexExclusive: sourceIndex + 1,
+      ...(source.turnId !== null ? { turnId: source.turnId } : {}),
+      sourceRefs: [
+        {
+          kind: source.kind,
+          id: source.id,
+          createdAt: source.createdAt,
+          sourceIndex,
+          ...(source.turnId !== null ? { turnId: source.turnId } : {}),
+          ...(source.sequence !== undefined ? { sequence: source.sequence } : {}),
+        },
+      ],
+    }),
+  );
+  return {
+    threadId: thread.id,
+    revision: timelineRowsMetadataFromReadModelThread(thread).revision,
+    updatedAt: thread.updatedAt,
+    totalRows: rows.length,
+    rows,
+    messages: thread.messages.map((message) => normalizeTimelineMessage(message, connectionUrl)),
+    activities: thread.activities,
+    proposedPlans: thread.proposedPlans,
   };
 }
 
@@ -775,6 +994,14 @@ function timelineRowsActiveWindowEquals(
 export function primeThreadTimelineRowsMetadataFromReadModelThread(
   thread: OrchestrationReadModel["threads"][number],
 ): void {
+  if (
+    thread.messages.length > 0 ||
+    thread.activities.length > 0 ||
+    thread.proposedPlans.length > 0
+  ) {
+    useTimelineModelStore.getState().primeSnapshot(buildTimelineRowsSnapshotFromThread(thread));
+    return;
+  }
   useTimelineModelStore.getState().primeMetadata(timelineRowsMetadataFromReadModelThread(thread));
 }
 
@@ -785,12 +1012,33 @@ export function primeThreadTimelineRowsMetadataFromReadModelThreads(
     return;
   }
 
+  const hydratedThreads: OrchestrationThread[] = [];
+  const metadataOnlyThreads: OrchestrationThread[] = [];
+  for (const thread of threads) {
+    if (
+      thread.messages.length > 0 ||
+      thread.activities.length > 0 ||
+      thread.proposedPlans.length > 0
+    ) {
+      hydratedThreads.push(thread);
+    } else {
+      metadataOnlyThreads.push(thread);
+    }
+  }
+
+  for (const thread of hydratedThreads) {
+    useTimelineModelStore.getState().primeSnapshot(buildTimelineRowsSnapshotFromThread(thread));
+  }
+  if (metadataOnlyThreads.length === 0) {
+    return;
+  }
+
   useTimelineModelStore.setState((state) => {
     let metadataByThreadId = state.metadataByThreadId;
     let revisionByThreadId = state.revisionByThreadId;
     let changed = false;
 
-    for (const thread of threads) {
+    for (const thread of metadataOnlyThreads) {
       const metadata = timelineRowsMetadataFromReadModelThread(thread);
       if (timelineRowsMetadataEquals(metadataByThreadId[thread.id], metadata)) {
         continue;
@@ -834,9 +1082,9 @@ export function isThreadTimelineRowsFullyHydrated(threadId: ThreadId): boolean {
   );
 }
 
-export async function fetchThreadTimelineRowsSnapshot(
+export async function fetchThreadTimelineRowsHydration(
   threadId: ThreadId,
-): Promise<OrchestrationGetThreadTimelineRowsSnapshotResult> {
+): Promise<TimelineRowsSnapshot> {
   if (isThreadTimelineRowsFullyHydrated(threadId)) {
     const state = useTimelineModelStore.getState();
     const metadata = state.metadataByThreadId[threadId];
@@ -855,47 +1103,49 @@ export async function fetchThreadTimelineRowsSnapshot(
     }
   }
 
-  const existing = inFlightRowsSnapshotByThreadId.get(threadId);
+  const existing = inFlightThreadTimelineHydrationByThreadId.get(threadId);
   if (existing) {
     return existing;
   }
 
   useTimelineModelStore.getState().beginFetches(threadId, 1);
-  const rpcPromise = ensureNativeApi().orchestration.getThreadTimelineRowsSnapshot({ threadId });
-  const hydratedSnapshotPromise = rpcPromise.then((snapshot) => {
+  const rpcPromise = ensureNativeApi().orchestration.getThread({ threadId });
+  const hydratedSnapshotPromise = rpcPromise.then((thread) => {
+    const snapshot = buildTimelineRowsSnapshotFromThread(thread);
     useTimelineModelStore.getState().primeSnapshot(snapshot);
     return snapshot;
   });
   void hydratedSnapshotPromise.catch(() => undefined);
   const promise = Promise.race([
     hydratedSnapshotPromise,
-    createTimelineRowsSnapshotTimeout(threadId),
+    createThreadTimelineHydrationTimeout(threadId),
   ]).finally(() => {
-    inFlightRowsSnapshotByThreadId.delete(threadId);
+    inFlightThreadTimelineHydrationByThreadId.delete(threadId);
     useTimelineModelStore.getState().finishFetches(threadId, 1);
   });
-  inFlightRowsSnapshotByThreadId.set(threadId, promise);
+  inFlightThreadTimelineHydrationByThreadId.set(threadId, promise);
   return promise;
 }
 
-export function hydrateThreadTimelineRowsSnapshotInBackground(threadId: ThreadId): void {
-  const existing = inFlightRowsSnapshotByThreadId.get(threadId);
+export function hydrateThreadTimelineRowsInBackground(threadId: ThreadId): void {
+  const existing = inFlightThreadTimelineHydrationByThreadId.get(threadId);
   if (existing) {
     void existing.catch(() => undefined);
     return;
   }
 
   useTimelineModelStore.getState().beginFetches(threadId, 1);
-  let promise: Promise<OrchestrationGetThreadTimelineRowsSnapshotResult>;
+  let promise: Promise<TimelineRowsSnapshot>;
   try {
     promise = ensureNativeApi()
-      .orchestration.getThreadTimelineRowsSnapshot({ threadId })
-      .then((snapshot) => {
+      .orchestration.getThread({ threadId })
+      .then((thread) => {
+        const snapshot = buildTimelineRowsSnapshotFromThread(thread);
         useTimelineModelStore.getState().primeSnapshot(snapshot);
         return snapshot;
       })
       .finally(() => {
-        inFlightRowsSnapshotByThreadId.delete(threadId);
+        inFlightThreadTimelineHydrationByThreadId.delete(threadId);
         useTimelineModelStore.getState().finishFetches(threadId, 1);
       });
   } catch (error) {
@@ -903,7 +1153,7 @@ export function hydrateThreadTimelineRowsSnapshotInBackground(threadId: ThreadId
     void error;
     return;
   }
-  inFlightRowsSnapshotByThreadId.set(threadId, promise);
+  inFlightThreadTimelineHydrationByThreadId.set(threadId, promise);
   void promise.catch(() => undefined);
 }
 
@@ -912,13 +1162,13 @@ export interface ThreadTimelineRowsOpenPrefetchHandle {
   readonly stop: () => void;
 }
 
-export async function prefetchThreadTimelineRowsSnapshot(input: {
+export async function prefetchThreadTimelineRows(input: {
   readonly threadId: ThreadId;
 }): Promise<void> {
   if (isThreadTimelineRowsFullyHydrated(input.threadId)) {
     return;
   }
-  await fetchThreadTimelineRowsSnapshot(input.threadId);
+  await fetchThreadTimelineRowsHydration(input.threadId);
 }
 
 export function startThreadTimelineRowsOpenPrefetch(input: {
@@ -935,7 +1185,7 @@ export function startThreadTimelineRowsOpenPrefetch(input: {
     if (canceled) {
       return;
     }
-    await prefetchThreadTimelineRowsSnapshot({ threadId: input.threadId });
+    await prefetchThreadTimelineRows({ threadId: input.threadId });
     if (canceled) {
       return;
     }
@@ -961,7 +1211,7 @@ export function readTimelineRowsProjection(threadId: ThreadId): TimelineRowsProj
     return cachedProjection.projection;
   }
 
-  const rows: OrchestrationTimelineRow[] = [];
+  const rows: TimelineSourceRow[] = [];
   for (const rowId of rowIds) {
     const row = state.rowsById[rowKey(threadId, rowId)];
     if (row) {
@@ -1026,7 +1276,7 @@ export function readTimelineRowsWindowProjection(input: {
       ),
     ),
   );
-  const rowBySourceIndex = new Map<number, OrchestrationTimelineRow>();
+  const rowBySourceIndex = new Map<number, TimelineSourceRow>();
   for (const rowId of state.rowIdsByThreadId[input.threadId] ?? []) {
     const row = state.rowsById[rowKey(input.threadId, rowId)];
     if (!row) {
@@ -1241,7 +1491,7 @@ function resolveNextLiveTimelineSourceIndex(input: {
   readonly metadataByThreadId: Readonly<Record<string, TimelineRowsMetadata>>;
   readonly nextSourceIndexByThreadId: Map<ThreadId, number>;
   readonly rowIdsByThreadId: Readonly<Record<string, readonly string[]>>;
-  readonly rowsById: Readonly<Record<string, OrchestrationTimelineRow>>;
+  readonly rowsById: Readonly<Record<string, TimelineSourceRow>>;
   readonly threadId: ThreadId;
 }): number {
   const cached = input.nextSourceIndexByThreadId.get(input.threadId);
@@ -1300,7 +1550,7 @@ function applyLiveTimelineRowPatchesToState(
         rowsById,
         threadId: input.threadId,
       });
-    const row: OrchestrationTimelineRow = {
+    const row: TimelineSourceRow = {
       id: rowId,
       kind: rowKindForSourceKind(entryKind),
       createdAt: entry.createdAt,
@@ -1380,9 +1630,11 @@ function applyLiveTimelineRowPatchesToState(
       if (messagesById === state.messagesById) {
         messagesById = { ...state.messagesById };
       }
+      const connectionUrl = resolveConnectionForThreadId(input.threadId);
       messagesById[String(input.message.id)] = chooseFreshestMessage(
         messagesById[String(input.message.id)],
         input.message,
+        connectionUrl,
       );
     }
     if (input.activity) {
@@ -1437,10 +1689,7 @@ function applyLiveTimelineRowPatchesToState(
   };
 }
 
-export function readTimelineRow(
-  threadId: ThreadId,
-  rowId: string,
-): OrchestrationTimelineRow | null {
+export function readTimelineRow(threadId: ThreadId, rowId: string): TimelineSourceRow | null {
   return useTimelineModelStore.getState().rowsById[rowKey(threadId, rowId)] ?? null;
 }
 

@@ -4,7 +4,6 @@ import {
   type OrchestrationLatestTurn,
   type OrchestrationProposedPlan,
   type OrchestrationThreadActivity,
-  type OrchestrationTimelineRow,
 } from "@ace/contracts";
 
 import { createChatMessageStreamingTextState, getChatMessageRenderableText } from "./messageText";
@@ -15,11 +14,13 @@ import {
   type TimelineMetaGroupEntry,
   type TimelineRow,
 } from "./timelineRows";
+import { resolveAttachmentPreviewUrl } from "./attachmentPreviewUrls";
 import { deriveWorkLogEntries, filterVisibleWorkLogActivities } from "../../session-logic/worklog";
 import type { ChatMessage, ProposedPlan, TurnDiffSummary } from "../../types";
+import type { TimelineSourceRow } from "./timelineModelStore";
 
-export interface NativeTimelineRowsInput {
-  readonly rows: readonly OrchestrationTimelineRow[];
+export interface SourceTimelineRowsInput {
+  readonly rows: readonly TimelineSourceRow[];
   readonly messages: readonly OrchestrationMessage[];
   readonly activities: readonly OrchestrationThreadActivity[];
   readonly proposedPlans: readonly OrchestrationProposedPlan[];
@@ -35,19 +36,19 @@ export interface NativeTimelineRowsInput {
   readonly turnDiffSummaryByAssistantMessageId: ReadonlyMap<MessageId, TurnDiffSummary>;
 }
 
-export interface NativeCompletionAttachment {
+export interface SourceCompletionAttachment {
   readonly dividerBeforeEntryId: string;
   readonly startedAt: string;
   readonly endedAt: string;
   readonly turnId: string | null;
 }
 
-type NativeTimelineSourceRef = OrchestrationTimelineRow["sourceRefs"][number];
+type SourceTimelineSourceRef = TimelineSourceRow["sourceRefs"][number];
 
-function findNativeTimelineSourceRef(
-  sourceRefs: readonly NativeTimelineSourceRef[],
-  kind: NativeTimelineSourceRef["kind"],
-): NativeTimelineSourceRef | null {
+function findSourceTimelineSourceRef(
+  sourceRefs: readonly SourceTimelineSourceRef[],
+  kind: SourceTimelineSourceRef["kind"],
+): SourceTimelineSourceRef | null {
   for (const sourceRef of sourceRefs) {
     if (sourceRef.kind === kind) {
       return sourceRef;
@@ -63,9 +64,10 @@ export function toPagedChatMessage(message: OrchestrationMessage): ChatMessage {
     name: attachment.name,
     mimeType: attachment.mimeType,
     sizeBytes: attachment.sizeBytes,
-    ...("previewUrl" in attachment && typeof attachment.previewUrl === "string"
-      ? { previewUrl: attachment.previewUrl }
-      : {}),
+    previewUrl:
+      "previewUrl" in attachment && typeof attachment.previewUrl === "string"
+        ? attachment.previewUrl
+        : resolveAttachmentPreviewUrl(String(attachment.id)),
   }));
 
   return {
@@ -96,7 +98,7 @@ function toPagedProposedPlan(plan: OrchestrationProposedPlan): ProposedPlan {
   };
 }
 
-export function buildNativeTimelineRows(input: NativeTimelineRowsInput): TimelineRow[] {
+export function buildSourceTimelineRows(input: SourceTimelineRowsInput): TimelineRow[] {
   const messageById = new Map<string, ChatMessage>();
   for (const message of input.messages) {
     messageById.set(String(message.id), toPagedChatMessage(message));
@@ -135,7 +137,7 @@ export function buildNativeTimelineRows(input: NativeTimelineRowsInput): Timelin
     messageById,
     activeTurnInProgress: input.activeTurnInProgress,
   });
-  const orderedSourceRows = input.rows.toSorted(compareNativeTimelineRowsBySourceOrder);
+  const orderedSourceRows = input.rows.toSorted(compareSourceTimelineRowsBySourceOrder);
   const completionWorkSummary =
     input.hideCompletedWorkMessages === true
       ? buildNativeCompletionWorkSummary({
@@ -249,7 +251,7 @@ export function buildNativeTimelineRows(input: NativeTimelineRowsInput): Timelin
   };
 
   const recordHiddenCompletedWork = (
-    row: OrchestrationTimelineRow,
+    row: TimelineSourceRow,
     entries: readonly TimelineMetaGroupEntry[],
   ) => {
     const firstEntry = entries[0];
@@ -294,7 +296,7 @@ export function buildNativeTimelineRows(input: NativeTimelineRowsInput): Timelin
     };
   };
 
-  const recordHiddenAssistantMessage = (row: OrchestrationTimelineRow, message: ChatMessage) => {
+  const recordHiddenAssistantMessage = (row: TimelineSourceRow, message: ChatMessage) => {
     const detailRow = compactNativeHiddenAssistantUpdateRow(message);
     const endedAt = message.completedAt ?? row.updatedAt;
     if (!pendingHiddenCompletedWork) {
@@ -361,7 +363,7 @@ export function buildNativeTimelineRows(input: NativeTimelineRowsInput): Timelin
 
     if (row.kind === "message") {
       flushPendingWorkGroup();
-      const sourceRef = findNativeTimelineSourceRef(row.sourceRefs, "message");
+      const sourceRef = findSourceTimelineSourceRef(row.sourceRefs, "message");
       const message = sourceRef ? messageById.get(String(sourceRef.id)) : undefined;
       if (!sourceRef || !message) {
         continue;
@@ -418,7 +420,7 @@ export function buildNativeTimelineRows(input: NativeTimelineRowsInput): Timelin
 
     if (row.kind === "proposed-plan") {
       flushPendingWorkGroup();
-      const sourceRef = findNativeTimelineSourceRef(row.sourceRefs, "proposed-plan");
+      const sourceRef = findSourceTimelineSourceRef(row.sourceRefs, "proposed-plan");
       const proposedPlan = sourceRef ? proposedPlanById.get(String(sourceRef.id)) : undefined;
       if (!sourceRef || !proposedPlan) {
         continue;
@@ -512,9 +514,9 @@ export function buildNativeTimelineRows(input: NativeTimelineRowsInput): Timelin
 }
 
 function isActiveTurnWorkRow(
-  input: NativeTimelineRowsInput,
+  input: SourceTimelineRowsInput,
   activeTurnStartedAtMs: number,
-  row: OrchestrationTimelineRow,
+  row: TimelineSourceRow,
 ): boolean {
   if (!input.activeTurnInProgress) {
     return false;
@@ -530,10 +532,10 @@ function isActiveTurnWorkRow(
 }
 
 function findLatestActiveWorkRowId(
-  input: NativeTimelineRowsInput,
+  input: SourceTimelineRowsInput,
   options: {
     readonly activeTurnStartedAtMs: number;
-    readonly orderedSourceRows: readonly OrchestrationTimelineRow[];
+    readonly orderedSourceRows: readonly TimelineSourceRow[];
     readonly workEntryByActivityId: ReadonlyMap<
       string,
       ReturnType<typeof deriveWorkLogEntries>[number]
@@ -558,7 +560,7 @@ function findLatestActiveWorkRowId(
 
 function appendIndividualWorkRows(
   rows: TimelineRow[],
-  row: OrchestrationTimelineRow,
+  row: TimelineSourceRow,
   entries: readonly TimelineMetaGroupEntry[],
 ): void {
   for (const entry of entries) {
@@ -575,7 +577,7 @@ function appendIndividualWorkRows(
 }
 
 function compactNativeHiddenCompletedWorkDetailRow(input: {
-  readonly row: OrchestrationTimelineRow;
+  readonly row: TimelineSourceRow;
   readonly entries: readonly TimelineMetaGroupEntry[];
   readonly summary: ReturnType<typeof buildTimelineWorkGroupSummaryProjection>;
 }): TimelineCompletedWorkSummaryRow["detailRows"][number] {
@@ -661,7 +663,7 @@ function buildNativeCompletionWorkSummary(input: {
   readonly completionStartedAt: string | null;
   readonly completionTurnId: string | null;
   readonly completionDividerBeforeEntryId: string | null;
-  readonly rows: readonly OrchestrationTimelineRow[];
+  readonly rows: readonly TimelineSourceRow[];
   readonly messageById: ReadonlyMap<string, ChatMessage>;
   readonly workEntryByActivityId: ReadonlyMap<
     string,
@@ -719,13 +721,13 @@ function buildNativeCompletionWorkSummary(input: {
     pendingDetailGroup = null;
   };
 
-  for (const row of input.rows.toSorted(compareNativeTimelineRowsBySourceOrder)) {
+  for (const row of input.rows.toSorted(compareSourceTimelineRowsBySourceOrder)) {
     if (row.kind === "message") {
       flushPendingDetailGroup();
       if (row.id === input.completionDividerBeforeEntryId) {
         continue;
       }
-      const sourceRef = findNativeTimelineSourceRef(row.sourceRefs, "message");
+      const sourceRef = findSourceTimelineSourceRef(row.sourceRefs, "message");
       const message = sourceRef ? input.messageById.get(String(sourceRef.id)) : undefined;
       if (
         !message ||
@@ -830,7 +832,7 @@ function isNativeCompletionSummarySourceRow(
     readonly completionEndedAt: string | null;
     readonly completionTurnId: string | null;
   },
-  row: OrchestrationTimelineRow,
+  row: TimelineSourceRow,
 ): boolean {
   if (input.completionStartedAt && row.createdAt < input.completionStartedAt) {
     return false;
@@ -848,38 +850,38 @@ function completedWorkDetailGroupKey(entry: TimelineMetaGroupEntry): string {
   return "work";
 }
 
-function compareNativeTimelineRowsBySourceOrder(
-  left: OrchestrationTimelineRow,
-  right: OrchestrationTimelineRow,
+function compareSourceTimelineRowsBySourceOrder(
+  left: TimelineSourceRow,
+  right: TimelineSourceRow,
 ): number {
   return (
-    compareLiveNativeTimelineRowSourceSequence(left, right) ||
+    compareLiveSourceTimelineRowSourceSequence(left, right) ||
     left.startSourceIndex - right.startSourceIndex ||
     left.createdAt.localeCompare(right.createdAt) ||
     left.id.localeCompare(right.id)
   );
 }
 
-function compareLiveNativeTimelineRowSourceSequence(
-  left: OrchestrationTimelineRow,
-  right: OrchestrationTimelineRow,
+function compareLiveSourceTimelineRowSourceSequence(
+  left: TimelineSourceRow,
+  right: TimelineSourceRow,
 ): number {
-  if (!isLiveNativeTimelineRow(left) && !isLiveNativeTimelineRow(right)) {
+  if (!isLiveSourceTimelineRow(left) && !isLiveSourceTimelineRow(right)) {
     return 0;
   }
-  const leftSequence = nativeTimelineRowFirstSequence(left);
-  const rightSequence = nativeTimelineRowFirstSequence(right);
+  const leftSequence = sourceTimelineRowFirstSequence(left);
+  const rightSequence = sourceTimelineRowFirstSequence(right);
   if (leftSequence === undefined || rightSequence === undefined || leftSequence === rightSequence) {
     return 0;
   }
   return leftSequence - rightSequence;
 }
 
-function isLiveNativeTimelineRow(row: OrchestrationTimelineRow): boolean {
+function isLiveSourceTimelineRow(row: TimelineSourceRow): boolean {
   return row.contentVersion.startsWith("live:");
 }
 
-function nativeTimelineRowFirstSequence(row: OrchestrationTimelineRow): number | undefined {
+function sourceTimelineRowFirstSequence(row: TimelineSourceRow): number | undefined {
   let sequence: number | undefined;
   for (const sourceRef of row.sourceRefs) {
     if (sourceRef.sequence === undefined) {
@@ -895,7 +897,7 @@ export function deriveNativeCompletionDividerBeforeRowId(input: {
     OrchestrationLatestTurn,
     "turnId" | "assistantMessageId" | "startedAt" | "completedAt"
   > | null;
-  readonly rows: readonly OrchestrationTimelineRow[];
+  readonly rows: readonly TimelineSourceRow[];
   readonly messages: readonly OrchestrationMessage[];
 }): string | null {
   const latestTurn = input.latestTurn;
@@ -912,7 +914,7 @@ export function deriveNativeCompletionDividerBeforeRowId(input: {
     if (row.kind !== "message") {
       continue;
     }
-    const sourceRef = findNativeTimelineSourceRef(row.sourceRefs, "message");
+    const sourceRef = findSourceTimelineSourceRef(row.sourceRefs, "message");
     const message = sourceRef ? messageById.get(String(sourceRef.id)) : undefined;
     if (!message || message.role !== "assistant") {
       continue;
@@ -930,7 +932,7 @@ export function deriveNativeCompletionDividerBeforeRowId(input: {
       if (row.kind !== "message") {
         continue;
       }
-      const sourceRef = findNativeTimelineSourceRef(row.sourceRefs, "message");
+      const sourceRef = findSourceTimelineSourceRef(row.sourceRefs, "message");
       if (sourceRef && String(sourceRef.id) === String(latestTurn.assistantMessageId)) {
         return row.id;
       }
@@ -949,7 +951,7 @@ export function deriveNativeCompletionDividerBeforeRowId(input: {
     if (row.kind !== "message") {
       continue;
     }
-    const sourceRef = findNativeTimelineSourceRef(row.sourceRefs, "message");
+    const sourceRef = findSourceTimelineSourceRef(row.sourceRefs, "message");
     const message = sourceRef ? messageById.get(String(sourceRef.id)) : undefined;
     if (!message || message.role !== "assistant") {
       continue;
@@ -966,14 +968,14 @@ export function deriveNativeCompletionDividerBeforeRowId(input: {
   return inRangeMatch ?? fallbackMatch;
 }
 
-export function deriveNativeCompletionAttachment(input: {
+export function deriveSourceCompletionAttachment(input: {
   readonly latestTurn: Pick<
     OrchestrationLatestTurn,
     "turnId" | "assistantMessageId" | "startedAt" | "completedAt"
   > | null;
-  readonly rows: readonly OrchestrationTimelineRow[];
+  readonly rows: readonly TimelineSourceRow[];
   readonly messages: readonly OrchestrationMessage[];
-}): NativeCompletionAttachment | null {
+}): SourceCompletionAttachment | null {
   const latestTurn = input.latestTurn;
   const dividerFromTurn = deriveNativeCompletionDividerBeforeRowId(input);
   if (dividerFromTurn && latestTurn?.startedAt && latestTurn.completedAt) {
@@ -991,17 +993,17 @@ export function deriveNativeCompletionAttachment(input: {
   }
 
   let terminalAssistant: {
-    readonly row: OrchestrationTimelineRow;
+    readonly row: TimelineSourceRow;
     readonly message: OrchestrationMessage;
   } | null = null;
   let previousUserMessage: OrchestrationMessage | null = null;
   let lastUserBeforeTerminalAssistant: OrchestrationMessage | null = null;
-  const orderedRows = input.rows.toSorted(compareNativeTimelineRowsBySourceOrder);
+  const orderedRows = input.rows.toSorted(compareSourceTimelineRowsBySourceOrder);
   for (const row of orderedRows) {
     if (row.kind !== "message") {
       continue;
     }
-    const sourceRef = findNativeTimelineSourceRef(row.sourceRefs, "message");
+    const sourceRef = findSourceTimelineSourceRef(row.sourceRefs, "message");
     const message = sourceRef ? messageById.get(String(sourceRef.id)) : undefined;
     if (!message) {
       continue;
@@ -1049,7 +1051,7 @@ export function deriveNativeCompletionAttachment(input: {
 }
 
 function deriveLoadedTerminalAssistantMessageIds(
-  rows: readonly OrchestrationTimelineRow[],
+  rows: readonly TimelineSourceRow[],
   input: {
     readonly messageById: ReadonlyMap<string, ChatMessage>;
     readonly activeTurnInProgress: boolean;
@@ -1062,7 +1064,7 @@ function deriveLoadedTerminalAssistantMessageIds(
     if (row.kind !== "message") {
       continue;
     }
-    const sourceRef = findNativeTimelineSourceRef(row.sourceRefs, "message");
+    const sourceRef = findSourceTimelineSourceRef(row.sourceRefs, "message");
     const message = sourceRef ? input.messageById.get(String(sourceRef.id)) : undefined;
     if (!message) {
       continue;

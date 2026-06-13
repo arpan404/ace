@@ -39,12 +39,11 @@ import {
 import { buildMarkdownRenderAnalysisCacheKey } from "../../lib/chat/markdownRenderAnalysis";
 import { prewarmMarkdownRenderAnalysis } from "../../lib/chat/markdownRenderAnalysisClient";
 import {
-  prefetchThreadTimelineRowsSnapshot,
+  prefetchThreadTimelineRows,
   readTimelineModelRowHeight,
   useTimelineModelStore,
   writeTimelineModelRowHeight,
 } from "../../lib/chat/timelineModelStore";
-import { deriveTimelineEntries } from "../../session-logic";
 import { type TurnDiffSummary } from "../../types";
 import { summarizeTurnDiffStats } from "../../lib/turnDiffTree";
 import ChatMarkdown from "../ChatMarkdown";
@@ -130,8 +129,18 @@ import {
   type TimelineWorkLogRow,
   type UserTimelineMessage,
 } from "~/lib/chat/timelineRows";
+import {
+  commandOutputDisclosureKey,
+  completedWorkDetailGroupDisclosureKey,
+  completedWorkSummaryDisclosureKey,
+  isTimelineDisclosureExpanded,
+  timelineDisclosureRevisionKey,
+  workDetailDisclosureKey,
+  workGroupDisclosureKey,
+  type TimelineDisclosureExpansionState,
+  type TimelineDisclosureKey,
+} from "~/lib/chat/timelineDisclosureState";
 import type { StuckTurnSnapshot } from "~/lib/reliability/stuckTurn";
-import { useTimelineRowsController } from "./useTimelineRowsController";
 import { TimelineViewport } from "./TimelineViewport";
 import {
   ASSISTANT_MARKDOWN_PENDING_LOOKBACK_ROWS,
@@ -648,15 +657,14 @@ interface MessagesTimelineProps {
   hideCompletedWorkMessages?: boolean;
   liveTimers?: boolean;
   timelineCacheScope?: string | null;
-  timelineEntries: ReturnType<typeof deriveTimelineEntries>;
+  rows: ReadonlyArray<TimelineRow>;
   timelineRowsLoading?: boolean;
-  timelineRowsOverride?: ReadonlyArray<TimelineRow> | null;
   timelineIndexByEntryId?: ReadonlyMap<string, number> | null;
   completionDividerBeforeEntryId: string | null;
   completionSummary: string | null;
   turnDiffSummaryByAssistantMessageId: Map<MessageId, TurnDiffSummary>;
-  expandedWorkGroups: Record<string, boolean>;
-  onToggleWorkGroup: (groupId: string) => void;
+  expandedWorkGroups: TimelineDisclosureExpansionState;
+  onToggleWorkGroup: (groupId: TimelineDisclosureKey, defaultExpanded?: boolean) => void;
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
   revertTurnCountByUserMessageId: Map<MessageId, number>;
   onRevertUserMessage: (messageId: MessageId) => void;
@@ -699,9 +707,8 @@ export function MessagesTimeline({
   hideCompletedWorkMessages = false,
   liveTimers = true,
   timelineCacheScope = null,
-  timelineEntries,
-  timelineRowsLoading: externalTimelineRowsLoading = false,
-  timelineRowsOverride = null,
+  rows,
+  timelineRowsLoading = false,
   timelineIndexByEntryId = null,
   completionDividerBeforeEntryId,
   completionSummary,
@@ -730,6 +737,7 @@ export function MessagesTimeline({
   targetMessageNavigation = null,
 }: MessagesTimelineProps) {
   const userMessageProviderCommandLookup = buildUserMessageProviderCommandLookup(providerCommands);
+  const timelineDisclosureRevision = timelineDisclosureRevisionKey(expandedWorkGroups);
   const supportsForkConversation = Boolean(onForkConversation);
   const [pinnedMessages, setPinnedMessages] = useLocalStorage<PinnedMessages, PinnedMessages>(
     PINNED_MESSAGES_STORAGE_KEY,
@@ -817,29 +825,14 @@ export function MessagesTimeline({
       document.removeEventListener("keyup", updateAfterSelectionSettles);
     };
   }, []);
-  const timelineRowsInput = {
-    timelineEntries,
-    activeTurnInProgress,
-    activeTurnStartedAt,
-    ...(timelineCacheScope ? { cacheScopeKey: timelineCacheScope } : {}),
-    completionDividerBeforeEntryId,
-    completionSummary,
-    hideCompletedWorkMessages,
-    isWorking,
-    enableGoalWorkingState,
-  };
-  const isTimelineSnapshotLoading = useTimelineModelStore((state) => {
+  const isThreadTimelineHydrating = useTimelineModelStore((state) => {
     if (!activeThreadId) {
       return false;
     }
     return (state.fetchStateByThreadId[activeThreadId]?.inFlightCount ?? 0) > 0;
   });
-  const { loading: timelineRowsLoading, rows } = useTimelineRowsController({
-    activeThreadId: activeThreadId ?? null,
-    loading: isTimelineSnapshotLoading || externalTimelineRowsLoading,
-    preResolvedRows: timelineRowsOverride,
-    timelineRowsInput,
-  });
+  const showTimelineRowsLoading =
+    (isThreadTimelineHydrating || timelineRowsLoading) && rows.length === 0;
   const latestForkableAssistantMessageId = (() => {
     for (let index = rows.length - 1; index >= 0; index -= 1) {
       const row = rows[index];
@@ -1081,6 +1074,9 @@ export function MessagesTimeline({
     overscan: TIMELINE_VIRTUALIZER_OVERSCAN,
     useAnimationFrameWithResizeObserver: true,
   });
+  useLayoutEffect(() => {
+    rowVirtualizer.measure();
+  }, [rowVirtualizer, timelineDisclosureRevision]);
   const previousActiveThreadIdRef = useRef<string | undefined>(activeThreadId);
   const pendingThreadSwitchBottomPinRef = useRef<{
     startedAtMs: number;
@@ -1245,7 +1241,7 @@ export function MessagesTimeline({
     if (!isNearRenderedEdge) {
       return;
     }
-    void prefetchThreadTimelineRowsSnapshot({
+    void prefetchThreadTimelineRows({
       threadId: activeThreadId as ThreadId,
     }).catch(() => undefined);
   }, [activeThreadId, renderedWindowState, rows.length]);
@@ -1843,7 +1839,7 @@ export function MessagesTimeline({
     );
   }
 
-  if (timelineRowsLoading && rows.length === 0) {
+  if (showTimelineRowsLoading) {
     return <TimelineRowsLoadingFallback />;
   }
 
@@ -2044,24 +2040,16 @@ function ImageGenerationPlaceholderFrame(props: {
   );
 }
 
-function workGroupId(rowId: string): string {
-  return `work-group:${rowId}`;
-}
-
-function completedWorkDetailGroupId(completedWorkSummaryId: string, detailRowId: string): string {
-  return `completed-work-detail-group:${completedWorkSummaryId}:${detailRowId}`;
-}
-
 function completedWorkSummaryExpandedDetailGroupsCacheKey(
   row: Extract<TimelineRow, { kind: "completed-work-summary" }>,
-  expandedWorkGroups: Record<string, boolean>,
+  expandedWorkGroups: TimelineDisclosureExpansionState,
 ): string {
   const expandedGroupIds = row.detailRows.flatMap((detailRow) => {
     if (detailRow.kind !== "work-group") {
       return [];
     }
-    const groupId = completedWorkDetailGroupId(row.id, detailRow.id);
-    return expandedWorkGroups[groupId] ? [groupId] : [];
+    const groupId = completedWorkDetailGroupDisclosureKey(row.id, detailRow.id);
+    return isTimelineDisclosureExpanded(expandedWorkGroups, groupId) ? [groupId] : [];
   });
   return expandedGroupIds.length === 0 ? "closed" : expandedGroupIds.join(",");
 }
@@ -2077,18 +2065,82 @@ function getUserMessageTextForHeightEstimate(userPromptText: string): string {
   return userPromptText;
 }
 
-function estimateWorkEntryRowHeight(workEntry: TimelineWorkEntry): number {
+function estimateWorkEntryRowHeight(
+  workEntry: TimelineWorkEntry,
+  expandedWorkGroups: TimelineDisclosureExpansionState,
+): number {
+  const isCommand = workEntry.requestKind === "command" || Boolean(workEntry.command);
+  const defaultDetailOpen = workEntry.tone === "error" || workEntry.diagnosticKind !== undefined;
+  const isDetailOpen = isTimelineDisclosureExpanded(
+    expandedWorkGroups,
+    isCommand ? commandOutputDisclosureKey(workEntry.id) : workDetailDisclosureKey(workEntry.id),
+    defaultDetailOpen,
+  );
+  const expandedDetailHeight = isDetailOpen ? 88 : 0;
   if (workEntry.requestKind === "command" || workEntry.command) {
-    return workEntry.terminalOutput || workEntry.detail ? 96 : 42;
+    return (workEntry.terminalOutput || workEntry.detail ? 96 : 42) + expandedDetailHeight;
   }
-  return workEntry.detail || workEntry.terminalOutput ? 82 : 42;
+  return (workEntry.detail || workEntry.terminalOutput ? 82 : 42) + expandedDetailHeight;
+}
+
+function estimateCompletedWorkDetailRowHeight(
+  detailRow: TimelineCompletedWorkDetailRow,
+  input: {
+    completedWorkSummaryId: string;
+    expandedWorkGroups: TimelineDisclosureExpansionState;
+  },
+): number {
+  switch (detailRow.kind) {
+    case "assistant-update":
+      return 58;
+    case "intent":
+      return 56;
+    case "work":
+      return estimateWorkEntryRowHeight(detailRow.workEntry, input.expandedWorkGroups);
+    case "work-group": {
+      const collapsedHeight = 52;
+      const groupId = completedWorkDetailGroupDisclosureKey(
+        input.completedWorkSummaryId,
+        detailRow.id,
+      );
+      if (!isTimelineDisclosureExpanded(input.expandedWorkGroups, groupId)) {
+        return collapsedHeight;
+      }
+      return (
+        collapsedHeight +
+        detailRow.entries.reduce(
+          (total, entry) =>
+            total +
+            (entry.kind === "work"
+              ? estimateWorkEntryRowHeight(entry.workEntry, input.expandedWorkGroups)
+              : 58),
+          0,
+        )
+      );
+    }
+  }
+}
+
+function estimateCompletedWorkSummaryDetailsHeight(
+  row: Extract<TimelineRow, { kind: "completed-work-summary" }>,
+  expandedWorkGroups: TimelineDisclosureExpansionState,
+): number {
+  return row.detailRows.reduce(
+    (total, detailRow) =>
+      total +
+      estimateCompletedWorkDetailRowHeight(detailRow, {
+        completedWorkSummaryId: row.id,
+        expandedWorkGroups,
+      }),
+    0,
+  );
 }
 
 function estimateTimelineRowHeight(
   row: TimelineRow | undefined,
   input: {
     timelineWidthPx: number | null;
-    expandedWorkGroups: Record<string, boolean>;
+    expandedWorkGroups: TimelineDisclosureExpansionState;
   },
 ): number {
   if (!row) {
@@ -2103,9 +2155,16 @@ function estimateTimelineRowHeight(
 
   let height: number;
   switch (row.kind) {
-    case "completed-work-summary":
-      height = 42 + estimateVisibleCompletedWorkDiagnosticRowsHeight(row.visibleDiagnosticRows);
+    case "completed-work-summary": {
+      const isOpen = isTimelineDisclosureExpanded(
+        input.expandedWorkGroups,
+        completedWorkSummaryDisclosureKey(row.id),
+      );
+      height = isOpen
+        ? 42 + estimateCompletedWorkSummaryDetailsHeight(row, input.expandedWorkGroups)
+        : 42 + estimateVisibleCompletedWorkDiagnosticRowsHeight(row.visibleDiagnosticRows);
       break;
+    }
     case "message": {
       const message = row.message;
       const renderedMessageText =
@@ -2156,16 +2215,22 @@ function estimateTimelineRowHeight(
       break;
     }
     case "work":
-      height = estimateWorkEntryRowHeight(row.workEntry);
+      height = estimateWorkEntryRowHeight(row.workEntry, input.expandedWorkGroups);
       break;
     case "work-group": {
       const collapsedHeight = 52;
-      const isExpanded = input.expandedWorkGroups[workGroupId(row.id)] ?? false;
+      const isExpanded = isTimelineDisclosureExpanded(
+        input.expandedWorkGroups,
+        workGroupDisclosureKey(row.id),
+      );
       height = isExpanded
         ? collapsedHeight +
           row.entries.reduce(
             (total, entry) =>
-              total + (entry.kind === "work" ? estimateWorkEntryRowHeight(entry.workEntry) : 58),
+              total +
+              (entry.kind === "work"
+                ? estimateWorkEntryRowHeight(entry.workEntry, input.expandedWorkGroups)
+                : 58),
             0,
           )
         : collapsedHeight;
@@ -2189,7 +2254,7 @@ function getTimelineRowHeightCacheKey(
   row: TimelineRow | undefined,
   input: {
     timelineWidthPx: number | null;
-    expandedWorkGroups: Record<string, boolean>;
+    expandedWorkGroups: TimelineDisclosureExpansionState;
   },
 ): string {
   if (!row) {
@@ -2202,7 +2267,14 @@ function getTimelineRowHeightCacheKey(
       return `completed-work-summary:${row.id}:${row.startedAt}:${row.endedAt}:${row.detailRows.length}:${row.toolCallCount}:${row.hiddenThinkingCount}:${row.hiddenMessageCount}:${row.visibleDiagnosticCacheKey}:${completedWorkSummaryExpandedDetailGroupsCacheKey(
         row,
         input.expandedWorkGroups,
-      )}`;
+      )}:${
+        isTimelineDisclosureExpanded(
+          input.expandedWorkGroups,
+          completedWorkSummaryDisclosureKey(row.id),
+        )
+          ? 1
+          : 0
+      }:${timelineRowWorkEntryDisclosureCacheKey(row, input.expandedWorkGroups)}`;
     case "message": {
       const assistantRenderHint =
         row.message.role === "assistant"
@@ -2228,9 +2300,19 @@ function getTimelineRowHeightCacheKey(
       ].join(":");
     }
     case "work":
-      return `work:${row.id}:${row.workEntry.detail ? 1 : 0}:${row.workEntry.command ? 1 : 0}:${row.workEntry.terminalOutput?.length ?? 0}:${row.workEntry.terminalOutputTruncated ? 1 : 0}:${row.workEntry.status ?? ""}:${row.workEntry.exitCode ?? ""}:${row.workEntry.durationMs ?? ""}:${row.workEntry.changedFileStats?.length ?? 0}`;
+      return `work:${row.id}:${row.workEntry.detail ? 1 : 0}:${row.workEntry.command ? 1 : 0}:${row.workEntry.terminalOutput?.length ?? 0}:${row.workEntry.terminalOutputTruncated ? 1 : 0}:${row.workEntry.status ?? ""}:${row.workEntry.exitCode ?? ""}:${row.workEntry.durationMs ?? ""}:${row.workEntry.changedFileStats?.length ?? 0}:${timelineWorkEntryDisclosureCacheKey(
+        row.workEntry,
+        input.expandedWorkGroups,
+      )}`;
     case "work-group":
-      return `work-group:${row.id}:${input.expandedWorkGroups[workGroupId(row.id)] ? 1 : 0}:${row.entries.length}`;
+      return `work-group:${row.id}:${
+        isTimelineDisclosureExpanded(input.expandedWorkGroups, workGroupDisclosureKey(row.id))
+          ? 1
+          : 0
+      }:${row.entries.length}:${timelineRowWorkEntryDisclosureCacheKey(
+        row,
+        input.expandedWorkGroups,
+      )}`;
     case "intent":
       return `intent:${row.id}`;
     case "proposed-plan":
@@ -2238,6 +2320,57 @@ function getTimelineRowHeightCacheKey(
     case "working":
       return `working:${row.id}:${row.mode}:${row.activity}:${row.goalStartedAt ?? "no-goal"}:${row.intentText ? 1 : 0}`;
   }
+}
+
+function timelineWorkEntryDisclosureCacheKey(
+  workEntry: TimelineWorkEntry,
+  expandedWorkGroups: TimelineDisclosureExpansionState,
+): string {
+  const defaultDetailOpen = workEntry.tone === "error" || workEntry.diagnosticKind !== undefined;
+  const workDetailOpen = isTimelineDisclosureExpanded(
+    expandedWorkGroups,
+    workDetailDisclosureKey(workEntry.id),
+    defaultDetailOpen,
+  );
+  const commandOutputOpen = isTimelineDisclosureExpanded(
+    expandedWorkGroups,
+    commandOutputDisclosureKey(workEntry.id),
+  );
+  return `${workEntry.id}:${workDetailOpen ? 1 : 0}:${commandOutputOpen ? 1 : 0}`;
+}
+
+function timelineMetaEntryDisclosureCacheKey(
+  entry: TimelineMetaGroupEntry,
+  expandedWorkGroups: TimelineDisclosureExpansionState,
+): string {
+  return entry.kind === "work"
+    ? timelineWorkEntryDisclosureCacheKey(entry.workEntry, expandedWorkGroups)
+    : `intent:${entry.id}`;
+}
+
+function timelineRowWorkEntryDisclosureCacheKey(
+  row: TimelineRow | TimelineCompletedWorkDetailRow,
+  expandedWorkGroups: TimelineDisclosureExpansionState,
+): string {
+  if (row.kind === "work") {
+    return timelineWorkEntryDisclosureCacheKey(row.workEntry, expandedWorkGroups);
+  }
+  if (row.kind === "work-group") {
+    return row.entries
+      .map((entry) => timelineMetaEntryDisclosureCacheKey(entry, expandedWorkGroups))
+      .join(",");
+  }
+  if (row.kind === "completed-work-summary") {
+    return [
+      ...row.detailRows.map((detailRow) =>
+        timelineRowWorkEntryDisclosureCacheKey(detailRow, expandedWorkGroups),
+      ),
+      ...row.visibleDiagnosticRows.map((detailRow) =>
+        timelineRowWorkEntryDisclosureCacheKey(detailRow, expandedWorkGroups),
+      ),
+    ].join(",");
+  }
+  return row.id;
 }
 
 function resolveWorkEntryTone(tone: TimelineWorkEntry["tone"]): TimelineMetaTone {
@@ -2786,15 +2919,17 @@ function TimelineDisclosureBody(props: {
 
 function WorkLogTimelineRow(props: {
   row: TimelineWorkLogRow;
-  expandedWorkGroups: Record<string, boolean>;
-  groupIdOverride?: string;
-  onToggleWorkGroup: (groupId: string) => void;
+  expandedWorkGroups: TimelineDisclosureExpansionState;
+  groupIdOverride?: TimelineDisclosureKey;
+  onToggleWorkGroup: (groupId: TimelineDisclosureKey, defaultExpanded?: boolean) => void;
 }) {
   if (props.row.kind === "work") {
     return (
       <div className="min-w-0 py-0.5">
         <SimpleWorkEntryRow
           workEntry={props.row.workEntry}
+          expandedWorkGroups={props.expandedWorkGroups}
+          onToggleWorkGroup={props.onToggleWorkGroup}
           inlineIntentText={props.row.workEntry.intentText ?? null}
         />
       </div>
@@ -2809,9 +2944,9 @@ function WorkLogTimelineRow(props: {
     );
   }
 
-  const groupId = props.groupIdOverride ?? workGroupId(props.row.id);
+  const groupId = props.groupIdOverride ?? workGroupDisclosureKey(props.row.id);
   const hasGroupDetails = props.row.entries.length > 0;
-  const isExpanded = props.expandedWorkGroups[groupId] ?? false;
+  const isExpanded = isTimelineDisclosureExpanded(props.expandedWorkGroups, groupId);
   const { summary } = props.row;
   const elapsedLabel = summarizeWorkGroupElapsedLabel(props.row.createdAt, props.row.summaryEndAt);
   const thinkingDurationMs = summarizeReportedThinkingDurationMs(props.row.entries);
@@ -2893,6 +3028,8 @@ function WorkLogTimelineRow(props: {
               <SimpleWorkEntryRow
                 key={`work-group:${props.row.id}:${entry.id}`}
                 workEntry={entry.workEntry}
+                expandedWorkGroups={props.expandedWorkGroups}
+                onToggleWorkGroup={props.onToggleWorkGroup}
                 inlineIntentText={null}
                 variant="nested"
               />
@@ -2913,8 +3050,8 @@ function WorkLogTimelineRow(props: {
 function CompletedWorkDetailTimelineRow(props: {
   completedWorkSummaryId: string;
   row: TimelineCompletedWorkDetailRow;
-  expandedWorkGroups: Record<string, boolean>;
-  onToggleWorkGroup: (groupId: string) => void;
+  expandedWorkGroups: TimelineDisclosureExpansionState;
+  onToggleWorkGroup: (groupId: TimelineDisclosureKey, defaultExpanded?: boolean) => void;
 }) {
   if (props.row.kind === "assistant-update") {
     return <AssistantUpdateTimelineRow row={props.row} />;
@@ -2926,7 +3063,10 @@ function CompletedWorkDetailTimelineRow(props: {
       expandedWorkGroups={props.expandedWorkGroups}
       {...(props.row.kind === "work-group"
         ? {
-            groupIdOverride: completedWorkDetailGroupId(props.completedWorkSummaryId, props.row.id),
+            groupIdOverride: completedWorkDetailGroupDisclosureKey(
+              props.completedWorkSummaryId,
+              props.row.id,
+            ),
           }
         : {})}
       onToggleWorkGroup={props.onToggleWorkGroup}
@@ -2972,10 +3112,9 @@ function estimateVisibleCompletedWorkDiagnosticRowsHeight(
 
 function CompletedWorkSummaryTimelineRow(props: {
   row: Extract<TimelineRow, { kind: "completed-work-summary" }>;
-  expandedWorkGroups: Record<string, boolean>;
-  onToggleWorkGroup: (groupId: string) => void;
+  expandedWorkGroups: TimelineDisclosureExpansionState;
+  onToggleWorkGroup: (groupId: TimelineDisclosureKey, defaultExpanded?: boolean) => void;
 }) {
-  const [isOpen, setIsOpen] = useState(false);
   const visibleDiagnosticRows = props.row.visibleDiagnosticRows;
   const elapsedLabel = formatCompletedWorkTimer(props.row.startedAt, props.row.endedAt);
   if (!elapsedLabel) {
@@ -2985,9 +3124,8 @@ function CompletedWorkSummaryTimelineRow(props: {
   if (!hasHiddenLogs && visibleDiagnosticRows.length === 0) {
     return null;
   }
-  const singleDetailRow = props.row.detailRows.length === 1 ? props.row.detailRows[0] : undefined;
-  const shouldFlattenSingleWorkGroup =
-    singleDetailRow?.kind === "work-group" && singleDetailRow.entries.length > 0;
+  const groupId = completedWorkSummaryDisclosureKey(props.row.id);
+  const isOpen = isTimelineDisclosureExpanded(props.expandedWorkGroups, groupId);
   const summaryContent = (
     <>
       <Clock3Icon className="mt-1 size-3 shrink-0 text-muted-foreground/42 transition-colors group-hover/completed-work:text-muted-foreground/78" />
@@ -3022,7 +3160,7 @@ function CompletedWorkSummaryTimelineRow(props: {
           data-completed-work-summary-open={String(isOpen)}
           aria-expanded={isOpen}
           aria-label={isOpen ? "Hide hidden work logs" : "Show hidden work logs"}
-          onClick={() => setIsOpen((current) => !current)}
+          onClick={() => props.onToggleWorkGroup(groupId)}
         >
           {summaryContent}
         </button>
@@ -3059,32 +3197,15 @@ function CompletedWorkSummaryTimelineRow(props: {
         dataAttribute={{ "data-completed-work-details": "true" }}
       >
         <div className="space-y-2">
-          {shouldFlattenSingleWorkGroup
-            ? singleDetailRow.entries.map((entry) =>
-                entry.kind === "work" ? (
-                  <SimpleWorkEntryRow
-                    key={`completed-work-summary:${props.row.id}:flat:${entry.id}`}
-                    workEntry={entry.workEntry}
-                    inlineIntentText={null}
-                    variant="nested"
-                  />
-                ) : (
-                  <SimpleIntentEntryRow
-                    key={`completed-work-summary:${props.row.id}:flat:${entry.id}`}
-                    entry={entry}
-                    variant="nested"
-                  />
-                ),
-              )
-            : props.row.detailRows.map((detailRow) => (
-                <CompletedWorkDetailTimelineRow
-                  key={`completed-work-summary:${props.row.id}:${detailRow.kind}:${detailRow.id}`}
-                  completedWorkSummaryId={props.row.id}
-                  row={detailRow}
-                  expandedWorkGroups={props.expandedWorkGroups}
-                  onToggleWorkGroup={props.onToggleWorkGroup}
-                />
-              ))}
+          {props.row.detailRows.map((detailRow) => (
+            <CompletedWorkDetailTimelineRow
+              key={`completed-work-summary:${props.row.id}:${detailRow.kind}:${detailRow.id}`}
+              completedWorkSummaryId={props.row.id}
+              row={detailRow}
+              expandedWorkGroups={props.expandedWorkGroups}
+              onToggleWorkGroup={props.onToggleWorkGroup}
+            />
+          ))}
         </div>
       </TimelineDisclosureBody>
     </div>
@@ -4084,12 +4205,18 @@ function SimpleIntentEntryRow(props: {
 
 export function SimpleWorkEntryRow(props: {
   workEntry: TimelineWorkEntry;
+  expandedWorkGroups: TimelineDisclosureExpansionState;
   inlineIntentText?: string | null;
+  onToggleWorkGroup: (groupId: TimelineDisclosureKey, defaultExpanded?: boolean) => void;
   variant?: "nested" | "standalone";
 }) {
   const { workEntry } = props;
-  const [isDetailOpen, setIsDetailOpen] = useState(
-    workEntry.tone === "error" || workEntry.diagnosticKind !== undefined,
+  const detailDisclosureKey = workDetailDisclosureKey(workEntry.id);
+  const defaultDetailOpen = workEntry.tone === "error" || workEntry.diagnosticKind !== undefined;
+  const isDetailOpen = isTimelineDisclosureExpanded(
+    props.expandedWorkGroups,
+    detailDisclosureKey,
+    defaultDetailOpen,
   );
 
   if (workEntry.tone === "tool" && isCommandWorkEntry(workEntry)) {
@@ -4155,7 +4282,7 @@ export function SimpleWorkEntryRow(props: {
               )}
               onClick={() => {
                 if (hasExpandableDetail) {
-                  setIsDetailOpen((current) => !current);
+                  props.onToggleWorkGroup(detailDisclosureKey, defaultDetailOpen);
                 }
               }}
               aria-expanded={hasExpandableDetail ? isDetailOpen : undefined}
@@ -4291,7 +4418,9 @@ export function SimpleWorkEntryRow(props: {
 
 function CommandWorkEntryRow(props: {
   workEntry: TimelineWorkEntry;
+  expandedWorkGroups: TimelineDisclosureExpansionState;
   inlineIntentText?: string | null;
+  onToggleWorkGroup: (groupId: TimelineDisclosureKey, defaultExpanded?: boolean) => void;
   variant?: "nested" | "standalone";
 }) {
   const { workEntry } = props;
@@ -4310,7 +4439,8 @@ function CommandWorkEntryRow(props: {
   const isNested = variant === "nested";
   const inlineIntentText = props.inlineIntentText?.trim() || null;
   const hasExpandableOutput = Boolean(command || detailOutput);
-  const [isOutputOpen, setIsOutputOpen] = useState(false);
+  const outputDisclosureKey = commandOutputDisclosureKey(workEntry.id);
+  const isOutputOpen = isTimelineDisclosureExpanded(props.expandedWorkGroups, outputDisclosureKey);
 
   return (
     <div
@@ -4332,7 +4462,7 @@ function CommandWorkEntryRow(props: {
             )}
             onClick={() => {
               if (hasExpandableOutput) {
-                setIsOutputOpen((current) => !current);
+                props.onToggleWorkGroup(outputDisclosureKey);
               }
             }}
             aria-expanded={hasExpandableOutput ? isOutputOpen : undefined}
