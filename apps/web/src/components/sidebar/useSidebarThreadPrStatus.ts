@@ -10,7 +10,7 @@ interface UseSidebarThreadPrStatusInput {
     readonly shouldShowThreadPanel?: boolean;
     readonly renderedThreadIds: readonly ThreadId[];
   }>;
-  readonly sidebarThreadsById: Readonly<Record<string, SidebarThreadSummary | undefined>>;
+  readonly readThreadSummary: (threadId: ThreadId) => SidebarThreadSummary | undefined;
   readonly projectCwdById: ReadonlyMap<string, string>;
 }
 
@@ -24,7 +24,7 @@ export function useSidebarThreadPrStatus(
 ): UseSidebarThreadPrStatusResult {
   const visibleSidebarThreadIds = getVisibleSidebarThreadIds(input.renderedProjects);
   const visibleSidebarThreads = visibleSidebarThreadIds.flatMap((threadId) => {
-    const thread = input.sidebarThreadsById[threadId];
+    const thread = input.readThreadSummary(threadId);
     return thread ? [thread] : [];
   });
   const threadGitTargets = visibleSidebarThreads.map((thread) => ({

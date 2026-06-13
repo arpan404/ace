@@ -1,30 +1,30 @@
-import { buildNativeTimelineRows, type NativeTimelineRowsInput } from "./nativeTimelineRows";
+import { buildSourceTimelineRows, type SourceTimelineRowsInput } from "./sourceTimelineRows";
 import type { TimelineRow } from "./timelineRows";
 
-interface NativeTimelineRowsWorkerRequest {
+interface SourceTimelineRowsWorkerRequest {
   readonly id: number;
-  readonly input: NativeTimelineRowsInput;
+  readonly input: SourceTimelineRowsInput;
 }
 
-interface NativeTimelineRowsWorkerResponse {
+interface SourceTimelineRowsWorkerResponse {
   readonly id: number;
   readonly rows?: TimelineRow[];
   readonly error?: string;
 }
 
-interface PendingNativeTimelineRowsRequest {
+interface PendingSourceTimelineRowsRequest {
   readonly reject: (error: Error) => void;
   readonly resolve: (rows: TimelineRow[]) => void;
 }
 
 let nextRequestId = 1;
-let nativeTimelineRowsWorker: Worker | null = null;
-const pendingRequests = new Map<number, PendingNativeTimelineRowsRequest>();
-const MAX_NATIVE_TIMELINE_ROWS_CACHE_ENTRIES = 8;
-const NATIVE_TIMELINE_ROWS_CACHE_VERSION = "native-timeline-rows:v6";
-const nativeTimelineRowsCache = new Map<string, TimelineRow[]>();
+let sourceTimelineRowsWorker: Worker | null = null;
+const pendingRequests = new Map<number, PendingSourceTimelineRowsRequest>();
+const MAX_SOURCE_TIMELINE_ROWS_CACHE_ENTRIES = 8;
+const SOURCE_TIMELINE_ROWS_CACHE_VERSION = "source-timeline-rows:v7";
+const sourceTimelineRowsCache = new Map<string, TimelineRow[]>();
 
-export interface NativeTimelineRowsCacheKeyInput {
+export interface SourceTimelineRowsCacheKeyInput {
   readonly activeTurnId?: string | null;
   readonly activeTurnStartedAt: string | null;
   readonly completionEndedAt?: string | null;
@@ -43,18 +43,18 @@ export interface NativeTimelineRowsCacheKeyInput {
   readonly turnDiffSummaryKey: string;
 }
 
-export function createNativeTimelineRowsCacheKey(
-  input: NativeTimelineRowsCacheKeyInput,
+export function createSourceTimelineRowsCacheKey(
+  input: SourceTimelineRowsCacheKeyInput,
 ): string | null {
   if (!input.threadId || input.rowCount <= 0) {
     return null;
   }
 
   return [
-    NATIVE_TIMELINE_ROWS_CACHE_VERSION,
+    SOURCE_TIMELINE_ROWS_CACHE_VERSION,
     input.threadId,
     input.snapshotRevision ?? "live",
-    input.threadRevision,
+    input.isActiveTurnRunning ? "active" : input.threadRevision,
     input.snapshotTotalRows ?? input.rowCount,
     input.rowCount,
     input.rowContentKey,
@@ -71,25 +71,25 @@ export function createNativeTimelineRowsCacheKey(
   ].join("\0");
 }
 
-function canUseNativeTimelineRowsWorker(): boolean {
+function canUseSourceTimelineRowsWorker(): boolean {
   return typeof Worker !== "undefined" && typeof window !== "undefined";
 }
 
-function getNativeTimelineRowsWorker(): Worker | null {
-  if (!canUseNativeTimelineRowsWorker()) {
+function getSourceTimelineRowsWorker(): Worker | null {
+  if (!canUseSourceTimelineRowsWorker()) {
     return null;
   }
-  if (nativeTimelineRowsWorker) {
-    return nativeTimelineRowsWorker;
+  if (sourceTimelineRowsWorker) {
+    return sourceTimelineRowsWorker;
   }
 
-  nativeTimelineRowsWorker = new Worker(
-    new URL("../../workers/nativeTimelineRows.worker.ts", import.meta.url),
+  sourceTimelineRowsWorker = new Worker(
+    new URL("../../workers/sourceTimelineRows.worker.ts", import.meta.url),
     { type: "module" },
   );
-  nativeTimelineRowsWorker.addEventListener(
+  sourceTimelineRowsWorker.addEventListener(
     "message",
-    (event: MessageEvent<NativeTimelineRowsWorkerResponse>) => {
+    (event: MessageEvent<SourceTimelineRowsWorkerResponse>) => {
       const pending = pendingRequests.get(event.data.id);
       if (!pending) {
         return;
@@ -102,53 +102,53 @@ function getNativeTimelineRowsWorker(): Worker | null {
       pending.resolve(event.data.rows ?? []);
     },
   );
-  nativeTimelineRowsWorker.addEventListener("error", (event) => {
-    const error = new Error(event.message || "Native timeline rows worker failed");
+  sourceTimelineRowsWorker.addEventListener("error", (event) => {
+    const error = new Error(event.message || "Source timeline rows worker failed");
     for (const pending of pendingRequests.values()) {
       pending.reject(error);
     }
     pendingRequests.clear();
-    nativeTimelineRowsWorker?.terminate();
-    nativeTimelineRowsWorker = null;
+    sourceTimelineRowsWorker?.terminate();
+    sourceTimelineRowsWorker = null;
   });
-  return nativeTimelineRowsWorker;
+  return sourceTimelineRowsWorker;
 }
 
-export function readCachedNativeTimelineRows(cacheKey: string | null): TimelineRow[] | null {
+export function readCachedSourceTimelineRows(cacheKey: string | null): TimelineRow[] | null {
   if (!cacheKey) {
     return null;
   }
-  return nativeTimelineRowsCache.get(cacheKey) ?? null;
+  return sourceTimelineRowsCache.get(cacheKey) ?? null;
 }
 
-export function clearCachedNativeTimelineRows(cacheKey: string): void {
-  nativeTimelineRowsCache.delete(cacheKey);
+export function clearCachedSourceTimelineRows(cacheKey: string): void {
+  sourceTimelineRowsCache.delete(cacheKey);
 }
 
-function writeCachedNativeTimelineRows(cacheKey: string, rows: TimelineRow[]): void {
-  nativeTimelineRowsCache.delete(cacheKey);
-  nativeTimelineRowsCache.set(cacheKey, rows);
-  while (nativeTimelineRowsCache.size > MAX_NATIVE_TIMELINE_ROWS_CACHE_ENTRIES) {
-    const oldestKey = nativeTimelineRowsCache.keys().next().value;
+function writeCachedSourceTimelineRows(cacheKey: string, rows: TimelineRow[]): void {
+  sourceTimelineRowsCache.delete(cacheKey);
+  sourceTimelineRowsCache.set(cacheKey, rows);
+  while (sourceTimelineRowsCache.size > MAX_SOURCE_TIMELINE_ROWS_CACHE_ENTRIES) {
+    const oldestKey = sourceTimelineRowsCache.keys().next().value;
     if (oldestKey === undefined) {
       return;
     }
-    nativeTimelineRowsCache.delete(oldestKey);
+    sourceTimelineRowsCache.delete(oldestKey);
   }
 }
 
-export function resolveNativeTimelineRows(input: {
+export function resolveSourceTimelineRows(input: {
   readonly cacheKey: string;
-  readonly rowsInput: NativeTimelineRowsInput;
+  readonly rowsInput: SourceTimelineRowsInput;
 }): Promise<TimelineRow[]> {
-  const cachedRows = nativeTimelineRowsCache.get(input.cacheKey);
+  const cachedRows = sourceTimelineRowsCache.get(input.cacheKey);
   if (cachedRows) {
     return Promise.resolve(cachedRows);
   }
-  const worker = getNativeTimelineRowsWorker();
+  const worker = getSourceTimelineRowsWorker();
   if (!worker) {
-    const rows = buildNativeTimelineRows(input.rowsInput);
-    writeCachedNativeTimelineRows(input.cacheKey, rows);
+    const rows = buildSourceTimelineRows(input.rowsInput);
+    writeCachedSourceTimelineRows(input.cacheKey, rows);
     return Promise.resolve(rows);
   }
 
@@ -158,12 +158,12 @@ export function resolveNativeTimelineRows(input: {
     pendingRequests.set(id, {
       reject,
       resolve: (rows) => {
-        writeCachedNativeTimelineRows(input.cacheKey, rows);
+        writeCachedSourceTimelineRows(input.cacheKey, rows);
         resolve(rows);
       },
     });
     worker.postMessage(
-      { id, input: input.rowsInput } satisfies NativeTimelineRowsWorkerRequest,
+      { id, input: input.rowsInput } satisfies SourceTimelineRowsWorkerRequest,
       [],
     );
   });

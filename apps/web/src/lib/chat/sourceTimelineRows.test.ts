@@ -4,22 +4,23 @@ import {
   TurnId,
   type OrchestrationMessage,
   type OrchestrationThreadActivity,
-  type OrchestrationTimelineRow,
 } from "@ace/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
-  deriveNativeCompletionAttachment,
-  buildNativeTimelineRows,
+  deriveSourceCompletionAttachment,
+  buildSourceTimelineRows,
   deriveNativeCompletionDividerBeforeRowId,
-} from "./nativeTimelineRows";
+  toPagedChatMessage,
+} from "./sourceTimelineRows";
+import type { TimelineSourceRow } from "./timelineModelStore";
 
 const turnId = TurnId.makeUnsafe("turn-native-rows");
 const userMessageId = MessageId.makeUnsafe("message-user-native");
 const assistantMessageId = MessageId.makeUnsafe("message-assistant-native");
 const activityId = EventId.makeUnsafe("activity-native-tool");
 
-function messageRow(message: OrchestrationMessage, sourceIndex: number): OrchestrationTimelineRow {
+function messageRow(message: OrchestrationMessage, sourceIndex: number): TimelineSourceRow {
   return {
     id: `message:${message.id}`,
     kind: "message",
@@ -36,7 +37,7 @@ function messageRow(message: OrchestrationMessage, sourceIndex: number): Orchest
         createdAt: message.createdAt,
         sourceIndex,
         turnId: message.turnId,
-        sequence: message.sequence,
+        ...(message.sequence !== undefined ? { sequence: message.sequence } : {}),
       },
     ],
   };
@@ -45,7 +46,7 @@ function messageRow(message: OrchestrationMessage, sourceIndex: number): Orchest
 function activityRow(
   activity: OrchestrationThreadActivity,
   sourceIndex: number,
-): OrchestrationTimelineRow {
+): TimelineSourceRow {
   return {
     id: `activity:${activity.id}`,
     kind: "work",
@@ -68,7 +69,34 @@ function activityRow(
   };
 }
 
-describe("nativeTimelineRows", () => {
+describe("sourceTimelineRows", () => {
+  it("adds a preview route for persisted image attachments without preview URLs", () => {
+    const message: OrchestrationMessage = {
+      id: userMessageId,
+      role: "user",
+      text: "Attached image",
+      turnId,
+      streaming: false,
+      sequence: 1,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      attachments: [
+        {
+          type: "image",
+          id: "attachment-source-row",
+          name: "image.png",
+          mimeType: "image/png",
+          sizeBytes: 123,
+        },
+      ],
+    };
+
+    expect(toPagedChatMessage(message).attachments?.[0]).toMatchObject({
+      id: "attachment-source-row",
+      previewUrl: "/attachments/attachment-source-row",
+    });
+  });
+
   it("builds render rows from loaded server rows without full timeline projection", () => {
     const userMessage: OrchestrationMessage = {
       id: userMessageId,
@@ -102,7 +130,7 @@ describe("nativeTimelineRows", () => {
     };
     const workRow = activityRow(activity, 2);
 
-    const rows = buildNativeTimelineRows({
+    const rows = buildSourceTimelineRows({
       rows: [messageRow(userMessage, 0), messageRow(assistantMessage, 1), workRow],
       messages: [userMessage, assistantMessage],
       activities: [activity],
@@ -165,7 +193,7 @@ describe("nativeTimelineRows", () => {
       createdAt: "2026-01-01T00:00:03.000Z",
     };
 
-    const rows = buildNativeTimelineRows({
+    const rows = buildSourceTimelineRows({
       rows: [messageRow(userMessage, 0), messageRow(assistantMessage, 1), activityRow(activity, 2)],
       messages: [userMessage, assistantMessage],
       activities: [activity],
@@ -243,7 +271,7 @@ describe("nativeTimelineRows", () => {
       createdAt: "2026-01-01T00:00:03.000Z",
     };
 
-    const rows = buildNativeTimelineRows({
+    const rows = buildSourceTimelineRows({
       rows: [
         messageRow(userMessage, 0),
         activityRow(thinkingActivity, 1),
@@ -335,7 +363,7 @@ describe("nativeTimelineRows", () => {
       createdAt: "2026-01-01T00:00:04.000Z",
     };
 
-    const rows = buildNativeTimelineRows({
+    const rows = buildSourceTimelineRows({
       rows: [
         messageRow(userMessage, 0),
         activityRow(toolActivity, 1),
@@ -377,7 +405,7 @@ describe("nativeTimelineRows", () => {
     });
   });
 
-  it("synthesizes completed work timing when native rows have no visible work activities", () => {
+  it("synthesizes completed work timing when source rows have no visible work activities", () => {
     const userMessage: OrchestrationMessage = {
       id: userMessageId,
       role: "user",
@@ -399,7 +427,7 @@ describe("nativeTimelineRows", () => {
       updatedAt: "2026-01-01T00:00:10.000Z",
     };
 
-    const rows = buildNativeTimelineRows({
+    const rows = buildSourceTimelineRows({
       rows: [messageRow(userMessage, 0), messageRow(assistantMessage, 1)],
       messages: [userMessage, assistantMessage],
       activities: [],
@@ -449,7 +477,7 @@ describe("nativeTimelineRows", () => {
       updatedAt: "2026-01-01T00:00:10.000Z",
     };
 
-    const rows = buildNativeTimelineRows({
+    const rows = buildSourceTimelineRows({
       rows: [messageRow(userMessage, 0), messageRow(assistantMessage, 1)],
       messages: [userMessage, assistantMessage],
       activities: [],
@@ -519,7 +547,7 @@ describe("nativeTimelineRows", () => {
       updatedAt: "2026-01-01T00:00:06.000Z",
     };
 
-    const rows = buildNativeTimelineRows({
+    const rows = buildSourceTimelineRows({
       rows: [
         messageRow(userMessage, 0),
         activityRow(toolActivity, 1),
@@ -595,7 +623,7 @@ describe("nativeTimelineRows", () => {
       updatedAt: "2026-01-01T00:00:06.000Z",
     };
 
-    const rows = buildNativeTimelineRows({
+    const rows = buildSourceTimelineRows({
       rows: [
         messageRow(userMessage, 0),
         activityRow(toolActivity, 1),
@@ -681,7 +709,7 @@ describe("nativeTimelineRows", () => {
       updatedAt: "2026-01-01T00:00:06.000Z",
     };
 
-    const rows = buildNativeTimelineRows({
+    const rows = buildSourceTimelineRows({
       rows: [
         messageRow(userMessage, 0),
         activityRow(firstToolActivity, 1),
@@ -753,7 +781,7 @@ describe("nativeTimelineRows", () => {
       createdAt: "2026-01-01T00:00:03.000Z",
     };
 
-    const rows = buildNativeTimelineRows({
+    const rows = buildSourceTimelineRows({
       rows: [
         activityRow(goalActivity, 0),
         activityRow(contextActivity, 1),
@@ -776,7 +804,7 @@ describe("nativeTimelineRows", () => {
     });
   });
 
-  it("groups adjacent command and thinking activities like the legacy timeline", () => {
+  it("groups adjacent command and thinking activities deterministically", () => {
     const commandOne: OrchestrationThreadActivity = {
       id: EventId.makeUnsafe("activity-command-one"),
       tone: "tool",
@@ -808,7 +836,7 @@ describe("nativeTimelineRows", () => {
       createdAt: "2026-01-01T00:00:03.000Z",
     };
 
-    const rows = buildNativeTimelineRows({
+    const rows = buildSourceTimelineRows({
       rows: [activityRow(commandOne, 0), activityRow(commandTwo, 1), activityRow(thinkingOne, 2)],
       messages: [],
       activities: [commandOne, commandTwo, thinkingOne],
@@ -867,7 +895,7 @@ describe("nativeTimelineRows", () => {
       createdAt: "2026-01-01T00:00:04.000Z",
     };
 
-    const rows = buildNativeTimelineRows({
+    const rows = buildSourceTimelineRows({
       rows: [
         activityRow(toolActivity, 0),
         activityRow(commandActivity, 1),
@@ -916,7 +944,7 @@ describe("nativeTimelineRows", () => {
       createdAt: "2026-01-01T00:00:00.750Z",
     };
 
-    const rows = buildNativeTimelineRows({
+    const rows = buildSourceTimelineRows({
       rows: [activityRow(toolActivity, 0), activityRow(thinkingActivity, 1)],
       messages: [],
       activities: [toolActivity, thinkingActivity],
@@ -954,7 +982,7 @@ describe("nativeTimelineRows", () => {
       createdAt: "2026-01-01T00:00:02.000Z",
     };
 
-    const rows = buildNativeTimelineRows({
+    const rows = buildSourceTimelineRows({
       rows: [activityRow(activity, 1)],
       messages: [],
       activities: [activity],
@@ -1000,7 +1028,7 @@ describe("nativeTimelineRows", () => {
       createdAt: "2026-01-01T00:00:03.000Z",
     };
 
-    const gettingStartedRows = buildNativeTimelineRows({
+    const gettingStartedRows = buildSourceTimelineRows({
       rows: [messageRow(userMessage, 0)],
       messages: [userMessage],
       activities: [],
@@ -1016,7 +1044,7 @@ describe("nativeTimelineRows", () => {
       mode: "silent-thinking",
     });
 
-    const workingRows = buildNativeTimelineRows({
+    const workingRows = buildSourceTimelineRows({
       rows: [messageRow(userMessage, 0), activityRow(activity, 1)],
       messages: [userMessage],
       activities: [activity],
@@ -1079,7 +1107,7 @@ describe("nativeTimelineRows", () => {
     };
 
     expect(
-      deriveNativeCompletionAttachment({
+      deriveSourceCompletionAttachment({
         latestTurn: null,
         rows: [messageRow(userMessage, 0), messageRow(assistantMessage, 1)],
         messages: [userMessage, assistantMessage],

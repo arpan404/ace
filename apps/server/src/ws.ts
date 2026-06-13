@@ -11,8 +11,6 @@ import {
   type NewThreadRecommendation,
   OrchestrationDispatchCommandError,
   type OrchestrationEvent,
-  type OrchestrationGetThreadTimelineRowsSnapshotChunkInput,
-  type OrchestrationGetThreadTimelineRowsSnapshotInput,
   type ProviderKind,
   type ServerProvider,
   OrchestrationGetFullThreadDiffError,
@@ -67,8 +65,6 @@ import {
   sanitizeOrchestrationEventForClient,
   sanitizeReadModelForClient,
   sanitizeThreadForClient,
-  sanitizeTimelineRowsSnapshotChunkForClient,
-  sanitizeTimelineRowsSnapshotForClient,
 } from "./orchestration/publicPresentation";
 import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine";
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
@@ -969,54 +965,6 @@ const WsRpcLayer = WsRpcGroup.toLayer(
                 }),
           ),
         ),
-      [ORCHESTRATION_WS_METHODS.getThreadTimelineRowsSnapshot]: (
-        input: OrchestrationGetThreadTimelineRowsSnapshotInput,
-      ) =>
-        projectionSnapshotQuery.getThreadTimelineRowsSnapshot(input).pipe(
-          Effect.flatMap((snapshot) =>
-            Option.match(snapshot, {
-              onNone: () =>
-                Effect.fail(
-                  new OrchestrationGetThreadError({
-                    message: `Thread '${input.threadId}' was not found.`,
-                  }),
-                ),
-              onSome: (value) => Effect.succeed(sanitizeTimelineRowsSnapshotForClient(value)),
-            }),
-          ),
-          Effect.mapError((cause) =>
-            Schema.is(OrchestrationGetThreadError)(cause)
-              ? cause
-              : new OrchestrationGetThreadError({
-                  message: "Failed to load orchestration thread timeline rows snapshot",
-                  cause,
-                }),
-          ),
-        ),
-      [ORCHESTRATION_WS_METHODS.getThreadTimelineRowsSnapshotChunk]: (
-        input: OrchestrationGetThreadTimelineRowsSnapshotChunkInput,
-      ) =>
-        projectionSnapshotQuery.getThreadTimelineRowsSnapshotChunk(input).pipe(
-          Effect.flatMap((snapshot) =>
-            Option.match(snapshot, {
-              onNone: () =>
-                Effect.fail(
-                  new OrchestrationGetThreadError({
-                    message: `Thread '${input.threadId}' was not found.`,
-                  }),
-                ),
-              onSome: (value) => Effect.succeed(sanitizeTimelineRowsSnapshotChunkForClient(value)),
-            }),
-          ),
-          Effect.mapError((cause) =>
-            Schema.is(OrchestrationGetThreadError)(cause)
-              ? cause
-              : new OrchestrationGetThreadError({
-                  message: "Failed to load orchestration thread timeline rows snapshot chunk",
-                  cause,
-                }),
-          ),
-        ),
       [ORCHESTRATION_WS_METHODS.dispatchCommand]: (command) =>
         Effect.gen(function* () {
           const normalizedCommand = yield* normalizeDispatchCommand(command);
@@ -1069,8 +1017,13 @@ const WsRpcLayer = WsRpcGroup.toLayer(
       [WS_METHODS.subscribeOrchestrationDomainEvents]: (input) =>
         Stream.unwrap(
           Effect.gen(function* () {
-            const snapshot = yield* orchestrationEngine.getReadModel();
-            const fromSequenceExclusive = snapshot.snapshotSequence;
+            const fromSequenceExclusive =
+              input.fromSequenceExclusive !== undefined
+                ? clamp(input.fromSequenceExclusive, {
+                    maximum: Number.MAX_SAFE_INTEGER,
+                    minimum: 0,
+                  })
+                : (yield* orchestrationEngine.getReadModel()).snapshotSequence;
             const replayEvents: Array<OrchestrationEvent> = yield* Stream.runCollect(
               orchestrationEngine.readEvents(fromSequenceExclusive),
             ).pipe(

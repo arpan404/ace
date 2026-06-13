@@ -1,13 +1,15 @@
 import { useRef, useState, type ComponentProps, type ReactNode } from "react";
-import { MessageId } from "@ace/contracts";
 
-import type { WorkLogEntry } from "../../session-logic/types";
-import { deriveTimelineEntries } from "../../session-logic";
 import { cn } from "../../lib/utils";
 import { ScrollArea } from "../ui/scroll-area";
 import { MessagesTimeline } from "./MessagesTimeline";
-import type { ChatMessage } from "../../types";
 import type { SubagentThread } from "./subagentThreads";
+import {
+  toggleTimelineDisclosureExpansion,
+  type TimelineDisclosureExpansionState,
+  type TimelineDisclosureKey,
+} from "../../lib/chat/timelineDisclosureState";
+import { useSubagentTimelineViewModel } from "../../lib/chat/threadTimelineViewModel";
 
 export function SubagentPersonaIcon(props: {
   className?: string;
@@ -67,42 +69,33 @@ export function SubagentWorkspacePanel(props: {
   threads: ReadonlyArray<SubagentThread>;
 }) {
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
-  const [expandedWorkGroups, setExpandedWorkGroups] = useState<Record<string, boolean>>({});
-  const onToggleWorkGroup = (groupId: string) => {
-    setExpandedWorkGroups((existing) => ({
-      ...existing,
-      [groupId]: !existing[groupId],
-    }));
-  };
+  const [expandedWorkGroupsByThreadId, setExpandedWorkGroupsByThreadId] = useState<
+    Record<string, TimelineDisclosureExpansionState>
+  >({});
   const activeThread =
     props.threads.find((thread) => thread.id === props.activeThreadId) ?? props.threads[0] ?? null;
-  const sideChatTimeline: {
-    messages: ChatMessage[];
-    workEntries: WorkLogEntry[];
-  } = {
-    messages: [],
-    workEntries: [],
-  };
-  for (const entry of activeThread?.entries ?? []) {
-    if (entry.sideChatMessageRole && entry.sideChatMessageText) {
-      sideChatTimeline.messages.push({
-        id: MessageId.makeUnsafe(entry.sideChatMessageId ?? entry.id),
-        role: entry.sideChatMessageRole,
-        text: entry.sideChatMessageText,
-        turnId: null,
-        createdAt: entry.createdAt,
-        ...(entry.sequence !== undefined ? { sequence: entry.sequence } : {}),
-        streaming: false,
-      });
-    } else {
-      sideChatTimeline.workEntries.push(entry);
+  const expandedWorkGroups = activeThread
+    ? (expandedWorkGroupsByThreadId[activeThread.id] ?? {})
+    : {};
+  const timelineViewModel = useSubagentTimelineViewModel({
+    thread: activeThread,
+    enabled: activeThread !== null,
+    surface: "subagent",
+  });
+  const onToggleWorkGroup = (groupId: TimelineDisclosureKey, defaultExpanded = false) => {
+    if (!activeThread) {
+      return;
     }
-  }
-  const timelineEntries = deriveTimelineEntries(
-    sideChatTimeline.messages,
-    [],
-    sideChatTimeline.workEntries,
-  );
+    setExpandedWorkGroupsByThreadId((existingByThreadId) => {
+      const existing = existingByThreadId[activeThread.id] ?? {};
+      return {
+        ...existingByThreadId,
+        [activeThread.id]: toggleTimelineDisclosureExpansion(existing, groupId, defaultExpanded),
+      };
+    });
+  };
+  const activeThreadStartedAt = timelineViewModel.activeTurnStartedAt;
+  const isSubagentWorking = timelineViewModel.activeTurnInProgress;
 
   if (!activeThread) {
     return (
@@ -113,12 +106,6 @@ export function SubagentWorkspacePanel(props: {
       </section>
     );
   }
-
-  const activeThreadStartedAt =
-    activeThread.entries.find((entry) => entry.status === "inProgress")?.createdAt ??
-    activeThread.entries[0]?.createdAt ??
-    null;
-  const isSubagentWorking = activeThread.status === "running";
 
   return (
     <section className="flex min-h-0 flex-1 flex-col bg-background">
@@ -133,7 +120,7 @@ export function SubagentWorkspacePanel(props: {
           completionSummary={null}
           expandedWorkGroups={expandedWorkGroups}
           getScrollContainer={() => scrollContainerRef.current}
-          hasMessages={timelineEntries.length > 0}
+          hasMessages={timelineViewModel.hasEntries}
           hideCompletedWorkMessages={false}
           isWorking={isSubagentWorking}
           liveTimers={props.timelineProps.liveTimers ?? true}
@@ -141,7 +128,9 @@ export function SubagentWorkspacePanel(props: {
           onStartConversationFromMessage={null}
           onToggleWorkGroup={onToggleWorkGroup}
           revertTurnCountByUserMessageId={new Map()}
-          timelineEntries={timelineEntries}
+          rows={timelineViewModel.rows}
+          timelineIndexByEntryId={timelineViewModel.timelineIndexByEntryId}
+          timelineRowsLoading={timelineViewModel.loading}
           turnDiffSummaryByAssistantMessageId={new Map()}
         />
       </ScrollArea>

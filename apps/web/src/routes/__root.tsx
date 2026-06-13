@@ -6,6 +6,7 @@ import {
   useLocation,
 } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
+import { unstable_batchedUpdates } from "react-dom";
 import { QueryClient, useQueryClient } from "@tanstack/react-query";
 import { Throttler } from "@tanstack/react-pacer";
 
@@ -526,35 +527,37 @@ function useEventRouterLifecycle() {
         void queryInvalidationThrottler.maybeExecute();
       }
 
-      applyOrchestrationEvents(uiEvents);
-      if (needsProjectUiSync) {
-        const projects = useStore.getState().projects;
-        syncProjects(projects.map((project) => ({ id: project.id, cwd: project.cwd })));
-      }
-      const needsThreadUiSync = nextEvents.some(
-        (event) => event.type === "thread.created" || event.type === "thread.deleted",
-      );
-      if (needsThreadUiSync) {
-        const threads = useStore.getState().threads;
-        syncThreads(
-          threads.map((thread) => ({
-            id: thread.id,
-            projectId: thread.projectId,
-            seedVisitedAt: thread.updatedAt ?? thread.createdAt,
-          })),
+      unstable_batchedUpdates(() => {
+        applyOrchestrationEvents(uiEvents);
+        if (needsProjectUiSync) {
+          const projects = useStore.getState().projects;
+          syncProjects(projects.map((project) => ({ id: project.id, cwd: project.cwd })));
+        }
+        const needsThreadUiSync = nextEvents.some(
+          (event) => event.type === "thread.created" || event.type === "thread.deleted",
         );
-      }
-      const draftStore = useComposerDraftStore.getState();
-      for (const threadId of batchEffects.clearPromotedDraftThreadIds) {
-        clearPromotedDraftThread(threadId);
-      }
-      for (const threadId of batchEffects.clearDeletedThreadIds) {
-        draftStore.clearDraftThread(threadId);
-        clearThreadUi(threadId);
-      }
-      for (const threadId of batchEffects.removeTerminalStateThreadIds) {
-        removeTerminalState(threadId);
-      }
+        if (needsThreadUiSync) {
+          const threads = useStore.getState().threads;
+          syncThreads(
+            threads.map((thread) => ({
+              id: thread.id,
+              projectId: thread.projectId,
+              seedVisitedAt: thread.updatedAt ?? thread.createdAt,
+            })),
+          );
+        }
+        const draftStore = useComposerDraftStore.getState();
+        for (const threadId of batchEffects.clearPromotedDraftThreadIds) {
+          clearPromotedDraftThread(threadId);
+        }
+        for (const threadId of batchEffects.clearDeletedThreadIds) {
+          draftStore.clearDraftThread(threadId);
+          clearThreadUi(threadId);
+        }
+        for (const threadId of batchEffects.removeTerminalStateThreadIds) {
+          removeTerminalState(threadId);
+        }
+      });
     };
     const flushPendingDomainEvents = () => {
       flushPendingDomainEventsScheduled = false;
@@ -713,7 +716,11 @@ function useEventRouterLifecycle() {
             projectCount: snapshot.projects.length,
             threadCount: snapshot.threads.length,
           });
-          if (recovery.completeSnapshotRecovery(snapshot.snapshotSequence)) {
+          const shouldReplayAfterSnapshot = recovery.completeSnapshotRecovery(
+            snapshot.snapshotSequence,
+          );
+          flushPendingDomainEvents();
+          if (shouldReplayAfterSnapshot) {
             void recoverFromReplay("sequence-gap");
           }
         }
@@ -756,39 +763,43 @@ function useEventRouterLifecycle() {
       flushPendingDomainEvents();
       void recoverFromReplay("transport-reconnected");
     });
-    const unsubDomainEvent = localRpcClient.orchestration.onDomainEvent((event) => {
-      if (
-        typeof window !== "undefined" &&
-        window.desktopBridge?.sendOrchestrationEvent &&
-        shouldForwardDesktopNotificationOrchestrationEvent(event)
-      ) {
-        window.desktopBridge.sendOrchestrationEvent(event);
-      }
-      const action = recovery.classifyDomainEvent(event.sequence);
-      if (action === "apply") {
-        pendingDomainEvents.push(event);
-        schedulePendingDomainEventFlush(resolveOrchestrationUiEventFlushPriority(event));
-        return;
-      }
-      if (action === "defer") {
-        // Full snapshot recovery can be slow for large threads. Live domain events
-        // are still self-contained enough to update the UI immediately; the
-        // snapshot/replay path will reconcile durable history afterward.
-        pendingDomainEvents.push(event);
-        schedulePendingDomainEventFlush(resolveOrchestrationUiEventFlushPriority(event));
-        return;
-      }
-      if (action === "recover") {
-        logLoadDiagnostic({
-          phase: "replay",
-          level: "warning",
-          message: "Detected sequence gap while applying domain event",
-          detail: { sequence: event.sequence, type: event.type },
-        });
-        flushPendingDomainEvents();
-        void recoverFromReplay("sequence-gap");
-      }
-    });
+    const unsubDomainEvent = localRpcClient.orchestration.onDomainEvent(
+      (event) => {
+        if (
+          typeof window !== "undefined" &&
+          window.desktopBridge?.sendOrchestrationEvent &&
+          shouldForwardDesktopNotificationOrchestrationEvent(event)
+        ) {
+          window.desktopBridge.sendOrchestrationEvent(event);
+        }
+        const action = recovery.classifyDomainEvent(event.sequence);
+        if (action === "apply") {
+          pendingDomainEvents.push(event);
+          schedulePendingDomainEventFlush(resolveOrchestrationUiEventFlushPriority(event));
+          return;
+        }
+        if (action === "defer") {
+          // While bootstrap/recovery owns the authoritative cursor, buffer live
+          // events and apply only those newer than the settled snapshot/replay.
+          pendingDomainEvents.push(event);
+          if (recovery.getState().bootstrapped) {
+            schedulePendingDomainEventFlush(resolveOrchestrationUiEventFlushPriority(event));
+          }
+          return;
+        }
+        if (action === "recover") {
+          logLoadDiagnostic({
+            phase: "replay",
+            level: "warning",
+            message: "Detected sequence gap while applying domain event",
+            detail: { sequence: event.sequence, type: event.type },
+          });
+          flushPendingDomainEvents();
+          void recoverFromReplay("sequence-gap");
+        }
+      },
+      { fromSequenceExclusive: recovery.getState().latestSequence },
+    );
     const unsubTerminalEvent = localRpcClient.terminal.onEvent((event) => {
       const hasRunningSubprocess = terminalRunningSubprocessFromEvent(event);
       if (hasRunningSubprocess === null) {

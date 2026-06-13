@@ -7,7 +7,6 @@ import {
   IsoDateTime,
   MessageId,
   NonNegativeInt,
-  PositiveInt,
   ProjectId,
   ThreadId,
   TrimmedNonEmptyString,
@@ -34,7 +33,6 @@ import {
   OrchestrationCheckpointFile,
   OrchestrationCheckpointDiffSource,
   OrchestrationCheckpointStatus,
-  OrchestrationMessage,
   SourceProposedPlanReference,
   OrchestrationProposedPlan,
   OrchestrationReadModel,
@@ -461,101 +459,6 @@ export type OrchestrationGetThreadInput = typeof OrchestrationGetThreadInput.Typ
 export const OrchestrationGetThreadResult = OrchestrationThread;
 export type OrchestrationGetThreadResult = typeof OrchestrationGetThreadResult.Type;
 
-export const OrchestrationThreadTimelineEntryKind = Schema.Literals([
-  "message",
-  "activity",
-  "proposed-plan",
-]);
-export type OrchestrationThreadTimelineEntryKind = typeof OrchestrationThreadTimelineEntryKind.Type;
-
-export const OrchestrationThreadTimelineEntryReference = Schema.Struct({
-  kind: OrchestrationThreadTimelineEntryKind,
-  id: TrimmedNonEmptyString,
-  createdAt: IsoDateTime,
-  index: NonNegativeInt,
-  turnId: Schema.optional(Schema.NullOr(TurnId)),
-  sequence: Schema.optional(NonNegativeInt),
-});
-export type OrchestrationThreadTimelineEntryReference =
-  typeof OrchestrationThreadTimelineEntryReference.Type;
-
-export const OrchestrationTimelineRowSourceReference = Schema.Struct({
-  kind: OrchestrationThreadTimelineEntryKind,
-  id: TrimmedNonEmptyString,
-  createdAt: IsoDateTime,
-  sourceIndex: NonNegativeInt,
-  turnId: Schema.optional(Schema.NullOr(TurnId)),
-  sequence: Schema.optional(NonNegativeInt),
-});
-export type OrchestrationTimelineRowSourceReference =
-  typeof OrchestrationTimelineRowSourceReference.Type;
-
-export const OrchestrationTimelineRowKind = Schema.Literals([
-  "message",
-  "work",
-  "work-group",
-  "intent",
-  "proposed-plan",
-  "completed-work-summary",
-]);
-export type OrchestrationTimelineRowKind = typeof OrchestrationTimelineRowKind.Type;
-
-export const OrchestrationTimelineRow = Schema.Struct({
-  id: TrimmedNonEmptyString,
-  kind: OrchestrationTimelineRowKind,
-  createdAt: IsoDateTime,
-  updatedAt: IsoDateTime,
-  contentVersion: TrimmedNonEmptyString,
-  startSourceIndex: NonNegativeInt,
-  endSourceIndexExclusive: NonNegativeInt,
-  turnId: Schema.optional(Schema.NullOr(TurnId)),
-  sourceRefs: Schema.Array(OrchestrationTimelineRowSourceReference),
-});
-export type OrchestrationTimelineRow = typeof OrchestrationTimelineRow.Type;
-
-export const OrchestrationGetThreadTimelineRowsSnapshotInput = Schema.Struct({
-  threadId: ThreadId,
-});
-export type OrchestrationGetThreadTimelineRowsSnapshotInput =
-  typeof OrchestrationGetThreadTimelineRowsSnapshotInput.Type;
-
-export const OrchestrationGetThreadTimelineRowsSnapshotResult = Schema.Struct({
-  threadId: ThreadId,
-  revision: TrimmedNonEmptyString,
-  updatedAt: IsoDateTime,
-  totalRows: NonNegativeInt,
-  rows: Schema.Array(OrchestrationTimelineRow),
-  messages: Schema.Array(OrchestrationMessage),
-  activities: Schema.Array(OrchestrationThreadActivity),
-  proposedPlans: Schema.Array(OrchestrationProposedPlan),
-});
-export type OrchestrationGetThreadTimelineRowsSnapshotResult =
-  typeof OrchestrationGetThreadTimelineRowsSnapshotResult.Type;
-
-export const OrchestrationGetThreadTimelineRowsSnapshotChunkInput = Schema.Struct({
-  threadId: ThreadId,
-  startRowIndex: NonNegativeInt,
-  limit: PositiveInt,
-});
-export type OrchestrationGetThreadTimelineRowsSnapshotChunkInput =
-  typeof OrchestrationGetThreadTimelineRowsSnapshotChunkInput.Type;
-
-export const OrchestrationGetThreadTimelineRowsSnapshotChunkResult = Schema.Struct({
-  threadId: ThreadId,
-  revision: TrimmedNonEmptyString,
-  updatedAt: IsoDateTime,
-  totalRows: NonNegativeInt,
-  startRowIndex: NonNegativeInt,
-  endRowIndexExclusive: NonNegativeInt,
-  isComplete: Schema.Boolean,
-  rows: Schema.Array(OrchestrationTimelineRow),
-  messages: Schema.Array(OrchestrationMessage),
-  activities: Schema.Array(OrchestrationThreadActivity),
-  proposedPlans: Schema.Array(OrchestrationProposedPlan),
-});
-export type OrchestrationGetThreadTimelineRowsSnapshotChunkResult =
-  typeof OrchestrationGetThreadTimelineRowsSnapshotChunkResult.Type;
-
 export const OrchestrationGetTurnDiffInput = TurnCountRange.mapFields(
   Struct.assign({ threadId: ThreadId }),
   { unsafePreserveChecks: true },
@@ -590,14 +493,6 @@ export const OrchestrationRpcSchemas = {
   getThread: {
     input: OrchestrationGetThreadInput,
     output: OrchestrationGetThreadResult,
-  },
-  getThreadTimelineRowsSnapshot: {
-    input: OrchestrationGetThreadTimelineRowsSnapshotInput,
-    output: OrchestrationGetThreadTimelineRowsSnapshotResult,
-  },
-  getThreadTimelineRowsSnapshotChunk: {
-    input: OrchestrationGetThreadTimelineRowsSnapshotChunkInput,
-    output: OrchestrationGetThreadTimelineRowsSnapshotChunkResult,
   },
   dispatchCommand: {
     input: ClientOrchestrationCommand,

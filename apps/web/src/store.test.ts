@@ -1841,7 +1841,7 @@ describe("incremental orchestration updates", () => {
     expect(completed.sidebarThreadsById[threadId]?.latestTurn?.state).toBe("completed");
   });
 
-  it("projects assistant messages into timeline rows for metadata-only threads", async () => {
+  it("projects assistant messages into timeline rows for metadata-only threads", () => {
     const threadId = ThreadId.makeUnsafe("thread-metadata-live-assistant");
     const messageId = MessageId.makeUnsafe("message-metadata-live-assistant");
     const turnId = TurnId.makeUnsafe("turn-metadata-live-assistant");
@@ -1881,8 +1881,6 @@ describe("incremental orchestration updates", () => {
       ),
     );
 
-    await new Promise((resolve) => setTimeout(resolve, 20));
-
     expect(next.threads[0]?.messages).toEqual([]);
     expect(next.threads[0]?.latestTurn?.state).toBe("running");
     expect(readTimelineRowsProjection(threadId).messages.map((message) => message.text)).toEqual([
@@ -1893,7 +1891,7 @@ describe("incremental orchestration updates", () => {
     ]);
   });
 
-  it("keeps streamed assistant text when a metadata-only thread receives an empty final event", async () => {
+  it("keeps streamed assistant text when a metadata-only thread receives an empty final event", () => {
     const threadId = ThreadId.makeUnsafe("thread-metadata-empty-final");
     const messageId = MessageId.makeUnsafe("message-metadata-empty-final");
     const turnId = TurnId.makeUnsafe("turn-metadata-empty-final");
@@ -1952,8 +1950,6 @@ describe("incremental orchestration updates", () => {
         },
       ),
     );
-
-    await new Promise((resolve) => setTimeout(resolve, 20));
 
     expect(readTimelineRowsProjection(threadId).messages[0]).toMatchObject({
       text: "hi",

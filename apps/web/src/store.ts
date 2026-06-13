@@ -34,9 +34,9 @@ import {
   finalizeChatMessageText,
   getChatMessageFullText,
 } from "./lib/chat/messageText";
+import { resolveAttachmentPreviewUrl } from "./lib/chat/attachmentPreviewUrls";
 import { primeHydratedThreadCache } from "./lib/threadHydrationCache";
 import {
-  hydrateThreadTimelineRowsSnapshotInBackground,
   primeLiveTimelineRow,
   primeThreadTimelineRowsMetadataFromReadModelThread,
   primeThreadTimelineRowsMetadataFromReadModelThreads,
@@ -44,7 +44,6 @@ import {
   useTimelineModelStore,
 } from "./lib/chat/timelineModelStore";
 import { resolveConnectionForThreadId } from "./lib/connectionRouting";
-import { resolveServerUrl } from "./lib/utils";
 import { type ChatMessage, type Project, type SidebarThreadSummary, type Thread } from "./types";
 
 // ── State ────────────────────────────────────────────────────────────
@@ -277,7 +276,7 @@ function mapMessageAttachments(
     name: attachment.name,
     mimeType: attachment.mimeType,
     sizeBytes: attachment.sizeBytes,
-    previewUrl: toAttachmentPreviewUrl(attachmentPreviewRoutePath(attachment.id), connectionUrl),
+    previewUrl: resolveAttachmentPreviewUrl(attachment.id, connectionUrl),
   }));
 }
 
@@ -306,7 +305,7 @@ function mapOrchestrationMessageForClient(
 ): OrchestrationMessage {
   const attachments = message.attachments?.map((attachment) => ({
     ...attachment,
-    previewUrl: toAttachmentPreviewUrl(attachmentPreviewRoutePath(attachment.id), connectionUrl),
+    previewUrl: resolveAttachmentPreviewUrl(attachment.id, connectionUrl),
   }));
   return {
     ...message,
@@ -1491,46 +1490,6 @@ function toLegacyProvider(providerName: string | null): ProviderKind {
   return "codex";
 }
 
-function toAttachmentPreviewUrl(rawUrl: string, connectionUrl?: string): string {
-  if (rawUrl.startsWith("/")) {
-    try {
-      let connectionToken: string | null = null;
-      const resolveBaseUrl = (): URL => {
-        if (connectionUrl) {
-          const parsedConnectionUrl = new URL(connectionUrl);
-          connectionToken = parsedConnectionUrl.searchParams.get("token");
-          const protocol =
-            parsedConnectionUrl.protocol === "wss:"
-              ? "https:"
-              : parsedConnectionUrl.protocol === "ws:"
-                ? "http:"
-                : parsedConnectionUrl.protocol;
-          return new URL(`${protocol}//${parsedConnectionUrl.host}/`);
-        }
-        return new URL(resolveServerUrl({ pathname: "/" }));
-      };
-      const resolvedUrl = new URL(rawUrl, resolveBaseUrl());
-      if (connectionToken && !resolvedUrl.searchParams.has("token")) {
-        resolvedUrl.searchParams.set("token", connectionToken);
-      }
-      resolvedUrl.protocol =
-        resolvedUrl.protocol === "wss:"
-          ? "https:"
-          : resolvedUrl.protocol === "ws:"
-            ? "http:"
-            : resolvedUrl.protocol;
-      return resolvedUrl.toString();
-    } catch {
-      return rawUrl;
-    }
-  }
-  return rawUrl;
-}
-
-function attachmentPreviewRoutePath(attachmentId: string): string {
-  return `/attachments/${encodeURIComponent(attachmentId)}`;
-}
-
 function updateThreadState(
   state: AppState,
   threadId: ThreadId,
@@ -1618,18 +1577,21 @@ function primeThreadActivityTimelineRow(input: {
   readonly activity: Thread["activities"][number];
   readonly updatedAt: string;
 }): void {
-  primeLiveTimelineRow({
-    threadId: input.threadId,
-    updatedAt: input.updatedAt,
-    entry: {
-      kind: "activity",
-      id: input.activity.id,
-      createdAt: input.activity.createdAt,
-      turnId: input.activity.turnId,
-      ...(input.activity.sequence !== undefined ? { sequence: input.activity.sequence } : {}),
+  primeLiveTimelineRow(
+    {
+      threadId: input.threadId,
+      updatedAt: input.updatedAt,
+      entry: {
+        kind: "activity",
+        id: input.activity.id,
+        createdAt: input.activity.createdAt,
+        turnId: input.activity.turnId,
+        ...(input.activity.sequence !== undefined ? { sequence: input.activity.sequence } : {}),
+      },
+      activity: input.activity,
     },
-    activity: input.activity,
-  });
+    { flush: "sync" },
+  );
 }
 
 function applyThreadActivityBatch(
@@ -1649,14 +1611,8 @@ function applyThreadActivityBatch(
 }
 
 function shouldRetainActivityInAppStore(activity: Thread["activities"][number]): boolean {
-  return (
-    activity.kind === "approval.requested" ||
-    activity.kind === "approval.resolved" ||
-    activity.kind === "provider.approval.respond.failed" ||
-    activity.kind === "user-input.requested" ||
-    activity.kind === "user-input.resolved" ||
-    activity.kind === "provider.user-input.respond.failed"
-  );
+  void activity;
+  return true;
 }
 
 function compactSettledTurnActivities(thread: Thread, turnId: string, updatedAt: string): Thread {
@@ -1685,6 +1641,7 @@ function compactSettledTurnActivities(thread: Thread, turnId: string, updatedAt:
             },
           ],
     ),
+    { flush: "sync" },
   );
 
   const compactedById = new Map(
@@ -1989,10 +1946,6 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
 
     case "thread.message-sent": {
       const connectionUrl = resolveConnectionForThreadId(event.payload.threadId);
-      const shouldRecoverFinalAssistantSnapshot =
-        event.payload.role === "assistant" &&
-        !event.payload.streaming &&
-        event.payload.text.trim().length === 0;
       const orchestrationMessage = {
         id: event.payload.messageId,
         role: event.payload.role,
@@ -2006,83 +1959,21 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
         createdAt: event.payload.createdAt,
         updatedAt: event.payload.updatedAt,
       } satisfies OrchestrationMessage;
-      primeLiveTimelineRow({
-        threadId: event.payload.threadId,
-        updatedAt: event.occurredAt,
-        entry: {
-          kind: "message",
-          id: event.payload.messageId,
-          createdAt: event.payload.createdAt,
-          turnId: event.payload.turnId,
-          sequence: event.payload.sequence ?? event.sequence,
+      primeLiveTimelineRow(
+        {
+          threadId: event.payload.threadId,
+          updatedAt: event.occurredAt,
+          entry: {
+            kind: "message",
+            id: event.payload.messageId,
+            createdAt: event.payload.createdAt,
+            turnId: event.payload.turnId,
+            sequence: event.payload.sequence ?? event.sequence,
+          },
+          message: mapOrchestrationMessageForClient(orchestrationMessage, connectionUrl),
         },
-        message: mapOrchestrationMessageForClient(orchestrationMessage, connectionUrl),
-      });
-      if (shouldRecoverFinalAssistantSnapshot) {
-        hydrateThreadTimelineRowsSnapshotInBackground(event.payload.threadId);
-      }
-      if (event.payload.role === "assistant") {
-        if (event.payload.turnId === null) {
-          return state;
-        }
-        const assistantTurnId = event.payload.turnId;
-        return updateThreadState(state, event.payload.threadId, (thread) => {
-          if (
-            event.payload.streaming &&
-            thread.latestTurn?.turnId === assistantTurnId &&
-            thread.latestTurn.state === "running" &&
-            thread.latestTurn.assistantMessageId === event.payload.messageId
-          ) {
-            return thread;
-          }
-          const turnDiffSummaries =
-            thread.historyLoaded !== false
-              ? rebindTurnDiffSummariesForAssistantMessage(
-                  thread.turnDiffSummaries,
-                  assistantTurnId,
-                  event.payload.messageId,
-                )
-              : thread.turnDiffSummaries;
-          const latestTurn =
-            thread.latestTurn === null || thread.latestTurn.turnId === assistantTurnId
-              ? buildLatestTurn({
-                  previous: thread.latestTurn,
-                  turnId: assistantTurnId,
-                  state: event.payload.streaming
-                    ? "running"
-                    : thread.latestTurn?.state === "interrupted"
-                      ? "interrupted"
-                      : thread.latestTurn?.state === "error"
-                        ? "error"
-                        : "completed",
-                  requestedAt:
-                    thread.latestTurn?.turnId === assistantTurnId
-                      ? thread.latestTurn.requestedAt
-                      : event.payload.createdAt,
-                  startedAt:
-                    thread.latestTurn?.turnId === assistantTurnId
-                      ? (thread.latestTurn.startedAt ?? event.payload.createdAt)
-                      : event.payload.createdAt,
-                  sourceProposedPlan: thread.pendingSourceProposedPlan,
-                  completedAt: event.payload.streaming
-                    ? thread.latestTurn?.turnId === assistantTurnId
-                      ? (thread.latestTurn.completedAt ?? null)
-                      : null
-                    : event.payload.updatedAt,
-                  assistantMessageId: event.payload.messageId,
-                })
-              : thread.latestTurn;
-          const nextThread = {
-            ...thread,
-            turnDiffSummaries,
-            latestTurn,
-            updatedAt: event.occurredAt,
-          };
-          return latestTurn?.turnId === assistantTurnId && latestTurn.state !== "running"
-            ? compactSettledTurnActivities(nextThread, String(assistantTurnId), event.occurredAt)
-            : nextThread;
-        });
-      }
+        { flush: "sync" },
+      );
       return updateThreadState(state, event.payload.threadId, (thread) => {
         const message = mapTimelineMessage(orchestrationMessage, connectionUrl);
         const existingMessageIndex = thread.messages.findIndex((entry) => entry.id === message.id);
@@ -2226,17 +2117,20 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
     }
 
     case "thread.proposed-plan-upserted": {
-      primeLiveTimelineRow({
-        threadId: event.payload.threadId,
-        updatedAt: event.occurredAt,
-        entry: {
-          kind: "proposed-plan",
-          id: event.payload.proposedPlan.id,
-          createdAt: event.payload.proposedPlan.createdAt,
-          turnId: event.payload.proposedPlan.turnId,
+      primeLiveTimelineRow(
+        {
+          threadId: event.payload.threadId,
+          updatedAt: event.occurredAt,
+          entry: {
+            kind: "proposed-plan",
+            id: event.payload.proposedPlan.id,
+            createdAt: event.payload.proposedPlan.createdAt,
+            turnId: event.payload.proposedPlan.turnId,
+          },
+          proposedPlan: event.payload.proposedPlan,
         },
-        proposedPlan: event.payload.proposedPlan,
-      });
+        { flush: "sync" },
+      );
       return updateThreadState(state, event.payload.threadId, (thread) => {
         const proposedPlan = mapProposedPlan(event.payload.proposedPlan);
         const proposedPlans =

@@ -48,6 +48,7 @@ import Migration0032 from "./Migrations/032_ProjectionThreadSessionConfigOptions
 import Migration0033 from "./Migrations/033_ProjectionThreadsFork.ts";
 import Migration0034 from "./Migrations/034_ProjectionThreadTimelineEntries.ts";
 import Migration0035 from "./Migrations/035_LeanSnapshotLookupIndexes.ts";
+import Migration0036 from "./Migrations/036_DropProjectionThreadTimelineEntries.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -95,6 +96,7 @@ export const migrationEntries = [
   [33, "ProjectionThreadsFork", Migration0033],
   [34, "ProjectionThreadTimelineEntries", Migration0034],
   [35, "LeanSnapshotLookupIndexes", Migration0035],
+  [36, "DropProjectionThreadTimelineEntries", Migration0036],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

@@ -40,7 +40,7 @@ interface UseSidebarCommandPaletteInput {
     ReadonlyArray<SidebarThreadSummary>
   >;
   readonly remoteSidebarHosts: ReadonlyArray<RemoteSidebarHostEntry>;
-  readonly sortedActiveThreads: ReadonlyArray<SidebarThreadSummary>;
+  readonly getSortedActiveThreads: () => ReadonlyArray<SidebarThreadSummary>;
   readonly projectById: ReadonlyMap<ProjectId, Project>;
   readonly activeWsUrl: string;
   readonly localDeviceConnectionUrl: string;
@@ -93,6 +93,9 @@ export function useSidebarCommandPalette(
   const searchPaletteInputRef = useRef<HTMLInputElement | null>(null);
 
   const combinedSidebarSnapshot: CombinedSidebarSnapshot = (() => {
+    if (!searchPaletteOpen) {
+      return { projects: [], threads: [] };
+    }
     const localProjectSnapshots: CombinedSidebarSnapshotProject[] = input.sortedProjects.map(
       (project) => {
         const threads = sortByUpdatedAtDescending(
@@ -181,8 +184,9 @@ export function useSidebarCommandPalette(
         );
       },
     );
-    const localThreads: CombinedSidebarSnapshotThread[] = input.sortedActiveThreads.map(
-      (thread) => {
+    const localThreads: CombinedSidebarSnapshotThread[] = input
+      .getSortedActiveThreads()
+      .map((thread) => {
         const parentProject = input.projectById.get(thread.projectId);
         const lastUserMessageAt =
           thread.latestUserMessageAt ?? thread.updatedAt ?? thread.createdAt;
@@ -194,8 +198,7 @@ export function useSidebarCommandPalette(
           lastUserMessageAt,
           connectionUrl: input.activeWsUrl,
         };
-      },
-    );
+      });
     const remoteThreads: CombinedSidebarSnapshotThread[] = remoteProjectSnapshots.flatMap(
       (project) =>
         project.threads.map((thread) => ({

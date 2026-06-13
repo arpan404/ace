@@ -2,6 +2,7 @@ import { Schema } from "effect";
 import * as Rpc from "effect/unstable/rpc/Rpc";
 import * as RpcGroup from "effect/unstable/rpc/RpcGroup";
 
+import { NonNegativeInt } from "./baseSchemas";
 import {
   OpenError,
   OpenInEditorInput,
@@ -56,8 +57,6 @@ import {
   OrchestrationGetSnapshotInput,
   OrchestrationGetThreadError,
   OrchestrationGetThreadInput,
-  OrchestrationGetThreadTimelineRowsSnapshotChunkInput,
-  OrchestrationGetThreadTimelineRowsSnapshotInput,
   OrchestrationGetTurnDiffError,
   OrchestrationGetTurnDiffInput,
   OrchestrationReplayEventsError,
@@ -239,6 +238,12 @@ export const WS_METHODS = {
 const WsClientStreamIdentity = Schema.Struct({
   clientSessionId: Schema.optional(Schema.String),
   connectionId: Schema.optional(Schema.String),
+});
+
+const WsOrchestrationDomainEventsSubscribeInput = Schema.Struct({
+  clientSessionId: Schema.optional(Schema.String),
+  connectionId: Schema.optional(Schema.String),
+  fromSequenceExclusive: Schema.optional(NonNegativeInt),
 });
 
 const WsClientDisconnectInput = Schema.Struct({
@@ -599,24 +604,6 @@ export const WsOrchestrationGetThreadRpc = Rpc.make(ORCHESTRATION_WS_METHODS.get
   error: OrchestrationGetThreadError,
 });
 
-export const WsOrchestrationGetThreadTimelineRowsSnapshotRpc = Rpc.make(
-  ORCHESTRATION_WS_METHODS.getThreadTimelineRowsSnapshot,
-  {
-    payload: OrchestrationGetThreadTimelineRowsSnapshotInput,
-    success: OrchestrationRpcSchemas.getThreadTimelineRowsSnapshot.output,
-    error: OrchestrationGetThreadError,
-  },
-);
-
-export const WsOrchestrationGetThreadTimelineRowsSnapshotChunkRpc = Rpc.make(
-  ORCHESTRATION_WS_METHODS.getThreadTimelineRowsSnapshotChunk,
-  {
-    payload: OrchestrationGetThreadTimelineRowsSnapshotChunkInput,
-    success: OrchestrationRpcSchemas.getThreadTimelineRowsSnapshotChunk.output,
-    error: OrchestrationGetThreadError,
-  },
-);
-
 export const WsOrchestrationDispatchCommandRpc = Rpc.make(
   ORCHESTRATION_WS_METHODS.dispatchCommand,
   {
@@ -650,7 +637,7 @@ export const WsOrchestrationReplayEventsRpc = Rpc.make(ORCHESTRATION_WS_METHODS.
 export const WsSubscribeOrchestrationDomainEventsRpc = Rpc.make(
   WS_METHODS.subscribeOrchestrationDomainEvents,
   {
-    payload: WsClientStreamIdentity,
+    payload: WsOrchestrationDomainEventsSubscribeInput,
     success: OrchestrationEvent,
     stream: true,
   },
@@ -751,8 +738,6 @@ export const WsRpcGroup = RpcGroup.make(
   WsSubscribeServerLifecycleRpc,
   WsOrchestrationGetSnapshotRpc,
   WsOrchestrationGetThreadRpc,
-  WsOrchestrationGetThreadTimelineRowsSnapshotRpc,
-  WsOrchestrationGetThreadTimelineRowsSnapshotChunkRpc,
   WsOrchestrationDispatchCommandRpc,
   WsOrchestrationGetTurnDiffRpc,
   WsOrchestrationGetFullThreadDiffRpc,

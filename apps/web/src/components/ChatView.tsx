@@ -19,7 +19,6 @@ import {
   type TurnId,
   type KeybindingCommand,
   type OrchestrationMessage,
-  type OrchestrationTimelineRow,
   OrchestrationThreadActivity,
   ProviderInteractionMode,
   RuntimeMode,
@@ -136,10 +135,10 @@ import { getChatMessageFullText } from "../lib/chat/messageText";
 import {
   primeLiveTimelineRow,
   removeLiveTimelineRow,
-  readTimelineRowsProjection,
   startThreadTimelineRowsOpenPrefetch,
-  useTimelineModelStore,
+  type TimelineSourceRow,
 } from "../lib/chat/timelineModelStore";
+import { useThreadTimelineViewModel } from "../lib/chat/threadTimelineViewModel";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useTheme } from "../hooks/useTheme";
 import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
@@ -164,6 +163,7 @@ import { newCommandId, newMessageId, newThreadId } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
 import { reportBackgroundError } from "~/lib/async";
 import { measureRenderWork } from "~/lib/renderProfiling";
+import { isThreadLiveWorkActive } from "~/lib/chat/activeThreadHydration";
 import {
   deriveTerminalTitleFromCommand,
   resolveTerminalDisplayTitle,
@@ -206,18 +206,25 @@ import {
   deriveTurnDiffSummaryByAssistantMessageId,
 } from "~/lib/chat/threadRenderState";
 import {
-  buildNativeTimelineRows,
-  deriveNativeCompletionAttachment,
+  buildSourceTimelineRows,
+  deriveSourceCompletionAttachment,
   toPagedChatMessage,
-  type NativeTimelineRowsInput,
-} from "~/lib/chat/nativeTimelineRows";
+  type SourceTimelineRowsInput,
+} from "~/lib/chat/sourceTimelineRows";
 import {
-  createNativeTimelineRowsCacheKey,
-  readCachedNativeTimelineRows,
-  resolveNativeTimelineRows,
-} from "~/lib/chat/nativeTimelineRowsClient";
-import { shouldBuildNativeTimelineRowsOnMainThread } from "~/lib/chat/nativeTimelineRowsScheduling";
-import type { TimelineRow } from "~/lib/chat/timelineRows";
+  createSourceTimelineRowsCacheKey,
+  readCachedSourceTimelineRows,
+  resolveSourceTimelineRows,
+} from "~/lib/chat/sourceTimelineRowsClient";
+import { shouldBuildSourceTimelineRowsOnMainThread } from "~/lib/chat/sourceTimelineRowsScheduling";
+import { buildTimelineRows, type TimelineRow } from "~/lib/chat/timelineRows";
+import {
+  collectTimelineRowsDisclosureKeys,
+  pruneTimelineDisclosureExpansionState,
+  toggleTimelineDisclosureExpansion,
+  type TimelineDisclosureExpansionState,
+  type TimelineDisclosureKey,
+} from "~/lib/chat/timelineDisclosureState";
 import {
   buildThreadTimelineCacheScope,
   deriveThreadCompletionSummary,
@@ -517,6 +524,7 @@ const EMPTY_PENDING_COMPOSER_COMMENTS: readonly PendingComposerComment[] = Objec
 const EMPTY_MESSAGE_ID_SET: Set<MessageId> = new Set();
 const EMPTY_MESSAGE_TURN_COUNT_MAP: Map<MessageId, number> = new Map();
 const EMPTY_TIMELINE_ENTRIES: TimelineEntry[] = [];
+const EMPTY_TIMELINE_ROWS: readonly TimelineRow[] = [];
 const EMPTY_CHAT_MESSAGES: readonly ChatMessage[] = Object.freeze([]);
 
 const THREAD_SWITCH_SCROLL_SETTLE_DELAY_MS = 96;
@@ -739,12 +747,79 @@ interface ChatViewProps {
 
 const EMPTY_VISIBLE_BOARD_THREAD_IDS: readonly ThreadId[] = [];
 const EMPTY_THREAD_LAST_VISITED_AT_BY_ID: Readonly<Record<string, string>> = {};
-const EMPTY_TIMELINE_ROW_IDS: readonly string[] = [];
 const EMPTY_HISTORICAL_MESSAGE_IDS: Set<MessageId> = new Set();
-const NATIVE_TIMELINE_ROWS_CONTENT_KEY_TAIL_ROWS = 32;
-const ACTIVE_NATIVE_TIMELINE_ROWS_REBUILD_DELAY_MS = 80;
+const SOURCE_TIMELINE_ROWS_CONTENT_KEY_TAIL_ROWS = 32;
+const ACTIVE_SOURCE_TIMELINE_ROWS_REBUILD_DELAY_MS = 80;
 
 const RECENT_HYDRATED_THREAD_HISTORY_KEEP_COUNT = 8;
+
+function hashSourceTimelineRowsContentPart(value: string): string {
+  let hash = 2_166_136_261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16_777_619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+function buildSourceTimelineRowsContentKey(input: SourceTimelineRowsInput): string {
+  const messageById = new Map(input.messages.map((message) => [String(message.id), message]));
+  const activityById = new Map(input.activities.map((activity) => [String(activity.id), activity]));
+  const proposedPlanById = new Map(input.proposedPlans.map((plan) => [String(plan.id), plan]));
+
+  return input.rows
+    .slice(-SOURCE_TIMELINE_ROWS_CONTENT_KEY_TAIL_ROWS)
+    .map((row) => {
+      const sourceRefKey = row.sourceRefs
+        .map((sourceRef) => {
+          const base = [
+            sourceRef.kind,
+            String(sourceRef.id),
+            sourceRef.sourceIndex,
+            sourceRef.sequence ?? "",
+            sourceRef.turnId ?? "",
+          ];
+          if (sourceRef.kind === "message") {
+            const message = messageById.get(String(sourceRef.id));
+            return [
+              ...base,
+              message?.role ?? "",
+              message?.streaming === true ? "streaming" : "settled",
+              message?.updatedAt && message.streaming !== true ? message.updatedAt : "",
+              hashSourceTimelineRowsContentPart(message?.text ?? ""),
+              message?.attachments?.map((attachment) => String(attachment.id)).join(",") ?? "",
+            ].join(":");
+          }
+          if (sourceRef.kind === "activity") {
+            const activity = activityById.get(String(sourceRef.id));
+            return [
+              ...base,
+              activity?.kind ?? "",
+              activity?.tone ?? "",
+              hashSourceTimelineRowsContentPart(activity?.summary ?? ""),
+              hashSourceTimelineRowsContentPart(JSON.stringify(activity?.payload ?? null)),
+            ].join(":");
+          }
+          const proposedPlan = proposedPlanById.get(String(sourceRef.id));
+          return [
+            ...base,
+            proposedPlan?.implementedAt ?? "",
+            hashSourceTimelineRowsContentPart(proposedPlan?.planMarkdown ?? ""),
+          ].join(":");
+        })
+        .join("|");
+      return [
+        row.id,
+        row.kind,
+        row.startSourceIndex,
+        row.endSourceIndexExclusive,
+        row.turnId ?? "",
+        input.activeTurnInProgress ? "active" : row.updatedAt,
+        sourceRefKey,
+      ].join(":");
+    })
+    .join("\0");
+}
 
 function toOptimisticOrchestrationMessage(message: ChatMessage): OrchestrationMessage {
   return {
@@ -788,19 +863,22 @@ function removeOptimisticUserTimelineRow(input: {
   readonly threadId: ThreadId;
   readonly messageId: MessageId;
 }): void {
-  removeLiveTimelineRow({
-    threadId: input.threadId,
-    kind: "message",
-    id: String(input.messageId),
-  });
+  removeLiveTimelineRow(
+    {
+      threadId: input.threadId,
+      kind: "message",
+      id: String(input.messageId),
+    },
+    { flush: "sync" },
+  );
 }
 
-function appendOptimisticUserMessagesToNativeTimeline(input: {
-  readonly rows: ReadonlyArray<OrchestrationTimelineRow>;
+function appendOptimisticUserMessagesToSourceTimeline(input: {
+  readonly rows: ReadonlyArray<TimelineSourceRow>;
   readonly messages: ReadonlyArray<OrchestrationMessage>;
   readonly optimisticUserMessages: ReadonlyArray<ChatMessage>;
 }): {
-  readonly rows: ReadonlyArray<OrchestrationTimelineRow>;
+  readonly rows: ReadonlyArray<TimelineSourceRow>;
   readonly messages: ReadonlyArray<OrchestrationMessage>;
 } {
   if (input.optimisticUserMessages.length === 0) {
@@ -855,42 +933,6 @@ function appendOptimisticUserMessagesToNativeTimeline(input: {
     rows: nextRows,
     messages: [...input.messages, ...optimisticMessages],
   };
-}
-
-function timelineEntryStickKey(entry: TimelineEntry | undefined): string {
-  if (!entry) {
-    return "empty";
-  }
-  if (entry.kind === "message") {
-    const textLength = entry.message.streamingTextState?.totalLength ?? entry.message.text.length;
-    return [
-      "message",
-      String(entry.message.id),
-      entry.message.role,
-      entry.message.streaming ? "streaming" : "settled",
-      entry.message.completedAt ?? "",
-      String(textLength),
-    ].join(":");
-  }
-  if (entry.kind === "work") {
-    return [
-      "work",
-      entry.id,
-      entry.entry.status ?? "",
-      entry.entry.label,
-      entry.entry.detail ?? "",
-      entry.entry.durationMs ?? "",
-    ].join(":");
-  }
-  if (entry.kind === "proposed-plan") {
-    return [
-      "proposed-plan",
-      String(entry.proposedPlan.id),
-      entry.proposedPlan.updatedAt ?? entry.proposedPlan.createdAt,
-      String(entry.proposedPlan.planMarkdown.length),
-    ].join(":");
-  }
-  return ["intent", entry.id, entry.text.length].join(":");
 }
 
 function resolveBrowserInstanceId(
@@ -1160,7 +1202,7 @@ type ChatViewTransientState = {
   respondingUserInputRequestIds: ApprovalRequestId[];
   pendingUserInputAnswersByRequestId: Record<string, Record<string, PendingUserInputDraftAnswer>>;
   pendingUserInputQuestionIndexByRequestId: Record<string, number>;
-  expandedWorkGroups: Record<string, boolean>;
+  expandedWorkGroupsByThreadId: Record<ThreadId, TimelineDisclosureExpansionState>;
   attachmentPreviewHandoffByMessageId: Record<string, string[]>;
   pendingComposerCommentsByThreadId: Record<ThreadId, PendingComposerComment[]>;
 };
@@ -1205,10 +1247,12 @@ type ChatViewTransientAction =
         | ((current: Record<string, number>) => Record<string, number>);
     }
   | {
-      type: "set-expanded-work-groups";
-      expandedWorkGroups:
-        | Record<string, boolean>
-        | ((current: Record<string, boolean>) => Record<string, boolean>);
+      type: "set-expanded-work-groups-by-thread-id";
+      expandedWorkGroupsByThreadId:
+        | Record<ThreadId, TimelineDisclosureExpansionState>
+        | ((
+            current: Record<ThreadId, TimelineDisclosureExpansionState>,
+          ) => Record<ThreadId, TimelineDisclosureExpansionState>);
     }
   | {
       type: "set-attachment-preview-handoff-by-message-id";
@@ -1241,7 +1285,7 @@ const EMPTY_CHAT_VIEW_TRANSIENT_STATE: ChatViewTransientState = {
   respondingUserInputRequestIds: [],
   pendingUserInputAnswersByRequestId: {},
   pendingUserInputQuestionIndexByRequestId: {},
-  expandedWorkGroups: {},
+  expandedWorkGroupsByThreadId: {},
   attachmentPreviewHandoffByMessageId: {},
   pendingComposerCommentsByThreadId: {},
 };
@@ -1305,19 +1349,6 @@ function resolveStateUpdate<T>(current: T, next: T | ((value: T) => T)): T {
   return typeof next === "function" ? (next as (value: T) => T)(current) : next;
 }
 
-function booleanRecordEquals(
-  left: Readonly<Record<string, boolean>>,
-  right: Readonly<Record<string, boolean>>,
-): boolean {
-  if (left === right) {
-    return true;
-  }
-
-  const leftKeys = Object.keys(left);
-  const rightKeys = Object.keys(right);
-  return leftKeys.length === rightKeys.length && leftKeys.every((key) => left[key] === right[key]);
-}
-
 function chatViewTransientStateReducer(
   state: ChatViewTransientState,
   action: ChatViewTransientAction,
@@ -1378,14 +1409,14 @@ function chatViewTransientStateReducer(
         ? state
         : { ...state, pendingUserInputQuestionIndexByRequestId };
     }
-    case "set-expanded-work-groups": {
-      const expandedWorkGroups = resolveStateUpdate(
-        state.expandedWorkGroups,
-        action.expandedWorkGroups,
+    case "set-expanded-work-groups-by-thread-id": {
+      const expandedWorkGroupsByThreadId = resolveStateUpdate(
+        state.expandedWorkGroupsByThreadId,
+        action.expandedWorkGroupsByThreadId,
       );
-      return booleanRecordEquals(state.expandedWorkGroups, expandedWorkGroups)
+      return state.expandedWorkGroupsByThreadId === expandedWorkGroupsByThreadId
         ? state
-        : { ...state, expandedWorkGroups };
+        : { ...state, expandedWorkGroupsByThreadId };
     }
     case "set-attachment-preview-handoff-by-message-id": {
       const attachmentPreviewHandoffByMessageId = resolveStateUpdate(
@@ -1673,7 +1704,7 @@ function useChatViewComponent({
     respondingUserInputRequestIds,
     pendingUserInputAnswersByRequestId,
     pendingUserInputQuestionIndexByRequestId,
-    expandedWorkGroups,
+    expandedWorkGroupsByThreadId,
     attachmentPreviewHandoffByMessageId,
     pendingComposerCommentsByThreadId,
   } = chatViewTransientState;
@@ -1739,14 +1770,16 @@ function useChatViewComponent({
       pendingUserInputQuestionIndexByRequestId,
     });
   };
-  const setExpandedWorkGroups = (
-    expandedWorkGroups:
-      | Record<string, boolean>
-      | ((current: Record<string, boolean>) => Record<string, boolean>),
+  const setExpandedWorkGroupsByThreadId = (
+    expandedWorkGroupsByThreadId:
+      | Record<ThreadId, TimelineDisclosureExpansionState>
+      | ((
+          current: Record<ThreadId, TimelineDisclosureExpansionState>,
+        ) => Record<ThreadId, TimelineDisclosureExpansionState>),
   ) => {
     dispatchChatViewTransientState({
-      type: "set-expanded-work-groups",
-      expandedWorkGroups,
+      type: "set-expanded-work-groups-by-thread-id",
+      expandedWorkGroupsByThreadId,
     });
   };
   const setAttachmentPreviewHandoffByMessageId = (
@@ -2088,36 +2121,23 @@ function useChatViewComponent({
   const handoffMissingThreadId = handoffLineage?.missingThreadId ?? null;
   const handoffHasCycle = handoffLineage?.hasCycle ?? false;
   const isThreadHistoryMetadataOnly = isServerThread && activeThread?.historyLoaded === false;
-  const activeThreadTimelineRowIds = useTimelineModelStore((store) =>
-    ownsGlobalSideEffects && isServerThread
-      ? (store.rowIdsByThreadId[threadId] ?? EMPTY_TIMELINE_ROW_IDS)
-      : EMPTY_TIMELINE_ROW_IDS,
-  );
-  const activeThreadTimelineRevision = useTimelineModelStore((store) =>
-    ownsGlobalSideEffects && isServerThread ? (store.revisionByThreadId[threadId] ?? 0) : 0,
-  );
-  const activeThreadTimelineCompleteSnapshot = useTimelineModelStore((store) =>
-    ownsGlobalSideEffects && isServerThread
-      ? (store.completeSnapshotByThreadId[threadId] ?? null)
-      : null,
-  );
-  const activeThreadTimelineProjection = useMemo(() => {
-    void activeThreadTimelineRevision;
-    if (activeThreadTimelineCompleteSnapshot === null && activeThreadTimelineRowIds.length === 0) {
-      return null;
-    }
-    return activeThread && isServerThread ? readTimelineRowsProjection(activeThread.id) : null;
-  }, [
-    activeThread,
-    activeThreadTimelineCompleteSnapshot,
-    activeThreadTimelineRevision,
-    activeThreadTimelineRowIds.length,
-    isServerThread,
-  ]);
-  const activeThreadTimelineIndexByEntryId =
-    activeThreadTimelineProjection?.timelineIndexByEntryId ?? null;
+  const activeThreadTimelineViewModel = useThreadTimelineViewModel({
+    threadId,
+    enabled: isServerThread,
+    surface: splitPane ? "board" : "chat",
+    buildRows: false,
+  });
+  const activeThreadTimelineRevision = activeThreadTimelineViewModel.revision;
+  const activeThreadTimelineCompleteSnapshot = activeThreadTimelineViewModel.completeSnapshot;
+  const activeThreadTimelineProjection = activeThreadTimelineViewModel.projection;
+  const activeThreadTimelineIndexByEntryId = activeThreadTimelineViewModel.timelineIndexByEntryId;
   useEffect(() => {
-    if (!ownsGlobalSideEffects || !isServerThread || !activeThread?.id) {
+    if (
+      !ownsGlobalSideEffects ||
+      !isServerThread ||
+      !activeThread?.id ||
+      isThreadLiveWorkActive(activeThread)
+    ) {
       return;
     }
     const prefetch = startThreadTimelineRowsOpenPrefetch({
@@ -2130,7 +2150,7 @@ function useChatViewComponent({
     return () => {
       prefetch.stop();
     };
-  }, [activeThread?.id, isServerThread, ownsGlobalSideEffects]);
+  }, [activeThread, activeThread?.id, isServerThread, ownsGlobalSideEffects]);
   const canCheckoutPullRequestIntoThread = isLocalDraftThread;
   const routeWorkspaceMode: ThreadWorkspaceMode =
     !splitPane && (rawSearch.mode === "editor" || rawSearch.mode === "split")
@@ -2239,7 +2259,8 @@ function useChatViewComponent({
       !recentThreadHistoryKeepId ||
       recentThreadHistoryKeepId === activeThreadId ||
       recentThreadHistoryThread === undefined ||
-      recentThreadHistoryThread.historyLoaded !== false
+      recentThreadHistoryThread.historyLoaded !== false ||
+      isThreadLiveWorkActive(recentThreadHistoryThread)
     ) {
       return;
     }
@@ -2318,7 +2339,8 @@ function useChatViewComponent({
       sourceProposedPlanThreadId === null ||
       sourceProposedPlanThreadId === activeThread?.id ||
       sourcePlanThread === undefined ||
-      sourcePlanThread.historyLoaded !== false
+      sourcePlanThread.historyLoaded !== false ||
+      isThreadLiveWorkActive(sourcePlanThread)
     ) {
       return;
     }
@@ -2375,6 +2397,9 @@ function useChatViewComponent({
     for (const threadIdToHydrate of pendingThreadIds) {
       const thread = getThreadById(useStore.getState().threads, threadIdToHydrate);
       if (thread && thread.historyLoaded !== false) {
+        continue;
+      }
+      if (isThreadLiveWorkActive(thread)) {
         continue;
       }
       if (handoffHydrationInFlight.has(threadIdToHydrate)) {
@@ -2550,9 +2575,6 @@ function useChatViewComponent({
   });
 
   const resetThreadScopedUi = useEffectEvent(() => {
-    if (Object.keys(expandedWorkGroups).length > 0) {
-      setExpandedWorkGroups({});
-    }
     if (
       gitHubIssueDialogOpen ||
       gitHubIssueDialogInitialIssueNumber !== null ||
@@ -3086,7 +3108,7 @@ function useChatViewComponent({
     if (!latestTurnSettled && activeLatestTurn !== null) {
       return null;
     }
-    return deriveNativeCompletionAttachment({
+    return deriveSourceCompletionAttachment({
       latestTurn: activeLatestTurn,
       rows: activeThreadTimelineProjection.rows,
       messages: activeThreadTimelineProjection.messages,
@@ -3094,8 +3116,8 @@ function useChatViewComponent({
   }, [activeLatestTurn, activeThreadTimelineProjection, latestTurnSettled]);
   const nativeCompletionDividerBeforeEntryId =
     nativeCompletionAttachment?.dividerBeforeEntryId ?? null;
-  const nativeTimelineRowsInput = useMemo<NativeTimelineRowsInput | null>(() => {
-    if (!isThreadHistoryMetadataOnly) {
+  const sourceTimelineRowsInput: SourceTimelineRowsInput | null = (() => {
+    if (!isServerThread) {
       return null;
     }
     const baseRows = activeThreadTimelineProjection?.rows ?? [];
@@ -3103,7 +3125,7 @@ function useChatViewComponent({
     if (baseRows.length === 0 && optimisticUserMessages.length === 0) {
       return null;
     }
-    const timelineWithOptimisticMessages = appendOptimisticUserMessagesToNativeTimeline({
+    const timelineWithOptimisticMessages = appendOptimisticUserMessagesToSourceTimeline({
       rows: baseRows,
       messages: baseMessages,
       optimisticUserMessages,
@@ -3124,85 +3146,74 @@ function useChatViewComponent({
       hideCompletedWorkMessages,
       turnDiffSummaryByAssistantMessageId,
     };
-  }, [
-    activeThreadTimelineProjection,
-    activeWorkStartedAt,
-    activeLatestTurn?.turnId,
-    completionSummary,
-    hideCompletedWorkMessages,
-    isThreadHistoryMetadataOnly,
-    isWorking,
-    nativeCompletionAttachment,
-    nativeCompletionDividerBeforeEntryId,
-    optimisticUserMessages,
-    turnDiffSummaryByAssistantMessageId,
-  ]);
+  })();
+  const hasSourceTimelineRowsInput = sourceTimelineRowsInput !== null;
   const nativeTurnDiffSummaryKey = (() => {
-    if (!nativeTimelineRowsInput || turnDiffSummaryByAssistantMessageId.size === 0) {
+    if (!sourceTimelineRowsInput || turnDiffSummaryByAssistantMessageId.size === 0) {
       return "";
     }
     return [...turnDiffSummaryByAssistantMessageId.keys()].join("\0");
   })();
-  const nativeTimelineRowsContentKey = (() => {
-    if (!nativeTimelineRowsInput) {
+  const sourceTimelineRowsContentKey = (() => {
+    if (!sourceTimelineRowsInput) {
       return "";
     }
-    return nativeTimelineRowsInput.rows
-      .slice(-NATIVE_TIMELINE_ROWS_CONTENT_KEY_TAIL_ROWS)
-      .map((row) => [row.id, row.contentVersion, row.updatedAt].join(":"))
-      .join("\0");
+    return buildSourceTimelineRowsContentKey(sourceTimelineRowsInput);
   })();
-  const nativeTimelineRowsThreadId = activeThread?.id ?? null;
-  const nativeTimelineRowsInputKey = (() => {
-    if (!nativeTimelineRowsInput) {
+  const sourceTimelineRowsThreadId = activeThread?.id ?? null;
+  const sourceTimelineRowsInputKey = (() => {
+    if (!sourceTimelineRowsInput) {
       return null;
     }
-    return createNativeTimelineRowsCacheKey({
-      threadId: nativeTimelineRowsThreadId,
+    return createSourceTimelineRowsCacheKey({
+      threadId: sourceTimelineRowsThreadId,
       snapshotRevision: activeThreadTimelineCompleteSnapshot?.revision ?? null,
       snapshotTotalRows: activeThreadTimelineCompleteSnapshot?.totalRows ?? null,
       threadRevision: activeThreadTimelineRevision,
-      rowCount: nativeTimelineRowsInput.rows.length,
-      rowContentKey: nativeTimelineRowsContentKey,
+      rowCount: sourceTimelineRowsInput.rows.length,
+      rowContentKey: sourceTimelineRowsContentKey,
       isActiveTurnRunning: isWorking,
-      activeTurnId: nativeTimelineRowsInput.activeTurnId ?? null,
+      activeTurnId: sourceTimelineRowsInput.activeTurnId ?? null,
       activeTurnStartedAt: activeWorkStartedAt,
-      completionEndedAt: nativeTimelineRowsInput.completionEndedAt ?? null,
+      completionEndedAt: sourceTimelineRowsInput.completionEndedAt ?? null,
       completionDividerBeforeEntryId: nativeCompletionDividerBeforeEntryId,
       completionSummary,
-      completionStartedAt: nativeTimelineRowsInput.completionStartedAt ?? null,
-      completionTurnId: nativeTimelineRowsInput.completionTurnId ?? null,
+      completionStartedAt: sourceTimelineRowsInput.completionStartedAt ?? null,
+      completionTurnId: sourceTimelineRowsInput.completionTurnId ?? null,
       hideCompletedWorkMessages,
       turnDiffSummaryKey: nativeTurnDiffSummaryKey,
     });
   })();
-  const [resolvedNativeTimelineRows, setResolvedNativeTimelineRows] = useState<{
+  const [resolvedSourceTimelineRows, setResolvedSourceTimelineRows] = useState<{
     readonly key: string;
     readonly rows: ReadonlyArray<TimelineRow>;
+    readonly threadId: ThreadId | null;
   } | null>(null);
-  const cachedNativeTimelineRows = readCachedNativeTimelineRows(nativeTimelineRowsInputKey);
-  const shouldBuildNativeTimelineRowsSynchronously =
-    nativeTimelineRowsInput !== null &&
-    nativeTimelineRowsInputKey !== null &&
-    shouldBuildNativeTimelineRowsOnMainThread({
+  const cachedSourceTimelineRows = readCachedSourceTimelineRows(sourceTimelineRowsInputKey);
+  const shouldBuildSourceTimelineRowsSynchronously =
+    sourceTimelineRowsInput !== null &&
+    sourceTimelineRowsInputKey !== null &&
+    shouldBuildSourceTimelineRowsOnMainThread({
       hasCompleteSnapshot: activeThreadTimelineCompleteSnapshot !== null,
-      rowCount: nativeTimelineRowsInput.rows.length,
+      rowCount: sourceTimelineRowsInput.rows.length,
     });
-  const synchronousNativeTimelineRows = useMemo<ReadonlyArray<TimelineRow> | null>(() => {
-    if (!shouldBuildNativeTimelineRowsSynchronously || !nativeTimelineRowsInput) {
+  const synchronousSourceTimelineRows: ReadonlyArray<TimelineRow> | null = (() => {
+    if (!shouldBuildSourceTimelineRowsSynchronously || !sourceTimelineRowsInput) {
       return null;
     }
-    return buildNativeTimelineRows(nativeTimelineRowsInput);
-  }, [nativeTimelineRowsInput, shouldBuildNativeTimelineRowsSynchronously]);
-  const hasCachedNativeTimelineRows = cachedNativeTimelineRows !== null;
+    return measureRenderWork("chat.buildSourceTimelineRows", () =>
+      buildSourceTimelineRows(sourceTimelineRowsInput),
+    );
+  })();
+  const hasCachedSourceTimelineRows = cachedSourceTimelineRows !== null;
   useEffect(() => {
-    if (!nativeTimelineRowsInput || !nativeTimelineRowsInputKey) {
+    if (!sourceTimelineRowsInput || !sourceTimelineRowsInputKey) {
       return;
     }
-    if (shouldBuildNativeTimelineRowsSynchronously) {
+    if (shouldBuildSourceTimelineRowsSynchronously) {
       return;
     }
-    if (hasCachedNativeTimelineRows) {
+    if (hasCachedSourceTimelineRows) {
       return;
     }
 
@@ -3210,26 +3221,30 @@ function useChatViewComponent({
     let timer: number | null = null;
     const resolveRows = () => {
       timer = null;
-      resolveNativeTimelineRows({
-        cacheKey: nativeTimelineRowsInputKey,
-        rowsInput: nativeTimelineRowsInput,
+      resolveSourceTimelineRows({
+        cacheKey: sourceTimelineRowsInputKey,
+        rowsInput: sourceTimelineRowsInput,
       })
         .then((rows) => {
           if (canceled) {
             return;
           }
           startTransition(() => {
-            setResolvedNativeTimelineRows({ key: nativeTimelineRowsInputKey, rows });
+            setResolvedSourceTimelineRows({
+              key: sourceTimelineRowsInputKey,
+              rows,
+              threadId: sourceTimelineRowsThreadId,
+            });
           });
         })
         .catch((error) => {
           if (!canceled) {
-            console.error("Failed to build native timeline rows", error);
+            console.error("Failed to build source timeline rows", error);
           }
         });
     };
-    if (nativeTimelineRowsInput.activeTurnInProgress) {
-      timer = window.setTimeout(resolveRows, ACTIVE_NATIVE_TIMELINE_ROWS_REBUILD_DELAY_MS);
+    if (sourceTimelineRowsInput.activeTurnInProgress) {
+      timer = window.setTimeout(resolveRows, ACTIVE_SOURCE_TIMELINE_ROWS_REBUILD_DELAY_MS);
     } else {
       resolveRows();
     }
@@ -3240,26 +3255,31 @@ function useChatViewComponent({
       }
     };
   }, [
-    nativeTimelineRowsInput,
-    nativeTimelineRowsInputKey,
-    hasCachedNativeTimelineRows,
-    shouldBuildNativeTimelineRowsSynchronously,
+    sourceTimelineRowsInput,
+    sourceTimelineRowsInputKey,
+    sourceTimelineRowsThreadId,
+    hasCachedSourceTimelineRows,
+    shouldBuildSourceTimelineRowsSynchronously,
   ]);
-  const currentNativeTimelineRowsOverride =
-    synchronousNativeTimelineRows ??
-    cachedNativeTimelineRows ??
-    (resolvedNativeTimelineRows?.key === nativeTimelineRowsInputKey
-      ? resolvedNativeTimelineRows.rows
-      : null);
-  const nativeTimelineRowsLoading =
-    !shouldBuildNativeTimelineRowsSynchronously &&
-    nativeTimelineRowsInput !== null &&
-    nativeTimelineRowsInputKey !== null &&
-    cachedNativeTimelineRows === null &&
-    resolvedNativeTimelineRows?.key !== nativeTimelineRowsInputKey;
-  const nativeTimelineRowsOverride = currentNativeTimelineRowsOverride;
+  const sourceTimelineRowsLoading =
+    !shouldBuildSourceTimelineRowsSynchronously &&
+    sourceTimelineRowsInput !== null &&
+    sourceTimelineRowsInputKey !== null &&
+    cachedSourceTimelineRows === null &&
+    resolvedSourceTimelineRows?.key !== sourceTimelineRowsInputKey;
+  const staleResolvedSourceTimelineRows =
+    sourceTimelineRowsLoading && resolvedSourceTimelineRows?.threadId === sourceTimelineRowsThreadId
+      ? resolvedSourceTimelineRows.rows
+      : null;
+  const sourceTimelineRowsOverride =
+    synchronousSourceTimelineRows ??
+    cachedSourceTimelineRows ??
+    (resolvedSourceTimelineRows?.key === sourceTimelineRowsInputKey
+      ? resolvedSourceTimelineRows.rows
+      : null) ??
+    staleResolvedSourceTimelineRows;
   const timelineRenderState = useMemo(() => {
-    if (nativeTimelineRowsOverride !== null) {
+    if (hasSourceTimelineRowsInput) {
       return {
         timelineEntries: EMPTY_TIMELINE_ENTRIES,
         turnDiffSummaryByAssistantMessageId,
@@ -3274,7 +3294,7 @@ function useChatViewComponent({
       }),
     );
   }, [
-    nativeTimelineRowsOverride,
+    hasSourceTimelineRowsInput,
     timelineMessages,
     timelineProposedPlans,
     timelineWorkEntries,
@@ -3342,7 +3362,7 @@ function useChatViewComponent({
   }, [inferredCheckpointTurnCountByTurnId, turnDiffSummaryByAssistantMessageId]);
 
   const completionDividerBeforeEntryId = (() => {
-    if (nativeTimelineRowsOverride !== null) {
+    if (hasSourceTimelineRowsInput) {
       return nativeCompletionDividerBeforeEntryId;
     }
     if (!latestTurnSettled) return null;
@@ -3350,7 +3370,7 @@ function useChatViewComponent({
     return deriveCompletionDividerBeforeEntryId(timelineEntries, activeLatestTurn);
   })();
   const timelineCacheScope = useMemo(() => {
-    if (nativeTimelineRowsOverride !== null) {
+    if (hasSourceTimelineRowsInput) {
       return null;
     }
     return buildThreadTimelineCacheScope({
@@ -3363,13 +3383,53 @@ function useChatViewComponent({
     });
   }, [
     activeThread,
-    nativeTimelineRowsOverride,
+    hasSourceTimelineRowsInput,
     timelineEntries,
     timelineMessages,
     timelineProposedPlans,
     timelineWorkEntries,
     turnDiffSummaries,
   ]);
+  const fallbackTimelineRows: ReadonlyArray<TimelineRow> = (() => {
+    if (hasSourceTimelineRowsInput) {
+      return EMPTY_TIMELINE_ROWS;
+    }
+    return measureRenderWork("chat.buildTimelineRows", () =>
+      buildTimelineRows({
+        timelineEntries,
+        activeTurnInProgress: isWorking,
+        activeTurnStartedAt: activeWorkStartedAt,
+        ...(timelineCacheScope ? { cacheScopeKey: timelineCacheScope } : {}),
+        completionDividerBeforeEntryId,
+        completionSummary,
+        hideCompletedWorkMessages,
+        isWorking,
+        enableGoalWorkingState:
+          (activeThread?.session?.provider ?? activeThread?.modelSelection.provider) === "codex",
+      }),
+    );
+  })();
+  const timelineRows = sourceTimelineRowsOverride ?? fallbackTimelineRows;
+  const expandedWorkGroups = activeThreadId
+    ? (expandedWorkGroupsByThreadId[activeThreadId] ?? {})
+    : {};
+  useEffect(() => {
+    if (!activeThreadId) {
+      return;
+    }
+    const activeTimelineDisclosureKeys = collectTimelineRowsDisclosureKeys(timelineRows);
+    setExpandedWorkGroupsByThreadId((current) => {
+      const existing = current[activeThreadId] ?? {};
+      const pruned = pruneTimelineDisclosureExpansionState(existing, activeTimelineDisclosureKeys);
+      if (pruned === existing) {
+        return current;
+      }
+      return {
+        ...current,
+        [activeThreadId]: pruned,
+      };
+    });
+  }, [activeThreadId, timelineRows]);
   const gitCwd = activeProject
     ? projectScriptCwd({
         project: { cwd: activeProject.cwd },
@@ -6876,14 +6936,13 @@ function useChatViewComponent({
 
   // Auto-scroll on new messages
   const timelineTailStickKey = useMemo(() => {
-    if (activeThreadTimelineProjection?.rows.length) {
-      const row = activeThreadTimelineProjection.rows.at(-1);
-      return row ? ["native", row.id, row.contentVersion].join(":") : "native:empty";
+    const row = timelineRows.at(-1);
+    if (row) {
+      return [row.id, "contentVersion" in row ? row.contentVersion : row.createdAt].join(":");
     }
-    return ["legacy", timelineEntryStickKey(timelineEntries.at(-1))].join(":");
-  }, [activeThreadTimelineProjection, timelineEntries]);
-  const timelineHydratedRowCount =
-    activeThreadTimelineProjection?.rows.length ?? timelineEntries.length;
+    return "empty";
+  }, [timelineRows]);
+  const timelineHydratedRowCount = timelineRows.length;
   const markMessagesAtBottom = useCallback(
     (scrollContainer: HTMLDivElement) => {
       lastKnownScrollTopRef.current = scrollContainer.scrollTop;
@@ -8937,11 +8996,17 @@ function useChatViewComponent({
       },
     );
   };
-  const onToggleWorkGroup = (groupId: string) => {
-    setExpandedWorkGroups((existing) => ({
-      ...existing,
-      [groupId]: !existing[groupId],
-    }));
+  const onToggleWorkGroup = (groupId: TimelineDisclosureKey, defaultExpanded = false) => {
+    if (!activeThreadId) {
+      return;
+    }
+    setExpandedWorkGroupsByThreadId((existingByThreadId) => {
+      const existing = existingByThreadId[activeThreadId] ?? {};
+      return {
+        ...existingByThreadId,
+        [activeThreadId]: toggleTimelineDisclosureExpansion(existing, groupId, defaultExpanded),
+      };
+    });
   };
   const onExpandTimelineImage = useStableCallback((preview: ExpandedImagePreview) => {
     if (!resolveExpandedImageItem(preview)) {
@@ -9242,8 +9307,7 @@ function useChatViewComponent({
   const messagesTimelineProps = {
     ...(activeThreadIdValue ? { activeThreadId: activeThreadIdValue } : {}),
     hasMessages:
-      (nativeTimelineRowsOverride?.length ?? 0) > 0 ||
-      timelineEntries.length > 0 ||
+      timelineRows.length > 0 ||
       isThreadHistoryMetadataOnly ||
       isThreadHistoryLoading ||
       isLineageThread,
@@ -9267,9 +9331,8 @@ function useChatViewComponent({
     liveTimers: activeForSideEffects,
     getScrollContainer: getMessagesScrollContainer,
     timelineCacheScope,
-    timelineEntries,
-    timelineRowsLoading: nativeTimelineRowsLoading,
-    timelineRowsOverride: nativeTimelineRowsOverride,
+    rows: timelineRows,
+    timelineRowsLoading: sourceTimelineRowsLoading,
     timelineIndexByEntryId: activeThreadTimelineIndexByEntryId,
     completionDividerBeforeEntryId,
     completionSummary,
