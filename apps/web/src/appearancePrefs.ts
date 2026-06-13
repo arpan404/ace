@@ -1,4 +1,4 @@
-import { useCallback, useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "react";
 
 import { DEFAULT_THEME_PRESET, type ThemePresetId, parseThemePresetId } from "./themePresets";
 
@@ -87,9 +87,9 @@ function subscribe(listener: () => void): () => void {
 export function useAppearancePrefs() {
   const themePreset = useSyncExternalStore(subscribe, getSnapshot, () => DEFAULT_THEME_PRESET);
 
-  const setThemePreset = useCallback((preset: ThemePresetId) => {
+  const setThemePreset = (preset: ThemePresetId) => {
     persistThemePreset(preset);
-  }, []);
+  };
 
   return { themePreset, setThemePreset } as const;
 }

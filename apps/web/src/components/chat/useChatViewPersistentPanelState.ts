@@ -1,6 +1,6 @@
 import { type ThreadId } from "@ace/contracts";
 import * as Schema from "effect/Schema";
-import { useCallback, useMemo, useReducer } from "react";
+import { useReducer } from "react";
 import {
   THREAD_WORKSPACE_LAYOUT_BY_THREAD_ID_STORAGE_KEY,
   THREAD_WORKSPACE_MODE_BY_THREAD_ID_STORAGE_KEY,
@@ -156,49 +156,49 @@ function chatViewPanelStateReducer(
 }
 
 export function useChatViewPersistentPanelState(threadId: ThreadId) {
-  const rightSidePanelModeStorageKey = useMemo(
-    () => resolveScopedBrowserStorageKey(RIGHT_SIDE_PANEL_MODE_STORAGE_KEY, threadId),
-    [threadId],
+  const rightSidePanelModeStorageKey = resolveScopedBrowserStorageKey(
+    RIGHT_SIDE_PANEL_MODE_STORAGE_KEY,
+    threadId,
   );
-  const rightSidePanelLastNonDiffModeStorageKey = useMemo(
-    () => resolveScopedBrowserStorageKey(RIGHT_SIDE_PANEL_LAST_NON_DIFF_MODE_STORAGE_KEY, threadId),
-    [threadId],
+  const rightSidePanelLastNonDiffModeStorageKey = resolveScopedBrowserStorageKey(
+    RIGHT_SIDE_PANEL_LAST_NON_DIFF_MODE_STORAGE_KEY,
+    threadId,
   );
-  const rightSidePanelReviewOpenStorageKey = useMemo(
-    () => resolveScopedBrowserStorageKey(RIGHT_SIDE_PANEL_REVIEW_OPEN_STORAGE_KEY, threadId),
-    [threadId],
+  const rightSidePanelReviewOpenStorageKey = resolveScopedBrowserStorageKey(
+    RIGHT_SIDE_PANEL_REVIEW_OPEN_STORAGE_KEY,
+    threadId,
   );
-  const rightSidePanelEditorOpenStorageKey = useMemo(
-    () => resolveScopedBrowserStorageKey(RIGHT_SIDE_PANEL_EDITOR_OPEN_STORAGE_KEY, threadId),
-    [threadId],
+  const rightSidePanelEditorOpenStorageKey = resolveScopedBrowserStorageKey(
+    RIGHT_SIDE_PANEL_EDITOR_OPEN_STORAGE_KEY,
+    threadId,
   );
-  const rightSidePanelTerminalOpenStorageKey = useMemo(
-    () => resolveScopedBrowserStorageKey(RIGHT_SIDE_PANEL_TERMINAL_OPEN_STORAGE_KEY, threadId),
-    [threadId],
+  const rightSidePanelTerminalOpenStorageKey = resolveScopedBrowserStorageKey(
+    RIGHT_SIDE_PANEL_TERMINAL_OPEN_STORAGE_KEY,
+    threadId,
   );
-  const rightSidePanelFullscreenStorageKey = useMemo(
-    () => resolveScopedBrowserStorageKey(RIGHT_SIDE_PANEL_FULLSCREEN_STORAGE_KEY, threadId),
-    [threadId],
+  const rightSidePanelFullscreenStorageKey = resolveScopedBrowserStorageKey(
+    RIGHT_SIDE_PANEL_FULLSCREEN_STORAGE_KEY,
+    threadId,
   );
-  const rightSidePanelDiffOpenStorageKey = useMemo(
-    () => resolveScopedBrowserStorageKey(RIGHT_SIDE_PANEL_DIFF_OPEN_STORAGE_KEY, threadId),
-    [threadId],
+  const rightSidePanelDiffOpenStorageKey = resolveScopedBrowserStorageKey(
+    RIGHT_SIDE_PANEL_DIFF_OPEN_STORAGE_KEY,
+    threadId,
   );
-  const rightSidePanelVisibleStorageKey = useMemo(
-    () => resolveScopedBrowserStorageKey(RIGHT_SIDE_PANEL_VISIBLE_STORAGE_KEY, threadId),
-    [threadId],
+  const rightSidePanelVisibleStorageKey = resolveScopedBrowserStorageKey(
+    RIGHT_SIDE_PANEL_VISIBLE_STORAGE_KEY,
+    threadId,
   );
-  const browserPanelModeStorageKey = useMemo(
-    () => resolveScopedBrowserStorageKey(BROWSER_PANEL_MODE_STORAGE_KEY, threadId),
-    [threadId],
+  const browserPanelModeStorageKey = resolveScopedBrowserStorageKey(
+    BROWSER_PANEL_MODE_STORAGE_KEY,
+    threadId,
   );
-  const environmentPanelOpenStorageKey = useMemo(
-    () => resolveScopedBrowserStorageKey(ENVIRONMENT_PANEL_OPEN_STORAGE_KEY, threadId),
-    [threadId],
+  const environmentPanelOpenStorageKey = resolveScopedBrowserStorageKey(
+    ENVIRONMENT_PANEL_OPEN_STORAGE_KEY,
+    threadId,
   );
-  const rightSidePanelWidthStorageKey = useMemo(
-    () => resolveScopedBrowserStorageKey(RIGHT_SIDE_PANEL_WIDTH_STORAGE_KEY, threadId),
-    [threadId],
+  const rightSidePanelWidthStorageKey = resolveScopedBrowserStorageKey(
+    RIGHT_SIDE_PANEL_WIDTH_STORAGE_KEY,
+    threadId,
   );
   const [rightSidePanelMode, setRightSidePanelMode] = useLocalStorage(
     rightSidePanelModeStorageKey,
@@ -240,9 +240,9 @@ export function useChatViewPersistentPanelState(threadId: ThreadId) {
     false,
     Schema.Boolean,
   );
-  const rightSidePanelFloatingChatOpenStorageKey = useMemo(
-    () => resolveScopedBrowserStorageKey(RIGHT_SIDE_PANEL_FLOATING_CHAT_OPEN_STORAGE_KEY, threadId),
-    [threadId],
+  const rightSidePanelFloatingChatOpenStorageKey = resolveScopedBrowserStorageKey(
+    RIGHT_SIDE_PANEL_FLOATING_CHAT_OPEN_STORAGE_KEY,
+    threadId,
   );
   const [rightSidePanelFloatingChatOpen, setRightSidePanelFloatingChatOpen] = useLocalStorage(
     rightSidePanelFloatingChatOpenStorageKey,
@@ -303,55 +303,45 @@ export function useChatViewPersistentPanelState(threadId: ThreadId) {
     workspaceEditorSplitWidth,
     rightSidePanelWidth,
   } = chatViewPanelState;
-  const setShowScrollToBottom = useCallback((showScrollToBottom: boolean) => {
+  const setShowScrollToBottom = (showScrollToBottom: boolean) => {
     dispatchChatViewPanelState({ type: "set-show-scroll-to-bottom", showScrollToBottom });
-  }, []);
-  const setIsRevertingCheckpoint = useCallback(
-    (isRevertingCheckpoint: boolean) => {
-      dispatchChatViewPanelState({
-        type: "set-reverting-checkpoint-thread-id",
-        revertingCheckpointThreadId: isRevertingCheckpoint ? threadId : null,
-      });
-    },
-    [threadId],
-  );
-  const setIsHeaderHidden = useCallback((next: boolean | ((previous: boolean) => boolean)) => {
+  };
+  const setIsRevertingCheckpoint = (isRevertingCheckpoint: boolean) => {
+    dispatchChatViewPanelState({
+      type: "set-reverting-checkpoint-thread-id",
+      revertingCheckpointThreadId: isRevertingCheckpoint ? threadId : null,
+    });
+  };
+  const setIsHeaderHidden = (next: boolean | ((previous: boolean) => boolean)) => {
     if (typeof next === "function") {
       dispatchChatViewPanelState({ type: "toggle-header-hidden" });
       return;
     }
     dispatchChatViewPanelState({ type: "set-header-hidden", isHeaderHidden: next });
-  }, []);
-  const setTerminalFocusRequestId = useCallback((_next: number | ((value: number) => number)) => {
+  };
+  const setTerminalFocusRequestId = (_next: number | ((value: number) => number)) => {
     dispatchChatViewPanelState({ type: "bump-terminal-focus-request-id" });
-  }, []);
-  const setHandoffInFlight = useCallback((handoffInFlight: boolean) => {
+  };
+  const setHandoffInFlight = (handoffInFlight: boolean) => {
     dispatchChatViewPanelState({ type: "set-handoff-in-flight", handoffInFlight });
-  }, []);
-  const setBrowserDevToolsOpen = useCallback((browserDevToolsOpen: boolean) => {
+  };
+  const setBrowserDevToolsOpen = (browserDevToolsOpen: boolean) => {
     dispatchChatViewPanelState({ type: "set-browser-devtools-open", browserDevToolsOpen });
-  }, []);
-  const setBrowserSplitWidth = useCallback(
-    (browserSplitWidth: number | ((current: number) => number)) => {
-      dispatchChatViewPanelState({ type: "set-browser-split-width", browserSplitWidth });
-    },
-    [],
-  );
-  const setWorkspaceEditorSplitWidth = useCallback(
-    (workspaceEditorSplitWidth: number | ((current: number) => number)) => {
-      dispatchChatViewPanelState({
-        type: "set-workspace-editor-split-width",
-        workspaceEditorSplitWidth,
-      });
-    },
-    [],
-  );
-  const setRightSidePanelWidth = useCallback(
-    (rightSidePanelWidth: number | ((current: number) => number)) => {
-      dispatchChatViewPanelState({ type: "set-right-side-panel-width", rightSidePanelWidth });
-    },
-    [],
-  );
+  };
+  const setBrowserSplitWidth = (browserSplitWidth: number | ((current: number) => number)) => {
+    dispatchChatViewPanelState({ type: "set-browser-split-width", browserSplitWidth });
+  };
+  const setWorkspaceEditorSplitWidth = (
+    workspaceEditorSplitWidth: number | ((current: number) => number),
+  ) => {
+    dispatchChatViewPanelState({
+      type: "set-workspace-editor-split-width",
+      workspaceEditorSplitWidth,
+    });
+  };
+  const setRightSidePanelWidth = (rightSidePanelWidth: number | ((current: number) => number)) => {
+    dispatchChatViewPanelState({ type: "set-right-side-panel-width", rightSidePanelWidth });
+  };
 
   return {
     browserSplitWidth,

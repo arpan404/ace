@@ -71,27 +71,17 @@ export function WorkspaceCommandPalette(props: {
   workspaceActions: readonly WorkspaceCommandAction[];
 }) {
   const [query, setQuery] = useState("");
-  const fileResults = useMemo(
-    () =>
-      searchWorkspaceEntriesLocally(
-        props.entries.filter((entry) => entry.kind === "file"),
-        query,
-      ).slice(0, 80),
-    [props.entries, query],
-  );
+  const fileResults = searchWorkspaceEntriesLocally(
+    props.entries.filter((entry) => entry.kind === "file"),
+    query,
+  ).slice(0, 80);
   const normalizedQuery = query.trim().toLowerCase();
-  const commandResults = useMemo(
-    () =>
-      props.workspaceActions.filter((action) => {
-        if (normalizedQuery.length === 0) {
-          return true;
-        }
-        return `${action.label} ${action.description ?? ""}`
-          .toLowerCase()
-          .includes(normalizedQuery);
-      }),
-    [normalizedQuery, props.workspaceActions],
-  );
+  const commandResults = props.workspaceActions.filter((action) => {
+    if (normalizedQuery.length === 0) {
+      return true;
+    }
+    return `${action.label} ${action.description ?? ""}`.toLowerCase().includes(normalizedQuery);
+  });
 
   const showFiles = props.mode === "files";
 
