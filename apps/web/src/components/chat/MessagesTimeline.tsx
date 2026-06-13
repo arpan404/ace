@@ -14,7 +14,6 @@ import { type VirtualItem } from "@tanstack/react-virtual";
 import {
   Fragment,
   createElement,
-  memo,
   startTransition,
   useCallback,
   useEffect,
@@ -120,7 +119,6 @@ import {
   isCompletedAssistantMessageRow,
   isEventInActiveTurn,
   type AssistantTimelineMessage,
-  type BuildTimelineRowsInput,
   type TimelineCompletedWorkDiagnosticRow,
   type SystemTimelineMessage,
   type TimelineCompletedWorkDetailRow,
@@ -170,7 +168,6 @@ const ASSISTANT_MESSAGE_ROW_SELECTOR = '[data-message-role="assistant"][data-mes
 const COMPLETED_WORK_SUMMARY_ROW_ID_PREFIX = "completed-work-summary:";
 const PINNED_SELECTION_TEXT_BLOCK_SELECTOR =
   "blockquote,div,h1,h2,h3,h4,h5,h6,li,ol,p,pre,section,table,tbody,td,tfoot,th,thead,tr,ul";
-const TIMELINE_ROW_ID_SELECTOR = "[data-timeline-row-id]";
 const TIMELINE_ROW_RENDER_INTRINSIC_MIN_HEIGHT_PX = 40;
 
 export function resolveTimelineScrollPrefetchLookaheadRows(velocityPxPerMs: number): number {
@@ -912,7 +909,7 @@ interface MessagesTimelineProps {
   targetMessageNavigation?: TargetMessageNavigation | null;
 }
 
-export const MessagesTimeline = memo(function MessagesTimeline({
+export function MessagesTimeline({
   activeThreadId,
   hasMessages,
   isWorking,
@@ -960,10 +957,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   workspaceRoot,
   targetMessageNavigation = null,
 }: MessagesTimelineProps) {
-  const userMessageProviderCommandLookup = useMemo(
-    () => buildUserMessageProviderCommandLookup(providerCommands),
-    [providerCommands],
-  );
+  const userMessageProviderCommandLookup = buildUserMessageProviderCommandLookup(providerCommands);
   const supportsForkConversation = Boolean(onForkConversation);
   const [pinnedMessages, setPinnedMessages] = useLocalStorage<PinnedMessages, PinnedMessages>(
     PINNED_MESSAGES_STORAGE_KEY,
@@ -1013,7 +1007,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       top,
     });
   }, [activeThreadId]);
-  const pinSelectedAssistantText = useCallback(() => {
+  const pinSelectedAssistantText = () => {
     if (!activeThreadId || !selectionPinTarget) return;
     setPinnedMessages((current) =>
       upsertPinnedSelectionMessage(current, {
@@ -1024,7 +1018,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     );
     window.getSelection()?.removeAllRanges();
     setSelectionPinTarget(null);
-  }, [activeThreadId, selectionPinTarget, setPinnedMessages]);
+  };
   useEffect(() => {
     const updateAfterSelectionSettles = () => {
       window.requestAnimationFrame(updateSelectionPinTarget);
@@ -1038,30 +1032,17 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       document.removeEventListener("keyup", updateAfterSelectionSettles);
     };
   }, [updateSelectionPinTarget]);
-  const timelineRowsInput = useMemo<BuildTimelineRowsInput>(
-    () => ({
-      timelineEntries,
-      activeTurnInProgress,
-      activeTurnStartedAt,
-      ...(timelineCacheScope ? { cacheScopeKey: timelineCacheScope } : {}),
-      completionDividerBeforeEntryId,
-      completionSummary,
-      hideCompletedWorkMessages,
-      isWorking,
-      enableGoalWorkingState,
-    }),
-    [
-      activeTurnInProgress,
-      timelineEntries,
-      timelineCacheScope,
-      completionDividerBeforeEntryId,
-      completionSummary,
-      hideCompletedWorkMessages,
-      isWorking,
-      activeTurnStartedAt,
-      enableGoalWorkingState,
-    ],
-  );
+  const timelineRowsInput = {
+    timelineEntries,
+    activeTurnInProgress,
+    activeTurnStartedAt,
+    ...(timelineCacheScope ? { cacheScopeKey: timelineCacheScope } : {}),
+    completionDividerBeforeEntryId,
+    completionSummary,
+    hideCompletedWorkMessages,
+    isWorking,
+    enableGoalWorkingState,
+  };
   const isTimelineSnapshotLoading = useTimelineModelStore((state) => {
     if (!activeThreadId) {
       return false;
@@ -1228,9 +1209,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     }
     return summaryByAssistantRowId;
   }, [rows]);
-  const hoistedCompletedWorkSummaryRowIds = useMemo(
-    () => new Set([...trailingCompletedWorkSummaryByAssistantRowId.values()].map((row) => row.id)),
-    [trailingCompletedWorkSummaryByAssistantRowId],
+  const hoistedCompletedWorkSummaryRowIds = new Set(
+    [...trailingCompletedWorkSummaryByAssistantRowId.values()].map((row) => row.id),
   );
   const activeTurnStartedAtMs =
     activeTurnInProgress && activeTurnStartedAt ? Date.parse(activeTurnStartedAt) : Number.NaN;
@@ -1242,12 +1222,12 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const [renderedAssistantMarkdownMessageIds, setRenderedAssistantMarkdownMessageIds] = useState<
     ReadonlySet<string>
   >(() => new Set());
-  const onToggleAllDirectories = useCallback((turnId: TurnId) => {
+  const onToggleAllDirectories = (turnId: TurnId) => {
     setAllDirectoriesExpandedByTurnId((current) => ({
       ...current,
       [turnId]: !(current[turnId] ?? DEFAULT_TURN_DIFF_DIRECTORIES_EXPANDED),
     }));
-  }, []);
+  };
 
   useEffect(() => {
     if (!timelineRootElement) {
@@ -1312,10 +1292,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     () => rows.slice(0, firstUnvirtualizedRowIndex),
     [firstUnvirtualizedRowIndex, rows],
   );
-  const trailingRows = useMemo(
-    () => rows.slice(firstUnvirtualizedRowIndex),
-    [firstUnvirtualizedRowIndex, rows],
-  );
+  const trailingRows = rows.slice(firstUnvirtualizedRowIndex);
   const getVirtualRowKey = useCallback(
     (index: number) => virtualizedRows[index]?.id ?? index,
     [virtualizedRows],
@@ -1328,25 +1305,25 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       }),
     [expandedWorkGroups, timelineWidthPx, virtualizedRows],
   );
-  const measureVirtualizedRowElement = useCallback(
-    (element: Element, entry?: ResizeObserverEntry | undefined) => {
-      const htmlElement = element as HTMLElement;
-      const index = Number(htmlElement.dataset.index);
-      const height = measureTimelineRowElementHeight(element, entry);
-      const row = Number.isInteger(index) ? virtualizedRows[index] : undefined;
-      if (row && Number.isFinite(height) && height > 0) {
-        writeCachedTimelineRowHeight(
-          getTimelineRowHeightCacheKey(row, {
-            timelineWidthPx,
-            expandedWorkGroups,
-          }),
-          height,
-        );
-      }
-      return height;
-    },
-    [expandedWorkGroups, timelineWidthPx, virtualizedRows],
-  );
+  const measureVirtualizedRowElement = (
+    element: Element,
+    entry?: ResizeObserverEntry | undefined,
+  ) => {
+    const htmlElement = element as HTMLElement;
+    const index = Number(htmlElement.dataset.index);
+    const height = measureTimelineRowElementHeight(element, entry);
+    const row = Number.isInteger(index) ? virtualizedRows[index] : undefined;
+    if (row && Number.isFinite(height) && height > 0) {
+      writeCachedTimelineRowHeight(
+        getTimelineRowHeightCacheKey(row, {
+          timelineWidthPx,
+          expandedWorkGroups,
+        }),
+        height,
+      );
+    }
+    return height;
+  };
   const rowVirtualizer = useReactCompilerSafeVirtualizer({
     count: virtualizedRows.length,
     estimateSize: estimateVirtualizedRowSize,
@@ -2105,24 +2082,21 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       </div>
     );
   };
-  const buildRowRenderCacheStyle = useCallback(
-    (row: TimelineRow, style: CSSProperties = {}): CSSProperties => {
-      const intrinsicHeight = Math.max(
-        TIMELINE_ROW_RENDER_INTRINSIC_MIN_HEIGHT_PX,
-        Math.ceil(
-          estimateTimelineRowHeight(row, {
-            timelineWidthPx,
-            expandedWorkGroups,
-          }),
-        ),
-      );
-      return {
-        ...style,
-        "--timeline-row-estimated-height": `${intrinsicHeight}px`,
-      } as CSSProperties;
-    },
-    [expandedWorkGroups, timelineWidthPx],
-  );
+  const buildRowRenderCacheStyle = (row: TimelineRow, style: CSSProperties = {}): CSSProperties => {
+    const intrinsicHeight = Math.max(
+      TIMELINE_ROW_RENDER_INTRINSIC_MIN_HEIGHT_PX,
+      Math.ceil(
+        estimateTimelineRowHeight(row, {
+          timelineWidthPx,
+          expandedWorkGroups,
+        }),
+      ),
+    );
+    return {
+      ...style,
+      "--timeline-row-estimated-height": `${intrinsicHeight}px`,
+    } as CSSProperties;
+  };
 
   if (!hasMessages && !isWorking) {
     const showConversationStarters =
@@ -2212,7 +2186,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       />
     </div>
   );
-});
+}
 
 function deriveMountedVirtualizedAssistantMarkdownMessageIds(
   virtualItems: ReadonlyArray<VirtualItem>,
@@ -2476,11 +2450,7 @@ function formatElapsedSeconds(elapsedSeconds: number): string {
   return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
 }
 
-const WorkingActivityIndicator = memo(function WorkingActivityIndicator({
-  tone = "default",
-}: {
-  tone?: "default" | "goal";
-}) {
+function WorkingActivityIndicator({ tone = "default" }: { tone?: "default" | "goal" }) {
   return (
     <span
       aria-hidden="true"
@@ -2495,9 +2465,9 @@ const WorkingActivityIndicator = memo(function WorkingActivityIndicator({
       <span className="working-activity-indicator-dot" />
     </span>
   );
-});
+}
 
-const WorkingTimer = memo(function WorkingTimer({
+function WorkingTimer({
   createdAt,
   label,
   live,
@@ -2525,9 +2495,9 @@ const WorkingTimer = memo(function WorkingTimer({
       {label} {formatElapsedSeconds(elapsed)}
     </>
   );
-});
+}
 
-const ImageGenerationPlaceholderFrame = memo(function ImageGenerationPlaceholderFrame(props: {
+function ImageGenerationPlaceholderFrame(props: {
   readonly dimensions: AssistantImageGenerationPlaceholder;
 }) {
   return (
@@ -2544,7 +2514,7 @@ const ImageGenerationPlaceholderFrame = memo(function ImageGenerationPlaceholder
       <div className="image-generation-placeholder-sheen absolute inset-y-0" aria-hidden="true" />
     </div>
   );
-});
+}
 
 function workGroupId(rowId: string): string {
   return `work-group:${rowId}`;
@@ -2944,16 +2914,14 @@ function isAssistantTimelineMessage(message: TimelineMessage): message is Assist
   return message.role === "assistant";
 }
 
-const UserMessageTerminalContextInlineLabel = memo(
-  function UserMessageTerminalContextInlineLabel(props: { context: ParsedTerminalContextEntry }) {
-    const tooltipText =
-      props.context.body.length > 0
-        ? `${props.context.header}\n${props.context.body}`
-        : props.context.header;
+function UserMessageTerminalContextInlineLabel(props: { context: ParsedTerminalContextEntry }) {
+  const tooltipText =
+    props.context.body.length > 0
+      ? `${props.context.header}\n${props.context.body}`
+      : props.context.header;
 
-    return <TerminalContextInlineChip label={props.context.header} tooltipText={tooltipText} />;
-  },
-);
+  return <TerminalContextInlineChip label={props.context.header} tooltipText={tooltipText} />;
+}
 
 type UserMessageProviderCommandDisplay = {
   readonly kind: ProviderExtensionCommandKind | "goal";
@@ -3133,7 +3101,7 @@ function buildUserMessageInlineText(
   return nodes.length > 0 ? nodes : [text];
 }
 
-const UserMessageBody = memo(function UserMessageBody(props: {
+function UserMessageBody(props: {
   providerCommandLookup: UserMessageProviderCommandLookup;
   resolvedTheme: "light" | "dark";
   text: string;
@@ -3244,11 +3212,9 @@ const UserMessageBody = memo(function UserMessageBody(props: {
       )}
     </div>
   );
-});
+}
 
-const SystemMessageTimelineRow = memo(function SystemMessageTimelineRow(props: {
-  message: SystemTimelineMessage;
-}) {
+function SystemMessageTimelineRow(props: { message: SystemTimelineMessage }) {
   if (props.message.text.trim().length === 0) {
     return null;
   }
@@ -3263,9 +3229,9 @@ const SystemMessageTimelineRow = memo(function SystemMessageTimelineRow(props: {
       <div className="h-px flex-1 bg-border" />
     </div>
   );
-});
+}
 
-const TimelineDisclosureBody = memo(function TimelineDisclosureBody(props: {
+function TimelineDisclosureBody(props: {
   readonly open: boolean;
   readonly className?: string;
   readonly children: ReactNode;
@@ -3287,9 +3253,9 @@ const TimelineDisclosureBody = memo(function TimelineDisclosureBody(props: {
       <div className="min-h-0 overflow-hidden">{props.children}</div>
     </div>
   );
-});
+}
 
-const WorkLogTimelineRow = memo(function WorkLogTimelineRow(props: {
+function WorkLogTimelineRow(props: {
   row: TimelineWorkLogRow;
   expandedWorkGroups: Record<string, boolean>;
   groupIdOverride?: string;
@@ -3413,9 +3379,9 @@ const WorkLogTimelineRow = memo(function WorkLogTimelineRow(props: {
       </TimelineDisclosureBody>
     </div>
   );
-});
+}
 
-const CompletedWorkDetailTimelineRow = memo(function CompletedWorkDetailTimelineRow(props: {
+function CompletedWorkDetailTimelineRow(props: {
   completedWorkSummaryId: string;
   row: TimelineCompletedWorkDetailRow;
   expandedWorkGroups: Record<string, boolean>;
@@ -3437,9 +3403,9 @@ const CompletedWorkDetailTimelineRow = memo(function CompletedWorkDetailTimeline
       onToggleWorkGroup={props.onToggleWorkGroup}
     />
   );
-});
+}
 
-const AssistantUpdateTimelineRow = memo(function AssistantUpdateTimelineRow(props: {
+function AssistantUpdateTimelineRow(props: {
   row: Extract<TimelineCompletedWorkDetailRow, { kind: "assistant-update" }>;
 }) {
   return (
@@ -3458,7 +3424,7 @@ const AssistantUpdateTimelineRow = memo(function AssistantUpdateTimelineRow(prop
       </p>
     </div>
   );
-});
+}
 
 function estimateVisibleCompletedWorkDiagnosticRowsHeight(
   diagnosticRows: ReadonlyArray<TimelineCompletedWorkDiagnosticRow>,
@@ -3475,7 +3441,7 @@ function estimateVisibleCompletedWorkDiagnosticRowsHeight(
   return height;
 }
 
-const CompletedWorkSummaryTimelineRow = memo(function CompletedWorkSummaryTimelineRow(props: {
+function CompletedWorkSummaryTimelineRow(props: {
   row: Extract<TimelineRow, { kind: "completed-work-summary" }>;
   expandedWorkGroups: Record<string, boolean>;
   onToggleWorkGroup: (groupId: string) => void;
@@ -3594,9 +3560,9 @@ const CompletedWorkSummaryTimelineRow = memo(function CompletedWorkSummaryTimeli
       </TimelineDisclosureBody>
     </div>
   );
-});
+}
 
-const UserMessageTimelineRow = memo(function UserMessageTimelineRow(props: {
+function UserMessageTimelineRow(props: {
   canRevertAgentWork: boolean;
   isRevertingCheckpoint: boolean;
   isWorking: boolean;
@@ -3698,22 +3664,20 @@ const UserMessageTimelineRow = memo(function UserMessageTimelineRow(props: {
       </div>
     </div>
   );
-});
+}
 
-export const AssistantMarkdownDeferredPreview = memo(
-  function AssistantMarkdownDeferredPreview(props: { readonly text: string }) {
-    return (
-      <div
-        className="chat-markdown-deferred-preview w-full min-w-0 wrap-break-word whitespace-pre-wrap text-[13px] leading-[1.55] text-foreground/80"
-        data-assistant-markdown-deferred-preview="true"
-      >
-        {props.text}
-      </div>
-    );
-  },
-);
+export function AssistantMarkdownDeferredPreview(props: { readonly text: string }) {
+  return (
+    <div
+      className="chat-markdown-deferred-preview w-full min-w-0 wrap-break-word whitespace-pre-wrap text-[13px] leading-[1.55] text-foreground/80"
+      data-assistant-markdown-deferred-preview="true"
+    >
+      {props.text}
+    </div>
+  );
+}
 
-const AssistantImageAttachmentFrame = memo(function AssistantImageAttachmentFrame(props: {
+function AssistantImageAttachmentFrame(props: {
   readonly generationDimensions: AssistantImageGenerationPlaceholder | null;
   readonly image: NonNullable<TimelineMessage["attachments"]>[number];
   readonly images: ReadonlyArray<NonNullable<TimelineMessage["attachments"]>[number]>;
@@ -3772,9 +3736,9 @@ const AssistantImageAttachmentFrame = memo(function AssistantImageAttachmentFram
       )}
     </div>
   );
-});
+}
 
-const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(props: {
+function AssistantMessageTimelineRow(props: {
   durationStart: string;
   isAssistantTurnTerminal?: boolean;
   liveTimers: boolean;
@@ -3890,7 +3854,7 @@ const AssistantMessageTimelineRow = memo(function AssistantMessageTimelineRow(pr
       )}
     </div>
   );
-});
+}
 
 function resolveAssistantTurnTiming(input: {
   completedAt: string | null;
@@ -3966,7 +3930,7 @@ function collectVisibleAssistantTurnPinTarget(
     : null;
 }
 
-const AssistantTurnFooter = memo(function AssistantTurnFooter(props: {
+function AssistantTurnFooter(props: {
   copyText: string | null;
   isPinned?: boolean;
   onForkConversation?: (() => void) | null;
@@ -4060,12 +4024,9 @@ const AssistantTurnFooter = memo(function AssistantTurnFooter(props: {
       )}
     </div>
   );
-});
+}
 
-const AssistantForkButton = memo(function AssistantForkButton(props: {
-  disabled: boolean;
-  onClick: () => void;
-}) {
+function AssistantForkButton(props: { disabled: boolean; onClick: () => void }) {
   const tooltipLabel = props.disabled
     ? "Finish the current turn before forking"
     : "Fork conversation";
@@ -4090,9 +4051,9 @@ const AssistantForkButton = memo(function AssistantForkButton(props: {
       <TooltipPopup side="top">{tooltipLabel}</TooltipPopup>
     </Tooltip>
   );
-});
+}
 
-const AssistantMessageTurnDiffSummary = memo(function AssistantMessageTurnDiffSummary(props: {
+function AssistantMessageTurnDiffSummary(props: {
   allDirectoriesExpanded: boolean;
   canRevert: boolean;
   isRevertingCheckpoint: boolean;
@@ -4208,9 +4169,9 @@ const AssistantMessageTurnDiffSummary = memo(function AssistantMessageTurnDiffSu
       </div>
     </div>
   );
-});
+}
 
-const ProposedPlanTimelineRow = memo(function ProposedPlanTimelineRow(props: {
+function ProposedPlanTimelineRow(props: {
   cwd: string | undefined;
   onOpenBrowserUrl?: ((url: string) => void) | null;
   onOpenFilePath?: ((path: string) => void) | null;
@@ -4232,7 +4193,7 @@ const ProposedPlanTimelineRow = memo(function ProposedPlanTimelineRow(props: {
       />
     </div>
   );
-});
+}
 
 function workToneIcon(tone: TimelineWorkEntry["tone"]): {
   icon: LucideIcon;
@@ -4563,7 +4524,7 @@ function toolWorkEntryHeading(workEntry: TimelineWorkEntry): string {
   return capitalizePhrase(normalizeCompactToolLabel(workEntry.toolTitle));
 }
 
-const SimpleIntentEntryRow = memo(function SimpleIntentEntryRow(props: {
+function SimpleIntentEntryRow(props: {
   entry: Extract<TimelineMetaGroupEntry, { kind: "intent" }>;
   variant?: "nested" | "standalone";
 }) {
@@ -4585,9 +4546,9 @@ const SimpleIntentEntryRow = memo(function SimpleIntentEntryRow(props: {
       </div>
     </div>
   );
-});
+}
 
-export const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
+export function SimpleWorkEntryRow(props: {
   workEntry: TimelineWorkEntry;
   inlineIntentText?: string | null;
   variant?: "nested" | "standalone";
@@ -4792,9 +4753,9 @@ export const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
       )}
     </div>
   );
-});
+}
 
-const CommandWorkEntryRow = memo(function CommandWorkEntryRow(props: {
+function CommandWorkEntryRow(props: {
   workEntry: TimelineWorkEntry;
   inlineIntentText?: string | null;
   variant?: "nested" | "standalone";
@@ -4909,9 +4870,9 @@ const CommandWorkEntryRow = memo(function CommandWorkEntryRow(props: {
       </div>
     </div>
   );
-});
+}
 
-const FileEditWorkEntryRow = memo(function FileEditWorkEntryRow(props: {
+function FileEditWorkEntryRow(props: {
   workEntry: TimelineWorkEntry;
   inlineIntentText?: string | null;
   variant?: "nested" | "standalone";
@@ -4975,4 +4936,4 @@ const FileEditWorkEntryRow = memo(function FileEditWorkEntryRow(props: {
       </div>
     </div>
   );
-});
+}
