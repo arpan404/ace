@@ -38,7 +38,6 @@ import {
   SquareArrowOutUpRightIcon,
 } from "lucide-react";
 import {
-  memo,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
   useCallback,
@@ -1399,10 +1398,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     rows,
     treeWidth,
   } = editorState;
-  const activePane = useMemo(
-    () => panes.find((pane) => pane.id === activePaneId) ?? panes[0] ?? null,
-    [activePaneId, panes],
-  );
+  const activePane = panes.find((pane) => pane.id === activePaneId) ?? panes[0] ?? null;
   const workspaceProblems = Object.entries(problemReportsByPaneId)
     .flatMap(([paneId, report]) =>
       report.activeFilePath
@@ -1428,31 +1424,27 @@ function useThreadWorkspaceEditorComponent(inputProps: {
       }
       return left.problem.startColumn - right.problem.startColumn;
     });
-  const workspaceSymbols = useMemo<readonly WorkspaceSymbolReport[]>(
-    () =>
-      Object.entries(symbolReportsByPaneId)
-        .flatMap(([paneId, report]) =>
-          report.activeFilePath
-            ? report.symbols.map((symbol) => ({
-                paneId,
-                relativePath: report.activeFilePath!,
-                symbol,
-              }))
-            : [],
-        )
-        .toSorted((left, right) => {
-          const pathDelta = left.relativePath.localeCompare(right.relativePath);
-          if (pathDelta !== 0) {
-            return pathDelta;
-          }
-          if (left.symbol.startLineNumber !== right.symbol.startLineNumber) {
-            return left.symbol.startLineNumber - right.symbol.startLineNumber;
-          }
-          return left.symbol.startColumn - right.symbol.startColumn;
-        }),
-    [symbolReportsByPaneId],
-  );
-  const outlineFileGroups = useMemo<readonly WorkspaceOutlineFileGroup[]>(() => {
+  const workspaceSymbols: readonly WorkspaceSymbolReport[] = Object.entries(symbolReportsByPaneId)
+    .flatMap(([paneId, report]) =>
+      report.activeFilePath
+        ? report.symbols.map((symbol) => ({
+            paneId,
+            relativePath: report.activeFilePath!,
+            symbol,
+          }))
+        : [],
+    )
+    .toSorted((left, right) => {
+      const pathDelta = left.relativePath.localeCompare(right.relativePath);
+      if (pathDelta !== 0) {
+        return pathDelta;
+      }
+      if (left.symbol.startLineNumber !== right.symbol.startLineNumber) {
+        return left.symbol.startLineNumber - right.symbol.startLineNumber;
+      }
+      return left.symbol.startColumn - right.symbol.startColumn;
+    });
+  const outlineFileGroups: readonly WorkspaceOutlineFileGroup[] = (() => {
     const symbolsByPath = new Map<string, WorkspaceSymbolReport[]>();
     for (const report of workspaceSymbols) {
       const existing = symbolsByPath.get(report.relativePath);
@@ -1505,7 +1497,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
         symbols: nodes,
       };
     });
-  }, [workspaceSymbols]);
+  })();
   const visibleOutlineGroups = outlineFileGroups.map((group) => {
     if (collapsedOutlineIds.has(group.id)) {
       return { ...group, symbols: [] };
@@ -1570,8 +1562,8 @@ function useThreadWorkspaceEditorComponent(inputProps: {
       return Object.fromEntries(nextEntries);
     });
   }, [panes]);
-  const revealEntryLabel = useMemo(() => revealInFileManagerLabel(), []);
-  const revealWorkspaceLabel = useMemo(() => {
+  const revealEntryLabel = revealInFileManagerLabel();
+  const revealWorkspaceLabel = (() => {
     if (revealEntryLabel === "Reveal in Finder") {
       return "Reveal Workspace in Finder";
     }
@@ -1579,13 +1571,12 @@ function useThreadWorkspaceEditorComponent(inputProps: {
       return "Reveal Workspace in Explorer";
     }
     return "Reveal Workspace in File Manager";
-  }, [revealEntryLabel]);
+  })();
   const panesById = useMemo(() => new Map(panes.map((pane) => [pane.id, pane] as const)), [panes]);
   const diagnosticsCwd = props.gitCwd ?? props.lspCwd ?? null;
-  const openWorkspaceFilePaths = useMemo(
-    () => Array.from(new Set(panes.flatMap((pane) => pane.openFilePaths))).sort(),
-    [panes],
-  );
+  const openWorkspaceFilePaths = Array.from(
+    new Set(panes.flatMap((pane) => pane.openFilePaths)),
+  ).toSorted();
   const previousWorkspaceBufferStateRef = useRef<{
     cwd: string | null;
     filePaths: ReadonlySet<string>;
@@ -1681,22 +1672,12 @@ function useThreadWorkspaceEditorComponent(inputProps: {
   );
   const searchMode = deferredTreeSearch.length > 0;
   const treeEntries = workspaceTreeData?.entries ?? EMPTY_PROJECT_ENTRIES;
-  const localSearchEntries = useMemo(
-    () =>
-      searchMode
-        ? searchWorkspaceEntriesLocally(treeEntries, deferredTreeSearch)
-        : EMPTY_PROJECT_ENTRIES,
-    [deferredTreeSearch, searchMode, treeEntries],
-  );
-  const searchEntries = useMemo(
-    () => localSearchEntries.slice(0, WORKSPACE_SEARCH_RESULT_LIMIT),
-    [localSearchEntries],
-  );
+  const localSearchEntries = searchMode
+    ? searchWorkspaceEntriesLocally(treeEntries, deferredTreeSearch)
+    : EMPTY_PROJECT_ENTRIES;
+  const searchEntries = localSearchEntries.slice(0, WORKSPACE_SEARCH_RESULT_LIMIT);
   const searchableFileEntries = treeEntries.filter((candidate) => candidate.kind === "file");
-  const entryByPath = useMemo(
-    () => new Map(treeEntries.map((entry) => [entry.path, entry] as const)),
-    [treeEntries],
-  );
+  const entryByPath = new Map(treeEntries.map((entry) => [entry.path, entry] as const));
   const {
     data: codeSearchResultsData,
     isError: isCodeSearchResultsError,
@@ -5161,7 +5142,4 @@ function ThreadWorkspaceEditor(
   return useThreadWorkspaceEditorComponent(inputProps);
 }
 
-const MemoizedThreadWorkspaceEditor = memo(ThreadWorkspaceEditor);
-MemoizedThreadWorkspaceEditor.displayName = "ThreadWorkspaceEditor";
-
-export default MemoizedThreadWorkspaceEditor;
+export default ThreadWorkspaceEditor;
