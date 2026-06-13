@@ -3237,27 +3237,21 @@ function useSidebarComponent() {
       const browseResult = await routeFilesystemBrowseToRemote(selectedProjectPickerConnectionUrl, {
         partialPath: trimmedPath,
       });
-      if (browseRequestVersionRef.current !== requestVersion) {
-        return;
-      }
-      dispatchProjectPickerBrowseUiState({
-        type: "project-browse-success",
-        path: trimmedPath,
-        result: browseResult,
-      });
       if (browseRequestVersionRef.current === requestVersion) {
+        dispatchProjectPickerBrowseUiState({
+          type: "project-browse-success",
+          path: trimmedPath,
+          result: browseResult,
+        });
         dispatchProjectPickerBrowseUiState({ type: "project-browse-finish" });
       }
     } catch (error) {
-      if (browseRequestVersionRef.current !== requestVersion) {
-        return;
-      }
-      dispatchProjectPickerBrowseUiState({
-        type: "project-browse-failure",
-        path: trimmedPath,
-        error: error instanceof Error ? error.message : "Unable to browse this directory path.",
-      });
       if (browseRequestVersionRef.current === requestVersion) {
+        dispatchProjectPickerBrowseUiState({
+          type: "project-browse-failure",
+          path: trimmedPath,
+          error: error instanceof Error ? error.message : "Unable to browse this directory path.",
+        });
         dispatchProjectPickerBrowseUiState({ type: "project-browse-finish" });
       }
     }
