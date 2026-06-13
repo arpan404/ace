@@ -9,7 +9,7 @@ import {
   LaptopIcon,
   MonitorIcon,
 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { runAsyncTask } from "../lib/async";
 import { cn, newCommandId } from "../lib/utils";
@@ -303,58 +303,46 @@ export default function BranchToolbar({
       ? null
       : nextConnectionUrl;
 
-  const setThreadBranch = useCallback(
-    (branch: string | null, worktreePath: string | null) => {
-      if (!activeThreadId) return;
-      const api = readNativeApi();
-      // If the effective cwd is about to change, stop the running session so the
-      // next message creates a new one with the correct cwd.
-      if (serverThread?.session && worktreePath !== activeWorktreePath && api) {
-        runAsyncTask(
-          api.orchestration.dispatchCommand({
-            type: "thread.session.stop",
-            commandId: newCommandId(),
-            threadId: activeThreadId,
-            createdAt: new Date().toISOString(),
-          }),
-          "Failed to stop the previous session after switching thread environment mode.",
-        );
-      }
-      if (api && hasServerThread) {
-        void api.orchestration.dispatchCommand({
-          type: "thread.meta.update",
+  const setThreadBranch = (branch: string | null, worktreePath: string | null) => {
+    if (!activeThreadId) return;
+    const api = readNativeApi();
+    // If the effective cwd is about to change, stop the running session so the
+    // next message creates a new one with the correct cwd.
+    if (serverThread?.session && worktreePath !== activeWorktreePath && api) {
+      runAsyncTask(
+        api.orchestration.dispatchCommand({
+          type: "thread.session.stop",
           commandId: newCommandId(),
           threadId: activeThreadId,
-          branch,
-          worktreePath,
-        });
-      }
-      if (hasServerThread) {
-        setThreadBranchAction(activeThreadId, branch, worktreePath);
-        return;
-      }
-      const nextDraftEnvMode = resolveDraftEnvModeAfterBranchChange({
-        nextWorktreePath: worktreePath,
-        currentWorktreePath: activeWorktreePath,
-        effectiveEnvMode,
-      });
-      setDraftThreadContext(threadId, {
+          createdAt: new Date().toISOString(),
+        }),
+        "Failed to stop the previous session after switching thread environment mode.",
+      );
+    }
+    if (api && hasServerThread) {
+      void api.orchestration.dispatchCommand({
+        type: "thread.meta.update",
+        commandId: newCommandId(),
+        threadId: activeThreadId,
         branch,
         worktreePath,
-        envMode: nextDraftEnvMode,
       });
-    },
-    [
-      activeThreadId,
-      serverThread?.session,
-      activeWorktreePath,
-      hasServerThread,
-      setThreadBranchAction,
-      setDraftThreadContext,
-      threadId,
+    }
+    if (hasServerThread) {
+      setThreadBranchAction(activeThreadId, branch, worktreePath);
+      return;
+    }
+    const nextDraftEnvMode = resolveDraftEnvModeAfterBranchChange({
+      nextWorktreePath: worktreePath,
+      currentWorktreePath: activeWorktreePath,
       effectiveEnvMode,
-    ],
-  );
+    });
+    setDraftThreadContext(threadId, {
+      branch,
+      worktreePath,
+      envMode: nextDraftEnvMode,
+    });
+  };
   const handleEnvModeSelect = (mode: EnvMode) => {
     if (mode === "worktree" && !activeWorktreePath && !activeThreadBranch && currentBranchName) {
       setThreadBranch(currentBranchName, null);

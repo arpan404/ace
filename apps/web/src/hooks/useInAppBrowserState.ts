@@ -209,42 +209,40 @@ function useBrowserSessionProjection(
   browserSession: BrowserSessionStorage,
   tabRuntimeById: Readonly<Record<string, BrowserTabRuntimeState>>,
 ): BrowserSessionProjection {
-  return useMemo(() => {
-    const tabs = browserSession.tabs;
-    const activeTabIndex = Math.max(
-      0,
-      tabs.findIndex((tab) => tab.id === browserSession.activeTabId),
-    );
-    const activeTab =
-      tabs.find((tab) => tab.id === browserSession.activeTabId) ?? browserSession.tabs[0];
-    const activeTabId = activeTab?.id ?? null;
-    const activeTabUrl = activeTab?.url ?? "";
-    const activeRuntime = activeTab
-      ? (tabRuntimeById[activeTab.id] ?? DEFAULT_BROWSER_TAB_RUNTIME_STATE)
-      : DEFAULT_BROWSER_TAB_RUNTIME_STATE;
-    const tabsById = new Map<string, BrowserTabState>();
-    const openTabs: BrowserTabState[] = [];
+  const tabs = browserSession.tabs;
+  const activeTabIndex = Math.max(
+    0,
+    tabs.findIndex((tab) => tab.id === browserSession.activeTabId),
+  );
+  const activeTab =
+    tabs.find((tab) => tab.id === browserSession.activeTabId) ?? browserSession.tabs[0];
+  const activeTabId = activeTab?.id ?? null;
+  const activeTabUrl = activeTab?.url ?? "";
+  const activeRuntime = activeTab
+    ? (tabRuntimeById[activeTab.id] ?? DEFAULT_BROWSER_TAB_RUNTIME_STATE)
+    : DEFAULT_BROWSER_TAB_RUNTIME_STATE;
+  const tabsById = new Map<string, BrowserTabState>();
+  const openTabs: BrowserTabState[] = [];
 
-    for (const tab of tabs) {
-      tabsById.set(tab.id, tab);
-      if (!isBrowserInternalTabUrl(tab.url)) {
-        openTabs.push(tab);
-      }
+  for (const tab of tabs) {
+    tabsById.set(tab.id, tab);
+    if (!isBrowserInternalTabUrl(tab.url)) {
+      openTabs.push(tab);
     }
+  }
 
-    return {
-      activeRuntime,
-      activeTab,
-      activeTabId,
-      activeTabIndex: activeTab ? activeTabIndex : -1,
-      activeTabIsInternal: activeTab ? isBrowserInternalTabUrl(activeTab.url) : false,
-      activeTabIsNewTab: activeTab ? isBrowserNewTabUrl(activeTab.url) : false,
-      activeTabUrl,
-      openTabs,
-      tabCount: tabs.length,
-      tabsById,
-    };
-  }, [browserSession.activeTabId, browserSession.tabs, tabRuntimeById]);
+  return {
+    activeRuntime,
+    activeTab,
+    activeTabId,
+    activeTabIndex: activeTab ? activeTabIndex : -1,
+    activeTabIsInternal: activeTab ? isBrowserInternalTabUrl(activeTab.url) : false,
+    activeTabIsNewTab: activeTab ? isBrowserNewTabUrl(activeTab.url) : false,
+    activeTabUrl,
+    openTabs,
+    tabCount: tabs.length,
+    tabsById,
+  };
 }
 
 function useBrowserAddressBarState(input: {
@@ -267,27 +265,15 @@ function useBrowserAddressBarState(input: {
     suggestionsDismissed: addressBarSuggestionsDismissed,
   });
 
-  const addressBarSuggestions = useMemo(() => {
-    if (!showAddressBarSuggestions) {
-      return EMPTY_BROWSER_SUGGESTIONS;
-    }
-
-    return buildBrowserSuggestions(draftUrl, {
-      ...(input.activeTabId ? { activeTabId: input.activeTabId } : {}),
-      ...(input.activeTabUrl ? { activePageUrl: input.activeTabUrl } : {}),
-      history: input.browserHistory,
-      openTabs: input.openTabs,
-      searchEngine: input.browserSearchEngine,
-    });
-  }, [
-    draftUrl,
-    input.activeTabId,
-    input.activeTabUrl,
-    input.browserHistory,
-    input.browserSearchEngine,
-    input.openTabs,
-    showAddressBarSuggestions,
-  ]);
+  const addressBarSuggestions = showAddressBarSuggestions
+    ? buildBrowserSuggestions(draftUrl, {
+        ...(input.activeTabId ? { activeTabId: input.activeTabId } : {}),
+        ...(input.activeTabUrl ? { activePageUrl: input.activeTabUrl } : {}),
+        history: input.browserHistory,
+        openTabs: input.openTabs,
+        searchEngine: input.browserSearchEngine,
+      })
+    : EMPTY_BROWSER_SUGGESTIONS;
 
   const selectedSuggestionIndex =
     selectedSuggestionState.query === draftUrl &&

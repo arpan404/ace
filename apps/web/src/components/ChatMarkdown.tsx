@@ -9,7 +9,6 @@ import React, {
   Profiler,
   Suspense,
   isValidElement,
-  useCallback,
   memo,
   useEffect,
   useMemo,
@@ -264,6 +263,17 @@ function openLocalFilePath(input: {
   })().catch((error) => {
     console.warn("Failed to open local filesystem path.", error);
   });
+}
+
+function openLinkExternally(href: string) {
+  const api = readNativeApi();
+  if (api) {
+    void api.shell.openExternal(href).catch((error) => {
+      console.warn("Failed to open link externally.", error);
+    });
+    return;
+  }
+  window.open(href, "_blank", "noopener,noreferrer");
 }
 
 function InlineCodeLocalFileLink(props: {
@@ -885,17 +895,6 @@ function ChatMarkdown({
   const shouldObserveLayout = onLayoutChange !== undefined && shouldObserveLayoutFromAnalysis;
   const canOpenLocalFiles = enableLocalFileLinks && !isStreaming;
 
-  const openLinkExternally = useCallback((href: string) => {
-    const api = readNativeApi();
-    if (api) {
-      void api.shell.openExternal(href).catch((error) => {
-        console.warn("Failed to open link externally.", error);
-      });
-      return;
-    }
-    window.open(href, "_blank", "noopener,noreferrer");
-  }, []);
-
   const markdownComponents = useMemo<Components>(
     () => ({
       a({ node: _node, href, children, className, title, ...props }) {
@@ -1053,7 +1052,6 @@ function ChatMarkdown({
       isStreaming,
       onOpenBrowserUrl,
       onOpenFilePath,
-      openLinkExternally,
       resolvedTheme,
     ],
   );
@@ -1094,51 +1092,30 @@ function ChatMarkdown({
     };
   }, [onLayoutChange, shouldObserveLayout]);
 
-  const content = useMemo<ReactNode>(() => {
-    if (renderPlainText) {
-      return <PreviewTextPanel text={displayText} />;
-    }
-    if (markdownRenderAnalysis.usesStreamingPreview && streamingTextState) {
-      return (
-        <StreamingMarkdownPreview text={displayText} streamingTextState={streamingTextState} />
-      );
-    }
-    if (useLargePreview) {
-      return (
-        <LargeMarkdownPreview
-          previewText={
-            markdownRenderAnalysis.largePreviewText ?? buildLargeMarkdownPreviewText(displayText)
-          }
-          totalCharacters={displayText.length}
-          isTransitionPending={isMarkdownTransitionPending}
-          onRenderMarkdown={() => {
-            startMarkdownTransition(() => {
-              setRenderPreference("markdown");
-            });
-          }}
-        />
-      );
-    }
-    if (shouldFastPathPlainText) {
-      return <PlainMarkdownText text={displayText} />;
-    }
-    return (
-      <MarkdownBody isStreaming={isStreaming} markdownComponents={markdownComponents}>
-        {displayText}
-      </MarkdownBody>
-    );
-  }, [
-    displayText,
-    isMarkdownTransitionPending,
-    isStreaming,
-    markdownRenderAnalysis,
-    markdownComponents,
-    renderPlainText,
-    startMarkdownTransition,
-    streamingTextState,
-    shouldFastPathPlainText,
-    useLargePreview,
-  ]);
+  const content = renderPlainText ? (
+    <PreviewTextPanel text={displayText} />
+  ) : markdownRenderAnalysis.usesStreamingPreview && streamingTextState ? (
+    <StreamingMarkdownPreview text={displayText} streamingTextState={streamingTextState} />
+  ) : useLargePreview ? (
+    <LargeMarkdownPreview
+      previewText={
+        markdownRenderAnalysis.largePreviewText ?? buildLargeMarkdownPreviewText(displayText)
+      }
+      totalCharacters={displayText.length}
+      isTransitionPending={isMarkdownTransitionPending}
+      onRenderMarkdown={() => {
+        startMarkdownTransition(() => {
+          setRenderPreference("markdown");
+        });
+      }}
+    />
+  ) : shouldFastPathPlainText ? (
+    <PlainMarkdownText text={displayText} />
+  ) : (
+    <MarkdownBody isStreaming={isStreaming} markdownComponents={markdownComponents}>
+      {displayText}
+    </MarkdownBody>
+  );
 
   return (
     <div
@@ -1151,4 +1128,4 @@ function ChatMarkdown({
   );
 }
 
-export default memo(ChatMarkdown);
+export default ChatMarkdown;

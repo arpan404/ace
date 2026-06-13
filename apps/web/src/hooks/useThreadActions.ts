@@ -1,7 +1,6 @@
 import { ProjectId, ThreadId } from "@ace/contracts";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "@tanstack/react-router";
-import { useCallback } from "react";
 
 import { getFallbackThreadIdAfterDelete } from "../lib/sidebar";
 import { reportBackgroundError } from "../lib/async";
@@ -128,136 +127,125 @@ export function useThreadActions() {
     }
   };
 
-  const deleteThread = useCallback(
-    async (threadId: ThreadId, opts: DeleteThreadOptions = {}) => {
-      const api = readNativeApi();
-      if (!api) return;
-      const { projects, sidebarThreadsById, threads } = useStore.getState();
-      const threadEntries = getThreadActionEntries({ sidebarThreadsById, threads });
-      const thread = threadEntries.find((entry) => entry.id === threadId);
-      if (!thread) return;
-      const threadProject = projects.find((project) => project.id === thread.projectId);
-      const deletedIds = opts.deletedThreadIds;
-      const survivingThreads =
-        deletedIds && deletedIds.size > 0
-          ? threadEntries.filter((entry) => entry.id === threadId || !deletedIds.has(entry.id))
-          : threadEntries;
-      const orphanedWorktreePath =
-        opts.worktreeRemovalPrompt === "skip"
-          ? null
-          : getOrphanedWorktreePathForThread(survivingThreads, threadId);
-      const displayWorktreePath = orphanedWorktreePath
-        ? formatWorktreePathForDisplay(orphanedWorktreePath)
-        : null;
-      const canDeleteWorktree = orphanedWorktreePath !== null && threadProject !== undefined;
-      const isWorktreeInUse = isWorktreeThreadSessionActive(thread);
-      const shouldDeleteWorktree =
-        canDeleteWorktree &&
-        !isWorktreeInUse &&
-        (await api.dialogs.confirm(
-          [
-            "This thread is the only one linked to this worktree:",
-            displayWorktreePath ?? orphanedWorktreePath,
-            "",
-            "Delete the worktree too?",
-          ].join("\n"),
-        ));
-      if (canDeleteWorktree && isWorktreeInUse) {
-        toastManager.add({
-          type: "error",
-          title: "Worktree is in use",
-          description: `Stop the active agent before deleting ${displayWorktreePath ?? orphanedWorktreePath}.`,
-        });
-      }
-
-      if (thread.session && thread.session.status !== "closed") {
-        await api.orchestration
-          .dispatchCommand({
-            type: "thread.session.stop",
-            commandId: newCommandId(),
-            threadId,
-            createdAt: new Date().toISOString(),
-          })
-          .catch((error) => {
-            reportBackgroundError(
-              "Failed to stop the thread session before deleting the thread.",
-              error,
-            );
-          });
-      }
-
-      try {
-        await api.terminal.close({ threadId, deleteHistory: true });
-      } catch {
-        // Terminal may already be closed.
-      }
-
-      const deletedThreadIds = opts.deletedThreadIds ?? new Set<ThreadId>();
-      const shouldNavigateToFallback = routeThreadId === threadId;
-      const fallbackThreadId = getFallbackThreadIdAfterDelete({
-        threads: threadEntries,
-        deletedThreadId: threadId,
-        deletedThreadIds,
-        sortOrder: sidebarThreadSortOrder,
+  const deleteThread = async (threadId: ThreadId, opts: DeleteThreadOptions = {}) => {
+    const api = readNativeApi();
+    if (!api) return;
+    const { projects, sidebarThreadsById, threads } = useStore.getState();
+    const threadEntries = getThreadActionEntries({ sidebarThreadsById, threads });
+    const thread = threadEntries.find((entry) => entry.id === threadId);
+    if (!thread) return;
+    const threadProject = projects.find((project) => project.id === thread.projectId);
+    const deletedIds = opts.deletedThreadIds;
+    const survivingThreads =
+      deletedIds && deletedIds.size > 0
+        ? threadEntries.filter((entry) => entry.id === threadId || !deletedIds.has(entry.id))
+        : threadEntries;
+    const orphanedWorktreePath =
+      opts.worktreeRemovalPrompt === "skip"
+        ? null
+        : getOrphanedWorktreePathForThread(survivingThreads, threadId);
+    const displayWorktreePath = orphanedWorktreePath
+      ? formatWorktreePathForDisplay(orphanedWorktreePath)
+      : null;
+    const canDeleteWorktree = orphanedWorktreePath !== null && threadProject !== undefined;
+    const isWorktreeInUse = isWorktreeThreadSessionActive(thread);
+    const shouldDeleteWorktree =
+      canDeleteWorktree &&
+      !isWorktreeInUse &&
+      (await api.dialogs.confirm(
+        [
+          "This thread is the only one linked to this worktree:",
+          displayWorktreePath ?? orphanedWorktreePath,
+          "",
+          "Delete the worktree too?",
+        ].join("\n"),
+      ));
+    if (canDeleteWorktree && isWorktreeInUse) {
+      toastManager.add({
+        type: "error",
+        title: "Worktree is in use",
+        description: `Stop the active agent before deleting ${displayWorktreePath ?? orphanedWorktreePath}.`,
       });
-      await api.orchestration.dispatchCommand({
-        type: "thread.delete",
-        commandId: newCommandId(),
-        threadId,
-      });
-      clearComposerDraftForThread(threadId);
-      clearProjectDraftThreadById(thread.projectId, thread.id);
-      clearTerminalState(threadId);
+    }
 
-      if (shouldNavigateToFallback) {
-        if (fallbackThreadId) {
-          await navigate({
-            to: "/$threadId",
-            params: { threadId: fallbackThreadId },
-            replace: true,
-          });
-        } else {
-          await navigate({ to: "/", replace: true });
-        }
-      }
-
-      if (!shouldDeleteWorktree || !orphanedWorktreePath || !threadProject) {
-        return;
-      }
-
-      try {
-        await removeWorktreeMutation.mutateAsync({
-          connectionUrl: resolveConnectionForProjectId(thread.projectId) ?? null,
-          cwd: threadProject.cwd,
-          path: orphanedWorktreePath,
-          force: true,
-        });
-        clearDraftsForDeletedWorktree(orphanedWorktreePath);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "Unknown error removing worktree.";
-        console.error("Failed to remove orphaned worktree after thread deletion", {
+    if (thread.session && thread.session.status !== "closed") {
+      await api.orchestration
+        .dispatchCommand({
+          type: "thread.session.stop",
+          commandId: newCommandId(),
           threadId,
-          projectCwd: threadProject.cwd,
-          worktreePath: orphanedWorktreePath,
-          error,
+          createdAt: new Date().toISOString(),
+        })
+        .catch((error) => {
+          reportBackgroundError(
+            "Failed to stop the thread session before deleting the thread.",
+            error,
+          );
         });
-        toastManager.add({
-          type: "error",
-          title: "Thread deleted, but worktree removal failed",
-          description: `Could not remove ${displayWorktreePath ?? orphanedWorktreePath}. ${message}`,
+    }
+
+    try {
+      await api.terminal.close({ threadId, deleteHistory: true });
+    } catch {
+      // Terminal may already be closed.
+    }
+
+    const deletedThreadIds = opts.deletedThreadIds ?? new Set<ThreadId>();
+    const shouldNavigateToFallback = routeThreadId === threadId;
+    const fallbackThreadId = getFallbackThreadIdAfterDelete({
+      threads: threadEntries,
+      deletedThreadId: threadId,
+      deletedThreadIds,
+      sortOrder: sidebarThreadSortOrder,
+    });
+    await api.orchestration.dispatchCommand({
+      type: "thread.delete",
+      commandId: newCommandId(),
+      threadId,
+    });
+    clearComposerDraftForThread(threadId);
+    clearProjectDraftThreadById(thread.projectId, thread.id);
+    clearTerminalState(threadId);
+
+    if (shouldNavigateToFallback) {
+      if (fallbackThreadId) {
+        await navigate({
+          to: "/$threadId",
+          params: { threadId: fallbackThreadId },
+          replace: true,
         });
+      } else {
+        await navigate({ to: "/", replace: true });
       }
-    },
-    [
-      clearComposerDraftForThread,
-      clearProjectDraftThreadById,
-      clearTerminalState,
-      sidebarThreadSortOrder,
-      navigate,
-      removeWorktreeMutation,
-      routeThreadId,
-    ],
-  );
+    }
+
+    if (!shouldDeleteWorktree || !orphanedWorktreePath || !threadProject) {
+      return;
+    }
+
+    try {
+      await removeWorktreeMutation.mutateAsync({
+        connectionUrl: resolveConnectionForProjectId(thread.projectId) ?? null,
+        cwd: threadProject.cwd,
+        path: orphanedWorktreePath,
+        force: true,
+      });
+      clearDraftsForDeletedWorktree(orphanedWorktreePath);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown error removing worktree.";
+      console.error("Failed to remove orphaned worktree after thread deletion", {
+        threadId,
+        projectCwd: threadProject.cwd,
+        worktreePath: orphanedWorktreePath,
+        error,
+      });
+      toastManager.add({
+        type: "error",
+        title: "Thread deleted, but worktree removal failed",
+        description: `Could not remove ${displayWorktreePath ?? orphanedWorktreePath}. ${message}`,
+      });
+    }
+  };
 
   const deleteWorktreeAndRelatedData = async ({
     connectionUrl,

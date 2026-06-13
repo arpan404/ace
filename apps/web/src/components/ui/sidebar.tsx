@@ -135,25 +135,22 @@ function SidebarProvider({
   // We use openProp and setOpenProp for control from outside the component.
   const [_open, _setOpen] = React.useState(() => defaultOpen);
   const open = openProp ?? _open;
-  const setOpen = React.useCallback(
-    async (value: boolean | ((value: boolean) => boolean)) => {
-      const openState = typeof value === "function" ? value(open) : value;
-      if (setOpenProp) {
-        setOpenProp(openState);
-      } else {
-        _setOpen(openState);
-      }
+  const setOpen = async (value: boolean | ((value: boolean) => boolean)) => {
+    const openState = typeof value === "function" ? value(open) : value;
+    if (setOpenProp) {
+      setOpenProp(openState);
+    } else {
+      _setOpen(openState);
+    }
 
-      // This sets the cookie to keep the sidebar state.
-      await cookieStore.set({
-        expires: Date.now() + SIDEBAR_COOKIE_MAX_AGE * 1000,
-        name: SIDEBAR_COOKIE_NAME,
-        path: "/",
-        value: String(openState),
-      });
-    },
-    [setOpenProp, open],
-  );
+    // This sets the cookie to keep the sidebar state.
+    await cookieStore.set({
+      expires: Date.now() + SIDEBAR_COOKIE_MAX_AGE * 1000,
+      name: SIDEBAR_COOKIE_NAME,
+      path: "/",
+      value: String(openState),
+    });
+  };
 
   // Helper to toggle the sidebar.
   const toggleSidebar = () => {
@@ -213,20 +210,26 @@ function Sidebar({
   resizable?: boolean | SidebarResizableOptions;
 }) {
   const { isMobile, state, openMobile, setOpenMobile } = useSidebar();
-  const resolvedResizable = React.useMemo<SidebarResolvedResizableOptions | null>(() => {
-    if (isMobile || collapsible === "none" || !resizable) {
-      return null;
-    }
-
-    const options = typeof resizable === "boolean" ? {} : resizable;
-    return {
-      maxWidth: options.maxWidth ?? Number.POSITIVE_INFINITY,
-      minWidth: options.minWidth ?? SIDEBAR_RESIZE_DEFAULT_MIN_WIDTH,
-      storageKey: options.storageKey ?? null,
-      ...(options.onResize ? { onResize: options.onResize } : {}),
-      ...(options.shouldAcceptWidth ? { shouldAcceptWidth: options.shouldAcceptWidth } : {}),
-    };
-  }, [collapsible, isMobile, resizable]);
+  const resolvedResizable: SidebarResolvedResizableOptions | null =
+    isMobile || collapsible === "none" || !resizable
+      ? null
+      : {
+          maxWidth:
+            typeof resizable === "boolean"
+              ? Number.POSITIVE_INFINITY
+              : (resizable.maxWidth ?? Number.POSITIVE_INFINITY),
+          minWidth:
+            typeof resizable === "boolean"
+              ? SIDEBAR_RESIZE_DEFAULT_MIN_WIDTH
+              : (resizable.minWidth ?? SIDEBAR_RESIZE_DEFAULT_MIN_WIDTH),
+          storageKey: typeof resizable === "boolean" ? null : (resizable.storageKey ?? null),
+          ...(typeof resizable !== "boolean" && resizable.onResize
+            ? { onResize: resizable.onResize }
+            : {}),
+          ...(typeof resizable !== "boolean" && resizable.shouldAcceptWidth
+            ? { shouldAcceptWidth: resizable.shouldAcceptWidth }
+            : {}),
+        };
   const instanceContextValue = { side, resizable: resolvedResizable };
   const collapsed = state === "collapsed";
   const iconGapWidth =
