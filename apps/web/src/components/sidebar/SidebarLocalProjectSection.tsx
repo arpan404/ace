@@ -1,4 +1,4 @@
-import { type KeyboardEvent, type MouseEvent, type PointerEventHandler, useEffect } from "react";
+import { type KeyboardEvent, type MouseEvent, type PointerEventHandler } from "react";
 import { type GitStatusResult, type ProjectId, type ThreadId } from "@ace/contracts";
 import { type SidebarThreadSortOrder } from "@ace/contracts/settings";
 import { IconPin, IconPinFilled, IconPinnedOff } from "@tabler/icons-react";
@@ -123,7 +123,6 @@ export interface SidebarLocalProjectSectionProps {
 export function SidebarLocalProjectSection(props: SidebarLocalProjectSectionProps) {
   const project = useProjectById(props.projectId);
   const allProjectThreads = useSidebarThreadSummariesByProjectId(props.projectId);
-  const prefetchThreadHistory = props.prefetchThreadHistory;
   const projectExpanded = useUiStateStore(
     (state) => state.projectExpandedById[props.projectId] ?? true,
   );
@@ -146,19 +145,6 @@ export function SidebarLocalProjectSection(props: SidebarLocalProjectSectionProp
     visibleThreadCount: props.threadRevealCount,
     threadSortOrder: props.threadSortOrder,
   });
-
-  useEffect(() => {
-    if (!projectExpanded || renderState.renderedThreadIds.length === 0) {
-      return;
-    }
-    for (const threadId of renderState.renderedThreadIds) {
-      prefetchThreadHistory(threadId, {
-        hydrateStore: false,
-        prewarmRows: true,
-        priority: "background",
-      });
-    }
-  }, [prefetchThreadHistory, projectExpanded, renderState.renderedThreadIds]);
 
   if (!project) {
     return null;
