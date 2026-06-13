@@ -5,11 +5,11 @@ import { describe, expect, it } from "vitest";
 
 import { setLocalStorageItem } from "../../hooks/useLocalStorage";
 import type { ActivePlanState } from "../../session-logic";
+import { EnvironmentMiniPanel } from "./EnvironmentMiniPanel";
 import {
-  EnvironmentMiniPanel,
   EnvironmentPanelGroupOpenStateSchema,
   resolveEnvironmentPanelGroupStorageKey,
-} from "./EnvironmentMiniPanel";
+} from "./environmentMiniPanelState";
 
 const activePlan: ActivePlanState = {
   createdAt: "2026-06-03T00:00:00.000Z",

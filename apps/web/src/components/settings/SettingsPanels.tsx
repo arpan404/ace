@@ -137,9 +137,8 @@ import {
   SettingsSection,
   SettingsInsetPanel,
   SettingResetButton,
-  getProviderSummary,
-  getProviderVersionLabel,
 } from "./SettingsPanelPrimitives";
+import { getProviderSummary, getProviderVersionLabel } from "./providerSummary";
 import { applyProvidersUpdated, useServerProviders } from "../../rpc/serverState";
 
 const THEME_OPTIONS = [

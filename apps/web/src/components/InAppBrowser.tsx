@@ -45,6 +45,11 @@ import { useThreadJumpHintVisibility } from "~/lib/sidebar";
 import { cn, randomUUID } from "~/lib/utils";
 import type { BrowserSessionStorage } from "~/lib/browser/session";
 import { resolveBrowserWebviewPartition } from "~/lib/browser/storage";
+import {
+  isLikelyBrowserAuthenticationUrl,
+  resolveMountedBrowserTabs,
+  shouldPublishBrowserSessionChange,
+} from "~/lib/browser/inAppBrowserPresentation";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import {
@@ -59,7 +64,6 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { BrowserNewTabPanel, BrowserSuggestionList } from "./browser/BrowserChrome";
 import { BrowserSiteDiagnosticsDialog } from "./browser/BrowserSiteDiagnosticsDialog";
 import { BrowserTabWebview } from "./browser/BrowserWebviewSurface";
-import { isBrowserInternalTabUrl } from "~/lib/browser/session";
 import type { BrowserDesignRequestSubmission, BrowserFindResult } from "~/lib/browser/types";
 import type { BrowserDesignerTool } from "~/lib/browser/designer";
 import { isRenderProfilingEnabled, recordReactRenderProfile } from "~/lib/renderProfiling";
@@ -155,84 +159,11 @@ function resolveAddressFieldPresentation(currentUrl: string | null): {
   }
 }
 
-export function isLikelyBrowserAuthenticationUrl(input: {
-  title?: string | null;
-  url: string | null;
-}): boolean {
-  if (!input.url) {
-    return false;
-  }
-  try {
-    const parsedUrl = new URL(input.url);
-    const host = parsedUrl.hostname.toLowerCase();
-    if (
-      /(\.|^)secure\d*\.store\.apple\.com$/u.test(host) ||
-      /(\.|^)idmsa\.apple\.com$/u.test(host)
-    ) {
-      return true;
-    }
-    const haystack =
-      `${host} ${parsedUrl.pathname} ${parsedUrl.search} ${input.title ?? ""}`.toLowerCase();
-    return /\b(auth|authorize|login|log-in|signin|sign-in|saml|sso|oauth|oidc|password|passkey|webauthn|account|checkout)\b/u.test(
-      haystack,
-    );
-  } catch {
-    return false;
-  }
-}
-
 const BROWSER_SHELL_TRANSITION = {
   duration: 0.18,
   ease: [0.16, 1, 0.3, 1],
 } as const;
 const AUTH_LOADING_RECOVERY_DELAY_MS = 12_000;
-
-export function resolveMountedBrowserTabs(input: {
-  activeTabId: string | null | undefined;
-  retainInactiveTabs: boolean;
-  tabs: BrowserSessionStorage["tabs"];
-}): BrowserSessionStorage["tabs"] {
-  if (input.retainInactiveTabs) {
-    return input.tabs.filter((tab) => !isBrowserInternalTabUrl(tab.url));
-  }
-
-  const activeTabId = input.activeTabId ?? null;
-  if (!activeTabId) return [];
-  return input.tabs.filter((tab) => tab.id === activeTabId && !isBrowserInternalTabUrl(tab.url));
-}
-
-export function shouldPublishBrowserSessionChange(input: {
-  previous: BrowserSessionStorage | null;
-  next: BrowserSessionStorage;
-  visible: boolean;
-}): boolean {
-  if (input.previous === input.next) {
-    return false;
-  }
-  if (input.previous === null || input.visible) {
-    return true;
-  }
-  if (input.previous.activeTabId !== input.next.activeTabId) {
-    return true;
-  }
-  if (input.previous.tabs.length !== input.next.tabs.length) {
-    return true;
-  }
-  for (let index = 0; index < input.next.tabs.length; index += 1) {
-    const previousTab = input.previous.tabs[index];
-    const nextTab = input.next.tabs[index];
-    if (
-      !previousTab ||
-      !nextTab ||
-      previousTab.id !== nextTab.id ||
-      previousTab.url !== nextTab.url ||
-      previousTab.title !== nextTab.title
-    ) {
-      return true;
-    }
-  }
-  return false;
-}
 
 const DESIGNER_TOOL_BUTTONS: ReadonlyArray<{
   accent: string;

@@ -51,6 +51,12 @@ import {
   type PinnedMessageNavigationTarget,
   type PinnedMessages,
 } from "./pinnedMessagesStore";
+import {
+  EnvironmentPanelGroupOpenStateSchema,
+  resolveEnvironmentPanelGroupStorageKey,
+  type EnvironmentPanelGroupId,
+  type EnvironmentPanelGroupOpenState,
+} from "./environmentMiniPanelState";
 
 const diffCountFormatter = new Intl.NumberFormat();
 
@@ -86,17 +92,6 @@ function EnvironmentPanelGroup(props: {
   );
 }
 
-type EnvironmentPanelGroupId =
-  | "actions"
-  | "environment"
-  | "notes"
-  | "pinnedMessages"
-  | "progress"
-  | "subagents";
-type EnvironmentPanelGroupOpenState = Record<EnvironmentPanelGroupId, boolean>;
-
-const ENVIRONMENT_PANEL_GROUP_STORAGE_KEY = "ace:environment-mini-panel-groups:v3";
-
 const DEFAULT_ENVIRONMENT_PANEL_GROUP_OPEN_STATE: EnvironmentPanelGroupOpenState = {
   actions: false,
   environment: true,
@@ -105,19 +100,6 @@ const DEFAULT_ENVIRONMENT_PANEL_GROUP_OPEN_STATE: EnvironmentPanelGroupOpenState
   progress: true,
   subagents: false,
 };
-
-export const EnvironmentPanelGroupOpenStateSchema = Schema.Struct({
-  actions: Schema.Boolean,
-  environment: Schema.Boolean,
-  notes: Schema.Boolean,
-  pinnedMessages: Schema.Boolean,
-  progress: Schema.Boolean,
-  subagents: Schema.Boolean,
-});
-
-export function resolveEnvironmentPanelGroupStorageKey(threadId: ThreadId): string {
-  return `${ENVIRONMENT_PANEL_GROUP_STORAGE_KEY}:${threadId}`;
-}
 
 function resolveEnvironmentPanelGroupOpen(
   state: EnvironmentPanelGroupOpenState,

@@ -62,9 +62,8 @@ import {
   SettingsInput,
   SettingsSection,
   SettingResetButton,
-  getProviderSummary,
-  getProviderVersionLabel,
 } from "./SettingsPanelPrimitives";
+import { getProviderSummary, getProviderVersionLabel } from "./providerSummary";
 import {
   SETTINGS_COLOR_SWATCH_BUTTON_CLASS,
   SETTINGS_COMPACT_ACTION_BUTTON_CLASS,
