@@ -1,23 +1,27 @@
-import { useCallback, useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState, type RefObject } from "react";
+
+function syncTabStripOverflow(
+  tabStripRef: RefObject<HTMLElement | null>,
+  tabsOverflowRef: RefObject<boolean>,
+  setTabsOverflow: (nextOverflow: boolean) => void,
+) {
+  const tabStrip = tabStripRef.current;
+  const nextOverflow = tabStrip ? tabStrip.scrollWidth - tabStrip.clientWidth > 1 : false;
+  if (tabsOverflowRef.current === nextOverflow) {
+    return;
+  }
+  tabsOverflowRef.current = nextOverflow;
+  setTabsOverflow(nextOverflow);
+}
 
 export function useTabStripOverflow<TElement extends HTMLElement = HTMLDivElement>() {
   const tabStripRef = useRef<TElement | null>(null);
   const tabsOverflowRef = useRef(false);
   const [tabsOverflow, setTabsOverflow] = useState(false);
 
-  const syncTabsOverflow = useCallback(() => {
-    const tabStrip = tabStripRef.current;
-    const nextOverflow = tabStrip ? tabStrip.scrollWidth - tabStrip.clientWidth > 1 : false;
-    if (tabsOverflowRef.current === nextOverflow) {
-      return;
-    }
-    tabsOverflowRef.current = nextOverflow;
-    setTabsOverflow(nextOverflow);
-  }, []);
-
   useLayoutEffect(() => {
-    syncTabsOverflow();
-  }, [syncTabsOverflow]);
+    syncTabStripOverflow(tabStripRef, tabsOverflowRef, setTabsOverflow);
+  }, []);
 
   useLayoutEffect(() => {
     const tabStrip = tabStripRef.current;
@@ -32,7 +36,7 @@ export function useTabStripOverflow<TElement extends HTMLElement = HTMLDivElemen
       }
       frameId = window.requestAnimationFrame(() => {
         frameId = null;
-        syncTabsOverflow();
+        syncTabStripOverflow(tabStripRef, tabsOverflowRef, setTabsOverflow);
       });
     };
 
@@ -58,7 +62,7 @@ export function useTabStripOverflow<TElement extends HTMLElement = HTMLDivElemen
       resizeObserver?.disconnect();
       mutationObserver?.disconnect();
     };
-  }, [syncTabsOverflow]);
+  }, []);
 
-  return { tabStripRef, tabsOverflow, syncTabsOverflow };
+  return { tabStripRef, tabsOverflow };
 }
