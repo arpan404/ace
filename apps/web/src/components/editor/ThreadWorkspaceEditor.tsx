@@ -1223,9 +1223,9 @@ function useThreadWorkspaceEditorComponent(inputProps: {
   const setSidebarMode = (sidebarMode: WorkspaceSidebarMode) => {
     dispatchUiState({ type: "set-sidebar-mode", sidebarMode });
   };
-  const setSelectedReviewFilePath = useCallback((selectedReviewFilePath: string | null) => {
+  const setSelectedReviewFilePath = (selectedReviewFilePath: string | null) => {
     dispatchUiState({ type: "set-selected-review-file-path", selectedReviewFilePath });
-  }, []);
+  };
   const setCommandPaletteOpen = (commandPaletteOpen: boolean) => {
     dispatchUiState({ type: "set-command-palette-open", commandPaletteOpen });
   };
@@ -1305,12 +1305,11 @@ function useThreadWorkspaceEditorComponent(inputProps: {
   ) => {
     dispatchUiState({ type: "set-problem-navigation-target", problemNavigationTarget });
   };
-  const setSymbolNavigationTarget = useCallback(
-    (symbolNavigationTarget: WorkspaceEditorSymbolNavigationTarget | null) => {
-      dispatchUiState({ type: "set-symbol-navigation-target", symbolNavigationTarget });
-    },
-    [],
-  );
+  const setSymbolNavigationTarget = (
+    symbolNavigationTarget: WorkspaceEditorSymbolNavigationTarget | null,
+  ) => {
+    dispatchUiState({ type: "set-symbol-navigation-target", symbolNavigationTarget });
+  };
   const bumpFindRequestToken = useCallback(() => {
     dispatchUiState({ type: "bump-find-request-token" });
   }, []);
@@ -1336,6 +1335,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
   const treeScrollRef = useRef<HTMLDivElement | null>(null);
   const treeSearchInputRef = useRef<HTMLInputElement | null>(null);
   const editorGridRef = useRef<HTMLDivElement | null>(null);
+  const navigationRequestIdRef = useRef(0);
   const rowGroupRefs = useRef<Map<string, HTMLDivElement | null>>(null!);
   if (rowGroupRefs.current === null) {
     rowGroupRefs.current = new Map<string, HTMLDivElement | null>();
@@ -2284,105 +2284,70 @@ function useThreadWorkspaceEditorComponent(inputProps: {
       };
     });
   };
-  const handleOpenProblem = useCallback(
-    (report: WorkspaceProblemReport) => {
-      const targetPaneId = panesById.has(report.paneId) ? report.paneId : (activePane?.id ?? null);
-      if (!targetPaneId) {
-        return;
-      }
-      setSelectedReviewFilePath(null);
-      setActivePane(props.threadId, targetPaneId);
-      prepareWorkspaceFileOpen(report.relativePath);
-      openFile(props.threadId, report.relativePath, targetPaneId);
-      const location: WorkspaceEditorLocation = {
-        relativePath: report.relativePath,
-        startLine: Math.max(0, report.problem.startLineNumber - 1),
-        startColumn: Math.max(0, report.problem.startColumn - 1),
-        endLine: Math.max(0, report.problem.endLineNumber - 1),
-        endColumn: Math.max(0, report.problem.endColumn - 1),
-      };
-      setProblemNavigationTarget({
-        id: Date.now(),
-        location,
-      });
-    },
-    [
-      activePane?.id,
-      openFile,
-      panesById,
-      prepareWorkspaceFileOpen,
-      props.threadId,
-      setActivePane,
-      setSelectedReviewFilePath,
-    ],
-  );
-  const handleOpenSymbol = useCallback(
-    (report: WorkspaceSymbolReport) => {
-      setActiveOutlineSymbolId(workspaceSymbolNodeId(report));
-      const targetPaneId = panesById.has(report.paneId) ? report.paneId : (activePane?.id ?? null);
-      if (!targetPaneId) {
-        return;
-      }
-      setSelectedReviewFilePath(null);
-      setActivePane(props.threadId, targetPaneId);
-      prepareWorkspaceFileOpen(report.relativePath);
-      openFile(props.threadId, report.relativePath, targetPaneId);
-      const location: WorkspaceEditorLocation = {
-        relativePath: report.relativePath,
-        startLine: Math.max(0, report.symbol.startLineNumber - 1),
-        startColumn: Math.max(0, report.symbol.startColumn - 1),
-        endLine: Math.max(0, report.symbol.endLineNumber - 1),
-        endColumn: Math.max(0, report.symbol.endColumn - 1),
-      };
-      setSymbolNavigationTarget({
-        id: Date.now(),
-        location,
-      });
-    },
-    [
-      activePane?.id,
-      openFile,
-      panesById,
-      prepareWorkspaceFileOpen,
-      props.threadId,
-      setActivePane,
-      setSelectedReviewFilePath,
-      setSymbolNavigationTarget,
-    ],
-  );
-  const handleOpenCodeSearchResult = useCallback(
-    (result: WorkspaceCodeSearchResult, lineNumber?: number) => {
-      const targetPaneId = activePane?.id ?? panes[0]?.id;
-      if (!targetPaneId) {
-        return;
-      }
-      setSelectedReviewFilePath(null);
-      setActivePane(props.threadId, targetPaneId);
-      prepareWorkspaceFileOpen(result.entry.path);
-      openFile(props.threadId, result.entry.path, targetPaneId);
-      const line = Math.max(0, (lineNumber ?? result.snippets[0]?.lineNumber ?? 1) - 1);
-      setSymbolNavigationTarget({
-        id: Date.now(),
-        location: {
-          endColumn: 0,
-          endLine: line,
-          relativePath: result.entry.path,
-          startColumn: 0,
-          startLine: line,
-        },
-      });
-    },
-    [
-      activePane?.id,
-      openFile,
-      panes,
-      prepareWorkspaceFileOpen,
-      props.threadId,
-      setActivePane,
-      setSelectedReviewFilePath,
-      setSymbolNavigationTarget,
-    ],
-  );
+  const handleOpenProblem = (report: WorkspaceProblemReport) => {
+    const targetPaneId = panesById.has(report.paneId) ? report.paneId : (activePane?.id ?? null);
+    if (!targetPaneId) {
+      return;
+    }
+    setSelectedReviewFilePath(null);
+    setActivePane(props.threadId, targetPaneId);
+    prepareWorkspaceFileOpen(report.relativePath);
+    openFile(props.threadId, report.relativePath, targetPaneId);
+    const location: WorkspaceEditorLocation = {
+      relativePath: report.relativePath,
+      startLine: Math.max(0, report.problem.startLineNumber - 1),
+      startColumn: Math.max(0, report.problem.startColumn - 1),
+      endLine: Math.max(0, report.problem.endLineNumber - 1),
+      endColumn: Math.max(0, report.problem.endColumn - 1),
+    };
+    setProblemNavigationTarget({
+      id: (navigationRequestIdRef.current += 1),
+      location,
+    });
+  };
+  const handleOpenSymbol = (report: WorkspaceSymbolReport) => {
+    setActiveOutlineSymbolId(workspaceSymbolNodeId(report));
+    const targetPaneId = panesById.has(report.paneId) ? report.paneId : (activePane?.id ?? null);
+    if (!targetPaneId) {
+      return;
+    }
+    setSelectedReviewFilePath(null);
+    setActivePane(props.threadId, targetPaneId);
+    prepareWorkspaceFileOpen(report.relativePath);
+    openFile(props.threadId, report.relativePath, targetPaneId);
+    const location: WorkspaceEditorLocation = {
+      relativePath: report.relativePath,
+      startLine: Math.max(0, report.symbol.startLineNumber - 1),
+      startColumn: Math.max(0, report.symbol.startColumn - 1),
+      endLine: Math.max(0, report.symbol.endLineNumber - 1),
+      endColumn: Math.max(0, report.symbol.endColumn - 1),
+    };
+    setSymbolNavigationTarget({
+      id: (navigationRequestIdRef.current += 1),
+      location,
+    });
+  };
+  const handleOpenCodeSearchResult = (result: WorkspaceCodeSearchResult, lineNumber?: number) => {
+    const targetPaneId = activePane?.id ?? panes[0]?.id;
+    if (!targetPaneId) {
+      return;
+    }
+    setSelectedReviewFilePath(null);
+    setActivePane(props.threadId, targetPaneId);
+    prepareWorkspaceFileOpen(result.entry.path);
+    openFile(props.threadId, result.entry.path, targetPaneId);
+    const line = Math.max(0, (lineNumber ?? result.snippets[0]?.lineNumber ?? 1) - 1);
+    setSymbolNavigationTarget({
+      id: (navigationRequestIdRef.current += 1),
+      location: {
+        endColumn: 0,
+        endLine: line,
+        relativePath: result.entry.path,
+        startColumn: 0,
+        startLine: line,
+      },
+    });
+  };
   const handleOpenCodeSearchFileResult = (entry: ProjectEntry) => {
     const targetPaneId = activePane?.id ?? panes[0]?.id;
     if (!targetPaneId) {
