@@ -7263,341 +7263,304 @@ function useChatViewComponent({
     setTerminalFocusRequestId,
     terminalState.terminalOpen,
   ]);
+  const handleGlobalShortcutKeyDown = useStableCallback((event: globalThis.KeyboardEvent) => {
+    if (!activeThreadId || event.defaultPrevented) return;
+    if (
+      event.key === "Escape" &&
+      !event.metaKey &&
+      !event.ctrlKey &&
+      !event.altKey &&
+      !event.shiftKey &&
+      anyBrowserOpen
+    ) {
+      browserControllerRef.current?.setDesignerModeActive(false);
+    }
+    const shortcutContext = {
+      terminalFocus: isTerminalFocused(),
+      terminalOpen: Boolean(terminalState.terminalOpen),
+      browserOpen: anyBrowserOpen,
+      rightPanelOpen: rightSidePanelOpen,
+      rightPanelFullscreen: rightSidePanelFullscreen,
+    };
+
+    const command = resolveShortcutCommand(event, keybindings, {
+      context: shortcutContext,
+    });
+    if (!command) return;
+    const activeElement = document.activeElement;
+    const bottomPanelFocused =
+      activeElement !== null && bottomPanelElementRef.current?.contains(activeElement) === true;
+    const rightSidePanelFocused =
+      activeElement !== null && rightSidePanelElementRef.current?.contains(activeElement) === true;
+    const shortcutBrowserInstanceId =
+      bottomPanelFocused && bottomBrowserInstanceId
+        ? bottomBrowserInstanceId
+        : rightBrowserInstanceId;
+    const activeShortcutBrowserController = shortcutBrowserInstanceId
+      ? (browserControllerByThreadRef.current.get(shortcutBrowserInstanceId) ?? null)
+      : null;
+
+    if (command === "terminal.toggle") {
+      event.preventDefault();
+      event.stopPropagation();
+      if (rightSidePanelFocused) {
+        if (rightSidePanelTerminalOpen && rightSidePanelMode === "terminal") {
+          onCloseRightSidePanelTerminal();
+          return;
+        }
+        onOpenRightSidePanelTerminal();
+        return;
+      }
+      toggleTerminalVisibility();
+      return;
+    }
+
+    if (command === "terminal.close") {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!terminalState.terminalOpen && !rightSidePanelTerminalOpen) return;
+      closeTerminal(terminalState.activeTerminalId);
+      return;
+    }
+
+    if (command === "terminal.new") {
+      event.preventDefault();
+      event.stopPropagation();
+      if (rightSidePanelFocused) {
+        onOpenRightSidePanelTerminal();
+        createNewPanelTerminal();
+        return;
+      }
+      setTerminalOpen(true);
+      setBottomPanelMode("terminal");
+      createNewTerminal();
+      return;
+    }
+
+    if (command === "terminal.tab.new") {
+      event.preventDefault();
+      event.stopPropagation();
+      if (rightSidePanelFocused) {
+        onOpenRightSidePanelTerminal();
+        createNewPanelTerminal();
+        return;
+      }
+      setTerminalOpen(true);
+      setBottomPanelMode("terminal");
+      createNewTerminal();
+      return;
+    }
+
+    if (command === "terminal.split") {
+      event.preventDefault();
+      event.stopPropagation();
+      if (rightSidePanelFocused) {
+        onOpenRightSidePanelTerminal();
+      } else {
+        setTerminalOpen(true);
+        setBottomPanelMode("terminal");
+      }
+      createSplitTerminal();
+      return;
+    }
+
+    if (command === "rightPanel.review.open") {
+      event.preventDefault();
+      event.stopPropagation();
+      if (bottomPanelFocused) {
+        onOpenBottomPanelDiff();
+        return;
+      }
+      onOpenRightSidePanelDiff();
+      return;
+    }
+
+    if (command === "rightPanel.terminal.open") {
+      event.preventDefault();
+      event.stopPropagation();
+      if (rightSidePanelFocused) {
+        onOpenRightSidePanelTerminal();
+        return;
+      }
+      setTerminalOpen(true);
+      setBottomPanelMode("terminal");
+      setTerminalFocusRequestId((value) => value + 1);
+      return;
+    }
+
+    if (command === "rightPanel.toggle") {
+      event.preventDefault();
+      event.stopPropagation();
+      onToggleRightSidePanel();
+      return;
+    }
+
+    if (command === "rightPanel.fullscreen.toggle") {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!rightSidePanelOpen) return;
+      onToggleRightSidePanelFullscreen();
+      return;
+    }
+
+    if (command === "rightPanel.floatingChat.toggle") {
+      event.preventDefault();
+      event.stopPropagation();
+      onToggleRightSidePanelFloatingChat();
+      return;
+    }
+
+    if (command === "rightPanel.browser.open") {
+      event.preventDefault();
+      event.stopPropagation();
+      if (bottomPanelFocused) {
+        onOpenBottomPanelBrowser();
+        return;
+      }
+      openBrowser();
+      return;
+    }
+
+    if (command === "browser.back") {
+      event.preventDefault();
+      event.stopPropagation();
+      activeShortcutBrowserController?.goBack();
+      return;
+    }
+
+    if (command === "browser.forward") {
+      event.preventDefault();
+      event.stopPropagation();
+      activeShortcutBrowserController?.goForward();
+      return;
+    }
+
+    if (command === "browser.reload") {
+      event.preventDefault();
+      event.stopPropagation();
+      activeShortcutBrowserController?.reload();
+      return;
+    }
+
+    if (command === "browser.devtools") {
+      event.preventDefault();
+      event.stopPropagation();
+      activeShortcutBrowserController?.toggleDevTools();
+      return;
+    }
+
+    if (command === "browser.newTab") {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!anyBrowserOpen || !activeShortcutBrowserController) {
+        if (bottomPanelFocused) {
+          onOpenBottomPanelBrowserTab();
+          return;
+        }
+        onOpenRightSidePanelBrowserTab();
+        return;
+      }
+      if (bottomPanelFocused) {
+        onOpenBottomPanelBrowser();
+      } else {
+        openBrowser();
+      }
+      activeShortcutBrowserController.openNewTab();
+      return;
+    }
+
+    if (command === "browser.closeTab") {
+      event.preventDefault();
+      event.stopPropagation();
+      activeShortcutBrowserController?.closeActiveTab();
+      return;
+    }
+
+    if (command === "browser.focusAddressBar") {
+      event.preventDefault();
+      event.stopPropagation();
+      activeShortcutBrowserController?.focusAddressBar();
+      return;
+    }
+
+    if (command === "browser.previousTab") {
+      event.preventDefault();
+      event.stopPropagation();
+      activeShortcutBrowserController?.goToPreviousTab();
+      return;
+    }
+
+    if (command === "browser.nextTab") {
+      event.preventDefault();
+      event.stopPropagation();
+      activeShortcutBrowserController?.goToNextTab();
+      return;
+    }
+
+    if (command === "browser.designer.areaComment") {
+      event.preventDefault();
+      event.stopPropagation();
+      activeShortcutBrowserController?.toggleDesignerTool("area-comment");
+      return;
+    }
+
+    if (command === "browser.designer.elementComment") {
+      event.preventDefault();
+      event.stopPropagation();
+      activeShortcutBrowserController?.toggleDesignerTool("element-comment");
+      return;
+    }
+
+    if (command === "chat.togglePlanMode") {
+      event.preventDefault();
+      event.stopPropagation();
+      toggleInteractionMode();
+      return;
+    }
+
+    if (command === "chat.toggleWorkspaceMode") {
+      event.preventDefault();
+      event.stopPropagation();
+      toggleWorkspaceMode();
+      return;
+    }
+
+    if (command === "rightPanel.editor.open") {
+      event.preventDefault();
+      event.stopPropagation();
+      if (bottomPanelFocused) {
+        onOpenBottomPanelEditor();
+        return;
+      }
+      onOpenRightSidePanelEditor();
+      return;
+    }
+
+    if (command === "chat.toggleHeader") {
+      event.preventDefault();
+      event.stopPropagation();
+      toggleHeaderVisibility();
+      return;
+    }
+
+    const scriptId = projectScriptIdFromCommand(command);
+    if (!scriptId || !activeProject) return;
+    const script = activeProject.scripts.find((entry) => entry.id === scriptId);
+    if (!script) return;
+    event.preventDefault();
+    event.stopPropagation();
+    void runProjectScript(script);
+  });
+
   useEffect(() => {
     if (!ownsGlobalSideEffects) return;
     if (!shortcutsEnabled) return;
     const handler = (event: globalThis.KeyboardEvent) => {
-      if (!activeThreadId || event.defaultPrevented) return;
-      if (
-        event.key === "Escape" &&
-        !event.metaKey &&
-        !event.ctrlKey &&
-        !event.altKey &&
-        !event.shiftKey &&
-        anyBrowserOpen
-      ) {
-        browserControllerRef.current?.setDesignerModeActive(false);
-      }
-      const shortcutContext = {
-        terminalFocus: isTerminalFocused(),
-        terminalOpen: Boolean(terminalState.terminalOpen),
-        browserOpen: anyBrowserOpen,
-        rightPanelOpen: rightSidePanelOpen,
-        rightPanelFullscreen: rightSidePanelFullscreen,
-      };
-
-      const command = resolveShortcutCommand(event, keybindings, {
-        context: shortcutContext,
-      });
-      if (!command) return;
-      const activeElement = document.activeElement;
-      const bottomPanelFocused =
-        activeElement !== null && bottomPanelElementRef.current?.contains(activeElement) === true;
-      const rightSidePanelFocused =
-        activeElement !== null &&
-        rightSidePanelElementRef.current?.contains(activeElement) === true;
-      const shortcutBrowserInstanceId =
-        bottomPanelFocused && bottomBrowserInstanceId
-          ? bottomBrowserInstanceId
-          : rightBrowserInstanceId;
-      const activeShortcutBrowserController = shortcutBrowserInstanceId
-        ? (browserControllerByThreadRef.current.get(shortcutBrowserInstanceId) ?? null)
-        : null;
-
-      if (command === "terminal.toggle") {
-        event.preventDefault();
-        event.stopPropagation();
-        if (rightSidePanelFocused) {
-          if (rightSidePanelTerminalOpen && rightSidePanelMode === "terminal") {
-            onCloseRightSidePanelTerminal();
-            return;
-          }
-          onOpenRightSidePanelTerminal();
-          return;
-        }
-        toggleTerminalVisibility();
-        return;
-      }
-
-      if (command === "terminal.close") {
-        event.preventDefault();
-        event.stopPropagation();
-        if (!terminalState.terminalOpen && !rightSidePanelTerminalOpen) return;
-        closeTerminal(terminalState.activeTerminalId);
-        return;
-      }
-
-      if (command === "terminal.new") {
-        event.preventDefault();
-        event.stopPropagation();
-        if (rightSidePanelFocused) {
-          onOpenRightSidePanelTerminal();
-          createNewPanelTerminal();
-          return;
-        }
-        setTerminalOpen(true);
-        setBottomPanelMode("terminal");
-        createNewTerminal();
-        return;
-      }
-
-      if (command === "terminal.tab.new") {
-        event.preventDefault();
-        event.stopPropagation();
-        if (rightSidePanelFocused) {
-          onOpenRightSidePanelTerminal();
-          createNewPanelTerminal();
-          return;
-        }
-        setTerminalOpen(true);
-        setBottomPanelMode("terminal");
-        createNewTerminal();
-        return;
-      }
-
-      if (command === "terminal.split") {
-        event.preventDefault();
-        event.stopPropagation();
-        if (rightSidePanelFocused) {
-          onOpenRightSidePanelTerminal();
-        } else {
-          setTerminalOpen(true);
-          setBottomPanelMode("terminal");
-        }
-        createSplitTerminal();
-        return;
-      }
-
-      if (command === "rightPanel.review.open") {
-        event.preventDefault();
-        event.stopPropagation();
-        if (bottomPanelFocused) {
-          onOpenBottomPanelDiff();
-          return;
-        }
-        onOpenRightSidePanelDiff();
-        return;
-      }
-
-      if (command === "rightPanel.terminal.open") {
-        event.preventDefault();
-        event.stopPropagation();
-        if (rightSidePanelFocused) {
-          onOpenRightSidePanelTerminal();
-          return;
-        }
-        setTerminalOpen(true);
-        setBottomPanelMode("terminal");
-        setTerminalFocusRequestId((value) => value + 1);
-        return;
-      }
-
-      if (command === "rightPanel.toggle") {
-        event.preventDefault();
-        event.stopPropagation();
-        onToggleRightSidePanel();
-        return;
-      }
-
-      if (command === "rightPanel.fullscreen.toggle") {
-        event.preventDefault();
-        event.stopPropagation();
-        if (!rightSidePanelOpen) return;
-        onToggleRightSidePanelFullscreen();
-        return;
-      }
-
-      if (command === "rightPanel.floatingChat.toggle") {
-        event.preventDefault();
-        event.stopPropagation();
-        onToggleRightSidePanelFloatingChat();
-        return;
-      }
-
-      if (command === "rightPanel.browser.open") {
-        event.preventDefault();
-        event.stopPropagation();
-        if (bottomPanelFocused) {
-          onOpenBottomPanelBrowser();
-          return;
-        }
-        openBrowser();
-        return;
-      }
-
-      if (command === "browser.back") {
-        event.preventDefault();
-        event.stopPropagation();
-        activeShortcutBrowserController?.goBack();
-        return;
-      }
-
-      if (command === "browser.forward") {
-        event.preventDefault();
-        event.stopPropagation();
-        activeShortcutBrowserController?.goForward();
-        return;
-      }
-
-      if (command === "browser.reload") {
-        event.preventDefault();
-        event.stopPropagation();
-        activeShortcutBrowserController?.reload();
-        return;
-      }
-
-      if (command === "browser.devtools") {
-        event.preventDefault();
-        event.stopPropagation();
-        activeShortcutBrowserController?.toggleDevTools();
-        return;
-      }
-
-      if (command === "browser.newTab") {
-        event.preventDefault();
-        event.stopPropagation();
-        if (!anyBrowserOpen || !activeShortcutBrowserController) {
-          if (bottomPanelFocused) {
-            onOpenBottomPanelBrowserTab();
-            return;
-          }
-          onOpenRightSidePanelBrowserTab();
-          return;
-        }
-        if (bottomPanelFocused) {
-          onOpenBottomPanelBrowser();
-        } else {
-          openBrowser();
-        }
-        activeShortcutBrowserController.openNewTab();
-        return;
-      }
-
-      if (command === "browser.closeTab") {
-        event.preventDefault();
-        event.stopPropagation();
-        activeShortcutBrowserController?.closeActiveTab();
-        return;
-      }
-
-      if (command === "browser.focusAddressBar") {
-        event.preventDefault();
-        event.stopPropagation();
-        activeShortcutBrowserController?.focusAddressBar();
-        return;
-      }
-
-      if (command === "browser.previousTab") {
-        event.preventDefault();
-        event.stopPropagation();
-        activeShortcutBrowserController?.goToPreviousTab();
-        return;
-      }
-
-      if (command === "browser.nextTab") {
-        event.preventDefault();
-        event.stopPropagation();
-        activeShortcutBrowserController?.goToNextTab();
-        return;
-      }
-
-      if (command === "browser.designer.areaComment") {
-        event.preventDefault();
-        event.stopPropagation();
-        activeShortcutBrowserController?.toggleDesignerTool("area-comment");
-        return;
-      }
-
-      if (command === "browser.designer.elementComment") {
-        event.preventDefault();
-        event.stopPropagation();
-        activeShortcutBrowserController?.toggleDesignerTool("element-comment");
-        return;
-      }
-
-      if (command === "chat.togglePlanMode") {
-        event.preventDefault();
-        event.stopPropagation();
-        toggleInteractionMode();
-        return;
-      }
-
-      if (command === "chat.toggleWorkspaceMode") {
-        event.preventDefault();
-        event.stopPropagation();
-        toggleWorkspaceMode();
-        return;
-      }
-
-      if (command === "rightPanel.editor.open") {
-        event.preventDefault();
-        event.stopPropagation();
-        if (bottomPanelFocused) {
-          onOpenBottomPanelEditor();
-          return;
-        }
-        onOpenRightSidePanelEditor();
-        return;
-      }
-
-      if (command === "chat.toggleHeader") {
-        event.preventDefault();
-        event.stopPropagation();
-        toggleHeaderVisibility();
-        return;
-      }
-
-      const scriptId = projectScriptIdFromCommand(command);
-      if (!scriptId || !activeProject) return;
-      const script = activeProject.scripts.find((entry) => entry.id === scriptId);
-      if (!script) return;
-      event.preventDefault();
-      event.stopPropagation();
-      void runProjectScript(script);
+      handleGlobalShortcutKeyDown(event);
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [
-    activeProject,
-    anyBrowserOpen,
-    bottomBrowserInstanceId,
-    ownsGlobalSideEffects,
-    terminalState.terminalOpen,
-    terminalState.activeTerminalId,
-    activeThreadId,
-    openBrowser,
-    closeTerminal,
-    createNewTerminal,
-    createNewPanelTerminal,
-    createSplitTerminal,
-    setTerminalOpen,
-    runProjectScript,
-    keybindings,
-    onOpenRightSidePanelBrowserTab,
-    onOpenBottomPanelBrowser,
-    onOpenBottomPanelBrowserTab,
-    onOpenBottomPanelDiff,
-    onOpenBottomPanelEditor,
-    onToggleRightSidePanel,
-    onToggleRightSidePanelFullscreen,
-    onToggleRightSidePanelFloatingChat,
-    onOpenRightSidePanelTerminal,
-    onOpenRightSidePanelEditor,
-    onOpenRightSidePanelDiff,
-    onCloseRightSidePanelTerminal,
-    rightSidePanelFullscreen,
-    rightSidePanelMode,
-    rightSidePanelOpen,
-    rightSidePanelTerminalOpen,
-    rightBrowserInstanceId,
-    setBottomPanelMode,
-    setTerminalFocusRequestId,
-    shortcutsEnabled,
-    toggleInteractionMode,
-    toggleWorkspaceMode,
-    toggleHeaderVisibility,
-    toggleTerminalVisibility,
-  ]);
+  }, [handleGlobalShortcutKeyDown, ownsGlobalSideEffects, shortcutsEnabled]);
 
   const onRevertToTurnCount = async (turnCount: number) => {
     const api = readNativeApi();
