@@ -7,25 +7,27 @@ import { cn } from "~/lib/utils";
 import type { ThreadBoardPaneContentProps } from "./threadBoardTypes";
 
 export function ThreadBoardPaneContent(props: ThreadBoardPaneContentProps) {
-  const { pane } = props;
+  const { chatState, pane, visualState } = props;
   const sidebarThread = useSidebarThreadSummaryById(pane.threadId);
   const paneTitle = sidebarThread?.title ?? "thread";
   const className = cn(
     "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden transition-[opacity,filter] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none",
-    props.isDimmedPane ? "opacity-92 saturate-[0.92] brightness-[1] contrast-[1]" : "opacity-100",
+    visualState.isDimmedPane
+      ? "opacity-92 saturate-[0.92] brightness-[1] contrast-[1]"
+      : "opacity-100",
   );
 
-  if (props.deferContent) {
+  if (visualState.deferContent) {
     return <div aria-hidden="true" className={className} />;
   }
 
   return (
     <div className={className}>
       <ChatView
-        activeInBoard={props.isFocusedPane}
+        activeInBoard={visualState.isFocusedPane}
         connectionUrl={pane.connectionUrl}
         paneControls={
-          !props.isSinglePane ? (
+          !visualState.isSinglePane ? (
             <>
               <Button
                 type="button"
@@ -67,10 +69,10 @@ export function ThreadBoardPaneContent(props: ThreadBoardPaneContentProps) {
           ) : null
         }
         threadId={pane.threadId}
-        shortcutsEnabled={props.shortcutsEnabled}
-        showSidebarTrigger={props.showSidebarTrigger}
-        splitPane={props.splitPane ?? true}
-        visibleBoardThreadIds={props.visibleBoardThreadIds}
+        shortcutsEnabled={chatState.shortcutsEnabled}
+        showSidebarTrigger={chatState.showSidebarTrigger}
+        splitPane={chatState.splitPane ?? true}
+        visibleBoardThreadIds={chatState.visibleBoardThreadIds}
       />
     </div>
   );

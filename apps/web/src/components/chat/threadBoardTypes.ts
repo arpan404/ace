@@ -42,15 +42,19 @@ export type ThreadBoardLayoutNodeRendererProps = {
 };
 
 export type ThreadBoardPaneContentProps = {
-  deferContent: boolean;
-  isDimmedPane: boolean;
-  isFocusedPane: boolean;
-  isSinglePane: boolean;
+  chatState: {
+    shortcutsEnabled: boolean;
+    showSidebarTrigger: boolean;
+    splitPane: boolean | undefined;
+    visibleBoardThreadIds: ReadonlyArray<ThreadId>;
+  };
   pane: ChatThreadBoardPaneState;
-  shortcutsEnabled: boolean;
-  showSidebarTrigger: boolean;
-  splitPane: boolean | undefined;
-  visibleBoardThreadIds: ReadonlyArray<ThreadId>;
+  visualState: {
+    deferContent: boolean;
+    isDimmedPane: boolean;
+    isFocusedPane: boolean;
+    isSinglePane: boolean;
+  };
   onClosePane: (pane: ChatThreadBoardPaneState) => void;
   onPaneDragEnd: ((event: ReactDragEvent<HTMLButtonElement>) => void) | undefined;
   onPaneDragStart: ThreadBoardPaneDragStartHandler | undefined;

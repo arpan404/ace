@@ -1539,21 +1539,23 @@ export function MessagesTimeline({
                   </div>
                 )}
                 <AssistantMessageTimelineRow
+                  displayState={{
+                    enableLocalFileLinks,
+                    isAssistantTurnTerminal: row.isAssistantTurnTerminal ?? false,
+                    isForkConversationDisabled,
+                    liveTimers,
+                    renderMarkdown: shouldRenderAssistantMarkdown,
+                    showCompletedTiming: row.showAssistantTiming ?? false,
+                    showCopyAction: false,
+                    suppressFooter: true,
+                  }}
                   durationStart={row.durationStart}
-                  isAssistantTurnTerminal={row.isAssistantTurnTerminal ?? false}
-                  liveTimers={liveTimers}
-                  showCompletedTiming={row.showAssistantTiming ?? false}
-                  suppressFooter
                   markdownCwd={markdownCwd}
                   message={row.message}
                   onImageExpand={onImageExpand}
                   onOpenBrowserUrl={onOpenBrowserUrl}
                   onOpenFilePath={onOpenFilePath}
-                  enableLocalFileLinks={enableLocalFileLinks}
                   onForkConversation={null}
-                  isForkConversationDisabled={isForkConversationDisabled}
-                  renderMarkdown={shouldRenderAssistantMarkdown}
-                  showCopyAction={false}
                   timestampFormat={timestampFormat}
                 />
                 {detachedAssistantFooter && (
@@ -3182,25 +3184,28 @@ function AssistantImageAttachmentFrame(props: {
 }
 
 function AssistantMessageTimelineRow(props: {
+  displayState: {
+    enableLocalFileLinks?: boolean;
+    isAssistantTurnTerminal?: boolean;
+    isForkConversationDisabled?: boolean;
+    isPinned?: boolean;
+    liveTimers: boolean;
+    renderMarkdown: boolean;
+    showCompletedTiming?: boolean;
+    showCopyAction: boolean;
+    suppressFooter?: boolean;
+  };
   durationStart: string;
-  isAssistantTurnTerminal?: boolean;
-  liveTimers: boolean;
-  showCompletedTiming?: boolean;
-  suppressFooter?: boolean;
   markdownCwd: string | undefined;
   message: AssistantTimelineMessage;
   onImageExpand: (preview: ExpandedImagePreview) => void;
   onOpenBrowserUrl?: ((url: string) => void) | null;
   onOpenFilePath?: ((path: string) => void) | null;
-  enableLocalFileLinks?: boolean;
   onForkConversation?: (() => void) | null;
-  isPinned?: boolean;
   onTogglePinnedMessage?: (() => void) | null;
-  isForkConversationDisabled?: boolean;
-  renderMarkdown: boolean;
-  showCopyAction: boolean;
   timestampFormat: TimestampFormat;
 }) {
+  const { displayState } = props;
   const onOpenBrowserUrl = props.onOpenBrowserUrl ?? null;
   const onOpenFilePath = props.onOpenFilePath ?? null;
   const assistantImages = props.message.attachments ?? [];
@@ -3210,7 +3215,9 @@ function AssistantMessageTimelineRow(props: {
   );
   const renderedMessageText = getChatMessageRenderableText(props.message);
   const copyText =
-    props.showCopyAction && renderedMessageText.trim().length > 0 ? renderedMessageText : null;
+    displayState.showCopyAction && renderedMessageText.trim().length > 0
+      ? renderedMessageText
+      : null;
   const messageText =
     renderedMessageText.trim().length > 0
       ? renderedMessageText
@@ -3222,8 +3229,8 @@ function AssistantMessageTimelineRow(props: {
   const timing = resolveAssistantTurnTiming({
     completedAt: props.message.completedAt ?? null,
     durationStart: props.durationStart,
-    isAssistantTurnTerminal: props.isAssistantTurnTerminal ?? false,
-    showCompletedTiming: props.showCompletedTiming ?? false,
+    isAssistantTurnTerminal: displayState.isAssistantTurnTerminal ?? false,
+    showCompletedTiming: displayState.showCompletedTiming ?? false,
     timestampFormat: props.timestampFormat,
   });
   return (
@@ -3251,7 +3258,7 @@ function AssistantMessageTimelineRow(props: {
       )}
       {messageText.length === 0 ? null : (
         <div className="min-w-0" data-assistant-message-content="true">
-          {props.renderMarkdown ? (
+          {displayState.renderMarkdown ? (
             <ChatMarkdown
               analysisCacheKey={buildMarkdownRenderAnalysisCacheKey(
                 {
@@ -3275,7 +3282,7 @@ function AssistantMessageTimelineRow(props: {
               isStreaming={Boolean(props.message.streaming)}
               onOpenBrowserUrl={onOpenBrowserUrl}
               onOpenFilePath={onOpenFilePath}
-              enableLocalFileLinks={props.enableLocalFileLinks ?? true}
+              enableLocalFileLinks={displayState.enableLocalFileLinks ?? true}
               {...(props.message.streamingTextState
                 ? { streamingTextState: props.message.streamingTextState }
                 : {})}
@@ -3285,12 +3292,12 @@ function AssistantMessageTimelineRow(props: {
           )}
         </div>
       )}
-      {!props.suppressFooter && (
+      {!displayState.suppressFooter && (
         <AssistantTurnFooter
           copyText={copyText}
-          isPinned={props.isPinned ?? false}
+          isPinned={displayState.isPinned ?? false}
           onForkConversation={props.onForkConversation ?? null}
-          isForkConversationDisabled={props.isForkConversationDisabled ?? false}
+          isForkConversationDisabled={displayState.isForkConversationDisabled ?? false}
           onTogglePinnedMessage={props.onTogglePinnedMessage ?? null}
           timing={timing}
         />

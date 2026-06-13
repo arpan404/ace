@@ -713,16 +713,17 @@ export function ChatComposerPanel({
                   <ComposerPrimaryActions
                     compact={props.isComposerPrimaryActionsCompact}
                     pendingAction={pendingAction}
-                    isRunning={props.liveTurnInProgress}
-                    showPlanFollowUpPrompt={
-                      props.pendingUserInputs.length === 0 && props.showPlanFollowUpPrompt
-                    }
-                    promptHasText={props.promptHasText}
-                    isSendBusy={props.isSendBusy}
-                    isConnecting={props.isConnecting}
-                    isPreparingWorktree={props.isPreparingWorktree}
-                    hasSendableContent={props.hasSendableContent}
-                    canQueueMessage={props.canQueueMessage}
+                    state={{
+                      isRunning: props.liveTurnInProgress,
+                      showPlanFollowUpPrompt:
+                        props.pendingUserInputs.length === 0 && props.showPlanFollowUpPrompt,
+                      promptHasText: props.promptHasText,
+                      isSendBusy: props.isSendBusy,
+                      isConnecting: props.isConnecting,
+                      isPreparingWorktree: props.isPreparingWorktree,
+                      hasSendableContent: props.hasSendableContent,
+                      canQueueMessage: props.canQueueMessage,
+                    }}
                     onInterrupt={props.onInterrupt}
                     onImplementPlanInNewThread={props.onImplementPlanInNewThread}
                     onQueueMessage={props.onQueueMessage}

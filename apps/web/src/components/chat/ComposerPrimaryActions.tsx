@@ -15,14 +15,16 @@ interface PendingActionState {
 interface ComposerPrimaryActionsProps {
   compact: boolean;
   pendingAction: PendingActionState | null;
-  isRunning: boolean;
-  showPlanFollowUpPrompt: boolean;
-  promptHasText: boolean;
-  isSendBusy: boolean;
-  isConnecting: boolean;
-  isPreparingWorktree: boolean;
-  hasSendableContent: boolean;
-  canQueueMessage: boolean;
+  state: {
+    isRunning: boolean;
+    showPlanFollowUpPrompt: boolean;
+    promptHasText: boolean;
+    isSendBusy: boolean;
+    isConnecting: boolean;
+    isPreparingWorktree: boolean;
+    hasSendableContent: boolean;
+    canQueueMessage: boolean;
+  };
   onQueueMessage: () => void;
   onInterrupt: () => void;
   onImplementPlanInNewThread: () => void;
@@ -57,18 +59,21 @@ const SendArrowIcon = ({ size = 14 }: { size?: number }) => (
 export function ComposerPrimaryActions({
   compact,
   pendingAction,
-  isRunning,
-  showPlanFollowUpPrompt,
-  promptHasText,
-  isSendBusy,
-  isConnecting,
-  isPreparingWorktree,
-  hasSendableContent,
-  canQueueMessage,
+  state,
   onQueueMessage,
   onInterrupt,
   onImplementPlanInNewThread,
 }: ComposerPrimaryActionsProps) {
+  const {
+    isRunning,
+    showPlanFollowUpPrompt,
+    promptHasText,
+    isSendBusy,
+    isConnecting,
+    isPreparingWorktree,
+    hasSendableContent,
+    canQueueMessage,
+  } = state;
   if (pendingAction) {
     return (
       <div className={cn("flex items-center justify-end", compact ? "gap-1.5" : "gap-2")}>

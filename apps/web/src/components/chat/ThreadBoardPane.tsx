@@ -94,16 +94,20 @@ function ThreadBoardPaneDropLayer(props: {
 }
 
 export function ThreadBoardPane(props: {
-  deferContent: boolean;
+  chatState: {
+    shortcutsEnabled: boolean;
+    showSidebarTrigger: boolean;
+    splitPane?: boolean;
+    visibleBoardThreadIds?: ReadonlyArray<ThreadId>;
+  };
   dropPreviewDirection?: ThreadBoardDropDirection | null;
-  isFocusedPane: boolean;
-  isSinglePane: boolean;
   pane: ChatThreadBoardPaneState;
-  shortcutsEnabled: boolean;
   showDropHint?: boolean;
-  showSidebarTrigger: boolean;
-  splitPane?: boolean;
-  visibleBoardThreadIds?: ReadonlyArray<ThreadId>;
+  visualState: {
+    deferContent: boolean;
+    isFocusedPane: boolean;
+    isSinglePane: boolean;
+  };
   onClosePane: (pane: ChatThreadBoardPaneState) => void;
   onPaneDragEnter?: ThreadBoardPaneDragHandler;
   onPaneDragLeave?: ThreadBoardPaneDragLeaveHandler;
@@ -114,9 +118,10 @@ export function ThreadBoardPane(props: {
   setActivePane: (paneId: string) => void;
 }) {
   const { pane } = props;
-  const visibleBoardThreadIds = props.visibleBoardThreadIds ?? EMPTY_VISIBLE_BOARD_THREAD_IDS;
-  const isFocusedPane = props.isSinglePane || props.isFocusedPane;
-  const isDimmedPane = !props.isSinglePane && !isFocusedPane;
+  const { chatState, visualState } = props;
+  const visibleBoardThreadIds = chatState.visibleBoardThreadIds ?? EMPTY_VISIBLE_BOARD_THREAD_IDS;
+  const isFocusedPane = visualState.isSinglePane || visualState.isFocusedPane;
+  const isDimmedPane = !visualState.isSinglePane && !isFocusedPane;
 
   return (
     <div
@@ -163,15 +168,19 @@ export function ThreadBoardPane(props: {
       }}
     >
       <ThreadBoardPaneContent
-        deferContent={props.deferContent}
-        isDimmedPane={isDimmedPane}
-        isFocusedPane={isFocusedPane}
-        isSinglePane={props.isSinglePane}
+        chatState={{
+          shortcutsEnabled: chatState.shortcutsEnabled,
+          showSidebarTrigger: chatState.showSidebarTrigger,
+          splitPane: chatState.splitPane,
+          visibleBoardThreadIds,
+        }}
         pane={pane}
-        shortcutsEnabled={props.shortcutsEnabled}
-        showSidebarTrigger={props.showSidebarTrigger}
-        splitPane={props.splitPane}
-        visibleBoardThreadIds={visibleBoardThreadIds}
+        visualState={{
+          deferContent: visualState.deferContent,
+          isDimmedPane,
+          isFocusedPane,
+          isSinglePane: visualState.isSinglePane,
+        }}
         onClosePane={props.onClosePane}
         onPaneDragEnd={props.onPaneDragEnd}
         onPaneDragStart={props.onPaneDragStart}
@@ -179,7 +188,7 @@ export function ThreadBoardPane(props: {
 
       <ThreadBoardPaneDropLayer
         dropPreviewDirection={props.dropPreviewDirection}
-        isSinglePane={props.isSinglePane}
+        isSinglePane={visualState.isSinglePane}
         pane={pane}
         showDropHint={props.showDropHint}
         onPaneDragEnter={props.onPaneDragEnter}
@@ -188,7 +197,7 @@ export function ThreadBoardPane(props: {
         onPaneDrop={props.onPaneDrop}
       />
 
-      {!props.isSinglePane ? (
+      {!visualState.isSinglePane ? (
         <div
           className={cn(
             "pointer-events-none absolute inset-0 z-[33] border transition-[border-color,box-shadow] ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none",

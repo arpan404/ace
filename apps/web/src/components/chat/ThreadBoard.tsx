@@ -3,7 +3,6 @@ import {
   Fragment,
   type ReactNode,
   startTransition,
-  useCallback,
   useEffect,
   useRef,
   useState,
@@ -21,7 +20,6 @@ import {
   type ChatThreadBoardPaneState,
   useChatThreadBoardStore,
 } from "../../chatThreadBoardStore";
-import ChatView from "../ChatView";
 import { normalizePaneRatios, resizePaneRatios } from "../../lib/paneRatios";
 import { THREAD_BOARD_LAYOUT_ACTIVE_CLASS_NAME } from "../../lib/desktopChrome";
 import { buildSingleThreadRouteSearch } from "../../lib/chatThreadBoardRouteSearch";
@@ -42,16 +40,11 @@ import { useStore } from "../../store";
 import { cn } from "~/lib/utils";
 import { buildThreadBoardTitle } from "../../lib/threadBoardTitle";
 import { ThreadBoardPane } from "./ThreadBoardPane";
-import type {
-  ThreadBoardDropDirection,
-  ThreadBoardPaneDragHandler,
-  ThreadBoardPaneDragStartHandler,
-} from "./threadBoardTypes";
+import type { ThreadBoardDropDirection } from "./threadBoardTypes";
 
 const BOARD_MIN_COLUMN_WIDTH_PX = 360;
 const BOARD_MIN_ROW_HEIGHT_PX = 240;
 const BOARD_DEFER_CONTENT_FRAME_COUNT = 2;
-const EMPTY_VISIBLE_BOARD_THREAD_IDS: readonly ThreadId[] = [];
 
 interface ThreadBoardDropTargetState {
   direction: ThreadBoardDropDirection;
@@ -79,6 +72,13 @@ function applyBranchResizePreview(children: readonly HTMLElement[], ratios: read
   for (const [index, child] of children.entries()) {
     child.style.flexGrow = String(ratios[index] ?? 1);
   }
+}
+
+function clearDeferredPaneContentFrames(frameIdsRef: { current: number[] }) {
+  for (const frameId of frameIdsRef.current) {
+    window.cancelAnimationFrame(frameId);
+  }
+  frameIdsRef.current = [];
 }
 
 type ThreadBoardLayoutNodeRendererProps = {
@@ -251,19 +251,12 @@ function useThreadBoardComponent(props: { connectionUrl?: string | null; threadI
   );
   const deferredPaneContentFrameIdsRef = useRef<number[]>([]);
 
-  const clearDeferredPaneContentFrames = useCallback(() => {
-    for (const frameId of deferredPaneContentFrameIdsRef.current) {
-      window.cancelAnimationFrame(frameId);
-    }
-    deferredPaneContentFrameIdsRef.current = [];
-  }, []);
-
   const deferPaneContentMount = (paneIds: ReadonlyArray<string | null | undefined>) => {
     const ids = paneIds.filter((paneId): paneId is string => Boolean(paneId));
     if (ids.length === 0) {
       return;
     }
-    clearDeferredPaneContentFrames();
+    clearDeferredPaneContentFrames(deferredPaneContentFrameIdsRef);
     setDeferredPaneContentIds(new Set(ids));
 
     let remainingFrames = BOARD_DEFER_CONTENT_FRAME_COUNT;
@@ -288,9 +281,9 @@ function useThreadBoardComponent(props: { connectionUrl?: string | null; threadI
 
   useEffect(
     () => () => {
-      clearDeferredPaneContentFrames();
+      clearDeferredPaneContentFrames(deferredPaneContentFrameIdsRef);
     },
-    [clearDeferredPaneContentFrames],
+    [],
   );
 
   const navigateToSingleThreadRoute = (pane: {
@@ -335,14 +328,15 @@ function useThreadBoardComponent(props: { connectionUrl?: string | null; threadI
     }
   };
 
-  const clearDropTarget = useCallback(() => {
+  const clearDropTarget = () => {
     paneDropRectCacheRef.current.clear();
     if (dropTargetRef.current === null) {
       return;
     }
     dropTargetRef.current = null;
     setDropTarget(null);
-  }, []);
+  };
+  const clearDropTargetEvent = useEffectEvent(clearDropTarget);
 
   const handleBoardDragLeave = (event: ReactDragEvent<HTMLDivElement>) => {
     if (!isThreadBoardDrag(event.dataTransfer)) {
@@ -659,7 +653,7 @@ function useThreadBoardComponent(props: { connectionUrl?: string | null; threadI
 
   useEffect(() => {
     const clear = () => {
-      clearDropTarget();
+      clearDropTargetEvent();
       setActiveThreadBoardDrag(null);
     };
     window.addEventListener("dragend", clear);
@@ -668,7 +662,7 @@ function useThreadBoardComponent(props: { connectionUrl?: string | null; threadI
       window.removeEventListener("dragend", clear);
       window.removeEventListener("drop", clear);
     };
-  }, [clearDropTarget]);
+  }, []);
 
   useEffect(() => {
     const handleVisibilityChange = () => {
@@ -692,14 +686,18 @@ function useThreadBoardComponent(props: { connectionUrl?: string | null; threadI
     return (
       <ThreadBoardPane
         key={pane.id}
-        deferContent={deferredPaneContentIds.has(pane.id)}
+        chatState={{
+          shortcutsEnabled: (activePaneId ?? primaryPane.id) === pane.id,
+          showSidebarTrigger: pane.id === firstPaneId,
+          visibleBoardThreadIds,
+        }}
         dropPreviewDirection={dropTarget?.paneId === pane.id ? dropTarget.direction : null}
-        isFocusedPane={(activePaneId ?? primaryPane.id) === pane.id}
-        isSinglePane={false}
         pane={pane}
-        shortcutsEnabled={(activePaneId ?? primaryPane.id) === pane.id}
-        showSidebarTrigger={pane.id === firstPaneId}
-        visibleBoardThreadIds={visibleBoardThreadIds}
+        visualState={{
+          deferContent: deferredPaneContentIds.has(pane.id),
+          isFocusedPane: (activePaneId ?? primaryPane.id) === pane.id,
+          isSinglePane: false,
+        }}
         onClosePane={handleClosePane}
         onPaneDragEnter={handlePaneDragEnter}
         onPaneDragLeave={handlePaneDragLeave}
@@ -729,17 +727,21 @@ function useThreadBoardComponent(props: { connectionUrl?: string | null; threadI
           onDropCapture={handleBoardDropCapture}
         >
           <ThreadBoardPane
-            deferContent={false}
+            chatState={{
+              shortcutsEnabled: true,
+              showSidebarTrigger: true,
+              splitPane: false,
+            }}
             dropPreviewDirection={
               dropTarget?.paneId === singlePane.id ? dropTarget.direction : null
             }
-            isFocusedPane
-            isSinglePane
             pane={singlePane}
-            shortcutsEnabled
-            showSidebarTrigger
             showDropHint={dropTarget?.paneId !== singlePane.id}
-            splitPane={false}
+            visualState={{
+              deferContent: false,
+              isFocusedPane: true,
+              isSinglePane: true,
+            }}
             onClosePane={NO_OP_THREAD_BOARD_CLOSE_PANE}
             onPaneDragEnter={handlePaneDragEnter}
             onPaneDragLeave={handlePaneDragLeave}

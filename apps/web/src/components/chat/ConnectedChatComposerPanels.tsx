@@ -448,7 +448,7 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
     return `idle:${composerSendState.hasSendableContent}:${props.isSendBusy}:${props.isConnecting}:${props.isPreparingWorktree}`;
   })();
 
-  const scheduleComposerFocus = useCallback((attempts = 4) => {
+  const scheduleComposerFocus = (attempts = 4) => {
     let frameId: number | null = null;
     const requestFocus = (remainingAttempts: number) => {
       frameId = window.requestAnimationFrame(() => {
@@ -466,7 +466,7 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
         window.cancelAnimationFrame(frameId);
       }
     };
-  }, []);
+  };
 
   const detectComposerTriggerWithDismissal = useCallback(
     (text: string, expandedCursor: number): ComposerTrigger | null => {
@@ -519,6 +519,7 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
   const composerTriggerKind = composerTrigger?.kind ?? null;
   const pathTriggerQuery = composerTrigger?.kind === "path" ? composerTrigger.query : "";
   const issueTriggerQuery = composerTrigger?.kind === "issue" ? composerTrigger.query : "";
+  const { providerCommands, selectedProvider } = props;
   const isPathTrigger = composerTriggerKind === "path";
   const isIssueTrigger = composerTriggerKind === "issue";
   const [debouncedPathQuery, composerPathQueryDebouncer] = useDebouncedValue(
@@ -623,7 +624,7 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
         label: string;
         description: string;
       }> = [];
-      for (const command of props.providerCommands) {
+      for (const command of providerCommands) {
         const commandKind = providerCommandKind(command);
         if (!commandKind) {
           continue;
@@ -641,7 +642,7 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
         });
       }
       const providerCommandNames = new Set(
-        props.providerCommands.map((command) => normalizeSlashCommandName(command.name)),
+        providerCommands.map((command) => normalizeSlashCommandName(command.name)),
       );
       const slashTriggerAtPromptStart =
         prompt.slice(0, composerTrigger.rangeStart).trim().length === 0;
@@ -680,7 +681,7 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
           description: "Switch response model for this thread",
         },
         ...interactionModeCommandItems,
-        ...(props.selectedProvider === "codex" &&
+        ...(selectedProvider === "codex" &&
         providerCommandNames.has("goal") &&
         slashTriggerAtPromptStart
           ? ([
@@ -742,8 +743,8 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
     interactionMode,
     issueTriggerMatches,
     prompt,
-    props.providerCommands,
-    props.selectedProvider,
+    providerCommands,
+    selectedProvider,
     searchableModelOptions,
     workspaceEntries,
   ]);
@@ -769,12 +770,9 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
   const showIssuesCommandExamplesPopover = showIssuesCommandExamplesHint && !composerMenuOpen;
   const hasPendingComposerComments = props.pendingComposerComments.length > 0;
 
-  const setPrompt = useCallback(
-    (nextPrompt: string) => {
-      setComposerDraftPrompt(props.threadId, nextPrompt);
-    },
-    [props.threadId, setComposerDraftPrompt],
-  );
+  const setPrompt = (nextPrompt: string) => {
+    setComposerDraftPrompt(props.threadId, nextPrompt);
+  };
 
   const addComposerImages = (files: File[]) => {
     if (files.length === 0) return;
@@ -981,7 +979,7 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
     return true;
   };
 
-  const readComposerSnapshot = useCallback(() => {
+  const readComposerSnapshot = () => {
     const editorSnapshot = composerEditorRef.current?.readSnapshot();
     if (editorSnapshot) {
       return editorSnapshot;
@@ -992,7 +990,7 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
       expandedCursor: expandCollapsedComposerCursor(promptRef.current, composerCursor),
       terminalContextIds: composerTerminalContexts.map((context) => context.id),
     };
-  }, [composerCursor, composerTerminalContexts]);
+  };
 
   const resolveActiveComposerTrigger = () => {
     const snapshot = readComposerSnapshot();
