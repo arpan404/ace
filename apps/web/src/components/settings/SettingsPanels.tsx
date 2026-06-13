@@ -1048,73 +1048,64 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
       });
   };
 
-  const enableNotifications = useCallback(
-    (enabledKeys?: readonly AgentAttentionNotificationSettingKey[]) => {
-      dispatchNotificationState({ type: "set-updating", isUpdatingNotificationPermission: true });
+  const enableNotifications = (enabledKeys?: readonly AgentAttentionNotificationSettingKey[]) => {
+    dispatchNotificationState({ type: "set-updating", isUpdatingNotificationPermission: true });
 
-      void requestSettingsNotificationPermission()
-        .then(async (permission) => {
-          dispatchNotificationState({ type: "set-permission", notificationPermission: permission });
-          if (permission === "granted") {
-            await sendNotificationProbe();
-            if (enabledKeys && enabledKeys.length > 0) {
-              updateSettings(buildScopedAgentAttentionNotificationSettingsPatch(enabledKeys, true));
-            } else {
-              setAgentAttentionNotificationToggles(true);
-            }
-            return;
+    void requestSettingsNotificationPermission()
+      .then(async (permission) => {
+        dispatchNotificationState({ type: "set-permission", notificationPermission: permission });
+        if (permission === "granted") {
+          await sendNotificationProbe();
+          if (enabledKeys && enabledKeys.length > 0) {
+            updateSettings(buildScopedAgentAttentionNotificationSettingsPatch(enabledKeys, true));
+          } else {
+            setAgentAttentionNotificationToggles(true);
           }
-          if (permission === "denied") {
-            toastManager.add({
-              type: "warning",
-              title: isElectron
-                ? "Notifications blocked by system settings"
-                : "Notifications blocked",
-              description: canOpenNotificationSystemSettings
-                ? "Open system settings and allow notifications for ace."
-                : "Allow notifications for ace in your browser or operating system settings.",
-            });
-            return;
-          }
-          if (permission === "default") {
-            toastManager.add({
-              type: "warning",
-              title: "Notification permission still pending",
-              description:
-                "If no prompt appeared, open notification settings and allow ace manually.",
-            });
-            return;
-          }
+          return;
+        }
+        if (permission === "denied") {
           toastManager.add({
             type: "warning",
-            title: "Notifications unavailable",
-            description: "This runtime does not support desktop notifications.",
+            title: isElectron
+              ? "Notifications blocked by system settings"
+              : "Notifications blocked",
+            description: canOpenNotificationSystemSettings
+              ? "Open system settings and allow notifications for ace."
+              : "Allow notifications for ace in your browser or operating system settings.",
           });
-        })
-        .catch((error: unknown) => {
+          return;
+        }
+        if (permission === "default") {
           toastManager.add({
-            type: "error",
-            title: "Unable to request notification permission",
+            type: "warning",
+            title: "Notification permission still pending",
             description:
-              error instanceof Error ? error.message : "Unknown notification permission error.",
+              "If no prompt appeared, open notification settings and allow ace manually.",
           });
-        })
-        .finally(() => {
-          void refreshNotificationPermission();
-          dispatchNotificationState({
-            type: "set-updating",
-            isUpdatingNotificationPermission: false,
-          });
+          return;
+        }
+        toastManager.add({
+          type: "warning",
+          title: "Notifications unavailable",
+          description: "This runtime does not support desktop notifications.",
         });
-    },
-    [
-      canOpenNotificationSystemSettings,
-      refreshNotificationPermission,
-      sendNotificationProbe,
-      setAgentAttentionNotificationToggles,
-      updateSettings,
-    ],
-  );
+      })
+      .catch((error: unknown) => {
+        toastManager.add({
+          type: "error",
+          title: "Unable to request notification permission",
+          description:
+            error instanceof Error ? error.message : "Unknown notification permission error.",
+        });
+      })
+      .finally(() => {
+        void refreshNotificationPermission();
+        dispatchNotificationState({
+          type: "set-updating",
+          isUpdatingNotificationPermission: false,
+        });
+      });
+  };
 
   const disableNotifications = () => {
     setAgentAttentionNotificationToggles(false);
@@ -1311,33 +1302,33 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
       );
   };
 
-  const installCustomLspTool = useCallback(
-    (input: ServerInstallLspToolInput, installTargetId: string | null = null) => {
-      dispatchLspState({ type: "set-installing-custom", isInstallingCustomLsp: true });
-      dispatchLspState({ type: "set-install-target-id", lspInstallTargetId: installTargetId });
-      dispatchLspState({ type: "set-tools-error", lspToolsError: null });
-      void ensureNativeApi()
-        .server.installLspTool(input)
-        .then((status) => {
-          dispatchLspState({ type: "set-tools-status", lspToolsStatus: status });
-          toastManager.add({
-            type: "success",
-            title: `Installed ${input.label}.`,
-          });
-        })
-        .catch((error: unknown) => {
-          dispatchLspState({
-            type: "set-tools-error",
-            lspToolsError: getErrorMessage(error, "Unable to install custom language server."),
-          });
-        })
-        .finally(() => {
-          dispatchLspState({ type: "set-installing-custom", isInstallingCustomLsp: false });
-          dispatchLspState({ type: "set-install-target-id", lspInstallTargetId: null });
+  const installCustomLspTool = (
+    input: ServerInstallLspToolInput,
+    installTargetId: string | null = null,
+  ) => {
+    dispatchLspState({ type: "set-installing-custom", isInstallingCustomLsp: true });
+    dispatchLspState({ type: "set-install-target-id", lspInstallTargetId: installTargetId });
+    dispatchLspState({ type: "set-tools-error", lspToolsError: null });
+    void ensureNativeApi()
+      .server.installLspTool(input)
+      .then((status) => {
+        dispatchLspState({ type: "set-tools-status", lspToolsStatus: status });
+        toastManager.add({
+          type: "success",
+          title: `Installed ${input.label}.`,
         });
-    },
-    [],
-  );
+      })
+      .catch((error: unknown) => {
+        dispatchLspState({
+          type: "set-tools-error",
+          lspToolsError: getErrorMessage(error, "Unable to install custom language server."),
+        });
+      })
+      .finally(() => {
+        dispatchLspState({ type: "set-installing-custom", isInstallingCustomLsp: false });
+        dispatchLspState({ type: "set-install-target-id", lspInstallTargetId: null });
+      });
+  };
 
   const installCatalogTool = (tool: ServerLspToolStatus) => {
     installCustomLspTool(
@@ -3793,25 +3784,23 @@ function ProjectEnvironmentWorktrees({
   const clearSelectedWorktrees = () => {
     setSelectedWorktreePaths(new Set());
   };
-  const cleanupCandidates = useMemo(() => {
-    return worktrees
-      .filter((worktree) => worktree.activeThread === null)
-      .filter((worktree) =>
-        isWorktreeOlderThan(
-          worktree,
-          statsByPath.get(worktree.path),
-          cleanupAge,
-          cleanupReferenceTimeMs,
-        ),
-      )
-      .toSorted(
-        (left, right) =>
-          getWorktreeActivityTimeMs(left, statsByPath.get(left.path)) -
-            getWorktreeActivityTimeMs(right, statsByPath.get(right.path)) ||
-          left.displayName.localeCompare(right.displayName) ||
-          left.path.localeCompare(right.path),
-      );
-  }, [cleanupAge, cleanupReferenceTimeMs, statsByPath, worktrees]);
+  const cleanupCandidates = worktrees
+    .filter((worktree) => worktree.activeThread === null)
+    .filter((worktree) =>
+      isWorktreeOlderThan(
+        worktree,
+        statsByPath.get(worktree.path),
+        cleanupAge,
+        cleanupReferenceTimeMs,
+      ),
+    )
+    .toSorted(
+      (left, right) =>
+        getWorktreeActivityTimeMs(left, statsByPath.get(left.path)) -
+          getWorktreeActivityTimeMs(right, statsByPath.get(right.path)) ||
+        left.displayName.localeCompare(right.displayName) ||
+        left.path.localeCompare(right.path),
+    );
   const cleanupStorageBytes = cleanupCandidates.reduce(
     (total, worktree) => total + (statsByPath.get(worktree.path)?.sizeBytes ?? 0),
     0,

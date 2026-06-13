@@ -248,22 +248,22 @@ export function BrowserSiteDiagnosticsDialog(props: {
     return next;
   }, [siteInfo?.permissions]);
 
-  const setPermission = useCallback(
-    async (permission: DesktopBrowserPermission, setting: DesktopBrowserPermissionSetting) => {
-      if (!url) {
-        return;
-      }
-      const updated = await api.browser.setSitePermission({ permission, setting, url });
-      if (!updated) {
-        toastManager.add({ type: "error", title: "Permission update failed." });
-        return;
-      }
-      await refresh();
-    },
-    [api, refresh, url],
-  );
+  const setPermission = async (
+    permission: DesktopBrowserPermission,
+    setting: DesktopBrowserPermissionSetting,
+  ) => {
+    if (!url) {
+      return;
+    }
+    const updated = await api.browser.setSitePermission({ permission, setting, url });
+    if (!updated) {
+      toastManager.add({ type: "error", title: "Permission update failed." });
+      return;
+    }
+    await refresh();
+  };
 
-  const clearSiteData = useCallback(async () => {
+  const clearSiteData = async () => {
     if (!url) {
       return;
     }
@@ -273,9 +273,9 @@ export function BrowserSiteDiagnosticsDialog(props: {
       title: cleared ? "Site data cleared." : "Site data was not cleared.",
     });
     await refresh();
-  }, [api, refresh, url]);
+  };
 
-  const resetPermissions = useCallback(async () => {
+  const resetPermissions = async () => {
     if (!url) {
       return;
     }
@@ -285,7 +285,7 @@ export function BrowserSiteDiagnosticsDialog(props: {
       title: reset ? "Permissions reset." : "Permissions were not reset.",
     });
     await refresh();
-  }, [api, refresh, url]);
+  };
 
   const hostLabel = resolveDialogHostLabel({ siteInfo, url });
 

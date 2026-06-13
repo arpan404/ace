@@ -1817,9 +1817,9 @@ function useChatViewComponent({
   const appendBottomPanelTabOrder = useCallback((entry: PanelTabOrderEntry) => {
     setBottomPanelTabOrder((current) => appendPanelTabOrder(current, entry));
   }, []);
-  const removeBottomPanelTabOrder = useCallback((mode: RightSidePanelMode) => {
+  const removeBottomPanelTabOrder = (mode: RightSidePanelMode) => {
     setBottomPanelTabOrder((current) => removePanelTabOrderByMode(current, mode));
-  }, []);
+  };
   const reorderRightPanelTabOrder = (nextVisibleOrder: ReadonlyArray<PanelTabOrderEntry>) => {
     setRightPanelTabOrder((current) => mergeVisiblePanelTabOrder(current, nextVisibleOrder));
   };
@@ -2083,7 +2083,7 @@ function useChatViewComponent({
     pendingUserScrollUpIntentRef.current = false;
     setShowScrollToBottom(false);
   };
-  const getMessagesScrollContainer = useCallback(() => messagesScrollRef.current, []);
+  const getMessagesScrollContainer = () => messagesScrollRef.current;
   useEffect(() => {
     const syncComposerDraftRefs = (state: ReturnType<typeof useComposerDraftStore.getState>) => {
       const draft = getComposerThreadDraftState(state, threadId);
@@ -2151,28 +2151,17 @@ function useChatViewComponent({
   const storeSetTerminalAutoTitle = useTerminalStateStore((s) => s.setTerminalAutoTitle);
   const storeCloseTerminal = useTerminalStateStore((s) => s.closeTerminal);
 
-  const setPrompt = useCallback(
-    (nextPrompt: string) => {
-      setComposerDraftPrompt(threadId, nextPrompt);
-    },
-    [setComposerDraftPrompt, threadId],
-  );
-  const addComposerImagesToDraft = useCallback(
-    (images: ComposerImageAttachment[]) => {
-      addComposerDraftImages(threadId, images);
-    },
-    [addComposerDraftImages, threadId],
-  );
-  const addComposerTerminalContextsToDraft = useCallback(
-    (contexts: TerminalContextDraft[]) => {
-      addComposerDraftTerminalContexts(threadId, contexts);
-    },
-    [addComposerDraftTerminalContexts, threadId],
-  );
-  const pendingComposerComments = useMemo(
-    () => pendingComposerCommentsByThreadId[threadId] ?? EMPTY_PENDING_COMPOSER_COMMENTS,
-    [pendingComposerCommentsByThreadId, threadId],
-  );
+  const setPrompt = (nextPrompt: string) => {
+    setComposerDraftPrompt(threadId, nextPrompt);
+  };
+  const addComposerImagesToDraft = (images: ComposerImageAttachment[]) => {
+    addComposerDraftImages(threadId, images);
+  };
+  const addComposerTerminalContextsToDraft = (contexts: TerminalContextDraft[]) => {
+    addComposerDraftTerminalContexts(threadId, contexts);
+  };
+  const pendingComposerComments =
+    pendingComposerCommentsByThreadId[threadId] ?? EMPTY_PENDING_COMPOSER_COMMENTS;
   const pendingComposerCommentItems = pendingComposerComments.map((comment) => ({
     id: comment.id,
     sourceLabel: comment.source === "review" ? "Review" : "Browser",
@@ -2302,7 +2291,7 @@ function useChatViewComponent({
   );
   const providerSettings =
     connectionServerConfig?.settings.providers ?? DEFAULT_UNIFIED_SETTINGS.providers;
-  const modelSettings = useMemo(() => ({ providers: providerSettings }), [providerSettings]);
+  const modelSettings = { providers: providerSettings };
   const localDraftThread = draftThread
     ? buildLocalDraftThread(
         threadId,
@@ -2363,9 +2352,8 @@ function useChatViewComponent({
     activeThreadTimelineRowIds.length,
     isServerThread,
   ]);
-  const activeThreadTimelineIndexByEntryId = useMemo(() => {
-    return activeThreadTimelineProjection?.timelineIndexByEntryId ?? null;
-  }, [activeThreadTimelineProjection]);
+  const activeThreadTimelineIndexByEntryId =
+    activeThreadTimelineProjection?.timelineIndexByEntryId ?? null;
   useEffect(() => {
     if (!ownsGlobalSideEffects || !isServerThread || !activeThread?.id) {
       return;
@@ -2758,22 +2746,19 @@ function useChatViewComponent({
     dispatchChatViewDialogState({ type: "close-pull-request-dialog" });
   };
 
-  const openGitHubIssueDialog = useCallback(
-    (options?: {
-      initialIssueNumber?: number | null;
-      initialSelectedIssueNumbers?: ReadonlyArray<number>;
-    }) => {
-      dispatchChatViewDialogState({
-        type: "open-github-issue-dialog",
-        gitHubIssueDialogInitialIssueNumber: options?.initialIssueNumber ?? null,
-        gitHubIssueDialogInitialSelectedIssueNumbers: [
-          ...(options?.initialSelectedIssueNumbers ?? []),
-        ],
-      });
-      composerPanelsRef.current?.resetUi();
-    },
-    [],
-  );
+  const openGitHubIssueDialog = (options?: {
+    initialIssueNumber?: number | null;
+    initialSelectedIssueNumbers?: ReadonlyArray<number>;
+  }) => {
+    dispatchChatViewDialogState({
+      type: "open-github-issue-dialog",
+      gitHubIssueDialogInitialIssueNumber: options?.initialIssueNumber ?? null,
+      gitHubIssueDialogInitialSelectedIssueNumbers: [
+        ...(options?.initialSelectedIssueNumbers ?? []),
+      ],
+    });
+    composerPanelsRef.current?.resetUi();
+  };
 
   const closeGitHubIssueDialog = () => {
     dispatchChatViewDialogState({ type: "close-github-issue-dialog" });
@@ -3014,14 +2999,10 @@ function useChatViewComponent({
     visibleThreadActivities,
   );
   const activePendingUserInput = pendingUserInputs[0] ?? null;
-  const activePendingDraftAnswers = useMemo(
-    () =>
-      activePendingUserInput
-        ? (pendingUserInputAnswersByRequestId[activePendingUserInput.requestId] ??
-          EMPTY_PENDING_USER_INPUT_ANSWERS)
-        : EMPTY_PENDING_USER_INPUT_ANSWERS,
-    [activePendingUserInput, pendingUserInputAnswersByRequestId],
-  );
+  const activePendingDraftAnswers = activePendingUserInput
+    ? (pendingUserInputAnswersByRequestId[activePendingUserInput.requestId] ??
+      EMPTY_PENDING_USER_INPUT_ANSWERS)
+    : EMPTY_PENDING_USER_INPUT_ANSWERS;
   const activePendingQuestionIndex = activePendingUserInput
     ? (pendingUserInputQuestionIndexByRequestId[activePendingUserInput.requestId] ?? 0)
     : 0;
@@ -3081,27 +3062,17 @@ function useChatViewComponent({
     activeThread?.session ?? null,
     localDispatchStartedAt,
   );
-  const stuckTurnSnapshot = useMemo(
-    () =>
-      reliabilityUxEnabled && activeThread
-        ? deriveStuckTurnSnapshot({
-            latestTurn: activeLatestTurn,
-            messages:
-              activeThreadTimelineProjection?.messages.map(toPagedChatMessage) ??
-              activeThread.messages,
-            activities: threadActivities,
-            now: stuckTurnNow,
-          })
-        : { isLikelyStuck: false, runningForMs: 0, reason: null },
-    [
-      activeLatestTurn,
-      activeThread,
-      activeThreadTimelineProjection,
-      reliabilityUxEnabled,
-      stuckTurnNow,
-      threadActivities,
-    ],
-  );
+  const stuckTurnSnapshot =
+    reliabilityUxEnabled && activeThread
+      ? deriveStuckTurnSnapshot({
+          latestTurn: activeLatestTurn,
+          messages:
+            activeThreadTimelineProjection?.messages.map(toPagedChatMessage) ??
+            activeThread.messages,
+          activities: threadActivities,
+          now: stuckTurnNow,
+        })
+      : { isLikelyStuck: false, runningForMs: 0, reason: null };
   const openDiagnostics = useCallback(
     (focus: "connection" | "provider" | "thread") => {
       if (!reliabilityUxEnabled) {
@@ -3745,15 +3716,12 @@ function useChatViewComponent({
       terminalOpen: Boolean(terminalState.terminalOpen),
     },
   };
-  const nonTerminalShortcutLabelOptions = useMemo(
-    () => ({
-      context: {
-        terminalFocus: false,
-        terminalOpen: Boolean(terminalState.terminalOpen),
-      },
-    }),
-    [terminalState.terminalOpen],
-  );
+  const nonTerminalShortcutLabelOptions = {
+    context: {
+      terminalFocus: false,
+      terminalOpen: Boolean(terminalState.terminalOpen),
+    },
+  };
   const terminalToggleShortcutLabel = shortcutLabelForCommand(keybindings, "terminal.toggle");
   const newTerminalShortcutLabel = shortcutLabelForCommand(
     keybindings,
@@ -4467,22 +4435,19 @@ function useChatViewComponent({
     },
     [setThreadError],
   );
-  const appendQueuedComposerMessage = useCallback(
-    async (
-      targetThreadId: ThreadId,
-      message: QueuedComposerMessage,
-      options?: { steerRequest?: Thread["queuedSteerRequest"] },
-    ) =>
-      await dispatchQueuedComposerCommand(targetThreadId, ({ commandId, threadId }) => ({
-        type: "thread.queue.append",
-        commandId,
-        threadId,
-        message: toQueuedComposerCommandMessage(message),
-        position: options?.steerRequest ? "front" : "back",
-        ...(options?.steerRequest ? { steerRequest: options.steerRequest } : {}),
-      })),
-    [dispatchQueuedComposerCommand, toQueuedComposerCommandMessage],
-  );
+  const appendQueuedComposerMessage = async (
+    targetThreadId: ThreadId,
+    message: QueuedComposerMessage,
+    options?: { steerRequest?: Thread["queuedSteerRequest"] },
+  ) =>
+    await dispatchQueuedComposerCommand(targetThreadId, ({ commandId, threadId }) => ({
+      type: "thread.queue.append",
+      commandId,
+      threadId,
+      message: toQueuedComposerCommandMessage(message),
+      position: options?.steerRequest ? "front" : "back",
+      ...(options?.steerRequest ? { steerRequest: options.steerRequest } : {}),
+    }));
   const deleteQueuedComposerMessage = async (targetThreadId: ThreadId, messageId: MessageId) =>
     await dispatchQueuedComposerCommand(targetThreadId, ({ commandId, threadId }) => ({
       type: "thread.queue.delete",
@@ -4532,78 +4497,69 @@ function useChatViewComponent({
       threadId,
       messageId,
     }));
-  const ensureQueuedComposerThread = useCallback(
-    async (options: {
-      titleSeed: string;
-      modelSelection: ModelSelection;
-      runtimeMode: RuntimeMode;
-      interactionMode: ProviderInteractionMode;
-    }): Promise<ThreadId | null> => {
-      if (serverThread) {
-        return serverThread.id;
-      }
-      const api = readNativeApi();
-      const projectId = activeProject?.id ?? defaultProjectId;
-      if (!api || !projectId) {
-        return null;
-      }
-      const targetThreadId = activeThread?.id ?? threadId;
-      const normalizedTitleSeed = options.titleSeed.trim().replace(/\s+/gu, " ");
-      const title = truncate(
-        normalizedTitleSeed.length > 0 ? normalizedTitleSeed : DEFAULT_THREAD_TITLE,
-      );
-      try {
-        await api.orchestration.dispatchCommand({
-          type: "thread.create",
-          commandId: newCommandId(),
-          threadId: targetThreadId,
-          projectId,
-          title,
-          modelSelection: options.modelSelection,
-          runtimeMode: options.runtimeMode,
-          interactionMode: options.interactionMode,
-          branch: activeThread?.branch ?? null,
-          worktreePath: activeThread?.worktreePath ?? null,
-          createdAt: activeThread?.createdAt ?? new Date().toISOString(),
-        });
-      } catch (error) {
-        reportBackgroundError(
-          "Failed to create a thread before queueing a composer message.",
-          error,
-        );
-      }
-      return targetThreadId;
-    },
-    [activeProject?.id, activeThread, defaultProjectId, serverThread, threadId],
-  );
-  const buildQueuedComposerImages = useCallback(
-    async (
-      images: ReadonlyArray<ComposerImageAttachment>,
-    ): Promise<QueuedComposerImageAttachment[]> => {
-      const persistedAttachmentById = new Map(
-        getComposerThreadDraft(threadId).persistedAttachments.map(
-          (attachment) => [attachment.id, attachment] as const,
-        ),
-      );
-      return await Promise.all(
-        images.map(async (image) => {
-          const persistedAttachment = persistedAttachmentById.get(image.id);
-          const dataUrl = persistedAttachment?.dataUrl ?? (await readFileAsDataUrl(image.file));
-          return {
-            type: "image" as const,
-            id: image.id,
-            name: image.name,
-            mimeType: image.mimeType,
-            sizeBytes: image.sizeBytes,
-            dataUrl,
-            previewUrl: image.previewUrl || dataUrl,
-            file: image.file,
-          };
-        }),
-      );
-    },
-    [threadId],
-  );
+  const ensureQueuedComposerThread = async (options: {
+    titleSeed: string;
+    modelSelection: ModelSelection;
+    runtimeMode: RuntimeMode;
+    interactionMode: ProviderInteractionMode;
+  }): Promise<ThreadId | null> => {
+    if (serverThread) {
+      return serverThread.id;
+    }
+    const api = readNativeApi();
+    const projectId = activeProject?.id ?? defaultProjectId;
+    if (!api || !projectId) {
+      return null;
+    }
+    const targetThreadId = activeThread?.id ?? threadId;
+    const normalizedTitleSeed = options.titleSeed.trim().replace(/\s+/gu, " ");
+    const title = truncate(
+      normalizedTitleSeed.length > 0 ? normalizedTitleSeed : DEFAULT_THREAD_TITLE,
+    );
+    try {
+      await api.orchestration.dispatchCommand({
+        type: "thread.create",
+        commandId: newCommandId(),
+        threadId: targetThreadId,
+        projectId,
+        title,
+        modelSelection: options.modelSelection,
+        runtimeMode: options.runtimeMode,
+        interactionMode: options.interactionMode,
+        branch: activeThread?.branch ?? null,
+        worktreePath: activeThread?.worktreePath ?? null,
+        createdAt: activeThread?.createdAt ?? new Date().toISOString(),
+      });
+    } catch (error) {
+      reportBackgroundError("Failed to create a thread before queueing a composer message.", error);
+    }
+    return targetThreadId;
+  };
+  const buildQueuedComposerImages = async (
+    images: ReadonlyArray<ComposerImageAttachment>,
+  ): Promise<QueuedComposerImageAttachment[]> => {
+    const persistedAttachmentById = new Map(
+      getComposerThreadDraft(threadId).persistedAttachments.map(
+        (attachment) => [attachment.id, attachment] as const,
+      ),
+    );
+    return await Promise.all(
+      images.map(async (image) => {
+        const persistedAttachment = persistedAttachmentById.get(image.id);
+        const dataUrl = persistedAttachment?.dataUrl ?? (await readFileAsDataUrl(image.file));
+        return {
+          type: "image" as const,
+          id: image.id,
+          name: image.name,
+          mimeType: image.mimeType,
+          sizeBytes: image.sizeBytes,
+          dataUrl,
+          previewUrl: image.previewUrl || dataUrl,
+          file: image.file,
+        };
+      }),
+    );
+  };
   const removeQueuedComposerMessage = async (messageId: MessageId) => {
     if (!serverThread) {
       return;
@@ -5325,70 +5281,58 @@ function useChatViewComponent({
       ),
     [activeProject?.cwd, activeThread?.worktreePath, gitCwd],
   );
-  const openMarkdownFileInAppEditor = useCallback(
-    async (targetPath: string) => {
-      if (!activeThreadId || !gitCwd) {
-        return;
-      }
-      const normalizedTargetPath = targetPath.trim();
-      if (normalizedTargetPath.length === 0) {
-        return;
-      }
-      const api = readNativeApi();
-      if (api) {
-        try {
-          const pathInfo = await api.shell.pathInfo(normalizedTargetPath, {
+  const openMarkdownFileInAppEditor = async (targetPath: string) => {
+    if (!activeThreadId || !gitCwd) {
+      return;
+    }
+    const normalizedTargetPath = targetPath.trim();
+    if (normalizedTargetPath.length === 0) {
+      return;
+    }
+    const api = readNativeApi();
+    if (api) {
+      try {
+        const pathInfo = await api.shell.pathInfo(normalizedTargetPath, {
+          connectionUrl: activeServerConnectionUrl,
+        });
+        if (pathInfo.kind === "directory") {
+          await api.shell.revealInFileManager(normalizedTargetPath, {
             connectionUrl: activeServerConnectionUrl,
           });
-          if (pathInfo.kind === "directory") {
-            await api.shell.revealInFileManager(normalizedTargetPath, {
-              connectionUrl: activeServerConnectionUrl,
-            });
-            return;
-          }
-        } catch (error) {
-          console.warn("Failed to inspect local file path before opening editor.", error);
+          return;
+        }
+      } catch (error) {
+        console.warn("Failed to inspect local file path before opening editor.", error);
+      }
+    }
+    let resolvedFilePath = resolveWorkspaceEditorFilePath(
+      normalizedTargetPath,
+      workspaceRootsForInAppFileOpen[0] ?? "",
+    );
+    if (isAbsoluteFilesystemPath(resolvedFilePath) && workspaceRootsForInAppFileOpen.length > 1) {
+      for (const workspaceRoot of workspaceRootsForInAppFileOpen.slice(1)) {
+        const candidatePath = resolveWorkspaceEditorFilePath(normalizedTargetPath, workspaceRoot);
+        if (!isAbsoluteFilesystemPath(candidatePath)) {
+          resolvedFilePath = candidatePath;
+          break;
         }
       }
-      let resolvedFilePath = resolveWorkspaceEditorFilePath(
-        normalizedTargetPath,
-        workspaceRootsForInAppFileOpen[0] ?? "",
-      );
-      if (isAbsoluteFilesystemPath(resolvedFilePath) && workspaceRootsForInAppFileOpen.length > 1) {
-        for (const workspaceRoot of workspaceRootsForInAppFileOpen.slice(1)) {
-          const candidatePath = resolveWorkspaceEditorFilePath(normalizedTargetPath, workspaceRoot);
-          if (!isAbsoluteFilesystemPath(candidatePath)) {
-            resolvedFilePath = candidatePath;
-            break;
-          }
-        }
-      }
-      if (resolvedFilePath.length === 0) {
-        return;
-      }
-      const targetEditorTabId =
-        activeRightPanelEditorTabId ?? rightPanelEditorTabs[0]?.id ?? `editor-${randomUUID()}`;
-      onOpenRightSidePanelEditor(targetEditorTabId);
-      openEditorFile(
-        resolveEditorInstanceStateScopeId({
-          gitCwd,
-          instanceId: targetEditorTabId,
-          threadId: activeThreadId,
-        }),
-        resolvedFilePath,
-      );
-    },
-    [
-      activeRightPanelEditorTabId,
-      activeServerConnectionUrl,
-      activeThreadId,
-      gitCwd,
-      onOpenRightSidePanelEditor,
-      openEditorFile,
-      rightPanelEditorTabs,
-      workspaceRootsForInAppFileOpen,
-    ],
-  );
+    }
+    if (resolvedFilePath.length === 0) {
+      return;
+    }
+    const targetEditorTabId =
+      activeRightPanelEditorTabId ?? rightPanelEditorTabs[0]?.id ?? `editor-${randomUUID()}`;
+    onOpenRightSidePanelEditor(targetEditorTabId);
+    openEditorFile(
+      resolveEditorInstanceStateScopeId({
+        gitCwd,
+        instanceId: targetEditorTabId,
+        threadId: activeThreadId,
+      }),
+      resolvedFilePath,
+    );
+  };
   const onSelectRightSidePanelMode = (mode: RightSidePanelMode) => {
     setRightSidePanelVisible(true);
     if (mode === "summary") {
@@ -5946,12 +5890,9 @@ function useChatViewComponent({
     },
     [rightBrowserInstanceId, setBrowserMode, setRightSidePanelMode, setRightSidePanelVisible],
   );
-  const openBrowserUrlInNewTab = useCallback(
-    (url: string) => {
-      openBrowserUrl(url, { newTab: true });
-    },
-    [openBrowserUrl],
-  );
+  const openBrowserUrlInNewTab = (url: string) => {
+    openBrowserUrl(url, { newTab: true });
+  };
 
   const handleBrowserLaunchRequest = useCallback(() => {
     if (!isElectron) {
@@ -7180,61 +7121,58 @@ function useChatViewComponent({
     toggleInteractionMode,
     toggleTerminalVisibility,
   ]);
-  const persistThreadSettingsForNextTurn = useCallback(
-    async (input: {
-      threadId: ThreadId;
-      createdAt: string;
-      modelSelection?: ModelSelection;
-      runtimeMode: RuntimeMode;
-      interactionMode: ProviderInteractionMode;
-    }) => {
-      if (!serverThread) {
-        return;
-      }
-      const api = readNativeApi();
-      if (!api) {
-        return;
-      }
+  const persistThreadSettingsForNextTurn = async (input: {
+    threadId: ThreadId;
+    createdAt: string;
+    modelSelection?: ModelSelection;
+    runtimeMode: RuntimeMode;
+    interactionMode: ProviderInteractionMode;
+  }) => {
+    if (!serverThread) {
+      return;
+    }
+    const api = readNativeApi();
+    if (!api) {
+      return;
+    }
 
-      if (
-        input.modelSelection !== undefined &&
-        (input.modelSelection.model !== serverThread.modelSelection.model ||
-          input.modelSelection.provider !== serverThread.modelSelection.provider ||
-          (input.modelSelection.providerInstanceId ?? null) !==
-            (serverThread.modelSelection.providerInstanceId ?? null) ||
-          JSON.stringify(input.modelSelection.options ?? null) !==
-            JSON.stringify(serverThread.modelSelection.options ?? null))
-      ) {
-        await api.orchestration.dispatchCommand({
-          type: "thread.meta.update",
-          commandId: newCommandId(),
-          threadId: input.threadId,
-          modelSelection: input.modelSelection,
-        });
-      }
+    if (
+      input.modelSelection !== undefined &&
+      (input.modelSelection.model !== serverThread.modelSelection.model ||
+        input.modelSelection.provider !== serverThread.modelSelection.provider ||
+        (input.modelSelection.providerInstanceId ?? null) !==
+          (serverThread.modelSelection.providerInstanceId ?? null) ||
+        JSON.stringify(input.modelSelection.options ?? null) !==
+          JSON.stringify(serverThread.modelSelection.options ?? null))
+    ) {
+      await api.orchestration.dispatchCommand({
+        type: "thread.meta.update",
+        commandId: newCommandId(),
+        threadId: input.threadId,
+        modelSelection: input.modelSelection,
+      });
+    }
 
-      if (input.runtimeMode !== serverThread.runtimeMode) {
-        await api.orchestration.dispatchCommand({
-          type: "thread.runtime-mode.set",
-          commandId: newCommandId(),
-          threadId: input.threadId,
-          runtimeMode: input.runtimeMode,
-          createdAt: input.createdAt,
-        });
-      }
+    if (input.runtimeMode !== serverThread.runtimeMode) {
+      await api.orchestration.dispatchCommand({
+        type: "thread.runtime-mode.set",
+        commandId: newCommandId(),
+        threadId: input.threadId,
+        runtimeMode: input.runtimeMode,
+        createdAt: input.createdAt,
+      });
+    }
 
-      if (input.interactionMode !== serverThread.interactionMode) {
-        await api.orchestration.dispatchCommand({
-          type: "thread.interaction-mode.set",
-          commandId: newCommandId(),
-          threadId: input.threadId,
-          interactionMode: input.interactionMode,
-          createdAt: input.createdAt,
-        });
-      }
-    },
-    [serverThread],
-  );
+    if (input.interactionMode !== serverThread.interactionMode) {
+      await api.orchestration.dispatchCommand({
+        type: "thread.interaction-mode.set",
+        commandId: newCommandId(),
+        threadId: input.threadId,
+        interactionMode: input.interactionMode,
+        createdAt: input.createdAt,
+      });
+    }
+  };
 
   // Auto-scroll on new messages
   const timelineTailStickKey = useMemo(() => {
@@ -8433,7 +8371,7 @@ function useChatViewComponent({
     });
   };
 
-  const onForkConversation = useCallback(async () => {
+  const onForkConversation = async () => {
     const api = readNativeApi();
     if (!api || !activeThread || !activeProject || !isServerThread) {
       return;
@@ -8515,22 +8453,7 @@ function useChatViewComponent({
       return;
     }
     setHandoffInFlight(false);
-  }, [
-    activeProject,
-    activeThread,
-    handoffInFlight,
-    hydrateThreadFromCache,
-    hydrateThreadFromReadModel,
-    interactionMode,
-    isConnecting,
-    isSendBusy,
-    isServerThread,
-    liveTurnInProgress,
-    navigate,
-    runtimeMode,
-    setComposerDraftModelSelection,
-    setStickyComposerModelSelection,
-  ]);
+  };
 
   async function onSend(e?: { preventDefault: () => void }) {
     e?.preventDefault();
@@ -8843,7 +8766,7 @@ function useChatViewComponent({
 
   useEffect(() => () => clearPendingInterruptStopFallback(), [clearPendingInterruptStopFallback]);
 
-  const onInterrupt = useCallback(async () => {
+  const onInterrupt = async () => {
     const api = readNativeApi();
     if (!api || !activeThread) return;
     const interruptedTurnId = activeLatestTurn?.turnId ?? null;
@@ -8854,7 +8777,7 @@ function useChatViewComponent({
       createdAt: new Date().toISOString(),
     });
     scheduleInterruptStopFallback(activeThread.id, interruptedTurnId);
-  }, [activeLatestTurn?.turnId, activeThread, scheduleInterruptStopFallback]);
+  };
 
   const onRespondToApproval = async (
     requestId: ApprovalRequestId,
@@ -9355,12 +9278,12 @@ function useChatViewComponent({
       },
     );
   };
-  const onToggleWorkGroup = useCallback((groupId: string) => {
+  const onToggleWorkGroup = (groupId: string) => {
     setExpandedWorkGroups((existing) => ({
       ...existing,
       [groupId]: !existing[groupId],
     }));
-  }, []);
+  };
   const onExpandTimelineImage = useStableCallback((preview: ExpandedImagePreview) => {
     if (!resolveExpandedImageItem(preview)) {
       return;
@@ -9368,46 +9291,30 @@ function useChatViewComponent({
     setExpandedImageState({ threadId, preview });
   });
   const expandedImageItem = resolveExpandedImageItem(expandedImage);
-  const onOpenTurnDiff = useCallback(
-    (turnId: TurnId, filePath?: string) => {
-      if (!rightSidePanelEnabled) {
-        return;
-      }
-      setRightSidePanelDiffOpenState(true);
-      setRightSidePanelReviewOpen(true);
-      setRightSidePanelMode("diff");
-      setRightSidePanelVisible(true);
-      setLocalDiffState({ open: true, turnId, filePath: filePath ?? null });
-    },
-    [
-      rightSidePanelEnabled,
-      setLocalDiffState,
-      setRightSidePanelDiffOpenState,
-      setRightSidePanelMode,
-      setRightSidePanelReviewOpen,
-      setRightSidePanelVisible,
-    ],
-  );
-  const onRevertUserMessage = useCallback(
-    (messageId: MessageId) => {
-      const targetTurnCount = revertTurnCountByUserMessageId.get(messageId);
-      if (typeof targetTurnCount !== "number") {
-        return;
-      }
-      void onRevertToTurnCount(targetTurnCount);
-    },
-    [onRevertToTurnCount, revertTurnCountByUserMessageId],
-  );
-  const onRevertAssistantMessage = useCallback(
-    (messageId: MessageId) => {
-      const targetTurnCount = revertTurnCountByAssistantMessageId.get(messageId);
-      if (typeof targetTurnCount !== "number") {
-        return;
-      }
-      void onRevertToTurnCount(targetTurnCount);
-    },
-    [onRevertToTurnCount, revertTurnCountByAssistantMessageId],
-  );
+  const onOpenTurnDiff = (turnId: TurnId, filePath?: string) => {
+    if (!rightSidePanelEnabled) {
+      return;
+    }
+    setRightSidePanelDiffOpenState(true);
+    setRightSidePanelReviewOpen(true);
+    setRightSidePanelMode("diff");
+    setRightSidePanelVisible(true);
+    setLocalDiffState({ open: true, turnId, filePath: filePath ?? null });
+  };
+  const onRevertUserMessage = (messageId: MessageId) => {
+    const targetTurnCount = revertTurnCountByUserMessageId.get(messageId);
+    if (typeof targetTurnCount !== "number") {
+      return;
+    }
+    void onRevertToTurnCount(targetTurnCount);
+  };
+  const onRevertAssistantMessage = (messageId: MessageId) => {
+    const targetTurnCount = revertTurnCountByAssistantMessageId.get(messageId);
+    if (typeof targetTurnCount !== "number") {
+      return;
+    }
+    void onRevertToTurnCount(targetTurnCount);
+  };
   const onFixGitHubIssue = async (payload: {
     prompt: string;
     images: ComposerImageAttachment[];
@@ -9670,9 +9577,9 @@ function useChatViewComponent({
         : {}),
     }));
   };
-  const openThreadDiagnostics = useCallback(() => {
+  const openThreadDiagnostics = () => {
     openDiagnostics("thread");
-  }, [openDiagnostics]);
+  };
   const messagesTimelineProps = {
     ...(activeThreadIdValue ? { activeThreadId: activeThreadIdValue } : {}),
     hasMessages:
@@ -10241,11 +10148,8 @@ function useChatViewComponent({
     !isSendBusy &&
     !isConnecting &&
     !sendInFlight;
-  const subagentComposerThreadId = useCallback(
-    (subagent: SubagentThread) =>
-      ThreadId.makeUnsafe(`subagent:${activeThread?.id ?? threadId}:${subagent.id}`),
-    [activeThread?.id, threadId],
-  );
+  const subagentComposerThreadId = (subagent: SubagentThread) =>
+    ThreadId.makeUnsafe(`subagent:${activeThread?.id ?? threadId}:${subagent.id}`);
   const handleSubagentComposerSubmit = async (
     event: FormEvent<HTMLFormElement>,
     subagent: SubagentThread,

@@ -98,30 +98,27 @@ export function useThreadActions() {
     }
   }, []);
 
-  const archiveThread = useCallback(
-    async (threadId: ThreadId) => {
-      const api = readNativeApi();
-      if (!api) return;
-      const thread = useStore.getState().threads.find((entry) => entry.id === threadId);
-      if (!thread) return;
-      if (thread.session?.status === "running" && thread.session.activeTurnId != null) {
-        throw new Error("Cannot archive a running thread.");
-      }
+  const archiveThread = async (threadId: ThreadId) => {
+    const api = readNativeApi();
+    if (!api) return;
+    const thread = useStore.getState().threads.find((entry) => entry.id === threadId);
+    if (!thread) return;
+    if (thread.session?.status === "running" && thread.session.activeTurnId != null) {
+      throw new Error("Cannot archive a running thread.");
+    }
 
-      await api.orchestration.dispatchCommand({
-        type: "thread.archive",
-        commandId: newCommandId(),
-        threadId,
-      });
+    await api.orchestration.dispatchCommand({
+      type: "thread.archive",
+      commandId: newCommandId(),
+      threadId,
+    });
 
-      if (routeThreadId === threadId) {
-        await handleNewThread(thread.projectId);
-      }
-    },
-    [handleNewThread, routeThreadId],
-  );
+    if (routeThreadId === threadId) {
+      await handleNewThread(thread.projectId);
+    }
+  };
 
-  const unarchiveThread = useCallback(async (threadId: ThreadId) => {
+  const unarchiveThread = async (threadId: ThreadId) => {
     const api = readNativeApi();
     if (!api) return;
     await api.orchestration.dispatchCommand({
@@ -129,7 +126,7 @@ export function useThreadActions() {
       commandId: newCommandId(),
       threadId,
     });
-  }, []);
+  };
 
   const deleteThread = useCallback(
     async (threadId: ThreadId, opts: DeleteThreadOptions = {}) => {
@@ -361,46 +358,40 @@ export function useThreadActions() {
     [clearDraftsForDeletedWorktree, deleteThread, removeWorktreeMutation],
   );
 
-  const deleteWorktreeAndRelatedThreads = useCallback(
-    async (threadId: ThreadId) => {
-      const { projects, threads } = useStore.getState();
-      const thread = threads.find((entry) => entry.id === threadId);
-      if (!thread) return;
-      const threadProject = projects.find((project) => project.id === thread.projectId);
-      if (!threadProject) return;
-      await deleteWorktreeAndRelatedData({
-        connectionUrl: resolveConnectionForProjectId(thread.projectId) ?? null,
-        projectId: thread.projectId,
-        projectCwd: threadProject.cwd,
-        worktreePath: thread.worktreePath ?? "",
-      });
-    },
-    [deleteWorktreeAndRelatedData],
-  );
+  const deleteWorktreeAndRelatedThreads = async (threadId: ThreadId) => {
+    const { projects, threads } = useStore.getState();
+    const thread = threads.find((entry) => entry.id === threadId);
+    if (!thread) return;
+    const threadProject = projects.find((project) => project.id === thread.projectId);
+    if (!threadProject) return;
+    await deleteWorktreeAndRelatedData({
+      connectionUrl: resolveConnectionForProjectId(thread.projectId) ?? null,
+      projectId: thread.projectId,
+      projectCwd: threadProject.cwd,
+      worktreePath: thread.worktreePath ?? "",
+    });
+  };
 
-  const confirmAndDeleteThread = useCallback(
-    async (threadId: ThreadId) => {
-      const api = readNativeApi();
-      if (!api) return;
-      const thread = useStore.getState().threads.find((entry) => entry.id === threadId);
-      if (!thread) return;
+  const confirmAndDeleteThread = async (threadId: ThreadId) => {
+    const api = readNativeApi();
+    if (!api) return;
+    const thread = useStore.getState().threads.find((entry) => entry.id === threadId);
+    if (!thread) return;
 
-      if (confirmThreadDelete) {
-        const confirmed = await api.dialogs.confirm(
-          [
-            `Delete thread "${thread.title}"?`,
-            "This permanently clears conversation history for this thread.",
-          ].join("\n"),
-        );
-        if (!confirmed) {
-          return;
-        }
+    if (confirmThreadDelete) {
+      const confirmed = await api.dialogs.confirm(
+        [
+          `Delete thread "${thread.title}"?`,
+          "This permanently clears conversation history for this thread.",
+        ].join("\n"),
+      );
+      if (!confirmed) {
+        return;
       }
+    }
 
-      await deleteThread(threadId);
-    },
-    [confirmThreadDelete, deleteThread],
-  );
+    await deleteThread(threadId);
+  };
 
   return {
     archiveThread,

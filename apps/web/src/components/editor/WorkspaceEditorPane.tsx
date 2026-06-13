@@ -907,7 +907,7 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
     });
   };
 
-  const focusWorkspaceLocation = useCallback((location: WorkspaceEditorLocation) => {
+  const focusWorkspaceLocation = (location: WorkspaceEditorLocation) => {
     const editor = editorRef.current;
     const latestPaneState = latestPaneStateRef.current;
     if (!editor) {
@@ -919,54 +919,51 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
     }
     dispatchNavigationState({ type: "set-pending-navigation-target", location });
     onOpenFileInPaneRef.current(latestPaneState.paneId, location.relativePath);
-  }, []);
+  };
 
-  const loadDefinitionLocations = useCallback(
-    async (input: {
-      relativePath: string;
-      contents: string;
-      line: number;
-      column: number;
-    }): Promise<readonly WorkspaceEditorLocation[]> => {
-      if (!api || !props.diagnosticsCwd) {
-        return [];
-      }
-      try {
-        setEditorFeedbackState((current) => ({
-          ...current,
-          filePath: input.relativePath,
-          actionError: null,
-        }));
-        const result = await api.workspaceEditor.definition(
-          withRpcRouteConnection(
-            {
-              cwd: props.diagnosticsCwd,
-              relativePath: input.relativePath,
-              contents: input.contents,
-              line: input.line,
-              column: input.column,
-            },
-            props.connectionUrl,
-          ),
-        );
-        return result.locations;
-      } catch (error) {
-        const message = toErrorMessage(error);
-        setEditorFeedbackState((current) => ({
-          ...current,
-          filePath: input.relativePath,
-          actionError: message,
-        }));
-        console.error("Failed to resolve workspace editor definitions", {
-          diagnosticsCwd: props.diagnosticsCwd,
-          relativePath: input.relativePath,
-          error,
-        });
-        return [];
-      }
-    },
-    [api, props.connectionUrl, props.diagnosticsCwd],
-  );
+  const loadDefinitionLocations = async (input: {
+    relativePath: string;
+    contents: string;
+    line: number;
+    column: number;
+  }): Promise<readonly WorkspaceEditorLocation[]> => {
+    if (!api || !props.diagnosticsCwd) {
+      return [];
+    }
+    try {
+      setEditorFeedbackState((current) => ({
+        ...current,
+        filePath: input.relativePath,
+        actionError: null,
+      }));
+      const result = await api.workspaceEditor.definition(
+        withRpcRouteConnection(
+          {
+            cwd: props.diagnosticsCwd,
+            relativePath: input.relativePath,
+            contents: input.contents,
+            line: input.line,
+            column: input.column,
+          },
+          props.connectionUrl,
+        ),
+      );
+      return result.locations;
+    } catch (error) {
+      const message = toErrorMessage(error);
+      setEditorFeedbackState((current) => ({
+        ...current,
+        filePath: input.relativePath,
+        actionError: message,
+      }));
+      console.error("Failed to resolve workspace editor definitions", {
+        diagnosticsCwd: props.diagnosticsCwd,
+        relativePath: input.relativePath,
+        error,
+      });
+      return [];
+    }
+  };
 
   const handleDefinitionRequest = (input: { contents: string; line: number; column: number }) => {
     const relativePath = latestPaneStateRef.current.activeFilePath;
@@ -1188,13 +1185,13 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
     [clearWorkspaceProblems],
   );
 
-  const readDraggedTab = useCallback((event: ReactDragEvent<HTMLElement>) => {
+  const readDraggedTab = (event: ReactDragEvent<HTMLElement>) => {
     return readEditorTabTransfer(event.dataTransfer);
-  }, []);
-  const readDraggedExplorerEntry = useCallback((event: ReactDragEvent<HTMLElement>) => {
+  };
+  const readDraggedExplorerEntry = (event: ReactDragEvent<HTMLElement>) => {
     return readExplorerEntryTransfer(event.dataTransfer);
-  }, []);
-  const autoScrollTabStripOnDragOver = useCallback((clientX: number) => {
+  };
+  const autoScrollTabStripOnDragOver = (clientX: number) => {
     const tabStrip = tabStripRef.current;
     if (!tabStrip) {
       return;
@@ -1214,7 +1211,7 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
       const intensity = (clientX - (bounds.right - edgeThreshold)) / edgeThreshold;
       tabStrip.scrollLeft += Math.ceil(maxStep * Math.min(1, intensity));
     }
-  }, []);
+  };
 
   const handleTabDrop = (event: ReactDragEvent<HTMLElement>, targetIndex?: number) => {
     const draggedTab = readDraggedTab(event);

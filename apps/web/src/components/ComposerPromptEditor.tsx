@@ -1252,10 +1252,7 @@ function ComposerPromptEditorInner({
     terminalContextIds: terminalContexts.map((context) => context.id),
   });
   const isApplyingControlledUpdateRef = useRef(false);
-  const terminalContextActions = useMemo(
-    () => ({ onRemoveTerminalContext }),
-    [onRemoveTerminalContext],
-  );
+  const terminalContextActions = { onRemoveTerminalContext };
 
   useEffect(() => {
     onChangeRef.current = onChange;
@@ -1384,7 +1381,7 @@ function ComposerPromptEditorInner({
     [focusAt, readSnapshot],
   );
 
-  const handleEditorChange = useCallback((editorState: EditorState) => {
+  const handleEditorChange = (editorState: EditorState) => {
     editorState.read(() => {
       const nextValue = $getRoot().getTextContent();
       const fallbackCursor = clampCollapsedComposerCursor(nextValue, snapshotRef.current.cursor);
@@ -1438,7 +1435,7 @@ function ComposerPromptEditorInner({
         terminalContextIds,
       );
     });
-  }, []);
+  };
 
   return (
     <ComposerTerminalContextActionsContext.Provider value={terminalContextActions}>
@@ -1501,25 +1498,22 @@ export function ComposerPromptEditor({
 }) {
   const initialValueRef = useRef(value);
   const initialTerminalContextsRef = useRef(terminalContexts);
-  const initialConfig = useMemo<InitialConfigType>(
-    () => ({
-      namespace: "ace-composer-editor",
-      editable: true,
-      nodes: [
-        ComposerMentionNode,
-        ComposerIssueReferenceNode,
-        ComposerProviderCommandNode,
-        ComposerTerminalContextNode,
-      ],
-      editorState: () => {
-        $setComposerEditorPrompt(initialValueRef.current, initialTerminalContextsRef.current);
-      },
-      onError: (error) => {
-        throw error;
-      },
-    }),
-    [],
-  );
+  const initialConfig = {
+    namespace: "ace-composer-editor",
+    editable: true,
+    nodes: [
+      ComposerMentionNode,
+      ComposerIssueReferenceNode,
+      ComposerProviderCommandNode,
+      ComposerTerminalContextNode,
+    ],
+    editorState: () => {
+      $setComposerEditorPrompt(initialValueRef.current, initialTerminalContextsRef.current);
+    },
+    onError: (error: Error) => {
+      throw error;
+    },
+  };
 
   return (
     <LexicalComposer key={COMPOSER_EDITOR_HMR_KEY} initialConfig={initialConfig}>

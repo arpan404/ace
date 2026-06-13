@@ -987,21 +987,18 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     ],
   );
 
-  const applySuggestion = useCallback(
-    (suggestion: BrowserSuggestion) => {
-      if (suggestion.kind === "tab" && suggestion.tabId) {
-        updateBrowserSession((current) =>
-          setActiveBrowserTab(current, suggestion.tabId ?? current.activeTabId),
-        );
-        dismissAddressBarSuggestionOverlayAndBlur();
-        return;
-      }
-      setDraftUrl(resolveBrowserSuggestionDraftValue(suggestion));
-      openUrl(suggestion.url);
+  const applySuggestion = (suggestion: BrowserSuggestion) => {
+    if (suggestion.kind === "tab" && suggestion.tabId) {
+      updateBrowserSession((current) =>
+        setActiveBrowserTab(current, suggestion.tabId ?? current.activeTabId),
+      );
       dismissAddressBarSuggestionOverlayAndBlur();
-    },
-    [dismissAddressBarSuggestionOverlayAndBlur, openUrl, updateBrowserSession],
-  );
+      return;
+    }
+    setDraftUrl(resolveBrowserSuggestionDraftValue(suggestion));
+    openUrl(suggestion.url);
+    dismissAddressBarSuggestionOverlayAndBlur();
+  };
 
   const copyBrowserAddress = useCallback(async (url: string) => {
     try {
@@ -1018,95 +1015,88 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     }
   }, []);
 
-  const showBrowserContextMenuFallback = useCallback(
-    async (tabId: string, position: { x: number; y: number }) => {
-      const tab = browserSession.tabs.find((item) => item.id === tabId);
-      if (!tab) {
+  const showBrowserContextMenuFallback = async (
+    tabId: string,
+    position: { x: number; y: number },
+  ) => {
+    const tab = browserSession.tabs.find((item) => item.id === tabId);
+    if (!tab) {
+      return;
+    }
+
+    const runtime = tabRuntimeById[tabId] ?? DEFAULT_BROWSER_TAB_RUNTIME_STATE;
+    const items = [
+      {
+        disabled: !runtime.canGoBack,
+        id: "back",
+        label: "Back",
+      },
+      {
+        disabled: !runtime.canGoForward,
+        id: "forward",
+        label: "Forward",
+      },
+      {
+        id: "reload",
+        label: runtime.loading ? "Stop loading" : "Reload page",
+      },
+      {
+        id: "new-tab",
+        label: "Open New Tab",
+      },
+      {
+        id: "open-external",
+        label: "Open Page Externally",
+      },
+      {
+        id: "copy-address",
+        label: "Copy Page Address",
+      },
+      {
+        id: "devtools",
+        label: runtime.devToolsOpen ? "Close Chrome DevTools" : "Open Chrome DevTools",
+      },
+    ];
+
+    const clicked = await api?.contextMenu.show(items, position);
+    const handle = webviewHandlesRef.current.get(tabId);
+    switch (clicked) {
+      case "back":
+        clearBridgeReadCache(tabId);
+        handle?.goBack();
         return;
-      }
-
-      const runtime = tabRuntimeById[tabId] ?? DEFAULT_BROWSER_TAB_RUNTIME_STATE;
-      const items = [
-        {
-          disabled: !runtime.canGoBack,
-          id: "back",
-          label: "Back",
-        },
-        {
-          disabled: !runtime.canGoForward,
-          id: "forward",
-          label: "Forward",
-        },
-        {
-          id: "reload",
-          label: runtime.loading ? "Stop loading" : "Reload page",
-        },
-        {
-          id: "new-tab",
-          label: "Open New Tab",
-        },
-        {
-          id: "open-external",
-          label: "Open Page Externally",
-        },
-        {
-          id: "copy-address",
-          label: "Copy Page Address",
-        },
-        {
-          id: "devtools",
-          label: runtime.devToolsOpen ? "Close Chrome DevTools" : "Open Chrome DevTools",
-        },
-      ];
-
-      const clicked = await api?.contextMenu.show(items, position);
-      const handle = webviewHandlesRef.current.get(tabId);
-      switch (clicked) {
-        case "back":
-          clearBridgeReadCache(tabId);
-          handle?.goBack();
-          return;
-        case "forward":
-          clearBridgeReadCache(tabId);
-          handle?.goForward();
-          return;
-        case "reload":
-          clearBridgeReadCache(tabId);
-          if (runtime.loading) {
-            handle?.stop();
-          } else {
-            handle?.reload();
-          }
-          return;
-        case "new-tab":
-          openNewTab();
-          return;
-        case "open-external":
-          await api?.shell.openExternal(tab.url);
-          return;
-        case "copy-address":
-          await copyBrowserAddress(tab.url);
-          return;
-        case "devtools":
-          clearBridgeReadCache(tabId);
-          if (handle?.isDevToolsOpen()) {
-            handle.closeDevTools();
-          } else {
-            handle?.openDevTools();
-          }
-          return;
-        default:
-      }
-    },
-    [
-      api,
-      browserSession.tabs,
-      clearBridgeReadCache,
-      copyBrowserAddress,
-      openNewTab,
-      tabRuntimeById,
-    ],
-  );
+      case "forward":
+        clearBridgeReadCache(tabId);
+        handle?.goForward();
+        return;
+      case "reload":
+        clearBridgeReadCache(tabId);
+        if (runtime.loading) {
+          handle?.stop();
+        } else {
+          handle?.reload();
+        }
+        return;
+      case "new-tab":
+        openNewTab();
+        return;
+      case "open-external":
+        await api?.shell.openExternal(tab.url);
+        return;
+      case "copy-address":
+        await copyBrowserAddress(tab.url);
+        return;
+      case "devtools":
+        clearBridgeReadCache(tabId);
+        if (handle?.isDevToolsOpen()) {
+          handle.closeDevTools();
+        } else {
+          handle?.openDevTools();
+        }
+        return;
+      default:
+    }
+  };
 
   const handleWebviewContextMenuFallbackRequest = (
     tabId: string,
@@ -1184,33 +1174,30 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     });
   }, []);
 
-  const resolveBridgeTarget = useCallback(
-    async (args: Record<string, unknown>) => {
-      const tabId = readStringArgAny(args, ["tabId", "tab_id"]) ?? browserSession.activeTabId;
-      const tab = browserSession.tabs.find((item) => item.id === tabId);
-      if (!tab) {
-        throw new Error("Ace browser tab was not found.");
-      }
-      if (isBrowserInternalTabUrl(tab.url)) {
-        throw new Error("Ace browser tab is still on an internal page. Open a URL first.");
-      }
-      let handle = webviewHandlesRef.current.get(tab.id);
-      if (!handle) {
-        updateBrowserSession((current) => setActiveBrowserTab(current, tab.id));
-        handle = await waitForWebviewHandle(tab.id);
-      }
-      const snapshot = handle.getSnapshot() ?? {
-        canGoBack: false,
-        canGoForward: false,
-        devToolsOpen: false,
-        loading: false,
-        title: tab.title,
-        url: tab.url,
-      };
-      return { handle, snapshot, tab };
-    },
-    [browserSession.activeTabId, browserSession.tabs, updateBrowserSession, waitForWebviewHandle],
-  );
+  const resolveBridgeTarget = async (args: Record<string, unknown>) => {
+    const tabId = readStringArgAny(args, ["tabId", "tab_id"]) ?? browserSession.activeTabId;
+    const tab = browserSession.tabs.find((item) => item.id === tabId);
+    if (!tab) {
+      throw new Error("Ace browser tab was not found.");
+    }
+    if (isBrowserInternalTabUrl(tab.url)) {
+      throw new Error("Ace browser tab is still on an internal page. Open a URL first.");
+    }
+    let handle = webviewHandlesRef.current.get(tab.id);
+    if (!handle) {
+      updateBrowserSession((current) => setActiveBrowserTab(current, tab.id));
+      handle = await waitForWebviewHandle(tab.id);
+    }
+    const snapshot = handle.getSnapshot() ?? {
+      canGoBack: false,
+      canGoForward: false,
+      devToolsOpen: false,
+      loading: false,
+      title: tab.title,
+      url: tab.url,
+    };
+    return { handle, snapshot, tab };
+  };
 
   const runBridgeRequest = async (
     request: BrowserBridgeRequest,
@@ -2206,13 +2193,10 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
     webviewHandlesRef.current.delete(tabId);
     lastRecordedBrowserHistoryUrlByTabRef.current.delete(tabId);
   };
-  const hasWebContentsId = useCallback(
-    (webContentsId: number) =>
-      browserSession.tabs.some(
-        (tab) => webviewHandlesRef.current.get(tab.id)?.getWebContentsId() === webContentsId,
-      ),
-    [browserSession.tabs],
-  );
+  const hasWebContentsId = (webContentsId: number) =>
+    browserSession.tabs.some(
+      (tab) => webviewHandlesRef.current.get(tab.id)?.getWebContentsId() === webContentsId,
+    );
 
   const handleTabSnapshotChange = (
     tabId: string,

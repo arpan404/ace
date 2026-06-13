@@ -115,7 +115,7 @@ function TerminalsPage() {
       ? "loading"
       : "ready";
 
-  const sortedProcesses = useMemo(() => sortTerminalProcesses(processes), [processes]);
+  const sortedProcesses = sortTerminalProcesses(processes);
   const runningCount = sortedProcesses.filter((process) => process.status === "running").length;
 
   const openThread = useCallback(
@@ -129,43 +129,37 @@ function TerminalsPage() {
     [navigate],
   );
 
-  const handleThreadRowKeyDown = useCallback(
-    (event: KeyboardEvent<HTMLButtonElement>, threadId: string) => {
-      if (event.target !== event.currentTarget) {
-        return;
-      }
-      if (event.key !== "Enter" && event.key !== " ") {
-        return;
-      }
-      event.preventDefault();
-      openThread(threadId);
-    },
-    [openThread],
-  );
+  const handleThreadRowKeyDown = (event: KeyboardEvent<HTMLButtonElement>, threadId: string) => {
+    if (event.target !== event.currentTarget) {
+      return;
+    }
+    if (event.key !== "Enter" && event.key !== " ") {
+      return;
+    }
+    event.preventDefault();
+    openThread(threadId);
+  };
 
-  const stopProcess = useCallback(
-    async (process: TerminalProcessSummary) => {
-      const api = readNativeApi();
-      if (!api) return;
-      const id = `${process.threadId}:${process.terminalId}`;
-      setStoppingId(id);
-      setStopErrorMessage(null);
-      try {
-        await api.terminal.terminate({
-          threadId: process.threadId,
-          terminalId: process.terminalId,
-        });
-        await refreshProcesses();
-      } catch (error) {
-        reportBackgroundError("Failed to stop terminal process.", error);
-        setStopErrorMessage(error instanceof Error ? error.message : "Failed to stop terminal.");
-        setStoppingId(null);
-        return;
-      }
+  const stopProcess = async (process: TerminalProcessSummary) => {
+    const api = readNativeApi();
+    if (!api) return;
+    const id = `${process.threadId}:${process.terminalId}`;
+    setStoppingId(id);
+    setStopErrorMessage(null);
+    try {
+      await api.terminal.terminate({
+        threadId: process.threadId,
+        terminalId: process.terminalId,
+      });
+      await refreshProcesses();
+    } catch (error) {
+      reportBackgroundError("Failed to stop terminal process.", error);
+      setStopErrorMessage(error instanceof Error ? error.message : "Failed to stop terminal.");
       setStoppingId(null);
-    },
-    [refreshProcesses],
-  );
+      return;
+    }
+    setStoppingId(null);
+  };
 
   useEffect(() => {
     const api = readNativeApi();

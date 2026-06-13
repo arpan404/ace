@@ -1147,9 +1147,9 @@ function terminalViewportPropsEqual(
   );
 }
 
-const TerminalViewport = memo(function TerminalViewport(props: TerminalViewportProps) {
+function TerminalViewport(props: TerminalViewportProps) {
   return useTerminalViewportComponent(props);
-}, terminalViewportPropsEqual);
+}
 
 interface ThreadTerminalDrawerProps {
   threadId: ThreadId;
@@ -1390,11 +1390,9 @@ export default memo(function ThreadTerminalDrawer({
     ? activeTerminalId
     : (normalizedTerminalIds[0] ?? DEFAULT_THREAD_TERMINAL_ID);
 
-  const resolvedTerminalGroups = useMemo(() => {
-    return normalizeTerminalGroups(terminalGroups, normalizedTerminalIds);
-  }, [normalizedTerminalIds, terminalGroups]);
+  const resolvedTerminalGroups = normalizeTerminalGroups(terminalGroups, normalizedTerminalIds);
 
-  const runningTerminalIdSet = useMemo(() => new Set(runningTerminalIds), [runningTerminalIds]);
+  const runningTerminalIdSet = new Set(runningTerminalIds);
   const activeTerminalGroup = resolvedTerminalGroups.find((group) =>
     group.terminalIds.includes(resolvedActiveTerminalId),
   ) ??

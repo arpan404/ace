@@ -455,7 +455,7 @@ function useCachedHighlightedCode(cacheKey: string, enabled: boolean): string | 
 function MarkdownCodeBlock({ code, children }: { code: string; children: ReactNode }) {
   const [copied, setCopied] = useState(false);
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const handleCopy = useCallback(() => {
+  const handleCopy = () => {
     if (typeof navigator === "undefined" || navigator.clipboard == null) {
       return;
     }
@@ -472,7 +472,7 @@ function MarkdownCodeBlock({ code, children }: { code: string; children: ReactNo
       }),
       "Failed to copy markdown code to the clipboard.",
     );
-  }, [code]);
+  };
 
   useEffect(
     () => () => {
@@ -652,15 +652,15 @@ function useSmoothStreamingText(text: string, isStreaming: boolean): string {
   return isStreaming ? displayText : text;
 }
 
-const PlainMarkdownText = memo(function PlainMarkdownText({ text }: { text: string }) {
+function PlainMarkdownText({ text }: { text: string }) {
   return (
     <div className="chat-markdown w-full min-w-0 wrap-break-word whitespace-pre-wrap text-[13px] leading-[1.55] text-foreground/80">
       {text}
     </div>
   );
-});
+}
 
-const MarkdownBody = memo(function MarkdownBody({
+function MarkdownBody({
   children,
   isStreaming,
   markdownComponents,
@@ -693,7 +693,7 @@ const MarkdownBody = memo(function MarkdownBody({
       )}
     </div>
   );
-});
+}
 
 function PreviewTextPanel({
   text,
