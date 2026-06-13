@@ -57,6 +57,7 @@ import { TraitsPicker } from "../chat/TraitsPicker";
 import { isElectron } from "../../env";
 import { useTheme } from "../../hooks/useTheme";
 import { useStableCallback } from "../../hooks/useStableCallback";
+import { useEffectEvent } from "~/hooks/useEffectEvent";
 import { useSettings, useUpdateSettings } from "../../hooks/useSettings";
 import { useThreadActions } from "../../hooks/useThreadActions";
 import {
@@ -4537,13 +4538,14 @@ function EnvironmentProjectRow({
   const environmentCount = Object.keys(setupScript?.env ?? {}).length;
   const totalStorageBytes =
     statsData?.worktrees.reduce((total, worktree) => total + worktree.sizeBytes, 0) ?? 0;
+  const onMetricsChangeEffect = useEffectEvent(onMetricsChange);
   useEffect(() => {
-    onMetricsChange(project.id, {
+    onMetricsChangeEffect(project.id, {
       hasSetup: setupScript !== null,
       storageBytes: totalStorageBytes,
       worktreeCount: worktreePaths.length,
     });
-  }, [onMetricsChange, project.id, setupScript, totalStorageBytes, worktreePaths.length]);
+  }, [project.id, setupScript, totalStorageBytes, worktreePaths.length]);
   const worktreeCountLabel = branchesIsError
     ? "Unavailable"
     : formatCountLabel(worktreePaths.length, "worktree");

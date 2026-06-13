@@ -530,7 +530,7 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
     (debouncerState) => ({ isPending: debouncerState.isPending }),
   );
   const effectivePathQuery = pathTriggerQuery.length > 0 ? debouncedPathQuery : "";
-  const searchableModelOptions = useMemo(() => {
+  const searchableModelOptions = (() => {
     const nextOptions: Array<{
       provider: (typeof AVAILABLE_PROVIDER_OPTIONS)[number]["value"];
       providerLabel: string;
@@ -558,7 +558,7 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
       }
     }
     return nextOptions;
-  }, [props.lockedProvider, props.modelOptionsByProvider]);
+  })();
   const {
     data: workspaceEntriesData,
     isFetching: isWorkspaceEntriesFetching,
@@ -584,16 +584,14 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
       enabled: isIssueTrigger && props.isGitRepo && props.activeForSideEffects,
     }),
   );
-  const issueTriggerMatches = useMemo(() => {
+  const issueTriggerMatches = (() => {
     const issues = issueTriggerLookupData?.issues ?? EMPTY_GITHUB_ISSUES;
     if (issueTriggerQuery.length === 0) {
       return issues;
     }
     return issues.filter((issue) => String(issue.number).startsWith(issueTriggerQuery));
-  }, [issueTriggerLookupData?.issues, issueTriggerQuery]);
-  const composerMenuItems = useMemo<
-    ComponentProps<typeof ChatComposerPanel>["composerMenuItems"]
-  >(() => {
+  })();
+  const composerMenuItems = ((): ComponentProps<typeof ChatComposerPanel>["composerMenuItems"] => {
     if (!composerTrigger) return [];
     if (composerTrigger.kind === "path") {
       return workspaceEntries.map((entry) => ({
@@ -738,16 +736,7 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
       }
       return items;
     }, []);
-  }, [
-    composerTrigger,
-    interactionMode,
-    issueTriggerMatches,
-    prompt,
-    providerCommands,
-    selectedProvider,
-    searchableModelOptions,
-    workspaceEntries,
-  ]);
+  })();
   const composerMenuOpen = Boolean(composerTrigger);
   const activeComposerMenuItem =
     composerMenuItems.find((item) => item.id === composerHighlightedItemId) ??

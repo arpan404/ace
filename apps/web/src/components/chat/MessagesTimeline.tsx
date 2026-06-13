@@ -700,6 +700,7 @@ export function MessagesTimeline({
     });
   };
   const updateSelectionPinTargetEffect = useEffectEvent(updateSelectionPinTarget);
+  const getScrollContainerEffect = useEffectEvent(getScrollContainer);
   const pinSelectedAssistantText = () => {
     if (!activeThreadId || !selectionPinTarget) return;
     setPinnedMessages((current) =>
@@ -1074,7 +1075,7 @@ export function MessagesTimeline({
       if (!pendingBottomPin || pendingBottomPin.threadId !== activeThreadId) {
         return;
       }
-      const scrollContainer = getScrollContainer();
+      const scrollContainer = getScrollContainerEffect();
       if (!scrollContainer) {
         return;
       }
@@ -1116,7 +1117,6 @@ export function MessagesTimeline({
     };
   }, [
     activeThreadId,
-    getScrollContainer,
     rowVirtualizer,
     rows.length,
     shouldRenderVirtualizedBuffer,
@@ -1145,7 +1145,7 @@ export function MessagesTimeline({
     if (!activeThreadId || !renderedWindowState || rows.length === 0) {
       return;
     }
-    const scrollContainer = getScrollContainer();
+    const scrollContainer = getScrollContainerEffect();
     const now = Date.now();
     const currentScrollTop = scrollContainer?.scrollTop ?? 0;
     const previousSample = timelineScrollSampleRef.current;
@@ -1170,7 +1170,7 @@ export function MessagesTimeline({
     void prefetchThreadTimelineRowsSnapshot({
       threadId: activeThreadId as ThreadId,
     }).catch(() => undefined);
-  }, [activeThreadId, getScrollContainer, renderedWindowState, rows.length]);
+  }, [activeThreadId, renderedWindowState, rows.length]);
   useEffect(() => {
     if (!targetMessageNavigation) return;
     const targetMessageId = targetMessageNavigation.messageId;
@@ -1179,7 +1179,7 @@ export function MessagesTimeline({
     );
     if (rowIndex < 0) return;
 
-    const scrollContainer = getScrollContainer();
+    const scrollContainer = getScrollContainerEffect();
     if (!scrollContainer) return;
 
     const escapedMessageId =
@@ -1247,7 +1247,6 @@ export function MessagesTimeline({
       cleanupTextHighlight?.();
     };
   }, [
-    getScrollContainer,
     rowVirtualizer,
     rows,
     shouldRenderVirtualizedBuffer,

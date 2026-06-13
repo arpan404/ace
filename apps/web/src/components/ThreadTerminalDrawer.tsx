@@ -365,6 +365,8 @@ function useTerminalViewportComponent({
   const onAutoTerminalTitleChangeRef = useRef(onAutoTerminalTitleChange);
   const onOpenBrowserUrlRef = useRef(onOpenBrowserUrl);
   const onOpenFilePathRef = useRef(onOpenFilePath);
+  const interactiveRef = useRef(interactive);
+  const shouldFocusTerminalRef = useRef(shouldFocusTerminal);
   const runtimeEnvRef = useRef(runtimeEnv);
   const runtimeEnvKey = stableRuntimeEnvKey(runtimeEnv);
   const terminalLabelRef = useRef(terminalLabel);
@@ -397,6 +399,14 @@ function useTerminalViewportComponent({
   }, [onOpenFilePath]);
 
   useEffect(() => {
+    interactiveRef.current = interactive;
+  }, [interactive]);
+
+  useEffect(() => {
+    shouldFocusTerminalRef.current = shouldFocusTerminal;
+  }, [shouldFocusTerminal]);
+
+  useEffect(() => {
     runtimeEnvRef.current = runtimeEnv;
   }, [runtimeEnv, runtimeEnvKey]);
 
@@ -409,11 +419,13 @@ function useTerminalViewportComponent({
     if (!mount) return;
 
     let disposed = false;
+    const mountInteractive = interactiveRef.current;
+    const mountShouldFocusTerminal = shouldFocusTerminalRef.current;
 
     const fitAddon = new FitAddon();
     const fontFamily = readTerminalFontFamily();
     const terminal = new Terminal({
-      cursorBlink: interactive,
+      cursorBlink: mountInteractive,
       lineHeight: 1.16,
       fontSize: 13,
       letterSpacing: 0.2,
@@ -822,7 +834,7 @@ function useTerminalViewportComponent({
         if (snapshot.history.length > 0) {
           writeTerminalData(activeTerminal, snapshot.history);
         }
-        if (shouldFocusTerminal && interactive) {
+        if (mountShouldFocusTerminal && mountInteractive) {
           window.requestAnimationFrame(() => {
             activeTerminal.focus();
           });
@@ -967,9 +979,6 @@ function useTerminalViewportComponent({
       fitAddonRef.current = null;
       terminal.dispose();
     };
-    // shouldFocusTerminal is intentionally omitted;
-    // it is only read at mount time and must not trigger terminal teardown/recreation.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cwd, runtimeEnvKey, terminalId, threadId]);
 
   useEffect(() => {

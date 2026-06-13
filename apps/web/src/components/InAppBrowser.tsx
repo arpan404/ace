@@ -572,12 +572,12 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     }
   }, [activeTabIsInternal, designerState.active, setDesignerModeActive]);
   const designerModeAvailable = Boolean(onQueueDesignRequest) && !activeTabIsInternal;
-  const toggleDesignerMode = useCallback(() => {
+  const toggleDesignerMode = () => {
     if (!designerModeAvailable) {
       return;
     }
     setDesignerModeActive(!designerState.active);
-  }, [designerModeAvailable, designerState.active, setDesignerModeActive]);
+  };
   useEffect(() => {
     if (!visible || !designerState.active) {
       return;
@@ -640,16 +640,13 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
     }
     nodeMap.delete(tool);
   };
-  const toggleOrSelectDesignerTool = useCallback(
-    (tool: BrowserDesignerTool) => {
-      if (designerState.active && designerState.tool === tool) {
-        setDesignerModeActive(false);
-        return;
-      }
-      selectDesignerTool(tool);
-    },
-    [designerState.active, designerState.tool, selectDesignerTool, setDesignerModeActive],
-  );
+  const toggleOrSelectDesignerTool = (tool: BrowserDesignerTool) => {
+    if (designerState.active && designerState.tool === tool) {
+      setDesignerModeActive(false);
+      return;
+    }
+    selectDesignerTool(tool);
+  };
   const handleDesignerToolPointerDown = (
     event: ReactPointerEvent<HTMLButtonElement>,
     tool: BrowserDesignerTool,
