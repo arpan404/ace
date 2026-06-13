@@ -1783,7 +1783,10 @@ function useChatViewComponent({
     chatShellRef.current = element;
     setChatShellElement(element);
   });
-  const setMessagesScrollContainerRef = (element: HTMLDivElement | null) => {
+  const setMessagesScrollContainerRef = useStableCallback((element: HTMLDivElement | null) => {
+    if (messagesScrollRef.current === element) {
+      return;
+    }
     messagesScrollRef.current = element;
     if (!element || pendingInitialBottomScrollThreadIdRef.current !== threadId) {
       return;
@@ -1792,8 +1795,10 @@ function useChatViewComponent({
     lastKnownScrollTopRef.current = element.scrollTop;
     shouldAutoScrollRef.current = true;
     pendingUserScrollUpIntentRef.current = false;
-    setShowScrollToBottom(false);
-  };
+    if (showScrollToBottom) {
+      setShowScrollToBottom(false);
+    }
+  });
   const getMessagesScrollContainer = () => messagesScrollRef.current;
   useEffect(() => {
     const syncComposerDraftRefs = (state: ReturnType<typeof useComposerDraftStore.getState>) => {
