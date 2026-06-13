@@ -108,16 +108,16 @@ export function buildWorkspaceCodeSearchQueries(query: string): readonly string[
   return uniqueValues(queries);
 }
 
-function countOccurrences(value: string, needle: string): number {
+function countOccurrences(text: string, needle: string): number {
   if (needle.length === 0) {
     return 0;
   }
 
   let count = 0;
-  let index = value.indexOf(needle);
+  let index = text.indexOf(needle);
   while (index !== -1) {
     count += 1;
-    index = value.indexOf(needle, index + needle.length);
+    index = text.indexOf(needle, index + needle.length);
   }
   return count;
 }
@@ -140,17 +140,17 @@ export function createWorkspaceCodeSearchResult(input: {
     return null;
   }
 
-  const normalizedPath = input.entry.path.toLowerCase();
-  const normalizedName = basenameOfPath(input.entry.path).toLowerCase();
+  const normalizedPathText = input.entry.path.toLowerCase();
+  const normalizedNameText = basenameOfPath(input.entry.path).toLowerCase();
   const lines = input.contents.split(/\r?\n/u);
   const snippets: WorkspaceCodeSearchSnippet[] = [];
   let matchCount = 0;
   let score = 0;
 
   for (const term of terms) {
-    if (normalizedName.includes(term)) {
+    if (normalizedNameText.includes(term)) {
       score += 60;
-    } else if (normalizedPath.includes(term)) {
+    } else if (normalizedPathText.includes(term)) {
       score += 30;
     }
   }

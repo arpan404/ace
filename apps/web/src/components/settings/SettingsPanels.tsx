@@ -3844,23 +3844,23 @@ function ProjectEnvironmentWorktrees({
     }
 
     setIsCleaningWorktrees(true);
-    let deletedCount = 0;
     try {
-      for (const worktree of cleanupCandidates) {
-        await deleteWorktreeAndRelatedData({
-          connectionUrl: projectConnectionUrl,
-          projectId: project.id,
-          projectCwd: project.cwd,
-          skipConfirmation: true,
-          suppressSuccessToast: true,
-          worktreePath: worktree.path,
-        });
-        deletedCount += 1;
-      }
+      await Promise.all(
+        cleanupCandidates.map((worktree) =>
+          deleteWorktreeAndRelatedData({
+            connectionUrl: projectConnectionUrl,
+            projectId: project.id,
+            projectCwd: project.cwd,
+            skipConfirmation: true,
+            suppressSuccessToast: true,
+            worktreePath: worktree.path,
+          }),
+        ),
+      );
       toastManager.add({
         type: "success",
         title: "Worktrees cleaned up",
-        description: `Removed ${formatCountLabel(deletedCount, "worktree")} and freed up to ${formatStorageBytes(
+        description: `Removed ${formatCountLabel(cleanupCandidates.length, "worktree")} and freed up to ${formatStorageBytes(
           cleanupStorageBytes,
         )}.`,
       });
@@ -3892,24 +3892,24 @@ function ProjectEnvironmentWorktrees({
     }
 
     setIsDeletingSelectedWorktrees(true);
-    let deletedCount = 0;
     try {
-      for (const worktree of selectedWorktrees) {
-        await deleteWorktreeAndRelatedData({
-          connectionUrl: projectConnectionUrl,
-          projectId: project.id,
-          projectCwd: project.cwd,
-          skipConfirmation: true,
-          suppressSuccessToast: true,
-          worktreePath: worktree.path,
-        });
-        deletedCount += 1;
-      }
+      await Promise.all(
+        selectedWorktrees.map((worktree) =>
+          deleteWorktreeAndRelatedData({
+            connectionUrl: projectConnectionUrl,
+            projectId: project.id,
+            projectCwd: project.cwd,
+            skipConfirmation: true,
+            suppressSuccessToast: true,
+            worktreePath: worktree.path,
+          }),
+        ),
+      );
       setSelectedWorktreePaths(new Set());
       toastManager.add({
         type: "success",
         title: "Selected worktrees deleted",
-        description: `Removed ${formatCountLabel(deletedCount, "worktree")} and freed up to ${formatStorageBytes(
+        description: `Removed ${formatCountLabel(selectedWorktrees.length, "worktree")} and freed up to ${formatStorageBytes(
           selectedStorageBytes,
         )}.`,
       });

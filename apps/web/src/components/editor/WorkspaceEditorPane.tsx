@@ -1259,10 +1259,7 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
     setDropTargetIndex(null);
   };
 
-  const openTabContextMenu = async (
-    event: ReactMouseEvent<HTMLButtonElement>,
-    filePath: string,
-  ) => {
+  const openTabContextMenu = async (event: ReactMouseEvent<HTMLElement>, filePath: string) => {
     if (!api) {
       return;
     }
@@ -1421,8 +1418,10 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
                 <Tooltip>
                   <TooltipTrigger
                     render={
-                      <button
-                        type="button"
+                      <div
+                        role="tab"
+                        tabIndex={0}
+                        aria-selected={isActive}
                         data-editor-tab="true"
                         className={cn(
                           "group/tab relative flex h-7 shrink-0 items-center gap-1.5 rounded-lg border px-2.5 text-[12px] transition-colors",
@@ -1432,6 +1431,13 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
                         )}
                         draggable
                         onClick={() => props.onSetActiveFile(props.pane.id, filePath)}
+                        onKeyDown={(event) => {
+                          if (event.key !== "Enter" && event.key !== " ") {
+                            return;
+                          }
+                          event.preventDefault();
+                          props.onSetActiveFile(props.pane.id, filePath);
+                        }}
                         onContextMenu={(event) => {
                           event.preventDefault();
                           props.onSetActiveFile(props.pane.id, filePath);
@@ -1475,8 +1481,8 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
                         {isDirty ? (
                           <span className="size-1.5 shrink-0 rounded-full bg-foreground/45 group-hover/tab:hidden" />
                         ) : null}
-                        <span
-                          role="button"
+                        <button
+                          type="button"
                           tabIndex={-1}
                           className={cn(
                             "flex size-4 shrink-0 items-center justify-center rounded-md opacity-0 transition-opacity",
@@ -1491,8 +1497,8 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
                           aria-label={`Close ${filePath}`}
                         >
                           <XIcon className="size-3" />
-                        </span>
-                      </button>
+                        </button>
+                      </div>
                     }
                   />
                   <TooltipPopup side="bottom" className="max-w-96 whitespace-pre-wrap">
@@ -1646,7 +1652,9 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
                         previewError: "Unable to preview this video in the embedded editor.",
                       }));
                     }}
-                  />
+                  >
+                    <track kind="captions" />
+                  </video>
                 )}
               </div>
             </div>

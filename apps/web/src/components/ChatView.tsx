@@ -1496,7 +1496,7 @@ function useChatViewComponent({
   const [bottomPanelReviewOpen, setBottomPanelReviewOpen] = useState(false);
   const [bottomPanelResizing, setBottomPanelResizing] = useState(false);
   const [rightSidePanelResizing, setRightSidePanelResizing] = useState(false);
-  const windowStateInstanceId = useMemo(() => resolveEditorWindowStateInstanceId(), []);
+  const windowStateInstanceId = resolveEditorWindowStateInstanceId();
   const workspaceEditorStateInstanceId = `workspace-${windowStateInstanceId}`;
   const rightPanelFallbackEditorStateInstanceId = `right-${windowStateInstanceId}`;
   const bottomPanelFallbackEditorStateInstanceId = `bottom-${windowStateInstanceId}`;
@@ -2686,17 +2686,12 @@ function useChatViewComponent({
   const phase = derivePhase(activeThread?.session ?? null);
   const threadActivities =
     activeThreadTimelineProjection?.activities ?? activeThread?.activities ?? EMPTY_ACTIVITIES;
-  const activityVisibilitySettings = useMemo(
-    () => ({
-      enableToolStreaming,
-      enableThinkingStreaming,
-    }),
-    [enableThinkingStreaming, enableToolStreaming],
-  );
-  const { visibleThreadActivities, workLogEntries, pendingApprovals, pendingUserInputs } = useMemo(
-    () => deriveThreadActivityRenderState(threadActivities, activityVisibilitySettings),
-    [activityVisibilitySettings, threadActivities],
-  );
+  const activityVisibilitySettings = {
+    enableToolStreaming,
+    enableThinkingStreaming,
+  };
+  const { visibleThreadActivities, workLogEntries, pendingApprovals, pendingUserInputs } =
+    deriveThreadActivityRenderState(threadActivities, activityVisibilitySettings);
   const activeWorkTurnId = deriveVisibleWorkTurnId(
     activeLatestTurn,
     activeThread?.session ?? null,
@@ -2958,12 +2953,16 @@ function useChatViewComponent({
       activeThreadMessages,
       activeThreadWorkEntries: workLogEntries,
       handoffLineage,
-      activityVisibility: activityVisibilitySettings,
+      activityVisibility: {
+        enableToolStreaming,
+        enableThinkingStreaming,
+      },
     });
   }, [
     activeThread,
     activeThreadMessages,
-    activityVisibilitySettings,
+    enableThinkingStreaming,
+    enableToolStreaming,
     handoffLineage,
     isThreadHistoryLoading,
     isServerThread,
