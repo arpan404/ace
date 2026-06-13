@@ -40,6 +40,8 @@ import {
 } from "~/lib/editor/workspaceCodeMirror";
 import type { WorkspaceCodeEditorOptions } from "~/lib/editor/workspaceEditorOptions";
 import {
+  countWorkspaceFindMatches,
+  createWorkspaceFindQuery,
   EMPTY_WORKSPACE_FIND_STATE,
   type WorkspaceFindMatchSummary,
   type WorkspaceFindState,
@@ -626,24 +628,6 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
   const [editorFeedbackState, setEditorFeedbackState] = useState<WorkspaceEditorFeedbackState>(
     EMPTY_WORKSPACE_EDITOR_FEEDBACK_STATE,
   );
-  const visibleEditorFeedbackState =
-    editorFeedbackState.filePath === pane.activeFilePath
-      ? editorFeedbackState
-      : {
-          ...editorFeedbackState,
-          actionError: null,
-          previewError: null,
-          problemsOpen: false,
-        };
-  const {
-    actionError,
-    diagnosticError,
-    diagnosticSummary,
-    diagnostics,
-    previewError,
-    problems,
-    problemsOpen,
-  } = visibleEditorFeedbackState;
   const [navigationState, dispatchNavigationState] = useReducer(
     workspaceEditorNavigationStateReducer,
     EMPTY_WORKSPACE_EDITOR_NAVIGATION_STATE,
@@ -666,9 +650,6 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
   const [findOpen, setFindOpen] = useState(false);
   const [findExpandedReplace, setFindExpandedReplace] = useState(false);
   const [findState, setFindState] = useState<WorkspaceFindState>(EMPTY_WORKSPACE_FIND_STATE);
-  const [findMatchSummary, setFindMatchSummary] = useState<WorkspaceFindMatchSummary>(
-    EMPTY_WORKSPACE_FIND_MATCH_SUMMARY,
-  );
   const commentPlaceholder = useWorkspaceCommentPlaceholder("code", activeSelection?.id ?? null);
   const editorRef = useRef<WorkspaceCodeEditorHandle | null>(null);
   const selectionCommentInputRef = useRef<HTMLInputElement | null>(null);
@@ -807,6 +788,43 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
   const activeFileReady =
     pane.activeFilePath !== null &&
     (isPreviewMode || activeDraft !== null || activeFileData?.contents !== undefined);
+  const findMatchSummary: WorkspaceFindMatchSummary = findOpen
+    ? countWorkspaceFindMatches(activeFileContents, createWorkspaceFindQuery(findState))
+    : EMPTY_WORKSPACE_FIND_MATCH_SUMMARY;
+  const canShowWorkspaceDiagnostics =
+    !isPreviewMode &&
+    Boolean(api && props.diagnosticsCwd && pane.activeFilePath && activeFileReady);
+  const visibleEditorFeedbackState =
+    editorFeedbackState.filePath === pane.activeFilePath
+      ? canShowWorkspaceDiagnostics
+        ? editorFeedbackState
+        : {
+            ...editorFeedbackState,
+            diagnosticError: null,
+            diagnosticSummary: null,
+            diagnostics: [],
+            problems: [],
+            problemsOpen: false,
+          }
+      : {
+          ...editorFeedbackState,
+          actionError: null,
+          diagnosticError: null,
+          diagnosticSummary: null,
+          diagnostics: [],
+          previewError: null,
+          problems: [],
+          problemsOpen: false,
+        };
+  const {
+    actionError,
+    diagnosticError,
+    diagnosticSummary,
+    diagnostics,
+    previewError,
+    problems,
+    problemsOpen,
+  } = visibleEditorFeedbackState;
 
   const applyWorkspaceProblems = useCallback(
     (
@@ -1040,7 +1058,6 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
 
   const closeWorkspaceFind = useCallback(() => {
     setFindOpen(false);
-    setFindMatchSummary(EMPTY_WORKSPACE_FIND_MATCH_SUMMARY);
     editorRef.current?.closeFindQuery();
   }, []);
 
@@ -1052,8 +1069,7 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
     if (!findOpen) {
       return;
     }
-    const summary = editorRef.current?.updateFindQuery(findState);
-    setFindMatchSummary(summary ?? EMPTY_WORKSPACE_FIND_MATCH_SUMMARY);
+    editorRef.current?.updateFindQuery(findState);
   }, [activeFileContents, editorMountVersion, findOpen, findState]);
 
   useEffect(() => {
@@ -1113,7 +1129,6 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
     const activeFilePath = pane.activeFilePath;
 
     if (isPreviewMode || !api || !props.diagnosticsCwd || !activeFilePath || !activeFileReady) {
-      clearWorkspaceProblems({ diagnosticError: null });
       return;
     }
 

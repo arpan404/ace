@@ -11385,12 +11385,12 @@ function useChatViewComponent({
       </Menu>
     </>
   );
-  const draftNewThreadBranchControlNode = branchToolbarProps ? (
-    <BranchToolbar {...branchToolbarProps} presentation="draft" />
-  ) : null;
   if (!activeThread) {
     return null;
   }
+  const draftNewThreadBranchControlNode = branchToolbarProps ? (
+    <BranchToolbar {...branchToolbarProps} presentation="draft" />
+  ) : null;
   const environmentMiniPanelPortal =
     environmentPanelPopoverOpen &&
     environmentMiniPanelProps &&
@@ -11794,7 +11794,6 @@ function useChatViewComponent({
                       {environmentPanelInlineOpen && environmentMiniPanelProps ? (
                         <EnvironmentMiniPanel
                           key="environment-mini-panel-inline"
-                          ref={environmentMiniPanelRef}
                           {...environmentMiniPanelProps}
                           layoutMode="inline"
                         />

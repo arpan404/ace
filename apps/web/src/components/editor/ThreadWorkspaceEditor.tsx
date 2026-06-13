@@ -16,7 +16,6 @@ import {
 } from "@tabler/icons-react";
 import { useDebouncedValue } from "@tanstack/react-pacer";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   BoxIcon,
   CircleAlertIcon,
@@ -45,10 +44,10 @@ import {
   useCallback,
   useDeferredValue,
   useEffect,
+  useId,
   useMemo,
   useReducer,
   useRef,
-  useState,
 } from "react";
 
 import {
@@ -62,6 +61,7 @@ import {
 import { useLocalStorage } from "~/hooks/useLocalStorage";
 import { useSetting, useUpdateSettings } from "~/hooks/useSettings";
 import { useStableCallback } from "~/hooks/useStableCallback";
+import { useReactCompilerSafeVirtualizer } from "~/hooks/useReactCompilerSafeVirtualizer";
 import { useTheme } from "~/hooks/useTheme";
 import { isTerminalFocused } from "~/lib/terminalFocus";
 import {
@@ -98,7 +98,7 @@ import {
   APP_SETTINGS_FIELD_CLASS_NAME,
   APP_WORKSPACE_INSET_CLASS_NAME,
 } from "~/lib/appChrome";
-import { cn, randomUUID } from "~/lib/utils";
+import { cn } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
 import { basenameOfPath } from "~/vscode-icons";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "~/keybindings";
@@ -181,10 +181,6 @@ const WORKSPACE_EXPLORER_DROP_ROW_CLASS =
   "bg-[color-mix(in_srgb,var(--primary)_24%,transparent)] text-foreground";
 const WORKSPACE_EXPLORER_IDLE_ROW_CLASS =
   "text-muted-foreground/90 hover:bg-[color-mix(in_srgb,var(--foreground)_7%,transparent)] hover:text-foreground";
-
-function createFallbackEditorStateInstanceId(): string {
-  return `surface-${resolveEditorWindowStateInstanceId()}-${randomUUID()}`;
-}
 
 interface SaveConflictState {
   readonly currentContents: string;
@@ -1113,16 +1109,13 @@ function useThreadWorkspaceEditorComponent(inputProps: {
   workspaceMode?: ThreadWorkspaceMode | undefined;
   onSubmitAgentNote?: (input: WorkspaceAgentNoteSubmission) => Promise<boolean> | boolean;
 }) {
-  const fallbackEditorStateInstanceIdRef = useRef<string | null>(null);
-  if (fallbackEditorStateInstanceIdRef.current === null) {
-    fallbackEditorStateInstanceIdRef.current = createFallbackEditorStateInstanceId();
-  }
+  const reactEditorStateInstanceId = useId();
+  const fallbackEditorStateInstanceId = `surface-${resolveEditorWindowStateInstanceId()}-${reactEditorStateInstanceId}`;
   const inputEditorStateInstanceId =
     typeof inputProps.editorStateInstanceId === "string"
       ? inputProps.editorStateInstanceId.trim() || undefined
       : undefined;
-  const editorStateInstanceId =
-    inputEditorStateInstanceId ?? fallbackEditorStateInstanceIdRef.current;
+  const editorStateInstanceId = inputEditorStateInstanceId ?? fallbackEditorStateInstanceId;
   const editorStateScopeId = useMemo(
     () =>
       resolveEditorInstanceStateScopeId({
@@ -2590,9 +2583,11 @@ function useThreadWorkspaceEditorComponent(inputProps: {
           prompt: trimmedPrompt,
           threadId: agentNoteThreadId,
         });
-        return sent;
-      } finally {
         setAgentNoteSubmissionBusy(false);
+        return sent;
+      } catch (error) {
+        setAgentNoteSubmissionBusy(false);
+        throw error;
       }
     },
     [agentNoteSubmissionBusy, agentNoteThreadId, inputProps],
@@ -2734,7 +2729,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
   const explorerPending =
     isWorkspaceTreePending || (searchMode && isWorkspaceTreeFetching && treeEntries.length === 0);
 
-  const rowVirtualizer = useVirtualizer({
+  const rowVirtualizer = useReactCompilerSafeVirtualizer({
     count: explorerRows.length,
     estimateSize: () => 32,
     getScrollElement: () => treeScrollRef.current,
@@ -3042,108 +3037,91 @@ function useThreadWorkspaceEditorComponent(inputProps: {
       ),
     [editorShortcutLabelOptions, props.keybindings],
   );
-  const workspaceCommandActions = useMemo<readonly WorkspaceCommandAction[]>(
-    () => [
-      {
-        id: "open-file",
-        icon: "search",
-        label: "Open File",
-        ...(openFilePaletteShortcutLabel ? { shortcut: openFilePaletteShortcutLabel } : {}),
-        run: () => openCommandPalette("files"),
+  const workspaceCommandActions: readonly WorkspaceCommandAction[] = [
+    {
+      id: "open-file",
+      icon: "search",
+      label: "Open File",
+      ...(openFilePaletteShortcutLabel ? { shortcut: openFilePaletteShortcutLabel } : {}),
+      run: () => openCommandPalette("files"),
+    },
+    {
+      id: "search-text",
+      description: "Search files and code like an agent would.",
+      icon: "search",
+      label: "Search Codebase",
+      run: () => {
+        setSidebarMode("search");
+        setExplorerOpen(props.threadId, true);
       },
-      {
-        id: "search-text",
-        description: "Search files and code like an agent would.",
-        icon: "search",
-        label: "Search Codebase",
-        run: () => {
-          setSidebarMode("search");
-          setExplorerOpen(props.threadId, true);
-        },
+    },
+    {
+      id: "find-active-editor",
+      description: "Open find in the active editor.",
+      icon: "search",
+      label: "Find in Active Editor",
+      ...(findInActiveEditorShortcutLabel ? { shortcut: findInActiveEditorShortcutLabel } : {}),
+      run: requestFindInActiveEditor,
+    },
+    {
+      id: "source-control",
+      description: `${changedFiles.length} changed files.`,
+      icon: "git",
+      label: "Open Review",
+      run: () => {
+        setSidebarMode("review");
+        setExplorerOpen(props.threadId, true);
       },
-      {
-        id: "find-active-editor",
-        description: "Open find in the active editor.",
-        icon: "search",
-        label: "Find in Active Editor",
-        ...(findInActiveEditorShortcutLabel ? { shortcut: findInActiveEditorShortcutLabel } : {}),
-        run: requestFindInActiveEditor,
-      },
-      {
-        id: "source-control",
-        description: `${changedFiles.length} changed files.`,
-        icon: "git",
-        label: "Open Review",
-        run: () => {
-          setSidebarMode("review");
-          setExplorerOpen(props.threadId, true);
-        },
-      },
-      {
-        id: "review-active-file",
-        disabled: !activePane?.activeFilePath,
-        icon: "agent",
-        label: "Review Active File",
-        run: () => {
-          if (!activePane?.activeFilePath || !props.gitCwd) {
-            return;
-          }
-          queueWorkspaceSelectionContext(
-            {
-              cwd: props.gitCwd,
-              diagnostics: [],
-              kind: "workspace-selection",
-              languageId: resolveWorkspaceLanguageFromFilePath(activePane.activeFilePath) ?? null,
-              range: {
-                relativePath: activePane.activeFilePath,
-                startLine: 0,
-                startColumn: 0,
-                endLine: 0,
-                endColumn: 0,
-              },
+    },
+    {
+      id: "review-active-file",
+      disabled: !activePane?.activeFilePath,
+      icon: "agent",
+      label: "Review Active File",
+      run: () => {
+        if (!activePane?.activeFilePath || !props.gitCwd) {
+          return;
+        }
+        queueWorkspaceSelectionContext(
+          {
+            cwd: props.gitCwd,
+            diagnostics: [],
+            kind: "workspace-selection",
+            languageId: resolveWorkspaceLanguageFromFilePath(activePane.activeFilePath) ?? null,
+            range: {
               relativePath: activePane.activeFilePath,
-              text: "",
+              startLine: 0,
+              startColumn: 0,
+              endLine: 0,
+              endColumn: 0,
             },
-            `Review ${activePane.activeFilePath}.`,
-          );
-        },
+            relativePath: activePane.activeFilePath,
+            text: "",
+          },
+          `Review ${activePane.activeFilePath}.`,
+        );
       },
-      {
-        id: "split-right",
-        icon: "code",
-        label: "Split Editor Right",
-        run: () => handleSplitPane(activePane?.id, undefined, "right"),
+    },
+    {
+      id: "split-right",
+      icon: "code",
+      label: "Split Editor Right",
+      run: () => handleSplitPane(activePane?.id, undefined, "right"),
+    },
+    {
+      id: "install-language-server",
+      description: "Open settings for language tooling.",
+      icon: "fix",
+      label: "Install Language Server",
+      run: () => {
+        toastManager.add({
+          description: "Language server management is available from settings.",
+          title: "Language tooling",
+          type: "info",
+        });
       },
-      {
-        id: "install-language-server",
-        description: "Open settings for language tooling.",
-        icon: "fix",
-        label: "Install Language Server",
-        run: () => {
-          toastManager.add({
-            description: "Language server management is available from settings.",
-            title: "Language tooling",
-            type: "info",
-          });
-        },
-      },
-    ],
-    [
-      activePane?.activeFilePath,
-      activePane?.id,
-      changedFiles.length,
-      findInActiveEditorShortcutLabel,
-      handleSplitPane,
-      openCommandPalette,
-      openFilePaletteShortcutLabel,
-      props.gitCwd,
-      props.threadId,
-      queueWorkspaceSelectionContext,
-      requestFindInActiveEditor,
-      setExplorerOpen,
-      setSidebarMode,
-    ],
-  );
+    },
+  ];
   const handleOpenFileInPane = useCallback(
     (paneId: string, filePath: string, targetIndex?: number) => {
       prepareWorkspaceFileOpen(filePath);
@@ -3168,7 +3146,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     },
     [prepareWorkspaceFileOpen, props.threadId, setActiveFile],
   );
-  const handleRetryActiveFile = useCallback(() => {
+  const handleRetryActiveFile = () => {
     if (!activePane?.activeFilePath) {
       return;
     }
@@ -3179,7 +3157,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
         inputProps.connectionUrl,
       ),
     });
-  }, [activePane?.activeFilePath, inputProps.connectionUrl, props.gitCwd, queryClient]);
+  };
 
   const invalidateWorkspaceTree = useCallback(() => {
     void queryClient.invalidateQueries({

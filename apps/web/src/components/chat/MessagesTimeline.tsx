@@ -10,7 +10,7 @@ import {
   providerSlashCommandExtensionKind,
   type ProviderExtensionCommandKind,
 } from "@ace/shared/providerSlashCommands";
-import { useVirtualizer, type VirtualItem } from "@tanstack/react-virtual";
+import { type VirtualItem } from "@tanstack/react-virtual";
 import {
   Fragment,
   createElement,
@@ -54,6 +54,7 @@ import { deriveTimelineEntries } from "../../session-logic";
 import { type TurnDiffSummary } from "../../types";
 import { summarizeTurnDiffStats } from "../../lib/turnDiffTree";
 import ChatMarkdown from "../ChatMarkdown";
+import { useReactCompilerSafeVirtualizer } from "~/hooks/useReactCompilerSafeVirtualizer";
 import {
   ArrowLeftRightIcon,
   BrainIcon,
@@ -1250,7 +1251,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
 
   useEffect(() => {
     if (!timelineRootElement) {
-      setTimelineWidthPx(null);
       return;
     }
 
@@ -1347,7 +1347,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     },
     [expandedWorkGroups, timelineWidthPx, virtualizedRows],
   );
-  const rowVirtualizer = useVirtualizer({
+  const rowVirtualizer = useReactCompilerSafeVirtualizer({
     count: virtualizedRows.length,
     estimateSize: estimateVirtualizedRowSize,
     getItemKey: getVirtualRowKey,
@@ -1711,51 +1711,48 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const assistantMarkdownAnalysisPrewarmJobKey = assistantMarkdownAnalysisPrewarmJobs
     .map((job) => job.cacheKey)
     .join("\0");
-  const assistantMarkdownPriorityRef = useRef({
-    immediateMessageIds: immediateAssistantMarkdownMessageIds,
-    mountedMessageIds: mountedVirtualizedAssistantMarkdownMessageIds,
-    pendingMessageIds: pendingAssistantMarkdownMessageIds,
-  });
-  assistantMarkdownPriorityRef.current = {
-    immediateMessageIds: immediateAssistantMarkdownMessageIds,
-    mountedMessageIds: mountedVirtualizedAssistantMarkdownMessageIds,
-    pendingMessageIds: pendingAssistantMarkdownMessageIds,
-  };
-
   useEffect(() => {
     if (!shouldPrioritizeAssistantMarkdown) {
-      setRenderedAssistantMarkdownMessageIds((current) =>
-        current.size === 0 ? current : new Set(),
-      );
       return;
     }
     if (isTimelineScrolling) {
       return;
     }
-    const { immediateMessageIds, mountedMessageIds, pendingMessageIds } =
-      assistantMarkdownPriorityRef.current;
-    const priorityMessageIds = [...immediateMessageIds, ...mountedMessageIds, ...pendingMessageIds];
-    setRenderedAssistantMarkdownMessageIds((current) => {
-      const next = new Set<string>();
-      for (const messageId of priorityMessageIds) {
-        if (!next.has(messageId)) {
-          next.add(messageId);
+    const priorityMessageIds = [
+      ...immediateAssistantMarkdownMessageIds,
+      ...(mountedVirtualizedAssistantMarkdownMessageIdKey.length > 0
+        ? mountedVirtualizedAssistantMarkdownMessageIdKey.split("\0")
+        : []),
+      ...pendingAssistantMarkdownMessageIds,
+    ];
+    const timeoutId = window.setTimeout(() => {
+      setRenderedAssistantMarkdownMessageIds((current) => {
+        const next = new Set<string>();
+        for (const messageId of priorityMessageIds) {
+          if (!next.has(messageId)) {
+            next.add(messageId);
+          }
         }
-      }
-      for (const messageId of current) {
-        if (!next.has(messageId)) {
-          next.add(messageId);
+        for (const messageId of current) {
+          if (!next.has(messageId)) {
+            next.add(messageId);
+          }
+          if (next.size >= MAX_RENDERED_ASSISTANT_MARKDOWN_MESSAGE_IDS) {
+            break;
+          }
         }
-        if (next.size >= MAX_RENDERED_ASSISTANT_MARKDOWN_MESSAGE_IDS) {
-          break;
-        }
-      }
-      return areStringSetsEqual(next, current) ? current : next;
-    });
+        return areStringSetsEqual(next, current) ? current : next;
+      });
+    }, 0);
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
   }, [
+    immediateAssistantMarkdownMessageIds,
     immediateAssistantMarkdownMessageIdKey,
     isTimelineScrolling,
     mountedVirtualizedAssistantMarkdownMessageIdKey,
+    pendingAssistantMarkdownMessageIds,
     pendingAssistantMarkdownMessageIdKey,
     shouldPrioritizeAssistantMarkdown,
   ]);
@@ -1771,7 +1768,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     if (typeof window === "undefined") {
       return;
     }
-    const pendingMessageIds = assistantMarkdownPriorityRef.current.pendingMessageIds;
+    const pendingMessageIds = pendingAssistantMarkdownMessageIds;
 
     let cancelled = false;
     let cursor = 0;
@@ -1821,7 +1818,12 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         cancelAssistantMarkdownIdleCallback(idleHandle);
       }
     };
-  }, [isTimelineScrolling, pendingAssistantMarkdownMessageIdKey, shouldPrewarmAssistantMarkdown]);
+  }, [
+    isTimelineScrolling,
+    pendingAssistantMarkdownMessageIdKey,
+    pendingAssistantMarkdownMessageIds,
+    shouldPrewarmAssistantMarkdown,
+  ]);
   useEffect(() => {
     if (!shouldPrewarmAssistantMarkdown || assistantMarkdownAnalysisPrewarmJobs.length === 0) {
       return;

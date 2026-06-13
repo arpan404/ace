@@ -50,7 +50,7 @@ import {
   ThreadId,
 } from "@ace/contracts";
 import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
-import { useVirtualizer, type VirtualItem } from "@tanstack/react-virtual";
+import { type VirtualItem } from "@tanstack/react-virtual";
 import { type SidebarProjectSortOrder } from "@ace/contracts/settings";
 import { isElectron } from "../env";
 import { APP_VERSION, IS_DEV_BUILD } from "../branding";
@@ -78,6 +78,7 @@ import {
 import { ensureNativeApi, readNativeApi } from "../nativeApi";
 import { clearPromotedDraftThreads, useComposerDraftStore } from "../composerDraftStore";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
+import { useReactCompilerSafeVirtualizer } from "../hooks/useReactCompilerSafeVirtualizer";
 import { getDefaultServerModel } from "../providerModels";
 
 import { useThreadActions } from "../hooks/useThreadActions";
@@ -886,6 +887,43 @@ function estimateSidebarProjectListItemSize(item: SidebarProjectListItem | undef
         (item.renderedProject.canCollapseThreadList ? 1 : 0),
     )
   );
+}
+
+function deriveReactCompilerSafeFallbackSidebarVirtualItems(options: {
+  estimateSize: (index: number) => number;
+  getItemKey: (index: number) => VirtualItem["key"];
+  rowCount: number;
+  scrollMargin: number;
+  scrollTop: number;
+  totalSize: number;
+  virtualItems: ReadonlyArray<VirtualItem>;
+  viewportHeight: number;
+}): VirtualItem[] {
+  "use no memo";
+
+  if (
+    !shouldUseFallbackSidebarVirtualItems({
+      rowCount: options.rowCount,
+      scrollMargin: options.scrollMargin,
+      scrollTop: options.scrollTop,
+      totalSize: options.totalSize,
+      viewportHeight: options.viewportHeight,
+      virtualItems: options.virtualItems,
+    })
+  ) {
+    return [];
+  }
+
+  return deriveFallbackSidebarVirtualItems<VirtualItem["key"]>({
+    rowCount: options.rowCount,
+    estimateSize: options.estimateSize,
+    getItemKey: options.getItemKey,
+    overscan: SIDEBAR_PROJECT_LIST_VIRTUALIZER_OVERSCAN,
+    scrollMargin: options.scrollMargin,
+    scrollTop: options.scrollTop,
+    viewportHeight: options.viewportHeight,
+    sizeFallback: SIDEBAR_PROJECT_HEADER_ROW_ESTIMATE_PX,
+  });
 }
 
 function getSidebarProjectListItemLayoutSignature(item: SidebarProjectListItem): string {
@@ -1968,6 +2006,10 @@ function useSidebarComponent() {
   const sidebarProjectListRef = useRef<HTMLUListElement | null>(null);
   const sidebarProjectListScrollMarginFrameRef = useRef<number | null>(null);
   const [sidebarProjectListScrollMargin, setSidebarProjectListScrollMargin] = useState(0);
+  const [sidebarProjectListViewport, setSidebarProjectListViewport] = useState({
+    scrollTop: 0,
+    viewportHeight: SIDEBAR_PROJECT_LIST_INITIAL_VIEWPORT_HEIGHT_PX,
+  });
   const browseRequestVersionRef = useRef(0);
   const [sidebarEditorState, dispatchSidebarEditorState] = useReducer(
     sidebarEditorStateReducer,
@@ -2020,27 +2062,27 @@ function useSidebarComponent() {
     renamingSplitTitle,
     boardThreadDragState,
   } = sidebarSplitBoardUiState;
-  const setSplitSortOrder = useCallback((splitSortOrder: SidebarSplitSortOrder) => {
+  const setSplitSortOrder = (splitSortOrder: SidebarSplitSortOrder) => {
     dispatchSidebarSplitBoardUiState({ type: "set-split-sort-order", splitSortOrder });
-  }, []);
-  const setSplitRevealCount = useCallback((nextCount: number | ((current: number) => number)) => {
+  };
+  const setSplitRevealCount = (nextCount: number | ((current: number) => number)) => {
     dispatchSidebarSplitBoardUiState({ type: "set-split-reveal-count", nextCount });
-  }, []);
-  const setSplitPickerQuery = useCallback((splitPickerQuery: string) => {
+  };
+  const setSplitPickerQuery = (splitPickerQuery: string) => {
     dispatchSidebarSplitBoardUiState({ type: "set-split-picker-query", splitPickerQuery });
-  }, []);
-  const setSplitPickerProjectFilter = useCallback((splitPickerProjectFilter: string) => {
+  };
+  const setSplitPickerProjectFilter = (splitPickerProjectFilter: string) => {
     dispatchSidebarSplitBoardUiState({
       type: "set-split-picker-project-filter",
       splitPickerProjectFilter,
     });
-  }, []);
-  const setSplitPickerSortOrder = useCallback((splitPickerSortOrder: SplitPickerSortOrder) => {
+  };
+  const setSplitPickerSortOrder = (splitPickerSortOrder: SplitPickerSortOrder) => {
     dispatchSidebarSplitBoardUiState({ type: "set-split-picker-sort-order", splitPickerSortOrder });
-  }, []);
-  const setRenamingSplitTitle = useCallback((renamingSplitTitle: string) => {
+  };
+  const setRenamingSplitTitle = (renamingSplitTitle: string) => {
     dispatchSidebarSplitBoardUiState({ type: "set-renaming-split-title", renamingSplitTitle });
-  }, []);
+  };
   const {
     confirmingArchiveThreadId,
     threadRevealCountByProject,
@@ -2199,8 +2241,11 @@ function useSidebarComponent() {
     [savedBoards, splitContextMenuState],
   );
   useEffect(() => {
-    setSplitRevealCount(SPLIT_REVEAL_STEP);
-  }, [setSplitRevealCount, splitSortOrder]);
+    dispatchSidebarSplitBoardUiState({
+      type: "set-split-reveal-count",
+      nextCount: SPLIT_REVEAL_STEP,
+    });
+  }, [splitSortOrder]);
   const buildSplitTitle = useCallback(
     (threads: ReadonlyArray<{ threadId: ThreadId }>) => {
       return buildThreadBoardTitle({
@@ -2213,19 +2258,19 @@ function useSidebarComponent() {
     },
     [savedSplitBoard.splits.length, sidebarThreadsById],
   );
-  const clearBoardThreadDrag = useCallback(() => {
+  const clearBoardThreadDrag = () => {
     setActiveThreadBoardDrag(null);
     dispatchSidebarSplitBoardUiState({
       type: "set-board-thread-drag-state",
       boardThreadDragState: null,
     });
-  }, []);
-  const setBoardThreadDragOverTarget = useCallback((targetKey: string | null) => {
+  };
+  const setBoardThreadDragOverTarget = (targetKey: string | null) => {
     dispatchSidebarSplitBoardUiState({
       type: "set-board-thread-drag-over-target",
       overTargetKey: targetKey,
     });
-  }, []);
+  };
   const readBoardThreadDrag = useCallback(
     (event?: DragEvent<HTMLElement>): ThreadBoardDragThread | null => {
       if (boardThreadDragState?.activeThread) {
@@ -2323,173 +2368,157 @@ function useSidebarComponent() {
     },
     [buildSplitTitle, navigateToBoardThreadRoute],
   );
-  const handleBoardThreadDragStart = useCallback(
-    (
-      thread: { connectionUrl: string | null; threadId: ThreadId },
-      event: DragEvent<HTMLAnchorElement>,
-    ) => {
-      const dragThread = createThreadBoardDragThread({
-        ...thread,
-        title: sidebarThreadsById[thread.threadId]?.title ?? null,
-      });
-      const payload = encodeThreadBoardDragThread(dragThread);
-      event.dataTransfer.effectAllowed = "copyMove";
-      event.dataTransfer.setData(THREAD_BOARD_DRAG_MIME, payload);
-      event.dataTransfer.setData("text/plain", payload);
-      setThreadBoardDragImage(event.dataTransfer, {
-        label: event.currentTarget.textContent,
-        tone: "copy",
-      });
-      setActiveThreadBoardDrag(dragThread);
-      setBoardsSectionExpanded(true);
-      dispatchSidebarSplitBoardUiState({
-        type: "set-board-thread-drag-state",
-        boardThreadDragState: {
-          activeThread: dragThread,
-          activeThreadKey: getThreadBoardDragThreadKey(dragThread),
-          overTargetKey: null,
-        },
-      });
-    },
-    [setBoardsSectionExpanded, sidebarThreadsById],
-  );
-  const handleBoardThreadDropOnThread = useCallback(
-    (
-      target: {
-        connectionUrl: string | null;
-        threadId: ThreadId;
-        title?: string | null | undefined;
+  const handleBoardThreadDragStart = (
+    thread: { connectionUrl: string | null; threadId: ThreadId },
+    event: DragEvent<HTMLAnchorElement>,
+  ) => {
+    const dragThread = createThreadBoardDragThread({
+      ...thread,
+      title: sidebarThreadsById[thread.threadId]?.title ?? null,
+    });
+    const payload = encodeThreadBoardDragThread(dragThread);
+    event.dataTransfer.effectAllowed = "copyMove";
+    event.dataTransfer.setData(THREAD_BOARD_DRAG_MIME, payload);
+    event.dataTransfer.setData("text/plain", payload);
+    setThreadBoardDragImage(event.dataTransfer, {
+      label: event.currentTarget.textContent,
+      tone: "copy",
+    });
+    setActiveThreadBoardDrag(dragThread);
+    setBoardsSectionExpanded(true);
+    dispatchSidebarSplitBoardUiState({
+      type: "set-board-thread-drag-state",
+      boardThreadDragState: {
+        activeThread: dragThread,
+        activeThreadKey: getThreadBoardDragThreadKey(dragThread),
+        overTargetKey: null,
       },
-      event: DragEvent<HTMLLIElement>,
-    ) => {
-      event.preventDefault();
-      const source = readBoardThreadDrag(event);
-      clearBoardThreadDrag();
-      if (!source) {
-        return;
-      }
-      const sourceKey = getThreadBoardDragThreadKey(source);
-      const targetKey = getThreadBoardDragThreadKey(target);
-      if (sourceKey === targetKey) {
-        return;
-      }
-      const targetWithTitle = {
-        ...target,
-        title: target.title ?? sidebarThreadsById[target.threadId]?.title ?? null,
-      };
-      buildBoardFromDraggedThreads([source, targetWithTitle], targetWithTitle);
+    });
+  };
+  const handleBoardThreadDropOnThread = (
+    target: {
+      connectionUrl: string | null;
+      threadId: ThreadId;
+      title?: string | null | undefined;
     },
-    [buildBoardFromDraggedThreads, clearBoardThreadDrag, readBoardThreadDrag, sidebarThreadsById],
-  );
-  const handleBoardThreadDropOnSavedBoard = useCallback(
-    (split: ChatThreadBoardSplitState, event: DragEvent<HTMLLIElement>) => {
-      event.preventDefault();
-      const source = readBoardThreadDrag(event);
-      clearBoardThreadDrag();
-      if (!source) {
-        return;
-      }
-      if (source.connectionUrl) {
-        useHostConnectionStore
-          .getState()
-          .upsertThreadOwnership(source.connectionUrl, source.threadId);
-      }
-      const openedPaneId = useChatThreadBoardStore.getState().openThreadInSplit(split.id, source);
-      const nextSplit = useChatThreadBoardStore
+    event: DragEvent<HTMLLIElement>,
+  ) => {
+    event.preventDefault();
+    const source = readBoardThreadDrag(event);
+    clearBoardThreadDrag();
+    if (!source) {
+      return;
+    }
+    const sourceKey = getThreadBoardDragThreadKey(source);
+    const targetKey = getThreadBoardDragThreadKey(target);
+    if (sourceKey === targetKey) {
+      return;
+    }
+    const targetWithTitle = {
+      ...target,
+      title: target.title ?? sidebarThreadsById[target.threadId]?.title ?? null,
+    };
+    buildBoardFromDraggedThreads([source, targetWithTitle], targetWithTitle);
+  };
+  const handleBoardThreadDropOnSavedBoard = (
+    split: ChatThreadBoardSplitState,
+    event: DragEvent<HTMLLIElement>,
+  ) => {
+    event.preventDefault();
+    const source = readBoardThreadDrag(event);
+    clearBoardThreadDrag();
+    if (!source) {
+      return;
+    }
+    if (source.connectionUrl) {
+      useHostConnectionStore
         .getState()
-        .splits.find((candidate) => candidate.id === split.id);
-      if (!nextSplit) {
-        return;
-      }
-      const targetPane =
-        nextSplit.panes.find((pane) => pane.id === openedPaneId) ??
-        nextSplit.panes.find(
-          (pane) => getThreadBoardDragThreadKey(pane) === getThreadBoardDragThreadKey(source),
-        ) ??
-        null;
-      restoreSavedSplit(nextSplit, targetPane);
-    },
-    [clearBoardThreadDrag, readBoardThreadDrag, restoreSavedSplit],
-  );
-  const createBoardThreadRowDragProps = useCallback(
-    (thread: { connectionUrl: string | null; threadId: ThreadId }) => {
-      const targetKey = getThreadBoardDragThreadKey(thread);
-      const isDragging = boardThreadDragState?.activeThreadKey === targetKey;
-      const isDropTarget =
-        boardThreadDragState !== null &&
-        boardThreadDragState.overTargetKey === targetKey &&
-        boardThreadDragState.activeThreadKey !== targetKey;
-      return {
-        isDragging,
-        isDropTarget,
-        onDragEnd: clearBoardThreadDrag,
-        onDragLeave: (event: DragEvent<HTMLLIElement>) => {
-          const relatedTarget = event.relatedTarget instanceof Node ? event.relatedTarget : null;
-          if (relatedTarget && event.currentTarget.contains(relatedTarget)) {
-            return;
-          }
-          if (boardThreadDragState?.overTargetKey === targetKey) {
-            setBoardThreadDragOverTarget(null);
-          }
-        },
-        onDragOver: (event: DragEvent<HTMLLIElement>) => {
-          const source = readBoardThreadDrag(event);
-          if (!source) {
-            return;
-          }
-          if (getThreadBoardDragThreadKey(source) === targetKey) {
-            setBoardThreadDragOverTarget(null);
-            return;
-          }
-          event.preventDefault();
-          event.dataTransfer.dropEffect = "copy";
-          setBoardThreadDragOverTarget(targetKey);
-        },
-        onDragStart: (event: DragEvent<HTMLAnchorElement>) => {
-          handleBoardThreadDragStart(thread, event);
-        },
-        onDrop: (event: DragEvent<HTMLLIElement>) => {
-          handleBoardThreadDropOnThread(thread, event);
-        },
-      };
-    },
-    [
-      boardThreadDragState,
-      clearBoardThreadDrag,
-      handleBoardThreadDragStart,
-      handleBoardThreadDropOnThread,
-      readBoardThreadDrag,
-      setBoardThreadDragOverTarget,
-    ],
-  );
-  const handleSavedBoardDragLeave = useCallback(
-    (splitId: string, event: DragEvent<HTMLLIElement>) => {
-      const relatedTarget = event.relatedTarget instanceof Node ? event.relatedTarget : null;
-      if (relatedTarget && event.currentTarget.contains(relatedTarget)) {
-        return;
-      }
-      if (boardThreadDragState?.overTargetKey === splitId) {
-        setBoardThreadDragOverTarget(null);
-      }
-    },
-    [boardThreadDragState?.overTargetKey, setBoardThreadDragOverTarget],
-  );
-  const handleSavedBoardDragOver = useCallback(
-    (split: ChatThreadBoardSplitState, event: DragEvent<HTMLLIElement>) => {
-      const source = readBoardThreadDrag(event);
-      if (!source) {
-        return;
-      }
-      event.preventDefault();
-      event.dataTransfer.dropEffect = split.panes.some(
+        .upsertThreadOwnership(source.connectionUrl, source.threadId);
+    }
+    const openedPaneId = useChatThreadBoardStore.getState().openThreadInSplit(split.id, source);
+    const nextSplit = useChatThreadBoardStore
+      .getState()
+      .splits.find((candidate) => candidate.id === split.id);
+    if (!nextSplit) {
+      return;
+    }
+    const targetPane =
+      nextSplit.panes.find((pane) => pane.id === openedPaneId) ??
+      nextSplit.panes.find(
         (pane) => getThreadBoardDragThreadKey(pane) === getThreadBoardDragThreadKey(source),
-      )
-        ? "move"
-        : "copy";
-      setBoardThreadDragOverTarget(split.id);
-    },
-    [readBoardThreadDrag, setBoardThreadDragOverTarget],
-  );
+      ) ??
+      null;
+    restoreSavedSplit(nextSplit, targetPane);
+  };
+  const createBoardThreadRowDragProps = (thread: {
+    connectionUrl: string | null;
+    threadId: ThreadId;
+  }) => {
+    const targetKey = getThreadBoardDragThreadKey(thread);
+    const isDragging = boardThreadDragState?.activeThreadKey === targetKey;
+    const isDropTarget =
+      boardThreadDragState !== null &&
+      boardThreadDragState.overTargetKey === targetKey &&
+      boardThreadDragState.activeThreadKey !== targetKey;
+    return {
+      isDragging,
+      isDropTarget,
+      onDragEnd: clearBoardThreadDrag,
+      onDragLeave: (event: DragEvent<HTMLLIElement>) => {
+        const relatedTarget = event.relatedTarget instanceof Node ? event.relatedTarget : null;
+        if (relatedTarget && event.currentTarget.contains(relatedTarget)) {
+          return;
+        }
+        if (boardThreadDragState?.overTargetKey === targetKey) {
+          setBoardThreadDragOverTarget(null);
+        }
+      },
+      onDragOver: (event: DragEvent<HTMLLIElement>) => {
+        const source = readBoardThreadDrag(event);
+        if (!source) {
+          return;
+        }
+        if (getThreadBoardDragThreadKey(source) === targetKey) {
+          setBoardThreadDragOverTarget(null);
+          return;
+        }
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "copy";
+        setBoardThreadDragOverTarget(targetKey);
+      },
+      onDragStart: (event: DragEvent<HTMLAnchorElement>) => {
+        handleBoardThreadDragStart(thread, event);
+      },
+      onDrop: (event: DragEvent<HTMLLIElement>) => {
+        handleBoardThreadDropOnThread(thread, event);
+      },
+    };
+  };
+  const handleSavedBoardDragLeave = (splitId: string, event: DragEvent<HTMLLIElement>) => {
+    const relatedTarget = event.relatedTarget instanceof Node ? event.relatedTarget : null;
+    if (relatedTarget && event.currentTarget.contains(relatedTarget)) {
+      return;
+    }
+    if (boardThreadDragState?.overTargetKey === splitId) {
+      setBoardThreadDragOverTarget(null);
+    }
+  };
+  const handleSavedBoardDragOver = (
+    split: ChatThreadBoardSplitState,
+    event: DragEvent<HTMLLIElement>,
+  ) => {
+    const source = readBoardThreadDrag(event);
+    if (!source) {
+      return;
+    }
+    event.preventDefault();
+    event.dataTransfer.dropEffect = split.panes.some(
+      (pane) => getThreadBoardDragThreadKey(pane) === getThreadBoardDragThreadKey(source),
+    )
+      ? "move"
+      : "copy";
+    setBoardThreadDragOverTarget(split.id);
+  };
   const openThreadInSplit = useCallback(
     (target: {
       connectionUrl: string | null;
@@ -2618,77 +2647,74 @@ function useSidebarComponent() {
       });
     });
   }, [navigate, routeThreadId]);
-  const cancelSplitRename = useCallback(() => {
+  const cancelSplitRename = () => {
     dispatchSidebarSplitBoardUiState({ type: "cancel-split-rename" });
-  }, []);
-  const commitSplitRename = useCallback(
-    (split: ChatThreadBoardSplitState) => {
-      const title = renamingSplitTitle.trim();
-      if (!title) {
-        toastManager.add({
-          type: "warning",
-          title: "Split name cannot be empty",
-        });
-        cancelSplitRename();
-        return;
-      }
-      useChatThreadBoardStore.getState().renameSplit(split.id, title);
+  };
+  const commitSplitRename = (split: ChatThreadBoardSplitState) => {
+    const title = renamingSplitTitle.trim();
+    if (!title) {
+      toastManager.add({
+        type: "warning",
+        title: "Split name cannot be empty",
+      });
       cancelSplitRename();
-    },
-    [cancelSplitRename, renamingSplitTitle],
-  );
-  const closeSplitContextMenu = useCallback(() => {
+      return;
+    }
+    useChatThreadBoardStore.getState().renameSplit(split.id, title);
+    cancelSplitRename();
+  };
+  const closeSplitContextMenu = () => {
     dispatchSidebarSplitBoardUiState({
       type: "set-split-context-menu-state",
       splitContextMenuState: null,
     });
-  }, []);
-  const openSplitContextMenu = useCallback(
-    (split: ChatThreadBoardSplitState, position: { x: number; y: number }) => {
+  };
+  const openSplitContextMenu = (
+    split: ChatThreadBoardSplitState,
+    position: { x: number; y: number },
+  ) => {
+    dispatchSidebarSplitBoardUiState({
+      type: "set-split-context-menu-state",
+      splitContextMenuState: { position, splitId: split.id },
+    });
+  };
+  const handleSplitMenuAction = async (
+    split: ChatThreadBoardSplitState,
+    action: "archive" | "delete" | "open" | "rename",
+  ) => {
+    closeSplitContextMenu();
+    if (action === "open") {
+      restoreSavedSplit(split);
+      return;
+    }
+    if (action === "rename") {
       dispatchSidebarSplitBoardUiState({
-        type: "set-split-context-menu-state",
-        splitContextMenuState: { position, splitId: split.id },
+        type: "start-split-rename",
+        renamingSplitId: split.id,
+        renamingSplitTitle: split.title,
       });
-    },
-    [],
-  );
-  const handleSplitMenuAction = useCallback(
-    async (split: ChatThreadBoardSplitState, action: "archive" | "delete" | "open" | "rename") => {
-      closeSplitContextMenu();
-      if (action === "open") {
-        restoreSavedSplit(split);
-        return;
-      }
-      if (action === "rename") {
-        dispatchSidebarSplitBoardUiState({
-          type: "start-split-rename",
-          renamingSplitId: split.id,
-          renamingSplitTitle: split.title,
-        });
-        return;
-      }
-      if (action === "archive") {
-        useChatThreadBoardStore.getState().archiveSplit(split.id);
-        if (activeStoreSplitId === split.id) {
-          closeActiveSplitRoute();
-        }
-        return;
-      }
-      const api = readNativeApi();
-      if (!api) return;
-      const confirmed = await api.dialogs.confirm(
-        [`Delete split "${split.title}"?`, "The threads are not deleted."].join("\n"),
-      );
-      if (!confirmed) {
-        return;
-      }
-      useChatThreadBoardStore.getState().deleteSplit(split.id);
+      return;
+    }
+    if (action === "archive") {
+      useChatThreadBoardStore.getState().archiveSplit(split.id);
       if (activeStoreSplitId === split.id) {
         closeActiveSplitRoute();
       }
-    },
-    [activeStoreSplitId, closeActiveSplitRoute, closeSplitContextMenu, restoreSavedSplit],
-  );
+      return;
+    }
+    const api = readNativeApi();
+    if (!api) return;
+    const confirmed = await api.dialogs.confirm(
+      [`Delete split "${split.title}"?`, "The threads are not deleted."].join("\n"),
+    );
+    if (!confirmed) {
+      return;
+    }
+    useChatThreadBoardStore.getState().deleteSplit(split.id);
+    if (activeStoreSplitId === split.id) {
+      closeActiveSplitRoute();
+    }
+  };
   const remoteSidebarHostsRef = useRef<ReadonlyArray<RemoteSidebarHostEntry>>(
     remoteSidebarHostSnapshotCache,
   );
@@ -3046,10 +3072,14 @@ function useSidebarComponent() {
     remoteSidebarRefreshInFlightRef.current = refreshPromise;
     try {
       await refreshPromise;
-    } finally {
+    } catch (error) {
       if (remoteSidebarRefreshInFlightRef.current === refreshPromise) {
         remoteSidebarRefreshInFlightRef.current = null;
       }
+      throw error;
+    }
+    if (remoteSidebarRefreshInFlightRef.current === refreshPromise) {
+      remoteSidebarRefreshInFlightRef.current = null;
     }
   }, [
     sidebarProjectSortOrder,
@@ -3087,9 +3117,11 @@ function useSidebarComponent() {
       }
       try {
         await refreshRemoteSidebarHosts();
-      } finally {
+      } catch (error) {
         schedule(resolveRefreshDelay());
+        throw error;
       }
+      schedule(resolveRefreshDelay());
     };
 
     const onVisibilityChange = () => {
@@ -3296,6 +3328,9 @@ function useSidebarComponent() {
           path: trimmedPath,
           result: browseResult,
         });
+        if (browseRequestVersionRef.current === requestVersion) {
+          dispatchProjectPickerBrowseUiState({ type: "project-browse-finish" });
+        }
       } catch (error) {
         if (browseRequestVersionRef.current !== requestVersion) {
           return;
@@ -3305,7 +3340,6 @@ function useSidebarComponent() {
           path: trimmedPath,
           error: error instanceof Error ? error.message : "Unable to browse this directory path.",
         });
-      } finally {
         if (browseRequestVersionRef.current === requestVersion) {
           dispatchProjectPickerBrowseUiState({ type: "project-browse-finish" });
         }
@@ -3554,12 +3588,17 @@ function useSidebarComponent() {
           availability = await probeRemoteRouteAvailability(environment.connectionUrl, {
             force: true,
           });
-        } finally {
+        } catch (error) {
           dispatchProjectPickerState({
             type: "set-project-picker-environment-probe-id",
             projectPickerEnvironmentProbeId: null,
           });
+          throw error;
         }
+        dispatchProjectPickerState({
+          type: "set-project-picker-environment-probe-id",
+          projectPickerEnvironmentProbeId: null,
+        });
         if (availability.status !== "available") {
           setAddProjectError(
             availability.error?.trim().length
@@ -5339,7 +5378,7 @@ function useSidebarComponent() {
       ),
     [sidebarProjectListItems],
   );
-  const sidebarProjectListVirtualizer = useVirtualizer({
+  const sidebarProjectListVirtualizer = useReactCompilerSafeVirtualizer({
     count: sidebarProjectListItemCount,
     estimateSize: estimateSidebarProjectListItemSizeByIndex,
     getItemKey: getSidebarProjectListItemKey,
@@ -5354,42 +5393,16 @@ function useSidebarComponent() {
     sidebarProjectListVirtualizer.getTotalSize(),
     estimatedSidebarProjectListTotalSize,
   );
-  const fallbackVirtualSidebarProjectRows = useMemo<VirtualItem[]>(() => {
-    const scrollElement = sidebarContentScrollRef.current;
-    const scrollTop = scrollElement?.scrollTop ?? 0;
-    const viewportHeight =
-      scrollElement?.clientHeight ?? SIDEBAR_PROJECT_LIST_INITIAL_VIEWPORT_HEIGHT_PX;
-    if (
-      !shouldUseFallbackSidebarVirtualItems({
-        rowCount: sidebarProjectListItemCount,
-        scrollMargin: sidebarProjectListScrollMargin,
-        scrollTop,
-        totalSize: sidebarProjectListTotalSize,
-        viewportHeight,
-        virtualItems: virtualSidebarProjectRows,
-      })
-    ) {
-      return [];
-    }
-
-    return deriveFallbackSidebarVirtualItems<VirtualItem["key"]>({
-      rowCount: sidebarProjectListItemCount,
-      estimateSize: estimateSidebarProjectListItemSizeByIndex,
-      getItemKey: getSidebarProjectListItemKey,
-      overscan: SIDEBAR_PROJECT_LIST_VIRTUALIZER_OVERSCAN,
-      scrollMargin: sidebarProjectListScrollMargin,
-      scrollTop,
-      viewportHeight,
-      sizeFallback: SIDEBAR_PROJECT_HEADER_ROW_ESTIMATE_PX,
-    });
-  }, [
-    estimateSidebarProjectListItemSizeByIndex,
-    getSidebarProjectListItemKey,
-    sidebarProjectListItemCount,
-    sidebarProjectListScrollMargin,
-    sidebarProjectListTotalSize,
-    virtualSidebarProjectRows,
-  ]);
+  const fallbackVirtualSidebarProjectRows = deriveReactCompilerSafeFallbackSidebarVirtualItems({
+    estimateSize: estimateSidebarProjectListItemSizeByIndex,
+    getItemKey: getSidebarProjectListItemKey,
+    rowCount: sidebarProjectListItemCount,
+    scrollMargin: sidebarProjectListScrollMargin,
+    scrollTop: sidebarProjectListViewport.scrollTop,
+    totalSize: sidebarProjectListTotalSize,
+    virtualItems: virtualSidebarProjectRows,
+    viewportHeight: sidebarProjectListViewport.viewportHeight,
+  });
   const renderedVirtualSidebarProjectRows =
     fallbackVirtualSidebarProjectRows.length > 0
       ? fallbackVirtualSidebarProjectRows
@@ -5437,11 +5450,9 @@ function useSidebarComponent() {
     return threadIds;
   }, [localProjectThreadGroupById, renderedVirtualSidebarProjectRows, sidebarProjectListItems]);
   const mountedSidebarThreadPrefetchKey = mountedSidebarThreadIdsForPrefetch.join("\0");
-  const mountedSidebarThreadIdsForPrefetchRef = useRef(mountedSidebarThreadIdsForPrefetch);
-  mountedSidebarThreadIdsForPrefetchRef.current = mountedSidebarThreadIdsForPrefetch;
 
   useEffect(() => {
-    const threadIdsToPrefetch = mountedSidebarThreadIdsForPrefetchRef.current;
+    const threadIdsToPrefetch = mountedSidebarThreadIdsForPrefetch;
     if (threadIdsToPrefetch.length === 0) {
       return;
     }
@@ -5469,20 +5480,38 @@ function useSidebarComponent() {
       cancelled = true;
       cancelScheduledPrefetch();
     };
-  }, [mountedSidebarThreadPrefetchKey, prefetchThreadHistory]);
+  }, [mountedSidebarThreadIdsForPrefetch, mountedSidebarThreadPrefetchKey, prefetchThreadHistory]);
 
   const measureSidebarProjectListScrollMargin = useCallback(() => {
     const scrollElement = sidebarContentScrollRef.current;
     const projectListElement = sidebarProjectListRef.current;
     if (!scrollElement || !projectListElement) {
       setSidebarProjectListScrollMargin(0);
+      setSidebarProjectListViewport((current) =>
+        current.scrollTop === 0 &&
+        current.viewportHeight === SIDEBAR_PROJECT_LIST_INITIAL_VIEWPORT_HEIGHT_PX
+          ? current
+          : {
+              scrollTop: 0,
+              viewportHeight: SIDEBAR_PROJECT_LIST_INITIAL_VIEWPORT_HEIGHT_PX,
+            },
+      );
       return;
     }
+    const nextScrollTop = scrollElement.scrollTop;
+    const nextViewportHeight =
+      scrollElement.clientHeight || SIDEBAR_PROJECT_LIST_INITIAL_VIEWPORT_HEIGHT_PX;
     const scrollElementTop = scrollElement.getBoundingClientRect().top;
     const projectListTop = projectListElement.getBoundingClientRect().top;
-    const nextScrollMargin = Math.max(
-      0,
-      projectListTop - scrollElementTop + scrollElement.scrollTop,
+    const nextScrollMargin = Math.max(0, projectListTop - scrollElementTop + nextScrollTop);
+    setSidebarProjectListViewport((current) =>
+      Math.abs(current.scrollTop - nextScrollTop) < 0.5 &&
+      Math.abs(current.viewportHeight - nextViewportHeight) < 0.5
+        ? current
+        : {
+            scrollTop: nextScrollTop,
+            viewportHeight: nextViewportHeight,
+          },
     );
     setSidebarProjectListScrollMargin((current) =>
       Math.abs(current - nextScrollMargin) < 0.5 ? current : nextScrollMargin,
@@ -5693,7 +5722,7 @@ function useSidebarComponent() {
     },
     [setThreadRevealCountByProject],
   );
-  const createSelectedSplit = useCallback(() => {
+  const createSelectedSplit = () => {
     const selectedTargets: Array<{
       connectionUrl: string | null;
       threadId: ThreadId;
@@ -5729,12 +5758,7 @@ function useSidebarComponent() {
     }
     dispatchSidebarSplitBoardUiState({ type: "close-split-picker" });
     navigateToBoardThreadRoute(activeTarget);
-  }, [
-    buildSplitTitle,
-    navigateToBoardThreadRoute,
-    splitPickerSelectedThreadIds,
-    splitPickerThreadOptions,
-  ]);
+  };
   const sidebarNewThreadProjectId =
     defaultProjectId && projectById.has(defaultProjectId) ? defaultProjectId : null;
   const handleStartNewThreadForProject = useCallback(
@@ -7293,7 +7317,11 @@ function useSidebarComponent() {
               </Button>
             </div>
           </SidebarGroup>
-          <SidebarContent ref={sidebarContentScrollRef} className="gap-0 pt-1.5">
+          <SidebarContent
+            ref={sidebarContentScrollRef}
+            className="gap-0 pt-1.5"
+            onScroll={scheduleSidebarProjectListScrollMarginMeasure}
+          >
             <div ref={sidebarProjectListOffsetSourceRef} className="flex shrink-0 flex-col">
               {sortedRenderedPinnedItems.length > 0 ? (
                 <SidebarGroup className="shrink-0 px-2.5 pt-5 pb-2">
