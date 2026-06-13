@@ -20,7 +20,6 @@ import {
 import {
   useCallback,
   useEffect,
-  useMemo,
   useReducer,
   useRef,
   useState,
@@ -80,11 +79,7 @@ import WorkspaceCodeEditor, {
   type WorkspaceCodeEditorSelection,
 } from "./WorkspaceCodeEditor";
 import WorkspaceFindBar from "./WorkspaceFindBar";
-import {
-  buildWorkspacePreviewUrl,
-  detectWorkspacePreviewKind,
-  type WorkspacePreviewKind,
-} from "./workspaceFileUtils";
+import { buildWorkspacePreviewUrl, detectWorkspacePreviewKind } from "./workspaceFileUtils";
 
 function readDraggedWorkspaceTab(event: ReactDragEvent<HTMLElement>) {
   return readEditorTabTransfer(event.dataTransfer);
@@ -875,16 +870,13 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
     dispatchSelectionState({ type: "set-cursor-label", cursorLabel });
   };
 
-  const handleSymbolsChange = useCallback(
-    (contents: string) => {
-      if (isPreviewMode) {
-        onSymbolsChange(pane.id, pane.activeFilePath, []);
-        return;
-      }
-      onSymbolsChange(pane.id, pane.activeFilePath, extractWorkspaceEditorPaneSymbols(contents));
-    },
-    [isPreviewMode, onSymbolsChange, pane.activeFilePath, pane.id],
-  );
+  const handleSymbolsChange = (contents: string) => {
+    if (isPreviewMode) {
+      onSymbolsChange(pane.id, pane.activeFilePath, []);
+      return;
+    }
+    onSymbolsChange(pane.id, pane.activeFilePath, extractWorkspaceEditorPaneSymbols(contents));
+  };
 
   const handleSelectionChange = (selection: WorkspaceCodeEditorSelection | null) => {
     if (!selection || !workspaceCwd || isPreviewMode) {
