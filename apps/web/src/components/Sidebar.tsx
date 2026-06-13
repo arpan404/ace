@@ -1994,9 +1994,15 @@ function useSidebarComponent() {
     projectPickerKeyboardNavigationId,
   } = projectPickerBrowseUiState;
   const lastKeyboardNavigationTimeRef = useRef(0);
-  const threadHistoryPrefetchByThreadIdRef = useRef(
-    new Map<ThreadId, Promise<OrchestrationReadModel["threads"][number]>>(),
-  );
+  const threadHistoryPrefetchByThreadIdRef = useRef<
+    Map<ThreadId, Promise<OrchestrationReadModel["threads"][number]>>
+  >(null!);
+  if (threadHistoryPrefetchByThreadIdRef.current === null) {
+    threadHistoryPrefetchByThreadIdRef.current = new Map<
+      ThreadId,
+      Promise<OrchestrationReadModel["threads"][number]>
+    >();
+  }
   const providerStatuses = useServerProviders({
     enabled: addingProject || isAddingProject,
   });
@@ -2184,7 +2190,10 @@ function useSidebarComponent() {
   const { showThreadJumpHints, updateThreadJumpHintsVisibility } = useThreadJumpHintVisibility();
   const renamingCommittedRef = useRef(false);
   const renamingInputRef = useRef<HTMLInputElement | null>(null);
-  const confirmArchiveButtonRefs = useRef(new Map<ThreadId, HTMLButtonElement>());
+  const confirmArchiveButtonRefs = useRef<Map<ThreadId, HTMLButtonElement>>(null!);
+  if (confirmArchiveButtonRefs.current === null) {
+    confirmArchiveButtonRefs.current = new Map<ThreadId, HTMLButtonElement>();
+  }
   const sidebarHeaderRowRef = useRef<HTMLDivElement | null>(null);
   const dragInProgressRef = useRef(false);
   const suppressProjectClickAfterDragRef = useRef(false);
@@ -2694,11 +2703,20 @@ function useSidebarComponent() {
   const remoteSidebarHostsRef = useRef<ReadonlyArray<RemoteSidebarHostEntry>>(
     remoteSidebarHostSnapshotCache,
   );
-  const registeredRemoteRouteConnectionUrlsRef = useRef<Set<string>>(new Set());
-  const remoteSnapshotSequenceByConnectionRef = useRef<Map<string, number>>(new Map());
+  const registeredRemoteRouteConnectionUrlsRef = useRef<Set<string>>(null!);
+  if (registeredRemoteRouteConnectionUrlsRef.current === null) {
+    registeredRemoteRouteConnectionUrlsRef.current = new Set<string>();
+  }
+  const remoteSnapshotSequenceByConnectionRef = useRef<Map<string, number>>(null!);
+  if (remoteSnapshotSequenceByConnectionRef.current === null) {
+    remoteSnapshotSequenceByConnectionRef.current = new Map<string, number>();
+  }
   const pendingRemoteSnapshotMergeByConnectionRef = useRef<Map<string, OrchestrationReadModel>>(
-    new Map(),
+    null!,
   );
+  if (pendingRemoteSnapshotMergeByConnectionRef.current === null) {
+    pendingRemoteSnapshotMergeByConnectionRef.current = new Map<string, OrchestrationReadModel>();
+  }
   const remoteSnapshotMergeScheduledRef = useRef(false);
   const remoteSnapshotMergeHandleRef = useRef<{ kind: "idle" | "timeout"; id: number } | null>(
     null,

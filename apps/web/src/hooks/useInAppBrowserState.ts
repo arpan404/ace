@@ -773,11 +773,23 @@ export function useInAppBrowserState(options: UseInAppBrowserStateOptions) {
   const initialAddressBarAutoFocusHandledRef = useRef(false);
   const browserContextMenuFallbackTimerRef = useRef<number | null>(null);
   const lastNativeBrowserContextMenuAtRef = useRef<number>(-Infinity);
-  const webviewHandlesRef = useRef(new Map<string, BrowserTabHandle>());
-  const webviewHandleWaitersRef = useRef(new Map<string, Set<BrowserHandleWaiter>>());
-  const bridgeReadCacheRef = useRef(new Map<string, BrowserBridgeReadCacheEntry>());
+  const webviewHandlesRef = useRef<Map<string, BrowserTabHandle>>(null!);
+  if (webviewHandlesRef.current === null) {
+    webviewHandlesRef.current = new Map<string, BrowserTabHandle>();
+  }
+  const webviewHandleWaitersRef = useRef<Map<string, Set<BrowserHandleWaiter>>>(null!);
+  if (webviewHandleWaitersRef.current === null) {
+    webviewHandleWaitersRef.current = new Map<string, Set<BrowserHandleWaiter>>();
+  }
+  const bridgeReadCacheRef = useRef<Map<string, BrowserBridgeReadCacheEntry>>(null!);
+  if (bridgeReadCacheRef.current === null) {
+    bridgeReadCacheRef.current = new Map<string, BrowserBridgeReadCacheEntry>();
+  }
   const browserSessionNameRef = useRef<string | null>(null);
-  const lastRecordedBrowserHistoryUrlByTabRef = useRef(new Map<string, string>());
+  const lastRecordedBrowserHistoryUrlByTabRef = useRef<Map<string, string>>(null!);
+  if (lastRecordedBrowserHistoryUrlByTabRef.current === null) {
+    lastRecordedBrowserHistoryUrlByTabRef.current = new Map<string, string>();
+  }
   const [browserSession, setBrowserSession] = useLocalStorage(
     browserSessionStorageKey,
     createBrowserSessionState(),

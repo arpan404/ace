@@ -440,7 +440,10 @@ function useDevicesSettingsPanelComponent() {
   });
   const { pairedSessions, refreshingPairedSessions, revokingPairedSessionIds, hostAvailability } =
     sessionState;
-  const registeredRouteConnectionUrlsRef = useRef<Set<string>>(new Set());
+  const registeredRouteConnectionUrlsRef = useRef<Set<string>>(null!);
+  if (registeredRouteConnectionUrlsRef.current === null) {
+    registeredRouteConnectionUrlsRef.current = new Set<string>();
+  }
   const importingHostRef = useRef(importingHost);
   const localDeviceConnection = splitWsUrlAuthToken(resolveLocalDeviceWsUrl());
   useEffect(() => {

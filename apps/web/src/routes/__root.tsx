@@ -821,7 +821,10 @@ function DesktopPairingLinkBridge() {
 }
 
 function RemoteRelayConnectionToastBridge() {
-  const disconnectedConnectionUrlsRef = useRef(new Set<string>());
+  const disconnectedConnectionUrlsRef = useRef<Set<string>>(null!);
+  if (disconnectedConnectionUrlsRef.current === null) {
+    disconnectedConnectionUrlsRef.current = new Set<string>();
+  }
 
   useEffect(() => {
     return subscribeToRemoteRelayConnectionState((event) => {

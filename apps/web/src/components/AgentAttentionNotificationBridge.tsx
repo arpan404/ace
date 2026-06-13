@@ -218,20 +218,50 @@ function useAgentAttentionNotificationBridgeComponent() {
     () => new Map(attentionRequests.map((request) => [request.key, request])),
     [attentionRequests],
   );
-  const activeBrowserNotificationsRef = useRef(new Map<string, Notification>());
-  const activeDesktopNotificationIdsRef = useRef(new Set<string>());
-  const failedBrowserNotificationRequestKeysRef = useRef(new Set<string>());
-  const failedDesktopNotificationRequestKeysRef = useRef(new Set<string>());
-  const notifiedRequestKeysRef = useRef(new Set<string>());
+  const activeBrowserNotificationsRef = useRef<Map<string, Notification>>(null!);
+  if (activeBrowserNotificationsRef.current === null) {
+    activeBrowserNotificationsRef.current = new Map<string, Notification>();
+  }
+  const activeDesktopNotificationIdsRef = useRef<Set<string>>(null!);
+  if (activeDesktopNotificationIdsRef.current === null) {
+    activeDesktopNotificationIdsRef.current = new Set<string>();
+  }
+  const failedBrowserNotificationRequestKeysRef = useRef<Set<string>>(null!);
+  if (failedBrowserNotificationRequestKeysRef.current === null) {
+    failedBrowserNotificationRequestKeysRef.current = new Set<string>();
+  }
+  const failedDesktopNotificationRequestKeysRef = useRef<Set<string>>(null!);
+  if (failedDesktopNotificationRequestKeysRef.current === null) {
+    failedDesktopNotificationRequestKeysRef.current = new Set<string>();
+  }
+  const notifiedRequestKeysRef = useRef<Set<string>>(null!);
+  if (notifiedRequestKeysRef.current === null) {
+    notifiedRequestKeysRef.current = new Set<string>();
+  }
   const attentionRequestByKeyRef = useRef(attentionRequestByKey);
   const hasPromptedForPermissionRef = useRef(false);
   const permissionOfferToastIdRef = useRef<ReturnType<typeof toastManager.add> | null>(null);
-  const notificationSessionStartedAtRef = useRef(new Date().toISOString());
+  const notificationSessionStartedAtRef = useRef<string>(null!);
+  if (notificationSessionStartedAtRef.current === null) {
+    notificationSessionStartedAtRef.current = new Date().toISOString();
+  }
   const lastKnownFocusStateRef = useRef(isAppFocused);
-  const connectionUnsubscribeByUrlRef = useRef(new Map<string, () => void>());
-  const refreshTimerByConnectionUrlRef = useRef(new Map<string, number>());
-  const refreshInFlightByConnectionUrlRef = useRef(new Map<string, Promise<void>>());
-  const refreshQueuedByConnectionUrlRef = useRef(new Set<string>());
+  const connectionUnsubscribeByUrlRef = useRef<Map<string, () => void>>(null!);
+  if (connectionUnsubscribeByUrlRef.current === null) {
+    connectionUnsubscribeByUrlRef.current = new Map<string, () => void>();
+  }
+  const refreshTimerByConnectionUrlRef = useRef<Map<string, number>>(null!);
+  if (refreshTimerByConnectionUrlRef.current === null) {
+    refreshTimerByConnectionUrlRef.current = new Map<string, number>();
+  }
+  const refreshInFlightByConnectionUrlRef = useRef<Map<string, Promise<void>>>(null!);
+  if (refreshInFlightByConnectionUrlRef.current === null) {
+    refreshInFlightByConnectionUrlRef.current = new Map<string, Promise<void>>();
+  }
+  const refreshQueuedByConnectionUrlRef = useRef<Set<string>>(null!);
+  if (refreshQueuedByConnectionUrlRef.current === null) {
+    refreshQueuedByConnectionUrlRef.current = new Set<string>();
+  }
 
   const resolveTrackedConnectionUrls = useMemo(
     () => () => {

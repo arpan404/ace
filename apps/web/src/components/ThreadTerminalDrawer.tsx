@@ -1357,7 +1357,10 @@ export default memo(function ThreadTerminalDrawer({
       ? drawerHeightState.height
       : clampedPropHeight;
   const drawerHeightRef = useRef(drawerHeight);
-  const lastSyncedHeightRef = useRef(clampDrawerHeight(height));
+  const lastSyncedHeightRef = useRef<number>(null!);
+  if (lastSyncedHeightRef.current === null) {
+    lastSyncedHeightRef.current = clampDrawerHeight(height);
+  }
   const onHeightChangeRef = useRef(onHeightChange);
   const resizeStateRef = useRef<{
     pointerId: number;

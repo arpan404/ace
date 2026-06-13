@@ -2476,7 +2476,10 @@ function useChatViewComponent({
   const sourceProposedPlanThreadId = activeLatestTurn?.sourceProposedPlan?.threadId ?? null;
   const sourcePlanThread = useThreadById(sourceProposedPlanThreadId);
   const sourcePlanHydrationInFlightRef = useRef<ThreadId | null>(null);
-  const handoffHydrationInFlightRef = useRef<Set<ThreadId>>(new Set());
+  const handoffHydrationInFlightRef = useRef<Set<ThreadId>>(null!);
+  if (handoffHydrationInFlightRef.current === null) {
+    handoffHydrationInFlightRef.current = new Set<ThreadId>();
+  }
   const recentThreadHistoryKeepId =
     trackedActiveThreadId === activeThreadId ? previousActiveThreadId : trackedActiveThreadId;
   const recentThreadHistoryThread = useThreadById(recentThreadHistoryKeepId);

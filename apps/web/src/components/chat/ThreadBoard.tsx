@@ -550,7 +550,10 @@ function ThreadBoardPane(props: {
 
 function useThreadBoardComponent(props: { connectionUrl?: string | null; threadId: ThreadId }) {
   const navigate = useNavigate();
-  const branchRefs = useRef(new Map<string, HTMLDivElement>());
+  const branchRefs = useRef<Map<string, HTMLDivElement>>(null!);
+  if (branchRefs.current === null) {
+    branchRefs.current = new Map<string, HTMLDivElement>();
+  }
   const activePaneId = useChatThreadBoardStore((state) => state.activePaneId);
   const activeSplitId = useChatThreadBoardStore((state) => state.activeSplitId);
   const layoutRoot = useChatThreadBoardStore((state) => state.layoutRoot);
@@ -586,7 +589,10 @@ function useThreadBoardComponent(props: { connectionUrl?: string | null; threadI
 
   const [dropTarget, setDropTarget] = useState<ThreadBoardDropTargetState | null>(null);
   const dropTargetRef = useRef<ThreadBoardDropTargetState | null>(null);
-  const paneDropRectCacheRef = useRef(new Map<string, DOMRect>());
+  const paneDropRectCacheRef = useRef<Map<string, DOMRect>>(null!);
+  if (paneDropRectCacheRef.current === null) {
+    paneDropRectCacheRef.current = new Map<string, DOMRect>();
+  }
   const [deferredPaneContentIds, setDeferredPaneContentIds] = useState<ReadonlySet<string>>(
     () => new Set(),
   );

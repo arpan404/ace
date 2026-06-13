@@ -1339,7 +1339,10 @@ function useThreadWorkspaceEditorComponent(inputProps: {
   const treeScrollRef = useRef<HTMLDivElement | null>(null);
   const treeSearchInputRef = useRef<HTMLInputElement | null>(null);
   const editorGridRef = useRef<HTMLDivElement | null>(null);
-  const rowGroupRefs = useRef(new Map<string, HTMLDivElement | null>());
+  const rowGroupRefs = useRef<Map<string, HTMLDivElement | null>>(null!);
+  if (rowGroupRefs.current === null) {
+    rowGroupRefs.current = new Map<string, HTMLDivElement | null>();
+  }
   const pendingExplorerRevealPathRef = useRef<string | null>(null);
   const closeFile = useEditorStateStore((state) => state.closeFile);
   const closeFilesToRight = useEditorStateStore((state) => state.closeFilesToRight);

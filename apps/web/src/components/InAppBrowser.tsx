@@ -469,7 +469,10 @@ export const InAppBrowser = memo(function InAppBrowser(props: InAppBrowserProps)
   const browserToolbarRef = useRef<HTMLDivElement | null>(null);
   const designerToolMeasureRef = useRef<HTMLDivElement | null>(null);
   const designerToolSlotRef = useRef<HTMLDivElement | null>(null);
-  const designerToolButtonRefs = useRef(new Map<BrowserDesignerTool, HTMLButtonElement>());
+  const designerToolButtonRefs = useRef<Map<BrowserDesignerTool, HTMLButtonElement>>(null!);
+  if (designerToolButtonRefs.current === null) {
+    designerToolButtonRefs.current = new Map<BrowserDesignerTool, HTMLButtonElement>();
+  }
   const [addressFieldExpanded, setAddressFieldExpanded] = useState(false);
   const [designerToolsCollapsed, setDesignerToolsCollapsed] = useState(false);
   const [sitePanelOpen, setSitePanelOpen] = useState(false);
