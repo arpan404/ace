@@ -3509,7 +3509,7 @@ function useChatViewComponent({
   const [browserControllerByThread] = useState(() => new Map<string, InAppBrowserController>());
   const browserControllerByThreadRef = useRef(browserControllerByThread);
   const [browserRuntimeStateByThread] = useState(
-    () => new Map<string, { devToolsOpen: boolean }>(),
+    () => new Map<string, ActiveBrowserRuntimeState>(),
   );
   const browserRuntimeStateByThreadRef = useRef(browserRuntimeStateByThread);
   const lastBrowserPointerClearedTurnRef = useRef<string | null>(null);
@@ -5515,10 +5515,20 @@ function useChatViewComponent({
   };
   const handleBrowserRuntimeStateChange = (
     browserInstanceId: string,
-    state: { devToolsOpen: boolean },
+    state: ActiveBrowserRuntimeState,
   ) => {
+    const previousState = browserRuntimeStateByThreadRef.current.get(browserInstanceId) ?? null;
+    if (
+      previousState?.devToolsOpen === state.devToolsOpen &&
+      previousState.loading === state.loading
+    ) {
+      return;
+    }
     browserRuntimeStateByThreadRef.current.set(browserInstanceId, state);
     if (activeBrowserThreadIdRef.current !== browserInstanceId) {
+      return;
+    }
+    if ((previousState?.devToolsOpen ?? false) === state.devToolsOpen) {
       return;
     }
     setBrowserDevToolsOpen(state.devToolsOpen);
