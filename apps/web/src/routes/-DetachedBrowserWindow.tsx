@@ -11,7 +11,7 @@ import { appendBrowserDesignContextToPrompt } from "../lib/terminalContext";
 import { newCommandId, newMessageId, randomUUID } from "../lib/utils";
 import { readNativeApi } from "../nativeApi";
 import { useStore } from "../store";
-import { DetachedThreadSnapshotBootstrap } from "./DetachedThreadSnapshotBootstrap";
+import { DetachedThreadSnapshotBootstrap } from "./-DetachedThreadSnapshotBootstrap";
 
 function resolveThreadIdFromBrowserScope(scopeId: string | null): ThreadId | null {
   const threadId = resolveBrowserThreadIdFromScopeId(scopeId);

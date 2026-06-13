@@ -3,7 +3,7 @@ import { lazy, Suspense } from "react";
 
 import type { useServerAvailableEditors, useServerKeybindings } from "../rpc/serverState";
 import type { useStore } from "../store";
-import { DetachedWindowMessage } from "./DetachedWindowMessage";
+import { DetachedWindowMessage } from "./-DetachedWindowMessage";
 
 const DetachedThreadWorkspaceEditor = lazy(
   () => import("../components/editor/ThreadWorkspaceEditor"),

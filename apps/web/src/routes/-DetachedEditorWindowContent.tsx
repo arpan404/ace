@@ -9,8 +9,8 @@ import {
 import { useServerAvailableEditors, useServerKeybindings } from "../rpc/serverState";
 import { useStore } from "../store";
 import { toastManager } from "../components/ui/toast";
-import { DetachedEditorWindowBody } from "./DetachedEditorWindowBody";
-import { DetachedThreadSnapshotBootstrap } from "./DetachedThreadSnapshotBootstrap";
+import { DetachedEditorWindowBody } from "./-DetachedEditorWindowBody";
+import { DetachedThreadSnapshotBootstrap } from "./-DetachedThreadSnapshotBootstrap";
 
 export function DetachedEditorWindowContent(props: {
   threadId: string | null;

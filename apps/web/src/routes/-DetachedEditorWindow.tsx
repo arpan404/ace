@@ -1,7 +1,7 @@
 import { AnchoredToastProvider, ToastProvider } from "../components/ui/toast";
 import { ServerStateBootstrap } from "../rpc/serverStateBootstrap";
 import { UiTypographyBridge } from "../components/UiTypographyBridge";
-import { DetachedEditorWindowContent } from "./DetachedEditorWindowContent";
+import { DetachedEditorWindowContent } from "./-DetachedEditorWindowContent";
 
 export function DetachedEditorWindow(props: {
   search: {

@@ -72,11 +72,11 @@ import {
   dispatchDetachedWindowReturnRequest,
   resolveDetachedWindowReturnThreadId,
 } from "../lib/detachedWindowReturn";
-import { DesktopCliInstallToastBridge } from "./DesktopCliInstallToastBridge";
-import { DetachedBrowserWindow } from "./DetachedBrowserWindow";
-import { DetachedEditorWindow } from "./DetachedEditorWindow";
-import { DetachedWindowMessage } from "./DetachedWindowMessage";
-import { RootRouteErrorView } from "./RootRouteErrorView";
+import { DesktopCliInstallToastBridge } from "./-DesktopCliInstallToastBridge";
+import { DetachedBrowserWindow } from "./-DetachedBrowserWindow";
+import { DetachedEditorWindow } from "./-DetachedEditorWindow";
+import { DetachedWindowMessage } from "./-DetachedWindowMessage";
+import { RootRouteErrorView } from "./-RootRouteErrorView";
 
 export const Route = createRootRouteWithContext<{
   queryClient: QueryClient;
