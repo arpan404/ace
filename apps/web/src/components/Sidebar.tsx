@@ -1596,7 +1596,7 @@ type SidebarLocalProjectItemProps = Omit<
   projectId: ProjectId;
 };
 
-const SidebarLocalProjectItem = memo(function SidebarLocalProjectItem({
+function SidebarLocalProjectItem({
   dragHandleProps,
   projectId,
   ...props
@@ -1608,7 +1608,7 @@ const SidebarLocalProjectItem = memo(function SidebarLocalProjectItem({
       {...props}
     />
   );
-});
+}
 
 type SidebarRemoteProjectItemRowProps = Omit<
   ComponentProps<typeof SidebarThreadRow>,
@@ -1659,7 +1659,7 @@ type SidebarRemoteProjectItemProps = {
   readonly toggleRemoteProject: (projectKey: string) => void;
 };
 
-const SidebarRemoteProjectItem = memo(function SidebarRemoteProjectItem({
+function SidebarRemoteProjectItem({
   activeRouteConnectionUrl,
   createBoardThreadRowDragProps,
   expandThreadListForRemoteProject,
@@ -1856,7 +1856,7 @@ const SidebarRemoteProjectItem = memo(function SidebarRemoteProjectItem({
       )}
     </>
   );
-});
+}
 
 SidebarRemoteProjectItem.displayName = "SidebarRemoteProjectItem";
 
@@ -1996,10 +1996,10 @@ function useSidebarComponent() {
   const setAddProjectError = useCallback((error: string | null) => {
     dispatchProjectPickerBrowseUiState({ type: "set-add-project-error", error });
   }, []);
-  const requestProjectPickerKeyboardScroll = useCallback(() => {
+  const requestProjectPickerKeyboardScroll = () => {
     lastKeyboardNavigationTimeRef.current = Date.now();
     dispatchProjectPickerBrowseUiState({ type: "bump-keyboard-navigation-id" });
-  }, []);
+  };
   const searchPaletteListRef = useRef<HTMLDivElement | null>(null);
   const sidebarContentScrollRef = useRef<HTMLDivElement | null>(null);
   const sidebarProjectListOffsetSourceRef = useRef<HTMLDivElement | null>(null);
@@ -2026,9 +2026,9 @@ function useSidebarComponent() {
     remoteThreadRenameTarget,
     remoteThreadRenameTitle,
   } = sidebarEditorState;
-  const setRenamingTitle = useCallback((renamingTitle: string) => {
+  const setRenamingTitle = (renamingTitle: string) => {
     dispatchSidebarEditorState({ type: "set-renaming-title", renamingTitle });
-  }, []);
+  };
   const setEditingProjectName = (editingProjectName: string) => {
     dispatchSidebarEditorState({ type: "set-editing-project-name", editingProjectName });
   };
@@ -2090,17 +2090,14 @@ function useSidebarComponent() {
     remoteProjectExpandedById,
     remoteThreadRevealCountByProject,
   } = sidebarAuxUiState;
-  const setConfirmingArchiveThreadId = useCallback(
-    (
-      confirmingArchiveThreadId: ThreadId | null | ((current: ThreadId | null) => ThreadId | null),
-    ) => {
-      dispatchSidebarAuxUiState({
-        type: "set-confirming-archive-thread-id",
-        confirmingArchiveThreadId,
-      });
-    },
-    [],
-  );
+  const setConfirmingArchiveThreadId = (
+    confirmingArchiveThreadId: ThreadId | null | ((current: ThreadId | null) => ThreadId | null),
+  ) => {
+    dispatchSidebarAuxUiState({
+      type: "set-confirming-archive-thread-id",
+      confirmingArchiveThreadId,
+    });
+  };
   const setThreadRevealCountByProject = useCallback(
     (
       threadRevealCountByProject:
@@ -2114,20 +2111,17 @@ function useSidebarComponent() {
     },
     [],
   );
-  const setDesktopUpdateState = useCallback(
-    (
-      desktopUpdateState:
-        | DesktopUpdateState
-        | null
-        | ((current: DesktopUpdateState | null) => DesktopUpdateState | null),
-    ) => {
-      dispatchSidebarAuxUiState({
-        type: "set-desktop-update-state",
-        desktopUpdateState,
-      });
-    },
-    [],
-  );
+  const setDesktopUpdateState = (
+    desktopUpdateState:
+      | DesktopUpdateState
+      | null
+      | ((current: DesktopUpdateState | null) => DesktopUpdateState | null),
+  ) => {
+    dispatchSidebarAuxUiState({
+      type: "set-desktop-update-state",
+      desktopUpdateState,
+    });
+  };
   const setRemoteSidebarHosts = useCallback(
     (
       remoteSidebarHosts:
@@ -2143,19 +2137,16 @@ function useSidebarComponent() {
     },
     [],
   );
-  const setRemoteProjectExpandedById = useCallback(
-    (
-      remoteProjectExpandedById:
-        | Record<string, boolean>
-        | ((current: Record<string, boolean>) => Record<string, boolean>),
-    ) => {
-      dispatchSidebarAuxUiState({
-        type: "set-remote-project-expanded-by-id",
-        remoteProjectExpandedById,
-      });
-    },
-    [],
-  );
+  const setRemoteProjectExpandedById = (
+    remoteProjectExpandedById:
+      | Record<string, boolean>
+      | ((current: Record<string, boolean>) => Record<string, boolean>),
+  ) => {
+    dispatchSidebarAuxUiState({
+      type: "set-remote-project-expanded-by-id",
+      remoteProjectExpandedById,
+    });
+  };
   const setRemoteThreadRevealCountByProject = useCallback(
     (
       remoteThreadRevealCountByProject:
@@ -2503,61 +2494,51 @@ function useSidebarComponent() {
       : "copy";
     setBoardThreadDragOverTarget(split.id);
   };
-  const openThreadInSplit = useCallback(
-    (target: {
-      connectionUrl: string | null;
-      threadId: ThreadId;
-      title?: string | null | undefined;
-    }) => {
-      if (target.connectionUrl) {
-        useHostConnectionStore
-          .getState()
-          .upsertThreadOwnership(target.connectionUrl, target.threadId);
-      }
+  const openThreadInSplit = (target: {
+    connectionUrl: string | null;
+    threadId: ThreadId;
+    title?: string | null | undefined;
+  }) => {
+    if (target.connectionUrl) {
+      useHostConnectionStore
+        .getState()
+        .upsertThreadOwnership(target.connectionUrl, target.threadId);
+    }
 
-      const shouldUpdateActiveSplit = activeStoreSplitId !== null;
+    const shouldUpdateActiveSplit = activeStoreSplitId !== null;
 
-      if (shouldUpdateActiveSplit) {
-        useChatThreadBoardStore.getState().openThreadInBoard({
-          connectionUrl: target.connectionUrl,
-          direction: "right",
-          paneTitle: target.title ?? null,
-          sourcePaneId: savedSplitBoard.activePaneId,
-          threadId: target.threadId,
-        });
-        navigateToBoardThreadRoute(target);
-        return;
-      }
-
-      const threads = routeThreadId
-        ? [
-            {
-              connectionUrl: resolveConnectionForThreadId(routeThreadId) ?? null,
-              threadId: routeThreadId,
-              title: sidebarThreadsById[routeThreadId]?.title ?? null,
-            },
-            target,
-          ]
-        : [target];
-      const splitId = useChatThreadBoardStore.getState().createSplit({
-        activeThread: target,
-        threads,
-        title: buildSplitTitle(threads),
+    if (shouldUpdateActiveSplit) {
+      useChatThreadBoardStore.getState().openThreadInBoard({
+        connectionUrl: target.connectionUrl,
+        direction: "right",
+        paneTitle: target.title ?? null,
+        sourcePaneId: savedSplitBoard.activePaneId,
+        threadId: target.threadId,
       });
-      if (!splitId) {
-        return;
-      }
       navigateToBoardThreadRoute(target);
-    },
-    [
-      activeStoreSplitId,
-      buildSplitTitle,
-      navigateToBoardThreadRoute,
-      routeThreadId,
-      savedSplitBoard.activePaneId,
-      sidebarThreadsById,
-    ],
-  );
+      return;
+    }
+
+    const threads = routeThreadId
+      ? [
+          {
+            connectionUrl: resolveConnectionForThreadId(routeThreadId) ?? null,
+            threadId: routeThreadId,
+            title: sidebarThreadsById[routeThreadId]?.title ?? null,
+          },
+          target,
+        ]
+      : [target];
+    const splitId = useChatThreadBoardStore.getState().createSplit({
+      activeThread: target,
+      threads,
+      title: buildSplitTitle(threads),
+    });
+    if (!splitId) {
+      return;
+    }
+    navigateToBoardThreadRoute(target);
+  };
   const openThreadsInSplit = useCallback(
     (
       targets: ReadonlyArray<{
@@ -2734,31 +2715,22 @@ function useSidebarComponent() {
       }),
     [localDeviceConnectionUrl, projectConnectionById, projects],
   );
-  const orderedProjects = useMemo(() => {
-    return orderItemsByPreferredIds({
-      items: activeProjects,
-      preferredIds: projectOrder,
-      getId: (project) => project.id,
-    });
-  }, [activeProjects, projectOrder]);
-  const projectCwdById = useMemo(
-    () => new Map(projects.map((project) => [project.id, project.cwd] as const)),
-    [projects],
-  );
+  const orderedProjects = orderItemsByPreferredIds({
+    items: activeProjects,
+    preferredIds: projectOrder,
+    getId: (project) => project.id,
+  });
+  const projectCwdById = new Map(projects.map((project) => [project.id, project.cwd] as const));
   const projectById = useMemo(
     () => new Map(activeProjects.map((project) => [project.id, project] as const)),
     [activeProjects],
   );
-  const savedBoardItems = useMemo(
-    () =>
-      savedBoards.map((split) =>
-        buildSidebarBoardListItem({
-          projectById,
-          split,
-          threadById: sidebarThreadsById,
-        }),
-      ),
-    [projectById, savedBoards, sidebarThreadsById],
+  const savedBoardItems = savedBoards.map((split) =>
+    buildSidebarBoardListItem({
+      projectById,
+      split,
+      threadById: sidebarThreadsById,
+    }),
   );
   const visibleSavedBoardItems = savedBoardItems.slice(0, splitRevealCount);
   const pickerEnvironments = useMemo((): ProjectPickerEnvironment[] => {
@@ -3136,13 +3108,9 @@ function useSidebarComponent() {
     const configuredBaseDirectory = configuredAddProjectBaseDirectory.trim();
     return configuredBaseDirectory.length > 0 ? configuredBaseDirectory : "~";
   }, [configuredAddProjectBaseDirectory]);
-  const editingProject = useMemo(
-    () =>
-      editingProjectId
-        ? (projects.find((project) => project.id === editingProjectId) ?? null)
-        : null,
-    [editingProjectId, projects],
-  );
+  const editingProject = editingProjectId
+    ? (projects.find((project) => project.id === editingProjectId) ?? null)
+    : null;
   const editingRemoteProject = useMemo(() => {
     if (!editingProjectId || !editingProjectConnectionUrl) {
       return null;
@@ -3171,7 +3139,7 @@ function useSidebarComponent() {
     [platform, routeTerminalOpen],
   );
 
-  const openPrLink = useCallback((event: MouseEvent<HTMLElement>, prUrl: string) => {
+  const openPrLink = (event: MouseEvent<HTMLElement>, prUrl: string) => {
     event.preventDefault();
     event.stopPropagation();
 
@@ -3191,7 +3159,7 @@ function useSidebarComponent() {
         description: error instanceof Error ? error.message : "An error occurred.",
       });
     });
-  }, []);
+  };
 
   const removeRemoteThreadFromSidebarById = useCallback(
     (input: { connectionUrl: string; threadId: ThreadId }) => {
@@ -3229,36 +3197,28 @@ function useSidebarComponent() {
     },
     [removeFromSelection, setRemoteSidebarHosts],
   );
-  const attemptArchiveThread = useCallback(
-    async (threadId: ThreadId, connectionUrl: string) => {
-      const isRemoteThread = !connectionUrlsEqual(connectionUrl, localDeviceConnectionUrl);
-      if (isRemoteThread) {
-        removeRemoteThreadFromSidebarById({ connectionUrl, threadId });
-      }
-      try {
-        await archiveThread(threadId);
-      } catch (error) {
-        if (isRemoteThread) {
-          refreshRemoteSidebarHosts().catch(() => undefined);
-        }
-        toastManager.add({
-          type: "error",
-          title: "Failed to archive thread",
-          description: error instanceof Error ? error.message : "An error occurred.",
-        });
-        return;
-      }
+  const attemptArchiveThread = async (threadId: ThreadId, connectionUrl: string) => {
+    const isRemoteThread = !connectionUrlsEqual(connectionUrl, localDeviceConnectionUrl);
+    if (isRemoteThread) {
+      removeRemoteThreadFromSidebarById({ connectionUrl, threadId });
+    }
+    try {
+      await archiveThread(threadId);
+    } catch (error) {
       if (isRemoteThread) {
         refreshRemoteSidebarHosts().catch(() => undefined);
       }
-    },
-    [
-      archiveThread,
-      localDeviceConnectionUrl,
-      refreshRemoteSidebarHosts,
-      removeRemoteThreadFromSidebarById,
-    ],
-  );
+      toastManager.add({
+        type: "error",
+        title: "Failed to archive thread",
+        description: error instanceof Error ? error.message : "An error occurred.",
+      });
+      return;
+    }
+    if (isRemoteThread) {
+      refreshRemoteSidebarHosts().catch(() => undefined);
+    }
+  };
 
   const focusMostRecentThreadForProject = useCallback(
     (projectId: ProjectId) => {
@@ -3471,9 +3431,9 @@ function useSidebarComponent() {
     ],
   );
 
-  const handleAddProject = useCallback(() => {
+  const handleAddProject = () => {
     void addProjectFromPath(newCwd);
-  }, [addProjectFromPath, newCwd]);
+  };
 
   const canAddProject =
     projectPickerStep === "directory" && newCwd.trim().length > 0 && !isAddingProject;
@@ -3499,18 +3459,15 @@ function useSidebarComponent() {
     currentProjectBrowseResult === null &&
     addProjectError === null;
 
-  const handleBrowseProjectEntry = useCallback(
-    (fullPath: string) => {
-      setAddProjectError(null);
-      dispatchProjectPickerState({
-        type: "set-new-cwd",
-        newCwd: toBrowseDirectoryPath(fullPath),
-      });
-    },
-    [setAddProjectError],
-  );
+  const handleBrowseProjectEntry = (fullPath: string) => {
+    setAddProjectError(null);
+    dispatchProjectPickerState({
+      type: "set-new-cwd",
+      newCwd: toBrowseDirectoryPath(fullPath),
+    });
+  };
 
-  const handleBrowseParentPath = useCallback(() => {
+  const handleBrowseParentPath = () => {
     const currentPath = currentProjectBrowseResult?.parentPath ?? newCwd.trim();
     if (!currentPath) {
       return;
@@ -3524,7 +3481,7 @@ function useSidebarComponent() {
       newCwd: toBrowseDirectoryPath(nextPath),
     });
     setAddProjectError(null);
-  }, [currentProjectBrowseResult, newCwd, setAddProjectError]);
+  };
 
   const normalizedResolvedProjectPath = useMemo(() => {
     const shouldResolveAsLocal = selectedProjectPickerIsLocal;
@@ -3552,72 +3509,63 @@ function useSidebarComponent() {
       ? "Add"
       : "Create & Add";
 
-  const handleSelectProjectPickerEnvironment = useCallback(
-    async (environment: ProjectPickerEnvironment) => {
-      if (projectPickerEnvironmentProbeId !== null) {
-        return;
-      }
-      setAddProjectError(null);
-      if (!environment.isLocal) {
-        dispatchProjectPickerState({
-          type: "set-project-picker-environment-probe-id",
-          projectPickerEnvironmentProbeId: environment.id,
+  const handleSelectProjectPickerEnvironment = async (environment: ProjectPickerEnvironment) => {
+    if (projectPickerEnvironmentProbeId !== null) {
+      return;
+    }
+    setAddProjectError(null);
+    if (!environment.isLocal) {
+      dispatchProjectPickerState({
+        type: "set-project-picker-environment-probe-id",
+        projectPickerEnvironmentProbeId: environment.id,
+      });
+      registerRemoteRoute(environment.connectionUrl);
+      let availability: Awaited<ReturnType<typeof probeRemoteRouteAvailability>>;
+      try {
+        availability = await probeRemoteRouteAvailability(environment.connectionUrl, {
+          force: true,
         });
-        registerRemoteRoute(environment.connectionUrl);
-        let availability: Awaited<ReturnType<typeof probeRemoteRouteAvailability>>;
-        try {
-          availability = await probeRemoteRouteAvailability(environment.connectionUrl, {
-            force: true,
-          });
-        } catch (error) {
-          dispatchProjectPickerState({
-            type: "set-project-picker-environment-probe-id",
-            projectPickerEnvironmentProbeId: null,
-          });
-          throw error;
-        }
+      } catch (error) {
         dispatchProjectPickerState({
           type: "set-project-picker-environment-probe-id",
           projectPickerEnvironmentProbeId: null,
         });
-        if (availability.status !== "available") {
-          setAddProjectError(
-            availability.error?.trim().length
-              ? availability.error
-              : `Unable to reach ${environment.name}. We'll keep pinging it in the background.`,
-          );
-          return;
-        }
+        throw error;
       }
       dispatchProjectPickerState({
-        type: "set-project-picker-selected-connection-url",
-        projectPickerSelectedConnectionUrl: environment.connectionUrl,
+        type: "set-project-picker-environment-probe-id",
+        projectPickerEnvironmentProbeId: null,
       });
-      dispatchProjectPickerState({
-        type: "set-project-picker-step",
-        projectPickerStep: "directory",
-      });
-      const initialPath = environment.isLocal ? addProjectBaseDirectory : "~";
-      dispatchProjectPickerState({
-        type: "set-new-cwd",
-        newCwd: toBrowseDirectoryPath(initialPath),
-      });
-      setProjectBrowseState(EMPTY_PROJECT_BROWSE_STATE);
-      setAddProjectError(null);
-      dispatchProjectPickerState({
-        type: "set-project-picker-environment-query",
-        projectPickerEnvironmentQuery: "",
-      });
-      setActiveProjectBrowseIndex(-1);
-    },
-    [
-      addProjectBaseDirectory,
-      projectPickerEnvironmentProbeId,
-      setActiveProjectBrowseIndex,
-      setAddProjectError,
-      setProjectBrowseState,
-    ],
-  );
+      if (availability.status !== "available") {
+        setAddProjectError(
+          availability.error?.trim().length
+            ? availability.error
+            : `Unable to reach ${environment.name}. We'll keep pinging it in the background.`,
+        );
+        return;
+      }
+    }
+    dispatchProjectPickerState({
+      type: "set-project-picker-selected-connection-url",
+      projectPickerSelectedConnectionUrl: environment.connectionUrl,
+    });
+    dispatchProjectPickerState({
+      type: "set-project-picker-step",
+      projectPickerStep: "directory",
+    });
+    const initialPath = environment.isLocal ? addProjectBaseDirectory : "~";
+    dispatchProjectPickerState({
+      type: "set-new-cwd",
+      newCwd: toBrowseDirectoryPath(initialPath),
+    });
+    setProjectBrowseState(EMPTY_PROJECT_BROWSE_STATE);
+    setAddProjectError(null);
+    dispatchProjectPickerState({
+      type: "set-project-picker-environment-query",
+      projectPickerEnvironmentQuery: "",
+    });
+    setActiveProjectBrowseIndex(-1);
+  };
 
   const handleAddProjectInputKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (projectPickerStep === "environment") {
@@ -3864,57 +3812,54 @@ function useSidebarComponent() {
     };
   }, []);
 
-  const cancelRename = useCallback(() => {
+  const cancelRename = () => {
     dispatchSidebarEditorState({ type: "clear-thread-rename" });
     renamingInputRef.current = null;
-  }, []);
+  };
 
-  const commitRename = useCallback(
-    async (threadId: ThreadId, newTitle: string, originalTitle: string) => {
-      const finishRename = () => {
-        dispatchSidebarEditorState({
-          type: "clear-thread-rename-if-match",
-          renamingThreadId: threadId,
-        });
-        renamingInputRef.current = null;
-      };
+  const commitRename = async (threadId: ThreadId, newTitle: string, originalTitle: string) => {
+    const finishRename = () => {
+      dispatchSidebarEditorState({
+        type: "clear-thread-rename-if-match",
+        renamingThreadId: threadId,
+      });
+      renamingInputRef.current = null;
+    };
 
-      const trimmed = newTitle.trim();
-      if (trimmed.length === 0) {
-        toastManager.add({
-          type: "warning",
-          title: "Thread title cannot be empty",
-        });
-        finishRename();
-        return;
-      }
-      if (trimmed === originalTitle) {
-        finishRename();
-        return;
-      }
-      try {
-        const api = readNativeApi();
-        if (!api) {
-          finishRename();
-          return;
-        }
-        await api.orchestration.dispatchCommand({
-          type: "thread.meta.update",
-          commandId: newCommandId(),
-          threadId,
-          title: trimmed,
-        });
-      } catch (error) {
-        toastManager.add({
-          type: "error",
-          title: "Failed to rename thread",
-          description: error instanceof Error ? error.message : "An error occurred.",
-        });
-      }
+    const trimmed = newTitle.trim();
+    if (trimmed.length === 0) {
+      toastManager.add({
+        type: "warning",
+        title: "Thread title cannot be empty",
+      });
       finishRename();
-    },
-    [],
-  );
+      return;
+    }
+    if (trimmed === originalTitle) {
+      finishRename();
+      return;
+    }
+    try {
+      const api = readNativeApi();
+      if (!api) {
+        finishRename();
+        return;
+      }
+      await api.orchestration.dispatchCommand({
+        type: "thread.meta.update",
+        commandId: newCommandId(),
+        threadId,
+        title: trimmed,
+      });
+    } catch (error) {
+      toastManager.add({
+        type: "error",
+        title: "Failed to rename thread",
+        description: error instanceof Error ? error.message : "An error occurred.",
+      });
+    }
+    finishRename();
+  };
 
   const { copyToClipboard: copyThreadIdToClipboard } = useCopyToClipboard<{
     threadId: ThreadId;
@@ -4047,71 +3992,58 @@ function useSidebarComponent() {
     await deleteThread(threadId);
   };
 
-  const handleMultiSelectContextMenu = useCallback(
-    async (position: { x: number; y: number }) => {
-      const api = readNativeApi();
-      if (!api) return;
-      const ids = [...selectedThreadIds];
-      if (ids.length === 0) return;
-      const count = ids.length;
+  const handleMultiSelectContextMenu = async (position: { x: number; y: number }) => {
+    const api = readNativeApi();
+    if (!api) return;
+    const ids = [...selectedThreadIds];
+    if (ids.length === 0) return;
+    const count = ids.length;
 
-      const clicked = await api.contextMenu.show(
+    const clicked = await api.contextMenu.show(
+      [
+        { id: "open-in-board", label: `Open in split (${count})` },
+        { id: "mark-unread", label: `Mark unread (${count})` },
+        { id: "delete", label: `Delete (${count})`, destructive: true },
+      ],
+      position,
+    );
+
+    if (clicked === "open-in-board") {
+      const boardInputs = ids.map((id) => ({
+        connectionUrl: resolveConnectionForThreadId(id) ?? null,
+        threadId: id,
+        title: sidebarThreadsById[id]?.title ?? null,
+      }));
+      openThreadsInSplit(boardInputs);
+      clearSelection();
+      return;
+    }
+
+    if (clicked === "mark-unread") {
+      for (const id of ids) {
+        const thread = readSidebarThreadSummary(id);
+        markThreadUnread(id, thread?.latestTurn?.completedAt);
+      }
+      clearSelection();
+      return;
+    }
+
+    if (clicked !== "delete") return;
+
+    if (confirmThreadDelete) {
+      const confirmed = await api.dialogs.confirm(
         [
-          { id: "open-in-board", label: `Open in split (${count})` },
-          { id: "mark-unread", label: `Mark unread (${count})` },
-          { id: "delete", label: `Delete (${count})`, destructive: true },
-        ],
-        position,
+          `Delete ${count} thread${count === 1 ? "" : "s"}?`,
+          "This permanently clears conversation history for these threads.",
+        ].join("\n"),
       );
+      if (!confirmed) return;
+    }
 
-      if (clicked === "open-in-board") {
-        const boardInputs = ids.map((id) => ({
-          connectionUrl: resolveConnectionForThreadId(id) ?? null,
-          threadId: id,
-          title: sidebarThreadsById[id]?.title ?? null,
-        }));
-        openThreadsInSplit(boardInputs);
-        clearSelection();
-        return;
-      }
-
-      if (clicked === "mark-unread") {
-        for (const id of ids) {
-          const thread = readSidebarThreadSummary(id);
-          markThreadUnread(id, thread?.latestTurn?.completedAt);
-        }
-        clearSelection();
-        return;
-      }
-
-      if (clicked !== "delete") return;
-
-      if (confirmThreadDelete) {
-        const confirmed = await api.dialogs.confirm(
-          [
-            `Delete ${count} thread${count === 1 ? "" : "s"}?`,
-            "This permanently clears conversation history for these threads.",
-          ].join("\n"),
-        );
-        if (!confirmed) return;
-      }
-
-      const deletedIds = new Set<ThreadId>(ids);
-      await Promise.all(ids.map((id) => deleteThread(id, { deletedThreadIds: deletedIds })));
-      removeFromSelection(ids);
-    },
-    [
-      confirmThreadDelete,
-      clearSelection,
-      deleteThread,
-      markThreadUnread,
-      openThreadsInSplit,
-      readSidebarThreadSummary,
-      removeFromSelection,
-      sidebarThreadsById,
-      selectedThreadIds,
-    ],
-  );
+    const deletedIds = new Set<ThreadId>(ids);
+    await Promise.all(ids.map((id) => deleteThread(id, { deletedThreadIds: deletedIds })));
+    removeFromSelection(ids);
+  };
 
   const prefetchThreadHistory = useCallback(
     (
@@ -4200,119 +4132,96 @@ function useSidebarComponent() {
     [readSidebarThreadSummary],
   );
 
-  const handleThreadClick = useCallback(
-    (
-      event: MouseEvent,
-      threadId: ThreadId,
-      orderedProjectThreadIds: readonly ThreadId[],
-      connectionUrl: string,
-    ) => {
-      const isMac = isMacPlatform(navigator.platform);
-      const isModClick = isMac ? event.metaKey : event.ctrlKey;
-      const isShiftClick = event.shiftKey;
+  const handleThreadClick = (
+    event: MouseEvent,
+    threadId: ThreadId,
+    orderedProjectThreadIds: readonly ThreadId[],
+    connectionUrl: string,
+  ) => {
+    const isMac = isMacPlatform(navigator.platform);
+    const isModClick = isMac ? event.metaKey : event.ctrlKey;
+    const isShiftClick = event.shiftKey;
 
-      if (isModClick) {
-        event.preventDefault();
-        toggleThreadSelection(threadId);
-        return;
-      }
+    if (isModClick) {
+      event.preventDefault();
+      toggleThreadSelection(threadId);
+      return;
+    }
 
-      if (isShiftClick) {
-        event.preventDefault();
-        rangeSelectTo(threadId, orderedProjectThreadIds);
-        return;
-      }
+    if (isShiftClick) {
+      event.preventDefault();
+      rangeSelectTo(threadId, orderedProjectThreadIds);
+      return;
+    }
 
-      if (selectedThreadIds.size > 0) {
-        clearSelection();
-      }
-      setSelectionAnchor(threadId);
-      useHostConnectionStore.getState().upsertThreadOwnership(connectionUrl, threadId);
-      useChatThreadBoardStore.getState().syncRouteThread({
-        connectionUrl,
-        threadId,
-        title: readSidebarThreadSummary(threadId)?.title ?? null,
-      });
-      const thread = readSidebarThreadSummary(threadId);
-      const cached = thread ? readCachedHydratedThread(threadId, thread.updatedAt ?? null) : null;
-      if (cached) {
-        primeThreadTimelineRowsMetadataFromReadModelThread(cached);
-        startTransition(() => {
-          useStore.getState().hydrateThreadFromReadModel(cached);
-        });
-      } else {
-        prefetchThreadHistory(threadId, {
-          hydrateStore: false,
-          prewarmRows: true,
-          priority: "immediate",
-        });
-      }
+    if (selectedThreadIds.size > 0) {
+      clearSelection();
+    }
+    setSelectionAnchor(threadId);
+    useHostConnectionStore.getState().upsertThreadOwnership(connectionUrl, threadId);
+    useChatThreadBoardStore.getState().syncRouteThread({
+      connectionUrl,
+      threadId,
+      title: readSidebarThreadSummary(threadId)?.title ?? null,
+    });
+    const thread = readSidebarThreadSummary(threadId);
+    const cached = thread ? readCachedHydratedThread(threadId, thread.updatedAt ?? null) : null;
+    if (cached) {
+      primeThreadTimelineRowsMetadataFromReadModelThread(cached);
       startTransition(() => {
-        void navigate({
-          to: "/$threadId",
-          params: { threadId },
-          search: buildSingleThreadRouteSearch({
-            connectionUrl: connectionUrlsEqual(connectionUrl, localDeviceConnectionUrl)
-              ? null
-              : connectionUrl,
-          }),
-        });
+        useStore.getState().hydrateThreadFromReadModel(cached);
       });
-    },
-    [
-      clearSelection,
-      localDeviceConnectionUrl,
-      navigate,
-      prefetchThreadHistory,
-      rangeSelectTo,
-      readSidebarThreadSummary,
-      selectedThreadIds.size,
-      setSelectionAnchor,
-      toggleThreadSelection,
-    ],
-  );
+    } else {
+      prefetchThreadHistory(threadId, {
+        hydrateStore: false,
+        prewarmRows: true,
+        priority: "immediate",
+      });
+    }
+    startTransition(() => {
+      void navigate({
+        to: "/$threadId",
+        params: { threadId },
+        search: buildSingleThreadRouteSearch({
+          connectionUrl: connectionUrlsEqual(connectionUrl, localDeviceConnectionUrl)
+            ? null
+            : connectionUrl,
+        }),
+      });
+    });
+  };
 
-  const navigateToThread = useCallback(
-    (threadId: ThreadId) => {
-      const thread = readSidebarThreadSummary(threadId);
-      const cached = thread ? readCachedHydratedThread(threadId, thread.updatedAt ?? null) : null;
-      if (cached) {
-        primeThreadTimelineRowsMetadataFromReadModelThread(cached);
-        startTransition(() => {
-          useStore.getState().hydrateThreadFromReadModel(cached);
-        });
-      } else {
-        prefetchThreadHistory(threadId, {
-          hydrateStore: false,
-          prewarmRows: true,
-          priority: "immediate",
-        });
-      }
-      if (selectedThreadIds.size > 0) {
-        clearSelection();
-      }
-      setSelectionAnchor(threadId);
-      useChatThreadBoardStore.getState().syncRouteThread({
-        threadId,
-        title: thread?.title ?? null,
-      });
+  const navigateToThread = (threadId: ThreadId) => {
+    const thread = readSidebarThreadSummary(threadId);
+    const cached = thread ? readCachedHydratedThread(threadId, thread.updatedAt ?? null) : null;
+    if (cached) {
+      primeThreadTimelineRowsMetadataFromReadModelThread(cached);
       startTransition(() => {
-        void navigate({
-          to: "/$threadId",
-          params: { threadId },
-          search: buildSingleThreadRouteSearch(),
-        });
+        useStore.getState().hydrateThreadFromReadModel(cached);
       });
-    },
-    [
-      clearSelection,
-      navigate,
-      prefetchThreadHistory,
-      readSidebarThreadSummary,
-      selectedThreadIds.size,
-      setSelectionAnchor,
-    ],
-  );
+    } else {
+      prefetchThreadHistory(threadId, {
+        hydrateStore: false,
+        prewarmRows: true,
+        priority: "immediate",
+      });
+    }
+    if (selectedThreadIds.size > 0) {
+      clearSelection();
+    }
+    setSelectionAnchor(threadId);
+    useChatThreadBoardStore.getState().syncRouteThread({
+      threadId,
+      title: thread?.title ?? null,
+    });
+    startTransition(() => {
+      void navigate({
+        to: "/$threadId",
+        params: { threadId },
+        search: buildSingleThreadRouteSearch(),
+      });
+    });
+  };
   const navigateToThreadEffect = useEffectEvent((threadId: ThreadId) => {
     navigateToThread(threadId);
   });
@@ -4635,9 +4544,9 @@ function useSidebarComponent() {
       });
     }
   };
-  const closeRemoteThreadRenameDialog = useCallback(() => {
+  const closeRemoteThreadRenameDialog = () => {
     dispatchSidebarEditorState({ type: "close-remote-thread-rename" });
-  }, []);
+  };
   const saveRemoteThreadRename = async () => {
     const target = remoteThreadRenameTarget;
     if (!target) {
@@ -4673,9 +4582,9 @@ function useSidebarComponent() {
     }
   };
 
-  const closeProjectEditor = useCallback(() => {
+  const closeProjectEditor = () => {
     dispatchSidebarEditorState({ type: "close-project-editor" });
-  }, []);
+  };
 
   const saveProjectEdits = async (event?: { preventDefault: () => void }) => {
     event?.preventDefault();
@@ -4864,29 +4773,17 @@ function useSidebarComponent() {
     sortedLocalProjectIds,
     visibleProjectThreadsByProjectId,
   ]);
-  const localProjectThreadGroups = useMemo(
-    () =>
-      filteredLocalProjectIds.map((projectId) =>
-        deriveSidebarLocalProjectThreadGroup({
-          activeThreadId,
-          projectExpanded: projectExpandedById[projectId] ?? true,
-          projectListThreads: projectListThreadsByProjectId.get(projectId) ?? EMPTY_SIDEBAR_THREADS,
-          revealStep: THREAD_REVEAL_STEP,
-          unsortedProjectThreads:
-            visibleProjectThreadsByProjectId.get(projectId) ?? EMPTY_SIDEBAR_THREADS,
-          visibleThreadCount: threadRevealCountByProject[projectId] ?? THREAD_REVEAL_STEP,
-          threadSortOrder: sidebarThreadSortOrder,
-        }),
-      ),
-    [
+  const localProjectThreadGroups = filteredLocalProjectIds.map((projectId) =>
+    deriveSidebarLocalProjectThreadGroup({
       activeThreadId,
-      filteredLocalProjectIds,
-      projectExpandedById,
-      projectListThreadsByProjectId,
-      sidebarThreadSortOrder,
-      threadRevealCountByProject,
-      visibleProjectThreadsByProjectId,
-    ],
+      projectExpanded: projectExpandedById[projectId] ?? true,
+      projectListThreads: projectListThreadsByProjectId.get(projectId) ?? EMPTY_SIDEBAR_THREADS,
+      revealStep: THREAD_REVEAL_STEP,
+      unsortedProjectThreads:
+        visibleProjectThreadsByProjectId.get(projectId) ?? EMPTY_SIDEBAR_THREADS,
+      visibleThreadCount: threadRevealCountByProject[projectId] ?? THREAD_REVEAL_STEP,
+      threadSortOrder: sidebarThreadSortOrder,
+    }),
   );
   const localProjectThreadGroupById = useMemo(
     () =>
@@ -5618,37 +5515,34 @@ function useSidebarComponent() {
   };
   const sidebarNewThreadProjectId =
     defaultProjectId && projectById.has(defaultProjectId) ? defaultProjectId : null;
-  const handleStartNewThreadForProject = useCallback(
-    (projectId: ProjectId) => {
-      void handleNewThread(
+  const handleStartNewThreadForProject = (projectId: ProjectId) => {
+    void handleNewThread(
+      projectId,
+      resolveSidebarNewThreadOptions({
         projectId,
-        resolveSidebarNewThreadOptions({
-          projectId,
-          defaultEnvMode: resolveSidebarNewThreadEnvMode({
-            defaultEnvMode: defaultThreadEnvMode,
-          }),
-          activeThread:
-            activeThread && activeThread.projectId === projectId
-              ? {
-                  projectId: activeThread.projectId,
-                  branch: activeThread.branch,
-                  worktreePath: activeThread.worktreePath,
-                }
-              : null,
-          activeDraftThread:
-            activeDraftThread && activeDraftThread.projectId === projectId
-              ? {
-                  projectId: activeDraftThread.projectId,
-                  branch: activeDraftThread.branch,
-                  worktreePath: activeDraftThread.worktreePath,
-                  envMode: activeDraftThread.envMode,
-                }
-              : null,
+        defaultEnvMode: resolveSidebarNewThreadEnvMode({
+          defaultEnvMode: defaultThreadEnvMode,
         }),
-      );
-    },
-    [activeDraftThread, activeThread, defaultThreadEnvMode, handleNewThread],
-  );
+        activeThread:
+          activeThread && activeThread.projectId === projectId
+            ? {
+                projectId: activeThread.projectId,
+                branch: activeThread.branch,
+                worktreePath: activeThread.worktreePath,
+              }
+            : null,
+        activeDraftThread:
+          activeDraftThread && activeDraftThread.projectId === projectId
+            ? {
+                projectId: activeDraftThread.projectId,
+                branch: activeDraftThread.branch,
+                worktreePath: activeDraftThread.worktreePath,
+                envMode: activeDraftThread.envMode,
+              }
+            : null,
+      }),
+    );
+  };
   const handleStartSidebarNewChat = () => {
     if (!sidebarNewThreadProjectId) {
       return;

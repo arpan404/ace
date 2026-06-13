@@ -271,7 +271,7 @@ interface ChatComposerPanelProps {
   readonly onPromptChangeFromTraits: (prompt: string) => void;
 }
 
-const ComposerImageStrip = memo(function ComposerImageStrip(props: {
+function ComposerImageStrip(props: {
   readonly images: ReadonlyArray<ComposerImageAttachment>;
   readonly nonPersistedImageIds: ReadonlySet<string>;
   readonly onPreview: (imageId: string) => void;
@@ -332,9 +332,9 @@ const ComposerImageStrip = memo(function ComposerImageStrip(props: {
       ))}
     </div>
   );
-});
+}
 
-export const ChatComposerPanel = memo(function ChatComposerPanel({
+export function ChatComposerPanel({
   composerEditorRef,
   composerFooterActionsRef,
   composerFooterLeadingRef,
@@ -343,53 +343,27 @@ export const ChatComposerPanel = memo(function ChatComposerPanel({
   ...props
 }: ChatComposerPanelProps) {
   const interactionModeDisabledReason = null;
-  const providerTraitsMenuContent = useMemo(
-    () =>
-      renderProviderTraitsMenuContent({
-        provider: props.selectedProvider,
-        threadId: props.threadId,
-        model: props.selectedModel,
-        models: props.selectedProviderModels,
-        modelOptions: props.selectedProviderModelOptions,
-        prompt: props.prompt,
-        onPromptChange: props.onPromptChangeFromTraits,
-        sessionConfigOptions: props.sessionConfigOptions,
-      }),
-    [
-      props.onPromptChangeFromTraits,
-      props.prompt,
-      props.selectedModel,
-      props.selectedProvider,
-      props.selectedProviderModelOptions,
-      props.selectedProviderModels,
-      props.sessionConfigOptions,
-      props.threadId,
-    ],
-  );
-  const providerTraitsPicker = useMemo(
-    () =>
-      renderProviderTraitsPicker({
-        provider: props.selectedProvider,
-        threadId: props.threadId,
-        model: props.selectedModel,
-        models: props.selectedProviderModels,
-        modelOptions: props.selectedProviderModelOptions,
-        prompt: props.prompt,
-        onPromptChange: props.onPromptChangeFromTraits,
-        showFastInTriggerLabel: false,
-        sessionConfigOptions: props.sessionConfigOptions,
-      }),
-    [
-      props.onPromptChangeFromTraits,
-      props.prompt,
-      props.selectedModel,
-      props.selectedProvider,
-      props.selectedProviderModelOptions,
-      props.selectedProviderModels,
-      props.sessionConfigOptions,
-      props.threadId,
-    ],
-  );
+  const providerTraitsMenuContent = renderProviderTraitsMenuContent({
+    provider: props.selectedProvider,
+    threadId: props.threadId,
+    model: props.selectedModel,
+    models: props.selectedProviderModels,
+    modelOptions: props.selectedProviderModelOptions,
+    prompt: props.prompt,
+    onPromptChange: props.onPromptChangeFromTraits,
+    sessionConfigOptions: props.sessionConfigOptions,
+  });
+  const providerTraitsPicker = renderProviderTraitsPicker({
+    provider: props.selectedProvider,
+    threadId: props.threadId,
+    model: props.selectedModel,
+    models: props.selectedProviderModels,
+    modelOptions: props.selectedProviderModelOptions,
+    prompt: props.prompt,
+    onPromptChange: props.onPromptChangeFromTraits,
+    showFastInTriggerLabel: false,
+    sessionConfigOptions: props.sessionConfigOptions,
+  });
   const composerValue = props.isComposerApprovalState
     ? ""
     : (props.activePendingProgress?.customAnswer ?? props.prompt);
@@ -406,23 +380,15 @@ export const ChatComposerPanel = memo(function ChatComposerPanel({
         : props.placeholderOverride
           ? props.placeholderOverride
           : "Ask or follow-up changes";
-  const pendingAction = useMemo<ComponentProps<typeof ComposerPrimaryActions>["pendingAction"]>(
-    () =>
-      props.activePendingProgress
-        ? {
-            questionIndex: props.activePendingProgress.questionIndex,
-            isLastQuestion: props.activePendingProgress.isLastQuestion,
-            canAdvance: props.activePendingProgress.canAdvance,
-            isResponding: props.activePendingIsResponding,
-            isComplete: Boolean(props.activePendingResolvedAnswers),
-          }
-        : null,
-    [
-      props.activePendingIsResponding,
-      props.activePendingProgress,
-      props.activePendingResolvedAnswers,
-    ],
-  );
+  const pendingAction = props.activePendingProgress
+    ? {
+        questionIndex: props.activePendingProgress.questionIndex,
+        isLastQuestion: props.activePendingProgress.isLastQuestion,
+        canAdvance: props.activePendingProgress.canAdvance,
+        isResponding: props.activePendingIsResponding,
+        isComplete: Boolean(props.activePendingResolvedAnswers),
+      }
+    : null;
   const handoff = useMemo<ComponentProps<typeof ProviderModelPicker>["handoff"]>(() => {
     if (
       !props.isServerThread ||
@@ -783,4 +749,4 @@ export const ChatComposerPanel = memo(function ChatComposerPanel({
       </form>
     </div>
   );
-});
+}

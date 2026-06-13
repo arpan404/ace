@@ -1,7 +1,6 @@
 import { type ThreadId } from "@ace/contracts";
 import {
   Fragment,
-  memo,
   type ReactNode,
   startTransition,
   useCallback,
