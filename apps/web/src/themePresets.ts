@@ -16,12 +16,12 @@ export const THEME_PRESET_OPTIONS: ReadonlyArray<{
   {
     id: "glass",
     label: "Glass",
-    description: "Frosted neutral chrome: soft gray canvas, white panels, monochrome accents.",
+    description: "Frosted neutral chrome with crisp grayscale surfaces.",
     preview: {
-      panel: "oklch(0.975 0 0)",
-      panelDeep: "oklch(0.955 0 0)",
-      accent: "oklch(0.88 0 0)",
-      accentMuted: "oklch(0.62 0 0)",
+      panel: "oklch(1 0 0)",
+      panelDeep: "oklch(0.986 0 0)",
+      accent: "rgb(30 144 255)",
+      accentMuted: "color-mix(in oklch, rgb(30 144 255) 82%, white)",
     },
   },
 ];

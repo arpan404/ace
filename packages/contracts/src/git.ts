@@ -167,10 +167,7 @@ export type NewThreadRecommendationContextTurn = typeof NewThreadRecommendationC
 export const GenerateNewThreadRecommendationsInput = Schema.Struct({
   cwd: TrimmedNonEmptyStringSchema,
   modelSelection: ModelSelection,
-  turns: Schema.Array(NewThreadRecommendationContextTurn).check(
-    Schema.isMinLength(1),
-    Schema.isMaxLength(3),
-  ),
+  turns: Schema.Array(NewThreadRecommendationContextTurn).check(Schema.isMaxLength(3)),
 });
 export type GenerateNewThreadRecommendationsInput =
   typeof GenerateNewThreadRecommendationsInput.Type;

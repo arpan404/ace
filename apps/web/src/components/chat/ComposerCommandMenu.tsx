@@ -5,7 +5,6 @@ import { type ComposerTriggerKind } from "../../composer-logic";
 import { BotIcon, HashIcon, PlugIcon, TargetIcon } from "lucide-react";
 import { cn } from "~/lib/utils";
 import { Badge } from "../ui/badge";
-import { Command, CommandGroup, CommandGroupLabel, CommandItem, CommandList } from "../ui/command";
 import { VscodeEntryIcon } from "./VscodeEntryIcon";
 
 export type ComposerCommandItem =
@@ -140,52 +139,42 @@ export function ComposerCommandMenu(props: {
   }, [props.activeItemId]);
 
   return (
-    <Command
-      autoHighlight={false}
-      mode="none"
-      onItemHighlighted={(highlightedValue) => {
-        props.onHighlightedItemChange(
-          typeof highlightedValue === "string" ? highlightedValue : null,
-        );
-      }}
-    >
-      <div ref={listRef} className="glass-surface relative overflow-hidden rounded-lg border">
-        <CommandList className="max-h-64">
-          {sections.map((section) => (
-            <CommandGroup key={section.id}>
-              {section.label ? (
-                <CommandGroupLabel className="px-2 pb-1 pt-2 font-medium text-muted-foreground/75 text-xs">
-                  {section.label}
-                </CommandGroupLabel>
-              ) : null}
-              {section.items.map((item) => (
-                <ComposerCommandMenuItem
-                  key={item.id}
-                  item={item}
-                  resolvedTheme={props.resolvedTheme}
-                  isActive={props.activeItemId === item.id}
-                  onHighlight={props.onHighlightedItemChange}
-                  onSelect={props.onSelect}
-                />
-              ))}
-            </CommandGroup>
-          ))}
-        </CommandList>
-        {props.items.length === 0 && (
-          <p className="px-3 py-2 text-muted-foreground/70 text-xs">
-            {props.isLoading
-              ? props.triggerKind === "issue"
-                ? "Searching GitHub issues..."
-                : "Searching workspace files..."
-              : props.triggerKind === "path"
-                ? "No matching files or folders."
-                : props.triggerKind === "issue"
-                  ? "No matching GitHub issues."
-                  : "No matching skill or plugin command."}
-          </p>
-        )}
+    <div ref={listRef} className="glass-surface relative overflow-hidden rounded-lg border">
+      <div className="max-h-64 overflow-y-auto p-2">
+        {sections.map((section) => (
+          <div key={section.id}>
+            {section.label ? (
+              <div className="px-2 pb-1 pt-2 font-medium text-muted-foreground/75 text-xs">
+                {section.label}
+              </div>
+            ) : null}
+            {section.items.map((item) => (
+              <ComposerCommandMenuItem
+                key={item.id}
+                item={item}
+                resolvedTheme={props.resolvedTheme}
+                isActive={props.activeItemId === item.id}
+                onHighlight={props.onHighlightedItemChange}
+                onSelect={props.onSelect}
+              />
+            ))}
+          </div>
+        ))}
       </div>
-    </Command>
+      {props.items.length === 0 && (
+        <p className="px-3 py-2 text-muted-foreground/70 text-xs">
+          {props.isLoading
+            ? props.triggerKind === "issue"
+              ? "Searching GitHub issues..."
+              : "Searching workspace files..."
+            : props.triggerKind === "path"
+              ? "No matching files or folders."
+              : props.triggerKind === "issue"
+                ? "No matching GitHub issues."
+                : "No matching skill or plugin command."}
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -197,15 +186,18 @@ function ComposerCommandMenuItem(props: {
   onSelect: (item: ComposerCommandItem) => void;
 }) {
   return (
-    <CommandItem
-      value={props.item.id}
+    <button
+      type="button"
       data-composer-item-id={props.item.id}
       className={cn(
-        "cursor-pointer select-none gap-2 hover:bg-transparent hover:text-inherit data-highlighted:bg-transparent data-highlighted:text-inherit",
+        "flex min-h-8 w-full cursor-pointer select-none items-center gap-2 rounded-[var(--chip-radius)] px-2 py-1.5 text-left text-base outline-none sm:min-h-7 sm:text-sm",
         props.isActive && "bg-accent! text-accent-foreground!",
       )}
       onMouseMove={() => {
         if (!props.isActive) props.onHighlight(props.item.id);
+      }}
+      onFocus={() => {
+        props.onHighlight(props.item.id);
       }}
       onMouseDown={(event) => {
         event.preventDefault();
@@ -251,6 +243,6 @@ function ComposerCommandMenuItem(props: {
           {props.item.description}
         </span>
       </span>
-    </CommandItem>
+    </button>
   );
 }
