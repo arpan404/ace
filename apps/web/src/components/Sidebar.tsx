@@ -11,7 +11,6 @@ import {
 } from "lucide-react";
 import {
   startTransition,
-  memo,
   useCallback,
   useEffect,
   useMemo,

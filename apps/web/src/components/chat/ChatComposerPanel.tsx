@@ -18,7 +18,6 @@ import {
   XIcon,
 } from "lucide-react";
 import {
-  memo,
   useMemo,
   type ClipboardEvent,
   type ComponentProps,
