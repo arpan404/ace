@@ -522,7 +522,7 @@ function AboutVersionSection() {
 
   const updateState = updateStateQuery.data ?? null;
 
-  const handleButtonClick = useCallback(() => {
+  const handleButtonClick = () => {
     const bridge = window.desktopBridge;
     if (!bridge) return;
 
@@ -599,7 +599,7 @@ function AboutVersionSection() {
           description: error instanceof Error ? error.message : "Update check failed.",
         });
       });
-  }, [queryClient, runningAgentCount, updateState]);
+  };
 
   const action = updateState ? resolveDesktopUpdateButtonAction(updateState) : "none";
   const buttonTooltip = updateState ? getDesktopUpdateButtonTooltip(updateState) : null;
@@ -701,7 +701,7 @@ function AboutCliInstallSection() {
   const [isInstalling, setIsInstalling] = useState(false);
   const cliInstallBridge = window.desktopBridge;
 
-  const handleInstallCli = useCallback(() => {
+  const handleInstallCli = () => {
     const bridge = window.desktopBridge;
     if (!bridge || typeof bridge.installCli !== "function") {
       return;
@@ -739,7 +739,7 @@ function AboutCliInstallSection() {
       .finally(() => {
         setIsInstalling(false);
       });
-  }, [queryClient]);
+  };
 
   const buttonDisabled =
     isInstalling ||
@@ -867,7 +867,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
   } = lspState;
   const refreshingRef = useRef(false);
   const modelListRefs = useRef<Partial<Record<ProviderKind, HTMLDivElement | null>>>({});
-  const refreshProviders = useCallback(() => {
+  const refreshProviders = () => {
     if (refreshingRef.current) return;
     refreshingRef.current = true;
     setIsRefreshingProviders(true);
@@ -881,52 +881,43 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
         refreshingRef.current = false;
         setIsRefreshingProviders(false);
       });
-  }, []);
-  const upgradeProviderCli = useCallback(
-    (provider: ProviderKind, runtimeId: string) => {
-      if (upgradingRuntimeKey !== null) return;
-      const runtimeKey = `${provider}:${runtimeId}`;
-      setUpgradingRuntimeKey(runtimeKey);
-      const providerLabel =
-        PROVIDER_SETTINGS.find((entry) => entry.provider === provider)?.title ?? provider;
-      const toastId = toastManager.add({
-        type: "loading",
-        title: `Updating ${providerLabel}`,
-        description: "Updating to the latest CLI version.",
-      });
-      void ensureNativeApi()
-        .server.upgradeProviderCli({ provider, runtimeId })
-        .then((payload) => {
-          applyProvidersUpdated(payload);
-          toastManager.update(toastId, {
-            type: "success",
-            title: `${providerLabel} updated`,
-            description: "Provider status was refreshed.",
-          });
-        })
-        .catch((error: unknown) => {
-          toastManager.update(toastId, {
-            type: "error",
-            title: `Unable to update ${providerLabel}`,
-            description: getErrorMessage(error, "CLI update failed."),
-          });
-        })
-        .finally(() => {
-          setUpgradingRuntimeKey(null);
+  };
+  const upgradeProviderCli = (provider: ProviderKind, runtimeId: string) => {
+    if (upgradingRuntimeKey !== null) return;
+    const runtimeKey = `${provider}:${runtimeId}`;
+    setUpgradingRuntimeKey(runtimeKey);
+    const providerLabel =
+      PROVIDER_SETTINGS.find((entry) => entry.provider === provider)?.title ?? provider;
+    const toastId = toastManager.add({
+      type: "loading",
+      title: `Updating ${providerLabel}`,
+      description: "Updating to the latest CLI version.",
+    });
+    void ensureNativeApi()
+      .server.upgradeProviderCli({ provider, runtimeId })
+      .then((payload) => {
+        applyProvidersUpdated(payload);
+        toastManager.update(toastId, {
+          type: "success",
+          title: `${providerLabel} updated`,
+          description: "Provider status was refreshed.",
         });
-    },
-    [upgradingRuntimeKey],
-  );
-  const isUpgradingProvider = useCallback(
-    (provider: ProviderKind) =>
-      upgradingRuntimeKey !== null && upgradingRuntimeKey.startsWith(`${provider}:`),
-    [upgradingRuntimeKey],
-  );
-  const isUpgradingRuntime = useCallback(
-    (provider: ProviderKind, runtimeId: string) =>
-      upgradingRuntimeKey === `${provider}:${runtimeId}`,
-    [upgradingRuntimeKey],
-  );
+      })
+      .catch((error: unknown) => {
+        toastManager.update(toastId, {
+          type: "error",
+          title: `Unable to update ${providerLabel}`,
+          description: getErrorMessage(error, "CLI update failed."),
+        });
+      })
+      .finally(() => {
+        setUpgradingRuntimeKey(null);
+      });
+  };
+  const isUpgradingProvider = (provider: ProviderKind) =>
+    upgradingRuntimeKey !== null && upgradingRuntimeKey.startsWith(`${provider}:`);
+  const isUpgradingRuntime = (provider: ProviderKind, runtimeId: string) =>
+    upgradingRuntimeKey === `${provider}:${runtimeId}`;
   const canOpenNotificationSystemSettings = useMemo(
     () => isElectron && resolveNotificationSettingsUrl() !== null,
     [],
@@ -1009,7 +1000,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
     }).then((result) => result.shown);
   }, []);
 
-  const handleSendNotificationTest = useCallback(() => {
+  const handleSendNotificationTest = () => {
     dispatchNotificationState({ type: "set-updating", isUpdatingNotificationPermission: true });
     void refreshNotificationPermission()
       .then(async (permission) => {
@@ -1055,7 +1046,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
           isUpdatingNotificationPermission: false,
         });
       });
-  }, [refreshNotificationPermission, sendNotificationProbe]);
+  };
 
   const enableNotifications = useCallback(
     (enabledKeys?: readonly AgentAttentionNotificationSettingKey[]) => {
@@ -1125,11 +1116,11 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
     ],
   );
 
-  const disableNotifications = useCallback(() => {
+  const disableNotifications = () => {
     setAgentAttentionNotificationToggles(false);
-  }, [setAgentAttentionNotificationToggles]);
+  };
 
-  const openNotificationSettings = useCallback(() => {
+  const openNotificationSettings = () => {
     const targetUrl = resolveNotificationSettingsUrl();
     if (!targetUrl) {
       toastManager.add({
@@ -1159,23 +1150,23 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
           isUpdatingNotificationPermission: false,
         });
       });
-  }, [refreshNotificationPermission]);
+  };
 
-  const handleNotificationToggleChange = useCallback(
-    (key: AgentAttentionNotificationSettingKey, checked: boolean) => {
-      const intent = resolveNotificationToggleChangeIntent({
-        checked,
-        key,
-        permission: notificationPermission,
-      });
-      if (intent.kind === "request-permission") {
-        enableNotifications(intent.keys);
-        return;
-      }
-      updateSettings(intent.patch);
-    },
-    [enableNotifications, notificationPermission, updateSettings],
-  );
+  const handleNotificationToggleChange = (
+    key: AgentAttentionNotificationSettingKey,
+    checked: boolean,
+  ) => {
+    const intent = resolveNotificationToggleChangeIntent({
+      checked,
+      key,
+      permission: notificationPermission,
+    });
+    if (intent.kind === "request-permission") {
+      enableNotifications(intent.keys);
+      return;
+    }
+    updateSettings(intent.patch);
+  };
 
   const serverProviders = useServerProviders();
   const textGenerationModelSelection = resolveAppModelSelectionState(settings, serverProviders);
@@ -1250,15 +1241,12 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
   const isAdvancedPage = page === "advanced";
   const isAboutPage = page === "about";
   const lspTools = lspToolsStatus?.tools ?? EMPTY_LSP_TOOL_LIST;
-  const lspCoreTools = useMemo(() => lspTools.filter((tool) => tool.builtin), [lspTools]);
+  const lspCoreTools = lspTools.filter((tool) => tool.builtin);
   const lspCatalogTools = useMemo(
     () => lspTools.filter((tool) => tool.source !== "custom"),
     [lspTools],
   );
-  const lspCustomTools = useMemo(
-    () => lspTools.filter((tool) => tool.source === "custom"),
-    [lspTools],
-  );
+  const lspCustomTools = lspTools.filter((tool) => tool.source === "custom");
   const lspCoreToolsInstalled =
     lspCoreTools.length > 0 && lspCoreTools.every((tool) => tool.installed);
   const filteredLspCatalogTools = useMemo(() => {
@@ -1300,7 +1288,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
       });
   }, []);
 
-  const installLspToolsFromSettings = useCallback((reinstall: boolean) => {
+  const installLspToolsFromSettings = (reinstall: boolean) => {
     dispatchLspState({ type: "set-installing-tools", isInstallingLspTools: true });
     dispatchLspState({ type: "set-tools-error", lspToolsError: null });
     void ensureNativeApi()
@@ -1321,7 +1309,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
       .finally(() =>
         dispatchLspState({ type: "set-installing-tools", isInstallingLspTools: false }),
       );
-  }, []);
+  };
 
   const installCustomLspTool = useCallback(
     (input: ServerInstallLspToolInput, installTargetId: string | null = null) => {
@@ -1351,29 +1339,26 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
     [],
   );
 
-  const installCatalogTool = useCallback(
-    (tool: ServerLspToolStatus) => {
-      installCustomLspTool(
-        {
-          packageName: tool.packageName,
-          command: tool.command,
-          label: tool.label,
-          installer: tool.installer,
-          description: tool.description,
-          args: tool.args,
-          installPackages: tool.installPackages,
-          languageIds: tool.languageIds,
-          fileExtensions: tool.fileExtensions,
-          fileNames: tool.fileNames,
-          ...(tool.installed ? { reinstall: true } : {}),
-        },
-        tool.id,
-      );
-    },
-    [installCustomLspTool],
-  );
+  const installCatalogTool = (tool: ServerLspToolStatus) => {
+    installCustomLspTool(
+      {
+        packageName: tool.packageName,
+        command: tool.command,
+        label: tool.label,
+        installer: tool.installer,
+        description: tool.description,
+        args: tool.args,
+        installPackages: tool.installPackages,
+        languageIds: tool.languageIds,
+        fileExtensions: tool.fileExtensions,
+        fileNames: tool.fileNames,
+        ...(tool.installed ? { reinstall: true } : {}),
+      },
+      tool.id,
+    );
+  };
 
-  const uninstallCatalogTool = useCallback((tool: ServerLspToolStatus) => {
+  const uninstallCatalogTool = (tool: ServerLspToolStatus) => {
     dispatchLspState({ type: "set-installing-custom", isInstallingCustomLsp: true });
     dispatchLspState({ type: "set-install-target-id", lspInstallTargetId: tool.id });
     dispatchLspState({ type: "set-tools-error", lspToolsError: null });
@@ -1396,9 +1381,9 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
         dispatchLspState({ type: "set-installing-custom", isInstallingCustomLsp: false });
         dispatchLspState({ type: "set-install-target-id", lspInstallTargetId: null });
       });
-  }, []);
+  };
 
-  const seedCustomLspForm = useCallback((tool?: ServerLspToolStatus) => {
+  const seedCustomLspForm = (tool?: ServerLspToolStatus) => {
     if (tool) {
       dispatchLspState({
         type: "set-custom-form",
@@ -1415,9 +1400,9 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
       });
     }
     dispatchLspState({ type: "set-custom-form-open", isLspCustomFormOpen: true });
-  }, []);
+  };
 
-  const submitCustomLspInstall = useCallback(() => {
+  const submitCustomLspInstall = () => {
     const installer = lspCustomForm.installer;
     const packageName = lspCustomForm.packageName.trim();
     const command = lspCustomForm.command.trim();
@@ -1455,7 +1440,7 @@ function useSettingsPanelComponent({ page }: { page: SettingsPanelPage }) {
       },
       "custom-form",
     );
-  }, [installCustomLspTool, lspCustomForm]);
+  };
 
   useEffect(() => {
     if (!isEditorPage || lspToolsStatus) return;
@@ -3423,7 +3408,7 @@ function ProjectWorktreeSetupEditor({ project }: { readonly project: Project }) 
   const [validationError, setValidationError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  const saveSetup = useCallback(async () => {
+  const saveSetup = async () => {
     const api = readNativeApi();
     if (!api) {
       return;
@@ -3498,9 +3483,9 @@ function ProjectWorktreeSetupEditor({ project }: { readonly project: Project }) 
       return;
     }
     setSaving(false);
-  }, [command, envFilePath, envText, project.id, project.scripts, setupScript]);
+  };
 
-  const disableSetup = useCallback(async () => {
+  const disableSetup = async () => {
     if (!setupScript) return;
     const api = readNativeApi();
     if (!api) {
@@ -3523,7 +3508,7 @@ function ProjectWorktreeSetupEditor({ project }: { readonly project: Project }) 
       return;
     }
     setSaving(false);
-  }, [project.id, project.scripts, setupScript]);
+  };
 
   const hasEnv = Object.keys(setupScript?.env ?? {}).length > 0;
   const savedCommand = setupScript?.command ?? "";
@@ -3673,18 +3658,15 @@ function ProjectEnvironmentWorktrees({
     settings.gitSshKeyPassphraseByProjectRoot[project.cwd] ??
     DEFAULT_UNIFIED_SETTINGS.gitSshKeyPassphrase;
   const hasProjectSshKeyPassphrase = projectSshKeyPassphrase.trim().length > 0;
-  const updateProjectSshKeyPassphrase = useCallback(
-    (passphrase: string) => {
-      const nextPassphrases = { ...settings.gitSshKeyPassphraseByProjectRoot };
-      if (passphrase.trim().length > 0) {
-        nextPassphrases[project.cwd] = passphrase;
-      } else {
-        delete nextPassphrases[project.cwd];
-      }
-      updateSettings({ gitSshKeyPassphraseByProjectRoot: nextPassphrases });
-    },
-    [project.cwd, settings.gitSshKeyPassphraseByProjectRoot, updateSettings],
-  );
+  const updateProjectSshKeyPassphrase = (passphrase: string) => {
+    const nextPassphrases = { ...settings.gitSshKeyPassphraseByProjectRoot };
+    if (passphrase.trim().length > 0) {
+      nextPassphrases[project.cwd] = passphrase;
+    } else {
+      delete nextPassphrases[project.cwd];
+    }
+    updateSettings({ gitSshKeyPassphraseByProjectRoot: nextPassphrases });
+  };
   const projectThreads = useMemo(
     () => threads.filter((thread) => thread.projectId === project.id),
     [project.id, threads],
@@ -3698,7 +3680,7 @@ function ProjectEnvironmentWorktrees({
       }),
     [branchesData?.branches, project, projectThreads],
   );
-  const worktreePaths = useMemo(() => worktrees.map((worktree) => worktree.path), [worktrees]);
+  const worktreePaths = worktrees.map((worktree) => worktree.path);
   const { data: statsData, isFetching: statsIsFetching } = useQuery(
     gitWorktreeStatsQueryOptions({ connectionUrl: projectConnectionUrl, paths: worktreePaths }),
   );
@@ -3764,9 +3746,8 @@ function ProjectEnvironmentWorktrees({
   const effectiveSelectedWorktreePaths = new Set(
     Array.from(selectedWorktreePaths).filter((path) => availableWorktreePaths.has(path)),
   );
-  const visibleSelectableWorktrees = useMemo(
-    () => visibleWorktrees.filter((worktree) => worktree.activeThread === null),
-    [visibleWorktrees],
+  const visibleSelectableWorktrees = visibleWorktrees.filter(
+    (worktree) => worktree.activeThread === null,
   );
   const selectedWorktrees = worktrees.filter(
     (worktree) =>
@@ -3831,17 +3812,13 @@ function ProjectEnvironmentWorktrees({
           left.path.localeCompare(right.path),
       );
   }, [cleanupAge, cleanupReferenceTimeMs, statsByPath, worktrees]);
-  const cleanupStorageBytes = useMemo(
-    () =>
-      cleanupCandidates.reduce(
-        (total, worktree) => total + (statsByPath.get(worktree.path)?.sizeBytes ?? 0),
-        0,
-      ),
-    [cleanupCandidates, statsByPath],
+  const cleanupStorageBytes = cleanupCandidates.reduce(
+    (total, worktree) => total + (statsByPath.get(worktree.path)?.sizeBytes ?? 0),
+    0,
   );
-  const cleanupLinkedChatCount = useMemo(
-    () => cleanupCandidates.reduce((total, worktree) => total + worktree.relatedThreads.length, 0),
-    [cleanupCandidates],
+  const cleanupLinkedChatCount = cleanupCandidates.reduce(
+    (total, worktree) => total + worktree.relatedThreads.length,
+    0,
   );
   const handleCleanupCandidates = async () => {
     const api = readNativeApi();
@@ -4333,23 +4310,20 @@ export function EnvironmentSettingsPanel() {
         ),
     [projects],
   );
-  const updateProjectMetrics = useCallback(
-    (projectId: ProjectId, metrics: EnvironmentProjectMetrics) => {
-      setProjectMetricsById((current) => {
-        const previous = current[projectId];
-        if (
-          previous &&
-          previous.hasSetup === metrics.hasSetup &&
-          previous.storageBytes === metrics.storageBytes &&
-          previous.worktreeCount === metrics.worktreeCount
-        ) {
-          return current;
-        }
-        return { ...current, [projectId]: metrics };
-      });
-    },
-    [],
-  );
+  const updateProjectMetrics = (projectId: ProjectId, metrics: EnvironmentProjectMetrics) => {
+    setProjectMetricsById((current) => {
+      const previous = current[projectId];
+      if (
+        previous &&
+        previous.hasSetup === metrics.hasSetup &&
+        previous.storageBytes === metrics.storageBytes &&
+        previous.worktreeCount === metrics.worktreeCount
+      ) {
+        return current;
+      }
+      return { ...current, [projectId]: metrics };
+    });
+  };
   const filteredProjects = useMemo(() => {
     const query = projectSearch.trim().toLowerCase();
     const searchedProjects =
@@ -4398,16 +4372,13 @@ export function EnvironmentSettingsPanel() {
     });
   }, [activeLocalProjects, projectFilter, projectMetricsById, projectSearch, projectSort]);
   const hasActiveFilter = projectFilter !== "all" || projectSort !== "name" || projectSearch.trim();
-  const duplicateProjectNames = useMemo(
-    () => buildDuplicateProjectNameSet(activeLocalProjects),
-    [activeLocalProjects],
-  );
+  const duplicateProjectNames = buildDuplicateProjectNameSet(activeLocalProjects);
 
-  const clearProjectControls = useCallback(() => {
+  const clearProjectControls = () => {
     setProjectSearch("");
     setProjectFilter("all");
     setProjectSort("name");
-  }, []);
+  };
 
   return (
     <SettingsPageContainer>
@@ -4555,14 +4526,10 @@ function EnvironmentProjectRow({
     isError: branchesIsError,
     isLoading: branchesIsLoading,
   } = useQuery(gitBranchesQueryOptions(project.cwd, projectConnectionUrl));
-  const worktreePaths = useMemo(
-    () =>
-      getProjectWorktreePaths({
-        branches: branchesData?.branches ?? [],
-        project,
-      }),
-    [branchesData?.branches, project],
-  );
+  const worktreePaths = getProjectWorktreePaths({
+    branches: branchesData?.branches ?? [],
+    project,
+  });
   const { data: statsData, isFetching: statsIsFetching } = useQuery(
     gitWorktreeStatsQueryOptions({ connectionUrl: projectConnectionUrl, paths: worktreePaths }),
   );
@@ -4755,38 +4722,38 @@ export function ArchivedThreadsPanel() {
     archivedGroups.map((group) => [group.project.id, openGroupIds[group.project.id] ?? true]),
   );
 
-  const handleArchivedThreadContextMenu = useCallback(
-    async (threadId: ThreadId, position: { x: number; y: number }) => {
-      const api = readNativeApi();
-      if (!api) return;
-      const clicked = await api.contextMenu.show(
-        [
-          { id: "unarchive", label: "Unarchive" },
-          { id: "delete", label: "Delete", destructive: true },
-        ],
-        position,
-      );
+  const handleArchivedThreadContextMenu = async (
+    threadId: ThreadId,
+    position: { x: number; y: number },
+  ) => {
+    const api = readNativeApi();
+    if (!api) return;
+    const clicked = await api.contextMenu.show(
+      [
+        { id: "unarchive", label: "Unarchive" },
+        { id: "delete", label: "Delete", destructive: true },
+      ],
+      position,
+    );
 
-      if (clicked === "unarchive") {
-        try {
-          await unarchiveThread(threadId);
-        } catch (error) {
-          toastManager.add({
-            type: "error",
-            title: "Failed to unarchive thread",
-            description: error instanceof Error ? error.message : "An error occurred.",
-          });
-        }
-        return;
+    if (clicked === "unarchive") {
+      try {
+        await unarchiveThread(threadId);
+      } catch (error) {
+        toastManager.add({
+          type: "error",
+          title: "Failed to unarchive thread",
+          description: error instanceof Error ? error.message : "An error occurred.",
+        });
       }
+      return;
+    }
 
-      if (clicked === "delete") {
-        await confirmAndDeleteThread(threadId);
-      }
-    },
-    [confirmAndDeleteThread, unarchiveThread],
-  );
-  const restoreProject = useCallback(async (projectId: Project["id"]) => {
+    if (clicked === "delete") {
+      await confirmAndDeleteThread(threadId);
+    }
+  };
+  const restoreProject = async (projectId: Project["id"]) => {
     const api = readNativeApi();
     if (!api) {
       throw new Error("Project restore is unavailable.");
@@ -4797,24 +4764,21 @@ export function ArchivedThreadsPanel() {
       projectId,
       archivedAt: null,
     });
-  }, []);
+  };
   const hasArchivedItems = archivedGroups.length > 0;
   const allGroupsExpanded = archivedGroups.every(
     (group) => visibleOpenGroupIds[group.project.id] !== false,
   );
-  const setAllGroupsOpen = useCallback(
-    (open: boolean) => {
-      const next: Record<string, boolean> = {};
-      for (const group of archivedGroups) {
-        next[group.project.id] = open;
-      }
-      setOpenGroupIds(next);
-    },
-    [archivedGroups],
-  );
-  const setGroupOpen = useCallback((projectId: Project["id"], open: boolean) => {
+  const setAllGroupsOpen = (open: boolean) => {
+    const next: Record<string, boolean> = {};
+    for (const group of archivedGroups) {
+      next[group.project.id] = open;
+    }
+    setOpenGroupIds(next);
+  };
+  const setGroupOpen = (projectId: Project["id"], open: boolean) => {
     setOpenGroupIds((current) => ({ ...current, [projectId]: open }));
-  }, []);
+  };
 
   return (
     <SettingsPageContainer>
