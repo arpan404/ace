@@ -1,9 +1,7 @@
 import {
   type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
-  useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -13,6 +11,7 @@ import type { BrowserSearchEngine } from "@ace/contracts/settings";
 
 import { useLocalStorage } from "~/hooks/useLocalStorage";
 import { useEffectEvent } from "~/hooks/useEffectEvent";
+import { useStableCallback } from "~/hooks/useStableCallback";
 import { useSetting, useUpdateSettings } from "~/hooks/useSettings";
 import {
   buildBrowserClickScript,
@@ -164,18 +163,6 @@ async function copyBrowserAddress(url: string): Promise<void> {
   }
 }
 
-function useStableCallback<TArgs extends readonly unknown[], TResult>(
-  callback: (...args: TArgs) => TResult,
-): (...args: TArgs) => TResult {
-  const callbackRef = useRef(callback);
-
-  useLayoutEffect(() => {
-    callbackRef.current = callback;
-  }, [callback]);
-
-  return useCallback((...args: TArgs) => callbackRef.current(...args), []);
-}
-
 interface BrowserSessionProjection {
   readonly activeRuntime: BrowserTabRuntimeState;
   readonly activeTab: BrowserTabState | undefined;
@@ -306,14 +293,13 @@ function useBrowserAddressBarState(input: {
     setSelectedSuggestionIndex(-1);
   };
 
-  const syncDraftUrlFromActiveTab = useCallback(
+  const syncDraftUrlFromActiveTab = useStableCallback(
     (next: { readonly activeTabIsInternal: boolean; readonly activeTabUrl: string }) => {
       setDraftUrl(next.activeTabIsInternal ? "" : next.activeTabUrl);
       if (!next.activeTabIsInternal) {
         setAddressBarSuggestionsDismissed(true);
       }
     },
-    [],
   );
 
   return {
