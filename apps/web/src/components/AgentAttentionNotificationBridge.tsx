@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
+import { useEffect, useReducer, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import type { OrchestrationEvent } from "@ace/contracts";
 
@@ -40,6 +40,7 @@ import {
 } from "../lib/remoteHosts";
 import { getRouteRpcClient, routeOrchestrationGetSnapshotFromRemote } from "../lib/remoteWsRouter";
 import { newCommandId } from "../lib/utils";
+import { useStableCallback } from "../hooks/useStableCallback";
 import { useSetting } from "../hooks/useSettings";
 import { toastManager } from "./ui/toast";
 
@@ -169,24 +170,19 @@ function agentAttentionBridgeStateReducer(
 function useAgentAttentionNotificationBridgeComponent() {
   const navigate = useNavigate();
   const bootstrapComplete = useStore((store) => store.bootstrapComplete);
-  const localConnectionUrl = useMemo(() => resolveLocalConnectionUrl(), []);
+  const [localConnectionUrl] = useState(() => resolveLocalConnectionUrl());
   const notifyOnAgentCompletion = useSetting("notifyOnAgentCompletion");
   const notifyOnApprovalRequired = useSetting("notifyOnApprovalRequired");
   const notifyOnUserInputRequired = useSetting("notifyOnUserInputRequired");
-  const notificationSettings = useMemo(
-    () => ({
-      notifyOnAgentCompletion,
-      notifyOnApprovalRequired,
-      notifyOnUserInputRequired,
-    }),
-    [notifyOnAgentCompletion, notifyOnApprovalRequired, notifyOnUserInputRequired],
-  );
-  const desktopNotificationBridge = useMemo(
-    () =>
-      typeof window === "undefined"
-        ? null
-        : getAgentAttentionDesktopNotificationBridge(window.desktopBridge),
-    [],
+  const notificationSettings = {
+    notifyOnAgentCompletion,
+    notifyOnApprovalRequired,
+    notifyOnUserInputRequired,
+  };
+  const [desktopNotificationBridge] = useState(() =>
+    typeof window === "undefined"
+      ? null
+      : getAgentAttentionDesktopNotificationBridge(window.desktopBridge),
   );
   const [bridgeState, dispatchBridgeState] = useReducer(
     agentAttentionBridgeStateReducer,
@@ -206,18 +202,11 @@ function useAgentAttentionNotificationBridgeComponent() {
     notificationPermission,
     remoteConnectionsReady,
   } = bridgeState;
-  const attentionRequests = useMemo(
-    () =>
-      filterAgentAttentionRequestsBySettings(
-        Object.values(attentionRequestsByConnection).flat(),
-        notificationSettings,
-      ),
-    [attentionRequestsByConnection, notificationSettings],
+  const attentionRequests = filterAgentAttentionRequestsBySettings(
+    Object.values(attentionRequestsByConnection).flat(),
+    notificationSettings,
   );
-  const attentionRequestByKey = useMemo(
-    () => new Map(attentionRequests.map((request) => [request.key, request])),
-    [attentionRequests],
-  );
+  const attentionRequestByKey = new Map(attentionRequests.map((request) => [request.key, request]));
   const activeBrowserNotificationsRef = useRef<Map<string, Notification>>(null!);
   if (activeBrowserNotificationsRef.current === null) {
     activeBrowserNotificationsRef.current = new Map<string, Notification>();
@@ -263,24 +252,21 @@ function useAgentAttentionNotificationBridgeComponent() {
     refreshQueuedByConnectionUrlRef.current = new Set<string>();
   }
 
-  const resolveTrackedConnectionUrls = useMemo(
-    () => () => {
-      const nextConnectionUrls = new Set<string>([localConnectionUrl]);
-      if (!remoteConnectionsReady) {
-        return nextConnectionUrls;
-      }
-      const connectedHostIds = new Set(loadConnectedRemoteHostIds());
-      for (const host of loadRemoteHostInstances()) {
-        if (!connectedHostIds.has(host.id)) {
-          continue;
-        }
-        const connectionUrl = normalizeWsUrl(resolveHostConnectionWsUrl(host));
-        nextConnectionUrls.add(connectionUrl);
-      }
+  const resolveTrackedConnectionUrls = useStableCallback(() => {
+    const nextConnectionUrls = new Set<string>([localConnectionUrl]);
+    if (!remoteConnectionsReady) {
       return nextConnectionUrls;
-    },
-    [localConnectionUrl, remoteConnectionsReady],
-  );
+    }
+    const connectedHostIds = new Set(loadConnectedRemoteHostIds());
+    for (const host of loadRemoteHostInstances()) {
+      if (!connectedHostIds.has(host.id)) {
+        continue;
+      }
+      const connectionUrl = normalizeWsUrl(resolveHostConnectionWsUrl(host));
+      nextConnectionUrls.add(connectionUrl);
+    }
+    return nextConnectionUrls;
+  });
 
   useEffect(() => {
     if (!bootstrapComplete) {
@@ -295,67 +281,59 @@ function useAgentAttentionNotificationBridgeComponent() {
     };
   }, [bootstrapComplete]);
 
-  const refreshConnectionAttentionRequests = useMemo(
-    () => async (connectionUrl: string) => {
-      const normalizedConnectionUrl = normalizeWsUrl(connectionUrl);
-      try {
-        const snapshot = await routeOrchestrationGetSnapshotFromRemote(
-          normalizedConnectionUrl,
-          METADATA_SNAPSHOT_RECOVERY_INPUT,
-        );
-        useHostConnectionStore
-          .getState()
-          .upsertSnapshotOwnership(normalizedConnectionUrl, snapshot);
-        const scopedRequests = deriveAgentAttentionRequests(snapshot.threads).map((request) =>
-          Object.assign({}, request, {
-            key: `${normalizedConnectionUrl}:${request.key}`,
-            connectionUrl: normalizedConnectionUrl,
-          }),
-        );
-        dispatchBridgeState({
-          type: "set-connection-requests",
+  const refreshConnectionAttentionRequests = useStableCallback(async (connectionUrl: string) => {
+    const normalizedConnectionUrl = normalizeWsUrl(connectionUrl);
+    try {
+      const snapshot = await routeOrchestrationGetSnapshotFromRemote(
+        normalizedConnectionUrl,
+        METADATA_SNAPSHOT_RECOVERY_INPUT,
+      );
+      useHostConnectionStore.getState().upsertSnapshotOwnership(normalizedConnectionUrl, snapshot);
+      const scopedRequests = deriveAgentAttentionRequests(snapshot.threads).map((request) =>
+        Object.assign({}, request, {
+          key: `${normalizedConnectionUrl}:${request.key}`,
           connectionUrl: normalizedConnectionUrl,
-          requests: scopedRequests,
-        });
-      } catch {
-        // Keep the last known attention state for this connection during transient failures.
-      }
-    },
-    [],
-  );
+        }),
+      );
+      dispatchBridgeState({
+        type: "set-connection-requests",
+        connectionUrl: normalizedConnectionUrl,
+        requests: scopedRequests,
+      });
+    } catch {
+      // Keep the last known attention state for this connection during transient failures.
+    }
+  });
 
-  const queueConnectionAttentionRefresh = useMemo(
-    () => (connectionUrl: string) => {
-      const normalizedConnectionUrl = normalizeWsUrl(connectionUrl);
-      const existingTimer = refreshTimerByConnectionUrlRef.current.get(normalizedConnectionUrl);
-      if (existingTimer !== undefined) {
-        return;
-      }
-      const timer = window.setTimeout(() => {
-        refreshTimerByConnectionUrlRef.current.delete(normalizedConnectionUrl);
-        const runRefresh = () => {
-          const existingRequest =
-            refreshInFlightByConnectionUrlRef.current.get(normalizedConnectionUrl);
-          if (existingRequest) {
-            refreshQueuedByConnectionUrlRef.current.add(normalizedConnectionUrl);
-            return;
-          }
-          const refreshRequest = refreshConnectionAttentionRequests(normalizedConnectionUrl)
-            .catch(() => undefined)
-            .finally(() => {
-              refreshInFlightByConnectionUrlRef.current.delete(normalizedConnectionUrl);
-              if (refreshQueuedByConnectionUrlRef.current.delete(normalizedConnectionUrl)) {
-                runRefresh();
-              }
-            });
-          refreshInFlightByConnectionUrlRef.current.set(normalizedConnectionUrl, refreshRequest);
-        };
-        runRefresh();
-      }, REMOTE_ATTENTION_REFRESH_DEBOUNCE_MS);
-      refreshTimerByConnectionUrlRef.current.set(normalizedConnectionUrl, timer);
-    },
-    [refreshConnectionAttentionRequests],
-  );
+  const queueConnectionAttentionRefresh = useStableCallback((connectionUrl: string) => {
+    const normalizedConnectionUrl = normalizeWsUrl(connectionUrl);
+    const existingTimer = refreshTimerByConnectionUrlRef.current.get(normalizedConnectionUrl);
+    if (existingTimer !== undefined) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      refreshTimerByConnectionUrlRef.current.delete(normalizedConnectionUrl);
+      const runRefresh = () => {
+        const existingRequest =
+          refreshInFlightByConnectionUrlRef.current.get(normalizedConnectionUrl);
+        if (existingRequest) {
+          refreshQueuedByConnectionUrlRef.current.add(normalizedConnectionUrl);
+          return;
+        }
+        const refreshRequest = refreshConnectionAttentionRequests(normalizedConnectionUrl)
+          .catch(() => undefined)
+          .finally(() => {
+            refreshInFlightByConnectionUrlRef.current.delete(normalizedConnectionUrl);
+            if (refreshQueuedByConnectionUrlRef.current.delete(normalizedConnectionUrl)) {
+              runRefresh();
+            }
+          });
+        refreshInFlightByConnectionUrlRef.current.set(normalizedConnectionUrl, refreshRequest);
+      };
+      runRefresh();
+    }, REMOTE_ATTENTION_REFRESH_DEBOUNCE_MS);
+    refreshTimerByConnectionUrlRef.current.set(normalizedConnectionUrl, timer);
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -437,39 +415,34 @@ function useAgentAttentionNotificationBridgeComponent() {
     };
   }, [queueConnectionAttentionRefresh, resolveTrackedConnectionUrls]);
 
-  const navigateToRequestThread = useMemo(
-    () => (threadId: string, connectionUrl: string) => {
-      const normalizedConnectionUrl = normalizeWsUrl(connectionUrl);
-      void navigate({
-        to: "/$threadId",
-        params: { threadId },
-        search: buildSingleThreadRouteSearch({
-          connectionUrl:
-            normalizedConnectionUrl !== localConnectionUrl ? normalizedConnectionUrl : null,
-        }),
-      });
-    },
-    [localConnectionUrl, navigate],
+  const navigateToRequestThread = useStableCallback((threadId: string, connectionUrl: string) => {
+    const normalizedConnectionUrl = normalizeWsUrl(connectionUrl);
+    void navigate({
+      to: "/$threadId",
+      params: { threadId },
+      search: buildSingleThreadRouteSearch({
+        connectionUrl:
+          normalizedConnectionUrl !== localConnectionUrl ? normalizedConnectionUrl : null,
+      }),
+    });
+  });
+  const buildRequestThreadHref = useStableCallback(
+    (
+      threadId: ScopedAgentAttentionRequest["threadId"],
+      connectionUrl: ScopedAgentAttentionRequest["connectionUrl"],
+    ) =>
+      buildSingleThreadRouteHref(threadId, {
+        connectionUrl: connectionUrl !== localConnectionUrl ? connectionUrl : null,
+      }),
   );
-  const buildRequestThreadHref = useMemo(
-    () =>
-      (
-        threadId: ScopedAgentAttentionRequest["threadId"],
-        connectionUrl: ScopedAgentAttentionRequest["connectionUrl"],
-      ) =>
-        buildSingleThreadRouteHref(threadId, {
-          connectionUrl: connectionUrl !== localConnectionUrl ? connectionUrl : null,
-        }),
-    [localConnectionUrl],
-  );
-  const resetPermissionOfferTracking = useCallback(() => {
+  const resetPermissionOfferTracking = useStableCallback(() => {
     if (permissionOfferToastIdRef.current !== null) {
       toastManager.close(permissionOfferToastIdRef.current);
     }
     permissionOfferToastIdRef.current = null;
-  }, []);
+  });
 
-  const syncWindowState = useCallback(() => {
+  const syncWindowState = useStableCallback(() => {
     if (typeof window === "undefined" || typeof document === "undefined") {
       return;
     }
@@ -501,15 +474,30 @@ function useAgentAttentionNotificationBridgeComponent() {
       return;
     }
     setWindowState(readAgentAttentionNotificationPermission());
-  }, [desktopNotificationBridge]);
+  });
   const syncWindowStateRef = useRef(syncWindowState);
   useEffect(() => {
     syncWindowStateRef.current = syncWindowState;
   }, [syncWindowState]);
 
   useEffect(() => {
-    attentionRequestByKeyRef.current = attentionRequestByKey;
-  }, [attentionRequestByKey]);
+    const nextAttentionRequests = filterAgentAttentionRequestsBySettings(
+      Object.values(attentionRequestsByConnection).flat(),
+      {
+        notifyOnAgentCompletion,
+        notifyOnApprovalRequired,
+        notifyOnUserInputRequired,
+      },
+    );
+    attentionRequestByKeyRef.current = new Map(
+      nextAttentionRequests.map((request) => [request.key, request]),
+    );
+  }, [
+    attentionRequestsByConnection,
+    notifyOnAgentCompletion,
+    notifyOnApprovalRequired,
+    notifyOnUserInputRequired,
+  ]);
 
   useEffect(() => {
     if (typeof window === "undefined" || typeof document === "undefined") {
