@@ -443,12 +443,12 @@ function useSidebarRailInteractions({
   const canResize = resolvedResizable !== null && open;
   const railLabel = canResize ? "Resize Sidebar" : "Toggle Sidebar";
 
-  const cancelScheduledInlineWidthRelease = React.useCallback(() => {
+  const cancelScheduledInlineWidthRelease = () => {
     for (const frameId of releaseInlineWidthFrameIdsRef.current) {
       window.cancelAnimationFrame(frameId);
     }
     releaseInlineWidthFrameIdsRef.current = [];
-  }, []);
+  };
   const cleanupResizeState = useEffectEvent(() => {
     const resizeState = resizeStateRef.current;
     if (resizeState?.rafId != null) window.cancelAnimationFrame(resizeState.rafId);
@@ -469,50 +469,48 @@ function useSidebarRailInteractions({
     document.body.style.removeProperty("user-select");
   });
 
-  const stopResize = React.useCallback(
-    (pointerId: number) => {
-      const resizeState = resizeStateRef.current;
-      if (!resizeState) return;
-      if (resizeState.rafId !== null) {
-        window.cancelAnimationFrame(resizeState.rafId);
-      }
-      cancelScheduledInlineWidthRelease();
-      if (resolvedResizable) {
-        applySidebarRailResizeWidth(resizeState, resolvedResizable, resizeState.pendingWidth);
-      }
-      resizeState.wrapper.style.setProperty("--sidebar-width", `${resizeState.width}px`);
-      if (resolvedResizable?.storageKey && typeof window !== "undefined") {
-        setLocalStorageItem(resolvedResizable.storageKey, resizeState.width, Schema.Finite);
-      }
-      resolvedResizable?.onResize?.(resizeState.width);
-      resizeStateRef.current = null;
-      if (resizeState.rail.hasPointerCapture(pointerId)) {
-        resizeState.rail.releasePointerCapture(pointerId);
-      }
-      document.documentElement.classList.remove(SIDEBAR_RESIZING_CLASS_NAME);
-      window.dispatchEvent(new Event(SIDEBAR_RESIZE_END_EVENT));
-      document.body.style.removeProperty("cursor");
-      document.body.style.removeProperty("user-select");
-      for (const element of resizeState.transitionTargets) {
-        element.style.removeProperty("transition-duration");
-      }
-      const releaseFrameId = window.requestAnimationFrame(() => {
-        const nestedFrameId = window.requestAnimationFrame(() => {
-          resizeState.sidebarGap.style.setProperty("width", "var(--sidebar-width)");
-          resizeState.sidebarContainer.style.setProperty("width", "var(--sidebar-width)");
-          releaseInlineWidthFrameIdsRef.current = releaseInlineWidthFrameIdsRef.current.filter(
-            (frameId) => frameId !== nestedFrameId,
-          );
-        });
-        releaseInlineWidthFrameIdsRef.current.push(nestedFrameId);
+  const stopResize = (pointerId: number) => {
+    const resizeState = resizeStateRef.current;
+    if (!resizeState) return;
+    if (resizeState.rafId !== null) {
+      window.cancelAnimationFrame(resizeState.rafId);
+    }
+    cancelScheduledInlineWidthRelease();
+    if (resolvedResizable) {
+      applySidebarRailResizeWidth(resizeState, resolvedResizable, resizeState.pendingWidth);
+    }
+    resizeState.wrapper.style.setProperty("--sidebar-width", `${resizeState.width}px`);
+    if (resolvedResizable?.storageKey && typeof window !== "undefined") {
+      setLocalStorageItem(resolvedResizable.storageKey, resizeState.width, Schema.Finite);
+    }
+    resolvedResizable?.onResize?.(resizeState.width);
+    resizeStateRef.current = null;
+    if (resizeState.rail.hasPointerCapture(pointerId)) {
+      resizeState.rail.releasePointerCapture(pointerId);
+    }
+    document.documentElement.classList.remove(SIDEBAR_RESIZING_CLASS_NAME);
+    window.dispatchEvent(new Event(SIDEBAR_RESIZE_END_EVENT));
+    document.body.style.removeProperty("cursor");
+    document.body.style.removeProperty("user-select");
+    for (const element of resizeState.transitionTargets) {
+      element.style.removeProperty("transition-duration");
+    }
+    const releaseFrameId = window.requestAnimationFrame(() => {
+      const nestedFrameId = window.requestAnimationFrame(() => {
+        resizeState.sidebarGap.style.setProperty("width", "var(--sidebar-width)");
+        resizeState.sidebarContainer.style.setProperty("width", "var(--sidebar-width)");
         releaseInlineWidthFrameIdsRef.current = releaseInlineWidthFrameIdsRef.current.filter(
-          (frameId) => frameId !== releaseFrameId,
+          (frameId) => frameId !== nestedFrameId,
         );
       });
-      releaseInlineWidthFrameIdsRef.current.push(releaseFrameId);
-    },
-    [cancelScheduledInlineWidthRelease, resolvedResizable],
-  );
+      releaseInlineWidthFrameIdsRef.current.push(nestedFrameId);
+      releaseInlineWidthFrameIdsRef.current = releaseInlineWidthFrameIdsRef.current.filter(
+        (frameId) => frameId !== releaseFrameId,
+      );
+    });
+    releaseInlineWidthFrameIdsRef.current.push(releaseFrameId);
+  };
+  const stopResizeEvent = useEffectEvent(stopResize);
 
   const handlePointerDown = (event: React.PointerEvent<HTMLButtonElement>) => {
     onPointerDown?.(event);
@@ -647,7 +645,7 @@ function useSidebarRailInteractions({
   React.useEffect(() => {
     const resetResizeState = () => {
       const resizeState = resizeStateRef.current;
-      if (resizeState) stopResize(resizeState.pointerId);
+      if (resizeState) stopResizeEvent(resizeState.pointerId);
     };
     const handleVisibilityChange = () => {
       if (document.visibilityState === "hidden") resetResizeState();
@@ -658,7 +656,7 @@ function useSidebarRailInteractions({
       window.removeEventListener("blur", resetResizeState);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [stopResize]);
+  }, []);
 
   return {
     handlePointerCancel,
