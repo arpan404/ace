@@ -10,15 +10,7 @@ import {
 import { DEFAULT_MANAGED_RELAY_URL } from "@ace/contracts";
 import { describeHostConnection } from "@ace/shared/hostConnections";
 import QRCode from "qrcode";
-import {
-  type ReactNode,
-  useCallback,
-  useEffect,
-  useMemo,
-  useReducer,
-  useRef,
-  useState,
-} from "react";
+import { type ReactNode, useEffect, useReducer, useRef, useState } from "react";
 import { validateRelayWebSocketUrl } from "@ace/shared/relay";
 
 import { isElectron } from "../../env";
@@ -455,14 +447,10 @@ function useDevicesSettingsPanelComponent() {
       relayUrlDraft: remoteRelaySettings.defaultUrl,
     });
   }, [remoteRelaySettings.defaultUrl]);
-  const localControlConnectionUrl = useMemo(
-    () =>
-      resolveHostConnectionWsUrl({
-        wsUrl: localDeviceConnection.wsUrl,
-        authToken: localDeviceConnection.authToken,
-      }),
-    [localDeviceConnection.authToken, localDeviceConnection.wsUrl],
-  );
+  const localControlConnectionUrl = resolveHostConnectionWsUrl({
+    wsUrl: localDeviceConnection.wsUrl,
+    authToken: localDeviceConnection.authToken,
+  });
   const localAdvertisedWsUrl = advertisedLocalWsUrl ?? localDeviceConnection.wsUrl;
   const localShareConnectionUrl = resolveHostConnectionWsUrl({
     wsUrl: localAdvertisedWsUrl,
@@ -484,26 +472,23 @@ function useDevicesSettingsPanelComponent() {
     },
   });
 
-  const saveHosts = useCallback(
-    (nextHosts: RemoteHostInstance[]) => {
-      const normalizedHosts = normalizeHostsForMode(nextHosts, desktopMode);
-      setHosts(normalizedHosts);
-      persistRemoteHostInstances(normalizedHosts);
-    },
-    [desktopMode],
-  );
+  const saveHosts = (nextHosts: RemoteHostInstance[]) => {
+    const normalizedHosts = normalizeHostsForMode(nextHosts, desktopMode);
+    setHosts(normalizedHosts);
+    persistRemoteHostInstances(normalizedHosts);
+  };
 
-  const saveConnectedHostIds = useCallback((nextConnectedHostIds: ReadonlyArray<string>) => {
+  const saveConnectedHostIds = (nextConnectedHostIds: ReadonlyArray<string>) => {
     const deduped = [...new Set(nextConnectedHostIds.filter((hostId) => hostId.trim().length > 0))];
     setConnectedHostIds(deduped);
     persistConnectedRemoteHostIds(deduped);
-  }, []);
+  };
 
-  const clearHostDraft = useCallback(() => {
+  const clearHostDraft = () => {
     dispatchPanelState({ type: "clear-host-draft" });
-  }, []);
+  };
 
-  const sortedHosts = useMemo(() => {
+  const sortedHosts = (() => {
     const availableHostIds = new Set(hosts.map((host) => host.id));
     const visibleConnectedHostIds = connectedHostIds.filter((hostId) =>
       availableHostIds.has(hostId),
@@ -522,7 +507,7 @@ function useDevicesSettingsPanelComponent() {
       }
       return left.name.localeCompare(right.name);
     });
-  }, [connectedHostIds, hosts]);
+  })();
 
   const pinnedRelayUrls = Array.from(
     new Set(pairedSessions.flatMap((session) => (session.relayUrl ? [session.relayUrl] : []))),
@@ -573,7 +558,7 @@ function useDevicesSettingsPanelComponent() {
     [],
   );
 
-  const refreshLocalEndpoint = useCallback(async () => {
+  const refreshLocalEndpoint = useStableCallback(async () => {
     dispatchPanelState({ type: "set-refreshing-local-endpoint", refreshingLocalEndpoint: true });
     try {
       const endpoint = await readHostPairingAdvertisedEndpoint({
@@ -596,7 +581,7 @@ function useDevicesSettingsPanelComponent() {
       type: "set-refreshing-local-endpoint",
       refreshingLocalEndpoint: false,
     });
-  }, [localDeviceConnection.authToken, localDeviceConnection.wsUrl]);
+  });
 
   const saveRelaySettings = () => {
     try {
@@ -644,163 +629,153 @@ function useDevicesSettingsPanelComponent() {
     });
   };
 
-  const markHostLastConnected = useCallback(
-    (hostId: string) => {
-      const nowIso = new Date().toISOString();
-      saveHosts(
-        hosts.map((candidate) =>
-          candidate.id === hostId ? { ...candidate, lastConnectedAt: nowIso } : candidate,
-        ),
-      );
-    },
-    [hosts, saveHosts],
-  );
+  const markHostLastConnected = (hostId: string) => {
+    const nowIso = new Date().toISOString();
+    saveHosts(
+      hosts.map((candidate) =>
+        candidate.id === hostId ? { ...candidate, lastConnectedAt: nowIso } : candidate,
+      ),
+    );
+  };
 
   useEffect(() => {
     void refreshLocalEndpoint();
   }, [refreshLocalEndpoint]);
 
-  const upsertHost = useCallback(
-    (
-      draft: {
-        readonly name?: string;
-        readonly wsUrl: string;
-        readonly authToken?: string;
-        readonly iconGlyph?: RemoteHostInstance["iconGlyph"];
-        readonly iconColor?: RemoteHostInstance["iconColor"];
+  const upsertHost = (
+    draft: {
+      readonly name?: string;
+      readonly wsUrl: string;
+      readonly authToken?: string;
+      readonly iconGlyph?: RemoteHostInstance["iconGlyph"];
+      readonly iconColor?: RemoteHostInstance["iconColor"];
+    },
+    existingHostId?: string,
+  ): RemoteHostInstance => {
+    const existingHost = existingHostId
+      ? hosts.find((candidate) => candidate.id === existingHostId)
+      : undefined;
+    const created = createRemoteHostInstance(
+      {
+        wsUrl: draft.wsUrl,
+        ...(draft.name?.trim() ? { name: draft.name } : {}),
+        ...(draft.authToken?.trim() ? { authToken: draft.authToken } : {}),
+        ...(draft.iconGlyph ? { iconGlyph: draft.iconGlyph } : {}),
+        ...(draft.iconColor ? { iconColor: draft.iconColor } : {}),
       },
-      existingHostId?: string,
-    ): RemoteHostInstance => {
-      const existingHost = existingHostId
-        ? hosts.find((candidate) => candidate.id === existingHostId)
-        : undefined;
-      const created = createRemoteHostInstance(
-        {
-          wsUrl: draft.wsUrl,
-          ...(draft.name?.trim() ? { name: draft.name } : {}),
-          ...(draft.authToken?.trim() ? { authToken: draft.authToken } : {}),
-          ...(draft.iconGlyph ? { iconGlyph: draft.iconGlyph } : {}),
-          ...(draft.iconColor ? { iconColor: draft.iconColor } : {}),
-        },
-        existingHost,
+      existingHost,
+    );
+
+    if (!desktopMode) {
+      const existing = existingHost ?? hosts[0];
+      const replacedHost =
+        existing === undefined
+          ? created
+          : {
+              ...created,
+              id: existing.id,
+              createdAt: existing.createdAt,
+              ...(existing.lastConnectedAt ? { lastConnectedAt: existing.lastConnectedAt } : {}),
+            };
+      saveHosts([replacedHost]);
+      return replacedHost;
+    }
+
+    if (existingHost) {
+      const nextHosts = hosts.map((candidate) =>
+        candidate.id === existingHost.id ? created : candidate,
       );
-
-      if (!desktopMode) {
-        const existing = existingHost ?? hosts[0];
-        const replacedHost =
-          existing === undefined
-            ? created
-            : {
-                ...created,
-                id: existing.id,
-                createdAt: existing.createdAt,
-                ...(existing.lastConnectedAt ? { lastConnectedAt: existing.lastConnectedAt } : {}),
-              };
-        saveHosts([replacedHost]);
-        return replacedHost;
-      }
-
-      if (existingHost) {
-        const nextHosts = hosts.map((candidate) =>
-          candidate.id === existingHost.id ? created : candidate,
-        );
-        saveHosts(nextHosts);
-        return created;
-      }
-
-      const duplicate = hosts.find(
-        (candidate) =>
-          candidate.wsUrl === created.wsUrl && candidate.authToken === created.authToken,
-      );
-      const nextHosts =
-        duplicate === undefined
-          ? [created, ...hosts]
-          : hosts.map((candidate) =>
-              candidate.id === duplicate.id
-                ? {
-                    ...created,
-                    id: duplicate.id,
-                    createdAt: duplicate.createdAt,
-                    ...(duplicate.lastConnectedAt
-                      ? { lastConnectedAt: duplicate.lastConnectedAt }
-                      : {}),
-                  }
-                : candidate,
-            );
       saveHosts(nextHosts);
-      return duplicate === undefined
-        ? created
-        : {
-            ...created,
-            id: duplicate.id,
-            createdAt: duplicate.createdAt,
-            ...(duplicate.lastConnectedAt ? { lastConnectedAt: duplicate.lastConnectedAt } : {}),
-          };
-    },
-    [desktopMode, hosts, saveHosts],
-  );
+      return created;
+    }
 
-  const importRemoteHostConnection = useCallback(
-    async (
-      connectionInput: string,
-      options?: {
-        readonly existingHostId?: string;
-        readonly overrideName?: string;
-        readonly iconGlyph?: RemoteHostInstance["iconGlyph"];
-        readonly iconColor?: RemoteHostInstance["iconColor"];
-        readonly requesterName?: string;
+    const duplicate = hosts.find(
+      (candidate) => candidate.wsUrl === created.wsUrl && candidate.authToken === created.authToken,
+    );
+    const nextHosts =
+      duplicate === undefined
+        ? [created, ...hosts]
+        : hosts.map((candidate) =>
+            candidate.id === duplicate.id
+              ? {
+                  ...created,
+                  id: duplicate.id,
+                  createdAt: duplicate.createdAt,
+                  ...(duplicate.lastConnectedAt
+                    ? { lastConnectedAt: duplicate.lastConnectedAt }
+                    : {}),
+                }
+              : candidate,
+          );
+    saveHosts(nextHosts);
+    return duplicate === undefined
+      ? created
+      : {
+          ...created,
+          id: duplicate.id,
+          createdAt: duplicate.createdAt,
+          ...(duplicate.lastConnectedAt ? { lastConnectedAt: duplicate.lastConnectedAt } : {}),
+        };
+  };
+
+  const importRemoteHostConnection = async (
+    connectionInput: string,
+    options?: {
+      readonly existingHostId?: string;
+      readonly overrideName?: string;
+      readonly iconGlyph?: RemoteHostInstance["iconGlyph"];
+      readonly iconColor?: RemoteHostInstance["iconColor"];
+      readonly requesterName?: string;
+    },
+  ): Promise<RemoteHostInstance> => {
+    const parsed = parseHostConnectionQrPayload(connectionInput);
+    if (!parsed) {
+      throw new Error("Use a pairing link (ace://...) or a ws/http host URL.");
+    }
+
+    const resolvedDraft =
+      parsed.kind === "pairing"
+        ? await resolvePairingHostConnection(parsed.pairing, {
+            requesterName: options?.requesterName ?? (desktopMode ? "ace desktop" : "ace web"),
+          })
+        : parsed.draft;
+
+    const upsertedHost = upsertHost(
+      {
+        name: options?.overrideName?.trim() || resolvedDraft.name || "",
+        wsUrl: resolvedDraft.wsUrl,
+        ...(resolvedDraft.authToken ? { authToken: resolvedDraft.authToken } : {}),
+        ...(options?.iconGlyph ? { iconGlyph: options.iconGlyph } : {}),
+        ...(options?.iconColor ? { iconColor: options.iconColor } : {}),
       },
-    ): Promise<RemoteHostInstance> => {
-      const parsed = parseHostConnectionQrPayload(connectionInput);
-      if (!parsed) {
-        throw new Error("Use a pairing link (ace://...) or a ws/http host URL.");
-      }
+      options?.existingHostId,
+    );
 
-      const resolvedDraft =
-        parsed.kind === "pairing"
-          ? await resolvePairingHostConnection(parsed.pairing, {
-              requesterName: options?.requesterName ?? (desktopMode ? "ace desktop" : "ace web"),
-            })
-          : parsed.draft;
+    try {
+      await verifyWsHostConnection(resolveHostConnectionWsUrl(upsertedHost), {
+        timeoutMs: 2_500,
+      });
+      dispatchSessionState({
+        type: "set-host-availability",
+        hostId: upsertedHost.id,
+        availability: { status: "available", requestId: Date.now() },
+      });
+    } catch (error) {
+      dispatchSessionState({
+        type: "set-host-availability",
+        hostId: upsertedHost.id,
+        availability: { status: "unavailable", requestId: Date.now() },
+      });
+      toastManager.add({
+        type: "warning",
+        title: "Host saved but currently unavailable.",
+        description:
+          error instanceof Error ? error.message : "Could not reach this host right now.",
+      });
+    }
 
-      const upsertedHost = upsertHost(
-        {
-          name: options?.overrideName?.trim() || resolvedDraft.name || "",
-          wsUrl: resolvedDraft.wsUrl,
-          ...(resolvedDraft.authToken ? { authToken: resolvedDraft.authToken } : {}),
-          ...(options?.iconGlyph ? { iconGlyph: options.iconGlyph } : {}),
-          ...(options?.iconColor ? { iconColor: options.iconColor } : {}),
-        },
-        options?.existingHostId,
-      );
-
-      try {
-        await verifyWsHostConnection(resolveHostConnectionWsUrl(upsertedHost), {
-          timeoutMs: 2_500,
-        });
-        dispatchSessionState({
-          type: "set-host-availability",
-          hostId: upsertedHost.id,
-          availability: { status: "available", requestId: Date.now() },
-        });
-      } catch (error) {
-        dispatchSessionState({
-          type: "set-host-availability",
-          hostId: upsertedHost.id,
-          availability: { status: "unavailable", requestId: Date.now() },
-        });
-        toastManager.add({
-          type: "warning",
-          title: "Host saved but currently unavailable.",
-          description:
-            error instanceof Error ? error.message : "Could not reach this host right now.",
-        });
-      }
-
-      return upsertedHost;
-    },
-    [desktopMode, upsertHost],
-  );
+    return upsertedHost;
+  };
 
   const consumePendingDesktopPairingLink = useStableCallback((onSettled?: () => void) => {
     if (!desktopMode || importingHostRef.current) {
@@ -935,88 +910,82 @@ function useDevicesSettingsPanelComponent() {
     }
   };
 
-  const checkHostAvailability = useCallback(
-    async (host: RemoteHostInstance) => {
-      if (checkingHostId !== null) {
-        return;
-      }
-      dispatchPanelState({ type: "set-checking-host-id", checkingHostId: host.id });
-      try {
-        await verifyWsHostConnection(resolveHostConnectionWsUrl(host), {
-          timeoutMs: 2_500,
-        });
-        dispatchSessionState({
-          type: "set-host-availability",
-          hostId: host.id,
-          availability: { status: "available", requestId: Date.now() },
-        });
-      } catch (error) {
-        dispatchSessionState({
-          type: "set-host-availability",
-          hostId: host.id,
-          availability: { status: "unavailable", requestId: Date.now() },
-        });
-        toastManager.add({
-          type: "error",
-          title: "Host is unavailable.",
-          description:
-            error instanceof Error ? error.message : "Host connection check did not complete.",
-        });
-        dispatchPanelState({ type: "set-checking-host-id", checkingHostId: null });
-        return;
-      }
+  const checkHostAvailability = useStableCallback(async (host: RemoteHostInstance) => {
+    if (checkingHostId !== null) {
+      return;
+    }
+    dispatchPanelState({ type: "set-checking-host-id", checkingHostId: host.id });
+    try {
+      await verifyWsHostConnection(resolveHostConnectionWsUrl(host), {
+        timeoutMs: 2_500,
+      });
+      dispatchSessionState({
+        type: "set-host-availability",
+        hostId: host.id,
+        availability: { status: "available", requestId: Date.now() },
+      });
+    } catch (error) {
+      dispatchSessionState({
+        type: "set-host-availability",
+        hostId: host.id,
+        availability: { status: "unavailable", requestId: Date.now() },
+      });
+      toastManager.add({
+        type: "error",
+        title: "Host is unavailable.",
+        description:
+          error instanceof Error ? error.message : "Host connection check did not complete.",
+      });
       dispatchPanelState({ type: "set-checking-host-id", checkingHostId: null });
-    },
-    [checkingHostId],
-  );
+      return;
+    }
+    dispatchPanelState({ type: "set-checking-host-id", checkingHostId: null });
+  });
 
-  const connectHost = useCallback(
-    async (host: RemoteHostInstance) => {
-      if (connectingHostId !== null || connectedHostIds.includes(host.id)) {
-        return;
-      }
-      const connectionString = resolveHostConnectionWsUrl(host);
-      dispatchPanelState({ type: "set-connecting-host-id", connectingHostId: host.id });
-      try {
-        await verifyWsHostConnection(connectionString, {
-          timeoutMs: 2_500,
-        });
-        dispatchSessionState({
-          type: "set-host-availability",
-          hostId: host.id,
-          availability: { status: "available", requestId: Date.now() },
-        });
-        markHostLastConnected(host.id);
-        registerRemoteRoute(connectionString);
-        await probeRemoteRouteAvailability(connectionString, {
-          force: true,
-          timeoutMs: 2_500,
-        });
-        saveConnectedHostIds([...connectedHostIds, host.id]);
-        toastManager.add({
-          type: "success",
-          title: `Connected to ${host.name}`,
-          description: "Local host remains the primary server.",
-        });
-      } catch (error) {
-        dispatchSessionState({
-          type: "set-host-availability",
-          hostId: host.id,
-          availability: { status: "unavailable", requestId: Date.now() },
-        });
-        toastManager.add({
-          type: "error",
-          title: "Could not connect to remote host.",
-          description:
-            error instanceof Error ? error.message : "Host connection check did not complete.",
-        });
-        dispatchPanelState({ type: "set-connecting-host-id", connectingHostId: null });
-        return;
-      }
+  const connectHost = useStableCallback(async (host: RemoteHostInstance) => {
+    if (connectingHostId !== null || connectedHostIds.includes(host.id)) {
+      return;
+    }
+    const connectionString = resolveHostConnectionWsUrl(host);
+    dispatchPanelState({ type: "set-connecting-host-id", connectingHostId: host.id });
+    try {
+      await verifyWsHostConnection(connectionString, {
+        timeoutMs: 2_500,
+      });
+      dispatchSessionState({
+        type: "set-host-availability",
+        hostId: host.id,
+        availability: { status: "available", requestId: Date.now() },
+      });
+      markHostLastConnected(host.id);
+      registerRemoteRoute(connectionString);
+      await probeRemoteRouteAvailability(connectionString, {
+        force: true,
+        timeoutMs: 2_500,
+      });
+      saveConnectedHostIds([...connectedHostIds, host.id]);
+      toastManager.add({
+        type: "success",
+        title: `Connected to ${host.name}`,
+        description: "Local host remains the primary server.",
+      });
+    } catch (error) {
+      dispatchSessionState({
+        type: "set-host-availability",
+        hostId: host.id,
+        availability: { status: "unavailable", requestId: Date.now() },
+      });
+      toastManager.add({
+        type: "error",
+        title: "Could not connect to remote host.",
+        description:
+          error instanceof Error ? error.message : "Host connection check did not complete.",
+      });
       dispatchPanelState({ type: "set-connecting-host-id", connectingHostId: null });
-    },
-    [connectedHostIds, connectingHostId, markHostLastConnected, saveConnectedHostIds],
-  );
+      return;
+    }
+    dispatchPanelState({ type: "set-connecting-host-id", connectingHostId: null });
+  });
 
   const disconnectHost = async (host: RemoteHostInstance) => {
     if (connectingHostId !== null || !connectedHostIds.includes(host.id)) {
@@ -1199,7 +1168,7 @@ function useDevicesSettingsPanelComponent() {
     };
   }, [localAdvertisedWsUrl, localDeviceConnection.authToken, pairingLink]);
 
-  const refreshPairedSessions = useCallback(
+  const refreshPairedSessions = useStableCallback(
     async (options?: { readonly quiet?: boolean }) => {
       if (!options?.quiet) {
         dispatchSessionState({
@@ -1238,7 +1207,6 @@ function useDevicesSettingsPanelComponent() {
         });
       }
     },
-    [localAdvertisedWsUrl, localDeviceConnection.authToken],
   );
 
   const revokePairedSession = async (session: HostPairingSessionSummary) => {
@@ -1308,7 +1276,7 @@ function useDevicesSettingsPanelComponent() {
     };
   }, [refreshPairedSessions]);
 
-  const refreshHostAvailability = useCallback(async () => {
+  const refreshHostAvailability = useStableCallback(async () => {
     if (hosts.length === 0) {
       return;
     }
@@ -1344,7 +1312,7 @@ function useDevicesSettingsPanelComponent() {
         }
       }),
     );
-  }, [hosts]);
+  });
 
   useEffect(() => {
     void refreshHostAvailability();
