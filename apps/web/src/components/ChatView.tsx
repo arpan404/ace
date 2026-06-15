@@ -527,6 +527,7 @@ const EMPTY_MESSAGE_ID_SET: Set<MessageId> = new Set();
 const EMPTY_MESSAGE_TURN_COUNT_MAP: Map<MessageId, number> = new Map();
 const EMPTY_TIMELINE_ENTRIES: TimelineEntry[] = [];
 const EMPTY_TIMELINE_ROWS: readonly TimelineRow[] = [];
+const EMPTY_TIMELINE_DISCLOSURE_EXPANSION_STATE: TimelineDisclosureExpansionState = {};
 const EMPTY_CHAT_MESSAGES: readonly ChatMessage[] = Object.freeze([]);
 
 const THREAD_SWITCH_SCROLL_SETTLE_DELAY_MS = 96;
@@ -3602,16 +3603,29 @@ function useChatViewComponent({
   })();
   const timelineRows = sourceTimelineRowsOverride ?? fallbackTimelineRows;
   const expandedWorkGroups = activeThreadId
-    ? (expandedWorkGroupsByThreadId[activeThreadId] ?? {})
-    : {};
+    ? (expandedWorkGroupsByThreadId[activeThreadId] ?? EMPTY_TIMELINE_DISCLOSURE_EXPANSION_STATE)
+    : EMPTY_TIMELINE_DISCLOSURE_EXPANSION_STATE;
   useEffect(() => {
     if (!activeThreadId) {
       return;
     }
+    if (Object.keys(expandedWorkGroups).length === 0) {
+      return;
+    }
     const activeTimelineDisclosureKeys = collectTimelineRowsDisclosureKeys(timelineRows);
+    const nextExpandedWorkGroups = pruneTimelineDisclosureExpansionState(
+      expandedWorkGroups,
+      activeTimelineDisclosureKeys,
+    );
+    if (nextExpandedWorkGroups === expandedWorkGroups) {
+      return;
+    }
     setExpandedWorkGroupsByThreadId((current) => {
-      const existing = current[activeThreadId] ?? {};
-      const pruned = pruneTimelineDisclosureExpansionState(existing, activeTimelineDisclosureKeys);
+      const existing = current[activeThreadId] ?? EMPTY_TIMELINE_DISCLOSURE_EXPANSION_STATE;
+      const pruned =
+        existing === expandedWorkGroups
+          ? nextExpandedWorkGroups
+          : pruneTimelineDisclosureExpansionState(existing, activeTimelineDisclosureKeys);
       if (pruned === existing) {
         return current;
       }
@@ -3620,7 +3634,7 @@ function useChatViewComponent({
         [activeThreadId]: pruned,
       };
     });
-  }, [activeThreadId, timelineRows]);
+  }, [activeThreadId, expandedWorkGroups, timelineRows]);
   const gitCwd = activeProject
     ? projectScriptCwd({
         project: { cwd: activeProject.cwd },

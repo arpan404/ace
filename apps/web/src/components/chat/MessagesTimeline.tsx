@@ -167,7 +167,6 @@ const ASSISTANT_MARKDOWN_IDLE_TIMEOUT_MS = 600;
 const ASSISTANT_MARKDOWN_FALLBACK_DELAY_MS = 80;
 const TIMELINE_WIDTH_RESIZE_DEBOUNCE_MS = 96;
 const TIMELINE_INITIAL_VIEWPORT_HEIGHT_PX = 720;
-const THREAD_SWITCH_TIMELINE_BOTTOM_PIN_MAX_MS = 4_500;
 const EMPTY_PROVIDER_COMMANDS: ReadonlyArray<ProviderSlashCommand> = [];
 const ASSISTANT_IMAGE_GENERATION_MESSAGE_ID_REGEX =
   /^assistant:image:(?<width>\d{2,5})x(?<height>\d{2,5}):/u;
@@ -1074,9 +1073,22 @@ export function MessagesTimeline({
     overscan: TIMELINE_VIRTUALIZER_OVERSCAN,
     useAnimationFrameWithResizeObserver: true,
   });
-  useLayoutEffect(() => {
+  const measureTimelineRowsEffect = useEffectEvent(() => {
     rowVirtualizer.measure();
-  }, [rowVirtualizer, timelineDisclosureRevision]);
+  });
+  const scrollTimelineToBottomEffect = useEffectEvent(() => {
+    const scrollContainer = getScrollContainerEffect();
+    if (!scrollContainer) {
+      return;
+    }
+    if (shouldRenderVirtualizedBuffer && virtualizedRows.length > 0) {
+      rowVirtualizer.scrollToIndex(virtualizedRows.length - 1, { align: "end" });
+    }
+    scrollContainerToBottom(scrollContainer);
+  });
+  useLayoutEffect(() => {
+    measureTimelineRowsEffect();
+  }, [timelineDisclosureRevision]);
   const previousActiveThreadIdRef = useRef<string | undefined>(activeThreadId);
   const pendingThreadSwitchBottomPinRef = useRef<{
     startedAtMs: number;
@@ -1149,14 +1161,7 @@ export function MessagesTimeline({
       if (!pendingBottomPin || pendingBottomPin.threadId !== activeThreadId) {
         return;
       }
-      const scrollContainer = getScrollContainerEffect();
-      if (!scrollContainer) {
-        return;
-      }
-      if (shouldRenderVirtualizedBuffer && virtualizedRows.length > 0) {
-        rowVirtualizer.scrollToIndex(virtualizedRows.length - 1, { align: "end" });
-      }
-      scrollContainerToBottom(scrollContainer);
+      scrollTimelineToBottomEffect();
     };
 
     scrollTimelineToBottom();
@@ -1169,11 +1174,7 @@ export function MessagesTimeline({
         thirdFrameId = window.requestAnimationFrame(() => {
           scrollTimelineToBottom();
           const pendingBottomPin = pendingThreadSwitchBottomPinRef.current;
-          if (
-            pendingBottomPin?.threadId === activeThreadId &&
-            performance.now() - pendingBottomPin.startedAtMs >=
-              THREAD_SWITCH_TIMELINE_BOTTOM_PIN_MAX_MS
-          ) {
+          if (pendingBottomPin?.threadId === activeThreadId) {
             pendingThreadSwitchBottomPinRef.current = null;
           }
         });
@@ -1191,7 +1192,6 @@ export function MessagesTimeline({
     };
   }, [
     activeThreadId,
-    rowVirtualizer,
     rows.length,
     shouldRenderVirtualizedBuffer,
     timelineCacheScope,
