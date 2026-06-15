@@ -216,6 +216,7 @@ import {
   readCachedSourceTimelineRows,
   resolveSourceTimelineRows,
 } from "~/lib/chat/sourceTimelineRowsClient";
+import { createSourceTimelineRowsLiveResolver } from "~/lib/chat/sourceTimelineRowsLiveResolver";
 import { shouldBuildSourceTimelineRowsOnMainThread } from "~/lib/chat/sourceTimelineRowsScheduling";
 import { buildTimelineRows, type TimelineRow } from "~/lib/chat/timelineRows";
 import {
@@ -519,6 +520,7 @@ const EMPTY_ACTIVITIES: OrchestrationThreadActivity[] = [];
 const EMPTY_PROVIDER_STATUSES: ReadonlyArray<ServerProvider> = [];
 const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
 const EMPTY_QUEUED_COMPOSER_MESSAGES: Thread["queuedComposerMessages"] = [];
+const OPTIMISTIC_QUEUE_STATE_MAX_AGE_MS = 2_000;
 const EMPTY_COMPOSER_MODEL_SELECTIONS: ModelSelectionByProvider = Object.freeze({});
 const EMPTY_PENDING_COMPOSER_COMMENTS: readonly PendingComposerComment[] = Object.freeze([]);
 const EMPTY_MESSAGE_ID_SET: Set<MessageId> = new Set();
@@ -621,6 +623,75 @@ async function waitForBrowserBridgeController<TResult>(options: {
 }
 
 type QueuedComposerMessage = Thread["queuedComposerMessages"][number];
+interface QueuedComposerState {
+  readonly threadId: ThreadId;
+  readonly messages: readonly QueuedComposerMessage[];
+  readonly steerRequest: Thread["queuedSteerRequest"];
+}
+
+interface OptimisticInactiveTurnState {
+  readonly threadId: ThreadId;
+  readonly turnId: TurnId | null;
+  readonly requestedAt: string;
+}
+
+interface OptimisticQueuedDispatchState {
+  readonly threadId: ThreadId;
+  readonly messageId: MessageId;
+}
+
+function optimisticInactiveTurnCoversLiveTurn(input: {
+  readonly state: OptimisticInactiveTurnState | null;
+  readonly thread: Thread | undefined;
+  readonly latestTurn: Thread["latestTurn"] | null;
+  readonly rawLiveTurnInProgress: boolean;
+}): boolean {
+  if (!input.rawLiveTurnInProgress || !input.state || input.thread?.id !== input.state.threadId) {
+    return false;
+  }
+  const activeSessionTurnId = input.thread.session?.activeTurnId ?? null;
+  if (activeSessionTurnId !== null) {
+    return activeSessionTurnId === input.state.turnId;
+  }
+  const latestTurn = input.latestTurn;
+  return (
+    latestTurn !== null &&
+    latestTurn.state === "running" &&
+    latestTurn.completedAt === null &&
+    latestTurn.turnId === input.state.turnId
+  );
+}
+
+function queuedComposerMessageOrderMatches(
+  left: readonly QueuedComposerMessage[],
+  right: readonly QueuedComposerMessage[],
+): boolean {
+  return (
+    left.length === right.length && left.every((message, index) => message.id === right[index]?.id)
+  );
+}
+
+function queuedSteerRequestsMatch(
+  left: Thread["queuedSteerRequest"],
+  right: Thread["queuedSteerRequest"],
+): boolean {
+  return (
+    left?.messageId === right?.messageId &&
+    left?.baselineWorkLogEntryCount === right?.baselineWorkLogEntryCount &&
+    left?.interruptRequested === right?.interruptRequested
+  );
+}
+
+function queuedComposerStateMatches(
+  state: QueuedComposerState,
+  messages: readonly QueuedComposerMessage[],
+  steerRequest: Thread["queuedSteerRequest"],
+): boolean {
+  return (
+    queuedComposerMessageOrderMatches(state.messages, messages) &&
+    queuedSteerRequestsMatch(state.steerRequest, steerRequest)
+  );
+}
 
 function refreshProviderStatus(): void {
   void readNativeApi()
@@ -749,7 +820,7 @@ const EMPTY_VISIBLE_BOARD_THREAD_IDS: readonly ThreadId[] = [];
 const EMPTY_THREAD_LAST_VISITED_AT_BY_ID: Readonly<Record<string, string>> = {};
 const EMPTY_HISTORICAL_MESSAGE_IDS: Set<MessageId> = new Set();
 const SOURCE_TIMELINE_ROWS_CONTENT_KEY_TAIL_ROWS = 32;
-const ACTIVE_SOURCE_TIMELINE_ROWS_REBUILD_DELAY_MS = 80;
+const ACTIVE_SOURCE_TIMELINE_ROWS_REBUILD_DELAY_MS = 16;
 
 const RECENT_HYDRATED_THREAD_HISTORY_KEEP_COUNT = 8;
 
@@ -1678,6 +1749,16 @@ function useChatViewComponent({
   useLayoutEffect(() => {
     optimisticUserMessagesRef.current = optimisticUserMessages;
   }, [optimisticUserMessages]);
+  const [optimisticQueuedComposerState, setOptimisticQueuedComposerState] =
+    useState<QueuedComposerState | null>(null);
+  const optimisticQueuedComposerStateRef = useRef(optimisticQueuedComposerState);
+  useLayoutEffect(() => {
+    optimisticQueuedComposerStateRef.current = optimisticQueuedComposerState;
+  }, [optimisticQueuedComposerState]);
+  const [optimisticInactiveTurnState, setOptimisticInactiveTurnState] =
+    useState<OptimisticInactiveTurnState | null>(null);
+  const [optimisticQueuedDispatchState, setOptimisticQueuedDispatchState] =
+    useState<OptimisticQueuedDispatchState | null>(null);
   const composerTerminalContextsRef = useRef<TerminalContextDraft[]>([]);
   const isConnecting = false;
   const [chatViewTransientState, dispatchChatViewTransientState] = useReducer(
@@ -2439,8 +2520,16 @@ function useChatViewComponent({
     lineageSourceThreadIds,
     isServerThread,
   ]);
-  const latestTurnSettled = isLatestTurnSettled(activeLatestTurn, activeThread?.session ?? null);
-  const liveTurnInProgress = hasLiveTurn(activeLatestTurn, activeThread?.session ?? null);
+  const rawLatestTurnSettled = isLatestTurnSettled(activeLatestTurn, activeThread?.session ?? null);
+  const rawLiveTurnInProgress = hasLiveTurn(activeLatestTurn, activeThread?.session ?? null);
+  const optimisticInactiveTurnActive = optimisticInactiveTurnCoversLiveTurn({
+    state: optimisticInactiveTurnState,
+    thread: activeThread,
+    latestTurn: activeLatestTurn,
+    rawLiveTurnInProgress,
+  });
+  const latestTurnSettled = optimisticInactiveTurnActive ? true : rawLatestTurnSettled;
+  const liveTurnInProgress = rawLiveTurnInProgress && !optimisticInactiveTurnActive;
   const connectionHealth = useConnectionHealth();
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [diagnosticsFocus, setDiagnosticsFocus] = useState<"connection" | "provider" | "thread">(
@@ -2514,9 +2603,35 @@ function useChatViewComponent({
       }),
     });
   };
-  const queuedComposerMessages =
+  const serverQueuedComposerMessages =
     serverThread?.queuedComposerMessages ?? EMPTY_QUEUED_COMPOSER_MESSAGES;
-  const queuedSteerRequest = serverThread?.queuedSteerRequest ?? null;
+  const serverQueuedSteerRequest = serverThread?.queuedSteerRequest ?? null;
+  const activeOptimisticQueuedComposerState = (() => {
+    const optimisticState = optimisticQueuedComposerState;
+    if (!optimisticState || optimisticState.threadId !== serverThread?.id) {
+      return null;
+    }
+    return queuedComposerStateMatches(
+      optimisticState,
+      serverQueuedComposerMessages,
+      serverQueuedSteerRequest,
+    )
+      ? null
+      : optimisticState;
+  })();
+  const queuedComposerMessages =
+    activeOptimisticQueuedComposerState?.messages ?? serverQueuedComposerMessages;
+  const queuedSteerRequest =
+    activeOptimisticQueuedComposerState?.steerRequest ?? serverQueuedSteerRequest;
+  const optimisticQueuedDispatchMessageId = (() => {
+    const dispatchState = optimisticQueuedDispatchState;
+    if (dispatchState === null || dispatchState.threadId !== serverThread?.id) {
+      return null;
+    }
+    return queuedComposerMessages.some((message) => message.id === dispatchState.messageId)
+      ? dispatchState.messageId
+      : null;
+  })();
   const queuedComposerMessagesRef = useRef(queuedComposerMessages);
   const queuedSteerRequestRef = useRef(queuedSteerRequest);
   useLayoutEffect(() => {
@@ -2525,6 +2640,50 @@ function useChatViewComponent({
   useLayoutEffect(() => {
     queuedSteerRequestRef.current = queuedSteerRequest;
   }, [queuedSteerRequest]);
+  const captureQueuedComposerState = (targetThreadId: ThreadId): QueuedComposerState | null => {
+    if (serverThread?.id !== targetThreadId) {
+      return null;
+    }
+    const optimisticState = optimisticQueuedComposerStateRef.current;
+    if (
+      optimisticState?.threadId === targetThreadId &&
+      !queuedComposerStateMatches(
+        optimisticState,
+        serverQueuedComposerMessages,
+        serverQueuedSteerRequest,
+      )
+    ) {
+      return optimisticState;
+    }
+    return {
+      threadId: targetThreadId,
+      messages: serverQueuedComposerMessages,
+      steerRequest: serverQueuedSteerRequest,
+    };
+  };
+  const commitOptimisticQueuedComposerState = (nextState: QueuedComposerState) => {
+    setOptimisticQueuedComposerState(nextState);
+    window.setTimeout(() => {
+      setOptimisticQueuedComposerState((current) => (current === nextState ? null : current));
+    }, OPTIMISTIC_QUEUE_STATE_MAX_AGE_MS);
+  };
+  const applyOptimisticQueuedComposerState = (
+    targetThreadId: ThreadId,
+    updater: (state: QueuedComposerState) => QueuedComposerState,
+  ): QueuedComposerState | null => {
+    const previousState = captureQueuedComposerState(targetThreadId);
+    if (!previousState) {
+      return null;
+    }
+    const nextState = updater(previousState);
+    commitOptimisticQueuedComposerState(nextState);
+    return previousState;
+  };
+  const restoreOptimisticQueuedComposerState = (state: QueuedComposerState | null) => {
+    if (state) {
+      commitOptimisticQueuedComposerState(state);
+    }
+  };
 
   const openPullRequestDialog = (reference?: string) => {
     if (!canCheckoutPullRequestIntoThread) {
@@ -3189,6 +3348,34 @@ function useChatViewComponent({
     readonly rows: ReadonlyArray<TimelineRow>;
     readonly threadId: ThreadId | null;
   } | null>(null);
+  const sourceTimelineRowsLiveResolverRef = useRef<ReturnType<
+    typeof createSourceTimelineRowsLiveResolver
+  > | null>(null);
+  if (sourceTimelineRowsLiveResolverRef.current === null) {
+    sourceTimelineRowsLiveResolverRef.current = createSourceTimelineRowsLiveResolver({
+      delayMs: ACTIVE_SOURCE_TIMELINE_ROWS_REBUILD_DELAY_MS,
+      publishRows: ({ key, rows, threadId }) => {
+        startTransition(() => {
+          setResolvedSourceTimelineRows({ key, rows, threadId });
+        });
+      },
+      reportError: (error) => {
+        console.error("Failed to build active source timeline rows", error);
+      },
+      resolveRows: ({ key, rowsInput }) =>
+        resolveSourceTimelineRows({
+          cacheKey: key,
+          rowsInput,
+        }),
+    });
+  }
+  useEffect(
+    () => () => {
+      sourceTimelineRowsLiveResolverRef.current?.dispose();
+      sourceTimelineRowsLiveResolverRef.current = null;
+    },
+    [],
+  );
   const cachedSourceTimelineRows = readCachedSourceTimelineRows(sourceTimelineRowsInputKey);
   const shouldBuildSourceTimelineRowsSynchronously =
     sourceTimelineRowsInput !== null &&
@@ -3208,19 +3395,28 @@ function useChatViewComponent({
   const hasCachedSourceTimelineRows = cachedSourceTimelineRows !== null;
   useEffect(() => {
     if (!sourceTimelineRowsInput || !sourceTimelineRowsInputKey) {
+      sourceTimelineRowsLiveResolverRef.current?.clear();
       return;
     }
     if (shouldBuildSourceTimelineRowsSynchronously) {
+      sourceTimelineRowsLiveResolverRef.current?.clear();
       return;
     }
     if (hasCachedSourceTimelineRows) {
+      sourceTimelineRowsLiveResolverRef.current?.clear();
+      return;
+    }
+    if (sourceTimelineRowsInput.activeTurnInProgress) {
+      sourceTimelineRowsLiveResolverRef.current?.setLatest({
+        key: sourceTimelineRowsInputKey,
+        rowsInput: sourceTimelineRowsInput,
+        threadId: sourceTimelineRowsThreadId,
+      });
       return;
     }
 
     let canceled = false;
-    let timer: number | null = null;
     const resolveRows = () => {
-      timer = null;
       resolveSourceTimelineRows({
         cacheKey: sourceTimelineRowsInputKey,
         rowsInput: sourceTimelineRowsInput,
@@ -3243,16 +3439,10 @@ function useChatViewComponent({
           }
         });
     };
-    if (sourceTimelineRowsInput.activeTurnInProgress) {
-      timer = window.setTimeout(resolveRows, ACTIVE_SOURCE_TIMELINE_ROWS_REBUILD_DELAY_MS);
-    } else {
-      resolveRows();
-    }
+    sourceTimelineRowsLiveResolverRef.current?.clear();
+    resolveRows();
     return () => {
       canceled = true;
-      if (timer !== null) {
-        window.clearTimeout(timer);
-      }
     };
   }, [
     sourceTimelineRowsInput,
@@ -3397,6 +3587,7 @@ function useChatViewComponent({
     return measureRenderWork("chat.buildTimelineRows", () =>
       buildTimelineRows({
         timelineEntries,
+        activeTurnId: activeLatestTurn?.turnId ?? null,
         activeTurnInProgress: isWorking,
         activeTurnStartedAt: activeWorkStartedAt,
         ...(timelineCacheScope ? { cacheScopeKey: timelineCacheScope } : {}),
@@ -4217,57 +4408,171 @@ function useChatViewComponent({
     targetThreadId: ThreadId,
     message: QueuedComposerMessage,
     options?: { steerRequest?: Thread["queuedSteerRequest"] },
-  ) =>
-    await dispatchQueuedComposerCommand(targetThreadId, ({ commandId, threadId }) => ({
-      type: "thread.queue.append",
-      commandId,
-      threadId,
-      message: toQueuedComposerCommandMessage(message),
-      position: options?.steerRequest ? "front" : "back",
-      ...(options?.steerRequest ? { steerRequest: options.steerRequest } : {}),
+  ) => {
+    const previousQueueState = applyOptimisticQueuedComposerState(targetThreadId, (state) => {
+      const withoutDuplicate = state.messages.filter(
+        (queuedMessage) => queuedMessage.id !== message.id,
+      );
+      const messages = options?.steerRequest
+        ? [message, ...withoutDuplicate]
+        : [...withoutDuplicate, message];
+      return {
+        ...state,
+        messages,
+        steerRequest:
+          options?.steerRequest !== undefined ? options.steerRequest : state.steerRequest,
+      };
+    });
+    const succeeded = await dispatchQueuedComposerCommand(
+      targetThreadId,
+      ({ commandId, threadId }) => ({
+        type: "thread.queue.append",
+        commandId,
+        threadId,
+        message: toQueuedComposerCommandMessage(message),
+        position: options?.steerRequest ? "front" : "back",
+        ...(options?.steerRequest ? { steerRequest: options.steerRequest } : {}),
+      }),
+    );
+    if (!succeeded) {
+      restoreOptimisticQueuedComposerState(previousQueueState);
+    }
+    return succeeded;
+  };
+  const deleteQueuedComposerMessage = async (targetThreadId: ThreadId, messageId: MessageId) => {
+    const previousQueueState = applyOptimisticQueuedComposerState(targetThreadId, (state) => ({
+      ...state,
+      messages: state.messages.filter((message) => message.id !== messageId),
+      steerRequest: state.steerRequest?.messageId === messageId ? null : state.steerRequest,
     }));
-  const deleteQueuedComposerMessage = async (targetThreadId: ThreadId, messageId: MessageId) =>
-    await dispatchQueuedComposerCommand(targetThreadId, ({ commandId, threadId }) => ({
-      type: "thread.queue.delete",
-      commandId,
-      threadId,
-      messageId,
+    const succeeded = await dispatchQueuedComposerCommand(
+      targetThreadId,
+      ({ commandId, threadId }) => ({
+        type: "thread.queue.delete",
+        commandId,
+        threadId,
+        messageId,
+      }),
+    );
+    if (!succeeded) {
+      restoreOptimisticQueuedComposerState(previousQueueState);
+    }
+    return succeeded;
+  };
+  const clearQueuedComposerState = async (targetThreadId: ThreadId) => {
+    const previousQueueState = applyOptimisticQueuedComposerState(targetThreadId, (state) => ({
+      ...state,
+      messages: [],
+      steerRequest: null,
     }));
-  const clearQueuedComposerState = async (targetThreadId: ThreadId) =>
-    await dispatchQueuedComposerCommand(targetThreadId, ({ commandId, threadId }) => ({
-      type: "thread.queue.clear",
-      commandId,
-      threadId,
-    }));
+    const succeeded = await dispatchQueuedComposerCommand(
+      targetThreadId,
+      ({ commandId, threadId }) => ({
+        type: "thread.queue.clear",
+        commandId,
+        threadId,
+      }),
+    );
+    if (!succeeded) {
+      restoreOptimisticQueuedComposerState(previousQueueState);
+    }
+    return succeeded;
+  };
   const reorderQueuedComposerState = async (
     targetThreadId: ThreadId,
     messageIds: ReadonlyArray<MessageId>,
-  ) =>
-    await dispatchQueuedComposerCommand(targetThreadId, ({ commandId, threadId }) => ({
-      type: "thread.queue.reorder",
-      commandId,
-      threadId,
-      messageIds: [...messageIds],
-    }));
+  ) => {
+    const previousQueueState = applyOptimisticQueuedComposerState(targetThreadId, (state) => {
+      const messagesById = new Map(state.messages.map((message) => [message.id, message] as const));
+      const seen = new Set<MessageId>();
+      const messages: QueuedComposerMessage[] = [];
+      for (const messageId of messageIds) {
+        const message = messagesById.get(messageId);
+        if (message && !seen.has(messageId)) {
+          seen.add(messageId);
+          messages.push(message);
+        }
+      }
+      for (const message of state.messages) {
+        if (!seen.has(message.id)) {
+          messages.push(message);
+        }
+      }
+      return { ...state, messages };
+    });
+    const succeeded = await dispatchQueuedComposerCommand(
+      targetThreadId,
+      ({ commandId, threadId }) => ({
+        type: "thread.queue.reorder",
+        commandId,
+        threadId,
+        messageIds: [...messageIds],
+      }),
+    );
+    if (!succeeded) {
+      restoreOptimisticQueuedComposerState(previousQueueState);
+    }
+    return succeeded;
+  };
   const steerQueuedComposerMessage = async (
     targetThreadId: ThreadId,
     messageId: MessageId,
     options: { baselineWorkLogEntryCount: number; interruptRequested?: boolean },
-  ) =>
-    await dispatchQueuedComposerCommand(targetThreadId, ({ commandId, threadId }) => ({
-      type: "thread.queue.steer",
-      commandId,
-      threadId,
-      messageId,
-      baselineWorkLogEntryCount: options.baselineWorkLogEntryCount,
-      interruptRequested: options.interruptRequested ?? false,
+  ) => {
+    const previousQueueState = applyOptimisticQueuedComposerState(targetThreadId, (state) => {
+      const messageIndex = state.messages.findIndex((message) => message.id === messageId);
+      if (messageIndex < 0) {
+        return state;
+      }
+      const messages = [...state.messages];
+      const [message] = messages.splice(messageIndex, 1);
+      if (message) {
+        messages.unshift(message);
+      }
+      return {
+        ...state,
+        messages,
+        steerRequest: {
+          messageId,
+          baselineWorkLogEntryCount: options.baselineWorkLogEntryCount,
+          interruptRequested: options.interruptRequested ?? false,
+        },
+      };
+    });
+    const succeeded = await dispatchQueuedComposerCommand(
+      targetThreadId,
+      ({ commandId, threadId }) => ({
+        type: "thread.queue.steer",
+        commandId,
+        threadId,
+        messageId,
+        baselineWorkLogEntryCount: options.baselineWorkLogEntryCount,
+        interruptRequested: options.interruptRequested ?? false,
+      }),
+    );
+    if (!succeeded) {
+      restoreOptimisticQueuedComposerState(previousQueueState);
+    }
+    return succeeded;
+  };
+  const clearQueuedSteerRequest = async (targetThreadId: ThreadId) => {
+    const previousQueueState = applyOptimisticQueuedComposerState(targetThreadId, (state) => ({
+      ...state,
+      steerRequest: null,
     }));
-  const clearQueuedSteerRequest = async (targetThreadId: ThreadId) =>
-    await dispatchQueuedComposerCommand(targetThreadId, ({ commandId, threadId }) => ({
-      type: "thread.queue.steer.clear",
-      commandId,
-      threadId,
-    }));
+    const succeeded = await dispatchQueuedComposerCommand(
+      targetThreadId,
+      ({ commandId, threadId }) => ({
+        type: "thread.queue.steer.clear",
+        commandId,
+        threadId,
+      }),
+    );
+    if (!succeeded) {
+      restoreOptimisticQueuedComposerState(previousQueueState);
+    }
+    return succeeded;
+  };
   const dispatchQueuedComposerMessage = async (targetThreadId: ThreadId, messageId: MessageId) =>
     await dispatchQueuedComposerCommand(targetThreadId, ({ commandId, threadId }) => ({
       type: "thread.queue.dispatch",
@@ -8059,7 +8364,14 @@ function useChatViewComponent({
     if (!queuedComposerMessagesRef.current.some((message) => message.id === messageId)) {
       return;
     }
-    await dispatchQueuedComposerMessage(serverThread.id, messageId);
+    const targetThreadId = serverThread.id;
+    setOptimisticQueuedDispatchState({ threadId: targetThreadId, messageId });
+    const succeeded = await dispatchQueuedComposerMessage(targetThreadId, messageId);
+    if (!succeeded) {
+      setOptimisticQueuedDispatchState((current) =>
+        current?.threadId === targetThreadId && current.messageId === messageId ? null : current,
+      );
+    }
   };
   const submitWorkspaceAgentNote = async (input: {
     mode: "queue" | "send";
@@ -8487,14 +8799,34 @@ function useChatViewComponent({
   const onInterrupt = async () => {
     const api = readNativeApi();
     if (!api || !activeThread) return;
-    const interruptedTurnId = activeLatestTurn?.turnId ?? null;
-    await api.orchestration.dispatchCommand({
-      type: "thread.turn.interrupt",
-      commandId: newCommandId(),
-      threadId: activeThread.id,
-      createdAt: new Date().toISOString(),
+    const interruptedTurnId =
+      activeThread.session?.activeTurnId ?? activeLatestTurn?.turnId ?? null;
+    const interruptedThreadId = activeThread.id;
+    const createdAt = new Date().toISOString();
+    setOptimisticInactiveTurnState({
+      threadId: interruptedThreadId,
+      turnId: interruptedTurnId,
+      requestedAt: createdAt,
     });
-    scheduleInterruptStopFallback(activeThread.id, interruptedTurnId);
+    try {
+      await api.orchestration.dispatchCommand({
+        type: "thread.turn.interrupt",
+        commandId: newCommandId(),
+        threadId: interruptedThreadId,
+        createdAt,
+      });
+      scheduleInterruptStopFallback(interruptedThreadId, interruptedTurnId);
+    } catch (err) {
+      setOptimisticInactiveTurnState((current) =>
+        current?.threadId === interruptedThreadId && current.turnId === interruptedTurnId
+          ? null
+          : current,
+      );
+      setStoreThreadError(
+        interruptedThreadId,
+        err instanceof Error ? err.message : "Failed to stop the current turn.",
+      );
+    }
   };
 
   const onRespondToApproval = async (
@@ -9866,6 +10198,7 @@ function useChatViewComponent({
   };
   const canSendQueuedComposerMessages =
     queuedComposerMessages.length > 0 &&
+    optimisticQueuedDispatchMessageId === null &&
     !liveTurnInProgress &&
     !isSendBusy &&
     !isConnecting &&
@@ -10064,6 +10397,7 @@ function useChatViewComponent({
         activeContextWindow={activeContextWindow}
         queuedComposerMessages={[]}
         queuedSteerMessageId={null}
+        queuedDispatchingMessageId={null}
         canSendQueuedMessages={false}
         pendingComposerComments={[]}
         liveTurnInProgress={subagent.status === "running"}
@@ -10326,6 +10660,7 @@ function useChatViewComponent({
       activeContextWindow={activeContextWindow}
       queuedComposerMessages={queuedComposerMessages}
       queuedSteerMessageId={queuedSteerRequest?.messageId ?? null}
+      queuedDispatchingMessageId={optimisticQueuedDispatchMessageId}
       canSendQueuedMessages={canSendQueuedComposerMessages}
       pendingComposerComments={pendingComposerCommentItems}
       liveTurnInProgress={liveTurnInProgress}

@@ -809,6 +809,49 @@ describe("store read model sync", () => {
     expect(runningThread?.messages).toHaveLength(2);
   });
 
+  it("demotes a hydrated thread when a stale running session points at a completed turn", () => {
+    const threadId = ThreadId.makeUnsafe("thread-stale-running-completed");
+    const turnId = TurnId.makeUnsafe("turn-stale-running-completed");
+    const state = makeState(
+      makeThread({
+        id: threadId,
+        historyLoaded: true,
+        messages: [
+          {
+            id: MessageId.makeUnsafe("stale-running-user"),
+            role: "user",
+            text: "Finish this",
+            turnId,
+            streaming: false,
+            createdAt: "2026-02-27T00:00:00.000Z",
+          },
+        ],
+        latestTurn: {
+          turnId,
+          state: "completed",
+          requestedAt: "2026-02-27T00:00:00.000Z",
+          startedAt: "2026-02-27T00:00:00.000Z",
+          completedAt: "2026-02-27T00:00:03.000Z",
+          assistantMessageId: null,
+        },
+        session: {
+          provider: "codex",
+          status: "running",
+          orchestrationStatus: "running",
+          activeTurnId: turnId,
+          createdAt: "2026-02-27T00:00:00.000Z",
+          updatedAt: "2026-02-27T00:00:03.000Z",
+        },
+      }),
+    );
+
+    const next = pruneHydratedThreadHistories(state, []);
+    const prunedThread = next.threads.find((thread) => thread.id === threadId);
+
+    expect(prunedThread?.historyLoaded).toBe(false);
+    expect(prunedThread?.messages).toEqual([]);
+  });
+
   it("keeps hydrated running thread history when syncing metadata recovery snapshots", () => {
     const threadId = ThreadId.makeUnsafe("thread-running");
     const turnId = TurnId.makeUnsafe("turn-running");
@@ -2243,6 +2286,50 @@ describe("incremental orchestration updates", () => {
     ]);
   });
 
+  it("publishes live timeline rows once per orchestration batch", () => {
+    const thread = makeThread();
+    const state = makeState(thread);
+    let timelineStateChangeCount = 0;
+    const unsubscribe = useTimelineModelStore.subscribe(() => {
+      timelineStateChangeCount += 1;
+    });
+
+    try {
+      applyOrchestrationEvents(state, [
+        makeEvent("thread.message-sent", {
+          threadId: thread.id,
+          messageId: MessageId.makeUnsafe("batch-message-1"),
+          role: "assistant",
+          text: "Hello",
+          turnId: TurnId.makeUnsafe("turn-batch"),
+          streaming: true,
+          createdAt: "2026-02-27T00:00:01.000Z",
+          updatedAt: "2026-02-27T00:00:01.000Z",
+        }),
+        makeEvent("thread.activity-appended", {
+          threadId: thread.id,
+          activity: {
+            id: EventId.makeUnsafe("batch-activity-1"),
+            tone: "tool",
+            kind: "tool.started",
+            summary: "Tool started",
+            payload: {},
+            turnId: TurnId.makeUnsafe("turn-batch"),
+            createdAt: "2026-02-27T00:00:02.000Z",
+          },
+        }),
+      ]);
+    } finally {
+      unsubscribe();
+    }
+
+    expect(timelineStateChangeCount).toBe(1);
+    expect(readTimelineRowsProjection(thread.id).rowIds).toEqual([
+      "message:batch-message-1",
+      "activity:batch-activity-1",
+    ]);
+  });
+
   it("preserves activity semantics when consecutive same-thread activity events are batched", async () => {
     const thread = makeThread();
     const state = makeState(thread);
@@ -2357,6 +2444,46 @@ describe("incremental orchestration updates", () => {
     expect(next.threads[0]?.session?.status).toBe("running");
     expect(next.threads[0]?.latestTurn?.state).toBe("completed");
     expect(next.threads[0]?.messages).toHaveLength(1);
+  });
+
+  it("uses the triggering user message time as the live turn start fallback", () => {
+    const turnId = TurnId.makeUnsafe("turn-start-fallback");
+    const thread = makeThread({
+      messages: [
+        {
+          id: MessageId.makeUnsafe("user-start-fallback"),
+          role: "user",
+          text: "Start work",
+          turnId: null,
+          streaming: false,
+          createdAt: "2026-02-27T00:00:01.000Z",
+        },
+      ],
+    });
+    const state = makeState(thread);
+
+    const next = applyOrchestrationEvent(
+      state,
+      makeEvent("thread.session-set", {
+        threadId: thread.id,
+        session: {
+          threadId: thread.id,
+          status: "running",
+          providerName: "codex",
+          runtimeMode: "full-access",
+          activeTurnId: turnId,
+          lastError: null,
+          updatedAt: "2026-02-27T00:00:05.000Z",
+        },
+      }),
+    );
+
+    expect(next.threads[0]?.latestTurn).toMatchObject({
+      turnId,
+      state: "running",
+      requestedAt: "2026-02-27T00:00:01.000Z",
+      startedAt: "2026-02-27T00:00:01.000Z",
+    });
   });
 
   it("marks running latestTurn completed when session becomes ready", () => {

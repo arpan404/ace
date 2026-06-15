@@ -35,13 +35,14 @@ import {
 
 function makeLatestTurn(overrides?: {
   state?: OrchestrationLatestTurn["state"];
+  turnId?: TurnId;
   completedAt?: string | null;
   startedAt?: string | null;
 }): OrchestrationLatestTurn {
   const hasStartedAtOverride = overrides && "startedAt" in overrides;
   const hasCompletedAtOverride = overrides && "completedAt" in overrides;
   return {
-    turnId: "turn-1" as never,
+    turnId: overrides?.turnId ?? TurnId.makeUnsafe("turn-1"),
     state: overrides?.state ?? "completed",
     assistantMessageId: null,
     requestedAt: "2026-03-09T10:00:00.000Z",
@@ -616,6 +617,7 @@ describe("resolveThreadStatusPill", () => {
       createdAt: "2026-03-09T10:00:00.000Z",
       updatedAt: "2026-03-09T10:00:00.000Z",
       orchestrationStatus: "running" as const,
+      activeTurnId: TurnId.makeUnsafe("turn-1"),
     },
   };
 
@@ -701,6 +703,26 @@ describe("resolveThreadStatusPill", () => {
         },
       }),
     ).toMatchObject({ label: "Working", pulse: true });
+  });
+
+  it("does not keep working status when the active session turn completed locally", () => {
+    expect(
+      resolveThreadStatusPill({
+        thread: {
+          ...baseThread,
+          latestTurn: makeLatestTurn({
+            state: "completed",
+            turnId: TurnId.makeUnsafe("turn-1"),
+          }),
+          session: {
+            ...baseThread.session,
+            activeTurnId: TurnId.makeUnsafe("turn-1"),
+            status: "running",
+            orchestrationStatus: "running",
+          },
+        },
+      }),
+    ).toMatchObject({ label: "Completed", pulse: false });
   });
 
   it("prioritizes an active retry over a stale session lastError", () => {

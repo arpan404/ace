@@ -2502,6 +2502,71 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
   );
 
   it.effect(
+    "routes websocket rpc subscribeOrchestrationDomainEvents covers events persisted during replay setup",
+    () =>
+      Effect.gen(function* () {
+        const now = new Date().toISOString();
+        const threadId = ThreadId.makeUnsafe("thread-1");
+        let replayEvaluated = false;
+        const makeEvent = (sequence: number): OrchestrationEvent =>
+          ({
+            sequence,
+            eventId: `event-${sequence}`,
+            aggregateKind: "thread",
+            aggregateId: threadId,
+            occurredAt: now,
+            commandId: null,
+            causationEventId: null,
+            correlationId: null,
+            metadata: {},
+            type: "thread.reverted",
+            payload: {
+              threadId,
+              turnCount: sequence,
+            },
+          }) as OrchestrationEvent;
+
+        yield* buildAppUnderTest({
+          layers: {
+            orchestrationEngine: {
+              getReadModel: () =>
+                Effect.succeed({
+                  ...makeDefaultOrchestrationReadModel(),
+                  snapshotSequence: 1,
+                }),
+              readEvents: () =>
+                Stream.suspend(() => {
+                  replayEvaluated = true;
+                  return Stream.empty;
+                }),
+              get streamDomainEvents() {
+                return replayEvaluated
+                  ? Stream.make(makeEvent(3))
+                  : Stream.make(makeEvent(2), makeEvent(3));
+              },
+              dispatch: () => Effect.succeed({ sequence: 3 }),
+            },
+          },
+        });
+
+        const wsUrl = yield* getWsServerUrl("/ws");
+        const events = yield* Effect.scoped(
+          withWsRpcClient(wsUrl, (client) =>
+            client[WS_METHODS.subscribeOrchestrationDomainEvents]({}).pipe(
+              Stream.take(2),
+              Stream.runCollect,
+            ),
+          ),
+        );
+
+        assert.deepEqual(
+          Array.from(events).map((event) => event.sequence),
+          [2, 3],
+        );
+      }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect(
     "routes websocket rpc subscribeOrchestrationDomainEvents from caller replay cursor",
     () =>
       Effect.gen(function* () {

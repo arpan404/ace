@@ -1024,13 +1024,14 @@ const WsRpcLayer = WsRpcGroup.toLayer(
                     minimum: 0,
                   })
                 : (yield* orchestrationEngine.getReadModel()).snapshotSequence;
-            const replayEvents: Array<OrchestrationEvent> = yield* Stream.runCollect(
-              orchestrationEngine.readEvents(fromSequenceExclusive),
-            ).pipe(
-              Effect.map((events) => Array.from(events)),
-              Effect.catch(() => Effect.succeed([] as Array<OrchestrationEvent>)),
-            );
-            const replayStream = Stream.fromIterable(replayEvents);
+            const replayStream = orchestrationEngine
+              .readEvents(fromSequenceExclusive)
+              .pipe(Stream.catch(() => Stream.empty));
+            // Subscribe to the hot live stream at the same time as the replay stream.
+            // Collecting replay first leaves a gap where events persisted after the
+            // replay query but before the PubSub subscription are neither replayed
+            // nor delivered live, so the browser only observes them after a later
+            // snapshot refresh.
             const source = Stream.merge(replayStream, orchestrationEngine.streamDomainEvents).pipe(
               Stream.map(sanitizeOrchestrationEventForClient),
             );

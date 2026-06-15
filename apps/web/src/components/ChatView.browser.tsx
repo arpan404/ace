@@ -337,6 +337,45 @@ function createSnapshotForTargetUser(options: {
   };
 }
 
+function createSnapshotWithRunningTurn(options: {
+  targetMessageId: MessageId;
+  targetText: string;
+  turnId?: TurnId;
+}): OrchestrationReadModel {
+  const turnId = options.turnId ?? ("turn-browser-running" as TurnId);
+  const snapshot = createSnapshotForTargetUser({
+    targetMessageId: options.targetMessageId,
+    targetText: options.targetText,
+    sessionStatus: "running",
+  });
+  const [thread] = snapshot.threads;
+  if (!thread) {
+    throw new Error("Expected browser test thread.");
+  }
+  return {
+    ...snapshot,
+    threads: [
+      {
+        ...thread,
+        latestTurn: {
+          turnId,
+          state: "running",
+          requestedAt: isoAt(2_000),
+          startedAt: isoAt(2_001),
+          completedAt: null,
+          assistantMessageId: null,
+        },
+        session: {
+          ...thread.session!,
+          status: "running",
+          activeTurnId: turnId,
+          updatedAt: isoAt(2_001),
+        },
+      },
+    ],
+  };
+}
+
 function createSnapshotWithTwoScrollableThreads(): OrchestrationReadModel {
   const primary = createSnapshotForTargetUser({
     targetMessageId: "msg-user-primary-target" as MessageId,
@@ -3373,6 +3412,13 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
       await vi.waitFor(
         () => {
+          expect(document.body.textContent).toContain("Queue the follow-up");
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      await vi.waitFor(
+        () => {
           const queueAppendRequest = wsRequests.find(
             (request) =>
               request._tag === ORCHESTRATION_WS_METHODS.dispatchCommand &&
@@ -3400,13 +3446,115 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
+  it("marks a queued message as sending before a queue dispatch echo arrives", async () => {
+    const queuedMessageId = "queued-browser-dispatch" as MessageId;
+    const baseSnapshot = createSnapshotForTargetUser({
+      targetMessageId: "msg-user-queue-dispatch-pending" as MessageId,
+      targetText: "queue dispatch pending target",
+    });
+    const baseThread = baseSnapshot.threads[0];
+    if (!baseThread) {
+      throw new Error("Expected browser test thread.");
+    }
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: {
+        ...baseSnapshot,
+        threads: [
+          {
+            ...baseThread,
+            queuedComposerMessages: [
+              {
+                id: queuedMessageId,
+                prompt: "Send this queued message now",
+                images: [],
+                terminalContexts: [],
+                modelSelection: { provider: "codex", model: "gpt-5" },
+                runtimeMode: "full-access",
+                interactionMode: "default",
+              },
+            ],
+          },
+        ],
+      },
+      resolveRpc: (body) => {
+        if (body._tag === ORCHESTRATION_WS_METHODS.dispatchCommand) {
+          return { sequence: 1 };
+        }
+        return undefined;
+      },
+    });
+
+    try {
+      const sendQueuedButton = await waitForElement(
+        () => document.querySelector<HTMLButtonElement>('button[aria-label="Send queued message"]'),
+        "Unable to find send queued message button.",
+      );
+      sendQueuedButton.click();
+
+      await vi.waitFor(
+        () => {
+          expect(document.querySelector('[aria-label="Sending queued message"]')).toBeTruthy();
+          const queueDispatchRequest = wsRequests.find(
+            (request) =>
+              request._tag === ORCHESTRATION_WS_METHODS.dispatchCommand &&
+              request.type === "thread.queue.dispatch",
+          );
+          expect(queueDispatchRequest).toBeDefined();
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("settles the visible running state as soon as stop is clicked", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotWithRunningTurn({
+        targetMessageId: "msg-user-stop-optimistic" as MessageId,
+        targetText: "stop optimistic target",
+        turnId: "turn-stop-optimistic" as TurnId,
+      }),
+      resolveRpc: (body) => {
+        if (body._tag === ORCHESTRATION_WS_METHODS.dispatchCommand) {
+          return { sequence: 1 };
+        }
+        return undefined;
+      },
+    });
+
+    try {
+      const stopButton = await waitForElement(
+        () => document.querySelector<HTMLButtonElement>('button[aria-label="Stop generation"]'),
+        "Unable to find stop generation button.",
+      );
+      stopButton.click();
+
+      await vi.waitFor(
+        () => {
+          expect(document.querySelector('button[aria-label="Stop generation"]')).toBeNull();
+          const interruptRequest = wsRequests.find(
+            (request) =>
+              request._tag === ORCHESTRATION_WS_METHODS.dispatchCommand &&
+              request.type === "thread.turn.interrupt",
+          );
+          expect(interruptRequest).toBeDefined();
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
   it("shows a pointer cursor for the running stop button", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
-      snapshot: createSnapshotForTargetUser({
+      snapshot: createSnapshotWithRunningTurn({
         targetMessageId: "msg-user-stop-button-cursor" as MessageId,
         targetText: "stop button cursor target",
-        sessionStatus: "running",
       }),
     });
 

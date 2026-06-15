@@ -178,6 +178,7 @@ export type AssistantTimelineMessageRow = TimelineMessageRow & {
 
 export interface BuildTimelineRowsInput {
   readonly timelineEntries: ReadonlyArray<TimelineEntry>;
+  readonly activeTurnId?: string | null;
   readonly activeTurnInProgress: boolean;
   readonly activeTurnStartedAt: string | null;
   readonly cacheScopeKey?: string;
@@ -192,6 +193,33 @@ export function isCompletedAssistantMessageRow(
   row: TimelineRow,
 ): row is AssistantTimelineMessageRow {
   return row.kind === "message" && row.message.role === "assistant" && !row.message.streaming;
+}
+
+function timelineEntryTurnId(entry: TimelineEntry): TimelineTurnId | null {
+  switch (entry.kind) {
+    case "message":
+      return entry.message.turnId ?? null;
+    case "intent":
+      return entry.turnId ?? null;
+    case "proposed-plan":
+      return entry.proposedPlan.turnId ?? null;
+    case "work":
+      return entry.entry.turnId ?? null;
+  }
+}
+
+function isTimelineEntryInActiveTurn(
+  input: Pick<BuildTimelineRowsInput, "activeTurnId" | "activeTurnInProgress">,
+  entry: TimelineEntry,
+  activeTurnStartedAtMs: number,
+): boolean {
+  if (!input.activeTurnInProgress) {
+    return false;
+  }
+  if (input.activeTurnId) {
+    return timelineEntryTurnId(entry) === input.activeTurnId;
+  }
+  return isEventInActiveTurn(entry.createdAt, activeTurnStartedAtMs);
 }
 
 export function isEventInActiveTurn(createdAt: string, activeTurnStartedAtMs: number): boolean {
@@ -1105,7 +1133,7 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
       if (shouldSkipTimelineWorkEntry(timelineEntry.entry)) {
         continue;
       }
-      if (isEventInActiveTurn(timelineEntry.createdAt, activeTurnStartedAtMs)) {
+      if (isTimelineEntryInActiveTurn(input, timelineEntry, activeTurnStartedAtMs)) {
         hasRenderableCurrentTurnOutput = true;
       }
       pushPendingWorkEntry(timelineEntry);
@@ -1132,7 +1160,7 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
     flushPendingMetaEntries(pendingMetaNextEventCreatedAt);
 
     if (timelineEntry.kind === "proposed-plan") {
-      if (isEventInActiveTurn(timelineEntry.createdAt, activeTurnStartedAtMs)) {
+      if (isTimelineEntryInActiveTurn(input, timelineEntry, activeTurnStartedAtMs)) {
         hasRenderableCurrentTurnOutput = true;
       }
       nextRows.push({
@@ -1151,8 +1179,9 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
       continue;
     }
 
-    const messageIsInActiveTurn = isEventInActiveTurn(
-      timelineEntry.createdAt,
+    const messageIsInActiveTurn = isTimelineEntryInActiveTurn(
+      input,
+      timelineEntry,
       activeTurnStartedAtMs,
     );
     if (messageIsInActiveTurn && messageRole !== "user") {

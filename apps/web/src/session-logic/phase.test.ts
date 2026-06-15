@@ -20,6 +20,38 @@ describe("hasLiveTurn", () => {
     ).toBe(true);
   });
 
+  it("returns false when the active session turn already completed locally", () => {
+    expect(
+      hasLiveTurn(
+        {
+          ...liveTurn,
+          state: "completed",
+          completedAt: "2026-04-07T14:01:00.000Z",
+        },
+        {
+          orchestrationStatus: "running",
+          activeTurnId: TurnId.makeUnsafe("turn-live"),
+        },
+      ),
+    ).toBe(false);
+  });
+
+  it("returns true when a different session turn is still active", () => {
+    expect(
+      hasLiveTurn(
+        {
+          ...liveTurn,
+          state: "completed",
+          completedAt: "2026-04-07T14:01:00.000Z",
+        },
+        {
+          orchestrationStatus: "running",
+          activeTurnId: TurnId.makeUnsafe("turn-next"),
+        },
+      ),
+    ).toBe(true);
+  });
+
   it("does not treat an idle running session as live without an active turn id", () => {
     expect(
       hasLiveTurn(

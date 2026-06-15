@@ -2,7 +2,7 @@ import * as React from "react";
 import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "@ace/contracts/settings";
 import type { SidebarThreadSummary, Thread } from "../types";
 import { cn } from "../lib/utils";
-import { isLatestTurnSettled } from "../session-logic";
+import { hasLiveTurn, isLatestTurnSettled } from "../session-logic";
 
 const THREAD_SELECTION_SAFE_SELECTOR = "[data-thread-item], [data-thread-selection-safe]";
 export const THREAD_JUMP_HINT_SHOW_DELAY_MS = 100;
@@ -576,9 +576,7 @@ export function resolveThreadStatusPill(input: {
     };
   }
 
-  const hasLiveTurn =
-    thread.latestTurn?.state === "running" && thread.latestTurn.completedAt === null;
-  if (thread.session?.status === "running" || hasLiveTurn) {
+  if (hasLiveTurn(thread.latestTurn, thread.session)) {
     return {
       label: "Working",
       colorClass: "text-sky-600 dark:text-sky-300/80",

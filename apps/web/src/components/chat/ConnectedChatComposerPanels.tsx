@@ -241,6 +241,9 @@ interface ConnectedChatComposerPanelsProps {
     typeof ChatComposerPanel
   >["queuedComposerMessages"];
   readonly queuedSteerMessageId: ComponentProps<typeof ChatComposerPanel>["queuedSteerMessageId"];
+  readonly queuedDispatchingMessageId: ComponentProps<
+    typeof ChatComposerPanel
+  >["queuedDispatchingMessageId"];
   readonly canSendQueuedMessages: ComponentProps<typeof ChatComposerPanel>["canSendQueuedMessages"];
   readonly pendingComposerComments: ComponentProps<
     typeof ChatComposerPanel
@@ -1410,6 +1413,7 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
         composerTerminalContexts={composerTerminalContexts}
         queuedComposerMessages={props.queuedComposerMessages}
         queuedSteerMessageId={props.queuedSteerMessageId}
+        queuedDispatchingMessageId={props.queuedDispatchingMessageId}
         canSendQueuedMessages={props.canSendQueuedMessages}
         pendingComposerComments={props.pendingComposerComments}
         composerProviderState={composerProviderState}
@@ -1526,6 +1530,7 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
         composerTerminalContexts={composerTerminalContexts}
         queuedComposerMessages={props.queuedComposerMessages}
         queuedSteerMessageId={props.queuedSteerMessageId}
+        queuedDispatchingMessageId={props.queuedDispatchingMessageId}
         canSendQueuedMessages={props.canSendQueuedMessages}
         pendingComposerComments={props.pendingComposerComments}
         composerProviderState={composerProviderState}

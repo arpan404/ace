@@ -21,13 +21,12 @@ import { AgentAttentionNotificationBridge } from "../components/AgentAttentionNo
 import { AppStartupScreen } from "../components/AppStartupScreen";
 import { RemoteAutoConnectBootstrap } from "../components/RemoteAutoConnectBootstrap";
 import { AnchoredToastProvider, ToastProvider, toastManager } from "../components/ui/toast";
-import { useEditorStateStore } from "../editorStateStore";
 import {
   applyTransportConnectionHealthState,
   setConnectionHealthToastsEnabled,
 } from "../lib/reliability/connectionHealth";
 import { resolveAndPersistPreferredEditor } from "../editorPreferences";
-import { runAsyncTask } from "../lib/async";
+import { reportBackgroundError, runAsyncTask } from "../lib/async";
 import { beginLoadPhase, logLoadDiagnostic } from "../loadDiagnostics";
 import { readNativeApi } from "../nativeApi";
 import { isElectron } from "../env";
@@ -68,7 +67,6 @@ import { useHostConnectionStore } from "../hostConnectionStore";
 import { queueDesktopPairingLink } from "../lib/desktopPairingLinks";
 import { parseRelayConnectionUrl } from "@ace/shared/relay";
 import { shouldForwardDesktopNotificationOrchestrationEvent } from "@ace/shared/notifications";
-import { newCommandId, newMessageId, randomUUID } from "../lib/utils";
 import {
   dispatchDetachedWindowReturnRequest,
   resolveDetachedWindowReturnThreadId,
@@ -76,8 +74,10 @@ import {
 import { DesktopCliInstallToastBridge } from "./-DesktopCliInstallToastBridge";
 import { DetachedBrowserWindow } from "./-DetachedBrowserWindow";
 import { DetachedEditorWindow } from "./-DetachedEditorWindow";
-import { DetachedWindowMessage } from "./-DetachedWindowMessage";
 import { RootRouteErrorView } from "./-RootRouteErrorView";
+
+const FRAME_FALLBACK_DOMAIN_EVENT_FLUSH_DELAY_MS = 16;
+const BACKGROUND_DOMAIN_EVENT_FLUSH_DELAY_MS = 100;
 
 export const Route = createRootRouteWithContext<{
   queryClient: QueryClient;
@@ -457,10 +457,9 @@ function useEventRouterLifecycle() {
     let needsProviderInvalidation = false;
     const pendingDomainEvents: OrchestrationEvent[] = [];
     let flushPendingDomainEventsScheduled = false;
-    let pendingDomainEventMicrotaskVersion = 0;
     let pendingDomainEventFlushHandle:
       | { kind: "animation-frame"; handle: number }
-      | { kind: "microtask"; handle: number }
+      | { kind: "timeout"; handle: number }
       | null = null;
     let reconnectRecoveryRequested = false;
 
@@ -559,6 +558,18 @@ function useEventRouterLifecycle() {
         }
       });
     };
+    const applyEventBatchSafely = (
+      events: ReadonlyArray<OrchestrationEvent>,
+      reason: "live" | "replay",
+    ): boolean => {
+      try {
+        applyEventBatch(events);
+        return true;
+      } catch (error) {
+        reportBackgroundError(`Failed to apply orchestration ${reason} events.`, error);
+        return false;
+      }
+    };
     const flushPendingDomainEvents = () => {
       flushPendingDomainEventsScheduled = false;
       pendingDomainEventFlushHandle = null;
@@ -567,57 +578,34 @@ function useEventRouterLifecycle() {
       }
 
       const events = pendingDomainEvents.splice(0, pendingDomainEvents.length);
-      applyEventBatch(events);
+      if (!applyEventBatchSafely(events, "live")) {
+        void fallbackToSnapshotRecovery();
+      }
     };
     const cancelPendingDomainEventFlush = () => {
-      pendingDomainEventMicrotaskVersion += 1;
       if (pendingDomainEventFlushHandle === null) {
         flushPendingDomainEventsScheduled = false;
         return;
       }
       if (pendingDomainEventFlushHandle.kind === "animation-frame") {
         cancelAnimationFrame(pendingDomainEventFlushHandle.handle);
+      } else {
+        window.clearTimeout(pendingDomainEventFlushHandle.handle);
       }
       pendingDomainEventFlushHandle = null;
       flushPendingDomainEventsScheduled = false;
     };
     const schedulePendingDomainEventFlush = (priority: "animation-frame" | "microtask") => {
+      void priority;
       if (flushPendingDomainEventsScheduled) {
-        if (
-          priority === "microtask" &&
-          pendingDomainEventFlushHandle !== null &&
-          pendingDomainEventFlushHandle.kind !== "microtask"
-        ) {
-          cancelPendingDomainEventFlush();
-        } else {
-          return;
-        }
+        return;
       }
 
       flushPendingDomainEventsScheduled = true;
-      if (priority === "microtask") {
-        const handle = pendingDomainEventMicrotaskVersion + 1;
-        pendingDomainEventMicrotaskVersion = handle;
-        pendingDomainEventFlushHandle = {
-          kind: "microtask",
-          handle,
-        };
-        queueMicrotask(() => {
-          if (
-            !flushPendingDomainEventsScheduled ||
-            pendingDomainEventFlushHandle?.kind !== "microtask" ||
-            pendingDomainEventFlushHandle.handle !== handle
-          ) {
-            return;
-          }
-          flushPendingDomainEvents();
-        });
-        return;
-      }
-      if (
+      const canUseAnimationFrame =
         typeof requestAnimationFrame === "function" &&
-        (typeof document === "undefined" || document.visibilityState === "visible")
-      ) {
+        (typeof document === "undefined" || document.visibilityState === "visible");
+      if (canUseAnimationFrame) {
         pendingDomainEventFlushHandle = {
           kind: "animation-frame",
           handle: requestAnimationFrame(() => {
@@ -626,23 +614,33 @@ function useEventRouterLifecycle() {
         };
         return;
       }
-      const handle = pendingDomainEventMicrotaskVersion + 1;
-      pendingDomainEventMicrotaskVersion = handle;
+
+      const timeoutDelayMs =
+        typeof document !== "undefined" && document.visibilityState === "hidden"
+          ? BACKGROUND_DOMAIN_EVENT_FLUSH_DELAY_MS
+          : FRAME_FALLBACK_DOMAIN_EVENT_FLUSH_DELAY_MS;
       pendingDomainEventFlushHandle = {
-        kind: "microtask",
-        handle,
+        kind: "timeout",
+        handle: window.setTimeout(() => {
+          flushPendingDomainEvents();
+        }, timeoutDelayMs),
       };
-      queueMicrotask(() => {
-        if (
-          !flushPendingDomainEventsScheduled ||
-          pendingDomainEventFlushHandle?.kind !== "microtask" ||
-          pendingDomainEventFlushHandle.handle !== handle
-        ) {
+    };
+    const waitForDomainEventFrame = (): Promise<void> =>
+      new Promise((resolve) => {
+        const canUseAnimationFrame =
+          typeof requestAnimationFrame === "function" &&
+          (typeof document === "undefined" || document.visibilityState === "visible");
+        if (canUseAnimationFrame) {
+          requestAnimationFrame(() => resolve());
           return;
         }
-        flushPendingDomainEvents();
+        const timeoutDelayMs =
+          typeof document !== "undefined" && document.visibilityState === "hidden"
+            ? BACKGROUND_DOMAIN_EVENT_FLUSH_DELAY_MS
+            : FRAME_FALLBACK_DOMAIN_EVENT_FLUSH_DELAY_MS;
+        window.setTimeout(resolve, timeoutDelayMs);
       });
-    };
 
     const recoverFromReplay = async (
       reason: "sequence-gap" | "transport-reconnected",
@@ -657,7 +655,15 @@ function useEventRouterLifecycle() {
           fromSequenceExclusive: recovery.getState().latestSequence,
         });
         if (!disposed) {
-          applyEventBatch(events);
+          await waitForDomainEventFrame();
+        }
+        if (!disposed) {
+          if (!applyEventBatchSafely(events, "replay")) {
+            phase.error("Replay recovery apply failed", { reason, eventCount: events.length });
+            recovery.failReplayRecovery();
+            void fallbackToSnapshotRecovery();
+            return;
+          }
           phase.success("Replay recovery applied", {
             reason,
             eventCount: events.length,
@@ -719,7 +725,7 @@ function useEventRouterLifecycle() {
           const shouldReplayAfterSnapshot = recovery.completeSnapshotRecovery(
             snapshot.snapshotSequence,
           );
-          flushPendingDomainEvents();
+          schedulePendingDomainEventFlush("animation-frame");
           if (shouldReplayAfterSnapshot) {
             void recoverFromReplay("sequence-gap");
           }
@@ -760,7 +766,7 @@ function useEventRouterLifecycle() {
         return;
       }
       reconnectRecoveryRequested = false;
-      flushPendingDomainEvents();
+      schedulePendingDomainEventFlush("animation-frame");
       void recoverFromReplay("transport-reconnected");
     });
     const unsubDomainEvent = localRpcClient.orchestration.onDomainEvent(
@@ -770,7 +776,14 @@ function useEventRouterLifecycle() {
           window.desktopBridge?.sendOrchestrationEvent &&
           shouldForwardDesktopNotificationOrchestrationEvent(event)
         ) {
-          window.desktopBridge.sendOrchestrationEvent(event);
+          try {
+            window.desktopBridge.sendOrchestrationEvent(event);
+          } catch (error) {
+            reportBackgroundError(
+              "Failed to forward orchestration event to desktop bridge.",
+              error,
+            );
+          }
         }
         const action = recovery.classifyDomainEvent(event.sequence);
         if (action === "apply") {
@@ -794,7 +807,7 @@ function useEventRouterLifecycle() {
             message: "Detected sequence gap while applying domain event",
             detail: { sequence: event.sequence, type: event.type },
           });
-          flushPendingDomainEvents();
+          schedulePendingDomainEventFlush("animation-frame");
           void recoverFromReplay("sequence-gap");
         }
       },

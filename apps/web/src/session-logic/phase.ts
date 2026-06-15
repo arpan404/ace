@@ -29,6 +29,25 @@ type LatestTurnTiming = Pick<OrchestrationLatestTurn, "turnId" | "startedAt" | "
 type LatestTurnActivityState = Pick<OrchestrationLatestTurn, "state" | "completedAt">;
 type SessionActivityState = Pick<ThreadSession, "orchestrationStatus" | "activeTurnId">;
 
+function isLatestTurnCompleted(
+  latestTurn: (LatestTurnTiming & Partial<LatestTurnActivityState>) | null,
+): boolean {
+  return latestTurn?.completedAt !== null && latestTurn?.completedAt !== undefined;
+}
+
+function isSessionActiveTurnSettled(
+  latestTurn: (LatestTurnTiming & Partial<LatestTurnActivityState>) | null,
+  session: SessionActivityState | null,
+): boolean {
+  return (
+    latestTurn !== null &&
+    session?.activeTurnId != null &&
+    latestTurn.turnId === session.activeTurnId &&
+    isLatestTurnCompleted(latestTurn) &&
+    latestTurn.state !== "running"
+  );
+}
+
 function hasActiveSessionTurn(
   session: SessionActivityState | null,
 ): session is SessionActivityState & {
@@ -41,6 +60,9 @@ export function hasLiveTurn(
   latestTurn: (LatestTurnTiming & LatestTurnActivityState) | null,
   session: SessionActivityState | null,
 ): boolean {
+  if (isSessionActiveTurnSettled(latestTurn, session)) {
+    return false;
+  }
   if (hasActiveSessionTurn(session)) {
     return true;
   }
@@ -54,6 +76,7 @@ export function isLatestTurnSettled(
   if (!latestTurn?.startedAt) return false;
   if (!latestTurn.completedAt) return false;
   if (!session) return true;
+  if (isSessionActiveTurnSettled(latestTurn, session)) return true;
   if (hasActiveSessionTurn(session)) return false;
   return true;
 }

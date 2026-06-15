@@ -10,7 +10,9 @@ interface OrchestrationRecoveryPhase {
 }
 
 export interface OrchestrationRecoveryState {
+  /** Highest contiguous domain event sequence applied to UI state. */
   latestSequence: number;
+  /** Highest sequence known to exist from live events, replay, or snapshot metadata. */
   highestObservedSequence: number;
   bootstrapped: boolean;
   pendingReplay: boolean;
@@ -74,9 +76,28 @@ export function createOrchestrationRecoveryCoordinator() {
     },
 
     markEventBatchApplied<T extends SequencedEvent>(events: ReadonlyArray<T>): ReadonlyArray<T> {
-      const nextEvents = events
+      const sortedEvents = events
         .filter((event) => event.sequence > state.latestSequence)
         .toSorted((left, right) => left.sequence - right.sequence);
+      if (sortedEvents.length === 0) {
+        return [];
+      }
+
+      const nextEvents: T[] = [];
+      let expectedSequence = state.latestSequence + 1;
+      for (const event of sortedEvents) {
+        observeSequence(event.sequence);
+        if (event.sequence < expectedSequence) {
+          continue;
+        }
+        if (event.sequence !== expectedSequence) {
+          state.pendingReplay = true;
+          break;
+        }
+        nextEvents.push(event);
+        expectedSequence += 1;
+      }
+
       if (nextEvents.length === 0) {
         return [];
       }
@@ -100,8 +121,7 @@ export function createOrchestrationRecoveryCoordinator() {
     },
 
     completeSnapshotRecovery(snapshotSequence: number): boolean {
-      state.latestSequence = Math.max(state.latestSequence, snapshotSequence);
-      state.highestObservedSequence = Math.max(state.highestObservedSequence, state.latestSequence);
+      state.highestObservedSequence = Math.max(state.highestObservedSequence, snapshotSequence);
       state.bootstrapped = true;
       state.inFlight = null;
       return shouldReplayAfterRecovery();

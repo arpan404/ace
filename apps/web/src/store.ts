@@ -20,6 +20,7 @@ import {
   hasActionableProposedPlan,
   derivePendingApprovals,
   derivePendingUserInputs,
+  hasLiveTurn,
 } from "./session-logic";
 import {
   appendCompactedThreadActivity,
@@ -37,6 +38,7 @@ import {
 import { resolveAttachmentPreviewUrl } from "./lib/chat/attachmentPreviewUrls";
 import { primeHydratedThreadCache } from "./lib/threadHydrationCache";
 import {
+  batchLiveTimelineRowUpdates,
   primeLiveTimelineRow,
   primeThreadTimelineRowsMetadataFromReadModelThread,
   primeThreadTimelineRowsMetadataFromReadModelThreads,
@@ -444,9 +446,8 @@ function findLatestProposedPlanSummary(
 
 function threadHasActiveRuntime(thread: Pick<Thread, "latestTurn" | "session">): boolean {
   return (
-    thread.latestTurn?.state === "running" ||
     thread.session?.orchestrationStatus === "starting" ||
-    thread.session?.orchestrationStatus === "running"
+    hasLiveTurn(thread.latestTurn, thread.session)
   );
 }
 
@@ -1260,28 +1261,45 @@ function checkpointStatusToLatestTurnState(status: "ready" | "missing" | "error"
   return "completed" as const;
 }
 
+function resolveSessionTurnStartFallback(thread: Thread, sessionUpdatedAt: string): string {
+  for (let index = thread.messages.length - 1; index >= 0; index -= 1) {
+    const message = thread.messages[index];
+    if (message?.role === "user") {
+      return message.createdAt;
+    }
+  }
+  return sessionUpdatedAt;
+}
+
 function latestTurnFromSessionLifecycleEvent(
   thread: Thread,
   session: Extract<OrchestrationEvent, { type: "thread.session-set" }>["payload"]["session"],
 ): Thread["latestTurn"] {
   if (session.status === "running" && session.activeTurnId !== null) {
+    const previous = thread.latestTurn;
+    if (
+      previous?.turnId === session.activeTurnId &&
+      previous.completedAt !== null &&
+      previous.state !== "running"
+    ) {
+      return previous;
+    }
+    const startFallback =
+      previous?.turnId === session.activeTurnId
+        ? previous.requestedAt
+        : resolveSessionTurnStartFallback(thread, session.updatedAt);
     return buildLatestTurn({
-      previous: thread.latestTurn,
+      previous,
       turnId: session.activeTurnId,
       state: "running",
-      requestedAt:
-        thread.latestTurn?.turnId === session.activeTurnId
-          ? thread.latestTurn.requestedAt
-          : session.updatedAt,
+      requestedAt: previous?.turnId === session.activeTurnId ? previous.requestedAt : startFallback,
       startedAt:
-        thread.latestTurn?.turnId === session.activeTurnId
-          ? (thread.latestTurn.startedAt ?? session.updatedAt)
-          : session.updatedAt,
+        previous?.turnId === session.activeTurnId
+          ? (previous.startedAt ?? startFallback)
+          : startFallback,
       completedAt: null,
       assistantMessageId:
-        thread.latestTurn?.turnId === session.activeTurnId
-          ? thread.latestTurn.assistantMessageId
-          : null,
+        previous?.turnId === session.activeTurnId ? previous.assistantMessageId : null,
       sourceProposedPlan: thread.pendingSourceProposedPlan,
     });
   }
@@ -2541,57 +2559,59 @@ export function applyOrchestrationEvents(
     return state;
   }
 
-  let nextState = state;
-  for (let index = 0; index < events.length; index += 1) {
-    const event = events[index];
-    if (!event) {
-      continue;
-    }
-    if (event.type !== "thread.activity-appended") {
-      nextState = applyOrchestrationEvent(nextState, event);
-      continue;
-    }
-
-    const { activity, threadId } = event.payload;
-    const activities = [activity];
-    let updatedAt = event.occurredAt;
-    primeThreadActivityTimelineRow({
-      threadId,
-      activity,
-      updatedAt: event.occurredAt,
-    });
-    if (!shouldRetainActivityInAppStore(activity)) {
-      continue;
-    }
-    let nextIndex = index + 1;
-    while (nextIndex < events.length) {
-      const nextEvent = events[nextIndex];
-      if (nextEvent?.type !== "thread.activity-appended") {
-        break;
-      }
-      const nextPayload = nextEvent.payload;
-      if (nextPayload.threadId !== threadId) {
-        break;
-      }
-      const nextActivity = nextPayload.activity;
-      primeThreadActivityTimelineRow({
-        threadId,
-        activity: nextActivity,
-        updatedAt: nextEvent.occurredAt,
-      });
-      if (!shouldRetainActivityInAppStore(nextActivity)) {
-        nextIndex += 1;
+  return batchLiveTimelineRowUpdates(() => {
+    let nextState = state;
+    for (let index = 0; index < events.length; index += 1) {
+      const event = events[index];
+      if (!event) {
         continue;
       }
-      activities.push(nextActivity);
-      updatedAt = nextEvent.occurredAt;
-      nextIndex += 1;
-    }
+      if (event.type !== "thread.activity-appended") {
+        nextState = applyOrchestrationEvent(nextState, event);
+        continue;
+      }
 
-    nextState = applyThreadActivityBatch(nextState, threadId, activities, updatedAt);
-    index = nextIndex - 1;
-  }
-  return nextState;
+      const { activity, threadId } = event.payload;
+      const activities = [activity];
+      let updatedAt = event.occurredAt;
+      primeThreadActivityTimelineRow({
+        threadId,
+        activity,
+        updatedAt: event.occurredAt,
+      });
+      if (!shouldRetainActivityInAppStore(activity)) {
+        continue;
+      }
+      let nextIndex = index + 1;
+      while (nextIndex < events.length) {
+        const nextEvent = events[nextIndex];
+        if (nextEvent?.type !== "thread.activity-appended") {
+          break;
+        }
+        const nextPayload = nextEvent.payload;
+        if (nextPayload.threadId !== threadId) {
+          break;
+        }
+        const nextActivity = nextPayload.activity;
+        primeThreadActivityTimelineRow({
+          threadId,
+          activity: nextActivity,
+          updatedAt: nextEvent.occurredAt,
+        });
+        if (!shouldRetainActivityInAppStore(nextActivity)) {
+          nextIndex += 1;
+          continue;
+        }
+        activities.push(nextActivity);
+        updatedAt = nextEvent.occurredAt;
+        nextIndex += 1;
+      }
+
+      nextState = applyThreadActivityBatch(nextState, threadId, activities, updatedAt);
+      index = nextIndex - 1;
+    }
+    return nextState;
+  });
 }
 
 export const selectProjectById =

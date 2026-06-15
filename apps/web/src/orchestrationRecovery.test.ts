@@ -6,7 +6,7 @@ import {
 } from "./orchestrationRecovery";
 
 describe("createOrchestrationRecoveryCoordinator", () => {
-  it("defers live events until bootstrap completes and then requests replay", () => {
+  it("defers live events until bootstrap completes and keeps payload replay required", () => {
     const coordinator = createOrchestrationRecoveryCoordinator();
 
     expect(coordinator.beginSnapshotRecovery("bootstrap")).toBe(true);
@@ -14,7 +14,7 @@ describe("createOrchestrationRecoveryCoordinator", () => {
 
     expect(coordinator.completeSnapshotRecovery(2)).toBe(true);
     expect(coordinator.getState()).toMatchObject({
-      latestSequence: 2,
+      latestSequence: 0,
       highestObservedSequence: 4,
       bootstrapped: true,
       pendingReplay: false,
@@ -27,6 +27,7 @@ describe("createOrchestrationRecoveryCoordinator", () => {
 
     coordinator.beginSnapshotRecovery("bootstrap");
     coordinator.completeSnapshotRecovery(3);
+    coordinator.markEventBatchApplied([{ sequence: 1 }, { sequence: 2 }, { sequence: 3 }]);
 
     expect(coordinator.classifyDomainEvent(5)).toBe("recover");
     expect(coordinator.beginReplayRecovery("sequence-gap")).toBe(true);
@@ -41,6 +42,7 @@ describe("createOrchestrationRecoveryCoordinator", () => {
 
     coordinator.beginSnapshotRecovery("bootstrap");
     coordinator.completeSnapshotRecovery(3);
+    coordinator.markEventBatchApplied([{ sequence: 1 }, { sequence: 2 }, { sequence: 3 }]);
 
     expect(coordinator.classifyDomainEvent(4)).toBe("apply");
     expect(coordinator.markEventBatchApplied([{ sequence: 4 }])).toEqual([{ sequence: 4 }]);
@@ -52,15 +54,16 @@ describe("createOrchestrationRecoveryCoordinator", () => {
     });
   });
 
-  it("can mark live events while snapshot recovery is still in flight", () => {
+  it("does not skip sequence gaps when deferred events flush after snapshot recovery", () => {
     const coordinator = createOrchestrationRecoveryCoordinator();
 
     expect(coordinator.beginSnapshotRecovery("bootstrap")).toBe(true);
     expect(coordinator.classifyDomainEvent(4)).toBe("defer");
-    expect(coordinator.markEventBatchApplied([{ sequence: 4 }])).toEqual([{ sequence: 4 }]);
+    expect(coordinator.markEventBatchApplied([{ sequence: 4 }])).toEqual([]);
     expect(coordinator.getState()).toMatchObject({
-      latestSequence: 4,
+      latestSequence: 0,
       highestObservedSequence: 4,
+      pendingReplay: true,
       bootstrapped: false,
       inFlight: {
         kind: "snapshot",
@@ -70,7 +73,8 @@ describe("createOrchestrationRecoveryCoordinator", () => {
 
     expect(coordinator.completeSnapshotRecovery(3)).toBe(true);
     expect(coordinator.getState()).toMatchObject({
-      latestSequence: 4,
+      latestSequence: 0,
+      highestObservedSequence: 4,
       bootstrapped: true,
       inFlight: null,
     });
@@ -80,6 +84,8 @@ describe("createOrchestrationRecoveryCoordinator", () => {
     const coordinator = createOrchestrationRecoveryCoordinator();
 
     coordinator.beginSnapshotRecovery("bootstrap");
+    coordinator.completeSnapshotRecovery(3);
+    coordinator.markEventBatchApplied([{ sequence: 1 }, { sequence: 2 }, { sequence: 3 }]);
     coordinator.classifyDomainEvent(4);
     coordinator.markEventBatchApplied([{ sequence: 4 }]);
 
@@ -92,6 +98,7 @@ describe("createOrchestrationRecoveryCoordinator", () => {
 
     coordinator.beginSnapshotRecovery("bootstrap");
     coordinator.completeSnapshotRecovery(3);
+    coordinator.markEventBatchApplied([{ sequence: 1 }, { sequence: 2 }, { sequence: 3 }]);
     coordinator.classifyDomainEvent(5);
     coordinator.beginReplayRecovery("sequence-gap");
     coordinator.classifyDomainEvent(7);
@@ -100,11 +107,30 @@ describe("createOrchestrationRecoveryCoordinator", () => {
     expect(coordinator.completeReplayRecovery()).toBe(true);
   });
 
+  it("applies only the contiguous prefix from a replay batch and requests another replay", () => {
+    const coordinator = createOrchestrationRecoveryCoordinator();
+
+    coordinator.beginSnapshotRecovery("bootstrap");
+    coordinator.completeSnapshotRecovery(3);
+    coordinator.markEventBatchApplied([{ sequence: 1 }, { sequence: 2 }, { sequence: 3 }]);
+    coordinator.classifyDomainEvent(6);
+
+    expect(coordinator.markEventBatchApplied([{ sequence: 4 }, { sequence: 6 }])).toEqual([
+      { sequence: 4 },
+    ]);
+    expect(coordinator.getState()).toMatchObject({
+      latestSequence: 4,
+      highestObservedSequence: 6,
+      pendingReplay: true,
+    });
+  });
+
   it("does not immediately replay again when replay returns no new events", () => {
     const coordinator = createOrchestrationRecoveryCoordinator();
 
     coordinator.beginSnapshotRecovery("bootstrap");
     coordinator.completeSnapshotRecovery(3);
+    coordinator.markEventBatchApplied([{ sequence: 1 }, { sequence: 2 }, { sequence: 3 }]);
     coordinator.classifyDomainEvent(5);
     coordinator.beginReplayRecovery("sequence-gap");
 
@@ -122,6 +148,7 @@ describe("createOrchestrationRecoveryCoordinator", () => {
 
     coordinator.beginSnapshotRecovery("bootstrap");
     coordinator.completeSnapshotRecovery(3);
+    coordinator.markEventBatchApplied([{ sequence: 1 }, { sequence: 2 }, { sequence: 3 }]);
     coordinator.beginReplayRecovery("sequence-gap");
     coordinator.failReplayRecovery();
 
@@ -141,6 +168,7 @@ describe("createOrchestrationRecoveryCoordinator", () => {
 
     coordinator.beginSnapshotRecovery("bootstrap");
     coordinator.completeSnapshotRecovery(3);
+    coordinator.markEventBatchApplied([{ sequence: 1 }, { sequence: 2 }, { sequence: 3 }]);
 
     expect(coordinator.beginReplayRecovery("transport-reconnected")).toBe(true);
     expect(coordinator.getState().inFlight).toEqual({

@@ -30,6 +30,7 @@ import {
 import { resolveThreadRowClassName, resolveThreadStatusPill } from "../../lib/sidebar";
 import { cn } from "../../lib/utils";
 import { normalizeWsUrl } from "../../lib/remoteHosts";
+import { hasLiveTurn } from "../../session-logic";
 import { useSidebarThreadSummaryById } from "../../storeSelectors";
 import { selectThreadTerminalState, useTerminalStateStore } from "../../terminalStateStore";
 import { formatRelativeTimeLabel } from "../../timestampFormat";
@@ -540,8 +541,7 @@ export function SidebarThreadRow({
     connectionUrlsEqual(props.activeRouteConnectionUrl, props.connectionUrl);
   const isSelected = props.selectedThreadIds.has(thread.id);
   const isHighlighted = isActive || isSelected;
-  const isThreadRunning =
-    thread.session?.status === "running" && thread.session.activeTurnId != null;
+  const isThreadRunning = hasLiveTurn(thread.latestTurn, thread.session);
   const threadStatus = resolveThreadStatusPill({
     thread: {
       ...thread,

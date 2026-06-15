@@ -462,8 +462,9 @@ export class WsTransport {
                   sawValueSinceRetry = true;
                   try {
                     listener(value);
-                  } catch {
-                    // Swallow listener errors so the stream stays live.
+                  } catch (error) {
+                    reportBackgroundError("WebSocket RPC subscription listener failed.", error);
+                    // Keep the stream alive even when one listener invocation fails.
                   }
                 }),
               ),

@@ -108,7 +108,7 @@ describe("orchestrationUiEvents", () => {
     });
   });
 
-  it("flushes streaming updates on animation frames but completes final message state immediately", () => {
+  it("paint-aligns streaming, completion, and activity updates", () => {
     const threadId = ThreadId.makeUnsafe("thread-1");
     const turnId = TurnId.makeUnsafe("turn-1");
 
@@ -140,7 +140,7 @@ describe("orchestrationUiEvents", () => {
           updatedAt: "2026-04-07T00:00:01.000Z",
         }),
       ),
-    ).toBe("microtask");
+    ).toBe("animation-frame");
 
     expect(
       resolveOrchestrationUiEventFlushPriority(
@@ -174,7 +174,7 @@ describe("orchestrationUiEvents", () => {
           },
         }),
       ),
-    ).toBe("microtask");
+    ).toBe("animation-frame");
 
     expect(
       resolveOrchestrationUiEventFlushPriority(
@@ -191,7 +191,99 @@ describe("orchestrationUiEvents", () => {
           },
         }),
       ),
-    ).toBe("microtask");
+    ).toBe("animation-frame");
+  });
+
+  it("paint-aligns turn and session lifecycle state", () => {
+    const threadId = ThreadId.makeUnsafe("thread-1");
+
+    expect(
+      resolveOrchestrationUiEventFlushPriority(
+        makeEvent("thread.turn-start-requested", {
+          threadId,
+          messageId: MessageId.makeUnsafe("message-1"),
+          runtimeMode: "approval-required",
+          interactionMode: "default",
+          modelSelection: {
+            provider: "cursor",
+            model: "auto",
+          },
+          createdAt: "2026-04-07T00:00:00.000Z",
+        }),
+      ),
+    ).toBe("animation-frame");
+
+    expect(
+      resolveOrchestrationUiEventFlushPriority(
+        makeEvent("thread.session-set", {
+          threadId,
+          session: {
+            threadId,
+            status: "ready",
+            providerName: "cursor",
+            runtimeMode: "approval-required",
+            activeTurnId: null,
+            lastError: null,
+            updatedAt: "2026-04-07T00:00:01.000Z",
+          },
+        }),
+      ),
+    ).toBe("animation-frame");
+  });
+
+  it("paint-aligns queued composer metadata", () => {
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const queuedMessageId = MessageId.makeUnsafe("queued-message-1");
+
+    expect(
+      resolveOrchestrationUiEventFlushPriority(
+        makeEvent("thread.meta-updated", {
+          threadId,
+          title: "Generated title",
+          updatedAt: "2026-04-07T00:00:00.000Z",
+        }),
+      ),
+    ).toBe("animation-frame");
+
+    expect(
+      resolveOrchestrationUiEventFlushPriority(
+        makeEvent("thread.meta-updated", {
+          threadId,
+          queuedComposerMessages: [
+            {
+              id: queuedMessageId,
+              prompt: "Follow up while the agent is still working",
+              images: [],
+              terminalContexts: [],
+              modelSelection: {
+                provider: "cursor",
+                model: "auto",
+              },
+              runtimeMode: "full-access",
+              interactionMode: "default",
+            },
+          ],
+          queuedSteerRequest: {
+            messageId: queuedMessageId,
+            baselineWorkLogEntryCount: 1,
+            interruptRequested: false,
+          },
+          updatedAt: "2026-04-07T00:00:01.000Z",
+        }),
+      ),
+    ).toBe("animation-frame");
+
+    expect(
+      resolveOrchestrationUiEventFlushPriority(
+        makeEvent("thread.meta-updated", {
+          threadId,
+          queuedDispatchRequest: {
+            messageId: queuedMessageId,
+          },
+          updatedAt: "2026-04-07T00:00:02.000Z",
+        }),
+      ),
+    ).toBe("animation-frame");
   });
 
   it("coalesces consecutive streamed tool output activity chunks", () => {

@@ -487,19 +487,9 @@ export function buildSourceTimelineRows(input: SourceTimelineRowsInput): Timelin
   }
   flushPendingWorkGroup();
   if (input.activeTurnInProgress) {
-    const hasRenderableCurrentTurnOutput = rows.some((row) => {
-      if (!input.activeTurnStartedAt || Number.isNaN(activeTurnStartedAtMs)) {
-        return false;
-      }
-      if (row.kind === "message" && row.message.role === "user") {
-        return false;
-      }
-      if (!row.createdAt) {
-        return false;
-      }
-      const rowCreatedAtMs = Date.parse(row.createdAt);
-      return !Number.isNaN(rowCreatedAtMs) && rowCreatedAtMs >= activeTurnStartedAtMs;
-    });
+    const hasRenderableCurrentTurnOutput = rows.some((row) =>
+      isRenderableCurrentTurnTimelineRow(input, activeTurnStartedAtMs, row),
+    );
     rows.push({
       kind: "working",
       id: "working-indicator-row",
@@ -511,6 +501,46 @@ export function buildSourceTimelineRows(input: SourceTimelineRowsInput): Timelin
     });
   }
   return rows;
+}
+
+function isRenderableCurrentTurnTimelineRow(
+  input: SourceTimelineRowsInput,
+  activeTurnStartedAtMs: number,
+  row: TimelineRow,
+): boolean {
+  if (row.kind === "message" && row.message.role === "user") {
+    return false;
+  }
+  if (input.activeTurnId) {
+    switch (row.kind) {
+      case "message":
+        return row.message.turnId === input.activeTurnId;
+      case "proposed-plan":
+        return row.proposedPlan.turnId === input.activeTurnId;
+      case "work":
+        return row.workEntry.turnId === input.activeTurnId;
+      case "work-group":
+        return row.entries.some((entry) =>
+          entry.kind === "work"
+            ? entry.workEntry.turnId === input.activeTurnId
+            : entry.turnId === input.activeTurnId,
+        );
+      case "intent":
+        return false;
+      case "completed-work-summary":
+        return false;
+      case "working":
+        return false;
+    }
+  }
+  if (!input.activeTurnStartedAt || Number.isNaN(activeTurnStartedAtMs)) {
+    return false;
+  }
+  if (!row.createdAt) {
+    return false;
+  }
+  const rowCreatedAtMs = Date.parse(row.createdAt);
+  return !Number.isNaN(rowCreatedAtMs) && rowCreatedAtMs >= activeTurnStartedAtMs;
 }
 
 function isActiveTurnWorkRow(

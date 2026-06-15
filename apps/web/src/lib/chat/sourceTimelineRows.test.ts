@@ -1058,6 +1058,34 @@ describe("sourceTimelineRows", () => {
     expect(workingRows.at(-1)).toMatchObject({ kind: "working", mode: "live" });
   });
 
+  it("uses the active turn id for getting-started detection when timestamps drift", () => {
+    const activity: OrchestrationThreadActivity = {
+      id: activityId,
+      tone: "info",
+      kind: "task.progress",
+      summary: "Thinking",
+      payload: {},
+      turnId,
+      sequence: 2,
+      createdAt: "2026-01-01T00:00:03.000Z",
+    };
+
+    const rows = buildSourceTimelineRows({
+      rows: [activityRow(activity, 0)],
+      messages: [],
+      activities: [activity],
+      proposedPlans: [],
+      activeTurnId: turnId,
+      activeTurnInProgress: true,
+      activeTurnStartedAt: "2026-01-01T00:00:10.000Z",
+      completionDividerBeforeEntryId: null,
+      completionSummary: null,
+      turnDiffSummaryByAssistantMessageId: new Map(),
+    });
+
+    expect(rows.at(-1)).toMatchObject({ kind: "working", mode: "live" });
+  });
+
   it("derives the completion divider row from latest-turn metadata", () => {
     const assistantMessage: OrchestrationMessage = {
       id: assistantMessageId,
