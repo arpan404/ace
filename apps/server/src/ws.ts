@@ -11,6 +11,7 @@ import {
   type NewThreadRecommendation,
   OrchestrationDispatchCommandError,
   type OrchestrationEvent,
+  type OrchestrationShellStreamItem,
   type ProviderKind,
   type ServerProvider,
   OrchestrationGetFullThreadDiffError,
@@ -30,6 +31,7 @@ import {
   OrchestrationReplayEventsError,
   type TerminalEvent,
   TextGenerationError,
+  ThreadId,
   type BrowserBridgeRequest,
   ServerLspToolsError,
   ServerProviderCliUpgradeError,
@@ -67,7 +69,10 @@ import {
   sanitizeThreadForClient,
 } from "./orchestration/publicPresentation";
 import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine";
-import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
+import {
+  ProjectionSnapshotQuery,
+  type ProjectionSnapshotQueryShape,
+} from "./orchestration/Services/ProjectionSnapshotQuery";
 import { ProviderRegistry } from "./provider/Services/ProviderRegistry";
 import { ProviderService } from "./provider/Services/ProviderService";
 import { startOpenCodeServer } from "./provider/opencodeRuntime";
@@ -134,6 +139,63 @@ function isShellRelevantEvent(event: OrchestrationEvent): boolean {
     event.type === "project.meta-updated" ||
     event.type === "project.deleted"
   );
+}
+
+function toShellStreamEvent(
+  projectionSnapshotQuery: ProjectionSnapshotQueryShape,
+  event: OrchestrationEvent,
+): Effect.Effect<Option.Option<OrchestrationShellStreamItem>, unknown> {
+  switch (event.type) {
+    case "project.created":
+    case "project.meta-updated":
+      return projectionSnapshotQuery.getProjectShellById(event.payload.projectId).pipe(
+        Effect.map(
+          Option.map(
+            (project): OrchestrationShellStreamItem => ({
+              kind: "project-upserted",
+              sequence: event.sequence,
+              project,
+            }),
+          ),
+        ),
+      );
+
+    case "project.deleted":
+      return Effect.succeed(
+        Option.some({
+          kind: "project-removed",
+          sequence: event.sequence,
+          projectId: event.payload.projectId,
+        }),
+      );
+
+    case "thread.deleted":
+      return Effect.succeed(
+        Option.some({
+          kind: "thread-removed",
+          sequence: event.sequence,
+          threadId: event.payload.threadId,
+        }),
+      );
+
+    default:
+      if (event.aggregateKind !== "thread") {
+        return Effect.succeed(Option.none());
+      }
+      return projectionSnapshotQuery
+        .getThreadShellById(ThreadId.makeUnsafe(event.aggregateId))
+        .pipe(
+          Effect.map(
+            Option.map(
+              (thread): OrchestrationShellStreamItem => ({
+                kind: "thread-upserted",
+                sequence: event.sequence,
+                thread,
+              }),
+            ),
+          ),
+        );
+  }
 }
 
 type WorktreeSizeStats = {
@@ -954,8 +1016,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
           ),
         ),
       [ORCHESTRATION_WS_METHODS.getShellSnapshot]: () =>
-        projectionSnapshotQuery.getSnapshot({}).pipe(
-          Effect.map(sanitizeReadModelForClient),
+        projectionSnapshotQuery.getShellSnapshot().pipe(
           Effect.mapError(
             (cause) =>
               new OrchestrationGetSnapshotError({
@@ -989,8 +1050,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
       [ORCHESTRATION_WS_METHODS.subscribeShell]: () =>
         Stream.merge(
           Stream.fromEffect(
-            projectionSnapshotQuery.getSnapshot({}).pipe(
-              Effect.map(sanitizeReadModelForClient),
+            projectionSnapshotQuery.getShellSnapshot().pipe(
               Effect.map((snapshot) => ({ kind: "snapshot" as const, snapshot })),
               Effect.mapError(
                 (cause) =>
@@ -1005,8 +1065,13 @@ const WsRpcLayer = WsRpcGroup.toLayer(
             orchestrationEngine.streamDomainEvents.pipe(Stream.filter(isShellRelevantEvent)),
             { label: "orchestration.shell" },
           ).pipe(
-            Stream.map(sanitizeOrchestrationEventForClient),
-            Stream.map((event) => ({ kind: "event" as const, event })),
+            Stream.mapEffect((event) =>
+              toShellStreamEvent(projectionSnapshotQuery, event).pipe(
+                Effect.catch(() => Effect.succeed(Option.none<OrchestrationShellStreamItem>())),
+              ),
+            ),
+            Stream.filter(Option.isSome),
+            Stream.map((item) => item.value),
           ),
         ),
       [ORCHESTRATION_WS_METHODS.unsubscribeShell]: () => Effect.void,

@@ -289,6 +289,40 @@ export const OrchestrationThread = Schema.Struct({
 });
 export type OrchestrationThread = typeof OrchestrationThread.Type;
 
+export const OrchestrationProjectShell = OrchestrationProject;
+export type OrchestrationProjectShell = typeof OrchestrationProjectShell.Type;
+
+export const OrchestrationThreadShell = Schema.Struct({
+  id: ThreadId,
+  projectId: ProjectId,
+  title: TrimmedNonEmptyString,
+  modelSelection: ModelSelection,
+  runtimeMode: RuntimeMode,
+  interactionMode: ProviderInteractionMode.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_PROVIDER_INTERACTION_MODE),
+  ),
+  branch: Schema.NullOr(TrimmedNonEmptyString),
+  worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  handoff: Schema.optional(ThreadHandoff),
+  fork: Schema.optional(ThreadFork),
+  latestTurn: Schema.NullOr(OrchestrationLatestTurn),
+  createdAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+  archivedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(() => null)),
+  deletedAt: Schema.NullOr(IsoDateTime),
+  latestProposedPlanSummary: Schema.NullOr(OrchestrationProposedPlanSummary).pipe(
+    Schema.withDecodingDefault(() => null),
+  ),
+  queuedComposerMessages: Schema.Array(QueuedComposerMessage).pipe(
+    Schema.withDecodingDefault(() => []),
+  ),
+  queuedSteerRequest: Schema.NullOr(QueuedSteerRequest).pipe(
+    Schema.withDecodingDefault(() => null),
+  ),
+  session: Schema.NullOr(OrchestrationSession),
+});
+export type OrchestrationThreadShell = typeof OrchestrationThreadShell.Type;
+
 export const OrchestrationReadModel = Schema.Struct({
   snapshotSequence: NonNegativeInt,
   projects: Schema.Array(OrchestrationProject),

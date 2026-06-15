@@ -3,12 +3,16 @@ import {
   type OrchestrationMessage,
   type OrchestrationProposedPlan,
   type ProjectId,
+  type OrchestrationProjectShell,
   ProviderKind,
   ThreadId,
   type OrchestrationReadModel,
+  type OrchestrationShellSnapshot,
+  type OrchestrationShellStreamItem,
   type OrchestrationSession,
   type OrchestrationCheckpointSummary,
   type OrchestrationThread,
+  type OrchestrationThreadShell,
   type OrchestrationSessionStatus,
   type MessageId,
 } from "@ace/contracts";
@@ -859,7 +863,38 @@ function mapThread(thread: OrchestrationThread, options?: SnapshotSyncOptions): 
   };
 }
 
-function mapProject(project: OrchestrationReadModel["projects"][number]): Project {
+function mapThreadShell(thread: OrchestrationThreadShell): Thread {
+  return {
+    id: thread.id,
+    codexThreadId: null,
+    projectId: thread.projectId,
+    title: thread.title,
+    modelSelection: normalizeModelSelection(thread.modelSelection),
+    runtimeMode: thread.runtimeMode,
+    interactionMode: thread.interactionMode,
+    session: thread.session ? mapSession(thread.session) : null,
+    messages: [],
+    proposedPlans: [],
+    latestProposedPlanSummary: mapLatestProposedPlanSummary(thread.latestProposedPlanSummary),
+    error: resolveSessionVisibleError(thread.session),
+    createdAt: thread.createdAt,
+    archivedAt: thread.archivedAt,
+    updatedAt: thread.updatedAt,
+    latestTurn: thread.latestTurn,
+    pendingSourceProposedPlan: thread.latestTurn?.sourceProposedPlan,
+    branch: thread.branch,
+    worktreePath: thread.worktreePath,
+    ...(thread.handoff !== undefined ? { handoff: thread.handoff } : {}),
+    ...(thread.fork !== undefined ? { fork: thread.fork } : {}),
+    historyLoaded: false,
+    queuedComposerMessages: thread.queuedComposerMessages.map(mapQueuedComposerMessage),
+    queuedSteerRequest: thread.queuedSteerRequest ? { ...thread.queuedSteerRequest } : null,
+    turnDiffSummaries: [],
+    activities: [],
+  };
+}
+
+function mapProject(project: OrchestrationProjectShell): Project {
   return {
     id: project.id,
     name: project.title,
@@ -2321,6 +2356,153 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
 
 // ── Pure state transition functions ────────────────────────────────────
 
+export function syncServerShellSnapshot(
+  state: AppState,
+  snapshot: OrchestrationShellSnapshot,
+): AppState {
+  const existingThreadsById = new Map(state.threads.map((thread) => [thread.id, thread] as const));
+  const existingProjectsById = new Map(
+    state.projects.map((project) => [project.id, project] as const),
+  );
+  const projects = preserveProjectArrayIdentity(
+    state.projects,
+    snapshot.projects
+      .filter((project) => project.deletedAt === null)
+      .map((project) =>
+        mergeProjectPreservingIdentity(existingProjectsById.get(project.id), mapProject(project)),
+      ),
+  );
+  const threads: Thread[] = [];
+  for (const shellThread of snapshot.threads) {
+    if (shellThread.deletedAt !== null) {
+      continue;
+    }
+    const mappedThread = suppressDismissedThreadError(
+      mapThreadShell(shellThread),
+      state.dismissedThreadErrorKeysById,
+    );
+    threads.push(
+      mergeThreadPreservingHydratedHistory(existingThreadsById.get(mappedThread.id), mappedThread),
+    );
+  }
+  const dismissedThreadErrorKeysById = retainDismissedThreadErrorKeysForThreads(
+    state.dismissedThreadErrorKeysById,
+    threads,
+  );
+  return {
+    ...state,
+    projects,
+    threads,
+    threadsById: buildThreadsById(threads),
+    sidebarThreadsById: buildSidebarThreadsByIdPreserving(
+      threads,
+      dismissedThreadErrorKeysById,
+      state.sidebarThreadsById,
+    ),
+    threadIdsByProjectId: buildThreadIdsByProjectIdPreserving(threads, state.threadIdsByProjectId),
+    dismissedThreadErrorKeysById,
+    bootstrapComplete: true,
+  };
+}
+
+function upsertShellThread(state: AppState, shellThread: OrchestrationThreadShell): AppState {
+  if (shellThread.deletedAt !== null) {
+    return removeReadModelEntities(state, {
+      projectIds: [],
+      threadIds: [shellThread.id],
+    });
+  }
+  const existing =
+    state.threadsById?.[shellThread.id] ?? getThreadById(state.threads, shellThread.id);
+  const mappedThread = suppressDismissedThreadError(
+    mapThreadShell(shellThread),
+    state.dismissedThreadErrorKeysById,
+  );
+  const nextThread = mergeThreadPreservingHydratedHistory(existing, mappedThread);
+  const threads = existing
+    ? state.threads.map((thread) => (thread.id === nextThread.id ? nextThread : thread))
+    : [...state.threads, nextThread];
+  const nextSummary = buildSidebarThreadSummary(nextThread, state.dismissedThreadErrorKeysById);
+  const previousSummary = state.sidebarThreadsById[nextThread.id];
+  const sidebarThreadsById = sidebarThreadSummariesEqual(previousSummary, nextSummary)
+    ? state.sidebarThreadsById
+    : {
+        ...state.sidebarThreadsById,
+        [nextThread.id]: nextSummary,
+      };
+  const nextThreadIdsByProjectId =
+    existing !== undefined && existing.projectId !== nextThread.projectId
+      ? removeThreadIdByProjectId(state.threadIdsByProjectId, existing.projectId, existing.id)
+      : state.threadIdsByProjectId;
+  const threadIdsByProjectId = appendThreadIdByProjectId(
+    nextThreadIdsByProjectId,
+    nextThread.projectId,
+    nextThread.id,
+  );
+  return {
+    ...state,
+    threads,
+    threadsById: {
+      ...(state.threadsById ?? buildThreadsById(state.threads)),
+      [nextThread.id]: nextThread,
+    },
+    sidebarThreadsById,
+    threadIdsByProjectId,
+    bootstrapComplete: true,
+  };
+}
+
+export function syncServerThreadDetailHotPath(
+  state: AppState,
+  readModelThread: OrchestrationReadModel["threads"][number],
+  options?: SnapshotSyncOptions,
+): AppState {
+  return hydrateThreadFromReadModel(state, readModelThread, options);
+}
+
+export function applyShellEvent(
+  state: AppState,
+  item: Exclude<OrchestrationShellStreamItem, { kind: "snapshot" }>,
+): AppState {
+  switch (item.kind) {
+    case "project-upserted": {
+      if (item.project.deletedAt !== null) {
+        return removeReadModelEntities(state, {
+          projectIds: [item.project.id],
+          threadIds: [],
+        });
+      }
+      const nextProject = mapProject(item.project);
+      const existingIndex = state.projects.findIndex((project) => project.id === nextProject.id);
+      const projects =
+        existingIndex >= 0
+          ? state.projects.map((project, index) =>
+              index === existingIndex
+                ? mergeProjectPreservingIdentity(project, nextProject)
+                : project,
+            )
+          : [...state.projects, nextProject];
+      return {
+        ...state,
+        projects: preserveProjectArrayIdentity(state.projects, projects),
+        bootstrapComplete: true,
+      };
+    }
+    case "project-removed":
+      return removeReadModelEntities(state, {
+        projectIds: [item.projectId],
+        threadIds: [],
+      });
+    case "thread-upserted":
+      return upsertShellThread(state, item.thread);
+    case "thread-removed":
+      return removeReadModelEntities(state, {
+        projectIds: [],
+        threadIds: [item.threadId],
+      });
+  }
+}
+
 export function syncServerReadModel(
   state: AppState,
   readModel: OrchestrationReadModel,
@@ -2741,6 +2923,7 @@ function setThreadBranch(
 
 interface AppStore extends AppState {
   resetToInitialState: () => void;
+  syncServerShellSnapshot: (snapshot: OrchestrationShellSnapshot) => void;
   syncServerReadModel: (readModel: OrchestrationReadModel, options?: SnapshotSyncOptions) => void;
   mergeServerReadModel: (readModel: OrchestrationReadModel, options?: SnapshotSyncOptions) => void;
   removeReadModelEntities: (input: {
@@ -2751,7 +2934,12 @@ interface AppStore extends AppState {
     readModelThread: OrchestrationReadModel["threads"][number],
     options?: SnapshotSyncOptions,
   ) => void;
+  syncServerThreadDetailHotPath: (
+    readModelThread: OrchestrationReadModel["threads"][number],
+    options?: SnapshotSyncOptions,
+  ) => void;
   pruneHydratedThreadHistories: (keepThreadIds: readonly ThreadId[]) => void;
+  applyShellEvent: (item: Exclude<OrchestrationShellStreamItem, { kind: "snapshot" }>) => void;
   applyOrchestrationEvent: (event: OrchestrationEvent) => void;
   applyOrchestrationEvents: (events: ReadonlyArray<OrchestrationEvent>) => void;
   setError: (threadId: ThreadId, error: string | null) => void;
@@ -2765,6 +2953,7 @@ export const useStore = create<AppStore>((set) => ({
     useTimelineModelStore.getState().reset();
     set(() => createInitialState());
   },
+  syncServerShellSnapshot: (snapshot) => set((state) => syncServerShellSnapshot(state, snapshot)),
   syncServerReadModel: (readModel, options) =>
     set((state) => syncServerReadModel(state, readModel, options)),
   mergeServerReadModel: (readModel, options) =>
@@ -2772,8 +2961,11 @@ export const useStore = create<AppStore>((set) => ({
   removeReadModelEntities: (input) => set((state) => removeReadModelEntities(state, input)),
   hydrateThreadFromReadModel: (readModelThread, options) =>
     set((state) => hydrateThreadFromReadModel(state, readModelThread, options)),
+  syncServerThreadDetailHotPath: (readModelThread, options) =>
+    set((state) => syncServerThreadDetailHotPath(state, readModelThread, options)),
   pruneHydratedThreadHistories: (keepThreadIds) =>
     set((state) => pruneHydratedThreadHistories(state, keepThreadIds)),
+  applyShellEvent: (item) => set((state) => applyShellEvent(state, item)),
   applyOrchestrationEvent: (event) => set((state) => applyOrchestrationEvent(state, event)),
   applyOrchestrationEvents: (events) => set((state) => applyOrchestrationEvents(state, events)),
   setError: (threadId, error) => set((state) => setError(state, threadId, error)),

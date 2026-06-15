@@ -36,9 +36,11 @@ import {
   SourceProposedPlanReference,
   OrchestrationProposedPlan,
   OrchestrationReadModel,
+  OrchestrationProjectShell,
   OrchestrationSession,
   OrchestrationThread,
   OrchestrationThreadActivity,
+  OrchestrationThreadShell,
   OrchestrationMessageRole,
   ProjectIcon,
   ProjectScript,
@@ -451,7 +453,12 @@ export type OrchestrationGetSnapshotInput = typeof OrchestrationGetSnapshotInput
 export const OrchestrationGetSnapshotResult = OrchestrationReadModel;
 export type OrchestrationGetSnapshotResult = typeof OrchestrationGetSnapshotResult.Type;
 
-export const OrchestrationShellSnapshot = OrchestrationReadModel;
+export const OrchestrationShellSnapshot = Schema.Struct({
+  snapshotSequence: NonNegativeInt,
+  projects: Schema.Array(OrchestrationProjectShell),
+  threads: Schema.Array(OrchestrationThreadShell),
+  updatedAt: IsoDateTime,
+});
 export type OrchestrationShellSnapshot = typeof OrchestrationShellSnapshot.Type;
 
 export const OrchestrationGetShellSnapshotInput = Schema.Struct({});
@@ -522,8 +529,24 @@ export const OrchestrationShellStreamItem = Schema.Union([
     snapshot: OrchestrationShellSnapshot,
   }),
   Schema.Struct({
-    kind: Schema.Literal("event"),
-    event: OrchestrationEvent,
+    kind: Schema.Literal("project-upserted"),
+    sequence: NonNegativeInt,
+    project: OrchestrationProjectShell,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("project-removed"),
+    sequence: NonNegativeInt,
+    projectId: ProjectId,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("thread-upserted"),
+    sequence: NonNegativeInt,
+    thread: OrchestrationThreadShell,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("thread-removed"),
+    sequence: NonNegativeInt,
+    threadId: ThreadId,
   }),
 ]);
 export type OrchestrationShellStreamItem = typeof OrchestrationShellStreamItem.Type;
