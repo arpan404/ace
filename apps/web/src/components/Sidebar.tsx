@@ -48,6 +48,7 @@ import {
   type FilesystemBrowseResult,
   type OrchestrationEvent,
   type OrchestrationReadModel,
+  type OrchestrationShellSnapshot,
   ProjectId,
   ThreadId,
 } from "@ace/contracts";
@@ -200,10 +201,9 @@ import {
   registerRemoteRoute,
   routeFilesystemBrowseToRemote,
   routeOrchestrationDispatchCommandToRemote,
-  routeOrchestrationGetSnapshotFromRemote,
+  routeOrchestrationGetShellSnapshotFromRemote,
   unregisterRemoteRoute,
 } from "../lib/remoteWsRouter";
-import { METADATA_SNAPSHOT_RECOVERY_INPUT } from "../bootstrapRecovery";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { useSetting, useUpdateSettings } from "~/hooks/useSettings";
 import { useServerKeybindings, useServerProviders } from "../rpc/serverState";
@@ -1689,31 +1689,16 @@ function reuseRemoteProjectEntries(
   return changed ? merged : previousProjects;
 }
 
-function getLastUserMessageTimestamp(
-  messages: OrchestrationReadModel["threads"][number]["messages"],
-): string {
-  let lastUserMessageAt = "";
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const message = messages[i];
-    if (message && message.role === "user") {
-      lastUserMessageAt = message.createdAt;
-      break;
-    }
-  }
-  return lastUserMessageAt;
-}
-
 function getProjectLastUserMessageAt(
   projectId: string,
-  threads: OrchestrationReadModel["threads"],
+  threads: OrchestrationShellSnapshot["threads"],
 ): string {
   let latestTimestamp = "";
   for (const thread of threads) {
     if (thread.projectId !== projectId) continue;
     if (thread.deletedAt !== null || thread.archivedAt !== null) continue;
-    const threadLastUserAt = getLastUserMessageTimestamp(thread.messages);
-    if (threadLastUserAt && (!latestTimestamp || threadLastUserAt > latestTimestamp)) {
-      latestTimestamp = threadLastUserAt;
+    if (!latestTimestamp || thread.updatedAt > latestTimestamp) {
+      latestTimestamp = thread.updatedAt;
     }
   }
   return latestTimestamp;
@@ -1727,7 +1712,7 @@ function sortByLastUserMessage(a: string, b: string): number {
 }
 
 function mapRemoteProjectsFromSnapshot(
-  snapshot: OrchestrationReadModel,
+  snapshot: OrchestrationShellSnapshot,
   sortOrder:
     | "updated_at"
     | "created_at"
@@ -1762,12 +1747,11 @@ function mapRemoteProjectsFromSnapshot(
       continue;
     }
     const projectThreads = threadsByProjectId.get(thread.projectId) ?? [];
-    const lastUserMessageAt = getLastUserMessageTimestamp(thread.messages);
     projectThreads.push({
       id: thread.id,
       title: thread.title,
       updatedAt: thread.updatedAt,
-      lastUserMessageAt: lastUserMessageAt || thread.updatedAt,
+      lastUserMessageAt: thread.updatedAt,
     });
     threadsByProjectId.set(thread.projectId, projectThreads);
   }
@@ -2997,11 +2981,14 @@ function useSidebarComponent() {
   if (remoteSnapshotSequenceByConnectionRef.current === null) {
     remoteSnapshotSequenceByConnectionRef.current = new Map<string, number>();
   }
-  const pendingRemoteSnapshotMergeByConnectionRef = useRef<Map<string, OrchestrationReadModel>>(
+  const pendingRemoteSnapshotMergeByConnectionRef = useRef<Map<string, OrchestrationShellSnapshot>>(
     null!,
   );
   if (pendingRemoteSnapshotMergeByConnectionRef.current === null) {
-    pendingRemoteSnapshotMergeByConnectionRef.current = new Map<string, OrchestrationReadModel>();
+    pendingRemoteSnapshotMergeByConnectionRef.current = new Map<
+      string,
+      OrchestrationShellSnapshot
+    >();
   }
   const remoteSnapshotMergeScheduledRef = useRef(false);
   const remoteSnapshotMergeHandleRef = useRef<{ kind: "idle" | "timeout"; id: number } | null>(
@@ -3159,12 +3146,9 @@ function useSidebarComponent() {
 
     const merges = [...pending.entries()];
     pending.clear();
-    const store = useStore.getState();
     for (const [connectionUrl, snapshot] of merges) {
-      store.mergeServerReadModel(snapshot, {
-        ...METADATA_SNAPSHOT_RECOVERY_INPUT,
-        connectionUrl,
-      });
+      useStore.getState().syncServerShellSnapshot(snapshot);
+      useHostConnectionStore.getState().upsertSnapshotOwnership(connectionUrl, snapshot);
     }
     reconcileThreadDerivedState();
   });
@@ -3260,15 +3244,11 @@ function useSidebarComponent() {
           const connectionUrl = resolveHostConnectionWsUrl(host);
           const previousEntry = previousEntriesByConnectionUrl.get(connectionUrl);
           try {
-            const snapshot = (await routeOrchestrationGetSnapshotFromRemote(
-              connectionUrl,
-              METADATA_SNAPSHOT_RECOVERY_INPUT,
-            )) as OrchestrationReadModel;
+            const snapshot = await routeOrchestrationGetShellSnapshotFromRemote(connectionUrl);
             const previousSequence =
               remoteSnapshotSequenceByConnectionRef.current.get(connectionUrl);
             const hasNewSnapshot = previousSequence !== snapshot.snapshotSequence;
             if (hasNewSnapshot) {
-              useHostConnectionStore.getState().upsertSnapshotOwnership(connectionUrl, snapshot);
               pendingRemoteSnapshotMergeByConnectionRef.current.set(connectionUrl, snapshot);
               remoteSnapshotSequenceByConnectionRef.current.set(
                 connectionUrl,

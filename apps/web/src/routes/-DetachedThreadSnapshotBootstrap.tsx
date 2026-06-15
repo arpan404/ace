@@ -1,6 +1,6 @@
 import { useEffect } from "react";
+import { ThreadId } from "@ace/contracts";
 
-import { METADATA_SNAPSHOT_RECOVERY_INPUT } from "../bootstrapRecovery";
 import { runAsyncTask } from "../lib/async";
 import { getRouteRpcClient } from "../lib/remoteWsRouter";
 import { readNativeApi } from "../nativeApi";
@@ -10,7 +10,8 @@ export function DetachedThreadSnapshotBootstrap(props: {
   threadId: string | null;
   connectionUrl: string | null;
 }) {
-  const mergeServerReadModel = useStore((store) => store.mergeServerReadModel);
+  const syncServerShellSnapshot = useStore((store) => store.syncServerShellSnapshot);
+  const syncServerThreadDetailHotPath = useStore((store) => store.syncServerThreadDetailHotPath);
   const { connectionUrl: inputConnectionUrl, threadId } = props;
 
   useEffect(() => {
@@ -22,18 +23,25 @@ export function DetachedThreadSnapshotBootstrap(props: {
 
     runAsyncTask(
       (async () => {
-        const snapshot = connectionUrl
-          ? await getRouteRpcClient(connectionUrl).orchestration.getSnapshot(
-              METADATA_SNAPSHOT_RECOVERY_INPUT,
-            )
-          : await readNativeApi()?.orchestration.getSnapshot(METADATA_SNAPSHOT_RECOVERY_INPUT);
-        if (!snapshot || disposed) {
+        const targetThreadId = ThreadId.makeUnsafe(threadId);
+        const rpcClient = connectionUrl ? getRouteRpcClient(connectionUrl) : null;
+        const nativeApi = connectionUrl ? null : readNativeApi();
+        const shellSnapshot = rpcClient
+          ? await rpcClient.orchestration.getShellSnapshot()
+          : await nativeApi?.orchestration.getShellSnapshot();
+        const thread = rpcClient
+          ? await rpcClient.orchestration.getThread({ threadId: targetThreadId })
+          : await nativeApi?.orchestration.getThread({ threadId: targetThreadId });
+        if (!shellSnapshot || !thread || disposed) {
           return;
         }
-        mergeServerReadModel(snapshot, {
-          hydrateThreadId: METADATA_SNAPSHOT_RECOVERY_INPUT.hydrateThreadId,
-          ...(connectionUrl ? { connectionUrl } : {}),
-        });
+        syncServerShellSnapshot(shellSnapshot);
+        syncServerThreadDetailHotPath(
+          thread,
+          connectionUrl
+            ? { connectionUrl, hydrateThreadId: targetThreadId }
+            : { hydrateThreadId: targetThreadId },
+        );
       })(),
       "Detached editor snapshot bootstrap failed.",
     );
@@ -41,7 +49,7 @@ export function DetachedThreadSnapshotBootstrap(props: {
     return () => {
       disposed = true;
     };
-  }, [inputConnectionUrl, mergeServerReadModel, threadId]);
+  }, [inputConnectionUrl, syncServerShellSnapshot, syncServerThreadDetailHotPath, threadId]);
 
   return null;
 }
