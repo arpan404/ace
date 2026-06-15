@@ -147,6 +147,9 @@ interface ChatComposerPanelProps {
   >["terminalContexts"];
   readonly queuedComposerMessages: ComponentProps<typeof ComposerQueuedMessages>["messages"];
   readonly queuedSteerMessageId: ComponentProps<typeof ComposerQueuedMessages>["steerMessageId"];
+  readonly queuedDispatchingMessageId: ComponentProps<
+    typeof ComposerQueuedMessages
+  >["dispatchingMessageId"];
   readonly canSendQueuedMessages: boolean;
   readonly pendingComposerComments: ComponentProps<typeof ComposerPendingComments>["comments"];
   readonly composerProviderState: ComposerProviderState;
@@ -426,6 +429,7 @@ export function ChatComposerPanel({
               {...(props.queuedSteerMessageId !== undefined
                 ? { steerMessageId: props.queuedSteerMessageId }
                 : {})}
+              dispatchingMessageId={props.queuedDispatchingMessageId}
               onEdit={props.onEditQueuedComposerMessage}
               onDelete={props.onDeleteQueuedComposerMessage}
               onClearAll={props.onClearQueuedComposerMessages}

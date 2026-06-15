@@ -11,6 +11,7 @@ import {
   type NewThreadRecommendation,
   OrchestrationDispatchCommandError,
   type OrchestrationEvent,
+  type OrchestrationShellStreamItem,
   type ProviderKind,
   type ServerProvider,
   OrchestrationGetFullThreadDiffError,
@@ -30,6 +31,7 @@ import {
   OrchestrationReplayEventsError,
   type TerminalEvent,
   TextGenerationError,
+  ThreadId,
   type BrowserBridgeRequest,
   ServerLspToolsError,
   ServerProviderCliUpgradeError,
@@ -67,7 +69,10 @@ import {
   sanitizeThreadForClient,
 } from "./orchestration/publicPresentation";
 import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine";
-import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
+import {
+  ProjectionSnapshotQuery,
+  type ProjectionSnapshotQueryShape,
+} from "./orchestration/Services/ProjectionSnapshotQuery";
 import { ProviderRegistry } from "./provider/Services/ProviderRegistry";
 import { ProviderService } from "./provider/Services/ProviderService";
 import { startOpenCodeServer } from "./provider/opencodeRuntime";
@@ -105,6 +110,7 @@ import {
   isCurrentWsClientSession,
   registerWsClientSession,
 } from "./wsClientSessions";
+import { bufferLiveUiStream } from "./wsStreamBackpressure";
 
 const WS_UPGRADE_RATE_LIMIT_WINDOW_MS = 60_000;
 const WS_UPGRADE_RATE_LIMIT_MAX_ATTEMPTS = 30;
@@ -125,6 +131,72 @@ const ORCHESTRATION_EVENT_REORDER_MAX_PENDING = Math.max(
   128,
   Number.parseInt(process.env.ACE_ORCHESTRATION_EVENT_REORDER_MAX_PENDING ?? "1024", 10) || 1024,
 );
+
+function isShellRelevantEvent(event: OrchestrationEvent): boolean {
+  return (
+    event.aggregateKind === "thread" ||
+    event.type === "project.created" ||
+    event.type === "project.meta-updated" ||
+    event.type === "project.deleted"
+  );
+}
+
+function toShellStreamEvent(
+  projectionSnapshotQuery: ProjectionSnapshotQueryShape,
+  event: OrchestrationEvent,
+): Effect.Effect<Option.Option<OrchestrationShellStreamItem>, unknown> {
+  switch (event.type) {
+    case "project.created":
+    case "project.meta-updated":
+      return projectionSnapshotQuery.getProjectShellById(event.payload.projectId).pipe(
+        Effect.map(
+          Option.map(
+            (project): OrchestrationShellStreamItem => ({
+              kind: "project-upserted",
+              sequence: event.sequence,
+              project,
+            }),
+          ),
+        ),
+      );
+
+    case "project.deleted":
+      return Effect.succeed(
+        Option.some({
+          kind: "project-removed",
+          sequence: event.sequence,
+          projectId: event.payload.projectId,
+        }),
+      );
+
+    case "thread.deleted":
+      return Effect.succeed(
+        Option.some({
+          kind: "thread-removed",
+          sequence: event.sequence,
+          threadId: event.payload.threadId,
+        }),
+      );
+
+    default:
+      if (event.aggregateKind !== "thread") {
+        return Effect.succeed(Option.none());
+      }
+      return projectionSnapshotQuery
+        .getThreadShellById(ThreadId.makeUnsafe(event.aggregateId))
+        .pipe(
+          Effect.map(
+            Option.map(
+              (thread): OrchestrationShellStreamItem => ({
+                kind: "thread-upserted",
+                sequence: event.sequence,
+                thread,
+              }),
+            ),
+          ),
+        );
+  }
+}
 
 type WorktreeSizeStats = {
   readonly exists: boolean;
@@ -943,6 +1015,16 @@ const WsRpcLayer = WsRpcGroup.toLayer(
               }),
           ),
         ),
+      [ORCHESTRATION_WS_METHODS.getShellSnapshot]: () =>
+        projectionSnapshotQuery.getShellSnapshot().pipe(
+          Effect.mapError(
+            (cause) =>
+              new OrchestrationGetSnapshotError({
+                message: "Failed to load orchestration shell snapshot",
+                cause,
+              }),
+          ),
+        ),
       [ORCHESTRATION_WS_METHODS.getThread]: (input) =>
         projectionSnapshotQuery.getThread(input.threadId).pipe(
           Effect.flatMap((thread) =>
@@ -965,6 +1047,79 @@ const WsRpcLayer = WsRpcGroup.toLayer(
                 }),
           ),
         ),
+      [ORCHESTRATION_WS_METHODS.subscribeShell]: () =>
+        Stream.merge(
+          Stream.fromEffect(
+            projectionSnapshotQuery.getShellSnapshot().pipe(
+              Effect.map((snapshot) => ({ kind: "snapshot" as const, snapshot })),
+              Effect.mapError(
+                (cause) =>
+                  new OrchestrationGetSnapshotError({
+                    message: "Failed to load orchestration shell snapshot",
+                    cause,
+                  }),
+              ),
+            ),
+          ).pipe(Stream.catch(() => Stream.empty)),
+          bufferLiveUiStream(
+            orchestrationEngine.streamDomainEvents.pipe(Stream.filter(isShellRelevantEvent)),
+            { label: "orchestration.shell" },
+          ).pipe(
+            Stream.mapEffect((event) =>
+              toShellStreamEvent(projectionSnapshotQuery, event).pipe(
+                Effect.catch(() => Effect.succeed(Option.none<OrchestrationShellStreamItem>())),
+              ),
+            ),
+            Stream.filter(Option.isSome),
+            Stream.map((item) => item.value),
+          ),
+        ),
+      [ORCHESTRATION_WS_METHODS.unsubscribeShell]: () => Effect.void,
+      [ORCHESTRATION_WS_METHODS.subscribeThread]: (input) =>
+        Stream.merge(
+          Stream.fromEffect(
+            projectionSnapshotQuery.getThreadDetailSnapshotById(input.threadId).pipe(
+              Effect.flatMap((snapshot) =>
+                Option.match(snapshot, {
+                  onNone: () =>
+                    Effect.fail(
+                      new OrchestrationGetThreadError({
+                        message: `Thread '${input.threadId}' was not found.`,
+                      }),
+                    ),
+                  onSome: (value) =>
+                    Effect.succeed({
+                      kind: "snapshot" as const,
+                      snapshot: {
+                        snapshotSequence: value.snapshotSequence,
+                        thread: sanitizeThreadForClient(value.thread),
+                      },
+                    }),
+                }),
+              ),
+              Effect.mapError((cause) =>
+                Schema.is(OrchestrationGetThreadError)(cause)
+                  ? cause
+                  : new OrchestrationGetThreadError({
+                      message: "Failed to load orchestration thread snapshot",
+                      cause,
+                    }),
+              ),
+            ),
+          ).pipe(Stream.catch(() => Stream.empty)),
+          bufferLiveUiStream(
+            orchestrationEngine.streamDomainEvents.pipe(
+              Stream.filter(
+                (event) => event.aggregateKind === "thread" && event.aggregateId === input.threadId,
+              ),
+            ),
+            { label: "orchestration.thread-detail" },
+          ).pipe(
+            Stream.map(sanitizeOrchestrationEventForClient),
+            Stream.map((event) => ({ kind: "event" as const, event })),
+          ),
+        ),
+      [ORCHESTRATION_WS_METHODS.unsubscribeThread]: () => Effect.void,
       [ORCHESTRATION_WS_METHODS.dispatchCommand]: (command) =>
         Effect.gen(function* () {
           const normalizedCommand = yield* normalizeDispatchCommand(command);
@@ -1024,16 +1179,20 @@ const WsRpcLayer = WsRpcGroup.toLayer(
                     minimum: 0,
                   })
                 : (yield* orchestrationEngine.getReadModel()).snapshotSequence;
-            const replayEvents: Array<OrchestrationEvent> = yield* Stream.runCollect(
-              orchestrationEngine.readEvents(fromSequenceExclusive),
-            ).pipe(
-              Effect.map((events) => Array.from(events)),
-              Effect.catch(() => Effect.succeed([] as Array<OrchestrationEvent>)),
-            );
-            const replayStream = Stream.fromIterable(replayEvents);
-            const source = Stream.merge(replayStream, orchestrationEngine.streamDomainEvents).pipe(
-              Stream.map(sanitizeOrchestrationEventForClient),
-            );
+            const replayStream = orchestrationEngine
+              .readEvents(fromSequenceExclusive)
+              .pipe(Stream.catch(() => Stream.empty));
+            // Subscribe to the hot live stream at the same time as the replay stream.
+            // Collecting replay first leaves a gap where events persisted after the
+            // replay query but before the PubSub subscription are neither replayed
+            // nor delivered live, so the browser only observes them after a later
+            // snapshot refresh.
+            const source = Stream.merge(
+              replayStream,
+              bufferLiveUiStream(orchestrationEngine.streamDomainEvents, {
+                label: "orchestration.domain-events",
+              }),
+            ).pipe(Stream.map(sanitizeOrchestrationEventForClient));
             type SequenceState = {
               readonly nextSequence: number;
               readonly pendingBySequence: Map<number, OrchestrationEvent>;

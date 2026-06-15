@@ -20,6 +20,7 @@ import {
   shouldShowDesktopUpdateButton,
   shouldToastDesktopUpdateActionResult,
 } from "../../lib/desktopUpdate";
+import { hasLiveTurn } from "../../session-logic";
 import { Alert, AlertDescription, AlertTitle } from "../ui/alert";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { useStore } from "../../store";
@@ -30,7 +31,8 @@ export function SidebarUpdatePill() {
   const queryClient = useQueryClient();
   const state = useDesktopUpdateState().data ?? null;
   const runningAgentCount = useStore(
-    (store) => store.threads.filter((thread) => thread.session?.status === "running").length,
+    (store) =>
+      store.threads.filter((thread) => hasLiveTurn(thread.latestTurn, thread.session)).length,
   );
   const [dismissed, setDismissed] = useState(false);
 

@@ -1,3 +1,4 @@
+import { hasLiveTurn } from "../../session-logic";
 import type { Thread } from "../../types";
 
 export const ACTIVE_THREAD_HYDRATION_FALLBACK_DELAY_MS = 500;
@@ -5,12 +6,7 @@ export const ACTIVE_THREAD_HYDRATION_FALLBACK_DELAY_MS = 500;
 type ThreadLiveWorkState = Pick<Thread, "latestTurn" | "session">;
 
 export function isThreadLiveWorkActive(thread: ThreadLiveWorkState | undefined): boolean {
-  return Boolean(
-    thread &&
-    (thread.latestTurn?.state === "running" ||
-      thread.session?.orchestrationStatus === "running" ||
-      thread.session?.status === "running"),
-  );
+  return Boolean(thread && hasLiveTurn(thread.latestTurn, thread.session));
 }
 
 export function shouldHydrateActiveThreadFromReadModelFallback(

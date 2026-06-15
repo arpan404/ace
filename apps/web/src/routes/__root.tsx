@@ -1,42 +1,30 @@
-import { OrchestrationEvent, ThreadId, type ServerLifecycleWelcomePayload } from "@ace/contracts";
+import { OrchestrationEvent, ThreadId, type OrchestrationShellStreamItem } from "@ace/contracts";
 import {
   Outlet,
   createRootRouteWithContext,
   useNavigate,
   useLocation,
+  useParams,
 } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { unstable_batchedUpdates } from "react-dom";
 import { QueryClient, useQueryClient } from "@tanstack/react-query";
-import { Throttler } from "@tanstack/react-pacer";
 
 import { resolveAppStartupMessage, resolveAppStartupState } from "../appStartup";
-import {
-  METADATA_SNAPSHOT_RECOVERY_INPUT,
-  resolveWelcomeBootstrapPlan,
-} from "../bootstrapRecovery";
 import { APP_BASE_NAME } from "../branding";
 import { AppSidebarLayout } from "../components/AppSidebarLayout";
 import { AgentAttentionNotificationBridge } from "../components/AgentAttentionNotificationBridge";
 import { AppStartupScreen } from "../components/AppStartupScreen";
 import { RemoteAutoConnectBootstrap } from "../components/RemoteAutoConnectBootstrap";
 import { AnchoredToastProvider, ToastProvider, toastManager } from "../components/ui/toast";
-import { useEditorStateStore } from "../editorStateStore";
 import {
   applyTransportConnectionHealthState,
   setConnectionHealthToastsEnabled,
 } from "../lib/reliability/connectionHealth";
-import { resolveAndPersistPreferredEditor } from "../editorPreferences";
-import { runAsyncTask } from "../lib/async";
-import { beginLoadPhase, logLoadDiagnostic } from "../loadDiagnostics";
+import { reportBackgroundError, runAsyncTask } from "../lib/async";
+import { logLoadDiagnostic } from "../loadDiagnostics";
 import { readNativeApi } from "../nativeApi";
 import { isElectron } from "../env";
-import {
-  type ServerConfigUpdateSource,
-  useServerConfig,
-  useServerConfigUpdatedSubscription,
-  useServerWelcomeSubscription,
-} from "../rpc/serverState";
 import { ServerStateBootstrap } from "../rpc/serverStateBootstrap";
 import {
   clearPromotedDraftThread,
@@ -47,28 +35,19 @@ import { useStore } from "../store";
 import { useUiStateStore } from "../uiStateStore";
 import { useTerminalStateStore } from "../terminalStateStore";
 import { terminalRunningSubprocessFromEvent } from "../terminalActivity";
-import { migrateLocalSettingsToServer, useSetting } from "../hooks/useSettings";
+import { useSetting } from "../hooks/useSettings";
 import { UiTypographyBridge } from "../components/UiTypographyBridge";
 import { providerQueryKeys } from "../lib/providerReactQuery";
 import { projectQueryKeys } from "../lib/projectReactQuery";
 import { collectActiveTerminalThreadIds } from "../lib/terminalStateCleanup";
 import { deriveOrchestrationBatchEffects } from "../orchestrationEventEffects";
-import {
-  coalesceOrchestrationUiEvents,
-  resolveOrchestrationUiEventFlushPriority,
-} from "../orchestrationUiEvents";
-import {
-  canUseSnapshotAsAuthoritative,
-  createOrchestrationRecoveryCoordinator,
-} from "../orchestrationRecovery";
+import { coalesceOrchestrationUiEvents } from "../orchestrationUiEvents";
 import { resetWsRpcClient } from "../wsRpcClient";
 import { getRouteRpcClient, subscribeToRemoteRelayConnectionState } from "../lib/remoteWsRouter";
 import { parseHostConnectionQrPayload, resolveLocalDeviceWsUrl } from "../lib/remoteHosts";
-import { useHostConnectionStore } from "../hostConnectionStore";
 import { queueDesktopPairingLink } from "../lib/desktopPairingLinks";
 import { parseRelayConnectionUrl } from "@ace/shared/relay";
 import { shouldForwardDesktopNotificationOrchestrationEvent } from "@ace/shared/notifications";
-import { newCommandId, newMessageId, randomUUID } from "../lib/utils";
 import {
   dispatchDetachedWindowReturnRequest,
   resolveDetachedWindowReturnThreadId,
@@ -76,8 +55,34 @@ import {
 import { DesktopCliInstallToastBridge } from "./-DesktopCliInstallToastBridge";
 import { DetachedBrowserWindow } from "./-DetachedBrowserWindow";
 import { DetachedEditorWindow } from "./-DetachedEditorWindow";
-import { DetachedWindowMessage } from "./-DetachedWindowMessage";
 import { RootRouteErrorView } from "./-RootRouteErrorView";
+
+const BACKGROUND_DOMAIN_EVENT_FLUSH_DELAY_MS = 100;
+const PENDING_SCOPED_EVENT_BUFFER_LIMIT = 1_024;
+const PENDING_THREAD_EVENT_BUFFER_LIMIT = 512;
+const APPLIED_EVENT_SEQUENCE_CACHE_LIMIT = 4_096;
+
+function appendBoundedEvent(
+  events: OrchestrationEvent[],
+  event: OrchestrationEvent,
+  limit: number,
+) {
+  events.push(event);
+  if (events.length > limit) {
+    events.splice(0, events.length - limit);
+  }
+}
+
+function addBoundedSequence(sequences: Set<number>, sequence: number) {
+  sequences.add(sequence);
+  while (sequences.size > APPLIED_EVENT_SEQUENCE_CACHE_LIMIT) {
+    const oldestSequence = sequences.values().next().value;
+    if (typeof oldestSequence !== "number") {
+      return;
+    }
+    sequences.delete(oldestSequence);
+  }
+}
 
 export const Route = createRootRouteWithContext<{
   queryClient: QueryClient;
@@ -299,12 +304,11 @@ function RemoteRelayConnectionToastBridge() {
   return null;
 }
 
-function useEventRouterLifecycle() {
+function useScopedEventRouterLifecycle() {
   const applyOrchestrationEvents = useStore((store) => store.applyOrchestrationEvents);
-  const bootstrapComplete = useStore((store) => store.bootstrapComplete);
-  const mergeServerReadModel = useStore((store) => store.mergeServerReadModel);
-  const removeReadModelEntities = useStore((store) => store.removeReadModelEntities);
-  const setProjectExpanded = useUiStateStore((store) => store.setProjectExpanded);
+  const syncServerShellSnapshot = useStore((store) => store.syncServerShellSnapshot);
+  const applyShellEvent = useStore((store) => store.applyShellEvent);
+  const syncServerThreadDetailHotPath = useStore((store) => store.syncServerThreadDetailHotPath);
   const syncProjects = useUiStateStore((store) => store.syncProjects);
   const syncThreads = useUiStateStore((store) => store.syncThreads);
   const clearThreadUi = useUiStateStore((store) => store.clearThreadUi);
@@ -313,230 +317,73 @@ function useEventRouterLifecycle() {
     (store) => store.removeOrphanedTerminalStates,
   );
   const queryClient = useQueryClient();
-  const navigate = useNavigate();
-  const pathname = useLocation({ select: (loc) => loc.pathname });
-  const pathnameRef = useRef(pathname);
-  const handledBootstrapThreadIdRef = useRef<ThreadId | null>(null);
-  const handledConfigReplayRef = useRef(false);
-  const loggedBootstrapCompleteRef = useRef(false);
-  const disposedRef = useRef(false);
-  const bootstrapFromSnapshotRef = useRef<() => Promise<void>>(async () => undefined);
-  const serverConfig = useServerConfig();
+  const routeThreadId = useParams({
+    strict: false,
+    select: (params) => (params.threadId ? ThreadId.makeUnsafe(params.threadId) : null),
+  });
+  const appliedEventSequencesRef = useRef<Set<number>>(new Set());
+  const threadLatestSequenceByIdRef = useRef<Map<ThreadId, number>>(new Map());
 
-  useEffect(() => {
-    pathnameRef.current = pathname;
-  }, [pathname]);
-
-  useEffect(() => {
-    if (bootstrapComplete && !loggedBootstrapCompleteRef.current) {
-      loggedBootstrapCompleteRef.current = true;
-      const store = useStore.getState();
-      logLoadDiagnostic({
-        phase: "bootstrap",
-        level: "success",
-        message: "Bootstrap marked complete",
-        detail: {
-          projectCount: store.projects.length,
-          threadCount: store.threads.length,
-          pathname,
-        },
-      });
-    }
-  }, [bootstrapComplete, pathname]);
-
-  const handleWelcome = (payload: ServerLifecycleWelcomePayload) => {
-    logLoadDiagnostic({
-      phase: "bootstrap",
-      message: "Processing welcome payload",
-      detail: {
-        bootstrapProjectId: payload.bootstrapProjectId,
-        bootstrapThreadId: payload.bootstrapThreadId,
-      },
-    });
-    migrateLocalSettingsToServer();
-    runAsyncTask(
-      (async () => {
-        const plan = resolveWelcomeBootstrapPlan({
-          bootstrapComplete,
-          pathname: pathnameRef.current,
-          handledBootstrapThreadId: handledBootstrapThreadIdRef.current,
-          payload,
-        });
-
-        if (plan.shouldBootstrapFromSnapshot) {
-          await bootstrapFromSnapshotRef.current();
-        }
-        if (disposedRef.current) {
-          return;
-        }
-
-        if (plan.expandProjectId === null) {
-          return;
-        }
-        setProjectExpanded(plan.expandProjectId, true);
-
-        if (plan.navigateToThreadId === null) {
-          return;
-        }
-        await navigate({
-          to: "/$threadId",
-          params: { threadId: plan.navigateToThreadId },
-          replace: true,
-        });
-        handledBootstrapThreadIdRef.current = plan.navigateToThreadId;
-      })(),
-      "Failed to navigate to the bootstrap thread.",
+  const reconcileSnapshotDerivedState = useCallback(() => {
+    const threads = useStore.getState().threads;
+    const projects = useStore.getState().projects;
+    syncProjects(projects.map((project) => ({ id: project.id, cwd: project.cwd })));
+    syncThreads(
+      threads.map((thread) => ({
+        id: thread.id,
+        projectId: thread.projectId,
+        seedVisitedAt: thread.updatedAt ?? thread.createdAt,
+      })),
     );
-  };
-
-  const handleServerConfigUpdated = ({
-    payload,
-    source,
-  }: {
-    readonly payload: import("@ace/contracts").ServerConfigUpdatedPayload;
-    readonly source: ServerConfigUpdateSource;
-  }) => {
-    if (typeof window !== "undefined" && window.desktopBridge?.sendServerConfigEvent) {
-      window.desktopBridge.sendServerConfigEvent({ type: "settingsUpdated", payload });
-    }
-    const isReplay = !handledConfigReplayRef.current;
-    handledConfigReplayRef.current = true;
-    if (isReplay || source !== "keybindingsUpdated") {
-      return;
-    }
-
-    const issue = payload.issues.find((entry) => entry.kind.startsWith("keybindings."));
-    if (!issue) {
-      toastManager.add({
-        type: "success",
-        title: "Keybindings updated",
-        description: "Keybindings configuration reloaded successfully.",
-      });
-      return;
-    }
-
-    toastManager.add({
-      type: "warning",
-      title: "Invalid keybindings configuration",
-      description: issue.message,
-      actionProps: {
-        children: "Open keybindings.json",
-        onClick: () => {
-          const api = readNativeApi();
-          if (!api) {
-            return;
-          }
-
-          void Promise.resolve(serverConfig ?? api.server.getConfig())
-            .then((config) => {
-              const editor = resolveAndPersistPreferredEditor(config.availableEditors);
-              if (!editor) {
-                throw new Error("No available editors found.");
-              }
-              return api.shell.openInEditor(config.keybindingsConfigPath, editor);
-            })
-            .catch((error) => {
-              toastManager.add({
-                type: "error",
-                title: "Unable to open keybindings file",
-                description: error instanceof Error ? error.message : "Unknown error opening file.",
-              });
-            });
-        },
-      },
-    });
-  };
-
-  useEffect(() => {
-    const localConnectionUrl = resolveLocalDeviceWsUrl();
-    const localRpcClient = getRouteRpcClient(localConnectionUrl);
-    logLoadDiagnostic({ phase: "bootstrap", message: "Event router mounted" });
-    let disposed = false;
-    disposedRef.current = false;
-    const recovery = createOrchestrationRecoveryCoordinator();
-    let needsProviderInvalidation = false;
-    const pendingDomainEvents: OrchestrationEvent[] = [];
-    let flushPendingDomainEventsScheduled = false;
-    let pendingDomainEventMicrotaskVersion = 0;
-    let pendingDomainEventFlushHandle:
-      | { kind: "animation-frame"; handle: number }
-      | { kind: "microtask"; handle: number }
-      | null = null;
-    let reconnectRecoveryRequested = false;
-
-    const reconcileSnapshotDerivedState = () => {
-      const threads = useStore.getState().threads;
-      const projects = useStore.getState().projects;
-      syncProjects(projects.map((project) => ({ id: project.id, cwd: project.cwd })));
-      syncThreads(
-        threads.map((thread) => ({
-          id: thread.id,
-          projectId: thread.projectId,
-          seedVisitedAt: thread.updatedAt ?? thread.createdAt,
-        })),
-      );
-      clearPromotedDraftThreads(threads.map((thread) => thread.id));
-      const draftThreadIds = Object.keys(
-        useComposerDraftStore.getState().draftThreadsByThreadId,
-      ) as ThreadId[];
-      const activeThreadIds = collectActiveTerminalThreadIds({
+    clearPromotedDraftThreads(threads.map((thread) => thread.id));
+    const draftThreadIds = Object.keys(
+      useComposerDraftStore.getState().draftThreadsByThreadId,
+    ) as ThreadId[];
+    removeOrphanedTerminalStates(
+      collectActiveTerminalThreadIds({
         snapshotThreads: threads.map((thread) => ({
           id: thread.id,
           deletedAt: null,
         })),
         draftThreadIds,
-      });
-      removeOrphanedTerminalStates(activeThreadIds);
-    };
-
-    const queryInvalidationThrottler = new Throttler(
-      () => {
-        if (!needsProviderInvalidation) {
-          return;
-        }
-        needsProviderInvalidation = false;
-        void queryClient.invalidateQueries({ queryKey: providerQueryKeys.all });
-        // Invalidate workspace entry queries so the @-mention file picker
-        // reflects files created, deleted, or restored during this turn.
-        void queryClient.invalidateQueries({ queryKey: projectQueryKeys.all });
-      },
-      {
-        wait: 100,
-        leading: false,
-        trailing: true,
-      },
+      }),
     );
+  }, [removeOrphanedTerminalStates, syncProjects, syncThreads]);
 
-    const applyEventBatch = (events: ReadonlyArray<OrchestrationEvent>) => {
-      const nextEvents = recovery.markEventBatchApplied(events);
-      if (nextEvents.length === 0) {
+  const applyScopedEvents = useCallback(
+    (events: ReadonlyArray<OrchestrationEvent>) => {
+      const dedupedEvents: OrchestrationEvent[] = [];
+      for (const event of events) {
+        if (appliedEventSequencesRef.current.has(event.sequence)) {
+          continue;
+        }
+        addBoundedSequence(appliedEventSequencesRef.current, event.sequence);
+        dedupedEvents.push(event);
+      }
+      if (dedupedEvents.length === 0) {
         return;
       }
 
-      const batchEffects = deriveOrchestrationBatchEffects(nextEvents);
-      const uiEvents = coalesceOrchestrationUiEvents(nextEvents);
-      const needsProjectUiSync = nextEvents.some(
-        (event) =>
-          event.type === "project.created" ||
-          event.type === "project.meta-updated" ||
-          event.type === "project.deleted",
-      );
-
-      if (batchEffects.needsProviderInvalidation) {
-        needsProviderInvalidation = true;
-        void queryInvalidationThrottler.maybeExecute();
-      }
-
+      const batchEffects = deriveOrchestrationBatchEffects(dedupedEvents);
+      const uiEvents = coalesceOrchestrationUiEvents(dedupedEvents);
       unstable_batchedUpdates(() => {
         applyOrchestrationEvents(uiEvents);
-        if (needsProjectUiSync) {
+        if (
+          dedupedEvents.some(
+            (event) =>
+              event.type === "project.created" ||
+              event.type === "project.meta-updated" ||
+              event.type === "project.deleted",
+          )
+        ) {
           const projects = useStore.getState().projects;
           syncProjects(projects.map((project) => ({ id: project.id, cwd: project.cwd })));
         }
-        const needsThreadUiSync = nextEvents.some(
-          (event) => event.type === "thread.created" || event.type === "thread.deleted",
-        );
-        if (needsThreadUiSync) {
+        if (
+          dedupedEvents.some(
+            (event) => event.type === "thread.created" || event.type === "thread.deleted",
+          )
+        ) {
           const threads = useStore.getState().threads;
           syncThreads(
             threads.map((thread) => ({
@@ -558,191 +405,83 @@ function useEventRouterLifecycle() {
           removeTerminalState(threadId);
         }
       });
-    };
-    const flushPendingDomainEvents = () => {
-      flushPendingDomainEventsScheduled = false;
-      pendingDomainEventFlushHandle = null;
-      if (disposed || pendingDomainEvents.length === 0) {
-        return;
-      }
 
-      const events = pendingDomainEvents.splice(0, pendingDomainEvents.length);
-      applyEventBatch(events);
-    };
-    const cancelPendingDomainEventFlush = () => {
-      pendingDomainEventMicrotaskVersion += 1;
-      if (pendingDomainEventFlushHandle === null) {
-        flushPendingDomainEventsScheduled = false;
-        return;
+      if (batchEffects.needsProviderInvalidation) {
+        void queryClient.invalidateQueries({ queryKey: providerQueryKeys.all });
+        void queryClient.invalidateQueries({ queryKey: projectQueryKeys.all });
       }
-      if (pendingDomainEventFlushHandle.kind === "animation-frame") {
-        cancelAnimationFrame(pendingDomainEventFlushHandle.handle);
-      }
-      pendingDomainEventFlushHandle = null;
-      flushPendingDomainEventsScheduled = false;
-    };
-    const schedulePendingDomainEventFlush = (priority: "animation-frame" | "microtask") => {
-      if (flushPendingDomainEventsScheduled) {
-        if (
-          priority === "microtask" &&
-          pendingDomainEventFlushHandle !== null &&
-          pendingDomainEventFlushHandle.kind !== "microtask"
-        ) {
-          cancelPendingDomainEventFlush();
-        } else {
-          return;
-        }
-      }
+    },
+    [
+      applyOrchestrationEvents,
+      clearThreadUi,
+      queryClient,
+      removeTerminalState,
+      syncProjects,
+      syncThreads,
+    ],
+  );
 
-      flushPendingDomainEventsScheduled = true;
-      if (priority === "microtask") {
-        const handle = pendingDomainEventMicrotaskVersion + 1;
-        pendingDomainEventMicrotaskVersion = handle;
-        pendingDomainEventFlushHandle = {
-          kind: "microtask",
-          handle,
-        };
-        queueMicrotask(() => {
-          if (
-            !flushPendingDomainEventsScheduled ||
-            pendingDomainEventFlushHandle?.kind !== "microtask" ||
-            pendingDomainEventFlushHandle.handle !== handle
-          ) {
-            return;
-          }
-          flushPendingDomainEvents();
-        });
-        return;
-      }
-      if (
-        typeof requestAnimationFrame === "function" &&
-        (typeof document === "undefined" || document.visibilityState === "visible")
-      ) {
-        pendingDomainEventFlushHandle = {
-          kind: "animation-frame",
-          handle: requestAnimationFrame(() => {
-            flushPendingDomainEvents();
-          }),
-        };
-        return;
-      }
-      const handle = pendingDomainEventMicrotaskVersion + 1;
-      pendingDomainEventMicrotaskVersion = handle;
-      pendingDomainEventFlushHandle = {
-        kind: "microtask",
-        handle,
-      };
-      queueMicrotask(() => {
-        if (
-          !flushPendingDomainEventsScheduled ||
-          pendingDomainEventFlushHandle?.kind !== "microtask" ||
-          pendingDomainEventFlushHandle.handle !== handle
-        ) {
-          return;
-        }
-        flushPendingDomainEvents();
-      });
-    };
+  useEffect(() => {
+    const localConnectionUrl = resolveLocalDeviceWsUrl();
+    const localRpcClient = getRouteRpcClient(localConnectionUrl);
+    let disposed = false;
+    let shellBootstrapped = false;
+    let pendingShellEvents: Array<Exclude<OrchestrationShellStreamItem, { kind: "snapshot" }>> = [];
+    let flushHandle: number | null = null;
 
-    const recoverFromReplay = async (
-      reason: "sequence-gap" | "transport-reconnected",
-    ): Promise<void> => {
-      if (!recovery.beginReplayRecovery(reason)) {
+    const flushPendingShellEvents = () => {
+      flushHandle = null;
+      if (disposed || pendingShellEvents.length === 0) {
         return;
       }
-      const phase = beginLoadPhase("replay", `Recovering from replay (${reason})`);
-
+      const events = pendingShellEvents;
+      pendingShellEvents = [];
       try {
-        const events = await localRpcClient.orchestration.replayEvents({
-          fromSequenceExclusive: recovery.getState().latestSequence,
-        });
-        if (!disposed) {
-          applyEventBatch(events);
-          phase.success("Replay recovery applied", {
-            reason,
-            eventCount: events.length,
-            latestSequence: recovery.getState().latestSequence,
-          });
-        }
-      } catch {
-        phase.error("Replay recovery failed", { reason });
-        recovery.failReplayRecovery();
-        void fallbackToSnapshotRecovery();
-        return;
-      }
-
-      if (!disposed && recovery.completeReplayRecovery()) {
-        void recoverFromReplay(reason);
-      }
-    };
-
-    const runSnapshotRecovery = async (reason: "bootstrap" | "replay-failed"): Promise<void> => {
-      if (!recovery.beginSnapshotRecovery(reason)) {
-        return;
-      }
-      const phase = beginLoadPhase("snapshot", `Running snapshot recovery (${reason})`, {
-        hydrateThreadId: METADATA_SNAPSHOT_RECOVERY_INPUT.hydrateThreadId,
-      });
-
-      try {
-        const snapshot = await localRpcClient.orchestration.getSnapshot(
-          METADATA_SNAPSHOT_RECOVERY_INPUT,
-        );
-        if (!disposed) {
-          const recoveryStateBeforeMerge = recovery.getState();
-          const canReplaceWithSnapshot = canUseSnapshotAsAuthoritative(
-            recoveryStateBeforeMerge,
-            snapshot.snapshotSequence,
-          );
-          const localOwnership = useHostConnectionStore.getState().getOwnership(localConnectionUrl);
-          if (localOwnership && canReplaceWithSnapshot) {
-            removeReadModelEntities(localOwnership);
+        unstable_batchedUpdates(() => {
+          for (const event of events) {
+            if (appliedEventSequencesRef.current.has(event.sequence)) {
+              continue;
+            }
+            addBoundedSequence(appliedEventSequencesRef.current, event.sequence);
+            applyShellEvent(event);
           }
-          if (canReplaceWithSnapshot) {
-            useHostConnectionStore.getState().upsertSnapshotOwnership(localConnectionUrl, snapshot);
-          } else {
-            useHostConnectionStore.getState().mergeSnapshotOwnership(localConnectionUrl, snapshot);
-          }
-          mergeServerReadModel(snapshot, {
-            ...METADATA_SNAPSHOT_RECOVERY_INPUT,
-            connectionUrl: localConnectionUrl,
-          });
           reconcileSnapshotDerivedState();
-          phase.success("Snapshot recovery applied", {
-            reason,
-            snapshotSequence: snapshot.snapshotSequence,
-            latestAppliedSequence: recoveryStateBeforeMerge.latestSequence,
-            authoritative: canReplaceWithSnapshot,
-            projectCount: snapshot.projects.length,
-            threadCount: snapshot.threads.length,
-          });
-          const shouldReplayAfterSnapshot = recovery.completeSnapshotRecovery(
-            snapshot.snapshotSequence,
-          );
-          flushPendingDomainEvents();
-          if (shouldReplayAfterSnapshot) {
-            void recoverFromReplay("sequence-gap");
-          }
-        }
-      } catch {
-        phase.error("Snapshot recovery failed", { reason });
-        // Keep prior state and wait for welcome or a later replay attempt.
-        recovery.failSnapshotRecovery();
+        });
+      } catch (error) {
+        reportBackgroundError("Failed to apply scoped orchestration shell events.", error);
       }
     };
 
-    const bootstrapFromSnapshot = async (): Promise<void> => {
-      await runSnapshotRecovery("bootstrap");
-    };
-    bootstrapFromSnapshotRef.current = bootstrapFromSnapshot;
-
-    const fallbackToSnapshotRecovery = async (): Promise<void> => {
-      await runSnapshotRecovery("replay-failed");
-    };
-    const unsubscribeConnectionState = localRpcClient.subscribeConnectionState((state) => {
-      if (disposed) {
+    const scheduleFlush = () => {
+      if (flushHandle !== null) {
         return;
       }
+      flushHandle = window.setTimeout(
+        flushPendingShellEvents,
+        BACKGROUND_DOMAIN_EVENT_FLUSH_DELAY_MS,
+      );
+    };
+
+    const applyShellSnapshot = (
+      snapshot: Awaited<ReturnType<typeof localRpcClient.orchestration.getShellSnapshot>>,
+    ) => {
+      syncServerShellSnapshot(snapshot);
+      reconcileSnapshotDerivedState();
+      appliedEventSequencesRef.current.clear();
+      const firstCachedSequence = Math.max(
+        0,
+        snapshot.snapshotSequence - APPLIED_EVENT_SEQUENCE_CACHE_LIMIT + 1,
+      );
+      for (
+        let sequence = firstCachedSequence;
+        sequence <= snapshot.snapshotSequence;
+        sequence += 1
+      ) {
+        addBoundedSequence(appliedEventSequencesRef.current, sequence);
+      }
+    };
+
+    const unsubscribeConnectionState = localRpcClient.subscribeConnectionState((state) => {
       logLoadDiagnostic({
         phase: "ws",
         level: state.kind === "disconnected" ? "warning" : "success",
@@ -751,56 +490,49 @@ function useEventRouterLifecycle() {
       });
       applyTransportConnectionHealthState(state);
       if (state.kind === "disconnected") {
-        reconnectRecoveryRequested = true;
-        cancelPendingDomainEventFlush();
-        pendingDomainEvents.length = 0;
-        return;
+        pendingShellEvents = [];
+        if (flushHandle !== null) {
+          window.clearTimeout(flushHandle);
+          flushHandle = null;
+        }
       }
-      if (!reconnectRecoveryRequested) {
-        return;
-      }
-      reconnectRecoveryRequested = false;
-      flushPendingDomainEvents();
-      void recoverFromReplay("transport-reconnected");
     });
-    const unsubDomainEvent = localRpcClient.orchestration.onDomainEvent(
-      (event) => {
-        if (
-          typeof window !== "undefined" &&
-          window.desktopBridge?.sendOrchestrationEvent &&
-          shouldForwardDesktopNotificationOrchestrationEvent(event)
-        ) {
-          window.desktopBridge.sendOrchestrationEvent(event);
-        }
-        const action = recovery.classifyDomainEvent(event.sequence);
-        if (action === "apply") {
-          pendingDomainEvents.push(event);
-          schedulePendingDomainEventFlush(resolveOrchestrationUiEventFlushPriority(event));
-          return;
-        }
-        if (action === "defer") {
-          // While bootstrap/recovery owns the authoritative cursor, buffer live
-          // events and apply only those newer than the settled snapshot/replay.
-          pendingDomainEvents.push(event);
-          if (recovery.getState().bootstrapped) {
-            schedulePendingDomainEventFlush(resolveOrchestrationUiEventFlushPriority(event));
-          }
-          return;
-        }
-        if (action === "recover") {
-          logLoadDiagnostic({
-            phase: "replay",
-            level: "warning",
-            message: "Detected sequence gap while applying domain event",
-            detail: { sequence: event.sequence, type: event.type },
-          });
-          flushPendingDomainEvents();
-          void recoverFromReplay("sequence-gap");
-        }
-      },
-      { fromSequenceExclusive: recovery.getState().latestSequence },
-    );
-    const unsubTerminalEvent = localRpcClient.terminal.onEvent((event) => {
+
+    const unsubscribeShell = localRpcClient.orchestration.subscribeShell((item) => {
+      if (disposed) {
+        return;
+      }
+      if (item.kind === "snapshot") {
+        applyShellSnapshot(item.snapshot);
+        shellBootstrapped = true;
+        scheduleFlush();
+        return;
+      }
+      pendingShellEvents.push(item);
+      if (pendingShellEvents.length > PENDING_SCOPED_EVENT_BUFFER_LIMIT) {
+        pendingShellEvents.splice(0, pendingShellEvents.length - PENDING_SCOPED_EVENT_BUFFER_LIMIT);
+      }
+      if (shellBootstrapped) {
+        scheduleFlush();
+      }
+    });
+
+    const unsubscribeNotifications = localRpcClient.orchestration.onDomainEvent((event) => {
+      if (
+        typeof window === "undefined" ||
+        !window.desktopBridge?.sendOrchestrationEvent ||
+        !shouldForwardDesktopNotificationOrchestrationEvent(event)
+      ) {
+        return;
+      }
+      try {
+        window.desktopBridge.sendOrchestrationEvent(event);
+      } catch (error) {
+        reportBackgroundError("Failed to forward orchestration event to desktop bridge.", error);
+      }
+    });
+
+    const unsubscribeTerminal = localRpcClient.terminal.onEvent((event) => {
       const hasRunningSubprocess = terminalRunningSubprocessFromEvent(event);
       if (hasRunningSubprocess === null) {
         return;
@@ -813,44 +545,130 @@ function useEventRouterLifecycle() {
           hasRunningSubprocess,
         );
     });
+
+    void localRpcClient.orchestration
+      .getShellSnapshot()
+      .then((snapshot) => {
+        if (!disposed) {
+          applyShellSnapshot(snapshot);
+        }
+      })
+      .catch((error) => {
+        reportBackgroundError("Failed to load orchestration shell snapshot.", error);
+      });
+
     return () => {
       disposed = true;
-      disposedRef.current = true;
-      logLoadDiagnostic({
-        phase: "bootstrap",
-        message: "Event router disposed",
-      });
-      needsProviderInvalidation = false;
-      cancelPendingDomainEventFlush();
-      pendingDomainEvents.length = 0;
-      reconnectRecoveryRequested = false;
-      queryInvalidationThrottler.cancel();
+      if (flushHandle !== null) {
+        window.clearTimeout(flushHandle);
+      }
+      pendingShellEvents = [];
       unsubscribeConnectionState();
-      unsubDomainEvent();
-      unsubTerminalEvent();
+      unsubscribeShell();
+      unsubscribeNotifications();
+      unsubscribeTerminal();
+      void localRpcClient.orchestration.unsubscribeShell().catch(() => undefined);
     };
-  }, [
-    applyOrchestrationEvents,
-    navigate,
-    queryClient,
-    removeTerminalState,
-    removeOrphanedTerminalStates,
-    clearThreadUi,
-    setProjectExpanded,
-    syncProjects,
-    mergeServerReadModel,
-    removeReadModelEntities,
-    syncThreads,
-  ]);
+  }, [applyShellEvent, reconcileSnapshotDerivedState, syncServerShellSnapshot]);
 
-  useServerWelcomeSubscription(handleWelcome);
-  useServerConfigUpdatedSubscription(handleServerConfigUpdated);
-
-  return null;
+  useEffect(() => {
+    const threadId = routeThreadId;
+    if (!threadId) {
+      return;
+    }
+    const localConnectionUrl = resolveLocalDeviceWsUrl();
+    const localRpcClient = getRouteRpcClient(localConnectionUrl);
+    let threadBootstrapped = false;
+    let pendingThreadEvents: OrchestrationEvent[] = [];
+    let replayInFlight = false;
+    const applyThreadEvents = (events: ReadonlyArray<OrchestrationEvent>) => {
+      const latestSequence = threadLatestSequenceByIdRef.current.get(threadId) ?? -1;
+      const nextEvents = events
+        .filter(
+          (event) =>
+            event.aggregateKind === "thread" &&
+            event.aggregateId === threadId &&
+            event.sequence > latestSequence,
+        )
+        .toSorted((left, right) => left.sequence - right.sequence);
+      if (nextEvents.length === 0) {
+        return;
+      }
+      threadLatestSequenceByIdRef.current.set(
+        threadId,
+        nextEvents.at(-1)?.sequence ?? latestSequence,
+      );
+      applyScopedEvents(nextEvents);
+    };
+    const replayThreadEvents = async () => {
+      if (replayInFlight || !threadBootstrapped) {
+        return;
+      }
+      const fromSequenceExclusive = threadLatestSequenceByIdRef.current.get(threadId);
+      if (fromSequenceExclusive === undefined) {
+        return;
+      }
+      replayInFlight = true;
+      try {
+        const replayedEvents = await localRpcClient.orchestration.replayEvents({
+          fromSequenceExclusive,
+        });
+        applyThreadEvents(replayedEvents);
+      } catch (error) {
+        reportBackgroundError("Failed to replay scoped thread events.", error);
+      } finally {
+        replayInFlight = false;
+      }
+    };
+    const shouldCatchUpThread = () => {
+      const thread = useStore.getState().threadsById?.[threadId];
+      return (
+        thread?.session?.status === "running" ||
+        thread?.session?.status === "connecting" ||
+        thread?.latestTurn?.state === "running"
+      );
+    };
+    const catchupInterval = window.setInterval(() => {
+      if (shouldCatchUpThread()) {
+        void replayThreadEvents();
+      }
+    }, 1_500);
+    const unsubscribeThread = localRpcClient.orchestration.subscribeThread({ threadId }, (item) => {
+      if (item.kind === "snapshot") {
+        syncServerThreadDetailHotPath(item.snapshot.thread, {
+          connectionUrl: localConnectionUrl,
+          hydrateThreadId: threadId,
+        });
+        threadLatestSequenceByIdRef.current.set(threadId, item.snapshot.snapshotSequence);
+        threadBootstrapped = true;
+        if (pendingThreadEvents.length > 0) {
+          const events = pendingThreadEvents;
+          pendingThreadEvents = [];
+          applyThreadEvents(events);
+        }
+        return;
+      }
+      if (!threadBootstrapped) {
+        appendBoundedEvent(pendingThreadEvents, item.event, PENDING_THREAD_EVENT_BUFFER_LIMIT);
+        return;
+      }
+      try {
+        applyThreadEvents([item.event]);
+      } catch (error) {
+        reportBackgroundError("Failed to apply scoped thread event.", error);
+      }
+    });
+    return () => {
+      window.clearInterval(catchupInterval);
+      pendingThreadEvents = [];
+      unsubscribeThread();
+      void localRpcClient.orchestration.unsubscribeThread({ threadId }).catch(() => undefined);
+    };
+  }, [applyScopedEvents, routeThreadId, syncServerThreadDetailHotPath]);
 }
 
 function EventRouter() {
-  useEventRouterLifecycle();
+  useScopedEventRouterLifecycle();
   return null;
 }
 

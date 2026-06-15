@@ -10,35 +10,12 @@ type ThreadActivityAppendedEvent = Extract<
 export function resolveOrchestrationUiEventFlushPriority(
   event: OrchestrationEvent,
 ): OrchestrationUiEventFlushPriority {
-  switch (event.type) {
-    case "thread.message-sent":
-      // Paint-align streaming text so React only renders as fast as the browser can
-      // display it, while still letting the final completion land immediately.
-      return event.payload.streaming ? "animation-frame" : "microtask";
-    case "thread.activity-appended":
-      return isTerminalThreadActivity(event.payload.activity) ? "microtask" : "animation-frame";
-    default:
-      return "animation-frame";
-  }
-}
-
-function isTerminalThreadActivity(
-  activity: Extract<
-    OrchestrationEvent,
-    { type: "thread.activity-appended" }
-  >["payload"]["activity"],
-): boolean {
-  if (activity.tone === "error") {
-    return true;
-  }
-  const kind = activity.kind.toLowerCase();
-  return (
-    kind.endsWith(".completed") ||
-    kind.endsWith(".failed") ||
-    kind.endsWith(".error") ||
-    kind.endsWith(".cancelled") ||
-    kind.endsWith(".canceled")
-  );
+  void event;
+  // All server-originated orchestration state is paint-aligned. User-initiated
+  // optimistic updates can still update immediately in their event handlers, but
+  // agent/runtime event bursts must not force React/Zustand to publish more often
+  // than the renderer can paint.
+  return "animation-frame";
 }
 
 export function coalesceOrchestrationUiEvents(

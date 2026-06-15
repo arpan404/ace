@@ -53,6 +53,7 @@ import {
   OrchestrationDispatchCommandError,
   OrchestrationGetFullThreadDiffError,
   OrchestrationGetFullThreadDiffInput,
+  OrchestrationGetShellSnapshotInput,
   OrchestrationGetSnapshotError,
   OrchestrationGetSnapshotInput,
   OrchestrationGetThreadError,
@@ -62,6 +63,12 @@ import {
   OrchestrationReplayEventsError,
   OrchestrationReplayEventsInput,
   OrchestrationRpcSchemas,
+  OrchestrationShellStreamItem,
+  OrchestrationSubscribeShellInput,
+  OrchestrationSubscribeThreadInput,
+  OrchestrationThreadStreamItem,
+  OrchestrationUnsubscribeShellInput,
+  OrchestrationUnsubscribeThreadInput,
 } from "./orchestration";
 import {
   ProjectCreateEntryError,
@@ -598,6 +605,15 @@ export const WsOrchestrationGetSnapshotRpc = Rpc.make(ORCHESTRATION_WS_METHODS.g
   error: OrchestrationGetSnapshotError,
 });
 
+export const WsOrchestrationGetShellSnapshotRpc = Rpc.make(
+  ORCHESTRATION_WS_METHODS.getShellSnapshot,
+  {
+    payload: OrchestrationGetShellSnapshotInput,
+    success: OrchestrationRpcSchemas.getShellSnapshot.output,
+    error: OrchestrationGetSnapshotError,
+  },
+);
+
 export const WsOrchestrationGetThreadRpc = Rpc.make(ORCHESTRATION_WS_METHODS.getThread, {
   payload: OrchestrationGetThreadInput,
   success: OrchestrationRpcSchemas.getThread.output,
@@ -633,6 +649,35 @@ export const WsOrchestrationReplayEventsRpc = Rpc.make(ORCHESTRATION_WS_METHODS.
   success: OrchestrationRpcSchemas.replayEvents.output,
   error: OrchestrationReplayEventsError,
 });
+
+export const WsOrchestrationSubscribeShellRpc = Rpc.make(ORCHESTRATION_WS_METHODS.subscribeShell, {
+  payload: OrchestrationSubscribeShellInput,
+  success: OrchestrationShellStreamItem,
+  stream: true,
+});
+
+export const WsOrchestrationUnsubscribeShellRpc = Rpc.make(
+  ORCHESTRATION_WS_METHODS.unsubscribeShell,
+  {
+    payload: OrchestrationUnsubscribeShellInput,
+  },
+);
+
+export const WsOrchestrationSubscribeThreadRpc = Rpc.make(
+  ORCHESTRATION_WS_METHODS.subscribeThread,
+  {
+    payload: OrchestrationSubscribeThreadInput,
+    success: OrchestrationThreadStreamItem,
+    stream: true,
+  },
+);
+
+export const WsOrchestrationUnsubscribeThreadRpc = Rpc.make(
+  ORCHESTRATION_WS_METHODS.unsubscribeThread,
+  {
+    payload: OrchestrationUnsubscribeThreadInput,
+  },
+);
 
 export const WsSubscribeOrchestrationDomainEventsRpc = Rpc.make(
   WS_METHODS.subscribeOrchestrationDomainEvents,
@@ -737,9 +782,14 @@ export const WsRpcGroup = RpcGroup.make(
   WsSubscribeServerConfigRpc,
   WsSubscribeServerLifecycleRpc,
   WsOrchestrationGetSnapshotRpc,
+  WsOrchestrationGetShellSnapshotRpc,
   WsOrchestrationGetThreadRpc,
   WsOrchestrationDispatchCommandRpc,
   WsOrchestrationGetTurnDiffRpc,
   WsOrchestrationGetFullThreadDiffRpc,
   WsOrchestrationReplayEventsRpc,
+  WsOrchestrationSubscribeShellRpc,
+  WsOrchestrationUnsubscribeShellRpc,
+  WsOrchestrationSubscribeThreadRpc,
+  WsOrchestrationUnsubscribeThreadRpc,
 );

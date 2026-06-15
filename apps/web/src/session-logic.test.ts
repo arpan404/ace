@@ -3091,13 +3091,13 @@ describe("isLatestTurnSettled", () => {
     completedAt: "2026-02-27T21:10:06.000Z",
   } as const;
 
-  it("returns false while the same turn is still active in a running session", () => {
+  it("returns true when the same running session turn already completed locally", () => {
     expect(
       isLatestTurnSettled(latestTurn, {
         orchestrationStatus: "running",
         activeTurnId: TurnId.makeUnsafe("turn-1"),
       }),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("returns false while another concrete turn is running to avoid stale latest-turn banners", () => {
@@ -3148,7 +3148,7 @@ describe("deriveActiveWorkStartedAt", () => {
     completedAt: "2026-02-27T21:10:06.000Z",
   } as const;
 
-  it("prefers the in-flight turn start when the latest turn is not settled", () => {
+  it("falls back to sendStartedAt when the active session turn already completed locally", () => {
     expect(
       deriveActiveWorkStartedAt(
         latestTurn,
@@ -3158,7 +3158,7 @@ describe("deriveActiveWorkStartedAt", () => {
         },
         "2026-02-27T21:11:00.000Z",
       ),
-    ).toBe("2026-02-27T21:10:00.000Z");
+    ).toBe("2026-02-27T21:11:00.000Z");
   });
 
   it("falls back to sendStartedAt once the latest turn is settled", () => {

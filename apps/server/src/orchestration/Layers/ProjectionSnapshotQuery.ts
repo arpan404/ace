@@ -10,6 +10,7 @@ import {
   QueuedSteerRequest,
   OrchestrationProposedPlanId,
   OrchestrationReadModel,
+  OrchestrationShellSnapshot,
   ProjectScript,
   TurnId,
   type OrchestrationCheckpointSummary,
@@ -17,8 +18,11 @@ import {
   type OrchestrationMessage,
   type OrchestrationProposedPlan,
   type OrchestrationProject,
+  type OrchestrationProjectShell,
   type OrchestrationSession,
   OrchestrationThread,
+  OrchestrationThreadDetailSnapshot,
+  type OrchestrationThreadShell,
   type OrchestrationThreadActivity,
   ModelSelection,
   ProviderIntegrationCapabilities,
@@ -56,7 +60,9 @@ import {
 } from "../Services/ProjectionSnapshotQuery.ts";
 
 const decodeReadModel = Schema.decodeUnknownEffect(OrchestrationReadModel);
+const decodeShellSnapshot = Schema.decodeUnknownEffect(OrchestrationShellSnapshot);
 const decodeThread = Schema.decodeUnknownEffect(OrchestrationThread);
+const decodeThreadDetailSnapshot = Schema.decodeUnknownEffect(OrchestrationThreadDetailSnapshot);
 const ProjectionProjectDbRowSchema = ProjectionProject.mapFields(
   Struct.assign({
     defaultModelSelection: Schema.NullOr(Schema.fromJsonString(ModelSelection)),
@@ -363,6 +369,98 @@ function reconcileThreadRuntimeState(input: {
             completedAt: maxIso(latestTurn.startedAt ?? latestTurn.requestedAt, sessionUpdatedAt),
           }
         : latestTurn,
+  };
+}
+
+function toProjectShell(
+  row: Schema.Schema.Type<typeof ProjectionProjectDbRowSchema>,
+): OrchestrationProjectShell {
+  return {
+    id: row.projectId,
+    title: row.title,
+    workspaceRoot: row.workspaceRoot,
+    defaultModelSelection: row.defaultModelSelection,
+    scripts: row.scripts,
+    icon: row.icon,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    archivedAt: row.archivedAt,
+    deletedAt: row.deletedAt,
+  };
+}
+
+function toThreadShell(
+  row: Schema.Schema.Type<typeof ProjectionThreadDbRowSchema>,
+  input?: {
+    readonly session?: OrchestrationSession | null | undefined;
+    readonly latestTurn?: OrchestrationLatestTurn | null | undefined;
+    readonly runtimeRow?: ProviderSessionRuntimeDbRow | undefined;
+    readonly latestProposedPlanSummary?: OrchestrationThreadShell["latestProposedPlanSummary"];
+  },
+): OrchestrationThreadShell {
+  const reconciledThreadState = reconcileThreadRuntimeState({
+    session: input?.session ?? null,
+    latestTurn: input?.latestTurn ?? null,
+    runtimeRow: input?.runtimeRow,
+  });
+  const threadBase: OrchestrationThreadShell = {
+    id: row.threadId,
+    projectId: row.projectId,
+    title: row.title,
+    modelSelection: row.modelSelection,
+    runtimeMode: row.runtimeMode,
+    interactionMode: row.interactionMode,
+    branch: row.branch,
+    worktreePath: row.worktreePath,
+    queuedComposerMessages: row.queuedComposerMessages,
+    queuedSteerRequest: row.queuedSteerRequest,
+    latestTurn: reconciledThreadState.latestTurn,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    archivedAt: row.archivedAt,
+    deletedAt: row.deletedAt,
+    latestProposedPlanSummary: input?.latestProposedPlanSummary ?? null,
+    session: reconciledThreadState.session,
+  };
+  const threadWithHandoff =
+    row.handoffSourceThreadId !== null &&
+    row.handoffFromProvider !== null &&
+    row.handoffToProvider !== null &&
+    row.handoffMode !== null &&
+    row.handoffCreatedAt !== null &&
+    row.handoffMode !== "fork"
+      ? Object.assign({}, threadBase, {
+          handoff: {
+            sourceThreadId: row.handoffSourceThreadId,
+            fromProvider: row.handoffFromProvider,
+            toProvider: row.handoffToProvider,
+            mode: row.handoffMode,
+            createdAt: row.handoffCreatedAt,
+          },
+        })
+      : threadBase;
+  const forkSourceThreadId =
+    row.forkSourceThreadId ?? (row.handoffMode === "fork" ? row.handoffSourceThreadId : null);
+  const forkCreatedAt =
+    row.forkCreatedAt ?? (row.handoffMode === "fork" ? row.handoffCreatedAt : null);
+  if (forkSourceThreadId !== null && forkCreatedAt !== null) {
+    return Object.assign({}, threadWithHandoff, {
+      fork: {
+        sourceThreadId: forkSourceThreadId,
+        createdAt: forkCreatedAt,
+      },
+    });
+  }
+  return threadWithHandoff;
+}
+
+function toThreadFromShell(shell: OrchestrationThreadShell): OrchestrationThread {
+  return {
+    ...shell,
+    messages: [],
+    proposedPlans: [],
+    activities: [],
+    checkpoints: [],
   };
 }
 
@@ -840,6 +938,29 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       `,
   });
 
+  const getActiveProjectRowByProjectId = SqlSchema.findOneOption({
+    Request: ProjectIdLookupInput,
+    Result: ProjectionProjectLookupRowSchema,
+    execute: ({ projectId }) =>
+      sql`
+        SELECT
+          project_id AS "projectId",
+          title,
+          workspace_root AS "workspaceRoot",
+          default_model_selection_json AS "defaultModelSelection",
+          scripts_json AS "scripts",
+          icon_json AS "icon",
+          created_at AS "createdAt",
+          updated_at AS "updatedAt",
+          archived_at AS "archivedAt",
+          deleted_at AS "deletedAt"
+        FROM projection_projects
+        WHERE project_id = ${projectId}
+          AND deleted_at IS NULL
+        LIMIT 1
+      `,
+  });
+
   const getFirstActiveThreadIdByProject = SqlSchema.findOneOption({
     Request: ProjectIdLookupInput,
     Result: ProjectionThreadIdLookupRowSchema,
@@ -1021,80 +1142,17 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             sessionsByThread.set(row.threadId, toOrchestrationSession(row));
           }
 
-          const projects: ReadonlyArray<OrchestrationProject> = projectRows.map((row) => ({
-            id: row.projectId,
-            title: row.title,
-            workspaceRoot: row.workspaceRoot,
-            defaultModelSelection: row.defaultModelSelection,
-            scripts: row.scripts,
-            icon: row.icon,
-            createdAt: row.createdAt,
-            updatedAt: row.updatedAt,
-            archivedAt: row.archivedAt,
-            deletedAt: row.deletedAt,
-          }));
+          const projects: ReadonlyArray<OrchestrationProject> = projectRows.map(toProjectShell);
 
           const threads: ReadonlyArray<OrchestrationThread> = threadRows.map((row) => {
-            const reconciledThreadState = reconcileThreadRuntimeState({
+            const shell = toThreadShell(row, {
               session: sessionsByThread.get(row.threadId) ?? null,
               latestTurn: latestTurnByThread.get(row.threadId) ?? null,
               runtimeRow: providerRuntimeByThread.get(row.threadId),
-            });
-            const threadBase: OrchestrationThread = {
-              id: row.threadId,
-              projectId: row.projectId,
-              title: row.title,
-              modelSelection: row.modelSelection,
-              runtimeMode: row.runtimeMode,
-              interactionMode: row.interactionMode,
-              branch: row.branch,
-              worktreePath: row.worktreePath,
-              queuedComposerMessages: row.queuedComposerMessages,
-              queuedSteerRequest: row.queuedSteerRequest,
-              latestTurn: reconciledThreadState.latestTurn,
-              createdAt: row.createdAt,
-              updatedAt: row.updatedAt,
-              archivedAt: row.archivedAt,
-              deletedAt: row.deletedAt,
-              messages: [],
-              proposedPlans: [],
               latestProposedPlanSummary:
                 latestProposedPlanSummaryByThread.get(row.threadId) ?? null,
-              activities: [],
-              checkpoints: [],
-              session: reconciledThreadState.session,
-            };
-            const threadWithHandoff =
-              row.handoffSourceThreadId !== null &&
-              row.handoffFromProvider !== null &&
-              row.handoffToProvider !== null &&
-              row.handoffMode !== null &&
-              row.handoffCreatedAt !== null &&
-              row.handoffMode !== "fork"
-                ? Object.assign({}, threadBase, {
-                    handoff: {
-                      sourceThreadId: row.handoffSourceThreadId,
-                      fromProvider: row.handoffFromProvider,
-                      toProvider: row.handoffToProvider,
-                      mode: row.handoffMode,
-                      createdAt: row.handoffCreatedAt,
-                    },
-                  })
-                : threadBase;
-            const forkSourceThreadId =
-              row.forkSourceThreadId ??
-              (row.handoffMode === "fork" ? row.handoffSourceThreadId : null);
-            const forkCreatedAt =
-              row.forkCreatedAt ?? (row.handoffMode === "fork" ? row.handoffCreatedAt : null);
-            if (forkSourceThreadId !== null && forkCreatedAt !== null) {
-              return Object.assign({}, threadWithHandoff, {
-                fork: {
-                  sourceThreadId: forkSourceThreadId,
-                  createdAt: forkCreatedAt,
-                },
-              });
-            }
-            return threadWithHandoff;
+            });
+            return toThreadFromShell(shell);
           });
 
           const snapshot = {
@@ -1118,6 +1176,82 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           return toPersistenceSqlError("ProjectionSnapshotQuery.getSnapshot:query")(error);
         }),
       );
+
+  const getShellSnapshot: ProjectionSnapshotQueryShape["getShellSnapshot"] = () =>
+    getSnapshot({}).pipe(
+      Effect.flatMap((snapshot) =>
+        decodeShellSnapshot({
+          snapshotSequence: snapshot.snapshotSequence,
+          projects: snapshot.projects.map((project) => project),
+          threads: snapshot.threads.map((thread) => ({
+            id: thread.id,
+            projectId: thread.projectId,
+            title: thread.title,
+            modelSelection: thread.modelSelection,
+            runtimeMode: thread.runtimeMode,
+            interactionMode: thread.interactionMode,
+            branch: thread.branch,
+            worktreePath: thread.worktreePath,
+            ...(thread.handoff !== undefined ? { handoff: thread.handoff } : {}),
+            ...(thread.fork !== undefined ? { fork: thread.fork } : {}),
+            latestTurn: thread.latestTurn,
+            createdAt: thread.createdAt,
+            updatedAt: thread.updatedAt,
+            archivedAt: thread.archivedAt,
+            deletedAt: thread.deletedAt,
+            latestProposedPlanSummary: thread.latestProposedPlanSummary,
+            queuedComposerMessages: thread.queuedComposerMessages,
+            queuedSteerRequest: thread.queuedSteerRequest,
+            session: thread.session,
+          })),
+          updatedAt: snapshot.updatedAt,
+        }).pipe(
+          Effect.mapError(
+            toPersistenceDecodeError("ProjectionSnapshotQuery.getShellSnapshot:decodeSnapshot"),
+          ),
+        ),
+      ),
+    );
+
+  const getProjectShellById: ProjectionSnapshotQueryShape["getProjectShellById"] = (projectId) =>
+    getActiveProjectRowByProjectId({ projectId }).pipe(
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "ProjectionSnapshotQuery.getProjectShellById:query",
+          "ProjectionSnapshotQuery.getProjectShellById:decodeRow",
+        ),
+      ),
+      Effect.map(Option.map(toProjectShell)),
+    );
+
+  const getThreadShellById: ProjectionSnapshotQueryShape["getThreadShellById"] = (threadId) =>
+    getThread(threadId).pipe(
+      Effect.map(
+        Option.map(
+          (thread): OrchestrationThreadShell => ({
+            id: thread.id,
+            projectId: thread.projectId,
+            title: thread.title,
+            modelSelection: thread.modelSelection,
+            runtimeMode: thread.runtimeMode,
+            interactionMode: thread.interactionMode,
+            branch: thread.branch,
+            worktreePath: thread.worktreePath,
+            ...(thread.handoff !== undefined ? { handoff: thread.handoff } : {}),
+            ...(thread.fork !== undefined ? { fork: thread.fork } : {}),
+            latestTurn: thread.latestTurn,
+            createdAt: thread.createdAt,
+            updatedAt: thread.updatedAt,
+            archivedAt: thread.archivedAt,
+            deletedAt: thread.deletedAt,
+            latestProposedPlanSummary: thread.latestProposedPlanSummary,
+            queuedComposerMessages: thread.queuedComposerMessages,
+            queuedSteerRequest: thread.queuedSteerRequest,
+            session: thread.session,
+          }),
+        ),
+      ),
+    );
 
   const getThread: ProjectionSnapshotQueryShape["getThread"] = (threadId) =>
     sql
@@ -1282,6 +1416,46 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         }),
       );
 
+  const getThreadDetailSnapshotById: ProjectionSnapshotQueryShape["getThreadDetailSnapshotById"] = (
+    threadId,
+  ) =>
+    Effect.all([
+      getThread(threadId),
+      listProjectionStateRows(undefined).pipe(
+        Effect.mapError(
+          toPersistenceSqlOrDecodeError(
+            "ProjectionSnapshotQuery.getThreadDetailSnapshotById:listProjectionState:query",
+            "ProjectionSnapshotQuery.getThreadDetailSnapshotById:listProjectionState:decodeRows",
+          ),
+        ),
+      ),
+    ]).pipe(
+      Effect.flatMap(([thread, stateRows]) => {
+        if (Option.isNone(thread)) {
+          return Effect.succeed(Option.none<OrchestrationThreadDetailSnapshot>());
+        }
+        return decodeThreadDetailSnapshot({
+          snapshotSequence: computeSnapshotSequence(stateRows),
+          thread: thread.value,
+        }).pipe(
+          Effect.map((snapshot) => Option.some(snapshot)),
+          Effect.mapError(
+            toPersistenceDecodeError(
+              "ProjectionSnapshotQuery.getThreadDetailSnapshotById:decodeSnapshot",
+            ),
+          ),
+        );
+      }),
+      Effect.mapError((error) => {
+        if (isPersistenceError(error)) {
+          return error;
+        }
+        return toPersistenceSqlError("ProjectionSnapshotQuery.getThreadDetailSnapshotById:query")(
+          error,
+        );
+      }),
+    );
+
   const getCounts: ProjectionSnapshotQueryShape["getCounts"] = () =>
     readProjectionCounts(undefined).pipe(
       Effect.mapError(
@@ -1371,7 +1545,11 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
 
   return {
     getSnapshot,
+    getShellSnapshot,
+    getProjectShellById,
+    getThreadShellById,
     getThread,
+    getThreadDetailSnapshotById,
     getCounts,
     getActiveProjectByWorkspaceRoot,
     getFirstActiveThreadIdByProjectId,

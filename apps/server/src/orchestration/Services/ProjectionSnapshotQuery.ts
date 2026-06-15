@@ -10,8 +10,12 @@ import type {
   OrchestrationCheckpointSummary,
   OrchestrationGetSnapshotInput,
   OrchestrationProject,
+  OrchestrationProjectShell,
   OrchestrationReadModel,
+  OrchestrationShellSnapshot,
   OrchestrationThread,
+  OrchestrationThreadDetailSnapshot,
+  OrchestrationThreadShell,
   ProjectId,
   ThreadId,
 } from "@ace/contracts";
@@ -49,11 +53,40 @@ export interface ProjectionSnapshotQueryShape {
   ) => Effect.Effect<OrchestrationReadModel, ProjectionRepositoryError>;
 
   /**
+   * Read the latest lightweight shell projection snapshot.
+   */
+  readonly getShellSnapshot: () => Effect.Effect<
+    OrchestrationShellSnapshot,
+    ProjectionRepositoryError
+  >;
+
+  /**
+   * Read a single active project shell row.
+   */
+  readonly getProjectShellById: (
+    projectId: ProjectId,
+  ) => Effect.Effect<Option.Option<OrchestrationProjectShell>, ProjectionRepositoryError>;
+
+  /**
+   * Read a single active thread shell row.
+   */
+  readonly getThreadShellById: (
+    threadId: ThreadId,
+  ) => Effect.Effect<Option.Option<OrchestrationThreadShell>, ProjectionRepositoryError>;
+
+  /**
    * Read a single thread with UI presentation history only.
    */
   readonly getThread: (
     threadId: ThreadId,
   ) => Effect.Effect<Option.Option<OrchestrationThread>, ProjectionRepositoryError>;
+
+  /**
+   * Read a single thread detail snapshot with the projection cursor used to build it.
+   */
+  readonly getThreadDetailSnapshotById: (
+    threadId: ThreadId,
+  ) => Effect.Effect<Option.Option<OrchestrationThreadDetailSnapshot>, ProjectionRepositoryError>;
 
   /**
    * Read aggregate projection counts without hydrating the full read model.

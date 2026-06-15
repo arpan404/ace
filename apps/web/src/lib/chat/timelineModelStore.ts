@@ -212,6 +212,9 @@ const inFlightThreadTimelineHydrationByThreadId = new Map<
 const projectionCacheByThreadId = new Map<string, TimelineRowsProjectionCacheEntry>();
 const liveTimelineRowPatchQueue = new Map<string, PrimeLiveTimelineRowInput>();
 const liveTimelineRowRemovalQueue = new Map<string, RemoveLiveTimelineRowInput>();
+const liveTimelineRowSyncPatchQueue = new Map<string, PrimeLiveTimelineRowInput>();
+const liveTimelineRowSyncRemovalQueue = new Map<string, RemoveLiveTimelineRowInput>();
+let liveTimelineRowSyncBatchDepth = 0;
 let liveTimelineRowPatchFrame: number | null = null;
 let rowHeightRevisionFrame: number | null = null;
 
@@ -235,6 +238,61 @@ function cancelLiveTimelineRowPatchFrame(): void {
   }
   liveTimelineRowPatchQueue.clear();
   liveTimelineRowRemovalQueue.clear();
+  liveTimelineRowSyncPatchQueue.clear();
+  liveTimelineRowSyncRemovalQueue.clear();
+  liveTimelineRowSyncBatchDepth = 0;
+}
+
+function liveTimelinePatchQueueKey(input: PrimeLiveTimelineRowInput): string {
+  return `${input.threadId}:${input.entry.kind}:${String(input.entry.id)}`;
+}
+
+function liveTimelineRemovalQueueKey(input: RemoveLiveTimelineRowInput): string {
+  return `${input.threadId}:${input.kind}:${input.id}`;
+}
+
+function enqueueLiveTimelineRowPatch(
+  patchQueue: Map<string, PrimeLiveTimelineRowInput>,
+  removalQueue: Map<string, RemoveLiveTimelineRowInput>,
+  input: PrimeLiveTimelineRowInput,
+): void {
+  const queueKey = liveTimelinePatchQueueKey(input);
+  removalQueue.delete(queueKey);
+  const pending = patchQueue.get(queueKey);
+  patchQueue.set(queueKey, pending ? mergeQueuedLiveTimelineRowPatch(pending, input) : input);
+}
+
+function enqueueLiveTimelineRowRemoval(
+  patchQueue: Map<string, PrimeLiveTimelineRowInput>,
+  removalQueue: Map<string, RemoveLiveTimelineRowInput>,
+  input: RemoveLiveTimelineRowInput,
+): void {
+  const queueKey = liveTimelineRemovalQueueKey(input);
+  patchQueue.delete(queueKey);
+  removalQueue.set(queueKey, input);
+}
+
+function flushLiveTimelineRowSyncBatch(): void {
+  if (liveTimelineRowSyncPatchQueue.size === 0 && liveTimelineRowSyncRemovalQueue.size === 0) {
+    return;
+  }
+  const removals = [...liveTimelineRowSyncRemovalQueue.values()];
+  const patches = [...liveTimelineRowSyncPatchQueue.values()];
+  liveTimelineRowSyncRemovalQueue.clear();
+  liveTimelineRowSyncPatchQueue.clear();
+  applyLiveTimelineRowQueue({ removals, patches });
+}
+
+export function batchLiveTimelineRowUpdates<TResult>(callback: () => TResult): TResult {
+  liveTimelineRowSyncBatchDepth += 1;
+  try {
+    return callback();
+  } finally {
+    liveTimelineRowSyncBatchDepth -= 1;
+    if (liveTimelineRowSyncBatchDepth === 0) {
+      flushLiveTimelineRowSyncBatch();
+    }
+  }
 }
 
 function cancelRowHeightRevisionFrame(): void {
@@ -1311,19 +1369,22 @@ export function primeLiveTimelineRow(
   input: PrimeLiveTimelineRowInput,
   options: PrimeLiveTimelineRowOptions = {},
 ): void {
-  const queueKey = `${input.threadId}:${input.entry.kind}:${String(input.entry.id)}`;
+  const queueKey = liveTimelinePatchQueueKey(input);
   if (options.flush === "sync") {
     liveTimelineRowPatchQueue.delete(queueKey);
     liveTimelineRowRemovalQueue.delete(queueKey);
+    if (liveTimelineRowSyncBatchDepth > 0) {
+      enqueueLiveTimelineRowPatch(
+        liveTimelineRowSyncPatchQueue,
+        liveTimelineRowSyncRemovalQueue,
+        input,
+      );
+      return;
+    }
     applyLiveTimelineRowPatches([input]);
     return;
   }
-  liveTimelineRowRemovalQueue.delete(queueKey);
-  const pending = liveTimelineRowPatchQueue.get(queueKey);
-  liveTimelineRowPatchQueue.set(
-    queueKey,
-    pending ? mergeQueuedLiveTimelineRowPatch(pending, input) : input,
-  );
+  enqueueLiveTimelineRowPatch(liveTimelineRowPatchQueue, liveTimelineRowRemovalQueue, input);
   scheduleLiveTimelineRowQueueFlush();
 }
 
@@ -1342,15 +1403,25 @@ export function removeLiveTimelineRows(
     return;
   }
   for (const input of inputs) {
-    const queueKey = `${input.threadId}:${input.kind}:${input.id}`;
+    const queueKey = liveTimelineRemovalQueueKey(input);
     liveTimelineRowPatchQueue.delete(queueKey);
   }
   if (options.flush === "sync") {
+    if (liveTimelineRowSyncBatchDepth > 0) {
+      for (const input of inputs) {
+        enqueueLiveTimelineRowRemoval(
+          liveTimelineRowSyncPatchQueue,
+          liveTimelineRowSyncRemovalQueue,
+          input,
+        );
+      }
+      return;
+    }
     applyLiveTimelineRowRemovals(inputs);
     return;
   }
   for (const input of inputs) {
-    liveTimelineRowRemovalQueue.set(`${input.threadId}:${input.kind}:${input.id}`, input);
+    enqueueLiveTimelineRowRemoval(liveTimelineRowPatchQueue, liveTimelineRowRemovalQueue, input);
   }
   scheduleLiveTimelineRowQueueFlush();
 }

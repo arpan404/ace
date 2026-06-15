@@ -1,5 +1,5 @@
 import { renderToStaticMarkup } from "react-dom/server";
-import { ProjectId, ThreadId, type GitStatusResult } from "@ace/contracts";
+import { ProjectId, ThreadId, TurnId, type GitStatusResult } from "@ace/contracts";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
@@ -179,5 +179,97 @@ describe("sidebar interactive cursors", () => {
     expect(html).toContain(`data-testid="thread-pin-${threadId}"`);
     expect(html).toContain(`data-testid="thread-archive-${threadId}"`);
     expect(countNestedButtonDescendants(html)).toBe(0);
+  });
+
+  it("keeps archive available when a stale running session points at a completed turn", () => {
+    const projectId = ProjectId.makeUnsafe("project-sidebar-row-completed");
+    const threadId = ThreadId.makeUnsafe("thread-sidebar-row-completed");
+    const turnId = TurnId.makeUnsafe("turn-sidebar-row-completed");
+    const now = "2026-03-09T10:00:00.000Z";
+    const sidebarThreadsById = {
+      [threadId]: {
+        id: threadId,
+        projectId,
+        title: "Completed thread",
+        interactionMode: "default",
+        session: {
+          provider: "codex",
+          status: "running",
+          orchestrationStatus: "running",
+          activeTurnId: turnId,
+          createdAt: now,
+          updatedAt: "2026-03-09T10:05:00.000Z",
+        },
+        createdAt: now,
+        archivedAt: null,
+        updatedAt: "2026-03-09T10:05:00.000Z",
+        latestTurn: {
+          turnId,
+          state: "completed",
+          requestedAt: now,
+          startedAt: now,
+          completedAt: "2026-03-09T10:05:00.000Z",
+          assistantMessageId: null,
+        },
+        branch: null,
+        worktreePath: null,
+        latestUserMessageAt: now,
+        hasPendingApprovals: false,
+        hasPendingUserInput: false,
+        hasActionableProposedPlan: false,
+        isErrorDismissed: false,
+      },
+    } satisfies Record<string, SidebarThreadSummary>;
+    const threadIdsByProjectId = {
+      [projectId]: [threadId],
+    };
+    useStore.getInitialState().sidebarThreadsById = sidebarThreadsById;
+    useStore.getInitialState().threadIdsByProjectId = threadIdsByProjectId;
+    useStore.setState((state) => ({
+      ...state,
+      sidebarThreadsById,
+      threadIdsByProjectId,
+    }));
+
+    const html = renderToStaticMarkup(
+      <SidebarProvider>
+        <SidebarMenuSub>
+          <SidebarThreadRow
+            threadId={threadId}
+            orderedProjectThreadIds={[threadId]}
+            routeThreadId={null}
+            activeRouteConnectionUrl="ws://localhost"
+            connectionUrl="ws://localhost"
+            selectedThreadIds={new Set()}
+            showThreadJumpHints={false}
+            jumpLabel={null}
+            appSettingsConfirmThreadArchive
+            isPinned={false}
+            renamingThreadId={null}
+            renamingTitle=""
+            setRenamingTitle={() => {}}
+            renamingInputRef={{ current: null }}
+            renamingCommittedRef={{ current: false }}
+            confirmingArchiveThreadId={null}
+            setConfirmingArchiveThreadId={() => {}}
+            confirmArchiveButtonRefs={{ current: new Map() }}
+            handleThreadClick={() => {}}
+            navigateToThread={() => {}}
+            prefetchThreadHistory={() => {}}
+            handleMultiSelectContextMenu={async () => {}}
+            handleThreadContextMenu={async () => {}}
+            clearSelection={() => {}}
+            commitRename={async () => {}}
+            cancelRename={() => {}}
+            attemptArchiveThread={async () => {}}
+            onTogglePinnedThread={() => {}}
+            openPrLink={() => {}}
+            pr={null}
+          />
+        </SidebarMenuSub>
+      </SidebarProvider>,
+    );
+
+    expect(html).toContain(`data-testid="thread-archive-${threadId}"`);
   });
 });

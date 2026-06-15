@@ -10,6 +10,7 @@ import { resolveConnectionForProjectId } from "../lib/connectionRouting";
 import { gitRemoveWorktreeMutationOptions } from "../lib/gitReactQuery";
 import { newCommandId } from "../lib/utils";
 import { readNativeApi } from "../nativeApi";
+import { hasLiveTurn } from "../session-logic";
 import { useStore } from "../store";
 import { useTerminalStateStore } from "../terminalStateStore";
 import {
@@ -112,7 +113,7 @@ export function useThreadActions() {
     if (!api) return;
     const thread = useStore.getState().threads.find((entry) => entry.id === threadId);
     if (!thread) return;
-    if (thread.session?.status === "running" && thread.session.activeTurnId != null) {
+    if (hasLiveTurn(thread.latestTurn, thread.session)) {
       throw new Error("Cannot archive a running thread.");
     }
 

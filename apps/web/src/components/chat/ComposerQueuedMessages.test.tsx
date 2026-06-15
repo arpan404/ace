@@ -99,6 +99,37 @@ describe("ComposerQueuedMessages", () => {
     expect(markup).not.toContain('aria-label="Steer queued message"');
   });
 
+  it("shows a sending state for an optimistically dispatched queued message", () => {
+    const queuedMessageId = MessageId.makeUnsafe("queued-sending");
+    const markup = renderToStaticMarkup(
+      <ComposerQueuedMessages
+        messages={[
+          {
+            id: queuedMessageId,
+            prompt: "Send this queued message now.",
+            images: [],
+            terminalContexts: [],
+            modelSelection: { provider: "codex", model: "gpt-5.4" },
+          },
+        ]}
+        canSendNow
+        dispatchingMessageId={queuedMessageId}
+        steerMessageId={null}
+        onEdit={vi.fn()}
+        onDelete={vi.fn()}
+        onClearAll={vi.fn()}
+        onReorder={vi.fn()}
+        onSend={vi.fn()}
+        onSteer={vi.fn()}
+      />,
+    );
+
+    expect(markup).toContain('aria-label="Sending queued message"');
+    expect(markup).toContain("Sending");
+    expect(markup).not.toContain('aria-label="Send queued message"');
+    expect(markup).not.toContain('aria-label="Steer queued message"');
+  });
+
   it("renders steer and edit controls for designer queue rows", () => {
     const prompt = appendBrowserDesignContextToPrompt("Tighten the card rhythm", {
       requestId: "DR-4F2C8A11",

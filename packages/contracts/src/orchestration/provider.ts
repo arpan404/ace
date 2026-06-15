@@ -20,11 +20,16 @@ import {
 
 export const ORCHESTRATION_WS_METHODS = {
   getSnapshot: "orchestration.getSnapshot",
+  getShellSnapshot: "orchestration.getShellSnapshot",
   getThread: "orchestration.getThread",
   dispatchCommand: "orchestration.dispatchCommand",
   getTurnDiff: "orchestration.getTurnDiff",
   getFullThreadDiff: "orchestration.getFullThreadDiff",
   replayEvents: "orchestration.replayEvents",
+  subscribeShell: "orchestration.subscribeShell",
+  unsubscribeShell: "orchestration.unsubscribeShell",
+  subscribeThread: "orchestration.subscribeThread",
+  unsubscribeThread: "orchestration.unsubscribeThread",
 } as const;
 
 export const ProviderKind = Schema.Literals([

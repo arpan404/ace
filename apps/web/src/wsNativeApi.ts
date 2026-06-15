@@ -211,6 +211,7 @@ export function createWsNativeApi(): NativeApi {
     },
     orchestration: {
       getSnapshot: (input) => resolveRpcClientForInput(input).orchestration.getSnapshot(input),
+      getShellSnapshot: () => resolveRpcClientForActiveRoute().orchestration.getShellSnapshot(),
       getThread: (input) => resolveRpcClientForInput(input).orchestration.getThread(input),
       dispatchCommand: async (input) => {
         const connectionUrl = resolveConnectionForInput(input);
@@ -230,6 +231,14 @@ export function createWsNativeApi(): NativeApi {
           .then((events) => [...events]),
       onDomainEvent: (callback) =>
         resolveRpcClientForActiveRoute().orchestration.onDomainEvent(callback),
+      subscribeShell: async () => undefined,
+      unsubscribeShell: () => resolveRpcClientForActiveRoute().orchestration.unsubscribeShell(),
+      subscribeThread: async (_input) => undefined,
+      unsubscribeThread: (input) =>
+        resolveRpcClientForActiveRoute().orchestration.unsubscribeThread(input),
+      onShellEvent: (callback) =>
+        resolveRpcClientForActiveRoute().orchestration.subscribeShell(callback),
+      onThreadEvent: (_callback) => () => undefined,
     },
   };
 

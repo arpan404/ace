@@ -134,7 +134,11 @@ describe("OrchestrationEngine", () => {
       Layer.provide(
         Layer.succeed(ProjectionSnapshotQuery, {
           getSnapshot: () => Effect.succeed(projectionSnapshot),
+          getShellSnapshot: () => Effect.succeed(projectionSnapshot),
+          getProjectShellById: () => Effect.succeed(Option.none()),
+          getThreadShellById: () => Effect.succeed(Option.none()),
           getThread: () => Effect.succeed(Option.none()),
+          getThreadDetailSnapshotById: () => Effect.succeed(Option.none()),
           getCounts: () => Effect.succeed({ projectCount: 1, threadCount: 1 }),
           getActiveProjectByWorkspaceRoot: () => Effect.succeed(Option.none()),
           getFirstActiveThreadIdByProjectId: () => Effect.succeed(Option.none()),

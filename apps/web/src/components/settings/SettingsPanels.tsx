@@ -60,6 +60,7 @@ import { useStableCallback } from "../../hooks/useStableCallback";
 import { useEffectEvent } from "~/hooks/useEffectEvent";
 import { useSettings, useUpdateSettings } from "../../hooks/useSettings";
 import { useThreadActions } from "../../hooks/useThreadActions";
+import { hasLiveTurn } from "../../session-logic";
 import {
   setDesktopUpdateStateQueryData,
   useDesktopUpdateState,
@@ -531,7 +532,8 @@ function AboutVersionSection() {
   const queryClient = useQueryClient();
   const updateStateQuery = useDesktopUpdateState();
   const runningAgentCount = useStore(
-    (store) => store.threads.filter((thread) => thread.session?.status === "running").length,
+    (store) =>
+      store.threads.filter((thread) => hasLiveTurn(thread.latestTurn, thread.session)).length,
   );
 
   const updateState = updateStateQuery.data ?? null;

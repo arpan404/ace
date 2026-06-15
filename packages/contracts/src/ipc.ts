@@ -104,6 +104,9 @@ import type {
   OrchestrationGetTurnDiffResult,
   OrchestrationEvent,
   OrchestrationReadModel,
+  OrchestrationShellSnapshot,
+  OrchestrationShellStreamItem,
+  OrchestrationThreadStreamItem,
   OrchestrationThread,
 } from "./orchestration";
 import { TrimmedNonEmptyString } from "./baseSchemas";
@@ -579,6 +582,7 @@ export interface NativeApi {
   };
   orchestration: {
     getSnapshot: (input?: OrchestrationGetSnapshotInput) => Promise<OrchestrationReadModel>;
+    getShellSnapshot: () => Promise<OrchestrationShellSnapshot>;
     getThread: (input: OrchestrationGetThreadInput) => Promise<OrchestrationThread>;
     dispatchCommand: (command: ClientOrchestrationCommand) => Promise<{ sequence: number }>;
     getTurnDiff: (input: OrchestrationGetTurnDiffInput) => Promise<OrchestrationGetTurnDiffResult>;
@@ -587,5 +591,11 @@ export interface NativeApi {
     ) => Promise<OrchestrationGetFullThreadDiffResult>;
     replayEvents: (fromSequenceExclusive: number) => Promise<OrchestrationEvent[]>;
     onDomainEvent: (callback: (event: OrchestrationEvent) => void) => () => void;
+    subscribeShell: () => Promise<void>;
+    unsubscribeShell: () => Promise<void>;
+    subscribeThread: (input: OrchestrationGetThreadInput) => Promise<void>;
+    unsubscribeThread: (input: OrchestrationGetThreadInput) => Promise<void>;
+    onShellEvent: (callback: (event: OrchestrationShellStreamItem) => void) => () => void;
+    onThreadEvent: (callback: (event: OrchestrationThreadStreamItem) => void) => () => void;
   };
 }

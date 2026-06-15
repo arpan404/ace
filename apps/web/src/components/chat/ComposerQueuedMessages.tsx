@@ -15,7 +15,14 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { IconTerminal } from "@tabler/icons-react";
-import { ArrowUpIcon, GripVerticalIcon, ImageIcon, PencilIcon, Trash2Icon } from "lucide-react";
+import {
+  ArrowUpIcon,
+  GripVerticalIcon,
+  ImageIcon,
+  Loader2Icon,
+  PencilIcon,
+  Trash2Icon,
+} from "lucide-react";
 import { type MessageId, type ModelSelection } from "@ace/contracts";
 import { useState } from "react";
 
@@ -43,6 +50,7 @@ function SortableQueuedMessageRow(props: {
   draggedMessageId: MessageId | null;
   persistedPositionByMessageId: ReadonlyMap<MessageId, number>;
   steerMessageId: MessageId | null | undefined;
+  dispatchingMessageId: MessageId | null | undefined;
   canSendNow: boolean;
   onEdit: (messageId: MessageId) => void;
   onDelete: (messageId: MessageId) => void;
@@ -58,7 +66,11 @@ function SortableQueuedMessageRow(props: {
     terminalContextCount: props.message.terminalContexts.length,
   });
   const isSteered = props.steerMessageId === props.message.id;
-  const showSteerAction = !props.canSendNow && (props.steerMessageId == null || isSteered);
+  const isDispatching = props.dispatchingMessageId === props.message.id;
+  const hasDispatchingMessage = props.dispatchingMessageId != null;
+  const showSendAction = props.canSendNow && !hasDispatchingMessage;
+  const showSteerAction =
+    !props.canSendNow && !hasDispatchingMessage && (props.steerMessageId == null || isSteered);
 
   return (
     <div
@@ -114,7 +126,16 @@ function SortableQueuedMessageRow(props: {
         ) : null}
       </div>
       <div className="flex shrink-0 items-center gap-0.5">
-        {props.canSendNow ? (
+        {isDispatching ? (
+          <div
+            className="flex h-7 items-center rounded-md border border-primary/20 bg-primary/10 px-2.5 text-[12px] font-medium text-primary"
+            aria-label="Sending queued message"
+          >
+            <Loader2Icon className="mr-1 size-3.5 animate-spin" />
+            Sending
+          </div>
+        ) : null}
+        {showSendAction ? (
           <Tooltip>
             <TooltipTrigger
               render={
@@ -181,6 +202,7 @@ function SortableQueuedMessageRow(props: {
             props.onEdit(props.message.id);
           }}
           aria-label="Edit queued message"
+          disabled={isDispatching}
         >
           <PencilIcon className="size-3.5" />
         </Button>
@@ -193,6 +215,7 @@ function SortableQueuedMessageRow(props: {
             props.onDelete(props.message.id);
           }}
           aria-label="Delete queued message"
+          disabled={isDispatching}
         >
           <Trash2Icon className="size-3.5" />
         </Button>
@@ -205,6 +228,7 @@ export function ComposerQueuedMessages(props: {
   messages: ReadonlyArray<ComposerQueuedMessageItem>;
   className?: string;
   steerMessageId?: MessageId | null;
+  dispatchingMessageId?: MessageId | null | undefined;
   onEdit: (messageId: MessageId) => void;
   onDelete: (messageId: MessageId) => void;
   onClearAll: () => void;
@@ -327,6 +351,7 @@ export function ComposerQueuedMessages(props: {
                   draggedMessageId={draggedMessageId}
                   persistedPositionByMessageId={persistedPositionByMessageId}
                   steerMessageId={props.steerMessageId}
+                  dispatchingMessageId={props.dispatchingMessageId}
                   canSendNow={props.canSendNow === true}
                   onEdit={props.onEdit}
                   onDelete={props.onDelete}
