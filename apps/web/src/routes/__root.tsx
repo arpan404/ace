@@ -4,6 +4,7 @@ import {
   createRootRouteWithContext,
   useNavigate,
   useLocation,
+  useParams,
 } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { unstable_batchedUpdates } from "react-dom";
@@ -78,6 +79,31 @@ import { RootRouteErrorView } from "./-RootRouteErrorView";
 
 const FRAME_FALLBACK_DOMAIN_EVENT_FLUSH_DELAY_MS = 16;
 const BACKGROUND_DOMAIN_EVENT_FLUSH_DELAY_MS = 100;
+const PENDING_SCOPED_EVENT_BUFFER_LIMIT = 1_024;
+const PENDING_THREAD_EVENT_BUFFER_LIMIT = 512;
+const APPLIED_EVENT_SEQUENCE_CACHE_LIMIT = 4_096;
+
+function appendBoundedEvent(
+  events: OrchestrationEvent[],
+  event: OrchestrationEvent,
+  limit: number,
+) {
+  events.push(event);
+  if (events.length > limit) {
+    events.splice(0, events.length - limit);
+  }
+}
+
+function addBoundedSequence(sequences: Set<number>, sequence: number) {
+  sequences.add(sequence);
+  while (sequences.size > APPLIED_EVENT_SEQUENCE_CACHE_LIMIT) {
+    const oldestSequence = sequences.values().next().value;
+    if (typeof oldestSequence !== "number") {
+      return;
+    }
+    sequences.delete(oldestSequence);
+  }
+}
 
 export const Route = createRootRouteWithContext<{
   queryClient: QueryClient;
@@ -876,8 +902,12 @@ function useScopedEventRouterLifecycle() {
     (store) => store.removeOrphanedTerminalStates,
   );
   const queryClient = useQueryClient();
-  const pathname = useLocation({ select: (loc) => loc.pathname });
+  const routeThreadId = useParams({
+    strict: false,
+    select: (params) => (params.threadId ? ThreadId.makeUnsafe(params.threadId) : null),
+  });
   const appliedEventSequencesRef = useRef<Set<number>>(new Set());
+  const threadLatestSequenceByIdRef = useRef<Map<ThreadId, number>>(new Map());
 
   const reconcileSnapshotDerivedState = useCallback(() => {
     const threads = useStore.getState().threads;
@@ -912,7 +942,7 @@ function useScopedEventRouterLifecycle() {
         if (appliedEventSequencesRef.current.has(event.sequence)) {
           continue;
         }
-        appliedEventSequencesRef.current.add(event.sequence);
+        addBoundedSequence(appliedEventSequencesRef.current, event.sequence);
         dedupedEvents.push(event);
       }
       if (dedupedEvents.length === 0) {
@@ -1010,8 +1040,17 @@ function useScopedEventRouterLifecycle() {
     ) => {
       mergeServerReadModel(snapshot, { connectionUrl: localConnectionUrl });
       reconcileSnapshotDerivedState();
-      for (let sequence = 0; sequence <= snapshot.snapshotSequence; sequence += 1) {
-        appliedEventSequencesRef.current.add(sequence);
+      appliedEventSequencesRef.current.clear();
+      const firstCachedSequence = Math.max(
+        0,
+        snapshot.snapshotSequence - APPLIED_EVENT_SEQUENCE_CACHE_LIMIT + 1,
+      );
+      for (
+        let sequence = firstCachedSequence;
+        sequence <= snapshot.snapshotSequence;
+        sequence += 1
+      ) {
+        addBoundedSequence(appliedEventSequencesRef.current, sequence);
       }
     };
 
@@ -1053,7 +1092,7 @@ function useScopedEventRouterLifecycle() {
           reportBackgroundError("Failed to forward orchestration event to desktop bridge.", error);
         }
       }
-      pendingEvents.push(item.event);
+      appendBoundedEvent(pendingEvents, item.event, PENDING_SCOPED_EVENT_BUFFER_LIMIT);
       if (shellBootstrapped) {
         scheduleFlush();
       }
@@ -1098,8 +1137,7 @@ function useScopedEventRouterLifecycle() {
   }, [applyScopedEvents, mergeServerReadModel, reconcileSnapshotDerivedState]);
 
   useEffect(() => {
-    const match = /^\/([^/?#]+)/.exec(pathname);
-    const threadId = match?.[1] ? ThreadId.makeUnsafe(decodeURIComponent(match[1])) : null;
+    const threadId = routeThreadId;
     if (!threadId) {
       return;
     }
@@ -1107,39 +1145,91 @@ function useScopedEventRouterLifecycle() {
     const localRpcClient = getRouteRpcClient(localConnectionUrl);
     let threadBootstrapped = false;
     let pendingThreadEvents: OrchestrationEvent[] = [];
+    let replayInFlight = false;
+    const applyThreadEvents = (events: ReadonlyArray<OrchestrationEvent>) => {
+      const latestSequence = threadLatestSequenceByIdRef.current.get(threadId) ?? -1;
+      const nextEvents = events
+        .filter(
+          (event) =>
+            event.aggregateKind === "thread" &&
+            event.aggregateId === threadId &&
+            event.sequence > latestSequence,
+        )
+        .toSorted((left, right) => left.sequence - right.sequence);
+      if (nextEvents.length === 0) {
+        return;
+      }
+      threadLatestSequenceByIdRef.current.set(
+        threadId,
+        nextEvents.at(-1)?.sequence ?? latestSequence,
+      );
+      applyScopedEvents(nextEvents);
+    };
+    const replayThreadEvents = async () => {
+      if (replayInFlight || !threadBootstrapped) {
+        return;
+      }
+      const fromSequenceExclusive = threadLatestSequenceByIdRef.current.get(threadId);
+      if (fromSequenceExclusive === undefined) {
+        return;
+      }
+      replayInFlight = true;
+      try {
+        const replayedEvents = await localRpcClient.orchestration.replayEvents({
+          fromSequenceExclusive,
+        });
+        applyThreadEvents(replayedEvents);
+      } catch (error) {
+        reportBackgroundError("Failed to replay scoped thread events.", error);
+      } finally {
+        replayInFlight = false;
+      }
+    };
+    const shouldCatchUpThread = () => {
+      const thread = useStore.getState().threadsById?.[threadId];
+      return (
+        thread?.session?.status === "running" ||
+        thread?.session?.status === "connecting" ||
+        thread?.latestTurn?.state === "running"
+      );
+    };
+    const catchupInterval = window.setInterval(() => {
+      if (shouldCatchUpThread()) {
+        void replayThreadEvents();
+      }
+    }, 1_500);
     const unsubscribeThread = localRpcClient.orchestration.subscribeThread({ threadId }, (item) => {
       if (item.kind === "snapshot") {
         hydrateThreadFromReadModel(item.snapshot.thread, {
           connectionUrl: localConnectionUrl,
           hydrateThreadId: threadId,
         });
-        for (let sequence = 0; sequence <= item.snapshot.snapshotSequence; sequence += 1) {
-          appliedEventSequencesRef.current.add(sequence);
-        }
+        threadLatestSequenceByIdRef.current.set(threadId, item.snapshot.snapshotSequence);
         threadBootstrapped = true;
         if (pendingThreadEvents.length > 0) {
           const events = pendingThreadEvents;
           pendingThreadEvents = [];
-          applyScopedEvents(events);
+          applyThreadEvents(events);
         }
         return;
       }
       if (!threadBootstrapped) {
-        pendingThreadEvents.push(item.event);
+        appendBoundedEvent(pendingThreadEvents, item.event, PENDING_THREAD_EVENT_BUFFER_LIMIT);
         return;
       }
       try {
-        applyScopedEvents([item.event]);
+        applyThreadEvents([item.event]);
       } catch (error) {
         reportBackgroundError("Failed to apply scoped thread event.", error);
       }
     });
     return () => {
+      window.clearInterval(catchupInterval);
       pendingThreadEvents = [];
       unsubscribeThread();
       void localRpcClient.orchestration.unsubscribeThread({ threadId }).catch(() => undefined);
     };
-  }, [applyScopedEvents, hydrateThreadFromReadModel, pathname]);
+  }, [applyScopedEvents, hydrateThreadFromReadModel, routeThreadId]);
 }
 
 function EventRouter() {

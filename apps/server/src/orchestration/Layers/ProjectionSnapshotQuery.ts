@@ -19,6 +19,7 @@ import {
   type OrchestrationProject,
   type OrchestrationSession,
   OrchestrationThread,
+  OrchestrationThreadDetailSnapshot,
   type OrchestrationThreadActivity,
   ModelSelection,
   ProviderIntegrationCapabilities,
@@ -57,6 +58,7 @@ import {
 
 const decodeReadModel = Schema.decodeUnknownEffect(OrchestrationReadModel);
 const decodeThread = Schema.decodeUnknownEffect(OrchestrationThread);
+const decodeThreadDetailSnapshot = Schema.decodeUnknownEffect(OrchestrationThreadDetailSnapshot);
 const ProjectionProjectDbRowSchema = ProjectionProject.mapFields(
   Struct.assign({
     defaultModelSelection: Schema.NullOr(Schema.fromJsonString(ModelSelection)),
@@ -1282,6 +1284,46 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         }),
       );
 
+  const getThreadDetailSnapshotById: ProjectionSnapshotQueryShape["getThreadDetailSnapshotById"] = (
+    threadId,
+  ) =>
+    Effect.all([
+      getThread(threadId),
+      listProjectionStateRows(undefined).pipe(
+        Effect.mapError(
+          toPersistenceSqlOrDecodeError(
+            "ProjectionSnapshotQuery.getThreadDetailSnapshotById:listProjectionState:query",
+            "ProjectionSnapshotQuery.getThreadDetailSnapshotById:listProjectionState:decodeRows",
+          ),
+        ),
+      ),
+    ]).pipe(
+      Effect.flatMap(([thread, stateRows]) => {
+        if (Option.isNone(thread)) {
+          return Effect.succeed(Option.none<OrchestrationThreadDetailSnapshot>());
+        }
+        return decodeThreadDetailSnapshot({
+          snapshotSequence: computeSnapshotSequence(stateRows),
+          thread: thread.value,
+        }).pipe(
+          Effect.map((snapshot) => Option.some(snapshot)),
+          Effect.mapError(
+            toPersistenceDecodeError(
+              "ProjectionSnapshotQuery.getThreadDetailSnapshotById:decodeSnapshot",
+            ),
+          ),
+        );
+      }),
+      Effect.mapError((error) => {
+        if (isPersistenceError(error)) {
+          return error;
+        }
+        return toPersistenceSqlError("ProjectionSnapshotQuery.getThreadDetailSnapshotById:query")(
+          error,
+        );
+      }),
+    );
+
   const getCounts: ProjectionSnapshotQueryShape["getCounts"] = () =>
     readProjectionCounts(undefined).pipe(
       Effect.mapError(
@@ -1372,6 +1414,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
   return {
     getSnapshot,
     getThread,
+    getThreadDetailSnapshotById,
     getCounts,
     getActiveProjectByWorkspaceRoot,
     getFirstActiveThreadIdByProjectId,
