@@ -322,7 +322,9 @@ function useScopedEventRouterLifecycle() {
     select: (params) => (params.threadId ? ThreadId.makeUnsafe(params.threadId) : null),
   });
   const appliedEventSequencesRef = useRef<Set<number>>(new Set());
+  const appliedShellEventSequencesRef = useRef<Set<number>>(new Set());
   const threadLatestSequenceByIdRef = useRef<Map<ThreadId, number>>(new Map());
+  const shellSnapshotSequenceRef = useRef(0);
 
   const reconcileSnapshotDerivedState = useCallback(() => {
     const threads = useStore.getState().threads;
@@ -439,10 +441,10 @@ function useScopedEventRouterLifecycle() {
       try {
         unstable_batchedUpdates(() => {
           for (const event of events) {
-            if (appliedEventSequencesRef.current.has(event.sequence)) {
+            if (appliedShellEventSequencesRef.current.has(event.sequence)) {
               continue;
             }
-            addBoundedSequence(appliedEventSequencesRef.current, event.sequence);
+            addBoundedSequence(appliedShellEventSequencesRef.current, event.sequence);
             applyShellEvent(event);
           }
           reconcileSnapshotDerivedState();
@@ -465,9 +467,10 @@ function useScopedEventRouterLifecycle() {
     const applyShellSnapshot = (
       snapshot: Awaited<ReturnType<typeof localRpcClient.orchestration.getShellSnapshot>>,
     ) => {
+      shellSnapshotSequenceRef.current = snapshot.snapshotSequence;
       syncServerShellSnapshot(snapshot);
       reconcileSnapshotDerivedState();
-      appliedEventSequencesRef.current.clear();
+      appliedShellEventSequencesRef.current.clear();
       const firstCachedSequence = Math.max(
         0,
         snapshot.snapshotSequence - APPLIED_EVENT_SEQUENCE_CACHE_LIMIT + 1,
@@ -477,7 +480,7 @@ function useScopedEventRouterLifecycle() {
         sequence <= snapshot.snapshotSequence;
         sequence += 1
       ) {
-        addBoundedSequence(appliedEventSequencesRef.current, sequence);
+        addBoundedSequence(appliedShellEventSequencesRef.current, sequence);
       }
     };
 
@@ -581,6 +584,7 @@ function useScopedEventRouterLifecycle() {
     let threadBootstrapped = false;
     let pendingThreadEvents: OrchestrationEvent[] = [];
     let replayInFlight = false;
+    let bootstrapReplayInFlight = false;
     const applyThreadEvents = (events: ReadonlyArray<OrchestrationEvent>) => {
       const latestSequence = threadLatestSequenceByIdRef.current.get(threadId) ?? -1;
       const nextEvents = events
@@ -620,6 +624,40 @@ function useScopedEventRouterLifecycle() {
         replayInFlight = false;
       }
     };
+    const recoverThreadBootstrapFromReplay = async () => {
+      if (bootstrapReplayInFlight || threadBootstrapped || pendingThreadEvents.length === 0) {
+        return;
+      }
+      const firstPendingSequence = pendingThreadEvents[0]?.sequence;
+      if (firstPendingSequence === undefined) {
+        return;
+      }
+      bootstrapReplayInFlight = true;
+      try {
+        const replayedEvents = await localRpcClient.orchestration.replayEvents({
+          fromSequenceExclusive: Math.min(
+            shellSnapshotSequenceRef.current,
+            Math.max(0, firstPendingSequence - PENDING_THREAD_EVENT_BUFFER_LIMIT),
+          ),
+        });
+        const events = [...replayedEvents, ...pendingThreadEvents];
+        pendingThreadEvents = [];
+        if (
+          events.some((event) => event.type === "thread.created" && event.aggregateId === threadId)
+        ) {
+          threadBootstrapped = true;
+          applyThreadEvents(events);
+        } else {
+          pendingThreadEvents = events
+            .filter((event) => event.aggregateKind === "thread" && event.aggregateId === threadId)
+            .slice(-PENDING_THREAD_EVENT_BUFFER_LIMIT);
+        }
+      } catch (error) {
+        reportBackgroundError("Failed to recover scoped thread bootstrap events.", error);
+      } finally {
+        bootstrapReplayInFlight = false;
+      }
+    };
     const shouldCatchUpThread = () => {
       const thread = useStore.getState().threadsById?.[threadId];
       return (
@@ -639,17 +677,31 @@ function useScopedEventRouterLifecycle() {
           connectionUrl: localConnectionUrl,
           hydrateThreadId: threadId,
         });
-        threadLatestSequenceByIdRef.current.set(threadId, item.snapshot.snapshotSequence);
         threadBootstrapped = true;
         if (pendingThreadEvents.length > 0) {
           const events = pendingThreadEvents;
           pendingThreadEvents = [];
           applyThreadEvents(events);
         }
+        const latestAppliedSequence = threadLatestSequenceByIdRef.current.get(threadId);
+        if (
+          latestAppliedSequence === undefined ||
+          latestAppliedSequence < item.snapshot.snapshotSequence
+        ) {
+          threadLatestSequenceByIdRef.current.set(threadId, item.snapshot.snapshotSequence);
+        }
         return;
       }
       if (!threadBootstrapped) {
         appendBoundedEvent(pendingThreadEvents, item.event, PENDING_THREAD_EVENT_BUFFER_LIMIT);
+        if (item.event.type === "thread.created" && item.event.payload.threadId === threadId) {
+          const events = pendingThreadEvents;
+          pendingThreadEvents = [];
+          threadBootstrapped = true;
+          applyThreadEvents(events);
+        } else {
+          void recoverThreadBootstrapFromReplay();
+        }
         return;
       }
       try {
