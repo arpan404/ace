@@ -1,4 +1,9 @@
-import { type OrchestrationReadModel, type ProjectId, type ThreadId } from "@ace/contracts";
+import {
+  type OrchestrationReadModel,
+  type OrchestrationShellSnapshot,
+  type ProjectId,
+  type ThreadId,
+} from "@ace/contracts";
 import { normalizeWsUrl } from "@ace/shared/hostConnections";
 import { create } from "zustand";
 
@@ -14,18 +19,20 @@ interface HostConnectionState {
   readonly getOwnership: (connectionUrl: string) => ConnectionOwnership | undefined;
   readonly mergeSnapshotOwnership: (
     connectionUrl: string,
-    snapshot: OrchestrationReadModel,
+    snapshot: ConnectionOwnershipSnapshot,
   ) => void;
   readonly upsertSnapshotOwnership: (
     connectionUrl: string,
-    snapshot: OrchestrationReadModel,
+    snapshot: ConnectionOwnershipSnapshot,
   ) => void;
   readonly upsertProjectOwnership: (connectionUrl: string, projectId: ProjectId) => void;
   readonly upsertThreadOwnership: (connectionUrl: string, threadId: ThreadId) => void;
   readonly removeConnection: (connectionUrl: string) => void;
 }
 
-function resolveSnapshotOwnership(snapshot: OrchestrationReadModel): ConnectionOwnership {
+type ConnectionOwnershipSnapshot = OrchestrationReadModel | OrchestrationShellSnapshot;
+
+function resolveSnapshotOwnership(snapshot: ConnectionOwnershipSnapshot): ConnectionOwnership {
   const projectIds: ProjectId[] = [];
   for (const project of snapshot.projects) {
     if (project.deletedAt === null && project.archivedAt === null) {

@@ -1013,6 +1013,41 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         updatedAt: "2026-03-03T00:00:09.000Z",
       });
 
+      const shellSnapshot = yield* snapshotQuery.getShellSnapshot();
+      const shellThread1 = shellSnapshot.threads.find(
+        (thread) => thread.id === ThreadId.makeUnsafe("thread-1"),
+      );
+      const shellThread2 = shellSnapshot.threads.find(
+        (thread) => thread.id === ThreadId.makeUnsafe("thread-2"),
+      );
+      assert.equal(shellSnapshot.snapshotSequence, metadataSnapshot.snapshotSequence);
+      assert.equal(shellThread1?.latestTurn?.turnId, asTurnId("turn-1"));
+      assert.equal(shellThread2?.latestProposedPlanSummary?.id, "plan-1");
+      assert.equal(shellThread1 !== undefined && "messages" in shellThread1, false);
+      assert.equal(shellThread1 !== undefined && "activities" in shellThread1, false);
+      assert.equal(shellThread1 !== undefined && "checkpoints" in shellThread1, false);
+
+      const threadShell = yield* snapshotQuery.getThreadShellById(ThreadId.makeUnsafe("thread-2"));
+      const missingThreadShell = yield* snapshotQuery.getThreadShellById(
+        ThreadId.makeUnsafe("thread-missing"),
+      );
+      assert.equal(Option.isSome(threadShell), true);
+      assert.equal(Option.isNone(missingThreadShell), true);
+      assert.equal(
+        Option.match(threadShell, {
+          onNone: () => null,
+          onSome: (thread) => thread.latestProposedPlanSummary?.id ?? null,
+        }),
+        "plan-1",
+      );
+      assert.equal(
+        Option.match(threadShell, {
+          onNone: () => true,
+          onSome: (thread) => "messages" in thread,
+        }),
+        false,
+      );
+
       const targetedSnapshot = yield* snapshotQuery.getSnapshot({
         hydrateThreadId: ThreadId.makeUnsafe("thread-1"),
       });

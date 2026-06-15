@@ -8,18 +8,22 @@ import {
   TurnId,
   type OrchestrationEvent,
   type OrchestrationReadModel,
+  type OrchestrationShellSnapshot,
 } from "@ace/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   applyOrchestrationEvent,
   applyOrchestrationEvents,
+  applyShellEvent,
   dismissThreadError,
   hydrateThreadFromReadModel,
   mergeServerReadModel,
   pruneHydratedThreadHistories,
   selectThreadById,
+  syncServerShellSnapshot,
   syncServerReadModel,
+  syncServerThreadDetailHotPath,
   useStore,
   type AppState,
 } from "./store";
@@ -231,6 +235,47 @@ function makeReadModelProject(
     deletedAt: null,
     scripts: [],
     ...overrides,
+  };
+}
+
+function makeShellThread(
+  overrides: Partial<OrchestrationShellSnapshot["threads"][number]> = {},
+): OrchestrationShellSnapshot["threads"][number] {
+  const thread = makeReadModelThread({});
+  return {
+    id: thread.id,
+    projectId: thread.projectId,
+    title: thread.title,
+    modelSelection: thread.modelSelection,
+    runtimeMode: thread.runtimeMode,
+    interactionMode: thread.interactionMode,
+    branch: thread.branch,
+    worktreePath: thread.worktreePath,
+    latestTurn: thread.latestTurn,
+    createdAt: thread.createdAt,
+    updatedAt: thread.updatedAt,
+    archivedAt: thread.archivedAt,
+    deletedAt: thread.deletedAt,
+    latestProposedPlanSummary: thread.latestProposedPlanSummary,
+    queuedComposerMessages: thread.queuedComposerMessages,
+    queuedSteerRequest: thread.queuedSteerRequest,
+    session: thread.session,
+    ...overrides,
+  };
+}
+
+function makeShellSnapshot(
+  input: {
+    readonly projects?: OrchestrationShellSnapshot["projects"];
+    readonly threads?: OrchestrationShellSnapshot["threads"];
+    readonly snapshotSequence?: number;
+  } = {},
+): OrchestrationShellSnapshot {
+  return {
+    snapshotSequence: input.snapshotSequence ?? 1,
+    updatedAt: "2026-02-27T00:00:00.000Z",
+    projects: input.projects ?? [makeReadModelProject({})],
+    threads: input.threads ?? [makeShellThread()],
   };
 }
 
@@ -1267,6 +1312,156 @@ describe("store read model sync", () => {
     const next = syncServerReadModel(initialState, readModel);
 
     expect(next.projects.map((project) => project.id)).toEqual([project1, project2, project3]);
+  });
+});
+
+describe("store shell hot path", () => {
+  it("preserves hydrated messages when applying a shell snapshot", () => {
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const hydrated = syncServerThreadDetailHotPath(
+      makeState(makeThread({ historyLoaded: false })),
+      makeReadModelThread({
+        id: threadId,
+        messages: [
+          {
+            id: MessageId.makeUnsafe("message-1"),
+            role: "assistant",
+            text: "kept",
+            turnId: null,
+            streaming: false,
+            createdAt: "2026-02-27T00:00:01.000Z",
+            updatedAt: "2026-02-27T00:00:01.000Z",
+          },
+        ],
+      }),
+    );
+
+    const next = syncServerShellSnapshot(
+      hydrated,
+      makeShellSnapshot({
+        snapshotSequence: 10,
+        threads: [
+          makeShellThread({
+            id: threadId,
+            title: "Renamed",
+            updatedAt: "2026-02-27T00:00:02.000Z",
+          }),
+        ],
+      }),
+    );
+
+    expect(next.threads[0]?.title).toBe("Renamed");
+    expect(next.threads[0]?.historyLoaded).toBe(true);
+    expect(next.threads[0]?.messages.map((message) => message.id)).toEqual([
+      MessageId.makeUnsafe("message-1"),
+    ]);
+  });
+
+  it("preserves hydrated messages when applying a shell upsert event", () => {
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const hydrated = syncServerThreadDetailHotPath(
+      makeState(makeThread({ historyLoaded: false })),
+      makeReadModelThread({
+        id: threadId,
+        messages: [
+          {
+            id: MessageId.makeUnsafe("message-1"),
+            role: "assistant",
+            text: "kept",
+            turnId: null,
+            streaming: false,
+            createdAt: "2026-02-27T00:00:01.000Z",
+            updatedAt: "2026-02-27T00:00:01.000Z",
+          },
+        ],
+      }),
+    );
+
+    const next = applyShellEvent(hydrated, {
+      kind: "thread-upserted",
+      sequence: 11,
+      thread: makeShellThread({
+        id: threadId,
+        title: "Live Rename",
+        updatedAt: "2026-02-27T00:00:03.000Z",
+      }),
+    });
+
+    expect(next.threads[0]?.title).toBe("Live Rename");
+    expect(next.threads[0]?.historyLoaded).toBe(true);
+    expect(next.threads[0]?.messages.map((message) => message.id)).toEqual([
+      MessageId.makeUnsafe("message-1"),
+    ]);
+  });
+
+  it("hydrates only the targeted thread detail hot path", () => {
+    const firstThreadId = ThreadId.makeUnsafe("thread-1");
+    const secondThreadId = ThreadId.makeUnsafe("thread-2");
+    const emptyState: AppState = {
+      ...makeState(makeThread()),
+      threads: [],
+      threadsById: {},
+      sidebarThreadsById: {},
+      threadIdsByProjectId: {},
+    };
+    const shellState = syncServerShellSnapshot(
+      emptyState,
+      makeShellSnapshot({
+        threads: [
+          makeShellThread({ id: firstThreadId }),
+          makeShellThread({ id: secondThreadId, title: "Second" }),
+        ],
+      }),
+    );
+
+    const next = syncServerThreadDetailHotPath(
+      shellState,
+      makeReadModelThread({
+        id: secondThreadId,
+        title: "Second",
+        messages: [
+          {
+            id: MessageId.makeUnsafe("target-message"),
+            role: "assistant",
+            text: "target",
+            turnId: null,
+            streaming: false,
+            createdAt: "2026-02-27T00:00:02.000Z",
+            updatedAt: "2026-02-27T00:00:02.000Z",
+          },
+        ],
+      }),
+    );
+
+    expect(next.threads.find((thread) => thread.id === firstThreadId)?.historyLoaded).toBe(false);
+    expect(next.threads.find((thread) => thread.id === secondThreadId)?.historyLoaded).toBe(true);
+    expect(next.threads.find((thread) => thread.id === secondThreadId)?.messages[0]?.id).toBe(
+      MessageId.makeUnsafe("target-message"),
+    );
+  });
+
+  it("removes sidebar and index state when applying a shell thread removal", () => {
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const synced = syncServerShellSnapshot(
+      {
+        ...makeState(makeThread()),
+        threads: [],
+        threadsById: {},
+        sidebarThreadsById: {},
+        threadIdsByProjectId: {},
+      },
+      makeShellSnapshot({ threads: [makeShellThread({ id: threadId })] }),
+    );
+
+    const next = applyShellEvent(synced, {
+      kind: "thread-removed",
+      sequence: 12,
+      threadId,
+    });
+
+    expect(next.threadsById?.[threadId]).toBeUndefined();
+    expect(next.sidebarThreadsById[threadId]).toBeUndefined();
+    expect(next.threadIdsByProjectId[ProjectId.makeUnsafe("project-1")] ?? []).toEqual([]);
   });
 });
 
