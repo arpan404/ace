@@ -3306,7 +3306,6 @@ function useChatViewComponent({
       turnDiffSummaryByAssistantMessageId,
     };
   })();
-  const hasSourceTimelineRowsInput = sourceTimelineRowsInput !== null;
   const nativeTurnDiffSummaryKey = (() => {
     if (!sourceTimelineRowsInput || turnDiffSummaryByAssistantMessageId.size === 0) {
       return "";
@@ -3468,8 +3467,9 @@ function useChatViewComponent({
       ? resolvedSourceTimelineRows.rows
       : null) ??
     staleResolvedSourceTimelineRows;
+  const shouldRenderSourceTimelineRows = sourceTimelineRowsOverride !== null;
   const timelineRenderState = useMemo(() => {
-    if (hasSourceTimelineRowsInput) {
+    if (shouldRenderSourceTimelineRows) {
       return {
         timelineEntries: EMPTY_TIMELINE_ENTRIES,
         turnDiffSummaryByAssistantMessageId,
@@ -3484,7 +3484,7 @@ function useChatViewComponent({
       }),
     );
   }, [
-    hasSourceTimelineRowsInput,
+    shouldRenderSourceTimelineRows,
     timelineMessages,
     timelineProposedPlans,
     timelineWorkEntries,
@@ -3552,7 +3552,7 @@ function useChatViewComponent({
   }, [inferredCheckpointTurnCountByTurnId, turnDiffSummaryByAssistantMessageId]);
 
   const completionDividerBeforeEntryId = (() => {
-    if (hasSourceTimelineRowsInput) {
+    if (shouldRenderSourceTimelineRows) {
       return nativeCompletionDividerBeforeEntryId;
     }
     if (!latestTurnSettled) return null;
@@ -3560,7 +3560,7 @@ function useChatViewComponent({
     return deriveCompletionDividerBeforeEntryId(timelineEntries, activeLatestTurn);
   })();
   const timelineCacheScope = useMemo(() => {
-    if (hasSourceTimelineRowsInput) {
+    if (shouldRenderSourceTimelineRows) {
       return null;
     }
     return buildThreadTimelineCacheScope({
@@ -3573,7 +3573,7 @@ function useChatViewComponent({
     });
   }, [
     activeThread,
-    hasSourceTimelineRowsInput,
+    shouldRenderSourceTimelineRows,
     timelineEntries,
     timelineMessages,
     timelineProposedPlans,
@@ -3581,7 +3581,7 @@ function useChatViewComponent({
     turnDiffSummaries,
   ]);
   const fallbackTimelineRows: ReadonlyArray<TimelineRow> = (() => {
-    if (hasSourceTimelineRowsInput) {
+    if (shouldRenderSourceTimelineRows) {
       return EMPTY_TIMELINE_ROWS;
     }
     return measureRenderWork("chat.buildTimelineRows", () =>

@@ -943,6 +943,17 @@ const WsRpcLayer = WsRpcGroup.toLayer(
               }),
           ),
         ),
+      [ORCHESTRATION_WS_METHODS.getShellSnapshot]: () =>
+        projectionSnapshotQuery.getSnapshot({}).pipe(
+          Effect.map(sanitizeReadModelForClient),
+          Effect.mapError(
+            (cause) =>
+              new OrchestrationGetSnapshotError({
+                message: "Failed to load orchestration shell snapshot",
+                cause,
+              }),
+          ),
+        ),
       [ORCHESTRATION_WS_METHODS.getThread]: (input) =>
         projectionSnapshotQuery.getThread(input.threadId).pipe(
           Effect.flatMap((thread) =>
@@ -965,6 +976,69 @@ const WsRpcLayer = WsRpcGroup.toLayer(
                 }),
           ),
         ),
+      [ORCHESTRATION_WS_METHODS.subscribeShell]: () =>
+        Stream.merge(
+          Stream.fromEffect(
+            projectionSnapshotQuery.getSnapshot({}).pipe(
+              Effect.map(sanitizeReadModelForClient),
+              Effect.map((snapshot) => ({ kind: "snapshot" as const, snapshot })),
+              Effect.mapError(
+                (cause) =>
+                  new OrchestrationGetSnapshotError({
+                    message: "Failed to load orchestration shell snapshot",
+                    cause,
+                  }),
+              ),
+            ),
+          ).pipe(Stream.catch(() => Stream.empty)),
+          orchestrationEngine.streamDomainEvents.pipe(
+            Stream.map(sanitizeOrchestrationEventForClient),
+            Stream.map((event) => ({ kind: "event" as const, event })),
+          ),
+        ),
+      [ORCHESTRATION_WS_METHODS.unsubscribeShell]: () => Effect.void,
+      [ORCHESTRATION_WS_METHODS.subscribeThread]: (input) =>
+        Stream.merge(
+          Stream.fromEffect(
+            Effect.gen(function* () {
+              const snapshotSequence = (yield* orchestrationEngine.getReadModel()).snapshotSequence;
+              const thread = yield* projectionSnapshotQuery.getThread(input.threadId);
+              return yield* Option.match(thread, {
+                onNone: () =>
+                  Effect.fail(
+                    new OrchestrationGetThreadError({
+                      message: `Thread '${input.threadId}' was not found.`,
+                    }),
+                  ),
+                onSome: (value) =>
+                  Effect.succeed({
+                    kind: "snapshot" as const,
+                    snapshot: {
+                      snapshotSequence,
+                      thread: sanitizeThreadForClient(value),
+                    },
+                  }),
+              });
+            }).pipe(
+              Effect.mapError((cause) =>
+                Schema.is(OrchestrationGetThreadError)(cause)
+                  ? cause
+                  : new OrchestrationGetThreadError({
+                      message: "Failed to load orchestration thread snapshot",
+                      cause,
+                    }),
+              ),
+            ),
+          ).pipe(Stream.catch(() => Stream.empty)),
+          orchestrationEngine.streamDomainEvents.pipe(
+            Stream.filter(
+              (event) => event.aggregateKind === "thread" && event.aggregateId === input.threadId,
+            ),
+            Stream.map(sanitizeOrchestrationEventForClient),
+            Stream.map((event) => ({ kind: "event" as const, event })),
+          ),
+        ),
+      [ORCHESTRATION_WS_METHODS.unsubscribeThread]: () => Effect.void,
       [ORCHESTRATION_WS_METHODS.dispatchCommand]: (command) =>
         Effect.gen(function* () {
           const normalizedCommand = yield* normalizeDispatchCommand(command);

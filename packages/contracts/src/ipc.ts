@@ -579,6 +579,7 @@ export interface NativeApi {
   };
   orchestration: {
     getSnapshot: (input?: OrchestrationGetSnapshotInput) => Promise<OrchestrationReadModel>;
+    getShellSnapshot: () => Promise<OrchestrationReadModel>;
     getThread: (input: OrchestrationGetThreadInput) => Promise<OrchestrationThread>;
     dispatchCommand: (command: ClientOrchestrationCommand) => Promise<{ sequence: number }>;
     getTurnDiff: (input: OrchestrationGetTurnDiffInput) => Promise<OrchestrationGetTurnDiffResult>;
@@ -587,5 +588,26 @@ export interface NativeApi {
     ) => Promise<OrchestrationGetFullThreadDiffResult>;
     replayEvents: (fromSequenceExclusive: number) => Promise<OrchestrationEvent[]>;
     onDomainEvent: (callback: (event: OrchestrationEvent) => void) => () => void;
+    subscribeShell: () => Promise<void>;
+    unsubscribeShell: () => Promise<void>;
+    subscribeThread: (input: OrchestrationGetThreadInput) => Promise<void>;
+    unsubscribeThread: (input: OrchestrationGetThreadInput) => Promise<void>;
+    onShellEvent: (
+      callback: (
+        event:
+          | { kind: "snapshot"; snapshot: OrchestrationReadModel }
+          | { kind: "event"; event: OrchestrationEvent },
+      ) => void,
+    ) => () => void;
+    onThreadEvent: (
+      callback: (
+        event:
+          | {
+              kind: "snapshot";
+              snapshot: { snapshotSequence: number; thread: OrchestrationThread };
+            }
+          | { kind: "event"; event: OrchestrationEvent },
+      ) => void,
+    ) => () => void;
   };
 }

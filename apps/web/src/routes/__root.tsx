@@ -5,7 +5,7 @@ import {
   useNavigate,
   useLocation,
 } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { unstable_batchedUpdates } from "react-dom";
 import { QueryClient, useQueryClient } from "@tanstack/react-query";
 import { Throttler } from "@tanstack/react-pacer";
@@ -299,7 +299,7 @@ function RemoteRelayConnectionToastBridge() {
   return null;
 }
 
-function useEventRouterLifecycle() {
+function legacyUseEventRouterLifecycle() {
   const applyOrchestrationEvents = useStore((store) => store.applyOrchestrationEvents);
   const bootstrapComplete = useStore((store) => store.bootstrapComplete);
   const mergeServerReadModel = useStore((store) => store.mergeServerReadModel);
@@ -862,8 +862,288 @@ function useEventRouterLifecycle() {
   return null;
 }
 
+void legacyUseEventRouterLifecycle;
+
+function useScopedEventRouterLifecycle() {
+  const applyOrchestrationEvents = useStore((store) => store.applyOrchestrationEvents);
+  const mergeServerReadModel = useStore((store) => store.mergeServerReadModel);
+  const hydrateThreadFromReadModel = useStore((store) => store.hydrateThreadFromReadModel);
+  const syncProjects = useUiStateStore((store) => store.syncProjects);
+  const syncThreads = useUiStateStore((store) => store.syncThreads);
+  const clearThreadUi = useUiStateStore((store) => store.clearThreadUi);
+  const removeTerminalState = useTerminalStateStore((store) => store.removeTerminalState);
+  const removeOrphanedTerminalStates = useTerminalStateStore(
+    (store) => store.removeOrphanedTerminalStates,
+  );
+  const queryClient = useQueryClient();
+  const pathname = useLocation({ select: (loc) => loc.pathname });
+  const appliedEventSequencesRef = useRef<Set<number>>(new Set());
+
+  const reconcileSnapshotDerivedState = useCallback(() => {
+    const threads = useStore.getState().threads;
+    const projects = useStore.getState().projects;
+    syncProjects(projects.map((project) => ({ id: project.id, cwd: project.cwd })));
+    syncThreads(
+      threads.map((thread) => ({
+        id: thread.id,
+        projectId: thread.projectId,
+        seedVisitedAt: thread.updatedAt ?? thread.createdAt,
+      })),
+    );
+    clearPromotedDraftThreads(threads.map((thread) => thread.id));
+    const draftThreadIds = Object.keys(
+      useComposerDraftStore.getState().draftThreadsByThreadId,
+    ) as ThreadId[];
+    removeOrphanedTerminalStates(
+      collectActiveTerminalThreadIds({
+        snapshotThreads: threads.map((thread) => ({
+          id: thread.id,
+          deletedAt: null,
+        })),
+        draftThreadIds,
+      }),
+    );
+  }, [removeOrphanedTerminalStates, syncProjects, syncThreads]);
+
+  const applyScopedEvents = useCallback(
+    (events: ReadonlyArray<OrchestrationEvent>) => {
+      const dedupedEvents: OrchestrationEvent[] = [];
+      for (const event of events) {
+        if (appliedEventSequencesRef.current.has(event.sequence)) {
+          continue;
+        }
+        appliedEventSequencesRef.current.add(event.sequence);
+        dedupedEvents.push(event);
+      }
+      if (dedupedEvents.length === 0) {
+        return;
+      }
+
+      const batchEffects = deriveOrchestrationBatchEffects(dedupedEvents);
+      const uiEvents = coalesceOrchestrationUiEvents(dedupedEvents);
+      unstable_batchedUpdates(() => {
+        applyOrchestrationEvents(uiEvents);
+        if (
+          dedupedEvents.some(
+            (event) =>
+              event.type === "project.created" ||
+              event.type === "project.meta-updated" ||
+              event.type === "project.deleted",
+          )
+        ) {
+          const projects = useStore.getState().projects;
+          syncProjects(projects.map((project) => ({ id: project.id, cwd: project.cwd })));
+        }
+        if (
+          dedupedEvents.some(
+            (event) => event.type === "thread.created" || event.type === "thread.deleted",
+          )
+        ) {
+          const threads = useStore.getState().threads;
+          syncThreads(
+            threads.map((thread) => ({
+              id: thread.id,
+              projectId: thread.projectId,
+              seedVisitedAt: thread.updatedAt ?? thread.createdAt,
+            })),
+          );
+        }
+        const draftStore = useComposerDraftStore.getState();
+        for (const threadId of batchEffects.clearPromotedDraftThreadIds) {
+          clearPromotedDraftThread(threadId);
+        }
+        for (const threadId of batchEffects.clearDeletedThreadIds) {
+          draftStore.clearDraftThread(threadId);
+          clearThreadUi(threadId);
+        }
+        for (const threadId of batchEffects.removeTerminalStateThreadIds) {
+          removeTerminalState(threadId);
+        }
+      });
+
+      if (batchEffects.needsProviderInvalidation) {
+        void queryClient.invalidateQueries({ queryKey: providerQueryKeys.all });
+        void queryClient.invalidateQueries({ queryKey: projectQueryKeys.all });
+      }
+    },
+    [
+      applyOrchestrationEvents,
+      clearThreadUi,
+      queryClient,
+      removeTerminalState,
+      syncProjects,
+      syncThreads,
+    ],
+  );
+
+  useEffect(() => {
+    const localConnectionUrl = resolveLocalDeviceWsUrl();
+    const localRpcClient = getRouteRpcClient(localConnectionUrl);
+    let disposed = false;
+    let shellBootstrapped = false;
+    let pendingEvents: OrchestrationEvent[] = [];
+    let flushHandle: number | null = null;
+
+    const flushPendingEvents = () => {
+      flushHandle = null;
+      if (disposed || pendingEvents.length === 0) {
+        return;
+      }
+      const events = pendingEvents;
+      pendingEvents = [];
+      try {
+        applyScopedEvents(events);
+      } catch (error) {
+        reportBackgroundError("Failed to apply scoped orchestration events.", error);
+      }
+    };
+
+    const scheduleFlush = () => {
+      if (flushHandle !== null) {
+        return;
+      }
+      flushHandle = window.setTimeout(flushPendingEvents, BACKGROUND_DOMAIN_EVENT_FLUSH_DELAY_MS);
+    };
+
+    const applyShellSnapshot = (
+      snapshot: Awaited<ReturnType<typeof localRpcClient.orchestration.getShellSnapshot>>,
+    ) => {
+      mergeServerReadModel(snapshot, { connectionUrl: localConnectionUrl });
+      reconcileSnapshotDerivedState();
+      for (let sequence = 0; sequence <= snapshot.snapshotSequence; sequence += 1) {
+        appliedEventSequencesRef.current.add(sequence);
+      }
+    };
+
+    const unsubscribeConnectionState = localRpcClient.subscribeConnectionState((state) => {
+      logLoadDiagnostic({
+        phase: "ws",
+        level: state.kind === "disconnected" ? "warning" : "success",
+        message: `Connection state changed: ${state.kind}`,
+        detail: state.error,
+      });
+      applyTransportConnectionHealthState(state);
+      if (state.kind === "disconnected") {
+        pendingEvents = [];
+        if (flushHandle !== null) {
+          window.clearTimeout(flushHandle);
+          flushHandle = null;
+        }
+      }
+    });
+
+    const unsubscribeShell = localRpcClient.orchestration.subscribeShell((item) => {
+      if (disposed) {
+        return;
+      }
+      if (item.kind === "snapshot") {
+        applyShellSnapshot(item.snapshot);
+        shellBootstrapped = true;
+        scheduleFlush();
+        return;
+      }
+      if (
+        typeof window !== "undefined" &&
+        window.desktopBridge?.sendOrchestrationEvent &&
+        shouldForwardDesktopNotificationOrchestrationEvent(item.event)
+      ) {
+        try {
+          window.desktopBridge.sendOrchestrationEvent(item.event);
+        } catch (error) {
+          reportBackgroundError("Failed to forward orchestration event to desktop bridge.", error);
+        }
+      }
+      pendingEvents.push(item.event);
+      if (shellBootstrapped) {
+        scheduleFlush();
+      }
+    });
+
+    const unsubscribeTerminal = localRpcClient.terminal.onEvent((event) => {
+      const hasRunningSubprocess = terminalRunningSubprocessFromEvent(event);
+      if (hasRunningSubprocess === null) {
+        return;
+      }
+      useTerminalStateStore
+        .getState()
+        .setTerminalActivity(
+          ThreadId.makeUnsafe(event.threadId),
+          event.terminalId,
+          hasRunningSubprocess,
+        );
+    });
+
+    void localRpcClient.orchestration
+      .getShellSnapshot()
+      .then((snapshot) => {
+        if (!disposed) {
+          applyShellSnapshot(snapshot);
+        }
+      })
+      .catch((error) => {
+        reportBackgroundError("Failed to load orchestration shell snapshot.", error);
+      });
+
+    return () => {
+      disposed = true;
+      if (flushHandle !== null) {
+        window.clearTimeout(flushHandle);
+      }
+      pendingEvents = [];
+      unsubscribeConnectionState();
+      unsubscribeShell();
+      unsubscribeTerminal();
+      void localRpcClient.orchestration.unsubscribeShell().catch(() => undefined);
+    };
+  }, [applyScopedEvents, mergeServerReadModel, reconcileSnapshotDerivedState]);
+
+  useEffect(() => {
+    const match = /^\/([^/?#]+)/.exec(pathname);
+    const threadId = match?.[1] ? ThreadId.makeUnsafe(decodeURIComponent(match[1])) : null;
+    if (!threadId) {
+      return;
+    }
+    const localConnectionUrl = resolveLocalDeviceWsUrl();
+    const localRpcClient = getRouteRpcClient(localConnectionUrl);
+    let threadBootstrapped = false;
+    let pendingThreadEvents: OrchestrationEvent[] = [];
+    const unsubscribeThread = localRpcClient.orchestration.subscribeThread({ threadId }, (item) => {
+      if (item.kind === "snapshot") {
+        hydrateThreadFromReadModel(item.snapshot.thread, {
+          connectionUrl: localConnectionUrl,
+          hydrateThreadId: threadId,
+        });
+        for (let sequence = 0; sequence <= item.snapshot.snapshotSequence; sequence += 1) {
+          appliedEventSequencesRef.current.add(sequence);
+        }
+        threadBootstrapped = true;
+        if (pendingThreadEvents.length > 0) {
+          const events = pendingThreadEvents;
+          pendingThreadEvents = [];
+          applyScopedEvents(events);
+        }
+        return;
+      }
+      if (!threadBootstrapped) {
+        pendingThreadEvents.push(item.event);
+        return;
+      }
+      try {
+        applyScopedEvents([item.event]);
+      } catch (error) {
+        reportBackgroundError("Failed to apply scoped thread event.", error);
+      }
+    });
+    return () => {
+      pendingThreadEvents = [];
+      unsubscribeThread();
+      void localRpcClient.orchestration.unsubscribeThread({ threadId }).catch(() => undefined);
+    };
+  }, [applyScopedEvents, hydrateThreadFromReadModel, pathname]);
+}
+
 function EventRouter() {
-  useEventRouterLifecycle();
+  useScopedEventRouterLifecycle();
   return null;
 }
 

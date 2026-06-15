@@ -451,6 +451,15 @@ export type OrchestrationGetSnapshotInput = typeof OrchestrationGetSnapshotInput
 export const OrchestrationGetSnapshotResult = OrchestrationReadModel;
 export type OrchestrationGetSnapshotResult = typeof OrchestrationGetSnapshotResult.Type;
 
+export const OrchestrationShellSnapshot = OrchestrationReadModel;
+export type OrchestrationShellSnapshot = typeof OrchestrationShellSnapshot.Type;
+
+export const OrchestrationGetShellSnapshotInput = Schema.Struct({});
+export type OrchestrationGetShellSnapshotInput = typeof OrchestrationGetShellSnapshotInput.Type;
+
+export const OrchestrationGetShellSnapshotResult = OrchestrationShellSnapshot;
+export type OrchestrationGetShellSnapshotResult = typeof OrchestrationGetShellSnapshotResult.Type;
+
 export const OrchestrationGetThreadInput = Schema.Struct({
   threadId: ThreadId,
 });
@@ -458,6 +467,12 @@ export type OrchestrationGetThreadInput = typeof OrchestrationGetThreadInput.Typ
 
 export const OrchestrationGetThreadResult = OrchestrationThread;
 export type OrchestrationGetThreadResult = typeof OrchestrationGetThreadResult.Type;
+
+export const OrchestrationThreadDetailSnapshot = Schema.Struct({
+  snapshotSequence: NonNegativeInt,
+  thread: OrchestrationThread,
+});
+export type OrchestrationThreadDetailSnapshot = typeof OrchestrationThreadDetailSnapshot.Type;
 
 export const OrchestrationGetTurnDiffInput = TurnCountRange.mapFields(
   Struct.assign({ threadId: ThreadId }),
@@ -485,10 +500,54 @@ export type OrchestrationReplayEventsInput = typeof OrchestrationReplayEventsInp
 export const OrchestrationReplayEventsResult = Schema.Array(OrchestrationEvent);
 export type OrchestrationReplayEventsResult = typeof OrchestrationReplayEventsResult.Type;
 
+export const OrchestrationSubscribeShellInput = Schema.Struct({});
+export type OrchestrationSubscribeShellInput = typeof OrchestrationSubscribeShellInput.Type;
+
+export const OrchestrationUnsubscribeShellInput = Schema.Struct({});
+export type OrchestrationUnsubscribeShellInput = typeof OrchestrationUnsubscribeShellInput.Type;
+
+export const OrchestrationSubscribeThreadInput = Schema.Struct({
+  threadId: ThreadId,
+});
+export type OrchestrationSubscribeThreadInput = typeof OrchestrationSubscribeThreadInput.Type;
+
+export const OrchestrationUnsubscribeThreadInput = Schema.Struct({
+  threadId: ThreadId,
+});
+export type OrchestrationUnsubscribeThreadInput = typeof OrchestrationUnsubscribeThreadInput.Type;
+
+export const OrchestrationShellStreamItem = Schema.Union([
+  Schema.Struct({
+    kind: Schema.Literal("snapshot"),
+    snapshot: OrchestrationShellSnapshot,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("event"),
+    event: OrchestrationEvent,
+  }),
+]);
+export type OrchestrationShellStreamItem = typeof OrchestrationShellStreamItem.Type;
+
+export const OrchestrationThreadStreamItem = Schema.Union([
+  Schema.Struct({
+    kind: Schema.Literal("snapshot"),
+    snapshot: OrchestrationThreadDetailSnapshot,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("event"),
+    event: OrchestrationEvent,
+  }),
+]);
+export type OrchestrationThreadStreamItem = typeof OrchestrationThreadStreamItem.Type;
+
 export const OrchestrationRpcSchemas = {
   getSnapshot: {
     input: OrchestrationGetSnapshotInput,
     output: OrchestrationGetSnapshotResult,
+  },
+  getShellSnapshot: {
+    input: OrchestrationGetShellSnapshotInput,
+    output: OrchestrationGetShellSnapshotResult,
   },
   getThread: {
     input: OrchestrationGetThreadInput,
@@ -509,6 +568,22 @@ export const OrchestrationRpcSchemas = {
   replayEvents: {
     input: OrchestrationReplayEventsInput,
     output: OrchestrationReplayEventsResult,
+  },
+  subscribeShell: {
+    input: OrchestrationSubscribeShellInput,
+    output: Schema.Void,
+  },
+  unsubscribeShell: {
+    input: OrchestrationUnsubscribeShellInput,
+    output: Schema.Void,
+  },
+  subscribeThread: {
+    input: OrchestrationSubscribeThreadInput,
+    output: Schema.Void,
+  },
+  unsubscribeThread: {
+    input: OrchestrationUnsubscribeThreadInput,
+    output: Schema.Void,
   },
 } as const;
 
