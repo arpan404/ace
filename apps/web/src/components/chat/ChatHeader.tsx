@@ -2,7 +2,7 @@ import { type ProjectId } from "@ace/contracts";
 import { memo, type ReactNode } from "react";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
-import { PremiumBottomPanelIcon, PremiumControlsIcon, PremiumRightPanelIcon } from "../Icons";
+import { PremiumEnvironmentIcon, PremiumPanelIcon } from "../Icons";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { ProjectContextSwitcher } from "./ProjectContextSwitcher";
 import { DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME } from "~/lib/desktopChrome";
@@ -113,7 +113,7 @@ export function ChatHeader({
       </div>
 
       <div className="flex shrink-0 items-center overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        <div className="flex shrink-0 items-center gap-1.5">
+        <div className="flex shrink-0 items-center gap-0.5">
           {reliabilitySlot}
           <Tooltip>
             <TooltipTrigger
@@ -132,7 +132,7 @@ export function ChatHeader({
                 />
               }
             >
-              <PremiumControlsIcon className={CHAT_HEADER_PANEL_ICON_CLASS_NAME} />
+              <PremiumEnvironmentIcon className={CHAT_HEADER_PANEL_ICON_CLASS_NAME} />
             </TooltipTrigger>
             <TooltipPopup side="bottom" align="end">
               Environment
@@ -162,7 +162,11 @@ export function ChatHeader({
                     />
                   }
                 >
-                  <PremiumBottomPanelIcon className={CHAT_HEADER_PANEL_ICON_CLASS_NAME} />
+                  <PremiumPanelIcon
+                    className={CHAT_HEADER_PANEL_ICON_CLASS_NAME}
+                    open={terminalOpen}
+                    side="bottom"
+                  />
                 </TooltipTrigger>
                 <TooltipPopup side="bottom" align="end">
                   {bottomPanelTooltipLabel}
@@ -182,7 +186,11 @@ export function ChatHeader({
                     />
                   }
                 >
-                  <PremiumRightPanelIcon className={CHAT_HEADER_PANEL_ICON_CLASS_NAME} />
+                  <PremiumPanelIcon
+                    className={CHAT_HEADER_PANEL_ICON_CLASS_NAME}
+                    open={false}
+                    side="right"
+                  />
                 </TooltipTrigger>
                 <TooltipPopup side="bottom" align="end">
                   {rightSidePanelTooltipLabel}

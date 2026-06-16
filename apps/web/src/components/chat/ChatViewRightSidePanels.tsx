@@ -10,17 +10,7 @@ import { restrictToFirstScrollableAncestor, restrictToHorizontalAxis } from "@dn
 import { SortableContext, horizontalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { ThreadId, TurnId } from "@ace/contracts";
-import { IconLayoutSidebarRight, IconLayoutSidebarRightFilled } from "@tabler/icons-react";
-import {
-  Code2Icon,
-  DiffIcon,
-  GlobeIcon,
-  ListTodoIcon,
-  MessageSquareIcon,
-  PlusIcon,
-  TerminalIcon,
-  XIcon,
-} from "lucide-react";
+import { XIcon } from "lucide-react";
 import {
   Suspense,
   lazy,
@@ -33,6 +23,16 @@ import {
 import { useTabStripOverflow } from "~/hooks/useTabStripOverflow";
 import { type BrowserSessionStorage, type BrowserTabState } from "~/lib/browser/session";
 import { cn } from "~/lib/utils";
+import {
+  PremiumAddIcon,
+  PremiumBrowserIcon,
+  PremiumEditorIcon,
+  PremiumMessageIcon,
+  PremiumPanelIcon,
+  PremiumReviewIcon,
+  PremiumSummaryIcon,
+  PremiumTerminalIcon,
+} from "../Icons";
 import { DiffWorkerPoolProvider } from "../DiffWorkerPoolProvider";
 import type { DiffReviewCommentInput } from "../DiffPanel";
 import { DiffPanelHeaderSkeleton } from "../DiffPanelHeaderSkeleton";
@@ -47,14 +47,19 @@ const DiffPanel = lazy(() => import("../DiffPanel"));
 
 type RightSidePanelMode = "browser" | "diff" | "editor" | "subagent" | "summary" | "terminal";
 
+const PANEL_TAB_ICON_CLASS_NAME =
+  "size-5 text-current opacity-72 transition-opacity group-hover/tab:opacity-100";
+const PANEL_TAB_CLOSE_BUTTON_CLASS_NAME =
+  "inline-flex size-4.5 items-center justify-center rounded-md bg-background text-muted-foreground opacity-0 ring-1 ring-border/55 transition-all hover:bg-accent hover:text-foreground group-hover/tab:opacity-100";
+
 function rightSidePanelTabClassName(active: boolean, disabled = false) {
   return cn(
-    "group/tab inline-flex h-8 min-w-max shrink-0 items-center gap-2 rounded-lg px-3 text-[13px] font-medium transition-all duration-200",
+    "group/tab inline-flex h-8 min-w-max shrink-0 items-center gap-2 rounded-lg border px-3 text-[13px] font-medium transition-[background-color,border-color,color,opacity] duration-200",
     active
-      ? "bg-accent text-accent-foreground ring-1 ring-border/45"
-      : "text-muted-foreground hover:bg-foreground/[0.05] hover:text-foreground",
+      ? "border-border/50 bg-foreground/[0.055] text-foreground"
+      : "border-transparent text-muted-foreground hover:border-border/35 hover:bg-foreground/[0.035] hover:text-foreground",
     disabled &&
-      "cursor-not-allowed opacity-45 hover:bg-transparent hover:text-muted-foreground ring-0 shadow-none",
+      "cursor-not-allowed opacity-45 shadow-none hover:border-transparent hover:bg-transparent hover:text-muted-foreground",
   );
 }
 
@@ -209,10 +214,12 @@ function RightSidePanelBrowserTab(props: {
         }
       >
         <span className="relative inline-flex size-4.5 shrink-0 items-center justify-center">
-          <GlobeIcon className="size-4.5 text-muted-foreground transition-opacity group-hover/tab:opacity-0" />
+          <PremiumBrowserIcon
+            className={cn(PANEL_TAB_ICON_CLASS_NAME, "group-hover/tab:opacity-0")}
+          />
           <button
             type="button"
-            className="absolute inset-0 inline-flex items-center justify-center rounded-full bg-muted-foreground/80 text-background opacity-0 transition-opacity hover:bg-foreground group-hover/tab:opacity-100"
+            className={cn("absolute inset-0", PANEL_TAB_CLOSE_BUTTON_CLASS_NAME)}
             aria-label={`Close ${props.tab.title}`}
             onPointerDown={(event) => {
               event.preventDefault();
@@ -247,7 +254,9 @@ function SortablePanelTab(props: { children: ReactNode; id: string }) {
       className={cn(
         "shrink-0 touch-pan-x",
         isDragging && "z-20 opacity-70",
-        isOver && !isDragging && "[&>_.group\\/tab]:bg-muted/80",
+        isOver &&
+          !isDragging &&
+          "[&>_.group\\/tab]:border-border/70 [&>_.group\\/tab]:bg-foreground/[0.07]",
       )}
       {...attributes}
       {...listeners}
@@ -258,7 +267,7 @@ function SortablePanelTab(props: { children: ReactNode; id: string }) {
 }
 
 function PanelTabSeparator() {
-  return <span className="h-5 w-px shrink-0 bg-border/55" aria-hidden="true" />;
+  return <span className="h-4 w-px shrink-0 bg-border/35" aria-hidden="true" />;
 }
 
 function SortablePanelTabGroup(props: {
@@ -327,12 +336,12 @@ function RightSidePanelAddTabMenu(props: {
         <TooltipTrigger
           render={
             <MenuTrigger
-              className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg border border-transparent text-muted-foreground transition-[background-color,border-color,color] hover:border-border/35 hover:bg-foreground/[0.04] hover:text-foreground"
               aria-label="Open side panel tab"
             />
           }
         >
-          <PlusIcon className="size-4.5" />
+          <PremiumAddIcon className="size-5" />
         </TooltipTrigger>
         <TooltipPopup side="bottom" align="end">
           Open side panel tab
@@ -344,7 +353,7 @@ function RightSidePanelAddTabMenu(props: {
           onClick={props.onNewBrowserTab}
           className="gap-2.5 py-1.5 text-[14px]"
         >
-          <GlobeIcon className="size-4.5 opacity-70" strokeWidth={1.75} />
+          <PremiumBrowserIcon className="size-5 opacity-70" />
           <span>Browser</span>
           {props.browserShortcutLabel ? (
             <MenuShortcut className="text-muted-foreground/60">
@@ -359,7 +368,7 @@ function RightSidePanelAddTabMenu(props: {
           }}
           className="gap-2.5 py-1.5 text-[14px]"
         >
-          <DiffIcon className="size-4.5 opacity-70" strokeWidth={1.75} />
+          <PremiumReviewIcon className="size-5 opacity-70" />
           <span>Review</span>
           {props.reviewShortcutLabel ? (
             <MenuShortcut className="text-muted-foreground/60">
@@ -368,7 +377,7 @@ function RightSidePanelAddTabMenu(props: {
           ) : null}
         </MenuItem>
         <MenuItem onClick={props.onNewEditorTab} className="gap-2.5 py-1.5 text-[14px]">
-          <Code2Icon className="size-4.5 opacity-70" strokeWidth={1.75} />
+          <PremiumEditorIcon className="size-5 opacity-70" />
           <span>Editor</span>
           {props.editorShortcutLabel ? (
             <MenuShortcut className="text-muted-foreground/60">
@@ -377,7 +386,7 @@ function RightSidePanelAddTabMenu(props: {
           ) : null}
         </MenuItem>
         <MenuItem onClick={handleTerminalMenuClick} className="gap-2.5 py-1.5 text-[14px]">
-          <TerminalIcon className="size-4.5 opacity-70" strokeWidth={1.75} />
+          <PremiumTerminalIcon className="size-5 opacity-70" />
           <span>Terminal</span>
           {props.terminalNewShortcutLabel ? (
             <MenuShortcut className="text-muted-foreground/60">
@@ -424,7 +433,7 @@ function RightSidePanelActionButtons(props: {
               />
             }
           >
-            <MessageSquareIcon className="size-4.5" />
+            <PremiumMessageIcon className="size-5" />
           </TooltipTrigger>
           <TooltipPopup side="bottom" align="end">
             {props.floatingChatTooltipWithShortcut}
@@ -471,11 +480,7 @@ function RightSidePanelActionButtons(props: {
             />
           }
         >
-          {props.bottomPanelOpen ? (
-            <IconLayoutSidebarRightFilled className="size-5 rotate-90" />
-          ) : (
-            <IconLayoutSidebarRight className="size-5 rotate-90" strokeWidth={2} />
-          )}
+          <PremiumPanelIcon className="size-5" open={props.bottomPanelOpen} side="bottom" />
         </TooltipTrigger>
         <TooltipPopup side="bottom" align="end">
           {props.bottomPanelToggleTooltipLabel}
@@ -493,7 +498,7 @@ function RightSidePanelActionButtons(props: {
             />
           }
         >
-          <IconLayoutSidebarRightFilled className="size-5" />
+          <PremiumPanelIcon className="size-5" open={true} side="right" />
         </TooltipTrigger>
         <TooltipPopup side="bottom" align="end">
           {props.panelToggleTooltipLabel}
@@ -607,7 +612,7 @@ function RightSidePanelScrollableTabs(props: {
       {props.visibleTabEntries.map((entry, index) => {
         const withSeparator = (children: ReactNode) => (
           <SortablePanelTab key={entry.key} id={entry.key}>
-            <div className="flex min-w-max items-center gap-1.5">
+            <div className="flex min-w-max items-center gap-1">
               {index > 0 ? <PanelTabSeparator /> : null}
               {children}
             </div>
@@ -628,7 +633,7 @@ function RightSidePanelScrollableTabs(props: {
                   />
                 }
               >
-                <ListTodoIcon className="size-4.5 shrink-0 text-muted-foreground" />
+                <PremiumSummaryIcon className={cn(PANEL_TAB_ICON_CLASS_NAME, "shrink-0")} />
                 <span className="truncate">Summary</span>
               </TooltipTrigger>
               <TooltipPopup side="bottom" align="start">
@@ -741,14 +746,16 @@ function RightSidePanelTypedTab(props: {
           onClick={() => props.onSelectMode("diff")}
         >
           <span className="inline-flex size-4.5 shrink-0 items-center justify-center">
-            <DiffIcon className="size-4.5 text-muted-foreground transition-opacity group-hover/tab:opacity-0" />
+            <PremiumReviewIcon
+              className={cn(PANEL_TAB_ICON_CLASS_NAME, "group-hover/tab:opacity-0")}
+            />
           </span>
           <span className="min-w-0 truncate text-left">Review</span>
         </button>
         <span className="pointer-events-none absolute top-1/2 left-3 inline-flex size-4.5 -translate-y-1/2 items-center justify-center">
           <button
             type="button"
-            className="pointer-events-auto inline-flex size-4.5 items-center justify-center rounded-full bg-muted-foreground/80 text-background opacity-0 transition-opacity hover:bg-foreground group-hover/tab:opacity-100"
+            className={cn("pointer-events-auto", PANEL_TAB_CLOSE_BUTTON_CLASS_NAME)}
             aria-label="Close review tab"
             onPointerDown={(event) => {
               event.preventDefault();
@@ -786,10 +793,12 @@ function RightSidePanelTypedTab(props: {
           }
         >
           <span className="relative inline-flex size-4.5 shrink-0 items-center justify-center">
-            <Code2Icon className="size-4.5 text-muted-foreground transition-opacity group-hover/tab:opacity-0" />
+            <PremiumEditorIcon
+              className={cn(PANEL_TAB_ICON_CLASS_NAME, "group-hover/tab:opacity-0")}
+            />
             <button
               type="button"
-              className="absolute inset-0 inline-flex items-center justify-center rounded-full bg-muted-foreground/80 text-background opacity-0 transition-opacity hover:bg-foreground group-hover/tab:opacity-100"
+              className={cn("absolute inset-0", PANEL_TAB_CLOSE_BUTTON_CLASS_NAME)}
               aria-label={`Close ${tab.label}`}
               onPointerDown={(event) => {
                 event.preventDefault();
@@ -827,7 +836,9 @@ function RightSidePanelTypedTab(props: {
           onClick={() => props.onTerminalTabSelect(tab.id)}
         >
           <span className="inline-flex size-4.5 shrink-0 items-center justify-center">
-            <TerminalIcon className="size-4.5 text-muted-foreground transition-opacity group-hover/tab:opacity-0" />
+            <PremiumTerminalIcon
+              className={cn(PANEL_TAB_ICON_CLASS_NAME, "group-hover/tab:opacity-0")}
+            />
           </span>
           <span className="min-w-0 truncate text-left">{tab.label}</span>
           <span
@@ -840,7 +851,7 @@ function RightSidePanelTypedTab(props: {
         <span className="pointer-events-none absolute top-1/2 left-3 inline-flex size-4.5 -translate-y-1/2 items-center justify-center">
           <button
             type="button"
-            className="pointer-events-auto inline-flex size-4.5 items-center justify-center rounded-full bg-muted-foreground/80 text-background opacity-0 transition-opacity hover:bg-foreground group-hover/tab:opacity-100"
+            className={cn("pointer-events-auto", PANEL_TAB_CLOSE_BUTTON_CLASS_NAME)}
             aria-label={`Close ${tab.label}`}
             onPointerDown={(event) => {
               event.preventDefault();
@@ -981,7 +992,7 @@ export function RightSidePanelTabStrip(props: RightSidePanelTabStripProps) {
     >
       <div
         ref={tabStripRef}
-        className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto overflow-y-hidden overscroll-x-contain scroll-px-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto overflow-y-hidden overscroll-x-contain scroll-px-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         onWheelCapture={(event) => {
           const target = event.currentTarget;
           if (target.scrollWidth <= target.clientWidth) return;

@@ -1,6 +1,5 @@
 import { ProviderInteractionMode } from "@ace/contracts";
 import { type ReactNode } from "react";
-import { EllipsisIcon } from "lucide-react";
 import { Button } from "../ui/button";
 import {
   Menu,
@@ -11,6 +10,7 @@ import {
   MenuShortcut,
   MenuTrigger,
 } from "../ui/menu";
+import { PremiumKeyboardRaiseIcon } from "../Icons";
 
 export function CompactComposerControlsMenu(props: {
   interactionMode: ProviderInteractionMode;
@@ -31,7 +31,7 @@ export function CompactComposerControlsMenu(props: {
           />
         }
       >
-        <EllipsisIcon aria-hidden="true" className="size-4" />
+        <PremiumKeyboardRaiseIcon aria-hidden="true" className="size-4" />
       </MenuTrigger>
       <MenuPopup align="start">
         {props.traitsMenuContent ? (
