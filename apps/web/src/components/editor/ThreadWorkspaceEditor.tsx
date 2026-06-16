@@ -3387,6 +3387,11 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     handleSplitPane(paneId, filePath, "right");
   };
 
+  const handleOpenFileBelow = (paneId: string, filePath: string) => {
+    prepareWorkspaceFileOpen(filePath);
+    handleSplitPane(paneId, filePath, "down");
+  };
+
   useEffect(() => {
     const onWindowKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.repeat || !activePane) {
@@ -4905,6 +4910,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                               onFocusPane={(paneId) => setActivePane(props.threadId, paneId)}
                               onHydrateFile={handleHydrateFile}
                               onMoveFile={(input) => moveFile(props.threadId, input)}
+                              onOpenFileBelow={handleOpenFileBelow}
                               onOpenFileInPane={handleOpenFileInPane}
                               onOpenFileToSide={handleOpenFileToSide}
                               onProblemsChange={handlePaneProblemsChange}

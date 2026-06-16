@@ -59,6 +59,9 @@ export function AppPageTopBar({
         )}
       >
         {showHeaderSidebarTrigger ? (
+          <SidebarTrigger className={cn("shrink-0", DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME)} />
+        ) : null}
+        {showHeaderSidebarTrigger ? (
           <div className="flex shrink-0 items-center gap-1.5">
             <Tooltip>
               <TooltipTrigger
@@ -97,9 +100,6 @@ export function AppPageTopBar({
           </div>
         ) : null}
         {children}
-        {showHeaderSidebarTrigger ? (
-          <SidebarTrigger className={cn("shrink-0", DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME)} />
-        ) : null}
       </div>
     </header>
   );

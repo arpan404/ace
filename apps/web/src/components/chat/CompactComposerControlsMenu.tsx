@@ -1,5 +1,5 @@
 import { ProviderInteractionMode } from "@ace/contracts";
-import { IconKeyboardHide, IconKeyboardShow } from "@tabler/icons-react";
+import { EllipsisIcon } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { Button } from "../ui/button";
 import {
@@ -20,7 +20,6 @@ export function CompactComposerControlsMenu(props: {
   onToggleInteractionMode: () => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
-  const ComposerMenuIcon = menuOpen ? IconKeyboardHide : IconKeyboardShow;
 
   return (
     <Menu open={menuOpen} onOpenChange={setMenuOpen}>
@@ -34,7 +33,7 @@ export function CompactComposerControlsMenu(props: {
           />
         }
       >
-        <ComposerMenuIcon aria-hidden="true" className="size-4" />
+        <EllipsisIcon aria-hidden="true" className="size-4" />
       </MenuTrigger>
       <MenuPopup align="start">
         {props.traitsMenuContent ? (

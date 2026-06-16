@@ -780,47 +780,51 @@ function RightSidePanelTypedTab(props: {
     const tab = props.editorTabs.find((candidate) => candidate.id === props.entry.id);
     if (!tab) return null;
     return props.withSeparator(
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <button
-              type="button"
-              aria-label={`Select editor tab ${tab.label}`}
-              className={rightSidePanelTabClassName(
-                props.activeMode === "editor" && props.activeEditorTabId === tab.id,
-              )}
-              aria-pressed={props.activeMode === "editor" && props.activeEditorTabId === tab.id}
-              onClick={() => props.onEditorTabSelect(tab.id)}
-            />
-          }
-        >
-          <span className="relative inline-flex size-4.5 shrink-0 items-center justify-center">
-            <PremiumEditorIcon
-              className={cn(PANEL_TAB_ICON_CLASS_NAME, "group-hover/tab:opacity-0")}
-            />
-            <button
-              type="button"
-              className={cn("absolute inset-0", PANEL_TAB_CLOSE_BUTTON_CLASS_NAME)}
-              aria-label={`Close ${tab.label}`}
-              onPointerDown={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-              }}
-              onClick={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                props.onEditorTabClose(tab.id);
-              }}
-            >
-              <XIcon className="size-3.5" />
-            </button>
-          </span>
-          <span className="min-w-0 truncate text-left">{tab.label}</span>
-        </TooltipTrigger>
-        <TooltipPopup side="bottom" align="start">
-          {props.editorTooltipLabel}: {tab.label}
-        </TooltipPopup>
-      </Tooltip>,
+      <div className="group/tab relative inline-flex">
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                aria-label={`Select editor tab ${tab.label}`}
+                className={rightSidePanelTabClassName(
+                  props.activeMode === "editor" && props.activeEditorTabId === tab.id,
+                )}
+                aria-pressed={props.activeMode === "editor" && props.activeEditorTabId === tab.id}
+                onClick={() => props.onEditorTabSelect(tab.id)}
+              />
+            }
+          >
+            <span className="inline-flex size-4.5 shrink-0 items-center justify-center">
+              <PremiumEditorIcon
+                className={cn(PANEL_TAB_ICON_CLASS_NAME, "group-hover/tab:opacity-0")}
+              />
+            </span>
+            <span className="min-w-0 truncate text-left">{tab.label}</span>
+          </TooltipTrigger>
+          <TooltipPopup side="bottom" align="start">
+            {props.editorTooltipLabel}: {tab.label}
+          </TooltipPopup>
+        </Tooltip>
+        <span className="pointer-events-none absolute top-1/2 left-3 inline-flex size-4.5 -translate-y-1/2 items-center justify-center">
+          <button
+            type="button"
+            className={cn("pointer-events-auto", PANEL_TAB_CLOSE_BUTTON_CLASS_NAME)}
+            aria-label={`Close ${tab.label}`}
+            onPointerDown={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              props.onEditorTabClose(tab.id);
+            }}
+          >
+            <XIcon className="size-3.5" />
+          </button>
+        </span>
+      </div>,
     );
   }
 

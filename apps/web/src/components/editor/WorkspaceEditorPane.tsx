@@ -90,6 +90,22 @@ function readDraggedWorkspaceExplorerEntry(event: ReactDragEvent<HTMLElement>) {
   return readExplorerEntryTransfer(event.dataTransfer);
 }
 
+function readDraggedWorkspaceEditorFile(event: ReactDragEvent<HTMLElement>) {
+  const draggedTab = readDraggedWorkspaceTab(event);
+  if (draggedTab) {
+    return { kind: "tab" as const, ...draggedTab };
+  }
+
+  const draggedEntry = readDraggedWorkspaceExplorerEntry(event);
+  if (!draggedEntry || draggedEntry.kind !== "file") {
+    return null;
+  }
+
+  return { kind: "explorer" as const, filePath: draggedEntry.path };
+}
+
+type WorkspaceEditorDropTarget = "center" | "right" | "bottom";
+
 interface WorkspaceEditorPaneProps {
   active: boolean;
   canClosePane: boolean;
@@ -120,6 +136,7 @@ interface WorkspaceEditorPaneProps {
     targetIndex?: number;
   }) => void;
   onOpenFileInPane: (paneId: string, filePath: string, targetIndex?: number) => void;
+  onOpenFileBelow: (paneId: string, filePath: string) => void;
   onOpenFileToSide: (paneId: string, filePath: string) => void;
   onProblemsChange: (
     paneId: string,
@@ -621,6 +638,7 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
   const onCloseFile = props.onCloseFile;
   const onCloseOtherTabs = props.onCloseOtherTabs;
   const onCloseTabsToRight = props.onCloseTabsToRight;
+  const onOpenFileBelow = props.onOpenFileBelow;
   const onOpenFileToSide = props.onOpenFileToSide;
   const onOpenFileInPane = props.onOpenFileInPane;
   const onReopenClosedTab = props.onReopenClosedTab;
@@ -628,6 +646,7 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
   const onProblemsChange = props.onProblemsChange;
   const onSymbolsChange = props.onSymbolsChange;
   const [dropTargetIndex, setDropTargetIndex] = useState<number | null>(null);
+  const [editorDropTarget, setEditorDropTarget] = useState<WorkspaceEditorDropTarget | null>(null);
   const [editorFeedbackState, setEditorFeedbackState] = useState<WorkspaceEditorFeedbackState>(
     EMPTY_WORKSPACE_EDITOR_FEEDBACK_STATE,
   );
@@ -1241,6 +1260,78 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
     setDropTargetIndex(targetIndex ?? pane.openFilePaths.length);
   };
 
+  const resolveEditorDropTarget = (
+    event: ReactDragEvent<HTMLElement>,
+  ): WorkspaceEditorDropTarget => {
+    if (!props.canSplitPane) {
+      return "center";
+    }
+
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const xRatio = bounds.width > 0 ? (event.clientX - bounds.left) / bounds.width : 0.5;
+    const yRatio = bounds.height > 0 ? (event.clientY - bounds.top) / bounds.height : 0.5;
+
+    if (xRatio > 0.72) {
+      return "right";
+    }
+
+    if (yRatio > 0.72) {
+      return "bottom";
+    }
+
+    return "center";
+  };
+
+  const handleEditorPaneDragOver = (event: ReactDragEvent<HTMLElement>) => {
+    const draggedFile = readDraggedWorkspaceEditorFile(event);
+    if (!draggedFile) {
+      return;
+    }
+
+    event.preventDefault();
+    event.dataTransfer.dropEffect = draggedFile.kind === "tab" ? "move" : "copy";
+    setEditorDropTarget(resolveEditorDropTarget(event));
+  };
+
+  const handleEditorPaneDragLeave = (event: ReactDragEvent<HTMLElement>) => {
+    if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+      setEditorDropTarget(null);
+    }
+  };
+
+  const handleEditorPaneDrop = (event: ReactDragEvent<HTMLElement>) => {
+    const draggedFile = readDraggedWorkspaceEditorFile(event);
+    if (!draggedFile) {
+      return;
+    }
+
+    event.preventDefault();
+    const target = resolveEditorDropTarget(event);
+    setEditorDropTarget(null);
+    setDropTargetIndex(null);
+
+    if (target === "right") {
+      onOpenFileToSide(pane.id, draggedFile.filePath);
+      return;
+    }
+
+    if (target === "bottom") {
+      onOpenFileBelow(pane.id, draggedFile.filePath);
+      return;
+    }
+
+    if (draggedFile.kind === "tab") {
+      onMoveFile({
+        filePath: draggedFile.filePath,
+        sourcePaneId: draggedFile.sourcePaneId,
+        targetPaneId: pane.id,
+      });
+      return;
+    }
+
+    onOpenFileInPane(pane.id, draggedFile.filePath);
+  };
+
   const clearDropTarget = () => {
     setDropTargetIndex(null);
   };
@@ -1597,7 +1688,41 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
         </div>
       </div>
 
-      <div className="relative min-h-0 min-w-0 flex-1 bg-background">
+      <div
+        className="relative min-h-0 min-w-0 flex-1 bg-background"
+        onDragLeave={handleEditorPaneDragLeave}
+        onDragOver={handleEditorPaneDragOver}
+        onDrop={handleEditorPaneDrop}
+      >
+        {editorDropTarget ? (
+          <div className="pointer-events-none absolute inset-0 z-20 p-2">
+            <div
+              className={cn(
+                "absolute flex items-center justify-center rounded-xl border border-primary/55 bg-primary/[0.08] text-primary shadow-[inset_0_1px_0_rgba(255,255,255,0.12),0_8px_24px_rgba(0,0,0,0.12)] backdrop-blur-[1px]",
+                editorDropTarget === "center" && "inset-2",
+                editorDropTarget === "right" && "inset-y-2 right-2 w-[30%] min-w-32",
+                editorDropTarget === "bottom" && "inset-x-2 bottom-2 h-[30%] min-h-28",
+              )}
+            >
+              <div className="flex items-center gap-2 rounded-lg bg-background/80 px-3 py-2 text-xs font-medium shadow-sm ring-1 ring-border/60">
+                {editorDropTarget === "right" ? (
+                  <Columns2Icon className="size-3.5" />
+                ) : editorDropTarget === "bottom" ? (
+                  <Rows2Icon className="size-3.5" />
+                ) : (
+                  <ArrowUpRightIcon className="size-3.5" />
+                )}
+                <span>
+                  {editorDropTarget === "right"
+                    ? "Open to side"
+                    : editorDropTarget === "bottom"
+                      ? "Open below"
+                      : "Open here"}
+                </span>
+              </div>
+            </div>
+          </div>
+        ) : null}
         {!props.pane.activeFilePath ? (
           <div className="flex h-full items-center justify-center">
             <div className="pointer-events-none flex items-center justify-center text-foreground opacity-[0.03]">
