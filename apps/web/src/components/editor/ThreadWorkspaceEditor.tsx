@@ -25,8 +25,6 @@ import {
   GitForkIcon,
   HashIcon,
   ListTreeIcon,
-  PanelRightCloseIcon,
-  PanelRightOpenIcon,
   SearchIcon,
   SquareArrowOutUpRightIcon,
 } from "lucide-react";
@@ -53,7 +51,7 @@ import { useSetting, useUpdateSettings } from "~/hooks/useSettings";
 import { useReactCompilerSafeVirtualizer } from "~/hooks/useReactCompilerSafeVirtualizer";
 import { useStableCallback } from "~/hooks/useStableCallback";
 import { useTheme } from "~/hooks/useTheme";
-import { PremiumCornerFocusIcon, PremiumMessageIcon } from "~/components/Icons";
+import { PremiumCornerFocusIcon, PremiumMessageIcon, PremiumPanelIcon } from "~/components/Icons";
 import { isTerminalFocused } from "~/lib/terminalFocus";
 import {
   createWorkspaceDiffEditorOptions,
@@ -4868,17 +4866,11 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                                           />
                                         }
                                       >
-                                        {explorerOpen ? (
-                                          <PanelRightCloseIcon
-                                            className={WORKSPACE_EDITOR_CHROME_PRIMARY_ICON_CLASS}
-                                            strokeWidth={2}
-                                          />
-                                        ) : (
-                                          <PanelRightOpenIcon
-                                            className={WORKSPACE_EDITOR_CHROME_PRIMARY_ICON_CLASS}
-                                            strokeWidth={2}
-                                          />
-                                        )}
+                                        <PremiumPanelIcon
+                                          className={WORKSPACE_EDITOR_CHROME_PRIMARY_ICON_CLASS}
+                                          open={explorerOpen}
+                                          side="right"
+                                        />
                                       </TooltipTrigger>
                                       <TooltipPopup side="bottom">
                                         {explorerOpen

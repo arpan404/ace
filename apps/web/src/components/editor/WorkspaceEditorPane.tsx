@@ -1379,7 +1379,7 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
       }}
     >
       <div
-        className="flex h-9 shrink-0 items-center gap-1 overflow-hidden border-b border-border/25 bg-background px-1.5"
+        className="flex h-10 shrink-0 items-center gap-1 overflow-hidden border-b border-border/25 bg-background px-2.5"
         onDragLeave={(event) => {
           if (event.currentTarget.contains(event.relatedTarget as Node | null)) {
             return;
@@ -1391,7 +1391,7 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
       >
         <div
           ref={tabStripRef}
-          className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         >
           {props.pane.openFilePaths.map((filePath) => {
             const isActive = filePath === props.pane.activeFilePath;
@@ -1399,7 +1399,7 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
             return (
               <div key={filePath} className="relative flex shrink-0">
                 {dropTargetIndex === props.pane.openFilePaths.indexOf(filePath) ? (
-                  <div className="absolute top-1.5 bottom-1.5 left-0 z-20 w-[2px] rounded-full bg-primary/85" />
+                  <div className="absolute top-1.5 bottom-1.5 left-0 z-20 w-[2px] rounded-full bg-primary/85 shadow-[0_0_10px_color-mix(in_srgb,var(--primary)_42%,transparent)]" />
                 ) : null}
                 <Tooltip>
                   <TooltipTrigger
@@ -1410,10 +1410,10 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
                         aria-selected={isActive}
                         data-editor-tab="true"
                         className={cn(
-                          "group/tab relative flex h-7 shrink-0 items-center gap-1.5 rounded-lg border px-2.5 text-[12px] transition-colors",
+                          "group/tab relative flex h-7 shrink-0 items-center gap-1.5 rounded-lg border px-3 text-[12px] transition-[background-color,border-color,box-shadow,color] duration-150",
                           isActive
-                            ? "border-border/70 bg-background text-foreground"
-                            : "border-transparent text-muted-foreground hover:bg-accent/70 hover:text-foreground",
+                            ? "border-border/60 bg-foreground/[0.055] text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_1px_3px_rgba(0,0,0,0.08)]"
+                            : "border-transparent text-muted-foreground/72 hover:border-border/35 hover:bg-foreground/[0.035] hover:text-foreground/88",
                         )}
                         draggable
                         onClick={() => props.onSetActiveFile(props.pane.id, filePath)}
@@ -1455,35 +1455,45 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
                         }
                         aria-label={filePath}
                       >
-                        <VscodeEntryIcon
-                          pathValue={filePath}
-                          kind="file"
-                          theme={props.resolvedTheme}
-                          className="size-[14px] shrink-0"
-                        />
-                        <span className="max-w-[150px] truncate font-medium">
+                        <span className="relative inline-flex size-4.5 shrink-0 items-center justify-center">
+                          <VscodeEntryIcon
+                            pathValue={filePath}
+                            kind="file"
+                            theme={props.resolvedTheme}
+                            className={cn(
+                              "size-[14px] shrink-0 transition-opacity",
+                              isActive ? "opacity-100" : "opacity-78 group-hover/tab:opacity-95",
+                              "group-hover/tab:opacity-0",
+                            )}
+                          />
+                          <button
+                            type="button"
+                            tabIndex={-1}
+                            className="absolute inset-0 flex items-center justify-center rounded-md text-muted-foreground/70 opacity-0 transition-[background-color,color,opacity] hover:bg-foreground/[0.07] hover:text-foreground group-hover/tab:opacity-100"
+                            onPointerDown={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                            }}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              props.onCloseFile(props.pane.id, filePath);
+                            }}
+                            aria-label={`Close ${filePath}`}
+                          >
+                            <XIcon className="size-3" />
+                          </button>
+                        </span>
+                        <span
+                          className={cn(
+                            "max-w-[150px] truncate font-medium",
+                            isActive ? "text-foreground" : "text-current",
+                          )}
+                        >
                           {basenameOfPath(filePath)}
                         </span>
                         {isDirty ? (
-                          <span className="size-1.5 shrink-0 rounded-full bg-foreground/45 group-hover/tab:hidden" />
+                          <span className="size-1.5 shrink-0 rounded-full bg-primary/75 shadow-[0_0_0_2px_color-mix(in_srgb,var(--background)_92%,transparent)] group-hover/tab:hidden" />
                         ) : null}
-                        <button
-                          type="button"
-                          tabIndex={-1}
-                          className={cn(
-                            "flex size-4 shrink-0 items-center justify-center rounded-md opacity-0 transition-opacity",
-                            isActive ? "opacity-100" : "group-hover/tab:opacity-100",
-                            "hover:bg-foreground/[0.05]",
-                            isDirty ? "hidden group-hover/tab:flex" : "",
-                          )}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            props.onCloseFile(props.pane.id, filePath);
-                          }}
-                          aria-label={`Close ${filePath}`}
-                        >
-                          <XIcon className="size-3" />
-                        </button>
                       </div>
                     }
                   />

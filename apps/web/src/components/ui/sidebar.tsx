@@ -360,7 +360,7 @@ function Sidebar({
 function SidebarTrigger({ className, onClick, ...props }: React.ComponentProps<"button">) {
   const { isMobile, open, openMobile, toggleSidebar } = useSidebar();
   const iconClassName =
-    "size-[18px] opacity-70 brightness-90 transition-[filter,opacity] duration-150 group-hover/sidebar-trigger:opacity-100 group-hover/sidebar-trigger:brightness-125";
+    "size-[19px] opacity-70 transition-opacity duration-150 group-hover/sidebar-trigger:opacity-100";
   const isOpen = isMobile ? openMobile : open;
   const iconOpen = !isOpen;
 

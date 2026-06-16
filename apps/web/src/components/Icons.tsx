@@ -149,38 +149,44 @@ export function PremiumPanelIcon({
 }) {
   const divider =
     side === "bottom" ? (
-      <path
-        d={open ? "M6.1 15.6h11.8" : "M9.2 15.6h5.6"}
-        stroke="currentColor"
-        strokeWidth="2.25"
-        strokeLinecap="round"
+      <rect
+        x={open ? "6.15" : "8.45"}
+        y="14.35"
+        width={open ? "11.7" : "7.1"}
+        height="2.65"
+        rx="1.32"
+        fill="currentColor"
       />
     ) : side === "left" ? (
-      <path
-        d={open ? "M7.25 7.05v9.9" : "M7.25 9.45v5.1"}
-        stroke="currentColor"
-        strokeWidth="2.25"
-        strokeLinecap="round"
+      <rect
+        x="6.25"
+        y={open ? "7.35" : "9.65"}
+        width="2.35"
+        height={open ? "9.3" : "4.7"}
+        rx="1.18"
+        fill="currentColor"
       />
     ) : (
-      <path
-        d={open ? "M16.75 7.05v9.9" : "M16.75 9.45v5.1"}
-        stroke="currentColor"
-        strokeWidth="2.25"
-        strokeLinecap="round"
+      <rect
+        x="15.15"
+        y={open ? "7.15" : "8.6"}
+        width="2.65"
+        height={open ? "9.7" : "6.8"}
+        rx="1.32"
+        fill="currentColor"
       />
     );
 
   return (
     <svg {...props} viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <rect
-        x="4"
-        y="5.35"
-        width="16"
-        height="13.3"
-        rx="4"
+        x="3.8"
+        y="5.15"
+        width="16.4"
+        height="13.7"
+        rx="4.35"
         stroke="currentColor"
-        strokeWidth="2.15"
+        strokeWidth="2.25"
       />
       {divider}
     </svg>
