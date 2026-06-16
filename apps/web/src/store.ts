@@ -2092,34 +2092,38 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
           event.payload.role === "assistant" &&
           event.payload.turnId !== null &&
           (thread.latestTurn === null || thread.latestTurn.turnId === event.payload.turnId)
-            ? buildLatestTurn({
-                previous: thread.latestTurn,
-                turnId: event.payload.turnId,
-                state: event.payload.streaming
+            ? (() => {
+                const previous = thread.latestTurn;
+                const previousIsSettled =
+                  previous?.turnId === event.payload.turnId &&
+                  previous.completedAt !== null &&
+                  previous.state !== "running";
+                const state = event.payload.streaming
                   ? "running"
-                  : thread.latestTurn?.state === "interrupted"
-                    ? "interrupted"
-                    : thread.latestTurn?.state === "error"
-                      ? "error"
-                      : "completed",
-                requestedAt:
-                  thread.latestTurn?.turnId === event.payload.turnId
-                    ? thread.latestTurn.requestedAt
-                    : event.payload.createdAt,
-                startedAt:
-                  thread.latestTurn?.turnId === event.payload.turnId
-                    ? (thread.latestTurn.startedAt ?? event.payload.createdAt)
-                    : event.payload.createdAt,
-                sourceProposedPlan: thread.pendingSourceProposedPlan,
-                completedAt: event.payload.streaming
-                  ? thread.latestTurn?.turnId === event.payload.turnId
-                    ? (thread.latestTurn.completedAt ?? null)
-                    : null
-                  : event.payload.updatedAt,
-                assistantMessageId:
-                  resolveLatestAssistantMessageIdForTurn(cappedMessages, event.payload.turnId) ??
-                  event.payload.messageId,
-              })
+                  : previousIsSettled
+                    ? previous.state
+                    : previous?.state === "interrupted" || previous?.state === "error"
+                      ? previous.state
+                      : "running";
+                return buildLatestTurn({
+                  previous,
+                  turnId: event.payload.turnId,
+                  state,
+                  requestedAt:
+                    previous?.turnId === event.payload.turnId
+                      ? previous.requestedAt
+                      : event.payload.createdAt,
+                  startedAt:
+                    previous?.turnId === event.payload.turnId
+                      ? (previous.startedAt ?? event.payload.createdAt)
+                      : event.payload.createdAt,
+                  sourceProposedPlan: thread.pendingSourceProposedPlan,
+                  completedAt: previousIsSettled ? previous.completedAt : null,
+                  assistantMessageId:
+                    resolveLatestAssistantMessageIdForTurn(cappedMessages, event.payload.turnId) ??
+                    event.payload.messageId,
+                });
+              })()
             : thread.latestTurn;
         const nextThread = {
           ...thread,
@@ -2131,7 +2135,8 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
         return event.payload.role === "assistant" &&
           event.payload.turnId !== null &&
           latestTurn?.turnId === event.payload.turnId &&
-          latestTurn.state !== "running"
+          latestTurn.state !== "running" &&
+          latestTurn.completedAt !== null
           ? compactSettledTurnActivities(nextThread, String(event.payload.turnId), event.occurredAt)
           : nextThread;
       });
@@ -2140,14 +2145,19 @@ function applyThreadEvent(state: AppState, event: OrchestrationEvent): AppState 
     case "thread.session-set": {
       return updateThreadState(state, event.payload.threadId, (thread) => {
         const session = mapSession(event.payload.session);
+        const latestTurn = latestTurnFromSessionLifecycleEvent(thread, event.payload.session);
         const nextThread = {
           ...thread,
           session,
           error: resolveSessionVisibleError(event.payload.session),
-          latestTurn: latestTurnFromSessionLifecycleEvent(thread, event.payload.session),
+          latestTurn,
           updatedAt: event.occurredAt,
         };
-        return suppressDismissedThreadError(nextThread, state.dismissedThreadErrorKeysById);
+        const settledThread =
+          latestTurn !== null && latestTurn.state !== "running" && latestTurn.completedAt !== null
+            ? compactSettledTurnActivities(nextThread, String(latestTurn.turnId), event.occurredAt)
+            : nextThread;
+        return suppressDismissedThreadError(settledThread, state.dismissedThreadErrorKeysById);
       });
     }
 

@@ -240,6 +240,179 @@ it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("ace-base-")))(
   },
 );
 
+it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("ace-projection-turn-lifecycle-")))(
+  "OrchestrationProjectionPipeline",
+  (it) => {
+    it.effect("keeps assistant completion boundaries running until the session settles", () =>
+      Effect.gen(function* () {
+        const projectionPipeline = yield* OrchestrationProjectionPipeline;
+        const eventStore = yield* OrchestrationEventStore;
+        const sql = yield* SqlClient.SqlClient;
+        const threadId = ThreadId.makeUnsafe("thread-turn-lifecycle");
+        const turnId = TurnId.makeUnsafe("turn-lifecycle");
+        const assistantMessageId = MessageId.makeUnsafe("assistant-lifecycle");
+        const appendAndProject = (event: Parameters<typeof eventStore.append>[0]) =>
+          eventStore
+            .append(event)
+            .pipe(Effect.flatMap((savedEvent) => projectionPipeline.projectEvent(savedEvent)));
+
+        yield* appendAndProject({
+          type: "project.created",
+          eventId: EventId.makeUnsafe("evt-turn-lifecycle-project"),
+          aggregateKind: "project",
+          aggregateId: ProjectId.makeUnsafe("project-turn-lifecycle"),
+          occurredAt: "2026-06-01T00:00:00.000Z",
+          commandId: CommandId.makeUnsafe("cmd-turn-lifecycle-project"),
+          causationEventId: null,
+          correlationId: CorrelationId.makeUnsafe("cmd-turn-lifecycle-project"),
+          metadata: {},
+          payload: {
+            projectId: ProjectId.makeUnsafe("project-turn-lifecycle"),
+            title: "Turn Lifecycle Project",
+            workspaceRoot: "/tmp/turn-lifecycle",
+            defaultModelSelection: null,
+            scripts: [],
+            createdAt: "2026-06-01T00:00:00.000Z",
+            updatedAt: "2026-06-01T00:00:00.000Z",
+          },
+        });
+        yield* appendAndProject({
+          type: "thread.created",
+          eventId: EventId.makeUnsafe("evt-turn-lifecycle-thread"),
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: "2026-06-01T00:00:00.100Z",
+          commandId: CommandId.makeUnsafe("cmd-turn-lifecycle-thread"),
+          causationEventId: null,
+          correlationId: CorrelationId.makeUnsafe("cmd-turn-lifecycle-thread"),
+          metadata: {},
+          payload: {
+            threadId,
+            projectId: ProjectId.makeUnsafe("project-turn-lifecycle"),
+            title: "Turn Lifecycle Thread",
+            modelSelection: { provider: "codex", model: "gpt-5-codex" },
+            runtimeMode: "full-access",
+            branch: null,
+            worktreePath: null,
+            createdAt: "2026-06-01T00:00:00.100Z",
+            updatedAt: "2026-06-01T00:00:00.100Z",
+          },
+        });
+        yield* appendAndProject({
+          type: "thread.session-set",
+          eventId: EventId.makeUnsafe("evt-turn-lifecycle-session-running"),
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: "2026-06-01T00:00:01.000Z",
+          commandId: CommandId.makeUnsafe("cmd-turn-lifecycle-session-running"),
+          causationEventId: null,
+          correlationId: CorrelationId.makeUnsafe("cmd-turn-lifecycle-session-running"),
+          metadata: {},
+          payload: {
+            threadId,
+            session: {
+              threadId,
+              status: "running",
+              providerName: "codex",
+              runtimeMode: "full-access",
+              activeTurnId: turnId,
+              lastError: null,
+              updatedAt: "2026-06-01T00:00:01.000Z",
+            },
+          },
+        });
+        yield* appendAndProject({
+          type: "thread.message-sent",
+          eventId: EventId.makeUnsafe("evt-turn-lifecycle-assistant-complete"),
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: "2026-06-01T00:00:02.000Z",
+          commandId: CommandId.makeUnsafe("cmd-turn-lifecycle-assistant-complete"),
+          causationEventId: null,
+          correlationId: CorrelationId.makeUnsafe("cmd-turn-lifecycle-assistant-complete"),
+          metadata: {},
+          payload: {
+            threadId,
+            messageId: assistantMessageId,
+            role: "assistant",
+            text: "Intermediate assistant boundary",
+            turnId,
+            streaming: false,
+            createdAt: "2026-06-01T00:00:02.000Z",
+            updatedAt: "2026-06-01T00:00:02.000Z",
+          },
+        });
+
+        const runningRows = yield* sql<{
+          readonly state: string;
+          readonly completedAt: string | null;
+          readonly assistantMessageId: string | null;
+        }>`
+          SELECT
+            state,
+            completed_at AS "completedAt",
+            assistant_message_id AS "assistantMessageId"
+          FROM projection_turns
+          WHERE thread_id = ${threadId}
+            AND turn_id = ${turnId}
+        `;
+        assert.deepEqual(runningRows, [
+          {
+            state: "running",
+            completedAt: null,
+            assistantMessageId,
+          },
+        ]);
+
+        yield* appendAndProject({
+          type: "thread.session-set",
+          eventId: EventId.makeUnsafe("evt-turn-lifecycle-session-ready"),
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          occurredAt: "2026-06-01T00:00:03.000Z",
+          commandId: CommandId.makeUnsafe("cmd-turn-lifecycle-session-ready"),
+          causationEventId: null,
+          correlationId: CorrelationId.makeUnsafe("cmd-turn-lifecycle-session-ready"),
+          metadata: {},
+          payload: {
+            threadId,
+            session: {
+              threadId,
+              status: "ready",
+              providerName: "codex",
+              runtimeMode: "full-access",
+              activeTurnId: null,
+              lastError: null,
+              updatedAt: "2026-06-01T00:00:03.000Z",
+            },
+          },
+        });
+
+        const settledRows = yield* sql<{
+          readonly state: string;
+          readonly completedAt: string | null;
+          readonly assistantMessageId: string | null;
+        }>`
+          SELECT
+            state,
+            completed_at AS "completedAt",
+            assistant_message_id AS "assistantMessageId"
+          FROM projection_turns
+          WHERE thread_id = ${threadId}
+            AND turn_id = ${turnId}
+        `;
+        assert.deepEqual(settledRows, [
+          {
+            state: "completed",
+            completedAt: "2026-06-01T00:00:03.000Z",
+            assistantMessageId,
+          },
+        ]);
+      }),
+    );
+  },
+);
+
 it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("ace-projection-attachments-safe-")))(
   "OrchestrationProjectionPipeline",
   (it) => {

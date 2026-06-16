@@ -39,6 +39,39 @@ function checkpointStatusToLatestTurnState(status: "ready" | "missing" | "error"
   return "completed" as const;
 }
 
+function latestTurnFromAssistantMessage(
+  thread: OrchestrationThread,
+  message: OrchestrationMessage,
+): OrchestrationThread["latestTurn"] {
+  if (message.role !== "assistant" || message.turnId === null) {
+    return thread.latestTurn;
+  }
+  if (thread.latestTurn !== null && thread.latestTurn.turnId !== message.turnId) {
+    return thread.latestTurn;
+  }
+
+  const previous = thread.latestTurn;
+  const previousIsSettled =
+    previous !== null && previous.completedAt !== null && previous.state !== "running";
+  const state = message.streaming
+    ? "running"
+    : previousIsSettled
+      ? previous.state
+      : previous?.state === "interrupted" || previous?.state === "error"
+        ? previous.state
+        : "running";
+
+  return {
+    ...previous,
+    turnId: message.turnId,
+    state,
+    requestedAt: previous?.requestedAt ?? message.createdAt,
+    startedAt: previous?.startedAt ?? message.createdAt,
+    completedAt: previousIsSettled ? previous.completedAt : null,
+    assistantMessageId: message.id,
+  };
+}
+
 function latestTurnFromSessionLifecycle(
   thread: OrchestrationThread,
   session: OrchestrationSession,
@@ -518,6 +551,7 @@ export function projectEvent(
           ...nextBase,
           threads: updateThread(nextBase.threads, payload.threadId, {
             messages: cappedMessages,
+            latestTurn: latestTurnFromAssistantMessage(thread, message),
             updatedAt: event.occurredAt,
           }),
         };

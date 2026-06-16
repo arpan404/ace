@@ -13,7 +13,11 @@ export function shouldEscalateInterruptToSessionStop(input: {
   const session = input.thread?.session as InterruptFallbackSessionLike | null | undefined;
   const latestTurn = input.thread?.latestTurn ?? null;
 
-  if (!hasLiveTurn(latestTurn, session ?? null)) {
+  const interruptedTurnStillStopping =
+    session?.orchestrationStatus === "running" &&
+    session.activeTurnId == null &&
+    latestTurn?.state === "interrupted";
+  if (!hasLiveTurn(latestTurn, session ?? null) && !interruptedTurnStillStopping) {
     return false;
   }
   if (input.interruptedTurnId !== null && latestTurn?.turnId !== input.interruptedTurnId) {

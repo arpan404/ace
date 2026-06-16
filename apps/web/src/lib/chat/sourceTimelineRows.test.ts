@@ -970,6 +970,39 @@ describe("sourceTimelineRows", () => {
     });
   });
 
+  it("does not expose completed assistant timing while the active turn is still running", () => {
+    const assistantMessage: OrchestrationMessage = {
+      id: assistantMessageId,
+      role: "assistant",
+      text: "I checked one part and am continuing.",
+      turnId,
+      streaming: false,
+      sequence: 2,
+      createdAt: "2026-01-01T00:00:02.000Z",
+      updatedAt: "2026-01-01T00:00:03.000Z",
+    };
+    const rows = buildSourceTimelineRows({
+      rows: [messageRow(assistantMessage, 0)],
+      messages: [assistantMessage],
+      activities: [],
+      proposedPlans: [],
+      activeTurnId: turnId,
+      activeTurnInProgress: true,
+      activeTurnStartedAt: "2026-01-01T00:00:01.000Z",
+      completionDividerBeforeEntryId: null,
+      completionSummary: null,
+      turnDiffSummaryByAssistantMessageId: new Map(),
+    });
+
+    expect(rows[0]).toMatchObject({
+      kind: "message",
+      isAssistantTurnTerminal: true,
+      showAssistantTiming: false,
+      showAssistantSummaryByDefault: false,
+    });
+    expect(rows.at(-1)).toMatchObject({ kind: "working" });
+  });
+
   it("shows a live working timer row while the active turn is running", () => {
     const activity: OrchestrationThreadActivity = {
       id: activityId,
@@ -1110,6 +1143,32 @@ describe("sourceTimelineRows", () => {
         messages: [assistantMessage],
       }),
     ).toBe(`message:${assistantMessageId}`);
+  });
+
+  it("does not synthesize a completion attachment while turn metadata is still running", () => {
+    const assistantMessage: OrchestrationMessage = {
+      id: assistantMessageId,
+      role: "assistant",
+      text: "Intermediate update",
+      turnId,
+      streaming: false,
+      sequence: 2,
+      createdAt: "2026-01-01T00:00:04.000Z",
+      updatedAt: "2026-01-01T00:00:10.000Z",
+    };
+
+    expect(
+      deriveSourceCompletionAttachment({
+        latestTurn: {
+          turnId,
+          assistantMessageId: null,
+          startedAt: "2026-01-01T00:00:00.000Z",
+          completedAt: null,
+        },
+        rows: [messageRow(assistantMessage, 0)],
+        messages: [assistantMessage],
+      }),
+    ).toBeNull();
   });
 
   it("derives a completion attachment from the terminal assistant message when turn metadata is incomplete", () => {

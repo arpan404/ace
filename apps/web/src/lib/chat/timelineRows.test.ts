@@ -86,6 +86,41 @@ describe("timelineRows", () => {
     expect(workingRows.at(-1)).toMatchObject({ kind: "working", mode: "live" });
   });
 
+  it("does not show assistant completion affordances for a still-running active turn", () => {
+    const turnId = TurnId.makeUnsafe("turn-active-assistant-boundary");
+    const rows = buildTimelineRows({
+      timelineEntries: [
+        {
+          id: "assistant-active-boundary",
+          kind: "message",
+          createdAt: "2025-01-01T00:00:02.000Z",
+          message: {
+            id: MessageId.makeUnsafe("assistant-active-boundary"),
+            role: "assistant",
+            text: "Partial result before more tools run.",
+            turnId,
+            createdAt: "2025-01-01T00:00:02.000Z",
+            completedAt: "2025-01-01T00:00:03.000Z",
+            streaming: false,
+          },
+        },
+      ],
+      activeTurnInProgress: true,
+      activeTurnStartedAt: "2025-01-01T00:00:00.000Z",
+      completionDividerBeforeEntryId: null,
+      completionSummary: null,
+      isWorking: true,
+    });
+
+    expect(rows[0]).toMatchObject({
+      kind: "message",
+      isAssistantTurnTerminal: true,
+      showAssistantTiming: false,
+      showAssistantSummaryByDefault: false,
+    });
+    expect(rows.at(-1)).toMatchObject({ kind: "working" });
+  });
+
   it("does not append a working indicator without an active turn", () => {
     const rows = buildTimelineRows({
       timelineEntries: [

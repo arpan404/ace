@@ -2075,8 +2075,12 @@ describe("incremental orchestration updates", () => {
       ),
     );
 
-    expect(completed.sidebarThreadsById).not.toBe(sidebarAfterFirstChunk);
-    expect(completed.sidebarThreadsById[threadId]?.latestTurn?.state).toBe("completed");
+    expect(completed.sidebarThreadsById).toBe(sidebarAfterFirstChunk);
+    expect(completed.sidebarThreadsById[threadId]?.latestTurn).toMatchObject({
+      state: "running",
+      completedAt: null,
+      assistantMessageId: messageId,
+    });
   });
 
   it("projects assistant messages into timeline rows for metadata-only threads", () => {
@@ -2637,7 +2641,11 @@ describe("incremental orchestration updates", () => {
     ]);
 
     expect(next.threads[0]?.session?.status).toBe("running");
-    expect(next.threads[0]?.latestTurn?.state).toBe("completed");
+    expect(next.threads[0]?.latestTurn).toMatchObject({
+      state: "running",
+      completedAt: null,
+      assistantMessageId: MessageId.makeUnsafe("assistant-1"),
+    });
     expect(next.threads[0]?.messages).toHaveLength(1);
   });
 
@@ -3225,6 +3233,39 @@ describe("incremental orchestration updates", () => {
         {
           sequence: 100,
           eventId: EventId.makeUnsafe("event-assistant-completed-turn-1"),
+        },
+      ),
+    );
+
+    expect(state.threads[0]?.latestTurn?.state).toBe("running");
+    expect(state.threads[0]?.activities.map((activity) => activity.id)).toEqual([
+      EventId.makeUnsafe("tool-history"),
+      EventId.makeUnsafe("reasoning-000"),
+      EventId.makeUnsafe("reasoning-001"),
+      EventId.makeUnsafe("reasoning-002"),
+      EventId.makeUnsafe("reasoning-003"),
+      EventId.makeUnsafe("reasoning-004"),
+    ]);
+
+    state = applyOrchestrationEvent(
+      state,
+      makeEvent(
+        "thread.session-set",
+        {
+          threadId: thread.id,
+          session: {
+            threadId: thread.id,
+            status: "ready",
+            providerName: "codex",
+            runtimeMode: "full-access",
+            activeTurnId: null,
+            lastError: null,
+            updatedAt: "2026-03-05T10:01:01.000Z",
+          },
+        },
+        {
+          sequence: 101,
+          eventId: EventId.makeUnsafe("event-session-ready-turn-1"),
         },
       ),
     );

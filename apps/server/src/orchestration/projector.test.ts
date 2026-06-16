@@ -356,11 +356,41 @@ describe("orchestration projector", () => {
       ),
     );
 
-    const afterReady = await Effect.runPromise(
+    const afterAssistantComplete = await Effect.runPromise(
       projectEvent(
         afterRunning,
         makeEvent({
           sequence: 3,
+          type: "thread.message-sent",
+          aggregateKind: "thread",
+          aggregateId: "thread-1",
+          occurredAt: "2026-02-23T08:00:10.000Z",
+          commandId: "cmd-assistant-complete",
+          payload: {
+            threadId: "thread-1",
+            messageId: "assistant-1",
+            role: "assistant",
+            text: "Partial response before lifecycle settles",
+            turnId: "turn-1",
+            streaming: false,
+            createdAt: "2026-02-23T08:00:10.000Z",
+            updatedAt: "2026-02-23T08:00:10.000Z",
+          },
+        }),
+      ),
+    );
+    expect(afterAssistantComplete.threads[0]?.latestTurn).toMatchObject({
+      turnId: "turn-1",
+      state: "running",
+      completedAt: null,
+      assistantMessageId: "assistant-1",
+    });
+
+    const afterReady = await Effect.runPromise(
+      projectEvent(
+        afterAssistantComplete,
+        makeEvent({
+          sequence: 4,
           type: "thread.session-set",
           aggregateKind: "thread",
           aggregateId: "thread-1",
@@ -386,6 +416,7 @@ describe("orchestration projector", () => {
     expect(thread?.session?.status).toBe("ready");
     expect(thread?.latestTurn?.state).toBe("completed");
     expect(thread?.latestTurn?.completedAt).toBe(completedAt);
+    expect(thread?.latestTurn?.assistantMessageId).toBe("assistant-1");
   });
 
   it("updates canonical thread runtime mode from thread.runtime-mode-set", async () => {

@@ -398,6 +398,10 @@ export function buildSourceTimelineRows(input: SourceTimelineRowsInput): Timelin
       } else {
         discardHiddenCompletedWorkSummary();
       }
+      const assistantMessageIsTurnTerminal =
+        message.role === "assistant" && terminalAssistantMessageIds.has(String(message.id));
+      const assistantMessageIsSettledTerminal =
+        assistantMessageIsTurnTerminal && !message.streaming && !messageIsInActiveTurn;
       rows.push({
         kind: "message",
         id: row.id,
@@ -405,14 +409,9 @@ export function buildSourceTimelineRows(input: SourceTimelineRowsInput): Timelin
         message,
         durationStart: messageDurationStartById.get(message.id) ?? message.createdAt,
         completionSummary: completionSummaryBelongsToMessage ? input.completionSummary : null,
-        isAssistantTurnTerminal:
-          message.role === "assistant" && terminalAssistantMessageIds.has(String(message.id)),
-        showAssistantTiming:
-          message.role === "assistant" &&
-          terminalAssistantMessageIds.has(String(message.id)) &&
-          !message.streaming,
-        showAssistantSummaryByDefault:
-          message.role === "assistant" && turnSummary !== null && !message.streaming,
+        isAssistantTurnTerminal: assistantMessageIsTurnTerminal,
+        showAssistantTiming: assistantMessageIsSettledTerminal,
+        showAssistantSummaryByDefault: assistantMessageIsSettledTerminal && turnSummary !== null,
       });
       lastMessageBoundaryAt = message.createdAt;
       continue;
@@ -1015,6 +1014,9 @@ export function deriveSourceCompletionAttachment(input: {
       endedAt: latestTurn.completedAt,
       turnId: String(latestTurn.turnId),
     };
+  }
+  if (latestTurn && !latestTurn.completedAt) {
+    return null;
   }
 
   const messageById = new Map<string, OrchestrationMessage>();

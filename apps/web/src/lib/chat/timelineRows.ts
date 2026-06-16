@@ -1235,6 +1235,13 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
       });
     }
 
+    const assistantMessageIsTurnTerminal =
+      messageRole === "assistant" && terminalAssistantMessageIds.has(timelineEntry.id);
+    const assistantMessageIsInActiveTurn =
+      input.activeTurnInProgress &&
+      isEventInActiveTurn(timelineEntry.createdAt, activeTurnStartedAtMs);
+    const assistantMessageIsSettledTerminal =
+      assistantMessageIsTurnTerminal && !assistantMessageIsInActiveTurn;
     nextRows.push({
       kind: "message",
       id: timelineEntry.id,
@@ -1245,18 +1252,10 @@ export function buildTimelineRows(input: BuildTimelineRowsInput): TimelineRow[] 
         messageRole === "assistant" && input.completionDividerBeforeEntryId === timelineEntry.id
           ? input.completionSummary
           : null,
-      isAssistantTurnTerminal:
-        messageRole === "assistant" && terminalAssistantMessageIds.has(timelineEntry.id),
-      showAssistantTiming:
-        messageRole === "assistant" &&
-        terminalAssistantMessageIds.has(timelineEntry.id) &&
-        !(
-          input.activeTurnInProgress &&
-          isEventInActiveTurn(timelineEntry.createdAt, activeTurnStartedAtMs)
-        ),
+      isAssistantTurnTerminal: assistantMessageIsTurnTerminal,
+      showAssistantTiming: assistantMessageIsSettledTerminal,
       showAssistantSummaryByDefault:
-        messageRole === "assistant" &&
-        terminalAssistantMessageIds.has(timelineEntry.id) &&
+        assistantMessageIsSettledTerminal &&
         assistantMessageIdsWithoutLaterUser.has(timelineEntry.id),
     });
 
