@@ -10,6 +10,7 @@ import { restrictToFirstScrollableAncestor, restrictToHorizontalAxis } from "@dn
 import { SortableContext, horizontalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { ThreadId, TurnId } from "@ace/contracts";
+import { IconKeyboardHide, IconKeyboardShow } from "@tabler/icons-react";
 import { XIcon } from "lucide-react";
 import {
   Suspense,
@@ -27,7 +28,6 @@ import {
   PremiumAddIcon,
   PremiumBrowserIcon,
   PremiumEditorIcon,
-  PremiumMessageIcon,
   PremiumPanelIcon,
   PremiumReviewIcon,
   PremiumSummaryIcon,
@@ -413,6 +413,8 @@ function RightSidePanelActionButtons(props: {
   onTogglePanelVisibility: () => void;
   panelToggleTooltipLabel: string;
 }) {
+  const FloatingComposerIcon = props.floatingChatOpen ? IconKeyboardShow : IconKeyboardHide;
+
   return (
     <>
       {props.fullscreen ? (
@@ -433,7 +435,7 @@ function RightSidePanelActionButtons(props: {
               />
             }
           >
-            <PremiumMessageIcon className="size-5" />
+            <FloatingComposerIcon className="size-4.5" />
           </TooltipTrigger>
           <TooltipPopup side="bottom" align="end">
             {props.floatingChatTooltipWithShortcut}
@@ -445,7 +447,7 @@ function RightSidePanelActionButtons(props: {
           render={
             <button
               type="button"
-              className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground/78 transition-colors hover:bg-accent/70 hover:text-foreground"
+              className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
               aria-label={props.fullscreenTooltipWithShortcut}
               onClick={props.onToggleFullscreen}
             />

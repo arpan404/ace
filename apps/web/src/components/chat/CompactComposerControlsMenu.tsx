@@ -1,4 +1,5 @@
 import { ProviderInteractionMode } from "@ace/contracts";
+import { IconKeyboardHide, IconKeyboardShow } from "@tabler/icons-react";
 import { type ReactNode, useState } from "react";
 import { Button } from "../ui/button";
 import {
@@ -10,7 +11,6 @@ import {
   MenuShortcut,
   MenuTrigger,
 } from "../ui/menu";
-import { KeyboardHideIcon, KeyboardShowIcon } from "../Icons";
 
 export function CompactComposerControlsMenu(props: {
   interactionMode: ProviderInteractionMode;
@@ -20,7 +20,7 @@ export function CompactComposerControlsMenu(props: {
   onToggleInteractionMode: () => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
-  const ComposerMenuIcon = menuOpen ? KeyboardHideIcon : KeyboardShowIcon;
+  const ComposerMenuIcon = menuOpen ? IconKeyboardHide : IconKeyboardShow;
 
   return (
     <Menu open={menuOpen} onOpenChange={setMenuOpen}>

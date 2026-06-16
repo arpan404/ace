@@ -47,69 +47,6 @@ export const PremiumCornerFocusIcon: Icon = (props) => (
   </svg>
 );
 
-export const PremiumKeyboardRaiseIcon: Icon = (props) => (
-  <svg {...props} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-    <rect
-      x="4.35"
-      y="8.6"
-      width="15.3"
-      height="9.15"
-      rx="2.65"
-      stroke="currentColor"
-      strokeWidth="2.1"
-    />
-    <path
-      d="M8.1 11.75h.05M11.95 11.75H12M15.8 11.75h.05M8.15 14.55h7.7M9.55 6.55 12 4.35l2.45 2.2"
-      stroke="currentColor"
-      strokeWidth="2.1"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    />
-  </svg>
-);
-
-export const KeyboardShowIcon: Icon = (props) => (
-  <svg {...props} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-    <rect
-      x="4.1"
-      y="8.45"
-      width="15.8"
-      height="9.25"
-      rx="2.8"
-      stroke="currentColor"
-      strokeWidth="2.05"
-    />
-    <path
-      d="M8.15 11.6h.05M11.95 11.6H12M15.8 11.6h.05M8.25 14.45h7.5M9.35 6.45 12 4.3l2.65 2.15"
-      stroke="currentColor"
-      strokeWidth="2.05"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    />
-  </svg>
-);
-
-export const KeyboardHideIcon: Icon = (props) => (
-  <svg {...props} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-    <rect
-      x="4.1"
-      y="6.3"
-      width="15.8"
-      height="9.25"
-      rx="2.8"
-      stroke="currentColor"
-      strokeWidth="2.05"
-    />
-    <path
-      d="M8.15 9.45h.05M11.95 9.45H12M15.8 9.45h.05M8.25 12.3h7.5M9.35 17.55 12 19.7l2.65-2.15"
-      stroke="currentColor"
-      strokeWidth="2.05"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    />
-  </svg>
-);
-
 export const PremiumSummaryIcon: Icon = (props) => (
   <svg {...props} viewBox="0 0 24 24" fill="none" aria-hidden="true">
     <path
