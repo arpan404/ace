@@ -8,7 +8,7 @@ import type {
   WorkspaceEditorLocation,
 } from "@ace/contracts";
 import * as Schema from "effect/Schema";
-import { IconFiles, IconGitCompare, IconSearch } from "@tabler/icons-react";
+import { IconFiles, IconFolderPlus, IconGitCompare, IconSearch } from "@tabler/icons-react";
 import { useDebouncedValue } from "@tanstack/react-pacer";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -21,7 +21,6 @@ import {
   Code2Icon,
   ExternalLinkIcon,
   FilePlus2Icon,
-  FolderPlusIcon,
   GitBranchIcon,
   GitForkIcon,
   HashIcon,
@@ -3850,7 +3849,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                             />
                           }
                         >
-                          <FolderPlusIcon className={WORKSPACE_SIDEBAR_SECONDARY_ICON_CLASS} />
+                          <IconFolderPlus className={WORKSPACE_SIDEBAR_SECONDARY_ICON_CLASS} />
                         </TooltipTrigger>
                         <TooltipPopup side="bottom">New folder</TooltipPopup>
                       </Tooltip>

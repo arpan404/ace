@@ -68,6 +68,48 @@ export const PremiumKeyboardRaiseIcon: Icon = (props) => (
   </svg>
 );
 
+export const KeyboardShowIcon: Icon = (props) => (
+  <svg {...props} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <rect
+      x="4.1"
+      y="8.45"
+      width="15.8"
+      height="9.25"
+      rx="2.8"
+      stroke="currentColor"
+      strokeWidth="2.05"
+    />
+    <path
+      d="M8.15 11.6h.05M11.95 11.6H12M15.8 11.6h.05M8.25 14.45h7.5M9.35 6.45 12 4.3l2.65 2.15"
+      stroke="currentColor"
+      strokeWidth="2.05"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+);
+
+export const KeyboardHideIcon: Icon = (props) => (
+  <svg {...props} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <rect
+      x="4.1"
+      y="6.3"
+      width="15.8"
+      height="9.25"
+      rx="2.8"
+      stroke="currentColor"
+      strokeWidth="2.05"
+    />
+    <path
+      d="M8.15 9.45h.05M11.95 9.45H12M15.8 9.45h.05M8.25 12.3h7.5M9.35 17.55 12 19.7l2.65-2.15"
+      stroke="currentColor"
+      strokeWidth="2.05"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+);
+
 export const PremiumSummaryIcon: Icon = (props) => (
   <svg {...props} viewBox="0 0 24 24" fill="none" aria-hidden="true">
     <path
@@ -171,23 +213,23 @@ export function PremiumPanelIcon({
   const divider =
     side === "bottom" ? (
       <path
-        d={open ? "M5.5 15.35h13" : "M8.75 15.35h6.5"}
+        d={open ? "M6.1 15.6h11.8" : "M9.2 15.6h5.6"}
         stroke="currentColor"
-        strokeWidth="2"
+        strokeWidth="2.25"
         strokeLinecap="round"
       />
     ) : side === "left" ? (
       <path
-        d={open ? "M7.5 6.25v12" : "M7.5 9.25v6"}
+        d={open ? "M7.25 7.05v9.9" : "M7.25 9.45v5.1"}
         stroke="currentColor"
-        strokeWidth="2"
+        strokeWidth="2.25"
         strokeLinecap="round"
       />
     ) : (
       <path
-        d={open ? "M16.5 6.25v12" : "M16.5 9.25v6"}
+        d={open ? "M16.75 7.05v9.9" : "M16.75 9.45v5.1"}
         stroke="currentColor"
-        strokeWidth="2"
+        strokeWidth="2.25"
         strokeLinecap="round"
       />
     );
@@ -195,13 +237,13 @@ export function PremiumPanelIcon({
   return (
     <svg {...props} viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <rect
-        x="3.75"
-        y="5"
-        width="16.5"
-        height="14"
-        rx="3.35"
+        x="4"
+        y="5.35"
+        width="16"
+        height="13.3"
+        rx="4"
         stroke="currentColor"
-        strokeWidth="2"
+        strokeWidth="2.15"
       />
       {divider}
     </svg>

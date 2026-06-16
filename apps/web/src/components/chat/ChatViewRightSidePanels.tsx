@@ -986,13 +986,13 @@ export function RightSidePanelTabStrip(props: RightSidePanelTabStripProps) {
   return (
     <div
       className={cn(
-        "flex h-12 min-w-0 shrink-0 items-center gap-2.5 border-b border-border/25 bg-background px-3.5",
+        "flex h-12 min-w-0 shrink-0 items-center gap-2.5 border-b border-border/25 bg-background",
         props.className,
       )}
     >
       <div
         ref={tabStripRef}
-        className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto overflow-y-hidden overscroll-x-contain scroll-px-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto overflow-y-hidden overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         onWheelCapture={(event) => {
           const target = event.currentTarget;
           if (target.scrollWidth <= target.clientWidth) return;

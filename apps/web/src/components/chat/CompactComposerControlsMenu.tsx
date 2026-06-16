@@ -1,5 +1,5 @@
 import { ProviderInteractionMode } from "@ace/contracts";
-import { type ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 import { Button } from "../ui/button";
 import {
   Menu,
@@ -10,7 +10,7 @@ import {
   MenuShortcut,
   MenuTrigger,
 } from "../ui/menu";
-import { PremiumKeyboardRaiseIcon } from "../Icons";
+import { KeyboardHideIcon, KeyboardShowIcon } from "../Icons";
 
 export function CompactComposerControlsMenu(props: {
   interactionMode: ProviderInteractionMode;
@@ -19,8 +19,11 @@ export function CompactComposerControlsMenu(props: {
   traitsMenuContent?: ReactNode;
   onToggleInteractionMode: () => void;
 }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const ComposerMenuIcon = menuOpen ? KeyboardHideIcon : KeyboardShowIcon;
+
   return (
-    <Menu>
+    <Menu open={menuOpen} onOpenChange={setMenuOpen}>
       <MenuTrigger
         render={
           <Button
@@ -31,7 +34,7 @@ export function CompactComposerControlsMenu(props: {
           />
         }
       >
-        <PremiumKeyboardRaiseIcon aria-hidden="true" className="size-4" />
+        <ComposerMenuIcon aria-hidden="true" className="size-4" />
       </MenuTrigger>
       <MenuPopup align="start">
         {props.traitsMenuContent ? (
