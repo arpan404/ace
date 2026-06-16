@@ -73,6 +73,7 @@ import {
   ProjectionSnapshotQuery,
   type ProjectionSnapshotQueryShape,
 } from "./orchestration/Services/ProjectionSnapshotQuery";
+import type { ProjectionRepositoryError } from "./persistence/Errors";
 import { ProviderRegistry } from "./provider/Services/ProviderRegistry";
 import { ProviderService } from "./provider/Services/ProviderService";
 import { startOpenCodeServer } from "./provider/opencodeRuntime";
@@ -144,7 +145,7 @@ function isShellRelevantEvent(event: OrchestrationEvent): boolean {
 function toShellStreamEvent(
   projectionSnapshotQuery: ProjectionSnapshotQueryShape,
   event: OrchestrationEvent,
-): Effect.Effect<Option.Option<OrchestrationShellStreamItem>, unknown> {
+): Effect.Effect<Option.Option<OrchestrationShellStreamItem>, ProjectionRepositoryError> {
   switch (event.type) {
     case "project.created":
     case "project.meta-updated":
