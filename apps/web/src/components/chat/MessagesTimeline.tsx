@@ -1555,11 +1555,6 @@ export function MessagesTimeline({
         data-timeline-row-kind={row.kind}
         data-message-id={row.kind === "message" ? row.message.id : undefined}
         data-message-role={row.kind === "message" ? row.message.role : undefined}
-        data-message-streaming={
-          row.kind === "message" && row.message.role === "assistant"
-            ? row.message.streaming
-            : undefined
-        }
       >
         {row.kind === "completed-work-summary" && (
           <CompletedWorkSummaryTimelineRow
