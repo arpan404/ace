@@ -139,12 +139,15 @@ export function ComposerCommandMenu(props: {
   }, [props.activeItemId]);
 
   return (
-    <div ref={listRef} className="glass-surface relative overflow-hidden rounded-lg border">
-      <div className="max-h-64 overflow-y-auto p-2">
+    <div
+      ref={listRef}
+      className="relative overflow-hidden rounded-[1.375rem] border border-border/45 bg-[linear-gradient(color-mix(in_oklch,var(--popover)_94%,var(--background)_6%),color-mix(in_oklch,var(--popover)_94%,var(--background)_6%)),linear-gradient(var(--background),var(--background))] text-popover-foreground shadow-[0_20px_54px_-42px_rgb(0_0_0/.82),0_1px_0_rgb(255_255_255/.065)_inset,0_-1px_0_rgb(0_0_0/.22)_inset] transition-[background-color,border-color] duration-150 dark:border-border/30 dark:bg-[linear-gradient(color-mix(in_oklch,var(--popover)_92%,var(--background)_8%),color-mix(in_oklch,var(--popover)_92%,var(--background)_8%)),linear-gradient(var(--background),var(--background))]"
+    >
+      <div className="max-h-64 overflow-y-auto px-3 pb-5 pt-3">
         {sections.map((section) => (
           <div key={section.id}>
             {section.label ? (
-              <div className="px-2 pb-1 pt-2 font-medium text-muted-foreground/75 text-xs">
+              <div className="px-2 pb-1.5 pt-2 text-[11px] font-medium text-muted-foreground/62 first:pt-0">
                 {section.label}
               </div>
             ) : null}
@@ -162,7 +165,7 @@ export function ComposerCommandMenu(props: {
         ))}
       </div>
       {props.items.length === 0 && (
-        <p className="px-3 py-2 text-muted-foreground/70 text-xs">
+        <p className="px-4 py-3 text-[12px] text-muted-foreground/70">
           {props.isLoading
             ? props.triggerKind === "issue"
               ? "Searching GitHub issues..."

@@ -137,6 +137,31 @@
 
   .new-thread-start-dock {
     position: relative;
+    border-radius: 1.85rem;
+    padding-bottom: 0.55rem;
+    background:
+      linear-gradient(
+        180deg,
+        transparent 0,
+        transparent calc(100% - 4.7rem),
+        color-mix(in oklch, var(--popover) 88%, var(--background) 12%) calc(100% - 4.7rem),
+        color-mix(in oklch, var(--card) 88%, var(--background) 12%) 100%
+      ),
+      color-mix(in oklch, var(--card) 90%, var(--background) 10%);
+    box-shadow: 0 26px 70px -54px oklch(0 0 0 / 0.76);
+    overflow: hidden;
+  }
+
+  .dark .new-thread-start-dock {
+    background:
+      linear-gradient(
+        180deg,
+        transparent 0,
+        transparent calc(100% - 4.7rem),
+        color-mix(in oklch, var(--popover) 80%, var(--background) 20%) calc(100% - 4.7rem),
+        color-mix(in oklch, var(--card) 86%, var(--background) 14%) 100%
+      ),
+      color-mix(in oklch, var(--card) 88%, var(--background) 12%);
   }
 
   .new-thread-start-composer {
@@ -155,38 +180,14 @@
   .new-thread-start-controls {
     position: relative;
     z-index: 1;
-    width: calc(100% - clamp(1rem, 5cqw, 2.25rem));
-    margin: -0.35rem auto 0;
-    padding: 0.95rem 1rem 0.8rem;
-    border: 1px solid color-mix(in oklch, var(--border) 34%, transparent);
-    border-top: 0;
-    border-radius: 0 0 1.6rem 1.6rem;
-    background:
-      linear-gradient(
-        180deg,
-        color-mix(in oklch, var(--popover) 88%, var(--background) 12%),
-        color-mix(in oklch, var(--card) 86%, var(--background) 14%)
-      ),
-      color-mix(in oklch, var(--card) 90%, var(--background) 10%);
+    width: 100%;
+    margin-top: -0.15rem;
+    padding: 0.85rem 1.6rem 0.45rem;
     color: color-mix(in oklch, var(--muted-foreground) 90%, transparent);
-    box-shadow:
-      0 22px 64px -48px oklch(0 0 0 / 0.74),
-      inset 0 -1px 0 color-mix(in oklch, var(--foreground) 5%, transparent);
-  }
-
-  .dark .new-thread-start-controls {
-    border-color: color-mix(in oklch, var(--border) 40%, transparent);
-    background:
-      linear-gradient(
-        180deg,
-        color-mix(in oklch, var(--popover) 84%, var(--background) 16%),
-        color-mix(in oklch, var(--card) 84%, var(--background) 16%)
-      ),
-      color-mix(in oklch, var(--card) 88%, var(--background) 12%);
   }
 
   @supports (backdrop-filter: blur(1px)) {
-    .new-thread-start-controls {
+    .new-thread-start-dock {
       backdrop-filter: blur(24px) saturate(1.16);
       -webkit-backdrop-filter: blur(24px) saturate(1.16);
     }
@@ -216,9 +217,8 @@
 
     .new-thread-start-controls {
       gap: 0.25rem 0.5rem;
-      width: calc(100% - 1rem);
-      margin-top: -0.3rem;
-      padding-inline: 0.5rem;
+      margin-top: -0.1rem;
+      padding: 0.75rem 1rem 0.45rem;
     }
 
     .new-thread-start-controls > * {

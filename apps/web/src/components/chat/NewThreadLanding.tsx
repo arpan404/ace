@@ -435,7 +435,7 @@ export function NewThreadStartSurface({
                 {composerNode}
               </div>
 
-              <div className="new-thread-start-controls flex min-h-8 w-full min-w-0 flex-wrap items-center justify-center gap-x-3 gap-y-1 px-4 text-center">
+              <div className="new-thread-start-controls flex min-h-8 w-full min-w-0 flex-wrap items-center justify-start gap-x-3 gap-y-1 px-4 text-left">
                 {contextControlsNode}
                 {branchControlNode}
                 {quickActionsNode}
