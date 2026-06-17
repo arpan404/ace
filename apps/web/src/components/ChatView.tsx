@@ -7328,6 +7328,12 @@ function useChatViewComponent({
       scrollMessagesToBottom,
     ],
   );
+  const followStreamingLayoutChange = useStableCallback(() => {
+    if (!activeForSideEffects || !liveTurnInProgress) return;
+    if (!shouldAutoScrollRef.current) return;
+    if (pendingUserScrollUpIntentRef.current || isPointerScrollActiveRef.current) return;
+    scheduleStickToBottom();
+  });
   const startInitialBottomPin = useCallback(
     (activeThreadId: ThreadId) => {
       const pendingFrame = pendingInitialBottomPinFrameRef.current;
@@ -9673,6 +9679,7 @@ function useChatViewComponent({
     onStopStuckTurn: onInterrupt,
     onOpenStuckTurnDiagnostics: openThreadDiagnostics,
     backgroundMarkdownPrewarm: activeForSideEffects,
+    onStreamingLayoutChange: followStreamingLayoutChange,
     hideCompletedWorkMessages,
     liveTimers: activeForSideEffects,
     getScrollContainer: getMessagesScrollContainer,

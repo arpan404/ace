@@ -854,7 +854,7 @@ describe("store read model sync", () => {
     expect(runningThread?.messages).toHaveLength(2);
   });
 
-  it("demotes a hydrated thread when a stale running session points at a completed turn", () => {
+  it("keeps a hydrated thread while the session still reports running", () => {
     const threadId = ThreadId.makeUnsafe("thread-stale-running-completed");
     const turnId = TurnId.makeUnsafe("turn-stale-running-completed");
     const state = makeState(
@@ -893,8 +893,8 @@ describe("store read model sync", () => {
     const next = pruneHydratedThreadHistories(state, []);
     const prunedThread = next.threads.find((thread) => thread.id === threadId);
 
-    expect(prunedThread?.historyLoaded).toBe(false);
-    expect(prunedThread?.messages).toEqual([]);
+    expect(prunedThread?.historyLoaded).toBe(true);
+    expect(prunedThread?.messages).toHaveLength(1);
   });
 
   it("keeps hydrated running thread history when syncing metadata recovery snapshots", () => {

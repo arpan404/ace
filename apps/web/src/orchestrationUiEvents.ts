@@ -2,6 +2,8 @@ import type { OrchestrationEvent } from "@ace/contracts";
 
 export type OrchestrationUiEventFlushPriority = "animation-frame" | "microtask";
 
+const IMMEDIATE_ASSISTANT_FLUSH_ID_LIMIT = 128;
+
 type ThreadActivityAppendedEvent = Extract<
   OrchestrationEvent,
   { type: "thread.activity-appended" }
@@ -16,6 +18,32 @@ export function resolveOrchestrationUiEventFlushPriority(
   // agent/runtime event bursts must not force React/Zustand to publish more often
   // than the renderer can paint.
   return "animation-frame";
+}
+
+export function shouldFlushOrchestrationUiEventImmediately(
+  event: OrchestrationEvent,
+  immediatelyFlushedAssistantMessageIds: Set<string>,
+): boolean {
+  if (event.type !== "thread.message-sent" || event.payload.role !== "assistant") {
+    return false;
+  }
+
+  if (!event.payload.streaming) {
+    immediatelyFlushedAssistantMessageIds.delete(event.payload.messageId);
+    return false;
+  }
+
+  if (immediatelyFlushedAssistantMessageIds.has(event.payload.messageId)) {
+    return false;
+  }
+
+  while (immediatelyFlushedAssistantMessageIds.size >= IMMEDIATE_ASSISTANT_FLUSH_ID_LIMIT) {
+    const oldest = immediatelyFlushedAssistantMessageIds.values().next().value;
+    if (oldest === undefined) break;
+    immediatelyFlushedAssistantMessageIds.delete(oldest);
+  }
+  immediatelyFlushedAssistantMessageIds.add(event.payload.messageId);
+  return true;
 }
 
 export function coalesceOrchestrationUiEvents(

@@ -658,6 +658,7 @@ interface MessagesTimelineProps {
   onOpenStuckTurnDiagnostics?: (() => void) | null;
   backgroundMarkdownPrewarm?: boolean;
   getScrollContainer: () => HTMLDivElement | null;
+  onStreamingLayoutChange?: (() => void) | null;
   hideCompletedWorkMessages?: boolean;
   liveTimers?: boolean;
   timelineCacheScope?: string | null;
@@ -708,6 +709,7 @@ export function MessagesTimeline({
   onOpenStuckTurnDiagnostics = null,
   backgroundMarkdownPrewarm = true,
   getScrollContainer,
+  onStreamingLayoutChange = null,
   hideCompletedWorkMessages = false,
   liveTimers = true,
   timelineCacheScope = null,
@@ -1549,10 +1551,15 @@ export function MessagesTimeline({
     const detachedAssistantFooter = assistantFooterByPlacementRowId.get(row.id) ?? null;
     return (
       <div
-        className="group/timeline relative pb-3 transition-colors data-[pinned-message-target=true]:rounded-xl data-[pinned-message-target=true]:bg-accent/20 data-[pinned-message-target=true]:ring-1 data-[pinned-message-target=true]:ring-primary/35"
+        className="timeline-row-content group/timeline relative pb-3 transition-colors data-[pinned-message-target=true]:rounded-xl data-[pinned-message-target=true]:bg-accent/20 data-[pinned-message-target=true]:ring-1 data-[pinned-message-target=true]:ring-primary/35"
         data-timeline-row-kind={row.kind}
         data-message-id={row.kind === "message" ? row.message.id : undefined}
         data-message-role={row.kind === "message" ? row.message.role : undefined}
+        data-message-streaming={
+          row.kind === "message" && row.message.role === "assistant"
+            ? row.message.streaming
+            : undefined
+        }
       >
         {row.kind === "completed-work-summary" && (
           <CompletedWorkSummaryTimelineRow
@@ -1640,6 +1647,7 @@ export function MessagesTimeline({
                   onOpenBrowserUrl={onOpenBrowserUrl}
                   onOpenFilePath={onOpenFilePath}
                   onForkConversation={null}
+                  onStreamingLayoutChange={onStreamingLayoutChange}
                   timestampFormat={timestampFormat}
                 />
                 {detachedAssistantFooter && (
@@ -3412,6 +3420,7 @@ function AssistantMessageTimelineRow(props: {
   onOpenBrowserUrl?: ((url: string) => void) | null;
   onOpenFilePath?: ((path: string) => void) | null;
   onForkConversation?: (() => void) | null;
+  onStreamingLayoutChange?: (() => void) | null;
   onTogglePinnedMessage?: (() => void) | null;
   timestampFormat: TimestampFormat;
 }) {
@@ -3493,6 +3502,9 @@ function AssistantMessageTimelineRow(props: {
               onOpenBrowserUrl={onOpenBrowserUrl}
               onOpenFilePath={onOpenFilePath}
               enableLocalFileLinks={displayState.enableLocalFileLinks ?? true}
+              {...(props.message.streaming && props.onStreamingLayoutChange
+                ? { onLayoutChange: props.onStreamingLayoutChange }
+                : {})}
               {...(props.message.streamingTextState
                 ? { streamingTextState: props.message.streamingTextState }
                 : {})}
