@@ -1,6 +1,3 @@
-/* eslint-disable react-doctor/async-parallel -- Browser interaction tests require sequential event ordering. */
-import { DEFAULT_MODEL_BY_PROVIDER, ModelSelection, ThreadId } from "@ace/contracts";
-import { buildProviderModelSelection } from "@ace/shared/model";
 import "../../index.css";
 
 import { page } from "vitest/browser";
@@ -8,132 +5,39 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
 import { CompactComposerControlsMenu } from "./CompactComposerControlsMenu";
-import { TraitsMenuContent } from "./TraitsPicker";
-import { useComposerDraftStore } from "../../composerDraftStore";
 
 async function mountMenu(props?: {
-  modelSelection?: ModelSelection;
-  prompt?: string;
-  interactionModeShortcutLabel?: string | null;
+  interactionMode?: "default" | "plan";
+  interactionModeDisabledReason?: string | null;
+  onPickImages?: () => void;
+  onSelectProviderCommand?: (command: string) => void;
+  onToggleInteractionMode?: () => void;
 }) {
-  const threadId = ThreadId.makeUnsafe("thread-compact-menu");
-  const provider = props?.modelSelection?.provider ?? "claudeAgent";
-  const draftsByThreadId = {} as ReturnType<
-    typeof useComposerDraftStore.getState
-  >["draftsByThreadId"];
-  const model = props?.modelSelection?.model ?? DEFAULT_MODEL_BY_PROVIDER[provider];
-
-  draftsByThreadId[threadId] = {
-    prompt: props?.prompt ?? "",
-    images: [],
-    nonPersistedImageIds: [],
-    persistedAttachments: [],
-    terminalContexts: [],
-    modelSelectionByProvider: {
-      [provider]: buildProviderModelSelection(
-        provider,
-        model,
-        props?.modelSelection?.options,
-        props?.modelSelection?.providerInstanceId,
-      ),
-    },
-    activeProvider: provider,
-    runtimeMode: null,
-    interactionMode: null,
-  };
-  useComposerDraftStore.setState({
-    draftsByThreadId,
-    draftThreadsByThreadId: {},
-    projectDraftThreadIdByProjectId: {},
-  });
   const host = document.createElement("div");
   document.body.append(host);
-  const onPromptChange = vi.fn();
-  const providerOptions = props?.modelSelection?.options;
-  const models =
-    provider === "claudeAgent"
-      ? [
-          {
-            slug: "claude-opus-4-6",
-            name: "Claude Opus 4.6",
-            isCustom: false,
-            capabilities: {
-              reasoningEffortLevels: [
-                { value: "low", label: "Low" },
-                { value: "medium", label: "Medium" },
-                { value: "high", label: "High", isDefault: true },
-                { value: "max", label: "Max" },
-                { value: "ultrathink", label: "Ultrathink" },
-              ],
-              supportsFastMode: true,
-              supportsThinkingToggle: false,
-              contextWindowOptions: [],
-              promptInjectedEffortLevels: ["ultrathink"],
-            },
-          },
-          {
-            slug: "claude-haiku-4-5",
-            name: "Claude Haiku 4.5",
-            isCustom: false,
-            capabilities: {
-              reasoningEffortLevels: [],
-              supportsFastMode: false,
-              supportsThinkingToggle: true,
-              contextWindowOptions: [],
-              promptInjectedEffortLevels: [],
-            },
-          },
-          {
-            slug: "claude-sonnet-4-6",
-            name: "Claude Sonnet 4.6",
-            isCustom: false,
-            capabilities: {
-              reasoningEffortLevels: [
-                { value: "low", label: "Low" },
-                { value: "medium", label: "Medium" },
-                { value: "high", label: "High", isDefault: true },
-                { value: "ultrathink", label: "Ultrathink" },
-              ],
-              supportsFastMode: false,
-              supportsThinkingToggle: false,
-              contextWindowOptions: [],
-              promptInjectedEffortLevels: ["ultrathink"],
-            },
-          },
-        ]
-      : [
-          {
-            slug: "gpt-5.4",
-            name: "GPT-5.4",
-            isCustom: false,
-            capabilities: {
-              reasoningEffortLevels: [
-                { value: "xhigh", label: "Extra High" },
-                { value: "high", label: "High", isDefault: true },
-              ],
-              supportsFastMode: true,
-              supportsThinkingToggle: false,
-              contextWindowOptions: [],
-              promptInjectedEffortLevels: [],
-            },
-          },
-        ];
   const screen = await render(
     <CompactComposerControlsMenu
-      interactionMode="default"
-      interactionModeShortcutLabel={props?.interactionModeShortcutLabel ?? null}
-      traitsMenuContent={
-        <TraitsMenuContent
-          provider={provider}
-          models={models}
-          threadId={threadId}
-          model={model}
-          prompt={props?.prompt ?? ""}
-          modelOptions={providerOptions}
-          onPromptChange={onPromptChange}
-        />
-      }
-      onToggleInteractionMode={vi.fn()}
+      interactionMode={props?.interactionMode ?? "default"}
+      interactionModeDisabledReason={props?.interactionModeDisabledReason ?? null}
+      skillCommands={[
+        {
+          id: "skill:frontend-design",
+          command: "frontend-design",
+          label: "frontend-design",
+          description: "Design frontend UI",
+        },
+      ]}
+      pluginCommands={[
+        {
+          id: "plugin:browser",
+          command: "browser",
+          label: "browser",
+          description: "Use browser tools",
+        },
+      ]}
+      onPickImages={props?.onPickImages ?? vi.fn()}
+      onSelectProviderCommand={props?.onSelectProviderCommand ?? vi.fn()}
+      onToggleInteractionMode={props?.onToggleInteractionMode ?? vi.fn()}
     />,
     { container: host },
   );
@@ -152,126 +56,80 @@ async function mountMenu(props?: {
 describe("CompactComposerControlsMenu", () => {
   afterEach(() => {
     document.body.innerHTML = "";
-    useComposerDraftStore.setState({
-      draftsByThreadId: {},
-      draftThreadsByThreadId: {},
-      projectDraftThreadIdByProjectId: {},
-      stickyModelSelectionByProvider: {},
-    });
   });
 
-  it("shows fast mode controls for Opus", async () => {
-    await using _ = await mountMenu({
-      modelSelection: { provider: "claudeAgent", model: "claude-opus-4-6" },
-    });
-
-    await page.getByLabelText("More composer controls").click();
-
-    await vi.waitFor(() => {
-      const text = document.body.textContent ?? "";
-      expect(text).toContain("Fast Mode");
-      expect(text).toContain("off");
-      expect(text).toContain("on");
-    });
-  });
-
-  it("hides fast mode controls for non-Opus Claude models", async () => {
-    await using _ = await mountMenu({
-      modelSelection: { provider: "claudeAgent", model: "claude-sonnet-4-6" },
-    });
-
-    await page.getByLabelText("More composer controls").click();
-
-    await vi.waitFor(() => {
-      expect(document.body.textContent ?? "").not.toContain("Fast Mode");
-    });
-  });
-
-  it("shows only the provided effort options", async () => {
-    await using _ = await mountMenu({
-      modelSelection: { provider: "claudeAgent", model: "claude-sonnet-4-6" },
-    });
-
-    await page.getByLabelText("More composer controls").click();
-
-    await vi.waitFor(() => {
-      const text = document.body.textContent ?? "";
-      expect(text).toContain("Low");
-      expect(text).toContain("Medium");
-      expect(text).toContain("High");
-      expect(text).not.toContain("Max");
-      expect(text).toContain("Ultrathink");
-    });
-  });
-
-  it("shows a Claude thinking on/off section for Haiku", async () => {
-    await using _ = await mountMenu({
-      modelSelection: {
-        provider: "claudeAgent",
-        model: "claude-haiku-4-5",
-        options: { thinking: true },
-      },
-    });
-
-    await page.getByLabelText("More composer controls").click();
-
-    await vi.waitFor(() => {
-      const text = document.body.textContent ?? "";
-      expect(text).toContain("Thinking");
-      expect(text).toContain("On (default)");
-      expect(text).toContain("Off");
-    });
-  });
-
-  it("shows prompt-controlled Ultrathink state with selectable effort controls", async () => {
-    await using _ = await mountMenu({
-      modelSelection: {
-        provider: "claudeAgent",
-        model: "claude-opus-4-6",
-        options: { effort: "high" },
-      },
-      prompt: "Ultrathink:\nInvestigate this",
-    });
-
-    await page.getByLabelText("More composer controls").click();
-
-    await vi.waitFor(() => {
-      const text = document.body.textContent ?? "";
-      expect(text).toContain("Effort");
-      expect(text).not.toContain("ultrathink");
-    });
-  });
-
-  it("warns when ultrathink appears in prompt body text", async () => {
-    await using _ = await mountMenu({
-      modelSelection: {
-        provider: "claudeAgent",
-        model: "claude-opus-4-6",
-        options: { effort: "high" },
-      },
-      prompt: "Ultrathink:\nplease ultrathink about this problem",
-    });
-
-    await page.getByLabelText("More composer controls").click();
-
-    await vi.waitFor(() => {
-      const text = document.body.textContent ?? "";
-      expect(text).toContain(
-        'Your prompt contains "ultrathink" in the text. Remove it to change effort.',
-      );
-    });
-  });
-
-  it("does not duplicate access controls in the overflow menu", async () => {
+  it("shows the compact attachment and plan controls without helper jargon", async () => {
     await using _ = await mountMenu();
 
     await page.getByLabelText("More composer controls").click();
 
     await vi.waitFor(() => {
       const text = document.body.textContent ?? "";
-      expect(text).not.toContain("Access");
-      expect(text).not.toContain("Supervised");
-      expect(text).not.toContain("Full access");
+      expect(text).toContain("Add photos & files");
+      expect(text).toContain("Plan mode");
+      expect(text).toContain("Skills");
+      expect(text).toContain("Plugins");
+      expect(text).not.toContain("Actions");
+      expect(text).not.toContain("Drop images here");
+    });
+  });
+
+  it("runs the picker action from the menu", async () => {
+    const onPickImages = vi.fn();
+    await using _ = await mountMenu({ onPickImages });
+
+    await page.getByLabelText("More composer controls").click();
+    await page.getByText("Add photos & files").click();
+
+    expect(onPickImages).toHaveBeenCalledTimes(1);
+  });
+
+  it("toggles plan from the compact switch row", async () => {
+    const onToggleInteractionMode = vi.fn();
+    await using _ = await mountMenu({ onToggleInteractionMode });
+
+    await page.getByLabelText("More composer controls").click();
+    await page.getByText("Plan mode").click();
+
+    expect(onToggleInteractionMode).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens the skill command submenu", async () => {
+    await using _ = await mountMenu();
+
+    await page.getByLabelText("More composer controls").click();
+    await page.getByText("Skills").click();
+
+    await vi.waitFor(() => {
+      const text = document.body.textContent ?? "";
+      expect(text).toContain("1 skill");
+      expect(text).toContain("frontend-design");
+      expect(text).not.toContain("Design frontend UI");
+    });
+  });
+
+  it("selects a skill command from the submenu", async () => {
+    const onSelectProviderCommand = vi.fn();
+    await using _ = await mountMenu({ onSelectProviderCommand });
+
+    await page.getByLabelText("More composer controls").click();
+    await page.getByText("Skills").click();
+    await page.getByText("frontend-design").click();
+
+    expect(onSelectProviderCommand).toHaveBeenCalledWith("frontend-design");
+  });
+
+  it("opens the plugin command submenu", async () => {
+    await using _ = await mountMenu();
+
+    await page.getByLabelText("More composer controls").click();
+    await page.getByText("Plugins").click();
+
+    await vi.waitFor(() => {
+      const text = document.body.textContent ?? "";
+      expect(text).toContain("1 plugin");
+      expect(text).toContain("browser");
+      expect(text).not.toContain("Use browser tools");
     });
   });
 });

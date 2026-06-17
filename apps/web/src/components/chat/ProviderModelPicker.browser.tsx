@@ -229,6 +229,7 @@ async function mountPicker(props: {
   model: string;
   lockedProvider: ProviderKind | null;
   providers?: ReadonlyArray<ServerProvider>;
+  triggerTraitSummary?: string;
   triggerVariant?: "ghost" | "outline";
 }) {
   const host = document.createElement("div");
@@ -256,6 +257,7 @@ async function mountPicker(props: {
       {...(props.providerInstancesByProvider
         ? { providerInstancesByProvider: props.providerInstancesByProvider }
         : {})}
+      {...(props.triggerTraitSummary ? { triggerTraitSummary: props.triggerTraitSummary } : {})}
       triggerVariant={props.triggerVariant}
       onProviderModelChange={onProviderModelChange}
     />,
@@ -809,7 +811,28 @@ describe("ProviderModelPicker", () => {
       }
       const badge = trigger.querySelector('[data-provider-instance-badge="true"]');
       expect(badge).toBeInstanceOf(HTMLElement);
-      expect((badge as HTMLElement).style.backgroundColor).toBe("rgb(5, 150, 105)");
+      expect((badge as HTMLElement).classList.contains("bg-emerald-600")).toBe(true);
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("renders selected model trait summary on the trigger", async () => {
+    const mounted = await mountPicker({
+      provider: "codex",
+      model: "gpt-5-codex",
+      lockedProvider: "codex",
+      triggerTraitSummary: "High · Fast",
+    });
+
+    try {
+      const trigger = document.querySelector('[data-chat-provider-model-picker="true"]');
+      if (!(trigger instanceof HTMLElement)) {
+        throw new Error("Expected provider picker trigger to be mounted.");
+      }
+
+      expect(trigger.textContent ?? "").toContain("GPT-5 Codex");
+      expect(trigger.textContent ?? "").toContain("High · Fast");
     } finally {
       await mounted.cleanup();
     }

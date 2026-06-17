@@ -152,10 +152,14 @@ function MenuCheckboxItem({
         <>
           <span className="col-start-1">{children}</span>
           <MenuPrimitive.CheckboxItemIndicator
-            className="inline-flex h-[calc(var(--thumb-size)+2px)] w-[calc(var(--thumb-size)*2-2px)] shrink-0 items-center rounded-full border border-border/40 p-px outline-none transition-colors duration-200 [--thumb-size:--spacing(4)] focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background data-checked:border-primary/30 data-checked:bg-primary data-unchecked:bg-input data-disabled:opacity-64 sm:[--thumb-size:--spacing(3)]"
+            className="inline-flex h-5 w-9 shrink-0 items-center rounded-full border border-border/60 bg-muted/78 p-px shadow-inner outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background data-checked:border-primary/35 data-checked:bg-primary data-checked:shadow-none data-unchecked:border-border/60 data-unchecked:bg-muted/78 data-disabled:opacity-64 dark:data-unchecked:border-border/55 dark:data-unchecked:bg-foreground/[0.12]"
+            data-slot="menu-checkbox-indicator"
             keepMounted
           >
-            <span className="pointer-events-none block aspect-square h-full in-[[data-slot=menu-checkbox-item][data-checked]]:origin-[var(--thumb-size)_50%] origin-left in-[[data-slot=menu-checkbox-item][data-checked]]:translate-x-[calc(var(--thumb-size)-4px)] in-[[data-slot=menu-checkbox-item]:active]:not-data-disabled:scale-x-110 in-[[data-slot=menu-checkbox-item]:active]:rounded-[var(--thumb-size)/calc(var(--thumb-size)*1.10)] rounded-(--thumb-size) border border-border/50 bg-background will-change-transform [transition:translate_.15s,border-radius_.15s,scale_.1s_.1s,transform-origin_.15s]" />
+            <span
+              className="pointer-events-none block aspect-square h-[1.125rem] origin-left rounded-full border border-border/35 bg-background shadow-sm will-change-transform [transition:translate_.15s,border-radius_.15s,scale_.1s_.1s,transform-origin_.15s] in-[[data-slot=menu-checkbox-item]:active]:not-data-disabled:scale-x-110 in-[[data-slot=menu-checkbox-item][data-checked]]:origin-[1.125rem_50%] in-[[data-slot=menu-checkbox-item][data-checked]]:translate-x-4 in-[[data-slot=menu-checkbox-item][data-checked]]:border-transparent in-[[data-slot=menu-checkbox-item][data-checked]]:bg-white dark:bg-foreground/92"
+              data-slot="menu-checkbox-thumb"
+            />
           </MenuPrimitive.CheckboxItemIndicator>
         </>
       ) : (
@@ -327,6 +331,7 @@ export {
   MenuPopup,
   MenuGroup,
   MenuItem,
+  MenuCheckboxItem,
   MenuRadioGroup,
   MenuRadioItem,
   MenuGroupLabel,

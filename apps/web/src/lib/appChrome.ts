@@ -42,7 +42,7 @@ export const APP_COMPOSER_INSET_PANEL_CLASS_NAME =
   "overflow-hidden rounded-[var(--panel-radius)] border border-border/40 glass-inset text-popover-foreground";
 
 export const APP_COMPOSER_CONTROL_CLASS_NAME =
-  "h-8 shrink-0 rounded-full px-2.5 text-[13px] font-medium text-muted-foreground/68 transition-colors duration-150 hover:bg-foreground/[0.05] hover:text-foreground/88 aria-expanded:bg-foreground/[0.06] aria-expanded:text-foreground/90";
+  "h-8 shrink-0 rounded-full px-2.5 text-[13px] font-normal text-muted-foreground/72 transition-colors duration-150 hover:bg-black/[0.06] hover:text-foreground/88 dark:hover:bg-white/[0.12]";
 
 export const APP_WORKSPACE_INSET_CLASS_NAME = "rounded-md border border-border/40 glass-inset";
 

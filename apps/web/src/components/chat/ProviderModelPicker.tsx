@@ -7,12 +7,28 @@ import {
 } from "@ace/contracts";
 import { resolveSelectableModel } from "@ace/shared/model";
 import * as Schema from "effect/Schema";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import type { VariantProps } from "class-variance-authority";
-import { CheckIcon, ChevronDownIcon, PinIcon, SearchIcon, StarIcon } from "lucide-react";
+import {
+  CheckIcon,
+  ChevronDownIcon,
+  PinIcon,
+  SearchIcon,
+  Settings2Icon,
+  StarIcon,
+} from "lucide-react";
+import { IconBoltFilled } from "@tabler/icons-react";
 import { Button } from "../ui/button";
 import { buttonVariants } from "../ui/buttonVariants";
-import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
+import {
+  Menu,
+  MenuItem,
+  MenuPopup,
+  MenuSub,
+  MenuSubPopup,
+  MenuSubTrigger,
+  MenuTrigger,
+} from "../ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
   APP_COMPOSER_CONTROL_CLASS_NAME,
@@ -87,6 +103,8 @@ interface ProviderModelPickerProps {
   triggerVariant?: VariantProps<typeof buttonVariants>["variant"];
   triggerClassName?: string;
   triggerSurface?: "composer" | "settings";
+  traitsMenuContent?: ReactNode;
+  triggerTraitSummary?: string | undefined;
   onProviderModelChange: (
     provider: ProviderKind,
     model: string,
@@ -420,7 +438,9 @@ function ProviderModelPickerMenu(props: {
   readonly showProviderRail: boolean;
   readonly triggerClassName?: string | undefined;
   readonly triggerSurface?: "composer" | "settings" | undefined;
+  readonly triggerTraitSummary?: string | undefined;
   readonly triggerVariant?: VariantProps<typeof buttonVariants>["variant"];
+  readonly traitsMenuContent?: ReactNode;
   readonly onFavoriteModelToggle: (favoriteKey: string) => void;
   readonly onMenuOpenChange: (open: boolean) => void;
   readonly onModelSelect: (value: string) => void;
@@ -430,6 +450,15 @@ function ProviderModelPickerMenu(props: {
 }) {
   const ProviderIcon = PROVIDER_ICON_BY_PROVIDER[props.activeProvider];
   const PickerProviderIcon = PROVIDER_ICON_BY_PROVIDER[props.pickerProvider];
+  const triggerTraitParts =
+    props.triggerTraitSummary
+      ?.split(" · ")
+      .map((part) => part.trim())
+      .filter((part) => part.length > 0) ?? [];
+  const visibleTraitLabel = triggerTraitParts
+    .filter((part) => !part.toLowerCase().includes("fast"))
+    .join(" · ");
+  const showFastTraitIcon = triggerTraitParts.some((part) => part.toLowerCase().includes("fast"));
 
   const renderModelRow = (row: ModelPickerRow, section: "favorite" | "all") => {
     const selected =
@@ -501,7 +530,26 @@ function ProviderModelPickerMenu(props: {
               />
             ) : null}
           </span>
-          <span className="min-w-0 flex-1 truncate">{props.selectedModelLabel}</span>
+          <span className="flex min-w-0 flex-1 items-baseline gap-1.5 overflow-hidden">
+            <span className="min-w-0 truncate text-foreground/88">{props.selectedModelLabel}</span>
+            {props.triggerTraitSummary ? (
+              <span
+                className="inline-flex shrink-0 items-center gap-1 text-muted-foreground/75"
+                title={props.triggerTraitSummary}
+                aria-label={props.triggerTraitSummary}
+              >
+                {visibleTraitLabel ? (
+                  <span className="max-w-18 truncate text-muted-foreground/72">
+                    {visibleTraitLabel}
+                  </span>
+                ) : null}
+                {showFastTraitIcon ? (
+                  <IconBoltFilled aria-hidden="true" className="size-3.5" />
+                ) : null}
+                <span className="sr-only">{props.triggerTraitSummary}</span>
+              </span>
+            ) : null}
+          </span>
           <ChevronDownIcon aria-hidden="true" className="size-3 shrink-0 opacity-60" />
         </span>
       </MenuTrigger>
@@ -651,6 +699,21 @@ function ProviderModelPickerMenu(props: {
                 className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-1"
                 data-provider-model-picker-model-list="true"
               >
+                {props.traitsMenuContent ? (
+                  <>
+                    <MenuSub>
+                      <MenuSubTrigger>
+                        <Settings2Icon aria-hidden="true" className="size-4" />
+                        Model options
+                      </MenuSubTrigger>
+                      <MenuSubPopup className="w-60">{props.traitsMenuContent}</MenuSubPopup>
+                    </MenuSub>
+                    <div
+                      aria-hidden="true"
+                      className="mx-5 my-1 h-px origin-center scale-y-50 bg-border/35"
+                    />
+                  </>
+                ) : null}
                 {props.favoriteRows.length > 0 ? (
                   <>
                     <div className="px-1.5 pb-0.5 pt-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground/70">
@@ -1009,7 +1072,9 @@ export function ProviderModelPicker(props: ProviderModelPickerProps) {
       showProviderRail={showProviderRail}
       triggerClassName={props.triggerClassName}
       triggerSurface={props.triggerSurface}
+      triggerTraitSummary={props.triggerTraitSummary}
       triggerVariant={props.triggerVariant}
+      traitsMenuContent={props.traitsMenuContent}
       onFavoriteModelToggle={toggleFavoriteModel}
       onMenuOpenChange={(open) => {
         if (props.disabled) {

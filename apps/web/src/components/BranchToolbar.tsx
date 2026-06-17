@@ -168,7 +168,7 @@ function EnvironmentModeMenu(props: {
   return (
     <Menu>
       <MenuTrigger
-        className={`${props.rowClassName} data-popup-open:bg-accent data-popup-open:text-accent-foreground`}
+        className={`${props.rowClassName} data-popup-open:bg-black/[0.045] data-popup-open:text-foreground dark:data-popup-open:bg-white/[0.09]`}
       >
         {icon}
         <span className="min-w-0 flex-1 truncate">{label}</span>
@@ -363,7 +363,7 @@ export default function BranchToolbar({
     <FolderIcon className="size-3 opacity-60" />
   );
   const environmentModeRowClassName =
-    "flex min-h-8 w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-[13px] font-normal text-foreground transition-colors hover:bg-accent hover:text-accent-foreground";
+    "flex min-h-8 w-full items-center gap-2 rounded-[var(--control-radius)] px-2 py-1 text-left text-[13px] font-normal text-foreground/82 transition-colors duration-150 hover:bg-black/[0.045] hover:text-foreground dark:hover:bg-white/[0.09]";
   if (isEnvironmentPresentation) {
     return (
       <div className="space-y-1">
