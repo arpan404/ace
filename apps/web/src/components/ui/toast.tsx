@@ -130,12 +130,9 @@ function resolveToastStatusIcon(type: string | null | undefined) {
 function toastSurfaceClassName(type: string | null | undefined): string {
   return cn(
     TOAST_SURFACE_CLASS_NAME,
-    type === "warning" &&
-      "border-warning/45 shadow-warning/8 [--toast-surface-bg:color-mix(in_oklch,var(--popover)_88%,var(--warning)_12%)] dark:[--toast-surface-bg:color-mix(in_oklch,var(--popover)_76%,var(--warning)_24%)]",
-    type === "error" &&
-      "border-destructive/42 shadow-destructive/8 [--toast-surface-bg:color-mix(in_oklch,var(--popover)_90%,var(--destructive)_10%)] dark:[--toast-surface-bg:color-mix(in_oklch,var(--popover)_78%,var(--destructive)_22%)]",
-    type === "loading" &&
-      "border-info/38 shadow-info/8 [--toast-surface-bg:color-mix(in_oklch,var(--popover)_92%,var(--info)_8%)] dark:[--toast-surface-bg:color-mix(in_oklch,var(--popover)_82%,var(--info)_18%)]",
+    type === "warning" && "border-warning/45",
+    type === "error" && "border-destructive/42",
+    type === "loading" && "border-info/38",
   );
 }
 
@@ -381,8 +378,6 @@ function Toasts({ position = "top-center" }: { position: ToastPosition }) {
                 "after:absolute after:left-0 after:h-[calc(var(--toast-gap)+1px)] after:w-full",
                 "data-[position*=top]:after:top-full",
                 "data-[position*=bottom]:after:bottom-full",
-                "before:pointer-events-none before:absolute before:inset-x-4 before:top-0 before:h-px before:bg-foreground/8",
-                "data-[type=error]:before:bg-destructive/35 data-[type=loading]:before:bg-info/35 data-[type=warning]:before:bg-warning/35",
                 // Define some variables
                 // Base UI exposes a shared front-most height for the collapsed stack.
                 // If that shared measurement is briefly stale, long content can render

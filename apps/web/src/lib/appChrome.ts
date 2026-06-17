@@ -21,7 +21,7 @@ const APP_CHROME_HEADER_CLASS_NAME = "border-b border-border/40 bg-background";
 const APP_DOCKED_PANEL_CLASS_NAME = "bg-background";
 
 export const APP_COMPOSER_CLASS_NAME =
-  "rounded-[var(--panel-radius)] border border-border/40 bg-input shadow-none transition-[border-color,box-shadow] duration-150 focus-within:border-ring/45 focus-within:ring-2 focus-within:ring-ring/15";
+  "rounded-[1.625rem] border border-border/55 bg-[color:color-mix(in_oklch,var(--popover)_82%,var(--background)_18%)] shadow-[0_18px_48px_-36px_rgb(0_0_0/.72),0_1px_0_rgb(255_255_255/.06)_inset] transition-[background-color,border-color] duration-150 dark:border-transparent dark:bg-[color:color-mix(in_oklch,var(--popover)_88%,var(--background)_12%)]";
 
 export const APP_COMPOSER_HEADER_CLASS_NAME =
   "rounded-t-[calc(var(--panel-radius)-2px)] border-b border-border/40 bg-muted/25";
@@ -42,7 +42,7 @@ export const APP_COMPOSER_INSET_PANEL_CLASS_NAME =
   "overflow-hidden rounded-[var(--panel-radius)] border border-border/40 glass-inset text-popover-foreground";
 
 export const APP_COMPOSER_CONTROL_CLASS_NAME =
-  "shrink-0 rounded-[var(--control-radius)] text-muted-foreground/70 transition-colors duration-150 hover:bg-foreground/[0.05] hover:text-foreground/85 aria-expanded:bg-foreground/[0.05] aria-expanded:text-foreground/85";
+  "h-8 shrink-0 rounded-full px-2.5 text-[13px] font-medium text-muted-foreground/68 transition-colors duration-150 hover:bg-foreground/[0.05] hover:text-foreground/88 aria-expanded:bg-foreground/[0.06] aria-expanded:text-foreground/90";
 
 export const APP_WORKSPACE_INSET_CLASS_NAME = "rounded-md border border-border/40 glass-inset";
 

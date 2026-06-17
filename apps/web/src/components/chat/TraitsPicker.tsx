@@ -64,8 +64,8 @@ function traitsPickerTriggerClassName(
 
   return cn(
     isCodexStyle
-      ? "min-w-0 max-w-40 shrink justify-start overflow-hidden whitespace-nowrap px-2 text-muted-foreground/60 transition-colors duration-150 hover:text-foreground/70 sm:max-w-48 sm:px-2.5 [&_svg]:mx-0"
-      : "shrink-0 whitespace-nowrap px-2 text-muted-foreground/60 transition-colors duration-150 hover:text-foreground/70 sm:px-2.5",
+      ? "h-8 min-w-0 max-w-40 shrink justify-start overflow-hidden whitespace-nowrap rounded-full px-2.5 text-[13px] text-muted-foreground/68 transition-colors duration-150 hover:bg-foreground/[0.05] hover:text-foreground/88 sm:max-w-48 [&_svg]:mx-0"
+      : "h-8 shrink-0 whitespace-nowrap rounded-full px-2.5 text-[13px] text-muted-foreground/68 transition-colors duration-150 hover:bg-foreground/[0.05] hover:text-foreground/88",
     triggerClassName,
   );
 }
@@ -354,7 +354,7 @@ export function CursorTraitsPicker(props: {
           <Button
             size="sm"
             variant="ghost"
-            className="min-w-0 max-w-40 shrink justify-start overflow-hidden whitespace-nowrap px-2 text-muted-foreground/60 transition-colors duration-150 hover:text-foreground/70 sm:max-w-48 sm:px-2.5 [&_svg]:mx-0"
+            className="h-8 min-w-0 max-w-40 shrink justify-start overflow-hidden whitespace-nowrap rounded-full px-2.5 text-[13px] text-muted-foreground/68 transition-colors duration-150 hover:bg-foreground/[0.05] hover:text-foreground/88 sm:max-w-48 [&_svg]:mx-0"
           />
         }
       >

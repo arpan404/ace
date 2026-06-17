@@ -86,7 +86,7 @@ function RuntimeModeButton(props: {
           <Button
             variant="ghost"
             className={cn(
-              "shrink-0 whitespace-nowrap px-2 transition-colors duration-150 sm:px-2.5",
+              "h-8 shrink-0 whitespace-nowrap rounded-full px-2.5 text-[13px] transition-colors duration-150 hover:bg-foreground/[0.05]",
               RUNTIME_MODE_META[props.runtimeMode].textClassName,
             )}
             size="sm"
@@ -456,7 +456,7 @@ export function ChatComposerPanel({
 
         <div
           className={cn(
-            "group rounded-xl transition-colors duration-200",
+            "group rounded-[1.75rem] transition-colors duration-200",
             isUltrathinkFrame && "p-px",
             props.composerProviderState.composerFrameClassName,
           )}
@@ -467,7 +467,7 @@ export function ChatComposerPanel({
         >
           <div
             className={cn(
-              "rounded-xl",
+              "rounded-[1.75rem]",
               isUltrathinkFrame
                 ? "border-0 bg-input transition-all duration-200 focus-within:ring-2 focus-within:ring-ring/40"
                 : APP_COMPOSER_CLASS_NAME,
@@ -492,8 +492,8 @@ export function ChatComposerPanel({
             ) : null}
             <div
               className={cn(
-                "relative px-3 pb-2 sm:px-4",
-                props.hasComposerHeader ? "pt-2 sm:pt-2.5" : "pt-2 sm:pt-2.5",
+                "relative px-4 pb-2.5 sm:px-6",
+                props.hasComposerHeader ? "pt-4 sm:pt-5" : "pt-4 sm:pt-5",
               )}
             >
               {props.composerMenuOpen && !props.isComposerApprovalState ? (
@@ -566,12 +566,14 @@ export function ChatComposerPanel({
                 onIssueTokenClick={props.onIssueTokenClick}
                 onPaste={props.onPaste}
                 placeholder={placeholder}
-                {...(props.placeholderOverride
-                  ? {
-                      className: "new-thread-start-composer-editor",
-                      placeholderClassName: "new-thread-start-composer-placeholder",
-                    }
-                  : {})}
+                className={cn(
+                  "min-h-[3rem] text-[15px] leading-6",
+                  props.placeholderOverride && "new-thread-start-composer-editor",
+                )}
+                placeholderClassName={cn(
+                  "text-[15px] leading-6 text-muted-foreground/64",
+                  props.placeholderOverride && "new-thread-start-composer-placeholder",
+                )}
                 disabled={props.isConnecting || props.isComposerApprovalState}
               />
             </div>
@@ -592,7 +594,7 @@ export function ChatComposerPanel({
                 data-chat-composer-footer="true"
                 data-chat-composer-footer-compact={props.isComposerFooterCompact ? "true" : "false"}
                 className={cn(
-                  "flex min-w-0 flex-nowrap items-center justify-between overflow-hidden px-2.5 pb-2 sm:px-3 sm:pb-2.5",
+                  "flex min-w-0 flex-nowrap items-center justify-between overflow-hidden px-3.5 pb-3 sm:px-5 sm:pb-4",
                   props.isComposerFooterCompact ? "gap-1.5" : "gap-2 sm:gap-0",
                 )}
               >

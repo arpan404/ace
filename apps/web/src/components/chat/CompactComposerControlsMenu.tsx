@@ -28,7 +28,7 @@ export function CompactComposerControlsMenu(props: {
           <Button
             size="sm"
             variant="ghost"
-            className="shrink-0 px-2 text-muted-foreground hover:text-foreground"
+            className="h-8 shrink-0 rounded-full px-2.5 text-muted-foreground/68 hover:bg-foreground/[0.05] hover:text-foreground/88"
             aria-label="More composer controls"
           />
         }
