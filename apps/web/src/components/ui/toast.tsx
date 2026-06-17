@@ -10,6 +10,7 @@ import {
   CopyIcon,
   LoaderCircleIcon,
   TriangleAlertIcon,
+  XIcon,
 } from "lucide-react";
 
 import { GLASS_TOOLTIP_CLASS_NAME } from "~/components/ui/glass";
@@ -100,6 +101,25 @@ function CopyErrorButton({ text }: { text: string }) {
   );
 }
 
+function ToastCloseButton() {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Toast.Close
+            className="shrink-0 cursor-pointer rounded-md border border-transparent p-1 text-muted-foreground/72 transition-colors hover:border-border/60 hover:bg-background/70 hover:text-foreground"
+            type="button"
+            aria-label="Close notification"
+          />
+        }
+      >
+        <XIcon className="size-3.5" />
+      </TooltipTrigger>
+      <TooltipPopup side="top">Close</TooltipPopup>
+    </Tooltip>
+  );
+}
+
 function resolveToastStatusIcon(type: string | null | undefined) {
   if (type !== "error" && type !== "loading" && type !== "warning") {
     return null;
@@ -158,7 +178,7 @@ function ToastMessageContent({
   statusType: keyof typeof TOAST_STATUS_ICONS | null;
 }) {
   return (
-    <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:gap-3">
+    <div className="flex min-w-0 items-start gap-2.5 sm:gap-3">
       <div className="flex min-w-0 flex-1 items-start gap-2.5">
         {statusIcon && statusType ? <ToastStatusIcon Icon={statusIcon} type={statusType} /> : null}
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
@@ -173,7 +193,10 @@ function ToastMessageContent({
           {progressPercent !== null ? <ToastProgressBar percent={progressPercent} /> : null}
         </div>
       </div>
-      {action ? <div className="flex shrink-0 justify-end sm:pt-0.5">{action}</div> : null}
+      <div className="flex shrink-0 items-start justify-end gap-1.5 sm:pt-0.5">
+        {action}
+        <ToastCloseButton />
+      </div>
     </div>
   );
 }
