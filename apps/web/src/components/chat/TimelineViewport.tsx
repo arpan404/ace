@@ -58,7 +58,8 @@ export function TimelineViewport(props: {
         <div
           key={`row:${row.id}`}
           data-timeline-row-id={row.id}
-          className="timeline-row-render-cache"
+          data-live-tail-row="true"
+          className="timeline-row-render-cache timeline-row-live-tail"
           style={props.buildRowRenderCacheStyle(row)}
         >
           {props.buildRowContent(row, props.virtualizedRows.length + index)}

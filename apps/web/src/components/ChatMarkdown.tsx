@@ -87,9 +87,15 @@ interface ChatMarkdownProps {
 }
 
 const CODE_FENCE_LANGUAGE_REGEX = /(?:^|\s)language-([^\s]+)/;
-const STREAMING_REVEAL_MIN_CHARS_PER_FRAME = 12;
-const STREAMING_REVEAL_MAX_CHARS_PER_FRAME = 768;
-const STREAMING_REVEAL_BURST_RATIO = 0.34;
+const STREAMING_REVEAL_MIN_CHARS_PER_FRAME = 4;
+const STREAMING_REVEAL_SMALL_BACKLOG_MAX_CHARS_PER_FRAME = 96;
+const STREAMING_REVEAL_MEDIUM_BACKLOG_MAX_CHARS_PER_FRAME = 256;
+const STREAMING_REVEAL_LARGE_BACKLOG_MAX_CHARS_PER_FRAME = 640;
+const STREAMING_REVEAL_MEDIUM_BACKLOG_CHAR_COUNT = 900;
+const STREAMING_REVEAL_LARGE_BACKLOG_CHAR_COUNT = 3_600;
+const STREAMING_REVEAL_BURST_RATIO = 0.18;
+const STREAMING_UPDATE_TAIL_CHAR_COUNT = 180;
+const STREAMING_UPDATE_TAIL_NEWLINE_LOOKBACK = 48;
 const MAX_HIGHLIGHT_CACHE_ENTRIES = clampCacheEntryCount(500, {
   moderateCapEntries: 320,
   constrainedCapEntries: 160,
@@ -565,18 +571,95 @@ function HighlightedShikiCodeBlock({ highlightedHtml }: { highlightedHtml: strin
   return <div className="chat-markdown-shiki">{highlightedChildren}</div>;
 }
 
-function StreamingMarkdownText({ text }: { text: string }) {
+function resolveStreamingRevealCharCount(remainingCharCount: number): number {
+  const maxCharsPerFrame =
+    remainingCharCount >= STREAMING_REVEAL_LARGE_BACKLOG_CHAR_COUNT
+      ? STREAMING_REVEAL_LARGE_BACKLOG_MAX_CHARS_PER_FRAME
+      : remainingCharCount >= STREAMING_REVEAL_MEDIUM_BACKLOG_CHAR_COUNT
+        ? STREAMING_REVEAL_MEDIUM_BACKLOG_MAX_CHARS_PER_FRAME
+        : STREAMING_REVEAL_SMALL_BACKLOG_MAX_CHARS_PER_FRAME;
+
+  return Math.min(
+    remainingCharCount,
+    Math.max(
+      STREAMING_REVEAL_MIN_CHARS_PER_FRAME,
+      Math.min(maxCharsPerFrame, Math.ceil(remainingCharCount * STREAMING_REVEAL_BURST_RATIO)),
+    ),
+  );
+}
+
+function splitStreamingUpdateTail(text: string): { stableText: string; updateText: string } {
+  if (text.length <= STREAMING_UPDATE_TAIL_CHAR_COUNT) {
+    return { stableText: "", updateText: text };
+  }
+
+  const tailStart = text.length - STREAMING_UPDATE_TAIL_CHAR_COUNT;
+  const newlineTailStart = text.lastIndexOf(
+    "\n",
+    tailStart + STREAMING_UPDATE_TAIL_NEWLINE_LOOKBACK,
+  );
+  const adjustedTailStart =
+    newlineTailStart >= tailStart - STREAMING_UPDATE_TAIL_NEWLINE_LOOKBACK
+      ? newlineTailStart + 1
+      : tailStart;
+
+  return {
+    stableText: text.slice(0, adjustedTailStart),
+    updateText: text.slice(adjustedTailStart),
+  };
+}
+
+function StreamingUpdateText({
+  animateUpdates,
+  className,
+  dataStreamingMarkdown = false,
+  text,
+}: {
+  animateUpdates: boolean;
+  className: string;
+  dataStreamingMarkdown?: boolean;
+  text: string;
+}) {
+  if (!animateUpdates || text.length === 0) {
+    return (
+      <div
+        className={className}
+        {...(dataStreamingMarkdown ? { "data-streaming-markdown": "true" } : {})}
+      >
+        {text}
+      </div>
+    );
+  }
+
+  const { stableText, updateText } = splitStreamingUpdateTail(text);
   return (
     <div
-      className="chat-markdown-streaming wrap-break-word whitespace-pre-wrap text-[13px] leading-[1.55] text-foreground/80"
-      data-streaming-markdown="true"
+      className={className}
+      data-chat-streaming-update-text="true"
+      {...(dataStreamingMarkdown ? { "data-streaming-markdown": "true" } : {})}
     >
-      {text}
+      {stableText}
+      <span className="chat-markdown-streaming-update">{updateText}</span>
     </div>
   );
 }
 
-function useSmoothStreamingText(text: string, isStreaming: boolean): string {
+function StreamingMarkdownText({ text }: { text: string }) {
+  return (
+    <StreamingUpdateText
+      animateUpdates
+      className="chat-markdown-streaming wrap-break-word whitespace-pre-wrap text-[13px] leading-[1.55] text-foreground/80"
+      dataStreamingMarkdown
+      text={text}
+    />
+  );
+}
+
+function useSmoothStreamingText(
+  text: string,
+  isStreaming: boolean,
+  onDisplayTextChange?: () => void,
+): string {
   const [displayText, dispatchDisplayText] = useReducer(
     (_current: string, nextText: string) => nextText,
     text,
@@ -584,10 +667,15 @@ function useSmoothStreamingText(text: string, isStreaming: boolean): string {
   const displayTextRef = useRef(text);
   const targetTextRef = useRef(text);
   const frameRef = useRef<number | null>(null);
+  const onDisplayTextChangeRef = useRef(onDisplayTextChange);
 
   useEffect(() => {
     displayTextRef.current = displayText;
   }, [displayText]);
+
+  useEffect(() => {
+    onDisplayTextChangeRef.current = onDisplayTextChange;
+  }, [onDisplayTextChange]);
 
   useEffect(() => {
     if (
@@ -605,6 +693,7 @@ function useSmoothStreamingText(text: string, isStreaming: boolean): string {
     if (!text.startsWith(displayTextRef.current)) {
       displayTextRef.current = text;
       dispatchDisplayText(text);
+      onDisplayTextChangeRef.current?.();
       return;
     }
 
@@ -625,22 +714,15 @@ function useSmoothStreamingText(text: string, isStreaming: boolean): string {
       if (remainingCharCount <= 0 || !targetText.startsWith(currentText)) {
         displayTextRef.current = targetText;
         dispatchDisplayText(targetText);
+        onDisplayTextChangeRef.current?.();
         return;
       }
 
-      const revealCharCount = Math.min(
-        remainingCharCount,
-        Math.max(
-          STREAMING_REVEAL_MIN_CHARS_PER_FRAME,
-          Math.min(
-            STREAMING_REVEAL_MAX_CHARS_PER_FRAME,
-            Math.ceil(remainingCharCount * STREAMING_REVEAL_BURST_RATIO),
-          ),
-        ),
-      );
+      const revealCharCount = resolveStreamingRevealCharCount(remainingCharCount);
       const nextText = targetText.slice(0, currentText.length + revealCharCount);
       displayTextRef.current = nextText;
       dispatchDisplayText(nextText);
+      onDisplayTextChangeRef.current?.();
 
       if (nextText !== targetText) {
         frameRef.current = window.requestAnimationFrame(revealNextFrame);
@@ -660,11 +742,23 @@ function useSmoothStreamingText(text: string, isStreaming: boolean): string {
   return isStreaming ? displayText : text;
 }
 
-function PlainMarkdownText({ text }: { text: string }) {
+function buildStreamingUpdateAnimationKey(text: string): string {
+  const lastCharCode = text.length > 0 ? text.charCodeAt(text.length - 1) : 0;
+  return `${text.length}:${lastCharCode}`;
+}
+
+function StreamingUpdateWash({ animationKey }: { animationKey: string }) {
+  return <span key={animationKey} aria-hidden="true" className="chat-markdown-update-wash" />;
+}
+
+function PlainMarkdownText({ text, isStreaming = false }: { text: string; isStreaming?: boolean }) {
   return (
-    <div className="chat-markdown w-full min-w-0 wrap-break-word whitespace-pre-wrap text-[13px] leading-[1.55] text-foreground/80">
-      {text}
-    </div>
+    <StreamingUpdateText
+      animateUpdates={isStreaming}
+      className="chat-markdown w-full min-w-0 wrap-break-word whitespace-pre-wrap text-[13px] leading-[1.55] text-foreground/80"
+      dataStreamingMarkdown={isStreaming}
+      text={text}
+    />
   );
 }
 
@@ -705,9 +799,11 @@ function MarkdownBody({
 
 function PreviewTextPanel({
   text,
+  animateUpdates = false,
   dataAttribute,
 }: {
   text: string;
+  animateUpdates?: boolean;
   dataAttribute?: "data-streaming-markdown" | "data-large-markdown-preview";
 }) {
   return (
@@ -715,9 +811,11 @@ function PreviewTextPanel({
       className="max-h-96 overflow-auto p-0"
       {...(dataAttribute ? { [dataAttribute]: "true" } : {})}
     >
-      <div className="chat-markdown-streaming wrap-break-word whitespace-pre-wrap text-[13px] leading-[1.55] text-foreground/80">
-        {text}
-      </div>
+      <StreamingUpdateText
+        animateUpdates={animateUpdates}
+        className="chat-markdown-streaming wrap-break-word whitespace-pre-wrap text-[13px] leading-[1.55] text-foreground/80"
+        text={text}
+      />
     </div>
   );
 }
@@ -749,7 +847,7 @@ function StreamingMarkdownPreview({
         </span>{" "}
         lines while the response streams.
       </p>
-      <PreviewTextPanel text={text} />
+      <PreviewTextPanel text={text} animateUpdates />
     </div>
   );
 }
@@ -880,7 +978,8 @@ function ChatMarkdown({
   const [renderPreference, setRenderPreference] = useState<"auto" | "markdown">("auto");
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [isMarkdownTransitionPending, startMarkdownTransition] = useTransition();
-  const displayText = useSmoothStreamingText(text, isStreaming);
+  const displayText = useSmoothStreamingText(text, isStreaming, onLayoutChange);
+  const streamingUpdateAnimationKey = buildStreamingUpdateAnimationKey(text);
   const {
     markdownRenderAnalysis,
     shouldFastPathPlainText,
@@ -1084,7 +1183,7 @@ function ChatMarkdown({
   }, [onLayoutChange, shouldObserveLayout]);
 
   const content = renderPlainText ? (
-    <PreviewTextPanel text={displayText} />
+    <PreviewTextPanel text={displayText} animateUpdates={isStreaming} />
   ) : markdownRenderAnalysis.usesStreamingPreview && streamingTextState ? (
     <StreamingMarkdownPreview text={displayText} streamingTextState={streamingTextState} />
   ) : useLargePreview ? (
@@ -1101,7 +1200,7 @@ function ChatMarkdown({
       }}
     />
   ) : shouldFastPathPlainText ? (
-    <PlainMarkdownText text={displayText} />
+    <PlainMarkdownText text={displayText} isStreaming={isStreaming} />
   ) : (
     <MarkdownBody isStreaming={isStreaming} markdownComponents={markdownComponents}>
       {displayText}
@@ -1111,10 +1210,11 @@ function ChatMarkdown({
   return (
     <div
       ref={rootRef}
-      className="w-full min-w-0"
+      className="relative w-full min-w-0"
       data-chat-markdown-live={isStreaming ? "true" : undefined}
     >
       {content}
+      {isStreaming && <StreamingUpdateWash animationKey={streamingUpdateAnimationKey} />}
     </div>
   );
 }

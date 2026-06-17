@@ -41,7 +41,10 @@ import { providerQueryKeys } from "../lib/providerReactQuery";
 import { projectQueryKeys } from "../lib/projectReactQuery";
 import { collectActiveTerminalThreadIds } from "../lib/terminalStateCleanup";
 import { deriveOrchestrationBatchEffects } from "../orchestrationEventEffects";
-import { coalesceOrchestrationUiEvents } from "../orchestrationUiEvents";
+import {
+  coalesceOrchestrationUiEvents,
+  shouldFlushOrchestrationUiEventImmediately,
+} from "../orchestrationUiEvents";
 import { resetWsRpcClient } from "../wsRpcClient";
 import { getRouteRpcClient, subscribeToRemoteRelayConnectionState } from "../lib/remoteWsRouter";
 import { parseHostConnectionQrPayload, resolveLocalDeviceWsUrl } from "../lib/remoteHosts";
@@ -583,6 +586,9 @@ function useScopedEventRouterLifecycle() {
     const localRpcClient = getRouteRpcClient(localConnectionUrl);
     let threadBootstrapped = false;
     let pendingThreadEvents: OrchestrationEvent[] = [];
+    let pendingThreadUiEvents: OrchestrationEvent[] = [];
+    let threadUiFlushHandle: number | null = null;
+    const immediatelyFlushedAssistantMessageIds = new Set<string>();
     let replayInFlight = false;
     let bootstrapReplayInFlight = false;
     const applyThreadEvents = (events: ReadonlyArray<OrchestrationEvent>) => {
@@ -603,6 +609,38 @@ function useScopedEventRouterLifecycle() {
         nextEvents.at(-1)?.sequence ?? latestSequence,
       );
       applyScopedEvents(nextEvents);
+    };
+    const flushThreadUiEvents = () => {
+      threadUiFlushHandle = null;
+      if (pendingThreadUiEvents.length === 0) {
+        return;
+      }
+      const events = pendingThreadUiEvents;
+      pendingThreadUiEvents = [];
+      applyThreadEvents(events);
+    };
+    const scheduleThreadUiFlush = () => {
+      if (threadUiFlushHandle !== null) {
+        return;
+      }
+      threadUiFlushHandle = window.setTimeout(
+        flushThreadUiEvents,
+        BACKGROUND_DOMAIN_EVENT_FLUSH_DELAY_MS,
+      );
+    };
+    const queueThreadUiEvent = (event: OrchestrationEvent) => {
+      appendBoundedEvent(pendingThreadUiEvents, event, PENDING_THREAD_EVENT_BUFFER_LIMIT);
+      if (
+        shouldFlushOrchestrationUiEventImmediately(event, immediatelyFlushedAssistantMessageIds)
+      ) {
+        if (threadUiFlushHandle !== null) {
+          window.clearTimeout(threadUiFlushHandle);
+          threadUiFlushHandle = null;
+        }
+        flushThreadUiEvents();
+        return;
+      }
+      scheduleThreadUiFlush();
     };
     const replayThreadEvents = async () => {
       if (replayInFlight || !threadBootstrapped) {
@@ -646,7 +684,9 @@ function useScopedEventRouterLifecycle() {
           events.some((event) => event.type === "thread.created" && event.aggregateId === threadId)
         ) {
           threadBootstrapped = true;
-          applyThreadEvents(events);
+          for (const event of events) {
+            queueThreadUiEvent(event);
+          }
         } else {
           pendingThreadEvents = events
             .filter((event) => event.aggregateKind === "thread" && event.aggregateId === threadId)
@@ -681,7 +721,9 @@ function useScopedEventRouterLifecycle() {
         if (pendingThreadEvents.length > 0) {
           const events = pendingThreadEvents;
           pendingThreadEvents = [];
-          applyThreadEvents(events);
+          for (const event of events) {
+            queueThreadUiEvent(event);
+          }
         }
         const latestAppliedSequence = threadLatestSequenceByIdRef.current.get(threadId);
         if (
@@ -698,14 +740,16 @@ function useScopedEventRouterLifecycle() {
           const events = pendingThreadEvents;
           pendingThreadEvents = [];
           threadBootstrapped = true;
-          applyThreadEvents(events);
+          for (const event of events) {
+            queueThreadUiEvent(event);
+          }
         } else {
           void recoverThreadBootstrapFromReplay();
         }
         return;
       }
       try {
-        applyThreadEvents([item.event]);
+        queueThreadUiEvent(item.event);
       } catch (error) {
         reportBackgroundError("Failed to apply scoped thread event.", error);
       }
@@ -713,6 +757,10 @@ function useScopedEventRouterLifecycle() {
     return () => {
       window.clearInterval(catchupInterval);
       pendingThreadEvents = [];
+      pendingThreadUiEvents = [];
+      if (threadUiFlushHandle !== null) {
+        window.clearTimeout(threadUiFlushHandle);
+      }
       unsubscribeThread();
       void localRpcClient.orchestration.unsubscribeThread({ threadId }).catch(() => undefined);
     };

@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest";
 import {
   coalesceOrchestrationUiEvents,
   resolveOrchestrationUiEventFlushPriority,
+  shouldFlushOrchestrationUiEventImmediately,
 } from "./orchestrationUiEvents";
 
 function makeEvent<T extends OrchestrationEvent["type"]>(
@@ -41,6 +42,41 @@ function makeEvent<T extends OrchestrationEvent["type"]>(
 }
 
 describe("orchestrationUiEvents", () => {
+  it("flushes the first assistant streaming event immediately per message", () => {
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const messageId = MessageId.makeUnsafe("message-1");
+    const flushedMessageIds = new Set<string>();
+    const streamingEvent = makeEvent("thread.message-sent", {
+      threadId,
+      messageId,
+      role: "assistant",
+      text: "hel",
+      turnId: TurnId.makeUnsafe("turn-1"),
+      streaming: true,
+      createdAt: "2026-04-07T00:00:00.000Z",
+      updatedAt: "2026-04-07T00:00:00.000Z",
+    });
+
+    expect(shouldFlushOrchestrationUiEventImmediately(streamingEvent, flushedMessageIds)).toBe(
+      true,
+    );
+    expect(shouldFlushOrchestrationUiEventImmediately(streamingEvent, flushedMessageIds)).toBe(
+      false,
+    );
+    expect(
+      shouldFlushOrchestrationUiEventImmediately(
+        {
+          ...streamingEvent,
+          payload: { ...streamingEvent.payload, streaming: false, text: "hello" },
+        },
+        flushedMessageIds,
+      ),
+    ).toBe(false);
+    expect(shouldFlushOrchestrationUiEventImmediately(streamingEvent, flushedMessageIds)).toBe(
+      true,
+    );
+  });
+
   it("coalesces consecutive message chunks for the same streamed message", () => {
     const threadId = ThreadId.makeUnsafe("thread-1");
     const messageId = MessageId.makeUnsafe("message-1");

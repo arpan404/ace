@@ -45,6 +45,21 @@ describe("ChatMarkdown", () => {
     expect(markup).toContain("<li>item</li>");
   });
 
+  it("animates streaming text updates without rendering a cursor", () => {
+    const markup = renderToStaticMarkup(
+      <ChatMarkdown
+        text="Plain assistant response that is still arriving in chunks from the provider."
+        cwd={undefined}
+        isStreaming
+        renderPlainText
+      />,
+    );
+
+    expect(markup).toContain('data-chat-streaming-update-text="true"');
+    expect(markup).toContain("chat-markdown-streaming-update");
+    expect(markup).not.toContain("chat-markdown-live-cursor");
+  });
+
   it("renders markdown after streaming completes", () => {
     const markup = renderToStaticMarkup(<ChatMarkdown text="**bold**" cwd={undefined} />);
 

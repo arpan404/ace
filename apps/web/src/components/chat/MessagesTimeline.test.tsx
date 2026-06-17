@@ -13,14 +13,17 @@ import {
 vi.mock("../ChatMarkdown", () => ({
   default: ({
     isStreaming,
+    onLayoutChange,
     renderPlainText,
     text,
   }: {
     isStreaming?: boolean;
+    onLayoutChange?: () => void;
     renderPlainText?: boolean;
     text?: string;
   }) => (
     <div
+      data-chat-markdown-has-layout-change={String(Boolean(onLayoutChange))}
       data-chat-markdown-is-streaming={String(Boolean(isStreaming))}
       data-chat-markdown-render-plain-text={String(Boolean(renderPlainText))}
     >
@@ -463,6 +466,52 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
 
     expect(markup).toContain('data-chat-markdown-render-plain-text="false"');
     expect(markup).toContain("**Done**");
+  });
+
+  it("wires streaming assistant layout changes back to the scroll controller", async () => {
+    const { MessagesTimeline: RawMessagesTimeline } = await import("./MessagesTimeline");
+    const MessagesTimeline = createTestMessagesTimeline(RawMessagesTimeline);
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        hasMessages
+        isWorking
+        activeTurnInProgress
+        activeTurnStartedAt="2026-03-17T19:12:30.000Z"
+        getScrollContainer={() => null}
+        onStreamingLayoutChange={() => undefined}
+        timelineEntries={[
+          {
+            id: "assistant-streaming",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:32.000Z",
+            message: {
+              id: MessageId.makeUnsafe("assistant-streaming"),
+              role: "assistant",
+              text: "Streaming response update",
+              createdAt: "2026-03-17T19:12:32.000Z",
+              streaming: true,
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        resolvedTheme="light"
+        timestampFormat="locale"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup).toContain('data-chat-markdown-is-streaming="true"');
+    expect(markup).toContain('data-chat-markdown-has-layout-change="true"');
   });
 
   it("keeps reasoning work as plain timeline text", async () => {
