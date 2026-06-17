@@ -47,8 +47,9 @@ import { HandoffMenuButton } from "./HandoffMenu";
 import { AVAILABLE_PROVIDER_OPTIONS } from "./providerModelPickerOptions";
 import { PROVIDER_ICON_BY_PROVIDER, providerIconClassName } from "./providerIcons";
 import { ProviderInstanceBadge } from "../../providerInstanceBadges";
-const MODEL_MENU_MAX_HEIGHT = "18rem";
+const MODEL_MENU_MAX_HEIGHT = "21rem";
 const PROVIDER_PICKER_PREFS_STORAGE_KEY = "ace:provider-model-picker-prefs:v1";
+const FAVORITES_PROVIDER_ENTRY_KEY = "__favorites__";
 const ProviderModelPickerPrefsSchema = Schema.Struct({
   favoriteModels: Schema.Array(Schema.String),
   pinnedProviders: Schema.Array(Schema.String),
@@ -81,6 +82,8 @@ interface ModelPickerRow {
   readonly favoriteKey: string;
   readonly groupLabel?: string;
   readonly label: string;
+  readonly provider: ProviderKind;
+  readonly providerInstanceId?: string | undefined;
   readonly searchText: string;
   readonly selectionValue: string;
   readonly slug: string;
@@ -103,6 +106,7 @@ interface ProviderModelPickerProps {
   triggerVariant?: VariantProps<typeof buttonVariants>["variant"];
   triggerClassName?: string;
   triggerSurface?: "composer" | "settings";
+  renderTraitsMenuContent?: ((model: string) => ReactNode) | undefined;
   traitsMenuContent?: ReactNode;
   triggerTraitSummary?: string | undefined;
   onProviderModelChange: (
@@ -287,6 +291,8 @@ function buildStandardModelRows(
       favoriteKey: makeFavoriteModelKey(provider, providerInstanceId, option.slug),
       ...(groupLabel ? { groupLabel } : {}),
       label,
+      provider,
+      ...(providerInstanceId ? { providerInstanceId } : {}),
       searchText: `${label} ${groupLabel ?? ""} ${option.name} ${option.slug}`.toLowerCase(),
       selectionValue: option.slug,
       slug: option.slug,
@@ -328,6 +334,8 @@ function buildCursorModelRows(input: {
       {
         favoriteKey: makeFavoriteModelKey("cursor", input.providerInstanceId, family.familySlug),
         label: family.familyName,
+        provider: "cursor",
+        ...(input.providerInstanceId ? { providerInstanceId: input.providerInstanceId } : {}),
         searchText: `${family.familyName} ${family.familySlug} ${model.slug}`.toLowerCase(),
         selectionValue: model.slug,
         slug: family.familySlug,
@@ -350,65 +358,173 @@ function isRowSelected(
 function ProviderModelPickerModelRow(props: {
   readonly favorited: boolean;
   readonly row: ModelPickerRow;
-  readonly section: "favorite" | "all";
+  readonly section: "current" | "favorite" | "all";
   readonly selected: boolean;
+  readonly showProviderIcon?: boolean;
+  readonly traitsMenuContent?: ReactNode;
   readonly onFavoriteModelToggle: (favoriteKey: string) => void;
-  readonly onModelSelect: (value: string) => void;
+  readonly onModelSelect: (row: ModelPickerRow) => void;
 }) {
+  const selectRow = () => {
+    if (!props.selected) {
+      props.onModelSelect(props.row);
+    }
+  };
+
+  const RowProviderIcon = PROVIDER_ICON_BY_PROVIDER[props.row.provider];
   return (
     <div
       key={`${props.section}:${props.row.favoriteKey}`}
       className={cn(
-        "grid grid-cols-[1fr_auto] items-center gap-1 rounded-[var(--chip-radius)]",
-        props.selected ? "bg-accent/90 text-accent-foreground" : "hover:bg-accent/70",
+        "group/model-row relative grid grid-cols-[1fr_auto] items-center gap-1 rounded-[0.7rem] border border-transparent transition-colors duration-150",
+        props.selected
+          ? "border-border/45 bg-foreground/[0.065] text-foreground shadow-[inset_0_1px_0_rgb(255_255_255/.055)] dark:bg-white/[0.075]"
+          : "text-foreground/84 hover:border-border/38 hover:bg-foreground/[0.045] hover:text-foreground dark:hover:bg-white/[0.065]",
       )}
     >
       <button
         type="button"
         role="menuitemradio"
         aria-checked={props.selected}
-        className="grid min-h-7 min-w-0 grid-cols-[0.875rem_1fr] items-center gap-1.5 rounded-[var(--chip-radius)] px-1.5 py-0.5 text-left text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        onClick={() => props.onModelSelect(props.row.selectionValue)}
+        className={cn(
+          "grid min-h-8 min-w-0 items-center gap-2 rounded-[0.7rem] px-2.5 py-1 text-left text-[12.5px] outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          props.showProviderIcon ? "grid-cols-[1rem_1rem_1fr]" : "grid-cols-[1rem_1fr]",
+        )}
+        onClick={() => props.onModelSelect(props.row)}
       >
-        <span className="flex size-3.5 items-center justify-center">
-          {props.selected ? <CheckIcon aria-hidden="true" className="size-3" /> : null}
+        <span
+          className={cn(
+            "flex size-4 items-center justify-center rounded-[0.35rem] border text-[9px] transition-colors duration-150",
+            props.selected
+              ? "border-primary/35 bg-primary/12 text-primary"
+              : "border-border/45 bg-foreground/[0.035] text-muted-foreground/45",
+          )}
+        >
+          {props.selected ? (
+            <CheckIcon aria-hidden="true" className="size-2.5" strokeWidth={2.5} />
+          ) : null}
         </span>
+        {props.showProviderIcon ? (
+          <span className="inline-flex size-4 items-center justify-center text-muted-foreground/68">
+            <RowProviderIcon
+              aria-hidden="true"
+              className={cn(
+                "size-3.5 shrink-0",
+                providerIconClassName(props.row.provider, "text-muted-foreground"),
+              )}
+            />
+          </span>
+        ) : null}
         <span className="min-w-0">
-          <span className="block truncate">{props.row.label}</span>
+          <span
+            className={cn(
+              "block truncate leading-snug",
+              props.selected ? "font-medium text-foreground" : "font-normal",
+            )}
+          >
+            {props.row.label}
+          </span>
           {props.row.groupLabel ? (
-            <span className="block truncate text-[10px] text-muted-foreground">
+            <span className="mt-px block truncate text-[10.5px] leading-tight text-muted-foreground/58">
               {props.row.groupLabel}
             </span>
           ) : null}
         </span>
       </button>
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <button
-              type="button"
-              aria-label={`${props.favorited ? "Remove favorite" : "Favorite"} ${props.row.label}`}
-              className={cn(
-                "me-0.5 inline-flex size-6 items-center justify-center rounded-[var(--chip-radius)] text-muted-foreground outline-none transition-colors hover:bg-foreground/[0.05] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring",
-                props.favorited ? "text-warning-foreground" : undefined,
-              )}
-              onClick={(event) => {
-                event.stopPropagation();
-                props.onFavoriteModelToggle(props.row.favoriteKey);
-              }}
+      <div className="me-1 flex items-center gap-0.5">
+        {props.traitsMenuContent ? (
+          <MenuSub>
+            <MenuSubTrigger
+              aria-label={
+                props.section === "current"
+                  ? `Current model settings for ${props.row.label}`
+                  : `Model settings for ${props.row.label}`
+              }
+              className="inline-flex size-6 min-h-0 items-center justify-center gap-0 rounded-md p-0 text-muted-foreground/62 outline-none transition-colors duration-150 hover:bg-foreground/[0.07] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring dark:hover:bg-white/[0.08] [&>svg:last-child]:hidden"
+              onClick={selectRow}
+            >
+              <Settings2Icon aria-hidden="true" className="size-3.5" />
+            </MenuSubTrigger>
+            <MenuSubPopup
+              align="start"
+              className="w-[13.5rem] rounded-[1rem] border-border/45 bg-[color:color-mix(in_oklch,var(--popover)_97%,var(--background)_3%)] shadow-[0_18px_54px_-36px_rgb(0_0_0/.7)] dark:bg-[color:color-mix(in_oklch,var(--popover)_94%,var(--background)_6%)]"
+              listClassName="p-3"
+              listMaxHeight="18rem"
+            >
+              <div
+                onKeyDownCapture={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    selectRow();
+                  }
+                }}
+                onPointerDownCapture={selectRow}
+              >
+                {props.traitsMenuContent}
+              </div>
+            </MenuSubPopup>
+          </MenuSub>
+        ) : null}
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                aria-label={`${props.favorited ? "Remove favorite" : "Favorite"} ${props.row.label}`}
+                className={cn(
+                  "inline-flex size-5 items-center justify-center rounded-md text-muted-foreground/45 outline-none transition-colors duration-150 hover:bg-foreground/[0.07] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring",
+                  props.favorited
+                    ? "text-amber-500 opacity-100"
+                    : "opacity-0 group-hover/model-row:opacity-100",
+                )}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  props.onFavoriteModelToggle(props.row.favoriteKey);
+                }}
+              />
+            }
+          >
+            <StarIcon
+              aria-hidden="true"
+              className={cn("size-3", props.favorited ? "fill-current" : undefined)}
             />
-          }
-        >
-          <StarIcon
-            aria-hidden="true"
-            className={cn("size-3", props.favorited ? "fill-current" : undefined)}
-          />
-        </TooltipTrigger>
-        <TooltipPopup side="left">
-          {props.favorited ? "Remove favorite" : "Favorite model"}
-        </TooltipPopup>
-      </Tooltip>
+          </TooltipTrigger>
+          <TooltipPopup side="left">
+            {props.favorited ? "Remove favorite" : "Favorite model"}
+          </TooltipPopup>
+        </Tooltip>
+      </div>
     </div>
+  );
+}
+
+function ProviderModelPickerRenderedRow(props: {
+  readonly activeProvider: ProviderKind;
+  readonly favoriteModelSet: ReadonlySet<string>;
+  readonly providerInstanceId?: string | undefined;
+  readonly row: ModelPickerRow;
+  readonly section: "current" | "favorite" | "all";
+  readonly selectedModel: string;
+  readonly showProviderIcon: boolean;
+  readonly traitsMenuContent?: ReactNode;
+  readonly onFavoriteModelToggle: (favoriteKey: string) => void;
+  readonly onModelSelect: (row: ModelPickerRow) => void;
+}) {
+  const selected =
+    props.activeProvider === props.row.provider &&
+    normalizeProviderInstanceId(props.providerInstanceId) ===
+      normalizeProviderInstanceId(props.row.providerInstanceId) &&
+    isRowSelected(props.row.provider, props.row, props.selectedModel);
+  return (
+    <ProviderModelPickerModelRow
+      favorited={props.favoriteModelSet.has(props.row.favoriteKey)}
+      row={props.row}
+      section={props.section}
+      selected={selected}
+      showProviderIcon={props.showProviderIcon}
+      traitsMenuContent={props.traitsMenuContent}
+      onFavoriteModelToggle={props.onFavoriteModelToggle}
+      onModelSelect={props.onModelSelect}
+    />
   );
 }
 
@@ -420,7 +536,9 @@ function ProviderModelPickerMenu(props: {
   readonly disabled?: boolean | undefined;
   readonly displayedProviderEntries: ReadonlyArray<ProviderPickerEntry>;
   readonly favoriteModelSet: ReadonlySet<string>;
+  readonly allFavoriteRows: ReadonlyArray<ModelPickerRow>;
   readonly favoriteRows: ReadonlyArray<ModelPickerRow>;
+  readonly currentModelRow: ModelPickerRow | null;
   readonly isMenuOpen: boolean;
   readonly modelRows: ReadonlyArray<ModelPickerRow>;
   readonly pickerProvider: ProviderKind;
@@ -436,15 +554,19 @@ function ProviderModelPickerMenu(props: {
   readonly selectedModelLabel: string;
   readonly selectedProviderInstance?: ProviderInstancePickerOption | undefined;
   readonly showProviderRail: boolean;
+  readonly showFavoritesView: boolean;
   readonly triggerClassName?: string | undefined;
   readonly triggerSurface?: "composer" | "settings" | undefined;
   readonly triggerTraitSummary?: string | undefined;
   readonly triggerVariant?: VariantProps<typeof buttonVariants>["variant"];
+  readonly renderTraitsMenuContent?: ((model: string) => ReactNode) | undefined;
   readonly traitsMenuContent?: ReactNode;
   readonly onFavoriteModelToggle: (favoriteKey: string) => void;
   readonly onMenuOpenChange: (open: boolean) => void;
-  readonly onModelSelect: (value: string) => void;
-  readonly onProviderEntryFocus: (entry: ProviderPickerEntry) => void;
+  readonly onModelSelect: (row: ModelPickerRow) => void;
+  readonly onProviderEntryFocus: (
+    entry: ProviderPickerEntry | typeof FAVORITES_PROVIDER_ENTRY_KEY,
+  ) => void;
   readonly onProviderPinToggle: (providerEntryKey: string) => void;
   readonly onQueryChange: (query: string) => void;
 }) {
@@ -459,26 +581,9 @@ function ProviderModelPickerMenu(props: {
     .filter((part) => !part.toLowerCase().includes("fast"))
     .join(" · ");
   const showFastTraitIcon = triggerTraitParts.some((part) => part.toLowerCase().includes("fast"));
-
-  const renderModelRow = (row: ModelPickerRow, section: "favorite" | "all") => {
-    const selected =
-      props.activeProvider === props.pickerProvider &&
-      normalizeProviderInstanceId(props.providerInstanceId) ===
-        normalizeProviderInstanceId(props.pickerProviderInstanceId) &&
-      isRowSelected(props.pickerProvider, row, props.selectedModel);
-    const favorited = props.favoriteModelSet.has(row.favoriteKey);
-    return (
-      <ProviderModelPickerModelRow
-        key={`${section}:${row.favoriteKey}`}
-        favorited={favorited}
-        row={row}
-        section={section}
-        selected={selected}
-        onFavoriteModelToggle={props.onFavoriteModelToggle}
-        onModelSelect={props.onModelSelect}
-      />
-    );
-  };
+  const pickerModelCount = props.showFavoritesView
+    ? props.allFavoriteRows.length
+    : props.pickerRows.length;
 
   return (
     <Menu open={props.isMenuOpen} onOpenChange={props.onMenuOpenChange}>
@@ -498,8 +603,8 @@ function ProviderModelPickerMenu(props: {
                   )
                 : cn(
                     APP_COMPOSER_CONTROL_CLASS_NAME,
-                    "min-w-0 justify-start overflow-hidden whitespace-nowrap px-2 [&_svg]:mx-0",
-                    props.compact ? "max-w-42 shrink-0" : "max-w-56 shrink sm:max-w-72 sm:px-2.5",
+                    "min-w-0 justify-start overflow-hidden whitespace-nowrap px-2.5 [&_svg]:mx-0",
+                    props.compact ? "max-w-40 shrink-0" : "max-w-[min(48vw,16rem)] shrink-0",
                   ),
               props.triggerClassName,
             )}
@@ -509,15 +614,15 @@ function ProviderModelPickerMenu(props: {
       >
         <span
           className={cn(
-            "flex min-w-0 w-full box-border items-center gap-2 overflow-hidden",
-            props.compact ? "max-w-36 sm:pl-1" : undefined,
+            "flex min-w-0 w-full box-border items-center gap-1.5 overflow-hidden",
+            props.compact ? "max-w-34 sm:pl-0.5" : undefined,
           )}
         >
-          <span className="relative inline-flex size-4 shrink-0 items-center justify-center">
+          <span className="relative inline-flex size-3.5 shrink-0 items-center justify-center">
             <ProviderIcon
               aria-hidden="true"
               className={cn(
-                "size-4 shrink-0",
+                "size-3.5 shrink-0",
                 providerIconClassName(props.activeProvider, "text-muted-foreground"),
                 props.activeProviderIconClassName,
               )}
@@ -544,19 +649,19 @@ function ProviderModelPickerMenu(props: {
                   </span>
                 ) : null}
                 {showFastTraitIcon ? (
-                  <IconBoltFilled aria-hidden="true" className="size-3.5" />
+                  <IconBoltFilled aria-hidden="true" className="size-3" />
                 ) : null}
                 <span className="sr-only">{props.triggerTraitSummary}</span>
               </span>
             ) : null}
           </span>
-          <ChevronDownIcon aria-hidden="true" className="size-3 shrink-0 opacity-60" />
+          <ChevronDownIcon aria-hidden="true" className="size-2.5 shrink-0 opacity-50" />
         </span>
       </MenuTrigger>
       <MenuPopup
         align="start"
-        className="w-[min(calc(100vw-1rem),22rem)]"
-        listClassName="overflow-hidden"
+        className="w-[min(calc(100vw-1rem),20.5rem)] overflow-hidden rounded-[1.15rem] border-border/50 bg-[color:color-mix(in_oklch,var(--popover)_97%,var(--background)_3%)] shadow-[0_24px_70px_-46px_rgb(0_0_0/.58)] supports-[backdrop-filter]:backdrop-blur-2xl supports-[backdrop-filter]:backdrop-saturate-[1.14] dark:border-border/40 dark:bg-[color:color-mix(in_oklch,var(--popover)_94%,var(--background)_6%)] dark:shadow-[0_24px_70px_-44px_rgb(0_0_0/.86)]"
+        listClassName="overflow-hidden p-0"
         listHeight={MODEL_MENU_MAX_HEIGHT}
         listMaxHeight={MODEL_MENU_MAX_HEIGHT}
       >
@@ -565,21 +670,50 @@ function ProviderModelPickerMenu(props: {
         ) : (
           <div
             className={cn(
-              "grid h-full min-h-0 w-full overflow-hidden",
-              props.showProviderRail ? "grid-cols-[2.75rem_minmax(0,1fr)]" : "grid-cols-1",
+              "flex h-full min-h-0 w-full flex-col overflow-hidden",
+              props.showProviderRail ? "pt-1" : undefined,
             )}
           >
             {props.showProviderRail ? (
-              <div className="glass-inset min-h-0 overflow-hidden border-r border-border/40 p-1">
+              <div className="overflow-hidden border-b border-border/28 px-2 pb-1.5">
                 <div
-                  className="h-full space-y-0.5 overflow-y-auto overscroll-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                  className="flex gap-1 overflow-x-auto overscroll-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
                   data-provider-model-picker-provider-rail="true"
                 >
+                  {props.allFavoriteRows.length > 0 ? (
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <button
+                            type="button"
+                            aria-label="Favorites"
+                            className={cn(
+                              "relative flex size-8 shrink-0 items-center justify-center rounded-[0.65rem] border outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring",
+                              props.showFavoritesView
+                                ? "border-border/50 bg-foreground/[0.075] text-foreground shadow-[inset_0_1px_0_rgb(255_255_255/.055)] dark:bg-white/[0.085]"
+                                : "border-transparent text-muted-foreground/68 hover:border-border/35 hover:bg-foreground/[0.055] hover:text-foreground dark:hover:bg-white/[0.07]",
+                            )}
+                            onClick={() => props.onProviderEntryFocus(FAVORITES_PROVIDER_ENTRY_KEY)}
+                          />
+                        }
+                      >
+                        <StarIcon
+                          aria-hidden="true"
+                          className={cn(
+                            "size-4 shrink-0 transition-transform duration-150",
+                            props.showFavoritesView && "scale-110 fill-current text-amber-500",
+                          )}
+                        />
+                      </TooltipTrigger>
+                      <TooltipPopup side="right">Favorites</TooltipPopup>
+                    </Tooltip>
+                  ) : null}
                   {props.displayedProviderEntries.map((entry) => {
                     const OptionIcon = PROVIDER_ICON_BY_PROVIDER[entry.provider];
                     const selected =
+                      !props.showFavoritesView &&
                       props.pickerProviderEntryKey ===
-                      makeProviderEntryKey(entry.provider, entry.instanceId);
+                        makeProviderEntryKey(entry.provider, entry.instanceId);
                     return (
                       <Tooltip key={makeProviderEntryKey(entry.provider, entry.instanceId)}>
                         <TooltipTrigger
@@ -588,10 +722,10 @@ function ProviderModelPickerMenu(props: {
                               type="button"
                               aria-label={entry.label}
                               className={cn(
-                                "relative flex size-8 items-center justify-center rounded-[var(--control-radius)] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+                                "relative flex size-8 shrink-0 items-center justify-center rounded-[0.65rem] border outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring",
                                 selected
-                                  ? "bg-accent text-accent-foreground"
-                                  : "text-muted-foreground hover:bg-accent/70 hover:text-foreground",
+                                  ? "border-border/50 bg-foreground/[0.075] text-foreground shadow-[inset_0_1px_0_rgb(255_255_255/.055)] dark:bg-white/[0.085]"
+                                  : "border-transparent text-muted-foreground/68 hover:border-border/35 hover:bg-foreground/[0.055] hover:text-foreground dark:hover:bg-white/[0.07]",
                               )}
                               onClick={() => props.onProviderEntryFocus(entry)}
                             />
@@ -600,15 +734,16 @@ function ProviderModelPickerMenu(props: {
                           <OptionIcon
                             aria-hidden="true"
                             className={cn(
-                              "size-4 shrink-0",
+                              "size-4 shrink-0 transition-transform duration-150",
                               providerIconClassName(entry.provider, "text-muted-foreground"),
+                              selected && "scale-110",
                             )}
                           />
                           {entry.instanceId ? (
                             <ProviderInstanceBadge
                               color={entry.badgeColor}
                               icon={entry.badgeIcon}
-                              className="absolute bottom-0 right-0 size-3.5 border-[1.5px] p-[2px]"
+                              className="absolute -bottom-0.5 -right-0.5 size-3.5 border-[1.5px] p-[2px]"
                             />
                           ) : null}
                         </TooltipTrigger>
@@ -620,65 +755,73 @@ function ProviderModelPickerMenu(props: {
               </div>
             ) : null}
 
-            <div className="flex min-w-0 flex-col overflow-hidden">
-              <div className="border-b border-border/35 px-2.5 py-1.5">
-                <div className="flex min-w-0 items-center gap-1.5">
-                  <PickerProviderIcon
-                    aria-hidden="true"
-                    className={cn(
-                      "size-3.5 shrink-0",
-                      providerIconClassName(props.pickerProvider, "text-muted-foreground"),
-                    )}
-                  />
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-xs font-medium">
-                      {props.pickerProviderOption.label}
-                    </div>
-                    <div className="flex min-w-0 items-center gap-1 text-[10px] text-muted-foreground">
-                      {props.pickerProviderEntry.instanceId ? (
-                        <>
-                          <span className="truncate">{props.pickerProviderEntry.accountLabel}</span>
-                          <span className="shrink-0 text-muted-foreground/50">·</span>
-                        </>
-                      ) : null}
-                      <span className="shrink-0">
-                        {props.pickerRows.length}{" "}
-                        {props.pickerRows.length === 1 ? "model" : "models"}
-                      </span>
-                    </div>
-                  </div>
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={
-                        <button
-                          type="button"
-                          aria-label={`${props.pickerProviderEntryPinned ? "Unpin" : "Pin"} ${props.pickerProviderEntry.label}`}
-                          className="inline-flex size-6 items-center justify-center rounded-[var(--control-radius)] text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-                          onClick={() => props.onProviderPinToggle(props.pickerProviderEntryKey)}
-                        />
-                      }
-                    >
-                      <PinIcon
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+              <div className="border-b border-border/26 px-3 py-2.5">
+                <div className="flex min-w-0 items-center gap-3">
+                  <span className="flex size-8 shrink-0 items-center justify-center rounded-[0.65rem] border border-border/42 bg-foreground/[0.045] text-muted-foreground shadow-[inset_0_1px_0_rgb(255_255_255/.045)] dark:bg-white/[0.055]">
+                    {props.showFavoritesView ? (
+                      <StarIcon aria-hidden="true" className="size-4 shrink-0 fill-current" />
+                    ) : (
+                      <PickerProviderIcon
                         aria-hidden="true"
                         className={cn(
-                          "size-3",
-                          props.pickerProviderEntryPinned
-                            ? "fill-current text-foreground"
-                            : undefined,
+                          "size-4 shrink-0",
+                          providerIconClassName(props.pickerProvider, "text-muted-foreground"),
                         )}
                       />
-                    </TooltipTrigger>
-                    <TooltipPopup side="left">
-                      {props.pickerProviderEntryPinned ? "Unpin provider" : "Pin provider"}
-                    </TooltipPopup>
-                  </Tooltip>
+                    )}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex min-w-0 items-baseline gap-1.5 truncate text-[12.5px] font-medium leading-4 text-foreground/92">
+                      <span className="truncate">
+                        {props.showFavoritesView ? "Favorites" : props.pickerProviderOption.label}
+                      </span>
+                      <span className="shrink-0 text-[10.5px] font-normal text-muted-foreground/58">
+                        {pickerModelCount} {pickerModelCount === 1 ? "model" : "models"}
+                      </span>
+                    </div>
+                    <div className="mt-0.5 flex min-w-0 items-center gap-1 text-[10.5px] leading-3 text-muted-foreground/62">
+                      {props.showFavoritesView ? (
+                        <span className="truncate">All providers</span>
+                      ) : props.pickerProviderEntry.instanceId ? (
+                        <span className="truncate">{props.pickerProviderEntry.accountLabel}</span>
+                      ) : null}
+                    </div>
+                  </div>
+                  {props.showFavoritesView ? null : (
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <button
+                            type="button"
+                            aria-label={`${props.pickerProviderEntryPinned ? "Unpin" : "Pin"} ${props.pickerProviderEntry.label}`}
+                            className="inline-flex size-7 items-center justify-center rounded-lg text-muted-foreground/58 outline-none transition-colors duration-150 hover:bg-foreground/[0.07] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                            onClick={() => props.onProviderPinToggle(props.pickerProviderEntryKey)}
+                          />
+                        }
+                      >
+                        <PinIcon
+                          aria-hidden="true"
+                          className={cn(
+                            "size-3.5 transition-transform duration-200",
+                            props.pickerProviderEntryPinned
+                              ? "fill-current text-primary scale-110"
+                              : undefined,
+                          )}
+                        />
+                      </TooltipTrigger>
+                      <TooltipPopup side="left">
+                        {props.pickerProviderEntryPinned ? "Unpin provider" : "Pin provider"}
+                      </TooltipPopup>
+                    </Tooltip>
+                  )}
                 </div>
               </div>
-              <div className="border-b border-border/35 px-2.5 py-1.5">
-                <div className="glass-inset flex h-7 items-center gap-1.5 rounded-[var(--control-radius)] border px-2">
+              <div className="border-b border-border/26 px-3 py-2">
+                <div className="flex h-8 items-center gap-2 rounded-[0.75rem] border border-border/42 bg-foreground/[0.035] px-2.5 transition-colors duration-150 focus-within:border-primary/38 focus-within:bg-foreground/[0.045] focus-within:ring-2 focus-within:ring-primary/10 dark:bg-white/[0.045] dark:focus-within:bg-white/[0.06]">
                   <SearchIcon
                     aria-hidden="true"
-                    className="size-3 shrink-0 text-muted-foreground"
+                    className="size-3.5 shrink-0 text-muted-foreground/58"
                   />
                   <input
                     type="search"
@@ -691,58 +834,143 @@ function ProviderModelPickerMenu(props: {
                       }
                     }}
                     placeholder="Search models"
-                    className="h-full min-w-0 flex-1 border-0 bg-transparent p-0 text-xs text-foreground outline-none placeholder:text-muted-foreground/60"
+                    className="h-full min-w-0 flex-1 border-0 bg-transparent p-0 text-[12px] text-foreground outline-none placeholder:text-muted-foreground/48"
                   />
                 </div>
               </div>
               <div
-                className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-1"
+                className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 py-1.5"
                 data-provider-model-picker-model-list="true"
               >
-                {props.traitsMenuContent ? (
+                {props.showFavoritesView ? (
                   <>
-                    <MenuSub>
-                      <MenuSubTrigger>
-                        <Settings2Icon aria-hidden="true" className="size-4" />
-                        Model options
-                      </MenuSubTrigger>
-                      <MenuSubPopup className="w-60">{props.traitsMenuContent}</MenuSubPopup>
-                    </MenuSub>
-                    <div
-                      aria-hidden="true"
-                      className="mx-5 my-1 h-px origin-center scale-y-50 bg-border/35"
-                    />
-                  </>
-                ) : null}
-                {props.favoriteRows.length > 0 ? (
-                  <>
-                    <div className="px-1.5 pb-0.5 pt-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground/70">
+                    <div className="px-2.5 pb-1 pt-1 text-[9.5px] font-medium uppercase tracking-[0.12em] text-muted-foreground/52">
                       Favorites
                     </div>
+                    {props.allFavoriteRows.length === 0 ? (
+                      <div className="rounded-[0.8rem] border border-border/32 bg-foreground/[0.025] px-3 py-3 text-center text-[12px] text-muted-foreground/62 dark:bg-white/[0.035]">
+                        No favorite models yet.
+                      </div>
+                    ) : (
+                      <div className="space-y-0.5">
+                        {props.allFavoriteRows.map((row) => (
+                          <ProviderModelPickerRenderedRow
+                            key={`favorite:${row.favoriteKey}`}
+                            activeProvider={props.activeProvider}
+                            favoriteModelSet={props.favoriteModelSet}
+                            providerInstanceId={props.providerInstanceId}
+                            row={row}
+                            section="favorite"
+                            selectedModel={props.selectedModel}
+                            showProviderIcon={props.showFavoritesView}
+                            traitsMenuContent={
+                              props.renderTraitsMenuContent?.(row.selectionValue) ??
+                              props.traitsMenuContent
+                            }
+                            onFavoriteModelToggle={props.onFavoriteModelToggle}
+                            onModelSelect={props.onModelSelect}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </>
+                ) : props.currentModelRow ? (
+                  <>
+                    <div className="px-2.5 pb-1 pt-1 text-[9.5px] font-medium uppercase tracking-[0.12em] text-muted-foreground/52">
+                      Current
+                    </div>
                     <div className="space-y-0.5">
-                      {props.favoriteRows.map((row) => renderModelRow(row, "favorite"))}
+                      <ProviderModelPickerRenderedRow
+                        key={`current:${props.currentModelRow.favoriteKey}`}
+                        activeProvider={props.activeProvider}
+                        favoriteModelSet={props.favoriteModelSet}
+                        providerInstanceId={props.providerInstanceId}
+                        row={props.currentModelRow}
+                        section="current"
+                        selectedModel={props.selectedModel}
+                        showProviderIcon={props.showFavoritesView}
+                        traitsMenuContent={
+                          props.renderTraitsMenuContent?.(props.currentModelRow.selectionValue) ??
+                          props.traitsMenuContent
+                        }
+                        onFavoriteModelToggle={props.onFavoriteModelToggle}
+                        onModelSelect={props.onModelSelect}
+                      />
                     </div>
                     <div
                       aria-hidden="true"
-                      className="mx-5 my-1 h-px origin-center scale-y-50 bg-border/35"
+                      className="mx-3 my-1.5 h-px origin-center scale-y-50 bg-gradient-to-r from-transparent via-border/42 to-transparent"
                     />
                   </>
                 ) : null}
 
-                <div className="px-1.5 pb-0.5 pt-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-muted-foreground/70">
-                  Models
-                </div>
-                {props.modelRows.length === 0 ? (
-                  <div className="px-1.5 py-1 text-xs text-muted-foreground/75">
-                    {props.query.trim().length > 0
-                      ? "No models match your search."
-                      : "No models available."}
-                  </div>
-                ) : (
-                  <div className="space-y-0.5">
-                    {props.modelRows.map((row) => renderModelRow(row, "all"))}
-                  </div>
-                )}
+                {!props.showFavoritesView && props.favoriteRows.length > 0 ? (
+                  <>
+                    <div className="px-2.5 pb-1 pt-1 text-[9.5px] font-medium uppercase tracking-[0.12em] text-muted-foreground/52">
+                      Favorites
+                    </div>
+                    <div className="space-y-0.5">
+                      {props.favoriteRows.map((row) => (
+                        <ProviderModelPickerRenderedRow
+                          key={`favorite:${row.favoriteKey}`}
+                          activeProvider={props.activeProvider}
+                          favoriteModelSet={props.favoriteModelSet}
+                          providerInstanceId={props.providerInstanceId}
+                          row={row}
+                          section="favorite"
+                          selectedModel={props.selectedModel}
+                          showProviderIcon={props.showFavoritesView}
+                          traitsMenuContent={
+                            props.renderTraitsMenuContent?.(row.selectionValue) ??
+                            props.traitsMenuContent
+                          }
+                          onFavoriteModelToggle={props.onFavoriteModelToggle}
+                          onModelSelect={props.onModelSelect}
+                        />
+                      ))}
+                    </div>
+                    <div
+                      aria-hidden="true"
+                      className="mx-3 my-1.5 h-px origin-center scale-y-50 bg-gradient-to-r from-transparent via-border/42 to-transparent"
+                    />
+                  </>
+                ) : null}
+
+                {!props.showFavoritesView ? (
+                  <>
+                    <div className="px-2.5 pb-1 pt-1 text-[9.5px] font-medium uppercase tracking-[0.12em] text-muted-foreground/52">
+                      Models
+                    </div>
+                    {props.modelRows.length === 0 ? (
+                      <div className="rounded-[0.8rem] border border-border/32 bg-foreground/[0.025] px-3 py-3 text-center text-[12px] text-muted-foreground/62 dark:bg-white/[0.035]">
+                        {props.query.trim().length > 0
+                          ? "No models match your search."
+                          : "No models available."}
+                      </div>
+                    ) : (
+                      <div className="space-y-0.5">
+                        {props.modelRows.map((row) => (
+                          <ProviderModelPickerRenderedRow
+                            key={`all:${row.favoriteKey}`}
+                            activeProvider={props.activeProvider}
+                            favoriteModelSet={props.favoriteModelSet}
+                            providerInstanceId={props.providerInstanceId}
+                            row={row}
+                            section="all"
+                            selectedModel={props.selectedModel}
+                            showProviderIcon={props.showFavoritesView}
+                            traitsMenuContent={
+                              props.renderTraitsMenuContent?.(row.selectionValue) ??
+                              props.traitsMenuContent
+                            }
+                            onFavoriteModelToggle={props.onFavoriteModelToggle}
+                            onModelSelect={props.onModelSelect}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </>
+                ) : null}
               </div>
             </div>
           </div>
@@ -936,6 +1164,42 @@ function deriveProviderModelPickerViewState(input: {
         })
       : buildStandardModelRows(pickerProvider, pickerProviderInstanceId, pickerModelOptions);
   const favoriteModelSet = new Set(input.prefs.favoriteModels);
+  const allFavoriteRows = displayedProviderEntries.flatMap((entry) => {
+    const entrySnapshot = props.providers
+      ? getProviderSnapshot(props.providers, entry.provider, entry.instanceId)
+      : undefined;
+    const entryModels = entrySnapshot?.models ?? EMPTY_SERVER_PROVIDER_MODELS;
+    const entryOptions =
+      entrySnapshot?.models.length === 0
+        ? props.modelOptionsByProvider[entry.provider]
+        : entrySnapshot
+          ? modelOptionsFromServerModels(entrySnapshot.models)
+          : props.modelOptionsByProvider[entry.provider];
+    const rows =
+      entry.provider === "cursor" && entryModels.length > 0
+        ? buildCursorModelRows({
+            models: entryModels,
+            providerInstanceId: entry.instanceId,
+            selectedModel: props.model,
+          })
+        : buildStandardModelRows(entry.provider, entry.instanceId, entryOptions);
+    return rows.filter((row) => favoriteModelSet.has(row.favoriteKey));
+  });
+  const activeRows =
+    activeProvider === "cursor" && cursorModels.length > 0
+      ? buildCursorModelRows({
+          models: cursorModels,
+          providerInstanceId: props.providerInstanceId,
+          selectedModel: props.model,
+        })
+      : buildStandardModelRows(activeProvider, props.providerInstanceId, selectedProviderOptions);
+  const pickerShowsActiveProvider =
+    activeProvider === pickerProvider &&
+    normalizeProviderInstanceId(props.providerInstanceId) ===
+      normalizeProviderInstanceId(pickerProviderInstanceId);
+  const currentModelRow = pickerShowsActiveProvider
+    ? (activeRows.find((row) => isRowSelected(activeProvider, row, props.model)) ?? null)
+    : null;
   const pickerProviderEntryPinned = isProviderEntryPinned(
     input.prefs.pinnedProviders,
     pickerProviderEntry,
@@ -944,8 +1208,10 @@ function deriveProviderModelPickerViewState(input: {
   return {
     activeProvider,
     activeProviderEntryKey,
+    allFavoriteRows,
     displayedProviderEntries,
     favoriteModelSet,
+    currentModelRow,
     pickerModelOptions,
     pickerProvider,
     pickerProviderEntry,
@@ -974,8 +1240,10 @@ export function ProviderModelPicker(props: ProviderModelPickerProps) {
   const {
     activeProvider,
     activeProviderEntryKey,
+    allFavoriteRows,
     displayedProviderEntries,
     favoriteModelSet,
+    currentModelRow,
     pickerModelOptions,
     pickerProvider,
     pickerProviderEntry,
@@ -997,6 +1265,10 @@ export function ProviderModelPicker(props: ProviderModelPickerProps) {
     normalizedQuery.length === 0
       ? pickerRows
       : pickerRows.filter((row) => row.searchText.includes(normalizedQuery));
+  const visibleAllFavoriteRows =
+    normalizedQuery.length === 0
+      ? allFavoriteRows
+      : allFavoriteRows.filter((row) => row.searchText.includes(normalizedQuery));
   const favoriteRows = visibleRows.filter((row) => favoriteModelSet.has(row.favoriteKey));
   const modelRows = visibleRows.filter((row) => !favoriteModelSet.has(row.favoriteKey));
 
@@ -1026,8 +1298,15 @@ export function ProviderModelPicker(props: ProviderModelPickerProps) {
       setIsMenuOpen(false);
     }
   };
-  const handleProviderEntryFocus = (entry: ProviderPickerEntry) => {
+  const handleProviderEntryFocus = (
+    entry: ProviderPickerEntry | typeof FAVORITES_PROVIDER_ENTRY_KEY,
+  ) => {
     if (props.disabled) return;
+    if (entry === FAVORITES_PROVIDER_ENTRY_KEY) {
+      setFocusedProviderEntryKey(FAVORITES_PROVIDER_ENTRY_KEY);
+      setQuery("");
+      return;
+    }
     const entryKey = makeProviderEntryKey(entry.provider, entry.instanceId);
     setFocusedProviderEntryKey(entryKey);
     setQuery("");
@@ -1052,9 +1331,11 @@ export function ProviderModelPicker(props: ProviderModelPickerProps) {
       activeProviderIconClassName={props.activeProviderIconClassName}
       compact={props.compact}
       disabled={props.disabled}
+      allFavoriteRows={visibleAllFavoriteRows}
       displayedProviderEntries={displayedProviderEntries}
       favoriteModelSet={favoriteModelSet}
       favoriteRows={favoriteRows}
+      currentModelRow={normalizedQuery.length === 0 ? currentModelRow : null}
       isMenuOpen={isMenuOpen}
       modelRows={modelRows}
       pickerProvider={pickerProvider}
@@ -1070,10 +1351,12 @@ export function ProviderModelPicker(props: ProviderModelPickerProps) {
       selectedModelLabel={selectedModelLabel}
       selectedProviderInstance={selectedProviderInstance}
       showProviderRail={showProviderRail}
+      showFavoritesView={focusedProviderEntryKey === FAVORITES_PROVIDER_ENTRY_KEY}
       triggerClassName={props.triggerClassName}
       triggerSurface={props.triggerSurface}
       triggerTraitSummary={props.triggerTraitSummary}
       triggerVariant={props.triggerVariant}
+      renderTraitsMenuContent={props.renderTraitsMenuContent}
       traitsMenuContent={props.traitsMenuContent}
       onFavoriteModelToggle={toggleFavoriteModel}
       onMenuOpenChange={(open) => {
@@ -1086,7 +1369,15 @@ export function ProviderModelPicker(props: ProviderModelPickerProps) {
         }
         setIsMenuOpen(open);
       }}
-      onModelSelect={(value) => handleModelChange(pickerProvider, value)}
+      onModelSelect={(row) =>
+        handleModelChange(
+          row.provider,
+          row.selectionValue,
+          undefined,
+          false,
+          row.providerInstanceId,
+        )
+      }
       onProviderEntryFocus={handleProviderEntryFocus}
       onProviderPinToggle={togglePinnedProvider}
       onQueryChange={setQuery}
@@ -1105,7 +1396,7 @@ export function ProviderModelPicker(props: ProviderModelPickerProps) {
         entriesDisabled={props.handoff.disabled}
         providers={props.handoff.providers}
         showLabel={false}
-        triggerClassName={cn(APP_COMPOSER_CONTROL_CLASS_NAME, props.compact ? "size-7" : "size-8")}
+        triggerClassName={cn(APP_COMPOSER_CONTROL_CLASS_NAME, "size-7")}
         triggerVariant={props.triggerVariant ?? "ghost"}
         onSelect={(provider, mode) => {
           props.handoff?.onSelect(provider, mode);

@@ -1,4 +1,5 @@
 import { ProviderInteractionMode } from "@ace/contracts";
+import { IconListDetails } from "@tabler/icons-react";
 import { PaperclipIcon, PlusIcon } from "lucide-react";
 import { type ComponentType, useState } from "react";
 import { Button } from "../ui/button";
@@ -22,23 +23,7 @@ export interface CompactComposerCommandMenuItem {
 }
 
 export function PlanModeGlyph(props: { className?: string }) {
-  return (
-    <svg
-      aria-hidden="true"
-      className={props.className}
-      fill="none"
-      viewBox="0 0 20 20"
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      <path d="M5 5.5h9.5M5 10h6.75M5 14.5h4.75" stroke="currentColor" strokeLinecap="round" />
-      <path
-        d="m2.75 5.25.65.65 1.15-1.35M2.75 9.75l.65.65 1.15-1.35M2.75 14.25l.65.65 1.15-1.35"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
+  return <IconListDetails aria-hidden="true" className={props.className} />;
 }
 
 function SkillGlyph(props: { className?: string }) {
@@ -104,12 +89,12 @@ export function CompactComposerControlsMenu(props: {
           <Button
             size="sm"
             variant="ghost"
-            className="size-8 shrink-0 rounded-full p-0 text-muted-foreground/72 hover:bg-black/[0.06] hover:text-foreground/90 dark:hover:bg-white/[0.12]"
+            className="size-7 shrink-0 rounded-full p-0 text-muted-foreground/72 hover:bg-black/[0.06] hover:text-foreground/90 dark:hover:bg-white/[0.12]"
             aria-label="More composer controls"
           />
         }
       >
-        <PlusIcon aria-hidden="true" className="size-4.5" />
+        <PlusIcon aria-hidden="true" className="size-4" />
       </MenuTrigger>
       <MenuPopup align="start" className="w-[14.5rem]" listClassName="p-1.5">
         <MenuItem

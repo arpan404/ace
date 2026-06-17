@@ -185,7 +185,7 @@ function ComposerPendingUserInputCard({
           </div>
         ) : null}
       </div>
-      <div className="space-y-0.5 px-2 pb-3">
+      <div className="space-y-0.5 px-3 pb-5">
         {activeQuestion.options.map((option, index) => {
           const isSelected = progress.selectedOptionLabels.includes(option.label);
           const shortcutKey = index < 9 ? index + 1 : null;

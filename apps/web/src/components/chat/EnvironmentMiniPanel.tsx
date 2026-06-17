@@ -24,7 +24,6 @@ import ProjectScriptsControl, { type NewProjectScriptInput } from "../ProjectScr
 import type { SubagentThread } from "./subagentThreads";
 import type { ActivePlanState } from "../../session-logic";
 import { cn } from "~/lib/utils";
-import { APP_COMPOSER_CLASS_NAME } from "~/lib/appChrome";
 import { PANEL_SPRING_TRANSITION } from "~/lib/panelMotion";
 import type { ThreadWorkspaceMode } from "~/threadWorkspaceMode";
 import { Button } from "../ui/button";
@@ -65,6 +64,9 @@ function formatDiffCount(value: number): string {
 
 const ENVIRONMENT_PANEL_ROW_CLASS_NAME =
   "flex min-h-8 w-full items-center gap-2 rounded-[var(--control-radius)] px-2 py-1 text-left text-[13px] text-foreground/82 transition-colors duration-150 hover:bg-black/[0.045] hover:text-foreground disabled:pointer-events-none disabled:opacity-60 dark:hover:bg-white/[0.09]";
+
+const ENVIRONMENT_PANEL_SURFACE_CLASS_NAME =
+  "rounded-[1.625rem] border border-border/35 bg-[color:color-mix(in_oklch,var(--popover)_98%,var(--background)_2%)] text-popover-foreground shadow-[0_26px_70px_-48px_rgb(0_0_0/.36),0_10px_30px_-26px_rgb(0_0_0/.22)] transition-[background-color,border-color] duration-150 supports-[backdrop-filter]:backdrop-blur-2xl supports-[backdrop-filter]:backdrop-saturate-[1.16] dark:border-border/36 dark:bg-[color:color-mix(in_oklch,var(--popover)_94%,var(--background)_6%)] dark:shadow-[0_24px_70px_-46px_rgb(0_0_0/.82),0_10px_32px_-28px_rgb(0_0_0/.62)]";
 
 function EnvironmentPanelGroup(props: {
   children: ReactNode;
@@ -447,8 +449,8 @@ export function EnvironmentMiniPanel({ ref, ...props }: EnvironmentMiniPanelProp
     <m.aside
       ref={ref}
       className={cn(
-        APP_COMPOSER_CLASS_NAME,
-        "pointer-events-auto z-50 w-[min(18.5rem,calc(100vw-1rem))] max-w-[calc(100vw-1rem)] overflow-y-auto p-2 text-popover-foreground shadow-[0_24px_70px_-44px_rgb(0_0_0/.86),0_10px_32px_-28px_rgb(0_0_0/.72),0_1px_0_rgb(255_255_255/.07)_inset,0_-1px_0_rgb(0_0_0/.28)_inset] sm:p-2.5",
+        ENVIRONMENT_PANEL_SURFACE_CLASS_NAME,
+        "pointer-events-auto z-50 w-[min(18.5rem,calc(100vw-1rem))] max-w-[calc(100vw-1rem)] overflow-y-auto p-2 sm:p-2.5",
         "[overflow-anchor:none]",
         props.layoutMode === "inline"
           ? "absolute top-3 right-3 max-h-[calc(100%_-_1.5rem)]"

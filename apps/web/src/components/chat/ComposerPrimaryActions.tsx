@@ -237,7 +237,7 @@ export function ComposerPrimaryActions({
   return (
     <button
       type="submit"
-      className="flex size-10 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-[0_10px_24px_-18px_rgb(0_0_0/.9)] transition-all duration-150 enabled:cursor-pointer hover:bg-primary/88 disabled:pointer-events-none disabled:bg-muted/80 disabled:text-muted-foreground/70 disabled:opacity-100 sm:size-9"
+      className="flex size-9 items-center justify-center rounded-full bg-primary text-white shadow-[0_10px_24px_-18px_rgb(0_0_0/.9)] transition-all duration-150 enabled:cursor-pointer hover:bg-primary/88 disabled:pointer-events-none disabled:bg-muted/80 disabled:text-muted-foreground/70 disabled:opacity-100 sm:size-8"
       disabled={isSendBusy || isConnecting || !hasSendableContent}
       aria-label={
         isConnecting
@@ -269,7 +269,7 @@ export function ComposerPrimaryActions({
           />
         </svg>
       ) : (
-        <SendArrowIcon />
+        <SendArrowIcon size={13} />
       )}
     </button>
   );

@@ -134,7 +134,7 @@ function PlanModeIndicator(props: {
       <TooltipTrigger
         render={
           <button
-            className="group/plan-button inline-flex h-8 min-w-max shrink-0 items-center gap-2 rounded-full border border-transparent bg-transparent px-3 text-[13px] font-medium text-muted-foreground/88 transition-[background-color,border-color,color,opacity] duration-150 hover:border-border/70 hover:bg-black/[0.04] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background dark:hover:border-border/65 dark:hover:bg-white/[0.08]"
+            className="group/plan-button inline-flex h-7 min-w-max shrink-0 items-center gap-1.5 rounded-full border border-transparent bg-transparent px-2.5 text-[12px] font-medium text-muted-foreground/88 transition-[background-color,border-color,color,opacity] duration-150 hover:border-border/70 hover:bg-black/[0.04] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background dark:hover:border-border/65 dark:hover:bg-white/[0.08]"
             type="button"
             aria-label="Exit plan mode"
             aria-pressed="true"
@@ -143,9 +143,9 @@ function PlanModeIndicator(props: {
           />
         }
       >
-        <span className="relative inline-flex size-4.5 shrink-0 items-center justify-center">
-          <PlanModeGlyph className="size-5 text-current opacity-72 transition-opacity duration-150 group-hover/plan-button:opacity-0" />
-          <IconXboxXFilled className="absolute inset-0 size-4.5 opacity-0 transition-opacity duration-150 group-hover/plan-button:opacity-100" />
+        <span className="relative inline-flex size-4 shrink-0 items-center justify-center">
+          <PlanModeGlyph className="size-4.5 text-current opacity-72 transition-opacity duration-150 group-hover/plan-button:opacity-0" />
+          <IconXboxXFilled className="absolute inset-0 size-4 opacity-0 transition-opacity duration-150 group-hover/plan-button:opacity-100" />
         </span>
         <span>Plan</span>
       </TooltipTrigger>
@@ -392,16 +392,6 @@ export function ChatComposerPanel({
   ...props
 }: ChatComposerPanelProps) {
   const interactionModeDisabledReason = null;
-  const providerTraitsMenuContent = renderProviderTraitsMenuContent({
-    provider: props.selectedProvider,
-    threadId: props.threadId,
-    model: props.selectedModel,
-    models: props.selectedProviderModels,
-    modelOptions: props.selectedProviderModelOptions,
-    prompt: props.prompt,
-    onPromptChange: props.onPromptChangeFromTraits,
-    sessionConfigOptions: props.sessionConfigOptions,
-  });
   const providerTraitsTriggerLabel = buildProviderTraitsTriggerLabel({
     provider: props.selectedProvider,
     models: props.selectedProviderModels,
@@ -450,8 +440,10 @@ export function ChatComposerPanel({
   return (
     <div
       className={cn(
-        "shrink-0 px-3 pt-0 sm:px-5 sm:pt-0",
-        props.isGitRepo ? "pb-1.5" : "pb-3 sm:pb-4",
+        "shrink-0 pt-0 sm:pt-0",
+        props.placeholderOverride
+          ? "px-0 pb-0 sm:px-0"
+          : cn("px-3 sm:px-5", props.isGitRepo ? "pb-1.5" : "pb-3 sm:pb-4"),
       )}
     >
       <form
@@ -612,11 +604,11 @@ export function ChatComposerPanel({
                 onPaste={props.onPaste}
                 placeholder={placeholder}
                 className={cn(
-                  "min-h-[3rem] text-[15px] leading-6",
+                  "min-h-[3rem] text-[13px] leading-5",
                   props.placeholderOverride && "new-thread-start-composer-editor",
                 )}
                 placeholderClassName={cn(
-                  "text-[15px] leading-6 text-muted-foreground/64",
+                  "text-[13px] leading-5 text-muted-foreground/64",
                   props.placeholderOverride && "new-thread-start-composer-placeholder",
                 )}
                 disabled={props.isConnecting || props.isComposerApprovalState}
@@ -711,7 +703,18 @@ export function ChatComposerPanel({
                             props.composerProviderState.modelPickerIconClassName,
                         }
                       : {})}
-                    traitsMenuContent={providerTraitsMenuContent}
+                    renderTraitsMenuContent={(model) =>
+                      renderProviderTraitsMenuContent({
+                        provider: props.selectedProvider,
+                        threadId: props.threadId,
+                        model,
+                        models: props.selectedProviderModels,
+                        modelOptions: props.selectedProviderModelOptions,
+                        prompt: props.prompt,
+                        onPromptChange: props.onPromptChangeFromTraits,
+                        sessionConfigOptions: props.sessionConfigOptions,
+                      })
+                    }
                     triggerTraitSummary={providerTraitsTriggerLabel ?? undefined}
                     onProviderModelChange={props.onProviderModelSelect}
                     {...(handoff ? { handoff } : {})}

@@ -436,10 +436,11 @@ const BOTTOM_EDGE_PANEL_SPRING_ANIMATION = {
   animate: { opacity: 1, scaleY: 1, y: 0 },
   exit: { opacity: 0, scaleY: 0.985, y: 18 },
 } as const;
-const ENVIRONMENT_MINI_PANEL_WIDTH_PX = 352;
-const ENVIRONMENT_MINI_PANEL_GAP_PX = 12;
-const ENVIRONMENT_MINI_PANEL_RESERVED_WIDTH_PX =
-  ENVIRONMENT_MINI_PANEL_WIDTH_PX + ENVIRONMENT_MINI_PANEL_GAP_PX;
+const ENVIRONMENT_MINI_PANEL_WIDTH_PX = 296;
+const ENVIRONMENT_MINI_PANEL_MIN_CHAT_WIDTH_PX = 620;
+const ENVIRONMENT_MINI_PANEL_INLINE_INSET_PX = 12;
+const ENVIRONMENT_MINI_PANEL_MIN_GAP_PX = 16;
+const ENVIRONMENT_MINI_PANEL_MAX_GAP_PX = 36;
 const ENVIRONMENT_POPOVER_INTERACTIVE_LAYER_SELECTOR = [
   '[data-slot="alert-dialog-content"]',
   '[data-slot="alert-dialog-overlay"]',
@@ -3848,8 +3849,8 @@ function useChatViewComponent({
   const activeBrowserThreadIdRef = useRef<string | null>(null);
   const pendingBrowserOpenUrlRef = useRef<string | null>(null);
   const chatViewportRef = useRef<HTMLDivElement | null>(null);
-  const [chatViewportSize, setChatViewportSize] = useState({ height: 0, width: 0 });
   const workspaceViewportRef = useRef<HTMLDivElement | null>(null);
+  const [workspaceViewportSize, setWorkspaceViewportSize] = useState({ height: 0, width: 0 });
   const browserSplitWidthRef = useRef(browserSplitWidth);
   const browserSplitResizePointerIdRef = useRef<number | null>(null);
   const browserSplitResizeStateRef = useRef<{
@@ -3880,7 +3881,7 @@ function useChatViewComponent({
   const didResizeWorkspaceEditorSplitDuringDragRef = useRef(false);
 
   useLayoutEffect(() => {
-    const viewportElement = chatViewportRef.current;
+    const viewportElement = workspaceViewportRef.current;
     if (!viewportElement) return;
 
     let frameId: number | null = null;
@@ -3889,7 +3890,7 @@ function useChatViewComponent({
       const rect = viewportElement.getBoundingClientRect();
       const nextWidth = Math.floor(rect.width);
       const nextHeight = Math.floor(rect.height);
-      setChatViewportSize((current) =>
+      setWorkspaceViewportSize((current) =>
         current.width === nextWidth && current.height === nextHeight
           ? current
           : { height: nextHeight, width: nextWidth },
@@ -9720,9 +9721,27 @@ function useChatViewComponent({
     !isWorking &&
     (isLocalDraftThread || activeThread.title.trim() === DEFAULT_THREAD_TITLE);
   const [draftEnvironmentPanelExplicitOpen, setDraftEnvironmentPanelExplicitOpen] = useState(false);
-  const environmentPanelCanUseInlineLayout = chatViewportSize.width >= 1120;
+  const workspaceSplitEditorOpen = workspaceMode === "split" && !editorHostedInRightPanel;
+  const environmentPanelAvailableWidth = Math.max(
+    0,
+    workspaceViewportSize.width - (workspaceSplitEditorOpen ? workspaceEditorSplitWidth + 12 : 0),
+  );
+  const environmentPanelInlineGapPx = Math.round(
+    Math.min(
+      ENVIRONMENT_MINI_PANEL_MAX_GAP_PX,
+      Math.max(ENVIRONMENT_MINI_PANEL_MIN_GAP_PX, environmentPanelAvailableWidth * 0.018),
+    ),
+  );
+  const environmentPanelReservedWidthPx =
+    ENVIRONMENT_MINI_PANEL_WIDTH_PX +
+    ENVIRONMENT_MINI_PANEL_INLINE_INSET_PX +
+    environmentPanelInlineGapPx;
+  const environmentPanelCanUseInlineLayout =
+    environmentPanelAvailableWidth >=
+    environmentPanelReservedWidthPx + ENVIRONMENT_MINI_PANEL_MIN_CHAT_WIDTH_PX;
   const environmentPanelVisible = environmentPanelOpen && activeThread !== undefined;
-  const environmentPanelCanOpenInline = !rightSidePanelOpen && environmentPanelCanUseInlineLayout;
+  const environmentPanelCanOpenInline =
+    !rightSidePanelFullscreen && environmentPanelCanUseInlineLayout;
   const environmentPanelInlineOpen = environmentPanelVisible && environmentPanelCanOpenInline;
   const draftEnvironmentPanelVisibleExplicitOpen =
     showDraftNewThreadLanding && environmentPanelVisible && draftEnvironmentPanelExplicitOpen;
@@ -9747,7 +9766,7 @@ function useChatViewComponent({
       const panelWidth =
         environmentMiniPanelRef.current?.getBoundingClientRect().width ??
         ENVIRONMENT_MINI_PANEL_WIDTH_PX;
-      const panelMargin = ENVIRONMENT_MINI_PANEL_GAP_PX;
+      const panelMargin = ENVIRONMENT_MINI_PANEL_INLINE_INSET_PX;
       const fallbackTop = 64;
       const workspaceRect =
         workspaceViewportRef.current?.getBoundingClientRect() ??
@@ -10899,7 +10918,7 @@ function useChatViewComponent({
                       className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
                       animate={{
                         paddingRight: environmentPanelInlineOpen
-                          ? ENVIRONMENT_MINI_PANEL_RESERVED_WIDTH_PX
+                          ? environmentPanelReservedWidthPx
                           : 0,
                       }}
                       transition={PANEL_SPRING_TRANSITION}
