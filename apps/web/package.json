@@ -67,6 +67,7 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
+    "@effect/language-service": "catalog:",
     "@rolldown/plugin-babel": "^0.2.3",
     "@tailwindcss/vite": "^4.3.0",
     "@tanstack/router-plugin": "^1.168.18",

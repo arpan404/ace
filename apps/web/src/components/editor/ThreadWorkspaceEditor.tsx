@@ -8,12 +8,7 @@ import type {
   WorkspaceEditorLocation,
 } from "@ace/contracts";
 import * as Schema from "effect/Schema";
-import {
-  IconFiles,
-  IconArrowsDiagonalMinimize2,
-  IconGitCompare,
-  IconSearch,
-} from "@tabler/icons-react";
+import { IconFiles, IconFolderPlus, IconGitCompare, IconSearch } from "@tabler/icons-react";
 import { useDebouncedValue } from "@tanstack/react-pacer";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -26,14 +21,10 @@ import {
   Code2Icon,
   ExternalLinkIcon,
   FilePlus2Icon,
-  FolderPlusIcon,
   GitBranchIcon,
   GitForkIcon,
   HashIcon,
   ListTreeIcon,
-  MessageSquareTextIcon,
-  PanelLeftCloseIcon,
-  PanelLeftOpenIcon,
   SearchIcon,
   SquareArrowOutUpRightIcon,
 } from "lucide-react";
@@ -60,6 +51,7 @@ import { useSetting, useUpdateSettings } from "~/hooks/useSettings";
 import { useReactCompilerSafeVirtualizer } from "~/hooks/useReactCompilerSafeVirtualizer";
 import { useStableCallback } from "~/hooks/useStableCallback";
 import { useTheme } from "~/hooks/useTheme";
+import { PremiumCornerFocusIcon, PremiumMessageIcon, PremiumPanelIcon } from "~/components/Icons";
 import { isTerminalFocused } from "~/lib/terminalFocus";
 import {
   createWorkspaceDiffEditorOptions,
@@ -2570,7 +2562,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     if (!state || state.pointerId !== event.pointerId) {
       return;
     }
-    setTreeWidth(props.threadId, state.startWidth + (event.clientX - state.startX));
+    setTreeWidth(props.threadId, state.startWidth + (state.startX - event.clientX));
   };
   const handleTreeResizeEnd = (event: ReactPointerEvent<HTMLDivElement>) => {
     const state = treeResizeStateRef.current;
@@ -3395,6 +3387,11 @@ function useThreadWorkspaceEditorComponent(inputProps: {
     handleSplitPane(paneId, filePath, "right");
   };
 
+  const handleOpenFileBelow = (paneId: string, filePath: string) => {
+    prepareWorkspaceFileOpen(filePath);
+    handleSplitPane(paneId, filePath, "down");
+  };
+
   useEffect(() => {
     const onWindowKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.repeat || !activePane) {
@@ -3680,13 +3677,13 @@ function useThreadWorkspaceEditorComponent(inputProps: {
         className="grid min-h-0 min-w-0 flex-1 bg-transparent"
         style={{
           gridTemplateColumns: explorerOpen
-            ? `minmax(240px, ${treeWidth}px) 4px minmax(0, 1fr)`
+            ? `minmax(0, 1fr) 4px minmax(240px, ${treeWidth}px)`
             : "minmax(0, 1fr)",
         }}
       >
         {explorerOpen ? (
           <>
-            <aside className="flex min-h-0 min-w-0 flex-col border-r border-border/60 bg-[color-mix(in_srgb,var(--background)_97%,var(--muted)_3%)] text-foreground">
+            <aside className="col-start-3 row-start-1 flex min-h-0 min-w-0 flex-col border-l border-border/60 bg-[color-mix(in_srgb,var(--background)_97%,var(--muted)_3%)] text-foreground">
               <div
                 className={cn(
                   "flex h-10 shrink-0 items-center gap-1 px-2",
@@ -3800,9 +3797,8 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                                 onClick={onReturnToMainWindow}
                                 aria-label="Move editor back to Ace"
                               >
-                                <IconArrowsDiagonalMinimize2
+                                <PremiumCornerFocusIcon
                                   className={WORKSPACE_SIDEBAR_SECONDARY_ICON_CLASS}
-                                  stroke={1.8}
                                 />
                               </Button>
                             }
@@ -3856,7 +3852,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                             />
                           }
                         >
-                          <FolderPlusIcon className={WORKSPACE_SIDEBAR_SECONDARY_ICON_CLASS} />
+                          <IconFolderPlus className={WORKSPACE_SIDEBAR_SECONDARY_ICON_CLASS} />
                         </TooltipTrigger>
                         <TooltipPopup side="bottom">New folder</TooltipPopup>
                       </Tooltip>
@@ -4195,7 +4191,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                                               />
                                             }
                                           >
-                                            <MessageSquareTextIcon className="size-3" />
+                                            <PremiumMessageIcon className="size-3" />
                                           </TooltipTrigger>
                                           <TooltipPopup side="bottom">Send to agent</TooltipPopup>
                                         </Tooltip>
@@ -4357,7 +4353,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                   {queuedWorkspaceContexts.length > 0 || openCodeCommentCount > 0 ? (
                     <div className="py-1.5">
                       <div className="flex h-6 items-center gap-1.5 px-3 text-[10px] text-muted-foreground/65">
-                        <MessageSquareTextIcon className="size-3" />
+                        <PremiumMessageIcon className="size-3" />
                         <span className="min-w-0 flex-1 truncate">Review notes</span>
                         {inputProps.onSubmitAgentNote ? (
                           <button
@@ -4431,7 +4427,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
               ) : sidebarMode === "notes" ? (
                 <div className="min-h-0 flex-1 overflow-y-auto">
                   <div className="flex h-8 items-center gap-1.5 border-b border-border/70 bg-transparent px-3 text-[11px]">
-                    <MessageSquareTextIcon className="size-3.5 text-muted-foreground/74" />
+                    <PremiumMessageIcon className="size-3.5 text-muted-foreground/74" />
                     <span className="min-w-0 flex-1 truncate font-medium text-foreground/90">
                       Review Notes
                     </span>
@@ -4457,7 +4453,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                   </div>
                   {queuedWorkspaceContexts.length === 0 && openCodeCommentCount === 0 ? (
                     <div className="px-4 py-8 text-center text-xs text-muted-foreground">
-                      <MessageSquareTextIcon className="mx-auto mb-2 size-5 text-muted-foreground/45" />
+                      <PremiumMessageIcon className="mx-auto mb-2 size-5 text-muted-foreground/45" />
                       Add a diff comment or queue a file/range for review.
                     </div>
                   ) : (
@@ -4782,7 +4778,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
             <hr
               aria-label="Resize workspace sidebar"
               aria-orientation="vertical"
-              className="group relative cursor-col-resize border-0 bg-background before:absolute before:inset-y-0 before:left-1/2 before:w-px before:-translate-x-1/2 before:bg-border before:transition-colors before:content-[''] hover:bg-accent hover:before:bg-border"
+              className="group relative col-start-2 row-start-1 cursor-col-resize border-0 bg-background before:absolute before:inset-y-0 before:left-1/2 before:w-px before:-translate-x-1/2 before:bg-border before:transition-colors before:content-[''] hover:bg-accent hover:before:bg-border"
               onPointerDown={handleTreeResizeStart}
               onPointerMove={handleTreeResizeMove}
               onPointerUp={handleTreeResizeEnd}
@@ -4791,7 +4787,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
           </>
         ) : null}
 
-        <section className="min-h-0 min-w-0 overflow-hidden bg-background">
+        <section className="col-start-1 row-start-1 min-h-0 min-w-0 overflow-hidden bg-background">
           <div className="flex h-full min-h-0 flex-col">
             {selectedReviewFilePath ? (
               <WorkspaceReviewPane
@@ -4875,17 +4871,11 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                                           />
                                         }
                                       >
-                                        {explorerOpen ? (
-                                          <PanelLeftCloseIcon
-                                            className={WORKSPACE_EDITOR_CHROME_PRIMARY_ICON_CLASS}
-                                            strokeWidth={2}
-                                          />
-                                        ) : (
-                                          <PanelLeftOpenIcon
-                                            className={WORKSPACE_EDITOR_CHROME_PRIMARY_ICON_CLASS}
-                                            strokeWidth={2}
-                                          />
-                                        )}
+                                        <PremiumPanelIcon
+                                          className={WORKSPACE_EDITOR_CHROME_PRIMARY_ICON_CLASS}
+                                          open={explorerOpen}
+                                          side="right"
+                                        />
                                       </TooltipTrigger>
                                       <TooltipPopup side="bottom">
                                         {explorerOpen
@@ -4920,6 +4910,7 @@ function useThreadWorkspaceEditorComponent(inputProps: {
                               onFocusPane={(paneId) => setActivePane(props.threadId, paneId)}
                               onHydrateFile={handleHydrateFile}
                               onMoveFile={(input) => moveFile(props.threadId, input)}
+                              onOpenFileBelow={handleOpenFileBelow}
                               onOpenFileInPane={handleOpenFileInPane}
                               onOpenFileToSide={handleOpenFileToSide}
                               onProblemsChange={handlePaneProblemsChange}

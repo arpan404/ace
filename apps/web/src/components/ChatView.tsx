@@ -10859,9 +10859,10 @@ function useChatViewComponent({
                         <div className="border-b border-border/60 px-4 py-3">
                           <div className="h-5 w-44 rounded bg-foreground/6" />
                         </div>
-                        <div className="grid min-h-0 flex-1 grid-cols-[280px_1fr]">
-                          <div className="border-r border-border/60 bg-foreground/3" />
+                        <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_4px_280px]">
                           <div className="bg-background" />
+                          <div className="bg-border/60" />
+                          <div className="border-l border-border/60 bg-foreground/3" />
                         </div>
                       </div>
                     }
@@ -11014,9 +11015,10 @@ function useChatViewComponent({
                               <div className="border-b border-border/60 px-4 py-3">
                                 <div className="h-5 w-44 rounded bg-foreground/6" />
                               </div>
-                              <div className="grid min-h-0 flex-1 grid-cols-[280px_1fr]">
-                                <div className="border-r border-border/60 bg-foreground/3" />
+                              <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_4px_280px]">
                                 <div className="bg-background" />
+                                <div className="bg-border/60" />
+                                <div className="border-l border-border/60 bg-foreground/3" />
                               </div>
                             </div>
                           }
@@ -11175,9 +11177,10 @@ function useChatViewComponent({
                                     <div className="border-b border-border/60 px-4 py-3">
                                       <div className="h-5 w-44 rounded bg-foreground/6" />
                                     </div>
-                                    <div className="grid min-h-0 flex-1 grid-cols-[280px_1fr]">
-                                      <div className="border-r border-border/60 bg-foreground/3" />
+                                    <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_4px_280px]">
                                       <div className="bg-background" />
+                                      <div className="bg-border/60" />
+                                      <div className="border-l border-border/60 bg-foreground/3" />
                                     </div>
                                   </div>
                                 }
@@ -11298,7 +11301,7 @@ function useChatViewComponent({
                     bottomPanelResizing && "pointer-events-none select-none",
                   )}
                 >
-                  <div className="flex h-12 shrink-0 items-stretch bg-card/80 shadow-[0_1px_0_color-mix(in_oklch,var(--border)_26%,transparent)]">
+                  <div className="flex h-12 shrink-0 items-stretch bg-background shadow-[0_1px_0_color-mix(in_oklch,var(--border)_26%,transparent)]">
                     {bottomPanelTabStripNode}
                   </div>
                   <div
@@ -11374,9 +11377,10 @@ function useChatViewComponent({
                             <div className="border-b border-border/60 px-4 py-3">
                               <div className="h-5 w-44 rounded bg-foreground/6" />
                             </div>
-                            <div className="grid min-h-0 flex-1 grid-cols-[280px_1fr]">
-                              <div className="border-r border-border/60 bg-foreground/3" />
+                            <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_4px_280px]">
                               <div className="bg-background" />
+                              <div className="bg-border/60" />
+                              <div className="border-l border-border/60 bg-foreground/3" />
                             </div>
                           </div>
                         }

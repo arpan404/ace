@@ -2,6 +2,197 @@ import { type SVGProps, useId } from "react";
 
 export type Icon = React.FC<SVGProps<SVGSVGElement>>;
 
+export const PremiumEnvironmentIcon: Icon = (props) => (
+  <svg {...props} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <circle cx="7" cy="8" r="2.2" stroke="currentColor" strokeWidth="2.15" />
+    <circle cx="7" cy="16" r="2.2" stroke="currentColor" strokeWidth="2.15" />
+    <path
+      d="M12 8h6.25M12 16h6.25"
+      stroke="currentColor"
+      strokeWidth="2.15"
+      strokeLinecap="round"
+    />
+  </svg>
+);
+
+export const PremiumMessageIcon: Icon = (props) => (
+  <svg {...props} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <rect
+      x="4.45"
+      y="5.85"
+      width="15.1"
+      height="12.3"
+      rx="3.1"
+      stroke="currentColor"
+      strokeWidth="2.15"
+    />
+    <path
+      d="M8.2 10.15h7.6M8.2 13.3h4.5M15.8 13.3h.05M7.7 16.05h8.6"
+      stroke="currentColor"
+      strokeWidth="2.15"
+      strokeLinecap="round"
+    />
+  </svg>
+);
+
+export const PremiumCornerFocusIcon: Icon = (props) => (
+  <svg {...props} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <path
+      d="M8.7 15.65H5.75V12.7M15.3 8.35h2.95V5.4"
+      stroke="currentColor"
+      strokeWidth="2.15"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+);
+
+export const PremiumSummaryIcon: Icon = (props) => (
+  <svg {...props} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <path
+      d="M6.25 7.2h11.5M6.25 12h8.8M6.25 16.8h5.6"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+    />
+  </svg>
+);
+
+export const PremiumBrowserIcon: Icon = (props) => (
+  <svg {...props} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <circle cx="12" cy="12" r="7.7" stroke="currentColor" strokeWidth="2.15" />
+    <path
+      d="M4.55 12h14.9M12 4.3c2.15 2.05 3.25 4.6 3.25 7.7S14.15 17.65 12 19.7M12 4.3C9.85 6.35 8.75 8.9 8.75 12s1.1 5.65 3.25 7.7"
+      stroke="currentColor"
+      strokeWidth="2.15"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+);
+
+export const PremiumReviewIcon: Icon = (props) => (
+  <svg {...props} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <rect
+      x="4.5"
+      y="4.5"
+      width="15"
+      height="15"
+      rx="3.35"
+      stroke="currentColor"
+      strokeWidth="2.15"
+    />
+    <path
+      d="M7.9 9.35h4.15M9.98 7.3v4.1M12.85 14.85h4"
+      stroke="currentColor"
+      strokeWidth="2.15"
+      strokeLinecap="round"
+    />
+  </svg>
+);
+
+export const PremiumEditorIcon: Icon = (props) => (
+  <svg {...props} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <rect
+      x="4.5"
+      y="4.5"
+      width="15"
+      height="15"
+      rx="3.35"
+      stroke="currentColor"
+      strokeWidth="2.15"
+    />
+    <path
+      d="M9.9 9.55 8 12l1.9 2.45M14.1 9.55 16 12l-1.9 2.45"
+      stroke="currentColor"
+      strokeWidth="2.15"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+);
+
+export const PremiumTerminalIcon: Icon = (props) => (
+  <svg {...props} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <rect
+      x="4.5"
+      y="4.5"
+      width="15"
+      height="15"
+      rx="3.35"
+      stroke="currentColor"
+      strokeWidth="2.15"
+    />
+    <path
+      d="m8 9.45 2.55 2.55L8 14.55M12.75 14.65h3.35"
+      stroke="currentColor"
+      strokeWidth="2.15"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+);
+
+export const PremiumAddIcon: Icon = (props) => (
+  <svg {...props} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <path d="M12 5.5v13M5.5 12h13" stroke="currentColor" strokeWidth="2.15" strokeLinecap="round" />
+  </svg>
+);
+
+export function PremiumPanelIcon({
+  open,
+  side,
+  ...props
+}: SVGProps<SVGSVGElement> & {
+  open: boolean;
+  side: "bottom" | "left" | "right";
+}) {
+  const divider =
+    side === "bottom" ? (
+      <rect
+        x={open ? "6.15" : "8.45"}
+        y="14.35"
+        width={open ? "11.7" : "7.1"}
+        height="2.65"
+        rx="1.32"
+        fill="currentColor"
+      />
+    ) : side === "left" ? (
+      <rect
+        x="6.25"
+        y={open ? "7.35" : "9.65"}
+        width="2.35"
+        height={open ? "9.3" : "4.7"}
+        rx="1.18"
+        fill="currentColor"
+      />
+    ) : (
+      <rect
+        x="15.15"
+        y={open ? "7.15" : "8.6"}
+        width="2.65"
+        height={open ? "9.7" : "6.8"}
+        rx="1.32"
+        fill="currentColor"
+      />
+    );
+
+  return (
+    <svg {...props} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <rect
+        x="3.8"
+        y="5.15"
+        width="16.4"
+        height="13.7"
+        rx="4.35"
+        stroke="currentColor"
+        strokeWidth="2.25"
+      />
+      {divider}
+    </svg>
+  );
+}
+
 export const GitHubIcon: Icon = (props) => (
   <svg {...props} viewBox="0 0 1024 1024" fill="none">
     <path

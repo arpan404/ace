@@ -1,13 +1,22 @@
 import { type ProjectId } from "@ace/contracts";
-import { IconLayoutSidebarRight, IconLayoutSidebarRightFilled } from "@tabler/icons-react";
-import { Settings2Icon } from "lucide-react";
 import { memo, type ReactNode } from "react";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
+import { PremiumEnvironmentIcon, PremiumPanelIcon } from "../Icons";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { ProjectContextSwitcher } from "./ProjectContextSwitcher";
 import { DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME } from "~/lib/desktopChrome";
 import { cn } from "~/lib/utils";
+
+const CHAT_HEADER_PANEL_BUTTON_CLASS_NAME = cn(
+  DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME,
+  "size-8.5 rounded-xl text-foreground/42 transition-[background-color,border-color,box-shadow,color,transform] duration-150 ease-out hover:!bg-foreground/[0.055] hover:text-foreground/74 active:scale-[0.98] active:!bg-foreground/[0.075] [&_svg]:size-[19px] [&_svg]:drop-shadow-[0_1px_0_rgba(255,255,255,0.08)]",
+);
+
+const CHAT_HEADER_PANEL_BUTTON_ACTIVE_CLASS_NAME =
+  "!border-white/[0.075] !bg-foreground/[0.095] text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_8px_18px_rgba(0,0,0,0.16)] hover:!bg-foreground/[0.12] hover:text-foreground";
+
+const CHAT_HEADER_PANEL_ICON_CLASS_NAME = "size-5";
 
 interface ChatHeaderProps {
   activeThreadTitle: string;
@@ -104,7 +113,7 @@ export function ChatHeader({
       </div>
 
       <div className="flex shrink-0 items-center overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        <div className="flex shrink-0 items-center gap-1.5">
+        <div className="flex shrink-0 items-center gap-0.5">
           {reliabilitySlot}
           <Tooltip>
             <TooltipTrigger
@@ -114,8 +123,8 @@ export function ChatHeader({
                   variant="ghost"
                   size="icon-lg"
                   className={cn(
-                    DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME,
-                    environmentPanelOpen && "!bg-accent text-foreground hover:text-foreground",
+                    CHAT_HEADER_PANEL_BUTTON_CLASS_NAME,
+                    environmentPanelOpen && CHAT_HEADER_PANEL_BUTTON_ACTIVE_CLASS_NAME,
                   )}
                   onClick={onToggleEnvironmentPanel}
                   aria-pressed={environmentPanelOpen}
@@ -123,7 +132,7 @@ export function ChatHeader({
                 />
               }
             >
-              <Settings2Icon className="size-[18px]" strokeWidth={2} />
+              <PremiumEnvironmentIcon className={CHAT_HEADER_PANEL_ICON_CLASS_NAME} />
             </TooltipTrigger>
             <TooltipPopup side="bottom" align="end">
               Environment
@@ -139,8 +148,8 @@ export function ChatHeader({
                       variant="ghost"
                       size="icon-lg"
                       className={cn(
-                        DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME,
-                        terminalOpen && "!bg-accent text-foreground hover:text-foreground",
+                        CHAT_HEADER_PANEL_BUTTON_CLASS_NAME,
+                        terminalOpen && CHAT_HEADER_PANEL_BUTTON_ACTIVE_CLASS_NAME,
                       )}
                       onClick={onToggleTerminal}
                       disabled={!terminalAvailable}
@@ -153,11 +162,11 @@ export function ChatHeader({
                     />
                   }
                 >
-                  {terminalOpen ? (
-                    <IconLayoutSidebarRightFilled className="size-[18px] rotate-90" />
-                  ) : (
-                    <IconLayoutSidebarRight className="size-[18px] rotate-90" strokeWidth={2} />
-                  )}
+                  <PremiumPanelIcon
+                    className={CHAT_HEADER_PANEL_ICON_CLASS_NAME}
+                    open={terminalOpen}
+                    side="bottom"
+                  />
                 </TooltipTrigger>
                 <TooltipPopup side="bottom" align="end">
                   {bottomPanelTooltipLabel}
@@ -170,14 +179,18 @@ export function ChatHeader({
                       type="button"
                       variant="ghost"
                       size="icon-lg"
-                      className={DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME}
+                      className={CHAT_HEADER_PANEL_BUTTON_CLASS_NAME}
                       onClick={onToggleRightSidePanel}
                       aria-pressed={false}
                       aria-label={rightSidePanelButtonLabel}
                     />
                   }
                 >
-                  <IconLayoutSidebarRight className="size-[18px]" strokeWidth={2} />
+                  <PremiumPanelIcon
+                    className={CHAT_HEADER_PANEL_ICON_CLASS_NAME}
+                    open={false}
+                    side="right"
+                  />
                 </TooltipTrigger>
                 <TooltipPopup side="bottom" align="end">
                   {rightSidePanelTooltipLabel}

@@ -1,12 +1,12 @@
 import { mergeProps } from "@base-ui/react/merge-props";
 import { useRender } from "@base-ui/react/use-render";
-import { IconLayoutSidebar, IconLayoutSidebarFilled } from "@tabler/icons-react";
 import { cva, type VariantProps } from "class-variance-authority";
 import { LazyMotion, domAnimation, m, type MotionStyle } from "motion/react";
 import * as React from "react";
 import { APP_SIDEBAR_CLASS_NAME, APP_SHELL_CLASS_NAME } from "~/lib/appChrome";
 import { cn } from "~/lib/utils";
 import { Input } from "~/components/ui/input";
+import { PremiumPanelIcon } from "~/components/Icons";
 import { Separator } from "~/components/ui/separator";
 import {
   Sheet,
@@ -360,7 +360,9 @@ function Sidebar({
 function SidebarTrigger({ className, onClick, ...props }: React.ComponentProps<"button">) {
   const { isMobile, open, openMobile, toggleSidebar } = useSidebar();
   const iconClassName =
-    "size-[18px] opacity-70 brightness-90 transition-[filter,opacity] duration-150 group-hover/sidebar-trigger:opacity-100 group-hover/sidebar-trigger:brightness-125";
+    "size-[19px] opacity-70 transition-opacity duration-150 group-hover/sidebar-trigger:opacity-100";
+  const isOpen = isMobile ? openMobile : open;
+  const iconOpen = !isOpen;
 
   return (
     <button
@@ -378,17 +380,7 @@ function SidebarTrigger({ className, onClick, ...props }: React.ComponentProps<"
       type="button"
       {...props}
     >
-      {isMobile ? (
-        openMobile ? (
-          <IconLayoutSidebarFilled className={iconClassName} />
-        ) : (
-          <IconLayoutSidebar className={iconClassName} />
-        )
-      ) : open ? (
-        <IconLayoutSidebarFilled className={iconClassName} />
-      ) : (
-        <IconLayoutSidebar className={iconClassName} />
-      )}
+      <PremiumPanelIcon className={iconClassName} open={iconOpen} side="left" />
       <span className="sr-only">Toggle Sidebar</span>
     </button>
   );

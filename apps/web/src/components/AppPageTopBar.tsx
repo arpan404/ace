@@ -59,45 +59,45 @@ export function AppPageTopBar({
         )}
       >
         {showHeaderSidebarTrigger ? (
-          <>
-            <SidebarTrigger className={cn("shrink-0", DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME)} />
-            <div className="flex shrink-0 items-center gap-1.5">
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <button
-                      type="button"
-                      className={headerNavButtonClassName}
-                      aria-label="Go back"
-                      onClick={() => window.history.back()}
-                    >
-                      <ChevronLeftIcon className="size-4.5" strokeWidth={2.25} />
-                    </button>
-                  }
-                />
-                <TooltipPopup side="bottom" sideOffset={4}>
-                  Back
-                </TooltipPopup>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <button
-                      type="button"
-                      className={headerNavButtonClassName}
-                      aria-label="Go forward"
-                      onClick={() => window.history.forward()}
-                    >
-                      <ChevronRightIcon className="size-4.5" strokeWidth={2.25} />
-                    </button>
-                  }
-                />
-                <TooltipPopup side="bottom" sideOffset={4}>
-                  Forward
-                </TooltipPopup>
-              </Tooltip>
-            </div>
-          </>
+          <SidebarTrigger className={cn("shrink-0", DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME)} />
+        ) : null}
+        {showHeaderSidebarTrigger ? (
+          <div className="flex shrink-0 items-center gap-1.5">
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <button
+                    type="button"
+                    className={headerNavButtonClassName}
+                    aria-label="Go back"
+                    onClick={() => window.history.back()}
+                  >
+                    <ChevronLeftIcon className="size-4.5" strokeWidth={2.25} />
+                  </button>
+                }
+              />
+              <TooltipPopup side="bottom" sideOffset={4}>
+                Back
+              </TooltipPopup>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <button
+                    type="button"
+                    className={headerNavButtonClassName}
+                    aria-label="Go forward"
+                    onClick={() => window.history.forward()}
+                  >
+                    <ChevronRightIcon className="size-4.5" strokeWidth={2.25} />
+                  </button>
+                }
+              />
+              <TooltipPopup side="bottom" sideOffset={4}>
+                Forward
+              </TooltipPopup>
+            </Tooltip>
+          </div>
         ) : null}
         {children}
       </div>

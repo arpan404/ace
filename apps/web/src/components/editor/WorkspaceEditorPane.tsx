@@ -90,6 +90,22 @@ function readDraggedWorkspaceExplorerEntry(event: ReactDragEvent<HTMLElement>) {
   return readExplorerEntryTransfer(event.dataTransfer);
 }
 
+function readDraggedWorkspaceEditorFile(event: ReactDragEvent<HTMLElement>) {
+  const draggedTab = readDraggedWorkspaceTab(event);
+  if (draggedTab) {
+    return { kind: "tab" as const, ...draggedTab };
+  }
+
+  const draggedEntry = readDraggedWorkspaceExplorerEntry(event);
+  if (!draggedEntry || draggedEntry.kind !== "file") {
+    return null;
+  }
+
+  return { kind: "explorer" as const, filePath: draggedEntry.path };
+}
+
+type WorkspaceEditorDropTarget = "center" | "right" | "bottom";
+
 interface WorkspaceEditorPaneProps {
   active: boolean;
   canClosePane: boolean;
@@ -120,6 +136,7 @@ interface WorkspaceEditorPaneProps {
     targetIndex?: number;
   }) => void;
   onOpenFileInPane: (paneId: string, filePath: string, targetIndex?: number) => void;
+  onOpenFileBelow: (paneId: string, filePath: string) => void;
   onOpenFileToSide: (paneId: string, filePath: string) => void;
   onProblemsChange: (
     paneId: string,
@@ -621,6 +638,7 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
   const onCloseFile = props.onCloseFile;
   const onCloseOtherTabs = props.onCloseOtherTabs;
   const onCloseTabsToRight = props.onCloseTabsToRight;
+  const onOpenFileBelow = props.onOpenFileBelow;
   const onOpenFileToSide = props.onOpenFileToSide;
   const onOpenFileInPane = props.onOpenFileInPane;
   const onReopenClosedTab = props.onReopenClosedTab;
@@ -628,6 +646,7 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
   const onProblemsChange = props.onProblemsChange;
   const onSymbolsChange = props.onSymbolsChange;
   const [dropTargetIndex, setDropTargetIndex] = useState<number | null>(null);
+  const [editorDropTarget, setEditorDropTarget] = useState<WorkspaceEditorDropTarget | null>(null);
   const [editorFeedbackState, setEditorFeedbackState] = useState<WorkspaceEditorFeedbackState>(
     EMPTY_WORKSPACE_EDITOR_FEEDBACK_STATE,
   );
@@ -1241,6 +1260,78 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
     setDropTargetIndex(targetIndex ?? pane.openFilePaths.length);
   };
 
+  const resolveEditorDropTarget = (
+    event: ReactDragEvent<HTMLElement>,
+  ): WorkspaceEditorDropTarget => {
+    if (!props.canSplitPane) {
+      return "center";
+    }
+
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const xRatio = bounds.width > 0 ? (event.clientX - bounds.left) / bounds.width : 0.5;
+    const yRatio = bounds.height > 0 ? (event.clientY - bounds.top) / bounds.height : 0.5;
+
+    if (xRatio > 0.72) {
+      return "right";
+    }
+
+    if (yRatio > 0.72) {
+      return "bottom";
+    }
+
+    return "center";
+  };
+
+  const handleEditorPaneDragOver = (event: ReactDragEvent<HTMLElement>) => {
+    const draggedFile = readDraggedWorkspaceEditorFile(event);
+    if (!draggedFile) {
+      return;
+    }
+
+    event.preventDefault();
+    event.dataTransfer.dropEffect = draggedFile.kind === "tab" ? "move" : "copy";
+    setEditorDropTarget(resolveEditorDropTarget(event));
+  };
+
+  const handleEditorPaneDragLeave = (event: ReactDragEvent<HTMLElement>) => {
+    if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+      setEditorDropTarget(null);
+    }
+  };
+
+  const handleEditorPaneDrop = (event: ReactDragEvent<HTMLElement>) => {
+    const draggedFile = readDraggedWorkspaceEditorFile(event);
+    if (!draggedFile) {
+      return;
+    }
+
+    event.preventDefault();
+    const target = resolveEditorDropTarget(event);
+    setEditorDropTarget(null);
+    setDropTargetIndex(null);
+
+    if (target === "right") {
+      onOpenFileToSide(pane.id, draggedFile.filePath);
+      return;
+    }
+
+    if (target === "bottom") {
+      onOpenFileBelow(pane.id, draggedFile.filePath);
+      return;
+    }
+
+    if (draggedFile.kind === "tab") {
+      onMoveFile({
+        filePath: draggedFile.filePath,
+        sourcePaneId: draggedFile.sourcePaneId,
+        targetPaneId: pane.id,
+      });
+      return;
+    }
+
+    onOpenFileInPane(pane.id, draggedFile.filePath);
+  };
+
   const clearDropTarget = () => {
     setDropTargetIndex(null);
   };
@@ -1379,7 +1470,7 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
       }}
     >
       <div
-        className="flex h-9 shrink-0 items-center gap-1 overflow-hidden border-b border-border/25 bg-background px-1.5"
+        className="flex h-10 shrink-0 items-center gap-1 overflow-hidden border-b border-border/25 bg-background px-2.5"
         onDragLeave={(event) => {
           if (event.currentTarget.contains(event.relatedTarget as Node | null)) {
             return;
@@ -1391,7 +1482,7 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
       >
         <div
           ref={tabStripRef}
-          className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         >
           {props.pane.openFilePaths.map((filePath) => {
             const isActive = filePath === props.pane.activeFilePath;
@@ -1399,7 +1490,7 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
             return (
               <div key={filePath} className="relative flex shrink-0">
                 {dropTargetIndex === props.pane.openFilePaths.indexOf(filePath) ? (
-                  <div className="absolute top-1.5 bottom-1.5 left-0 z-20 w-[2px] rounded-full bg-primary/85" />
+                  <div className="absolute top-1.5 bottom-1.5 left-0 z-20 w-[2px] rounded-full bg-primary/85 shadow-[0_0_10px_color-mix(in_srgb,var(--primary)_42%,transparent)]" />
                 ) : null}
                 <Tooltip>
                   <TooltipTrigger
@@ -1410,10 +1501,10 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
                         aria-selected={isActive}
                         data-editor-tab="true"
                         className={cn(
-                          "group/tab relative flex h-7 shrink-0 items-center gap-1.5 rounded-lg border px-2.5 text-[12px] transition-colors",
+                          "group/tab relative flex h-7 shrink-0 items-center gap-1.5 rounded-lg border px-3 text-[12px] transition-[background-color,border-color,box-shadow,color] duration-150",
                           isActive
-                            ? "border-border/70 bg-background text-foreground"
-                            : "border-transparent text-muted-foreground hover:bg-accent/70 hover:text-foreground",
+                            ? "border-border/60 bg-foreground/[0.055] text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_1px_3px_rgba(0,0,0,0.08)]"
+                            : "border-transparent text-muted-foreground/72 hover:border-border/35 hover:bg-foreground/[0.035] hover:text-foreground/88",
                         )}
                         draggable
                         onClick={() => props.onSetActiveFile(props.pane.id, filePath)}
@@ -1455,35 +1546,45 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
                         }
                         aria-label={filePath}
                       >
-                        <VscodeEntryIcon
-                          pathValue={filePath}
-                          kind="file"
-                          theme={props.resolvedTheme}
-                          className="size-[14px] shrink-0"
-                        />
-                        <span className="max-w-[150px] truncate font-medium">
+                        <span className="relative inline-flex size-4.5 shrink-0 items-center justify-center">
+                          <VscodeEntryIcon
+                            pathValue={filePath}
+                            kind="file"
+                            theme={props.resolvedTheme}
+                            className={cn(
+                              "size-[14px] shrink-0 transition-opacity",
+                              isActive ? "opacity-100" : "opacity-78 group-hover/tab:opacity-95",
+                              "group-hover/tab:opacity-0",
+                            )}
+                          />
+                          <button
+                            type="button"
+                            tabIndex={-1}
+                            className="absolute inset-0 flex items-center justify-center rounded-md text-muted-foreground/70 opacity-0 transition-[background-color,color,opacity] hover:bg-foreground/[0.07] hover:text-foreground group-hover/tab:opacity-100"
+                            onPointerDown={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                            }}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              props.onCloseFile(props.pane.id, filePath);
+                            }}
+                            aria-label={`Close ${filePath}`}
+                          >
+                            <XIcon className="size-3" />
+                          </button>
+                        </span>
+                        <span
+                          className={cn(
+                            "max-w-[150px] truncate font-medium",
+                            isActive ? "text-foreground" : "text-current",
+                          )}
+                        >
                           {basenameOfPath(filePath)}
                         </span>
                         {isDirty ? (
-                          <span className="size-1.5 shrink-0 rounded-full bg-foreground/45 group-hover/tab:hidden" />
+                          <span className="size-1.5 shrink-0 rounded-full bg-primary/75 shadow-[0_0_0_2px_color-mix(in_srgb,var(--background)_92%,transparent)] group-hover/tab:hidden" />
                         ) : null}
-                        <button
-                          type="button"
-                          tabIndex={-1}
-                          className={cn(
-                            "flex size-4 shrink-0 items-center justify-center rounded-md opacity-0 transition-opacity",
-                            isActive ? "opacity-100" : "group-hover/tab:opacity-100",
-                            "hover:bg-foreground/[0.05]",
-                            isDirty ? "hidden group-hover/tab:flex" : "",
-                          )}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            props.onCloseFile(props.pane.id, filePath);
-                          }}
-                          aria-label={`Close ${filePath}`}
-                        >
-                          <XIcon className="size-3" />
-                        </button>
                       </div>
                     }
                   />
@@ -1587,7 +1688,41 @@ function useWorkspaceEditorPaneComponent(props: WorkspaceEditorPaneProps) {
         </div>
       </div>
 
-      <div className="relative min-h-0 min-w-0 flex-1 bg-background">
+      <div
+        className="relative min-h-0 min-w-0 flex-1 bg-background"
+        onDragLeave={handleEditorPaneDragLeave}
+        onDragOver={handleEditorPaneDragOver}
+        onDrop={handleEditorPaneDrop}
+      >
+        {editorDropTarget ? (
+          <div className="pointer-events-none absolute inset-0 z-20 p-2">
+            <div
+              className={cn(
+                "absolute flex items-center justify-center rounded-xl border border-primary/55 bg-primary/[0.08] text-primary shadow-[inset_0_1px_0_rgba(255,255,255,0.12),0_8px_24px_rgba(0,0,0,0.12)] backdrop-blur-[1px]",
+                editorDropTarget === "center" && "inset-2",
+                editorDropTarget === "right" && "inset-y-2 right-2 w-[30%] min-w-32",
+                editorDropTarget === "bottom" && "inset-x-2 bottom-2 h-[30%] min-h-28",
+              )}
+            >
+              <div className="flex items-center gap-2 rounded-lg bg-background/80 px-3 py-2 text-xs font-medium shadow-sm ring-1 ring-border/60">
+                {editorDropTarget === "right" ? (
+                  <Columns2Icon className="size-3.5" />
+                ) : editorDropTarget === "bottom" ? (
+                  <Rows2Icon className="size-3.5" />
+                ) : (
+                  <ArrowUpRightIcon className="size-3.5" />
+                )}
+                <span>
+                  {editorDropTarget === "right"
+                    ? "Open to side"
+                    : editorDropTarget === "bottom"
+                      ? "Open below"
+                      : "Open here"}
+                </span>
+              </div>
+            </div>
+          </div>
+        ) : null}
         {!props.pane.activeFilePath ? (
           <div className="flex h-full items-center justify-center">
             <div className="pointer-events-none flex items-center justify-center text-foreground opacity-[0.03]">

@@ -1,5 +1,5 @@
 import type { DesktopMenuAction } from "@ace/contracts";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useNavigate } from "@tanstack/react-router";
 
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
@@ -13,9 +13,11 @@ import { resolveShortcutCommand } from "../keybindings";
 import { useUiStateStore } from "../uiStateStore";
 import { useServerKeybindings } from "../rpc/serverState";
 import { isTerminalFocused } from "../lib/terminalFocus";
+import { useIsMobile } from "../hooks/useMediaQuery";
+import { useEffectEvent } from "../hooks/useEffectEvent";
 import { APP_SIDEBAR_CLASS_NAME } from "../lib/appChrome";
 import ThreadSidebar from "./Sidebar";
-import { Sidebar, SidebarProvider, SidebarRail, useSidebar } from "./ui/sidebar";
+import { Sidebar, SidebarProvider, SidebarRail } from "./ui/sidebar";
 import { toastManager } from "./ui/toast";
 
 const THREAD_SIDEBAR_WIDTH_STORAGE_KEY = "chat_thread_sidebar_width";
@@ -38,12 +40,18 @@ function isEditableHotkeyTarget(target: EventTarget | null): boolean {
   );
 }
 
-function SidebarGlobalHotkeyHandler() {
-  const { isMobile, toggleSidebar } = useSidebar();
+function SidebarGlobalHotkeyHandler({
+  disabled,
+  onToggleSidebar,
+}: {
+  readonly disabled: boolean;
+  readonly onToggleSidebar: () => void;
+}) {
   const keybindings = useServerKeybindings();
+  const toggleSidebar = useEffectEvent(onToggleSidebar);
 
   useEffect(() => {
-    if (isMobile) {
+    if (disabled) {
       return;
     }
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
@@ -84,7 +92,7 @@ function SidebarGlobalHotkeyHandler() {
     return () => {
       window.removeEventListener("keydown", onKeyDown);
     };
-  }, [isMobile, keybindings, toggleSidebar]);
+  }, [disabled, keybindings]);
 
   return null;
 }
@@ -96,6 +104,11 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
   const defaultThreadEnvMode = useSetting("defaultThreadEnvMode");
   const activeThreadId = useUiStateStore((store) => store.activeThreadId);
   const previousActiveThreadId = useUiStateStore((store) => store.previousActiveThreadId);
+  const isMobile = useIsMobile();
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const toggleSidebar = () => {
+    setSidebarOpen((open) => !open);
+  };
 
   useEffect(() => {
     const onMenuAction = window.desktopBridge?.onMenuAction;
@@ -216,8 +229,8 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
   ]);
 
   return (
-    <SidebarProvider defaultOpen>
-      <SidebarGlobalHotkeyHandler />
+    <SidebarProvider open={sidebarOpen} onOpenChange={setSidebarOpen}>
+      <SidebarGlobalHotkeyHandler disabled={isMobile} onToggleSidebar={toggleSidebar} />
       <Sidebar
         side="left"
         collapsible="offcanvas"
