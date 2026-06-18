@@ -1,9 +1,10 @@
 import { type ProjectEntry, type ProviderKind } from "@ace/contracts";
 import { IconStack2 } from "@tabler/icons-react";
-import { memo, useLayoutEffect, useMemo, useRef } from "react";
+import { useLayoutEffect, useRef } from "react";
 import { type ComposerTriggerKind } from "../../composer-logic";
 import { BotIcon, HashIcon, PlugIcon, TargetIcon } from "lucide-react";
 import { cn } from "~/lib/utils";
+import { APP_COMPOSER_FLOATING_PANEL_CLASS_NAME } from "~/lib/appChrome";
 import { Badge } from "../ui/badge";
 import { VscodeEntryIcon } from "./VscodeEntryIcon";
 
@@ -139,12 +140,22 @@ export function ComposerCommandMenu(props: {
   }, [props.activeItemId]);
 
   return (
-    <div ref={listRef} className="glass-surface relative overflow-hidden rounded-lg border">
-      <div className="max-h-64 overflow-y-auto p-2">
+    <div
+      ref={listRef}
+      data-composer-command-menu="true"
+      className={APP_COMPOSER_FLOATING_PANEL_CLASS_NAME}
+      style={{
+        backgroundColor: "var(--popover)",
+        backdropFilter: "none",
+        WebkitBackdropFilter: "none",
+        opacity: 1,
+      }}
+    >
+      <div className="max-h-64 overflow-y-auto px-3 pb-5 pt-3">
         {sections.map((section) => (
           <div key={section.id}>
             {section.label ? (
-              <div className="px-2 pb-1 pt-2 font-medium text-muted-foreground/75 text-xs">
+              <div className="px-2 pb-1.5 pt-2 text-[11px] font-medium text-muted-foreground/62 first:pt-0">
                 {section.label}
               </div>
             ) : null}
@@ -162,7 +173,7 @@ export function ComposerCommandMenu(props: {
         ))}
       </div>
       {props.items.length === 0 && (
-        <p className="px-3 py-2 text-muted-foreground/70 text-xs">
+        <p className="px-4 py-3 text-[12px] text-muted-foreground/70">
           {props.isLoading
             ? props.triggerKind === "issue"
               ? "Searching GitHub issues..."

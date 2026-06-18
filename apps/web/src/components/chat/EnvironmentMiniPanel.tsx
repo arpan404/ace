@@ -6,7 +6,6 @@ import type {
   ThreadId,
 } from "@ace/contracts";
 import { type ComponentProps, type ReactNode, type Ref } from "react";
-import * as Schema from "effect/Schema";
 import {
   CheckIcon,
   CheckSquareIcon,
@@ -28,7 +27,6 @@ import { cn } from "~/lib/utils";
 import { PANEL_SPRING_TRANSITION } from "~/lib/panelMotion";
 import type { ThreadWorkspaceMode } from "~/threadWorkspaceMode";
 import { Button } from "../ui/button";
-import { Skeleton } from "../ui/skeleton";
 import { Spinner } from "../ui/spinner";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
@@ -64,6 +62,12 @@ function formatDiffCount(value: number): string {
   return diffCountFormatter.format(value);
 }
 
+const ENVIRONMENT_PANEL_ROW_CLASS_NAME =
+  "flex min-h-8 w-full items-center gap-2 rounded-[var(--control-radius)] px-2 py-1 text-left text-[13px] text-foreground/82 transition-colors duration-150 hover:bg-black/[0.045] hover:text-foreground disabled:pointer-events-none disabled:opacity-60 dark:hover:bg-white/[0.09]";
+
+const ENVIRONMENT_PANEL_SURFACE_CLASS_NAME =
+  "rounded-[1.625rem] border border-border/35 bg-[color:color-mix(in_oklch,var(--popover)_98%,var(--background)_2%)] text-popover-foreground shadow-[0_26px_70px_-48px_rgb(0_0_0/.36),0_10px_30px_-26px_rgb(0_0_0/.22)] transition-[background-color,border-color] duration-150 supports-[backdrop-filter]:backdrop-blur-2xl supports-[backdrop-filter]:backdrop-saturate-[1.16] dark:border-border/36 dark:bg-[color:color-mix(in_oklch,var(--popover)_94%,var(--background)_6%)] dark:shadow-[0_24px_70px_-46px_rgb(0_0_0/.82),0_10px_32px_-28px_rgb(0_0_0/.62)]";
+
 function EnvironmentPanelGroup(props: {
   children: ReactNode;
   open: boolean;
@@ -72,11 +76,11 @@ function EnvironmentPanelGroup(props: {
   trailing?: ReactNode;
 }) {
   return (
-    <section className="border-t border-border/40 py-1.5 first:border-t-0 first:pt-0">
+    <section className="border-t border-border/35 py-1.5 first:border-t-0 first:pt-0">
       <div className="flex min-h-7 items-center gap-1 px-2">
         <button
           type="button"
-          className="-ml-1 inline-flex min-w-0 items-center gap-1 rounded-[var(--control-radius)] px-1.5 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground transition-colors hover:bg-foreground/[0.035] hover:text-foreground"
+          className="-ml-1 inline-flex min-w-0 items-center gap-1 rounded-[var(--control-radius)] px-1.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/76 transition-colors duration-150 hover:bg-black/[0.045] hover:text-foreground dark:hover:bg-white/[0.09]"
           onClick={() => props.onOpenChange(!props.open)}
           aria-expanded={props.open}
         >
@@ -445,12 +449,12 @@ export function EnvironmentMiniPanel({ ref, ...props }: EnvironmentMiniPanelProp
     <m.aside
       ref={ref}
       className={cn(
-        "glass-surface pointer-events-auto z-50 w-[min(18.5rem,calc(100vw-1rem))] max-w-[calc(100vw-1rem)] overflow-y-auto rounded-[var(--panel-radius)] border border-border/42 p-2 text-popover-foreground sm:p-2.5",
+        ENVIRONMENT_PANEL_SURFACE_CLASS_NAME,
+        "pointer-events-auto z-50 w-[min(21rem,calc(100vw-1rem))] max-w-[calc(100vw-1rem)] overflow-y-auto p-2 sm:p-2.5",
         "[overflow-anchor:none]",
         props.layoutMode === "inline"
           ? "absolute top-3 right-3 max-h-[calc(100%_-_1.5rem)]"
           : "fixed max-h-[min(42rem,calc(100vh-1rem))]",
-        "shadow-none",
       )}
       initial={{ opacity: 0, scale: 0.985, x: 22 }}
       animate={{ opacity: 1, scale: 1, x: 0 }}
@@ -471,7 +475,10 @@ export function EnvironmentMiniPanel({ ref, ...props }: EnvironmentMiniPanelProp
                 <button
                   key={`${step.status}-${step.step}`}
                   type="button"
-                  className="flex min-h-7 w-full items-center gap-2 rounded-[var(--control-radius)] px-2 py-0.5 text-left text-[13px] leading-snug text-muted-foreground transition-colors hover:bg-accent/55 hover:text-foreground"
+                  className={cn(
+                    ENVIRONMENT_PANEL_ROW_CLASS_NAME,
+                    "min-h-7 py-0.5 leading-snug text-muted-foreground",
+                  )}
                   onClick={props.onOpenSummaryPanel}
                 >
                   <ProgressStepMarker status={step.status} />
@@ -502,7 +509,7 @@ export function EnvironmentMiniPanel({ ref, ...props }: EnvironmentMiniPanelProp
                     type="button"
                     variant="ghost"
                     size="icon"
-                    className="-mr-1 size-7 shrink-0 rounded-[var(--control-radius)] bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground"
+                    className="-mr-1 size-7 shrink-0 rounded-[var(--control-radius)] bg-transparent text-muted-foreground/78 transition-colors hover:bg-black/[0.045] hover:text-foreground dark:hover:bg-white/[0.09]"
                     onClick={props.onOpenEnvironmentSettings}
                     aria-label="Open environment settings"
                   />
@@ -516,7 +523,7 @@ export function EnvironmentMiniPanel({ ref, ...props }: EnvironmentMiniPanelProp
         >
           <button
             type="button"
-            className="flex min-h-8 w-full items-center gap-2 rounded-[var(--control-radius)] px-2 py-1 text-left text-[12px] transition-colors hover:bg-accent/60 hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-60"
+            className={ENVIRONMENT_PANEL_ROW_CLASS_NAME}
             disabled={!props.isGitRepo}
             onClick={props.onOpenDiffPanel}
           >
@@ -564,7 +571,7 @@ export function EnvironmentMiniPanel({ ref, ...props }: EnvironmentMiniPanelProp
           ) : props.gitCwd ? (
             <button
               type="button"
-              className="flex min-h-8 w-full items-center gap-2 rounded-[var(--control-radius)] px-2 py-1 text-left text-[12px] transition-colors hover:bg-accent/60 hover:text-accent-foreground"
+              className={ENVIRONMENT_PANEL_ROW_CLASS_NAME}
               disabled={initMutation.isPending}
               onClick={handleGitInit}
             >
@@ -617,7 +624,7 @@ export function EnvironmentMiniPanel({ ref, ...props }: EnvironmentMiniPanelProp
                 <button
                   key={thread.id}
                   type="button"
-                  className="group/subagent flex min-h-8 w-full items-center gap-1.5 rounded-[var(--control-radius)] px-2 py-1 text-left text-[12px] transition-colors hover:bg-accent hover:text-accent-foreground"
+                  className={cn(ENVIRONMENT_PANEL_ROW_CLASS_NAME, "gap-1.5")}
                   onClick={() => {
                     props.onSelectSubagentThread(thread.id);
                     props.onSubagentPanelOpen();

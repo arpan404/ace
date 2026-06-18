@@ -914,7 +914,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
 
     expect(markup).toContain("Frontend Design");
     expect(markup).toContain("Browser Use");
-    expect(markup).toContain("bg-muted/40");
+    expect(markup).toContain("border-0 bg-transparent");
+    expect(markup).toContain("text-primary");
     expect(markup).toContain("tabler-icon-stack-2");
     expect(markup).toContain("lucide-plug");
   });
@@ -963,7 +964,8 @@ describe("MessagesTimeline", { timeout: 30_000 }, () => {
 
     expect(markup).toContain("Goal");
     expect(markup).toContain("hhh");
-    expect(markup).toContain("bg-emerald-500/12");
+    expect(markup).toContain("border-0 bg-transparent");
+    expect(markup).toContain("text-primary");
     expect(markup).toContain("lucide-target");
   });
 

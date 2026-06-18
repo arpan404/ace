@@ -436,7 +436,7 @@ export function BranchToolbarBranchSelector({
         }
         className={
           isEnvironmentPresentation
-            ? "min-h-8 w-full justify-start gap-2 rounded-[var(--control-radius)] px-2 py-1 text-[13px] font-normal text-foreground hover:bg-accent hover:text-accent-foreground"
+            ? "min-h-8 w-full justify-start gap-2 rounded-[var(--control-radius)] px-2 py-1 text-[13px] font-normal text-foreground/82 transition-colors duration-150 hover:bg-black/[0.045] hover:text-foreground dark:hover:bg-white/[0.09]"
             : isDraftPresentation
               ? `${DRAFT_CONTEXT_PILL_TRIGGER_CLASS_NAME} max-w-[16rem] justify-start`
               : "text-muted-foreground/70 hover:text-foreground/80"
@@ -525,12 +525,12 @@ export function BranchToolbarBranchSelector({
           {...(isEnvironmentPresentation
             ? {
                 itemClassName:
-                  "min-h-9 rounded-[var(--control-radius)] px-2 text-[13px] data-selected:bg-accent/45",
+                  "min-h-9 rounded-[var(--control-radius)] px-2 text-[13px] data-selected:bg-black/[0.045] dark:data-selected:bg-white/[0.09]",
               }
             : isDraftPresentation
               ? {
                   itemClassName:
-                    "min-h-9 rounded-[var(--control-radius)] px-2 text-[13px] data-selected:bg-accent/45",
+                    "min-h-9 rounded-[var(--control-radius)] px-2 text-[13px] data-selected:bg-black/[0.045] dark:data-selected:bg-white/[0.09]",
                 }
               : {})}
         />

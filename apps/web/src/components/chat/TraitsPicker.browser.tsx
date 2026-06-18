@@ -29,6 +29,7 @@ import { DEFAULT_CLIENT_SETTINGS } from "@ace/contracts/settings";
 
 const CLAUDE_THREAD_ID = ThreadId.makeUnsafe("thread-claude-traits");
 const CURSOR_THREAD_ID = ThreadId.makeUnsafe("thread-cursor-traits");
+
 const TEST_PROVIDERS: ReadonlyArray<ServerProvider> = [
   {
     provider: "codex",
@@ -271,9 +272,8 @@ describe("TraitsPicker (Claude)", () => {
     await vi.waitFor(() => {
       const text = document.body.textContent ?? "";
       expect(text).toContain("Fast Mode");
-      expect(text).toContain("off");
-      expect(text).toContain("on");
     });
+    await expect.element(page.getByRole("menuitemcheckbox", { name: "Fast Mode" })).toBeVisible();
   });
 
   it("hides fast mode controls for non-Opus models", async () => {
@@ -317,9 +317,8 @@ describe("TraitsPicker (Claude)", () => {
     await vi.waitFor(() => {
       const text = document.body.textContent ?? "";
       expect(text).toContain("Thinking");
-      expect(text).toContain("On (default)");
-      expect(text).toContain("Off");
     });
+    await expect.element(page.getByRole("menuitemcheckbox", { name: "Thinking" })).toBeVisible();
   });
 
   it("shows prompt-controlled Ultrathink state with selectable effort controls", async () => {
@@ -337,7 +336,7 @@ describe("TraitsPicker (Claude)", () => {
 
     await vi.waitFor(() => {
       const text = document.body.textContent ?? "";
-      expect(text).toContain("Effort");
+      expect(text).toContain("Reasoning");
       expect(text).not.toContain("ultrathink");
     });
   });
@@ -387,8 +386,8 @@ describe("TraitsPicker (Claude)", () => {
     if (!(button instanceof HTMLButtonElement)) {
       throw new Error("Expected traits trigger button to be rendered.");
     }
-    expect(button.className).toContain("border-input");
-    expect(button.className).toContain("bg-popover");
+    expect(button.className).toContain("border-border");
+    expect(button.className).toContain("rounded-full");
   });
 });
 
@@ -565,9 +564,8 @@ describe("TraitsPicker (Codex)", () => {
     await vi.waitFor(() => {
       const text = document.body.textContent ?? "";
       expect(text).toContain("Fast Mode");
-      expect(text).toContain("off");
-      expect(text).toContain("on");
     });
+    await expect.element(page.getByRole("menuitemcheckbox", { name: "Fast Mode" })).toBeVisible();
   });
 
   it("shows Fast in the trigger label when fast mode is active", async () => {
@@ -602,7 +600,10 @@ describe("TraitsPicker (Codex)", () => {
     });
 
     await page.getByRole("button").click();
-    await page.getByRole("menuitemradio", { name: "on" }).click();
+    await vi.waitFor(() => {
+      expect(document.body.textContent ?? "").toContain("Fast Mode");
+    });
+    await page.getByRole("menuitemcheckbox", { name: "Fast Mode" }).click();
 
     expect(useComposerDraftStore.getState().stickyModelSelectionByProvider.codex).toMatchObject({
       provider: "codex",
@@ -641,8 +642,10 @@ describe("TraitsPicker (Cursor)", () => {
       expect(document.querySelector("button")?.textContent ?? "").toContain("Extra High");
     });
 
-    await page.getByRole("button").click();
-    await page.getByRole("menuitemradio", { name: "on" }).click();
+    await vi.waitFor(() => {
+      expect(document.body.textContent ?? "").toContain("Fast Mode");
+    });
+    await page.getByRole("menuitemcheckbox", { name: "Fast Mode" }).click();
 
     await vi.waitFor(() => {
       expect(useComposerDraftStore.getState().stickyModelSelectionByProvider.cursor).toMatchObject({

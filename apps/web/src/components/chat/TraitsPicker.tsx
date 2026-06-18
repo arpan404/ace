@@ -11,25 +11,14 @@ import {
   type ServerProviderModel,
   type ThreadId,
 } from "@ace/contracts";
-import {
-  applyClaudePromptEffortPrefix,
-  buildProviderModelSelection,
-  getDefaultEffort,
-} from "@ace/shared/model";
-import { type ReactElement, useState } from "react";
+import { applyClaudePromptEffortPrefix, buildProviderModelSelection } from "@ace/shared/model";
+import { type ReactElement, type ReactNode, useState } from "react";
 import type { VariantProps } from "class-variance-authority";
 import { ChevronDownIcon, ZapIcon } from "lucide-react";
+import { IconBoltFilled } from "@tabler/icons-react";
 import { Button } from "../ui/button";
 import { buttonVariants } from "../ui/buttonVariants";
-import {
-  Menu,
-  MenuGroup,
-  MenuPopup,
-  MenuRadioGroup,
-  MenuRadioItem,
-  MenuSeparator as MenuDivider,
-  MenuTrigger,
-} from "../ui/menu";
+import { Menu, MenuCheckboxItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { useComposerDraftStore } from "../../composerDraftStore";
 import { cn } from "~/lib/utils";
 import { APP_SETTINGS_PICKER_TRIGGER_CLASS_NAME } from "~/lib/appChrome";
@@ -64,8 +53,8 @@ function traitsPickerTriggerClassName(
 
   return cn(
     isCodexStyle
-      ? "min-w-0 max-w-40 shrink justify-start overflow-hidden whitespace-nowrap px-2 text-muted-foreground/60 transition-colors duration-150 hover:text-foreground/70 sm:max-w-48 sm:px-2.5 [&_svg]:mx-0"
-      : "shrink-0 whitespace-nowrap px-2 text-muted-foreground/60 transition-colors duration-150 hover:text-foreground/70 sm:px-2.5",
+      ? "h-8 min-w-0 max-w-40 shrink justify-start overflow-hidden whitespace-nowrap rounded-full px-2.5 text-[13px] text-muted-foreground/68 transition-colors duration-150 hover:bg-foreground/[0.05] hover:text-foreground/88 sm:max-w-48 [&_svg]:mx-0"
+      : "h-8 shrink-0 whitespace-nowrap rounded-full px-2.5 text-[13px] text-muted-foreground/68 transition-colors duration-150 hover:bg-foreground/[0.05] hover:text-foreground/88",
     triggerClassName,
   );
 }
@@ -96,6 +85,94 @@ const CURSOR_REASONING_LABELS: Record<CursorSelectorReasoningEffort, string> = {
   high: "High",
   xhigh: "Extra High",
 };
+
+function TraitSection(props: { label: string; children: ReactNode }) {
+  return (
+    <div className="space-y-1.5 px-0.5 py-1">
+      <div className="px-1 text-[9.5px] font-medium uppercase tracking-[0.12em] text-muted-foreground/58">
+        {props.label}
+      </div>
+      {props.children}
+    </div>
+  );
+}
+
+function TraitSegmentedGrid(props: {
+  children: ReactElement | ReadonlyArray<ReactElement>;
+  columns?: 1 | 2 | 3 | 4;
+}) {
+  return (
+    <div
+      className={cn(
+        "grid gap-1",
+        props.columns === 1
+          ? "grid-cols-1"
+          : props.columns === 4
+            ? "grid-cols-4"
+            : props.columns === 3
+              ? "grid-cols-3"
+              : "grid-cols-2",
+      )}
+    >
+      {props.children}
+    </div>
+  );
+}
+
+function TraitSegmentedOption(props: {
+  align?: "center" | "start";
+  disabled?: boolean;
+  label: string;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="menuitemradio"
+      aria-checked={props.selected}
+      disabled={props.disabled}
+      className={cn(
+        "min-h-7 rounded-[0.6rem] px-2 text-center text-[12px] leading-none outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring",
+        props.align === "start" && "text-left",
+        props.selected
+          ? "bg-foreground/[0.105] text-foreground shadow-[inset_0_1px_0_rgb(255_255_255/.045)] dark:bg-white/[0.12]"
+          : "text-muted-foreground/74 hover:bg-foreground/[0.06] hover:text-foreground/90 dark:hover:bg-white/[0.08]",
+        props.disabled && "pointer-events-none opacity-40",
+      )}
+      onClick={props.onSelect}
+    >
+      {props.label}
+    </button>
+  );
+}
+
+function TraitSwitchItem(props: {
+  checked: boolean;
+  disabled?: boolean | undefined;
+  icon?: ReactElement | undefined;
+  label: string;
+  onCheckedChange: (checked: boolean) => void;
+}) {
+  return (
+    <MenuCheckboxItem
+      variant="switch"
+      checked={props.checked}
+      disabled={props.disabled}
+      className="min-h-8 rounded-[0.7rem] px-2 text-[12.5px] text-foreground/90 hover:bg-foreground/[0.055] dark:hover:bg-white/[0.07] [&_[data-slot=menu-checkbox-indicator]]:h-[1.125rem] [&_[data-slot=menu-checkbox-indicator]]:w-8 [&_[data-slot=menu-checkbox-indicator]]:data-checked:bg-primary/90 [&_[data-slot=menu-checkbox-thumb]]:h-4 [&_[data-slot=menu-checkbox-thumb]]:in-[[data-slot=menu-checkbox-item][data-checked]]:translate-x-[0.875rem]"
+      onCheckedChange={(checked) => props.onCheckedChange(Boolean(checked))}
+    >
+      <span className="flex min-w-0 items-center gap-2">
+        {props.icon ? (
+          <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground/72">
+            {props.icon}
+          </span>
+        ) : null}
+        <span className="truncate">{props.label}</span>
+      </span>
+    </MenuCheckboxItem>
+  );
+}
 
 function buildPiOptionsFromThoughtLevel(
   modelOptions: ProviderOptions | null | undefined,
@@ -154,16 +231,6 @@ function buildNextOptions(
   }
 }
 
-function readDefaultCursorTraits(
-  family: CursorSelectorFamily,
-): ReturnType<typeof readCursorSelectedTraits> {
-  const defaultModel = pickCursorModelFromTraits({ family, selections: {} });
-  return readCursorSelectedTraits({
-    family,
-    model: defaultModel?.slug,
-  });
-}
-
 function buildCursorTriggerLabel(input: {
   family: CursorSelectorFamily;
   model: string | null | undefined;
@@ -217,8 +284,6 @@ export function CursorTraitsMenuContent(props: {
     family,
     model: props.model,
   });
-  const defaultTraits = readDefaultCursorTraits(family);
-
   const renderBinaryFacet = (
     key: "thinking" | "fastMode" | "maxMode",
     label: string,
@@ -228,92 +293,68 @@ export function CursorTraitsMenuContent(props: {
     if (values.length < 2) {
       return null;
     }
-    const defaultValue = defaultTraits[key];
     return (
-      <MenuGroup key={`cursor-${key}`}>
-        <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">{label}</div>
-        <MenuRadioGroup
-          value={selectedValue ? "on" : "off"}
-          onValueChange={(value) => {
+      <TraitSection key={`cursor-${key}`} label={label}>
+        <TraitSwitchItem
+          checked={Boolean(selectedValue)}
+          disabled={!values.includes(selectedValue ? "false" : "true")}
+          {...(key === "fastMode"
+            ? { icon: <IconBoltFilled aria-hidden="true" className="size-3" /> }
+            : {})}
+          label={label}
+          onCheckedChange={(checked) => {
             const nextModel = pickCursorModelFromTraits({
               family,
               selections: {
                 ...selectedTraits,
-                [key]: value === "on",
+                [key]: checked,
               },
             });
             if (nextModel) {
               applySelection(nextModel.slug);
             }
           }}
-        >
-          {[
-            { value: "off", label: "off", enabled: values.includes("false"), active: false },
-            { value: "on", label: "on", enabled: values.includes("true"), active: true },
-          ].map((option) => (
-            <MenuRadioItem
-              key={`cursor-${key}:${option.value}`}
-              value={option.value}
-              disabled={!option.enabled}
-            >
-              {option.label}
-              {defaultValue === option.active ? " (default)" : ""}
-            </MenuRadioItem>
-          ))}
-        </MenuRadioGroup>
-      </MenuGroup>
+        />
+      </TraitSection>
     );
   };
 
   const sections = [
     family.reasoningEffortOptions.length > 0 ? (
-      <MenuGroup key="cursor-effort">
-        <div className="px-2 pt-1.5 pb-1 font-medium text-muted-foreground text-xs">Effort</div>
-        <MenuRadioGroup
-          value={selectedTraits.reasoningEffort ?? "medium"}
-          onValueChange={(value) => {
-            const nextModel = pickCursorModelFromTraits({
-              family,
-              selections: {
-                ...selectedTraits,
-                reasoningEffort: value as CursorSelectorReasoningEffort,
-              },
-            });
-            if (nextModel) {
-              applySelection(nextModel.slug);
-            }
-          }}
-        >
+      <TraitSection key="cursor-effort" label="Reasoning">
+        <TraitSegmentedGrid columns={1}>
           {family.reasoningEffortOptions.map((option) => (
-            <MenuRadioItem
+            <TraitSegmentedOption
               key={`cursor-effort:${option}`}
-              value={option}
+              align="start"
+              label={CURSOR_REASONING_LABELS[option]}
+              selected={(selectedTraits.reasoningEffort ?? "medium") === option}
               disabled={
                 !cursorFacetValues(family, "reasoningEffort", selectedTraits).includes(option)
               }
-            >
-              {CURSOR_REASONING_LABELS[option]}
-              {defaultTraits.reasoningEffort === option ? " (default)" : ""}
-            </MenuRadioItem>
+              onSelect={() => {
+                const nextModel = pickCursorModelFromTraits({
+                  family,
+                  selections: {
+                    ...selectedTraits,
+                    reasoningEffort: option,
+                  },
+                });
+                if (nextModel) {
+                  applySelection(nextModel.slug);
+                }
+              }}
+            />
           ))}
-        </MenuRadioGroup>
-      </MenuGroup>
+        </TraitSegmentedGrid>
+      </TraitSection>
     ) : null,
     renderBinaryFacet("thinking", "Thinking", selectedTraits.thinking),
-    renderBinaryFacet("fastMode", "Fast Mode", selectedTraits.fastMode),
-    renderBinaryFacet("maxMode", "Max Mode", selectedTraits.maxMode),
+    renderBinaryFacet("fastMode", "Speed", selectedTraits.fastMode),
+    renderBinaryFacet("maxMode", "Max", selectedTraits.maxMode),
   ].filter((section): section is ReactElement => section !== null);
 
-  return (
-    <>
-      {sections.map((section, index) => (
-        <div key={String(section.key)}>
-          {index > 0 ? <MenuDivider /> : null}
-          {section}
-        </div>
-      ))}
-    </>
-  );
+  return <div className="space-y-1">{sections}</div>;
 }
 
 export function CursorTraitsPicker(props: {
@@ -354,7 +395,7 @@ export function CursorTraitsPicker(props: {
           <Button
             size="sm"
             variant="ghost"
-            className="min-w-0 max-w-40 shrink justify-start overflow-hidden whitespace-nowrap px-2 text-muted-foreground/60 transition-colors duration-150 hover:text-foreground/70 sm:max-w-48 sm:px-2.5 [&_svg]:mx-0"
+            className="h-8 min-w-0 max-w-40 shrink justify-start overflow-hidden whitespace-nowrap rounded-full px-2.5 text-[13px] text-muted-foreground/68 transition-colors duration-150 hover:bg-foreground/[0.05] hover:text-foreground/88 sm:max-w-48 [&_svg]:mx-0"
           />
         }
       >
@@ -429,8 +470,6 @@ export function TraitsMenuContent({
     ultrathinkPromptControlled,
     ultrathinkInBodyText,
   } = getSelectedTraits(provider, models, model, prompt, modelOptions, allowPromptInjectedEffort);
-  const defaultEffort = getDefaultEffort(caps);
-
   const handleEffortChange = (value: string) => {
     if (!value) return;
     const nextOption = effortLevels.find((option) => option.value === value);
@@ -463,22 +502,21 @@ export function TraitsMenuContent({
     const selectedThoughtLevel =
       getRawEffort(provider, modelOptions) ?? piThoughtOption.currentValue;
     return (
-      <MenuGroup>
-        <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">Thinking Level</div>
-        <MenuRadioGroup
-          value={selectedThoughtLevel}
-          onValueChange={(value) => {
-            updateModelOptions(buildPiOptionsFromThoughtLevel(modelOptions, value));
-          }}
-        >
+      <TraitSection label="Thinking">
+        <TraitSegmentedGrid columns={1}>
           {piThoughtOption.options.map((option) => (
-            <MenuRadioItem key={option.value} value={option.value}>
-              {option.name}
-              {option.value === piThoughtOption.currentValue ? " (current)" : ""}
-            </MenuRadioItem>
+            <TraitSegmentedOption
+              key={option.value}
+              align="start"
+              label={option.name}
+              selected={selectedThoughtLevel === option.value}
+              onSelect={() => {
+                updateModelOptions(buildPiOptionsFromThoughtLevel(modelOptions, option.value));
+              }}
+            />
           ))}
-        </MenuRadioGroup>
-      </MenuGroup>
+        </TraitSegmentedGrid>
+      </TraitSection>
     );
   }
 
@@ -498,105 +536,89 @@ export function TraitsMenuContent({
 
   if (effort) {
     sections.push(
-      <MenuGroup key="effort">
-        <div className="px-2 pt-1.5 pb-1 font-medium text-muted-foreground text-xs">Effort</div>
+      <TraitSection key="effort" label="Reasoning">
         {ultrathinkInBodyText ? (
           <div className="px-2 pb-1.5 text-muted-foreground/80 text-xs">
             Your prompt contains &quot;ultrathink&quot; in the text. Remove it to change effort.
           </div>
         ) : null}
-        <MenuRadioGroup
-          value={ultrathinkPromptControlled ? "ultrathink" : effort}
-          onValueChange={handleEffortChange}
-        >
+        <TraitSegmentedGrid columns={1}>
           {effortLevels.map((option) => (
-            <MenuRadioItem key={option.value} value={option.value} disabled={ultrathinkInBodyText}>
-              {option.label}
-              {option.value === defaultEffort ? " (default)" : ""}
-            </MenuRadioItem>
+            <TraitSegmentedOption
+              key={option.value}
+              align="start"
+              label={option.label}
+              selected={(ultrathinkPromptControlled ? "ultrathink" : effort) === option.value}
+              disabled={ultrathinkInBodyText}
+              onSelect={() => handleEffortChange(option.value)}
+            />
           ))}
-        </MenuRadioGroup>
-      </MenuGroup>,
+        </TraitSegmentedGrid>
+      </TraitSection>,
     );
   } else if (thinkingEnabled !== null) {
     sections.push(
-      <MenuGroup key="thinking">
-        <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">Thinking</div>
-        <MenuRadioGroup
-          value={thinkingEnabled ? "on" : "off"}
-          onValueChange={(value) => {
+      <TraitSection key="thinking" label="Thinking">
+        <TraitSwitchItem
+          checked={thinkingEnabled}
+          label="Thinking"
+          onCheckedChange={(checked) => {
             updateModelOptions(
               buildNextOptions(provider, modelOptions, {
-                thinking: value === "on",
+                thinking: checked,
               }),
             );
           }}
-        >
-          <MenuRadioItem value="on">On (default)</MenuRadioItem>
-          <MenuRadioItem value="off">Off</MenuRadioItem>
-        </MenuRadioGroup>
-      </MenuGroup>,
+        />
+      </TraitSection>,
     );
   }
 
   if (caps.supportsFastMode) {
     sections.push(
-      <MenuGroup key="fast-mode">
-        <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">Fast Mode</div>
-        <MenuRadioGroup
-          value={fastModeEnabled ? "on" : "off"}
-          onValueChange={(value) => {
+      <TraitSection key="fast-mode" label="Speed">
+        <TraitSwitchItem
+          checked={fastModeEnabled}
+          icon={<IconBoltFilled aria-hidden="true" className="size-3" />}
+          label="Fast Mode"
+          onCheckedChange={(checked) => {
             updateModelOptions(
               buildNextOptions(provider, modelOptions, {
-                fastMode: value === "on",
+                fastMode: checked,
               }),
             );
           }}
-        >
-          <MenuRadioItem value="off">off</MenuRadioItem>
-          <MenuRadioItem value="on">on</MenuRadioItem>
-        </MenuRadioGroup>
-      </MenuGroup>,
+        />
+      </TraitSection>,
     );
   }
 
   if (contextWindowOptions.length > 1) {
     sections.push(
-      <MenuGroup key="context-window">
-        <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">
-          {contextTraitLabel}
-        </div>
-        <MenuRadioGroup
-          value={contextWindow ?? defaultContextWindow ?? ""}
-          onValueChange={(value) => {
-            updateModelOptions(
-              buildNextOptions(provider, modelOptions, {
-                contextWindow: value,
-              }),
-            );
-          }}
+      <TraitSection key="context-window" label={contextTraitLabel}>
+        <TraitSegmentedGrid
+          columns={contextWindowOptions.length >= 4 ? 4 : contextWindowOptions.length >= 3 ? 3 : 2}
         >
           {contextWindowOptions.map((option) => (
-            <MenuRadioItem key={option.value} value={option.value}>
-              {option.label}
-              {option.value === defaultContextWindow ? " (default)" : ""}
-            </MenuRadioItem>
+            <TraitSegmentedOption
+              key={option.value}
+              label={option.label}
+              selected={(contextWindow ?? defaultContextWindow ?? "") === option.value}
+              onSelect={() => {
+                updateModelOptions(
+                  buildNextOptions(provider, modelOptions, {
+                    contextWindow: option.value,
+                  }),
+                );
+              }}
+            />
           ))}
-        </MenuRadioGroup>
-      </MenuGroup>,
+        </TraitSegmentedGrid>
+      </TraitSection>,
     );
   }
 
-  return (
-    <>
-      {sections.map((section, index) => (
-        <div key={String(section.key)}>
-          {index > 0 ? <MenuDivider /> : null}
-          {section}
-        </div>
-      ))}
-    </>
-  );
+  return <div className="space-y-1">{sections}</div>;
 }
 
 export function TraitsPicker({

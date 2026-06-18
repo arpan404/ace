@@ -19,6 +19,7 @@ import {
   PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
 } from "@ace/contracts";
 import {
+  type ChangeEvent,
   type ClipboardEvent,
   type ComponentProps,
   type DragEvent,
@@ -29,7 +30,6 @@ import {
   useEffect,
   useImperativeHandle,
   useLayoutEffect,
-  useMemo,
   useReducer,
   useRef,
   useState,
@@ -90,6 +90,7 @@ import { toastManager } from "../ui/toast";
 import { useChatViewProviderSelectionState } from "./useChatViewModelState";
 import type { ComposerPromptEditorHandle } from "../ComposerPromptEditor";
 import type { PendingUserInputDraftAnswer } from "../../pendingUserInput";
+import type { CompactComposerCommandMenuItem } from "./CompactComposerControlsMenu";
 
 const EMPTY_PROJECT_ENTRIES: ProjectEntry[] = [];
 const EMPTY_GITHUB_ISSUES: readonly GitHubIssue[] = [];
@@ -272,6 +273,7 @@ interface ConnectedChatComposerPanelsProps {
   readonly showFloatingDock: boolean;
   readonly floatingDockFooter?: ReactNode;
   readonly floatingDockPortalHost?: HTMLElement | null;
+  readonly onComposerOverlayActiveChange?: (active: boolean) => void;
   readonly onComposerHeightChange: () => void;
   readonly onPreviewExpandedImage: (preview: ExpandedImagePreview) => void;
   readonly onIssuePreviewOpen: (issueNumber: number) => void;
@@ -386,12 +388,17 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
   const floatingComposerFooterLeadingRef = useRef<HTMLDivElement>(null);
   const composerFooterActionsRef = useRef<HTMLDivElement>(null);
   const floatingComposerFooterActionsRef = useRef<HTMLDivElement>(null);
+  const composerImageInputRef = useRef<HTMLInputElement>(null);
   const composerFormHeightRef = useRef(0);
   const composerSelectLockRef = useRef(false);
   const composerMenuOpenRef = useRef(false);
   const dismissedComposerTriggerRef = useRef<{
     kind: ComposerTrigger["kind"];
     rangeStart: number;
+  } | null>(null);
+  const suppressedComposerTriggerAfterSelectionRef = useRef<{
+    text: string;
+    expandedCursor: number;
   } | null>(null);
   const composerMenuItemsRef = useRef<
     ComponentProps<typeof ChatComposerPanel>["composerMenuItems"]
@@ -432,6 +439,7 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
     activePendingUserInput?.questions[props.activePendingQuestionIndex] ?? null;
   const {
     onComposerHeightChange,
+    onComposerOverlayActiveChange,
     onInteractionModeChange,
     onPendingUserInputCustomAnswerChange,
     onPreviewExpandedImage,
@@ -473,6 +481,15 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
 
   const detectComposerTriggerWithDismissal = useCallback(
     (text: string, expandedCursor: number): ComposerTrigger | null => {
+      const suppressedAfterSelection = suppressedComposerTriggerAfterSelectionRef.current;
+      if (
+        suppressedAfterSelection &&
+        suppressedAfterSelection.text === text &&
+        suppressedAfterSelection.expandedCursor === expandedCursor
+      ) {
+        return null;
+      }
+      suppressedComposerTriggerAfterSelectionRef.current = null;
       const detected = detectComposerTrigger(text, expandedCursor);
       if (!detected) {
         dismissedComposerTriggerRef.current = null;
@@ -766,7 +783,44 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
     props.pendingUserInputs.length === 0 &&
     /^\/issues\s*$/i.test(prompt.trimStart());
   const showIssuesCommandExamplesPopover = showIssuesCommandExamplesHint && !composerMenuOpen;
+  const composerOverlayActive =
+    composerMenuOpen || showIssuesCommandExamplesPopover || props.pendingUserInputs.length > 0;
+
+  useEffect(() => {
+    onComposerOverlayActiveChange?.(composerOverlayActive);
+  }, [composerOverlayActive, onComposerOverlayActiveChange]);
+
+  useEffect(
+    () => () => {
+      onComposerOverlayActiveChange?.(false);
+    },
+    [onComposerOverlayActiveChange],
+  );
   const hasPendingComposerComments = props.pendingComposerComments.length > 0;
+  const compactComposerCommandItems = providerCommands.reduce(
+    (items, command) => {
+      const commandKind = providerCommandKind(command);
+      if (!commandKind) {
+        return items;
+      }
+      const nextItem: CompactComposerCommandMenuItem = {
+        id: `composer-menu:${commandKind}:${command.name}`,
+        command: command.name,
+        label: formatCommandDisplayLabel(command.name),
+        description: providerCommandDescription(command, commandKind),
+      };
+      if (commandKind === "plugin") {
+        items.plugins.push(nextItem);
+      } else {
+        items.skills.push(nextItem);
+      }
+      return items;
+    },
+    {
+      skills: [] as CompactComposerCommandMenuItem[],
+      plugins: [] as CompactComposerCommandMenuItem[],
+    },
+  );
 
   const setPrompt = (nextPrompt: string) => {
     setComposerDraftPrompt(props.threadId, nextPrompt);
@@ -875,6 +929,25 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
     scheduleComposerFocus();
   };
 
+  const onPickComposerImages = () => {
+    composerImageInputRef.current?.click();
+  };
+
+  const onComposerImageInputChange = (event: ChangeEvent<HTMLInputElement>) => {
+    addComposerImages(Array.from(event.currentTarget.files ?? []));
+    event.currentTarget.value = "";
+    scheduleComposerFocus();
+  };
+
+  const onSelectComposerProviderCommand = (command: string) => {
+    const snapshot = readComposerSnapshot();
+    applyPromptReplacement(
+      snapshot.expandedCursor,
+      snapshot.expandedCursor,
+      `${createMarkedProviderCommandToken(command)} `,
+    );
+  };
+
   const removeComposerImage = (imageId: string) => {
     removeComposerDraftImage(props.threadId, imageId);
   };
@@ -939,9 +1012,9 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
     rangeStart: number,
     rangeEnd: number,
     replacement: string,
-    options?: { expectedText?: string },
+    options?: { baseText?: string; expectedText?: string; closeComposerMenu?: boolean },
   ): boolean => {
-    const currentText = promptRef.current;
+    const currentText = options?.baseText ?? promptRef.current;
     const safeStart = Math.max(0, Math.min(currentText.length, rangeStart));
     const safeEnd = Math.max(safeStart, Math.min(currentText.length, rangeEnd));
     if (
@@ -950,8 +1023,9 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
     ) {
       return false;
     }
-    const next = replaceTextRange(promptRef.current, rangeStart, rangeEnd, replacement);
+    const next = replaceTextRange(currentText, rangeStart, rangeEnd, replacement);
     const nextCursor = collapseExpandedComposerCursor(next.text, next.cursor);
+    const nextExpandedCursor = expandCollapsedComposerCursor(next.text, nextCursor);
     promptRef.current = next.text;
     if (activePendingQuestion && activePendingUserInput) {
       onPendingUserInputCustomAnswerChange(
@@ -965,12 +1039,19 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
       setPrompt(next.text);
     }
     setComposerCursor(nextCursor);
-    setComposerTrigger(
-      detectComposerTriggerWithDismissal(
-        next.text,
-        expandCollapsedComposerCursor(next.text, nextCursor),
-      ),
-    );
+    if (options?.closeComposerMenu) {
+      suppressedComposerTriggerAfterSelectionRef.current = {
+        text: next.text,
+        expandedCursor: nextExpandedCursor,
+      };
+      composerMenuOpenRef.current = false;
+      composerMenuItemsRef.current = [];
+      activeComposerMenuItemRef.current = null;
+      setComposerTrigger(null);
+      setComposerHighlightedItemId(null);
+    } else {
+      setComposerTrigger(detectComposerTriggerWithDismissal(next.text, nextExpandedCursor));
+    }
     window.requestAnimationFrame(() => {
       composerEditorRef.current?.focusAt(nextCursor);
     });
@@ -1007,7 +1088,14 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
       composerSelectLockRef.current = false;
     });
     const { snapshot, trigger } = resolveActiveComposerTrigger();
-    if (!trigger) return;
+    if (!trigger) {
+      composerMenuOpenRef.current = false;
+      composerMenuItemsRef.current = [];
+      activeComposerMenuItemRef.current = null;
+      setComposerTrigger(null);
+      setComposerHighlightedItemId(null);
+      return;
+    }
     if (item.type === "path") {
       const replacement = `@${item.path} `;
       const replacementRangeEnd = extendReplacementRangeForTrailingSpace(
@@ -1017,6 +1105,8 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
       );
       if (
         applyPromptReplacement(trigger.rangeStart, replacementRangeEnd, replacement, {
+          baseText: snapshot.value,
+          closeComposerMenu: true,
           expectedText: snapshot.value.slice(trigger.rangeStart, replacementRangeEnd),
         })
       ) {
@@ -1033,6 +1123,8 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
       );
       if (
         applyPromptReplacement(trigger.rangeStart, replacementRangeEnd, replacement, {
+          baseText: snapshot.value,
+          closeComposerMenu: true,
           expectedText: snapshot.value.slice(trigger.rangeStart, replacementRangeEnd),
         })
       ) {
@@ -1049,6 +1141,8 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
       );
       if (
         applyPromptReplacement(trigger.rangeStart, replacementRangeEnd, replacement, {
+          baseText: snapshot.value,
+          closeComposerMenu: true,
           expectedText: snapshot.value.slice(trigger.rangeStart, replacementRangeEnd),
         })
       ) {
@@ -1071,6 +1165,8 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
         );
         if (
           applyPromptReplacement(trigger.rangeStart, replacementRangeEnd, replacement, {
+            baseText: snapshot.value,
+            closeComposerMenu: true,
             expectedText: snapshot.value.slice(trigger.rangeStart, replacementRangeEnd),
           })
         ) {
@@ -1081,6 +1177,8 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
       toggleInteractionMode();
       if (
         applyPromptReplacement(trigger.rangeStart, trigger.rangeEnd, "", {
+          baseText: snapshot.value,
+          closeComposerMenu: true,
           expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd),
         })
       ) {
@@ -1091,6 +1189,8 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
     onProviderModelSelect(item.provider, item.model);
     if (
       applyPromptReplacement(trigger.rangeStart, trigger.rangeEnd, "", {
+        baseText: snapshot.value,
+        closeComposerMenu: true,
         expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd),
       })
     ) {
@@ -1381,7 +1481,7 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
   const floatingDock = props.showFloatingDock ? (
     <div
       className={cn(
-        "pointer-events-auto absolute inset-x-0 bottom-0",
+        "pointer-events-auto absolute inset-x-0 bottom-4 sm:bottom-6",
         props.floatingDockPortalHost ? "z-50" : "z-20",
       )}
     >
@@ -1433,8 +1533,10 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
         handoffTargetProviders={props.handoffTargetProviders}
         handoffDisabled={props.handoffDisabled}
         interactionMode={interactionMode}
-        runtimeMode={runtimeMode}
         interactionModeShortcutLabel={props.interactionModeShortcutLabel}
+        runtimeMode={runtimeMode}
+        skillCommands={compactComposerCommandItems.skills}
+        pluginCommands={compactComposerCommandItems.plugins}
         activeContextWindow={props.activeContextWindow}
         promptHasText={prompt.trim().length > 0}
         hasSendableContent={composerSendState.hasSendableContent || hasPendingComposerComments}
@@ -1484,6 +1586,8 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
         onCommandKeyDown={onComposerCommandKey}
         onIssueTokenClick={props.onIssuePreviewOpen}
         onPaste={onComposerPaste}
+        onPickComposerImages={onPickComposerImages}
+        onSelectComposerProviderCommand={onSelectComposerProviderCommand}
         onRespondToApproval={props.onRespondToApproval}
         onSelectPendingUserInputOption={props.onSelectPendingUserInputOption}
         onAdvancePendingUserInput={props.onAdvancePendingUserInput}
@@ -1550,8 +1654,10 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
         handoffTargetProviders={props.handoffTargetProviders}
         handoffDisabled={props.handoffDisabled}
         interactionMode={interactionMode}
-        runtimeMode={runtimeMode}
         interactionModeShortcutLabel={props.interactionModeShortcutLabel}
+        runtimeMode={runtimeMode}
+        skillCommands={compactComposerCommandItems.skills}
+        pluginCommands={compactComposerCommandItems.plugins}
         activeContextWindow={props.activeContextWindow}
         promptHasText={prompt.trim().length > 0}
         hasSendableContent={composerSendState.hasSendableContent || hasPendingComposerComments}
@@ -1601,6 +1707,8 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
         onCommandKeyDown={onComposerCommandKey}
         onIssueTokenClick={props.onIssuePreviewOpen}
         onPaste={onComposerPaste}
+        onPickComposerImages={onPickComposerImages}
+        onSelectComposerProviderCommand={onSelectComposerProviderCommand}
         onRespondToApproval={props.onRespondToApproval}
         onSelectPendingUserInputOption={props.onSelectPendingUserInputOption}
         onAdvancePendingUserInput={props.onAdvancePendingUserInput}
@@ -1613,6 +1721,16 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
         onImplementPlanInNewThread={props.onImplementPlanInNewThread}
         onQueueMessage={props.onQueueMessage}
         onPromptChangeFromTraits={setPromptFromTraits}
+      />
+      <input
+        ref={composerImageInputRef}
+        aria-hidden="true"
+        className="hidden"
+        type="file"
+        accept="image/*"
+        multiple
+        tabIndex={-1}
+        onChange={onComposerImageInputChange}
       />
       {floatingDock
         ? props.floatingDockPortalHost

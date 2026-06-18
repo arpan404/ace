@@ -13,21 +13,20 @@ import { cn } from "~/lib/utils";
 
 const APP_WORKSPACE_CLASS_NAME = "bg-background text-foreground";
 
-const APP_CHROME_SIDEBAR_CLASS_NAME =
-  "border-r border-sidebar-border/50 bg-sidebar text-sidebar-foreground";
+const APP_CHROME_SIDEBAR_CLASS_NAME = "bg-transparent text-sidebar-foreground";
 
 const APP_CHROME_HEADER_CLASS_NAME = "border-b border-border/40 bg-background";
 
 const APP_DOCKED_PANEL_CLASS_NAME = "bg-background";
 
 export const APP_COMPOSER_CLASS_NAME =
-  "rounded-[var(--panel-radius)] border border-border/40 bg-input shadow-none transition-[border-color,box-shadow] duration-150 focus-within:border-ring/45 focus-within:ring-2 focus-within:ring-ring/15";
+  "rounded-[1.625rem] border border-border/75 bg-[color:color-mix(in_oklch,var(--popover)_94%,var(--background)_6%)] shadow-[0_10px_28px_-24px_rgb(0_0_0/.24),0_1px_0_rgb(255_255_255/.08)_inset] transition-[background-color,border-color] duration-150 supports-[backdrop-filter]:backdrop-blur-2xl supports-[backdrop-filter]:backdrop-saturate-[1.16] dark:border-border/38 dark:bg-[color:color-mix(in_oklch,var(--popover)_92%,var(--background)_8%)] dark:shadow-[0_18px_48px_-36px_rgb(0_0_0/.72),0_1px_0_rgb(255_255_255/.08)_inset]";
 
 export const APP_COMPOSER_HEADER_CLASS_NAME =
   "rounded-t-[calc(var(--panel-radius)-2px)] border-b border-border/40 bg-muted/25";
 
 export const APP_USER_BUBBLE_CLASS_NAME =
-  "rounded-2xl rounded-br-lg border border-border/40 glass-inset px-4 py-3";
+  "rounded-2xl rounded-br-lg border-0 glass-inset px-4 py-3";
 
 export const APP_CHIP_CLASS_NAME =
   "rounded-[var(--chip-radius)] border border-border/40 bg-muted/35";
@@ -39,10 +38,13 @@ export const APP_INSET_BADGE_CLASS_NAME =
   "rounded-sm border border-border/40 glass-inset px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground/72";
 
 export const APP_COMPOSER_INSET_PANEL_CLASS_NAME =
-  "overflow-hidden rounded-[var(--panel-radius)] border border-border/40 glass-inset text-popover-foreground";
+  "overflow-hidden rounded-[var(--panel-radius)] border border-border/40 glass-inset text-popover-foreground shadow-[0_12px_32px_-28px_rgb(0_0_0/.58),0_1px_0_rgb(255_255_255/.06)_inset]";
+
+export const APP_COMPOSER_FLOATING_PANEL_CLASS_NAME =
+  "frosted-refraction-surface relative overflow-hidden rounded-[1.375rem] border border-border/70 bg-[var(--popover)] text-popover-foreground shadow-[0_12px_30px_-24px_rgb(0_0_0/.24),0_1px_0_rgb(255_255_255/.08)_inset] transition-[background-color,border-color] duration-150 dark:border-border/34 dark:bg-[var(--popover)] dark:shadow-[0_22px_56px_-42px_rgb(0_0_0/.84),0_1px_0_rgb(255_255_255/.075)_inset,0_-1px_0_rgb(0_0_0/.24)_inset]";
 
 export const APP_COMPOSER_CONTROL_CLASS_NAME =
-  "shrink-0 rounded-[var(--control-radius)] text-muted-foreground/70 transition-colors duration-150 hover:bg-foreground/[0.05] hover:text-foreground/85 aria-expanded:bg-foreground/[0.05] aria-expanded:text-foreground/85";
+  "h-7 shrink-0 rounded-full px-2 text-[12px] font-normal text-muted-foreground/72 transition-colors duration-150 hover:bg-black/[0.06] hover:text-foreground/88 dark:hover:bg-white/[0.12]";
 
 export const APP_WORKSPACE_INSET_CLASS_NAME = "rounded-md border border-border/40 glass-inset";
 

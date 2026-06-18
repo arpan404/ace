@@ -1,7 +1,9 @@
 /* eslint-disable react-doctor/async-parallel -- Browser interaction tests require sequential event ordering. */
+import "../../index.css";
+
 import { type ModelSelection, type ProviderKind, type ServerProvider } from "@ace/contracts";
 import { buildProviderModelSelection } from "@ace/shared/model";
-import type { ComponentProps } from "react";
+import { type ComponentProps, useState } from "react";
 import { page } from "vitest/browser";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
@@ -229,6 +231,9 @@ async function mountPicker(props: {
   model: string;
   lockedProvider: ProviderKind | null;
   providers?: ReadonlyArray<ServerProvider>;
+  renderTraitsMenuContent?: ComponentProps<typeof ProviderModelPicker>["renderTraitsMenuContent"];
+  traitsMenuContent?: ComponentProps<typeof ProviderModelPicker>["traitsMenuContent"];
+  triggerTraitSummary?: string;
   triggerVariant?: "ghost" | "outline";
 }) {
   const host = document.createElement("div");
@@ -256,6 +261,11 @@ async function mountPicker(props: {
       {...(props.providerInstancesByProvider
         ? { providerInstancesByProvider: props.providerInstancesByProvider }
         : {})}
+      {...(props.renderTraitsMenuContent
+        ? { renderTraitsMenuContent: props.renderTraitsMenuContent }
+        : {})}
+      {...(props.traitsMenuContent ? { traitsMenuContent: props.traitsMenuContent } : {})}
+      {...(props.triggerTraitSummary ? { triggerTraitSummary: props.triggerTraitSummary } : {})}
       triggerVariant={props.triggerVariant}
       onProviderModelChange={onProviderModelChange}
     />,
@@ -302,6 +312,82 @@ describe("ProviderModelPicker", () => {
       expect(internalBackdrop).toBeUndefined();
     } finally {
       await mounted.cleanup();
+    }
+  });
+
+  it("caps the composer trigger width without reserving blank space", async () => {
+    const providers: ReadonlyArray<ServerProvider> = [
+      buildCodexProvider([
+        {
+          slug: "short-model",
+          name: "GPT-5",
+          isCustom: false,
+          capabilities: {
+            reasoningEffortLevels: [effort("low"), effort("medium", true), effort("high")],
+            supportsFastMode: true,
+            supportsThinkingToggle: false,
+            contextWindowOptions: [],
+            promptInjectedEffortLevels: [],
+          },
+        },
+        {
+          slug: "long-model",
+          name: "GPT-5.3 Codex Spark",
+          isCustom: false,
+          capabilities: {
+            reasoningEffortLevels: [effort("low"), effort("medium", true), effort("high")],
+            supportsFastMode: true,
+            supportsThinkingToggle: false,
+            contextWindowOptions: [],
+            promptInjectedEffortLevels: [],
+          },
+        },
+      ]),
+    ];
+
+    function StableTriggerWidthHarness() {
+      const [model, setModel] = useState("short-model");
+      return (
+        <ProviderModelPicker
+          provider="codex"
+          model={model}
+          lockedProvider="codex"
+          providers={providers}
+          modelOptionsByProvider={getCustomModelOptionsByProvider(
+            DEFAULT_UNIFIED_SETTINGS,
+            providers,
+            "codex",
+            model,
+          )}
+          onProviderModelChange={(_provider, nextModel) => {
+            setModel(nextModel);
+          }}
+        />
+      );
+    }
+
+    const host = document.createElement("div");
+    document.body.append(host);
+    const screen = await render(<StableTriggerWidthHarness />, { container: host });
+
+    try {
+      const trigger = document.querySelector("[data-chat-provider-model-picker]");
+      expect(trigger).toBeInstanceOf(HTMLElement);
+      const initialWidth = (trigger as HTMLElement).getBoundingClientRect().width;
+
+      await page.getByRole("button").click();
+      await page.getByRole("menuitemradio", { name: "GPT-5.3 Codex Spark" }).click();
+
+      await vi.waitFor(() => {
+        expect(document.body.textContent ?? "").toContain("GPT-5.3 Codex Spark");
+      });
+
+      const nextWidth = (trigger as HTMLElement).getBoundingClientRect().width;
+      expect(nextWidth).toBeGreaterThan(initialWidth);
+      expect(nextWidth).toBeLessThan(260);
+    } finally {
+      await screen.unmount();
+      host.remove();
     }
   });
 
@@ -354,6 +440,7 @@ describe("ProviderModelPicker", () => {
       await vi.waitFor(() => {
         const text = document.body.textContent ?? "";
         expect(text).toContain("Claude");
+        expect(text).toContain("3 models");
         expect(text).toContain("Claude Sonnet 4.6");
       });
     } finally {
@@ -396,6 +483,27 @@ describe("ProviderModelPicker", () => {
         expect(text).toContain("Claude Sonnet 4.6");
         expect(text).toContain("Claude Haiku 4.5");
         expect(text).not.toContain("Codex");
+      });
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("shows the selected model at the top while keeping it in the model list", async () => {
+    const mounted = await mountPicker({
+      provider: "codex",
+      model: "gpt-5-codex",
+      lockedProvider: "codex",
+    });
+
+    try {
+      await page.getByRole("button").click();
+
+      await vi.waitFor(() => {
+        expect(document.body.textContent ?? "").toContain("Current");
+        expect(
+          document.querySelectorAll('[role="menuitemradio"][aria-checked="true"]').length,
+        ).toBe(2);
       });
     } finally {
       await mounted.cleanup();
@@ -619,7 +727,6 @@ describe("ProviderModelPicker", () => {
       expect(mounted.onProviderModelChange).not.toHaveBeenCalled();
       const popupText = document.body.textContent ?? "";
       expect(popupText).toContain("Personal");
-      expect(popupText).toContain("1 model");
       expect(popupText).toContain(personalModel.name);
       expect(popupText).not.toContain("GPT-5.3 Codex");
       await page.getByRole("menuitemradio", { name: personalModel.name }).click();
@@ -809,7 +916,96 @@ describe("ProviderModelPicker", () => {
       }
       const badge = trigger.querySelector('[data-provider-instance-badge="true"]');
       expect(badge).toBeInstanceOf(HTMLElement);
-      expect((badge as HTMLElement).style.backgroundColor).toBe("rgb(5, 150, 105)");
+      expect((badge as HTMLElement).classList.contains("bg-emerald-600")).toBe(true);
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("renders selected model trait summary on the trigger", async () => {
+    const mounted = await mountPicker({
+      provider: "codex",
+      model: "gpt-5-codex",
+      lockedProvider: "codex",
+      triggerTraitSummary: "High · Fast",
+    });
+
+    try {
+      const trigger = document.querySelector('[data-chat-provider-model-picker="true"]');
+      if (!(trigger instanceof HTMLElement)) {
+        throw new Error("Expected provider picker trigger to be mounted.");
+      }
+
+      expect(trigger.textContent ?? "").toContain("GPT-5 Codex");
+      expect(trigger.textContent ?? "").toContain("High · Fast");
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("opens selected model settings from the selected model row", async () => {
+    const mounted = await mountPicker({
+      provider: "codex",
+      model: "gpt-5-codex",
+      lockedProvider: "codex",
+      traitsMenuContent: <div>Model tuning</div>,
+    });
+
+    try {
+      await page.getByRole("button").click();
+      await page
+        .getByRole("menuitem", { exact: true, name: "Model settings for GPT-5 Codex" })
+        .click();
+
+      await vi.waitFor(() => {
+        expect(document.body.textContent ?? "").toContain("Model tuning");
+      });
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("selects an unselected model before opening its settings", async () => {
+    const mounted = await mountPicker({
+      provider: "codex",
+      model: "gpt-5-codex",
+      lockedProvider: "codex",
+      traitsMenuContent: <div>Model tuning</div>,
+    });
+
+    try {
+      await page.getByRole("button").click();
+      await page.getByRole("menuitem", { name: "Model settings for GPT-5.3 Codex" }).click();
+
+      expect(mounted.onProviderModelChange).toHaveBeenCalledWith("codex", "gpt-5.3-codex");
+      await vi.waitFor(() => {
+        expect(document.body.textContent ?? "").toContain("Model tuning");
+      });
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("selects an unselected model before applying hovered settings", async () => {
+    const appliedTrait = vi.fn();
+    const mounted = await mountPicker({
+      provider: "codex",
+      model: "gpt-5-codex",
+      lockedProvider: "codex",
+      renderTraitsMenuContent: (model) => (
+        <button type="button" onClick={() => appliedTrait(model)}>
+          Apply tuning for {model}
+        </button>
+      ),
+    });
+
+    try {
+      await page.getByRole("button").click();
+      await page.getByRole("menuitem", { name: "Model settings for GPT-5.3 Codex" }).hover();
+      await page.getByRole("button", { name: "Apply tuning for gpt-5.3-codex" }).click();
+
+      expect(mounted.onProviderModelChange).toHaveBeenCalledWith("codex", "gpt-5.3-codex");
+      expect(appliedTrait).toHaveBeenCalledWith("gpt-5.3-codex");
     } finally {
       await mounted.cleanup();
     }
@@ -831,6 +1027,44 @@ describe("ProviderModelPicker", () => {
         expect(text).toContain("Favorites");
         expect(readStoredProviderModelPickerPrefs()).toContain("codex:default:gpt-5.3-codex");
       });
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("shows all favorited models in a cross-provider favorites view", async () => {
+    localStorage.setItem(
+      "ace:provider-model-picker-prefs:v1",
+      JSON.stringify({
+        favoriteModels: ["codex:default:gpt-5-codex", "claudeAgent:default:claude-sonnet-4-6"],
+        pinnedProviders: [],
+      }),
+    );
+    const mounted = await mountPicker({
+      provider: "codex",
+      model: "gpt-5-codex",
+      lockedProvider: null,
+    });
+
+    try {
+      await page.getByRole("button").click();
+      await page.getByRole("button", { exact: true, name: "Favorites" }).click();
+
+      await vi.waitFor(() => {
+        const text = document.body.textContent ?? "";
+        expect(text).toContain("GPT-5 Codex");
+        expect(text).toContain("Claude Sonnet 4.6");
+      });
+      const modelList = document.querySelector("[data-provider-model-picker-model-list]");
+      expect(modelList?.textContent ?? "").toContain("Favorites");
+      expect(modelList?.textContent ?? "").not.toContain("Models");
+
+      await page.getByRole("menuitemradio", { name: "Claude Sonnet 4.6" }).click();
+
+      expect(mounted.onProviderModelChange).toHaveBeenCalledWith(
+        "claudeAgent",
+        "claude-sonnet-4-6",
+      );
     } finally {
       await mounted.cleanup();
     }
@@ -1058,7 +1292,7 @@ describe("ProviderModelPicker", () => {
       await page.getByRole("button").click();
 
       await vi.waitFor(() => {
-        expect(document.querySelectorAll('[role="menuitemradio"]').length).toBe(
+        expect(document.querySelectorAll('[role="menuitemradio"]').length).toBeGreaterThanOrEqual(
           manyCodexModels.length,
         );
       });
@@ -1068,9 +1302,9 @@ describe("ProviderModelPicker", () => {
         throw new Error("Expected the locked-provider popup to be mounted.");
       }
 
-      const scrollContainer = popup.firstElementChild;
+      const scrollContainer = document.querySelector("[data-provider-model-picker-model-list]");
       if (!(scrollContainer instanceof HTMLElement)) {
-        throw new Error("Expected the locked-provider popup to render a scroll container.");
+        throw new Error("Expected the locked-provider popup to render a model list.");
       }
 
       expect(scrollContainer.getBoundingClientRect().height).toBeLessThanOrEqual(400);

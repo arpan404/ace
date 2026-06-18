@@ -302,13 +302,7 @@ class ComposerProviderCommandNode extends TextNode {
 
   override createDOM(_config: EditorConfig): HTMLElement {
     const dom = document.createElement("span");
-    const isGoalCommand = this.__name.trim().toLowerCase() === "goal";
-    dom.className = cn(
-      COMPOSER_INLINE_CHIP_CLASS_NAME,
-      isGoalCommand
-        ? "border-emerald-500/40 bg-emerald-500/12 text-emerald-700 dark:text-emerald-300"
-        : "border-border/70 bg-muted/70 text-foreground/85",
-    );
+    dom.className = cn(COMPOSER_INLINE_CHIP_CLASS_NAME, "border-0 bg-transparent text-primary");
     dom.contentEditable = "false";
     dom.setAttribute("spellcheck", "false");
     renderProviderCommandChipDom(dom, this.__name);

@@ -1,6 +1,5 @@
 import type {
   ProviderKind,
-  ProviderInteractionMode,
   ProviderModelOptions,
   ProviderSessionConfigOption,
   RuntimeMode,
@@ -9,10 +8,10 @@ import type {
   ThreadHandoffMode,
   ThreadId,
 } from "@ace/contracts";
+import { IconXboxXFilled } from "@tabler/icons-react";
 import {
-  BotIcon,
+  ChevronDownIcon,
   CircleAlertIcon,
-  ListTodoIcon,
   ShieldAlertIcon,
   ShieldCheckIcon,
   XIcon,
@@ -27,6 +26,7 @@ import {
 
 import {
   APP_COMPOSER_CLASS_NAME,
+  APP_COMPOSER_CONTROL_CLASS_NAME,
   APP_COMPOSER_HEADER_CLASS_NAME,
   APP_WORKSPACE_INSET_CLASS_NAME,
 } from "../../lib/appChrome";
@@ -35,10 +35,13 @@ import type { PendingUserInputDraftAnswer } from "../../pendingUserInput";
 import { cn } from "../../lib/utils";
 import { ComposerPromptEditor, type ComposerPromptEditorHandle } from "../ComposerPromptEditor";
 import { Button } from "../ui/button";
-import { Kbd } from "../ui/kbd";
-import { Separator } from "../ui/separator";
+import { Menu, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuTrigger } from "../ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import { CompactComposerControlsMenu } from "./CompactComposerControlsMenu";
+import {
+  CompactComposerControlsMenu,
+  type CompactComposerCommandMenuItem,
+  PlanModeGlyph,
+} from "./CompactComposerControlsMenu";
 import { ComposerCommandMenu } from "./ComposerCommandMenu";
 import { ComposerPendingApprovalActions } from "./ComposerPendingApprovalActions";
 import { ComposerPendingApprovalPanel } from "./ComposerPendingApprovalPanel";
@@ -50,68 +53,109 @@ import { ComposerQueuedMessages } from "./ComposerQueuedMessages";
 import {
   type ComposerProviderState,
   renderProviderTraitsMenuContent,
-  renderProviderTraitsPicker,
 } from "./composerProviderRegistry";
 import { ContextWindowMeter } from "./ContextWindowMeter";
 import { ProviderModelPicker } from "./ProviderModelPicker";
-import { nextRuntimeMode, RUNTIME_MODE_META } from "./runtimeModeControl";
+import { RUNTIME_MODE_META } from "./runtimeModeControl";
+import { buildProviderTraitsTriggerLabel } from "./traitsTriggerLabel";
 
 const EMPTY_TERMINAL_CONTEXTS: ComponentProps<typeof ComposerPromptEditor>["terminalContexts"] = [];
-
-function renderInteractionModeTooltipContent(
-  interactionMode: ProviderInteractionMode,
-  shortcutLabel: string | null,
-) {
-  return (
-    <span className="inline-flex items-center gap-2">
-      <span>{interactionMode === "plan" ? "Switch to Agent" : "Switch to Plan"}</span>
-      {shortcutLabel ? (
-        <Kbd className="h-4.5 min-w-0 rounded-md bg-background/70 px-1.5 text-[10px] text-foreground/75 dark:bg-background/25">
-          {shortcutLabel}
-        </Kbd>
-      ) : null}
-    </span>
-  );
-}
+const RUNTIME_MODE_OPTIONS: ReadonlyArray<RuntimeMode> = ["approval-required", "full-access"];
 
 function RuntimeModeButton(props: {
   runtimeMode: RuntimeMode;
   compact: boolean;
   onRuntimeModeChange: (mode: RuntimeMode) => void;
 }) {
+  const RuntimeModeIcon = props.runtimeMode === "full-access" ? ShieldAlertIcon : ShieldCheckIcon;
+
   return (
-    <Tooltip>
-      <TooltipTrigger
+    <Menu>
+      <MenuTrigger
         render={
           <Button
             variant="ghost"
             className={cn(
-              "shrink-0 whitespace-nowrap px-2 transition-colors duration-150 sm:px-2.5",
+              APP_COMPOSER_CONTROL_CLASS_NAME,
+              "whitespace-nowrap",
               RUNTIME_MODE_META[props.runtimeMode].textClassName,
             )}
             size="sm"
             type="button"
-            onClick={() => props.onRuntimeModeChange(nextRuntimeMode(props.runtimeMode))}
-            aria-label={RUNTIME_MODE_META[props.runtimeMode].title}
+            aria-label="Access mode"
             data-chat-composer-runtime-mode={props.runtimeMode}
           />
         }
       >
-        {props.runtimeMode === "full-access" ? (
-          <ShieldAlertIcon
-            className={cn("size-4", RUNTIME_MODE_META[props.runtimeMode].iconClassName)}
-          />
-        ) : (
-          <ShieldCheckIcon
-            className={cn("size-4", RUNTIME_MODE_META[props.runtimeMode].iconClassName)}
-          />
-        )}
+        <RuntimeModeIcon
+          className={cn("size-4", RUNTIME_MODE_META[props.runtimeMode].iconClassName)}
+        />
         <span className={props.compact ? "sr-only" : "sr-only sm:not-sr-only"}>
           {RUNTIME_MODE_META[props.runtimeMode].label}
         </span>
+        <ChevronDownIcon aria-hidden="true" className="size-3 opacity-75" />
+      </MenuTrigger>
+      <MenuPopup align="start" className="w-52">
+        <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">Access</div>
+        <MenuRadioGroup
+          value={props.runtimeMode}
+          onValueChange={(value) => {
+            if (value === "approval-required" || value === "full-access") {
+              props.onRuntimeModeChange(value);
+            }
+          }}
+        >
+          {RUNTIME_MODE_OPTIONS.map((mode) => {
+            const ModeIcon = mode === "full-access" ? ShieldAlertIcon : ShieldCheckIcon;
+            return (
+              <MenuRadioItem key={mode} value={mode}>
+                <span className="flex min-w-0 items-center gap-2">
+                  <ModeIcon
+                    aria-hidden="true"
+                    className={cn("size-4", RUNTIME_MODE_META[mode].iconClassName)}
+                  />
+                  <span>{RUNTIME_MODE_META[mode].label}</span>
+                </span>
+              </MenuRadioItem>
+            );
+          })}
+        </MenuRadioGroup>
+      </MenuPopup>
+    </Menu>
+  );
+}
+
+function PlanModeIndicator(props: {
+  shortcutLabel: string | null;
+  onToggleInteractionMode: () => void;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            className="group/plan-button inline-flex h-7 min-w-max shrink-0 items-center gap-1.5 rounded-full border border-transparent bg-transparent px-2.5 text-[12px] font-medium text-muted-foreground/88 transition-[background-color,border-color,color,opacity] duration-150 hover:border-border/70 hover:bg-black/[0.04] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background dark:hover:border-border/65 dark:hover:bg-white/[0.08]"
+            type="button"
+            aria-label="Exit plan mode"
+            aria-pressed="true"
+            data-chat-composer-plan-indicator="true"
+            onClick={props.onToggleInteractionMode}
+          />
+        }
+      >
+        <span className="relative inline-flex size-4 shrink-0 items-center justify-center">
+          <PlanModeGlyph className="size-4.5 text-current opacity-72 transition-opacity duration-150 group-hover/plan-button:opacity-0" />
+          <IconXboxXFilled className="absolute inset-0 size-4 opacity-0 transition-opacity duration-150 group-hover/plan-button:opacity-100" />
+        </span>
+        <span>Plan</span>
       </TooltipTrigger>
-      <TooltipPopup side="top" sideOffset={4}>
-        {RUNTIME_MODE_META[props.runtimeMode].title}
+      <TooltipPopup side="top" className="max-w-56 text-center leading-tight">
+        <span className="block text-foreground">Exit plan mode</span>
+        {props.shortcutLabel ? (
+          <span className="mt-0.5 block text-muted-foreground">
+            {props.shortcutLabel} to toggle
+          </span>
+        ) : null}
       </TooltipPopup>
     </Tooltip>
   );
@@ -173,8 +217,10 @@ interface ChatComposerPanelProps {
   readonly handoffTargetProviders: ReadonlyArray<ProviderKind>;
   readonly handoffDisabled: boolean;
   readonly interactionMode: ComponentProps<typeof CompactComposerControlsMenu>["interactionMode"];
-  readonly runtimeMode: RuntimeMode;
   readonly interactionModeShortcutLabel: string | null;
+  readonly runtimeMode: RuntimeMode;
+  readonly skillCommands: ReadonlyArray<CompactComposerCommandMenuItem>;
+  readonly pluginCommands: ReadonlyArray<CompactComposerCommandMenuItem>;
   readonly activeContextWindow: ComponentProps<typeof ContextWindowMeter>["usage"] | null;
   readonly promptHasText: boolean;
   readonly hasSendableContent: boolean;
@@ -248,6 +294,8 @@ interface ChatComposerPanelProps {
     ComponentProps<typeof ComposerPromptEditor>["onIssueTokenClick"]
   >;
   readonly onPaste: (event: ClipboardEvent<HTMLElement>) => void;
+  readonly onPickComposerImages: () => void;
+  readonly onSelectComposerProviderCommand: (command: string) => void;
   readonly onRespondToApproval: ComponentProps<
     typeof ComposerPendingApprovalActions
   >["onRespondToApproval"];
@@ -344,25 +392,12 @@ export function ChatComposerPanel({
   ...props
 }: ChatComposerPanelProps) {
   const interactionModeDisabledReason = null;
-  const providerTraitsMenuContent = renderProviderTraitsMenuContent({
+  const providerTraitsTriggerLabel = buildProviderTraitsTriggerLabel({
     provider: props.selectedProvider,
-    threadId: props.threadId,
-    model: props.selectedModel,
     models: props.selectedProviderModels,
+    model: props.selectedModelForPickerWithCustomFallback,
     modelOptions: props.selectedProviderModelOptions,
     prompt: props.prompt,
-    onPromptChange: props.onPromptChangeFromTraits,
-    sessionConfigOptions: props.sessionConfigOptions,
-  });
-  const providerTraitsPicker = renderProviderTraitsPicker({
-    provider: props.selectedProvider,
-    threadId: props.threadId,
-    model: props.selectedModel,
-    models: props.selectedProviderModels,
-    modelOptions: props.selectedProviderModelOptions,
-    prompt: props.prompt,
-    onPromptChange: props.onPromptChangeFromTraits,
-    showFastInTriggerLabel: false,
     sessionConfigOptions: props.sessionConfigOptions,
   });
   const composerValue = props.isComposerApprovalState
@@ -405,8 +440,10 @@ export function ChatComposerPanel({
   return (
     <div
       className={cn(
-        "shrink-0 px-3 pt-0 sm:px-5 sm:pt-0",
-        props.isGitRepo ? "pb-1.5" : "pb-3 sm:pb-4",
+        "shrink-0 pt-0 sm:pt-0",
+        props.placeholderOverride
+          ? "px-0 pb-0 sm:px-0"
+          : cn("px-3 sm:px-5", props.isGitRepo ? "pb-1.5" : "pb-3 sm:pb-4"),
       )}
     >
       <form
@@ -441,7 +478,7 @@ export function ChatComposerPanel({
           </>
         ) : null}
         {props.pendingUserInputs.length > 0 ? (
-          <div className="mb-2">
+          <div className="relative z-0 -mb-4 px-4 sm:px-6">
             <ComposerPendingUserInputPanel
               pendingUserInputs={props.pendingUserInputs}
               respondingRequestIds={props.respondingUserInputRequestIds}
@@ -456,7 +493,7 @@ export function ChatComposerPanel({
 
         <div
           className={cn(
-            "group rounded-xl transition-colors duration-200",
+            "group relative z-10 rounded-[1.75rem] transition-colors duration-200",
             isUltrathinkFrame && "p-px",
             props.composerProviderState.composerFrameClassName,
           )}
@@ -467,7 +504,7 @@ export function ChatComposerPanel({
         >
           <div
             className={cn(
-              "rounded-xl",
+              "rounded-[1.75rem]",
               isUltrathinkFrame
                 ? "border-0 bg-input transition-all duration-200 focus-within:ring-2 focus-within:ring-ring/40"
                 : APP_COMPOSER_CLASS_NAME,
@@ -492,12 +529,12 @@ export function ChatComposerPanel({
             ) : null}
             <div
               className={cn(
-                "relative px-3 pb-2 sm:px-4",
-                props.hasComposerHeader ? "pt-2 sm:pt-2.5" : "pt-2 sm:pt-2.5",
+                "relative px-4 pb-2.5 sm:px-6",
+                props.hasComposerHeader ? "pt-4 sm:pt-5" : "pt-4 sm:pt-5",
               )}
             >
               {props.composerMenuOpen && !props.isComposerApprovalState ? (
-                <div className="absolute inset-x-0 bottom-full z-20 mb-2 px-1">
+                <div className="absolute inset-x-0 bottom-full z-0 mb-2 px-1">
                   <ComposerCommandMenu
                     items={props.composerMenuItems}
                     resolvedTheme={props.resolvedTheme}
@@ -566,12 +603,14 @@ export function ChatComposerPanel({
                 onIssueTokenClick={props.onIssueTokenClick}
                 onPaste={props.onPaste}
                 placeholder={placeholder}
-                {...(props.placeholderOverride
-                  ? {
-                      className: "new-thread-start-composer-editor",
-                      placeholderClassName: "new-thread-start-composer-placeholder",
-                    }
-                  : {})}
+                className={cn(
+                  "min-h-[3rem] text-[13px] leading-5",
+                  props.placeholderOverride && "new-thread-start-composer-editor",
+                )}
+                placeholderClassName={cn(
+                  "text-[13px] leading-5 text-muted-foreground/64",
+                  props.placeholderOverride && "new-thread-start-composer-placeholder",
+                )}
                 disabled={props.isConnecting || props.isComposerApprovalState}
               />
             </div>
@@ -592,7 +631,7 @@ export function ChatComposerPanel({
                 data-chat-composer-footer="true"
                 data-chat-composer-footer-compact={props.isComposerFooterCompact ? "true" : "false"}
                 className={cn(
-                  "flex min-w-0 flex-nowrap items-center justify-between overflow-hidden px-2.5 pb-2 sm:px-3 sm:pb-2.5",
+                  "flex min-w-0 flex-nowrap items-center justify-between overflow-hidden px-3.5 pb-3 sm:px-5 sm:pb-4",
                   props.isComposerFooterCompact ? "gap-1.5" : "gap-2 sm:gap-0",
                 )}
               >
@@ -605,8 +644,45 @@ export function ChatComposerPanel({
                       : "gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:min-w-max sm:overflow-visible",
                   )}
                 >
-                  <ProviderModelPicker
+                  <CompactComposerControlsMenu
+                    interactionMode={props.interactionMode}
+                    interactionModeDisabledReason={interactionModeDisabledReason}
+                    skillCommands={props.skillCommands}
+                    pluginCommands={props.pluginCommands}
+                    onPickImages={props.onPickComposerImages}
+                    onSelectProviderCommand={props.onSelectComposerProviderCommand}
+                    onToggleInteractionMode={props.onToggleInteractionMode}
+                  />
+                  <RuntimeModeButton
+                    runtimeMode={props.runtimeMode}
                     compact={props.isComposerFooterCompact}
+                    onRuntimeModeChange={props.onRuntimeModeChange}
+                  />
+                  {props.interactionMode === "plan" ? (
+                    <>
+                      <span
+                        aria-hidden="true"
+                        className="mx-1 h-5 w-px shrink-0 bg-border/45"
+                        data-chat-composer-plan-divider="true"
+                      />
+                      <PlanModeIndicator
+                        shortcutLabel={props.interactionModeShortcutLabel}
+                        onToggleInteractionMode={props.onToggleInteractionMode}
+                      />
+                    </>
+                  ) : null}
+                </div>
+
+                <div
+                  ref={composerFooterActionsRef}
+                  data-chat-composer-actions="right"
+                  data-chat-composer-primary-actions-compact={
+                    props.isComposerPrimaryActionsCompact ? "true" : "false"
+                  }
+                  className="flex shrink-0 flex-nowrap items-center justify-end gap-2"
+                >
+                  <ProviderModelPicker
+                    compact={props.isComposerFooterCompact || props.isComposerPrimaryActionsCompact}
                     provider={props.selectedProvider}
                     {...(props.selectedProviderInstanceId
                       ? { providerInstanceId: props.selectedProviderInstanceId }
@@ -627,86 +703,21 @@ export function ChatComposerPanel({
                             props.composerProviderState.modelPickerIconClassName,
                         }
                       : {})}
+                    renderTraitsMenuContent={(model) =>
+                      renderProviderTraitsMenuContent({
+                        provider: props.selectedProvider,
+                        threadId: props.threadId,
+                        model,
+                        models: props.selectedProviderModels,
+                        modelOptions: props.selectedProviderModelOptions,
+                        prompt: props.prompt,
+                        onPromptChange: props.onPromptChangeFromTraits,
+                        sessionConfigOptions: props.sessionConfigOptions,
+                      })
+                    }
+                    triggerTraitSummary={providerTraitsTriggerLabel ?? undefined}
                     onProviderModelChange={props.onProviderModelSelect}
                     {...(handoff ? { handoff } : {})}
-                  />
-
-                  {props.isComposerFooterCompact ? (
-                    <CompactComposerControlsMenu
-                      interactionMode={props.interactionMode}
-                      interactionModeShortcutLabel={props.interactionModeShortcutLabel}
-                      interactionModeDisabledReason={interactionModeDisabledReason}
-                      traitsMenuContent={providerTraitsMenuContent}
-                      onToggleInteractionMode={props.onToggleInteractionMode}
-                    />
-                  ) : (
-                    <>
-                      {providerTraitsPicker ? (
-                        <>
-                          <Separator
-                            orientation="vertical"
-                            className="mx-0.5 hidden h-3.5 bg-border/30 sm:block"
-                          />
-                          {providerTraitsPicker}
-                        </>
-                      ) : null}
-
-                      <Separator
-                        orientation="vertical"
-                        className="mx-0.5 hidden h-3.5 bg-border/30 sm:block"
-                      />
-
-                      <Tooltip>
-                        <TooltipTrigger
-                          render={
-                            <Button
-                              variant="ghost"
-                              className="shrink-0 whitespace-nowrap px-2 text-muted-foreground/60 transition-colors duration-150 hover:text-foreground/70 sm:px-2.5"
-                              size="sm"
-                              type="button"
-                              onClick={props.onToggleInteractionMode}
-                              disabled={Boolean(interactionModeDisabledReason)}
-                              aria-label={
-                                props.interactionMode === "plan"
-                                  ? "Switch to agent mode"
-                                  : "Switch to plan mode"
-                              }
-                            />
-                          }
-                        >
-                          {props.interactionMode === "plan" ? (
-                            <ListTodoIcon className="size-4" />
-                          ) : (
-                            <BotIcon className="size-4" />
-                          )}
-                          <span className="sr-only sm:not-sr-only">
-                            {props.interactionMode === "plan" ? "Plan" : "Agent"}
-                          </span>
-                        </TooltipTrigger>
-                        <TooltipPopup side="top" sideOffset={4}>
-                          {interactionModeDisabledReason ??
-                            renderInteractionModeTooltipContent(
-                              props.interactionMode,
-                              props.interactionModeShortcutLabel,
-                            )}
-                        </TooltipPopup>
-                      </Tooltip>
-                    </>
-                  )}
-                </div>
-
-                <div
-                  ref={composerFooterActionsRef}
-                  data-chat-composer-actions="right"
-                  data-chat-composer-primary-actions-compact={
-                    props.isComposerPrimaryActionsCompact ? "true" : "false"
-                  }
-                  className="flex shrink-0 flex-nowrap items-center justify-end gap-2"
-                >
-                  <RuntimeModeButton
-                    runtimeMode={props.runtimeMode}
-                    compact={props.isComposerFooterCompact || props.isComposerPrimaryActionsCompact}
-                    onRuntimeModeChange={props.onRuntimeModeChange}
                   />
                   {props.activeContextWindow ? (
                     <ContextWindowMeter usage={props.activeContextWindow} />

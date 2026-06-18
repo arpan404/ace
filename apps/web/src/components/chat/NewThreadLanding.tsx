@@ -319,11 +319,16 @@ export function useNewThreadRecommendedPrompts(
   const requestKey = activeProjectId && fingerprint ? `${activeProjectId}:${fingerprint}` : null;
   const lastCompletedRequestKeyRef = useRef<string | null>(null);
   const [generatedRecommendations, setGeneratedRecommendations] = useState<{
+    readonly activeProjectId: ProjectId;
+    readonly activeProjectCwd: string;
+    readonly contextTurnsSignature: string;
     readonly requestKey: string;
     readonly recommendations: ReadonlyArray<NewThreadRecommendedPrompt>;
   } | null>(null);
   const recommendations =
-    generatedRecommendations?.requestKey === requestKey
+    generatedRecommendations?.activeProjectId === activeProjectId &&
+    generatedRecommendations.activeProjectCwd === activeProjectCwd &&
+    generatedRecommendations.contextTurnsSignature === contextTurnsSignature
       ? generatedRecommendations.recommendations
       : EMPTY_RECOMMENDED_PROMPTS;
 
@@ -364,7 +369,13 @@ export function useNewThreadRecommendedPrompts(
         }
         const normalizedRecommendations = normalizeRecommendedPrompts(generatedRecommendations);
         lastCompletedRequestKeyRef.current = requestKey;
-        setGeneratedRecommendations({ requestKey, recommendations: normalizedRecommendations });
+        setGeneratedRecommendations({
+          activeProjectId,
+          activeProjectCwd,
+          contextTurnsSignature,
+          requestKey,
+          recommendations: normalizedRecommendations,
+        });
       })
       .catch(() => {
         recommendationFailureCooldownByFingerprint.set(
@@ -379,6 +390,7 @@ export function useNewThreadRecommendedPrompts(
   }, [
     activeProjectCwd,
     activeProjectId,
+    contextTurnsSignature,
     fingerprint,
     requestKey,
     stableContextTurns,
@@ -410,18 +422,20 @@ export function NewThreadStartSurface({
   onRecommendedPromptClick,
 }: NewThreadStartSurfaceProps) {
   return (
-    <div className="new-thread-start-surface flex flex-1 flex-col items-center justify-center overflow-x-hidden overflow-y-auto px-4 py-8 sm:px-8 sm:py-12">
-      <section className="flex w-full min-w-0 max-w-3xl flex-col items-center text-center">
+    <div className="new-thread-start-surface flex flex-1 flex-col items-center justify-start overflow-x-hidden overflow-y-auto px-4 sm:px-8">
+      <section className="my-auto flex w-full min-w-0 max-w-3xl flex-col items-center text-center">
         <h1 className="new-thread-start-title max-w-full text-balance font-medium text-foreground/92">
           {title}
         </h1>
 
         {hasProjects ? (
           <div className="new-thread-start-body flex w-full min-w-0 flex-col items-center">
-            <div className="new-thread-start-composer w-full min-w-0 max-w-3xl text-left">
-              {composerNode}
+            <div className="new-thread-start-dock w-full min-w-0 max-w-3xl text-left">
+              <div className="new-thread-start-composer w-full min-w-0 text-left">
+                {composerNode}
+              </div>
 
-              <div className="new-thread-start-controls mt-2 flex min-h-8 w-full min-w-0 flex-wrap items-center justify-center gap-x-3 gap-y-1 px-2 text-center">
+              <div className="new-thread-start-controls flex min-h-8 w-full min-w-0 flex-wrap items-center justify-start gap-x-3 gap-y-1 px-4 text-left">
                 {contextControlsNode}
                 {branchControlNode}
                 {quickActionsNode}

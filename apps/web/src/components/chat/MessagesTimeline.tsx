@@ -1555,11 +1555,6 @@ export function MessagesTimeline({
         data-timeline-row-kind={row.kind}
         data-message-id={row.kind === "message" ? row.message.id : undefined}
         data-message-role={row.kind === "message" ? row.message.role : undefined}
-        data-message-streaming={
-          row.kind === "message" && row.message.role === "assistant"
-            ? row.message.streaming
-            : undefined
-        }
       >
         {row.kind === "completed-work-summary" && (
           <CompletedWorkSummaryTimelineRow
@@ -1861,7 +1856,7 @@ export function MessagesTimeline({
       ref={setTimelineRootElement}
       role="presentation"
       data-timeline-root="true"
-      className="mx-auto mt-3 w-full min-w-0 max-w-3xl overflow-x-hidden"
+      className="mx-auto mt-3 w-full min-w-0 max-w-3xl overflow-x-hidden pb-12"
       style={{ overflowAnchor: "none" }}
       onKeyUp={updateSelectionPinTarget}
       onMouseUp={updateSelectionPinTarget}
@@ -2723,23 +2718,9 @@ function buildUserMessageInlineText(
       nodes.push(
         <span
           key={`${keyPrefix}:provider-command:${tokenStart}`}
-          className={cn(
-            "inline-flex items-center gap-1 rounded-md px-1 py-px font-medium leading-[1.15]",
-            providerCommandDisplay.kind === "goal"
-              ? "border border-emerald-500/40 bg-emerald-500/12 text-emerald-700 dark:text-emerald-300"
-              : "border border-border/50 bg-muted/40 text-foreground/85",
-          )}
+          className="inline-flex items-center gap-1 rounded-md border-0 bg-transparent px-1 py-0 font-medium text-[0.95em] leading-[1.2] text-primary align-[-0.08em]"
         >
-          <ProviderCommandIcon
-            aria-hidden="true"
-            className={
-              providerCommandDisplay.kind === "plugin"
-                ? "size-3.5 shrink-0 text-muted-foreground/85"
-                : providerCommandDisplay.kind === "goal"
-                  ? "size-3.5 shrink-0 text-emerald-500"
-                  : "size-3.5 shrink-0 text-muted-foreground/85"
-            }
-          />
+          <ProviderCommandIcon aria-hidden="true" className="size-3.5 shrink-0 text-primary" />
           <span>{providerCommandDisplay.label}</span>
         </span>,
       );

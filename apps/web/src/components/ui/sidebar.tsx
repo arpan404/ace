@@ -21,7 +21,6 @@ import { useEffectEvent } from "~/hooks/useEffectEvent";
 import { useIsMobile } from "~/hooks/useMediaQuery";
 import { getLocalStorageItem, setLocalStorageItem } from "~/hooks/useLocalStorage";
 import { SIDEBAR_RESIZE_END_EVENT, SIDEBAR_RESIZING_CLASS_NAME } from "~/lib/desktopChrome";
-import { PANEL_SPRING_TRANSITION } from "~/lib/panelMotion";
 import { Schema } from "effect";
 
 const SIDEBAR_COOKIE_NAME = "sidebar_state";
@@ -30,6 +29,12 @@ const SIDEBAR_WIDTH = "16rem";
 const SIDEBAR_WIDTH_MOBILE = "min(16.1rem, calc(100vw - 1rem))";
 const SIDEBAR_WIDTH_ICON = "3rem";
 const SIDEBAR_RESIZE_DEFAULT_MIN_WIDTH = 16 * 16;
+const SIDEBAR_CHROME_TRANSITION = {
+  type: "spring",
+  stiffness: 360,
+  damping: 42,
+  mass: 0.86,
+} as const;
 
 type SidebarContextProps = {
   state: "expanded" | "collapsed";
@@ -321,22 +326,20 @@ function Sidebar({
             data-slot="sidebar-gap"
             initial={false}
             animate={{ width: sidebarGapWidth }}
-            transition={PANEL_SPRING_TRANSITION}
+            transition={SIDEBAR_CHROME_TRANSITION}
           />
           <m.div
             className={cn(
               "fixed inset-y-0 z-10 hidden h-svh transform-gpu will-change-[transform,width] md:flex",
               side === "left" ? "left-0" : "right-0",
               // Adjust the padding for floating and inset variants.
-              variant === "floating" || variant === "inset"
-                ? "p-2"
-                : "group-data-[side=left]:border-r group-data-[side=right]:border-l",
+              (variant === "floating" || variant === "inset") && "p-2",
               className,
             )}
             data-slot="sidebar-container"
             initial={false}
             animate={{ width: sidebarContainerWidth, x: sidebarContainerX }}
-            transition={PANEL_SPRING_TRANSITION}
+            transition={SIDEBAR_CHROME_TRANSITION}
             {...(style ? { style: style as MotionStyle } : {})}
             {...motionContainerProps}
           >
@@ -720,6 +723,7 @@ function SidebarInset({ className, ...props }: React.ComponentProps<"main">) {
       className={cn(
         "relative flex min-w-0 w-full flex-1 flex-col",
         APP_SHELL_CLASS_NAME,
+        "md:overflow-hidden md:rounded-l-[1.25rem]",
         "md:peer-data-[variant=inset]:peer-data-[state=collapsed]:ms-2 md:peer-data-[variant=inset]:m-2 md:peer-data-[variant=inset]:ms-0 md:peer-data-[variant=inset]:rounded-xl",
         className,
       )}

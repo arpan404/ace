@@ -2,7 +2,7 @@ import { APP_CHIP_CLASS_NAME } from "../appChrome";
 import { cn } from "../utils";
 
 export const COMPOSER_INLINE_CHIP_CLASS_NAME = cn(
-  "inline-flex max-w-full select-none items-center gap-1 px-1.5 py-px font-medium text-[12px] leading-[1.1] text-foreground align-middle",
+  "inline-flex max-w-full select-none items-center gap-1 px-1.5 py-0 font-medium text-[0.95em] leading-[1.2] text-foreground align-[-0.08em]",
   APP_CHIP_CLASS_NAME,
 );
 

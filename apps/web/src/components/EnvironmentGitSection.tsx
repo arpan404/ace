@@ -17,7 +17,7 @@ import {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
-import { AlertTriangleIcon, ChevronDownIcon, GitBranchPlusIcon, KeyRoundIcon } from "lucide-react";
+import { ChevronDownIcon, GitBranchPlusIcon, KeyRoundIcon } from "lucide-react";
 import { runAsyncTask } from "../lib/async";
 import {
   buildGitActionProgressStages,
@@ -284,7 +284,7 @@ const COMMIT_DIALOG_DESCRIPTION =
   "Review and confirm your commit. Leave the message blank to auto-generate one.";
 
 const gitCardRowClassName =
-  "flex min-h-8 w-full items-center gap-2 rounded-[var(--control-radius)] px-2 py-1 text-left text-[13px] leading-none text-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-0 disabled:pointer-events-none disabled:opacity-45 [&>svg:not([class*='size-'])]:size-3.5 [&>svg]:shrink-0 [&>svg]:text-muted-foreground";
+  "flex min-h-8 w-full items-center gap-2 rounded-[var(--control-radius)] px-2 py-1 text-left text-[13px] leading-none text-foreground/82 transition-colors duration-150 hover:bg-black/[0.045] hover:text-foreground focus-visible:outline-none focus-visible:ring-0 disabled:pointer-events-none disabled:opacity-45 dark:hover:bg-white/[0.09] [&>svg:not([class*='size-'])]:size-3.5 [&>svg]:shrink-0 [&>svg]:text-muted-foreground";
 
 interface GitActionMenuPosition {
   left: number;
@@ -397,7 +397,7 @@ function EnvironmentGitActionMenuPortal({
 }
 
 const gitActionMenuItemClassName =
-  "flex w-full cursor-default select-none items-center gap-2 rounded-[var(--chip-radius)] px-2 py-0.5 text-left text-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-64 [&>svg:not([class*='opacity-'])]:opacity-80 [&>svg:not([class*='size-'])]:size-3.5 [&>svg]:pointer-events-none [&>svg]:shrink-0";
+  "flex w-full cursor-default select-none items-center gap-2 rounded-[var(--chip-radius)] px-2 py-0.5 text-left text-foreground/86 outline-none transition-colors duration-150 hover:bg-black/[0.045] hover:text-foreground disabled:pointer-events-none disabled:opacity-64 dark:hover:bg-white/[0.09] [&>svg:not([class*='opacity-'])]:opacity-80 [&>svg:not([class*='size-'])]:size-3.5 [&>svg]:pointer-events-none [&>svg]:shrink-0";
 
 function useEnvironmentGitSection({
   connectionUrl,
@@ -1049,7 +1049,7 @@ function useEnvironmentGitSection({
               type="button"
               className={cn(
                 gitCardRowClassName,
-                "min-h-8 flex-1 rounded-none bg-transparent px-2 py-1 hover:bg-accent",
+                "min-h-8 flex-1 rounded-none bg-transparent px-2 py-1",
               )}
               disabled={isGitActionRunning || quickAction.disabled}
               title={quickActionDisabledReason ?? undefined}
@@ -1062,8 +1062,8 @@ function useEnvironmentGitSection({
               ref={gitActionMenuTriggerRef}
               type="button"
               className={cn(
-                "flex min-h-8 w-8 shrink-0 items-center justify-center border-l border-border/60 text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-0",
-                isGitActionMenuOpen && "bg-accent text-accent-foreground",
+                "flex min-h-8 w-8 shrink-0 items-center justify-center border-l border-border/45 text-muted-foreground/78 transition-colors duration-150 hover:bg-black/[0.045] hover:text-foreground focus-visible:outline-none focus-visible:ring-0 dark:hover:bg-white/[0.09]",
+                isGitActionMenuOpen && "bg-black/[0.045] text-foreground dark:bg-white/[0.09]",
               )}
               aria-expanded={isGitActionMenuOpen}
               aria-haspopup="menu"
