@@ -1,6 +1,8 @@
 import { IconSearch, IconSettings } from "@tabler/icons-react";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import {
+  ArrowLeftIcon,
+  ArrowRightIcon,
   ArrowUpIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
@@ -56,7 +58,6 @@ import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
 import { type VirtualItem } from "@tanstack/react-virtual";
 import { type SidebarProjectSortOrder } from "@ace/contracts/settings";
 import { isElectron } from "../env";
-import { APP_VERSION, IS_DEV_BUILD } from "../branding";
 import { reportBackgroundError } from "../lib/async";
 import { SIDEBAR_ADD_PROJECT_REQUEST_EVENT } from "../lib/sidebarAddProjectRequest";
 import { cn, randomUUID } from "../lib/utils";
@@ -64,7 +65,8 @@ import { isTerminalFocused } from "../lib/terminalFocus";
 import { isMacPlatform, newCommandId, newProjectId } from "../lib/utils";
 import {
   DESKTOP_HEADER_CHROME_CLASS_NAME,
-  DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME,
+  DESKTOP_HEADER_NAV_BUTTON_CLASS_NAME,
+  DESKTOP_HEADER_NAV_CLUSTER_CLASS_NAME,
   MAC_TITLEBAR_LEFT_INSET_STYLE,
 } from "../lib/desktopChrome";
 import { useStore } from "../store";
@@ -89,6 +91,7 @@ import { PROJECT_ICON_COLOR_OPTIONS, PROJECT_ICON_OPTIONS } from "./projectAvata
 import { toastManager } from "./ui/toast";
 import { SettingsSidebarNav } from "./settings/SettingsSidebarNav";
 import { SidebarSearchPaletteDialog } from "./sidebar/SidebarSearchPaletteDialog";
+import { ThreadRenameDialog } from "./chat/ThreadRenameDialog";
 import { SidebarBoardsSection, type SidebarSplitSortOrder } from "./sidebar/SidebarBoardsSection";
 import {
   SidebarSplitPickerDialog,
@@ -410,8 +413,7 @@ type SidebarEditorAction =
       type: "open-remote-thread-rename";
       remoteThreadRenameTarget: RemoteThreadRenameTarget;
       remoteThreadRenameTitle: string;
-    }
-  | { type: "set-remote-thread-rename-title"; remoteThreadRenameTitle: string };
+    };
 type SidebarSplitBoardUiState = {
   splitSortOrder: SidebarSplitSortOrder;
   splitRevealCount: number;
@@ -708,11 +710,6 @@ function sidebarEditorStateReducer(
       return {
         ...state,
         remoteThreadRenameTarget: action.remoteThreadRenameTarget,
-        remoteThreadRenameTitle: action.remoteThreadRenameTitle,
-      };
-    case "set-remote-thread-rename-title":
-      return {
-        ...state,
         remoteThreadRenameTitle: action.remoteThreadRenameTitle,
       };
     default:
@@ -2339,9 +2336,6 @@ function useSidebarComponent() {
     nextIcon: Project["icon"] | ((current: Project["icon"]) => Project["icon"]),
   ) => {
     dispatchSidebarEditorState({ type: "set-editing-project-icon", nextIcon });
-  };
-  const setRemoteThreadRenameTitle = (remoteThreadRenameTitle: string) => {
-    dispatchSidebarEditorState({ type: "set-remote-thread-rename-title", remoteThreadRenameTitle });
   };
   const [sidebarAuxUiState, dispatchSidebarAuxUiState] = useReducer(
     sidebarAuxUiStateReducer,
@@ -4077,6 +4071,50 @@ function useSidebarComponent() {
     }
     finishRename();
   };
+  const localThreadRenameTarget = renamingThreadId
+    ? (readSidebarThreadSummary(renamingThreadId) ?? null)
+    : null;
+  const saveLocalThreadRename = async (nextTitle: string) => {
+    const target = localThreadRenameTarget;
+    if (!target) {
+      cancelRename();
+      return true;
+    }
+    const trimmed = nextTitle.trim();
+    if (trimmed.length === 0) {
+      toastManager.add({
+        type: "warning",
+        title: "Chat title cannot be empty",
+      });
+      return false;
+    }
+    if (trimmed === target.title) {
+      cancelRename();
+      return true;
+    }
+    try {
+      const api = readNativeApi();
+      if (!api) {
+        cancelRename();
+        return true;
+      }
+      await api.orchestration.dispatchCommand({
+        type: "thread.meta.update",
+        commandId: newCommandId(),
+        threadId: target.id,
+        title: trimmed,
+      });
+      cancelRename();
+      return true;
+    } catch (error) {
+      toastManager.add({
+        type: "error",
+        title: "Failed to rename chat",
+        description: error instanceof Error ? error.message : "An error occurred.",
+      });
+      return false;
+    }
+  };
 
   const { copyToClipboard: copyThreadIdToClipboard } = useCopyToClipboard<{
     threadId: ThreadId;
@@ -4766,22 +4804,22 @@ function useSidebarComponent() {
   const closeRemoteThreadRenameDialog = () => {
     dispatchSidebarEditorState({ type: "close-remote-thread-rename" });
   };
-  const saveRemoteThreadRename = async () => {
+  const saveRemoteThreadRename = async (title = remoteThreadRenameTitle) => {
     const target = remoteThreadRenameTarget;
     if (!target) {
-      return;
+      return true;
     }
-    const nextTitle = remoteThreadRenameTitle.trim();
+    const nextTitle = title.trim();
     if (nextTitle.length === 0) {
       toastManager.add({
         type: "warning",
-        title: "Thread title cannot be empty",
+        title: "Chat title cannot be empty",
       });
-      return;
+      return false;
     }
     if (nextTitle === target.thread.title) {
       closeRemoteThreadRenameDialog();
-      return;
+      return true;
     }
     try {
       await routeOrchestrationDispatchCommandToRemote(target.connectionUrl, {
@@ -4792,12 +4830,14 @@ function useSidebarComponent() {
       });
       await refreshRemoteSidebarHosts();
       closeRemoteThreadRenameDialog();
+      return true;
     } catch (error) {
       toastManager.add({
         type: "error",
-        title: "Failed to rename thread",
+        title: "Failed to rename chat",
         description: error instanceof Error ? error.message : "An error occurred.",
       });
+      return false;
     }
   };
 
@@ -5776,7 +5816,7 @@ function useSidebarComponent() {
         isPinned
         boardDrag={boardDrag}
         showPinnedIndicator={false}
-        renamingThreadId={renamingThreadId}
+        renamingThreadId={null}
         renamingTitle={renamingTitle}
         setRenamingTitle={setRenamingTitle}
         renamingInputRef={renamingInputRef}
@@ -5808,7 +5848,7 @@ function useSidebarComponent() {
     appSettingsConfirmThreadArchive: confirmThreadArchive,
     isPinned: false,
     pinEnabled: false,
-    renamingThreadId,
+    renamingThreadId: null,
     renamingTitle,
     setRenamingTitle,
     renamingInputRef,
@@ -5879,7 +5919,7 @@ function useSidebarComponent() {
                 projectId={item.projectId}
                 renamingCommittedRef={renamingCommittedRef}
                 renamingInputRef={renamingInputRef}
-                renamingThreadId={renamingThreadId}
+                renamingThreadId={null}
                 renamingTitle={renamingTitle}
                 routeThreadId={activeSidebarRouteThreadId}
                 selectedThreadIds={selectedThreadIds}
@@ -5938,7 +5978,7 @@ function useSidebarComponent() {
             projectId={item.projectId}
             renamingCommittedRef={renamingCommittedRef}
             renamingInputRef={renamingInputRef}
-            renamingThreadId={renamingThreadId}
+            renamingThreadId={null}
             renamingTitle={renamingTitle}
             routeThreadId={activeSidebarRouteThreadId}
             selectedThreadIds={selectedThreadIds}
@@ -6240,26 +6280,11 @@ function useSidebarComponent() {
     });
   };
 
-  const sidebarWordmarkLabel = IS_DEV_BUILD ? "acē" : "ace";
-  const wordmark = (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <div className="group/sidebar-brand flex h-7 min-w-0 cursor-pointer items-center gap-2 rounded-lg px-2 text-sidebar-foreground outline-none transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-ring/30">
-            <span className="min-w-0 truncate text-[15px] font-semibold tracking-tight">
-              {sidebarWordmarkLabel}
-            </span>
-          </div>
-        }
-      />
-      <TooltipPopup side="bottom" sideOffset={2}>
-        Version {APP_VERSION}
-      </TooltipPopup>
-    </Tooltip>
-  );
   const sidebarHeaderToggle = showSidebarHeaderToggle ? (
     <Tooltip>
-      <TooltipTrigger render={<SidebarTrigger className={DESKTOP_SIDEBAR_TOGGLE_CLASS_NAME} />} />
+      <TooltipTrigger
+        render={<SidebarTrigger className={DESKTOP_HEADER_NAV_BUTTON_CLASS_NAME} />}
+      />
       <TooltipPopup side="bottom" sideOffset={4}>
         <SidebarHeaderTooltipContent
           label="Toggle sidebar"
@@ -6268,18 +6293,15 @@ function useSidebarComponent() {
       </TooltipPopup>
     </Tooltip>
   ) : null;
-  const sidebarHeaderNavButtonClassName =
-    "inline-flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-sidebar-foreground/65 outline-none transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-ring/30 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-40";
+  const sidebarHeaderNavIconClassName =
+    "size-[19px] opacity-72 transition-opacity duration-150 group-hover/sidebar-nav-button:opacity-100";
   const sidebarHeaderChrome = (
     <div
       ref={sidebarHeaderRowRef}
-      className="grid h-7 min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2"
+      className="grid h-8 min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2"
     >
-      <div className="flex min-w-0 items-center">{sidebarHeaderToggle}</div>
-      <div className="flex min-w-0 items-center justify-center">
-        <div className="min-w-0">{wordmark}</div>
-      </div>
-      <div className="flex shrink-0 items-center justify-end gap-1.5">
+      <div className={DESKTOP_HEADER_NAV_CLUSTER_CLASS_NAME}>
+        {sidebarHeaderToggle}
         <Tooltip>
           <TooltipTrigger
             render={
@@ -6287,10 +6309,11 @@ function useSidebarComponent() {
                 type="button"
                 variant="ghost"
                 size="icon-sm"
+                className={DESKTOP_HEADER_NAV_BUTTON_CLASS_NAME}
                 aria-label="Go back"
                 onClick={() => window.history.back()}
               >
-                <ChevronLeftIcon className="size-4.5" strokeWidth={2.25} />
+                <ArrowLeftIcon className={sidebarHeaderNavIconClassName} strokeWidth={2.25} />
               </Button>
             }
           />
@@ -6305,10 +6328,11 @@ function useSidebarComponent() {
                 type="button"
                 variant="ghost"
                 size="icon-sm"
+                className={DESKTOP_HEADER_NAV_BUTTON_CLASS_NAME}
                 aria-label="Go forward"
                 onClick={() => window.history.forward()}
               >
-                <ChevronRightIcon className="size-4.5" strokeWidth={2.25} />
+                <ArrowRightIcon className={sidebarHeaderNavIconClassName} strokeWidth={2.25} />
               </Button>
             }
           />
@@ -6320,6 +6344,8 @@ function useSidebarComponent() {
           </TooltipPopup>
         </Tooltip>
       </div>
+      <div className="min-w-0" />
+      <div className="shrink-0" />
     </div>
   );
   const shouldUseDesktopHeaderChrome =
@@ -6447,49 +6473,32 @@ function useSidebarComponent() {
           </DialogFooter>
         </DialogPopup>
       </Dialog>
-      <Dialog
+      <ThreadRenameDialog
+        open={localThreadRenameTarget !== null}
+        initialTitle={localThreadRenameTarget?.title ?? renamingTitle}
+        description="Update the chat title shown in the sidebar and header."
+        onOpenChange={(open) => {
+          if (!open) {
+            cancelRename();
+          }
+        }}
+        onSubmit={saveLocalThreadRename}
+      />
+      <ThreadRenameDialog
         open={remoteThreadRenameTarget !== null}
+        initialTitle={remoteThreadRenameTarget?.thread.title ?? remoteThreadRenameTitle}
+        description={
+          remoteThreadRenameTarget
+            ? `Update the chat title in ${remoteThreadRenameTarget.project.name}.`
+            : "Update the chat title."
+        }
         onOpenChange={(open) => {
           if (!open) {
             closeRemoteThreadRenameDialog();
           }
         }}
-      >
-        <DialogPopup>
-          <DialogHeader>
-            <DialogTitle>Rename thread</DialogTitle>
-            <DialogDescription>
-              {remoteThreadRenameTarget
-                ? `Update the thread title in ${remoteThreadRenameTarget.project.name}.`
-                : "Update the thread title."}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogPanel>
-            <div className="space-y-1.5">
-              <p className="text-sm font-medium">Thread title</p>
-              <Input
-                value={remoteThreadRenameTitle}
-                onChange={(event) => setRemoteThreadRenameTitle(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key !== "Enter") {
-                    return;
-                  }
-                  event.preventDefault();
-                  void saveRemoteThreadRename();
-                }}
-              />
-            </div>
-          </DialogPanel>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={closeRemoteThreadRenameDialog}>
-              Cancel
-            </Button>
-            <Button type="button" onClick={() => void saveRemoteThreadRename()}>
-              Rename
-            </Button>
-          </DialogFooter>
-        </DialogPopup>
-      </Dialog>
+        onSubmit={saveRemoteThreadRename}
+      />
       <SidebarSplitPickerDialog
         open={splitPickerOpen}
         availableThreadCount={splitPickerAvailableThreadCount}
@@ -7024,7 +7033,7 @@ function useSidebarComponent() {
                                 projectId={item.projectId}
                                 renamingCommittedRef={renamingCommittedRef}
                                 renamingInputRef={renamingInputRef}
-                                renamingThreadId={renamingThreadId}
+                                renamingThreadId={null}
                                 renamingTitle={renamingTitle}
                                 routeThreadId={activeSidebarRouteThreadId}
                                 selectedThreadIds={selectedThreadIds}

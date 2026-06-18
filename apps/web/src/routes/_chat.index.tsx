@@ -27,7 +27,7 @@ function ChatIndexRouteView() {
 
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none text-foreground isolate">
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">
         <div className="relative flex shrink-0 items-stretch overflow-hidden bg-background">
           <AppPageTopBar className="min-w-0 flex-1">
             <div className="min-w-0 flex-1" />

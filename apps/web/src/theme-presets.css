@@ -60,8 +60,8 @@
 }
 
 .dark[data-theme-preset] {
-  --terminal-surface: oklch(0.16 0 0);
-  --terminal-surface-elevated: oklch(0.2 0 0);
+  --terminal-surface: oklch(0.185 0 0);
+  --terminal-surface-elevated: oklch(0.215 0 0);
   --terminal-foreground: oklch(0.895 0 0);
   --terminal-cursor: oklch(0.9 0 0);
   --terminal-selection-background: color-mix(in oklch, rgb(30 144 255) 24%, transparent);
@@ -90,31 +90,31 @@
   --sidebar-border: 0 0% 20%;
   --sidebar-accent: 0 0% 14%;
   --sidebar-accent-foreground: 0 0% 94%;
-  --background: oklch(0.16 0 0);
+  --background: oklch(0.185 0 0);
   --foreground: oklch(0.91 0 0);
-  --card: oklch(0.23 0 0 / 0.78);
+  --card: oklch(0.245 0 0 / 0.8);
   --card-foreground: oklch(0.91 0 0);
-  --popover: oklch(0.25 0 0 / 0.86);
+  --popover: oklch(0.265 0 0 / 0.88);
   --popover-foreground: oklch(0.91 0 0);
   --primary: rgb(30 144 255);
   --primary-foreground: oklch(0.12 0 0);
-  --secondary: oklch(0.24 0 0 / 0.76);
+  --secondary: oklch(0.255 0 0 / 0.78);
   --secondary-foreground: oklch(0.88 0 0);
-  --muted: oklch(0.23 0 0 / 0.7);
-  --muted-foreground: oklch(0.66 0 0);
-  --accent: oklch(0.265 0 0 / 0.82);
+  --muted: oklch(0.245 0 0 / 0.72);
+  --muted-foreground: oklch(0.69 0 0);
+  --accent: oklch(0.285 0 0 / 0.84);
   --accent-foreground: oklch(0.92 0 0);
   --border: oklch(0.4 0 0 / 0.82);
-  --input: oklch(0.2 0 0 / 0.82);
+  --input: oklch(0.225 0 0 / 0.84);
   --ring: rgb(30 144 255);
   --info: rgb(30 144 255);
   --info-foreground: color-mix(in oklch, rgb(30 144 255) 82%, white);
   --bg-glow:
-    linear-gradient(180deg, oklch(0.21 0 0 / 0.8), transparent 24rem),
-    linear-gradient(135deg, oklch(0.255 0 0 / 0.22), transparent 48%),
-    linear-gradient(315deg, oklch(0.225 0 0 / 0.14), transparent 44%),
-    linear-gradient(165deg, oklch(0.185 0 0), oklch(0.145 0 0));
-  --pill: oklch(0.26 0 0 / 0.8);
+    linear-gradient(180deg, oklch(0.225 0 0 / 0.76), transparent 24rem),
+    linear-gradient(135deg, oklch(0.27 0 0 / 0.2), transparent 48%),
+    linear-gradient(315deg, oklch(0.24 0 0 / 0.14), transparent 44%),
+    linear-gradient(165deg, oklch(0.205 0 0), oklch(0.175 0 0));
+  --pill: oklch(0.275 0 0 / 0.82);
   --pill-border: oklch(0.48 0 0 / 0.45);
-  --chat-bubble: oklch(0.26 0 0 / 0.84);
+  --chat-bubble: oklch(0.275 0 0 / 0.86);
 }

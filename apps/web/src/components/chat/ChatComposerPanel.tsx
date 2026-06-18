@@ -534,7 +534,7 @@ export function ChatComposerPanel({
               )}
             >
               {props.composerMenuOpen && !props.isComposerApprovalState ? (
-                <div className="absolute inset-x-0 bottom-full z-0 -mb-4 px-1">
+                <div className="absolute inset-x-0 bottom-full z-0 mb-2 px-1">
                   <ComposerCommandMenu
                     items={props.composerMenuItems}
                     resolvedTheme={props.resolvedTheme}

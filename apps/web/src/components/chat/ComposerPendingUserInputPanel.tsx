@@ -6,7 +6,7 @@ import {
   type PendingUserInputDraftAnswer,
 } from "../../pendingUserInput";
 import { CheckIcon } from "lucide-react";
-import { APP_COMPOSER_CLASS_NAME } from "~/lib/appChrome";
+import { APP_COMPOSER_FLOATING_PANEL_CLASS_NAME } from "~/lib/appChrome";
 import { cn } from "~/lib/utils";
 import { Button } from "../ui/button";
 
@@ -143,12 +143,7 @@ function ComposerPendingUserInputCard({
   }
 
   return (
-    <section
-      className={cn(
-        APP_COMPOSER_CLASS_NAME,
-        "overflow-hidden rounded-[1.375rem] border-border/45 text-popover-foreground shadow-[0_20px_54px_-42px_rgb(0_0_0/.82),0_1px_0_rgb(255_255_255/.065)_inset,0_-1px_0_rgb(0_0_0/.22)_inset] dark:border-border/30",
-      )}
-    >
+    <section className={APP_COMPOSER_FLOATING_PANEL_CLASS_NAME}>
       <div className="px-4 pb-2 pt-3">
         <p className="text-[12px] font-medium leading-5 text-foreground/86">
           {activeQuestion.question}

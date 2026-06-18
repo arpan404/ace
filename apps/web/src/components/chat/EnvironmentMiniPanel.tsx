@@ -450,7 +450,7 @@ export function EnvironmentMiniPanel({ ref, ...props }: EnvironmentMiniPanelProp
       ref={ref}
       className={cn(
         ENVIRONMENT_PANEL_SURFACE_CLASS_NAME,
-        "pointer-events-auto z-50 w-[min(18.5rem,calc(100vw-1rem))] max-w-[calc(100vw-1rem)] overflow-y-auto p-2 sm:p-2.5",
+        "pointer-events-auto z-50 w-[min(21rem,calc(100vw-1rem))] max-w-[calc(100vw-1rem)] overflow-y-auto p-2 sm:p-2.5",
         "[overflow-anchor:none]",
         props.layoutMode === "inline"
           ? "absolute top-3 right-3 max-h-[calc(100%_-_1.5rem)]"

@@ -273,6 +273,7 @@ interface ConnectedChatComposerPanelsProps {
   readonly showFloatingDock: boolean;
   readonly floatingDockFooter?: ReactNode;
   readonly floatingDockPortalHost?: HTMLElement | null;
+  readonly onComposerOverlayActiveChange?: (active: boolean) => void;
   readonly onComposerHeightChange: () => void;
   readonly onPreviewExpandedImage: (preview: ExpandedImagePreview) => void;
   readonly onIssuePreviewOpen: (issueNumber: number) => void;
@@ -395,6 +396,10 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
     kind: ComposerTrigger["kind"];
     rangeStart: number;
   } | null>(null);
+  const suppressedComposerTriggerAfterSelectionRef = useRef<{
+    text: string;
+    expandedCursor: number;
+  } | null>(null);
   const composerMenuItemsRef = useRef<
     ComponentProps<typeof ChatComposerPanel>["composerMenuItems"]
   >([]);
@@ -434,6 +439,7 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
     activePendingUserInput?.questions[props.activePendingQuestionIndex] ?? null;
   const {
     onComposerHeightChange,
+    onComposerOverlayActiveChange,
     onInteractionModeChange,
     onPendingUserInputCustomAnswerChange,
     onPreviewExpandedImage,
@@ -475,6 +481,15 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
 
   const detectComposerTriggerWithDismissal = useCallback(
     (text: string, expandedCursor: number): ComposerTrigger | null => {
+      const suppressedAfterSelection = suppressedComposerTriggerAfterSelectionRef.current;
+      if (
+        suppressedAfterSelection &&
+        suppressedAfterSelection.text === text &&
+        suppressedAfterSelection.expandedCursor === expandedCursor
+      ) {
+        return null;
+      }
+      suppressedComposerTriggerAfterSelectionRef.current = null;
       const detected = detectComposerTrigger(text, expandedCursor);
       if (!detected) {
         dismissedComposerTriggerRef.current = null;
@@ -768,6 +783,19 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
     props.pendingUserInputs.length === 0 &&
     /^\/issues\s*$/i.test(prompt.trimStart());
   const showIssuesCommandExamplesPopover = showIssuesCommandExamplesHint && !composerMenuOpen;
+  const composerOverlayActive =
+    composerMenuOpen || showIssuesCommandExamplesPopover || props.pendingUserInputs.length > 0;
+
+  useEffect(() => {
+    onComposerOverlayActiveChange?.(composerOverlayActive);
+  }, [composerOverlayActive, onComposerOverlayActiveChange]);
+
+  useEffect(
+    () => () => {
+      onComposerOverlayActiveChange?.(false);
+    },
+    [onComposerOverlayActiveChange],
+  );
   const hasPendingComposerComments = props.pendingComposerComments.length > 0;
   const compactComposerCommandItems = providerCommands.reduce(
     (items, command) => {
@@ -984,9 +1012,9 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
     rangeStart: number,
     rangeEnd: number,
     replacement: string,
-    options?: { expectedText?: string },
+    options?: { baseText?: string; expectedText?: string; closeComposerMenu?: boolean },
   ): boolean => {
-    const currentText = promptRef.current;
+    const currentText = options?.baseText ?? promptRef.current;
     const safeStart = Math.max(0, Math.min(currentText.length, rangeStart));
     const safeEnd = Math.max(safeStart, Math.min(currentText.length, rangeEnd));
     if (
@@ -995,8 +1023,9 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
     ) {
       return false;
     }
-    const next = replaceTextRange(promptRef.current, rangeStart, rangeEnd, replacement);
+    const next = replaceTextRange(currentText, rangeStart, rangeEnd, replacement);
     const nextCursor = collapseExpandedComposerCursor(next.text, next.cursor);
+    const nextExpandedCursor = expandCollapsedComposerCursor(next.text, nextCursor);
     promptRef.current = next.text;
     if (activePendingQuestion && activePendingUserInput) {
       onPendingUserInputCustomAnswerChange(
@@ -1010,12 +1039,19 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
       setPrompt(next.text);
     }
     setComposerCursor(nextCursor);
-    setComposerTrigger(
-      detectComposerTriggerWithDismissal(
-        next.text,
-        expandCollapsedComposerCursor(next.text, nextCursor),
-      ),
-    );
+    if (options?.closeComposerMenu) {
+      suppressedComposerTriggerAfterSelectionRef.current = {
+        text: next.text,
+        expandedCursor: nextExpandedCursor,
+      };
+      composerMenuOpenRef.current = false;
+      composerMenuItemsRef.current = [];
+      activeComposerMenuItemRef.current = null;
+      setComposerTrigger(null);
+      setComposerHighlightedItemId(null);
+    } else {
+      setComposerTrigger(detectComposerTriggerWithDismissal(next.text, nextExpandedCursor));
+    }
     window.requestAnimationFrame(() => {
       composerEditorRef.current?.focusAt(nextCursor);
     });
@@ -1052,7 +1088,14 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
       composerSelectLockRef.current = false;
     });
     const { snapshot, trigger } = resolveActiveComposerTrigger();
-    if (!trigger) return;
+    if (!trigger) {
+      composerMenuOpenRef.current = false;
+      composerMenuItemsRef.current = [];
+      activeComposerMenuItemRef.current = null;
+      setComposerTrigger(null);
+      setComposerHighlightedItemId(null);
+      return;
+    }
     if (item.type === "path") {
       const replacement = `@${item.path} `;
       const replacementRangeEnd = extendReplacementRangeForTrailingSpace(
@@ -1062,6 +1105,8 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
       );
       if (
         applyPromptReplacement(trigger.rangeStart, replacementRangeEnd, replacement, {
+          baseText: snapshot.value,
+          closeComposerMenu: true,
           expectedText: snapshot.value.slice(trigger.rangeStart, replacementRangeEnd),
         })
       ) {
@@ -1078,6 +1123,8 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
       );
       if (
         applyPromptReplacement(trigger.rangeStart, replacementRangeEnd, replacement, {
+          baseText: snapshot.value,
+          closeComposerMenu: true,
           expectedText: snapshot.value.slice(trigger.rangeStart, replacementRangeEnd),
         })
       ) {
@@ -1094,6 +1141,8 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
       );
       if (
         applyPromptReplacement(trigger.rangeStart, replacementRangeEnd, replacement, {
+          baseText: snapshot.value,
+          closeComposerMenu: true,
           expectedText: snapshot.value.slice(trigger.rangeStart, replacementRangeEnd),
         })
       ) {
@@ -1116,6 +1165,8 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
         );
         if (
           applyPromptReplacement(trigger.rangeStart, replacementRangeEnd, replacement, {
+            baseText: snapshot.value,
+            closeComposerMenu: true,
             expectedText: snapshot.value.slice(trigger.rangeStart, replacementRangeEnd),
           })
         ) {
@@ -1126,6 +1177,8 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
       toggleInteractionMode();
       if (
         applyPromptReplacement(trigger.rangeStart, trigger.rangeEnd, "", {
+          baseText: snapshot.value,
+          closeComposerMenu: true,
           expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd),
         })
       ) {
@@ -1136,6 +1189,8 @@ export const ConnectedChatComposerPanels = memo(function ConnectedChatComposerPa
     onProviderModelSelect(item.provider, item.model);
     if (
       applyPromptReplacement(trigger.rangeStart, trigger.rangeEnd, "", {
+        baseText: snapshot.value,
+        closeComposerMenu: true,
         expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd),
       })
     ) {

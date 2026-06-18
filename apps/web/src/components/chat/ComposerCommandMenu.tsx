@@ -1,9 +1,10 @@
 import { type ProjectEntry, type ProviderKind } from "@ace/contracts";
 import { IconStack2 } from "@tabler/icons-react";
-import { memo, useLayoutEffect, useMemo, useRef } from "react";
+import { useLayoutEffect, useRef } from "react";
 import { type ComposerTriggerKind } from "../../composer-logic";
 import { BotIcon, HashIcon, PlugIcon, TargetIcon } from "lucide-react";
 import { cn } from "~/lib/utils";
+import { APP_COMPOSER_FLOATING_PANEL_CLASS_NAME } from "~/lib/appChrome";
 import { Badge } from "../ui/badge";
 import { VscodeEntryIcon } from "./VscodeEntryIcon";
 
@@ -141,7 +142,14 @@ export function ComposerCommandMenu(props: {
   return (
     <div
       ref={listRef}
-      className="relative overflow-hidden rounded-[1.375rem] border border-border/45 bg-[linear-gradient(color-mix(in_oklch,var(--popover)_94%,var(--background)_6%),color-mix(in_oklch,var(--popover)_94%,var(--background)_6%)),linear-gradient(var(--background),var(--background))] text-popover-foreground shadow-[0_20px_54px_-42px_rgb(0_0_0/.82),0_1px_0_rgb(255_255_255/.065)_inset,0_-1px_0_rgb(0_0_0/.22)_inset] transition-[background-color,border-color] duration-150 dark:border-border/30 dark:bg-[linear-gradient(color-mix(in_oklch,var(--popover)_92%,var(--background)_8%),color-mix(in_oklch,var(--popover)_92%,var(--background)_8%)),linear-gradient(var(--background),var(--background))]"
+      data-composer-command-menu="true"
+      className={APP_COMPOSER_FLOATING_PANEL_CLASS_NAME}
+      style={{
+        backgroundColor: "var(--popover)",
+        backdropFilter: "none",
+        WebkitBackdropFilter: "none",
+        opacity: 1,
+      }}
     >
       <div className="max-h-64 overflow-y-auto px-3 pb-5 pt-3">
         {sections.map((section) => (

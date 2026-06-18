@@ -111,6 +111,7 @@ import {
   useProjectConnectionUrl,
   useThreadConnectionUrl,
 } from "../hostConnectionStore";
+import { useChatThreadBoardStore } from "../chatThreadBoardStore";
 import {
   buildPlanImplementationThreadTitle,
   buildPlanImplementationPrompt,
@@ -140,6 +141,7 @@ import {
 } from "../lib/chat/timelineModelStore";
 import { useThreadTimelineViewModel } from "../lib/chat/threadTimelineViewModel";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
+import { useThreadActions } from "../hooks/useThreadActions";
 import { useTheme } from "../hooks/useTheme";
 import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
@@ -230,6 +232,10 @@ import {
   buildThreadTimelineCacheScope,
   deriveThreadCompletionSummary,
 } from "~/lib/chat/timelineCacheScope";
+import {
+  buildSingleThreadRouteHref,
+  buildSingleThreadRouteSearch,
+} from "../lib/chatThreadBoardRouteSearch";
 import { THREAD_ROUTE_CONNECTION_SEARCH_PARAM } from "../lib/connectionRouting";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
 import {
@@ -238,6 +244,7 @@ import {
   useEditorStateStore,
 } from "../editorStateStore";
 import { ChatHeader } from "./chat/ChatHeader";
+import { ThreadRenameDialog } from "./chat/ThreadRenameDialog";
 import { ChatConversationExtras } from "./chat/ChatConversationExtras";
 import { EnvironmentMiniPanel } from "./chat/EnvironmentMiniPanel";
 import { ProjectGlyphIcon } from "./ProjectAvatar";
@@ -386,6 +393,7 @@ import { type BrowserDesignRequestSubmission } from "~/lib/browser/types";
 import { useLocalDispatchState } from "~/hooks/useLocalDispatchState";
 import { useEffectEvent } from "~/hooks/useEffectEvent";
 import { useStableCallback } from "~/hooks/useStableCallback";
+import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { getLocalStorageItem, setLocalStorageItem, useLocalStorage } from "~/hooks/useLocalStorage";
 import {
   useConnectionServerConfig,
@@ -436,7 +444,7 @@ const BOTTOM_EDGE_PANEL_SPRING_ANIMATION = {
   animate: { opacity: 1, scaleY: 1, y: 0 },
   exit: { opacity: 0, scaleY: 0.985, y: 18 },
 } as const;
-const ENVIRONMENT_MINI_PANEL_WIDTH_PX = 296;
+const ENVIRONMENT_MINI_PANEL_WIDTH_PX = 336;
 const ENVIRONMENT_MINI_PANEL_MIN_CHAT_WIDTH_PX = 620;
 const ENVIRONMENT_MINI_PANEL_INLINE_INSET_PX = 12;
 const ENVIRONMENT_MINI_PANEL_MIN_GAP_PX = 16;
@@ -1533,6 +1541,10 @@ function useChatViewComponent({
   const hydrateThreadFromReadModel = useStore((store) => store.hydrateThreadFromReadModel);
   const pruneHydratedThreadHistories = useStore((store) => store.pruneHydratedThreadHistories);
   const markThreadVisited = useUiStateStore((store) => store.markThreadVisited);
+  const activeThreadPinned = useUiStateStore((store) =>
+    store.pinnedItems.some((item) => item.kind === "thread" && item.id === threadId),
+  );
+  const togglePinnedThread = useUiStateStore((store) => store.togglePinnedThread);
   const trackActiveThread = useUiStateStore((store) => store.trackActiveThread);
   const trackedActiveThreadId = useUiStateStore((store) =>
     ownsGlobalSideEffects ? store.activeThreadId : null,
@@ -1560,6 +1572,22 @@ function useChatViewComponent({
     defaultProjectId,
     handleNewThread,
   } = useHandleNewThread();
+  const { archiveThread } = useThreadActions();
+  const { copyToClipboard: copyThreadMenuValue } = useCopyToClipboard<{ label: string }>({
+    onCopy: ({ label }) => {
+      toastManager.add({
+        type: "success",
+        title: `${label} copied`,
+      });
+    },
+    onError: (error, { label }) => {
+      toastManager.add({
+        type: "error",
+        title: `Failed to copy ${label.toLowerCase()}`,
+        description: error instanceof Error ? error.message : "An error occurred.",
+      });
+    },
+  });
   const setStickyComposerModelSelection = useComposerDraftStore(
     (store) => store.setStickyModelSelection,
   );
@@ -9638,6 +9666,127 @@ function useChatViewComponent({
   const activeThreadProvider = activeThread?.session?.provider;
   const activeThreadModelProvider = activeThread?.modelSelection.provider;
   const canForkActiveThread = isServerThread && activeThreadMessagesLength > 0;
+  const activeThreadWorkspacePath = activeThread?.worktreePath ?? activeProject?.cwd ?? null;
+  const activeThreadRouteHref = activeThread
+    ? buildSingleThreadRouteHref(activeThread.id, { connectionUrl: activeServerConnectionUrl })
+    : "/";
+  const activeThreadAbsoluteHref =
+    typeof window === "undefined"
+      ? activeThreadRouteHref
+      : new URL(activeThreadRouteHref, window.location.origin).toString();
+  const [threadRenameDialogOpen, setThreadRenameDialogOpen] = useState(false);
+  const submitActiveThreadRename = async (nextTitle: string) => {
+    if (!activeThread || !isServerThread) {
+      return true;
+    }
+    const trimmedTitle = nextTitle.trim();
+    if (trimmedTitle.length === 0) {
+      toastManager.add({
+        type: "warning",
+        title: "Chat title cannot be empty",
+      });
+      return false;
+    }
+    if (trimmedTitle === activeThread.title) {
+      return true;
+    }
+    const api = readNativeApi();
+    if (!api) {
+      return true;
+    }
+    try {
+      await api.orchestration.dispatchCommand({
+        type: "thread.meta.update",
+        commandId: newCommandId(),
+        threadId: activeThread.id,
+        title: trimmedTitle,
+      });
+      return true;
+    } catch (error) {
+      toastManager.add({
+        type: "error",
+        title: "Failed to rename chat",
+        description: error instanceof Error ? error.message : "An error occurred.",
+      });
+      return false;
+    }
+  };
+  const renameActiveThreadFromHeader = () => {
+    if (!activeThread || !isServerThread) {
+      return;
+    }
+    window.setTimeout(() => {
+      setThreadRenameDialogOpen(true);
+    }, 0);
+  };
+  const archiveActiveThreadFromHeader = () => {
+    if (!activeThread) {
+      return;
+    }
+    void archiveThread(activeThread.id).catch((error: unknown) => {
+      toastManager.add({
+        type: "error",
+        title: "Failed to archive chat",
+        description: error instanceof Error ? error.message : "An error occurred.",
+      });
+    });
+  };
+  const openActiveThreadSideChat = () => {
+    if (!activeThread) {
+      return;
+    }
+    if (activeServerConnectionUrl) {
+      useHostConnectionStore
+        .getState()
+        .upsertThreadOwnership(activeServerConnectionUrl, activeThread.id);
+    }
+    useChatThreadBoardStore.getState().openThreadInBoard({
+      allowDuplicate: true,
+      connectionUrl: activeServerConnectionUrl,
+      direction: "right",
+      paneTitle: activeThread.title,
+      threadId: activeThread.id,
+    });
+    startTransition(() => {
+      void navigate({
+        to: "/$threadId",
+        params: { threadId: activeThread.id },
+        search: buildSingleThreadRouteSearch({ connectionUrl: activeServerConnectionUrl }),
+      });
+    });
+  };
+  const openActiveThreadWindow = () => {
+    if (!activeThread) {
+      return;
+    }
+    window.open(activeThreadAbsoluteHref, "_blank", "noopener,noreferrer");
+  };
+  const headerMenuActions = activeThread
+    ? {
+        canArchive: isServerThread && !isWorking,
+        canCopyWorkspacePath: Boolean(activeThreadWorkspacePath),
+        canFork: canForkActiveThread && !isWorking && !handoffInFlight,
+        canOpenSideChat: isServerThread,
+        canOpenWindow: typeof window !== "undefined",
+        onArchive: archiveActiveThreadFromHeader,
+        onCopyLink: () => copyThreadMenuValue(activeThreadAbsoluteHref, { label: "Link" }),
+        onCopyThreadId: () => copyThreadMenuValue(activeThread.id, { label: "Thread ID" }),
+        onCopyTitle: () => copyThreadMenuValue(activeThread.title, { label: "Title" }),
+        onCopyWorkspacePath: () => {
+          if (activeThreadWorkspacePath) {
+            copyThreadMenuValue(activeThreadWorkspacePath, { label: "Workspace path" });
+          }
+        },
+        onFork: () => {
+          void onForkConversation();
+        },
+        onOpenSideChat: openActiveThreadSideChat,
+        onOpenWindow: openActiveThreadWindow,
+        onRename: renameActiveThreadFromHeader,
+        onTogglePinned: () => togglePinnedThread(activeThread.id),
+        pinned: activeThreadPinned,
+      }
+    : null;
   const [targetMessageNavigation, setTargetMessageNavigation] = useState<{
     messageId: string;
     requestId: number;
@@ -9721,6 +9870,7 @@ function useChatViewComponent({
     !isWorking &&
     (isLocalDraftThread || activeThread.title.trim() === DEFAULT_THREAD_TITLE);
   const [draftEnvironmentPanelExplicitOpen, setDraftEnvironmentPanelExplicitOpen] = useState(false);
+  const [composerOverlayActive, setComposerOverlayActive] = useState(false);
   const workspaceSplitEditorOpen = workspaceMode === "split" && !editorHostedInRightPanel;
   const environmentPanelAvailableWidth = Math.max(
     0,
@@ -9741,7 +9891,7 @@ function useChatViewComponent({
     environmentPanelReservedWidthPx + ENVIRONMENT_MINI_PANEL_MIN_CHAT_WIDTH_PX;
   const environmentPanelVisible = environmentPanelOpen && activeThread !== undefined;
   const environmentPanelCanOpenInline =
-    !rightSidePanelFullscreen && environmentPanelCanUseInlineLayout;
+    !rightSidePanelFullscreen && (environmentPanelCanUseInlineLayout || composerOverlayActive);
   const environmentPanelInlineOpen = environmentPanelVisible && environmentPanelCanOpenInline;
   const draftEnvironmentPanelVisibleExplicitOpen =
     showDraftNewThreadLanding && environmentPanelVisible && draftEnvironmentPanelExplicitOpen;
@@ -10727,6 +10877,7 @@ function useChatViewComponent({
       showFloatingDock={showRightPanelChatDock}
       floatingDockFooter={null}
       floatingDockPortalHost={showRightPanelChatDock ? chatShellElement : null}
+      onComposerOverlayActiveChange={setComposerOverlayActive}
       onComposerHeightChange={scheduleStickToBottom}
       onPreviewExpandedImage={onExpandTimelineImage}
       onIssuePreviewOpen={onComposerIssueTokenClick}
@@ -10763,6 +10914,13 @@ function useChatViewComponent({
   return (
     <LazyMotion features={domAnimation}>
       {environmentMiniPanelPortal}
+      <ThreadRenameDialog
+        open={threadRenameDialogOpen && Boolean(activeThread) && isServerThread}
+        initialTitle={activeThread?.title ?? ""}
+        description="Update the title shown in the chat header and sidebar."
+        onOpenChange={setThreadRenameDialogOpen}
+        onSubmit={submitActiveThreadRename}
+      />
       <div
         ref={setChatShellRef}
         className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background"
@@ -10788,17 +10946,20 @@ function useChatViewComponent({
               <div className="flex min-w-0 flex-1 items-center overflow-hidden">
                 <ChatHeader
                   activeThreadTitle={activeThread.title}
-                  activeProjectId={activeProject?.id ?? null}
-                  activeProjectName={activeProject?.name}
-                  isGitRepo={isGitRepo}
                   terminalAvailable={activeProject !== undefined}
                   terminalOpen={terminalState.terminalOpen}
                   terminalToggleShortcutLabel={terminalToggleShortcutLabel}
                   environmentPanelOpen={environmentPanelRenderedOpen}
                   rightSidePanelToggleShortcutLabel={rightSidePanelToggleShortcutLabel}
                   rightSidePanelOpen={rightSidePanelOpen}
-                  onActiveProjectChange={isLocalDraftThread ? handleActiveProjectChange : null}
+                  menuActions={showThreadHeaderIdentity ? headerMenuActions : null}
+                  pinnedThread={activeThreadPinned}
                   showThreadIdentity={showThreadHeaderIdentity}
+                  onUnpinThread={() => {
+                    if (activeThreadPinned) {
+                      togglePinnedThread(activeThread.id);
+                    }
+                  }}
                   onToggleEnvironmentPanel={() => {
                     if (environmentPanelRenderedOpen) {
                       setDraftEnvironmentPanelExplicitOpen(false);
@@ -10863,7 +11024,10 @@ function useChatViewComponent({
           />
         ) : null}
         {/* Main content area with optional plan sidebar */}
-        <div ref={chatViewportRef} className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
+        <div
+          ref={chatViewportRef}
+          className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden bg-background"
+        >
           {/* Chat column */}
           <div
             ref={workspaceViewportRef}
