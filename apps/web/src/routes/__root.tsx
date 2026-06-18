@@ -629,7 +629,14 @@ function useScopedEventRouterLifecycle() {
       );
     };
     const queueThreadUiEvent = (event: OrchestrationEvent) => {
-      appendBoundedEvent(pendingThreadUiEvents, event, PENDING_THREAD_EVENT_BUFFER_LIMIT);
+      if (pendingThreadUiEvents.length >= PENDING_THREAD_EVENT_BUFFER_LIMIT) {
+        if (threadUiFlushHandle !== null) {
+          window.clearTimeout(threadUiFlushHandle);
+          threadUiFlushHandle = null;
+        }
+        flushThreadUiEvents();
+      }
+      pendingThreadUiEvents.push(event);
       if (
         shouldFlushOrchestrationUiEventImmediately(event, immediatelyFlushedAssistantMessageIds)
       ) {
