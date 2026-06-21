@@ -122,6 +122,31 @@ impl<R: ProcessRunner> GithubCliClient<R> {
             parse_json::<GithubCheckRunsResponse>("github check suite runs", &output.stdout)?;
         Ok(response.check_runs)
     }
+
+    pub async fn list_commit_statuses(
+        &self,
+        cwd: &Path,
+        git_ref: &str,
+        limit: u32,
+    ) -> Result<Vec<GithubCommitStatus>> {
+        let repository = self.repository(cwd).await?;
+        let output = self
+            .gh_allow_statuses(
+                cwd,
+                [
+                    "api".to_string(),
+                    format!(
+                        "repos/{}/commits/{git_ref}/statuses",
+                        repository.name_with_owner
+                    ),
+                    "-F".to_string(),
+                    format!("per_page={limit}"),
+                ],
+                &[0],
+            )
+            .await?;
+        parse_json("github commit statuses", &output.stdout)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -298,6 +323,25 @@ pub struct GithubCheckRunAnnotation {
     pub raw_details: Option<String>,
     #[serde(rename = "blob_href")]
     pub blob_href: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GithubCommitStatus {
+    pub id: u64,
+    #[serde(rename = "node_id")]
+    pub node_id: Option<String>,
+    pub state: String,
+    pub description: Option<String>,
+    #[serde(rename = "target_url")]
+    pub target_url: Option<String>,
+    pub context: String,
+    #[serde(rename = "created_at")]
+    pub created_at: String,
+    #[serde(rename = "updated_at")]
+    pub updated_at: String,
+    pub url: String,
+    #[serde(rename = "avatar_url")]
+    pub avatar_url: Option<String>,
 }
 
 #[cfg(test)]
@@ -514,6 +558,36 @@ mod tests {
                 "check_name=build",
                 "-f",
                 "filter=latest"
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn commit_status_listing_resolves_repo_and_parses_statuses() {
+        let runner = std::sync::Arc::new(FakeRunner::new(vec![
+            ok(
+                br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+            ),
+            ok(
+                br#"[{"id":99,"node_id":"ST_1","state":"failure","description":"lint failed","target_url":"https://ci.test/lint","context":"lint","created_at":"2026-06-21T00:00:00Z","updated_at":"2026-06-21T00:01:00Z","url":"https://api.github.test/statuses/99","avatar_url":"https://avatars.githubusercontent.com/u/1"}]"#,
+            ),
+        ]));
+        let github = GithubCliClient::with_runner(runner.clone());
+
+        let statuses = github
+            .list_commit_statuses(Path::new("."), "abc", 30)
+            .await
+            .expect("statuses");
+
+        assert_eq!(statuses[0].context, "lint");
+        assert_eq!(statuses[0].state, "failure");
+        assert_eq!(
+            runner.requests()[1].args,
+            vec![
+                "api",
+                "repos/ace/app/commits/abc/statuses",
+                "-F",
+                "per_page=30"
             ]
         );
     }

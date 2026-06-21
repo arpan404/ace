@@ -2,8 +2,8 @@ use super::{GithubApiError, GithubService, routes::router_with_state, service::G
 use ace_git::{CommandOutput, CommandRequest, GitToolError, GithubCliClient, ProcessRunner};
 use ace_protocol::github::{
     CheckRunAnnotationsRequest, CheckRunListFilter, CheckRunsRequest, CheckSuiteRunsRequest,
-    CheckSuitesRequest, EnvironmentStatusRequest, IssueListFilter, IssueListRequest,
-    IssueThreadRequest, PullRequestActivityRequest, PullRequestChecksRequest,
+    CheckSuitesRequest, CommitStatusesRequest, EnvironmentStatusRequest, IssueListFilter,
+    IssueListRequest, IssueThreadRequest, PullRequestActivityRequest, PullRequestChecksRequest,
     PullRequestDashboardRequest, PullRequestDiffRequest, PullRequestFilesRequest,
     PullRequestListFilter, PullRequestMergeMethod, PullRequestMergeRequest, PullRequestRequest,
     PullRequestReviewDecision, PullRequestReviewRequest, PullRequestThreadRequest,
@@ -467,6 +467,40 @@ async fn service_lists_check_suite_runs_through_github_cli() {
             "check_name=build",
             "-f",
             "filter=latest"
+        ]
+    );
+}
+
+#[tokio::test]
+async fn service_lists_commit_statuses_through_github_cli() {
+    let runner = Arc::new(FakeRunner::new(vec![
+        ok(
+            br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+        ),
+        ok(
+            br#"[{"id":99,"node_id":"ST_1","state":"failure","description":"lint failed","target_url":"https://ci.test/lint","context":"lint","created_at":"2026-06-21T00:00:00Z","updated_at":"2026-06-21T00:01:00Z","url":"https://api.github.test/statuses/99","avatar_url":"https://avatars.githubusercontent.com/u/1"}]"#,
+        ),
+    ]));
+    let service = GithubService::new(GithubCliClient::with_runner(runner.clone()));
+
+    let statuses = service
+        .list_commit_statuses(CommitStatusesRequest {
+            repo_path: "/repo".to_string(),
+            git_ref: "abc".to_string(),
+            limit: 30,
+        })
+        .await
+        .expect("statuses");
+
+    assert_eq!(statuses[0].context, "lint");
+    assert_eq!(statuses[0].state, "failure");
+    assert_eq!(
+        runner.requests()[1].args,
+        vec![
+            "api",
+            "repos/ace/app/commits/abc/statuses",
+            "-F",
+            "per_page=30"
         ]
     );
 }

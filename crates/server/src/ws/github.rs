@@ -3,13 +3,13 @@ use ace_git::ProcessRunner;
 use ace_protocol::{
     github::{
         CheckRunAnnotationsRequest, CheckRunsRequest, CheckSuiteRunsRequest, CheckSuitesRequest,
-        PullRequestActivityRequest, PullRequestCheckoutRequest, PullRequestChecksRequest,
-        PullRequestCloseRequest, PullRequestCommentRequest, PullRequestDashboardRequest,
-        PullRequestMergeRequest, PullRequestReadyStateRequest, PullRequestReopenRequest,
-        PullRequestReviewRequest, WorkflowDisableRequest, WorkflowDispatchRequest,
-        WorkflowEnableRequest, WorkflowListRequest, WorkflowRunArtifactsRequest,
-        WorkflowRunCancelRequest, WorkflowRunListRequest, WorkflowRunLogRequest,
-        WorkflowRunRequest, WorkflowRunRerunRequest,
+        CommitStatusesRequest, PullRequestActivityRequest, PullRequestCheckoutRequest,
+        PullRequestChecksRequest, PullRequestCloseRequest, PullRequestCommentRequest,
+        PullRequestDashboardRequest, PullRequestMergeRequest, PullRequestReadyStateRequest,
+        PullRequestReopenRequest, PullRequestReviewRequest, WorkflowDisableRequest,
+        WorkflowDispatchRequest, WorkflowEnableRequest, WorkflowListRequest,
+        WorkflowRunArtifactsRequest, WorkflowRunCancelRequest, WorkflowRunListRequest,
+        WorkflowRunLogRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
     },
     ws::methods,
 };
@@ -56,6 +56,13 @@ impl<R: ProcessRunner> WsApiState<R> {
                 self.github_json::<CheckSuiteRunsRequest, _, _, _>(
                     payload,
                     |service, request| async move { service.list_check_suite_runs(request).await },
+                )
+                .await
+            }
+            methods::GITHUB_COMMIT_STATUSES_LIST => {
+                self.github_json::<CommitStatusesRequest, _, _, _>(
+                    payload,
+                    |service, request| async move { service.list_commit_statuses(request).await },
                 )
                 .await
             }
@@ -513,6 +520,49 @@ mod tests {
                 "check_name=build",
                 "-f",
                 "filter=latest"
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn dispatches_commit_statuses_over_ws_rpc() {
+        let runner = Arc::new(FakeRunner::new(vec![
+            ok(
+                br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+            ),
+            ok(
+                br#"[{"id":99,"node_id":"ST_1","state":"failure","description":"lint failed","target_url":"https://ci.test/lint","context":"lint","created_at":"2026-06-21T00:00:00Z","updated_at":"2026-06-21T00:01:00Z","url":"https://api.github.test/statuses/99","avatar_url":"https://avatars.githubusercontent.com/u/1"}]"#,
+            ),
+        ]));
+        let state = test_state(runner.clone());
+
+        let response = dispatch(
+            &state,
+            serde_json::json!({
+                "version": PROTOCOL_VERSION,
+                "request_id": "req-commit-statuses",
+                "method": methods::GITHUB_COMMIT_STATUSES_LIST,
+                "payload": {
+                    "repo_path": "/repo",
+                    "git_ref": "abc",
+                    "limit": 30
+                }
+            }),
+        )
+        .await;
+
+        let WsServerPayload::Result { body } = response.payload else {
+            panic!("expected result");
+        };
+        assert_eq!(body[0]["context"], "lint");
+        assert_eq!(body[0]["state"], "failure");
+        assert_eq!(
+            runner.requests()[1].args,
+            vec![
+                "api",
+                "repos/ace/app/commits/abc/statuses",
+                "-F",
+                "per_page=30"
             ]
         );
     }

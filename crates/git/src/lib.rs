@@ -31,6 +31,7 @@ pub use github_activity::{GithubPullRequestActivity, PullRequestActivityRequest}
 pub use github_checks::{
     CheckRunListFilter, GithubCheckRun, GithubCheckRunAnnotation, GithubCheckRunApp,
     GithubCheckRunOutput, GithubCheckRunPullRequest, GithubCheckRunSuite, GithubCheckSuite,
+    GithubCommitStatus,
 };
 pub use github_dashboard::{
     GithubPullRequestDashboard, GithubPullRequestDashboardItem, PullRequestDashboardRequest,
