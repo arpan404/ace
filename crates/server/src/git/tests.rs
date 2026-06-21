@@ -3,7 +3,8 @@ use ace_git::{CommandOutput, CommandRequest, GitClient, GitToolError, ProcessRun
 use ace_protocol::git::{
     GitCheckoutBranchRequest, GitCommitRequest, GitCreateBranchRequest, GitDeleteBranchRequest,
     GitDiffRequest, GitFetchRequest, GitPullRequest, GitPushRequest, GitRenameBranchRequest,
-    GitStageRequest, GitStatusRequest, GitUnstageRequest,
+    GitStageRequest, GitStashApplyRequest, GitStashSaveRequest, GitStatusRequest,
+    GitUnstageRequest,
 };
 use async_trait::async_trait;
 use axum::{
@@ -318,6 +319,76 @@ async fn service_commits_with_message() {
     assert_eq!(
         runner.requests()[0].args,
         vec!["commit", "-m", "Implement feature"]
+    );
+}
+
+#[tokio::test]
+async fn service_lists_stashes() {
+    let runner = Arc::new(FakeRunner::new(vec![ok(
+        "stash@{0}\0WIP on feature/x: abc123 working tree\n",
+    )]));
+    let service = GitService::new(GitClient::with_runner(runner.clone()));
+
+    let stashes = service
+        .stashes(ace_protocol::git::GitStashesRequest {
+            repo_path: "/repo".to_string(),
+        })
+        .await
+        .expect("stashes");
+
+    assert_eq!(stashes[0].selector, "stash@{0}");
+    assert_eq!(stashes[0].branch.as_deref(), Some("feature/x"));
+    assert_eq!(
+        runner.requests()[0].args,
+        vec!["stash", "list", "--format=%gd%x00%gs"]
+    );
+}
+
+#[tokio::test]
+async fn service_saves_stash_with_message() {
+    let runner = Arc::new(FakeRunner::new(vec![ok("")]));
+    let service = GitService::new(GitClient::with_runner(runner.clone()));
+
+    let result = service
+        .save_stash(GitStashSaveRequest {
+            repo_path: "/repo".to_string(),
+            message: Some("save work".to_string()),
+            include_untracked: true,
+        })
+        .await
+        .expect("save stash");
+
+    assert_eq!(result.action, "stash_save");
+    assert_eq!(
+        runner.requests()[0].args,
+        vec![
+            "stash",
+            "push",
+            "--include-untracked",
+            "--message",
+            "save work"
+        ]
+    );
+}
+
+#[tokio::test]
+async fn service_applies_stash_with_index() {
+    let runner = Arc::new(FakeRunner::new(vec![ok("")]));
+    let service = GitService::new(GitClient::with_runner(runner.clone()));
+
+    let result = service
+        .apply_stash(GitStashApplyRequest {
+            repo_path: "/repo".to_string(),
+            selector: Some("stash@{0}".to_string()),
+            index: true,
+        })
+        .await
+        .expect("apply stash");
+
+    assert_eq!(result.action, "stash_apply");
+    assert_eq!(
+        runner.requests()[0].args,
+        vec!["stash", "apply", "--index", "stash@{0}"]
     );
 }
 
@@ -699,6 +770,137 @@ async fn route_rejects_empty_commit_message_before_running_process() {
     let body = response_json(response).await;
     assert_eq!(body["message"], "commit message must not be empty");
     assert!(runner.requests().is_empty());
+}
+
+#[tokio::test]
+async fn route_returns_stashes_json() {
+    let runner = Arc::new(FakeRunner::new(vec![ok(
+        "stash@{0}\0WIP on feature/x: abc123 working tree\n",
+    )]));
+    let app = test_router(runner.clone());
+
+    let response = app
+        .oneshot(json_request(
+            "/stashes",
+            serde_json::json!({ "repo_path": "/repo" }),
+        ))
+        .await
+        .expect("route response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response_json(response).await;
+    assert_eq!(body[0]["selector"], "stash@{0}");
+    assert_eq!(body[0]["branch"], "feature/x");
+    assert_eq!(
+        runner.requests()[0].args,
+        vec!["stash", "list", "--format=%gd%x00%gs"]
+    );
+}
+
+#[tokio::test]
+async fn route_saves_stash_json() {
+    let runner = Arc::new(FakeRunner::new(vec![ok("")]));
+    let app = test_router(runner.clone());
+
+    let response = app
+        .oneshot(json_request(
+            "/stashes/save",
+            serde_json::json!({
+                "repo_path": "/repo",
+                "message": "save work",
+                "include_untracked": true
+            }),
+        ))
+        .await
+        .expect("route response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response_json(response).await;
+    assert_eq!(body["action"], "stash_save");
+    assert_eq!(
+        runner.requests()[0].args,
+        vec![
+            "stash",
+            "push",
+            "--include-untracked",
+            "--message",
+            "save work"
+        ]
+    );
+}
+
+#[tokio::test]
+async fn route_applies_stash_json() {
+    let runner = Arc::new(FakeRunner::new(vec![ok("")]));
+    let app = test_router(runner.clone());
+
+    let response = app
+        .oneshot(json_request(
+            "/stashes/apply",
+            serde_json::json!({
+                "repo_path": "/repo",
+                "selector": "stash@{0}",
+                "index": true
+            }),
+        ))
+        .await
+        .expect("route response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response_json(response).await;
+    assert_eq!(body["action"], "stash_apply");
+    assert_eq!(
+        runner.requests()[0].args,
+        vec!["stash", "apply", "--index", "stash@{0}"]
+    );
+}
+
+#[tokio::test]
+async fn route_pops_stash_json() {
+    let runner = Arc::new(FakeRunner::new(vec![ok("")]));
+    let app = test_router(runner.clone());
+
+    let response = app
+        .oneshot(json_request(
+            "/stashes/pop",
+            serde_json::json!({
+                "repo_path": "/repo",
+                "selector": "stash@{0}",
+                "index": false
+            }),
+        ))
+        .await
+        .expect("route response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response_json(response).await;
+    assert_eq!(body["action"], "stash_pop");
+    assert_eq!(runner.requests()[0].args, vec!["stash", "pop", "stash@{0}"]);
+}
+
+#[tokio::test]
+async fn route_drops_stash_json() {
+    let runner = Arc::new(FakeRunner::new(vec![ok("")]));
+    let app = test_router(runner.clone());
+
+    let response = app
+        .oneshot(json_request(
+            "/stashes/drop",
+            serde_json::json!({
+                "repo_path": "/repo",
+                "selector": "stash@{0}"
+            }),
+        ))
+        .await
+        .expect("route response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response_json(response).await;
+    assert_eq!(body["action"], "stash_drop");
+    assert_eq!(
+        runner.requests()[0].args,
+        vec!["stash", "drop", "stash@{0}"]
+    );
 }
 
 #[tokio::test]

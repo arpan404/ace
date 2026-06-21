@@ -3,8 +3,9 @@ use ace_git::{ProcessRunner, TokioProcessRunner};
 use ace_protocol::git::{
     GitBranchesRequest, GitCheckoutBranchRequest, GitCommitRequest, GitCreateBranchRequest,
     GitDeleteBranchRequest, GitDiffRequest, GitFetchRequest, GitPullRequest, GitPushRequest,
-    GitRenameBranchRequest, GitRepositoryRequest, GitStageRequest, GitStatusRequest,
-    GitUnstageRequest, GitWorktreesRequest,
+    GitRenameBranchRequest, GitRepositoryRequest, GitStageRequest, GitStashApplyRequest,
+    GitStashDropRequest, GitStashPopRequest, GitStashSaveRequest, GitStashesRequest,
+    GitStatusRequest, GitUnstageRequest, GitWorktreesRequest,
 };
 use axum::{Json, Router, extract::State, routing::post};
 
@@ -31,6 +32,11 @@ where
         .route("/stage", post(stage::<R>))
         .route("/unstage", post(unstage::<R>))
         .route("/commit", post(commit::<R>))
+        .route("/stashes", post(stashes::<R>))
+        .route("/stashes/save", post(save_stash::<R>))
+        .route("/stashes/apply", post(apply_stash::<R>))
+        .route("/stashes/pop", post(pop_stash::<R>))
+        .route("/stashes/drop", post(drop_stash::<R>))
         .route("/worktrees", post(worktrees::<R>))
         .with_state(state)
 }
@@ -173,6 +179,56 @@ where
     R: ProcessRunner,
 {
     state.service.commit(request).await.map(Json)
+}
+
+async fn stashes<R>(
+    State(state): State<GitApiState<R>>,
+    Json(request): Json<GitStashesRequest>,
+) -> Result<Json<Vec<ace_git::GitStashEntry>>, GitApiError>
+where
+    R: ProcessRunner,
+{
+    state.service.stashes(request).await.map(Json)
+}
+
+async fn save_stash<R>(
+    State(state): State<GitApiState<R>>,
+    Json(request): Json<GitStashSaveRequest>,
+) -> Result<Json<super::GitActionResponse>, GitApiError>
+where
+    R: ProcessRunner,
+{
+    state.service.save_stash(request).await.map(Json)
+}
+
+async fn apply_stash<R>(
+    State(state): State<GitApiState<R>>,
+    Json(request): Json<GitStashApplyRequest>,
+) -> Result<Json<super::GitActionResponse>, GitApiError>
+where
+    R: ProcessRunner,
+{
+    state.service.apply_stash(request).await.map(Json)
+}
+
+async fn pop_stash<R>(
+    State(state): State<GitApiState<R>>,
+    Json(request): Json<GitStashPopRequest>,
+) -> Result<Json<super::GitActionResponse>, GitApiError>
+where
+    R: ProcessRunner,
+{
+    state.service.pop_stash(request).await.map(Json)
+}
+
+async fn drop_stash<R>(
+    State(state): State<GitApiState<R>>,
+    Json(request): Json<GitStashDropRequest>,
+) -> Result<Json<super::GitActionResponse>, GitApiError>
+where
+    R: ProcessRunner,
+{
+    state.service.drop_stash(request).await.map(Json)
 }
 
 async fn worktrees<R>(

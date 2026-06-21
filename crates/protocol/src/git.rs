@@ -85,6 +85,38 @@ pub struct GitCommitRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GitStashesRequest {
+    pub repo_path: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GitStashSaveRequest {
+    pub repo_path: String,
+    pub message: Option<String>,
+    pub include_untracked: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GitStashApplyRequest {
+    pub repo_path: String,
+    pub selector: Option<String>,
+    pub index: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GitStashPopRequest {
+    pub repo_path: String,
+    pub selector: Option<String>,
+    pub index: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GitStashDropRequest {
+    pub repo_path: String,
+    pub selector: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GitWorktreesRequest {
     pub repo_path: String,
 }

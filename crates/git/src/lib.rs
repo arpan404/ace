@@ -424,6 +424,65 @@ impl<R: ProcessRunner> GitClient<R> {
         Ok(())
     }
 
+    pub async fn list_stashes(&self, cwd: &Path) -> Result<Vec<GitStashEntry>> {
+        let output = self
+            .git_success(cwd, ["stash", "list", "--format=%gd%x00%gs"])
+            .await?;
+        parse_stashes(&output.stdout_string())
+    }
+
+    pub async fn save_stash(
+        &self,
+        cwd: &Path,
+        message: Option<&str>,
+        include_untracked: bool,
+    ) -> Result<()> {
+        let mut args = vec!["stash".to_string(), "push".to_string()];
+        if include_untracked {
+            args.push("--include-untracked".to_string());
+        }
+        if let Some(message) = message
+            && !message.trim().is_empty()
+        {
+            args.extend(["--message".to_string(), message.to_string()]);
+        }
+        self.git_success(cwd, args).await?;
+        Ok(())
+    }
+
+    pub async fn apply_stash(&self, cwd: &Path, selector: Option<&str>, index: bool) -> Result<()> {
+        let mut args = vec!["stash".to_string(), "apply".to_string()];
+        if index {
+            args.push("--index".to_string());
+        }
+        if let Some(selector) = selector {
+            args.push(selector.to_string());
+        }
+        self.git_success(cwd, args).await?;
+        Ok(())
+    }
+
+    pub async fn pop_stash(&self, cwd: &Path, selector: Option<&str>, index: bool) -> Result<()> {
+        let mut args = vec!["stash".to_string(), "pop".to_string()];
+        if index {
+            args.push("--index".to_string());
+        }
+        if let Some(selector) = selector {
+            args.push(selector.to_string());
+        }
+        self.git_success(cwd, args).await?;
+        Ok(())
+    }
+
+    pub async fn drop_stash(&self, cwd: &Path, selector: Option<&str>) -> Result<()> {
+        let mut args = vec!["stash".to_string(), "drop".to_string()];
+        if let Some(selector) = selector {
+            args.push(selector.to_string());
+        }
+        self.git_success(cwd, args).await?;
+        Ok(())
+    }
+
     pub async fn push_current_branch(&self, cwd: &Path, set_upstream: bool) -> Result<()> {
         let branch = self.current_branch(cwd).await?;
         if branch.is_empty() {
@@ -557,6 +616,14 @@ pub struct GitWorktree {
     pub head: Option<String>,
     pub detached: bool,
     pub bare: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct GitStashEntry {
+    pub index: u32,
+    pub selector: String,
+    pub branch: Option<String>,
+    pub message: String,
 }
 
 #[derive(Debug, Clone)]
@@ -1049,6 +1116,37 @@ fn parse_branch(line: &str) -> Result<GitBranch> {
     })
 }
 
+fn parse_stashes(raw: &str) -> Result<Vec<GitStashEntry>> {
+    raw.lines()
+        .filter(|line| !line.trim().is_empty())
+        .map(parse_stash)
+        .collect()
+}
+
+fn parse_stash(line: &str) -> Result<GitStashEntry> {
+    let (selector, subject) = line.split_once('\0').ok_or_else(|| GitToolError::Parse {
+        context: "git stash",
+        message: format!("invalid stash line `{line}`"),
+    })?;
+    let index = selector
+        .strip_prefix("stash@{")
+        .and_then(|rest| rest.strip_suffix('}'))
+        .and_then(|raw| raw.parse::<u32>().ok())
+        .ok_or_else(|| GitToolError::Parse {
+            context: "git stash",
+            message: format!("invalid stash selector `{selector}`"),
+        })?;
+    let branch = subject
+        .strip_prefix("WIP on ")
+        .and_then(|rest| rest.split_once(':').map(|(branch, _)| branch.to_string()));
+    Ok(GitStashEntry {
+        index,
+        selector: selector.to_string(),
+        branch,
+        message: subject.to_string(),
+    })
+}
+
 fn parse_worktrees(raw: &str) -> Result<Vec<GitWorktree>> {
     let mut worktrees = Vec::new();
     let mut current: Option<GitWorktree> = None;
@@ -1271,6 +1369,57 @@ mod tests {
         .expect("parse worktrees");
         assert_eq!(worktrees.len(), 2);
         assert_eq!(worktrees[1].branch.as_deref(), Some("feature/x"));
+    }
+
+    #[test]
+    fn parses_stash_entries() {
+        let stashes = parse_stashes(
+            "stash@{0}\0WIP on feature/x: abc123 working tree\nstash@{1}\0On main: manual save\n",
+        )
+        .expect("parse stashes");
+
+        assert_eq!(stashes.len(), 2);
+        assert_eq!(stashes[0].index, 0);
+        assert_eq!(stashes[0].selector, "stash@{0}");
+        assert_eq!(stashes[0].branch.as_deref(), Some("feature/x"));
+        assert_eq!(stashes[1].branch, None);
+    }
+
+    #[tokio::test]
+    async fn stash_actions_build_expected_commands() {
+        let runner = Arc::new(FakeRunner::new(vec![ok(""), ok(""), ok(""), ok("")]));
+        let git = GitClient::with_runner(runner.clone());
+
+        git.save_stash(Path::new("."), Some("save work"), true)
+            .await
+            .expect("save");
+        git.apply_stash(Path::new("."), Some("stash@{0}"), true)
+            .await
+            .expect("apply");
+        git.pop_stash(Path::new("."), Some("stash@{0}"), false)
+            .await
+            .expect("pop");
+        git.drop_stash(Path::new("."), Some("stash@{0}"))
+            .await
+            .expect("drop");
+
+        let requests = runner.requests();
+        assert_eq!(
+            requests[0].args,
+            vec![
+                "stash",
+                "push",
+                "--include-untracked",
+                "--message",
+                "save work"
+            ]
+        );
+        assert_eq!(
+            requests[1].args,
+            vec!["stash", "apply", "--index", "stash@{0}"]
+        );
+        assert_eq!(requests[2].args, vec!["stash", "pop", "stash@{0}"]);
+        assert_eq!(requests[3].args, vec!["stash", "drop", "stash@{0}"]);
     }
 
     #[tokio::test]

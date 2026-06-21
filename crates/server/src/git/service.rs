@@ -3,8 +3,9 @@ use ace_git::{GitClient, ProcessRunner, TokioProcessRunner};
 use ace_protocol::git::{
     GitBranchesRequest, GitCheckoutBranchRequest, GitCommitRequest, GitCreateBranchRequest,
     GitDeleteBranchRequest, GitDiffRequest, GitFetchRequest, GitPullRequest, GitPushRequest,
-    GitRenameBranchRequest, GitRepositoryRequest, GitStageRequest, GitStatusRequest,
-    GitUnstageRequest, GitWorktreesRequest,
+    GitRenameBranchRequest, GitRepositoryRequest, GitStageRequest, GitStashApplyRequest,
+    GitStashDropRequest, GitStashPopRequest, GitStashSaveRequest, GitStashesRequest,
+    GitStatusRequest, GitUnstageRequest, GitWorktreesRequest,
 };
 use serde::Serialize;
 use std::{path::PathBuf, sync::Arc};
@@ -210,6 +211,80 @@ impl<R: ProcessRunner> GitService<R> {
             .await?;
         Ok(GitActionResponse {
             action: "commit",
+            branch: None,
+        })
+    }
+
+    pub async fn stashes(
+        &self,
+        request: GitStashesRequest,
+    ) -> Result<Vec<ace_git::GitStashEntry>, GitApiError> {
+        self.git
+            .list_stashes(&repo_path(&request.repo_path)?)
+            .await
+            .map_err(GitApiError::from)
+    }
+
+    pub async fn save_stash(
+        &self,
+        request: GitStashSaveRequest,
+    ) -> Result<GitActionResponse, GitApiError> {
+        self.git
+            .save_stash(
+                &repo_path(&request.repo_path)?,
+                request.message.as_deref(),
+                request.include_untracked,
+            )
+            .await?;
+        Ok(GitActionResponse {
+            action: "stash_save",
+            branch: None,
+        })
+    }
+
+    pub async fn apply_stash(
+        &self,
+        request: GitStashApplyRequest,
+    ) -> Result<GitActionResponse, GitApiError> {
+        self.git
+            .apply_stash(
+                &repo_path(&request.repo_path)?,
+                request.selector.as_deref(),
+                request.index,
+            )
+            .await?;
+        Ok(GitActionResponse {
+            action: "stash_apply",
+            branch: None,
+        })
+    }
+
+    pub async fn pop_stash(
+        &self,
+        request: GitStashPopRequest,
+    ) -> Result<GitActionResponse, GitApiError> {
+        self.git
+            .pop_stash(
+                &repo_path(&request.repo_path)?,
+                request.selector.as_deref(),
+                request.index,
+            )
+            .await?;
+        Ok(GitActionResponse {
+            action: "stash_pop",
+            branch: None,
+        })
+    }
+
+    pub async fn drop_stash(
+        &self,
+        request: GitStashDropRequest,
+    ) -> Result<GitActionResponse, GitApiError> {
+        self.git
+            .drop_stash(&repo_path(&request.repo_path)?, request.selector.as_deref())
+            .await?;
+        Ok(GitActionResponse {
+            action: "stash_drop",
             branch: None,
         })
     }
