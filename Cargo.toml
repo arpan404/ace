@@ -3,6 +3,7 @@ resolver = "3"
 members = [
   "apps/desktop",
   "crates/checkpoint",
+  "crates/codex",
   "crates/core",
   "crates/git",
   "crates/lsp",
@@ -27,6 +28,7 @@ rust-version = "1.91"
 [workspace.dependencies]
 ace-core = { path = "crates/core" }
 ace-checkpoint = { path = "crates/checkpoint" }
+ace-codex = { path = "crates/codex" }
 ace-git = { path = "crates/git" }
 ace-lsp = { path = "crates/lsp" }
 ace-persistence = { path = "crates/persistence" }

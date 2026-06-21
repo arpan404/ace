@@ -5,24 +5,24 @@ use serde::{Deserialize, Serialize};
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ProviderRuntimeEvent {
     ToolStarted {
-        tool: SemanticToolCall,
+        tool: Box<SemanticToolCall>,
     },
     ToolUpdated {
-        tool: SemanticToolCall,
+        tool: Box<SemanticToolCall>,
     },
     ToolOutputDelta {
-        tool: SemanticToolCall,
+        tool: Box<SemanticToolCall>,
         delta: String,
     },
     ToolCompleted {
-        tool: SemanticToolCall,
+        tool: Box<SemanticToolCall>,
     },
     ToolFailed {
-        tool: SemanticToolCall,
+        tool: Box<SemanticToolCall>,
         message: String,
     },
     ToolApprovalRequested {
-        tool: SemanticToolCall,
+        tool: Box<SemanticToolCall>,
     },
 }
 
@@ -30,16 +30,22 @@ impl ProviderRuntimeEvent {
     #[must_use]
     pub fn tool(tool: SemanticToolCall) -> Self {
         match tool.display.status {
-            ace_runtime::tools::ToolRunStatus::Started => Self::ToolStarted { tool },
-            ace_runtime::tools::ToolRunStatus::Updated => Self::ToolUpdated { tool },
-            ace_runtime::tools::ToolRunStatus::Completed => Self::ToolCompleted { tool },
+            ace_runtime::tools::ToolRunStatus::Started => Self::ToolStarted {
+                tool: Box::new(tool),
+            },
+            ace_runtime::tools::ToolRunStatus::Updated => Self::ToolUpdated {
+                tool: Box::new(tool),
+            },
+            ace_runtime::tools::ToolRunStatus::Completed => Self::ToolCompleted {
+                tool: Box::new(tool),
+            },
             ace_runtime::tools::ToolRunStatus::Failed => Self::ToolFailed {
-                tool,
+                tool: Box::new(tool),
                 message: "tool failed".to_string(),
             },
-            ace_runtime::tools::ToolRunStatus::ApprovalRequested => {
-                Self::ToolApprovalRequested { tool }
-            }
+            ace_runtime::tools::ToolRunStatus::ApprovalRequested => Self::ToolApprovalRequested {
+                tool: Box::new(tool),
+            },
         }
     }
 }

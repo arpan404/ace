@@ -2,6 +2,7 @@ use ace_core::{Command, ProviderCapability};
 use serde::{Deserialize, Serialize};
 
 pub mod checkpoint;
+pub mod codex;
 pub mod editor;
 pub mod git;
 pub mod github;

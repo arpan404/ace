@@ -1,4 +1,5 @@
 pub mod checkpoint;
+pub mod codex;
 pub mod editor;
 pub mod git;
 pub mod github;

@@ -8,6 +8,7 @@ rust-version.workspace = true
 
 [dependencies]
 ace-checkpoint.workspace = true
+ace-codex.workspace = true
 ace-core.workspace = true
 ace-git.workspace = true
 ace-lsp.workspace = true

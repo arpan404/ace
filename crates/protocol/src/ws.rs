@@ -2,6 +2,14 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 pub mod methods {
+    pub const CODEX_RAW_REQUEST: &str = "codex.raw_request";
+    pub const CODEX_THREAD_START: &str = "codex.thread.start";
+    pub const CODEX_THREAD_RESUME: &str = "codex.thread.resume";
+    pub const CODEX_THREAD_FORK: &str = "codex.thread.fork";
+    pub const CODEX_TURN_START: &str = "codex.turn.start";
+    pub const CODEX_TURN_PLAN_START: &str = "codex.turn.plan_start";
+    pub const CODEX_TURN_INTERRUPT: &str = "codex.turn.interrupt";
+
     pub const GIT_REPOSITORY: &str = "git.repository";
     pub const GIT_STATUS: &str = "git.status";
     pub const GIT_DIFF: &str = "git.diff";

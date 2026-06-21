@@ -1,4 +1,5 @@
 mod checkpoint;
+mod codex;
 mod editor;
 mod git;
 mod github;
@@ -9,6 +10,7 @@ mod terminal;
 mod workspace;
 
 use crate::checkpoint::{CheckpointApiError, CheckpointService};
+use crate::codex::{CodexApiError, CodexService};
 use crate::editor::{EditorApiError, EditorService};
 use crate::git::{GitApiError, GitService};
 use crate::github::{GithubApiError, GithubService};
@@ -37,6 +39,7 @@ use tokio::sync::mpsc;
 
 pub struct WsApiState<R: ProcessRunner = TokioProcessRunner, A: PtyAdapter = PortablePtyAdapter> {
     checkpoint: Arc<CheckpointService<TokioProcessRunner>>,
+    codex: Arc<CodexService>,
     git: Arc<GitService<R>>,
     github: Arc<GithubService<R>>,
     project: Arc<ProjectService>,
@@ -48,6 +51,7 @@ impl<R: ProcessRunner, A: PtyAdapter> Clone for WsApiState<R, A> {
     fn clone(&self) -> Self {
         Self {
             checkpoint: Arc::clone(&self.checkpoint),
+            codex: Arc::clone(&self.codex),
             git: Arc::clone(&self.git),
             github: Arc::clone(&self.github),
             project: Arc::clone(&self.project),
@@ -62,6 +66,7 @@ impl WsApiState<TokioProcessRunner, PortablePtyAdapter> {
     pub fn production() -> Self {
         Self {
             checkpoint: Arc::new(CheckpointService::production()),
+            codex: Arc::new(CodexService::production()),
             git: Arc::new(GitService::new_with_github(
                 GitClient::new(),
                 GithubCliClient::new(),
@@ -79,6 +84,7 @@ impl<R: ProcessRunner> WsApiState<R, PortablePtyAdapter> {
     pub fn new_services(git: GitService<R>, github: GithubService<R>) -> Self {
         Self {
             checkpoint: Arc::new(CheckpointService::production()),
+            codex: Arc::new(CodexService::production()),
             git: Arc::new(git),
             github: Arc::new(github),
             project: Arc::new(
@@ -96,6 +102,7 @@ impl<R: ProcessRunner> WsApiState<R, PortablePtyAdapter> {
     ) -> WsApiState<R, A> {
         WsApiState {
             checkpoint: self.checkpoint,
+            codex: self.codex,
             git: self.git,
             github: self.github,
             project: self.project,
@@ -109,6 +116,12 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
     #[must_use]
     pub fn with_project_service(mut self, project: ProjectService) -> Self {
         self.project = Arc::new(project);
+        self
+    }
+
+    #[must_use]
+    pub fn with_codex_service(mut self, codex: CodexService) -> Self {
+        self.codex = Arc::new(codex);
         self
     }
 
@@ -263,7 +276,9 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
         method: &str,
         payload: Value,
     ) -> Result<Value, WsDispatchError> {
-        if method.starts_with("git.") {
+        if method.starts_with("codex.") {
+            self.dispatch_codex_method(method, payload).await
+        } else if method.starts_with("git.") {
             self.dispatch_git_method(method, payload).await
         } else if method.starts_with("github.") {
             self.dispatch_github_method(method, payload).await
@@ -348,6 +363,22 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
         Ok(serde_json::to_value(response)?)
     }
 
+    async fn codex_json<T, O, Fut, F>(
+        &self,
+        payload: Value,
+        call: F,
+    ) -> Result<Value, WsDispatchError>
+    where
+        T: DeserializeOwned,
+        O: Serialize,
+        Fut: Future<Output = Result<O, CodexApiError>>,
+        F: FnOnce(Arc<CodexService>, T) -> Fut,
+    {
+        let request = serde_json::from_value(payload)?;
+        let response = call(Arc::clone(&self.codex), request).await?;
+        Ok(serde_json::to_value(response)?)
+    }
+
     async fn terminal_json<T, O, Fut, F>(
         &self,
         payload: Value,
@@ -408,6 +439,8 @@ enum WsDispatchError {
     #[error("{0}")]
     Checkpoint(#[from] CheckpointApiError),
     #[error("{0}")]
+    Codex(#[from] CodexApiError),
+    #[error("{0}")]
     Terminal(#[from] TerminalError),
     #[error("{0}")]
     Editor(#[from] EditorApiError),
@@ -422,6 +455,7 @@ impl WsDispatchError {
             Self::Git(_) => "git_error",
             Self::Project(_) => "project_error",
             Self::Checkpoint(_) => "checkpoint_error",
+            Self::Codex(error) => error.code(),
             Self::Terminal(_) => "terminal_error",
             Self::Editor(_) => "editor_error",
         }

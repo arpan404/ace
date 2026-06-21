@@ -18,6 +18,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "ace-codex"
+version = "0.1.0"
+dependencies = [
+ "ace-core",
+ "ace-runtime",
+ "async-trait",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "ace-core"
 version = "0.1.0"
 dependencies = [
@@ -119,6 +134,7 @@ name = "ace-protocol"
 version = "0.1.0"
 dependencies = [
  "ace-checkpoint",
+ "ace-codex",
  "ace-core",
  "ace-lsp",
  "ace-project",
@@ -133,6 +149,7 @@ name = "ace-runtime"
 version = "0.1.0"
 dependencies = [
  "ace-core",
+ "async-trait",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -145,6 +162,7 @@ name = "ace-server"
 version = "0.1.0"
 dependencies = [
  "ace-checkpoint",
+ "ace-codex",
  "ace-core",
  "ace-git",
  "ace-lsp",
