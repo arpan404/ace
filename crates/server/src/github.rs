@@ -1,11 +1,16 @@
 use ace_git::{
     GithubCliClient, GithubIssueListFilter, GithubPullRequestListFilter, GithubSearchFilter,
-    ProcessRunner, TokioProcessRunner, WorkflowRunListFilter,
+    ProcessRunner, PullRequestCheckout, PullRequestClose, PullRequestComment, PullRequestMerge,
+    PullRequestReadyState, PullRequestReopen, PullRequestReview, TokioProcessRunner,
+    WorkflowRunCancel, WorkflowRunListFilter, WorkflowRunRerun,
 };
 use ace_protocol::github::{
-    IssueListFilter, IssueListRequest, PullRequestChecksRequest, PullRequestListFilter,
-    PullRequestListRequest, SearchFilter, SearchIssuesRequest, SearchPullRequestsRequest,
-    WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunRequest,
+    IssueListFilter, IssueListRequest, PullRequestCheckoutRequest, PullRequestChecksRequest,
+    PullRequestCloseRequest, PullRequestCommentRequest, PullRequestListFilter,
+    PullRequestListRequest, PullRequestMergeRequest, PullRequestReadyStateRequest,
+    PullRequestReopenRequest, PullRequestReviewRequest, SearchFilter, SearchIssuesRequest,
+    SearchPullRequestsRequest, WorkflowRunCancelRequest, WorkflowRunListRequest,
+    WorkflowRunLogRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
 };
 use axum::{Json, Router, extract::State, http::StatusCode, response::IntoResponse, routing::post};
 use serde::Serialize;
@@ -165,6 +170,164 @@ impl<R: ProcessRunner> GithubService<R> {
             .await?;
         Ok(WorkflowRunLogResponse { log })
     }
+
+    pub async fn checkout_pull_request(
+        &self,
+        request: PullRequestCheckoutRequest,
+    ) -> Result<ace_git::GithubActionResult, GithubApiError> {
+        self.github
+            .checkout_pull_request(
+                &repo_path(&request.repo_path)?,
+                &PullRequestCheckout {
+                    selector: request.selector,
+                    branch: request.branch,
+                    detach: request.detach,
+                    force: request.force,
+                    recurse_submodules: request.recurse_submodules,
+                },
+            )
+            .await
+            .map_err(GithubApiError::from)
+    }
+
+    pub async fn comment_pull_request(
+        &self,
+        request: PullRequestCommentRequest,
+    ) -> Result<ace_git::GithubActionResult, GithubApiError> {
+        self.github
+            .comment_pull_request(
+                &repo_path(&request.repo_path)?,
+                &PullRequestComment {
+                    selector: request.selector,
+                    body: request.body,
+                },
+            )
+            .await
+            .map_err(GithubApiError::from)
+    }
+
+    pub async fn review_pull_request(
+        &self,
+        request: PullRequestReviewRequest,
+    ) -> Result<ace_git::GithubActionResult, GithubApiError> {
+        self.github
+            .review_pull_request(
+                &repo_path(&request.repo_path)?,
+                &PullRequestReview {
+                    selector: request.selector,
+                    decision: pull_request_review_decision(request.decision),
+                    body: request.body,
+                },
+            )
+            .await
+            .map_err(GithubApiError::from)
+    }
+
+    pub async fn set_pull_request_ready_state(
+        &self,
+        request: PullRequestReadyStateRequest,
+    ) -> Result<ace_git::GithubActionResult, GithubApiError> {
+        self.github
+            .set_pull_request_ready_state(
+                &repo_path(&request.repo_path)?,
+                &PullRequestReadyState {
+                    selector: request.selector,
+                    draft: request.draft,
+                },
+            )
+            .await
+            .map_err(GithubApiError::from)
+    }
+
+    pub async fn close_pull_request(
+        &self,
+        request: PullRequestCloseRequest,
+    ) -> Result<ace_git::GithubActionResult, GithubApiError> {
+        self.github
+            .close_pull_request(
+                &repo_path(&request.repo_path)?,
+                &PullRequestClose {
+                    selector: request.selector,
+                    comment: request.comment,
+                    delete_branch: request.delete_branch,
+                },
+            )
+            .await
+            .map_err(GithubApiError::from)
+    }
+
+    pub async fn reopen_pull_request(
+        &self,
+        request: PullRequestReopenRequest,
+    ) -> Result<ace_git::GithubActionResult, GithubApiError> {
+        self.github
+            .reopen_pull_request(
+                &repo_path(&request.repo_path)?,
+                &PullRequestReopen {
+                    selector: request.selector,
+                    comment: request.comment,
+                },
+            )
+            .await
+            .map_err(GithubApiError::from)
+    }
+
+    pub async fn merge_pull_request(
+        &self,
+        request: PullRequestMergeRequest,
+    ) -> Result<ace_git::GithubActionResult, GithubApiError> {
+        self.github
+            .merge_pull_request(
+                &repo_path(&request.repo_path)?,
+                &PullRequestMerge {
+                    selector: request.selector,
+                    method: pull_request_merge_method(request.method),
+                    auto: request.auto,
+                    admin: request.admin,
+                    delete_branch: request.delete_branch,
+                    disable_auto: request.disable_auto,
+                    subject: request.subject,
+                    body: request.body,
+                    author_email: request.author_email,
+                    match_head_commit: request.match_head_commit,
+                },
+            )
+            .await
+            .map_err(GithubApiError::from)
+    }
+
+    pub async fn rerun_workflow_run(
+        &self,
+        request: WorkflowRunRerunRequest,
+    ) -> Result<ace_git::GithubActionResult, GithubApiError> {
+        self.github
+            .rerun_workflow_run(
+                &repo_path(&request.repo_path)?,
+                &WorkflowRunRerun {
+                    run_id: request.run_id,
+                    failed_only: request.failed_only,
+                    debug: request.debug,
+                    job_id: request.job_id,
+                },
+            )
+            .await
+            .map_err(GithubApiError::from)
+    }
+
+    pub async fn cancel_workflow_run(
+        &self,
+        request: WorkflowRunCancelRequest,
+    ) -> Result<ace_git::GithubActionResult, GithubApiError> {
+        self.github
+            .cancel_workflow_run(
+                &repo_path(&request.repo_path)?,
+                &WorkflowRunCancel {
+                    run_id: request.run_id,
+                },
+            )
+            .await
+            .map_err(GithubApiError::from)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -218,12 +381,24 @@ where
         .route("/issues/search", post(search_issues::<R>))
         .route("/pulls/search", post(search_pull_requests::<R>))
         .route("/pulls/checks", post(pull_request_checks::<R>))
+        .route("/pulls/checkout", post(checkout_pull_request::<R>))
+        .route("/pulls/comment", post(comment_pull_request::<R>))
+        .route("/pulls/review", post(review_pull_request::<R>))
+        .route(
+            "/pulls/ready-state",
+            post(set_pull_request_ready_state::<R>),
+        )
+        .route("/pulls/close", post(close_pull_request::<R>))
+        .route("/pulls/reopen", post(reopen_pull_request::<R>))
+        .route("/pulls/merge", post(merge_pull_request::<R>))
         .route("/workflow-runs/list", post(list_workflow_runs::<R>))
         .route("/workflow-runs/view", post(workflow_run::<R>))
         .route(
             "/workflow-runs/failed-log",
             post(workflow_run_failed_log::<R>),
         )
+        .route("/workflow-runs/rerun", post(rerun_workflow_run::<R>))
+        .route("/workflow-runs/cancel", post(cancel_workflow_run::<R>))
         .with_state(state)
 }
 
@@ -311,6 +486,100 @@ where
         .map(Json)
 }
 
+async fn checkout_pull_request<R>(
+    State(state): State<GithubApiState<R>>,
+    Json(request): Json<PullRequestCheckoutRequest>,
+) -> Result<Json<ace_git::GithubActionResult>, GithubApiError>
+where
+    R: ProcessRunner,
+{
+    state.service.checkout_pull_request(request).await.map(Json)
+}
+
+async fn comment_pull_request<R>(
+    State(state): State<GithubApiState<R>>,
+    Json(request): Json<PullRequestCommentRequest>,
+) -> Result<Json<ace_git::GithubActionResult>, GithubApiError>
+where
+    R: ProcessRunner,
+{
+    state.service.comment_pull_request(request).await.map(Json)
+}
+
+async fn review_pull_request<R>(
+    State(state): State<GithubApiState<R>>,
+    Json(request): Json<PullRequestReviewRequest>,
+) -> Result<Json<ace_git::GithubActionResult>, GithubApiError>
+where
+    R: ProcessRunner,
+{
+    state.service.review_pull_request(request).await.map(Json)
+}
+
+async fn set_pull_request_ready_state<R>(
+    State(state): State<GithubApiState<R>>,
+    Json(request): Json<PullRequestReadyStateRequest>,
+) -> Result<Json<ace_git::GithubActionResult>, GithubApiError>
+where
+    R: ProcessRunner,
+{
+    state
+        .service
+        .set_pull_request_ready_state(request)
+        .await
+        .map(Json)
+}
+
+async fn close_pull_request<R>(
+    State(state): State<GithubApiState<R>>,
+    Json(request): Json<PullRequestCloseRequest>,
+) -> Result<Json<ace_git::GithubActionResult>, GithubApiError>
+where
+    R: ProcessRunner,
+{
+    state.service.close_pull_request(request).await.map(Json)
+}
+
+async fn reopen_pull_request<R>(
+    State(state): State<GithubApiState<R>>,
+    Json(request): Json<PullRequestReopenRequest>,
+) -> Result<Json<ace_git::GithubActionResult>, GithubApiError>
+where
+    R: ProcessRunner,
+{
+    state.service.reopen_pull_request(request).await.map(Json)
+}
+
+async fn merge_pull_request<R>(
+    State(state): State<GithubApiState<R>>,
+    Json(request): Json<PullRequestMergeRequest>,
+) -> Result<Json<ace_git::GithubActionResult>, GithubApiError>
+where
+    R: ProcessRunner,
+{
+    state.service.merge_pull_request(request).await.map(Json)
+}
+
+async fn rerun_workflow_run<R>(
+    State(state): State<GithubApiState<R>>,
+    Json(request): Json<WorkflowRunRerunRequest>,
+) -> Result<Json<ace_git::GithubActionResult>, GithubApiError>
+where
+    R: ProcessRunner,
+{
+    state.service.rerun_workflow_run(request).await.map(Json)
+}
+
+async fn cancel_workflow_run<R>(
+    State(state): State<GithubApiState<R>>,
+    Json(request): Json<WorkflowRunCancelRequest>,
+) -> Result<Json<ace_git::GithubActionResult>, GithubApiError>
+where
+    R: ProcessRunner,
+{
+    state.service.cancel_workflow_run(request).await.map(Json)
+}
+
 fn repo_path(raw: &str) -> Result<PathBuf, GithubApiError> {
     if raw.trim().is_empty() {
         Err(GithubApiError::EmptyRepoPath)
@@ -376,13 +645,46 @@ fn workflow_run_list_filter(
     }
 }
 
+fn pull_request_review_decision(
+    decision: ace_protocol::github::PullRequestReviewDecision,
+) -> ace_git::PullRequestReviewDecision {
+    match decision {
+        ace_protocol::github::PullRequestReviewDecision::Approve => {
+            ace_git::PullRequestReviewDecision::Approve
+        }
+        ace_protocol::github::PullRequestReviewDecision::Comment => {
+            ace_git::PullRequestReviewDecision::Comment
+        }
+        ace_protocol::github::PullRequestReviewDecision::RequestChanges => {
+            ace_git::PullRequestReviewDecision::RequestChanges
+        }
+    }
+}
+
+fn pull_request_merge_method(
+    method: ace_protocol::github::PullRequestMergeMethod,
+) -> ace_git::PullRequestMergeMethod {
+    match method {
+        ace_protocol::github::PullRequestMergeMethod::Merge => {
+            ace_git::PullRequestMergeMethod::Merge
+        }
+        ace_protocol::github::PullRequestMergeMethod::Squash => {
+            ace_git::PullRequestMergeMethod::Squash
+        }
+        ace_protocol::github::PullRequestMergeMethod::Rebase => {
+            ace_git::PullRequestMergeMethod::Rebase
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use ace_git::{CommandOutput, CommandRequest, GitToolError};
     use ace_protocol::github::{
-        IssueListFilter, IssueListRequest, PullRequestChecksRequest, WorkflowRunListFilter,
-        WorkflowRunListRequest,
+        IssueListFilter, IssueListRequest, PullRequestChecksRequest, PullRequestMergeMethod,
+        PullRequestMergeRequest, PullRequestReviewDecision, PullRequestReviewRequest,
+        WorkflowRunListFilter, WorkflowRunListRequest, WorkflowRunRerunRequest,
     };
     use async_trait::async_trait;
     use std::{
@@ -536,5 +838,86 @@ mod tests {
 
         assert!(matches!(error, GithubApiError::EmptyRepoPath));
         assert!(runner.requests().is_empty());
+    }
+
+    #[tokio::test]
+    async fn service_reviews_pull_request_through_github_cli() {
+        let runner = Arc::new(FakeRunner::new(vec![ok("reviewed\n")]));
+        let service = GithubService::new(GithubCliClient::with_runner(runner.clone()));
+
+        let result = service
+            .review_pull_request(PullRequestReviewRequest {
+                repo_path: "/repo".to_string(),
+                selector: "42".to_string(),
+                decision: PullRequestReviewDecision::Approve,
+                body: Some("ship it".to_string()),
+            })
+            .await
+            .expect("review");
+
+        assert_eq!(result.action, "review_pull_request");
+        assert_eq!(
+            runner.requests()[0].args,
+            vec!["pr", "review", "42", "--approve", "--body", "ship it"]
+        );
+    }
+
+    #[tokio::test]
+    async fn service_merges_pull_request_through_github_cli() {
+        let runner = Arc::new(FakeRunner::new(vec![ok("merged\n")]));
+        let service = GithubService::new(GithubCliClient::with_runner(runner.clone()));
+
+        service
+            .merge_pull_request(PullRequestMergeRequest {
+                repo_path: "/repo".to_string(),
+                selector: "42".to_string(),
+                method: PullRequestMergeMethod::Rebase,
+                auto: false,
+                admin: true,
+                delete_branch: true,
+                disable_auto: false,
+                subject: None,
+                body: None,
+                author_email: None,
+                match_head_commit: Some("abc123".to_string()),
+            })
+            .await
+            .expect("merge");
+
+        assert_eq!(
+            runner.requests()[0].args,
+            vec![
+                "pr",
+                "merge",
+                "42",
+                "--rebase",
+                "--admin",
+                "--delete-branch",
+                "--match-head-commit",
+                "abc123"
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn service_reruns_workflow_run_through_github_cli() {
+        let runner = Arc::new(FakeRunner::new(vec![ok("rerun\n")]));
+        let service = GithubService::new(GithubCliClient::with_runner(runner.clone()));
+
+        service
+            .rerun_workflow_run(WorkflowRunRerunRequest {
+                repo_path: "/repo".to_string(),
+                run_id: 100,
+                failed_only: true,
+                debug: false,
+                job_id: Some(200),
+            })
+            .await
+            .expect("rerun");
+
+        assert_eq!(
+            runner.requests()[0].args,
+            vec!["run", "rerun", "100", "--failed", "--job", "200"]
+        );
     }
 }

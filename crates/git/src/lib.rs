@@ -13,11 +13,17 @@ use thiserror::Error;
 use tokio::{io::AsyncWriteExt, process::Command, time};
 
 mod github_actions;
+mod github_mutations;
 mod github_search;
 
 pub use github_actions::{
     GithubCheckSummary, GithubPrCheck, GithubPrChecks, GithubWorkflowJob, GithubWorkflowRun,
     GithubWorkflowRunDetail, GithubWorkflowStep, WorkflowRunListFilter,
+};
+pub use github_mutations::{
+    GithubActionResult, PullRequestCheckout, PullRequestClose, PullRequestComment,
+    PullRequestMerge, PullRequestMergeMethod, PullRequestReadyState, PullRequestReopen,
+    PullRequestReview, PullRequestReviewDecision, WorkflowRunCancel, WorkflowRunRerun,
 };
 pub use github_search::{
     GithubIssueListFilter, GithubIssueSummary, GithubPullRequestListFilter,

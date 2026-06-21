@@ -170,3 +170,94 @@ pub struct WorkflowRunLogRequest {
     pub repo_path: String,
     pub run_id: u64,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PullRequestCheckoutRequest {
+    pub repo_path: String,
+    pub selector: String,
+    pub branch: Option<String>,
+    pub detach: bool,
+    pub force: bool,
+    pub recurse_submodules: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PullRequestCommentRequest {
+    pub repo_path: String,
+    pub selector: String,
+    pub body: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PullRequestReviewRequest {
+    pub repo_path: String,
+    pub selector: String,
+    pub decision: PullRequestReviewDecision,
+    pub body: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PullRequestReviewDecision {
+    Approve,
+    Comment,
+    RequestChanges,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PullRequestReadyStateRequest {
+    pub repo_path: String,
+    pub selector: String,
+    pub draft: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PullRequestCloseRequest {
+    pub repo_path: String,
+    pub selector: String,
+    pub comment: Option<String>,
+    pub delete_branch: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PullRequestReopenRequest {
+    pub repo_path: String,
+    pub selector: String,
+    pub comment: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PullRequestMergeRequest {
+    pub repo_path: String,
+    pub selector: String,
+    pub method: PullRequestMergeMethod,
+    pub auto: bool,
+    pub admin: bool,
+    pub delete_branch: bool,
+    pub disable_auto: bool,
+    pub subject: Option<String>,
+    pub body: Option<String>,
+    pub author_email: Option<String>,
+    pub match_head_commit: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PullRequestMergeMethod {
+    Merge,
+    Squash,
+    Rebase,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkflowRunRerunRequest {
+    pub repo_path: String,
+    pub run_id: u64,
+    pub failed_only: bool,
+    pub debug: bool,
+    pub job_id: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkflowRunCancelRequest {
+    pub repo_path: String,
+    pub run_id: u64,
+}
