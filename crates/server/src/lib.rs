@@ -32,6 +32,7 @@ pub fn router() -> Router {
     Router::new()
         .route("/health", get(health))
         .route("/api/status", get(status))
+        .merge(github::image_proxy_router())
         .nest("/api/github", github::router())
 }
 

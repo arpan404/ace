@@ -1,4 +1,5 @@
 mod error;
+mod image_proxy;
 mod mapping;
 mod routes;
 mod service;
@@ -7,5 +8,6 @@ mod service;
 mod tests;
 
 pub use error::GithubApiError;
+pub use image_proxy::router as image_proxy_router;
 pub use routes::{router, router_with_state};
 pub use service::{GithubApiState, GithubService, WorkflowRunLogResponse};

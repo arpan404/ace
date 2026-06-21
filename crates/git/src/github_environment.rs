@@ -3,6 +3,11 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 impl<R: ProcessRunner> GithubCliClient<R> {
+    pub async fn auth_token(&self, cwd: &Path) -> Result<String> {
+        let output = self.gh_allow_statuses(cwd, ["auth", "token"], &[0]).await?;
+        Ok(output.stdout_string())
+    }
+
     pub async fn environment_status(&self, cwd: &Path) -> Result<GithubEnvironmentStatus> {
         let version = match self.gh_allow_statuses(cwd, ["--version"], &[0]).await {
             Ok(output) => output

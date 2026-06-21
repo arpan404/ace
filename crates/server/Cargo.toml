@@ -9,7 +9,10 @@ rust-version.workspace = true
 [dependencies]
 ace-git.workspace = true
 ace-protocol.workspace = true
+async-trait.workspace = true
 axum.workspace = true
+bytes.workspace = true
+reqwest.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
