@@ -13,8 +13,8 @@ use ace_git::{
     WorkflowRunRerun, WorkflowStateChange,
 };
 use ace_protocol::github::{
-    CheckRunAnnotationsRequest, CheckRunsRequest, EnvironmentStatusRequest, IssueListRequest,
-    IssueThreadRequest, PullRequestActivityRequest, PullRequestCheckoutRequest,
+    CheckRunAnnotationsRequest, CheckRunsRequest, CheckSuitesRequest, EnvironmentStatusRequest,
+    IssueListRequest, IssueThreadRequest, PullRequestActivityRequest, PullRequestCheckoutRequest,
     PullRequestChecksRequest, PullRequestCloseRequest, PullRequestCommentRequest,
     PullRequestDashboardRequest, PullRequestDiffRequest, PullRequestFilesRequest,
     PullRequestListRequest, PullRequestMergeRequest, PullRequestReadyStateRequest,
@@ -209,6 +209,20 @@ impl<R: ProcessRunner> GithubService<R> {
     ) -> Result<Vec<ace_git::GithubCheckRun>, GithubApiError> {
         self.github
             .list_check_runs(
+                &repo_path(&request.repo_path)?,
+                &request.git_ref,
+                &check_run_list_filter(request.filter),
+            )
+            .await
+            .map_err(GithubApiError::from)
+    }
+
+    pub async fn list_check_suites(
+        &self,
+        request: CheckSuitesRequest,
+    ) -> Result<Vec<ace_git::GithubCheckSuite>, GithubApiError> {
+        self.github
+            .list_check_suites(
                 &repo_path(&request.repo_path)?,
                 &request.git_ref,
                 &check_run_list_filter(request.filter),

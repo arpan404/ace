@@ -168,6 +168,13 @@ pub struct CheckRunsRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CheckSuitesRequest {
+    pub repo_path: String,
+    pub git_ref: String,
+    pub filter: CheckRunListFilter,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CheckRunAnnotationsRequest {
     pub repo_path: String,
     pub check_run_id: u64,

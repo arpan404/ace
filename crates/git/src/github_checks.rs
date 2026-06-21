@@ -61,6 +61,35 @@ impl<R: ProcessRunner> GithubCliClient<R> {
             .await?;
         parse_json("github check run annotations", &output.stdout)
     }
+
+    pub async fn list_check_suites(
+        &self,
+        cwd: &Path,
+        git_ref: &str,
+        filter: &CheckRunListFilter,
+    ) -> Result<Vec<GithubCheckSuite>> {
+        let repository = self.repository(cwd).await?;
+        let mut args = vec![
+            "api".to_string(),
+            format!(
+                "repos/{}/commits/{git_ref}/check-suites",
+                repository.name_with_owner
+            ),
+            "-F".to_string(),
+            format!("per_page={}", filter.limit),
+        ];
+        if let Some(check_name) = &filter.check_name {
+            args.extend(["-f".to_string(), format!("check_name={check_name}")]);
+        }
+        if let Some(app_id) = filter.app_id {
+            args.extend(["-F".to_string(), format!("app_id={app_id}")]);
+        }
+
+        let output = self.gh_allow_statuses(cwd, args, &[0]).await?;
+        let response =
+            parse_json::<GithubCheckSuitesResponse>("github check suites", &output.stdout)?;
+        Ok(response.check_suites)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -90,6 +119,14 @@ struct GithubCheckRunsResponse {
     pub total_count: u64,
     #[serde(default)]
     pub check_runs: Vec<GithubCheckRun>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct GithubCheckSuitesResponse {
+    #[serde(rename = "total_count")]
+    pub total_count: u64,
+    #[serde(default)]
+    pub check_suites: Vec<GithubCheckSuite>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -152,6 +189,36 @@ pub struct GithubCheckRunSuite {
     pub head_sha: String,
     pub status: Option<String>,
     pub conclusion: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GithubCheckSuite {
+    pub id: u64,
+    #[serde(rename = "node_id")]
+    pub node_id: Option<String>,
+    #[serde(rename = "head_branch")]
+    pub head_branch: Option<String>,
+    #[serde(rename = "head_sha")]
+    pub head_sha: String,
+    pub status: Option<String>,
+    pub conclusion: Option<String>,
+    pub url: String,
+    #[serde(rename = "before")]
+    pub before_sha: Option<String>,
+    #[serde(rename = "after")]
+    pub after_sha: Option<String>,
+    #[serde(rename = "pull_requests", default)]
+    pub pull_requests: Vec<GithubCheckRunPullRequest>,
+    #[serde(default)]
+    pub app: Option<GithubCheckRunApp>,
+    #[serde(rename = "created_at")]
+    pub created_at: Option<String>,
+    #[serde(rename = "updated_at")]
+    pub updated_at: Option<String>,
+    #[serde(rename = "latest_check_runs_count")]
+    pub latest_check_runs_count: Option<u64>,
+    #[serde(rename = "check_runs_url")]
+    pub check_runs_url: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -326,6 +393,49 @@ mod tests {
                 "repos/ace/app/check-runs/10/annotations",
                 "-F",
                 "per_page=30"
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn check_suite_listing_resolves_repo_and_builds_api_request() {
+        let runner = std::sync::Arc::new(FakeRunner::new(vec![
+            ok(
+                br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+            ),
+            ok(
+                br#"{"total_count":1,"check_suites":[{"id":5,"node_id":"CS_1","head_branch":"feature/x","head_sha":"abc","status":"completed","conclusion":"success","url":"https://api.github.test/check-suites/5","before":"def","after":"abc","pull_requests":[],"app":{"id":1,"slug":"github-actions","name":"GitHub Actions","html_url":"https://github.com/apps/github-actions"},"created_at":"2026-06-21T00:00:00Z","updated_at":"2026-06-21T00:01:00Z","latest_check_runs_count":3,"check_runs_url":"https://api.github.test/check-suites/5/check-runs"}]}"#,
+            ),
+        ]));
+        let github = GithubCliClient::with_runner(runner.clone());
+
+        let suites = github
+            .list_check_suites(
+                Path::new("."),
+                "abc",
+                &CheckRunListFilter {
+                    limit: 25,
+                    check_name: Some("build".to_string()),
+                    app_id: Some(1),
+                    ..CheckRunListFilter::default()
+                },
+            )
+            .await
+            .expect("check suites");
+
+        assert_eq!(suites[0].id, 5);
+        assert_eq!(suites[0].latest_check_runs_count, Some(3));
+        assert_eq!(
+            runner.requests()[1].args,
+            vec![
+                "api",
+                "repos/ace/app/commits/abc/check-suites",
+                "-F",
+                "per_page=25",
+                "-f",
+                "check_name=build",
+                "-F",
+                "app_id=1"
             ]
         );
     }

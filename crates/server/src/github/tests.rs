@@ -1,10 +1,10 @@
 use super::{GithubApiError, GithubService, routes::router_with_state, service::GithubApiState};
 use ace_git::{CommandOutput, CommandRequest, GitToolError, GithubCliClient, ProcessRunner};
 use ace_protocol::github::{
-    CheckRunAnnotationsRequest, CheckRunListFilter, CheckRunsRequest, EnvironmentStatusRequest,
-    IssueListFilter, IssueListRequest, IssueThreadRequest, PullRequestActivityRequest,
-    PullRequestChecksRequest, PullRequestDashboardRequest, PullRequestDiffRequest,
-    PullRequestFilesRequest, PullRequestListFilter, PullRequestMergeMethod,
+    CheckRunAnnotationsRequest, CheckRunListFilter, CheckRunsRequest, CheckSuitesRequest,
+    EnvironmentStatusRequest, IssueListFilter, IssueListRequest, IssueThreadRequest,
+    PullRequestActivityRequest, PullRequestChecksRequest, PullRequestDashboardRequest,
+    PullRequestDiffRequest, PullRequestFilesRequest, PullRequestListFilter, PullRequestMergeMethod,
     PullRequestMergeRequest, PullRequestRequest, PullRequestReviewDecision,
     PullRequestReviewRequest, PullRequestThreadRequest, WorkflowDisableRequest,
     WorkflowDispatchInput, WorkflowDispatchRequest, WorkflowEnableRequest, WorkflowListFilter,
@@ -378,6 +378,49 @@ async fn service_lists_check_run_annotations_through_github_cli() {
             "repos/ace/app/check-runs/10/annotations",
             "-F",
             "per_page=30"
+        ]
+    );
+}
+
+#[tokio::test]
+async fn service_lists_check_suites_through_github_cli() {
+    let runner = Arc::new(FakeRunner::new(vec![
+        ok(
+            br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+        ),
+        ok(
+            br#"{"total_count":1,"check_suites":[{"id":5,"node_id":"CS_1","head_branch":"feature/x","head_sha":"abc","status":"completed","conclusion":"success","url":"https://api.github.test/check-suites/5","before":"def","after":"abc","pull_requests":[],"app":{"id":1,"slug":"github-actions","name":"GitHub Actions","html_url":"https://github.com/apps/github-actions"},"created_at":"2026-06-21T00:00:00Z","updated_at":"2026-06-21T00:01:00Z","latest_check_runs_count":3,"check_runs_url":"https://api.github.test/check-suites/5/check-runs"}]}"#,
+        ),
+    ]));
+    let service = GithubService::new(GithubCliClient::with_runner(runner.clone()));
+
+    let suites = service
+        .list_check_suites(CheckSuitesRequest {
+            repo_path: "/repo".to_string(),
+            git_ref: "abc".to_string(),
+            filter: CheckRunListFilter {
+                limit: 25,
+                check_name: Some("build".to_string()),
+                app_id: Some(1),
+                ..CheckRunListFilter::default()
+            },
+        })
+        .await
+        .expect("check suites");
+
+    assert_eq!(suites[0].id, 5);
+    assert_eq!(suites[0].latest_check_runs_count, Some(3));
+    assert_eq!(
+        runner.requests()[1].args,
+        vec![
+            "api",
+            "repos/ace/app/commits/abc/check-suites",
+            "-F",
+            "per_page=25",
+            "-f",
+            "check_name=build",
+            "-F",
+            "app_id=1"
         ]
     );
 }

@@ -2,13 +2,14 @@ use super::{WsApiState, WsDispatchError};
 use ace_git::ProcessRunner;
 use ace_protocol::{
     github::{
-        CheckRunAnnotationsRequest, CheckRunsRequest, PullRequestActivityRequest,
-        PullRequestCheckoutRequest, PullRequestChecksRequest, PullRequestCloseRequest,
-        PullRequestCommentRequest, PullRequestDashboardRequest, PullRequestMergeRequest,
-        PullRequestReadyStateRequest, PullRequestReopenRequest, PullRequestReviewRequest,
-        WorkflowDisableRequest, WorkflowDispatchRequest, WorkflowEnableRequest,
-        WorkflowListRequest, WorkflowRunArtifactsRequest, WorkflowRunCancelRequest,
-        WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
+        CheckRunAnnotationsRequest, CheckRunsRequest, CheckSuitesRequest,
+        PullRequestActivityRequest, PullRequestCheckoutRequest, PullRequestChecksRequest,
+        PullRequestCloseRequest, PullRequestCommentRequest, PullRequestDashboardRequest,
+        PullRequestMergeRequest, PullRequestReadyStateRequest, PullRequestReopenRequest,
+        PullRequestReviewRequest, WorkflowDisableRequest, WorkflowDispatchRequest,
+        WorkflowEnableRequest, WorkflowListRequest, WorkflowRunArtifactsRequest,
+        WorkflowRunCancelRequest, WorkflowRunListRequest, WorkflowRunLogRequest,
+        WorkflowRunRequest, WorkflowRunRerunRequest,
     },
     ws::methods,
 };
@@ -41,6 +42,13 @@ impl<R: ProcessRunner> WsApiState<R> {
                     |service, request| async move {
                         service.list_check_run_annotations(request).await
                     },
+                )
+                .await
+            }
+            methods::GITHUB_CHECK_SUITES_LIST => {
+                self.github_json::<CheckSuitesRequest, _, _, _>(
+                    payload,
+                    |service, request| async move { service.list_check_suites(request).await },
                 )
                 .await
             }
@@ -390,6 +398,59 @@ mod tests {
                 "repos/ace/app/check-runs/10/annotations",
                 "-F",
                 "per_page=30"
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn dispatches_check_suites_over_ws_rpc() {
+        let runner = Arc::new(FakeRunner::new(vec![
+            ok(
+                br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+            ),
+            ok(
+                br#"{"total_count":1,"check_suites":[{"id":5,"node_id":"CS_1","head_branch":"feature/x","head_sha":"abc","status":"completed","conclusion":"success","url":"https://api.github.test/check-suites/5","before":"def","after":"abc","pull_requests":[],"app":{"id":1,"slug":"github-actions","name":"GitHub Actions","html_url":"https://github.com/apps/github-actions"},"created_at":"2026-06-21T00:00:00Z","updated_at":"2026-06-21T00:01:00Z","latest_check_runs_count":3,"check_runs_url":"https://api.github.test/check-suites/5/check-runs"}]}"#,
+            ),
+        ]));
+        let state = test_state(runner.clone());
+
+        let response = dispatch(
+            &state,
+            serde_json::json!({
+                "version": PROTOCOL_VERSION,
+                "request_id": "req-check-suites",
+                "method": methods::GITHUB_CHECK_SUITES_LIST,
+                "payload": {
+                    "repo_path": "/repo",
+                    "git_ref": "abc",
+                    "filter": {
+                        "limit": 25,
+                        "status": null,
+                        "check_name": "build",
+                        "filter": null,
+                        "app_id": 1
+                    }
+                }
+            }),
+        )
+        .await;
+
+        let WsServerPayload::Result { body } = response.payload else {
+            panic!("expected result");
+        };
+        assert_eq!(body[0]["id"], 5);
+        assert_eq!(body[0]["latest_check_runs_count"], 3);
+        assert_eq!(
+            runner.requests()[1].args,
+            vec![
+                "api",
+                "repos/ace/app/commits/abc/check-suites",
+                "-F",
+                "per_page=25",
+                "-f",
+                "check_name=build",
+                "-F",
+                "app_id=1"
             ]
         );
     }
