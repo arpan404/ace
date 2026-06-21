@@ -12,6 +12,7 @@ use std::{
 use thiserror::Error;
 use tokio::{io::AsyncWriteExt, process::Command, time};
 
+mod git_commits;
 mod github_actions;
 mod github_activity;
 mod github_checks;
@@ -25,6 +26,7 @@ mod github_review_threads;
 mod github_search;
 mod github_timeline;
 
+pub use git_commits::GitCommitSummary;
 pub use github_actions::{
     GithubCheckSummary, GithubPrCheck, GithubPrChecks, GithubWorkflow, GithubWorkflowArtifact,
     GithubWorkflowArtifactRun, GithubWorkflowDeploymentReviewer, GithubWorkflowEnvironment,

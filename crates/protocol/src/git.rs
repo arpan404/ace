@@ -85,6 +85,13 @@ pub struct GitCommitRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GitCommitsRequest {
+    pub repo_path: String,
+    pub limit: u32,
+    pub rev: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GitStashesRequest {
     pub repo_path: String,
 }

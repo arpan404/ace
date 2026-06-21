@@ -2,12 +2,13 @@ use super::{WsApiState, WsDispatchError};
 use ace_git::ProcessRunner;
 use ace_protocol::{
     git::{
-        GitBranchesRequest, GitCheckoutBranchRequest, GitCommitRequest, GitCreateBranchRequest,
-        GitDeleteBranchRequest, GitDiffRequest, GitFetchRequest, GitPullRequest, GitPushRequest,
-        GitRenameBranchRequest, GitRepositoryRequest, GitStageRequest, GitStashApplyRequest,
-        GitStashDropRequest, GitStashPopRequest, GitStashSaveRequest, GitStashesRequest,
-        GitStatusRequest, GitUnstageRequest, GitWorkflowRequest, GitWorktreeCreateRequest,
-        GitWorktreeRemoveRequest, GitWorktreesRequest,
+        GitBranchesRequest, GitCheckoutBranchRequest, GitCommitRequest, GitCommitsRequest,
+        GitCreateBranchRequest, GitDeleteBranchRequest, GitDiffRequest, GitFetchRequest,
+        GitPullRequest, GitPushRequest, GitRenameBranchRequest, GitRepositoryRequest,
+        GitStageRequest, GitStashApplyRequest, GitStashDropRequest, GitStashPopRequest,
+        GitStashSaveRequest, GitStashesRequest, GitStatusRequest, GitUnstageRequest,
+        GitWorkflowRequest, GitWorktreeCreateRequest, GitWorktreeRemoveRequest,
+        GitWorktreesRequest,
     },
     ws::methods,
 };
@@ -109,6 +110,13 @@ impl<R: ProcessRunner> WsApiState<R> {
                 self.git_json::<GitCommitRequest, _, _, _>(payload, |service, request| async move {
                     service.commit(request).await
                 })
+                .await
+            }
+            methods::GIT_COMMITS => {
+                self.git_json::<GitCommitsRequest, _, _, _>(
+                    payload,
+                    |service, request| async move { service.commits(request).await },
+                )
                 .await
             }
             methods::GIT_STASHES => {
@@ -536,6 +544,42 @@ mod tests {
             vec!["stash", "pop", "--index", "stash@{0}"]
         );
         assert_eq!(requests[6].args, vec!["worktree", "list", "--porcelain"]);
+    }
+
+    #[tokio::test]
+    async fn dispatches_recent_commits_over_ws_rpc() {
+        let runner = Arc::new(FakeRunner::new(vec![ok(
+            "abcdef123456\0abcdef1\0parent1 parent2\0HEAD -> feature/x, origin/feature/x\0Octo\0octo@example.test\x002026-06-21T00:00:00+00:00\x002026-06-21T00:01:00+00:00\0Ship feature\x1e",
+        )]));
+        let state = test_state(runner.clone());
+
+        let response = dispatch(
+            &state,
+            serde_json::json!({
+                "version": PROTOCOL_VERSION,
+                "request_id": "req-commits",
+                "method": methods::GIT_COMMITS,
+                "payload": {
+                    "repo_path": "/repo",
+                    "limit": 10,
+                    "rev": "feature/x"
+                }
+            }),
+        )
+        .await;
+
+        let WsServerPayload::Result { body } = response.payload else {
+            panic!("expected result");
+        };
+        assert_eq!(body[0]["oid"], "abcdef123456");
+        assert_eq!(body[0]["parents"][1], "parent2");
+        assert_eq!(body[0]["refs"][0], "HEAD -> feature/x");
+        assert_eq!(body[0]["subject"], "Ship feature");
+
+        let requests = runner.requests();
+        assert_eq!(requests[0].args[0], "log");
+        assert_eq!(requests[0].args[1], "--max-count=10");
+        assert_eq!(requests[0].args[4], "feature/x");
     }
 
     #[tokio::test]

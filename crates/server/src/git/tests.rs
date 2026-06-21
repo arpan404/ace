@@ -4,10 +4,10 @@ use ace_git::{
 };
 use ace_protocol::git::{
     CreatePullRequest, DefaultBranchPolicy, GitCheckoutBranchRequest, GitCommitRequest,
-    GitCreateBranchRequest, GitDeleteBranchRequest, GitDiffRequest, GitFetchRequest,
-    GitPullRequest, GitPushRequest, GitRenameBranchRequest, GitStageRequest, GitStashApplyRequest,
-    GitStashSaveRequest, GitStatusRequest, GitUnstageRequest, GitWorkflowAction,
-    GitWorkflowRequest, GitWorktreeCreateRequest, GitWorktreeRemoveRequest,
+    GitCommitsRequest, GitCreateBranchRequest, GitDeleteBranchRequest, GitDiffRequest,
+    GitFetchRequest, GitPullRequest, GitPushRequest, GitRenameBranchRequest, GitStageRequest,
+    GitStashApplyRequest, GitStashSaveRequest, GitStatusRequest, GitUnstageRequest,
+    GitWorkflowAction, GitWorkflowRequest, GitWorktreeCreateRequest, GitWorktreeRemoveRequest,
 };
 use async_trait::async_trait;
 use axum::{
@@ -323,6 +323,52 @@ async fn service_commits_with_message() {
         runner.requests()[0].args,
         vec!["commit", "-m", "Implement feature"]
     );
+}
+
+#[tokio::test]
+async fn service_returns_recent_commits() {
+    let runner = Arc::new(FakeRunner::new(vec![ok(
+        "abcdef123456\0abcdef1\0parent1\0HEAD -> feature/x\0Octo\0octo@example.test\x002026-06-21T00:00:00+00:00\x002026-06-21T00:01:00+00:00\0Ship feature\x1e",
+    )]));
+    let service = GitService::new(GitClient::with_runner(runner.clone()));
+
+    let commits = service
+        .commits(GitCommitsRequest {
+            repo_path: "/repo".to_string(),
+            limit: 20,
+            rev: Some("feature/x".to_string()),
+        })
+        .await
+        .expect("commits");
+
+    assert_eq!(commits[0].short_oid, "abcdef1");
+    assert_eq!(commits[0].refs, vec!["HEAD -> feature/x"]);
+    assert_eq!(commits[0].subject, "Ship feature");
+    let args = &runner.requests()[0].args;
+    assert_eq!(args[0], "log");
+    assert_eq!(args[1], "--max-count=20");
+    assert_eq!(args[4], "feature/x");
+}
+
+#[tokio::test]
+async fn service_rejects_unsafe_commit_revision_before_running_process() {
+    let runner = Arc::new(FakeRunner::new(Vec::new()));
+    let service = GitService::new(GitClient::with_runner(runner.clone()));
+
+    let error = service
+        .commits(GitCommitsRequest {
+            repo_path: "/repo".to_string(),
+            limit: 20,
+            rev: Some("--all".to_string()),
+        })
+        .await
+        .expect_err("unsafe rev");
+
+    assert!(matches!(
+        error,
+        GitApiError::Tooling(ace_git::GitToolError::Parse { .. })
+    ));
+    assert!(runner.requests().is_empty());
 }
 
 #[tokio::test]

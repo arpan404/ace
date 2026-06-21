@@ -16,6 +16,7 @@ pub mod methods {
     pub const GIT_STAGE: &str = "git.stage";
     pub const GIT_UNSTAGE: &str = "git.unstage";
     pub const GIT_COMMIT: &str = "git.commit";
+    pub const GIT_COMMITS: &str = "git.commits";
     pub const GIT_STASHES: &str = "git.stashes";
     pub const GIT_STASHES_SAVE: &str = "git.stashes.save";
     pub const GIT_STASHES_APPLY: &str = "git.stashes.apply";

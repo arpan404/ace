@@ -5,11 +5,11 @@ use ace_git::{
 };
 use ace_platform::AppPaths;
 use ace_protocol::git::{
-    GitBranchesRequest, GitCheckoutBranchRequest, GitCommitRequest, GitCreateBranchRequest,
-    GitDeleteBranchRequest, GitDiffRequest, GitFetchRequest, GitPullRequest, GitPushRequest,
-    GitRenameBranchRequest, GitRepositoryRequest, GitStageRequest, GitStashApplyRequest,
-    GitStashDropRequest, GitStashPopRequest, GitStashSaveRequest, GitStashesRequest,
-    GitStatusRequest, GitUnstageRequest, GitWorkflowAction, GitWorkflowRequest,
+    GitBranchesRequest, GitCheckoutBranchRequest, GitCommitRequest, GitCommitsRequest,
+    GitCreateBranchRequest, GitDeleteBranchRequest, GitDiffRequest, GitFetchRequest,
+    GitPullRequest, GitPushRequest, GitRenameBranchRequest, GitRepositoryRequest, GitStageRequest,
+    GitStashApplyRequest, GitStashDropRequest, GitStashPopRequest, GitStashSaveRequest,
+    GitStashesRequest, GitStatusRequest, GitUnstageRequest, GitWorkflowAction, GitWorkflowRequest,
     GitWorktreeCreateRequest, GitWorktreeRemoveRequest, GitWorktreesRequest,
 };
 use serde::Serialize;
@@ -239,6 +239,20 @@ impl<R: ProcessRunner> GitService<R> {
             action: "commit",
             branch: None,
         })
+    }
+
+    pub async fn commits(
+        &self,
+        request: GitCommitsRequest,
+    ) -> Result<Vec<ace_git::GitCommitSummary>, GitApiError> {
+        self.git
+            .recent_commits(
+                &repo_path(&request.repo_path)?,
+                request.limit,
+                request.rev.as_deref(),
+            )
+            .await
+            .map_err(GitApiError::from)
     }
 
     pub async fn stashes(
