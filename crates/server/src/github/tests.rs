@@ -4,11 +4,12 @@ use ace_protocol::github::{
     CheckRunAnnotationsRequest, CheckRunListFilter, CheckRunsRequest, CheckSuiteRunsRequest,
     CheckSuitesRequest, CommitStatusesRequest, EnvironmentStatusRequest, IssueListFilter,
     IssueListRequest, IssueThreadRequest, PullRequestActivityRequest, PullRequestChecksRequest,
-    PullRequestDashboardRequest, PullRequestDiffRequest, PullRequestFilesRequest,
-    PullRequestListFilter, PullRequestMergeMethod, PullRequestMergeRequest, PullRequestRequest,
-    PullRequestReviewDecision, PullRequestReviewRequest, PullRequestThreadRequest,
-    WorkflowDisableRequest, WorkflowDispatchInput, WorkflowDispatchRequest, WorkflowEnableRequest,
-    WorkflowListFilter, WorkflowListRequest, WorkflowRunArtifactsRequest, WorkflowRunListFilter,
+    PullRequestCreateRequest, PullRequestDashboardRequest, PullRequestDiffRequest,
+    PullRequestFilesRequest, PullRequestListFilter, PullRequestMergeMethod,
+    PullRequestMergeRequest, PullRequestRequest, PullRequestReviewDecision,
+    PullRequestReviewRequest, PullRequestThreadRequest, WorkflowDisableRequest,
+    WorkflowDispatchInput, WorkflowDispatchRequest, WorkflowEnableRequest, WorkflowListFilter,
+    WorkflowListRequest, WorkflowRunArtifactsRequest, WorkflowRunListFilter,
     WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunRerunRequest,
 };
 use async_trait::async_trait;
@@ -194,6 +195,48 @@ async fn service_returns_pull_request_details() {
             "42",
             "--json",
             "number,title,state,url,headRefName,baseRefName,body,author,createdAt,updatedAt,isDraft,reviewDecision,mergeStateStatus"
+        ]
+    );
+}
+
+#[tokio::test]
+async fn service_creates_pull_request_through_github_cli() {
+    let runner = Arc::new(FakeRunner::new(vec![ok(
+        "https://github.com/ace/app/pull/42\n",
+    )]));
+    let service = GithubService::new(GithubCliClient::with_runner(runner.clone()));
+
+    let pull_request = service
+        .create_pull_request(PullRequestCreateRequest {
+            repo_path: "/repo".to_string(),
+            title: "Ship it".to_string(),
+            body: "Body".to_string(),
+            head: "feature/work".to_string(),
+            base: "main".to_string(),
+            draft: true,
+        })
+        .await
+        .expect("create pull request");
+
+    assert_eq!(pull_request.number, Some(42));
+    assert_eq!(pull_request.title, "Ship it");
+    assert_eq!(pull_request.head_ref_name, "feature/work");
+    assert_eq!(pull_request.base_ref_name, "main");
+    assert_eq!(pull_request.is_draft, Some(true));
+    assert_eq!(
+        runner.requests()[0].args,
+        vec![
+            "pr",
+            "create",
+            "--title",
+            "Ship it",
+            "--body",
+            "Body",
+            "--head",
+            "feature/work",
+            "--base",
+            "main",
+            "--draft"
         ]
     );
 }

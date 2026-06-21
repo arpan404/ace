@@ -62,6 +62,16 @@ pub struct PullRequestRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PullRequestCreateRequest {
+    pub repo_path: String,
+    pub title: String,
+    pub body: String,
+    pub head: String,
+    pub base: String,
+    pub draft: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PullRequestThreadRequest {
     pub repo_path: String,
     pub selector: String,

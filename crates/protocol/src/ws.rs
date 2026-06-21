@@ -30,6 +30,7 @@ pub mod methods {
     pub const GITHUB_ISSUES_SEARCH: &str = "github.issues.search";
     pub const GITHUB_PULL_REQUESTS_LIST: &str = "github.pull_requests.list";
     pub const GITHUB_PULL_REQUESTS_SEARCH: &str = "github.pull_requests.search";
+    pub const GITHUB_PULL_REQUEST_CREATE: &str = "github.pull_request.create";
     pub const GITHUB_PULL_REQUEST_VIEW: &str = "github.pull_request.view";
     pub const GITHUB_PULL_REQUEST_THREAD: &str = "github.pull_request.thread";
     pub const GITHUB_PULL_REQUEST_FILES: &str = "github.pull_request.files";

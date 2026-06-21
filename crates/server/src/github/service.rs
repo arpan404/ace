@@ -7,23 +7,23 @@ use super::{
     },
 };
 use ace_git::{
-    GithubCliClient, ProcessRunner, PullRequestCheckout, PullRequestClose, PullRequestComment,
-    PullRequestMerge, PullRequestReadyState, PullRequestReopen, PullRequestReview,
-    TokioProcessRunner, WorkflowDispatch, WorkflowDispatchInput, WorkflowRunCancel,
-    WorkflowRunRerun, WorkflowStateChange,
+    CreatePullRequest, GithubCliClient, ProcessRunner, PullRequestCheckout, PullRequestClose,
+    PullRequestComment, PullRequestMerge, PullRequestReadyState, PullRequestReopen,
+    PullRequestReview, TokioProcessRunner, WorkflowDispatch, WorkflowDispatchInput,
+    WorkflowRunCancel, WorkflowRunRerun, WorkflowStateChange,
 };
 use ace_protocol::github::{
     CheckRunAnnotationsRequest, CheckRunsRequest, CheckSuiteRunsRequest, CheckSuitesRequest,
     CommitStatusesRequest, EnvironmentStatusRequest, IssueListRequest, IssueThreadRequest,
     PullRequestActivityRequest, PullRequestCheckoutRequest, PullRequestChecksRequest,
-    PullRequestCloseRequest, PullRequestCommentRequest, PullRequestDashboardRequest,
-    PullRequestDiffRequest, PullRequestFilesRequest, PullRequestListRequest,
-    PullRequestMergeRequest, PullRequestReadyStateRequest, PullRequestReopenRequest,
-    PullRequestRequest, PullRequestReviewRequest, PullRequestThreadRequest, SearchIssuesRequest,
-    SearchPullRequestsRequest, WorkflowDisableRequest, WorkflowDispatchRequest,
-    WorkflowEnableRequest, WorkflowListRequest, WorkflowRunArtifactsRequest,
-    WorkflowRunCancelRequest, WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunRequest,
-    WorkflowRunRerunRequest,
+    PullRequestCloseRequest, PullRequestCommentRequest, PullRequestCreateRequest,
+    PullRequestDashboardRequest, PullRequestDiffRequest, PullRequestFilesRequest,
+    PullRequestListRequest, PullRequestMergeRequest, PullRequestReadyStateRequest,
+    PullRequestReopenRequest, PullRequestRequest, PullRequestReviewRequest,
+    PullRequestThreadRequest, SearchIssuesRequest, SearchPullRequestsRequest,
+    WorkflowDisableRequest, WorkflowDispatchRequest, WorkflowEnableRequest, WorkflowListRequest,
+    WorkflowRunArtifactsRequest, WorkflowRunCancelRequest, WorkflowRunListRequest,
+    WorkflowRunLogRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
 };
 use serde::Serialize;
 use std::{path::PathBuf, sync::Arc};
@@ -128,6 +128,25 @@ impl<R: ProcessRunner> GithubService<R> {
     ) -> Result<ace_git::GithubPullRequest, GithubApiError> {
         self.github
             .pull_request(&repo_path(&request.repo_path)?, &request.selector)
+            .await
+            .map_err(GithubApiError::from)
+    }
+
+    pub async fn create_pull_request(
+        &self,
+        request: PullRequestCreateRequest,
+    ) -> Result<ace_git::GithubPullRequest, GithubApiError> {
+        self.github
+            .create_pull_request(
+                &repo_path(&request.repo_path)?,
+                &CreatePullRequest {
+                    title: request.title,
+                    body: request.body,
+                    head: request.head,
+                    base: request.base,
+                    draft: request.draft,
+                },
+            )
             .await
             .map_err(GithubApiError::from)
     }

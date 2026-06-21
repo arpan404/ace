@@ -5,14 +5,14 @@ use ace_protocol::{
         CheckRunAnnotationsRequest, CheckRunsRequest, CheckSuiteRunsRequest, CheckSuitesRequest,
         CommitStatusesRequest, EnvironmentStatusRequest, IssueListRequest, IssueThreadRequest,
         PullRequestActivityRequest, PullRequestCheckoutRequest, PullRequestChecksRequest,
-        PullRequestCloseRequest, PullRequestCommentRequest, PullRequestDashboardRequest,
-        PullRequestDiffRequest, PullRequestFilesRequest, PullRequestListRequest,
-        PullRequestMergeRequest, PullRequestReadyStateRequest, PullRequestReopenRequest,
-        PullRequestRequest, PullRequestReviewRequest, PullRequestThreadRequest,
-        SearchIssuesRequest, SearchPullRequestsRequest, WorkflowDisableRequest,
-        WorkflowDispatchRequest, WorkflowEnableRequest, WorkflowListRequest,
-        WorkflowRunArtifactsRequest, WorkflowRunCancelRequest, WorkflowRunListRequest,
-        WorkflowRunLogRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
+        PullRequestCloseRequest, PullRequestCommentRequest, PullRequestCreateRequest,
+        PullRequestDashboardRequest, PullRequestDiffRequest, PullRequestFilesRequest,
+        PullRequestListRequest, PullRequestMergeRequest, PullRequestReadyStateRequest,
+        PullRequestReopenRequest, PullRequestRequest, PullRequestReviewRequest,
+        PullRequestThreadRequest, SearchIssuesRequest, SearchPullRequestsRequest,
+        WorkflowDisableRequest, WorkflowDispatchRequest, WorkflowEnableRequest,
+        WorkflowListRequest, WorkflowRunArtifactsRequest, WorkflowRunCancelRequest,
+        WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
     },
     ws::methods,
 };
@@ -66,6 +66,13 @@ impl<R: ProcessRunner> WsApiState<R> {
                     |service, request| async move {
                         service.search_pull_requests(request).await
                     },
+                )
+                .await
+            }
+            methods::GITHUB_PULL_REQUEST_CREATE => {
+                self.github_json::<PullRequestCreateRequest, _, _, _>(
+                    payload,
+                    |service, request| async move { service.create_pull_request(request).await },
                 )
                 .await
             }
@@ -480,6 +487,56 @@ mod tests {
         assert!(args.windows(2).any(|pair| pair == ["--base", "main"]));
         assert!(args.windows(2).any(|pair| pair == ["--head", "feature/x"]));
         assert!(args.contains(&"--draft".to_string()));
+    }
+
+    #[tokio::test]
+    async fn dispatches_pull_request_create_over_ws_rpc() {
+        let runner = Arc::new(FakeRunner::new(vec![ok(
+            "https://github.com/ace/app/pull/42\n",
+        )]));
+        let state = test_state(runner.clone());
+
+        let response = dispatch(
+            &state,
+            serde_json::json!({
+                "version": PROTOCOL_VERSION,
+                "request_id": "req-pr-create",
+                "method": methods::GITHUB_PULL_REQUEST_CREATE,
+                "payload": {
+                    "repo_path": "/repo",
+                    "title": "Ship it",
+                    "body": "Body",
+                    "head": "feature/work",
+                    "base": "main",
+                    "draft": true
+                }
+            }),
+        )
+        .await;
+
+        let WsServerPayload::Result { body } = response.payload else {
+            panic!("expected result");
+        };
+        assert_eq!(body["number"], 42);
+        assert_eq!(body["title"], "Ship it");
+        assert_eq!(body["headRefName"], "feature/work");
+        assert_eq!(body["isDraft"], true);
+        assert_eq!(
+            runner.requests()[0].args,
+            vec![
+                "pr",
+                "create",
+                "--title",
+                "Ship it",
+                "--body",
+                "Body",
+                "--head",
+                "feature/work",
+                "--base",
+                "main",
+                "--draft"
+            ]
+        );
     }
 
     #[tokio::test]
