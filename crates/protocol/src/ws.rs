@@ -47,6 +47,16 @@ pub mod methods {
     pub const CHECKPOINTS_FULL_THREAD_DIFF: &str = "checkpoints.get_full_thread_diff";
     pub const CHECKPOINTS_REQUEST_REVERT: &str = "checkpoints.request_revert";
 
+    pub const TERMINAL_OPEN: &str = "terminal.open";
+    pub const TERMINAL_WRITE: &str = "terminal.write";
+    pub const TERMINAL_RESIZE: &str = "terminal.resize";
+    pub const TERMINAL_CLEAR: &str = "terminal.clear";
+    pub const TERMINAL_RESTART: &str = "terminal.restart";
+    pub const TERMINAL_CLOSE: &str = "terminal.close";
+    pub const TERMINAL_LIST: &str = "terminal.list";
+    pub const TERMINAL_TERMINATE: &str = "terminal.terminate";
+    pub const TERMINAL_EVENTS_SUBSCRIBE: &str = "terminal.events.subscribe";
+
     pub const GITHUB_ENVIRONMENT_STATUS: &str = "github.environment.status";
     pub const GITHUB_REPOSITORY_ACTIVITY: &str = "github.repository_activity";
     pub const GITHUB_IMAGE_PROXY: &str = "github.image.proxy";
@@ -136,5 +146,6 @@ pub struct WsServerResponse {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum WsServerPayload {
     Result { body: Value },
+    Event { topic: String, body: Value },
     Error { code: String, message: String },
 }

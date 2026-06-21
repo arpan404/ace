@@ -26,9 +26,10 @@ use ace_protocol::{
     },
     ws::methods,
 };
+use ace_terminal::PtyAdapter;
 use serde_json::Value;
 
-impl<R: ProcessRunner> WsApiState<R> {
+impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
     pub(super) async fn dispatch_github_method(
         &self,
         method: &str,

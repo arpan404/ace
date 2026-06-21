@@ -1,0 +1,44 @@
+use crate::PersistenceError;
+use rusqlite::Connection;
+
+pub fn open_event_store(path: impl AsRef<std::path::Path>) -> Result<Connection, PersistenceError> {
+    let connection = Connection::open(path)?;
+    connection.pragma_update(None, "journal_mode", "WAL")?;
+    migrate(&connection)?;
+    Ok(connection)
+}
+
+pub fn migrate(connection: &Connection) -> Result<(), PersistenceError> {
+    connection.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS projection_projects (
+            project_id TEXT PRIMARY KEY,
+            project_json TEXT NOT NULL,
+            workspace_root TEXT NOT NULL,
+            deleted_at TEXT
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_projection_projects_workspace_active
+        ON projection_projects(workspace_root)
+        WHERE deleted_at IS NULL;
+
+        CREATE TABLE IF NOT EXISTS projection_threads (
+            thread_id TEXT PRIMARY KEY,
+            thread_json TEXT NOT NULL,
+            project_id TEXT NOT NULL,
+            deleted_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_projection_threads_project
+        ON projection_threads(project_id);
+
+        CREATE TABLE IF NOT EXISTS projection_checkpoints (
+            thread_id TEXT NOT NULL,
+            checkpoint_turn_count INTEGER NOT NULL,
+            checkpoint_json TEXT NOT NULL,
+            PRIMARY KEY(thread_id, checkpoint_turn_count)
+        );
+        CREATE INDEX IF NOT EXISTS idx_projection_checkpoints_thread
+        ON projection_checkpoints(thread_id, checkpoint_turn_count);
+        ",
+    )?;
+    Ok(())
+}

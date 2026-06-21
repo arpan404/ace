@@ -5,6 +5,7 @@ pub mod checkpoint;
 pub mod git;
 pub mod github;
 pub mod project;
+pub mod terminal;
 pub mod ws;
 
 pub const PROTOCOL_VERSION: u16 = 1;

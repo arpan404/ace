@@ -3,6 +3,7 @@ mod git;
 mod github;
 mod project;
 mod repository_activity;
+mod terminal;
 
 use crate::checkpoint::{CheckpointApiError, CheckpointService};
 use crate::git::{GitApiError, GitService};
@@ -13,6 +14,7 @@ use ace_protocol::{
     PROTOCOL_VERSION,
     ws::{WsClientRequest, WsServerPayload, WsServerResponse},
 };
+use ace_terminal::{PortablePtyAdapter, PtyAdapter, TerminalError, TerminalManager};
 use axum::{
     Router,
     extract::{
@@ -27,26 +29,29 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 use std::{future::Future, sync::Arc};
 use thiserror::Error;
+use tokio::sync::mpsc;
 
-pub struct WsApiState<R: ProcessRunner = TokioProcessRunner> {
+pub struct WsApiState<R: ProcessRunner = TokioProcessRunner, A: PtyAdapter = PortablePtyAdapter> {
     checkpoint: Arc<CheckpointService<TokioProcessRunner>>,
     git: Arc<GitService<R>>,
     github: Arc<GithubService<R>>,
     project: Arc<ProjectService>,
+    terminal: Arc<TerminalManager<A>>,
 }
 
-impl<R: ProcessRunner> Clone for WsApiState<R> {
+impl<R: ProcessRunner, A: PtyAdapter> Clone for WsApiState<R, A> {
     fn clone(&self) -> Self {
         Self {
             checkpoint: Arc::clone(&self.checkpoint),
             git: Arc::clone(&self.git),
             github: Arc::clone(&self.github),
             project: Arc::clone(&self.project),
+            terminal: Arc::clone(&self.terminal),
         }
     }
 }
 
-impl WsApiState<TokioProcessRunner> {
+impl WsApiState<TokioProcessRunner, PortablePtyAdapter> {
     #[must_use]
     pub fn production() -> Self {
         Self {
@@ -57,11 +62,12 @@ impl WsApiState<TokioProcessRunner> {
             )),
             github: Arc::new(GithubService::new(GithubCliClient::new())),
             project: Arc::new(ProjectService::production().expect("initialize project service")),
+            terminal: Arc::new(TerminalManager::production()),
         }
     }
 }
 
-impl<R: ProcessRunner> WsApiState<R> {
+impl<R: ProcessRunner> WsApiState<R, PortablePtyAdapter> {
     #[must_use]
     pub fn new_services(git: GitService<R>, github: GithubService<R>) -> Self {
         Self {
@@ -71,12 +77,35 @@ impl<R: ProcessRunner> WsApiState<R> {
             project: Arc::new(
                 ProjectService::memory().expect("initialize in-memory project service"),
             ),
+            terminal: Arc::new(TerminalManager::production()),
         }
     }
 
     #[must_use]
+    pub fn with_terminal_manager<A: PtyAdapter>(
+        self,
+        terminal: TerminalManager<A>,
+    ) -> WsApiState<R, A> {
+        WsApiState {
+            checkpoint: self.checkpoint,
+            git: self.git,
+            github: self.github,
+            project: self.project,
+            terminal: Arc::new(terminal),
+        }
+    }
+}
+
+impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
+    #[must_use]
     pub fn with_project_service(mut self, project: ProjectService) -> Self {
         self.project = Arc::new(project);
+        self
+    }
+
+    #[must_use]
+    pub fn replace_terminal_manager(mut self, terminal: TerminalManager<A>) -> Self {
+        self.terminal = Arc::new(terminal);
         self
     }
 }
@@ -85,58 +114,88 @@ pub fn router() -> Router {
     router_with_state(WsApiState::<TokioProcessRunner>::production())
 }
 
-pub fn router_with_state<R>(state: WsApiState<R>) -> Router
+pub fn router_with_state<R, A>(state: WsApiState<R, A>) -> Router
 where
     R: ProcessRunner + 'static,
+    A: PtyAdapter + 'static,
 {
     Router::new()
-        .route("/ws", get(ws_upgrade::<R>))
-        .route("/api/ws", get(ws_upgrade::<R>))
+        .route("/ws", get(ws_upgrade::<R, A>))
+        .route("/api/ws", get(ws_upgrade::<R, A>))
         .with_state(state)
 }
 
-async fn ws_upgrade<R>(ws: WebSocketUpgrade, State(state): State<WsApiState<R>>) -> Response
+async fn ws_upgrade<R, A>(ws: WebSocketUpgrade, State(state): State<WsApiState<R, A>>) -> Response
 where
     R: ProcessRunner + 'static,
+    A: PtyAdapter + 'static,
 {
-    ws.on_upgrade(move |socket| handle_socket(socket, state))
+    ws.on_upgrade(move |socket| handle_socket::<R, A>(socket, state))
 }
 
-async fn handle_socket<R>(mut socket: WebSocket, state: WsApiState<R>)
+async fn handle_socket<R, A>(mut socket: WebSocket, state: WsApiState<R, A>)
 where
     R: ProcessRunner,
+    A: PtyAdapter,
 {
-    while let Some(message) = socket.recv().await {
-        let Ok(message) = message else {
-            break;
-        };
-        match message {
-            Message::Text(text) => {
-                let response = state.dispatch_text(text.as_str()).await;
+    let (outbound_tx, mut outbound_rx) = mpsc::channel::<String>(1024);
+    loop {
+        tokio::select! {
+            message = socket.recv() => {
+                let Some(message) = message else {
+                    break;
+                };
+                let Ok(message) = message else {
+                    break;
+                };
+                match message {
+                    Message::Text(text) => {
+                        let response = state
+                            .dispatch_text_with_events(text.as_str(), Some(outbound_tx.clone()))
+                            .await;
+                        if socket.send(Message::Text(response.into())).await.is_err() {
+                            break;
+                        }
+                    }
+                    Message::Binary(_) => {
+                        let response = error_response(
+                            "",
+                            "unsupported_message",
+                            "binary messages are not supported",
+                        );
+                        if socket.send(Message::Text(response.into())).await.is_err() {
+                            break;
+                        }
+                    }
+                    Message::Close(_) => break,
+                    Message::Ping(_) | Message::Pong(_) => {}
+                }
+            }
+            outbound = outbound_rx.recv() => {
+                let Some(response) = outbound else {
+                    break;
+                };
                 if socket.send(Message::Text(response.into())).await.is_err() {
                     break;
                 }
             }
-            Message::Binary(_) => {
-                let response = error_response(
-                    "",
-                    "unsupported_message",
-                    "binary messages are not supported",
-                );
-                if socket.send(Message::Text(response.into())).await.is_err() {
-                    break;
-                }
-            }
-            Message::Close(_) => break,
-            Message::Ping(_) | Message::Pong(_) => {}
         }
     }
 }
 
-impl<R: ProcessRunner> WsApiState<R> {
+impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
+    #[cfg(test)]
     async fn dispatch_text(&self, raw: &str) -> String {
+        self.dispatch_text_with_events(raw, None).await
+    }
+
+    async fn dispatch_text_with_events(
+        &self,
+        raw: &str,
+        outbound: Option<mpsc::Sender<String>>,
+    ) -> String {
         let response = match serde_json::from_str::<WsClientRequest>(raw) {
-            Ok(request) => self.dispatch_request(request).await,
+            Ok(request) => self.dispatch_request_with_events(request, outbound).await,
             Err(error) => WsServerResponse {
                 version: PROTOCOL_VERSION,
                 request_id: String::new(),
@@ -149,9 +208,18 @@ impl<R: ProcessRunner> WsApiState<R> {
         serde_json::to_string(&response).expect("serialize websocket response")
     }
 
-    async fn dispatch_request(&self, request: WsClientRequest) -> WsServerResponse {
+    async fn dispatch_request_with_events(
+        &self,
+        request: WsClientRequest,
+        outbound: Option<mpsc::Sender<String>>,
+    ) -> WsServerResponse {
         let request_id = request.request_id;
-        let result = self.dispatch_method(&request.method, request.payload).await;
+        let result = if request.method == ace_protocol::ws::methods::TERMINAL_EVENTS_SUBSCRIBE {
+            self.subscribe_terminal_events(request.payload, outbound)
+                .await
+        } else {
+            self.dispatch_method(&request.method, request.payload).await
+        };
         match result {
             Ok(body) => WsServerResponse {
                 version: PROTOCOL_VERSION,
@@ -182,6 +250,8 @@ impl<R: ProcessRunner> WsApiState<R> {
             self.dispatch_project_method(method, payload).await
         } else if method.starts_with("checkpoints.") {
             self.dispatch_checkpoint_method(method, payload).await
+        } else if method.starts_with("terminal.") {
+            self.dispatch_terminal_method(method, payload).await
         } else {
             Err(WsDispatchError::UnknownMethod(method.to_string()))
         }
@@ -250,6 +320,22 @@ impl<R: ProcessRunner> WsApiState<R> {
         let response = call(Arc::clone(&self.checkpoint), request).await?;
         Ok(serde_json::to_value(response)?)
     }
+
+    async fn terminal_json<T, O, Fut, F>(
+        &self,
+        payload: Value,
+        call: F,
+    ) -> Result<Value, WsDispatchError>
+    where
+        T: DeserializeOwned,
+        O: Serialize,
+        Fut: Future<Output = Result<O, TerminalError>>,
+        F: FnOnce(Arc<TerminalManager<A>>, T) -> Fut,
+    {
+        let request = serde_json::from_value(payload)?;
+        let response = call(Arc::clone(&self.terminal), request).await?;
+        Ok(serde_json::to_value(response)?)
+    }
 }
 
 fn error_response(request_id: &str, code: &str, message: &str) -> String {
@@ -278,6 +364,8 @@ enum WsDispatchError {
     Project(#[from] ProjectApiError),
     #[error("{0}")]
     Checkpoint(#[from] CheckpointApiError),
+    #[error("{0}")]
+    Terminal(#[from] TerminalError),
 }
 
 impl WsDispatchError {
@@ -289,6 +377,7 @@ impl WsDispatchError {
             Self::Git(_) => "git_error",
             Self::Project(_) => "project_error",
             Self::Checkpoint(_) => "checkpoint_error",
+            Self::Terminal(_) => "terminal_error",
         }
     }
 }

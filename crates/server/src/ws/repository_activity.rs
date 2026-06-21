@@ -4,9 +4,10 @@ use ace_protocol::{
     git::{GitRepositoryRequest, GitStatusRequest, GitWorktreesRequest},
     github::{PullRequestDashboardRequest, PullRequestListFilter, RepositoryActivityRequest},
 };
+use ace_terminal::PtyAdapter;
 use serde::Serialize;
 
-impl<R: ProcessRunner> WsApiState<R> {
+impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
     pub(super) async fn repository_activity(
         &self,
         request: RepositoryActivityRequest,
