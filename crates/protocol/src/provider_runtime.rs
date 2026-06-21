@@ -1,4 +1,4 @@
-use ace_runtime::tools::SemanticToolCall;
+use ace_runtime::{provider::NormalizedThreadItem, tools::SemanticToolCall};
 use ace_runtime::{provider::ProviderEvent, tools::ToolRunStatus};
 use serde::{Deserialize, Serialize};
 
@@ -84,6 +84,9 @@ pub enum ProviderRuntimeEvent {
     ToolApprovalRequested {
         tool: Box<SemanticToolCall>,
     },
+    ThreadItem {
+        item: Box<NormalizedThreadItem>,
+    },
     RawNotification {
         provider: String,
         method: String,
@@ -133,6 +136,7 @@ impl ProviderRuntimeEvent {
     pub fn from_provider_event(provider: &str, event: ProviderEvent) -> Self {
         match event {
             ProviderEvent::SemanticTool { tool } => Self::tool(*tool),
+            ProviderEvent::ThreadItem { item } => Self::ThreadItem { item },
             ProviderEvent::RawNotification { method, params } => Self::RawNotification {
                 provider: provider.to_string(),
                 method,
@@ -163,6 +167,7 @@ impl ProviderRuntimeEvent {
             | Self::ToolCompleted { tool }
             | Self::ToolFailed { tool, .. }
             | Self::ToolApprovalRequested { tool } => Some(tool.display.status),
+            Self::ThreadItem { .. } => None,
             Self::RawNotification { .. }
             | Self::RawServerRequest { .. }
             | Self::StderrLine { .. }
@@ -173,6 +178,9 @@ impl ProviderRuntimeEvent {
 
 #[cfg(test)]
 mod tests {
+    use ace_runtime::provider::{
+        NormalizedThreadItem, ProviderMetadata, ThreadItemKind, ThreadItemStatus,
+    };
     use ace_runtime::tools::{
         ProviderToolMetadata, ToolNormalizationInput, ToolRunStatus, ToolTransport,
         normalize_tool_call,
@@ -202,6 +210,45 @@ mod tests {
         assert_eq!(
             encoded["tool"]["display"]["title"],
             "Clicked Run in Browser"
+        );
+    }
+
+    #[test]
+    fn provider_runtime_event_uses_normalized_thread_item_shape() {
+        let event = ProviderRuntimeEvent::from_provider_event(
+            "codex",
+            ProviderEvent::ThreadItem {
+                item: Box::new(NormalizedThreadItem {
+                    kind: ThreadItemKind::Plan,
+                    status: ThreadItemStatus::Updated,
+                    thread_id: Some("thread-1".to_string()),
+                    turn_id: Some("turn-1".to_string()),
+                    item_id: Some("plan-1".to_string()),
+                    parent_thread_id: None,
+                    child_thread_id: None,
+                    sender: None,
+                    role: None,
+                    title: Some("Plan".to_string()),
+                    text: Some("Inspect first".to_string()),
+                    metadata: json!({ "phase": "planning" }),
+                    provider: ProviderMetadata {
+                        provider: "codex".to_string(),
+                        method: Some("item/plan/delta".to_string()),
+                        schema_version: Some("1".to_string()),
+                        raw_payload: json!({ "delta": "Inspect first" }),
+                    },
+                }),
+            },
+        );
+        let encoded = serde_json::to_value(event).expect("encode");
+        assert_eq!(encoded["type"], "thread_item");
+        assert_eq!(encoded["item"]["kind"], "plan");
+        assert_eq!(encoded["item"]["status"], "updated");
+        assert_eq!(encoded["item"]["text"], "Inspect first");
+        assert_eq!(encoded["item"]["provider"]["method"], "item/plan/delta");
+        assert_eq!(
+            encoded["item"]["provider"]["raw_payload"]["delta"],
+            "Inspect first"
         );
     }
 }
