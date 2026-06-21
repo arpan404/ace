@@ -1,9 +1,10 @@
 use super::{GitApiError, service::GitApiState};
 use ace_git::{ProcessRunner, TokioProcessRunner};
 use ace_protocol::git::{
-    GitBranchesRequest, GitCheckoutBranchRequest, GitCreateBranchRequest, GitDeleteBranchRequest,
-    GitDiffRequest, GitFetchRequest, GitPullRequest, GitPushRequest, GitRenameBranchRequest,
-    GitRepositoryRequest, GitStatusRequest, GitWorktreesRequest,
+    GitBranchesRequest, GitCheckoutBranchRequest, GitCommitRequest, GitCreateBranchRequest,
+    GitDeleteBranchRequest, GitDiffRequest, GitFetchRequest, GitPullRequest, GitPushRequest,
+    GitRenameBranchRequest, GitRepositoryRequest, GitStageRequest, GitStatusRequest,
+    GitUnstageRequest, GitWorktreesRequest,
 };
 use axum::{Json, Router, extract::State, routing::post};
 
@@ -27,6 +28,9 @@ where
         .route("/fetch", post(fetch::<R>))
         .route("/pull", post(pull::<R>))
         .route("/push", post(push::<R>))
+        .route("/stage", post(stage::<R>))
+        .route("/unstage", post(unstage::<R>))
+        .route("/commit", post(commit::<R>))
         .route("/worktrees", post(worktrees::<R>))
         .with_state(state)
 }
@@ -139,6 +143,36 @@ where
     R: ProcessRunner,
 {
     state.service.push(request).await.map(Json)
+}
+
+async fn stage<R>(
+    State(state): State<GitApiState<R>>,
+    Json(request): Json<GitStageRequest>,
+) -> Result<Json<super::GitActionResponse>, GitApiError>
+where
+    R: ProcessRunner,
+{
+    state.service.stage(request).await.map(Json)
+}
+
+async fn unstage<R>(
+    State(state): State<GitApiState<R>>,
+    Json(request): Json<GitUnstageRequest>,
+) -> Result<Json<super::GitActionResponse>, GitApiError>
+where
+    R: ProcessRunner,
+{
+    state.service.unstage(request).await.map(Json)
+}
+
+async fn commit<R>(
+    State(state): State<GitApiState<R>>,
+    Json(request): Json<GitCommitRequest>,
+) -> Result<Json<super::GitActionResponse>, GitApiError>
+where
+    R: ProcessRunner,
+{
+    state.service.commit(request).await.map(Json)
 }
 
 async fn worktrees<R>(

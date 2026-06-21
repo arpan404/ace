@@ -65,6 +65,26 @@ pub struct GitPushRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GitStageRequest {
+    pub repo_path: String,
+    pub paths: Vec<String>,
+    pub all: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GitUnstageRequest {
+    pub repo_path: String,
+    pub paths: Vec<String>,
+    pub all: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GitCommitRequest {
+    pub repo_path: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GitWorktreesRequest {
     pub repo_path: String,
 }

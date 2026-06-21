@@ -76,6 +76,10 @@ pub enum GitToolError {
     UnsafeBranchName(String),
     #[error("unsafe worktree path `{path}` outside root `{root}`")]
     UnsafeWorktreePath { path: PathBuf, root: PathBuf },
+    #[error("commit message must not be empty")]
+    EmptyCommitMessage,
+    #[error("pathspec must not be empty")]
+    EmptyPathspec,
     #[error("operation requires explicit approval on default branch `{0}`")]
     DefaultBranchDenied(String),
     #[error("GitHub CLI is not authenticated")]
@@ -381,7 +385,42 @@ impl<R: ProcessRunner> GitClient<R> {
     }
 
     pub async fn commit(&self, cwd: &Path, message: &str) -> Result<()> {
+        if message.trim().is_empty() {
+            return Err(GitToolError::EmptyCommitMessage);
+        }
         self.git_success(cwd, ["commit", "-m", message]).await?;
+        Ok(())
+    }
+
+    pub async fn stage(&self, cwd: &Path, paths: &[String], all: bool) -> Result<()> {
+        if all {
+            self.git_success(cwd, ["add", "-A"]).await?;
+            return Ok(());
+        }
+        if paths.is_empty() {
+            return Err(GitToolError::EmptyPathspec);
+        }
+        let mut args = vec!["add".to_string(), "--".to_string()];
+        args.extend(paths.iter().cloned());
+        self.git_success(cwd, args).await?;
+        Ok(())
+    }
+
+    pub async fn unstage(&self, cwd: &Path, paths: &[String], all: bool) -> Result<()> {
+        let mut args = vec![
+            "restore".to_string(),
+            "--staged".to_string(),
+            "--".to_string(),
+        ];
+        if all {
+            args.push(".".to_string());
+        } else {
+            if paths.is_empty() {
+                return Err(GitToolError::EmptyPathspec);
+            }
+            args.extend(paths.iter().cloned());
+        }
+        self.git_success(cwd, args).await?;
         Ok(())
     }
 

@@ -21,6 +21,8 @@ impl IntoResponse for GitApiError {
             Self::EmptyRepoPath
             | Self::Tooling(ace_git::GitToolError::UnsafeBranchName(_))
             | Self::Tooling(ace_git::GitToolError::UnsafeWorktreePath { .. })
+            | Self::Tooling(ace_git::GitToolError::EmptyCommitMessage)
+            | Self::Tooling(ace_git::GitToolError::EmptyPathspec)
             | Self::Tooling(ace_git::GitToolError::DefaultBranchDenied(_)) => {
                 StatusCode::BAD_REQUEST
             }

@@ -1,9 +1,10 @@
 use super::GitApiError;
 use ace_git::{GitClient, ProcessRunner, TokioProcessRunner};
 use ace_protocol::git::{
-    GitBranchesRequest, GitCheckoutBranchRequest, GitCreateBranchRequest, GitDeleteBranchRequest,
-    GitDiffRequest, GitFetchRequest, GitPullRequest, GitPushRequest, GitRenameBranchRequest,
-    GitRepositoryRequest, GitStatusRequest, GitWorktreesRequest,
+    GitBranchesRequest, GitCheckoutBranchRequest, GitCommitRequest, GitCreateBranchRequest,
+    GitDeleteBranchRequest, GitDiffRequest, GitFetchRequest, GitPullRequest, GitPushRequest,
+    GitRenameBranchRequest, GitRepositoryRequest, GitStageRequest, GitStatusRequest,
+    GitUnstageRequest, GitWorktreesRequest,
 };
 use serde::Serialize;
 use std::{path::PathBuf, sync::Arc};
@@ -173,6 +174,42 @@ impl<R: ProcessRunner> GitService<R> {
             .await?;
         Ok(GitActionResponse {
             action: "push",
+            branch: None,
+        })
+    }
+
+    pub async fn stage(&self, request: GitStageRequest) -> Result<GitActionResponse, GitApiError> {
+        self.git
+            .stage(&repo_path(&request.repo_path)?, &request.paths, request.all)
+            .await?;
+        Ok(GitActionResponse {
+            action: "stage",
+            branch: None,
+        })
+    }
+
+    pub async fn unstage(
+        &self,
+        request: GitUnstageRequest,
+    ) -> Result<GitActionResponse, GitApiError> {
+        self.git
+            .unstage(&repo_path(&request.repo_path)?, &request.paths, request.all)
+            .await?;
+        Ok(GitActionResponse {
+            action: "unstage",
+            branch: None,
+        })
+    }
+
+    pub async fn commit(
+        &self,
+        request: GitCommitRequest,
+    ) -> Result<GitActionResponse, GitApiError> {
+        self.git
+            .commit(&repo_path(&request.repo_path)?, &request.message)
+            .await?;
+        Ok(GitActionResponse {
+            action: "commit",
             branch: None,
         })
     }

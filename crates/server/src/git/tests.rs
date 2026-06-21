@@ -1,8 +1,9 @@
 use super::{GitApiError, GitService, routes::router_with_state, service::GitApiState};
 use ace_git::{CommandOutput, CommandRequest, GitClient, GitToolError, ProcessRunner};
 use ace_protocol::git::{
-    GitCheckoutBranchRequest, GitCreateBranchRequest, GitDeleteBranchRequest, GitDiffRequest,
-    GitFetchRequest, GitPullRequest, GitPushRequest, GitRenameBranchRequest, GitStatusRequest,
+    GitCheckoutBranchRequest, GitCommitRequest, GitCreateBranchRequest, GitDeleteBranchRequest,
+    GitDiffRequest, GitFetchRequest, GitPullRequest, GitPushRequest, GitRenameBranchRequest,
+    GitStageRequest, GitStatusRequest, GitUnstageRequest,
 };
 use async_trait::async_trait;
 use axum::{
@@ -253,6 +254,71 @@ async fn service_pushes_current_branch_with_upstream() {
     let requests = runner.requests();
     assert_eq!(requests[0].args, vec!["branch", "--show-current"]);
     assert_eq!(requests[1].args, vec!["push", "-u", "origin", "feature/x"]);
+}
+
+#[tokio::test]
+async fn service_stages_paths_through_git() {
+    let runner = Arc::new(FakeRunner::new(vec![ok("")]));
+    let service = GitService::new(GitClient::with_runner(runner.clone()));
+
+    let result = service
+        .stage(GitStageRequest {
+            repo_path: "/repo".to_string(),
+            paths: vec!["src/lib.rs".to_string(), "README.md".to_string()],
+            all: false,
+        })
+        .await
+        .expect("stage");
+
+    assert_eq!(result.action, "stage");
+    assert_eq!(result.branch, None);
+    assert_eq!(
+        runner.requests()[0].args,
+        vec!["add", "--", "src/lib.rs", "README.md"]
+    );
+}
+
+#[tokio::test]
+async fn service_unstages_all_through_git() {
+    let runner = Arc::new(FakeRunner::new(vec![ok("")]));
+    let service = GitService::new(GitClient::with_runner(runner.clone()));
+
+    let result = service
+        .unstage(GitUnstageRequest {
+            repo_path: "/repo".to_string(),
+            paths: Vec::new(),
+            all: true,
+        })
+        .await
+        .expect("unstage");
+
+    assert_eq!(result.action, "unstage");
+    assert_eq!(result.branch, None);
+    assert_eq!(
+        runner.requests()[0].args,
+        vec!["restore", "--staged", "--", "."]
+    );
+}
+
+#[tokio::test]
+async fn service_commits_with_message() {
+    let runner = Arc::new(FakeRunner::new(vec![ok("[feature/x abc] message\n")]));
+    let service = GitService::new(GitClient::with_runner(runner.clone()));
+
+    let result = service
+        .commit(GitCommitRequest {
+            repo_path: "/repo".to_string(),
+            message: "Implement feature".to_string(),
+        })
+        .await
+        .expect("commit");
+
+    assert_eq!(result.action, "commit");
+    assert_eq!(result.branch, None);
+    assert_eq!(
+        runner.requests()[0].args,
+        vec!["commit", "-m", "Implement feature"]
+    );
 }
 
 #[tokio::test]
@@ -511,6 +577,128 @@ async fn route_pushes_json() {
     let requests = runner.requests();
     assert_eq!(requests[0].args, vec!["branch", "--show-current"]);
     assert_eq!(requests[1].args, vec!["push", "-u", "origin", "feature/x"]);
+}
+
+#[tokio::test]
+async fn route_stages_all_json() {
+    let runner = Arc::new(FakeRunner::new(vec![ok("")]));
+    let app = test_router(runner.clone());
+
+    let response = app
+        .oneshot(json_request(
+            "/stage",
+            serde_json::json!({
+                "repo_path": "/repo",
+                "paths": [],
+                "all": true
+            }),
+        ))
+        .await
+        .expect("route response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response_json(response).await;
+    assert_eq!(body["action"], "stage");
+    assert!(body["branch"].is_null());
+    assert_eq!(runner.requests()[0].args, vec!["add", "-A"]);
+}
+
+#[tokio::test]
+async fn route_unstages_paths_json() {
+    let runner = Arc::new(FakeRunner::new(vec![ok("")]));
+    let app = test_router(runner.clone());
+
+    let response = app
+        .oneshot(json_request(
+            "/unstage",
+            serde_json::json!({
+                "repo_path": "/repo",
+                "paths": ["src/lib.rs"],
+                "all": false
+            }),
+        ))
+        .await
+        .expect("route response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response_json(response).await;
+    assert_eq!(body["action"], "unstage");
+    assert!(body["branch"].is_null());
+    assert_eq!(
+        runner.requests()[0].args,
+        vec!["restore", "--staged", "--", "src/lib.rs"]
+    );
+}
+
+#[tokio::test]
+async fn route_commits_json() {
+    let runner = Arc::new(FakeRunner::new(vec![ok("[feature/x abc] message\n")]));
+    let app = test_router(runner.clone());
+
+    let response = app
+        .oneshot(json_request(
+            "/commit",
+            serde_json::json!({
+                "repo_path": "/repo",
+                "message": "Implement feature"
+            }),
+        ))
+        .await
+        .expect("route response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response_json(response).await;
+    assert_eq!(body["action"], "commit");
+    assert!(body["branch"].is_null());
+    assert_eq!(
+        runner.requests()[0].args,
+        vec!["commit", "-m", "Implement feature"]
+    );
+}
+
+#[tokio::test]
+async fn route_rejects_empty_stage_pathspec_before_running_process() {
+    let runner = Arc::new(FakeRunner::new(Vec::new()));
+    let app = test_router(runner.clone());
+
+    let response = app
+        .oneshot(json_request(
+            "/stage",
+            serde_json::json!({
+                "repo_path": "/repo",
+                "paths": [],
+                "all": false
+            }),
+        ))
+        .await
+        .expect("route response");
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body = response_json(response).await;
+    assert_eq!(body["message"], "pathspec must not be empty");
+    assert!(runner.requests().is_empty());
+}
+
+#[tokio::test]
+async fn route_rejects_empty_commit_message_before_running_process() {
+    let runner = Arc::new(FakeRunner::new(Vec::new()));
+    let app = test_router(runner.clone());
+
+    let response = app
+        .oneshot(json_request(
+            "/commit",
+            serde_json::json!({
+                "repo_path": "/repo",
+                "message": "  "
+            }),
+        ))
+        .await
+        .expect("route response");
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body = response_json(response).await;
+    assert_eq!(body["message"], "commit message must not be empty");
+    assert!(runner.requests().is_empty());
 }
 
 #[tokio::test]
