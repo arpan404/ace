@@ -11,6 +11,7 @@ ace-checkpoint.workspace = true
 ace-core.workspace = true
 ace-lsp.workspace = true
 ace-project.workspace = true
+ace-runtime.workspace = true
 ace-workspace.workspace = true
 serde.workspace = true
 serde_json.workspace = true

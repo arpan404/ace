@@ -122,6 +122,7 @@ dependencies = [
  "ace-core",
  "ace-lsp",
  "ace-project",
+ "ace-runtime",
  "ace-workspace",
  "serde",
  "serde_json",
@@ -132,6 +133,8 @@ name = "ace-runtime"
 version = "0.1.0"
 dependencies = [
  "ace-core",
+ "serde",
+ "serde_json",
  "thiserror 2.0.18",
  "tokio",
  "tracing",

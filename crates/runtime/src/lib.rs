@@ -2,6 +2,8 @@ use ace_core::{Command, CommandId};
 use thiserror::Error;
 use tokio::sync::mpsc;
 
+pub mod tools;
+
 #[derive(Debug, Clone)]
 pub struct RuntimeCommand {
     pub id: CommandId,

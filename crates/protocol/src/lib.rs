@@ -7,6 +7,7 @@ pub mod git;
 pub mod github;
 pub mod lsp_tools;
 pub mod project;
+pub mod provider_runtime;
 pub mod terminal;
 pub mod workspace;
 pub mod ws;
