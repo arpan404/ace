@@ -21,6 +21,7 @@ mod github_diff;
 mod github_environment;
 mod github_mutations;
 mod github_review_comments;
+mod github_review_threads;
 mod github_search;
 mod github_timeline;
 
@@ -57,6 +58,11 @@ pub use github_mutations::{
     WorkflowRunPendingDeploymentReviewState, WorkflowRunRerun, WorkflowStateChange,
 };
 pub use github_review_comments::GithubPullRequestReviewComment;
+pub use github_review_threads::{
+    GithubPullRequestReviewThread, GithubPullRequestReviewThreadComment,
+    GithubPullRequestReviewThreadComments, GithubPullRequestReviewThreadReview,
+    GithubPullRequestReviewThreads,
+};
 pub use github_search::{
     GithubIssueListFilter, GithubIssueSummary, GithubPullRequestListFilter,
     GithubPullRequestSummary, GithubSearchFilter, GithubSearchIssue, GithubSearchPullRequest,

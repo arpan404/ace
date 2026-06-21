@@ -92,6 +92,14 @@ pub struct PullRequestReviewCommentsRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PullRequestReviewThreadsRequest {
+    pub repo_path: String,
+    pub number: u32,
+    pub thread_limit: u32,
+    pub comment_limit: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PullRequestCommitsRequest {
     pub repo_path: String,
     pub selector: String,

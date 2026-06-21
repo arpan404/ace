@@ -9,10 +9,10 @@ use ace_protocol::github::{
     PullRequestDashboardRequest, PullRequestDiffRequest, PullRequestFilesRequest,
     PullRequestListFilter, PullRequestMergeMethod, PullRequestMergeRequest,
     PullRequestMergeStatusRequest, PullRequestRequest, PullRequestReviewCommentsRequest,
-    PullRequestReviewDecision, PullRequestReviewRequest, PullRequestThreadRequest,
-    PullRequestTimelineRequest, WorkflowDisableRequest, WorkflowDispatchInput,
-    WorkflowDispatchRequest, WorkflowEnableRequest, WorkflowJobLogRequest, WorkflowJobRequest,
-    WorkflowListFilter, WorkflowListRequest, WorkflowRunApproveRequest,
+    PullRequestReviewDecision, PullRequestReviewRequest, PullRequestReviewThreadsRequest,
+    PullRequestThreadRequest, PullRequestTimelineRequest, WorkflowDisableRequest,
+    WorkflowDispatchInput, WorkflowDispatchRequest, WorkflowEnableRequest, WorkflowJobLogRequest,
+    WorkflowJobRequest, WorkflowListFilter, WorkflowListRequest, WorkflowRunApproveRequest,
     WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest, WorkflowRunJobsRequest,
     WorkflowRunListFilter, WorkflowRunListRequest, WorkflowRunLogRequest,
     WorkflowRunPendingDeploymentReviewRequest, WorkflowRunPendingDeploymentReviewState,
@@ -354,6 +354,46 @@ async fn service_returns_pull_request_review_comments() {
             "-F",
             "per_page=30"
         ]
+    );
+}
+
+#[tokio::test]
+async fn service_returns_pull_request_review_threads() {
+    let runner = Arc::new(FakeRunner::new(vec![
+        ok(
+            br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+        ),
+        ok(
+            br#"{"data":{"repository":{"pullRequest":{"number":42,"reviewThreads":{"totalCount":1,"nodes":[{"id":"PRRT_1","isCollapsed":false,"isOutdated":false,"isResolved":true,"path":"src/lib.rs","line":12,"startLine":10,"diffSide":"RIGHT","startDiffSide":"RIGHT","subjectType":"LINE","viewerCanReply":true,"viewerCanResolve":false,"viewerCanUnresolve":true,"resolvedBy":{"login":"maintainer"},"comments":{"totalCount":1,"nodes":[{"id":"PRRC_1","databaseId":10,"author":{"login":"reviewer"},"body":"Please cover this branch","createdAt":"2026-06-21T00:00:00Z","updatedAt":"2026-06-21T00:01:00Z","url":"https://github.test/pull/42#discussion_r10","path":"src/lib.rs","line":12,"originalLine":12,"diffHunk":"@@ -1 +1 @@","pullRequestReview":{"id":"PRR_1","state":"CHANGES_REQUESTED","author":{"login":"reviewer"}}}]}}]}}}}}"#,
+        ),
+    ]));
+    let service = GithubService::new(GithubCliClient::with_runner(runner.clone()));
+
+    let threads = service
+        .pull_request_review_threads(PullRequestReviewThreadsRequest {
+            repo_path: "/repo".to_string(),
+            number: 42,
+            thread_limit: 20,
+            comment_limit: 50,
+        })
+        .await
+        .expect("review threads");
+
+    assert_eq!(threads.number, 42);
+    assert_eq!(threads.total_count, 1);
+    assert!(threads.threads[0].is_resolved);
+    assert_eq!(
+        threads.threads[0].resolved_by.as_ref().unwrap().login,
+        "maintainer"
+    );
+    assert_eq!(threads.threads[0].comments.nodes[0].database_id, Some(10));
+    assert_eq!(runner.requests()[1].args[0], "api");
+    assert_eq!(runner.requests()[1].args[1], "graphql");
+    assert!(
+        runner.requests()[1]
+            .args
+            .iter()
+            .any(|arg| arg == "threadLimit=20")
     );
 }
 

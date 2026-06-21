@@ -11,14 +11,14 @@ use ace_protocol::{
         PullRequestDashboardRequest, PullRequestDiffRequest, PullRequestFilesRequest,
         PullRequestListRequest, PullRequestMergeRequest, PullRequestMergeStatusRequest,
         PullRequestReadyStateRequest, PullRequestReopenRequest, PullRequestRequest,
-        PullRequestReviewCommentsRequest, PullRequestReviewRequest, PullRequestThreadRequest,
-        PullRequestTimelineRequest, SearchIssuesRequest, SearchPullRequestsRequest,
-        WorkflowDisableRequest, WorkflowDispatchRequest, WorkflowEnableRequest,
-        WorkflowJobLogRequest, WorkflowJobRequest, WorkflowListRequest, WorkflowRunApproveRequest,
-        WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest, WorkflowRunCancelRequest,
-        WorkflowRunJobsRequest, WorkflowRunListRequest, WorkflowRunLogRequest,
-        WorkflowRunPendingDeploymentReviewRequest, WorkflowRunPendingDeploymentsRequest,
-        WorkflowRunRequest, WorkflowRunRerunRequest,
+        PullRequestReviewCommentsRequest, PullRequestReviewRequest,
+        PullRequestReviewThreadsRequest, PullRequestThreadRequest, PullRequestTimelineRequest,
+        SearchIssuesRequest, SearchPullRequestsRequest, WorkflowDisableRequest,
+        WorkflowDispatchRequest, WorkflowEnableRequest, WorkflowJobLogRequest, WorkflowJobRequest,
+        WorkflowListRequest, WorkflowRunApproveRequest, WorkflowRunArtifactDownloadRequest,
+        WorkflowRunArtifactsRequest, WorkflowRunCancelRequest, WorkflowRunJobsRequest,
+        WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunPendingDeploymentReviewRequest,
+        WorkflowRunPendingDeploymentsRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
     },
     ws::methods,
 };
@@ -108,6 +108,15 @@ impl<R: ProcessRunner> WsApiState<R> {
                     payload,
                     |service, request| async move {
                         service.pull_request_review_comments(request).await
+                    },
+                )
+                .await
+            }
+            methods::GITHUB_PULL_REQUEST_REVIEW_THREADS => {
+                self.github_json::<PullRequestReviewThreadsRequest, _, _, _>(
+                    payload,
+                    |service, request| async move {
+                        service.pull_request_review_threads(request).await
                     },
                 )
                 .await
@@ -913,6 +922,52 @@ mod tests {
                 "-F",
                 "per_page=30"
             ]
+        );
+    }
+
+    #[tokio::test]
+    async fn dispatches_pull_request_review_threads_over_ws_rpc() {
+        let runner = Arc::new(FakeRunner::new(vec![
+            ok(
+                br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+            ),
+            ok(
+                br#"{"data":{"repository":{"pullRequest":{"number":42,"reviewThreads":{"totalCount":1,"nodes":[{"id":"PRRT_1","isCollapsed":false,"isOutdated":false,"isResolved":true,"path":"src/lib.rs","line":12,"startLine":10,"diffSide":"RIGHT","startDiffSide":"RIGHT","subjectType":"LINE","viewerCanReply":true,"viewerCanResolve":false,"viewerCanUnresolve":true,"resolvedBy":{"login":"maintainer"},"comments":{"totalCount":1,"nodes":[{"id":"PRRC_1","databaseId":10,"author":{"login":"reviewer"},"body":"Please cover this branch","createdAt":"2026-06-21T00:00:00Z","updatedAt":"2026-06-21T00:01:00Z","url":"https://github.test/pull/42#discussion_r10","path":"src/lib.rs","line":12,"originalLine":12,"diffHunk":"@@ -1 +1 @@","pullRequestReview":{"id":"PRR_1","state":"CHANGES_REQUESTED","author":{"login":"reviewer"}}}]}}]}}}}}"#,
+            ),
+        ]));
+        let state = test_state(runner.clone());
+
+        let response = dispatch(
+            &state,
+            serde_json::json!({
+                "version": PROTOCOL_VERSION,
+                "request_id": "req-pr-review-threads",
+                "method": methods::GITHUB_PULL_REQUEST_REVIEW_THREADS,
+                "payload": {
+                    "repo_path": "/repo",
+                    "number": 42,
+                    "thread_limit": 20,
+                    "comment_limit": 50
+                }
+            }),
+        )
+        .await;
+
+        let WsServerPayload::Result { body } = response.payload else {
+            panic!("expected result");
+        };
+        assert_eq!(body["number"], 42);
+        assert_eq!(body["total_count"], 1);
+        assert_eq!(body["threads"][0]["isResolved"], true);
+        assert_eq!(body["threads"][0]["resolvedBy"]["login"], "maintainer");
+        assert_eq!(body["threads"][0]["comments"]["nodes"][0]["databaseId"], 10);
+        assert_eq!(runner.requests()[1].args[0], "api");
+        assert_eq!(runner.requests()[1].args[1], "graphql");
+        assert!(
+            runner.requests()[1]
+                .args
+                .iter()
+                .any(|arg| arg == "commentLimit=50")
         );
     }
 

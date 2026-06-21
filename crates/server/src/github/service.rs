@@ -23,12 +23,13 @@ use ace_protocol::github::{
     PullRequestDiffRequest, PullRequestFilesRequest, PullRequestListRequest,
     PullRequestMergeRequest, PullRequestMergeStatusRequest, PullRequestReadyStateRequest,
     PullRequestReopenRequest, PullRequestRequest, PullRequestReviewCommentsRequest,
-    PullRequestReviewRequest, PullRequestThreadRequest, PullRequestTimelineRequest,
-    SearchIssuesRequest, SearchPullRequestsRequest, WorkflowDisableRequest,
-    WorkflowDispatchRequest, WorkflowEnableRequest, WorkflowJobLogRequest, WorkflowJobRequest,
-    WorkflowListRequest, WorkflowRunApproveRequest, WorkflowRunArtifactDownloadRequest,
-    WorkflowRunArtifactsRequest, WorkflowRunCancelRequest, WorkflowRunJobsRequest,
-    WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunPendingDeploymentReviewRequest,
+    PullRequestReviewRequest, PullRequestReviewThreadsRequest, PullRequestThreadRequest,
+    PullRequestTimelineRequest, SearchIssuesRequest, SearchPullRequestsRequest,
+    WorkflowDisableRequest, WorkflowDispatchRequest, WorkflowEnableRequest, WorkflowJobLogRequest,
+    WorkflowJobRequest, WorkflowListRequest, WorkflowRunApproveRequest,
+    WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest, WorkflowRunCancelRequest,
+    WorkflowRunJobsRequest, WorkflowRunListRequest, WorkflowRunLogRequest,
+    WorkflowRunPendingDeploymentReviewRequest,
     WorkflowRunPendingDeploymentReviewState as ProtocolWorkflowRunPendingDeploymentReviewState,
     WorkflowRunPendingDeploymentsRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
 };
@@ -191,6 +192,21 @@ impl<R: ProcessRunner> GithubService<R> {
                 &repo_path(&request.repo_path)?,
                 request.number,
                 request.limit,
+            )
+            .await
+            .map_err(GithubApiError::from)
+    }
+
+    pub async fn pull_request_review_threads(
+        &self,
+        request: PullRequestReviewThreadsRequest,
+    ) -> Result<ace_git::GithubPullRequestReviewThreads, GithubApiError> {
+        self.github
+            .pull_request_review_threads(
+                &repo_path(&request.repo_path)?,
+                request.number,
+                request.thread_limit,
+                request.comment_limit,
             )
             .await
             .map_err(GithubApiError::from)

@@ -35,6 +35,7 @@ pub mod methods {
     pub const GITHUB_PULL_REQUEST_THREAD: &str = "github.pull_request.thread";
     pub const GITHUB_PULL_REQUEST_TIMELINE: &str = "github.pull_request.timeline";
     pub const GITHUB_PULL_REQUEST_REVIEW_COMMENTS: &str = "github.pull_request.review_comments";
+    pub const GITHUB_PULL_REQUEST_REVIEW_THREADS: &str = "github.pull_request.review_threads";
     pub const GITHUB_PULL_REQUEST_COMMITS: &str = "github.pull_request.commits";
     pub const GITHUB_PULL_REQUEST_MERGE_STATUS: &str = "github.pull_request.merge_status";
     pub const GITHUB_PULL_REQUEST_FILES: &str = "github.pull_request.files";
