@@ -30,6 +30,23 @@ pub mod methods {
     pub const GIT_WORKTREES_REMOVE: &str = "git.worktrees.remove";
     pub const GIT_WORKFLOW_RUN: &str = "git.workflow.run";
 
+    pub const PROJECTS_LIST: &str = "projects.list";
+    pub const PROJECTS_ADD: &str = "projects.add";
+    pub const PROJECTS_UPDATE: &str = "projects.update";
+    pub const PROJECTS_DELETE: &str = "projects.delete";
+    pub const PROJECTS_SEARCH_ENTRIES: &str = "projects.search_entries";
+    pub const PROJECTS_LIST_TREE: &str = "projects.list_tree";
+    pub const PROJECTS_RESOLVE_FAVICON: &str = "projects.resolve_favicon";
+    pub const PROJECTS_CREATE_ENTRY: &str = "projects.create_entry";
+    pub const PROJECTS_DELETE_ENTRY: &str = "projects.delete_entry";
+    pub const PROJECTS_READ_FILE: &str = "projects.read_file";
+    pub const PROJECTS_RENAME_ENTRY: &str = "projects.rename_entry";
+    pub const PROJECTS_WRITE_FILE: &str = "projects.write_file";
+
+    pub const CHECKPOINTS_TURN_DIFF: &str = "checkpoints.get_turn_diff";
+    pub const CHECKPOINTS_FULL_THREAD_DIFF: &str = "checkpoints.get_full_thread_diff";
+    pub const CHECKPOINTS_REQUEST_REVERT: &str = "checkpoints.request_revert";
+
     pub const GITHUB_ENVIRONMENT_STATUS: &str = "github.environment.status";
     pub const GITHUB_REPOSITORY_ACTIVITY: &str = "github.repository_activity";
     pub const GITHUB_IMAGE_PROXY: &str = "github.image.proxy";

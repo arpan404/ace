@@ -1,8 +1,10 @@
 use ace_core::{Command, ProviderCapability};
 use serde::{Deserialize, Serialize};
 
+pub mod checkpoint;
 pub mod git;
 pub mod github;
+pub mod project;
 pub mod ws;
 
 pub const PROTOCOL_VERSION: u16 = 1;
@@ -16,7 +18,7 @@ pub struct ClientEnvelope {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ClientPayload {
-    Command(Command),
+    Command(Box<Command>),
     Subscribe {
         from_sequence_exclusive: Option<u64>,
     },

@@ -1,5 +1,5 @@
 [package]
-name = "ace-server"
+name = "ace-checkpoint"
 version = "0.1.0"
 edition.workspace = true
 license.workspace = true
@@ -7,26 +7,14 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-ace-checkpoint.workspace = true
 ace-core.workspace = true
 ace-git.workspace = true
-ace-persistence.workspace = true
-ace-platform.workspace = true
-ace-project.workspace = true
-ace-protocol.workspace = true
 async-trait.workspace = true
-axum.workspace = true
 base64.workspace = true
-bytes.workspace = true
-reqwest.workspace = true
-rusqlite.workspace = true
 serde.workspace = true
-serde_json.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
-tracing.workspace = true
+uuid.workspace = true
 
 [dev-dependencies]
-async-trait.workspace = true
 tempfile.workspace = true
-tower.workspace = true

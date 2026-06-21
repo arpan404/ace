@@ -1,9 +1,13 @@
+mod checkpoint;
 mod git;
 mod github;
+mod project;
 mod repository_activity;
 
+use crate::checkpoint::{CheckpointApiError, CheckpointService};
 use crate::git::{GitApiError, GitService};
 use crate::github::{GithubApiError, GithubService};
+use crate::project::{ProjectApiError, ProjectService};
 use ace_git::{GitClient, GithubCliClient, ProcessRunner, TokioProcessRunner};
 use ace_protocol::{
     PROTOCOL_VERSION,
@@ -25,15 +29,19 @@ use std::{future::Future, sync::Arc};
 use thiserror::Error;
 
 pub struct WsApiState<R: ProcessRunner = TokioProcessRunner> {
+    checkpoint: Arc<CheckpointService<TokioProcessRunner>>,
     git: Arc<GitService<R>>,
     github: Arc<GithubService<R>>,
+    project: Arc<ProjectService>,
 }
 
 impl<R: ProcessRunner> Clone for WsApiState<R> {
     fn clone(&self) -> Self {
         Self {
+            checkpoint: Arc::clone(&self.checkpoint),
             git: Arc::clone(&self.git),
             github: Arc::clone(&self.github),
+            project: Arc::clone(&self.project),
         }
     }
 }
@@ -42,11 +50,13 @@ impl WsApiState<TokioProcessRunner> {
     #[must_use]
     pub fn production() -> Self {
         Self {
+            checkpoint: Arc::new(CheckpointService::production()),
             git: Arc::new(GitService::new_with_github(
                 GitClient::new(),
                 GithubCliClient::new(),
             )),
             github: Arc::new(GithubService::new(GithubCliClient::new())),
+            project: Arc::new(ProjectService::production().expect("initialize project service")),
         }
     }
 }
@@ -55,9 +65,19 @@ impl<R: ProcessRunner> WsApiState<R> {
     #[must_use]
     pub fn new_services(git: GitService<R>, github: GithubService<R>) -> Self {
         Self {
+            checkpoint: Arc::new(CheckpointService::production()),
             git: Arc::new(git),
             github: Arc::new(github),
+            project: Arc::new(
+                ProjectService::memory().expect("initialize in-memory project service"),
+            ),
         }
+    }
+
+    #[must_use]
+    pub fn with_project_service(mut self, project: ProjectService) -> Self {
+        self.project = Arc::new(project);
+        self
     }
 }
 
@@ -158,6 +178,10 @@ impl<R: ProcessRunner> WsApiState<R> {
             self.dispatch_git_method(method, payload).await
         } else if method.starts_with("github.") {
             self.dispatch_github_method(method, payload).await
+        } else if method.starts_with("projects.") {
+            self.dispatch_project_method(method, payload).await
+        } else if method.starts_with("checkpoints.") {
+            self.dispatch_checkpoint_method(method, payload).await
         } else {
             Err(WsDispatchError::UnknownMethod(method.to_string()))
         }
@@ -194,6 +218,38 @@ impl<R: ProcessRunner> WsApiState<R> {
         let response = call(Arc::clone(&self.github), request).await?;
         Ok(serde_json::to_value(response)?)
     }
+
+    async fn project_json<T, O, Fut, F>(
+        &self,
+        payload: Value,
+        call: F,
+    ) -> Result<Value, WsDispatchError>
+    where
+        T: DeserializeOwned,
+        O: Serialize,
+        Fut: Future<Output = Result<O, ProjectApiError>>,
+        F: FnOnce(Arc<ProjectService>, T) -> Fut,
+    {
+        let request = serde_json::from_value(payload)?;
+        let response = call(Arc::clone(&self.project), request).await?;
+        Ok(serde_json::to_value(response)?)
+    }
+
+    async fn checkpoint_json<T, O, Fut, F>(
+        &self,
+        payload: Value,
+        call: F,
+    ) -> Result<Value, WsDispatchError>
+    where
+        T: DeserializeOwned,
+        O: Serialize,
+        Fut: Future<Output = Result<O, CheckpointApiError>>,
+        F: FnOnce(Arc<CheckpointService<TokioProcessRunner>>, T) -> Fut,
+    {
+        let request = serde_json::from_value(payload)?;
+        let response = call(Arc::clone(&self.checkpoint), request).await?;
+        Ok(serde_json::to_value(response)?)
+    }
 }
 
 fn error_response(request_id: &str, code: &str, message: &str) -> String {
@@ -218,6 +274,10 @@ enum WsDispatchError {
     Github(#[from] GithubApiError),
     #[error("{0}")]
     Git(#[from] GitApiError),
+    #[error("{0}")]
+    Project(#[from] ProjectApiError),
+    #[error("{0}")]
+    Checkpoint(#[from] CheckpointApiError),
 }
 
 impl WsDispatchError {
@@ -227,6 +287,8 @@ impl WsDispatchError {
             Self::InvalidPayload(_) => "invalid_payload",
             Self::Github(_) => "github_error",
             Self::Git(_) => "git_error",
+            Self::Project(_) => "project_error",
+            Self::Checkpoint(_) => "checkpoint_error",
         }
     }
 }

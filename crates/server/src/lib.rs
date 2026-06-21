@@ -1,5 +1,7 @@
+pub mod checkpoint;
 pub mod git;
 pub mod github;
+pub mod project;
 pub mod ws;
 
 use axum::{Json, Router, routing::get};
