@@ -198,6 +198,20 @@ impl Default for WorkflowListFilter {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkflowDispatchRequest {
+    pub repo_path: String,
+    pub workflow: String,
+    pub ref_name: Option<String>,
+    pub inputs: Vec<WorkflowDispatchInput>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkflowDispatchInput {
+    pub name: String,
+    pub value: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkflowRunListRequest {
     pub repo_path: String,
     pub filter: WorkflowRunListFilter,

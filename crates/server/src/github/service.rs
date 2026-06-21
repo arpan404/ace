@@ -9,7 +9,8 @@ use super::{
 use ace_git::{
     GithubCliClient, ProcessRunner, PullRequestCheckout, PullRequestClose, PullRequestComment,
     PullRequestMerge, PullRequestReadyState, PullRequestReopen, PullRequestReview,
-    TokioProcessRunner, WorkflowRunCancel, WorkflowRunRerun,
+    TokioProcessRunner, WorkflowDispatch, WorkflowDispatchInput, WorkflowRunCancel,
+    WorkflowRunRerun,
 };
 use ace_protocol::github::{
     EnvironmentStatusRequest, IssueListRequest, IssueThreadRequest, PullRequestActivityRequest,
@@ -18,9 +19,9 @@ use ace_protocol::github::{
     PullRequestFilesRequest, PullRequestListRequest, PullRequestMergeRequest,
     PullRequestReadyStateRequest, PullRequestReopenRequest, PullRequestRequest,
     PullRequestReviewRequest, PullRequestThreadRequest, SearchIssuesRequest,
-    SearchPullRequestsRequest, WorkflowListRequest, WorkflowRunArtifactsRequest,
-    WorkflowRunCancelRequest, WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunRequest,
-    WorkflowRunRerunRequest,
+    SearchPullRequestsRequest, WorkflowDispatchRequest, WorkflowListRequest,
+    WorkflowRunArtifactsRequest, WorkflowRunCancelRequest, WorkflowRunListRequest,
+    WorkflowRunLogRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
 };
 use serde::Serialize;
 use std::{path::PathBuf, sync::Arc};
@@ -243,6 +244,30 @@ impl<R: ProcessRunner> GithubService<R> {
             .list_workflows(
                 &repo_path(&request.repo_path)?,
                 &workflow_list_filter(request.filter),
+            )
+            .await
+            .map_err(GithubApiError::from)
+    }
+
+    pub async fn dispatch_workflow(
+        &self,
+        request: WorkflowDispatchRequest,
+    ) -> Result<ace_git::GithubActionResult, GithubApiError> {
+        self.github
+            .dispatch_workflow(
+                &repo_path(&request.repo_path)?,
+                &WorkflowDispatch {
+                    workflow: request.workflow,
+                    ref_name: request.ref_name,
+                    inputs: request
+                        .inputs
+                        .into_iter()
+                        .map(|input| WorkflowDispatchInput {
+                            name: input.name,
+                            value: input.value,
+                        })
+                        .collect(),
+                },
             )
             .await
             .map_err(GithubApiError::from)

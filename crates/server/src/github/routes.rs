@@ -7,9 +7,9 @@ use ace_protocol::github::{
     PullRequestFilesRequest, PullRequestListRequest, PullRequestMergeRequest,
     PullRequestReadyStateRequest, PullRequestReopenRequest, PullRequestRequest,
     PullRequestReviewRequest, PullRequestThreadRequest, SearchIssuesRequest,
-    SearchPullRequestsRequest, WorkflowListRequest, WorkflowRunArtifactsRequest,
-    WorkflowRunCancelRequest, WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunRequest,
-    WorkflowRunRerunRequest,
+    SearchPullRequestsRequest, WorkflowDispatchRequest, WorkflowListRequest,
+    WorkflowRunArtifactsRequest, WorkflowRunCancelRequest, WorkflowRunListRequest,
+    WorkflowRunLogRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
 };
 use axum::{Json, Router, extract::State, routing::post};
 
@@ -46,6 +46,7 @@ where
         .route("/pulls/reopen", post(reopen_pull_request::<R>))
         .route("/pulls/merge", post(merge_pull_request::<R>))
         .route("/workflows/list", post(list_workflows::<R>))
+        .route("/workflows/dispatch", post(dispatch_workflow::<R>))
         .route("/workflow-runs/list", post(list_workflow_runs::<R>))
         .route("/workflow-runs/view", post(workflow_run::<R>))
         .route("/workflow-runs/log", post(workflow_run_log::<R>))
@@ -204,6 +205,16 @@ where
     R: ProcessRunner,
 {
     state.service.list_workflows(request).await.map(Json)
+}
+
+async fn dispatch_workflow<R>(
+    State(state): State<GithubApiState<R>>,
+    Json(request): Json<WorkflowDispatchRequest>,
+) -> Result<Json<ace_git::GithubActionResult>, GithubApiError>
+where
+    R: ProcessRunner,
+{
+    state.service.dispatch_workflow(request).await.map(Json)
 }
 
 async fn list_workflow_runs<R>(

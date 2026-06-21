@@ -5,9 +5,9 @@ use ace_protocol::github::{
     PullRequestActivityRequest, PullRequestChecksRequest, PullRequestDashboardRequest,
     PullRequestDiffRequest, PullRequestFilesRequest, PullRequestListFilter, PullRequestMergeMethod,
     PullRequestMergeRequest, PullRequestRequest, PullRequestReviewDecision,
-    PullRequestReviewRequest, PullRequestThreadRequest, WorkflowListFilter, WorkflowListRequest,
-    WorkflowRunArtifactsRequest, WorkflowRunListFilter, WorkflowRunListRequest,
-    WorkflowRunLogRequest, WorkflowRunRerunRequest,
+    PullRequestReviewRequest, PullRequestThreadRequest, WorkflowDispatchInput,
+    WorkflowDispatchRequest, WorkflowListFilter, WorkflowListRequest, WorkflowRunArtifactsRequest,
+    WorkflowRunListFilter, WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunRerunRequest,
 };
 use async_trait::async_trait;
 use axum::{
@@ -408,6 +408,48 @@ async fn service_lists_workflows_with_disabled() {
 }
 
 #[tokio::test]
+async fn service_dispatches_workflow_with_inputs() {
+    let runner = Arc::new(FakeRunner::new(vec![ok("queued\n")]));
+    let service = GithubService::new(GithubCliClient::with_runner(runner.clone()));
+
+    let result = service
+        .dispatch_workflow(WorkflowDispatchRequest {
+            repo_path: "/repo".to_string(),
+            workflow: "ci.yml".to_string(),
+            ref_name: Some("feature/x".to_string()),
+            inputs: vec![
+                WorkflowDispatchInput {
+                    name: "suite".to_string(),
+                    value: "linux".to_string(),
+                },
+                WorkflowDispatchInput {
+                    name: "retries".to_string(),
+                    value: "2".to_string(),
+                },
+            ],
+        })
+        .await
+        .expect("dispatch");
+
+    assert_eq!(result.action, "dispatch_workflow");
+    assert_eq!(result.stdout, "queued");
+    assert_eq!(
+        runner.requests()[0].args,
+        vec![
+            "workflow",
+            "run",
+            "ci.yml",
+            "--ref",
+            "feature/x",
+            "--raw-field",
+            "suite=linux",
+            "--raw-field",
+            "retries=2"
+        ]
+    );
+}
+
+#[tokio::test]
 async fn service_lists_workflow_runs_with_filters() {
     let runner = Arc::new(FakeRunner::new(vec![ok(
         br#"[{"attempt":1,"conclusion":null,"createdAt":"2026-06-21T00:00:00Z","databaseId":7,"displayTitle":"Run","event":"pull_request","headBranch":"feature/x","headSha":"abc","name":"CI","number":3,"startedAt":"2026-06-21T00:00:00Z","status":"in_progress","updatedAt":"2026-06-21T00:01:00Z","url":"https://example.test/run/7","workflowDatabaseId":2,"workflowName":"CI"}]"#,
@@ -734,6 +776,47 @@ async fn route_returns_workflows_json() {
             "--json",
             "id,name,path,state",
             "--all"
+        ]
+    );
+}
+
+#[tokio::test]
+async fn route_dispatches_workflow_json() {
+    let runner = Arc::new(FakeRunner::new(vec![ok("queued\n")]));
+    let app = test_router(runner.clone());
+
+    let response = app
+        .oneshot(json_request(
+            "/workflows/dispatch",
+            serde_json::json!({
+                "repo_path": "/repo",
+                "workflow": "ci.yml",
+                "ref_name": "feature/x",
+                "inputs": [
+                    { "name": "suite", "value": "linux" },
+                    { "name": "retries", "value": "2" }
+                ]
+            }),
+        ))
+        .await
+        .expect("route response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response_json(response).await;
+    assert_eq!(body["action"], "dispatch_workflow");
+    assert_eq!(body["stdout"], "queued");
+    assert_eq!(
+        runner.requests()[0].args,
+        vec![
+            "workflow",
+            "run",
+            "ci.yml",
+            "--ref",
+            "feature/x",
+            "--raw-field",
+            "suite=linux",
+            "--raw-field",
+            "retries=2"
         ]
     );
 }

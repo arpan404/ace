@@ -197,6 +197,28 @@ impl<R: ProcessRunner> GithubCliClient<R> {
         .await
     }
 
+    pub async fn dispatch_workflow(
+        &self,
+        cwd: &Path,
+        request: &WorkflowDispatch,
+    ) -> Result<GithubActionResult> {
+        let mut args = vec![
+            "workflow".to_string(),
+            "run".to_string(),
+            request.workflow.clone(),
+        ];
+        if let Some(ref_name) = &request.ref_name {
+            args.extend(["--ref".to_string(), ref_name.clone()]);
+        }
+        for input in &request.inputs {
+            args.extend([
+                "--raw-field".to_string(),
+                format!("{}={}", input.name, input.value),
+            ]);
+        }
+        self.run_action(cwd, "dispatch_workflow", args).await
+    }
+
     async fn run_action(
         &self,
         cwd: &Path,
@@ -299,6 +321,19 @@ pub struct WorkflowRunRerun {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkflowRunCancel {
     pub run_id: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkflowDispatch {
+    pub workflow: String,
+    pub ref_name: Option<String>,
+    pub inputs: Vec<WorkflowDispatchInput>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkflowDispatchInput {
+    pub name: String,
+    pub value: String,
 }
 
 #[cfg(test)]
@@ -557,5 +592,49 @@ mod tests {
             vec!["run", "rerun", "100", "--failed", "--debug", "--job", "200"]
         );
         assert_eq!(requests[3].args, vec!["run", "cancel", "100"]);
+    }
+
+    #[tokio::test]
+    async fn dispatch_workflow_builds_command_with_ref_and_inputs() {
+        let runner = std::sync::Arc::new(FakeRunner::new(vec![ok("queued\n")]));
+        let github = GithubCliClient::with_runner(runner.clone());
+
+        let result = github
+            .dispatch_workflow(
+                Path::new("."),
+                &WorkflowDispatch {
+                    workflow: "ci.yml".to_string(),
+                    ref_name: Some("feature/x".to_string()),
+                    inputs: vec![
+                        WorkflowDispatchInput {
+                            name: "suite".to_string(),
+                            value: "linux".to_string(),
+                        },
+                        WorkflowDispatchInput {
+                            name: "retries".to_string(),
+                            value: "2".to_string(),
+                        },
+                    ],
+                },
+            )
+            .await
+            .expect("dispatch");
+
+        assert_eq!(result.action, "dispatch_workflow");
+        assert_eq!(result.stdout, "queued");
+        assert_eq!(
+            runner.requests()[0].args,
+            vec![
+                "workflow",
+                "run",
+                "ci.yml",
+                "--ref",
+                "feature/x",
+                "--raw-field",
+                "suite=linux",
+                "--raw-field",
+                "retries=2"
+            ]
+        );
     }
 }

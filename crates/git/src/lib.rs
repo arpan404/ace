@@ -40,7 +40,8 @@ pub use github_environment::GithubEnvironmentStatus;
 pub use github_mutations::{
     GithubActionResult, PullRequestCheckout, PullRequestClose, PullRequestComment,
     PullRequestMerge, PullRequestMergeMethod, PullRequestReadyState, PullRequestReopen,
-    PullRequestReview, PullRequestReviewDecision, WorkflowRunCancel, WorkflowRunRerun,
+    PullRequestReview, PullRequestReviewDecision, WorkflowDispatch, WorkflowDispatchInput,
+    WorkflowRunCancel, WorkflowRunRerun,
 };
 pub use github_search::{
     GithubIssueListFilter, GithubIssueSummary, GithubPullRequestListFilter,
