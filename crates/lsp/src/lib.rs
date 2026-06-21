@@ -8,7 +8,8 @@ pub use error::{LspError, Result};
 pub use registry::{LspToolRegistry, install_command};
 pub use session::LspSessionManager;
 pub use transport::{
-    FakeLspTransport, JsonRpcMessage, LspTransport, decode_message, encode_message,
+    FakeLspTransport, JsonRpcMessage, LspTransport, StdioLspTransport, StdioTransportEvent,
+    StdioTransportEventSink, decode_message, encode_message,
 };
 pub use types::{
     BufferSyncRequest, BufferSyncResult, LspCodeAction, LspCompletionItem, LspDiagnostic,

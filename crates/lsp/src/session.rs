@@ -1,7 +1,7 @@
 use crate::{
     LspError, Result,
     registry::LspToolRegistry,
-    transport::LspTransport,
+    transport::{LspTransport, StdioLspTransport, StdioTransportEvent, StdioTransportEventSink},
     types::{
         BufferSyncRequest, BufferSyncResult, LspCodeAction, LspCompletionItem, LspDiagnostic,
         LspDocumentId, LspHover, LspLocation, LspPosition, LspRequest, LspSemanticTokens,
@@ -15,7 +15,7 @@ use serde_json::{Value, json};
 use std::{
     collections::{BTreeMap, HashMap, VecDeque},
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, Weak},
     time::Duration,
 };
 use url::Url;
@@ -26,6 +26,7 @@ const STDERR_TAIL_LINES: usize = 80;
 type DiagnosticsKey = (PathBuf, String);
 type DiagnosticsCache = BTreeMap<DiagnosticsKey, Vec<LspDiagnostic>>;
 type StderrTailCache = BTreeMap<SessionKey, VecDeque<String>>;
+type TransportCache = HashMap<SessionKey, Arc<dyn LspTransport>>;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 struct SessionKey {
@@ -38,7 +39,7 @@ pub struct LspSessionManager {
     registry: LspToolRegistry,
     workspace: Arc<Mutex<WorkspaceService>>,
     buffers: Arc<Mutex<BufferStore>>,
-    transports: Arc<Mutex<HashMap<SessionKey, Arc<dyn LspTransport>>>>,
+    transports: Arc<Mutex<TransportCache>>,
     diagnostics: Arc<Mutex<DiagnosticsCache>>,
     stderr_tail: Arc<Mutex<StderrTailCache>>,
 }
@@ -116,13 +117,17 @@ impl LspSessionManager {
                 install_candidates: Vec::new(),
             });
         };
-        let Some(transport) = self.transport(&root, &tool.id) else {
-            return Ok(BufferSyncResult {
-                document,
-                diagnostics: Vec::new(),
-                server: None,
-                install_candidates: candidates,
-            });
+        let transport = match self.ensure_transport(&root, &tool).await {
+            Ok(transport) => transport,
+            Err(LspError::ServerNotInstalled(_)) => {
+                return Ok(BufferSyncResult {
+                    document,
+                    diagnostics: Vec::new(),
+                    server: None,
+                    install_candidates: candidates,
+                });
+            }
+            Err(error) => return Err(error),
         };
         let uri = file_uri(&root, &request.relative_path)?;
         transport
@@ -241,7 +246,7 @@ impl LspSessionManager {
                 language_id: language_id.unwrap_or_default(),
                 candidates: Vec::new(),
             })?;
-        let transport = self.ensure_transport(&root, &tool)?;
+        let transport = self.ensure_transport(&root, &tool).await?;
         let response: Option<Vec<lsp::SymbolInformation>> = request_json(
             transport.as_ref(),
             "workspace/symbol",
@@ -371,18 +376,53 @@ impl LspSessionManager {
                 language_id,
                 candidates: candidates.iter().map(|tool| tool.id.clone()).collect(),
             })?;
-        let transport = self.ensure_transport(&root, tool)?;
+        let transport = self.ensure_transport(&root, tool).await?;
         let params = document_position_params(&root, &request)?;
         request_json(transport.as_ref(), method, params).await
     }
 
-    fn ensure_transport(
+    async fn ensure_transport(
         &self,
         root: &Path,
         tool: &LspToolDefinition,
     ) -> Result<Arc<dyn LspTransport>> {
-        self.transport(root, &tool.id)
-            .ok_or_else(|| LspError::ServerNotInstalled(tool.id.clone()))
+        if let Some(transport) = self.transport(root, &tool.id) {
+            return Ok(transport);
+        }
+        if self.registry.status(&tool.id)?.resolved_command.is_none() {
+            return Err(LspError::ServerNotInstalled(tool.id.clone()));
+        }
+
+        let key = SessionKey {
+            workspace_root: root.to_path_buf(),
+            server_id: tool.id.clone(),
+        };
+        let diagnostics = Arc::downgrade(&self.diagnostics);
+        let stderr_tail = Arc::downgrade(&self.stderr_tail);
+        let transports = Arc::downgrade(&self.transports);
+        let root_for_events = root.to_path_buf();
+        let server_id = tool.id.clone();
+        let event_sink: StdioTransportEventSink = Arc::new(move |event| {
+            handle_stdio_event(
+                event,
+                &diagnostics,
+                &stderr_tail,
+                &transports,
+                &root_for_events,
+                &server_id,
+            );
+        });
+        let transport = Arc::new(
+            StdioLspTransport::spawn(&tool.command, &tool.args, root, &tool.env, event_sink)
+                .await?,
+        );
+        initialize_transport(transport.as_ref(), root).await?;
+        let transport: Arc<dyn LspTransport> = transport;
+        self.transports
+            .lock()
+            .expect("transports")
+            .insert(key, Arc::clone(&transport));
+        Ok(transport)
     }
 
     fn transport(&self, root: &Path, server_id: &str) -> Option<Arc<dyn LspTransport>> {
@@ -404,6 +444,130 @@ async fn request_json<T: DeserializeOwned>(
 ) -> Result<T> {
     let value = transport.request(method, params, REQUEST_TIMEOUT).await?;
     Ok(serde_json::from_value(value)?)
+}
+
+async fn initialize_transport(transport: &dyn LspTransport, root: &Path) -> Result<()> {
+    let root_uri =
+        Url::from_directory_path(root).map_err(|_| LspError::InvalidResponse("root uri".into()))?;
+    let _: Value = transport
+        .request(
+            "initialize",
+            json!({
+                "processId": null,
+                "rootUri": root_uri,
+                "workspaceFolders": [{
+                    "uri": root_uri,
+                    "name": root
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .unwrap_or("workspace"),
+                }],
+                "capabilities": {
+                    "textDocument": {
+                        "synchronization": {
+                            "didSave": true,
+                            "dynamicRegistration": false,
+                        },
+                        "completion": {
+                            "completionItem": {
+                                "documentationFormat": ["markdown", "plaintext"],
+                                "snippetSupport": false,
+                            }
+                        },
+                        "hover": {
+                            "contentFormat": ["markdown", "plaintext"]
+                        },
+                        "definition": {},
+                        "references": {},
+                        "rename": {},
+                        "formatting": {},
+                        "codeAction": {},
+                        "documentSymbol": {},
+                        "semanticTokens": {
+                            "requests": { "full": true, "range": false },
+                            "tokenTypes": [],
+                            "tokenModifiers": [],
+                            "formats": ["relative"]
+                        },
+                        "signatureHelp": {}
+                    },
+                    "workspace": {
+                        "workspaceEdit": {
+                            "documentChanges": false
+                        },
+                        "symbol": {}
+                    }
+                },
+                "clientInfo": {
+                    "name": "ace",
+                    "version": env!("CARGO_PKG_VERSION")
+                }
+            }),
+            REQUEST_TIMEOUT,
+        )
+        .await?;
+    transport.notify("initialized", json!({})).await
+}
+
+fn handle_stdio_event(
+    event: StdioTransportEvent,
+    diagnostics: &Weak<Mutex<DiagnosticsCache>>,
+    stderr_tail: &Weak<Mutex<StderrTailCache>>,
+    transports: &Weak<Mutex<TransportCache>>,
+    root: &Path,
+    server_id: &str,
+) {
+    match event {
+        StdioTransportEvent::PublishDiagnostics {
+            uri,
+            diagnostics: incoming,
+        } => {
+            let Some(relative_path) = uri_to_relative_from_root(&uri, root) else {
+                return;
+            };
+            let mapped = incoming
+                .into_iter()
+                .map(|diagnostic| map_diagnostic_for_path(&relative_path, diagnostic))
+                .collect::<Vec<_>>();
+            if let Some(cache) = diagnostics.upgrade() {
+                cache
+                    .lock()
+                    .expect("diagnostics")
+                    .insert((root.to_path_buf(), relative_path), mapped);
+            }
+        }
+        StdioTransportEvent::StderrLine(line) => {
+            if let Some(cache) = stderr_tail.upgrade() {
+                let key = SessionKey {
+                    workspace_root: root.to_path_buf(),
+                    server_id: server_id.to_string(),
+                };
+                let mut cache = cache.lock().expect("stderr");
+                let tail = cache.entry(key).or_default();
+                tail.push_back(line);
+                while tail.len() > STDERR_TAIL_LINES {
+                    tail.pop_front();
+                }
+            }
+        }
+        StdioTransportEvent::ServerExited => {
+            let key = SessionKey {
+                workspace_root: root.to_path_buf(),
+                server_id: server_id.to_string(),
+            };
+            if let Some(cache) = transports.upgrade() {
+                cache.lock().expect("transports").remove(&key);
+            }
+            if let Some(cache) = stderr_tail.upgrade() {
+                cache
+                    .lock()
+                    .expect("stderr")
+                    .entry(key)
+                    .or_default()
+                    .push_back("language server exited".to_string());
+            }
+        }
+    }
 }
 
 fn document_position_params(root: &Path, request: &LspRequest) -> Result<Value> {
@@ -517,6 +681,19 @@ fn uri_to_relative(uri: &lsp::Uri) -> Option<String> {
         .map(str::to_string)
 }
 
+fn uri_to_relative_from_root(uri: &str, root: &Path) -> Option<String> {
+    let url = Url::parse(uri).ok()?;
+    let path = url.to_file_path().ok()?;
+    let relative = path.strip_prefix(root).ok()?;
+    Some(
+        relative
+            .components()
+            .map(|component| component.as_os_str().to_string_lossy())
+            .collect::<Vec<_>>()
+            .join("/"),
+    )
+}
+
 fn map_code_action(action: lsp::CodeActionOrCommand) -> Result<LspCodeAction> {
     match action {
         lsp::CodeActionOrCommand::Command(command) => Ok(LspCodeAction {
@@ -533,7 +710,7 @@ fn map_code_action(action: lsp::CodeActionOrCommand) -> Result<LspCodeAction> {
                 .diagnostics
                 .unwrap_or_default()
                 .into_iter()
-                .filter_map(map_diagnostic)
+                .map(map_diagnostic)
                 .collect(),
             edit: action.edit.map(normalize_workspace_edit).transpose()?,
             command: action.command.map(|command| command.command),
@@ -541,18 +718,25 @@ fn map_code_action(action: lsp::CodeActionOrCommand) -> Result<LspCodeAction> {
     }
 }
 
-fn map_diagnostic(diagnostic: lsp::Diagnostic) -> Option<LspDiagnostic> {
-    Some(LspDiagnostic {
-        relative_path: String::new(),
-        range: map_range(diagnostic.range),
-        severity: diagnostic.severity.map(protocol_number),
-        code: diagnostic.code.map(|code| match code {
-            lsp::NumberOrString::Number(value) => value.to_string(),
-            lsp::NumberOrString::String(value) => value,
-        }),
+fn map_diagnostic(diagnostic: lsp::Diagnostic) -> LspDiagnostic {
+    map_diagnostic_for_path("", diagnostic)
+}
+
+fn map_diagnostic_for_path(relative_path: &str, diagnostic: lsp::Diagnostic) -> LspDiagnostic {
+    let range = map_range(diagnostic.range);
+    let severity = diagnostic.severity.map(protocol_number);
+    let code = diagnostic.code.map(|code| match code {
+        lsp::NumberOrString::Number(value) => value.to_string(),
+        lsp::NumberOrString::String(value) => value,
+    });
+    LspDiagnostic {
+        relative_path: relative_path.to_string(),
+        range,
+        severity,
+        code,
         source: diagnostic.source,
         message: diagnostic.message,
-    })
+    }
 }
 
 fn map_document_symbols(response: Option<lsp::DocumentSymbolResponse>) -> Vec<LspSymbol> {
@@ -684,7 +868,9 @@ fn protocol_number<T: serde::Serialize>(value: T) -> u32 {
 mod tests {
     use super::*;
     use crate::transport::FakeLspTransport;
+    use crate::types::{LspInstallProvider, LspToolDefinition};
     use serde_json::json;
+    use std::process::Command;
 
     #[tokio::test]
     async fn sync_buffer_sends_did_open_when_transport_exists() {
@@ -762,5 +948,130 @@ mod tests {
             std::fs::read_to_string(temp.path().join("lib.rs")).expect("read"),
             "fn run() {}\n"
         );
+    }
+
+    #[tokio::test]
+    async fn sync_buffer_starts_live_stdio_server_when_installed() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let fake_server = compile_fake_lsp_server(temp.path());
+        let registry = LspToolRegistry::in_memory();
+        registry
+            .upsert_custom(LspToolDefinition {
+                id: "fake-lsp".to_string(),
+                display_name: "Fake LSP".to_string(),
+                languages: vec!["fake".to_string()],
+                file_extensions: vec!["fake".to_string()],
+                command: fake_server.to_string_lossy().to_string(),
+                args: Vec::new(),
+                install_provider: LspInstallProvider::Custom,
+                install_args: vec!["install".to_string()],
+                env: Vec::new(),
+            })
+            .expect("custom");
+        std::fs::write(temp.path().join("main.fake"), "hello").expect("file");
+
+        let manager = LspSessionManager::new(registry);
+        let result = manager
+            .sync_buffer(BufferSyncRequest {
+                workspace_root: temp.path().to_path_buf(),
+                relative_path: "main.fake".to_string(),
+                language_id: Some("fake".to_string()),
+                contents: "hello".to_string(),
+                version: 1,
+            })
+            .await
+            .expect("sync");
+        assert_eq!(result.server.expect("server").server_id, "fake-lsp");
+
+        let completion = manager
+            .completion(LspRequest {
+                workspace_root: temp.path().to_path_buf(),
+                relative_path: "main.fake".to_string(),
+                language_id: Some("fake".to_string()),
+                position: Some(LspPosition {
+                    line: 0,
+                    character: 0,
+                }),
+                range: None,
+                query: None,
+                new_name: None,
+            })
+            .await
+            .expect("completion");
+        assert_eq!(completion[0].label, "fake_item");
+    }
+
+    fn compile_fake_lsp_server(root: &Path) -> PathBuf {
+        let source = root.join("fake_lsp.rs");
+        let binary = root.join(format!("fake_lsp{}", std::env::consts::EXE_SUFFIX));
+        std::fs::write(
+            &source,
+            r###"
+use std::io::{Read, Write};
+
+fn main() {
+    loop {
+        let Some(body) = read_message() else { break };
+        if !body.contains(r#""id":"#) {
+            continue;
+        }
+        let id = parse_id(&body);
+        let result = if body.contains(r#""method":"initialize""#) {
+            r#"{"capabilities":{}}"#.to_string()
+        } else if body.contains(r#""method":"textDocument/completion""#) {
+            r#"[{"label":"fake_item","kind":3,"detail":"fake"}]"#.to_string()
+        } else {
+            "null".to_string()
+        };
+        write_message(&format!(r#"{{"jsonrpc":"2.0","id":{},"result":{}}}"#, id, result));
+    }
+}
+
+fn read_message() -> Option<String> {
+    let mut stdin = std::io::stdin();
+    let mut header = Vec::new();
+    let mut byte = [0_u8; 1];
+    loop {
+        stdin.read_exact(&mut byte).ok()?;
+        header.push(byte[0]);
+        if header.ends_with(b"\r\n\r\n") {
+            break;
+        }
+    }
+    let header = String::from_utf8(header).ok()?;
+    let len = header
+        .lines()
+        .find_map(|line| line.strip_prefix("Content-Length: "))
+        .and_then(|value| value.trim().parse::<usize>().ok())?;
+    let mut body = vec![0_u8; len];
+    stdin.read_exact(&mut body).ok()?;
+    String::from_utf8(body).ok()
+}
+
+fn parse_id(body: &str) -> String {
+    let Some(rest) = body.split(r#""id":"#).nth(1) else {
+        return "0".to_string();
+    };
+    rest.chars()
+        .take_while(|ch| ch.is_ascii_digit())
+        .collect::<String>()
+}
+
+fn write_message(body: &str) {
+    let mut stdout = std::io::stdout();
+    write!(stdout, "Content-Length: {}\r\n\r\n{}", body.len(), body).unwrap();
+    stdout.flush().unwrap();
+}
+"###,
+        )
+        .expect("write fake server");
+        let status = Command::new(std::env::var("RUSTC").unwrap_or_else(|_| "rustc".to_string()))
+            .arg(&source)
+            .arg("-o")
+            .arg(&binary)
+            .status()
+            .expect("rustc");
+        assert!(status.success(), "compile fake LSP server");
+        binary
     }
 }
