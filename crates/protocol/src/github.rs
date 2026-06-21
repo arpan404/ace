@@ -330,6 +330,12 @@ impl Default for WorkflowListFilter {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkflowRequest {
+    pub repo_path: String,
+    pub workflow: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkflowDispatchRequest {
     pub repo_path: String,
     pub workflow: String,

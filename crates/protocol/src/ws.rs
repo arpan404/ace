@@ -61,6 +61,7 @@ pub mod methods {
     pub const GITHUB_PULL_REQUEST_REOPEN: &str = "github.pull_request.reopen";
     pub const GITHUB_PULL_REQUEST_MERGE: &str = "github.pull_request.merge";
     pub const GITHUB_WORKFLOWS_LIST: &str = "github.workflows.list";
+    pub const GITHUB_WORKFLOWS_VIEW: &str = "github.workflows.view";
     pub const GITHUB_WORKFLOWS_DISPATCH: &str = "github.workflows.dispatch";
     pub const GITHUB_WORKFLOWS_ENABLE: &str = "github.workflows.enable";
     pub const GITHUB_WORKFLOWS_DISABLE: &str = "github.workflows.disable";

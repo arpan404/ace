@@ -54,6 +54,24 @@ impl<R: ProcessRunner> GithubCliClient<R> {
         parse_json("github workflows", &output.stdout)
     }
 
+    pub async fn workflow(&self, cwd: &Path, workflow: &str) -> Result<GithubWorkflow> {
+        let repository = self.repository(cwd).await?;
+        let output = self
+            .gh_allow_statuses(
+                cwd,
+                [
+                    "api".to_string(),
+                    format!(
+                        "repos/{}/actions/workflows/{workflow}",
+                        repository.name_with_owner
+                    ),
+                ],
+                &[0],
+            )
+            .await?;
+        parse_json("github workflow", &output.stdout)
+    }
+
     pub async fn list_workflow_runs(
         &self,
         cwd: &Path,
@@ -381,9 +399,21 @@ impl Default for WorkflowListFilter {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GithubWorkflow {
     pub id: u64,
+    #[serde(rename = "node_id", default)]
+    pub node_id: Option<String>,
     pub name: String,
     pub path: String,
     pub state: String,
+    #[serde(default)]
+    pub url: Option<String>,
+    #[serde(rename = "html_url", default)]
+    pub html_url: Option<String>,
+    #[serde(rename = "badge_url", default)]
+    pub badge_url: Option<String>,
+    #[serde(rename = "created_at", default)]
+    pub created_at: Option<String>,
+    #[serde(rename = "updated_at", default)]
+    pub updated_at: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -712,6 +742,42 @@ mod tests {
                 WORKFLOW_FIELDS,
                 "--all"
             ]
+        );
+    }
+
+    #[tokio::test]
+    async fn workflow_resolves_repo_and_parses_detail() {
+        let runner = std::sync::Arc::new(FakeRunner::new(vec![
+            output(
+                0,
+                br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+            ),
+            output(
+                0,
+                br#"{"id":1,"node_id":"WF_1","name":"CI","path":".github/workflows/ci.yml","state":"active","created_at":"2026-06-21T00:00:00Z","updated_at":"2026-06-21T00:01:00Z","url":"https://api.github.test/workflows/1","html_url":"https://github.test/actions/workflows/ci.yml","badge_url":"https://github.test/badge.svg"}"#,
+            ),
+        ]));
+        let github = GithubCliClient::with_runner(runner.clone());
+
+        let workflow = github
+            .workflow(Path::new("."), "ci.yml")
+            .await
+            .expect("workflow");
+
+        assert_eq!(workflow.id, 1);
+        assert_eq!(workflow.node_id.as_deref(), Some("WF_1"));
+        assert_eq!(workflow.name, "CI");
+        assert_eq!(
+            workflow.html_url.as_deref(),
+            Some("https://github.test/actions/workflows/ci.yml")
+        );
+        assert_eq!(
+            workflow.badge_url.as_deref(),
+            Some("https://github.test/badge.svg")
+        );
+        assert_eq!(
+            runner.requests()[1].args,
+            vec!["api", "repos/ace/app/actions/workflows/ci.yml"]
         );
     }
 

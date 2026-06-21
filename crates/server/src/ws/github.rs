@@ -15,10 +15,10 @@ use ace_protocol::{
         PullRequestReviewThreadsRequest, PullRequestThreadRequest, PullRequestTimelineRequest,
         SearchIssuesRequest, SearchPullRequestsRequest, WorkflowDisableRequest,
         WorkflowDispatchRequest, WorkflowEnableRequest, WorkflowJobLogRequest, WorkflowJobRequest,
-        WorkflowListRequest, WorkflowRunApprovalsRequest, WorkflowRunApproveRequest,
-        WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest, WorkflowRunCancelRequest,
-        WorkflowRunForceCancelRequest, WorkflowRunJobsRequest, WorkflowRunListRequest,
-        WorkflowRunLogRequest, WorkflowRunPendingDeploymentReviewRequest,
+        WorkflowListRequest, WorkflowRequest, WorkflowRunApprovalsRequest,
+        WorkflowRunApproveRequest, WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest,
+        WorkflowRunCancelRequest, WorkflowRunForceCancelRequest, WorkflowRunJobsRequest,
+        WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunPendingDeploymentReviewRequest,
         WorkflowRunPendingDeploymentsRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
     },
     ws::methods,
@@ -300,6 +300,13 @@ impl<R: ProcessRunner> WsApiState<R> {
                 self.github_json::<WorkflowListRequest, _, _, _>(
                     payload,
                     |service, request| async move { service.list_workflows(request).await },
+                )
+                .await
+            }
+            methods::GITHUB_WORKFLOWS_VIEW => {
+                self.github_json::<WorkflowRequest, _, _, _>(
+                    payload,
+                    |service, request| async move { service.workflow(request).await },
                 )
                 .await
             }
@@ -1572,6 +1579,47 @@ mod tests {
                 "-F",
                 "per_page=10"
             ]
+        );
+    }
+
+    #[tokio::test]
+    async fn dispatches_workflow_detail_over_ws_rpc() {
+        let runner = Arc::new(FakeRunner::new(vec![
+            ok(
+                br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+            ),
+            ok(
+                br#"{"id":1,"node_id":"WF_1","name":"CI","path":".github/workflows/ci.yml","state":"active","created_at":"2026-06-21T00:00:00Z","updated_at":"2026-06-21T00:01:00Z","url":"https://api.github.test/workflows/1","html_url":"https://github.test/actions/workflows/ci.yml","badge_url":"https://github.test/badge.svg"}"#,
+            ),
+        ]));
+        let state = test_state(runner.clone());
+
+        let response = dispatch(
+            &state,
+            serde_json::json!({
+                "version": PROTOCOL_VERSION,
+                "request_id": "req-workflow-view",
+                "method": methods::GITHUB_WORKFLOWS_VIEW,
+                "payload": {
+                    "repo_path": "/repo",
+                    "workflow": "ci.yml"
+                }
+            }),
+        )
+        .await;
+
+        let WsServerPayload::Result { body } = response.payload else {
+            panic!("expected result");
+        };
+        assert_eq!(body["id"], 1);
+        assert_eq!(body["node_id"], "WF_1");
+        assert_eq!(
+            body["html_url"],
+            "https://github.test/actions/workflows/ci.yml"
+        );
+        assert_eq!(
+            runner.requests()[1].args,
+            vec!["api", "repos/ace/app/actions/workflows/ci.yml"]
         );
     }
 

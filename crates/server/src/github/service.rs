@@ -27,7 +27,7 @@ use ace_protocol::github::{
     PullRequestReviewRequest, PullRequestReviewThreadsRequest, PullRequestThreadRequest,
     PullRequestTimelineRequest, SearchIssuesRequest, SearchPullRequestsRequest,
     WorkflowDisableRequest, WorkflowDispatchRequest, WorkflowEnableRequest, WorkflowJobLogRequest,
-    WorkflowJobRequest, WorkflowListRequest, WorkflowRunApprovalsRequest,
+    WorkflowJobRequest, WorkflowListRequest, WorkflowRequest, WorkflowRunApprovalsRequest,
     WorkflowRunApproveRequest, WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest,
     WorkflowRunCancelRequest, WorkflowRunForceCancelRequest, WorkflowRunJobsRequest,
     WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunPendingDeploymentReviewRequest,
@@ -465,6 +465,16 @@ impl<R: ProcessRunner> GithubService<R> {
                 &repo_path(&request.repo_path)?,
                 &workflow_list_filter(request.filter),
             )
+            .await
+            .map_err(GithubApiError::from)
+    }
+
+    pub async fn workflow(
+        &self,
+        request: WorkflowRequest,
+    ) -> Result<ace_git::GithubWorkflow, GithubApiError> {
+        self.github
+            .workflow(&repo_path(&request.repo_path)?, &request.workflow)
             .await
             .map_err(GithubApiError::from)
     }

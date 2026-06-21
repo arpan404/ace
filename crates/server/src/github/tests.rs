@@ -12,12 +12,12 @@ use ace_protocol::github::{
     PullRequestReviewDecision, PullRequestReviewRequest, PullRequestReviewThreadsRequest,
     PullRequestThreadRequest, PullRequestTimelineRequest, WorkflowDisableRequest,
     WorkflowDispatchInput, WorkflowDispatchRequest, WorkflowEnableRequest, WorkflowJobLogRequest,
-    WorkflowJobRequest, WorkflowListFilter, WorkflowListRequest, WorkflowRunApprovalsRequest,
-    WorkflowRunApproveRequest, WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest,
-    WorkflowRunForceCancelRequest, WorkflowRunJobsRequest, WorkflowRunListFilter,
-    WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunPendingDeploymentReviewRequest,
-    WorkflowRunPendingDeploymentReviewState, WorkflowRunPendingDeploymentsRequest,
-    WorkflowRunRerunRequest,
+    WorkflowJobRequest, WorkflowListFilter, WorkflowListRequest, WorkflowRequest,
+    WorkflowRunApprovalsRequest, WorkflowRunApproveRequest, WorkflowRunArtifactDownloadRequest,
+    WorkflowRunArtifactsRequest, WorkflowRunForceCancelRequest, WorkflowRunJobsRequest,
+    WorkflowRunListFilter, WorkflowRunListRequest, WorkflowRunLogRequest,
+    WorkflowRunPendingDeploymentReviewRequest, WorkflowRunPendingDeploymentReviewState,
+    WorkflowRunPendingDeploymentsRequest, WorkflowRunRerunRequest,
 };
 use async_trait::async_trait;
 use axum::{
@@ -994,6 +994,38 @@ async fn service_lists_workflows_with_disabled() {
             "id,name,path,state",
             "--all"
         ]
+    );
+}
+
+#[tokio::test]
+async fn service_returns_workflow_detail() {
+    let runner = Arc::new(FakeRunner::new(vec![
+        ok(
+            br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+        ),
+        ok(
+            br#"{"id":1,"node_id":"WF_1","name":"CI","path":".github/workflows/ci.yml","state":"active","created_at":"2026-06-21T00:00:00Z","updated_at":"2026-06-21T00:01:00Z","url":"https://api.github.test/workflows/1","html_url":"https://github.test/actions/workflows/ci.yml","badge_url":"https://github.test/badge.svg"}"#,
+        ),
+    ]));
+    let service = GithubService::new(GithubCliClient::with_runner(runner.clone()));
+
+    let workflow = service
+        .workflow(WorkflowRequest {
+            repo_path: "/repo".to_string(),
+            workflow: "ci.yml".to_string(),
+        })
+        .await
+        .expect("workflow");
+
+    assert_eq!(workflow.id, 1);
+    assert_eq!(workflow.node_id.as_deref(), Some("WF_1"));
+    assert_eq!(
+        workflow.html_url.as_deref(),
+        Some("https://github.test/actions/workflows/ci.yml")
+    );
+    assert_eq!(
+        runner.requests()[1].args,
+        vec!["api", "repos/ace/app/actions/workflows/ci.yml"]
     );
 }
 
