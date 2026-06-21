@@ -1,6 +1,7 @@
 use ace_core::{Command, ProviderCapability};
 use serde::{Deserialize, Serialize};
 
+pub mod git;
 pub mod github;
 
 pub const PROTOCOL_VERSION: u16 = 1;

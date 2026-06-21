@@ -1,6 +1,6 @@
 use ace_platform::AppPaths;
 use async_trait::async_trait;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, HashSet},
     io,
@@ -466,13 +466,13 @@ impl<R: ProcessRunner> GitClient<R> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct GitRepository {
     pub root: PathBuf,
     pub inside_work_tree: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct GitStatus {
     pub current_branch: Option<String>,
     pub dirty: bool,
@@ -481,21 +481,21 @@ pub struct GitStatus {
     pub entries: Vec<GitStatusEntry>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct GitStatusEntry {
     pub index: char,
     pub worktree: char,
     pub path: PathBuf,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct GitBranch {
     pub name: String,
     pub current: bool,
     pub upstream: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct GitWorktree {
     pub path: PathBuf,
     pub branch: Option<String>,
