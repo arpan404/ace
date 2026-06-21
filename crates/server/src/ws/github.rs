@@ -15,10 +15,11 @@ use ace_protocol::{
         PullRequestReviewThreadsRequest, PullRequestThreadRequest, PullRequestTimelineRequest,
         SearchIssuesRequest, SearchPullRequestsRequest, WorkflowDisableRequest,
         WorkflowDispatchRequest, WorkflowEnableRequest, WorkflowJobLogRequest, WorkflowJobRequest,
-        WorkflowListRequest, WorkflowRunApproveRequest, WorkflowRunArtifactDownloadRequest,
-        WorkflowRunArtifactsRequest, WorkflowRunCancelRequest, WorkflowRunJobsRequest,
-        WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunPendingDeploymentReviewRequest,
-        WorkflowRunPendingDeploymentsRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
+        WorkflowListRequest, WorkflowRunApprovalsRequest, WorkflowRunApproveRequest,
+        WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest, WorkflowRunCancelRequest,
+        WorkflowRunJobsRequest, WorkflowRunListRequest, WorkflowRunLogRequest,
+        WorkflowRunPendingDeploymentReviewRequest, WorkflowRunPendingDeploymentsRequest,
+        WorkflowRunRequest, WorkflowRunRerunRequest,
     },
     ws::methods,
 };
@@ -382,6 +383,13 @@ impl<R: ProcessRunner> WsApiState<R> {
                             .review_workflow_run_pending_deployments(request)
                             .await
                     },
+                )
+                .await
+            }
+            methods::GITHUB_WORKFLOW_RUN_APPROVALS => {
+                self.github_json::<WorkflowRunApprovalsRequest, _, _, _>(
+                    payload,
+                    |service, request| async move { service.workflow_run_approvals(request).await },
                 )
                 .await
             }
@@ -1822,6 +1830,45 @@ mod tests {
         assert_eq!(
             runner.requests()[1].args,
             vec!["api", "repos/ace/app/actions/runs/100/pending_deployments"]
+        );
+    }
+
+    #[tokio::test]
+    async fn dispatches_workflow_run_approvals_over_ws_rpc() {
+        let runner = Arc::new(FakeRunner::new(vec![
+            ok(
+                br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+            ),
+            ok(
+                br#"[{"state":"approved","comment":"Ship it","environments":[{"id":9,"node_id":"ENV_9","name":"production","url":"https://api.github.test/env/9","html_url":"https://github.test/env/production"}],"user":{"login":"maintainer","id":1}}]"#,
+            ),
+        ]));
+        let state = test_state(runner.clone());
+
+        let response = dispatch(
+            &state,
+            serde_json::json!({
+                "version": PROTOCOL_VERSION,
+                "request_id": "req-run-approvals",
+                "method": methods::GITHUB_WORKFLOW_RUN_APPROVALS,
+                "payload": {
+                    "repo_path": "/repo",
+                    "run_id": 100
+                }
+            }),
+        )
+        .await;
+
+        let WsServerPayload::Result { body } = response.payload else {
+            panic!("expected result");
+        };
+        assert_eq!(body[0]["state"], "approved");
+        assert_eq!(body[0]["comment"], "Ship it");
+        assert_eq!(body[0]["environments"][0]["name"], "production");
+        assert_eq!(body[0]["user"]["login"], "maintainer");
+        assert_eq!(
+            runner.requests()[1].args,
+            vec!["api", "repos/ace/app/actions/runs/100/approvals"]
         );
     }
 

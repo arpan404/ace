@@ -1,4 +1,4 @@
-use crate::{GithubActionResult, GithubCliClient, ProcessRunner, Result, parse_json};
+use crate::{GithubActionResult, GithubCliClient, GithubUser, ProcessRunner, Result, parse_json};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::Path;
@@ -258,6 +258,28 @@ impl<R: ProcessRunner> GithubCliClient<R> {
             )
             .await?;
         parse_json("github workflow pending deployments", &output.stdout)
+    }
+
+    pub async fn workflow_run_approvals(
+        &self,
+        cwd: &Path,
+        run_id: u64,
+    ) -> Result<Vec<GithubWorkflowRunApproval>> {
+        let repository = self.repository(cwd).await?;
+        let output = self
+            .gh_allow_statuses(
+                cwd,
+                [
+                    "api".to_string(),
+                    format!(
+                        "repos/{}/actions/runs/{run_id}/approvals",
+                        repository.name_with_owner
+                    ),
+                ],
+                &[0],
+            )
+            .await?;
+        parse_json("github workflow run approvals", &output.stdout)
     }
 
     pub async fn download_workflow_artifacts(
@@ -554,6 +576,15 @@ pub struct GithubWorkflowDeploymentReviewer {
     #[serde(rename = "type")]
     pub reviewer_type: String,
     pub reviewer: Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GithubWorkflowRunApproval {
+    pub state: String,
+    pub comment: Option<String>,
+    #[serde(default)]
+    pub environments: Vec<GithubWorkflowEnvironment>,
+    pub user: Option<GithubUser>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -967,6 +998,35 @@ mod tests {
         assert_eq!(
             runner.requests()[1].args,
             vec!["api", "repos/ace/app/actions/runs/100/pending_deployments"]
+        );
+    }
+
+    #[tokio::test]
+    async fn workflow_run_approvals_resolve_repo_and_parse_review_history() {
+        let runner = std::sync::Arc::new(FakeRunner::new(vec![
+            output(
+                0,
+                br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+            ),
+            output(
+                0,
+                br#"[{"state":"approved","comment":"Ship it","environments":[{"id":9,"node_id":"ENV_9","name":"production","url":"https://api.github.test/env/9","html_url":"https://github.test/env/production"}],"user":{"login":"maintainer","id":1}}]"#,
+            ),
+        ]));
+        let github = GithubCliClient::with_runner(runner.clone());
+
+        let approvals = github
+            .workflow_run_approvals(Path::new("."), 100)
+            .await
+            .expect("approvals");
+
+        assert_eq!(approvals[0].state, "approved");
+        assert_eq!(approvals[0].comment.as_deref(), Some("Ship it"));
+        assert_eq!(approvals[0].environments[0].name, "production");
+        assert_eq!(approvals[0].user.as_ref().unwrap().login, "maintainer");
+        assert_eq!(
+            runner.requests()[1].args,
+            vec!["api", "repos/ace/app/actions/runs/100/approvals"]
         );
     }
 

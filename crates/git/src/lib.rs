@@ -29,8 +29,8 @@ pub use github_actions::{
     GithubCheckSummary, GithubPrCheck, GithubPrChecks, GithubWorkflow, GithubWorkflowArtifact,
     GithubWorkflowArtifactRun, GithubWorkflowDeploymentReviewer, GithubWorkflowEnvironment,
     GithubWorkflowJob, GithubWorkflowJobDetail, GithubWorkflowPendingDeployment, GithubWorkflowRun,
-    GithubWorkflowRunDetail, GithubWorkflowStep, WorkflowArtifactDownload, WorkflowListFilter,
-    WorkflowRunListFilter,
+    GithubWorkflowRunApproval, GithubWorkflowRunDetail, GithubWorkflowStep,
+    WorkflowArtifactDownload, WorkflowListFilter, WorkflowRunListFilter,
 };
 pub use github_activity::{GithubPullRequestActivity, PullRequestActivityRequest};
 pub use github_checks::{

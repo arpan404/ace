@@ -12,9 +12,9 @@ use ace_protocol::github::{
     PullRequestReviewDecision, PullRequestReviewRequest, PullRequestReviewThreadsRequest,
     PullRequestThreadRequest, PullRequestTimelineRequest, WorkflowDisableRequest,
     WorkflowDispatchInput, WorkflowDispatchRequest, WorkflowEnableRequest, WorkflowJobLogRequest,
-    WorkflowJobRequest, WorkflowListFilter, WorkflowListRequest, WorkflowRunApproveRequest,
-    WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest, WorkflowRunJobsRequest,
-    WorkflowRunListFilter, WorkflowRunListRequest, WorkflowRunLogRequest,
+    WorkflowJobRequest, WorkflowListFilter, WorkflowListRequest, WorkflowRunApprovalsRequest,
+    WorkflowRunApproveRequest, WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest,
+    WorkflowRunJobsRequest, WorkflowRunListFilter, WorkflowRunListRequest, WorkflowRunLogRequest,
     WorkflowRunPendingDeploymentReviewRequest, WorkflowRunPendingDeploymentReviewState,
     WorkflowRunPendingDeploymentsRequest, WorkflowRunRerunRequest,
 };
@@ -1367,6 +1367,36 @@ async fn service_returns_workflow_run_pending_deployments() {
     assert_eq!(
         runner.requests()[1].args,
         vec!["api", "repos/ace/app/actions/runs/100/pending_deployments"]
+    );
+}
+
+#[tokio::test]
+async fn service_returns_workflow_run_approvals() {
+    let runner = Arc::new(FakeRunner::new(vec![
+        ok(
+            br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+        ),
+        ok(
+            br#"[{"state":"approved","comment":"Ship it","environments":[{"id":9,"node_id":"ENV_9","name":"production","url":"https://api.github.test/env/9","html_url":"https://github.test/env/production"}],"user":{"login":"maintainer","id":1}}]"#,
+        ),
+    ]));
+    let service = GithubService::new(GithubCliClient::with_runner(runner.clone()));
+
+    let approvals = service
+        .workflow_run_approvals(WorkflowRunApprovalsRequest {
+            repo_path: "/repo".to_string(),
+            run_id: 100,
+        })
+        .await
+        .expect("approvals");
+
+    assert_eq!(approvals[0].state, "approved");
+    assert_eq!(approvals[0].comment.as_deref(), Some("Ship it"));
+    assert_eq!(approvals[0].environments[0].name, "production");
+    assert_eq!(approvals[0].user.as_ref().unwrap().login, "maintainer");
+    assert_eq!(
+        runner.requests()[1].args,
+        vec!["api", "repos/ace/app/actions/runs/100/approvals"]
     );
 }
 

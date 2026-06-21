@@ -438,6 +438,12 @@ pub struct WorkflowRunPendingDeploymentsRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkflowRunApprovalsRequest {
+    pub repo_path: String,
+    pub run_id: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkflowRunArtifactDownloadRequest {
     pub repo_path: String,
     pub run_id: u64,

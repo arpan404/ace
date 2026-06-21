@@ -72,6 +72,7 @@ pub mod methods {
         "github.workflow_runs.pending_deployments";
     pub const GITHUB_WORKFLOW_RUN_PENDING_DEPLOYMENTS_REVIEW: &str =
         "github.workflow_runs.pending_deployments.review";
+    pub const GITHUB_WORKFLOW_RUN_APPROVALS: &str = "github.workflow_runs.approvals";
     pub const GITHUB_WORKFLOW_RUN_ARTIFACTS: &str = "github.workflow_runs.artifacts";
     pub const GITHUB_WORKFLOW_RUN_ARTIFACTS_DOWNLOAD: &str =
         "github.workflow_runs.artifacts.download";

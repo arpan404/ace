@@ -26,10 +26,10 @@ use ace_protocol::github::{
     PullRequestReviewRequest, PullRequestReviewThreadsRequest, PullRequestThreadRequest,
     PullRequestTimelineRequest, SearchIssuesRequest, SearchPullRequestsRequest,
     WorkflowDisableRequest, WorkflowDispatchRequest, WorkflowEnableRequest, WorkflowJobLogRequest,
-    WorkflowJobRequest, WorkflowListRequest, WorkflowRunApproveRequest,
-    WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest, WorkflowRunCancelRequest,
-    WorkflowRunJobsRequest, WorkflowRunListRequest, WorkflowRunLogRequest,
-    WorkflowRunPendingDeploymentReviewRequest,
+    WorkflowJobRequest, WorkflowListRequest, WorkflowRunApprovalsRequest,
+    WorkflowRunApproveRequest, WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest,
+    WorkflowRunCancelRequest, WorkflowRunJobsRequest, WorkflowRunListRequest,
+    WorkflowRunLogRequest, WorkflowRunPendingDeploymentReviewRequest,
     WorkflowRunPendingDeploymentReviewState as ProtocolWorkflowRunPendingDeploymentReviewState,
     WorkflowRunPendingDeploymentsRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
 };
@@ -626,6 +626,16 @@ impl<R: ProcessRunner> GithubService<R> {
     ) -> Result<Vec<ace_git::GithubWorkflowPendingDeployment>, GithubApiError> {
         self.github
             .workflow_run_pending_deployments(&repo_path(&request.repo_path)?, request.run_id)
+            .await
+            .map_err(GithubApiError::from)
+    }
+
+    pub async fn workflow_run_approvals(
+        &self,
+        request: WorkflowRunApprovalsRequest,
+    ) -> Result<Vec<ace_git::GithubWorkflowRunApproval>, GithubApiError> {
+        self.github
+            .workflow_run_approvals(&repo_path(&request.repo_path)?, request.run_id)
             .await
             .map_err(GithubApiError::from)
     }
