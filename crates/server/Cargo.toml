@@ -14,11 +14,11 @@ axum.workspace = true
 bytes.workspace = true
 reqwest.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
 async-trait.workspace = true
-serde_json.workspace = true
 tower.workspace = true

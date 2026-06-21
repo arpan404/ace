@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 
 pub mod git;
 pub mod github;
+pub mod ws;
 
 pub const PROTOCOL_VERSION: u16 = 1;
 

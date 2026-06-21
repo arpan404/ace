@@ -1,5 +1,6 @@
 pub mod git;
 pub mod github;
+pub mod ws;
 
 use axum::{Json, Router, routing::get};
 use serde::Serialize;
@@ -33,6 +34,7 @@ pub fn router() -> Router {
     Router::new()
         .route("/health", get(health))
         .route("/api/status", get(status))
+        .merge(ws::router())
         .nest("/api/git", git::router())
         .merge(github::image_proxy_router())
         .nest("/api/github", github::router())
