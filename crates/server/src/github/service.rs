@@ -22,9 +22,10 @@ use ace_protocol::github::{
     PullRequestListRequest, PullRequestMergeRequest, PullRequestReadyStateRequest,
     PullRequestReopenRequest, PullRequestRequest, PullRequestReviewRequest,
     PullRequestThreadRequest, SearchIssuesRequest, SearchPullRequestsRequest,
-    WorkflowDisableRequest, WorkflowDispatchRequest, WorkflowEnableRequest, WorkflowListRequest,
-    WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest, WorkflowRunCancelRequest,
-    WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
+    WorkflowDisableRequest, WorkflowDispatchRequest, WorkflowEnableRequest, WorkflowJobLogRequest,
+    WorkflowJobRequest, WorkflowListRequest, WorkflowRunArtifactDownloadRequest,
+    WorkflowRunArtifactsRequest, WorkflowRunCancelRequest, WorkflowRunListRequest,
+    WorkflowRunLogRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
 };
 use serde::Serialize;
 use std::{path::PathBuf, sync::Arc};
@@ -483,6 +484,27 @@ impl<R: ProcessRunner> GithubService<R> {
                 request.job_id,
                 request.failed_only,
             )
+            .await?;
+        Ok(WorkflowRunLogResponse { log })
+    }
+
+    pub async fn workflow_job(
+        &self,
+        request: WorkflowJobRequest,
+    ) -> Result<ace_git::GithubWorkflowJobDetail, GithubApiError> {
+        self.github
+            .workflow_job(&repo_path(&request.repo_path)?, request.job_id)
+            .await
+            .map_err(GithubApiError::from)
+    }
+
+    pub async fn workflow_job_log(
+        &self,
+        request: WorkflowJobLogRequest,
+    ) -> Result<WorkflowRunLogResponse, GithubApiError> {
+        let log = self
+            .github
+            .workflow_job_log(&repo_path(&request.repo_path)?, request.job_id)
             .await?;
         Ok(WorkflowRunLogResponse { log })
     }

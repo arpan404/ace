@@ -66,6 +66,8 @@ pub mod methods {
         "github.workflow_runs.artifacts.download";
     pub const GITHUB_WORKFLOW_RUN_RERUN: &str = "github.workflow_runs.rerun";
     pub const GITHUB_WORKFLOW_RUN_CANCEL: &str = "github.workflow_runs.cancel";
+    pub const GITHUB_WORKFLOW_JOBS_VIEW: &str = "github.workflow_jobs.view";
+    pub const GITHUB_WORKFLOW_JOBS_LOG: &str = "github.workflow_jobs.log";
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

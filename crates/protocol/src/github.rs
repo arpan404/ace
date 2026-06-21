@@ -364,6 +364,18 @@ pub struct WorkflowRunLogRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkflowJobRequest {
+    pub repo_path: String,
+    pub job_id: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkflowJobLogRequest {
+    pub repo_path: String,
+    pub job_id: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkflowRunArtifactsRequest {
     pub repo_path: String,
     pub run_id: u64,

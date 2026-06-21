@@ -140,6 +140,39 @@ impl<R: ProcessRunner> GithubCliClient<R> {
         Ok(output.stdout_string())
     }
 
+    pub async fn workflow_job(&self, cwd: &Path, job_id: u64) -> Result<GithubWorkflowJobDetail> {
+        let repository = self.repository(cwd).await?;
+        let output = self
+            .gh_allow_statuses(
+                cwd,
+                [
+                    "api".to_string(),
+                    format!("repos/{}/actions/jobs/{job_id}", repository.name_with_owner),
+                ],
+                &[0],
+            )
+            .await?;
+        parse_json("github workflow job", &output.stdout)
+    }
+
+    pub async fn workflow_job_log(&self, cwd: &Path, job_id: u64) -> Result<String> {
+        let repository = self.repository(cwd).await?;
+        let output = self
+            .gh_allow_statuses(
+                cwd,
+                [
+                    "api".to_string(),
+                    format!(
+                        "repos/{}/actions/jobs/{job_id}/logs",
+                        repository.name_with_owner
+                    ),
+                ],
+                &[0],
+            )
+            .await?;
+        Ok(output.stdout_string())
+    }
+
     pub async fn workflow_run_artifacts(
         &self,
         cwd: &Path,
@@ -336,18 +369,48 @@ pub struct GithubWorkflowRunDetail {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GithubWorkflowJob {
-    #[serde(rename = "databaseId")]
+    #[serde(rename = "databaseId", alias = "id")]
     pub database_id: u64,
     pub name: String,
     pub status: String,
     pub conclusion: Option<String>,
-    #[serde(rename = "startedAt")]
+    #[serde(rename = "startedAt", alias = "started_at")]
     pub started_at: Option<String>,
-    #[serde(rename = "completedAt")]
+    #[serde(rename = "completedAt", alias = "completed_at")]
     pub completed_at: Option<String>,
     pub url: Option<String>,
+    #[serde(rename = "htmlUrl", alias = "html_url", default)]
+    pub html_url: Option<String>,
     #[serde(default)]
     pub steps: Vec<GithubWorkflowStep>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GithubWorkflowJobDetail {
+    #[serde(flatten)]
+    pub job: GithubWorkflowJob,
+    #[serde(rename = "runId", alias = "run_id", default)]
+    pub run_id: Option<u64>,
+    #[serde(rename = "runUrl", alias = "run_url", default)]
+    pub run_url: Option<String>,
+    #[serde(rename = "runAttempt", alias = "run_attempt", default)]
+    pub run_attempt: Option<u32>,
+    #[serde(rename = "workflowName", alias = "workflow_name", default)]
+    pub workflow_name: Option<String>,
+    #[serde(rename = "headBranch", alias = "head_branch", default)]
+    pub head_branch: Option<String>,
+    #[serde(rename = "headSha", alias = "head_sha", default)]
+    pub head_sha: Option<String>,
+    #[serde(default)]
+    pub labels: Vec<String>,
+    #[serde(rename = "runnerId", alias = "runner_id", default)]
+    pub runner_id: Option<u64>,
+    #[serde(rename = "runnerName", alias = "runner_name", default)]
+    pub runner_name: Option<String>,
+    #[serde(rename = "runnerGroupId", alias = "runner_group_id", default)]
+    pub runner_group_id: Option<u64>,
+    #[serde(rename = "runnerGroupName", alias = "runner_group_name", default)]
+    pub runner_group_name: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -356,9 +419,9 @@ pub struct GithubWorkflowStep {
     pub status: String,
     pub conclusion: Option<String>,
     pub number: Option<u32>,
-    #[serde(rename = "startedAt")]
+    #[serde(rename = "startedAt", alias = "started_at")]
     pub started_at: Option<String>,
-    #[serde(rename = "completedAt")]
+    #[serde(rename = "completedAt", alias = "completed_at")]
     pub completed_at: Option<String>,
 }
 
@@ -635,6 +698,68 @@ mod tests {
                 "200",
                 "--log"
             ]
+        );
+    }
+
+    #[tokio::test]
+    async fn workflow_job_resolves_repo_and_parses_job_detail() {
+        let runner = std::sync::Arc::new(FakeRunner::new(vec![
+            output(
+                0,
+                br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+            ),
+            output(
+                0,
+                br#"{"id":200,"run_id":100,"run_url":"https://api.github.test/runs/100","run_attempt":2,"node_id":"J_1","head_sha":"abc","url":"https://api.github.test/jobs/200","html_url":"https://github.test/jobs/200","status":"completed","conclusion":"failure","created_at":"2026-06-21T00:00:00Z","started_at":"2026-06-21T00:01:00Z","completed_at":"2026-06-21T00:02:00Z","name":"test","workflow_name":"CI","head_branch":"feature/x","labels":["ubuntu-latest"],"runner_id":1,"runner_name":"GitHub Actions 1","runner_group_id":2,"runner_group_name":"Default","steps":[{"name":"cargo test","status":"completed","conclusion":"failure","number":3,"started_at":"2026-06-21T00:01:00Z","completed_at":"2026-06-21T00:02:00Z"}]}"#,
+            ),
+        ]));
+        let github = GithubCliClient::with_runner(runner.clone());
+
+        let detail = github
+            .workflow_job(Path::new("."), 200)
+            .await
+            .expect("job detail");
+
+        assert_eq!(detail.job.database_id, 200);
+        assert_eq!(
+            detail.job.html_url.as_deref(),
+            Some("https://github.test/jobs/200")
+        );
+        assert_eq!(detail.run_id, Some(100));
+        assert_eq!(detail.run_attempt, Some(2));
+        assert_eq!(detail.workflow_name.as_deref(), Some("CI"));
+        assert_eq!(detail.labels, vec!["ubuntu-latest"]);
+        assert_eq!(detail.runner_name.as_deref(), Some("GitHub Actions 1"));
+        assert_eq!(
+            detail.job.steps[0].started_at.as_deref(),
+            Some("2026-06-21T00:01:00Z")
+        );
+        assert_eq!(
+            runner.requests()[1].args,
+            vec!["api", "repos/ace/app/actions/jobs/200"]
+        );
+    }
+
+    #[tokio::test]
+    async fn workflow_job_log_resolves_repo_and_returns_log_text() {
+        let runner = std::sync::Arc::new(FakeRunner::new(vec![
+            output(
+                0,
+                br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+            ),
+            output(0, "cargo test\nfailure\n"),
+        ]));
+        let github = GithubCliClient::with_runner(runner.clone());
+
+        let log = github
+            .workflow_job_log(Path::new("."), 200)
+            .await
+            .expect("job log");
+
+        assert_eq!(log, "cargo test\nfailure");
+        assert_eq!(
+            runner.requests()[1].args,
+            vec!["api", "repos/ace/app/actions/jobs/200/logs"]
         );
     }
 
