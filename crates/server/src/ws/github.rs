@@ -6,12 +6,12 @@ use ace_protocol::{
         CheckSuiteRequest, CheckSuiteRerequestRequest, CheckSuiteRunsRequest, CheckSuitesRequest,
         CommitCheckRollupRequest, CommitStatusesRequest, EnvironmentStatusRequest,
         GithubImageProxyRequest, IssueListRequest, IssueThreadRequest, PullRequestActivityRequest,
-        PullRequestCheckoutRequest, PullRequestChecksRequest, PullRequestCloseRequest,
-        PullRequestCommentRequest, PullRequestCommitsRequest, PullRequestCreateRequest,
-        PullRequestDashboardRequest, PullRequestDiffRequest, PullRequestFilesRequest,
-        PullRequestListRequest, PullRequestMergeRequest, PullRequestMergeStatusRequest,
-        PullRequestReadyStateRequest, PullRequestReopenRequest, PullRequestRequest,
-        PullRequestReviewCommentsRequest, PullRequestReviewRequest,
+        PullRequestCheckoutRequest, PullRequestChecksRequest, PullRequestCiStatusRequest,
+        PullRequestCloseRequest, PullRequestCommentRequest, PullRequestCommitsRequest,
+        PullRequestCreateRequest, PullRequestDashboardRequest, PullRequestDiffRequest,
+        PullRequestFilesRequest, PullRequestListRequest, PullRequestMergeRequest,
+        PullRequestMergeStatusRequest, PullRequestReadyStateRequest, PullRequestReopenRequest,
+        PullRequestRequest, PullRequestReviewCommentsRequest, PullRequestReviewRequest,
         PullRequestReviewThreadsRequest, PullRequestThreadRequest, PullRequestTimelineRequest,
         RepositoryActivityRequest, SearchIssuesRequest, SearchPullRequestsRequest,
         WorkflowDisableRequest, WorkflowDispatchRequest, WorkflowEnableRequest,
@@ -248,6 +248,15 @@ impl<R: ProcessRunner> WsApiState<R> {
                 self.github_json::<PullRequestActivityRequest, _, _, _>(
                     payload,
                     |service, request| async move { service.pull_request_activity(request).await },
+                )
+                .await
+            }
+            methods::GITHUB_PULL_REQUEST_CI_STATUS => {
+                self.github_json::<PullRequestCiStatusRequest, _, _, _>(
+                    payload,
+                    |service, request| async move {
+                        service.pull_request_ci_status(request).await
+                    },
                 )
                 .await
             }
@@ -1820,6 +1829,89 @@ mod tests {
                 "-F",
                 "per_page=10"
             ]
+        );
+    }
+
+    #[tokio::test]
+    async fn dispatches_pull_request_ci_status_over_ws_rpc() {
+        let runner = Arc::new(FakeRunner::new(vec![
+            ok(
+                br#"{"number":42,"title":"Feature","state":"OPEN","url":"https://example.test/pull/42","headRefName":"feature/x","headRefOid":"abc","baseRefName":"main","body":"body"}"#,
+            ),
+            ok(
+                br#"[{"bucket":"fail","completedAt":"2026-06-21T00:01:00Z","description":null,"event":"push","link":"https://example.test/check","name":"CI","startedAt":"2026-06-21T00:00:00Z","state":"FAILURE","workflow":"CI"}]"#,
+            ),
+            ok(
+                br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+            ),
+            ok(
+                br#"{"total_count":1,"check_runs":[{"id":10,"name":"build","node_id":"CR_1","head_sha":"abc","external_id":null,"url":"https://api.github.test/check-runs/10","html_url":"https://github.test/checks/10","details_url":"https://ci.test/build/10","status":"completed","conclusion":"failure","started_at":"2026-06-21T00:00:00Z","completed_at":"2026-06-21T00:01:00Z","output":{"title":"Build","summary":"failed","text":null,"annotations_count":2,"annotations_url":"https://api.github.test/annotations"},"app":{"id":1,"slug":"github-actions","name":"GitHub Actions","html_url":"https://github.com/apps/github-actions"},"check_suite":{"id":5,"head_branch":"feature/x","head_sha":"abc","status":"completed","conclusion":"failure"},"pull_requests":[]}]}"#,
+            ),
+            ok(
+                br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+            ),
+            ok(
+                br#"[{"id":99,"node_id":"ST_1","state":"failure","description":"failed","target_url":"https://ci.test/status","context":"ci/build","created_at":"2026-06-21T00:00:00Z","updated_at":"2026-06-21T00:01:00Z","url":"https://api.github.test/statuses/99","avatar_url":"https://avatars.githubusercontent.com/u/1"}]"#,
+            ),
+            ok(
+                br#"[{"attempt":1,"conclusion":"failure","createdAt":"2026-06-21T00:00:00Z","databaseId":7,"displayTitle":"Run","event":"pull_request","headBranch":"feature/x","headSha":"abc","name":"CI","number":3,"startedAt":"2026-06-21T00:00:00Z","status":"completed","updatedAt":"2026-06-21T00:01:00Z","url":"https://example.test/run/7","workflowDatabaseId":2,"workflowName":"CI"}]"#,
+            ),
+        ]));
+        let state = test_state(runner.clone());
+
+        let response = dispatch(
+            &state,
+            serde_json::json!({
+                "version": PROTOCOL_VERSION,
+                "request_id": "req-pr-ci",
+                "method": methods::GITHUB_PULL_REQUEST_CI_STATUS,
+                "payload": {
+                    "repo_path": "/repo",
+                    "selector": "42",
+                    "required_checks_only": true,
+                    "workflow_run_limit": 5,
+                    "check_run_limit": 25,
+                    "status_limit": 20
+                }
+            }),
+        )
+        .await;
+
+        let WsServerPayload::Result { body } = response.payload else {
+            panic!("expected result");
+        };
+        assert_eq!(body["pull_request"]["number"], 42);
+        assert_eq!(body["pr_checks"]["summary"]["failed"], 1);
+        assert_eq!(body["commit_checks"]["summary"]["failed"], 2);
+        assert_eq!(body["workflow_runs"][0]["databaseId"], 7);
+        let requests = runner.requests();
+        assert_eq!(requests[0].args[0..3], ["pr", "view", "42"]);
+        assert_eq!(
+            requests[1].args,
+            vec![
+                "pr",
+                "checks",
+                "42",
+                "--required",
+                "--json",
+                "bucket,completedAt,description,event,link,name,startedAt,state,workflow"
+            ]
+        );
+        assert_eq!(requests[3].args[1], "repos/ace/app/commits/abc/check-runs");
+        assert_eq!(requests[3].args[3], "per_page=25");
+        assert_eq!(requests[5].args[1], "repos/ace/app/commits/abc/statuses");
+        assert_eq!(requests[5].args[3], "per_page=20");
+        assert!(
+            requests[6]
+                .args
+                .windows(2)
+                .any(|pair| pair == ["--branch", "feature/x"])
+        );
+        assert!(
+            requests[6]
+                .args
+                .windows(2)
+                .any(|pair| pair == ["--commit", "abc"])
         );
     }
 

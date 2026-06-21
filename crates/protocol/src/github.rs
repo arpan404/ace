@@ -316,6 +316,16 @@ pub struct PullRequestActivityRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PullRequestCiStatusRequest {
+    pub repo_path: String,
+    pub selector: String,
+    pub required_checks_only: bool,
+    pub workflow_run_limit: u32,
+    pub check_run_limit: u32,
+    pub status_limit: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PullRequestDashboardRequest {
     pub repo_path: String,
     pub filter: PullRequestListFilter,

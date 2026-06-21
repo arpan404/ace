@@ -8,9 +8,9 @@ use ace_protocol::github::{
     CheckRunsRequest, CheckSuiteRequest, CheckSuiteRerequestRequest, CheckSuiteRunsRequest,
     CheckSuitesRequest, CommitCheckRollupRequest, CommitStatusesRequest, EnvironmentStatusRequest,
     GithubImageProxyRequest, IssueListFilter, IssueListRequest, IssueThreadRequest,
-    PullRequestActivityRequest, PullRequestChecksRequest, PullRequestCommitsRequest,
-    PullRequestCreateRequest, PullRequestDashboardRequest, PullRequestDiffRequest,
-    PullRequestFilesRequest, PullRequestListFilter, PullRequestMergeMethod,
+    PullRequestActivityRequest, PullRequestChecksRequest, PullRequestCiStatusRequest,
+    PullRequestCommitsRequest, PullRequestCreateRequest, PullRequestDashboardRequest,
+    PullRequestDiffRequest, PullRequestFilesRequest, PullRequestListFilter, PullRequestMergeMethod,
     PullRequestMergeRequest, PullRequestMergeStatusRequest, PullRequestRequest,
     PullRequestReviewCommentsRequest, PullRequestReviewDecision, PullRequestReviewRequest,
     PullRequestReviewThreadsRequest, PullRequestThreadRequest, PullRequestTimelineRequest,
@@ -1027,6 +1027,62 @@ async fn service_returns_pull_request_activity() {
             .windows(2)
             .any(|pair| pair == ["--branch", "feature/x"])
     );
+}
+
+#[tokio::test]
+async fn service_returns_pull_request_ci_status() {
+    let runner = Arc::new(FakeRunner::new(vec![
+        ok(
+            br#"{"number":42,"title":"Feature","state":"OPEN","url":"https://example.test/pull/42","headRefName":"feature/x","headRefOid":"abc","baseRefName":"main","body":"body"}"#,
+        ),
+        ok(
+            br#"[{"bucket":"fail","completedAt":"2026-06-21T00:01:00Z","description":null,"event":"push","link":"https://example.test/check","name":"CI","startedAt":"2026-06-21T00:00:00Z","state":"FAILURE","workflow":"CI"}]"#,
+        ),
+        ok(
+            br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+        ),
+        ok(
+            br#"{"total_count":1,"check_runs":[{"id":10,"name":"build","node_id":"CR_1","head_sha":"abc","external_id":null,"url":"https://api.github.test/check-runs/10","html_url":"https://github.test/checks/10","details_url":"https://ci.test/build/10","status":"completed","conclusion":"failure","started_at":"2026-06-21T00:00:00Z","completed_at":"2026-06-21T00:01:00Z","output":{"title":"Build","summary":"failed","text":null,"annotations_count":2,"annotations_url":"https://api.github.test/annotations"},"app":{"id":1,"slug":"github-actions","name":"GitHub Actions","html_url":"https://github.com/apps/github-actions"},"check_suite":{"id":5,"head_branch":"feature/x","head_sha":"abc","status":"completed","conclusion":"failure"},"pull_requests":[]}]}"#,
+        ),
+        ok(
+            br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+        ),
+        ok(
+            br#"[{"id":99,"node_id":"ST_1","state":"success","description":"ok","target_url":"https://ci.test/status","context":"ci/build","created_at":"2026-06-21T00:00:00Z","updated_at":"2026-06-21T00:01:00Z","url":"https://api.github.test/statuses/99","avatar_url":"https://avatars.githubusercontent.com/u/1"}]"#,
+        ),
+        ok(
+            br#"[{"attempt":1,"conclusion":"failure","createdAt":"2026-06-21T00:00:00Z","databaseId":7,"displayTitle":"Run","event":"pull_request","headBranch":"feature/x","headSha":"abc","name":"CI","number":3,"startedAt":"2026-06-21T00:00:00Z","status":"completed","updatedAt":"2026-06-21T00:01:00Z","url":"https://example.test/run/7","workflowDatabaseId":2,"workflowName":"CI"}]"#,
+        ),
+    ]));
+    let service = GithubService::new(GithubCliClient::with_runner(runner.clone()));
+
+    let status = service
+        .pull_request_ci_status(PullRequestCiStatusRequest {
+            repo_path: "/repo".to_string(),
+            selector: "42".to_string(),
+            required_checks_only: true,
+            workflow_run_limit: 5,
+            check_run_limit: 25,
+            status_limit: 20,
+        })
+        .await
+        .expect("ci status");
+
+    assert_eq!(status.pull_request.number, Some(42));
+    assert_eq!(status.pr_checks.summary.failed, 1);
+    assert_eq!(status.commit_checks.summary.failed, 1);
+    assert_eq!(status.commit_checks.summary.passed, 1);
+    assert_eq!(status.workflow_runs[0].database_id, 7);
+    assert_eq!(
+        runner.requests()[3].args[1],
+        "repos/ace/app/commits/abc/check-runs"
+    );
+    assert_eq!(runner.requests()[3].args[3], "per_page=25");
+    assert_eq!(
+        runner.requests()[5].args[1],
+        "repos/ace/app/commits/abc/statuses"
+    );
+    assert_eq!(runner.requests()[5].args[3], "per_page=20");
 }
 
 #[tokio::test]

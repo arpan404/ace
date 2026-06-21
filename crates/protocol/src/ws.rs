@@ -60,6 +60,7 @@ pub mod methods {
     pub const GITHUB_COMMIT_STATUSES_LIST: &str = "github.commit_statuses.list";
     pub const GITHUB_COMMIT_CHECK_ROLLUP: &str = "github.commit_checks.rollup";
     pub const GITHUB_PULL_REQUEST_ACTIVITY: &str = "github.pull_request.activity";
+    pub const GITHUB_PULL_REQUEST_CI_STATUS: &str = "github.pull_request.ci_status";
     pub const GITHUB_PULL_REQUEST_DASHBOARD: &str = "github.pull_request.dashboard";
     pub const GITHUB_PULL_REQUEST_CHECKOUT: &str = "github.pull_request.checkout";
     pub const GITHUB_PULL_REQUEST_COMMENT: &str = "github.pull_request.comment";
