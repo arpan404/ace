@@ -20,6 +20,12 @@ pub struct RepositoryActivityRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GithubImageProxyRequest {
+    pub repo_path: String,
+    pub url: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IssueListRequest {
     pub repo_path: String,
     pub filter: IssueListFilter,

@@ -1,5 +1,6 @@
 use super::{
     error::GithubApiError,
+    image_proxy::{GithubImageFetcher, ReqwestGithubImageFetcher, fetch_github_issue_image},
     mapping::{
         check_run_list_filter, issue_list_filter, pull_request_list_filter,
         pull_request_merge_method, pull_request_review_decision, search_filter,
@@ -17,23 +18,25 @@ use ace_git::{
 use ace_protocol::github::{
     CheckRunAnnotationsRequest, CheckRunRequest, CheckRunRerequestRequest, CheckRunsRequest,
     CheckSuiteRequest, CheckSuiteRerequestRequest, CheckSuiteRunsRequest, CheckSuitesRequest,
-    CommitCheckRollupRequest, CommitStatusesRequest, EnvironmentStatusRequest, IssueListRequest,
-    IssueThreadRequest, PullRequestActivityRequest, PullRequestCheckoutRequest,
-    PullRequestChecksRequest, PullRequestCloseRequest, PullRequestCommentRequest,
-    PullRequestCommitsRequest, PullRequestCreateRequest, PullRequestDashboardRequest,
-    PullRequestDiffRequest, PullRequestFilesRequest, PullRequestListRequest,
-    PullRequestMergeRequest, PullRequestMergeStatusRequest, PullRequestReadyStateRequest,
-    PullRequestReopenRequest, PullRequestRequest, PullRequestReviewCommentsRequest,
-    PullRequestReviewRequest, PullRequestReviewThreadsRequest, PullRequestThreadRequest,
-    PullRequestTimelineRequest, SearchIssuesRequest, SearchPullRequestsRequest,
-    WorkflowDisableRequest, WorkflowDispatchRequest, WorkflowEnableRequest, WorkflowJobLogRequest,
-    WorkflowJobRequest, WorkflowListRequest, WorkflowRequest, WorkflowRunApprovalsRequest,
-    WorkflowRunApproveRequest, WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest,
-    WorkflowRunCancelRequest, WorkflowRunForceCancelRequest, WorkflowRunJobsRequest,
-    WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunPendingDeploymentReviewRequest,
+    CommitCheckRollupRequest, CommitStatusesRequest, EnvironmentStatusRequest,
+    GithubImageProxyRequest, IssueListRequest, IssueThreadRequest, PullRequestActivityRequest,
+    PullRequestCheckoutRequest, PullRequestChecksRequest, PullRequestCloseRequest,
+    PullRequestCommentRequest, PullRequestCommitsRequest, PullRequestCreateRequest,
+    PullRequestDashboardRequest, PullRequestDiffRequest, PullRequestFilesRequest,
+    PullRequestListRequest, PullRequestMergeRequest, PullRequestMergeStatusRequest,
+    PullRequestReadyStateRequest, PullRequestReopenRequest, PullRequestRequest,
+    PullRequestReviewCommentsRequest, PullRequestReviewRequest, PullRequestReviewThreadsRequest,
+    PullRequestThreadRequest, PullRequestTimelineRequest, SearchIssuesRequest,
+    SearchPullRequestsRequest, WorkflowDisableRequest, WorkflowDispatchRequest,
+    WorkflowEnableRequest, WorkflowJobLogRequest, WorkflowJobRequest, WorkflowListRequest,
+    WorkflowRequest, WorkflowRunApprovalsRequest, WorkflowRunApproveRequest,
+    WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest, WorkflowRunCancelRequest,
+    WorkflowRunForceCancelRequest, WorkflowRunJobsRequest, WorkflowRunListRequest,
+    WorkflowRunLogRequest, WorkflowRunPendingDeploymentReviewRequest,
     WorkflowRunPendingDeploymentReviewState as ProtocolWorkflowRunPendingDeploymentReviewState,
     WorkflowRunPendingDeploymentsRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
 };
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde::Serialize;
 use std::{path::PathBuf, sync::Arc};
 
@@ -69,12 +72,14 @@ impl<R: ProcessRunner> GithubApiState<R> {
 
 pub struct GithubService<R: ProcessRunner = TokioProcessRunner> {
     github: GithubCliClient<R>,
+    image_fetcher: Arc<dyn GithubImageFetcher>,
 }
 
 impl<R: ProcessRunner> Clone for GithubService<R> {
     fn clone(&self) -> Self {
         Self {
             github: self.github.clone(),
+            image_fetcher: Arc::clone(&self.image_fetcher),
         }
     }
 }
@@ -82,7 +87,40 @@ impl<R: ProcessRunner> Clone for GithubService<R> {
 impl<R: ProcessRunner> GithubService<R> {
     #[must_use]
     pub fn new(github: GithubCliClient<R>) -> Self {
-        Self { github }
+        Self {
+            github,
+            image_fetcher: Arc::new(ReqwestGithubImageFetcher::new()),
+        }
+    }
+
+    #[cfg(test)]
+    #[must_use]
+    pub fn new_with_image_fetcher(
+        github: GithubCliClient<R>,
+        image_fetcher: Arc<dyn GithubImageFetcher>,
+    ) -> Self {
+        Self {
+            github,
+            image_fetcher,
+        }
+    }
+
+    pub async fn proxy_image(
+        &self,
+        request: GithubImageProxyRequest,
+    ) -> Result<GithubImageProxyResponse, GithubApiError> {
+        let image = fetch_github_issue_image(
+            &self.github,
+            self.image_fetcher.as_ref(),
+            &repo_path(&request.repo_path)?,
+            &request.url,
+        )
+        .await?;
+        Ok(GithubImageProxyResponse {
+            content_type: image.content_type,
+            byte_len: image.bytes.len(),
+            data_base64: STANDARD.encode(image.bytes),
+        })
     }
 
     pub async fn environment_status(
@@ -874,6 +912,13 @@ impl<R: ProcessRunner> GithubService<R> {
             .await
             .map_err(GithubApiError::from)
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct GithubImageProxyResponse {
+    pub content_type: String,
+    pub byte_len: usize,
+    pub data_base64: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]

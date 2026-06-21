@@ -82,6 +82,7 @@ dependencies = [
  "ace-protocol",
  "async-trait",
  "axum",
+ "base64",
  "bytes",
  "reqwest",
  "serde",

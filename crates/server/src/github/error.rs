@@ -1,3 +1,4 @@
+use super::image_proxy::ImageProxyError;
 use axum::{Json, http::StatusCode, response::IntoResponse};
 use serde::Serialize;
 use thiserror::Error;
@@ -8,6 +9,8 @@ pub enum GithubApiError {
     EmptyRepoPath,
     #[error("{0}")]
     Tooling(#[from] ace_git::GitToolError),
+    #[error("{0}")]
+    ImageProxy(#[from] ImageProxyError),
 }
 
 #[derive(Debug, Serialize)]
@@ -23,6 +26,13 @@ impl IntoResponse for GithubApiError {
             Self::Tooling(ace_git::GitToolError::NotGithubRepository) => StatusCode::BAD_REQUEST,
             Self::Tooling(ace_git::GitToolError::MissingBinary(_)) => StatusCode::FAILED_DEPENDENCY,
             Self::Tooling(_) => StatusCode::BAD_GATEWAY,
+            Self::ImageProxy(
+                ImageProxyError::MissingParameter | ImageProxyError::UnsupportedUrl,
+            ) => StatusCode::BAD_REQUEST,
+            Self::ImageProxy(ImageProxyError::TooLarge { .. }) => StatusCode::PAYLOAD_TOO_LARGE,
+            Self::ImageProxy(ImageProxyError::FetchFailed | ImageProxyError::NotImage) => {
+                StatusCode::BAD_GATEWAY
+            }
         };
         (
             status,

@@ -12,6 +12,7 @@ ace-platform.workspace = true
 ace-protocol.workspace = true
 async-trait.workspace = true
 axum.workspace = true
+base64.workspace = true
 bytes.workspace = true
 reqwest.workspace = true
 serde.workspace = true

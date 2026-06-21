@@ -10,7 +10,11 @@ use axum::{
 };
 use reqwest::{Url, redirect::Policy};
 use serde::Deserialize;
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+    time::Duration,
+};
 use thiserror::Error;
 
 const MAX_IMAGE_BYTES: usize = 20 * 1024 * 1024;
@@ -130,17 +134,30 @@ where
         _ => return Err(ImageProxyError::MissingParameter),
     };
 
-    let url = resolve_allowed_github_issue_image_url(&raw_url)?;
-    let token = state.github.auth_token(&cwd).await.unwrap_or_default();
-    let auth_header = (!token.is_empty()).then(|| format!("Bearer {token}"));
-
-    let image = match state.fetcher.fetch(url.clone(), auth_header).await {
-        Ok(image) => image,
-        Err(error) if !token.is_empty() => state.fetcher.fetch(url, None).await.or(Err(error))?,
-        Err(error) => return Err(error),
-    };
+    let image =
+        fetch_github_issue_image(&state.github, state.fetcher.as_ref(), &cwd, &raw_url).await?;
 
     Ok(image_response(image))
+}
+
+pub async fn fetch_github_issue_image<R>(
+    github: &GithubCliClient<R>,
+    fetcher: &dyn GithubImageFetcher,
+    cwd: &Path,
+    raw_url: &str,
+) -> Result<ProxiedGithubImage, ImageProxyError>
+where
+    R: ProcessRunner,
+{
+    let url = resolve_allowed_github_issue_image_url(raw_url)?;
+    let token = github.auth_token(cwd).await.unwrap_or_default();
+    let auth_header = (!token.is_empty()).then(|| format!("Bearer {token}"));
+
+    match fetcher.fetch(url.clone(), auth_header).await {
+        Ok(image) => Ok(image),
+        Err(error) if !token.is_empty() => fetcher.fetch(url, None).await.or(Err(error)),
+        Err(error) => Err(error),
+    }
 }
 
 fn image_response(image: ProxiedGithubImage) -> Response {

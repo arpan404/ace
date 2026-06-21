@@ -5,7 +5,7 @@ use ace_protocol::{
         CheckRunAnnotationsRequest, CheckRunRequest, CheckRunRerequestRequest, CheckRunsRequest,
         CheckSuiteRequest, CheckSuiteRerequestRequest, CheckSuiteRunsRequest, CheckSuitesRequest,
         CommitCheckRollupRequest, CommitStatusesRequest, EnvironmentStatusRequest,
-        IssueListRequest, IssueThreadRequest, PullRequestActivityRequest,
+        GithubImageProxyRequest, IssueListRequest, IssueThreadRequest, PullRequestActivityRequest,
         PullRequestCheckoutRequest, PullRequestChecksRequest, PullRequestCloseRequest,
         PullRequestCommentRequest, PullRequestCommitsRequest, PullRequestCreateRequest,
         PullRequestDashboardRequest, PullRequestDiffRequest, PullRequestFilesRequest,
@@ -44,6 +44,13 @@ impl<R: ProcessRunner> WsApiState<R> {
                 let request = serde_json::from_value::<RepositoryActivityRequest>(payload)?;
                 let response = self.repository_activity(request).await?;
                 Ok(serde_json::to_value(response)?)
+            }
+            methods::GITHUB_IMAGE_PROXY => {
+                self.github_json::<GithubImageProxyRequest, _, _, _>(
+                    payload,
+                    |service, request| async move { service.proxy_image(request).await },
+                )
+                .await
             }
             methods::GITHUB_ISSUES_LIST => {
                 self.github_json::<IssueListRequest, _, _, _>(
@@ -460,7 +467,10 @@ impl<R: ProcessRunner> WsApiState<R> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{git::GitService, github::GithubService};
+    use crate::{
+        git::GitService,
+        github::{GithubImageFetcher, GithubService, ImageProxyError, ProxiedGithubImage},
+    };
     use ace_git::{
         CommandOutput, CommandRequest, GitClient, GitToolError, GithubCliClient, ProcessRunner,
     };
@@ -469,6 +479,8 @@ mod tests {
         ws::{WsServerPayload, WsServerResponse},
     };
     use async_trait::async_trait;
+    use bytes::Bytes;
+    use reqwest::Url;
     use std::{
         collections::VecDeque,
         sync::{Arc, Mutex},
@@ -508,6 +520,44 @@ mod tests {
         }
     }
 
+    #[derive(Debug)]
+    struct FakeImageFetcher {
+        outputs: Mutex<VecDeque<Result<ProxiedGithubImage, ImageProxyError>>>,
+        requests: Mutex<Vec<(String, Option<String>)>>,
+    }
+
+    impl FakeImageFetcher {
+        fn new(outputs: Vec<Result<ProxiedGithubImage, ImageProxyError>>) -> Self {
+            Self {
+                outputs: Mutex::new(VecDeque::from(outputs)),
+                requests: Mutex::new(Vec::new()),
+            }
+        }
+
+        fn requests(&self) -> Vec<(String, Option<String>)> {
+            self.requests.lock().expect("lock requests").clone()
+        }
+    }
+
+    #[async_trait]
+    impl GithubImageFetcher for FakeImageFetcher {
+        async fn fetch(
+            &self,
+            url: Url,
+            authorization: Option<String>,
+        ) -> Result<ProxiedGithubImage, ImageProxyError> {
+            self.requests
+                .lock()
+                .expect("lock requests")
+                .push((url.to_string(), authorization));
+            self.outputs
+                .lock()
+                .expect("lock outputs")
+                .pop_front()
+                .unwrap_or(Err(ImageProxyError::FetchFailed))
+        }
+    }
+
     fn ok(stdout: impl AsRef<[u8]>) -> CommandOutput {
         CommandOutput {
             status: 0,
@@ -516,10 +566,27 @@ mod tests {
         }
     }
 
+    fn image() -> ProxiedGithubImage {
+        ProxiedGithubImage {
+            content_type: "image/png".to_string(),
+            bytes: Bytes::from_static(b"image-bytes"),
+        }
+    }
+
     fn test_state(runner: Arc<FakeRunner>) -> WsApiState<FakeRunner> {
         WsApiState::new_services(
             GitService::new(GitClient::with_runner(runner.clone())),
             GithubService::new(GithubCliClient::with_runner(runner)),
+        )
+    }
+
+    fn test_state_with_image_fetcher(
+        runner: Arc<FakeRunner>,
+        fetcher: Arc<FakeImageFetcher>,
+    ) -> WsApiState<FakeRunner> {
+        WsApiState::new_services(
+            GitService::new(GitClient::with_runner(runner.clone())),
+            GithubService::new_with_image_fetcher(GithubCliClient::with_runner(runner), fetcher),
         )
     }
 
@@ -661,6 +728,42 @@ mod tests {
             0
         );
         assert_eq!(runner.requests().len(), 3);
+    }
+
+    #[tokio::test]
+    async fn dispatches_github_image_proxy_over_ws_rpc() {
+        let runner = Arc::new(FakeRunner::new(vec![ok("ghs_test_token\n")]));
+        let fetcher = Arc::new(FakeImageFetcher::new(vec![Ok(image())]));
+        let state = test_state_with_image_fetcher(runner.clone(), fetcher.clone());
+
+        let response = dispatch(
+            &state,
+            serde_json::json!({
+                "version": PROTOCOL_VERSION,
+                "request_id": "req-image-proxy",
+                "method": methods::GITHUB_IMAGE_PROXY,
+                "payload": {
+                    "repo_path": "/repo",
+                    "url": "https://private-user-images.githubusercontent.com/123/example.png"
+                }
+            }),
+        )
+        .await;
+
+        let WsServerPayload::Result { body } = response.payload else {
+            panic!("expected image proxy result");
+        };
+        assert_eq!(body["content_type"], "image/png");
+        assert_eq!(body["byte_len"], 11);
+        assert_eq!(body["data_base64"], "aW1hZ2UtYnl0ZXM=");
+        assert_eq!(runner.requests()[0].args, vec!["auth", "token"]);
+        assert_eq!(
+            fetcher.requests()[0],
+            (
+                "https://private-user-images.githubusercontent.com/123/example.png".to_string(),
+                Some("Bearer ghs_test_token".to_string())
+            )
+        );
     }
 
     #[tokio::test]

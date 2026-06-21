@@ -1,21 +1,24 @@
-use super::{GithubApiError, GithubService, routes::router_with_state, service::GithubApiState};
+use super::{
+    GithubApiError, GithubImageFetcher, GithubService, ImageProxyError, ProxiedGithubImage,
+    routes::router_with_state, service::GithubApiState,
+};
 use ace_git::{CommandOutput, CommandRequest, GitToolError, GithubCliClient, ProcessRunner};
 use ace_protocol::github::{
     CheckRunAnnotationsRequest, CheckRunListFilter, CheckRunRequest, CheckRunRerequestRequest,
     CheckRunsRequest, CheckSuiteRequest, CheckSuiteRerequestRequest, CheckSuiteRunsRequest,
     CheckSuitesRequest, CommitCheckRollupRequest, CommitStatusesRequest, EnvironmentStatusRequest,
-    IssueListFilter, IssueListRequest, IssueThreadRequest, PullRequestActivityRequest,
-    PullRequestChecksRequest, PullRequestCommitsRequest, PullRequestCreateRequest,
-    PullRequestDashboardRequest, PullRequestDiffRequest, PullRequestFilesRequest,
-    PullRequestListFilter, PullRequestMergeMethod, PullRequestMergeRequest,
-    PullRequestMergeStatusRequest, PullRequestRequest, PullRequestReviewCommentsRequest,
-    PullRequestReviewDecision, PullRequestReviewRequest, PullRequestReviewThreadsRequest,
-    PullRequestThreadRequest, PullRequestTimelineRequest, WorkflowDisableRequest,
-    WorkflowDispatchInput, WorkflowDispatchRequest, WorkflowEnableRequest, WorkflowJobLogRequest,
-    WorkflowJobRequest, WorkflowListFilter, WorkflowListRequest, WorkflowRequest,
-    WorkflowRunApprovalsRequest, WorkflowRunApproveRequest, WorkflowRunArtifactDownloadRequest,
-    WorkflowRunArtifactsRequest, WorkflowRunForceCancelRequest, WorkflowRunJobsRequest,
-    WorkflowRunListFilter, WorkflowRunListRequest, WorkflowRunLogRequest,
+    GithubImageProxyRequest, IssueListFilter, IssueListRequest, IssueThreadRequest,
+    PullRequestActivityRequest, PullRequestChecksRequest, PullRequestCommitsRequest,
+    PullRequestCreateRequest, PullRequestDashboardRequest, PullRequestDiffRequest,
+    PullRequestFilesRequest, PullRequestListFilter, PullRequestMergeMethod,
+    PullRequestMergeRequest, PullRequestMergeStatusRequest, PullRequestRequest,
+    PullRequestReviewCommentsRequest, PullRequestReviewDecision, PullRequestReviewRequest,
+    PullRequestReviewThreadsRequest, PullRequestThreadRequest, PullRequestTimelineRequest,
+    WorkflowDisableRequest, WorkflowDispatchInput, WorkflowDispatchRequest, WorkflowEnableRequest,
+    WorkflowJobLogRequest, WorkflowJobRequest, WorkflowListFilter, WorkflowListRequest,
+    WorkflowRequest, WorkflowRunApprovalsRequest, WorkflowRunApproveRequest,
+    WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest, WorkflowRunForceCancelRequest,
+    WorkflowRunJobsRequest, WorkflowRunListFilter, WorkflowRunListRequest, WorkflowRunLogRequest,
     WorkflowRunPendingDeploymentReviewRequest, WorkflowRunPendingDeploymentReviewState,
     WorkflowRunPendingDeploymentsRequest, WorkflowRunRerunRequest,
 };
@@ -24,6 +27,8 @@ use axum::{
     body::{Body, to_bytes},
     http::{Request, StatusCode, header},
 };
+use bytes::Bytes;
+use reqwest::Url;
 use std::{
     collections::VecDeque,
     sync::{Arc, Mutex},
@@ -64,6 +69,44 @@ impl ProcessRunner for FakeRunner {
     }
 }
 
+#[derive(Debug)]
+struct FakeImageFetcher {
+    outputs: Mutex<VecDeque<Result<ProxiedGithubImage, ImageProxyError>>>,
+    requests: Mutex<Vec<(String, Option<String>)>>,
+}
+
+impl FakeImageFetcher {
+    fn new(outputs: Vec<Result<ProxiedGithubImage, ImageProxyError>>) -> Self {
+        Self {
+            outputs: Mutex::new(VecDeque::from(outputs)),
+            requests: Mutex::new(Vec::new()),
+        }
+    }
+
+    fn requests(&self) -> Vec<(String, Option<String>)> {
+        self.requests.lock().expect("lock requests").clone()
+    }
+}
+
+#[async_trait]
+impl GithubImageFetcher for FakeImageFetcher {
+    async fn fetch(
+        &self,
+        url: Url,
+        authorization: Option<String>,
+    ) -> Result<ProxiedGithubImage, ImageProxyError> {
+        self.requests
+            .lock()
+            .expect("lock requests")
+            .push((url.to_string(), authorization));
+        self.outputs
+            .lock()
+            .expect("lock outputs")
+            .pop_front()
+            .unwrap_or(Err(ImageProxyError::FetchFailed))
+    }
+}
+
 fn ok(stdout: impl AsRef<[u8]>) -> CommandOutput {
     CommandOutput {
         status: 0,
@@ -86,6 +129,68 @@ fn exit_one(stderr: impl AsRef<[u8]>) -> CommandOutput {
         stdout: Vec::new(),
         stderr: stderr.as_ref().to_vec(),
     }
+}
+
+fn image() -> ProxiedGithubImage {
+    ProxiedGithubImage {
+        content_type: "image/png".to_string(),
+        bytes: Bytes::from_static(b"image-bytes"),
+    }
+}
+
+#[tokio::test]
+async fn service_proxies_github_image_as_base64_payload() {
+    let runner = Arc::new(FakeRunner::new(vec![ok("ghs_test_token\n")]));
+    let fetcher = Arc::new(FakeImageFetcher::new(vec![Ok(image())]));
+    let service = GithubService::new_with_image_fetcher(
+        GithubCliClient::with_runner(runner.clone()),
+        fetcher.clone(),
+    );
+
+    let response = service
+        .proxy_image(GithubImageProxyRequest {
+            repo_path: "/repo".to_string(),
+            url: "https://private-user-images.githubusercontent.com/123/example.png".to_string(),
+        })
+        .await
+        .expect("proxy image");
+
+    assert_eq!(response.content_type, "image/png");
+    assert_eq!(response.byte_len, 11);
+    assert_eq!(response.data_base64, "aW1hZ2UtYnl0ZXM=");
+    assert_eq!(runner.requests()[0].args, vec!["auth", "token"]);
+    assert_eq!(
+        fetcher.requests()[0],
+        (
+            "https://private-user-images.githubusercontent.com/123/example.png".to_string(),
+            Some("Bearer ghs_test_token".to_string())
+        )
+    );
+}
+
+#[tokio::test]
+async fn service_rejects_non_github_image_url_without_gh_call() {
+    let runner = Arc::new(FakeRunner::new(Vec::new()));
+    let fetcher = Arc::new(FakeImageFetcher::new(Vec::new()));
+    let service = GithubService::new_with_image_fetcher(
+        GithubCliClient::with_runner(runner.clone()),
+        fetcher.clone(),
+    );
+
+    let error = service
+        .proxy_image(GithubImageProxyRequest {
+            repo_path: "/repo".to_string(),
+            url: "https://example.com/bad.png".to_string(),
+        })
+        .await
+        .expect_err("unsupported url");
+
+    assert!(matches!(
+        error,
+        GithubApiError::ImageProxy(ImageProxyError::UnsupportedUrl)
+    ));
+    assert!(runner.requests().is_empty());
+    assert!(fetcher.requests().is_empty());
 }
 
 #[tokio::test]

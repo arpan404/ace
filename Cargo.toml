@@ -30,6 +30,7 @@ ace-ui = { path = "crates/ui" }
 
 axum = { version = "0.8.9", features = ["ws"] }
 async-trait = "0.1.89"
+base64 = "0.22.1"
 bytes = "1.12.0"
 clap = { version = "4.6.1", features = ["derive", "env"] }
 criterion = "0.8.2"
