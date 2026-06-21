@@ -1,17 +1,17 @@
 use super::{GithubApiError, GithubService, routes::router_with_state, service::GithubApiState};
 use ace_git::{CommandOutput, CommandRequest, GitToolError, GithubCliClient, ProcessRunner};
 use ace_protocol::github::{
-    CheckRunAnnotationsRequest, CheckRunListFilter, CheckRunRerequestRequest, CheckRunsRequest,
-    CheckSuiteRerequestRequest, CheckSuiteRunsRequest, CheckSuitesRequest, CommitStatusesRequest,
-    EnvironmentStatusRequest, IssueListFilter, IssueListRequest, IssueThreadRequest,
-    PullRequestActivityRequest, PullRequestChecksRequest, PullRequestCreateRequest,
-    PullRequestDashboardRequest, PullRequestDiffRequest, PullRequestFilesRequest,
-    PullRequestListFilter, PullRequestMergeMethod, PullRequestMergeRequest, PullRequestRequest,
-    PullRequestReviewDecision, PullRequestReviewRequest, PullRequestThreadRequest,
-    WorkflowDisableRequest, WorkflowDispatchInput, WorkflowDispatchRequest, WorkflowEnableRequest,
-    WorkflowListFilter, WorkflowListRequest, WorkflowRunArtifactDownloadRequest,
-    WorkflowRunArtifactsRequest, WorkflowRunListFilter, WorkflowRunListRequest,
-    WorkflowRunLogRequest, WorkflowRunRerunRequest,
+    CheckRunAnnotationsRequest, CheckRunListFilter, CheckRunRequest, CheckRunRerequestRequest,
+    CheckRunsRequest, CheckSuiteRerequestRequest, CheckSuiteRunsRequest, CheckSuitesRequest,
+    CommitStatusesRequest, EnvironmentStatusRequest, IssueListFilter, IssueListRequest,
+    IssueThreadRequest, PullRequestActivityRequest, PullRequestChecksRequest,
+    PullRequestCreateRequest, PullRequestDashboardRequest, PullRequestDiffRequest,
+    PullRequestFilesRequest, PullRequestListFilter, PullRequestMergeMethod,
+    PullRequestMergeRequest, PullRequestRequest, PullRequestReviewDecision,
+    PullRequestReviewRequest, PullRequestThreadRequest, WorkflowDisableRequest,
+    WorkflowDispatchInput, WorkflowDispatchRequest, WorkflowEnableRequest, WorkflowListFilter,
+    WorkflowListRequest, WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest,
+    WorkflowRunListFilter, WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunRerunRequest,
 };
 use async_trait::async_trait;
 use axum::{
@@ -389,6 +389,38 @@ async fn service_lists_commit_check_runs_through_github_cli() {
             "-F",
             "app_id=1"
         ]
+    );
+}
+
+#[tokio::test]
+async fn service_returns_check_run_detail_through_github_cli() {
+    let runner = Arc::new(FakeRunner::new(vec![
+        ok(
+            br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+        ),
+        ok(
+            br#"{"id":10,"name":"build","node_id":"CR_1","head_sha":"abc","external_id":"ci-10","url":"https://api.github.test/check-runs/10","html_url":"https://github.test/checks/10","details_url":"https://ci.test/build/10","status":"completed","conclusion":"failure","started_at":"2026-06-21T00:00:00Z","completed_at":"2026-06-21T00:01:00Z","output":{"title":"Build","summary":"failed","text":"compile failed","annotations_count":2,"annotations_url":"https://api.github.test/annotations"},"app":{"id":1,"slug":"github-actions","name":"GitHub Actions","html_url":"https://github.com/apps/github-actions"},"check_suite":{"id":5,"head_branch":"feature/x","head_sha":"abc","status":"completed","conclusion":"failure"},"pull_requests":[]}"#,
+        ),
+    ]));
+    let service = GithubService::new(GithubCliClient::with_runner(runner.clone()));
+
+    let run = service
+        .check_run(CheckRunRequest {
+            repo_path: "/repo".to_string(),
+            check_run_id: 10,
+        })
+        .await
+        .expect("check run");
+
+    assert_eq!(run.name, "build");
+    assert_eq!(run.conclusion.as_deref(), Some("failure"));
+    assert_eq!(
+        run.output.and_then(|output| output.text).as_deref(),
+        Some("compile failed")
+    );
+    assert_eq!(
+        runner.requests()[1].args,
+        vec!["api", "repos/ace/app/check-runs/10"]
     );
 }
 

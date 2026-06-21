@@ -2,7 +2,7 @@ use super::{WsApiState, WsDispatchError};
 use ace_git::ProcessRunner;
 use ace_protocol::{
     github::{
-        CheckRunAnnotationsRequest, CheckRunRerequestRequest, CheckRunsRequest,
+        CheckRunAnnotationsRequest, CheckRunRequest, CheckRunRerequestRequest, CheckRunsRequest,
         CheckSuiteRerequestRequest, CheckSuiteRunsRequest, CheckSuitesRequest,
         CommitStatusesRequest, EnvironmentStatusRequest, IssueListRequest, IssueThreadRequest,
         PullRequestActivityRequest, PullRequestCheckoutRequest, PullRequestChecksRequest,
@@ -117,6 +117,13 @@ impl<R: ProcessRunner> WsApiState<R> {
                 self.github_json::<CheckRunsRequest, _, _, _>(
                     payload,
                     |service, request| async move { service.list_check_runs(request).await },
+                )
+                .await
+            }
+            methods::GITHUB_CHECK_RUNS_VIEW => {
+                self.github_json::<CheckRunRequest, _, _, _>(
+                    payload,
+                    |service, request| async move { service.check_run(request).await },
                 )
                 .await
             }
@@ -845,6 +852,44 @@ mod tests {
                 "-F",
                 "app_id=1"
             ]
+        );
+    }
+
+    #[tokio::test]
+    async fn dispatches_check_run_detail_over_ws_rpc() {
+        let runner = Arc::new(FakeRunner::new(vec![
+            ok(
+                br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+            ),
+            ok(
+                br#"{"id":10,"name":"build","node_id":"CR_1","head_sha":"abc","external_id":"ci-10","url":"https://api.github.test/check-runs/10","html_url":"https://github.test/checks/10","details_url":"https://ci.test/build/10","status":"completed","conclusion":"failure","started_at":"2026-06-21T00:00:00Z","completed_at":"2026-06-21T00:01:00Z","output":{"title":"Build","summary":"failed","text":"compile failed","annotations_count":2,"annotations_url":"https://api.github.test/annotations"},"app":{"id":1,"slug":"github-actions","name":"GitHub Actions","html_url":"https://github.com/apps/github-actions"},"check_suite":{"id":5,"head_branch":"feature/x","head_sha":"abc","status":"completed","conclusion":"failure"},"pull_requests":[]}"#,
+            ),
+        ]));
+        let state = test_state(runner.clone());
+
+        let response = dispatch(
+            &state,
+            serde_json::json!({
+                "version": PROTOCOL_VERSION,
+                "request_id": "req-check-run",
+                "method": methods::GITHUB_CHECK_RUNS_VIEW,
+                "payload": {
+                    "repo_path": "/repo",
+                    "check_run_id": 10
+                }
+            }),
+        )
+        .await;
+
+        let WsServerPayload::Result { body } = response.payload else {
+            panic!("expected result");
+        };
+        assert_eq!(body["name"], "build");
+        assert_eq!(body["conclusion"], "failure");
+        assert_eq!(body["output"]["text"], "compile failed");
+        assert_eq!(
+            runner.requests()[1].args,
+            vec!["api", "repos/ace/app/check-runs/10"]
         );
     }
 

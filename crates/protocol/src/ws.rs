@@ -37,6 +37,7 @@ pub mod methods {
     pub const GITHUB_PULL_REQUEST_DIFF: &str = "github.pull_request.diff";
     pub const GITHUB_PULL_REQUEST_CHECKS: &str = "github.pull_request.checks";
     pub const GITHUB_CHECK_RUNS_LIST: &str = "github.check_runs.list";
+    pub const GITHUB_CHECK_RUNS_VIEW: &str = "github.check_runs.view";
     pub const GITHUB_CHECK_RUNS_ANNOTATIONS: &str = "github.check_runs.annotations";
     pub const GITHUB_CHECK_RUNS_REREQUEST: &str = "github.check_runs.rerequest";
     pub const GITHUB_CHECK_SUITES_LIST: &str = "github.check_suites.list";

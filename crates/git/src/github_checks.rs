@@ -37,6 +37,24 @@ impl<R: ProcessRunner> GithubCliClient<R> {
         Ok(response.check_runs)
     }
 
+    pub async fn check_run(&self, cwd: &Path, check_run_id: u64) -> Result<GithubCheckRun> {
+        let repository = self.repository(cwd).await?;
+        let output = self
+            .gh_allow_statuses(
+                cwd,
+                [
+                    "api".to_string(),
+                    format!(
+                        "repos/{}/check-runs/{check_run_id}",
+                        repository.name_with_owner
+                    ),
+                ],
+                &[0],
+            )
+            .await?;
+        parse_json("github check run", &output.stdout)
+    }
+
     pub async fn list_check_run_annotations(
         &self,
         cwd: &Path,
@@ -495,6 +513,35 @@ mod tests {
                 "-F",
                 "app_id=1"
             ]
+        );
+    }
+
+    #[tokio::test]
+    async fn check_run_detail_resolves_repo_and_parses_run() {
+        let runner = std::sync::Arc::new(FakeRunner::new(vec![
+            ok(
+                br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+            ),
+            ok(
+                br#"{"id":10,"name":"build","node_id":"CR_1","head_sha":"abc","external_id":"ci-10","url":"https://api.github.test/check-runs/10","html_url":"https://github.test/checks/10","details_url":"https://ci.test/build/10","status":"completed","conclusion":"failure","started_at":"2026-06-21T00:00:00Z","completed_at":"2026-06-21T00:01:00Z","output":{"title":"Build","summary":"failed","text":"compile failed","annotations_count":2,"annotations_url":"https://api.github.test/annotations"},"app":{"id":1,"slug":"github-actions","name":"GitHub Actions","html_url":"https://github.com/apps/github-actions"},"check_suite":{"id":5,"head_branch":"feature/x","head_sha":"abc","status":"completed","conclusion":"failure"},"pull_requests":[]}"#,
+            ),
+        ]));
+        let github = GithubCliClient::with_runner(runner.clone());
+
+        let run = github
+            .check_run(Path::new("."), 10)
+            .await
+            .expect("check run");
+
+        assert_eq!(run.name, "build");
+        assert_eq!(run.conclusion.as_deref(), Some("failure"));
+        assert_eq!(
+            run.output.and_then(|output| output.text).as_deref(),
+            Some("compile failed")
+        );
+        assert_eq!(
+            runner.requests()[1].args,
+            vec!["api", "repos/ace/app/check-runs/10"]
         );
     }
 
