@@ -11,5 +11,5 @@ pub use error::{CodexError, Result};
 pub use event::{CodexInboundEvent, normalize_codex_inbound_event};
 pub use transport::{
     AppServerTransport, CodexJsonRpcError, CodexResponse, CodexStdioTransport,
-    JsonlAppServerTransport, StdioTransportEvent,
+    JsonlAppServerTransport,
 };

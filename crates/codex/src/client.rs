@@ -196,6 +196,14 @@ impl<T: AppServerTransport> CodexClient<T> {
             .map(|event| normalize_codex_inbound_event(&event))
     }
 
+    pub async fn stderr_tail(&self) -> Vec<String> {
+        self.transport.stderr_tail().await
+    }
+
+    pub async fn shutdown(&self, timeout: Duration) -> Result<()> {
+        self.transport.shutdown(timeout).await
+    }
+
     pub async fn respond_tool_result(&self, request_id: i64, result: Value) -> Result<()> {
         self.transport.respond_result(request_id, result).await
     }

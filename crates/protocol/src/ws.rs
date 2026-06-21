@@ -9,6 +9,9 @@ pub mod methods {
     pub const CODEX_TURN_START: &str = "codex.turn.start";
     pub const CODEX_TURN_PLAN_START: &str = "codex.turn.plan_start";
     pub const CODEX_TURN_INTERRUPT: &str = "codex.turn.interrupt";
+    pub const CODEX_STDERR_TAIL: &str = "codex.stderr_tail";
+    pub const CODEX_SHUTDOWN: &str = "codex.shutdown";
+    pub const CODEX_RESTART: &str = "codex.restart";
     pub const PROVIDER_RUNTIME_EVENTS_SUBSCRIBE: &str = "provider_runtime.events.subscribe";
     pub const PROVIDER_RUNTIME_SERVER_REQUEST_RESULT: &str =
         "provider_runtime.server_request.result";

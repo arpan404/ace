@@ -4,7 +4,7 @@ use ace_codex::{
 use ace_runtime::provider::ProviderEvent;
 use async_trait::async_trait;
 use serde_json::Value;
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 use thiserror::Error;
 use tokio::sync::Mutex;
 
@@ -45,6 +45,9 @@ pub trait CodexBackend: Send + Sync {
         code: i64,
         message: &str,
     ) -> Result<()>;
+    async fn stderr_tail(&self) -> Result<Vec<String>>;
+    async fn shutdown(&self, timeout: Duration) -> Result<()>;
+    async fn restart(&self, timeout: Duration) -> Result<()>;
 }
 
 pub type DynCodexBackend = Arc<dyn CodexBackend>;
@@ -121,6 +124,24 @@ impl CodexBackend for LiveCodexBackend {
             .await?
             .respond_tool_error(request_id, code, message)
             .await
+    }
+
+    async fn stderr_tail(&self) -> Result<Vec<String>> {
+        Ok(self.client().await?.stderr_tail().await)
+    }
+
+    async fn shutdown(&self, timeout: Duration) -> Result<()> {
+        let client = self.client.lock().await.take();
+        if let Some(client) = client {
+            client.shutdown(timeout).await?;
+        }
+        Ok(())
+    }
+
+    async fn restart(&self, timeout: Duration) -> Result<()> {
+        self.shutdown(timeout).await?;
+        let _ = self.client().await?;
+        Ok(())
     }
 }
 
@@ -214,6 +235,18 @@ impl CodexService {
             .respond_server_request_error(request_id, code, &message)
             .await?)
     }
+
+    pub async fn stderr_tail(&self) -> std::result::Result<Vec<String>, CodexApiError> {
+        Ok(self.backend.stderr_tail().await?)
+    }
+
+    pub async fn shutdown(&self, timeout: Duration) -> std::result::Result<(), CodexApiError> {
+        Ok(self.backend.shutdown(timeout).await?)
+    }
+
+    pub async fn restart(&self, timeout: Duration) -> std::result::Result<(), CodexApiError> {
+        Ok(self.backend.restart(timeout).await?)
+    }
 }
 
 #[cfg(test)]
@@ -226,6 +259,9 @@ pub mod tests {
         pub calls: StdMutex<Vec<String>>,
         pub events: StdMutex<VecDeque<Vec<ProviderEvent>>>,
         pub server_request_responses: StdMutex<Vec<ServerRequestResponse>>,
+        pub stderr_tail: StdMutex<Vec<String>>,
+        pub shutdowns: StdMutex<Vec<Duration>>,
+        pub restarts: StdMutex<Vec<Duration>>,
     }
 
     #[derive(Debug, Clone, PartialEq)]
@@ -324,6 +360,20 @@ pub mod tests {
                     code,
                     message: message.to_string(),
                 });
+            Ok(())
+        }
+
+        async fn stderr_tail(&self) -> Result<Vec<String>> {
+            Ok(self.stderr_tail.lock().expect("stderr tail").clone())
+        }
+
+        async fn shutdown(&self, timeout: Duration) -> Result<()> {
+            self.shutdowns.lock().expect("shutdowns").push(timeout);
+            Ok(())
+        }
+
+        async fn restart(&self, timeout: Duration) -> Result<()> {
+            self.restarts.lock().expect("restarts").push(timeout);
             Ok(())
         }
     }

@@ -3,8 +3,9 @@ use ace_git::ProcessRunner;
 use ace_protocol::{
     PROTOCOL_VERSION,
     codex::{
-        CodexPlanTurnStartRequest, CodexRawRequest, CodexThreadForkRequest, CodexThreadIdRequest,
-        CodexThreadStartRequest, CodexTurnStartRequest,
+        CodexPlanTurnStartRequest, CodexRawRequest, CodexShutdownRequest, CodexStderrTailResponse,
+        CodexThreadForkRequest, CodexThreadIdRequest, CodexThreadStartRequest,
+        CodexTurnStartRequest,
     },
     provider_runtime::{
         PROVIDER_RUNTIME_EVENT_TOPIC, ProviderRuntimeEvent, ProviderRuntimeEventBatch,
@@ -14,6 +15,7 @@ use ace_protocol::{
 };
 use ace_terminal::PtyAdapter;
 use serde_json::Value;
+use std::time::Duration;
 use tokio::sync::mpsc;
 
 impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
@@ -80,6 +82,34 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 self.codex_json::<CodexThreadIdRequest, _, _, _>(
                     payload,
                     |service, request| async move { service.interrupt_turn(request.thread_id).await },
+                )
+                .await
+            }
+            methods::CODEX_STDERR_TAIL => {
+                let lines = self.codex.stderr_tail().await?;
+                Ok(serde_json::to_value(CodexStderrTailResponse { lines })?)
+            }
+            methods::CODEX_SHUTDOWN => {
+                self.codex_json::<CodexShutdownRequest, _, _, _>(
+                    payload,
+                    |service, request| async move {
+                        service
+                            .shutdown(Duration::from_millis(request.grace_ms))
+                            .await?;
+                        Ok(serde_json::json!({ "shutdown": true }))
+                    },
+                )
+                .await
+            }
+            methods::CODEX_RESTART => {
+                self.codex_json::<CodexShutdownRequest, _, _, _>(
+                    payload,
+                    |service, request| async move {
+                        service
+                            .restart(Duration::from_millis(request.grace_ms))
+                            .await?;
+                        Ok(serde_json::json!({ "restarted": true }))
+                    },
                 )
                 .await
             }
@@ -479,5 +509,74 @@ mod tests {
             panic!("expected provider error");
         };
         assert_eq!(code, "unsupported_provider");
+    }
+
+    #[tokio::test]
+    async fn dispatches_codex_lifecycle_methods_over_ws_rpc() {
+        let backend = Arc::new(FakeCodexBackend::default());
+        backend
+            .stderr_tail
+            .lock()
+            .expect("stderr tail")
+            .extend(["warn one".to_string(), "warn two".to_string()]);
+        let runner = Arc::new(FakeRunner);
+        let state = WsApiState::new_services(
+            GitService::new(GitClient::with_runner(runner.clone())),
+            GithubService::new(GithubCliClient::with_runner(runner)),
+        )
+        .with_codex_service(CodexService::new(backend.clone()));
+
+        let stderr = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "stderr",
+                    "method": methods::CODEX_STDERR_TAIL,
+                    "payload": {}
+                })
+                .to_string(),
+            )
+            .await;
+        let stderr: WsServerResponse = serde_json::from_str(&stderr).expect("stderr response");
+        let WsServerPayload::Result { body } = stderr.payload else {
+            panic!("expected stderr result");
+        };
+        assert_eq!(body["lines"], json!(["warn one", "warn two"]));
+
+        let shutdown = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "shutdown",
+                    "method": methods::CODEX_SHUTDOWN,
+                    "payload": { "grace_ms": 25 }
+                })
+                .to_string(),
+            )
+            .await;
+        let shutdown: WsServerResponse = serde_json::from_str(&shutdown).expect("shutdown");
+        assert!(matches!(shutdown.payload, WsServerPayload::Result { .. }));
+
+        let restart = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "restart",
+                    "method": methods::CODEX_RESTART,
+                    "payload": { "grace_ms": 50 }
+                })
+                .to_string(),
+            )
+            .await;
+        let restart: WsServerResponse = serde_json::from_str(&restart).expect("restart");
+        assert!(matches!(restart.payload, WsServerPayload::Result { .. }));
+        assert_eq!(
+            backend.shutdowns.lock().expect("shutdowns").as_slice(),
+            [Duration::from_millis(25)]
+        );
+        assert_eq!(
+            backend.restarts.lock().expect("restarts").as_slice(),
+            [Duration::from_millis(50)]
+        );
     }
 }

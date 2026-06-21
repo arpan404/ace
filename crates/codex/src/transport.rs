@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     io,
     process::Stdio,
     sync::{
@@ -14,7 +14,7 @@ use std::{
 };
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
-    process::Command,
+    process::{Child, Command},
     sync::{Mutex, mpsc, oneshot},
     time,
 };
@@ -23,6 +23,7 @@ const OUTBOUND_QUEUE_SIZE: usize = 256;
 const EVENT_QUEUE_SIZE: usize = 1024;
 const MAX_PENDING_REQUESTS: usize = 256;
 const MAX_LINE_BYTES: usize = 16 * 1024 * 1024;
+const STDERR_TAIL_LINES: usize = 128;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CodexJsonRpcError {
@@ -52,16 +53,22 @@ pub enum CodexInboundEvent {
         method: String,
         params: Value,
     },
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum StdioTransportEvent {
     StderrLine(String),
-    ServerExited,
+    ServerExited {
+        code: Option<i32>,
+    },
 }
 
 type PendingSender = oneshot::Sender<Result<Value>>;
 type PendingRequests = Arc<Mutex<HashMap<i64, PendingSender>>>;
+type StderrTail = Arc<Mutex<VecDeque<String>>>;
+
+enum ChildControl {
+    Shutdown {
+        grace: Duration,
+        done: oneshot::Sender<()>,
+    },
+}
 
 #[async_trait]
 pub trait AppServerTransport: Send + Sync {
@@ -70,6 +77,8 @@ pub trait AppServerTransport: Send + Sync {
     async fn respond_result(&self, id: i64, result: Value) -> Result<()>;
     async fn respond_error(&self, id: i64, code: i64, message: &str) -> Result<()>;
     async fn recv(&self) -> Option<CodexInboundEvent>;
+    async fn stderr_tail(&self) -> Vec<String>;
+    async fn shutdown(&self, timeout: Duration) -> Result<()>;
 }
 
 #[derive(Clone)]
@@ -78,6 +87,8 @@ pub struct CodexStdioTransport {
     events: Arc<Mutex<mpsc::Receiver<CodexInboundEvent>>>,
     pending: PendingRequests,
     next_id: Arc<AtomicI64>,
+    stderr_tail: StderrTail,
+    child_control: mpsc::Sender<ChildControl>,
 }
 
 pub type JsonlAppServerTransport = CodexStdioTransport;
@@ -105,7 +116,10 @@ impl CodexStdioTransport {
 
         let (outbound, mut outbound_rx) = mpsc::channel::<Vec<u8>>(OUTBOUND_QUEUE_SIZE);
         let (events_tx, events_rx) = mpsc::channel::<CodexInboundEvent>(EVENT_QUEUE_SIZE);
+        let (child_control, child_control_rx) = mpsc::channel::<ChildControl>(1);
         let pending: PendingRequests = Arc::new(Mutex::new(HashMap::new()));
+        let stderr_tail: StderrTail =
+            Arc::new(Mutex::new(VecDeque::with_capacity(STDERR_TAIL_LINES)));
 
         tokio::spawn(async move {
             while let Some(frame) = outbound_rx.recv().await {
@@ -115,17 +129,30 @@ impl CodexStdioTransport {
             }
         });
 
-        tokio::spawn(read_stdout_loop(stdout, Arc::clone(&pending), events_tx));
-        tokio::spawn(read_stderr_loop(stderr));
-        tokio::spawn(async move {
-            let _ = child.wait().await;
-        });
+        tokio::spawn(read_stdout_loop(
+            stdout,
+            Arc::clone(&pending),
+            events_tx.clone(),
+        ));
+        tokio::spawn(read_stderr_loop(
+            stderr,
+            Arc::clone(&stderr_tail),
+            events_tx.clone(),
+        ));
+        tokio::spawn(child_lifecycle_loop(
+            child,
+            child_control_rx,
+            Arc::clone(&pending),
+            events_tx,
+        ));
 
         Ok(Self {
             outbound,
             events: Arc::new(Mutex::new(events_rx)),
             pending,
             next_id: Arc::new(AtomicI64::new(1)),
+            stderr_tail,
+            child_control,
         })
     }
 
@@ -208,6 +235,27 @@ impl AppServerTransport for CodexStdioTransport {
     async fn recv(&self) -> Option<CodexInboundEvent> {
         self.events.lock().await.recv().await
     }
+
+    async fn stderr_tail(&self) -> Vec<String> {
+        self.stderr_tail.lock().await.iter().cloned().collect()
+    }
+
+    async fn shutdown(&self, timeout: Duration) -> Result<()> {
+        let _ = self.notify("shutdown", Value::Null).await;
+        let (done_tx, done_rx) = oneshot::channel();
+        if self
+            .child_control
+            .send(ChildControl::Shutdown {
+                grace: timeout,
+                done: done_tx,
+            })
+            .await
+            .is_err()
+        {
+            return Err(CodexError::TransportClosed);
+        }
+        done_rx.await.map_err(|_| CodexError::TransportClosed)
+    }
 }
 
 async fn read_stdout_loop(
@@ -227,9 +275,75 @@ async fn read_stdout_loop(
     }
 }
 
-async fn read_stderr_loop(stderr: impl tokio::io::AsyncRead + Unpin) {
+async fn read_stderr_loop(
+    stderr: impl tokio::io::AsyncRead + Unpin,
+    tail: StderrTail,
+    events: mpsc::Sender<CodexInboundEvent>,
+) {
     let mut lines = BufReader::new(stderr).lines();
-    while matches!(lines.next_line().await, Ok(Some(_))) {}
+    while let Ok(Some(line)) = lines.next_line().await {
+        let line = if line.len() > MAX_LINE_BYTES {
+            line.chars().take(MAX_LINE_BYTES).collect()
+        } else {
+            line
+        };
+        {
+            let mut tail = tail.lock().await;
+            if tail.len() >= STDERR_TAIL_LINES {
+                tail.pop_front();
+            }
+            tail.push_back(line.clone());
+        }
+        if events
+            .send(CodexInboundEvent::StderrLine(line))
+            .await
+            .is_err()
+        {
+            break;
+        }
+    }
+}
+
+async fn child_lifecycle_loop(
+    mut child: Child,
+    mut control: mpsc::Receiver<ChildControl>,
+    pending: PendingRequests,
+    events: mpsc::Sender<CodexInboundEvent>,
+) {
+    let code = tokio::select! {
+        status = child.wait() => status.ok().and_then(|status| status.code()),
+        command = control.recv() => {
+            match command {
+                Some(ChildControl::Shutdown { grace, done }) => {
+                    let code = match time::timeout(grace, child.wait()).await {
+                        Ok(status) => status.ok().and_then(|status| status.code()),
+                        Err(_) => {
+                            let _ = child.start_kill();
+                            child.wait().await.ok().and_then(|status| status.code())
+                        }
+                    };
+                    let _ = done.send(());
+                    code
+                }
+                None => child.wait().await.ok().and_then(|status| status.code()),
+            }
+        }
+    };
+    close_pending_requests(&pending).await;
+    let _ = events.send(CodexInboundEvent::ServerExited { code }).await;
+}
+
+async fn close_pending_requests(pending: &PendingRequests) {
+    let requests = {
+        let mut pending = pending.lock().await;
+        pending
+            .drain()
+            .map(|(_, sender)| sender)
+            .collect::<Vec<_>>()
+    };
+    for sender in requests {
+        let _ = sender.send(Err(CodexError::TransportClosed));
+    }
 }
 
 async fn route_message(
@@ -287,6 +401,7 @@ fn parse_response(id: i64, value: Value) -> Result<Value> {
 pub(crate) mod tests {
     use super::*;
     use std::{collections::VecDeque, sync::Mutex as StdMutex};
+    use tokio::io::AsyncWriteExt;
 
     #[derive(Default)]
     pub struct FakeTransport {
@@ -295,6 +410,8 @@ pub(crate) mod tests {
         pub server_request_responses: StdMutex<VecDeque<Value>>,
         pub responses: StdMutex<VecDeque<Result<Value>>>,
         pub inbound: StdMutex<VecDeque<CodexInboundEvent>>,
+        pub stderr_tail: StdMutex<Vec<String>>,
+        pub shutdowns: StdMutex<Vec<Duration>>,
     }
 
     #[async_trait]
@@ -343,6 +460,15 @@ pub(crate) mod tests {
 
         async fn recv(&self) -> Option<CodexInboundEvent> {
             self.inbound.lock().expect("inbound").pop_front()
+        }
+
+        async fn stderr_tail(&self) -> Vec<String> {
+            self.stderr_tail.lock().expect("stderr tail").clone()
+        }
+
+        async fn shutdown(&self, timeout: Duration) -> Result<()> {
+            self.shutdowns.lock().expect("shutdowns").push(timeout);
+            Ok(())
         }
     }
 
@@ -412,5 +538,49 @@ pub(crate) mod tests {
             events_rx.recv().await,
             Some(CodexInboundEvent::ServerRequest { id: 9, method, .. }) if method == "item/tool/call"
         ));
+    }
+
+    #[tokio::test]
+    async fn stderr_loop_captures_tail_and_emits_events() {
+        let (mut writer, reader) = tokio::io::duplex(1024);
+        let tail: StderrTail = Arc::new(Mutex::new(VecDeque::new()));
+        let (events_tx, mut events_rx) = mpsc::channel(4);
+        let task = tokio::spawn(read_stderr_loop(reader, Arc::clone(&tail), events_tx));
+
+        writer
+            .write_all(b"warn one\nwarn two\n")
+            .await
+            .expect("write");
+        drop(writer);
+        task.await.expect("stderr loop");
+
+        assert_eq!(
+            tail.lock().await.iter().cloned().collect::<Vec<_>>(),
+            ["warn one".to_string(), "warn two".to_string()]
+        );
+        assert_eq!(
+            events_rx.recv().await,
+            Some(CodexInboundEvent::StderrLine("warn one".to_string()))
+        );
+        assert_eq!(
+            events_rx.recv().await,
+            Some(CodexInboundEvent::StderrLine("warn two".to_string()))
+        );
+    }
+
+    #[tokio::test]
+    async fn close_pending_requests_wakes_waiters_with_transport_closed() {
+        let pending: PendingRequests = Arc::new(Mutex::new(HashMap::new()));
+        let (tx, rx) = oneshot::channel();
+        pending.lock().await.insert(99, tx);
+
+        close_pending_requests(&pending).await;
+
+        let error = rx
+            .await
+            .expect("pending response")
+            .expect_err("transport closed");
+        assert!(matches!(error, CodexError::TransportClosed));
+        assert!(pending.lock().await.is_empty());
     }
 }

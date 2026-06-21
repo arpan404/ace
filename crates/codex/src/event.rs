@@ -32,6 +32,10 @@ pub fn normalize_codex_inbound_event(event: &CodexInboundEvent) -> Vec<ProviderE
                 params: params.clone(),
             }]
         }
+        CodexInboundEvent::StderrLine(line) => {
+            vec![ProviderEvent::StderrLine { line: line.clone() }]
+        }
+        CodexInboundEvent::ServerExited { .. } => vec![ProviderEvent::Exited],
     }
 }
 
@@ -231,5 +235,21 @@ mod tests {
         };
         assert_eq!(tool.surface, ToolSurface::Terminal);
         assert_eq!(tool.display.title, "Ran `cargo test`");
+    }
+
+    #[test]
+    fn normalizes_stdio_lifecycle_events() {
+        let stderr =
+            normalize_codex_inbound_event(&CodexInboundEvent::StderrLine("warning".to_string()));
+        assert_eq!(
+            stderr,
+            vec![ProviderEvent::StderrLine {
+                line: "warning".to_string()
+            }]
+        );
+
+        let exited =
+            normalize_codex_inbound_event(&CodexInboundEvent::ServerExited { code: Some(0) });
+        assert_eq!(exited, vec![ProviderEvent::Exited]);
     }
 }

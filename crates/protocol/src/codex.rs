@@ -39,3 +39,18 @@ pub struct CodexPlanTurnStartRequest {
     pub prompt: String,
     pub model: String,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CodexShutdownRequest {
+    #[serde(default = "default_shutdown_grace_ms")]
+    pub grace_ms: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CodexStderrTailResponse {
+    pub lines: Vec<String>,
+}
+
+fn default_shutdown_grace_ms() -> u64 {
+    1_000
+}
