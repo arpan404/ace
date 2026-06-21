@@ -60,6 +60,8 @@ pub mod methods {
     pub const GITHUB_WORKFLOW_RUN_VIEW: &str = "github.workflow_runs.view";
     pub const GITHUB_WORKFLOW_RUN_LOG: &str = "github.workflow_runs.log";
     pub const GITHUB_WORKFLOW_RUN_ARTIFACTS: &str = "github.workflow_runs.artifacts";
+    pub const GITHUB_WORKFLOW_RUN_ARTIFACTS_DOWNLOAD: &str =
+        "github.workflow_runs.artifacts.download";
     pub const GITHUB_WORKFLOW_RUN_RERUN: &str = "github.workflow_runs.rerun";
     pub const GITHUB_WORKFLOW_RUN_CANCEL: &str = "github.workflow_runs.cancel";
 }

@@ -358,6 +358,15 @@ pub struct WorkflowRunArtifactsRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkflowRunArtifactDownloadRequest {
+    pub repo_path: String,
+    pub run_id: u64,
+    pub names: Vec<String>,
+    pub patterns: Vec<String>,
+    pub output_dir: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PullRequestCheckoutRequest {
     pub repo_path: String,
     pub selector: String,

@@ -25,7 +25,7 @@ mod github_search;
 pub use github_actions::{
     GithubCheckSummary, GithubPrCheck, GithubPrChecks, GithubWorkflow, GithubWorkflowArtifact,
     GithubWorkflowArtifactRun, GithubWorkflowJob, GithubWorkflowRun, GithubWorkflowRunDetail,
-    GithubWorkflowStep, WorkflowListFilter, WorkflowRunListFilter,
+    GithubWorkflowStep, WorkflowArtifactDownload, WorkflowListFilter, WorkflowRunListFilter,
 };
 pub use github_activity::{GithubPullRequestActivity, PullRequestActivityRequest};
 pub use github_checks::{

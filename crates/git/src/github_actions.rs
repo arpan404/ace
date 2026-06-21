@@ -1,4 +1,4 @@
-use crate::{GithubCliClient, ProcessRunner, Result, parse_json};
+use crate::{GithubActionResult, GithubCliClient, ProcessRunner, Result, parse_json};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
@@ -164,6 +164,34 @@ impl<R: ProcessRunner> GithubCliClient<R> {
             &output.stdout,
         )?;
         Ok(response.artifacts)
+    }
+
+    pub async fn download_workflow_artifacts(
+        &self,
+        cwd: &Path,
+        request: &WorkflowArtifactDownload,
+    ) -> Result<GithubActionResult> {
+        let mut args = vec![
+            "run".to_string(),
+            "download".to_string(),
+            request.run_id.to_string(),
+        ];
+        for name in &request.names {
+            args.extend(["--name".to_string(), name.clone()]);
+        }
+        for pattern in &request.patterns {
+            args.extend(["--pattern".to_string(), pattern.clone()]);
+        }
+        if let Some(output_dir) = &request.output_dir {
+            args.extend(["--dir".to_string(), output_dir.clone()]);
+        }
+
+        let output = self.gh_allow_statuses(cwd, args, &[0]).await?;
+        Ok(GithubActionResult {
+            action: "download_workflow_artifacts",
+            stdout: output.stdout_string(),
+            stderr: output.stderr_string(),
+        })
     }
 }
 
@@ -363,6 +391,14 @@ pub struct GithubWorkflowArtifactRun {
     pub head_repository_id: Option<u64>,
     pub head_branch: Option<String>,
     pub head_sha: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkflowArtifactDownload {
+    pub run_id: u64,
+    pub names: Vec<String>,
+    pub patterns: Vec<String>,
+    pub output_dir: Option<String>,
 }
 
 #[cfg(test)]
@@ -643,6 +679,44 @@ mod tests {
         assert_eq!(
             requests[1].args,
             vec!["api", "repos/ace/app/actions/runs/100/artifacts"]
+        );
+    }
+
+    #[tokio::test]
+    async fn workflow_artifact_download_builds_filtered_command() {
+        let runner = std::sync::Arc::new(FakeRunner::new(vec![output(0, "downloaded\n")]));
+        let github = GithubCliClient::with_runner(runner.clone());
+
+        let result = github
+            .download_workflow_artifacts(
+                Path::new("."),
+                &WorkflowArtifactDownload {
+                    run_id: 100,
+                    names: vec!["linux-build".to_string(), "coverage".to_string()],
+                    patterns: vec!["logs-*".to_string()],
+                    output_dir: Some("/tmp/artifacts".to_string()),
+                },
+            )
+            .await
+            .expect("download");
+
+        assert_eq!(result.action, "download_workflow_artifacts");
+        assert_eq!(result.stdout, "downloaded");
+        assert_eq!(
+            runner.requests()[0].args,
+            vec![
+                "run",
+                "download",
+                "100",
+                "--name",
+                "linux-build",
+                "--name",
+                "coverage",
+                "--pattern",
+                "logs-*",
+                "--dir",
+                "/tmp/artifacts"
+            ]
         );
     }
 }

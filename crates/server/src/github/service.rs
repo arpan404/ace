@@ -22,9 +22,9 @@ use ace_protocol::github::{
     PullRequestMergeRequest, PullRequestReadyStateRequest, PullRequestReopenRequest,
     PullRequestRequest, PullRequestReviewRequest, PullRequestThreadRequest, SearchIssuesRequest,
     SearchPullRequestsRequest, WorkflowDisableRequest, WorkflowDispatchRequest,
-    WorkflowEnableRequest, WorkflowListRequest, WorkflowRunArtifactsRequest,
-    WorkflowRunCancelRequest, WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunRequest,
-    WorkflowRunRerunRequest,
+    WorkflowEnableRequest, WorkflowListRequest, WorkflowRunArtifactDownloadRequest,
+    WorkflowRunArtifactsRequest, WorkflowRunCancelRequest, WorkflowRunListRequest,
+    WorkflowRunLogRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
 };
 use serde::Serialize;
 use std::{path::PathBuf, sync::Arc};
@@ -473,6 +473,24 @@ impl<R: ProcessRunner> GithubService<R> {
     ) -> Result<Vec<ace_git::GithubWorkflowArtifact>, GithubApiError> {
         self.github
             .workflow_run_artifacts(&repo_path(&request.repo_path)?, request.run_id)
+            .await
+            .map_err(GithubApiError::from)
+    }
+
+    pub async fn download_workflow_artifacts(
+        &self,
+        request: WorkflowRunArtifactDownloadRequest,
+    ) -> Result<ace_git::GithubActionResult, GithubApiError> {
+        self.github
+            .download_workflow_artifacts(
+                &repo_path(&request.repo_path)?,
+                &ace_git::WorkflowArtifactDownload {
+                    run_id: request.run_id,
+                    names: request.names,
+                    patterns: request.patterns,
+                    output_dir: request.output_dir,
+                },
+            )
             .await
             .map_err(GithubApiError::from)
     }

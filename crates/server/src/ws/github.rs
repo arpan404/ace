@@ -12,8 +12,9 @@ use ace_protocol::{
         PullRequestReopenRequest, PullRequestRequest, PullRequestReviewRequest,
         PullRequestThreadRequest, SearchIssuesRequest, SearchPullRequestsRequest,
         WorkflowDisableRequest, WorkflowDispatchRequest, WorkflowEnableRequest,
-        WorkflowListRequest, WorkflowRunArtifactsRequest, WorkflowRunCancelRequest,
-        WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
+        WorkflowListRequest, WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest,
+        WorkflowRunCancelRequest, WorkflowRunListRequest, WorkflowRunLogRequest,
+        WorkflowRunRequest, WorkflowRunRerunRequest,
     },
     ws::methods,
 };
@@ -281,6 +282,15 @@ impl<R: ProcessRunner> WsApiState<R> {
                 self.github_json::<WorkflowRunArtifactsRequest, _, _, _>(
                     payload,
                     |service, request| async move { service.workflow_run_artifacts(request).await },
+                )
+                .await
+            }
+            methods::GITHUB_WORKFLOW_RUN_ARTIFACTS_DOWNLOAD => {
+                self.github_json::<WorkflowRunArtifactDownloadRequest, _, _, _>(
+                    payload,
+                    |service, request| async move {
+                        service.download_workflow_artifacts(request).await
+                    },
                 )
                 .await
             }
@@ -1180,6 +1190,49 @@ mod tests {
         assert_eq!(
             runner.requests()[0].args,
             vec!["pr", "review", "42", "--approve", "--body", "ship it"]
+        );
+    }
+
+    #[tokio::test]
+    async fn dispatches_workflow_artifact_download_over_ws_rpc() {
+        let runner = Arc::new(FakeRunner::new(vec![ok("downloaded\n")]));
+        let state = test_state(runner.clone());
+
+        let response = dispatch(
+            &state,
+            serde_json::json!({
+                "version": PROTOCOL_VERSION,
+                "request_id": "req-artifact-download",
+                "method": methods::GITHUB_WORKFLOW_RUN_ARTIFACTS_DOWNLOAD,
+                "payload": {
+                    "repo_path": "/repo",
+                    "run_id": 100,
+                    "names": ["linux-build"],
+                    "patterns": ["logs-*"],
+                    "output_dir": "/tmp/artifacts"
+                }
+            }),
+        )
+        .await;
+
+        let WsServerPayload::Result { body } = response.payload else {
+            panic!("expected result");
+        };
+        assert_eq!(body["action"], "download_workflow_artifacts");
+        assert_eq!(body["stdout"], "downloaded");
+        assert_eq!(
+            runner.requests()[0].args,
+            vec![
+                "run",
+                "download",
+                "100",
+                "--name",
+                "linux-build",
+                "--pattern",
+                "logs-*",
+                "--dir",
+                "/tmp/artifacts"
+            ]
         );
     }
 

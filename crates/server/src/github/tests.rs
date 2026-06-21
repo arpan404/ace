@@ -9,8 +9,9 @@ use ace_protocol::github::{
     PullRequestListFilter, PullRequestMergeMethod, PullRequestMergeRequest, PullRequestRequest,
     PullRequestReviewDecision, PullRequestReviewRequest, PullRequestThreadRequest,
     WorkflowDisableRequest, WorkflowDispatchInput, WorkflowDispatchRequest, WorkflowEnableRequest,
-    WorkflowListFilter, WorkflowListRequest, WorkflowRunArtifactsRequest, WorkflowRunListFilter,
-    WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunRerunRequest,
+    WorkflowListFilter, WorkflowListRequest, WorkflowRunArtifactDownloadRequest,
+    WorkflowRunArtifactsRequest, WorkflowRunListFilter, WorkflowRunListRequest,
+    WorkflowRunLogRequest, WorkflowRunRerunRequest,
 };
 use async_trait::async_trait;
 use axum::{
@@ -894,6 +895,40 @@ async fn service_returns_workflow_run_artifacts() {
     assert_eq!(
         runner.requests()[1].args,
         vec!["api", "repos/ace/app/actions/runs/100/artifacts"]
+    );
+}
+
+#[tokio::test]
+async fn service_downloads_workflow_run_artifacts() {
+    let runner = Arc::new(FakeRunner::new(vec![ok("downloaded\n")]));
+    let service = GithubService::new(GithubCliClient::with_runner(runner.clone()));
+
+    let result = service
+        .download_workflow_artifacts(WorkflowRunArtifactDownloadRequest {
+            repo_path: "/repo".to_string(),
+            run_id: 100,
+            names: vec!["linux-build".to_string()],
+            patterns: vec!["logs-*".to_string()],
+            output_dir: Some("/tmp/artifacts".to_string()),
+        })
+        .await
+        .expect("download");
+
+    assert_eq!(result.action, "download_workflow_artifacts");
+    assert_eq!(result.stdout, "downloaded");
+    assert_eq!(
+        runner.requests()[0].args,
+        vec![
+            "run",
+            "download",
+            "100",
+            "--name",
+            "linux-build",
+            "--pattern",
+            "logs-*",
+            "--dir",
+            "/tmp/artifacts"
+        ]
     );
 }
 
