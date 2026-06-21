@@ -1,4 +1,4 @@
-use super::{GithubApiError, GithubService};
+use super::{GithubApiError, GithubService, routes::router_with_state, service::GithubApiState};
 use ace_git::{CommandOutput, CommandRequest, GitToolError, GithubCliClient, ProcessRunner};
 use ace_protocol::github::{
     IssueListFilter, IssueListRequest, PullRequestActivityRequest, PullRequestChecksRequest,
@@ -7,10 +7,15 @@ use ace_protocol::github::{
     WorkflowRunRerunRequest,
 };
 use async_trait::async_trait;
+use axum::{
+    body::{Body, to_bytes},
+    http::{Request, StatusCode, header},
+};
 use std::{
     collections::VecDeque,
     sync::{Arc, Mutex},
 };
+use tower::ServiceExt;
 
 #[derive(Debug)]
 struct FakeRunner {
@@ -275,4 +280,121 @@ async fn service_reruns_workflow_run_through_github_cli() {
         runner.requests()[0].args,
         vec!["run", "rerun", "100", "--failed", "--job", "200"]
     );
+}
+
+#[tokio::test]
+async fn route_returns_pull_request_activity_json() {
+    let runner = Arc::new(FakeRunner::new(vec![
+        ok(
+            br#"{"number":42,"title":"Feature","state":"OPEN","url":"https://example.test/pull/42","headRefName":"feature/x","baseRefName":"main","body":"body"}"#,
+        ),
+        ok(
+            br#"[{"bucket":"pass","completedAt":"2026-06-21T00:00:00Z","description":null,"event":"push","link":"https://example.test/check","name":"CI","startedAt":"2026-06-21T00:00:00Z","state":"SUCCESS","workflow":"CI"}]"#,
+        ),
+        ok(
+            br#"[{"attempt":1,"conclusion":"success","createdAt":"2026-06-21T00:00:00Z","databaseId":7,"displayTitle":"Run","event":"pull_request","headBranch":"feature/x","headSha":"abc","name":"CI","number":3,"startedAt":"2026-06-21T00:00:00Z","status":"completed","updatedAt":"2026-06-21T00:01:00Z","url":"https://example.test/run/7","workflowDatabaseId":2,"workflowName":"CI"}]"#,
+        ),
+    ]));
+    let app = test_router(runner);
+
+    let response = app
+        .oneshot(json_request(
+            "/pulls/activity",
+            serde_json::json!({
+                "repo_path": "/repo",
+                "selector": "42",
+                "required_checks_only": false,
+                "workflow_run_limit": 5
+            }),
+        ))
+        .await
+        .expect("route response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response_json(response).await;
+    assert_eq!(body["pull_request"]["number"], 42);
+    assert_eq!(body["checks"]["summary"]["passed"], 1);
+    assert_eq!(body["workflow_runs"][0]["databaseId"], 7);
+}
+
+#[tokio::test]
+async fn route_runs_workflow_action_and_returns_action_json() {
+    let runner = Arc::new(FakeRunner::new(vec![ok("rerun queued\n")]));
+    let app = test_router(runner.clone());
+
+    let response = app
+        .oneshot(json_request(
+            "/workflow-runs/rerun",
+            serde_json::json!({
+                "repo_path": "/repo",
+                "run_id": 100,
+                "failed_only": true,
+                "debug": true,
+                "job_id": 200
+            }),
+        ))
+        .await
+        .expect("route response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response_json(response).await;
+    assert_eq!(body["action"], "rerun_workflow_run");
+    assert_eq!(body["stdout"], "rerun queued");
+    assert_eq!(
+        runner.requests()[0].args,
+        vec!["run", "rerun", "100", "--failed", "--debug", "--job", "200"]
+    );
+}
+
+#[tokio::test]
+async fn route_returns_bad_request_for_empty_repo_path() {
+    let runner = Arc::new(FakeRunner::new(Vec::new()));
+    let app = test_router(runner.clone());
+
+    let response = app
+        .oneshot(json_request(
+            "/issues/list",
+            serde_json::json!({
+                "repo_path": "  ",
+                "filter": {
+                    "limit": 30,
+                    "state": "open",
+                    "author": null,
+                    "assignee": null,
+                    "mention": null,
+                    "milestone": null,
+                    "search": null,
+                    "labels": []
+                }
+            }),
+        ))
+        .await
+        .expect("route response");
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body = response_json(response).await;
+    assert_eq!(body["message"], "repo_path must not be empty");
+    assert!(runner.requests().is_empty());
+}
+
+fn test_router(runner: Arc<FakeRunner>) -> axum::Router {
+    router_with_state(GithubApiState::new(GithubService::new(
+        GithubCliClient::with_runner(runner),
+    )))
+}
+
+fn json_request(path: &str, body: serde_json::Value) -> Request<Body> {
+    Request::builder()
+        .method("POST")
+        .uri(path)
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(body.to_string()))
+        .expect("request")
+}
+
+async fn response_json(response: axum::response::Response) -> serde_json::Value {
+    let bytes = to_bytes(response.into_body(), 1024 * 1024)
+        .await
+        .expect("response body");
+    serde_json::from_slice(&bytes).expect("json body")
 }
