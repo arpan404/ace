@@ -3,10 +3,13 @@ use ace_git::ProcessRunner;
 use ace_protocol::{
     github::{
         CheckRunAnnotationsRequest, CheckRunsRequest, CheckSuiteRunsRequest, CheckSuitesRequest,
-        CommitStatusesRequest, PullRequestActivityRequest, PullRequestCheckoutRequest,
-        PullRequestChecksRequest, PullRequestCloseRequest, PullRequestCommentRequest,
-        PullRequestDashboardRequest, PullRequestMergeRequest, PullRequestReadyStateRequest,
-        PullRequestReopenRequest, PullRequestReviewRequest, WorkflowDisableRequest,
+        CommitStatusesRequest, EnvironmentStatusRequest, IssueListRequest, IssueThreadRequest,
+        PullRequestActivityRequest, PullRequestCheckoutRequest, PullRequestChecksRequest,
+        PullRequestCloseRequest, PullRequestCommentRequest, PullRequestDashboardRequest,
+        PullRequestDiffRequest, PullRequestFilesRequest, PullRequestListRequest,
+        PullRequestMergeRequest, PullRequestReadyStateRequest, PullRequestReopenRequest,
+        PullRequestRequest, PullRequestReviewRequest, PullRequestThreadRequest,
+        SearchIssuesRequest, SearchPullRequestsRequest, WorkflowDisableRequest,
         WorkflowDispatchRequest, WorkflowEnableRequest, WorkflowListRequest,
         WorkflowRunArtifactsRequest, WorkflowRunCancelRequest, WorkflowRunListRequest,
         WorkflowRunLogRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
@@ -22,6 +25,78 @@ impl<R: ProcessRunner> WsApiState<R> {
         payload: Value,
     ) -> Result<Value, WsDispatchError> {
         match method {
+            methods::GITHUB_ENVIRONMENT_STATUS => {
+                self.github_json::<EnvironmentStatusRequest, _, _, _>(
+                    payload,
+                    |service, request| async move { service.environment_status(request).await },
+                )
+                .await
+            }
+            methods::GITHUB_ISSUES_LIST => {
+                self.github_json::<IssueListRequest, _, _, _>(
+                    payload,
+                    |service, request| async move { service.list_issues(request).await },
+                )
+                .await
+            }
+            methods::GITHUB_ISSUES_THREAD => {
+                self.github_json::<IssueThreadRequest, _, _, _>(
+                    payload,
+                    |service, request| async move { service.issue_thread(request).await },
+                )
+                .await
+            }
+            methods::GITHUB_ISSUES_SEARCH => {
+                self.github_json::<SearchIssuesRequest, _, _, _>(
+                    payload,
+                    |service, request| async move { service.search_issues(request).await },
+                )
+                .await
+            }
+            methods::GITHUB_PULL_REQUESTS_LIST => {
+                self.github_json::<PullRequestListRequest, _, _, _>(
+                    payload,
+                    |service, request| async move { service.list_pull_requests(request).await },
+                )
+                .await
+            }
+            methods::GITHUB_PULL_REQUESTS_SEARCH => {
+                self.github_json::<SearchPullRequestsRequest, _, _, _>(
+                    payload,
+                    |service, request| async move {
+                        service.search_pull_requests(request).await
+                    },
+                )
+                .await
+            }
+            methods::GITHUB_PULL_REQUEST_VIEW => {
+                self.github_json::<PullRequestRequest, _, _, _>(
+                    payload,
+                    |service, request| async move { service.pull_request(request).await },
+                )
+                .await
+            }
+            methods::GITHUB_PULL_REQUEST_THREAD => {
+                self.github_json::<PullRequestThreadRequest, _, _, _>(
+                    payload,
+                    |service, request| async move { service.pull_request_thread(request).await },
+                )
+                .await
+            }
+            methods::GITHUB_PULL_REQUEST_FILES => {
+                self.github_json::<PullRequestFilesRequest, _, _, _>(
+                    payload,
+                    |service, request| async move { service.pull_request_files(request).await },
+                )
+                .await
+            }
+            methods::GITHUB_PULL_REQUEST_DIFF => {
+                self.github_json::<PullRequestDiffRequest, _, _, _>(
+                    payload,
+                    |service, request| async move { service.pull_request_diff(request).await },
+                )
+                .await
+            }
             methods::GITHUB_PULL_REQUEST_CHECKS => {
                 self.github_json::<PullRequestChecksRequest, _, _, _>(
                     payload,
@@ -273,6 +348,320 @@ mod tests {
     ) -> WsServerResponse {
         let response = state.dispatch_text(&request.to_string()).await;
         serde_json::from_str(&response).expect("response")
+    }
+
+    #[tokio::test]
+    async fn dispatches_issue_listing_over_ws_rpc() {
+        let runner = Arc::new(FakeRunner::new(vec![ok(
+            br#"[{"number":1,"title":"Bug","state":"OPEN","url":"https://example.test/issues/1","author":{"login":"octo"},"labels":[{"name":"bug"}],"createdAt":"2026-06-21T00:00:00Z","updatedAt":"2026-06-21T00:01:00Z","comments":2}]"#,
+        )]));
+        let state = test_state(runner.clone());
+
+        let response = dispatch(
+            &state,
+            serde_json::json!({
+                "version": PROTOCOL_VERSION,
+                "request_id": "req-issues-list",
+                "method": methods::GITHUB_ISSUES_LIST,
+                "payload": {
+                    "repo_path": "/repo",
+                    "filter": {
+                        "limit": 15,
+                        "state": "all",
+                        "author": "@me",
+                        "assignee": null,
+                        "mention": null,
+                        "milestone": null,
+                        "search": "sort:created-desc",
+                        "labels": ["bug", "ui"]
+                    }
+                }
+            }),
+        )
+        .await;
+
+        let WsServerPayload::Result { body } = response.payload else {
+            panic!("expected result");
+        };
+        assert_eq!(body[0]["number"], 1);
+        assert_eq!(body[0]["comments"], 2);
+        let args = &runner.requests()[0].args;
+        assert_eq!(args[0..2], ["issue", "list"]);
+        assert!(args.windows(2).any(|pair| pair == ["--state", "all"]));
+        assert!(args.windows(2).any(|pair| pair == ["--author", "@me"]));
+        assert!(
+            args.windows(2)
+                .any(|pair| pair == ["--search", "sort:created-desc"])
+        );
+        assert!(args.windows(2).any(|pair| pair == ["--label", "bug"]));
+        assert!(args.windows(2).any(|pair| pair == ["--label", "ui"]));
+    }
+
+    #[tokio::test]
+    async fn dispatches_issue_thread_over_ws_rpc() {
+        let runner = Arc::new(FakeRunner::new(vec![ok(
+            br#"{"number":1,"title":"Bug","state":"OPEN","url":"https://example.test/issues/1","body":"body","labels":[],"assignees":[],"author":{"login":"octo"},"createdAt":"2026-06-21T00:00:00Z","updatedAt":"2026-06-21T00:01:00Z","comments":[{"body":"comment","author":{"login":"maintainer"},"createdAt":"2026-06-21T00:02:00Z","updatedAt":null,"url":"https://example.test/issues/1#issuecomment-1"}]}"#,
+        )]));
+        let state = test_state(runner.clone());
+
+        let response = dispatch(
+            &state,
+            serde_json::json!({
+                "version": PROTOCOL_VERSION,
+                "request_id": "req-issue-thread",
+                "method": methods::GITHUB_ISSUES_THREAD,
+                "payload": {
+                    "repo_path": "/repo",
+                    "number": 1
+                }
+            }),
+        )
+        .await;
+
+        let WsServerPayload::Result { body } = response.payload else {
+            panic!("expected result");
+        };
+        assert_eq!(body["comments"][0]["body"], "comment");
+        assert_eq!(
+            runner.requests()[0].args,
+            vec![
+                "issue",
+                "view",
+                "1",
+                "--json",
+                "number,title,state,url,body,labels,assignees,author,createdAt,updatedAt,comments"
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn dispatches_pull_request_listing_over_ws_rpc() {
+        let runner = Arc::new(FakeRunner::new(vec![ok(
+            br#"[{"number":42,"title":"Feature","state":"OPEN","url":"https://example.test/pull/42","author":{"login":"octo"},"labels":[],"createdAt":"2026-06-21T00:00:00Z","updatedAt":"2026-06-21T00:01:00Z","baseRefName":"main","headRefName":"feature/x","isDraft":true,"reviewDecision":"REVIEW_REQUIRED","mergeStateStatus":"BLOCKED","statusCheckRollup":[{"name":"CI"}]}]"#,
+        )]));
+        let state = test_state(runner.clone());
+
+        let response = dispatch(
+            &state,
+            serde_json::json!({
+                "version": PROTOCOL_VERSION,
+                "request_id": "req-pr-list",
+                "method": methods::GITHUB_PULL_REQUESTS_LIST,
+                "payload": {
+                    "repo_path": "/repo",
+                    "filter": {
+                        "limit": 20,
+                        "state": "open",
+                        "author": null,
+                        "assignee": null,
+                        "base": "main",
+                        "head": "feature/x",
+                        "search": null,
+                        "labels": [],
+                        "draft_only": true
+                    }
+                }
+            }),
+        )
+        .await;
+
+        let WsServerPayload::Result { body } = response.payload else {
+            panic!("expected result");
+        };
+        assert_eq!(body[0]["number"], 42);
+        assert_eq!(body[0]["statusCheckRollup"][0]["name"], "CI");
+        let args = &runner.requests()[0].args;
+        assert_eq!(args[0..2], ["pr", "list"]);
+        assert!(args.windows(2).any(|pair| pair == ["--base", "main"]));
+        assert!(args.windows(2).any(|pair| pair == ["--head", "feature/x"]));
+        assert!(args.contains(&"--draft".to_string()));
+    }
+
+    #[tokio::test]
+    async fn dispatches_pull_request_detail_thread_files_and_diff_over_ws_rpc() {
+        let runner = Arc::new(FakeRunner::new(vec![
+            ok(
+                br#"{"number":42,"title":"Feature","state":"OPEN","url":"https://example.test/pull/42","headRefName":"feature/x","baseRefName":"main","body":"body","author":{"login":"octo"},"createdAt":"2026-06-21T00:00:00Z","updatedAt":"2026-06-21T00:01:00Z","isDraft":false,"reviewDecision":"APPROVED","mergeStateStatus":"CLEAN"}"#,
+            ),
+            ok(
+                br#"{"number":42,"title":"Feature","state":"OPEN","url":"https://example.test/pull/42","headRefName":"feature/x","baseRefName":"main","body":"body","author":{"login":"octo"},"createdAt":"2026-06-21T00:00:00Z","updatedAt":"2026-06-21T00:01:00Z","isDraft":false,"reviewDecision":"APPROVED","mergeStateStatus":"CLEAN","comments":[],"reviews":[{"id":"R_1","author":{"login":"maintainer"},"authorAssociation":"MEMBER","body":"looks good","state":"APPROVED","submittedAt":"2026-06-21T00:02:00Z","commit":{"oid":"abc"},"url":"https://example.test/review/1"}],"latestReviews":[]}"#,
+            ),
+            ok(br#"{"files":[{"path":"src/lib.rs","additions":3,"deletions":1}]}"#),
+            ok(br#"{"files":[{"path":"src/lib.rs","additions":3,"deletions":1}]}"#),
+            ok("diff --git a/src/lib.rs b/src/lib.rs\n"),
+        ]));
+        let state = test_state(runner.clone());
+
+        let detail_response = dispatch(
+            &state,
+            serde_json::json!({
+                "version": PROTOCOL_VERSION,
+                "request_id": "req-pr-view",
+                "method": methods::GITHUB_PULL_REQUEST_VIEW,
+                "payload": {
+                    "repo_path": "/repo",
+                    "selector": "42"
+                }
+            }),
+        )
+        .await;
+        let thread_response = dispatch(
+            &state,
+            serde_json::json!({
+                "version": PROTOCOL_VERSION,
+                "request_id": "req-pr-thread",
+                "method": methods::GITHUB_PULL_REQUEST_THREAD,
+                "payload": {
+                    "repo_path": "/repo",
+                    "selector": "42"
+                }
+            }),
+        )
+        .await;
+        let files_response = dispatch(
+            &state,
+            serde_json::json!({
+                "version": PROTOCOL_VERSION,
+                "request_id": "req-pr-files",
+                "method": methods::GITHUB_PULL_REQUEST_FILES,
+                "payload": {
+                    "repo_path": "/repo",
+                    "selector": "42"
+                }
+            }),
+        )
+        .await;
+        let diff_response = dispatch(
+            &state,
+            serde_json::json!({
+                "version": PROTOCOL_VERSION,
+                "request_id": "req-pr-diff",
+                "method": methods::GITHUB_PULL_REQUEST_DIFF,
+                "payload": {
+                    "repo_path": "/repo",
+                    "selector": "42"
+                }
+            }),
+        )
+        .await;
+
+        let WsServerPayload::Result { body: detail } = detail_response.payload else {
+            panic!("expected detail result");
+        };
+        let WsServerPayload::Result { body: thread } = thread_response.payload else {
+            panic!("expected thread result");
+        };
+        let WsServerPayload::Result { body: files } = files_response.payload else {
+            panic!("expected files result");
+        };
+        let WsServerPayload::Result { body: diff } = diff_response.payload else {
+            panic!("expected diff result");
+        };
+        assert_eq!(detail["headRefName"], "feature/x");
+        assert_eq!(thread["reviews"][0]["state"], "APPROVED");
+        assert_eq!(files[0]["path"], "src/lib.rs");
+        assert_eq!(diff["selector"], "42");
+        assert!(
+            diff["diff"]
+                .as_str()
+                .expect("diff text")
+                .contains("diff --git")
+        );
+        let requests = runner.requests();
+        assert_eq!(requests[0].args[0..3], ["pr", "view", "42"]);
+        assert_eq!(requests[1].args[0..3], ["pr", "view", "42"]);
+        assert_eq!(
+            requests[2].args,
+            vec!["pr", "view", "42", "--json", "files"]
+        );
+        assert_eq!(
+            requests[3].args,
+            vec!["pr", "view", "42", "--json", "files"]
+        );
+        assert_eq!(requests[4].args, vec!["pr", "diff", "42", "--patch"]);
+    }
+
+    #[tokio::test]
+    async fn dispatches_issue_and_pull_request_search_over_ws_rpc() {
+        let runner = Arc::new(FakeRunner::new(vec![
+            ok(
+                br#"[{"assignees":[],"author":{"login":"octo"},"authorAssociation":"MEMBER","body":"body","closedAt":null,"commentsCount":1,"createdAt":"2026-06-21T00:00:00Z","id":"I_1","isLocked":false,"isPullRequest":false,"labels":[{"name":"bug"}],"number":1,"repository":{"nameWithOwner":"ace/app","url":"https://example.test/ace/app"},"state":"open","title":"Bug","updatedAt":"2026-06-21T00:01:00Z","url":"https://example.test/issues/1"}]"#,
+            ),
+            ok(
+                br#"[{"assignees":[],"author":{"login":"octo"},"authorAssociation":"MEMBER","body":"body","closedAt":null,"commentsCount":1,"createdAt":"2026-06-21T00:00:00Z","id":"PR_1","isDraft":true,"isLocked":false,"isPullRequest":true,"labels":[],"number":2,"repository":{"nameWithOwner":"ace/app","url":"https://example.test/ace/app"},"state":"open","title":"Feature","updatedAt":"2026-06-21T00:01:00Z","url":"https://example.test/pull/2"}]"#,
+            ),
+        ]));
+        let state = test_state(runner.clone());
+
+        let issue_response = dispatch(
+            &state,
+            serde_json::json!({
+                "version": PROTOCOL_VERSION,
+                "request_id": "req-issue-search",
+                "method": methods::GITHUB_ISSUES_SEARCH,
+                "payload": {
+                    "repo_path": "/repo",
+                    "query": "render bug",
+                    "filter": {
+                        "limit": 5,
+                        "state": "open",
+                        "author": null,
+                        "assignee": null,
+                        "owner": ["ace"],
+                        "repo": ["ace/app"],
+                        "labels": ["bug"],
+                        "sort": "created",
+                        "order": "desc",
+                        "include_prs_in_issue_search": true
+                    }
+                }
+            }),
+        )
+        .await;
+        let pr_response = dispatch(
+            &state,
+            serde_json::json!({
+                "version": PROTOCOL_VERSION,
+                "request_id": "req-pr-search",
+                "method": methods::GITHUB_PULL_REQUESTS_SEARCH,
+                "payload": {
+                    "repo_path": "/repo",
+                    "query": "feature",
+                    "filter": {
+                        "limit": 5,
+                        "state": null,
+                        "author": null,
+                        "assignee": null,
+                        "owner": [],
+                        "repo": [],
+                        "labels": [],
+                        "sort": null,
+                        "order": null,
+                        "include_prs_in_issue_search": false
+                    }
+                }
+            }),
+        )
+        .await;
+
+        let WsServerPayload::Result { body: issues } = issue_response.payload else {
+            panic!("expected issue search result");
+        };
+        let WsServerPayload::Result { body: prs } = pr_response.payload else {
+            panic!("expected pr search result");
+        };
+        assert_eq!(issues[0]["repository"]["nameWithOwner"], "ace/app");
+        assert_eq!(prs[0]["isDraft"], true);
+        let requests = runner.requests();
+        assert_eq!(requests[0].args[0..3], ["search", "issues", "render bug"]);
+        assert!(requests[0].args.contains(&"--include-prs".to_string()));
+        assert!(
+            requests[0]
+                .args
+                .windows(2)
+                .any(|pair| pair == ["--owner", "ace"])
+        );
+        assert_eq!(requests[1].args[0..3], ["search", "prs", "feature"]);
     }
 
     #[tokio::test]

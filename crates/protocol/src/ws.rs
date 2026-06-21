@@ -2,6 +2,16 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 pub mod methods {
+    pub const GITHUB_ENVIRONMENT_STATUS: &str = "github.environment.status";
+    pub const GITHUB_ISSUES_LIST: &str = "github.issues.list";
+    pub const GITHUB_ISSUES_THREAD: &str = "github.issues.thread";
+    pub const GITHUB_ISSUES_SEARCH: &str = "github.issues.search";
+    pub const GITHUB_PULL_REQUESTS_LIST: &str = "github.pull_requests.list";
+    pub const GITHUB_PULL_REQUESTS_SEARCH: &str = "github.pull_requests.search";
+    pub const GITHUB_PULL_REQUEST_VIEW: &str = "github.pull_request.view";
+    pub const GITHUB_PULL_REQUEST_THREAD: &str = "github.pull_request.thread";
+    pub const GITHUB_PULL_REQUEST_FILES: &str = "github.pull_request.files";
+    pub const GITHUB_PULL_REQUEST_DIFF: &str = "github.pull_request.diff";
     pub const GITHUB_PULL_REQUEST_CHECKS: &str = "github.pull_request.checks";
     pub const GITHUB_CHECK_RUNS_LIST: &str = "github.check_runs.list";
     pub const GITHUB_CHECK_RUNS_ANNOTATIONS: &str = "github.check_runs.annotations";
