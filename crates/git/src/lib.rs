@@ -571,9 +571,16 @@ pub struct WorktreeRemoveResult {
     pub removed: bool,
 }
 
-#[derive(Clone)]
 pub struct GithubCliClient<R: ProcessRunner = TokioProcessRunner> {
     runner: Arc<R>,
+}
+
+impl<R: ProcessRunner> Clone for GithubCliClient<R> {
+    fn clone(&self) -> Self {
+        Self {
+            runner: Arc::clone(&self.runner),
+        }
+    }
 }
 
 impl GithubCliClient<TokioProcessRunner> {

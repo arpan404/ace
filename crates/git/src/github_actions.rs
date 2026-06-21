@@ -108,7 +108,7 @@ impl<R: ProcessRunner> GithubCliClient<R> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GithubPrChecks {
     pub checks: Vec<GithubPrCheck>,
     pub summary: GithubCheckSummary,
@@ -129,7 +129,7 @@ pub struct GithubPrCheck {
     pub workflow: Option<String>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GithubCheckSummary {
     pub passed: usize,
     pub failed: usize,

@@ -77,9 +77,12 @@ dependencies = [
 name = "ace-server"
 version = "0.1.0"
 dependencies = [
+ "ace-git",
  "ace-protocol",
+ "async-trait",
  "axum",
  "serde",
+ "thiserror 2.0.18",
  "tokio",
  "tracing",
 ]

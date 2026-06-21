@@ -1,3 +1,5 @@
+pub mod github;
+
 use axum::{Json, Router, routing::get};
 use serde::Serialize;
 use std::net::SocketAddr;
@@ -30,6 +32,7 @@ pub fn router() -> Router {
     Router::new()
         .route("/health", get(health))
         .route("/api/status", get(status))
+        .nest("/api/github", github::router())
 }
 
 pub fn parse_bind_addr(config: &ServerConfig) -> Result<SocketAddr, std::net::AddrParseError> {

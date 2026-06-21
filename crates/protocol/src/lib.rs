@@ -1,6 +1,8 @@
 use ace_core::{Command, ProviderCapability};
 use serde::{Deserialize, Serialize};
 
+pub mod github;
+
 pub const PROTOCOL_VERSION: u16 = 1;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
