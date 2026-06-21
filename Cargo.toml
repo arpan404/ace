@@ -2,13 +2,14 @@
 resolver = "3"
 members = [
   "apps/desktop",
-  "crates/ace-core",
-  "crates/ace-persistence",
-  "crates/ace-platform",
-  "crates/ace-protocol",
-  "crates/ace-runtime",
-  "crates/ace-server",
-  "crates/ace-ui",
+  "crates/core",
+  "crates/git",
+  "crates/persistence",
+  "crates/platform",
+  "crates/protocol",
+  "crates/runtime",
+  "crates/server",
+  "crates/ui",
 ]
 
 [workspace.package]
@@ -18,15 +19,17 @@ repository = "https://github.com/arpan404/ace"
 rust-version = "1.91"
 
 [workspace.dependencies]
-ace-core = { path = "crates/ace-core" }
-ace-persistence = { path = "crates/ace-persistence" }
-ace-platform = { path = "crates/ace-platform" }
-ace-protocol = { path = "crates/ace-protocol" }
-ace-runtime = { path = "crates/ace-runtime" }
-ace-server = { path = "crates/ace-server" }
-ace-ui = { path = "crates/ace-ui" }
+ace-core = { path = "crates/core" }
+ace-git = { path = "crates/git" }
+ace-persistence = { path = "crates/persistence" }
+ace-platform = { path = "crates/platform" }
+ace-protocol = { path = "crates/protocol" }
+ace-runtime = { path = "crates/runtime" }
+ace-server = { path = "crates/server" }
+ace-ui = { path = "crates/ui" }
 
 axum = { version = "0.8.9", features = ["ws"] }
+async-trait = "0.1.89"
 bytes = "1.12.0"
 clap = { version = "4.6.1", features = ["derive", "env"] }
 criterion = "0.8.2"
@@ -37,8 +40,9 @@ proptest = "1.11.0"
 rusqlite = "=0.37.0"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
+tempfile = "3.24.0"
 thiserror = "2.0.18"
-tokio = { version = "1.52.3", features = ["macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
+tokio = { version = "1.52.3", features = ["fs", "io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
 tower-http = { version = "0.7.0", features = ["trace"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt"] }

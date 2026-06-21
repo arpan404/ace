@@ -7,7 +7,7 @@ on:
 
 jobs:
   rust:
-    name: Rust
+    name: Rust (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
@@ -18,12 +18,27 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.91.1
         with:
           components: clippy,rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - name: Install Linux desktop dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libfontconfig1-dev \
+            libsqlite3-dev \
+            libvulkan-dev \
+            libwayland-dev \
+            libxkbcommon-dev \
+            libxkbcommon-x11-dev \
+            libxcb-render0-dev \
+            libxcb-shape0-dev \
+            libxcb-xfixes0-dev \
+            pkg-config
       - name: Format
         run: cargo fmt --all -- --check
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Test
-        run: cargo test --workspace
+        run: cargo test --workspace --all-targets
       - name: Check
         run: cargo check --workspace
-

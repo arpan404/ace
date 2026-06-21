@@ -26,6 +26,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "ace-git"
+version = "0.1.0"
+dependencies = [
+ "ace-platform",
+ "async-trait",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+]
+
+[[package]]
 name = "ace-persistence"
 version = "0.1.0"
 dependencies = [

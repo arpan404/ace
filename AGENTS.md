@@ -15,7 +15,7 @@ Rust codebase.
 
 - `cargo fmt --all -- --check` must pass.
 - `cargo clippy --workspace --all-targets -- -D warnings` must pass.
-- `cargo test --workspace` must pass.
+- `cargo test --workspace --all-targets` must pass.
 - `cargo check --workspace` must pass.
 - When intentionally inspecting or validating `.old/ts-port/`, keep its old rule:
   never run `bun test`; use `bun run test`.
@@ -42,6 +42,8 @@ convenience.
   attachments, and provider-native tools can be added without duplicating
   orchestration logic.
 - Shared behavior belongs in crates, not app-local modules.
+- Workspace crate folders use plain domain names such as `crates/core`,
+  `crates/git`, and `crates/runtime`; package names may keep the `ace-` prefix.
 
 ## Performance And Testing
 
@@ -55,4 +57,3 @@ updates.
 
 - `.old/` is tracked archive content and must not be added to `.gitignore`.
 - Avoid editing `.old/ts-port/` unless the task explicitly concerns the archive.
-
