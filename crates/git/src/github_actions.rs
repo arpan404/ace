@@ -1,5 +1,6 @@
 use crate::{GithubActionResult, GithubCliClient, ProcessRunner, Result, parse_json};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::path::Path;
 
 const PR_CHECK_FIELDS: &str =
@@ -235,6 +236,28 @@ impl<R: ProcessRunner> GithubCliClient<R> {
             &output.stdout,
         )?;
         Ok(response.artifacts)
+    }
+
+    pub async fn workflow_run_pending_deployments(
+        &self,
+        cwd: &Path,
+        run_id: u64,
+    ) -> Result<Vec<GithubWorkflowPendingDeployment>> {
+        let repository = self.repository(cwd).await?;
+        let output = self
+            .gh_allow_statuses(
+                cwd,
+                [
+                    "api".to_string(),
+                    format!(
+                        "repos/{}/actions/runs/{run_id}/pending_deployments",
+                        repository.name_with_owner
+                    ),
+                ],
+                &[0],
+            )
+            .await?;
+        parse_json("github workflow pending deployments", &output.stdout)
     }
 
     pub async fn download_workflow_artifacts(
@@ -500,6 +523,37 @@ pub struct GithubWorkflowArtifactRun {
     pub head_repository_id: Option<u64>,
     pub head_branch: Option<String>,
     pub head_sha: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GithubWorkflowPendingDeployment {
+    pub environment: GithubWorkflowEnvironment,
+    #[serde(rename = "wait_timer")]
+    pub wait_timer: Option<u64>,
+    #[serde(rename = "wait_timer_started_at")]
+    pub wait_timer_started_at: Option<String>,
+    #[serde(rename = "current_user_can_approve")]
+    pub current_user_can_approve: bool,
+    #[serde(default)]
+    pub reviewers: Vec<GithubWorkflowDeploymentReviewer>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GithubWorkflowEnvironment {
+    pub id: u64,
+    #[serde(rename = "node_id")]
+    pub node_id: Option<String>,
+    pub name: String,
+    pub url: Option<String>,
+    #[serde(rename = "html_url")]
+    pub html_url: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GithubWorkflowDeploymentReviewer {
+    #[serde(rename = "type")]
+    pub reviewer_type: String,
+    pub reviewer: Value,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -885,6 +939,34 @@ mod tests {
         assert_eq!(
             requests[1].args,
             vec!["api", "repos/ace/app/actions/runs/100/artifacts"]
+        );
+    }
+
+    #[tokio::test]
+    async fn workflow_pending_deployments_resolve_repo_and_parse_environment_gates() {
+        let runner = std::sync::Arc::new(FakeRunner::new(vec![
+            output(
+                0,
+                br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+            ),
+            output(
+                0,
+                br#"[{"environment":{"id":9,"node_id":"ENV_9","name":"production","url":"https://api.github.test/env/9","html_url":"https://github.test/env/production"},"wait_timer":30,"wait_timer_started_at":"2026-06-21T00:00:00Z","current_user_can_approve":true,"reviewers":[{"type":"User","reviewer":{"login":"octo","id":1}}]}]"#,
+            ),
+        ]));
+        let github = GithubCliClient::with_runner(runner.clone());
+
+        let deployments = github
+            .workflow_run_pending_deployments(Path::new("."), 100)
+            .await
+            .expect("pending deployments");
+
+        assert_eq!(deployments[0].environment.name, "production");
+        assert!(deployments[0].current_user_can_approve);
+        assert_eq!(deployments[0].reviewers[0].reviewer["login"], "octo");
+        assert_eq!(
+            runner.requests()[1].args,
+            vec!["api", "repos/ace/app/actions/runs/100/pending_deployments"]
         );
     }
 

@@ -13,7 +13,8 @@ use ace_protocol::github::{
     WorkflowDispatchInput, WorkflowDispatchRequest, WorkflowEnableRequest, WorkflowJobLogRequest,
     WorkflowJobRequest, WorkflowListFilter, WorkflowListRequest, WorkflowRunApproveRequest,
     WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest, WorkflowRunJobsRequest,
-    WorkflowRunListFilter, WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunRerunRequest,
+    WorkflowRunListFilter, WorkflowRunListRequest, WorkflowRunLogRequest,
+    WorkflowRunPendingDeploymentsRequest, WorkflowRunRerunRequest,
 };
 use async_trait::async_trait;
 use axum::{
@@ -1180,6 +1181,34 @@ async fn service_returns_workflow_run_artifacts() {
     assert_eq!(
         runner.requests()[1].args,
         vec!["api", "repos/ace/app/actions/runs/100/artifacts"]
+    );
+}
+
+#[tokio::test]
+async fn service_returns_workflow_run_pending_deployments() {
+    let runner = Arc::new(FakeRunner::new(vec![
+        ok(
+            br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+        ),
+        ok(
+            br#"[{"environment":{"id":9,"node_id":"ENV_9","name":"production","url":"https://api.github.test/env/9","html_url":"https://github.test/env/production"},"wait_timer":30,"wait_timer_started_at":"2026-06-21T00:00:00Z","current_user_can_approve":true,"reviewers":[{"type":"User","reviewer":{"login":"octo","id":1}}]}]"#,
+        ),
+    ]));
+    let service = GithubService::new(GithubCliClient::with_runner(runner.clone()));
+
+    let deployments = service
+        .workflow_run_pending_deployments(WorkflowRunPendingDeploymentsRequest {
+            repo_path: "/repo".to_string(),
+            run_id: 100,
+        })
+        .await
+        .expect("pending deployments");
+
+    assert_eq!(deployments[0].environment.name, "production");
+    assert!(deployments[0].current_user_can_approve);
+    assert_eq!(
+        runner.requests()[1].args,
+        vec!["api", "repos/ace/app/actions/runs/100/pending_deployments"]
     );
 }
 

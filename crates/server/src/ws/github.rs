@@ -16,7 +16,8 @@ use ace_protocol::{
         WorkflowEnableRequest, WorkflowJobLogRequest, WorkflowJobRequest, WorkflowListRequest,
         WorkflowRunApproveRequest, WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest,
         WorkflowRunCancelRequest, WorkflowRunJobsRequest, WorkflowRunListRequest,
-        WorkflowRunLogRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
+        WorkflowRunLogRequest, WorkflowRunPendingDeploymentsRequest, WorkflowRunRequest,
+        WorkflowRunRerunRequest,
     },
     ws::methods,
 };
@@ -335,6 +336,15 @@ impl<R: ProcessRunner> WsApiState<R> {
                 self.github_json::<WorkflowJobLogRequest, _, _, _>(
                     payload,
                     |service, request| async move { service.workflow_job_log(request).await },
+                )
+                .await
+            }
+            methods::GITHUB_WORKFLOW_RUN_PENDING_DEPLOYMENTS => {
+                self.github_json::<WorkflowRunPendingDeploymentsRequest, _, _, _>(
+                    payload,
+                    |service, request| async move {
+                        service.workflow_run_pending_deployments(request).await
+                    },
                 )
                 .await
             }
@@ -1603,6 +1613,43 @@ mod tests {
                 "--dir",
                 "/tmp/artifacts"
             ]
+        );
+    }
+
+    #[tokio::test]
+    async fn dispatches_workflow_run_pending_deployments_over_ws_rpc() {
+        let runner = Arc::new(FakeRunner::new(vec![
+            ok(
+                br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+            ),
+            ok(
+                br#"[{"environment":{"id":9,"node_id":"ENV_9","name":"production","url":"https://api.github.test/env/9","html_url":"https://github.test/env/production"},"wait_timer":30,"wait_timer_started_at":"2026-06-21T00:00:00Z","current_user_can_approve":true,"reviewers":[{"type":"User","reviewer":{"login":"octo","id":1}}]}]"#,
+            ),
+        ]));
+        let state = test_state(runner.clone());
+
+        let response = dispatch(
+            &state,
+            serde_json::json!({
+                "version": PROTOCOL_VERSION,
+                "request_id": "req-pending-deployments",
+                "method": methods::GITHUB_WORKFLOW_RUN_PENDING_DEPLOYMENTS,
+                "payload": {
+                    "repo_path": "/repo",
+                    "run_id": 100
+                }
+            }),
+        )
+        .await;
+
+        let WsServerPayload::Result { body } = response.payload else {
+            panic!("expected result");
+        };
+        assert_eq!(body[0]["environment"]["name"], "production");
+        assert_eq!(body[0]["current_user_can_approve"], true);
+        assert_eq!(
+            runner.requests()[1].args,
+            vec!["api", "repos/ace/app/actions/runs/100/pending_deployments"]
         );
     }
 
