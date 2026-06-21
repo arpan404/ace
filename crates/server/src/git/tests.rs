@@ -1,6 +1,9 @@
 use super::{GitApiError, GitService, routes::router_with_state, service::GitApiState};
 use ace_git::{CommandOutput, CommandRequest, GitClient, GitToolError, ProcessRunner};
-use ace_protocol::git::{GitDiffRequest, GitStatusRequest};
+use ace_protocol::git::{
+    GitCheckoutBranchRequest, GitCreateBranchRequest, GitDiffRequest, GitRenameBranchRequest,
+    GitStatusRequest,
+};
 use async_trait::async_trait;
 use axum::{
     body::{Body, to_bytes},
@@ -111,6 +114,71 @@ async fn service_rejects_empty_repo_path_before_running_process() {
 }
 
 #[tokio::test]
+async fn service_creates_branch_through_git() {
+    let runner = Arc::new(FakeRunner::new(vec![ok("")]));
+    let service = GitService::new(GitClient::with_runner(runner.clone()));
+
+    let result = service
+        .create_branch(GitCreateBranchRequest {
+            repo_path: "/repo".to_string(),
+            branch: "feature/issue-123".to_string(),
+            start_point: Some("main".to_string()),
+        })
+        .await
+        .expect("create branch");
+
+    assert_eq!(result.action, "create_branch");
+    assert_eq!(result.branch.as_deref(), Some("feature/issue-123"));
+    assert_eq!(
+        runner.requests()[0].args,
+        vec!["branch", "feature/issue-123", "main"]
+    );
+}
+
+#[tokio::test]
+async fn service_checks_out_branch_through_git() {
+    let runner = Arc::new(FakeRunner::new(vec![ok("")]));
+    let service = GitService::new(GitClient::with_runner(runner.clone()));
+
+    let result = service
+        .checkout_branch(GitCheckoutBranchRequest {
+            repo_path: "/repo".to_string(),
+            branch: "feature/issue-123".to_string(),
+        })
+        .await
+        .expect("checkout branch");
+
+    assert_eq!(result.action, "checkout_branch");
+    assert_eq!(result.branch.as_deref(), Some("feature/issue-123"));
+    assert_eq!(
+        runner.requests()[0].args,
+        vec!["checkout", "feature/issue-123"]
+    );
+}
+
+#[tokio::test]
+async fn service_renames_branch_through_git() {
+    let runner = Arc::new(FakeRunner::new(vec![ok("")]));
+    let service = GitService::new(GitClient::with_runner(runner.clone()));
+
+    let result = service
+        .rename_branch(GitRenameBranchRequest {
+            repo_path: "/repo".to_string(),
+            old: Some("feature/old".to_string()),
+            new: "feature/new".to_string(),
+        })
+        .await
+        .expect("rename branch");
+
+    assert_eq!(result.action, "rename_branch");
+    assert_eq!(result.branch.as_deref(), Some("feature/new"));
+    assert_eq!(
+        runner.requests()[0].args,
+        vec!["branch", "-m", "feature/old", "feature/new"]
+    );
+}
+
+#[tokio::test]
 async fn route_returns_status_json() {
     let runner = Arc::new(FakeRunner::new(vec![ok(
         "## feature/x...origin/feature/x [ahead 2]\n M src/lib.rs\n",
@@ -191,6 +259,109 @@ async fn route_returns_diff_json() {
     assert_eq!(response.status(), StatusCode::OK);
     let body = response_json(response).await;
     assert!(body["diff"].as_str().expect("diff").contains("diff --git"));
+}
+
+#[tokio::test]
+async fn route_creates_branch_json() {
+    let runner = Arc::new(FakeRunner::new(vec![ok("")]));
+    let app = test_router(runner.clone());
+
+    let response = app
+        .oneshot(json_request(
+            "/branches/create",
+            serde_json::json!({
+                "repo_path": "/repo",
+                "branch": "feature/issue-123",
+                "start_point": "main"
+            }),
+        ))
+        .await
+        .expect("route response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response_json(response).await;
+    assert_eq!(body["action"], "create_branch");
+    assert_eq!(body["branch"], "feature/issue-123");
+    assert_eq!(
+        runner.requests()[0].args,
+        vec!["branch", "feature/issue-123", "main"]
+    );
+}
+
+#[tokio::test]
+async fn route_checks_out_branch_json() {
+    let runner = Arc::new(FakeRunner::new(vec![ok("")]));
+    let app = test_router(runner.clone());
+
+    let response = app
+        .oneshot(json_request(
+            "/branches/checkout",
+            serde_json::json!({
+                "repo_path": "/repo",
+                "branch": "feature/issue-123"
+            }),
+        ))
+        .await
+        .expect("route response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response_json(response).await;
+    assert_eq!(body["action"], "checkout_branch");
+    assert_eq!(body["branch"], "feature/issue-123");
+    assert_eq!(
+        runner.requests()[0].args,
+        vec!["checkout", "feature/issue-123"]
+    );
+}
+
+#[tokio::test]
+async fn route_renames_branch_json() {
+    let runner = Arc::new(FakeRunner::new(vec![ok("")]));
+    let app = test_router(runner.clone());
+
+    let response = app
+        .oneshot(json_request(
+            "/branches/rename",
+            serde_json::json!({
+                "repo_path": "/repo",
+                "old": "feature/old",
+                "new": "feature/new"
+            }),
+        ))
+        .await
+        .expect("route response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response_json(response).await;
+    assert_eq!(body["action"], "rename_branch");
+    assert_eq!(body["branch"], "feature/new");
+    assert_eq!(
+        runner.requests()[0].args,
+        vec!["branch", "-m", "feature/old", "feature/new"]
+    );
+}
+
+#[tokio::test]
+async fn route_rejects_unsafe_branch_name_before_running_process() {
+    let runner = Arc::new(FakeRunner::new(Vec::new()));
+    let app = test_router(runner.clone());
+
+    let response = app
+        .oneshot(json_request(
+            "/branches/create",
+            serde_json::json!({
+                "repo_path": "/repo",
+                "branch": "bad branch",
+                "start_point": null
+            }),
+        ))
+        .await
+        .expect("route response");
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body = response_json(response).await;
+    assert_eq!(body["message"], "unsafe branch name `bad branch`");
+    assert!(runner.requests().is_empty());
 }
 
 #[tokio::test]

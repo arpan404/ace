@@ -1,7 +1,8 @@
 use super::{GitApiError, service::GitApiState};
 use ace_git::{ProcessRunner, TokioProcessRunner};
 use ace_protocol::git::{
-    GitBranchesRequest, GitDiffRequest, GitRepositoryRequest, GitStatusRequest, GitWorktreesRequest,
+    GitBranchesRequest, GitCheckoutBranchRequest, GitCreateBranchRequest, GitDiffRequest,
+    GitRenameBranchRequest, GitRepositoryRequest, GitStatusRequest, GitWorktreesRequest,
 };
 use axum::{Json, Router, extract::State, routing::post};
 
@@ -18,6 +19,9 @@ where
         .route("/status", post(status::<R>))
         .route("/diff", post(diff::<R>))
         .route("/branches", post(branches::<R>))
+        .route("/branches/create", post(create_branch::<R>))
+        .route("/branches/checkout", post(checkout_branch::<R>))
+        .route("/branches/rename", post(rename_branch::<R>))
         .route("/worktrees", post(worktrees::<R>))
         .with_state(state)
 }
@@ -60,6 +64,36 @@ where
     R: ProcessRunner,
 {
     state.service.branches(request).await.map(Json)
+}
+
+async fn create_branch<R>(
+    State(state): State<GitApiState<R>>,
+    Json(request): Json<GitCreateBranchRequest>,
+) -> Result<Json<super::GitActionResponse>, GitApiError>
+where
+    R: ProcessRunner,
+{
+    state.service.create_branch(request).await.map(Json)
+}
+
+async fn checkout_branch<R>(
+    State(state): State<GitApiState<R>>,
+    Json(request): Json<GitCheckoutBranchRequest>,
+) -> Result<Json<super::GitActionResponse>, GitApiError>
+where
+    R: ProcessRunner,
+{
+    state.service.checkout_branch(request).await.map(Json)
+}
+
+async fn rename_branch<R>(
+    State(state): State<GitApiState<R>>,
+    Json(request): Json<GitRenameBranchRequest>,
+) -> Result<Json<super::GitActionResponse>, GitApiError>
+where
+    R: ProcessRunner,
+{
+    state.service.rename_branch(request).await.map(Json)
 }
 
 async fn worktrees<R>(

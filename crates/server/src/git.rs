@@ -7,4 +7,4 @@ mod tests;
 
 pub use error::GitApiError;
 pub use routes::{router, router_with_state};
-pub use service::{GitApiState, GitDiffResponse, GitService};
+pub use service::{GitActionResponse, GitApiState, GitDiffResponse, GitService};

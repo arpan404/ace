@@ -1,7 +1,8 @@
 use super::GitApiError;
 use ace_git::{GitClient, ProcessRunner, TokioProcessRunner};
 use ace_protocol::git::{
-    GitBranchesRequest, GitDiffRequest, GitRepositoryRequest, GitStatusRequest, GitWorktreesRequest,
+    GitBranchesRequest, GitCheckoutBranchRequest, GitCreateBranchRequest, GitDiffRequest,
+    GitRenameBranchRequest, GitRepositoryRequest, GitStatusRequest, GitWorktreesRequest,
 };
 use serde::Serialize;
 use std::{path::PathBuf, sync::Arc};
@@ -81,6 +82,53 @@ impl<R: ProcessRunner> GitService<R> {
             .map_err(GitApiError::from)
     }
 
+    pub async fn create_branch(
+        &self,
+        request: GitCreateBranchRequest,
+    ) -> Result<GitActionResponse, GitApiError> {
+        self.git
+            .create_branch(
+                &repo_path(&request.repo_path)?,
+                &request.branch,
+                request.start_point.as_deref(),
+            )
+            .await?;
+        Ok(GitActionResponse {
+            action: "create_branch",
+            branch: Some(request.branch),
+        })
+    }
+
+    pub async fn checkout_branch(
+        &self,
+        request: GitCheckoutBranchRequest,
+    ) -> Result<GitActionResponse, GitApiError> {
+        self.git
+            .checkout_branch(&repo_path(&request.repo_path)?, &request.branch)
+            .await?;
+        Ok(GitActionResponse {
+            action: "checkout_branch",
+            branch: Some(request.branch),
+        })
+    }
+
+    pub async fn rename_branch(
+        &self,
+        request: GitRenameBranchRequest,
+    ) -> Result<GitActionResponse, GitApiError> {
+        self.git
+            .rename_branch(
+                &repo_path(&request.repo_path)?,
+                request.old.as_deref(),
+                &request.new,
+            )
+            .await?;
+        Ok(GitActionResponse {
+            action: "rename_branch",
+            branch: Some(request.new),
+        })
+    }
+
     pub async fn worktrees(
         &self,
         request: GitWorktreesRequest,
@@ -95,6 +143,12 @@ impl<R: ProcessRunner> GitService<R> {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct GitDiffResponse {
     pub diff: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct GitActionResponse {
+    pub action: &'static str,
+    pub branch: Option<String>,
 }
 
 fn repo_path(raw: &str) -> Result<PathBuf, GitApiError> {
