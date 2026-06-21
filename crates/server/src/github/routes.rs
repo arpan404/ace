@@ -3,10 +3,11 @@ use ace_git::{ProcessRunner, TokioProcessRunner};
 use ace_protocol::github::{
     EnvironmentStatusRequest, IssueListRequest, PullRequestActivityRequest,
     PullRequestCheckoutRequest, PullRequestChecksRequest, PullRequestCloseRequest,
-    PullRequestCommentRequest, PullRequestListRequest, PullRequestMergeRequest,
-    PullRequestReadyStateRequest, PullRequestReopenRequest, PullRequestReviewRequest,
-    SearchIssuesRequest, SearchPullRequestsRequest, WorkflowRunCancelRequest,
-    WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
+    PullRequestCommentRequest, PullRequestDashboardRequest, PullRequestListRequest,
+    PullRequestMergeRequest, PullRequestReadyStateRequest, PullRequestReopenRequest,
+    PullRequestReviewRequest, SearchIssuesRequest, SearchPullRequestsRequest,
+    WorkflowRunCancelRequest, WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunRequest,
+    WorkflowRunRerunRequest,
 };
 use axum::{Json, Router, extract::State, routing::post};
 
@@ -26,6 +27,7 @@ where
         .route("/pulls/search", post(search_pull_requests::<R>))
         .route("/pulls/checks", post(pull_request_checks::<R>))
         .route("/pulls/activity", post(pull_request_activity::<R>))
+        .route("/pulls/dashboard", post(pull_request_dashboard::<R>))
         .route("/pulls/checkout", post(checkout_pull_request::<R>))
         .route("/pulls/comment", post(comment_pull_request::<R>))
         .route("/pulls/review", post(review_pull_request::<R>))
@@ -115,6 +117,20 @@ where
     R: ProcessRunner,
 {
     state.service.pull_request_activity(request).await.map(Json)
+}
+
+async fn pull_request_dashboard<R>(
+    State(state): State<GithubApiState<R>>,
+    Json(request): Json<PullRequestDashboardRequest>,
+) -> Result<Json<ace_git::GithubPullRequestDashboard>, GithubApiError>
+where
+    R: ProcessRunner,
+{
+    state
+        .service
+        .pull_request_dashboard(request)
+        .await
+        .map(Json)
 }
 
 async fn list_workflow_runs<R>(

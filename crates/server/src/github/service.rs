@@ -13,10 +13,11 @@ use ace_git::{
 use ace_protocol::github::{
     EnvironmentStatusRequest, IssueListRequest, PullRequestActivityRequest,
     PullRequestCheckoutRequest, PullRequestChecksRequest, PullRequestCloseRequest,
-    PullRequestCommentRequest, PullRequestListRequest, PullRequestMergeRequest,
-    PullRequestReadyStateRequest, PullRequestReopenRequest, PullRequestReviewRequest,
-    SearchIssuesRequest, SearchPullRequestsRequest, WorkflowRunCancelRequest,
-    WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
+    PullRequestCommentRequest, PullRequestDashboardRequest, PullRequestListRequest,
+    PullRequestMergeRequest, PullRequestReadyStateRequest, PullRequestReopenRequest,
+    PullRequestReviewRequest, SearchIssuesRequest, SearchPullRequestsRequest,
+    WorkflowRunCancelRequest, WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunRequest,
+    WorkflowRunRerunRequest,
 };
 use serde::Serialize;
 use std::{path::PathBuf, sync::Arc};
@@ -158,6 +159,23 @@ impl<R: ProcessRunner> GithubService<R> {
                     selector: request.selector,
                     required_checks_only: request.required_checks_only,
                     workflow_run_limit: request.workflow_run_limit,
+                },
+            )
+            .await
+            .map_err(GithubApiError::from)
+    }
+
+    pub async fn pull_request_dashboard(
+        &self,
+        request: PullRequestDashboardRequest,
+    ) -> Result<ace_git::GithubPullRequestDashboard, GithubApiError> {
+        self.github
+            .pull_request_dashboard(
+                &repo_path(&request.repo_path)?,
+                &ace_git::PullRequestDashboardRequest {
+                    filter: pull_request_list_filter(request.filter),
+                    required_checks_only: request.required_checks_only,
+                    workflow_run_limit_per_pr: request.workflow_run_limit_per_pr,
                 },
             )
             .await

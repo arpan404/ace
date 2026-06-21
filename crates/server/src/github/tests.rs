@@ -2,9 +2,10 @@ use super::{GithubApiError, GithubService, routes::router_with_state, service::G
 use ace_git::{CommandOutput, CommandRequest, GitToolError, GithubCliClient, ProcessRunner};
 use ace_protocol::github::{
     EnvironmentStatusRequest, IssueListFilter, IssueListRequest, PullRequestActivityRequest,
-    PullRequestChecksRequest, PullRequestMergeMethod, PullRequestMergeRequest,
-    PullRequestReviewDecision, PullRequestReviewRequest, WorkflowRunListFilter,
-    WorkflowRunListRequest, WorkflowRunRerunRequest,
+    PullRequestChecksRequest, PullRequestDashboardRequest, PullRequestListFilter,
+    PullRequestMergeMethod, PullRequestMergeRequest, PullRequestReviewDecision,
+    PullRequestReviewRequest, WorkflowRunListFilter, WorkflowRunListRequest,
+    WorkflowRunRerunRequest,
 };
 use async_trait::async_trait;
 use axum::{
@@ -183,6 +184,45 @@ async fn service_returns_pull_request_activity() {
 }
 
 #[tokio::test]
+async fn service_returns_pull_request_dashboard() {
+    let runner = Arc::new(FakeRunner::new(vec![
+        ok(
+            br#"[{"number":42,"title":"Feature","state":"OPEN","url":"https://example.test/pull/42","author":{"login":"octo"},"labels":[],"createdAt":"2026-06-21T00:00:00Z","updatedAt":"2026-06-21T00:01:00Z","baseRefName":"main","headRefName":"feature/x","isDraft":false,"reviewDecision":"REVIEW_REQUIRED","mergeStateStatus":"BLOCKED","statusCheckRollup":[]}]"#,
+        ),
+        ok(
+            br#"[{"bucket":"pending","completedAt":null,"description":null,"event":"push","link":"https://example.test/check","name":"CI","startedAt":"2026-06-21T00:00:00Z","state":"PENDING","workflow":"CI"}]"#,
+        ),
+        ok(
+            br#"[{"attempt":1,"conclusion":null,"createdAt":"2026-06-21T00:00:00Z","databaseId":7,"displayTitle":"Run","event":"pull_request","headBranch":"feature/x","headSha":"abc","name":"CI","number":3,"startedAt":"2026-06-21T00:00:00Z","status":"in_progress","updatedAt":"2026-06-21T00:01:00Z","url":"https://example.test/run/7","workflowDatabaseId":2,"workflowName":"CI"}]"#,
+        ),
+    ]));
+    let service = GithubService::new(GithubCliClient::with_runner(runner.clone()));
+
+    let dashboard = service
+        .pull_request_dashboard(PullRequestDashboardRequest {
+            repo_path: "/repo".to_string(),
+            filter: PullRequestListFilter {
+                limit: 10,
+                ..PullRequestListFilter::default()
+            },
+            required_checks_only: true,
+            workflow_run_limit_per_pr: 3,
+        })
+        .await
+        .expect("dashboard");
+
+    assert_eq!(dashboard.items[0].pull_request.number, 42);
+    assert_eq!(dashboard.items[0].checks.summary.pending, 1);
+    assert_eq!(dashboard.items[0].workflow_runs[0].database_id, 7);
+    assert!(
+        runner.requests()[2]
+            .args
+            .windows(2)
+            .any(|pair| pair == ["--branch", "feature/x"])
+    );
+}
+
+#[tokio::test]
 async fn service_lists_workflow_runs_with_filters() {
     let runner = Arc::new(FakeRunner::new(vec![ok(
         br#"[{"attempt":1,"conclusion":null,"createdAt":"2026-06-21T00:00:00Z","databaseId":7,"displayTitle":"Run","event":"pull_request","headBranch":"feature/x","headSha":"abc","name":"CI","number":3,"startedAt":"2026-06-21T00:00:00Z","status":"in_progress","updatedAt":"2026-06-21T00:01:00Z","url":"https://example.test/run/7","workflowDatabaseId":2,"workflowName":"CI"}]"#,
@@ -344,6 +384,51 @@ async fn route_returns_pull_request_activity_json() {
     assert_eq!(body["pull_request"]["number"], 42);
     assert_eq!(body["checks"]["summary"]["passed"], 1);
     assert_eq!(body["workflow_runs"][0]["databaseId"], 7);
+}
+
+#[tokio::test]
+async fn route_returns_pull_request_dashboard_json() {
+    let runner = Arc::new(FakeRunner::new(vec![
+        ok(
+            br#"[{"number":42,"title":"Feature","state":"OPEN","url":"https://example.test/pull/42","author":{"login":"octo"},"labels":[],"createdAt":"2026-06-21T00:00:00Z","updatedAt":"2026-06-21T00:01:00Z","baseRefName":"main","headRefName":"feature/x","isDraft":false,"reviewDecision":"REVIEW_REQUIRED","mergeStateStatus":"BLOCKED","statusCheckRollup":[]}]"#,
+        ),
+        ok(
+            br#"[{"bucket":"pending","completedAt":null,"description":null,"event":"push","link":"https://example.test/check","name":"CI","startedAt":"2026-06-21T00:00:00Z","state":"PENDING","workflow":"CI"}]"#,
+        ),
+        ok(
+            br#"[{"attempt":1,"conclusion":null,"createdAt":"2026-06-21T00:00:00Z","databaseId":7,"displayTitle":"Run","event":"pull_request","headBranch":"feature/x","headSha":"abc","name":"CI","number":3,"startedAt":"2026-06-21T00:00:00Z","status":"in_progress","updatedAt":"2026-06-21T00:01:00Z","url":"https://example.test/run/7","workflowDatabaseId":2,"workflowName":"CI"}]"#,
+        ),
+    ]));
+    let app = test_router(runner);
+
+    let response = app
+        .oneshot(json_request(
+            "/pulls/dashboard",
+            serde_json::json!({
+                "repo_path": "/repo",
+                "filter": {
+                    "limit": 10,
+                    "state": "open",
+                    "author": null,
+                    "assignee": null,
+                    "base": null,
+                    "head": null,
+                    "search": null,
+                    "labels": [],
+                    "draft_only": false
+                },
+                "required_checks_only": true,
+                "workflow_run_limit_per_pr": 3
+            }),
+        ))
+        .await
+        .expect("route response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response_json(response).await;
+    assert_eq!(body["items"][0]["pull_request"]["number"], 42);
+    assert_eq!(body["items"][0]["checks"]["summary"]["pending"], 1);
+    assert_eq!(body["items"][0]["workflow_runs"][0]["databaseId"], 7);
 }
 
 #[tokio::test]
