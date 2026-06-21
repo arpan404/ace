@@ -7,11 +7,11 @@ use ace_platform::AppPaths;
 use ace_protocol::git::{
     GitBranchesRequest, GitChangedFilesRequest, GitCheckoutBranchRequest, GitCommitRequest,
     GitCommitsCompareRequest, GitCommitsRequest, GitCreateBranchRequest, GitDeleteBranchRequest,
-    GitDiffRequest, GitFetchRequest, GitPullRequest, GitPushRequest, GitRenameBranchRequest,
-    GitRepositoryRequest, GitStageRequest, GitStashApplyRequest, GitStashDropRequest,
-    GitStashPopRequest, GitStashSaveRequest, GitStashesRequest, GitStatusRequest,
-    GitUnstageRequest, GitWorkflowAction, GitWorkflowRequest, GitWorktreeCreateRequest,
-    GitWorktreeRemoveRequest, GitWorktreesRequest,
+    GitDiffRequest, GitFetchRequest, GitPullRequest, GitPushRequest, GitRemotesRequest,
+    GitRenameBranchRequest, GitRepositoryRequest, GitStageRequest, GitStashApplyRequest,
+    GitStashDropRequest, GitStashPopRequest, GitStashSaveRequest, GitStashesRequest,
+    GitStatusRequest, GitUnstageRequest, GitWorkflowAction, GitWorkflowRequest,
+    GitWorktreeCreateRequest, GitWorktreeRemoveRequest, GitWorktreesRequest,
 };
 use serde::Serialize;
 use std::{path::PathBuf, sync::Arc};
@@ -122,6 +122,16 @@ impl<R: ProcessRunner> GitService<R> {
     ) -> Result<Vec<ace_git::GitBranch>, GitApiError> {
         self.git
             .list_branches(&repo_path(&request.repo_path)?)
+            .await
+            .map_err(GitApiError::from)
+    }
+
+    pub async fn remotes(
+        &self,
+        request: GitRemotesRequest,
+    ) -> Result<Vec<ace_git::GitRemote>, GitApiError> {
+        self.git
+            .list_remotes(&repo_path(&request.repo_path)?)
             .await
             .map_err(GitApiError::from)
     }

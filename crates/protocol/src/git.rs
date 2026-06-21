@@ -28,6 +28,11 @@ pub struct GitBranchesRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GitRemotesRequest {
+    pub repo_path: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GitCreateBranchRequest {
     pub repo_path: String,
     pub branch: String,

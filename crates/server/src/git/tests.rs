@@ -6,9 +6,9 @@ use ace_protocol::git::{
     CreatePullRequest, DefaultBranchPolicy, GitChangedFilesRequest, GitCheckoutBranchRequest,
     GitCommitRequest, GitCommitsCompareRequest, GitCommitsRequest, GitCreateBranchRequest,
     GitDeleteBranchRequest, GitDiffRequest, GitFetchRequest, GitPullRequest, GitPushRequest,
-    GitRenameBranchRequest, GitStageRequest, GitStashApplyRequest, GitStashSaveRequest,
-    GitStatusRequest, GitUnstageRequest, GitWorkflowAction, GitWorkflowRequest,
-    GitWorktreeCreateRequest, GitWorktreeRemoveRequest,
+    GitRemotesRequest, GitRenameBranchRequest, GitStageRequest, GitStashApplyRequest,
+    GitStashSaveRequest, GitStatusRequest, GitUnstageRequest, GitWorkflowAction,
+    GitWorkflowRequest, GitWorktreeCreateRequest, GitWorktreeRemoveRequest,
 };
 use async_trait::async_trait;
 use axum::{
@@ -131,6 +131,38 @@ async fn service_returns_changed_files() {
     assert_eq!(
         requests[2].args,
         vec!["ls-files", "--others", "--exclude-standard", "-z"]
+    );
+}
+
+#[tokio::test]
+async fn service_returns_remotes() {
+    let runner = Arc::new(FakeRunner::new(vec![
+        ok(
+            "origin\tgit@github.com:ace/app.git (fetch)\norigin\tgit@github.com:ace/app.git (push)\n",
+        ),
+        ok("origin/main\n"),
+    ]));
+    let service = GitService::new(GitClient::with_runner(runner.clone()));
+
+    let remotes = service
+        .remotes(GitRemotesRequest {
+            repo_path: "/repo".to_string(),
+        })
+        .await
+        .expect("remotes");
+
+    assert_eq!(remotes.len(), 1);
+    assert_eq!(remotes[0].name, "origin");
+    assert_eq!(
+        remotes[0].fetch_url.as_deref(),
+        Some("git@github.com:ace/app.git")
+    );
+    assert_eq!(remotes[0].default_branch.as_deref(), Some("main"));
+    let requests = runner.requests();
+    assert_eq!(requests[0].args, vec!["remote", "-v"]);
+    assert_eq!(
+        requests[1].args,
+        vec!["symbolic-ref", "refs/remotes/origin/HEAD", "--short"]
     );
 }
 

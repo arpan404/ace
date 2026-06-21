@@ -5,10 +5,10 @@ use ace_protocol::{
         GitBranchesRequest, GitChangedFilesRequest, GitCheckoutBranchRequest, GitCommitRequest,
         GitCommitsCompareRequest, GitCommitsRequest, GitCreateBranchRequest,
         GitDeleteBranchRequest, GitDiffRequest, GitFetchRequest, GitPullRequest, GitPushRequest,
-        GitRenameBranchRequest, GitRepositoryRequest, GitStageRequest, GitStashApplyRequest,
-        GitStashDropRequest, GitStashPopRequest, GitStashSaveRequest, GitStashesRequest,
-        GitStatusRequest, GitUnstageRequest, GitWorkflowRequest, GitWorktreeCreateRequest,
-        GitWorktreeRemoveRequest, GitWorktreesRequest,
+        GitRemotesRequest, GitRenameBranchRequest, GitRepositoryRequest, GitStageRequest,
+        GitStashApplyRequest, GitStashDropRequest, GitStashPopRequest, GitStashSaveRequest,
+        GitStashesRequest, GitStatusRequest, GitUnstageRequest, GitWorkflowRequest,
+        GitWorktreeCreateRequest, GitWorktreeRemoveRequest, GitWorktreesRequest,
     },
     ws::methods,
 };
@@ -51,6 +51,13 @@ impl<R: ProcessRunner> WsApiState<R> {
                 self.git_json::<GitBranchesRequest, _, _, _>(
                     payload,
                     |service, request| async move { service.branches(request).await },
+                )
+                .await
+            }
+            methods::GIT_REMOTES => {
+                self.git_json::<GitRemotesRequest, _, _, _>(
+                    payload,
+                    |service, request| async move { service.remotes(request).await },
                 )
                 .await
             }
@@ -387,6 +394,43 @@ mod tests {
                 "branch",
                 "--format=%(refname:short)|%(HEAD)|%(upstream:short)"
             ]
+        );
+    }
+
+    #[tokio::test]
+    async fn dispatches_remotes_over_ws_rpc() {
+        let runner = Arc::new(FakeRunner::new(vec![
+            ok(
+                "origin\tgit@github.com:ace/app.git (fetch)\norigin\tgit@github.com:ace/app.git (push)\n",
+            ),
+            ok("origin/main\n"),
+        ]));
+        let state = test_state(runner.clone());
+
+        let response = dispatch(
+            &state,
+            serde_json::json!({
+                "version": PROTOCOL_VERSION,
+                "request_id": "req-remotes",
+                "method": methods::GIT_REMOTES,
+                "payload": { "repo_path": "/repo" }
+            }),
+        )
+        .await;
+
+        let WsServerPayload::Result { body } = response.payload else {
+            panic!("expected remotes result");
+        };
+        assert_eq!(body[0]["name"], "origin");
+        assert_eq!(body[0]["fetch_url"], "git@github.com:ace/app.git");
+        assert_eq!(body[0]["push_url"], "git@github.com:ace/app.git");
+        assert_eq!(body[0]["default_branch"], "main");
+
+        let requests = runner.requests();
+        assert_eq!(requests[0].args, vec!["remote", "-v"]);
+        assert_eq!(
+            requests[1].args,
+            vec!["symbolic-ref", "refs/remotes/origin/HEAD", "--short"]
         );
     }
 

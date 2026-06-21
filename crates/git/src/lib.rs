@@ -14,6 +14,7 @@ use tokio::{io::AsyncWriteExt, process::Command, time};
 
 mod git_changes;
 mod git_commits;
+mod git_remotes;
 mod github_actions;
 mod github_activity;
 mod github_checks;
@@ -29,6 +30,7 @@ mod github_timeline;
 
 pub use git_changes::{GitChangedFile, GitChangedFileStatus};
 pub use git_commits::{GitCommitComparison, GitCommitSummary};
+pub use git_remotes::GitRemote;
 pub use github_actions::{
     GithubCheckSummary, GithubPrCheck, GithubPrChecks, GithubWorkflow, GithubWorkflowArtifact,
     GithubWorkflowArtifactRun, GithubWorkflowDeploymentReviewer, GithubWorkflowEnvironment,
