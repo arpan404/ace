@@ -206,6 +206,18 @@ pub struct CheckRunAnnotationsRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CheckRunRerequestRequest {
+    pub repo_path: String,
+    pub check_run_id: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CheckSuiteRerequestRequest {
+    pub repo_path: String,
+    pub check_suite_id: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CheckRunListFilter {
     pub limit: u32,
     pub status: Option<String>,

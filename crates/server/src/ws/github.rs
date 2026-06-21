@@ -2,7 +2,8 @@ use super::{WsApiState, WsDispatchError};
 use ace_git::ProcessRunner;
 use ace_protocol::{
     github::{
-        CheckRunAnnotationsRequest, CheckRunsRequest, CheckSuiteRunsRequest, CheckSuitesRequest,
+        CheckRunAnnotationsRequest, CheckRunRerequestRequest, CheckRunsRequest,
+        CheckSuiteRerequestRequest, CheckSuiteRunsRequest, CheckSuitesRequest,
         CommitStatusesRequest, EnvironmentStatusRequest, IssueListRequest, IssueThreadRequest,
         PullRequestActivityRequest, PullRequestCheckoutRequest, PullRequestChecksRequest,
         PullRequestCloseRequest, PullRequestCommentRequest, PullRequestCreateRequest,
@@ -127,6 +128,13 @@ impl<R: ProcessRunner> WsApiState<R> {
                 )
                 .await
             }
+            methods::GITHUB_CHECK_RUNS_REREQUEST => {
+                self.github_json::<CheckRunRerequestRequest, _, _, _>(
+                    payload,
+                    |service, request| async move { service.rerequest_check_run(request).await },
+                )
+                .await
+            }
             methods::GITHUB_CHECK_SUITES_LIST => {
                 self.github_json::<CheckSuitesRequest, _, _, _>(
                     payload,
@@ -138,6 +146,13 @@ impl<R: ProcessRunner> WsApiState<R> {
                 self.github_json::<CheckSuiteRunsRequest, _, _, _>(
                     payload,
                     |service, request| async move { service.list_check_suite_runs(request).await },
+                )
+                .await
+            }
+            methods::GITHUB_CHECK_SUITES_REREQUEST => {
+                self.github_json::<CheckSuiteRerequestRequest, _, _, _>(
+                    payload,
+                    |service, request| async move { service.rerequest_check_suite(request).await },
                 )
                 .await
             }
@@ -868,6 +883,40 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn dispatches_check_run_rerequest_over_ws_rpc() {
+        let runner = Arc::new(FakeRunner::new(vec![
+            ok(
+                br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+            ),
+            ok(""),
+        ]));
+        let state = test_state(runner.clone());
+
+        let response = dispatch(
+            &state,
+            serde_json::json!({
+                "version": PROTOCOL_VERSION,
+                "request_id": "req-check-rerun",
+                "method": methods::GITHUB_CHECK_RUNS_REREQUEST,
+                "payload": {
+                    "repo_path": "/repo",
+                    "check_run_id": 10
+                }
+            }),
+        )
+        .await;
+
+        let WsServerPayload::Result { body } = response.payload else {
+            panic!("expected result");
+        };
+        assert_eq!(body["action"], "rerequest_check_run");
+        assert_eq!(
+            runner.requests()[1].args,
+            vec!["api", "repos/ace/app/check-runs/10/rerequest", "-X", "POST"]
+        );
+    }
+
+    #[tokio::test]
     async fn dispatches_check_suites_over_ws_rpc() {
         let runner = Arc::new(FakeRunner::new(vec![
             ok(
@@ -916,6 +965,45 @@ mod tests {
                 "check_name=build",
                 "-F",
                 "app_id=1"
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn dispatches_check_suite_rerequest_over_ws_rpc() {
+        let runner = Arc::new(FakeRunner::new(vec![
+            ok(
+                br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+            ),
+            ok(""),
+        ]));
+        let state = test_state(runner.clone());
+
+        let response = dispatch(
+            &state,
+            serde_json::json!({
+                "version": PROTOCOL_VERSION,
+                "request_id": "req-check-suite-rerun",
+                "method": methods::GITHUB_CHECK_SUITES_REREQUEST,
+                "payload": {
+                    "repo_path": "/repo",
+                    "check_suite_id": 5
+                }
+            }),
+        )
+        .await;
+
+        let WsServerPayload::Result { body } = response.payload else {
+            panic!("expected result");
+        };
+        assert_eq!(body["action"], "rerequest_check_suite");
+        assert_eq!(
+            runner.requests()[1].args,
+            vec![
+                "api",
+                "repos/ace/app/check-suites/5/rerequest",
+                "-X",
+                "POST"
             ]
         );
     }

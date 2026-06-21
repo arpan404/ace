@@ -1,4 +1,4 @@
-use crate::{GithubCliClient, ProcessRunner, Result, parse_json};
+use crate::{GithubActionResult, GithubCliClient, ProcessRunner, Result, parse_json};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
@@ -62,6 +62,34 @@ impl<R: ProcessRunner> GithubCliClient<R> {
         parse_json("github check run annotations", &output.stdout)
     }
 
+    pub async fn rerequest_check_run(
+        &self,
+        cwd: &Path,
+        check_run_id: u64,
+    ) -> Result<GithubActionResult> {
+        let repository = self.repository(cwd).await?;
+        let output = self
+            .gh_allow_statuses(
+                cwd,
+                [
+                    "api".to_string(),
+                    format!(
+                        "repos/{}/check-runs/{check_run_id}/rerequest",
+                        repository.name_with_owner
+                    ),
+                    "-X".to_string(),
+                    "POST".to_string(),
+                ],
+                &[0],
+            )
+            .await?;
+        Ok(GithubActionResult {
+            action: "rerequest_check_run",
+            stdout: output.stdout_string(),
+            stderr: output.stderr_string(),
+        })
+    }
+
     pub async fn list_check_suites(
         &self,
         cwd: &Path,
@@ -89,6 +117,34 @@ impl<R: ProcessRunner> GithubCliClient<R> {
         let response =
             parse_json::<GithubCheckSuitesResponse>("github check suites", &output.stdout)?;
         Ok(response.check_suites)
+    }
+
+    pub async fn rerequest_check_suite(
+        &self,
+        cwd: &Path,
+        check_suite_id: u64,
+    ) -> Result<GithubActionResult> {
+        let repository = self.repository(cwd).await?;
+        let output = self
+            .gh_allow_statuses(
+                cwd,
+                [
+                    "api".to_string(),
+                    format!(
+                        "repos/{}/check-suites/{check_suite_id}/rerequest",
+                        repository.name_with_owner
+                    ),
+                    "-X".to_string(),
+                    "POST".to_string(),
+                ],
+                &[0],
+            )
+            .await?;
+        Ok(GithubActionResult {
+            action: "rerequest_check_suite",
+            stdout: output.stdout_string(),
+            stderr: output.stderr_string(),
+        })
     }
 
     pub async fn list_check_suite_runs(
@@ -474,6 +530,28 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn check_run_rerequest_resolves_repo_and_posts_endpoint() {
+        let runner = std::sync::Arc::new(FakeRunner::new(vec![
+            ok(
+                br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+            ),
+            ok(""),
+        ]));
+        let github = GithubCliClient::with_runner(runner.clone());
+
+        let result = github
+            .rerequest_check_run(Path::new("."), 10)
+            .await
+            .expect("rerequest");
+
+        assert_eq!(result.action, "rerequest_check_run");
+        assert_eq!(
+            runner.requests()[1].args,
+            vec!["api", "repos/ace/app/check-runs/10/rerequest", "-X", "POST"]
+        );
+    }
+
+    #[tokio::test]
     async fn check_suite_listing_resolves_repo_and_builds_api_request() {
         let runner = std::sync::Arc::new(FakeRunner::new(vec![
             ok(
@@ -512,6 +590,33 @@ mod tests {
                 "check_name=build",
                 "-F",
                 "app_id=1"
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn check_suite_rerequest_resolves_repo_and_posts_endpoint() {
+        let runner = std::sync::Arc::new(FakeRunner::new(vec![
+            ok(
+                br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+            ),
+            ok(""),
+        ]));
+        let github = GithubCliClient::with_runner(runner.clone());
+
+        let result = github
+            .rerequest_check_suite(Path::new("."), 5)
+            .await
+            .expect("rerequest");
+
+        assert_eq!(result.action, "rerequest_check_suite");
+        assert_eq!(
+            runner.requests()[1].args,
+            vec![
+                "api",
+                "repos/ace/app/check-suites/5/rerequest",
+                "-X",
+                "POST"
             ]
         );
     }

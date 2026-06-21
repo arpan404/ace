@@ -1,15 +1,15 @@
 use super::{GithubApiError, GithubService, routes::router_with_state, service::GithubApiState};
 use ace_git::{CommandOutput, CommandRequest, GitToolError, GithubCliClient, ProcessRunner};
 use ace_protocol::github::{
-    CheckRunAnnotationsRequest, CheckRunListFilter, CheckRunsRequest, CheckSuiteRunsRequest,
-    CheckSuitesRequest, CommitStatusesRequest, EnvironmentStatusRequest, IssueListFilter,
-    IssueListRequest, IssueThreadRequest, PullRequestActivityRequest, PullRequestChecksRequest,
-    PullRequestCreateRequest, PullRequestDashboardRequest, PullRequestDiffRequest,
-    PullRequestFilesRequest, PullRequestListFilter, PullRequestMergeMethod,
-    PullRequestMergeRequest, PullRequestRequest, PullRequestReviewDecision,
-    PullRequestReviewRequest, PullRequestThreadRequest, WorkflowDisableRequest,
-    WorkflowDispatchInput, WorkflowDispatchRequest, WorkflowEnableRequest, WorkflowListFilter,
-    WorkflowListRequest, WorkflowRunArtifactsRequest, WorkflowRunListFilter,
+    CheckRunAnnotationsRequest, CheckRunListFilter, CheckRunRerequestRequest, CheckRunsRequest,
+    CheckSuiteRerequestRequest, CheckSuiteRunsRequest, CheckSuitesRequest, CommitStatusesRequest,
+    EnvironmentStatusRequest, IssueListFilter, IssueListRequest, IssueThreadRequest,
+    PullRequestActivityRequest, PullRequestChecksRequest, PullRequestCreateRequest,
+    PullRequestDashboardRequest, PullRequestDiffRequest, PullRequestFilesRequest,
+    PullRequestListFilter, PullRequestMergeMethod, PullRequestMergeRequest, PullRequestRequest,
+    PullRequestReviewDecision, PullRequestReviewRequest, PullRequestThreadRequest,
+    WorkflowDisableRequest, WorkflowDispatchInput, WorkflowDispatchRequest, WorkflowEnableRequest,
+    WorkflowListFilter, WorkflowListRequest, WorkflowRunArtifactsRequest, WorkflowRunListFilter,
     WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunRerunRequest,
 };
 use async_trait::async_trait;
@@ -426,6 +426,31 @@ async fn service_lists_check_run_annotations_through_github_cli() {
 }
 
 #[tokio::test]
+async fn service_rerequests_check_run_through_github_cli() {
+    let runner = Arc::new(FakeRunner::new(vec![
+        ok(
+            br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+        ),
+        ok(""),
+    ]));
+    let service = GithubService::new(GithubCliClient::with_runner(runner.clone()));
+
+    let result = service
+        .rerequest_check_run(CheckRunRerequestRequest {
+            repo_path: "/repo".to_string(),
+            check_run_id: 10,
+        })
+        .await
+        .expect("rerequest");
+
+    assert_eq!(result.action, "rerequest_check_run");
+    assert_eq!(
+        runner.requests()[1].args,
+        vec!["api", "repos/ace/app/check-runs/10/rerequest", "-X", "POST"]
+    );
+}
+
+#[tokio::test]
 async fn service_lists_check_suites_through_github_cli() {
     let runner = Arc::new(FakeRunner::new(vec![
         ok(
@@ -464,6 +489,36 @@ async fn service_lists_check_suites_through_github_cli() {
             "check_name=build",
             "-F",
             "app_id=1"
+        ]
+    );
+}
+
+#[tokio::test]
+async fn service_rerequests_check_suite_through_github_cli() {
+    let runner = Arc::new(FakeRunner::new(vec![
+        ok(
+            br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+        ),
+        ok(""),
+    ]));
+    let service = GithubService::new(GithubCliClient::with_runner(runner.clone()));
+
+    let result = service
+        .rerequest_check_suite(CheckSuiteRerequestRequest {
+            repo_path: "/repo".to_string(),
+            check_suite_id: 5,
+        })
+        .await
+        .expect("rerequest");
+
+    assert_eq!(result.action, "rerequest_check_suite");
+    assert_eq!(
+        runner.requests()[1].args,
+        vec![
+            "api",
+            "repos/ace/app/check-suites/5/rerequest",
+            "-X",
+            "POST"
         ]
     );
 }
