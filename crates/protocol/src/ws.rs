@@ -43,6 +43,31 @@ pub mod methods {
     pub const PROJECTS_RENAME_ENTRY: &str = "projects.rename_entry";
     pub const PROJECTS_WRITE_FILE: &str = "projects.write_file";
 
+    pub const WORKSPACE_APPLY_EDIT: &str = "workspace.apply_edit";
+    pub const WORKSPACE_FILE_EVENTS_SUBSCRIBE: &str = "workspace.file_events.subscribe";
+
+    pub const EDITOR_BUFFER_SYNC: &str = "editor.buffer.sync";
+    pub const EDITOR_BUFFER_CLOSE: &str = "editor.buffer.close";
+    pub const EDITOR_DIAGNOSTICS_SUBSCRIBE: &str = "editor.diagnostics.subscribe";
+    pub const EDITOR_COMPLETION: &str = "editor.completion";
+    pub const EDITOR_HOVER: &str = "editor.hover";
+    pub const EDITOR_DEFINITION: &str = "editor.definition";
+    pub const EDITOR_REFERENCES: &str = "editor.references";
+    pub const EDITOR_RENAME: &str = "editor.rename";
+    pub const EDITOR_FORMATTING: &str = "editor.formatting";
+    pub const EDITOR_CODE_ACTIONS: &str = "editor.code_actions";
+    pub const EDITOR_DOCUMENT_SYMBOLS: &str = "editor.document_symbols";
+    pub const EDITOR_WORKSPACE_SYMBOLS: &str = "editor.workspace_symbols";
+    pub const EDITOR_SEMANTIC_TOKENS: &str = "editor.semantic_tokens";
+    pub const EDITOR_SIGNATURE_HELP: &str = "editor.signature_help";
+
+    pub const LSP_TOOLS_LIST: &str = "lsp_tools.list";
+    pub const LSP_TOOLS_SEARCH: &str = "lsp_tools.search";
+    pub const LSP_TOOLS_STATUS: &str = "lsp_tools.status";
+    pub const LSP_TOOLS_INSTALL: &str = "lsp_tools.install";
+    pub const LSP_TOOLS_UPSERT_CUSTOM: &str = "lsp_tools.upsert_custom";
+    pub const LSP_TOOLS_UNINSTALL_CUSTOM: &str = "lsp_tools.uninstall_custom";
+
     pub const CHECKPOINTS_TURN_DIFF: &str = "checkpoints.get_turn_diff";
     pub const CHECKPOINTS_FULL_THREAD_DIFF: &str = "checkpoints.get_full_thread_diff";
     pub const CHECKPOINTS_REQUEST_REVERT: &str = "checkpoints.request_revert";

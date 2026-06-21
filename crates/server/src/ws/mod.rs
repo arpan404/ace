@@ -1,11 +1,15 @@
 mod checkpoint;
+mod editor;
 mod git;
 mod github;
+mod lsp_tools;
 mod project;
 mod repository_activity;
 mod terminal;
+mod workspace;
 
 use crate::checkpoint::{CheckpointApiError, CheckpointService};
+use crate::editor::{EditorApiError, EditorService};
 use crate::git::{GitApiError, GitService};
 use crate::github::{GithubApiError, GithubService};
 use crate::project::{ProjectApiError, ProjectService};
@@ -37,6 +41,7 @@ pub struct WsApiState<R: ProcessRunner = TokioProcessRunner, A: PtyAdapter = Por
     github: Arc<GithubService<R>>,
     project: Arc<ProjectService>,
     terminal: Arc<TerminalManager<A>>,
+    editor: Arc<EditorService<TokioProcessRunner>>,
 }
 
 impl<R: ProcessRunner, A: PtyAdapter> Clone for WsApiState<R, A> {
@@ -47,6 +52,7 @@ impl<R: ProcessRunner, A: PtyAdapter> Clone for WsApiState<R, A> {
             github: Arc::clone(&self.github),
             project: Arc::clone(&self.project),
             terminal: Arc::clone(&self.terminal),
+            editor: Arc::clone(&self.editor),
         }
     }
 }
@@ -63,6 +69,7 @@ impl WsApiState<TokioProcessRunner, PortablePtyAdapter> {
             github: Arc::new(GithubService::new(GithubCliClient::new())),
             project: Arc::new(ProjectService::production().expect("initialize project service")),
             terminal: Arc::new(TerminalManager::production()),
+            editor: Arc::new(EditorService::production().expect("initialize editor service")),
         }
     }
 }
@@ -78,6 +85,7 @@ impl<R: ProcessRunner> WsApiState<R, PortablePtyAdapter> {
                 ProjectService::memory().expect("initialize in-memory project service"),
             ),
             terminal: Arc::new(TerminalManager::production()),
+            editor: Arc::new(EditorService::production().expect("initialize editor service")),
         }
     }
 
@@ -92,6 +100,7 @@ impl<R: ProcessRunner> WsApiState<R, PortablePtyAdapter> {
             github: self.github,
             project: self.project,
             terminal: Arc::new(terminal),
+            editor: self.editor,
         }
     }
 }
@@ -106,6 +115,12 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
     #[must_use]
     pub fn replace_terminal_manager(mut self, terminal: TerminalManager<A>) -> Self {
         self.terminal = Arc::new(terminal);
+        self
+    }
+
+    #[must_use]
+    pub fn with_editor_service(mut self, editor: EditorService<TokioProcessRunner>) -> Self {
+        self.editor = Arc::new(editor);
         self
     }
 }
@@ -217,6 +232,12 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
         let result = if request.method == ace_protocol::ws::methods::TERMINAL_EVENTS_SUBSCRIBE {
             self.subscribe_terminal_events(request.payload, outbound)
                 .await
+        } else if request.method == ace_protocol::ws::methods::EDITOR_DIAGNOSTICS_SUBSCRIBE {
+            self.subscribe_editor_diagnostics(request.payload, outbound)
+                .await
+        } else if request.method == ace_protocol::ws::methods::WORKSPACE_FILE_EVENTS_SUBSCRIBE {
+            self.subscribe_workspace_file_events(request.payload, outbound)
+                .await
         } else {
             self.dispatch_method(&request.method, request.payload).await
         };
@@ -252,6 +273,12 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
             self.dispatch_checkpoint_method(method, payload).await
         } else if method.starts_with("terminal.") {
             self.dispatch_terminal_method(method, payload).await
+        } else if method.starts_with("editor.") {
+            self.dispatch_editor_method(method, payload).await
+        } else if method.starts_with("workspace.") {
+            self.dispatch_workspace_method(method, payload).await
+        } else if method.starts_with("lsp_tools.") {
+            self.dispatch_lsp_tools_method(method, payload).await
         } else {
             Err(WsDispatchError::UnknownMethod(method.to_string()))
         }
@@ -336,6 +363,22 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
         let response = call(Arc::clone(&self.terminal), request).await?;
         Ok(serde_json::to_value(response)?)
     }
+
+    async fn editor_json<T, O, Fut, F>(
+        &self,
+        payload: Value,
+        call: F,
+    ) -> Result<Value, WsDispatchError>
+    where
+        T: DeserializeOwned,
+        O: Serialize,
+        Fut: Future<Output = Result<O, EditorApiError>>,
+        F: FnOnce(Arc<EditorService<TokioProcessRunner>>, T) -> Fut,
+    {
+        let request = serde_json::from_value(payload)?;
+        let response = call(Arc::clone(&self.editor), request).await?;
+        Ok(serde_json::to_value(response)?)
+    }
 }
 
 fn error_response(request_id: &str, code: &str, message: &str) -> String {
@@ -366,6 +409,8 @@ enum WsDispatchError {
     Checkpoint(#[from] CheckpointApiError),
     #[error("{0}")]
     Terminal(#[from] TerminalError),
+    #[error("{0}")]
+    Editor(#[from] EditorApiError),
 }
 
 impl WsDispatchError {
@@ -378,6 +423,7 @@ impl WsDispatchError {
             Self::Project(_) => "project_error",
             Self::Checkpoint(_) => "checkpoint_error",
             Self::Terminal(_) => "terminal_error",
+            Self::Editor(_) => "editor_error",
         }
     }
 }

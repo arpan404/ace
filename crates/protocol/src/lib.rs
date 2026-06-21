@@ -2,10 +2,13 @@ use ace_core::{Command, ProviderCapability};
 use serde::{Deserialize, Serialize};
 
 pub mod checkpoint;
+pub mod editor;
 pub mod git;
 pub mod github;
+pub mod lsp_tools;
 pub mod project;
 pub mod terminal;
+pub mod workspace;
 pub mod ws;
 
 pub const PROTOCOL_VERSION: u16 = 1;

@@ -1,16 +1,15 @@
 use ace_platform::AppPaths;
+pub use ace_process::{CommandOutput, CommandRequest, TokioProcessRunner};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::HashSet,
     io,
     path::{Path, PathBuf},
-    process::Stdio,
     sync::Arc,
     time::Duration,
 };
 use thiserror::Error;
-use tokio::{io::AsyncWriteExt, process::Command, time};
 
 mod git_changes;
 mod git_commits;
@@ -93,9 +92,6 @@ pub use github_workflow_diagnostics::{
     GithubWorkflowRunDiagnostics, WorkflowRunDiagnosticsRequest,
 };
 
-const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
-const DEFAULT_MAX_OUTPUT_BYTES: usize = 8 * 1024 * 1024;
-
 #[derive(Debug, Error)]
 pub enum GitToolError {
     #[error("missing required binary `{0}`")]
@@ -136,149 +132,34 @@ pub enum GitToolError {
 
 pub type Result<T> = std::result::Result<T, GitToolError>;
 
-#[derive(Debug, Clone)]
-pub struct CommandRequest {
-    pub program: String,
-    pub args: Vec<String>,
-    pub cwd: Option<PathBuf>,
-    pub stdin: Option<Vec<u8>>,
-    pub env: BTreeMap<String, String>,
-    pub timeout: Duration,
-    pub max_output_bytes: usize,
-}
-
-impl CommandRequest {
-    #[must_use]
-    pub fn new(program: impl Into<String>) -> Self {
-        Self {
-            program: program.into(),
-            args: Vec::new(),
-            cwd: None,
-            stdin: None,
-            env: BTreeMap::new(),
-            timeout: DEFAULT_TIMEOUT,
-            max_output_bytes: DEFAULT_MAX_OUTPUT_BYTES,
-        }
-    }
-
-    #[must_use]
-    pub fn args<I, S>(mut self, args: I) -> Self
-    where
-        I: IntoIterator<Item = S>,
-        S: Into<String>,
-    {
-        self.args = args.into_iter().map(Into::into).collect();
-        self
-    }
-
-    #[must_use]
-    pub fn cwd(mut self, cwd: impl Into<PathBuf>) -> Self {
-        self.cwd = Some(cwd.into());
-        self
-    }
-
-    #[must_use]
-    pub fn stdin(mut self, stdin: impl Into<Vec<u8>>) -> Self {
-        self.stdin = Some(stdin.into());
-        self
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CommandOutput {
-    pub status: i32,
-    pub stdout: Vec<u8>,
-    pub stderr: Vec<u8>,
-}
-
-impl CommandOutput {
-    #[must_use]
-    pub fn stdout_string(&self) -> String {
-        String::from_utf8_lossy(&self.stdout).trim().to_string()
-    }
-
-    #[must_use]
-    pub fn stderr_string(&self) -> String {
-        String::from_utf8_lossy(&self.stderr).trim().to_string()
-    }
-
-    #[must_use]
-    pub fn success(&self) -> bool {
-        self.status == 0
-    }
-}
-
 #[async_trait]
 pub trait ProcessRunner: Send + Sync {
     async fn run(&self, request: CommandRequest) -> Result<CommandOutput>;
 }
 
-#[derive(Debug, Default, Clone)]
-pub struct TokioProcessRunner;
-
 #[async_trait]
 impl ProcessRunner for TokioProcessRunner {
     async fn run(&self, request: CommandRequest) -> Result<CommandOutput> {
-        let mut command = Command::new(&request.program);
-        command.args(&request.args);
-        if let Some(cwd) = &request.cwd {
-            command.current_dir(cwd);
-        }
-        for (key, value) in &request.env {
-            command.env(key, value);
-        }
-        command.stdout(Stdio::piped()).stderr(Stdio::piped());
-        if request.stdin.is_some() {
-            command.stdin(Stdio::piped());
-        }
-
-        let mut child = command.spawn().map_err(|source| {
-            if source.kind() == io::ErrorKind::NotFound {
-                GitToolError::MissingBinary(request.program.clone())
-            } else {
-                GitToolError::CommandIo {
-                    program: request.program.clone(),
-                    source,
-                }
-            }
-        })?;
-
-        if let Some(stdin) = request.stdin
-            && let Some(mut child_stdin) = child.stdin.take()
-        {
-            child_stdin
-                .write_all(&stdin)
-                .await
-                .map_err(|source| GitToolError::CommandIo {
-                    program: request.program.clone(),
-                    source,
-                })?;
-        }
-
-        let output = time::timeout(request.timeout, child.wait_with_output())
+        ace_process::ProcessRunner::run(self, request)
             .await
-            .map_err(|_| GitToolError::CommandTimedOut {
-                program: request.program.clone(),
-                timeout: request.timeout,
-            })?
-            .map_err(|source| GitToolError::CommandIo {
-                program: request.program.clone(),
-                source,
-            })?;
+            .map_err(Into::into)
+    }
+}
 
-        let size = output.stdout.len().saturating_add(output.stderr.len());
-        if size > request.max_output_bytes {
-            return Err(GitToolError::OutputTooLarge {
-                program: request.program,
-                limit: request.max_output_bytes,
-            });
+impl From<ace_process::ProcessError> for GitToolError {
+    fn from(error: ace_process::ProcessError) -> Self {
+        match error {
+            ace_process::ProcessError::MissingBinary(binary) => Self::MissingBinary(binary),
+            ace_process::ProcessError::CommandTimedOut { program, timeout } => {
+                Self::CommandTimedOut { program, timeout }
+            }
+            ace_process::ProcessError::OutputTooLarge { program, limit } => {
+                Self::OutputTooLarge { program, limit }
+            }
+            ace_process::ProcessError::CommandIo { program, source } => {
+                Self::CommandIo { program, source }
+            }
         }
-
-        Ok(CommandOutput {
-            status: output.status.code().unwrap_or(1),
-            stdout: output.stdout,
-            stderr: output.stderr,
-        })
     }
 }
 
