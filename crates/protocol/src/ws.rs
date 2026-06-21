@@ -2,6 +2,27 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 pub mod methods {
+    pub const GIT_REPOSITORY: &str = "git.repository";
+    pub const GIT_STATUS: &str = "git.status";
+    pub const GIT_DIFF: &str = "git.diff";
+    pub const GIT_BRANCHES: &str = "git.branches";
+    pub const GIT_BRANCHES_CREATE: &str = "git.branches.create";
+    pub const GIT_BRANCHES_CHECKOUT: &str = "git.branches.checkout";
+    pub const GIT_BRANCHES_RENAME: &str = "git.branches.rename";
+    pub const GIT_BRANCHES_DELETE: &str = "git.branches.delete";
+    pub const GIT_FETCH: &str = "git.fetch";
+    pub const GIT_PULL: &str = "git.pull";
+    pub const GIT_PUSH: &str = "git.push";
+    pub const GIT_STAGE: &str = "git.stage";
+    pub const GIT_UNSTAGE: &str = "git.unstage";
+    pub const GIT_COMMIT: &str = "git.commit";
+    pub const GIT_STASHES: &str = "git.stashes";
+    pub const GIT_STASHES_SAVE: &str = "git.stashes.save";
+    pub const GIT_STASHES_APPLY: &str = "git.stashes.apply";
+    pub const GIT_STASHES_POP: &str = "git.stashes.pop";
+    pub const GIT_STASHES_DROP: &str = "git.stashes.drop";
+    pub const GIT_WORKTREES: &str = "git.worktrees";
+
     pub const GITHUB_ENVIRONMENT_STATUS: &str = "github.environment.status";
     pub const GITHUB_ISSUES_LIST: &str = "github.issues.list";
     pub const GITHUB_ISSUES_THREAD: &str = "github.issues.thread";

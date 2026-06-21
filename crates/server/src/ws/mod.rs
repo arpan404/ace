@@ -1,7 +1,9 @@
+mod git;
 mod github;
 
+use crate::git::{GitApiError, GitService};
 use crate::github::{GithubApiError, GithubService};
-use ace_git::{GithubCliClient, ProcessRunner, TokioProcessRunner};
+use ace_git::{GitClient, GithubCliClient, ProcessRunner, TokioProcessRunner};
 use ace_protocol::{
     PROTOCOL_VERSION,
     ws::{WsClientRequest, WsServerPayload, WsServerResponse},
@@ -22,12 +24,14 @@ use std::{future::Future, sync::Arc};
 use thiserror::Error;
 
 pub struct WsApiState<R: ProcessRunner = TokioProcessRunner> {
+    git: Arc<GitService<R>>,
     github: Arc<GithubService<R>>,
 }
 
 impl<R: ProcessRunner> Clone for WsApiState<R> {
     fn clone(&self) -> Self {
         Self {
+            git: Arc::clone(&self.git),
             github: Arc::clone(&self.github),
         }
     }
@@ -37,6 +41,7 @@ impl WsApiState<TokioProcessRunner> {
     #[must_use]
     pub fn production() -> Self {
         Self {
+            git: Arc::new(GitService::new(GitClient::new())),
             github: Arc::new(GithubService::new(GithubCliClient::new())),
         }
     }
@@ -44,8 +49,9 @@ impl WsApiState<TokioProcessRunner> {
 
 impl<R: ProcessRunner> WsApiState<R> {
     #[must_use]
-    pub fn new(github: GithubService<R>) -> Self {
+    pub fn new_services(git: GitService<R>, github: GithubService<R>) -> Self {
         Self {
+            git: Arc::new(git),
             github: Arc::new(github),
         }
     }
@@ -121,9 +127,7 @@ impl<R: ProcessRunner> WsApiState<R> {
 
     async fn dispatch_request(&self, request: WsClientRequest) -> WsServerResponse {
         let request_id = request.request_id;
-        let result = self
-            .dispatch_github_method(&request.method, request.payload)
-            .await;
+        let result = self.dispatch_method(&request.method, request.payload).await;
         match result {
             Ok(body) => WsServerResponse {
                 version: PROTOCOL_VERSION,
@@ -139,6 +143,36 @@ impl<R: ProcessRunner> WsApiState<R> {
                 },
             },
         }
+    }
+
+    async fn dispatch_method(
+        &self,
+        method: &str,
+        payload: Value,
+    ) -> Result<Value, WsDispatchError> {
+        if method.starts_with("git.") {
+            self.dispatch_git_method(method, payload).await
+        } else if method.starts_with("github.") {
+            self.dispatch_github_method(method, payload).await
+        } else {
+            Err(WsDispatchError::UnknownMethod(method.to_string()))
+        }
+    }
+
+    async fn git_json<T, O, Fut, F>(
+        &self,
+        payload: Value,
+        call: F,
+    ) -> Result<Value, WsDispatchError>
+    where
+        T: DeserializeOwned,
+        O: Serialize,
+        Fut: Future<Output = Result<O, GitApiError>>,
+        F: FnOnce(Arc<GitService<R>>, T) -> Fut,
+    {
+        let request = serde_json::from_value(payload)?;
+        let response = call(Arc::clone(&self.git), request).await?;
+        Ok(serde_json::to_value(response)?)
     }
 
     async fn github_json<T, O, Fut, F>(
@@ -178,6 +212,8 @@ enum WsDispatchError {
     InvalidPayload(#[from] serde_json::Error),
     #[error("{0}")]
     Github(#[from] GithubApiError),
+    #[error("{0}")]
+    Git(#[from] GitApiError),
 }
 
 impl WsDispatchError {
@@ -186,6 +222,7 @@ impl WsDispatchError {
             Self::UnknownMethod(_) => "unknown_method",
             Self::InvalidPayload(_) => "invalid_payload",
             Self::Github(_) => "github_error",
+            Self::Git(_) => "git_error",
         }
     }
 }

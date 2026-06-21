@@ -284,8 +284,10 @@ impl<R: ProcessRunner> WsApiState<R> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::github::GithubService;
-    use ace_git::{CommandOutput, CommandRequest, GitToolError, GithubCliClient};
+    use crate::{git::GitService, github::GithubService};
+    use ace_git::{
+        CommandOutput, CommandRequest, GitClient, GitToolError, GithubCliClient, ProcessRunner,
+    };
     use ace_protocol::{
         PROTOCOL_VERSION,
         ws::{WsServerPayload, WsServerResponse},
@@ -339,7 +341,10 @@ mod tests {
     }
 
     fn test_state(runner: Arc<FakeRunner>) -> WsApiState<FakeRunner> {
-        WsApiState::new(GithubService::new(GithubCliClient::with_runner(runner)))
+        WsApiState::new_services(
+            GitService::new(GitClient::with_runner(runner.clone())),
+            GithubService::new(GithubCliClient::with_runner(runner)),
+        )
     }
 
     async fn dispatch(
