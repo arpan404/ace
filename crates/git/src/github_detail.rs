@@ -1,5 +1,6 @@
 use crate::{GithubCliClient, ProcessRunner, Result, parse_json, validate_branch_name};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::path::Path;
 
 const ISSUE_THREAD_FIELDS: &str =
@@ -7,6 +8,7 @@ const ISSUE_THREAD_FIELDS: &str =
 const PULL_REQUEST_DETAIL_FIELDS: &str = "number,title,state,url,headRefName,headRefOid,baseRefName,body,author,createdAt,updatedAt,isDraft,reviewDecision,mergeStateStatus";
 const PULL_REQUEST_THREAD_FIELDS: &str = "number,title,state,url,headRefName,headRefOid,baseRefName,body,author,createdAt,updatedAt,isDraft,reviewDecision,mergeStateStatus,comments,reviews,latestReviews";
 const PULL_REQUEST_COMMITS_FIELDS: &str = "commits";
+const PULL_REQUEST_MERGE_STATUS_FIELDS: &str = "number,state,isDraft,mergeable,mergeStateStatus,reviewDecision,autoMergeRequest,maintainerCanModify,changedFiles,additions,deletions,statusCheckRollup";
 
 impl<R: ProcessRunner> GithubCliClient<R> {
     pub async fn repository(&self, cwd: &Path) -> Result<GithubRepository> {
@@ -109,6 +111,27 @@ impl<R: ProcessRunner> GithubCliClient<R> {
             &output.stdout,
         )?;
         Ok(response.commits)
+    }
+
+    pub async fn pull_request_merge_status(
+        &self,
+        cwd: &Path,
+        selector: &str,
+    ) -> Result<GithubPullRequestMergeStatus> {
+        let output = self
+            .gh_allow_statuses(
+                cwd,
+                [
+                    "pr",
+                    "view",
+                    selector,
+                    "--json",
+                    PULL_REQUEST_MERGE_STATUS_FIELDS,
+                ],
+                &[0],
+            )
+            .await?;
+        parse_json("github pull request merge status", &output.stdout)
     }
 
     pub async fn create_pull_request(
@@ -309,6 +332,29 @@ pub struct GithubCommitAuthor {
     pub login: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GithubPullRequestMergeStatus {
+    pub number: Option<u32>,
+    pub state: String,
+    #[serde(rename = "isDraft")]
+    pub is_draft: bool,
+    pub mergeable: Option<String>,
+    #[serde(rename = "mergeStateStatus")]
+    pub merge_state_status: Option<String>,
+    #[serde(rename = "reviewDecision")]
+    pub review_decision: Option<String>,
+    #[serde(rename = "autoMergeRequest")]
+    pub auto_merge_request: Option<Value>,
+    #[serde(rename = "maintainerCanModify")]
+    pub maintainer_can_modify: Option<bool>,
+    #[serde(rename = "changedFiles")]
+    pub changed_files: u32,
+    pub additions: u32,
+    pub deletions: u32,
+    #[serde(rename = "statusCheckRollup")]
+    pub status_check_rollup: Option<Vec<Value>>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CreatePullRequest {
     pub title: String,
@@ -392,6 +438,38 @@ mod tests {
         assert_eq!(
             runner.requests()[0].args,
             vec!["pr", "view", "42", "--json", "commits"]
+        );
+    }
+
+    #[tokio::test]
+    async fn pull_request_merge_status_builds_command_and_parses_status() {
+        let runner = std::sync::Arc::new(FakeRunner::new(vec![ok(
+            br#"{"number":42,"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"BLOCKED","reviewDecision":"REVIEW_REQUIRED","autoMergeRequest":{"enabledAt":"2026-06-21T00:00:00Z"},"maintainerCanModify":true,"changedFiles":3,"additions":10,"deletions":2,"statusCheckRollup":[{"name":"CI","status":"COMPLETED"}]}"#,
+        )]));
+        let github = GithubCliClient::with_runner(runner.clone());
+
+        let status = github
+            .pull_request_merge_status(Path::new("."), "42")
+            .await
+            .expect("merge status");
+
+        assert_eq!(status.number, Some(42));
+        assert_eq!(status.mergeable.as_deref(), Some("MERGEABLE"));
+        assert_eq!(status.merge_state_status.as_deref(), Some("BLOCKED"));
+        assert_eq!(status.changed_files, 3);
+        assert_eq!(
+            status.status_check_rollup.as_ref().expect("rollup").len(),
+            1
+        );
+        assert_eq!(
+            runner.requests()[0].args,
+            vec![
+                "pr",
+                "view",
+                "42",
+                "--json",
+                "number,state,isDraft,mergeable,mergeStateStatus,reviewDecision,autoMergeRequest,maintainerCanModify,changedFiles,additions,deletions,statusCheckRollup"
+            ]
         );
     }
 }

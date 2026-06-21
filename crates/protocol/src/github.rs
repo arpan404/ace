@@ -84,6 +84,12 @@ pub struct PullRequestCommitsRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PullRequestMergeStatusRequest {
+    pub repo_path: String,
+    pub selector: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PullRequestFilesRequest {
     pub repo_path: String,
     pub selector: String,

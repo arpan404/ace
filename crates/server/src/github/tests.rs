@@ -7,10 +7,11 @@ use ace_protocol::github::{
     IssueListFilter, IssueListRequest, IssueThreadRequest, PullRequestActivityRequest,
     PullRequestChecksRequest, PullRequestCommitsRequest, PullRequestCreateRequest,
     PullRequestDashboardRequest, PullRequestDiffRequest, PullRequestFilesRequest,
-    PullRequestListFilter, PullRequestMergeMethod, PullRequestMergeRequest, PullRequestRequest,
-    PullRequestReviewDecision, PullRequestReviewRequest, PullRequestThreadRequest,
-    WorkflowDisableRequest, WorkflowDispatchInput, WorkflowDispatchRequest, WorkflowEnableRequest,
-    WorkflowJobLogRequest, WorkflowJobRequest, WorkflowListFilter, WorkflowListRequest,
+    PullRequestListFilter, PullRequestMergeMethod, PullRequestMergeRequest,
+    PullRequestMergeStatusRequest, PullRequestRequest, PullRequestReviewDecision,
+    PullRequestReviewRequest, PullRequestThreadRequest, WorkflowDisableRequest,
+    WorkflowDispatchInput, WorkflowDispatchRequest, WorkflowEnableRequest, WorkflowJobLogRequest,
+    WorkflowJobRequest, WorkflowListFilter, WorkflowListRequest,
     WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest, WorkflowRunListFilter,
     WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunRerunRequest,
 };
@@ -321,6 +322,36 @@ async fn service_returns_pull_request_commits() {
     assert_eq!(
         runner.requests()[0].args,
         vec!["pr", "view", "42", "--json", "commits"]
+    );
+}
+
+#[tokio::test]
+async fn service_returns_pull_request_merge_status() {
+    let runner = Arc::new(FakeRunner::new(vec![ok(
+        br#"{"number":42,"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"BLOCKED","reviewDecision":"REVIEW_REQUIRED","autoMergeRequest":{"enabledAt":"2026-06-21T00:00:00Z"},"maintainerCanModify":true,"changedFiles":3,"additions":10,"deletions":2,"statusCheckRollup":[{"name":"CI","status":"COMPLETED"}]}"#,
+    )]));
+    let service = GithubService::new(GithubCliClient::with_runner(runner.clone()));
+
+    let status = service
+        .pull_request_merge_status(PullRequestMergeStatusRequest {
+            repo_path: "/repo".to_string(),
+            selector: "42".to_string(),
+        })
+        .await
+        .expect("merge status");
+
+    assert_eq!(status.number, Some(42));
+    assert_eq!(status.mergeable.as_deref(), Some("MERGEABLE"));
+    assert_eq!(status.changed_files, 3);
+    assert_eq!(
+        runner.requests()[0].args,
+        vec![
+            "pr",
+            "view",
+            "42",
+            "--json",
+            "number,state,isDraft,mergeable,mergeStateStatus,reviewDecision,autoMergeRequest,maintainerCanModify,changedFiles,additions,deletions,statusCheckRollup"
+        ]
     );
 }
 

@@ -9,11 +9,11 @@ use ace_protocol::{
         PullRequestCheckoutRequest, PullRequestChecksRequest, PullRequestCloseRequest,
         PullRequestCommentRequest, PullRequestCommitsRequest, PullRequestCreateRequest,
         PullRequestDashboardRequest, PullRequestDiffRequest, PullRequestFilesRequest,
-        PullRequestListRequest, PullRequestMergeRequest, PullRequestReadyStateRequest,
-        PullRequestReopenRequest, PullRequestRequest, PullRequestReviewRequest,
-        PullRequestThreadRequest, SearchIssuesRequest, SearchPullRequestsRequest,
-        WorkflowDisableRequest, WorkflowDispatchRequest, WorkflowEnableRequest,
-        WorkflowJobLogRequest, WorkflowJobRequest, WorkflowListRequest,
+        PullRequestListRequest, PullRequestMergeRequest, PullRequestMergeStatusRequest,
+        PullRequestReadyStateRequest, PullRequestReopenRequest, PullRequestRequest,
+        PullRequestReviewRequest, PullRequestThreadRequest, SearchIssuesRequest,
+        SearchPullRequestsRequest, WorkflowDisableRequest, WorkflowDispatchRequest,
+        WorkflowEnableRequest, WorkflowJobLogRequest, WorkflowJobRequest, WorkflowListRequest,
         WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest, WorkflowRunCancelRequest,
         WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
     },
@@ -97,6 +97,15 @@ impl<R: ProcessRunner> WsApiState<R> {
                 self.github_json::<PullRequestCommitsRequest, _, _, _>(
                     payload,
                     |service, request| async move { service.pull_request_commits(request).await },
+                )
+                .await
+            }
+            methods::GITHUB_PULL_REQUEST_MERGE_STATUS => {
+                self.github_json::<PullRequestMergeStatusRequest, _, _, _>(
+                    payload,
+                    |service, request| async move {
+                        service.pull_request_merge_status(request).await
+                    },
                 )
                 .await
             }
@@ -619,6 +628,9 @@ mod tests {
             ok(
                 br#"{"commits":[{"oid":"abc","messageHeadline":"Add feature","messageBody":"body","authoredDate":"2026-06-21T00:00:00Z","committedDate":"2026-06-21T00:01:00Z","authors":[{"name":"Octo","email":"octo@example.test","login":"octo"}],"url":"https://github.test/commit/abc"}]}"#,
             ),
+            ok(
+                br#"{"number":42,"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"BLOCKED","reviewDecision":"REVIEW_REQUIRED","autoMergeRequest":{"enabledAt":"2026-06-21T00:00:00Z"},"maintainerCanModify":true,"changedFiles":3,"additions":10,"deletions":2,"statusCheckRollup":[{"name":"CI","status":"COMPLETED"}]}"#,
+            ),
             ok(br#"{"files":[{"path":"src/lib.rs","additions":3,"deletions":1}]}"#),
             ok(br#"{"files":[{"path":"src/lib.rs","additions":3,"deletions":1}]}"#),
             ok("diff --git a/src/lib.rs b/src/lib.rs\n"),
@@ -664,6 +676,19 @@ mod tests {
             }),
         )
         .await;
+        let merge_status_response = dispatch(
+            &state,
+            serde_json::json!({
+                "version": PROTOCOL_VERSION,
+                "request_id": "req-pr-merge-status",
+                "method": methods::GITHUB_PULL_REQUEST_MERGE_STATUS,
+                "payload": {
+                    "repo_path": "/repo",
+                    "selector": "42"
+                }
+            }),
+        )
+        .await;
         let files_response = dispatch(
             &state,
             serde_json::json!({
@@ -700,6 +725,9 @@ mod tests {
         let WsServerPayload::Result { body: commits } = commits_response.payload else {
             panic!("expected commits result");
         };
+        let WsServerPayload::Result { body: merge_status } = merge_status_response.payload else {
+            panic!("expected merge status result");
+        };
         let WsServerPayload::Result { body: files } = files_response.payload else {
             panic!("expected files result");
         };
@@ -709,6 +737,7 @@ mod tests {
         assert_eq!(detail["headRefName"], "feature/x");
         assert_eq!(thread["reviews"][0]["state"], "APPROVED");
         assert_eq!(commits[0]["oid"], "abc");
+        assert_eq!(merge_status["mergeable"], "MERGEABLE");
         assert_eq!(files[0]["path"], "src/lib.rs");
         assert_eq!(diff["selector"], "42");
         assert!(
@@ -726,13 +755,23 @@ mod tests {
         );
         assert_eq!(
             requests[3].args,
-            vec!["pr", "view", "42", "--json", "files"]
+            vec![
+                "pr",
+                "view",
+                "42",
+                "--json",
+                "number,state,isDraft,mergeable,mergeStateStatus,reviewDecision,autoMergeRequest,maintainerCanModify,changedFiles,additions,deletions,statusCheckRollup"
+            ]
         );
         assert_eq!(
             requests[4].args,
             vec!["pr", "view", "42", "--json", "files"]
         );
-        assert_eq!(requests[5].args, vec!["pr", "diff", "42", "--patch"]);
+        assert_eq!(
+            requests[5].args,
+            vec!["pr", "view", "42", "--json", "files"]
+        );
+        assert_eq!(requests[6].args, vec!["pr", "diff", "42", "--patch"]);
     }
 
     #[tokio::test]

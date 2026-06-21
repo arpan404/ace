@@ -41,7 +41,8 @@ pub use github_dashboard::{
 pub use github_detail::{
     CreatePullRequest, GithubBranchRef, GithubComment, GithubCommitAuthor, GithubCommitRef,
     GithubIssue, GithubIssueThread, GithubLabel, GithubPullRequest, GithubPullRequestCommit,
-    GithubPullRequestReview, GithubPullRequestThread, GithubRepository, GithubUser,
+    GithubPullRequestMergeStatus, GithubPullRequestReview, GithubPullRequestThread,
+    GithubRepository, GithubUser,
 };
 pub use github_diff::{GithubPullRequestDiff, GithubPullRequestFile};
 pub use github_environment::GithubEnvironmentStatus;

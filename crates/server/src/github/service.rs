@@ -20,12 +20,13 @@ use ace_protocol::github::{
     PullRequestChecksRequest, PullRequestCloseRequest, PullRequestCommentRequest,
     PullRequestCommitsRequest, PullRequestCreateRequest, PullRequestDashboardRequest,
     PullRequestDiffRequest, PullRequestFilesRequest, PullRequestListRequest,
-    PullRequestMergeRequest, PullRequestReadyStateRequest, PullRequestReopenRequest,
-    PullRequestRequest, PullRequestReviewRequest, PullRequestThreadRequest, SearchIssuesRequest,
-    SearchPullRequestsRequest, WorkflowDisableRequest, WorkflowDispatchRequest,
-    WorkflowEnableRequest, WorkflowJobLogRequest, WorkflowJobRequest, WorkflowListRequest,
-    WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest, WorkflowRunCancelRequest,
-    WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
+    PullRequestMergeRequest, PullRequestMergeStatusRequest, PullRequestReadyStateRequest,
+    PullRequestReopenRequest, PullRequestRequest, PullRequestReviewRequest,
+    PullRequestThreadRequest, SearchIssuesRequest, SearchPullRequestsRequest,
+    WorkflowDisableRequest, WorkflowDispatchRequest, WorkflowEnableRequest, WorkflowJobLogRequest,
+    WorkflowJobRequest, WorkflowListRequest, WorkflowRunArtifactDownloadRequest,
+    WorkflowRunArtifactsRequest, WorkflowRunCancelRequest, WorkflowRunListRequest,
+    WorkflowRunLogRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
 };
 use serde::Serialize;
 use std::{path::PathBuf, sync::Arc};
@@ -169,6 +170,16 @@ impl<R: ProcessRunner> GithubService<R> {
     ) -> Result<Vec<ace_git::GithubPullRequestCommit>, GithubApiError> {
         self.github
             .pull_request_commits(&repo_path(&request.repo_path)?, &request.selector)
+            .await
+            .map_err(GithubApiError::from)
+    }
+
+    pub async fn pull_request_merge_status(
+        &self,
+        request: PullRequestMergeStatusRequest,
+    ) -> Result<ace_git::GithubPullRequestMergeStatus, GithubApiError> {
+        self.github
+            .pull_request_merge_status(&repo_path(&request.repo_path)?, &request.selector)
             .await
             .map_err(GithubApiError::from)
     }

@@ -34,6 +34,7 @@ pub mod methods {
     pub const GITHUB_PULL_REQUEST_VIEW: &str = "github.pull_request.view";
     pub const GITHUB_PULL_REQUEST_THREAD: &str = "github.pull_request.thread";
     pub const GITHUB_PULL_REQUEST_COMMITS: &str = "github.pull_request.commits";
+    pub const GITHUB_PULL_REQUEST_MERGE_STATUS: &str = "github.pull_request.merge_status";
     pub const GITHUB_PULL_REQUEST_FILES: &str = "github.pull_request.files";
     pub const GITHUB_PULL_REQUEST_DIFF: &str = "github.pull_request.diff";
     pub const GITHUB_PULL_REQUEST_CHECKS: &str = "github.pull_request.checks";
