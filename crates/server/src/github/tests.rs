@@ -12,8 +12,8 @@ use ace_protocol::github::{
     PullRequestReviewRequest, PullRequestThreadRequest, WorkflowDisableRequest,
     WorkflowDispatchInput, WorkflowDispatchRequest, WorkflowEnableRequest, WorkflowJobLogRequest,
     WorkflowJobRequest, WorkflowListFilter, WorkflowListRequest,
-    WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest, WorkflowRunListFilter,
-    WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunRerunRequest,
+    WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest, WorkflowRunJobsRequest,
+    WorkflowRunListFilter, WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunRerunRequest,
 };
 use async_trait::async_trait;
 use axum::{
@@ -977,6 +977,41 @@ async fn service_lists_workflow_runs_with_filters() {
     assert!(
         args.windows(2)
             .any(|pair| pair == ["--status", "in_progress"])
+    );
+}
+
+#[tokio::test]
+async fn service_lists_workflow_run_jobs() {
+    let runner = Arc::new(FakeRunner::new(vec![
+        ok(
+            br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+        ),
+        ok(
+            br#"{"total_count":1,"jobs":[{"id":200,"name":"test","status":"completed","conclusion":"failure","started_at":"2026-06-21T00:01:00Z","completed_at":"2026-06-21T00:02:00Z","url":"https://api.github.test/jobs/200","html_url":"https://github.test/jobs/200","steps":[{"name":"cargo test","status":"completed","conclusion":"failure","number":3,"started_at":"2026-06-21T00:01:00Z","completed_at":"2026-06-21T00:02:00Z"}]}]}"#,
+        ),
+    ]));
+    let service = GithubService::new(GithubCliClient::with_runner(runner.clone()));
+
+    let jobs = service
+        .list_workflow_run_jobs(WorkflowRunJobsRequest {
+            repo_path: "/repo".to_string(),
+            run_id: 100,
+            attempt: Some(2),
+            limit: 25,
+        })
+        .await
+        .expect("jobs");
+
+    assert_eq!(jobs[0].database_id, 200);
+    assert_eq!(jobs[0].steps[0].name, "cargo test");
+    assert_eq!(
+        runner.requests()[1].args,
+        vec![
+            "api",
+            "repos/ace/app/actions/runs/100/attempts/2/jobs",
+            "-F",
+            "per_page=25"
+        ]
     );
 }
 

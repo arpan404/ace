@@ -25,8 +25,8 @@ use ace_protocol::github::{
     PullRequestThreadRequest, SearchIssuesRequest, SearchPullRequestsRequest,
     WorkflowDisableRequest, WorkflowDispatchRequest, WorkflowEnableRequest, WorkflowJobLogRequest,
     WorkflowJobRequest, WorkflowListRequest, WorkflowRunArtifactDownloadRequest,
-    WorkflowRunArtifactsRequest, WorkflowRunCancelRequest, WorkflowRunListRequest,
-    WorkflowRunLogRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
+    WorkflowRunArtifactsRequest, WorkflowRunCancelRequest, WorkflowRunJobsRequest,
+    WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
 };
 use serde::Serialize;
 use std::{path::PathBuf, sync::Arc};
@@ -496,6 +496,21 @@ impl<R: ProcessRunner> GithubService<R> {
                 &repo_path(&request.repo_path)?,
                 request.run_id,
                 request.attempt,
+            )
+            .await
+            .map_err(GithubApiError::from)
+    }
+
+    pub async fn list_workflow_run_jobs(
+        &self,
+        request: WorkflowRunJobsRequest,
+    ) -> Result<Vec<ace_git::GithubWorkflowJob>, GithubApiError> {
+        self.github
+            .list_workflow_run_jobs(
+                &repo_path(&request.repo_path)?,
+                request.run_id,
+                request.attempt,
+                request.limit,
             )
             .await
             .map_err(GithubApiError::from)

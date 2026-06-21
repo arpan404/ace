@@ -112,6 +112,44 @@ impl<R: ProcessRunner> GithubCliClient<R> {
         parse_json("github workflow run", &output.stdout)
     }
 
+    pub async fn list_workflow_run_jobs(
+        &self,
+        cwd: &Path,
+        run_id: u64,
+        attempt: Option<u32>,
+        limit: u32,
+    ) -> Result<Vec<GithubWorkflowJob>> {
+        let repository = self.repository(cwd).await?;
+        let jobs_path = if let Some(attempt) = attempt {
+            format!(
+                "repos/{}/actions/runs/{run_id}/attempts/{attempt}/jobs",
+                repository.name_with_owner
+            )
+        } else {
+            format!(
+                "repos/{}/actions/runs/{run_id}/jobs",
+                repository.name_with_owner
+            )
+        };
+        let output = self
+            .gh_allow_statuses(
+                cwd,
+                [
+                    "api".to_string(),
+                    jobs_path,
+                    "-F".to_string(),
+                    format!("per_page={limit}"),
+                ],
+                &[0],
+            )
+            .await?;
+        let response = parse_json::<GithubWorkflowRunJobsResponse>(
+            "github workflow run jobs",
+            &output.stdout,
+        )?;
+        Ok(response.jobs)
+    }
+
     pub async fn workflow_run_failed_log(&self, cwd: &Path, run_id: u64) -> Result<String> {
         self.workflow_run_log(cwd, run_id, None, None, true).await
     }
@@ -426,6 +464,14 @@ pub struct GithubWorkflowStep {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct GithubWorkflowRunJobsResponse {
+    #[serde(rename = "total_count")]
+    pub total_count: u64,
+    #[serde(default)]
+    pub jobs: Vec<GithubWorkflowJob>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct GithubWorkflowArtifactsResponse {
     #[serde(rename = "total_count")]
     pub total_count: u64,
@@ -658,6 +704,41 @@ mod tests {
         assert_eq!(
             detail.jobs[0].steps[0].conclusion.as_deref(),
             Some("failure")
+        );
+    }
+
+    #[tokio::test]
+    async fn workflow_run_jobs_resolves_repo_and_parses_attempt_jobs() {
+        let runner = std::sync::Arc::new(FakeRunner::new(vec![
+            output(
+                0,
+                br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+            ),
+            output(
+                0,
+                br#"{"total_count":1,"jobs":[{"id":200,"name":"test","status":"completed","conclusion":"failure","started_at":"2026-06-21T00:01:00Z","completed_at":"2026-06-21T00:02:00Z","url":"https://api.github.test/jobs/200","html_url":"https://github.test/jobs/200","steps":[{"name":"cargo test","status":"completed","conclusion":"failure","number":3,"started_at":"2026-06-21T00:01:00Z","completed_at":"2026-06-21T00:02:00Z"}]}]}"#,
+            ),
+        ]));
+        let github = GithubCliClient::with_runner(runner.clone());
+        let jobs = github
+            .list_workflow_run_jobs(Path::new("."), 100, Some(2), 25)
+            .await
+            .expect("jobs");
+
+        assert_eq!(jobs[0].database_id, 200);
+        assert_eq!(jobs[0].steps[0].name, "cargo test");
+        assert_eq!(
+            jobs[0].html_url.as_deref(),
+            Some("https://github.test/jobs/200")
+        );
+        assert_eq!(
+            runner.requests()[1].args,
+            vec![
+                "api",
+                "repos/ace/app/actions/runs/100/attempts/2/jobs",
+                "-F",
+                "per_page=25"
+            ]
         );
     }
 

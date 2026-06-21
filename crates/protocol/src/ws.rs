@@ -63,6 +63,7 @@ pub mod methods {
     pub const GITHUB_WORKFLOWS_DISABLE: &str = "github.workflows.disable";
     pub const GITHUB_WORKFLOW_RUNS_LIST: &str = "github.workflow_runs.list";
     pub const GITHUB_WORKFLOW_RUN_VIEW: &str = "github.workflow_runs.view";
+    pub const GITHUB_WORKFLOW_RUN_JOBS: &str = "github.workflow_runs.jobs";
     pub const GITHUB_WORKFLOW_RUN_LOG: &str = "github.workflow_runs.log";
     pub const GITHUB_WORKFLOW_RUN_ARTIFACTS: &str = "github.workflow_runs.artifacts";
     pub const GITHUB_WORKFLOW_RUN_ARTIFACTS_DOWNLOAD: &str =

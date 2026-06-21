@@ -15,7 +15,8 @@ use ace_protocol::{
         SearchPullRequestsRequest, WorkflowDisableRequest, WorkflowDispatchRequest,
         WorkflowEnableRequest, WorkflowJobLogRequest, WorkflowJobRequest, WorkflowListRequest,
         WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest, WorkflowRunCancelRequest,
-        WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
+        WorkflowRunJobsRequest, WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunRequest,
+        WorkflowRunRerunRequest,
     },
     ws::methods,
 };
@@ -306,6 +307,13 @@ impl<R: ProcessRunner> WsApiState<R> {
                 self.github_json::<WorkflowRunRequest, _, _, _>(
                     payload,
                     |service, request| async move { service.workflow_run(request).await },
+                )
+                .await
+            }
+            methods::GITHUB_WORKFLOW_RUN_JOBS => {
+                self.github_json::<WorkflowRunJobsRequest, _, _, _>(
+                    payload,
+                    |service, request| async move { service.list_workflow_run_jobs(request).await },
                 )
                 .await
             }
@@ -1405,6 +1413,50 @@ mod tests {
                 .any(|pair| pair == ["--status", "in_progress"])
         );
         assert!(args.windows(2).any(|pair| pair == ["--workflow", "CI"]));
+    }
+
+    #[tokio::test]
+    async fn dispatches_workflow_run_jobs_over_ws_rpc() {
+        let runner = Arc::new(FakeRunner::new(vec![
+            ok(
+                br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+            ),
+            ok(
+                br#"{"total_count":1,"jobs":[{"id":200,"name":"test","status":"completed","conclusion":"failure","started_at":"2026-06-21T00:01:00Z","completed_at":"2026-06-21T00:02:00Z","url":"https://api.github.test/jobs/200","html_url":"https://github.test/jobs/200","steps":[{"name":"cargo test","status":"completed","conclusion":"failure","number":3,"started_at":"2026-06-21T00:01:00Z","completed_at":"2026-06-21T00:02:00Z"}]}]}"#,
+            ),
+        ]));
+        let state = test_state(runner.clone());
+
+        let response = dispatch(
+            &state,
+            serde_json::json!({
+                "version": PROTOCOL_VERSION,
+                "request_id": "req-workflow-run-jobs",
+                "method": methods::GITHUB_WORKFLOW_RUN_JOBS,
+                "payload": {
+                    "repo_path": "/repo",
+                    "run_id": 100,
+                    "attempt": 2,
+                    "limit": 25
+                }
+            }),
+        )
+        .await;
+
+        let WsServerPayload::Result { body } = response.payload else {
+            panic!("expected result");
+        };
+        assert_eq!(body[0]["databaseId"], 200);
+        assert_eq!(body[0]["steps"][0]["name"], "cargo test");
+        assert_eq!(
+            runner.requests()[1].args,
+            vec![
+                "api",
+                "repos/ace/app/actions/runs/100/attempts/2/jobs",
+                "-F",
+                "per_page=25"
+            ]
+        );
     }
 
     #[tokio::test]
