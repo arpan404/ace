@@ -23,12 +23,12 @@ use ace_protocol::github::{
     PullRequestDiffRequest, PullRequestFilesRequest, PullRequestListRequest,
     PullRequestMergeRequest, PullRequestMergeStatusRequest, PullRequestReadyStateRequest,
     PullRequestReopenRequest, PullRequestRequest, PullRequestReviewRequest,
-    PullRequestThreadRequest, SearchIssuesRequest, SearchPullRequestsRequest,
-    WorkflowDisableRequest, WorkflowDispatchRequest, WorkflowEnableRequest, WorkflowJobLogRequest,
-    WorkflowJobRequest, WorkflowListRequest, WorkflowRunApproveRequest,
-    WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest, WorkflowRunCancelRequest,
-    WorkflowRunJobsRequest, WorkflowRunListRequest, WorkflowRunLogRequest,
-    WorkflowRunPendingDeploymentReviewRequest,
+    PullRequestThreadRequest, PullRequestTimelineRequest, SearchIssuesRequest,
+    SearchPullRequestsRequest, WorkflowDisableRequest, WorkflowDispatchRequest,
+    WorkflowEnableRequest, WorkflowJobLogRequest, WorkflowJobRequest, WorkflowListRequest,
+    WorkflowRunApproveRequest, WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest,
+    WorkflowRunCancelRequest, WorkflowRunJobsRequest, WorkflowRunListRequest,
+    WorkflowRunLogRequest, WorkflowRunPendingDeploymentReviewRequest,
     WorkflowRunPendingDeploymentReviewState as ProtocolWorkflowRunPendingDeploymentReviewState,
     WorkflowRunPendingDeploymentsRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
 };
@@ -164,6 +164,20 @@ impl<R: ProcessRunner> GithubService<R> {
     ) -> Result<ace_git::GithubPullRequestThread, GithubApiError> {
         self.github
             .pull_request_thread(&repo_path(&request.repo_path)?, &request.selector)
+            .await
+            .map_err(GithubApiError::from)
+    }
+
+    pub async fn pull_request_timeline(
+        &self,
+        request: PullRequestTimelineRequest,
+    ) -> Result<Vec<ace_git::GithubTimelineEvent>, GithubApiError> {
+        self.github
+            .pull_request_timeline(
+                &repo_path(&request.repo_path)?,
+                request.number,
+                request.limit,
+            )
             .await
             .map_err(GithubApiError::from)
     }

@@ -21,6 +21,7 @@ mod github_diff;
 mod github_environment;
 mod github_mutations;
 mod github_search;
+mod github_timeline;
 
 pub use github_actions::{
     GithubCheckSummary, GithubPrCheck, GithubPrChecks, GithubWorkflow, GithubWorkflowArtifact,
@@ -59,6 +60,7 @@ pub use github_search::{
     GithubPullRequestSummary, GithubSearchFilter, GithubSearchIssue, GithubSearchPullRequest,
     GithubSearchRepository,
 };
+pub use github_timeline::GithubTimelineEvent;
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 const DEFAULT_MAX_OUTPUT_BYTES: usize = 8 * 1024 * 1024;

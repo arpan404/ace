@@ -78,6 +78,13 @@ pub struct PullRequestThreadRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PullRequestTimelineRequest {
+    pub repo_path: String,
+    pub number: u32,
+    pub limit: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PullRequestCommitsRequest {
     pub repo_path: String,
     pub selector: String,

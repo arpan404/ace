@@ -9,11 +9,11 @@ use ace_protocol::github::{
     PullRequestDashboardRequest, PullRequestDiffRequest, PullRequestFilesRequest,
     PullRequestListFilter, PullRequestMergeMethod, PullRequestMergeRequest,
     PullRequestMergeStatusRequest, PullRequestRequest, PullRequestReviewDecision,
-    PullRequestReviewRequest, PullRequestThreadRequest, WorkflowDisableRequest,
-    WorkflowDispatchInput, WorkflowDispatchRequest, WorkflowEnableRequest, WorkflowJobLogRequest,
-    WorkflowJobRequest, WorkflowListFilter, WorkflowListRequest, WorkflowRunApproveRequest,
-    WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest, WorkflowRunJobsRequest,
-    WorkflowRunListFilter, WorkflowRunListRequest, WorkflowRunLogRequest,
+    PullRequestReviewRequest, PullRequestThreadRequest, PullRequestTimelineRequest,
+    WorkflowDisableRequest, WorkflowDispatchInput, WorkflowDispatchRequest, WorkflowEnableRequest,
+    WorkflowJobLogRequest, WorkflowJobRequest, WorkflowListFilter, WorkflowListRequest,
+    WorkflowRunApproveRequest, WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest,
+    WorkflowRunJobsRequest, WorkflowRunListFilter, WorkflowRunListRequest, WorkflowRunLogRequest,
     WorkflowRunPendingDeploymentReviewRequest, WorkflowRunPendingDeploymentReviewState,
     WorkflowRunPendingDeploymentsRequest, WorkflowRunRerunRequest,
 };
@@ -277,6 +277,46 @@ async fn service_returns_pull_request_thread() {
             "42",
             "--json",
             "number,title,state,url,headRefName,headRefOid,baseRefName,body,author,createdAt,updatedAt,isDraft,reviewDecision,mergeStateStatus,comments,reviews,latestReviews"
+        ]
+    );
+}
+
+#[tokio::test]
+async fn service_returns_pull_request_timeline() {
+    let runner = Arc::new(FakeRunner::new(vec![
+        ok(
+            br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+        ),
+        ok(
+            br#"[{"id":1,"node_id":"T_1","url":"https://api.github.test/timeline/1","html_url":"https://github.test/pull/42#event-1","event":"review_requested","created_at":"2026-06-21T00:00:00Z","actor":{"login":"octo"},"requested_reviewer":{"login":"maintainer"}}]"#,
+        ),
+    ]));
+    let service = GithubService::new(GithubCliClient::with_runner(runner.clone()));
+
+    let timeline = service
+        .pull_request_timeline(PullRequestTimelineRequest {
+            repo_path: "/repo".to_string(),
+            number: 42,
+            limit: 25,
+        })
+        .await
+        .expect("timeline");
+
+    assert_eq!(timeline[0].event.as_deref(), Some("review_requested"));
+    assert_eq!(timeline[0].actor.as_ref().expect("actor").login, "octo");
+    assert_eq!(
+        timeline[0].extra["requested_reviewer"]["login"],
+        "maintainer"
+    );
+    assert_eq!(
+        runner.requests()[1].args,
+        vec![
+            "api",
+            "repos/ace/app/issues/42/timeline",
+            "-H",
+            "Accept: application/vnd.github+json",
+            "-F",
+            "per_page=25"
         ]
     );
 }

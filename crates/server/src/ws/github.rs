@@ -11,12 +11,12 @@ use ace_protocol::{
         PullRequestDashboardRequest, PullRequestDiffRequest, PullRequestFilesRequest,
         PullRequestListRequest, PullRequestMergeRequest, PullRequestMergeStatusRequest,
         PullRequestReadyStateRequest, PullRequestReopenRequest, PullRequestRequest,
-        PullRequestReviewRequest, PullRequestThreadRequest, SearchIssuesRequest,
-        SearchPullRequestsRequest, WorkflowDisableRequest, WorkflowDispatchRequest,
-        WorkflowEnableRequest, WorkflowJobLogRequest, WorkflowJobRequest, WorkflowListRequest,
-        WorkflowRunApproveRequest, WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest,
-        WorkflowRunCancelRequest, WorkflowRunJobsRequest, WorkflowRunListRequest,
-        WorkflowRunLogRequest, WorkflowRunPendingDeploymentReviewRequest,
+        PullRequestReviewRequest, PullRequestThreadRequest, PullRequestTimelineRequest,
+        SearchIssuesRequest, SearchPullRequestsRequest, WorkflowDisableRequest,
+        WorkflowDispatchRequest, WorkflowEnableRequest, WorkflowJobLogRequest, WorkflowJobRequest,
+        WorkflowListRequest, WorkflowRunApproveRequest, WorkflowRunArtifactDownloadRequest,
+        WorkflowRunArtifactsRequest, WorkflowRunCancelRequest, WorkflowRunJobsRequest,
+        WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunPendingDeploymentReviewRequest,
         WorkflowRunPendingDeploymentsRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
     },
     ws::methods,
@@ -92,6 +92,13 @@ impl<R: ProcessRunner> WsApiState<R> {
                 self.github_json::<PullRequestThreadRequest, _, _, _>(
                     payload,
                     |service, request| async move { service.pull_request_thread(request).await },
+                )
+                .await
+            }
+            methods::GITHUB_PULL_REQUEST_TIMELINE => {
+                self.github_json::<PullRequestTimelineRequest, _, _, _>(
+                    payload,
+                    |service, request| async move { service.pull_request_timeline(request).await },
                 )
                 .await
             }
@@ -808,6 +815,51 @@ mod tests {
             vec!["pr", "view", "42", "--json", "files"]
         );
         assert_eq!(requests[6].args, vec!["pr", "diff", "42", "--patch"]);
+    }
+
+    #[tokio::test]
+    async fn dispatches_pull_request_timeline_over_ws_rpc() {
+        let runner = Arc::new(FakeRunner::new(vec![
+            ok(
+                br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+            ),
+            ok(
+                br#"[{"id":1,"node_id":"T_1","url":"https://api.github.test/timeline/1","html_url":"https://github.test/pull/42#event-1","event":"review_requested","created_at":"2026-06-21T00:00:00Z","actor":{"login":"octo"},"requested_reviewer":{"login":"maintainer"}}]"#,
+            ),
+        ]));
+        let state = test_state(runner.clone());
+
+        let response = dispatch(
+            &state,
+            serde_json::json!({
+                "version": PROTOCOL_VERSION,
+                "request_id": "req-pr-timeline",
+                "method": methods::GITHUB_PULL_REQUEST_TIMELINE,
+                "payload": {
+                    "repo_path": "/repo",
+                    "number": 42,
+                    "limit": 25
+                }
+            }),
+        )
+        .await;
+
+        let WsServerPayload::Result { body } = response.payload else {
+            panic!("expected result");
+        };
+        assert_eq!(body[0]["event"], "review_requested");
+        assert_eq!(body[0]["requested_reviewer"]["login"], "maintainer");
+        assert_eq!(
+            runner.requests()[1].args,
+            vec![
+                "api",
+                "repos/ace/app/issues/42/timeline",
+                "-H",
+                "Accept: application/vnd.github+json",
+                "-F",
+                "per_page=25"
+            ]
+        );
     }
 
     #[tokio::test]
