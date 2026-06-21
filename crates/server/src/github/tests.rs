@@ -1,10 +1,10 @@
 use super::{GithubApiError, GithubService, routes::router_with_state, service::GithubApiState};
 use ace_git::{CommandOutput, CommandRequest, GitToolError, GithubCliClient, ProcessRunner};
 use ace_protocol::github::{
-    IssueListFilter, IssueListRequest, PullRequestActivityRequest, PullRequestChecksRequest,
-    PullRequestMergeMethod, PullRequestMergeRequest, PullRequestReviewDecision,
-    PullRequestReviewRequest, WorkflowRunListFilter, WorkflowRunListRequest,
-    WorkflowRunRerunRequest,
+    EnvironmentStatusRequest, IssueListFilter, IssueListRequest, PullRequestActivityRequest,
+    PullRequestChecksRequest, PullRequestMergeMethod, PullRequestMergeRequest,
+    PullRequestReviewDecision, PullRequestReviewRequest, WorkflowRunListFilter,
+    WorkflowRunListRequest, WorkflowRunRerunRequest,
 };
 use async_trait::async_trait;
 use axum::{
@@ -65,6 +65,35 @@ fn pending(stdout: impl AsRef<[u8]>) -> CommandOutput {
         stdout: stdout.as_ref().to_vec(),
         stderr: Vec::new(),
     }
+}
+
+fn exit_one(stderr: impl AsRef<[u8]>) -> CommandOutput {
+    CommandOutput {
+        status: 1,
+        stdout: Vec::new(),
+        stderr: stderr.as_ref().to_vec(),
+    }
+}
+
+#[tokio::test]
+async fn service_returns_environment_status() {
+    let runner = Arc::new(FakeRunner::new(vec![
+        ok("gh version 2.83.0 (2026-06-01)\n"),
+        exit_one("You are not logged into any GitHub hosts\n"),
+    ]));
+    let service = GithubService::new(GithubCliClient::with_runner(runner.clone()));
+
+    let status = service
+        .environment_status(EnvironmentStatusRequest {
+            repo_path: "/repo".to_string(),
+        })
+        .await
+        .expect("environment status");
+
+    assert!(status.gh_available);
+    assert!(!status.authenticated);
+    assert_eq!(runner.requests()[0].args, vec!["--version"]);
+    assert_eq!(runner.requests()[1].args, vec!["auth", "status"]);
 }
 
 #[tokio::test]
@@ -315,6 +344,29 @@ async fn route_returns_pull_request_activity_json() {
     assert_eq!(body["pull_request"]["number"], 42);
     assert_eq!(body["checks"]["summary"]["passed"], 1);
     assert_eq!(body["workflow_runs"][0]["databaseId"], 7);
+}
+
+#[tokio::test]
+async fn route_returns_environment_status_json() {
+    let runner = Arc::new(FakeRunner::new(vec![
+        ok("gh version 2.83.0 (2026-06-01)\n"),
+        exit_one("You are not logged into any GitHub hosts\n"),
+    ]));
+    let app = test_router(runner);
+
+    let response = app
+        .oneshot(json_request(
+            "/environment/status",
+            serde_json::json!({ "repo_path": "/repo" }),
+        ))
+        .await
+        .expect("route response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response_json(response).await;
+    assert_eq!(body["gh_available"], true);
+    assert_eq!(body["authenticated"], false);
+    assert_eq!(body["repository"], serde_json::Value::Null);
 }
 
 #[tokio::test]

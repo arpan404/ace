@@ -1,12 +1,12 @@
 use super::{GithubApiError, service::GithubApiState};
 use ace_git::{ProcessRunner, TokioProcessRunner};
 use ace_protocol::github::{
-    IssueListRequest, PullRequestActivityRequest, PullRequestCheckoutRequest,
-    PullRequestChecksRequest, PullRequestCloseRequest, PullRequestCommentRequest,
-    PullRequestListRequest, PullRequestMergeRequest, PullRequestReadyStateRequest,
-    PullRequestReopenRequest, PullRequestReviewRequest, SearchIssuesRequest,
-    SearchPullRequestsRequest, WorkflowRunCancelRequest, WorkflowRunListRequest,
-    WorkflowRunLogRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
+    EnvironmentStatusRequest, IssueListRequest, PullRequestActivityRequest,
+    PullRequestCheckoutRequest, PullRequestChecksRequest, PullRequestCloseRequest,
+    PullRequestCommentRequest, PullRequestListRequest, PullRequestMergeRequest,
+    PullRequestReadyStateRequest, PullRequestReopenRequest, PullRequestReviewRequest,
+    SearchIssuesRequest, SearchPullRequestsRequest, WorkflowRunCancelRequest,
+    WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
 };
 use axum::{Json, Router, extract::State, routing::post};
 
@@ -19,6 +19,7 @@ where
     R: ProcessRunner + 'static,
 {
     Router::new()
+        .route("/environment/status", post(environment_status::<R>))
         .route("/issues/list", post(list_issues::<R>))
         .route("/pulls/list", post(list_pull_requests::<R>))
         .route("/issues/search", post(search_issues::<R>))
@@ -44,6 +45,16 @@ where
         .route("/workflow-runs/rerun", post(rerun_workflow_run::<R>))
         .route("/workflow-runs/cancel", post(cancel_workflow_run::<R>))
         .with_state(state)
+}
+
+async fn environment_status<R>(
+    State(state): State<GithubApiState<R>>,
+    Json(request): Json<EnvironmentStatusRequest>,
+) -> Result<Json<ace_git::GithubEnvironmentStatus>, GithubApiError>
+where
+    R: ProcessRunner,
+{
+    state.service.environment_status(request).await.map(Json)
 }
 
 async fn list_issues<R>(

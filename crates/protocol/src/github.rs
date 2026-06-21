@@ -6,6 +6,11 @@ pub struct RepoRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EnvironmentStatusRequest {
+    pub repo_path: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IssueListRequest {
     pub repo_path: String,
     pub filter: IssueListFilter,

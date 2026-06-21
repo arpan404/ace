@@ -11,12 +11,12 @@ use ace_git::{
     TokioProcessRunner, WorkflowRunCancel, WorkflowRunRerun,
 };
 use ace_protocol::github::{
-    IssueListRequest, PullRequestActivityRequest, PullRequestCheckoutRequest,
-    PullRequestChecksRequest, PullRequestCloseRequest, PullRequestCommentRequest,
-    PullRequestListRequest, PullRequestMergeRequest, PullRequestReadyStateRequest,
-    PullRequestReopenRequest, PullRequestReviewRequest, SearchIssuesRequest,
-    SearchPullRequestsRequest, WorkflowRunCancelRequest, WorkflowRunListRequest,
-    WorkflowRunLogRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
+    EnvironmentStatusRequest, IssueListRequest, PullRequestActivityRequest,
+    PullRequestCheckoutRequest, PullRequestChecksRequest, PullRequestCloseRequest,
+    PullRequestCommentRequest, PullRequestListRequest, PullRequestMergeRequest,
+    PullRequestReadyStateRequest, PullRequestReopenRequest, PullRequestReviewRequest,
+    SearchIssuesRequest, SearchPullRequestsRequest, WorkflowRunCancelRequest,
+    WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
 };
 use serde::Serialize;
 use std::{path::PathBuf, sync::Arc};
@@ -67,6 +67,16 @@ impl<R: ProcessRunner> GithubService<R> {
     #[must_use]
     pub fn new(github: GithubCliClient<R>) -> Self {
         Self { github }
+    }
+
+    pub async fn environment_status(
+        &self,
+        request: EnvironmentStatusRequest,
+    ) -> Result<ace_git::GithubEnvironmentStatus, GithubApiError> {
+        self.github
+            .environment_status(&repo_path(&request.repo_path)?)
+            .await
+            .map_err(GithubApiError::from)
     }
 
     pub async fn list_issues(
