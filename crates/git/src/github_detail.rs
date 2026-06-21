@@ -6,6 +6,7 @@ const ISSUE_THREAD_FIELDS: &str =
     "number,title,state,url,body,labels,assignees,author,createdAt,updatedAt,comments";
 const PULL_REQUEST_DETAIL_FIELDS: &str = "number,title,state,url,headRefName,headRefOid,baseRefName,body,author,createdAt,updatedAt,isDraft,reviewDecision,mergeStateStatus";
 const PULL_REQUEST_THREAD_FIELDS: &str = "number,title,state,url,headRefName,headRefOid,baseRefName,body,author,createdAt,updatedAt,isDraft,reviewDecision,mergeStateStatus,comments,reviews,latestReviews";
+const PULL_REQUEST_COMMITS_FIELDS: &str = "commits";
 
 impl<R: ProcessRunner> GithubCliClient<R> {
     pub async fn repository(&self, cwd: &Path) -> Result<GithubRepository> {
@@ -83,6 +84,31 @@ impl<R: ProcessRunner> GithubCliClient<R> {
             )
             .await?;
         parse_json("github pull request thread", &output.stdout)
+    }
+
+    pub async fn pull_request_commits(
+        &self,
+        cwd: &Path,
+        selector: &str,
+    ) -> Result<Vec<GithubPullRequestCommit>> {
+        let output = self
+            .gh_allow_statuses(
+                cwd,
+                [
+                    "pr",
+                    "view",
+                    selector,
+                    "--json",
+                    PULL_REQUEST_COMMITS_FIELDS,
+                ],
+                &[0],
+            )
+            .await?;
+        let response = parse_json::<GithubPullRequestCommitsResponse>(
+            "github pull request commits",
+            &output.stdout,
+        )?;
+        Ok(response.commits)
     }
 
     pub async fn create_pull_request(
@@ -254,6 +280,35 @@ pub struct GithubCommitRef {
     pub oid: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct GithubPullRequestCommitsResponse {
+    #[serde(default)]
+    commits: Vec<GithubPullRequestCommit>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GithubPullRequestCommit {
+    pub oid: String,
+    #[serde(rename = "messageHeadline")]
+    pub message_headline: String,
+    #[serde(rename = "messageBody")]
+    pub message_body: Option<String>,
+    #[serde(rename = "authoredDate")]
+    pub authored_date: Option<String>,
+    #[serde(rename = "committedDate")]
+    pub committed_date: String,
+    #[serde(default)]
+    pub authors: Vec<GithubCommitAuthor>,
+    pub url: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GithubCommitAuthor {
+    pub name: Option<String>,
+    pub email: Option<String>,
+    pub login: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CreatePullRequest {
     pub title: String,
@@ -268,4 +323,75 @@ fn parse_pr_number(url: &str) -> Option<u32> {
         .rsplit('/')
         .next()
         .and_then(|value| value.parse().ok())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{CommandOutput, CommandRequest, GitToolError};
+    use async_trait::async_trait;
+    use std::{collections::VecDeque, path::Path, sync::Mutex};
+
+    #[derive(Debug)]
+    struct FakeRunner {
+        outputs: Mutex<VecDeque<CommandOutput>>,
+        requests: Mutex<Vec<CommandRequest>>,
+    }
+
+    impl FakeRunner {
+        fn new(outputs: Vec<CommandOutput>) -> Self {
+            Self {
+                outputs: Mutex::new(VecDeque::from(outputs)),
+                requests: Mutex::new(Vec::new()),
+            }
+        }
+
+        fn requests(&self) -> Vec<CommandRequest> {
+            self.requests.lock().expect("lock requests").clone()
+        }
+    }
+
+    #[async_trait]
+    impl crate::ProcessRunner for FakeRunner {
+        async fn run(&self, request: CommandRequest) -> crate::Result<CommandOutput> {
+            self.requests.lock().expect("lock requests").push(request);
+            self.outputs
+                .lock()
+                .expect("lock outputs")
+                .pop_front()
+                .ok_or_else(|| GitToolError::Parse {
+                    context: "fake runner",
+                    message: "no fake output queued".to_string(),
+                })
+        }
+    }
+
+    fn ok(stdout: impl AsRef<[u8]>) -> CommandOutput {
+        CommandOutput {
+            status: 0,
+            stdout: stdout.as_ref().to_vec(),
+            stderr: Vec::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn pull_request_commits_builds_command_and_parses_commits() {
+        let runner = std::sync::Arc::new(FakeRunner::new(vec![ok(
+            br#"{"commits":[{"oid":"abc","messageHeadline":"Add feature","messageBody":"body","authoredDate":"2026-06-21T00:00:00Z","committedDate":"2026-06-21T00:01:00Z","authors":[{"name":"Octo","email":"octo@example.test","login":"octo"}],"url":"https://github.test/commit/abc"}]}"#,
+        )]));
+        let github = GithubCliClient::with_runner(runner.clone());
+
+        let commits = github
+            .pull_request_commits(Path::new("."), "42")
+            .await
+            .expect("commits");
+
+        assert_eq!(commits[0].oid, "abc");
+        assert_eq!(commits[0].message_headline, "Add feature");
+        assert_eq!(commits[0].authors[0].login.as_deref(), Some("octo"));
+        assert_eq!(
+            runner.requests()[0].args,
+            vec!["pr", "view", "42", "--json", "commits"]
+        );
+    }
 }

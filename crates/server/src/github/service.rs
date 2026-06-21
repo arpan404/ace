@@ -17,15 +17,15 @@ use ace_protocol::github::{
     CheckSuiteRequest, CheckSuiteRerequestRequest, CheckSuiteRunsRequest, CheckSuitesRequest,
     CommitStatusesRequest, EnvironmentStatusRequest, IssueListRequest, IssueThreadRequest,
     PullRequestActivityRequest, PullRequestCheckoutRequest, PullRequestChecksRequest,
-    PullRequestCloseRequest, PullRequestCommentRequest, PullRequestCreateRequest,
-    PullRequestDashboardRequest, PullRequestDiffRequest, PullRequestFilesRequest,
-    PullRequestListRequest, PullRequestMergeRequest, PullRequestReadyStateRequest,
-    PullRequestReopenRequest, PullRequestRequest, PullRequestReviewRequest,
-    PullRequestThreadRequest, SearchIssuesRequest, SearchPullRequestsRequest,
-    WorkflowDisableRequest, WorkflowDispatchRequest, WorkflowEnableRequest, WorkflowJobLogRequest,
-    WorkflowJobRequest, WorkflowListRequest, WorkflowRunArtifactDownloadRequest,
-    WorkflowRunArtifactsRequest, WorkflowRunCancelRequest, WorkflowRunListRequest,
-    WorkflowRunLogRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
+    PullRequestCloseRequest, PullRequestCommentRequest, PullRequestCommitsRequest,
+    PullRequestCreateRequest, PullRequestDashboardRequest, PullRequestDiffRequest,
+    PullRequestFilesRequest, PullRequestListRequest, PullRequestMergeRequest,
+    PullRequestReadyStateRequest, PullRequestReopenRequest, PullRequestRequest,
+    PullRequestReviewRequest, PullRequestThreadRequest, SearchIssuesRequest,
+    SearchPullRequestsRequest, WorkflowDisableRequest, WorkflowDispatchRequest,
+    WorkflowEnableRequest, WorkflowJobLogRequest, WorkflowJobRequest, WorkflowListRequest,
+    WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest, WorkflowRunCancelRequest,
+    WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
 };
 use serde::Serialize;
 use std::{path::PathBuf, sync::Arc};
@@ -159,6 +159,16 @@ impl<R: ProcessRunner> GithubService<R> {
     ) -> Result<ace_git::GithubPullRequestThread, GithubApiError> {
         self.github
             .pull_request_thread(&repo_path(&request.repo_path)?, &request.selector)
+            .await
+            .map_err(GithubApiError::from)
+    }
+
+    pub async fn pull_request_commits(
+        &self,
+        request: PullRequestCommitsRequest,
+    ) -> Result<Vec<ace_git::GithubPullRequestCommit>, GithubApiError> {
+        self.github
+            .pull_request_commits(&repo_path(&request.repo_path)?, &request.selector)
             .await
             .map_err(GithubApiError::from)
     }

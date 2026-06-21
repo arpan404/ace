@@ -6,13 +6,13 @@ use ace_protocol::{
         CheckSuiteRequest, CheckSuiteRerequestRequest, CheckSuiteRunsRequest, CheckSuitesRequest,
         CommitStatusesRequest, EnvironmentStatusRequest, IssueListRequest, IssueThreadRequest,
         PullRequestActivityRequest, PullRequestCheckoutRequest, PullRequestChecksRequest,
-        PullRequestCloseRequest, PullRequestCommentRequest, PullRequestCreateRequest,
-        PullRequestDashboardRequest, PullRequestDiffRequest, PullRequestFilesRequest,
-        PullRequestListRequest, PullRequestMergeRequest, PullRequestReadyStateRequest,
-        PullRequestReopenRequest, PullRequestRequest, PullRequestReviewRequest,
-        PullRequestThreadRequest, SearchIssuesRequest, SearchPullRequestsRequest,
-        WorkflowDisableRequest, WorkflowDispatchRequest, WorkflowEnableRequest,
-        WorkflowJobLogRequest, WorkflowJobRequest, WorkflowListRequest,
+        PullRequestCloseRequest, PullRequestCommentRequest, PullRequestCommitsRequest,
+        PullRequestCreateRequest, PullRequestDashboardRequest, PullRequestDiffRequest,
+        PullRequestFilesRequest, PullRequestListRequest, PullRequestMergeRequest,
+        PullRequestReadyStateRequest, PullRequestReopenRequest, PullRequestRequest,
+        PullRequestReviewRequest, PullRequestThreadRequest, SearchIssuesRequest,
+        SearchPullRequestsRequest, WorkflowDisableRequest, WorkflowDispatchRequest,
+        WorkflowEnableRequest, WorkflowJobLogRequest, WorkflowJobRequest, WorkflowListRequest,
         WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest, WorkflowRunCancelRequest,
         WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
     },
@@ -89,6 +89,13 @@ impl<R: ProcessRunner> WsApiState<R> {
                 self.github_json::<PullRequestThreadRequest, _, _, _>(
                     payload,
                     |service, request| async move { service.pull_request_thread(request).await },
+                )
+                .await
+            }
+            methods::GITHUB_PULL_REQUEST_COMMITS => {
+                self.github_json::<PullRequestCommitsRequest, _, _, _>(
+                    payload,
+                    |service, request| async move { service.pull_request_commits(request).await },
                 )
                 .await
             }
@@ -601,6 +608,9 @@ mod tests {
             ok(
                 br#"{"number":42,"title":"Feature","state":"OPEN","url":"https://example.test/pull/42","headRefName":"feature/x","baseRefName":"main","body":"body","author":{"login":"octo"},"createdAt":"2026-06-21T00:00:00Z","updatedAt":"2026-06-21T00:01:00Z","isDraft":false,"reviewDecision":"APPROVED","mergeStateStatus":"CLEAN","comments":[],"reviews":[{"id":"R_1","author":{"login":"maintainer"},"authorAssociation":"MEMBER","body":"looks good","state":"APPROVED","submittedAt":"2026-06-21T00:02:00Z","commit":{"oid":"abc"},"url":"https://example.test/review/1"}],"latestReviews":[]}"#,
             ),
+            ok(
+                br#"{"commits":[{"oid":"abc","messageHeadline":"Add feature","messageBody":"body","authoredDate":"2026-06-21T00:00:00Z","committedDate":"2026-06-21T00:01:00Z","authors":[{"name":"Octo","email":"octo@example.test","login":"octo"}],"url":"https://github.test/commit/abc"}]}"#,
+            ),
             ok(br#"{"files":[{"path":"src/lib.rs","additions":3,"deletions":1}]}"#),
             ok(br#"{"files":[{"path":"src/lib.rs","additions":3,"deletions":1}]}"#),
             ok("diff --git a/src/lib.rs b/src/lib.rs\n"),
@@ -626,6 +636,19 @@ mod tests {
                 "version": PROTOCOL_VERSION,
                 "request_id": "req-pr-thread",
                 "method": methods::GITHUB_PULL_REQUEST_THREAD,
+                "payload": {
+                    "repo_path": "/repo",
+                    "selector": "42"
+                }
+            }),
+        )
+        .await;
+        let commits_response = dispatch(
+            &state,
+            serde_json::json!({
+                "version": PROTOCOL_VERSION,
+                "request_id": "req-pr-commits",
+                "method": methods::GITHUB_PULL_REQUEST_COMMITS,
                 "payload": {
                     "repo_path": "/repo",
                     "selector": "42"
@@ -666,6 +689,9 @@ mod tests {
         let WsServerPayload::Result { body: thread } = thread_response.payload else {
             panic!("expected thread result");
         };
+        let WsServerPayload::Result { body: commits } = commits_response.payload else {
+            panic!("expected commits result");
+        };
         let WsServerPayload::Result { body: files } = files_response.payload else {
             panic!("expected files result");
         };
@@ -674,6 +700,7 @@ mod tests {
         };
         assert_eq!(detail["headRefName"], "feature/x");
         assert_eq!(thread["reviews"][0]["state"], "APPROVED");
+        assert_eq!(commits[0]["oid"], "abc");
         assert_eq!(files[0]["path"], "src/lib.rs");
         assert_eq!(diff["selector"], "42");
         assert!(
@@ -687,13 +714,17 @@ mod tests {
         assert_eq!(requests[1].args[0..3], ["pr", "view", "42"]);
         assert_eq!(
             requests[2].args,
-            vec!["pr", "view", "42", "--json", "files"]
+            vec!["pr", "view", "42", "--json", "commits"]
         );
         assert_eq!(
             requests[3].args,
             vec!["pr", "view", "42", "--json", "files"]
         );
-        assert_eq!(requests[4].args, vec!["pr", "diff", "42", "--patch"]);
+        assert_eq!(
+            requests[4].args,
+            vec!["pr", "view", "42", "--json", "files"]
+        );
+        assert_eq!(requests[5].args, vec!["pr", "diff", "42", "--patch"]);
     }
 
     #[tokio::test]

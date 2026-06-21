@@ -5,8 +5,8 @@ use ace_protocol::github::{
     CheckRunsRequest, CheckSuiteRequest, CheckSuiteRerequestRequest, CheckSuiteRunsRequest,
     CheckSuitesRequest, CommitStatusesRequest, EnvironmentStatusRequest, IssueListFilter,
     IssueListRequest, IssueThreadRequest, PullRequestActivityRequest, PullRequestChecksRequest,
-    PullRequestCreateRequest, PullRequestDashboardRequest, PullRequestDiffRequest,
-    PullRequestFilesRequest, PullRequestListFilter, PullRequestMergeMethod,
+    PullRequestCommitsRequest, PullRequestCreateRequest, PullRequestDashboardRequest,
+    PullRequestDiffRequest, PullRequestFilesRequest, PullRequestListFilter, PullRequestMergeMethod,
     PullRequestMergeRequest, PullRequestRequest, PullRequestReviewDecision,
     PullRequestReviewRequest, PullRequestThreadRequest, WorkflowDisableRequest,
     WorkflowDispatchInput, WorkflowDispatchRequest, WorkflowEnableRequest, WorkflowJobLogRequest,
@@ -298,6 +298,29 @@ async fn service_returns_pull_request_files() {
     assert_eq!(
         runner.requests()[0].args,
         vec!["pr", "view", "42", "--json", "files"]
+    );
+}
+
+#[tokio::test]
+async fn service_returns_pull_request_commits() {
+    let runner = Arc::new(FakeRunner::new(vec![ok(
+        br#"{"commits":[{"oid":"abc","messageHeadline":"Add feature","messageBody":"body","authoredDate":"2026-06-21T00:00:00Z","committedDate":"2026-06-21T00:01:00Z","authors":[{"name":"Octo","email":"octo@example.test","login":"octo"}],"url":"https://github.test/commit/abc"}]}"#,
+    )]));
+    let service = GithubService::new(GithubCliClient::with_runner(runner.clone()));
+
+    let commits = service
+        .pull_request_commits(PullRequestCommitsRequest {
+            repo_path: "/repo".to_string(),
+            selector: "42".to_string(),
+        })
+        .await
+        .expect("commits");
+
+    assert_eq!(commits[0].oid, "abc");
+    assert_eq!(commits[0].message_headline, "Add feature");
+    assert_eq!(
+        runner.requests()[0].args,
+        vec!["pr", "view", "42", "--json", "commits"]
     );
 }
 
