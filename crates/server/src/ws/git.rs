@@ -2,12 +2,12 @@ use super::{WsApiState, WsDispatchError};
 use ace_git::ProcessRunner;
 use ace_protocol::{
     git::{
-        GitBranchesRequest, GitCheckoutBranchRequest, GitCommitRequest, GitCommitsRequest,
-        GitCreateBranchRequest, GitDeleteBranchRequest, GitDiffRequest, GitFetchRequest,
-        GitPullRequest, GitPushRequest, GitRenameBranchRequest, GitRepositoryRequest,
-        GitStageRequest, GitStashApplyRequest, GitStashDropRequest, GitStashPopRequest,
-        GitStashSaveRequest, GitStashesRequest, GitStatusRequest, GitUnstageRequest,
-        GitWorkflowRequest, GitWorktreeCreateRequest, GitWorktreeRemoveRequest,
+        GitBranchesRequest, GitCheckoutBranchRequest, GitCommitRequest, GitCommitsCompareRequest,
+        GitCommitsRequest, GitCreateBranchRequest, GitDeleteBranchRequest, GitDiffRequest,
+        GitFetchRequest, GitPullRequest, GitPushRequest, GitRenameBranchRequest,
+        GitRepositoryRequest, GitStageRequest, GitStashApplyRequest, GitStashDropRequest,
+        GitStashPopRequest, GitStashSaveRequest, GitStashesRequest, GitStatusRequest,
+        GitUnstageRequest, GitWorkflowRequest, GitWorktreeCreateRequest, GitWorktreeRemoveRequest,
         GitWorktreesRequest,
     },
     ws::methods,
@@ -116,6 +116,13 @@ impl<R: ProcessRunner> WsApiState<R> {
                 self.git_json::<GitCommitsRequest, _, _, _>(
                     payload,
                     |service, request| async move { service.commits(request).await },
+                )
+                .await
+            }
+            methods::GIT_COMMITS_COMPARE => {
+                self.git_json::<GitCommitsCompareRequest, _, _, _>(
+                    payload,
+                    |service, request| async move { service.compare_commits(request).await },
                 )
                 .await
             }
@@ -580,6 +587,65 @@ mod tests {
         assert_eq!(requests[0].args[0], "log");
         assert_eq!(requests[0].args[1], "--max-count=10");
         assert_eq!(requests[0].args[4], "feature/x");
+    }
+
+    #[tokio::test]
+    async fn dispatches_commit_comparison_over_ws_rpc() {
+        let runner = Arc::new(FakeRunner::new(vec![
+            ok("1\t2\n"),
+            ok("mergebase\n"),
+            ok(
+                "head123\0head123\0mergebase\0HEAD -> feature/x\0Octo\0octo@example.test\x002026-06-21T00:00:00+00:00\x002026-06-21T00:01:00+00:00\0Ahead commit\x1e",
+            ),
+            ok(
+                "base123\0base123\0mergebase\0origin/main\0Octo\0octo@example.test\x002026-06-20T00:00:00+00:00\x002026-06-20T00:01:00+00:00\0Behind commit\x1e",
+            ),
+        ]));
+        let state = test_state(runner.clone());
+
+        let response = dispatch(
+            &state,
+            serde_json::json!({
+                "version": PROTOCOL_VERSION,
+                "request_id": "req-compare-commits",
+                "method": methods::GIT_COMMITS_COMPARE,
+                "payload": {
+                    "repo_path": "/repo",
+                    "base": "origin/main",
+                    "head": "feature/x",
+                    "limit": 10
+                }
+            }),
+        )
+        .await;
+
+        let WsServerPayload::Result { body } = response.payload else {
+            panic!("expected result");
+        };
+        assert_eq!(body["base"], "origin/main");
+        assert_eq!(body["head"], "feature/x");
+        assert_eq!(body["merge_base"], "mergebase");
+        assert_eq!(body["ahead"], 2);
+        assert_eq!(body["behind"], 1);
+        assert_eq!(body["ahead_commits"][0]["subject"], "Ahead commit");
+        assert_eq!(body["behind_commits"][0]["subject"], "Behind commit");
+
+        let requests = runner.requests();
+        assert_eq!(
+            requests[0].args,
+            vec![
+                "rev-list",
+                "--left-right",
+                "--count",
+                "origin/main...feature/x"
+            ]
+        );
+        assert_eq!(
+            requests[1].args,
+            vec!["merge-base", "origin/main", "feature/x"]
+        );
+        assert_eq!(requests[2].args[4], "origin/main..feature/x");
+        assert_eq!(requests[3].args[4], "feature/x..origin/main");
     }
 
     #[tokio::test]

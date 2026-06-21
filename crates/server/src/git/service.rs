@@ -5,12 +5,12 @@ use ace_git::{
 };
 use ace_platform::AppPaths;
 use ace_protocol::git::{
-    GitBranchesRequest, GitCheckoutBranchRequest, GitCommitRequest, GitCommitsRequest,
-    GitCreateBranchRequest, GitDeleteBranchRequest, GitDiffRequest, GitFetchRequest,
-    GitPullRequest, GitPushRequest, GitRenameBranchRequest, GitRepositoryRequest, GitStageRequest,
-    GitStashApplyRequest, GitStashDropRequest, GitStashPopRequest, GitStashSaveRequest,
-    GitStashesRequest, GitStatusRequest, GitUnstageRequest, GitWorkflowAction, GitWorkflowRequest,
-    GitWorktreeCreateRequest, GitWorktreeRemoveRequest, GitWorktreesRequest,
+    GitBranchesRequest, GitCheckoutBranchRequest, GitCommitRequest, GitCommitsCompareRequest,
+    GitCommitsRequest, GitCreateBranchRequest, GitDeleteBranchRequest, GitDiffRequest,
+    GitFetchRequest, GitPullRequest, GitPushRequest, GitRenameBranchRequest, GitRepositoryRequest,
+    GitStageRequest, GitStashApplyRequest, GitStashDropRequest, GitStashPopRequest,
+    GitStashSaveRequest, GitStashesRequest, GitStatusRequest, GitUnstageRequest, GitWorkflowAction,
+    GitWorkflowRequest, GitWorktreeCreateRequest, GitWorktreeRemoveRequest, GitWorktreesRequest,
 };
 use serde::Serialize;
 use std::{path::PathBuf, sync::Arc};
@@ -250,6 +250,21 @@ impl<R: ProcessRunner> GitService<R> {
                 &repo_path(&request.repo_path)?,
                 request.limit,
                 request.rev.as_deref(),
+            )
+            .await
+            .map_err(GitApiError::from)
+    }
+
+    pub async fn compare_commits(
+        &self,
+        request: GitCommitsCompareRequest,
+    ) -> Result<ace_git::GitCommitComparison, GitApiError> {
+        self.git
+            .compare_commits(
+                &repo_path(&request.repo_path)?,
+                &request.base,
+                &request.head,
+                request.limit,
             )
             .await
             .map_err(GitApiError::from)

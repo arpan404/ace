@@ -4,10 +4,11 @@ use ace_git::{
 };
 use ace_protocol::git::{
     CreatePullRequest, DefaultBranchPolicy, GitCheckoutBranchRequest, GitCommitRequest,
-    GitCommitsRequest, GitCreateBranchRequest, GitDeleteBranchRequest, GitDiffRequest,
-    GitFetchRequest, GitPullRequest, GitPushRequest, GitRenameBranchRequest, GitStageRequest,
-    GitStashApplyRequest, GitStashSaveRequest, GitStatusRequest, GitUnstageRequest,
-    GitWorkflowAction, GitWorkflowRequest, GitWorktreeCreateRequest, GitWorktreeRemoveRequest,
+    GitCommitsCompareRequest, GitCommitsRequest, GitCreateBranchRequest, GitDeleteBranchRequest,
+    GitDiffRequest, GitFetchRequest, GitPullRequest, GitPushRequest, GitRenameBranchRequest,
+    GitStageRequest, GitStashApplyRequest, GitStashSaveRequest, GitStatusRequest,
+    GitUnstageRequest, GitWorkflowAction, GitWorkflowRequest, GitWorktreeCreateRequest,
+    GitWorktreeRemoveRequest,
 };
 use async_trait::async_trait;
 use axum::{
@@ -369,6 +370,50 @@ async fn service_rejects_unsafe_commit_revision_before_running_process() {
         GitApiError::Tooling(ace_git::GitToolError::Parse { .. })
     ));
     assert!(runner.requests().is_empty());
+}
+
+#[tokio::test]
+async fn service_compares_commit_ranges() {
+    let runner = Arc::new(FakeRunner::new(vec![
+        ok("1\t2\n"),
+        ok("mergebase\n"),
+        ok(
+            "head123\0head123\0mergebase\0HEAD -> feature/x\0Octo\0octo@example.test\x002026-06-21T00:00:00+00:00\x002026-06-21T00:01:00+00:00\0Ahead commit\x1e",
+        ),
+        ok(
+            "base123\0base123\0mergebase\0origin/main\0Octo\0octo@example.test\x002026-06-20T00:00:00+00:00\x002026-06-20T00:01:00+00:00\0Behind commit\x1e",
+        ),
+    ]));
+    let service = GitService::new(GitClient::with_runner(runner.clone()));
+
+    let comparison = service
+        .compare_commits(GitCommitsCompareRequest {
+            repo_path: "/repo".to_string(),
+            base: "origin/main".to_string(),
+            head: "feature/x".to_string(),
+            limit: 10,
+        })
+        .await
+        .expect("comparison");
+
+    assert_eq!(comparison.ahead, 2);
+    assert_eq!(comparison.behind, 1);
+    assert_eq!(comparison.ahead_commits[0].subject, "Ahead commit");
+    assert_eq!(comparison.behind_commits[0].subject, "Behind commit");
+    let requests = runner.requests();
+    assert_eq!(
+        requests[0].args,
+        vec![
+            "rev-list",
+            "--left-right",
+            "--count",
+            "origin/main...feature/x"
+        ]
+    );
+    assert_eq!(
+        requests[1].args,
+        vec!["merge-base", "origin/main", "feature/x"]
+    );
 }
 
 #[tokio::test]

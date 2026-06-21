@@ -26,7 +26,7 @@ mod github_review_threads;
 mod github_search;
 mod github_timeline;
 
-pub use git_commits::GitCommitSummary;
+pub use git_commits::{GitCommitComparison, GitCommitSummary};
 pub use github_actions::{
     GithubCheckSummary, GithubPrCheck, GithubPrChecks, GithubWorkflow, GithubWorkflowArtifact,
     GithubWorkflowArtifactRun, GithubWorkflowDeploymentReviewer, GithubWorkflowEnvironment,
