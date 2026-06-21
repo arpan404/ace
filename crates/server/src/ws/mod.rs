@@ -1,5 +1,6 @@
 mod git;
 mod github;
+mod repository_activity;
 
 use crate::git::{GitApiError, GitService};
 use crate::github::{GithubApiError, GithubService};

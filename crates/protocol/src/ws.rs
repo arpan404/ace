@@ -25,6 +25,7 @@ pub mod methods {
     pub const GIT_WORKFLOW_RUN: &str = "git.workflow.run";
 
     pub const GITHUB_ENVIRONMENT_STATUS: &str = "github.environment.status";
+    pub const GITHUB_REPOSITORY_ACTIVITY: &str = "github.repository_activity";
     pub const GITHUB_ISSUES_LIST: &str = "github.issues.list";
     pub const GITHUB_ISSUES_THREAD: &str = "github.issues.thread";
     pub const GITHUB_ISSUES_SEARCH: &str = "github.issues.search";

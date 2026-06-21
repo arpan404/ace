@@ -11,6 +11,15 @@ pub struct EnvironmentStatusRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RepositoryActivityRequest {
+    pub repo_path: String,
+    pub pull_request_limit: u32,
+    pub required_checks_only: bool,
+    pub workflow_run_limit_per_pr: u32,
+    pub include_worktrees: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IssueListRequest {
     pub repo_path: String,
     pub filter: IssueListFilter,

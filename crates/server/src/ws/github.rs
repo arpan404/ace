@@ -13,13 +13,14 @@ use ace_protocol::{
         PullRequestReadyStateRequest, PullRequestReopenRequest, PullRequestRequest,
         PullRequestReviewCommentsRequest, PullRequestReviewRequest,
         PullRequestReviewThreadsRequest, PullRequestThreadRequest, PullRequestTimelineRequest,
-        SearchIssuesRequest, SearchPullRequestsRequest, WorkflowDisableRequest,
-        WorkflowDispatchRequest, WorkflowEnableRequest, WorkflowJobLogRequest, WorkflowJobRequest,
-        WorkflowListRequest, WorkflowRequest, WorkflowRunApprovalsRequest,
-        WorkflowRunApproveRequest, WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest,
-        WorkflowRunCancelRequest, WorkflowRunForceCancelRequest, WorkflowRunJobsRequest,
-        WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunPendingDeploymentReviewRequest,
-        WorkflowRunPendingDeploymentsRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
+        RepositoryActivityRequest, SearchIssuesRequest, SearchPullRequestsRequest,
+        WorkflowDisableRequest, WorkflowDispatchRequest, WorkflowEnableRequest,
+        WorkflowJobLogRequest, WorkflowJobRequest, WorkflowListRequest, WorkflowRequest,
+        WorkflowRunApprovalsRequest, WorkflowRunApproveRequest, WorkflowRunArtifactDownloadRequest,
+        WorkflowRunArtifactsRequest, WorkflowRunCancelRequest, WorkflowRunForceCancelRequest,
+        WorkflowRunJobsRequest, WorkflowRunListRequest, WorkflowRunLogRequest,
+        WorkflowRunPendingDeploymentReviewRequest, WorkflowRunPendingDeploymentsRequest,
+        WorkflowRunRequest, WorkflowRunRerunRequest,
     },
     ws::methods,
 };
@@ -38,6 +39,11 @@ impl<R: ProcessRunner> WsApiState<R> {
                     |service, request| async move { service.environment_status(request).await },
                 )
                 .await
+            }
+            methods::GITHUB_REPOSITORY_ACTIVITY => {
+                let request = serde_json::from_value::<RepositoryActivityRequest>(payload)?;
+                let response = self.repository_activity(request).await?;
+                Ok(serde_json::to_value(response)?)
             }
             methods::GITHUB_ISSUES_LIST => {
                 self.github_json::<IssueListRequest, _, _, _>(
@@ -523,6 +529,138 @@ mod tests {
     ) -> WsServerResponse {
         let response = state.dispatch_text(&request.to_string()).await;
         serde_json::from_str(&response).expect("response")
+    }
+
+    #[tokio::test]
+    async fn dispatches_repository_activity_snapshot_over_ws_rpc() {
+        let runner = Arc::new(FakeRunner::new(vec![
+            ok("/repo\n"),
+            ok("true\n"),
+            ok("## feature/x...origin/feature/x [ahead 1]\n M src/lib.rs\n"),
+            ok("worktree /repo\nHEAD abc\nbranch refs/heads/feature/x\n\n"),
+            ok(
+                br#"[{"number":42,"title":"Feature","state":"OPEN","url":"https://example.test/pull/42","author":{"login":"octo"},"labels":[],"createdAt":"2026-06-21T00:00:00Z","updatedAt":"2026-06-21T00:01:00Z","baseRefName":"main","headRefName":"feature/x","headRefOid":"abc","isDraft":false,"reviewDecision":"REVIEW_REQUIRED","mergeStateStatus":"BLOCKED","statusCheckRollup":[]}]"#,
+            ),
+            ok(
+                br#"[{"bucket":"pending","completedAt":null,"description":null,"event":"push","link":"https://example.test/check","name":"CI","startedAt":"2026-06-21T00:00:00Z","state":"PENDING","workflow":"CI"}]"#,
+            ),
+            ok(
+                br#"[{"attempt":1,"conclusion":null,"createdAt":"2026-06-21T00:00:00Z","databaseId":7,"displayTitle":"Run","event":"pull_request","headBranch":"feature/x","headSha":"abc","name":"CI","number":3,"startedAt":"2026-06-21T00:00:00Z","status":"in_progress","updatedAt":"2026-06-21T00:01:00Z","url":"https://example.test/run/7","workflowDatabaseId":2,"workflowName":"CI"}]"#,
+            ),
+        ]));
+        let state = test_state(runner.clone());
+
+        let response = dispatch(
+            &state,
+            serde_json::json!({
+                "version": PROTOCOL_VERSION,
+                "request_id": "req-repo-activity",
+                "method": methods::GITHUB_REPOSITORY_ACTIVITY,
+                "payload": {
+                    "repo_path": "/repo",
+                    "pull_request_limit": 5,
+                    "required_checks_only": true,
+                    "workflow_run_limit_per_pr": 2,
+                    "include_worktrees": true
+                }
+            }),
+        )
+        .await;
+
+        let WsServerPayload::Result { body } = response.payload else {
+            panic!("expected result");
+        };
+        assert_eq!(body["repository"]["root"], "/repo");
+        assert_eq!(body["status"]["current_branch"], "feature/x");
+        assert_eq!(body["status"]["dirty"], true);
+        assert_eq!(body["status"]["ahead"], 1);
+        assert_eq!(body["worktrees"][0]["branch"], "feature/x");
+        assert_eq!(
+            body["pull_requests"]["items"][0]["pull_request"]["number"],
+            42
+        );
+        assert_eq!(
+            body["pull_requests"]["items"][0]["checks"]["summary"]["pending"],
+            1
+        );
+        assert_eq!(
+            body["pull_requests"]["items"][0]["workflow_runs"][0]["databaseId"],
+            7
+        );
+
+        let requests = runner.requests();
+        assert_eq!(requests[0].args, vec!["rev-parse", "--show-toplevel"]);
+        assert_eq!(requests[1].args, vec!["rev-parse", "--is-inside-work-tree"]);
+        assert_eq!(requests[2].args, vec!["status", "--porcelain=v1", "-b"]);
+        assert_eq!(requests[3].args, vec!["worktree", "list", "--porcelain"]);
+        assert_eq!(requests[4].args[0..2], ["pr", "list"]);
+        assert!(
+            requests[4]
+                .args
+                .windows(2)
+                .any(|pair| pair == ["--head", "feature/x"])
+        );
+        assert!(
+            requests[4]
+                .args
+                .windows(2)
+                .any(|pair| pair == ["--limit", "5"])
+        );
+        assert_eq!(requests[5].args[0..4], ["pr", "checks", "42", "--required"]);
+        assert_eq!(requests[6].args[0..2], ["run", "list"]);
+        assert!(
+            requests[6]
+                .args
+                .windows(2)
+                .any(|pair| pair == ["--branch", "feature/x"])
+        );
+        assert!(
+            requests[6]
+                .args
+                .windows(2)
+                .any(|pair| pair == ["--commit", "abc"])
+        );
+    }
+
+    #[tokio::test]
+    async fn repository_activity_skips_github_calls_without_current_branch() {
+        let runner = Arc::new(FakeRunner::new(vec![
+            ok("/repo\n"),
+            ok("true\n"),
+            ok("## HEAD (no branch)\n"),
+        ]));
+        let state = test_state(runner.clone());
+
+        let response = dispatch(
+            &state,
+            serde_json::json!({
+                "version": PROTOCOL_VERSION,
+                "request_id": "req-detached-activity",
+                "method": methods::GITHUB_REPOSITORY_ACTIVITY,
+                "payload": {
+                    "repo_path": "/repo",
+                    "pull_request_limit": 5,
+                    "required_checks_only": false,
+                    "workflow_run_limit_per_pr": 0,
+                    "include_worktrees": false
+                }
+            }),
+        )
+        .await;
+
+        let WsServerPayload::Result { body } = response.payload else {
+            panic!("expected result");
+        };
+        assert_eq!(body["status"]["current_branch"], serde_json::Value::Null);
+        assert_eq!(body["worktrees"].as_array().expect("worktrees").len(), 0);
+        assert_eq!(
+            body["pull_requests"]["items"]
+                .as_array()
+                .expect("pull request items")
+                .len(),
+            0
+        );
+        assert_eq!(runner.requests().len(), 3);
     }
 
     #[tokio::test]
