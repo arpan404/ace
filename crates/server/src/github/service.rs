@@ -28,12 +28,12 @@ use ace_protocol::github::{
     PullRequestReopenRequest, PullRequestRequest, PullRequestReviewCommentsRequest,
     PullRequestReviewRequest, PullRequestReviewThreadsRequest, PullRequestThreadRequest,
     PullRequestTimelineRequest, SearchIssuesRequest, SearchPullRequestsRequest,
-    WorkflowDisableRequest, WorkflowDispatchRequest, WorkflowEnableRequest, WorkflowJobLogRequest,
-    WorkflowJobRequest, WorkflowListRequest, WorkflowRequest, WorkflowRunApprovalsRequest,
-    WorkflowRunApproveRequest, WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest,
-    WorkflowRunCancelRequest, WorkflowRunDiagnosticsRequest, WorkflowRunForceCancelRequest,
-    WorkflowRunJobsRequest, WorkflowRunListRequest, WorkflowRunLogRequest,
-    WorkflowRunPendingDeploymentReviewRequest,
+    WorkflowDisableRequest, WorkflowDispatchRequest, WorkflowEnableRequest,
+    WorkflowJobDiagnosticsRequest, WorkflowJobLogRequest, WorkflowJobRequest, WorkflowListRequest,
+    WorkflowRequest, WorkflowRunApprovalsRequest, WorkflowRunApproveRequest,
+    WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest, WorkflowRunCancelRequest,
+    WorkflowRunDiagnosticsRequest, WorkflowRunForceCancelRequest, WorkflowRunJobsRequest,
+    WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunPendingDeploymentReviewRequest,
     WorkflowRunPendingDeploymentReviewState as ProtocolWorkflowRunPendingDeploymentReviewState,
     WorkflowRunPendingDeploymentsRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
 };
@@ -712,6 +712,22 @@ impl<R: ProcessRunner> GithubService<R> {
             .workflow_job_log(&repo_path(&request.repo_path)?, request.job_id)
             .await?;
         Ok(WorkflowRunLogResponse { log })
+    }
+
+    pub async fn workflow_job_diagnostics(
+        &self,
+        request: WorkflowJobDiagnosticsRequest,
+    ) -> Result<ace_git::GithubWorkflowJobDiagnostics, GithubApiError> {
+        self.github
+            .workflow_job_diagnostics(
+                &repo_path(&request.repo_path)?,
+                &ace_git::WorkflowJobDiagnosticsRequest {
+                    job_id: request.job_id,
+                    include_log: request.include_log,
+                },
+            )
+            .await
+            .map_err(GithubApiError::from)
     }
 
     pub async fn workflow_run_artifacts(

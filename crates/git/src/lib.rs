@@ -23,6 +23,7 @@ mod github_dashboard;
 mod github_detail;
 mod github_diff;
 mod github_environment;
+mod github_job_diagnostics;
 mod github_mutations;
 mod github_pr_status;
 mod github_review_comments;
@@ -60,6 +61,7 @@ pub use github_detail::{
 };
 pub use github_diff::{GithubPullRequestDiff, GithubPullRequestFile};
 pub use github_environment::GithubEnvironmentStatus;
+pub use github_job_diagnostics::{GithubWorkflowJobDiagnostics, WorkflowJobDiagnosticsRequest};
 pub use github_mutations::{
     GithubActionResult, PullRequestCheckout, PullRequestClose, PullRequestComment,
     PullRequestMerge, PullRequestMergeMethod, PullRequestReadyState, PullRequestReopen,

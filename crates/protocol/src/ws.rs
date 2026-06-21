@@ -94,6 +94,7 @@ pub mod methods {
     pub const GITHUB_WORKFLOW_RUN_FORCE_CANCEL: &str = "github.workflow_runs.force_cancel";
     pub const GITHUB_WORKFLOW_JOBS_VIEW: &str = "github.workflow_jobs.view";
     pub const GITHUB_WORKFLOW_JOBS_LOG: &str = "github.workflow_jobs.log";
+    pub const GITHUB_WORKFLOW_JOBS_DIAGNOSTICS: &str = "github.workflow_jobs.diagnostics";
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

@@ -15,12 +15,13 @@ use ace_protocol::{
         PullRequestReviewRequest, PullRequestReviewThreadsRequest, PullRequestThreadRequest,
         PullRequestTimelineRequest, RepositoryActivityRequest, SearchIssuesRequest,
         SearchPullRequestsRequest, WorkflowDisableRequest, WorkflowDispatchRequest,
-        WorkflowEnableRequest, WorkflowJobLogRequest, WorkflowJobRequest, WorkflowListRequest,
-        WorkflowRequest, WorkflowRunApprovalsRequest, WorkflowRunApproveRequest,
-        WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest, WorkflowRunCancelRequest,
-        WorkflowRunDiagnosticsRequest, WorkflowRunForceCancelRequest, WorkflowRunJobsRequest,
-        WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunPendingDeploymentReviewRequest,
-        WorkflowRunPendingDeploymentsRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
+        WorkflowEnableRequest, WorkflowJobDiagnosticsRequest, WorkflowJobLogRequest,
+        WorkflowJobRequest, WorkflowListRequest, WorkflowRequest, WorkflowRunApprovalsRequest,
+        WorkflowRunApproveRequest, WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest,
+        WorkflowRunCancelRequest, WorkflowRunDiagnosticsRequest, WorkflowRunForceCancelRequest,
+        WorkflowRunJobsRequest, WorkflowRunListRequest, WorkflowRunLogRequest,
+        WorkflowRunPendingDeploymentReviewRequest, WorkflowRunPendingDeploymentsRequest,
+        WorkflowRunRequest, WorkflowRunRerunRequest,
     },
     ws::methods,
 };
@@ -410,6 +411,15 @@ impl<R: ProcessRunner> WsApiState<R> {
                 self.github_json::<WorkflowJobLogRequest, _, _, _>(
                     payload,
                     |service, request| async move { service.workflow_job_log(request).await },
+                )
+                .await
+            }
+            methods::GITHUB_WORKFLOW_JOBS_DIAGNOSTICS => {
+                self.github_json::<WorkflowJobDiagnosticsRequest, _, _, _>(
+                    payload,
+                    |service, request| async move {
+                        service.workflow_job_diagnostics(request).await
+                    },
                 )
                 .await
             }
@@ -2236,6 +2246,55 @@ mod tests {
             panic!("expected result");
         };
         assert_eq!(body["log"], "cargo test\nfailure");
+        let requests = runner.requests();
+        assert_eq!(
+            requests[1].args,
+            vec!["api", "repos/ace/app/actions/jobs/200"]
+        );
+        assert_eq!(
+            requests[3].args,
+            vec!["api", "repos/ace/app/actions/jobs/200/logs"]
+        );
+    }
+
+    #[tokio::test]
+    async fn dispatches_workflow_job_diagnostics_over_ws_rpc() {
+        let runner = Arc::new(FakeRunner::new(vec![
+            ok(
+                br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+            ),
+            ok(
+                br#"{"id":200,"run_id":100,"run_url":"https://api.github.test/runs/100","run_attempt":2,"node_id":"J_1","head_sha":"abc","url":"https://api.github.test/jobs/200","html_url":"https://github.test/jobs/200","status":"completed","conclusion":"failure","created_at":"2026-06-21T00:00:00Z","started_at":"2026-06-21T00:01:00Z","completed_at":"2026-06-21T00:02:00Z","name":"test","workflow_name":"CI","head_branch":"feature/x","labels":["ubuntu-latest"],"runner_id":1,"runner_name":"GitHub Actions 1","runner_group_id":2,"runner_group_name":"Default","steps":[{"name":"cargo test","status":"completed","conclusion":"failure","number":3,"started_at":"2026-06-21T00:01:00Z","completed_at":"2026-06-21T00:02:00Z"}]}"#,
+            ),
+            ok(
+                br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+            ),
+            ok("cargo test failed\n"),
+        ]));
+        let state = test_state(runner.clone());
+
+        let response = dispatch(
+            &state,
+            serde_json::json!({
+                "version": PROTOCOL_VERSION,
+                "request_id": "req-workflow-job-diagnostics",
+                "method": methods::GITHUB_WORKFLOW_JOBS_DIAGNOSTICS,
+                "payload": {
+                    "repo_path": "/repo",
+                    "job_id": 200,
+                    "include_log": true
+                }
+            }),
+        )
+        .await;
+
+        let WsServerPayload::Result { body } = response.payload else {
+            panic!("expected result");
+        };
+        assert_eq!(body["job"]["databaseId"], 200);
+        assert_eq!(body["job"]["workflowName"], "CI");
+        assert_eq!(body["job"]["conclusion"], "failure");
+        assert_eq!(body["log"], "cargo test failed");
         let requests = runner.requests();
         assert_eq!(
             requests[1].args,

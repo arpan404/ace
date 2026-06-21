@@ -15,13 +15,14 @@ use ace_protocol::github::{
     PullRequestMergeStatusRequest, PullRequestRequest, PullRequestReviewCommentsRequest,
     PullRequestReviewDecision, PullRequestReviewRequest, PullRequestReviewThreadsRequest,
     PullRequestThreadRequest, PullRequestTimelineRequest, WorkflowDisableRequest,
-    WorkflowDispatchInput, WorkflowDispatchRequest, WorkflowEnableRequest, WorkflowJobLogRequest,
-    WorkflowJobRequest, WorkflowListFilter, WorkflowListRequest, WorkflowRequest,
-    WorkflowRunApprovalsRequest, WorkflowRunApproveRequest, WorkflowRunArtifactDownloadRequest,
-    WorkflowRunArtifactsRequest, WorkflowRunDiagnosticsRequest, WorkflowRunForceCancelRequest,
-    WorkflowRunJobsRequest, WorkflowRunListFilter, WorkflowRunListRequest, WorkflowRunLogRequest,
-    WorkflowRunPendingDeploymentReviewRequest, WorkflowRunPendingDeploymentReviewState,
-    WorkflowRunPendingDeploymentsRequest, WorkflowRunRerunRequest,
+    WorkflowDispatchInput, WorkflowDispatchRequest, WorkflowEnableRequest,
+    WorkflowJobDiagnosticsRequest, WorkflowJobLogRequest, WorkflowJobRequest, WorkflowListFilter,
+    WorkflowListRequest, WorkflowRequest, WorkflowRunApprovalsRequest, WorkflowRunApproveRequest,
+    WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest, WorkflowRunDiagnosticsRequest,
+    WorkflowRunForceCancelRequest, WorkflowRunJobsRequest, WorkflowRunListFilter,
+    WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunPendingDeploymentReviewRequest,
+    WorkflowRunPendingDeploymentReviewState, WorkflowRunPendingDeploymentsRequest,
+    WorkflowRunRerunRequest,
 };
 use async_trait::async_trait;
 use axum::{
@@ -1609,6 +1610,40 @@ async fn service_reviews_workflow_run_pending_deployments() {
     assert_eq!(body["environment_ids"], serde_json::json!([9, 10]));
     assert_eq!(body["state"], "approved");
     assert_eq!(body["comment"], "Ship it");
+}
+
+#[tokio::test]
+async fn service_returns_workflow_job_diagnostics() {
+    let runner = Arc::new(FakeRunner::new(vec![
+        ok(
+            br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+        ),
+        ok(
+            br#"{"id":200,"run_id":100,"run_url":"https://api.github.test/runs/100","run_attempt":2,"node_id":"J_1","head_sha":"abc","url":"https://api.github.test/jobs/200","html_url":"https://github.test/jobs/200","status":"completed","conclusion":"failure","created_at":"2026-06-21T00:00:00Z","started_at":"2026-06-21T00:01:00Z","completed_at":"2026-06-21T00:02:00Z","name":"test","workflow_name":"CI","head_branch":"feature/x","labels":["ubuntu-latest"],"runner_id":1,"runner_name":"GitHub Actions 1","runner_group_id":2,"runner_group_name":"Default","steps":[{"name":"cargo test","status":"completed","conclusion":"failure","number":3,"started_at":"2026-06-21T00:01:00Z","completed_at":"2026-06-21T00:02:00Z"}]}"#,
+        ),
+        ok(
+            br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+        ),
+        ok("cargo test failed\n"),
+    ]));
+    let service = GithubService::new(GithubCliClient::with_runner(runner.clone()));
+
+    let diagnostics = service
+        .workflow_job_diagnostics(WorkflowJobDiagnosticsRequest {
+            repo_path: "/repo".to_string(),
+            job_id: 200,
+            include_log: true,
+        })
+        .await
+        .expect("diagnostics");
+
+    assert_eq!(diagnostics.job.job.name, "test");
+    assert_eq!(diagnostics.job.job.conclusion.as_deref(), Some("failure"));
+    assert_eq!(diagnostics.log.as_deref(), Some("cargo test failed"));
+    assert_eq!(
+        runner.requests()[3].args,
+        vec!["api", "repos/ace/app/actions/jobs/200/logs"]
+    );
 }
 
 #[tokio::test]
