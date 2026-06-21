@@ -17,6 +17,12 @@ pub struct IssueListRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IssueThreadRequest {
+    pub repo_path: String,
+    pub number: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct IssueListFilter {
     pub limit: u32,
     pub state: String,
@@ -47,6 +53,12 @@ impl Default for IssueListFilter {
 pub struct PullRequestListRequest {
     pub repo_path: String,
     pub filter: PullRequestListFilter,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PullRequestRequest {
+    pub repo_path: String,
+    pub selector: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

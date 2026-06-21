@@ -1,11 +1,11 @@
 use super::{GithubApiError, service::GithubApiState};
 use ace_git::{ProcessRunner, TokioProcessRunner};
 use ace_protocol::github::{
-    EnvironmentStatusRequest, IssueListRequest, PullRequestActivityRequest,
+    EnvironmentStatusRequest, IssueListRequest, IssueThreadRequest, PullRequestActivityRequest,
     PullRequestCheckoutRequest, PullRequestChecksRequest, PullRequestCloseRequest,
     PullRequestCommentRequest, PullRequestDashboardRequest, PullRequestListRequest,
     PullRequestMergeRequest, PullRequestReadyStateRequest, PullRequestReopenRequest,
-    PullRequestReviewRequest, SearchIssuesRequest, SearchPullRequestsRequest,
+    PullRequestRequest, PullRequestReviewRequest, SearchIssuesRequest, SearchPullRequestsRequest,
     WorkflowRunCancelRequest, WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunRequest,
     WorkflowRunRerunRequest,
 };
@@ -22,7 +22,9 @@ where
     Router::new()
         .route("/environment/status", post(environment_status::<R>))
         .route("/issues/list", post(list_issues::<R>))
+        .route("/issues/thread", post(issue_thread::<R>))
         .route("/pulls/list", post(list_pull_requests::<R>))
+        .route("/pulls/view", post(pull_request::<R>))
         .route("/issues/search", post(search_issues::<R>))
         .route("/pulls/search", post(search_pull_requests::<R>))
         .route("/pulls/checks", post(pull_request_checks::<R>))
@@ -69,6 +71,16 @@ where
     state.service.list_issues(request).await.map(Json)
 }
 
+async fn issue_thread<R>(
+    State(state): State<GithubApiState<R>>,
+    Json(request): Json<IssueThreadRequest>,
+) -> Result<Json<ace_git::GithubIssueThread>, GithubApiError>
+where
+    R: ProcessRunner,
+{
+    state.service.issue_thread(request).await.map(Json)
+}
+
 async fn list_pull_requests<R>(
     State(state): State<GithubApiState<R>>,
     Json(request): Json<PullRequestListRequest>,
@@ -77,6 +89,16 @@ where
     R: ProcessRunner,
 {
     state.service.list_pull_requests(request).await.map(Json)
+}
+
+async fn pull_request<R>(
+    State(state): State<GithubApiState<R>>,
+    Json(request): Json<PullRequestRequest>,
+) -> Result<Json<ace_git::GithubPullRequest>, GithubApiError>
+where
+    R: ProcessRunner,
+{
+    state.service.pull_request(request).await.map(Json)
 }
 
 async fn search_issues<R>(

@@ -689,9 +689,8 @@ impl<R: ProcessRunner> GithubCliClient<R> {
                     "issue",
                     "view",
                     &number.to_string(),
-                    "--comments",
                     "--json",
-                    "number,title,state,url,body,author,comments",
+                    "number,title,state,url,body,labels,assignees,author,createdAt,updatedAt,comments",
                 ],
             )
             .await?;
@@ -707,7 +706,7 @@ impl<R: ProcessRunner> GithubCliClient<R> {
                     "view",
                     selector,
                     "--json",
-                    "number,title,state,url,headRefName,baseRefName,body",
+                    "number,title,state,url,headRefName,baseRefName,body,author,createdAt,updatedAt,isDraft,reviewDecision,mergeStateStatus",
                 ],
             )
             .await?;
@@ -746,6 +745,12 @@ impl<R: ProcessRunner> GithubCliClient<R> {
             head_ref_name: request.head.clone(),
             base_ref_name: request.base.clone(),
             body: Some(request.body.clone()),
+            author: None,
+            created_at: None,
+            updated_at: None,
+            is_draft: Some(request.draft),
+            review_decision: None,
+            merge_state_status: None,
         })
     }
 }
@@ -784,7 +789,15 @@ pub struct GithubIssueThread {
     pub state: String,
     pub url: String,
     pub body: Option<String>,
+    #[serde(default)]
+    pub labels: Vec<GithubLabel>,
+    #[serde(default)]
+    pub assignees: Vec<GithubUser>,
     pub author: Option<GithubUser>,
+    #[serde(rename = "createdAt")]
+    pub created_at: String,
+    #[serde(rename = "updatedAt")]
+    pub updated_at: String,
     #[serde(default)]
     pub comments: Vec<GithubComment>,
 }
@@ -800,6 +813,17 @@ pub struct GithubPullRequest {
     #[serde(rename = "baseRefName")]
     pub base_ref_name: String,
     pub body: Option<String>,
+    pub author: Option<GithubUser>,
+    #[serde(rename = "createdAt")]
+    pub created_at: Option<String>,
+    #[serde(rename = "updatedAt")]
+    pub updated_at: Option<String>,
+    #[serde(rename = "isDraft")]
+    pub is_draft: Option<bool>,
+    #[serde(rename = "reviewDecision")]
+    pub review_decision: Option<String>,
+    #[serde(rename = "mergeStateStatus")]
+    pub merge_state_status: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -814,8 +838,13 @@ pub struct GithubLabel {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GithubComment {
-    pub body: String,
+    pub body: Option<String>,
     pub author: Option<GithubUser>,
+    #[serde(rename = "createdAt")]
+    pub created_at: String,
+    #[serde(rename = "updatedAt")]
+    pub updated_at: Option<String>,
+    pub url: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

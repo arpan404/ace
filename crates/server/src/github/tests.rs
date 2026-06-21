@@ -1,11 +1,11 @@
 use super::{GithubApiError, GithubService, routes::router_with_state, service::GithubApiState};
 use ace_git::{CommandOutput, CommandRequest, GitToolError, GithubCliClient, ProcessRunner};
 use ace_protocol::github::{
-    EnvironmentStatusRequest, IssueListFilter, IssueListRequest, PullRequestActivityRequest,
-    PullRequestChecksRequest, PullRequestDashboardRequest, PullRequestListFilter,
-    PullRequestMergeMethod, PullRequestMergeRequest, PullRequestReviewDecision,
-    PullRequestReviewRequest, WorkflowRunListFilter, WorkflowRunListRequest,
-    WorkflowRunRerunRequest,
+    EnvironmentStatusRequest, IssueListFilter, IssueListRequest, IssueThreadRequest,
+    PullRequestActivityRequest, PullRequestChecksRequest, PullRequestDashboardRequest,
+    PullRequestListFilter, PullRequestMergeMethod, PullRequestMergeRequest, PullRequestRequest,
+    PullRequestReviewDecision, PullRequestReviewRequest, WorkflowRunListFilter,
+    WorkflowRunListRequest, WorkflowRunRerunRequest,
 };
 use async_trait::async_trait;
 use axum::{
@@ -124,6 +124,73 @@ async fn service_lists_issues_through_github_cli() {
             .args
             .windows(2)
             .any(|pair| pair == ["--label", "bug"])
+    );
+}
+
+#[tokio::test]
+async fn service_returns_issue_thread_details() {
+    let runner = Arc::new(FakeRunner::new(vec![ok(
+        br#"{"number":77,"title":"Bug","state":"OPEN","url":"https://example.test/issues/77","body":"body","labels":[{"name":"bug"}],"assignees":[{"login":"octo"}],"author":{"login":"hubot"},"createdAt":"2026-06-21T00:00:00Z","updatedAt":"2026-06-21T00:01:00Z","comments":[{"body":"comment","author":{"login":"maintainer"},"createdAt":"2026-06-21T00:02:00Z","updatedAt":null,"url":"https://example.test/issues/77#issuecomment-1"}]}"#,
+    )]));
+    let service = GithubService::new(GithubCliClient::with_runner(runner.clone()));
+
+    let thread = service
+        .issue_thread(IssueThreadRequest {
+            repo_path: "/repo".to_string(),
+            number: 77,
+        })
+        .await
+        .expect("issue thread");
+
+    assert_eq!(thread.number, 77);
+    assert_eq!(thread.labels[0].name, "bug");
+    assert_eq!(thread.assignees[0].login, "octo");
+    assert_eq!(
+        thread.comments[0].author.as_ref().unwrap().login,
+        "maintainer"
+    );
+    assert_eq!(
+        runner.requests()[0].args,
+        vec![
+            "issue",
+            "view",
+            "77",
+            "--json",
+            "number,title,state,url,body,labels,assignees,author,createdAt,updatedAt,comments"
+        ]
+    );
+}
+
+#[tokio::test]
+async fn service_returns_pull_request_details() {
+    let runner = Arc::new(FakeRunner::new(vec![ok(
+        br#"{"number":42,"title":"Feature","state":"OPEN","url":"https://example.test/pull/42","headRefName":"feature/x","baseRefName":"main","body":"body","author":{"login":"octo"},"createdAt":"2026-06-21T00:00:00Z","updatedAt":"2026-06-21T00:01:00Z","isDraft":false,"reviewDecision":"REVIEW_REQUIRED","mergeStateStatus":"BLOCKED"}"#,
+    )]));
+    let service = GithubService::new(GithubCliClient::with_runner(runner.clone()));
+
+    let pull_request = service
+        .pull_request(PullRequestRequest {
+            repo_path: "/repo".to_string(),
+            selector: "42".to_string(),
+        })
+        .await
+        .expect("pull request");
+
+    assert_eq!(pull_request.number, Some(42));
+    assert_eq!(pull_request.author.as_ref().unwrap().login, "octo");
+    assert_eq!(
+        pull_request.review_decision.as_deref(),
+        Some("REVIEW_REQUIRED")
+    );
+    assert_eq!(
+        runner.requests()[0].args,
+        vec![
+            "pr",
+            "view",
+            "42",
+            "--json",
+            "number,title,state,url,headRefName,baseRefName,body,author,createdAt,updatedAt,isDraft,reviewDecision,mergeStateStatus"
+        ]
     );
 }
 
@@ -429,6 +496,59 @@ async fn route_returns_pull_request_dashboard_json() {
     assert_eq!(body["items"][0]["pull_request"]["number"], 42);
     assert_eq!(body["items"][0]["checks"]["summary"]["pending"], 1);
     assert_eq!(body["items"][0]["workflow_runs"][0]["databaseId"], 7);
+}
+
+#[tokio::test]
+async fn route_returns_issue_thread_json() {
+    let runner = Arc::new(FakeRunner::new(vec![ok(
+        br#"{"number":77,"title":"Bug","state":"OPEN","url":"https://example.test/issues/77","body":"body","labels":[{"name":"bug"}],"assignees":[{"login":"octo"}],"author":{"login":"hubot"},"createdAt":"2026-06-21T00:00:00Z","updatedAt":"2026-06-21T00:01:00Z","comments":[{"body":"comment","author":{"login":"maintainer"},"createdAt":"2026-06-21T00:02:00Z","updatedAt":null,"url":"https://example.test/issues/77#issuecomment-1"}]}"#,
+    )]));
+    let app = test_router(runner);
+
+    let response = app
+        .oneshot(json_request(
+            "/issues/thread",
+            serde_json::json!({
+                "repo_path": "/repo",
+                "number": 77
+            }),
+        ))
+        .await
+        .expect("route response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response_json(response).await;
+    assert_eq!(body["number"], 77);
+    assert_eq!(body["comments"][0]["author"]["login"], "maintainer");
+    assert_eq!(
+        body["comments"][0]["url"],
+        "https://example.test/issues/77#issuecomment-1"
+    );
+}
+
+#[tokio::test]
+async fn route_returns_pull_request_detail_json() {
+    let runner = Arc::new(FakeRunner::new(vec![ok(
+        br#"{"number":42,"title":"Feature","state":"OPEN","url":"https://example.test/pull/42","headRefName":"feature/x","baseRefName":"main","body":"body","author":{"login":"octo"},"createdAt":"2026-06-21T00:00:00Z","updatedAt":"2026-06-21T00:01:00Z","isDraft":false,"reviewDecision":"REVIEW_REQUIRED","mergeStateStatus":"BLOCKED"}"#,
+    )]));
+    let app = test_router(runner);
+
+    let response = app
+        .oneshot(json_request(
+            "/pulls/view",
+            serde_json::json!({
+                "repo_path": "/repo",
+                "selector": "42"
+            }),
+        ))
+        .await
+        .expect("route response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response_json(response).await;
+    assert_eq!(body["number"], 42);
+    assert_eq!(body["author"]["login"], "octo");
+    assert_eq!(body["reviewDecision"], "REVIEW_REQUIRED");
 }
 
 #[tokio::test]

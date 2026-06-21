@@ -11,11 +11,11 @@ use ace_git::{
     TokioProcessRunner, WorkflowRunCancel, WorkflowRunRerun,
 };
 use ace_protocol::github::{
-    EnvironmentStatusRequest, IssueListRequest, PullRequestActivityRequest,
+    EnvironmentStatusRequest, IssueListRequest, IssueThreadRequest, PullRequestActivityRequest,
     PullRequestCheckoutRequest, PullRequestChecksRequest, PullRequestCloseRequest,
     PullRequestCommentRequest, PullRequestDashboardRequest, PullRequestListRequest,
     PullRequestMergeRequest, PullRequestReadyStateRequest, PullRequestReopenRequest,
-    PullRequestReviewRequest, SearchIssuesRequest, SearchPullRequestsRequest,
+    PullRequestRequest, PullRequestReviewRequest, SearchIssuesRequest, SearchPullRequestsRequest,
     WorkflowRunCancelRequest, WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunRequest,
     WorkflowRunRerunRequest,
 };
@@ -93,6 +93,16 @@ impl<R: ProcessRunner> GithubService<R> {
             .map_err(GithubApiError::from)
     }
 
+    pub async fn issue_thread(
+        &self,
+        request: IssueThreadRequest,
+    ) -> Result<ace_git::GithubIssueThread, GithubApiError> {
+        self.github
+            .issue_thread(&repo_path(&request.repo_path)?, request.number)
+            .await
+            .map_err(GithubApiError::from)
+    }
+
     pub async fn list_pull_requests(
         &self,
         request: PullRequestListRequest,
@@ -102,6 +112,16 @@ impl<R: ProcessRunner> GithubService<R> {
                 &repo_path(&request.repo_path)?,
                 &pull_request_list_filter(request.filter),
             )
+            .await
+            .map_err(GithubApiError::from)
+    }
+
+    pub async fn pull_request(
+        &self,
+        request: PullRequestRequest,
+    ) -> Result<ace_git::GithubPullRequest, GithubApiError> {
+        self.github
+            .pull_request(&repo_path(&request.repo_path)?, &request.selector)
             .await
             .map_err(GithubApiError::from)
     }
