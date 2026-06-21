@@ -4,8 +4,8 @@ use std::path::Path;
 
 const ISSUE_THREAD_FIELDS: &str =
     "number,title,state,url,body,labels,assignees,author,createdAt,updatedAt,comments";
-const PULL_REQUEST_DETAIL_FIELDS: &str = "number,title,state,url,headRefName,baseRefName,body,author,createdAt,updatedAt,isDraft,reviewDecision,mergeStateStatus";
-const PULL_REQUEST_THREAD_FIELDS: &str = "number,title,state,url,headRefName,baseRefName,body,author,createdAt,updatedAt,isDraft,reviewDecision,mergeStateStatus,comments,reviews,latestReviews";
+const PULL_REQUEST_DETAIL_FIELDS: &str = "number,title,state,url,headRefName,headRefOid,baseRefName,body,author,createdAt,updatedAt,isDraft,reviewDecision,mergeStateStatus";
+const PULL_REQUEST_THREAD_FIELDS: &str = "number,title,state,url,headRefName,headRefOid,baseRefName,body,author,createdAt,updatedAt,isDraft,reviewDecision,mergeStateStatus,comments,reviews,latestReviews";
 
 impl<R: ProcessRunner> GithubCliClient<R> {
     pub async fn repository(&self, cwd: &Path) -> Result<GithubRepository> {
@@ -115,6 +115,7 @@ impl<R: ProcessRunner> GithubCliClient<R> {
             state: "OPEN".to_string(),
             url,
             head_ref_name: request.head.clone(),
+            head_ref_oid: None,
             base_ref_name: request.base.clone(),
             body: Some(request.body.clone()),
             author: None,
@@ -182,6 +183,8 @@ pub struct GithubPullRequest {
     pub url: String,
     #[serde(rename = "headRefName")]
     pub head_ref_name: String,
+    #[serde(rename = "headRefOid")]
+    pub head_ref_oid: Option<String>,
     #[serde(rename = "baseRefName")]
     pub base_ref_name: String,
     pub body: Option<String>,

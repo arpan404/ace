@@ -26,6 +26,7 @@ impl<R: ProcessRunner> GithubCliClient<R> {
                     &WorkflowRunListFilter {
                         limit: request.workflow_run_limit_per_pr,
                         branch: Some(pull_request.head_ref_name.clone()),
+                        commit: pull_request.head_ref_oid.clone(),
                         ..WorkflowRunListFilter::default()
                     },
                 )
@@ -115,7 +116,7 @@ mod tests {
     async fn dashboard_lists_prs_and_enriches_each_with_checks_and_runs() {
         let runner = std::sync::Arc::new(FakeRunner::new(vec![
             ok(
-                br#"[{"number":42,"title":"Feature","state":"OPEN","url":"https://example.test/pull/42","author":{"login":"octo"},"labels":[],"createdAt":"2026-06-21T00:00:00Z","updatedAt":"2026-06-21T00:01:00Z","baseRefName":"main","headRefName":"feature/x","isDraft":false,"reviewDecision":"REVIEW_REQUIRED","mergeStateStatus":"BLOCKED","statusCheckRollup":[]}]"#,
+                br#"[{"number":42,"title":"Feature","state":"OPEN","url":"https://example.test/pull/42","author":{"login":"octo"},"labels":[],"createdAt":"2026-06-21T00:00:00Z","updatedAt":"2026-06-21T00:01:00Z","baseRefName":"main","headRefName":"feature/x","headRefOid":"abc","isDraft":false,"reviewDecision":"REVIEW_REQUIRED","mergeStateStatus":"BLOCKED","statusCheckRollup":[]}]"#,
             ),
             ok(
                 br#"[{"bucket":"pending","completedAt":null,"description":null,"event":"push","link":"https://example.test/check","name":"CI","startedAt":"2026-06-21T00:00:00Z","state":"PENDING","workflow":"CI"}]"#,
@@ -164,6 +165,12 @@ mod tests {
                 .args
                 .windows(2)
                 .any(|pair| pair == ["--branch", "feature/x"])
+        );
+        assert!(
+            requests[2]
+                .args
+                .windows(2)
+                .any(|pair| pair == ["--commit", "abc"])
         );
         assert!(
             requests[2]

@@ -21,6 +21,7 @@ impl<R: ProcessRunner> GithubCliClient<R> {
                 &WorkflowRunListFilter {
                     limit: request.workflow_run_limit,
                     branch: Some(pull_request.head_ref_name.clone()),
+                    commit: pull_request.head_ref_oid.clone(),
                     ..WorkflowRunListFilter::default()
                 },
             )
@@ -101,7 +102,7 @@ mod tests {
     async fn pull_request_activity_fetches_pr_checks_and_branch_runs() {
         let runner = std::sync::Arc::new(FakeRunner::new(vec![
             ok(
-                br#"{"number":42,"title":"Feature","state":"OPEN","url":"https://example.test/pull/42","headRefName":"feature/x","baseRefName":"main","body":"body"}"#,
+                br#"{"number":42,"title":"Feature","state":"OPEN","url":"https://example.test/pull/42","headRefName":"feature/x","headRefOid":"abc","baseRefName":"main","body":"body"}"#,
             ),
             ok(
                 br#"[{"bucket":"pass","completedAt":"2026-06-21T00:00:00Z","description":null,"event":"push","link":"https://example.test/check","name":"CI","startedAt":"2026-06-21T00:00:00Z","state":"SUCCESS","workflow":"CI"}]"#,
@@ -146,6 +147,12 @@ mod tests {
                 .args
                 .windows(2)
                 .any(|pair| pair == ["--branch", "feature/x"])
+        );
+        assert!(
+            requests[2]
+                .args
+                .windows(2)
+                .any(|pair| pair == ["--commit", "abc"])
         );
         assert!(
             requests[2]

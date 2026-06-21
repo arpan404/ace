@@ -171,7 +171,7 @@ async fn service_returns_issue_thread_details() {
 #[tokio::test]
 async fn service_returns_pull_request_details() {
     let runner = Arc::new(FakeRunner::new(vec![ok(
-        br#"{"number":42,"title":"Feature","state":"OPEN","url":"https://example.test/pull/42","headRefName":"feature/x","baseRefName":"main","body":"body","author":{"login":"octo"},"createdAt":"2026-06-21T00:00:00Z","updatedAt":"2026-06-21T00:01:00Z","isDraft":false,"reviewDecision":"REVIEW_REQUIRED","mergeStateStatus":"BLOCKED"}"#,
+        br#"{"number":42,"title":"Feature","state":"OPEN","url":"https://example.test/pull/42","headRefName":"feature/x","headRefOid":"abc","baseRefName":"main","body":"body","author":{"login":"octo"},"createdAt":"2026-06-21T00:00:00Z","updatedAt":"2026-06-21T00:01:00Z","isDraft":false,"reviewDecision":"REVIEW_REQUIRED","mergeStateStatus":"BLOCKED"}"#,
     )]));
     let service = GithubService::new(GithubCliClient::with_runner(runner.clone()));
 
@@ -189,6 +189,7 @@ async fn service_returns_pull_request_details() {
         pull_request.review_decision.as_deref(),
         Some("REVIEW_REQUIRED")
     );
+    assert_eq!(pull_request.head_ref_oid.as_deref(), Some("abc"));
     assert_eq!(
         runner.requests()[0].args,
         vec![
@@ -196,7 +197,7 @@ async fn service_returns_pull_request_details() {
             "view",
             "42",
             "--json",
-            "number,title,state,url,headRefName,baseRefName,body,author,createdAt,updatedAt,isDraft,reviewDecision,mergeStateStatus"
+            "number,title,state,url,headRefName,headRefOid,baseRefName,body,author,createdAt,updatedAt,isDraft,reviewDecision,mergeStateStatus"
         ]
     );
 }
@@ -272,7 +273,7 @@ async fn service_returns_pull_request_thread() {
             "view",
             "42",
             "--json",
-            "number,title,state,url,headRefName,baseRefName,body,author,createdAt,updatedAt,isDraft,reviewDecision,mergeStateStatus,comments,reviews,latestReviews"
+            "number,title,state,url,headRefName,headRefOid,baseRefName,body,author,createdAt,updatedAt,isDraft,reviewDecision,mergeStateStatus,comments,reviews,latestReviews"
         ]
     );
 }

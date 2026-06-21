@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 const ISSUE_LIST_FIELDS: &str = "number,title,state,url,author,labels,createdAt,updatedAt,comments";
-const PR_LIST_FIELDS: &str = "number,title,state,url,author,labels,createdAt,updatedAt,baseRefName,headRefName,isDraft,reviewDecision,mergeStateStatus,statusCheckRollup";
+const PR_LIST_FIELDS: &str = "number,title,state,url,author,labels,createdAt,updatedAt,baseRefName,headRefName,headRefOid,isDraft,reviewDecision,mergeStateStatus,statusCheckRollup";
 const SEARCH_ISSUE_FIELDS: &str = "assignees,author,authorAssociation,body,closedAt,commentsCount,createdAt,id,isLocked,isPullRequest,labels,number,repository,state,title,updatedAt,url";
 const SEARCH_PR_FIELDS: &str = "assignees,author,authorAssociation,body,closedAt,commentsCount,createdAt,id,isDraft,isLocked,isPullRequest,labels,number,repository,state,title,updatedAt,url";
 
@@ -240,6 +240,8 @@ pub struct GithubPullRequestSummary {
     pub base_ref_name: String,
     #[serde(rename = "headRefName")]
     pub head_ref_name: String,
+    #[serde(rename = "headRefOid")]
+    pub head_ref_oid: Option<String>,
     #[serde(rename = "isDraft")]
     pub is_draft: bool,
     #[serde(rename = "reviewDecision")]
@@ -424,7 +426,7 @@ mod tests {
     #[tokio::test]
     async fn pull_request_listing_parses_review_and_check_rollup() {
         let runner = std::sync::Arc::new(FakeRunner::new(vec![ok(
-            br#"[{"number":9,"title":"Feature","state":"OPEN","url":"https://example.test/pull/9","author":{"login":"octo"},"labels":[],"createdAt":"2026-06-21T00:00:00Z","updatedAt":"2026-06-21T00:01:00Z","baseRefName":"main","headRefName":"feature/x","isDraft":false,"reviewDecision":"REVIEW_REQUIRED","mergeStateStatus":"BLOCKED","statusCheckRollup":[{"name":"CI"}]}]"#,
+            br#"[{"number":9,"title":"Feature","state":"OPEN","url":"https://example.test/pull/9","author":{"login":"octo"},"labels":[],"createdAt":"2026-06-21T00:00:00Z","updatedAt":"2026-06-21T00:01:00Z","baseRefName":"main","headRefName":"feature/x","headRefOid":"abc","isDraft":false,"reviewDecision":"REVIEW_REQUIRED","mergeStateStatus":"BLOCKED","statusCheckRollup":[{"name":"CI"}]}]"#,
         )]));
         let github = GithubCliClient::with_runner(runner.clone());
         let prs = github
@@ -440,6 +442,7 @@ mod tests {
             .expect("prs");
 
         assert_eq!(prs[0].head_ref_name, "feature/x");
+        assert_eq!(prs[0].head_ref_oid.as_deref(), Some("abc"));
         assert_eq!(prs[0].review_decision.as_deref(), Some("REVIEW_REQUIRED"));
         assert_eq!(
             prs[0].status_check_rollup.as_ref().expect("rollup").len(),
