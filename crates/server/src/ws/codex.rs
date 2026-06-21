@@ -1,14 +1,20 @@
 use crate::ws::{WsApiState, WsDispatchError};
 use ace_git::ProcessRunner;
 use ace_protocol::{
+    PROTOCOL_VERSION,
     codex::{
         CodexPlanTurnStartRequest, CodexRawRequest, CodexThreadForkRequest, CodexThreadIdRequest,
         CodexThreadStartRequest, CodexTurnStartRequest,
     },
-    ws::methods,
+    provider_runtime::{
+        PROVIDER_RUNTIME_EVENT_TOPIC, ProviderRuntimeEvent, ProviderRuntimeEventBatch,
+        ProviderRuntimeSubscribeRequest,
+    },
+    ws::{WsServerPayload, WsServerResponse, methods},
 };
 use ace_terminal::PtyAdapter;
 use serde_json::Value;
+use tokio::sync::mpsc;
 
 impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
     pub(super) async fn dispatch_codex_method(
@@ -80,6 +86,73 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
             _ => Err(WsDispatchError::UnknownMethod(method.to_string())),
         }
     }
+
+    pub(super) async fn subscribe_provider_runtime_events(
+        &self,
+        payload: Value,
+        outbound: Option<mpsc::Sender<String>>,
+    ) -> Result<Value, WsDispatchError> {
+        let request = serde_json::from_value::<ProviderRuntimeSubscribeRequest>(payload)?;
+        if !matches!(request.provider.as_deref(), None | Some("codex")) {
+            return Ok(serde_json::json!({ "subscribed": false }));
+        }
+        let Some(outbound) = outbound else {
+            return Ok(serde_json::json!({ "subscribed": false }));
+        };
+
+        let codex = self.codex.clone();
+        tokio::spawn(async move {
+            loop {
+                let events = match codex.next_events().await {
+                    Ok(Some(events)) => events,
+                    Ok(None) => break,
+                    Err(error) => {
+                        let response = WsServerResponse {
+                            version: PROTOCOL_VERSION,
+                            request_id: String::new(),
+                            payload: WsServerPayload::Error {
+                                code: error.code().to_string(),
+                                message: error.to_string(),
+                            },
+                        };
+                        let Ok(text) = serde_json::to_string(&response) else {
+                            break;
+                        };
+                        let _ = outbound.send(text).await;
+                        break;
+                    }
+                };
+                if events.is_empty() {
+                    continue;
+                }
+                let batch = ProviderRuntimeEventBatch {
+                    provider: "codex".to_string(),
+                    events: events
+                        .iter()
+                        .cloned()
+                        .map(|event| ProviderRuntimeEvent::from_provider_event("codex", event))
+                        .collect(),
+                    raw_events: events,
+                };
+                let response = WsServerResponse {
+                    version: PROTOCOL_VERSION,
+                    request_id: String::new(),
+                    payload: WsServerPayload::Event {
+                        topic: PROVIDER_RUNTIME_EVENT_TOPIC.to_string(),
+                        body: serde_json::to_value(batch)
+                            .expect("serialize provider runtime websocket event"),
+                    },
+                };
+                let Ok(text) = serde_json::to_string(&response) else {
+                    continue;
+                };
+                if outbound.send(text).await.is_err() {
+                    break;
+                }
+            }
+        });
+        Ok(serde_json::json!({ "subscribed": true, "provider": "codex" }))
+    }
 }
 
 #[cfg(test)]
@@ -94,7 +167,15 @@ mod tests {
     };
     use ace_protocol::{
         PROTOCOL_VERSION,
+        provider_runtime::PROVIDER_RUNTIME_EVENT_TOPIC,
         ws::{WsServerPayload, WsServerResponse, methods},
+    };
+    use ace_runtime::{
+        provider::ProviderEvent,
+        tools::{
+            ProviderToolMetadata, ToolNormalizationInput, ToolRunStatus, ToolTransport,
+            normalize_tool_call,
+        },
     };
     use async_trait::async_trait;
     use serde_json::json;
@@ -147,5 +228,70 @@ mod tests {
             backend.calls.lock().expect("calls").as_slice(),
             ["turn/start:thread-1"]
         );
+    }
+
+    #[tokio::test]
+    async fn subscribes_and_pushes_codex_provider_runtime_events() {
+        let backend = Arc::new(FakeCodexBackend::default());
+        let mut provider = ProviderToolMetadata::new();
+        provider.tool_name = Some("ace_browser".to_string());
+        provider.operation = Some("cua_click".to_string());
+        provider.raw_args = json!({ "label": "Deploy" });
+        let tool = normalize_tool_call(ToolNormalizationInput {
+            transport: ToolTransport::Mcp,
+            status: ToolRunStatus::Completed,
+            provider,
+            item_type: Some("mcpToolCall".to_string()),
+        });
+        backend.push_events(vec![
+            ProviderEvent::SemanticTool {
+                tool: Box::new(tool),
+            },
+            ProviderEvent::RawNotification {
+                method: "item/completed".to_string(),
+                params: json!({ "item": { "id": "item-1" } }),
+            },
+        ]);
+
+        let runner = Arc::new(FakeRunner);
+        let state = WsApiState::new_services(
+            GitService::new(GitClient::with_runner(runner.clone())),
+            GithubService::new(GithubCliClient::with_runner(runner)),
+        )
+        .with_codex_service(CodexService::new(backend));
+        let (outbound_tx, mut outbound_rx) = tokio::sync::mpsc::channel::<String>(8);
+
+        let subscribe = state
+            .dispatch_text_with_events(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "provider-events",
+                    "method": methods::PROVIDER_RUNTIME_EVENTS_SUBSCRIBE,
+                    "payload": { "provider": "codex" }
+                })
+                .to_string(),
+                Some(outbound_tx),
+            )
+            .await;
+        let subscribe: WsServerResponse = serde_json::from_str(&subscribe).expect("subscribe");
+        assert!(matches!(subscribe.payload, WsServerPayload::Result { .. }));
+
+        let pushed = tokio::time::timeout(std::time::Duration::from_secs(1), outbound_rx.recv())
+            .await
+            .expect("provider runtime event timeout")
+            .expect("provider runtime event");
+        let pushed: WsServerResponse = serde_json::from_str(&pushed).expect("pushed response");
+        let WsServerPayload::Event { topic, body } = pushed.payload else {
+            panic!("expected websocket event");
+        };
+        assert_eq!(topic, PROVIDER_RUNTIME_EVENT_TOPIC);
+        assert_eq!(body["provider"], "codex");
+        assert_eq!(body["events"][0]["type"], "tool_completed");
+        assert_eq!(
+            body["events"][0]["tool"]["display"]["title"],
+            "Clicked Deploy in Browser"
+        );
+        assert_eq!(body["raw_events"][1]["type"], "raw_notification");
+        assert_eq!(body["raw_events"][1]["method"], "item/completed");
     }
 }

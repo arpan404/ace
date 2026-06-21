@@ -251,6 +251,9 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
         } else if request.method == ace_protocol::ws::methods::WORKSPACE_FILE_EVENTS_SUBSCRIBE {
             self.subscribe_workspace_file_events(request.payload, outbound)
                 .await
+        } else if request.method == ace_protocol::ws::methods::PROVIDER_RUNTIME_EVENTS_SUBSCRIBE {
+            self.subscribe_provider_runtime_events(request.payload, outbound)
+                .await
         } else {
             self.dispatch_method(&request.method, request.payload).await
         };

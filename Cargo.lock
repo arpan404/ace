@@ -171,6 +171,7 @@ dependencies = [
  "ace-process",
  "ace-project",
  "ace-protocol",
+ "ace-runtime",
  "ace-terminal",
  "ace-workspace",
  "async-trait",

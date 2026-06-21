@@ -1,6 +1,7 @@
 use ace_codex::{
     CodexClient, CodexConfig, CodexStdioTransport, CodexThreadStart, CodexTurnStart, Result,
 };
+use ace_runtime::provider::ProviderEvent;
 use async_trait::async_trait;
 use serde_json::Value;
 use std::sync::Arc;
@@ -33,6 +34,7 @@ pub trait CodexBackend: Send + Sync {
     async fn fork_thread(&self, thread_id: &str, ephemeral: bool) -> Result<Value>;
     async fn start_turn(&self, request: CodexTurnStart) -> Result<Value>;
     async fn interrupt_turn(&self, thread_id: &str) -> Result<Value>;
+    async fn next_events(&self) -> Result<Option<Vec<ProviderEvent>>>;
 }
 
 pub type DynCodexBackend = Arc<dyn CodexBackend>;
@@ -86,6 +88,10 @@ impl CodexBackend for LiveCodexBackend {
 
     async fn interrupt_turn(&self, thread_id: &str) -> Result<Value> {
         self.client().await?.interrupt_turn(thread_id).await
+    }
+
+    async fn next_events(&self) -> Result<Option<Vec<ProviderEvent>>> {
+        Ok(self.client().await?.next_provider_events().await)
     }
 }
 
@@ -150,16 +156,29 @@ impl CodexService {
     ) -> std::result::Result<Value, CodexApiError> {
         Ok(self.backend.interrupt_turn(&thread_id).await?)
     }
+
+    pub async fn next_events(
+        &self,
+    ) -> std::result::Result<Option<Vec<ProviderEvent>>, CodexApiError> {
+        Ok(self.backend.next_events().await?)
+    }
 }
 
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use std::sync::Mutex as StdMutex;
+    use std::{collections::VecDeque, sync::Mutex as StdMutex};
 
     #[derive(Default)]
     pub struct FakeCodexBackend {
         pub calls: StdMutex<Vec<String>>,
+        pub events: StdMutex<VecDeque<Vec<ProviderEvent>>>,
+    }
+
+    impl FakeCodexBackend {
+        pub fn push_events(&self, events: Vec<ProviderEvent>) {
+            self.events.lock().expect("events").push_back(events);
+        }
     }
 
     #[async_trait]
@@ -207,6 +226,10 @@ pub mod tests {
                 .expect("calls")
                 .push(format!("turn/interrupt:{thread_id}"));
             Ok(serde_json::json!({ "interrupted": true }))
+        }
+
+        async fn next_events(&self) -> Result<Option<Vec<ProviderEvent>>> {
+            Ok(self.events.lock().expect("events").pop_front())
         }
     }
 }
