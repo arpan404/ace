@@ -10,12 +10,12 @@ use ace_protocol::github::{
     EnvironmentStatusRequest, GithubImageProxyRequest, IssueListFilter, IssueListRequest,
     IssueThreadRequest, PullRequestActivityRequest, PullRequestChecksRequest,
     PullRequestCiStatusRequest, PullRequestCommitsRequest, PullRequestCreateRequest,
-    PullRequestDashboardRequest, PullRequestDiffRequest, PullRequestFilesRequest,
-    PullRequestListFilter, PullRequestMergeMethod, PullRequestMergeRequest,
-    PullRequestMergeStatusRequest, PullRequestRequest, PullRequestReviewCommentsRequest,
-    PullRequestReviewDecision, PullRequestReviewRequest, PullRequestReviewThreadsRequest,
-    PullRequestThreadRequest, PullRequestTimelineRequest, WorkflowDisableRequest,
-    WorkflowDispatchInput, WorkflowDispatchRequest, WorkflowEnableRequest,
+    PullRequestDashboardRequest, PullRequestDiagnosticsRequest, PullRequestDiffRequest,
+    PullRequestFilesRequest, PullRequestListFilter, PullRequestMergeMethod,
+    PullRequestMergeRequest, PullRequestMergeStatusRequest, PullRequestRequest,
+    PullRequestReviewCommentsRequest, PullRequestReviewDecision, PullRequestReviewRequest,
+    PullRequestReviewThreadsRequest, PullRequestThreadRequest, PullRequestTimelineRequest,
+    WorkflowDisableRequest, WorkflowDispatchInput, WorkflowDispatchRequest, WorkflowEnableRequest,
     WorkflowJobDiagnosticsRequest, WorkflowJobLogRequest, WorkflowJobRequest, WorkflowListFilter,
     WorkflowListRequest, WorkflowRequest, WorkflowRunApprovalsRequest, WorkflowRunApproveRequest,
     WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest, WorkflowRunDiagnosticsRequest,
@@ -1127,6 +1127,77 @@ async fn service_returns_pull_request_ci_status() {
         "repos/ace/app/commits/abc/statuses"
     );
     assert_eq!(runner.requests()[5].args[3], "per_page=20");
+}
+
+#[tokio::test]
+async fn service_returns_pull_request_diagnostics() {
+    let runner = Arc::new(FakeRunner::new(vec![
+        ok(
+            br#"{"number":42,"title":"Feature","state":"OPEN","url":"https://example.test/pull/42","headRefName":"feature/x","headRefOid":"abc","baseRefName":"main","body":"body"}"#,
+        ),
+        ok(
+            br#"[{"bucket":"fail","completedAt":"2026-06-21T00:01:00Z","description":null,"event":"push","link":"https://example.test/check","name":"CI","startedAt":"2026-06-21T00:00:00Z","state":"FAILURE","workflow":"CI"}]"#,
+        ),
+        ok(
+            br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+        ),
+        ok(
+            br#"{"total_count":1,"check_runs":[{"id":10,"name":"build","node_id":"CR_1","head_sha":"abc","external_id":null,"url":"https://api.github.test/check-runs/10","html_url":"https://github.test/checks/10","details_url":"https://ci.test/build/10","status":"completed","conclusion":"failure","started_at":"2026-06-21T00:00:00Z","completed_at":"2026-06-21T00:01:00Z","output":{"title":"Build","summary":"failed","text":null,"annotations_count":2,"annotations_url":"https://api.github.test/annotations"},"app":{"id":1,"slug":"github-actions","name":"GitHub Actions","html_url":"https://github.com/apps/github-actions"},"check_suite":{"id":5,"head_branch":"feature/x","head_sha":"abc","status":"completed","conclusion":"failure"},"pull_requests":[]}]}"#,
+        ),
+        ok(
+            br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+        ),
+        ok(
+            br#"[{"id":99,"node_id":"ST_1","state":"failure","description":"failed","target_url":"https://ci.test/status","context":"ci/build","created_at":"2026-06-21T00:00:00Z","updated_at":"2026-06-21T00:01:00Z","url":"https://api.github.test/statuses/99","avatar_url":"https://avatars.githubusercontent.com/u/1"}]"#,
+        ),
+        ok(
+            br#"[{"attempt":1,"conclusion":"failure","createdAt":"2026-06-21T00:00:00Z","databaseId":7,"displayTitle":"Run","event":"pull_request","headBranch":"feature/x","headSha":"abc","name":"CI","number":3,"startedAt":"2026-06-21T00:00:00Z","status":"completed","updatedAt":"2026-06-21T00:01:00Z","url":"https://example.test/run/7","workflowDatabaseId":2,"workflowName":"CI"}]"#,
+        ),
+        ok(
+            br#"{"number":42,"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"BLOCKED","reviewDecision":"CHANGES_REQUESTED","autoMergeRequest":null,"maintainerCanModify":true,"changedFiles":2,"additions":10,"deletions":1,"statusCheckRollup":[]}"#,
+        ),
+        ok(
+            br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+        ),
+        ok(
+            br#"{"data":{"repository":{"pullRequest":{"number":42,"reviewThreads":{"totalCount":1,"nodes":[{"id":"PRRT_1","isCollapsed":false,"isOutdated":false,"isResolved":false,"path":"src/lib.rs","line":12,"startLine":10,"diffSide":"RIGHT","startDiffSide":"RIGHT","subjectType":"LINE","viewerCanReply":true,"viewerCanResolve":true,"viewerCanUnresolve":false,"resolvedBy":null,"comments":{"totalCount":1,"nodes":[{"id":"PRRC_1","databaseId":10,"author":{"login":"reviewer"},"body":"Please cover this branch","createdAt":"2026-06-21T00:00:00Z","updatedAt":"2026-06-21T00:01:00Z","url":"https://github.test/pull/42#discussion_r10","path":"src/lib.rs","line":12,"originalLine":12,"diffHunk":"@@ -1 +1 @@","pullRequestReview":{"id":"PRR_1","state":"CHANGES_REQUESTED","author":{"login":"reviewer"}}}]}}]}}}}}"#,
+        ),
+    ]));
+    let service = GithubService::new(GithubCliClient::with_runner(runner.clone()));
+
+    let diagnostics = service
+        .pull_request_diagnostics(PullRequestDiagnosticsRequest {
+            repo_path: "/repo".to_string(),
+            selector: "42".to_string(),
+            required_checks_only: true,
+            workflow_run_limit: 5,
+            check_run_limit: 25,
+            status_limit: 20,
+            include_merge_status: true,
+            include_review_threads: true,
+            review_thread_limit: 10,
+            review_comment_limit: 3,
+        })
+        .await
+        .expect("diagnostics");
+
+    assert_eq!(diagnostics.ci_status.pull_request.number, Some(42));
+    assert_eq!(diagnostics.ci_status.commit_checks.summary.failed, 2);
+    assert_eq!(
+        diagnostics
+            .merge_status
+            .as_ref()
+            .and_then(|status| status.merge_state_status.as_deref()),
+        Some("BLOCKED")
+    );
+    assert_eq!(
+        diagnostics
+            .review_threads
+            .as_ref()
+            .map(|threads| threads.total_count),
+        Some(1)
+    );
+    assert_eq!(runner.requests()[9].args[0..2], ["api", "graphql"]);
 }
 
 #[tokio::test]

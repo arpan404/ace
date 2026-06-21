@@ -23,17 +23,18 @@ use ace_protocol::github::{
     PullRequestActivityRequest, PullRequestCheckoutRequest, PullRequestChecksRequest,
     PullRequestCiStatusRequest, PullRequestCloseRequest, PullRequestCommentRequest,
     PullRequestCommitsRequest, PullRequestCreateRequest, PullRequestDashboardRequest,
-    PullRequestDiffRequest, PullRequestFilesRequest, PullRequestListRequest,
-    PullRequestMergeRequest, PullRequestMergeStatusRequest, PullRequestReadyStateRequest,
-    PullRequestReopenRequest, PullRequestRequest, PullRequestReviewCommentsRequest,
-    PullRequestReviewRequest, PullRequestReviewThreadsRequest, PullRequestThreadRequest,
-    PullRequestTimelineRequest, SearchIssuesRequest, SearchPullRequestsRequest,
-    WorkflowDisableRequest, WorkflowDispatchRequest, WorkflowEnableRequest,
-    WorkflowJobDiagnosticsRequest, WorkflowJobLogRequest, WorkflowJobRequest, WorkflowListRequest,
-    WorkflowRequest, WorkflowRunApprovalsRequest, WorkflowRunApproveRequest,
-    WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest, WorkflowRunCancelRequest,
-    WorkflowRunDiagnosticsRequest, WorkflowRunForceCancelRequest, WorkflowRunJobsRequest,
-    WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunPendingDeploymentReviewRequest,
+    PullRequestDiagnosticsRequest, PullRequestDiffRequest, PullRequestFilesRequest,
+    PullRequestListRequest, PullRequestMergeRequest, PullRequestMergeStatusRequest,
+    PullRequestReadyStateRequest, PullRequestReopenRequest, PullRequestRequest,
+    PullRequestReviewCommentsRequest, PullRequestReviewRequest, PullRequestReviewThreadsRequest,
+    PullRequestThreadRequest, PullRequestTimelineRequest, SearchIssuesRequest,
+    SearchPullRequestsRequest, WorkflowDisableRequest, WorkflowDispatchRequest,
+    WorkflowEnableRequest, WorkflowJobDiagnosticsRequest, WorkflowJobLogRequest,
+    WorkflowJobRequest, WorkflowListRequest, WorkflowRequest, WorkflowRunApprovalsRequest,
+    WorkflowRunApproveRequest, WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest,
+    WorkflowRunCancelRequest, WorkflowRunDiagnosticsRequest, WorkflowRunForceCancelRequest,
+    WorkflowRunJobsRequest, WorkflowRunListRequest, WorkflowRunLogRequest,
+    WorkflowRunPendingDeploymentReviewRequest,
     WorkflowRunPendingDeploymentReviewState as ProtocolWorkflowRunPendingDeploymentReviewState,
     WorkflowRunPendingDeploymentsRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
 };
@@ -507,6 +508,29 @@ impl<R: ProcessRunner> GithubService<R> {
                     workflow_run_limit: request.workflow_run_limit,
                     check_run_limit: request.check_run_limit,
                     status_limit: request.status_limit,
+                },
+            )
+            .await
+            .map_err(GithubApiError::from)
+    }
+
+    pub async fn pull_request_diagnostics(
+        &self,
+        request: PullRequestDiagnosticsRequest,
+    ) -> Result<ace_git::GithubPullRequestDiagnostics, GithubApiError> {
+        self.github
+            .pull_request_diagnostics(
+                &repo_path(&request.repo_path)?,
+                &ace_git::PullRequestDiagnosticsRequest {
+                    selector: request.selector,
+                    required_checks_only: request.required_checks_only,
+                    workflow_run_limit: request.workflow_run_limit,
+                    check_run_limit: request.check_run_limit,
+                    status_limit: request.status_limit,
+                    include_merge_status: request.include_merge_status,
+                    include_review_threads: request.include_review_threads,
+                    review_thread_limit: request.review_thread_limit,
+                    review_comment_limit: request.review_comment_limit,
                 },
             )
             .await

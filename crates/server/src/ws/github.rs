@@ -9,14 +9,15 @@ use ace_protocol::{
         PullRequestActivityRequest, PullRequestCheckoutRequest, PullRequestChecksRequest,
         PullRequestCiStatusRequest, PullRequestCloseRequest, PullRequestCommentRequest,
         PullRequestCommitsRequest, PullRequestCreateRequest, PullRequestDashboardRequest,
-        PullRequestDiffRequest, PullRequestFilesRequest, PullRequestListRequest,
-        PullRequestMergeRequest, PullRequestMergeStatusRequest, PullRequestReadyStateRequest,
-        PullRequestReopenRequest, PullRequestRequest, PullRequestReviewCommentsRequest,
-        PullRequestReviewRequest, PullRequestReviewThreadsRequest, PullRequestThreadRequest,
-        PullRequestTimelineRequest, RepositoryActivityRequest, SearchIssuesRequest,
-        SearchPullRequestsRequest, WorkflowDisableRequest, WorkflowDispatchRequest,
-        WorkflowEnableRequest, WorkflowJobDiagnosticsRequest, WorkflowJobLogRequest,
-        WorkflowJobRequest, WorkflowListRequest, WorkflowRequest, WorkflowRunApprovalsRequest,
+        PullRequestDiagnosticsRequest, PullRequestDiffRequest, PullRequestFilesRequest,
+        PullRequestListRequest, PullRequestMergeRequest, PullRequestMergeStatusRequest,
+        PullRequestReadyStateRequest, PullRequestReopenRequest, PullRequestRequest,
+        PullRequestReviewCommentsRequest, PullRequestReviewRequest,
+        PullRequestReviewThreadsRequest, PullRequestThreadRequest, PullRequestTimelineRequest,
+        RepositoryActivityRequest, SearchIssuesRequest, SearchPullRequestsRequest,
+        WorkflowDisableRequest, WorkflowDispatchRequest, WorkflowEnableRequest,
+        WorkflowJobDiagnosticsRequest, WorkflowJobLogRequest, WorkflowJobRequest,
+        WorkflowListRequest, WorkflowRequest, WorkflowRunApprovalsRequest,
         WorkflowRunApproveRequest, WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest,
         WorkflowRunCancelRequest, WorkflowRunDiagnosticsRequest, WorkflowRunForceCancelRequest,
         WorkflowRunJobsRequest, WorkflowRunListRequest, WorkflowRunLogRequest,
@@ -266,6 +267,15 @@ impl<R: ProcessRunner> WsApiState<R> {
                     payload,
                     |service, request| async move {
                         service.pull_request_ci_status(request).await
+                    },
+                )
+                .await
+            }
+            methods::GITHUB_PULL_REQUEST_DIAGNOSTICS => {
+                self.github_json::<PullRequestDiagnosticsRequest, _, _, _>(
+                    payload,
+                    |service, request| async move {
+                        service.pull_request_diagnostics(request).await
                     },
                 )
                 .await
@@ -1992,6 +2002,74 @@ mod tests {
                 .windows(2)
                 .any(|pair| pair == ["--commit", "abc"])
         );
+    }
+
+    #[tokio::test]
+    async fn dispatches_pull_request_diagnostics_over_ws_rpc() {
+        let runner = Arc::new(FakeRunner::new(vec![
+            ok(
+                br#"{"number":42,"title":"Feature","state":"OPEN","url":"https://example.test/pull/42","headRefName":"feature/x","headRefOid":"abc","baseRefName":"main","body":"body"}"#,
+            ),
+            ok(
+                br#"[{"bucket":"fail","completedAt":"2026-06-21T00:01:00Z","description":null,"event":"push","link":"https://example.test/check","name":"CI","startedAt":"2026-06-21T00:00:00Z","state":"FAILURE","workflow":"CI"}]"#,
+            ),
+            ok(
+                br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+            ),
+            ok(
+                br#"{"total_count":1,"check_runs":[{"id":10,"name":"build","node_id":"CR_1","head_sha":"abc","external_id":null,"url":"https://api.github.test/check-runs/10","html_url":"https://github.test/checks/10","details_url":"https://ci.test/build/10","status":"completed","conclusion":"failure","started_at":"2026-06-21T00:00:00Z","completed_at":"2026-06-21T00:01:00Z","output":{"title":"Build","summary":"failed","text":null,"annotations_count":2,"annotations_url":"https://api.github.test/annotations"},"app":{"id":1,"slug":"github-actions","name":"GitHub Actions","html_url":"https://github.com/apps/github-actions"},"check_suite":{"id":5,"head_branch":"feature/x","head_sha":"abc","status":"completed","conclusion":"failure"},"pull_requests":[]}]}"#,
+            ),
+            ok(
+                br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+            ),
+            ok(
+                br#"[{"id":99,"node_id":"ST_1","state":"failure","description":"failed","target_url":"https://ci.test/status","context":"ci/build","created_at":"2026-06-21T00:00:00Z","updated_at":"2026-06-21T00:01:00Z","url":"https://api.github.test/statuses/99","avatar_url":"https://avatars.githubusercontent.com/u/1"}]"#,
+            ),
+            ok(
+                br#"[{"attempt":1,"conclusion":"failure","createdAt":"2026-06-21T00:00:00Z","databaseId":7,"displayTitle":"Run","event":"pull_request","headBranch":"feature/x","headSha":"abc","name":"CI","number":3,"startedAt":"2026-06-21T00:00:00Z","status":"completed","updatedAt":"2026-06-21T00:01:00Z","url":"https://example.test/run/7","workflowDatabaseId":2,"workflowName":"CI"}]"#,
+            ),
+            ok(
+                br#"{"number":42,"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"BLOCKED","reviewDecision":"CHANGES_REQUESTED","autoMergeRequest":null,"maintainerCanModify":true,"changedFiles":2,"additions":10,"deletions":1,"statusCheckRollup":[]}"#,
+            ),
+            ok(
+                br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+            ),
+            ok(
+                br#"{"data":{"repository":{"pullRequest":{"number":42,"reviewThreads":{"totalCount":1,"nodes":[{"id":"PRRT_1","isCollapsed":false,"isOutdated":false,"isResolved":false,"path":"src/lib.rs","line":12,"startLine":10,"diffSide":"RIGHT","startDiffSide":"RIGHT","subjectType":"LINE","viewerCanReply":true,"viewerCanResolve":true,"viewerCanUnresolve":false,"resolvedBy":null,"comments":{"totalCount":1,"nodes":[{"id":"PRRC_1","databaseId":10,"author":{"login":"reviewer"},"body":"Please cover this branch","createdAt":"2026-06-21T00:00:00Z","updatedAt":"2026-06-21T00:01:00Z","url":"https://github.test/pull/42#discussion_r10","path":"src/lib.rs","line":12,"originalLine":12,"diffHunk":"@@ -1 +1 @@","pullRequestReview":{"id":"PRR_1","state":"CHANGES_REQUESTED","author":{"login":"reviewer"}}}]}}]}}}}}"#,
+            ),
+        ]));
+        let state = test_state(runner.clone());
+
+        let response = dispatch(
+            &state,
+            serde_json::json!({
+                "version": PROTOCOL_VERSION,
+                "request_id": "req-pr-diagnostics",
+                "method": methods::GITHUB_PULL_REQUEST_DIAGNOSTICS,
+                "payload": {
+                    "repo_path": "/repo",
+                    "selector": "42",
+                    "required_checks_only": true,
+                    "workflow_run_limit": 5,
+                    "check_run_limit": 25,
+                    "status_limit": 20,
+                    "include_merge_status": true,
+                    "include_review_threads": true,
+                    "review_thread_limit": 10,
+                    "review_comment_limit": 3
+                }
+            }),
+        )
+        .await;
+
+        let WsServerPayload::Result { body } = response.payload else {
+            panic!("expected result");
+        };
+        assert_eq!(body["ci_status"]["pull_request"]["number"], 42);
+        assert_eq!(body["ci_status"]["commit_checks"]["summary"]["failed"], 2);
+        assert_eq!(body["merge_status"]["mergeStateStatus"], "BLOCKED");
+        assert_eq!(body["review_threads"]["total_count"], 1);
+        assert_eq!(runner.requests()[9].args[0..2], ["api", "graphql"]);
     }
 
     #[tokio::test]

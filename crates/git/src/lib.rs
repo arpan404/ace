@@ -25,6 +25,7 @@ mod github_diff;
 mod github_environment;
 mod github_job_diagnostics;
 mod github_mutations;
+mod github_pr_diagnostics;
 mod github_pr_status;
 mod github_review_comments;
 mod github_review_threads;
@@ -70,6 +71,7 @@ pub use github_mutations::{
     WorkflowRunPendingDeploymentReview, WorkflowRunPendingDeploymentReviewState, WorkflowRunRerun,
     WorkflowStateChange,
 };
+pub use github_pr_diagnostics::{GithubPullRequestDiagnostics, PullRequestDiagnosticsRequest};
 pub use github_pr_status::{GithubPullRequestCiStatus, PullRequestCiStatusRequest};
 pub use github_review_comments::GithubPullRequestReviewComment;
 pub use github_review_threads::{

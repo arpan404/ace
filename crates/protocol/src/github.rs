@@ -333,6 +333,20 @@ pub struct PullRequestCiStatusRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PullRequestDiagnosticsRequest {
+    pub repo_path: String,
+    pub selector: String,
+    pub required_checks_only: bool,
+    pub workflow_run_limit: u32,
+    pub check_run_limit: u32,
+    pub status_limit: u32,
+    pub include_merge_status: bool,
+    pub include_review_threads: bool,
+    pub review_thread_limit: u32,
+    pub review_comment_limit: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PullRequestDashboardRequest {
     pub repo_path: String,
     pub filter: PullRequestListFilter,

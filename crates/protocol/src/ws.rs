@@ -49,6 +49,7 @@ pub mod methods {
     pub const GITHUB_PULL_REQUEST_FILES: &str = "github.pull_request.files";
     pub const GITHUB_PULL_REQUEST_DIFF: &str = "github.pull_request.diff";
     pub const GITHUB_PULL_REQUEST_CHECKS: &str = "github.pull_request.checks";
+    pub const GITHUB_PULL_REQUEST_DIAGNOSTICS: &str = "github.pull_request.diagnostics";
     pub const GITHUB_CHECK_RUNS_LIST: &str = "github.check_runs.list";
     pub const GITHUB_CHECK_RUNS_VIEW: &str = "github.check_runs.view";
     pub const GITHUB_CHECK_RUNS_DIAGNOSTICS: &str = "github.check_runs.diagnostics";
