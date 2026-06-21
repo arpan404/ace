@@ -508,3 +508,9 @@ pub struct WorkflowRunCancelRequest {
     pub repo_path: String,
     pub run_id: u64,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkflowRunApproveRequest {
+    pub repo_path: String,
+    pub run_id: u64,
+}

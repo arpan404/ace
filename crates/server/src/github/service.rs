@@ -10,7 +10,7 @@ use ace_git::{
     CreatePullRequest, GithubCliClient, ProcessRunner, PullRequestCheckout, PullRequestClose,
     PullRequestComment, PullRequestMerge, PullRequestReadyState, PullRequestReopen,
     PullRequestReview, TokioProcessRunner, WorkflowDispatch, WorkflowDispatchInput,
-    WorkflowRunCancel, WorkflowRunRerun, WorkflowStateChange,
+    WorkflowRunApprove, WorkflowRunCancel, WorkflowRunRerun, WorkflowStateChange,
 };
 use ace_protocol::github::{
     CheckRunAnnotationsRequest, CheckRunRequest, CheckRunRerequestRequest, CheckRunsRequest,
@@ -24,9 +24,10 @@ use ace_protocol::github::{
     PullRequestReopenRequest, PullRequestRequest, PullRequestReviewRequest,
     PullRequestThreadRequest, SearchIssuesRequest, SearchPullRequestsRequest,
     WorkflowDisableRequest, WorkflowDispatchRequest, WorkflowEnableRequest, WorkflowJobLogRequest,
-    WorkflowJobRequest, WorkflowListRequest, WorkflowRunArtifactDownloadRequest,
-    WorkflowRunArtifactsRequest, WorkflowRunCancelRequest, WorkflowRunJobsRequest,
-    WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
+    WorkflowJobRequest, WorkflowListRequest, WorkflowRunApproveRequest,
+    WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest, WorkflowRunCancelRequest,
+    WorkflowRunJobsRequest, WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunRequest,
+    WorkflowRunRerunRequest,
 };
 use serde::Serialize;
 use std::{path::PathBuf, sync::Arc};
@@ -584,6 +585,21 @@ impl<R: ProcessRunner> GithubService<R> {
                     names: request.names,
                     patterns: request.patterns,
                     output_dir: request.output_dir,
+                },
+            )
+            .await
+            .map_err(GithubApiError::from)
+    }
+
+    pub async fn approve_workflow_run(
+        &self,
+        request: WorkflowRunApproveRequest,
+    ) -> Result<ace_git::GithubActionResult, GithubApiError> {
+        self.github
+            .approve_workflow_run(
+                &repo_path(&request.repo_path)?,
+                &WorkflowRunApprove {
+                    run_id: request.run_id,
                 },
             )
             .await

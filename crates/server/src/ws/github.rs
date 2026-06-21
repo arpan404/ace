@@ -14,9 +14,9 @@ use ace_protocol::{
         PullRequestReviewRequest, PullRequestThreadRequest, SearchIssuesRequest,
         SearchPullRequestsRequest, WorkflowDisableRequest, WorkflowDispatchRequest,
         WorkflowEnableRequest, WorkflowJobLogRequest, WorkflowJobRequest, WorkflowListRequest,
-        WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest, WorkflowRunCancelRequest,
-        WorkflowRunJobsRequest, WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunRequest,
-        WorkflowRunRerunRequest,
+        WorkflowRunApproveRequest, WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest,
+        WorkflowRunCancelRequest, WorkflowRunJobsRequest, WorkflowRunListRequest,
+        WorkflowRunLogRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
     },
     ws::methods,
 };
@@ -351,6 +351,13 @@ impl<R: ProcessRunner> WsApiState<R> {
                     |service, request| async move {
                         service.download_workflow_artifacts(request).await
                     },
+                )
+                .await
+            }
+            methods::GITHUB_WORKFLOW_RUN_APPROVE => {
+                self.github_json::<WorkflowRunApproveRequest, _, _, _>(
+                    payload,
+                    |service, request| async move { service.approve_workflow_run(request).await },
                 )
                 .await
             }
@@ -1595,6 +1602,46 @@ mod tests {
                 "logs-*",
                 "--dir",
                 "/tmp/artifacts"
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn dispatches_workflow_run_approve_over_ws_rpc() {
+        let runner = Arc::new(FakeRunner::new(vec![
+            ok(
+                br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+            ),
+            ok("approved\n"),
+        ]));
+        let state = test_state(runner.clone());
+
+        let response = dispatch(
+            &state,
+            serde_json::json!({
+                "version": PROTOCOL_VERSION,
+                "request_id": "req-workflow-approve",
+                "method": methods::GITHUB_WORKFLOW_RUN_APPROVE,
+                "payload": {
+                    "repo_path": "/repo",
+                    "run_id": 100
+                }
+            }),
+        )
+        .await;
+
+        let WsServerPayload::Result { body } = response.payload else {
+            panic!("expected result");
+        };
+        assert_eq!(body["action"], "approve_workflow_run");
+        assert_eq!(body["stdout"], "approved");
+        assert_eq!(
+            runner.requests()[1].args,
+            vec![
+                "api",
+                "repos/ace/app/actions/runs/100/approve",
+                "-X",
+                "POST"
             ]
         );
     }

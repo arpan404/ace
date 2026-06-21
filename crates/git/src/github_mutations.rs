@@ -197,6 +197,34 @@ impl<R: ProcessRunner> GithubCliClient<R> {
         .await
     }
 
+    pub async fn approve_workflow_run(
+        &self,
+        cwd: &Path,
+        request: &WorkflowRunApprove,
+    ) -> Result<GithubActionResult> {
+        let repository = self.repository(cwd).await?;
+        let output = self
+            .gh_allow_statuses(
+                cwd,
+                [
+                    "api".to_string(),
+                    format!(
+                        "repos/{}/actions/runs/{}/approve",
+                        repository.name_with_owner, request.run_id
+                    ),
+                    "-X".to_string(),
+                    "POST".to_string(),
+                ],
+                &[0],
+            )
+            .await?;
+        Ok(GithubActionResult {
+            action: "approve_workflow_run",
+            stdout: output.stdout_string(),
+            stderr: output.stderr_string(),
+        })
+    }
+
     pub async fn dispatch_workflow(
         &self,
         cwd: &Path,
@@ -354,6 +382,11 @@ pub struct WorkflowRunRerun {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkflowRunCancel {
+    pub run_id: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkflowRunApprove {
     pub run_id: u64,
 }
 
@@ -631,6 +664,34 @@ mod tests {
             vec!["run", "rerun", "100", "--failed", "--debug", "--job", "200"]
         );
         assert_eq!(requests[3].args, vec!["run", "cancel", "100"]);
+    }
+
+    #[tokio::test]
+    async fn approve_workflow_run_resolves_repo_and_posts_endpoint() {
+        let runner = std::sync::Arc::new(FakeRunner::new(vec![
+            ok(
+                br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+            ),
+            ok("approved\n"),
+        ]));
+        let github = GithubCliClient::with_runner(runner.clone());
+
+        let result = github
+            .approve_workflow_run(Path::new("."), &WorkflowRunApprove { run_id: 100 })
+            .await
+            .expect("approve");
+
+        assert_eq!(result.action, "approve_workflow_run");
+        assert_eq!(result.stdout, "approved");
+        assert_eq!(
+            runner.requests()[1].args,
+            vec![
+                "api",
+                "repos/ace/app/actions/runs/100/approve",
+                "-X",
+                "POST"
+            ]
+        );
     }
 
     #[tokio::test]

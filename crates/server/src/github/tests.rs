@@ -11,7 +11,7 @@ use ace_protocol::github::{
     PullRequestMergeStatusRequest, PullRequestRequest, PullRequestReviewDecision,
     PullRequestReviewRequest, PullRequestThreadRequest, WorkflowDisableRequest,
     WorkflowDispatchInput, WorkflowDispatchRequest, WorkflowEnableRequest, WorkflowJobLogRequest,
-    WorkflowJobRequest, WorkflowListFilter, WorkflowListRequest,
+    WorkflowJobRequest, WorkflowListFilter, WorkflowListRequest, WorkflowRunApproveRequest,
     WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest, WorkflowRunJobsRequest,
     WorkflowRunListFilter, WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunRerunRequest,
 };
@@ -1121,6 +1121,37 @@ async fn service_returns_workflow_job_log() {
     assert_eq!(
         runner.requests()[1].args,
         vec!["api", "repos/ace/app/actions/jobs/200/logs"]
+    );
+}
+
+#[tokio::test]
+async fn service_approves_workflow_run() {
+    let runner = Arc::new(FakeRunner::new(vec![
+        ok(
+            br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+        ),
+        ok("approved\n"),
+    ]));
+    let service = GithubService::new(GithubCliClient::with_runner(runner.clone()));
+
+    let result = service
+        .approve_workflow_run(WorkflowRunApproveRequest {
+            repo_path: "/repo".to_string(),
+            run_id: 100,
+        })
+        .await
+        .expect("approve");
+
+    assert_eq!(result.action, "approve_workflow_run");
+    assert_eq!(result.stdout, "approved");
+    assert_eq!(
+        runner.requests()[1].args,
+        vec![
+            "api",
+            "repos/ace/app/actions/runs/100/approve",
+            "-X",
+            "POST"
+        ]
     );
 }
 

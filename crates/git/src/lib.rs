@@ -50,7 +50,7 @@ pub use github_mutations::{
     GithubActionResult, PullRequestCheckout, PullRequestClose, PullRequestComment,
     PullRequestMerge, PullRequestMergeMethod, PullRequestReadyState, PullRequestReopen,
     PullRequestReview, PullRequestReviewDecision, WorkflowDispatch, WorkflowDispatchInput,
-    WorkflowRunCancel, WorkflowRunRerun, WorkflowStateChange,
+    WorkflowRunApprove, WorkflowRunCancel, WorkflowRunRerun, WorkflowStateChange,
 };
 pub use github_search::{
     GithubIssueListFilter, GithubIssueSummary, GithubPullRequestListFilter,
