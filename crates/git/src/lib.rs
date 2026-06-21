@@ -19,6 +19,7 @@ mod github_actions;
 mod github_activity;
 mod github_check_diagnostics;
 mod github_checks;
+mod github_commit_diagnostics;
 mod github_dashboard;
 mod github_detail;
 mod github_diff;
@@ -50,6 +51,9 @@ pub use github_checks::{
     GithubCheckRunApp, GithubCheckRunOutput, GithubCheckRunPullRequest, GithubCheckRunSuite,
     GithubCheckSuite, GithubCommitCheckRollup, GithubCommitCheckState, GithubCommitCheckSummary,
     GithubCommitStatus,
+};
+pub use github_commit_diagnostics::{
+    CommitCheckDiagnosticsRequest, GithubCommitCheckDiagnostics, GithubFailedCheckRunAnnotations,
 };
 pub use github_dashboard::{
     GithubPullRequestDashboard, GithubPullRequestDashboardItem, PullRequestDashboardRequest,

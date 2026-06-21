@@ -275,6 +275,16 @@ pub struct CommitCheckRollupRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CommitCheckDiagnosticsRequest {
+    pub repo_path: String,
+    pub git_ref: String,
+    pub check_run_limit: u32,
+    pub status_limit: u32,
+    pub failed_check_run_limit: u32,
+    pub annotation_limit: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CheckRunAnnotationsRequest {
     pub repo_path: String,
     pub check_run_id: u64,

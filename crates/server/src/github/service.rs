@@ -18,23 +18,23 @@ use ace_git::{
 use ace_protocol::github::{
     CheckRunAnnotationsRequest, CheckRunDiagnosticsRequest, CheckRunRequest,
     CheckRunRerequestRequest, CheckRunsRequest, CheckSuiteRequest, CheckSuiteRerequestRequest,
-    CheckSuiteRunsRequest, CheckSuitesRequest, CommitCheckRollupRequest, CommitStatusesRequest,
-    EnvironmentStatusRequest, GithubImageProxyRequest, IssueListRequest, IssueThreadRequest,
-    PullRequestActivityRequest, PullRequestCheckoutRequest, PullRequestChecksRequest,
-    PullRequestCiStatusRequest, PullRequestCloseRequest, PullRequestCommentRequest,
-    PullRequestCommitsRequest, PullRequestCreateRequest, PullRequestDashboardRequest,
-    PullRequestDiagnosticsRequest, PullRequestDiffRequest, PullRequestFilesRequest,
-    PullRequestListRequest, PullRequestMergeRequest, PullRequestMergeStatusRequest,
-    PullRequestReadyStateRequest, PullRequestReopenRequest, PullRequestRequest,
-    PullRequestReviewCommentsRequest, PullRequestReviewRequest, PullRequestReviewThreadsRequest,
-    PullRequestThreadRequest, PullRequestTimelineRequest, SearchIssuesRequest,
-    SearchPullRequestsRequest, WorkflowDisableRequest, WorkflowDispatchRequest,
-    WorkflowEnableRequest, WorkflowJobDiagnosticsRequest, WorkflowJobLogRequest,
-    WorkflowJobRequest, WorkflowListRequest, WorkflowRequest, WorkflowRunApprovalsRequest,
-    WorkflowRunApproveRequest, WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest,
-    WorkflowRunCancelRequest, WorkflowRunDiagnosticsRequest, WorkflowRunForceCancelRequest,
-    WorkflowRunJobsRequest, WorkflowRunListRequest, WorkflowRunLogRequest,
-    WorkflowRunPendingDeploymentReviewRequest,
+    CheckSuiteRunsRequest, CheckSuitesRequest, CommitCheckDiagnosticsRequest,
+    CommitCheckRollupRequest, CommitStatusesRequest, EnvironmentStatusRequest,
+    GithubImageProxyRequest, IssueListRequest, IssueThreadRequest, PullRequestActivityRequest,
+    PullRequestCheckoutRequest, PullRequestChecksRequest, PullRequestCiStatusRequest,
+    PullRequestCloseRequest, PullRequestCommentRequest, PullRequestCommitsRequest,
+    PullRequestCreateRequest, PullRequestDashboardRequest, PullRequestDiagnosticsRequest,
+    PullRequestDiffRequest, PullRequestFilesRequest, PullRequestListRequest,
+    PullRequestMergeRequest, PullRequestMergeStatusRequest, PullRequestReadyStateRequest,
+    PullRequestReopenRequest, PullRequestRequest, PullRequestReviewCommentsRequest,
+    PullRequestReviewRequest, PullRequestReviewThreadsRequest, PullRequestThreadRequest,
+    PullRequestTimelineRequest, SearchIssuesRequest, SearchPullRequestsRequest,
+    WorkflowDisableRequest, WorkflowDispatchRequest, WorkflowEnableRequest,
+    WorkflowJobDiagnosticsRequest, WorkflowJobLogRequest, WorkflowJobRequest, WorkflowListRequest,
+    WorkflowRequest, WorkflowRunApprovalsRequest, WorkflowRunApproveRequest,
+    WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest, WorkflowRunCancelRequest,
+    WorkflowRunDiagnosticsRequest, WorkflowRunForceCancelRequest, WorkflowRunJobsRequest,
+    WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunPendingDeploymentReviewRequest,
     WorkflowRunPendingDeploymentReviewState as ProtocolWorkflowRunPendingDeploymentReviewState,
     WorkflowRunPendingDeploymentsRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
 };
@@ -438,6 +438,25 @@ impl<R: ProcessRunner> GithubService<R> {
                 &ace_git::CommitCheckRollupRequest {
                     check_run_limit: request.check_run_limit,
                     status_limit: request.status_limit,
+                },
+            )
+            .await
+            .map_err(GithubApiError::from)
+    }
+
+    pub async fn commit_check_diagnostics(
+        &self,
+        request: CommitCheckDiagnosticsRequest,
+    ) -> Result<ace_git::GithubCommitCheckDiagnostics, GithubApiError> {
+        self.github
+            .commit_check_diagnostics(
+                &repo_path(&request.repo_path)?,
+                &request.git_ref,
+                &ace_git::CommitCheckDiagnosticsRequest {
+                    check_run_limit: request.check_run_limit,
+                    status_limit: request.status_limit,
+                    failed_check_run_limit: request.failed_check_run_limit,
+                    annotation_limit: request.annotation_limit,
                 },
             )
             .await

@@ -6,16 +6,17 @@ use ace_git::{CommandOutput, CommandRequest, GitToolError, GithubCliClient, Proc
 use ace_protocol::github::{
     CheckRunAnnotationsRequest, CheckRunDiagnosticsRequest, CheckRunListFilter, CheckRunRequest,
     CheckRunRerequestRequest, CheckRunsRequest, CheckSuiteRequest, CheckSuiteRerequestRequest,
-    CheckSuiteRunsRequest, CheckSuitesRequest, CommitCheckRollupRequest, CommitStatusesRequest,
-    EnvironmentStatusRequest, GithubImageProxyRequest, IssueListFilter, IssueListRequest,
-    IssueThreadRequest, PullRequestActivityRequest, PullRequestChecksRequest,
-    PullRequestCiStatusRequest, PullRequestCommitsRequest, PullRequestCreateRequest,
-    PullRequestDashboardRequest, PullRequestDiagnosticsRequest, PullRequestDiffRequest,
-    PullRequestFilesRequest, PullRequestListFilter, PullRequestMergeMethod,
-    PullRequestMergeRequest, PullRequestMergeStatusRequest, PullRequestRequest,
-    PullRequestReviewCommentsRequest, PullRequestReviewDecision, PullRequestReviewRequest,
-    PullRequestReviewThreadsRequest, PullRequestThreadRequest, PullRequestTimelineRequest,
-    WorkflowDisableRequest, WorkflowDispatchInput, WorkflowDispatchRequest, WorkflowEnableRequest,
+    CheckSuiteRunsRequest, CheckSuitesRequest, CommitCheckDiagnosticsRequest,
+    CommitCheckRollupRequest, CommitStatusesRequest, EnvironmentStatusRequest,
+    GithubImageProxyRequest, IssueListFilter, IssueListRequest, IssueThreadRequest,
+    PullRequestActivityRequest, PullRequestChecksRequest, PullRequestCiStatusRequest,
+    PullRequestCommitsRequest, PullRequestCreateRequest, PullRequestDashboardRequest,
+    PullRequestDiagnosticsRequest, PullRequestDiffRequest, PullRequestFilesRequest,
+    PullRequestListFilter, PullRequestMergeMethod, PullRequestMergeRequest,
+    PullRequestMergeStatusRequest, PullRequestRequest, PullRequestReviewCommentsRequest,
+    PullRequestReviewDecision, PullRequestReviewRequest, PullRequestReviewThreadsRequest,
+    PullRequestThreadRequest, PullRequestTimelineRequest, WorkflowDisableRequest,
+    WorkflowDispatchInput, WorkflowDispatchRequest, WorkflowEnableRequest,
     WorkflowJobDiagnosticsRequest, WorkflowJobLogRequest, WorkflowJobRequest, WorkflowListFilter,
     WorkflowListRequest, WorkflowRequest, WorkflowRunApprovalsRequest, WorkflowRunApproveRequest,
     WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest, WorkflowRunDiagnosticsRequest,
@@ -1033,6 +1034,59 @@ async fn service_returns_commit_check_rollup() {
             "per_page=25",
             "-f",
             "filter=latest"
+        ]
+    );
+}
+
+#[tokio::test]
+async fn service_returns_commit_check_diagnostics() {
+    let runner = Arc::new(FakeRunner::new(vec![
+        ok(
+            br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+        ),
+        ok(
+            br#"{"total_count":1,"check_runs":[{"id":10,"name":"build","node_id":"CR_1","head_sha":"abc","external_id":null,"url":"https://api.github.test/check-runs/10","html_url":"https://github.test/checks/10","details_url":"https://ci.test/build/10","status":"completed","conclusion":"failure","started_at":"2026-06-21T00:00:00Z","completed_at":"2026-06-21T00:01:00Z","output":{"title":"Build","summary":"failed","text":null,"annotations_count":2,"annotations_url":"https://api.github.test/annotations"},"app":{"id":1,"slug":"github-actions","name":"GitHub Actions","html_url":"https://github.com/apps/github-actions"},"check_suite":{"id":5,"head_branch":"feature/x","head_sha":"abc","status":"completed","conclusion":"failure"},"pull_requests":[]}]}"#,
+        ),
+        ok(
+            br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+        ),
+        ok(
+            br#"[{"id":99,"node_id":"ST_1","state":"failure","description":"lint failed","target_url":"https://ci.test/lint","context":"lint","created_at":"2026-06-21T00:00:00Z","updated_at":"2026-06-21T00:01:00Z","url":"https://api.github.test/statuses/99","avatar_url":"https://avatars.githubusercontent.com/u/1"}]"#,
+        ),
+        ok(
+            br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+        ),
+        ok(
+            br#"[{"path":"src/lib.rs","start_line":10,"end_line":10,"start_column":null,"end_column":null,"annotation_level":"failure","message":"expected value","title":"clippy","raw_details":"details","blob_href":"https://github.test/blob/src/lib.rs#L10"}]"#,
+        ),
+    ]));
+    let service = GithubService::new(GithubCliClient::with_runner(runner.clone()));
+
+    let diagnostics = service
+        .commit_check_diagnostics(CommitCheckDiagnosticsRequest {
+            repo_path: "/repo".to_string(),
+            git_ref: "abc".to_string(),
+            check_run_limit: 25,
+            status_limit: 10,
+            failed_check_run_limit: 2,
+            annotation_limit: 30,
+        })
+        .await
+        .expect("diagnostics");
+
+    assert_eq!(diagnostics.rollup.summary.failed, 2);
+    assert_eq!(diagnostics.failed_check_annotations[0].check_run.id, 10);
+    assert_eq!(
+        diagnostics.failed_check_annotations[0].annotations[0].message,
+        "expected value"
+    );
+    assert_eq!(
+        runner.requests()[5].args,
+        vec![
+            "api",
+            "repos/ace/app/check-runs/10/annotations",
+            "-F",
+            "per_page=30"
         ]
     );
 }
