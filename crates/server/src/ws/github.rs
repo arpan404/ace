@@ -11,13 +11,14 @@ use ace_protocol::{
         PullRequestDashboardRequest, PullRequestDiffRequest, PullRequestFilesRequest,
         PullRequestListRequest, PullRequestMergeRequest, PullRequestMergeStatusRequest,
         PullRequestReadyStateRequest, PullRequestReopenRequest, PullRequestRequest,
-        PullRequestReviewRequest, PullRequestThreadRequest, PullRequestTimelineRequest,
-        SearchIssuesRequest, SearchPullRequestsRequest, WorkflowDisableRequest,
-        WorkflowDispatchRequest, WorkflowEnableRequest, WorkflowJobLogRequest, WorkflowJobRequest,
-        WorkflowListRequest, WorkflowRunApproveRequest, WorkflowRunArtifactDownloadRequest,
-        WorkflowRunArtifactsRequest, WorkflowRunCancelRequest, WorkflowRunJobsRequest,
-        WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunPendingDeploymentReviewRequest,
-        WorkflowRunPendingDeploymentsRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
+        PullRequestReviewCommentsRequest, PullRequestReviewRequest, PullRequestThreadRequest,
+        PullRequestTimelineRequest, SearchIssuesRequest, SearchPullRequestsRequest,
+        WorkflowDisableRequest, WorkflowDispatchRequest, WorkflowEnableRequest,
+        WorkflowJobLogRequest, WorkflowJobRequest, WorkflowListRequest, WorkflowRunApproveRequest,
+        WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest, WorkflowRunCancelRequest,
+        WorkflowRunJobsRequest, WorkflowRunListRequest, WorkflowRunLogRequest,
+        WorkflowRunPendingDeploymentReviewRequest, WorkflowRunPendingDeploymentsRequest,
+        WorkflowRunRequest, WorkflowRunRerunRequest,
     },
     ws::methods,
 };
@@ -99,6 +100,15 @@ impl<R: ProcessRunner> WsApiState<R> {
                 self.github_json::<PullRequestTimelineRequest, _, _, _>(
                     payload,
                     |service, request| async move { service.pull_request_timeline(request).await },
+                )
+                .await
+            }
+            methods::GITHUB_PULL_REQUEST_REVIEW_COMMENTS => {
+                self.github_json::<PullRequestReviewCommentsRequest, _, _, _>(
+                    payload,
+                    |service, request| async move {
+                        service.pull_request_review_comments(request).await
+                    },
                 )
                 .await
             }
@@ -858,6 +868,50 @@ mod tests {
                 "Accept: application/vnd.github+json",
                 "-F",
                 "per_page=25"
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn dispatches_pull_request_review_comments_over_ws_rpc() {
+        let runner = Arc::new(FakeRunner::new(vec![
+            ok(
+                br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+            ),
+            ok(
+                br#"[{"id":10,"node_id":"PRRC_10","url":"https://api.github.test/comments/10","html_url":"https://github.test/pull/42#discussion_r10","pull_request_review_id":5,"pull_request_url":"https://api.github.test/pulls/42","diff_hunk":"@@ -1 +1 @@","path":"src/lib.rs","position":1,"original_position":1,"line":12,"original_line":12,"side":"RIGHT","commit_id":"abc","original_commit_id":"abc","user":{"login":"reviewer"},"body":"Please cover this branch","created_at":"2026-06-21T00:00:00Z","updated_at":"2026-06-21T00:01:00Z","subject_type":"line"}]"#,
+            ),
+        ]));
+        let state = test_state(runner.clone());
+
+        let response = dispatch(
+            &state,
+            serde_json::json!({
+                "version": PROTOCOL_VERSION,
+                "request_id": "req-pr-review-comments",
+                "method": methods::GITHUB_PULL_REQUEST_REVIEW_COMMENTS,
+                "payload": {
+                    "repo_path": "/repo",
+                    "number": 42,
+                    "limit": 30
+                }
+            }),
+        )
+        .await;
+
+        let WsServerPayload::Result { body } = response.payload else {
+            panic!("expected result");
+        };
+        assert_eq!(body[0]["path"], "src/lib.rs");
+        assert_eq!(body[0]["line"], 12);
+        assert_eq!(body[0]["subject_type"], "line");
+        assert_eq!(
+            runner.requests()[1].args,
+            vec![
+                "api",
+                "repos/ace/app/pulls/42/comments",
+                "-F",
+                "per_page=30"
             ]
         );
     }

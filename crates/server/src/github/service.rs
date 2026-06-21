@@ -22,13 +22,13 @@ use ace_protocol::github::{
     PullRequestCommitsRequest, PullRequestCreateRequest, PullRequestDashboardRequest,
     PullRequestDiffRequest, PullRequestFilesRequest, PullRequestListRequest,
     PullRequestMergeRequest, PullRequestMergeStatusRequest, PullRequestReadyStateRequest,
-    PullRequestReopenRequest, PullRequestRequest, PullRequestReviewRequest,
-    PullRequestThreadRequest, PullRequestTimelineRequest, SearchIssuesRequest,
-    SearchPullRequestsRequest, WorkflowDisableRequest, WorkflowDispatchRequest,
-    WorkflowEnableRequest, WorkflowJobLogRequest, WorkflowJobRequest, WorkflowListRequest,
-    WorkflowRunApproveRequest, WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest,
-    WorkflowRunCancelRequest, WorkflowRunJobsRequest, WorkflowRunListRequest,
-    WorkflowRunLogRequest, WorkflowRunPendingDeploymentReviewRequest,
+    PullRequestReopenRequest, PullRequestRequest, PullRequestReviewCommentsRequest,
+    PullRequestReviewRequest, PullRequestThreadRequest, PullRequestTimelineRequest,
+    SearchIssuesRequest, SearchPullRequestsRequest, WorkflowDisableRequest,
+    WorkflowDispatchRequest, WorkflowEnableRequest, WorkflowJobLogRequest, WorkflowJobRequest,
+    WorkflowListRequest, WorkflowRunApproveRequest, WorkflowRunArtifactDownloadRequest,
+    WorkflowRunArtifactsRequest, WorkflowRunCancelRequest, WorkflowRunJobsRequest,
+    WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunPendingDeploymentReviewRequest,
     WorkflowRunPendingDeploymentReviewState as ProtocolWorkflowRunPendingDeploymentReviewState,
     WorkflowRunPendingDeploymentsRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
 };
@@ -174,6 +174,20 @@ impl<R: ProcessRunner> GithubService<R> {
     ) -> Result<Vec<ace_git::GithubTimelineEvent>, GithubApiError> {
         self.github
             .pull_request_timeline(
+                &repo_path(&request.repo_path)?,
+                request.number,
+                request.limit,
+            )
+            .await
+            .map_err(GithubApiError::from)
+    }
+
+    pub async fn pull_request_review_comments(
+        &self,
+        request: PullRequestReviewCommentsRequest,
+    ) -> Result<Vec<ace_git::GithubPullRequestReviewComment>, GithubApiError> {
+        self.github
+            .pull_request_review_comments(
                 &repo_path(&request.repo_path)?,
                 request.number,
                 request.limit,

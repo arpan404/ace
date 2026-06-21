@@ -8,12 +8,13 @@ use ace_protocol::github::{
     PullRequestChecksRequest, PullRequestCommitsRequest, PullRequestCreateRequest,
     PullRequestDashboardRequest, PullRequestDiffRequest, PullRequestFilesRequest,
     PullRequestListFilter, PullRequestMergeMethod, PullRequestMergeRequest,
-    PullRequestMergeStatusRequest, PullRequestRequest, PullRequestReviewDecision,
-    PullRequestReviewRequest, PullRequestThreadRequest, PullRequestTimelineRequest,
-    WorkflowDisableRequest, WorkflowDispatchInput, WorkflowDispatchRequest, WorkflowEnableRequest,
-    WorkflowJobLogRequest, WorkflowJobRequest, WorkflowListFilter, WorkflowListRequest,
-    WorkflowRunApproveRequest, WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest,
-    WorkflowRunJobsRequest, WorkflowRunListFilter, WorkflowRunListRequest, WorkflowRunLogRequest,
+    PullRequestMergeStatusRequest, PullRequestRequest, PullRequestReviewCommentsRequest,
+    PullRequestReviewDecision, PullRequestReviewRequest, PullRequestThreadRequest,
+    PullRequestTimelineRequest, WorkflowDisableRequest, WorkflowDispatchInput,
+    WorkflowDispatchRequest, WorkflowEnableRequest, WorkflowJobLogRequest, WorkflowJobRequest,
+    WorkflowListFilter, WorkflowListRequest, WorkflowRunApproveRequest,
+    WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest, WorkflowRunJobsRequest,
+    WorkflowRunListFilter, WorkflowRunListRequest, WorkflowRunLogRequest,
     WorkflowRunPendingDeploymentReviewRequest, WorkflowRunPendingDeploymentReviewState,
     WorkflowRunPendingDeploymentsRequest, WorkflowRunRerunRequest,
 };
@@ -317,6 +318,41 @@ async fn service_returns_pull_request_timeline() {
             "Accept: application/vnd.github+json",
             "-F",
             "per_page=25"
+        ]
+    );
+}
+
+#[tokio::test]
+async fn service_returns_pull_request_review_comments() {
+    let runner = Arc::new(FakeRunner::new(vec![
+        ok(
+            br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+        ),
+        ok(
+            br#"[{"id":10,"node_id":"PRRC_10","url":"https://api.github.test/comments/10","html_url":"https://github.test/pull/42#discussion_r10","pull_request_review_id":5,"pull_request_url":"https://api.github.test/pulls/42","diff_hunk":"@@ -1 +1 @@","path":"src/lib.rs","position":1,"original_position":1,"line":12,"original_line":12,"side":"RIGHT","commit_id":"abc","original_commit_id":"abc","user":{"login":"reviewer"},"body":"Please cover this branch","created_at":"2026-06-21T00:00:00Z","updated_at":"2026-06-21T00:01:00Z","subject_type":"line"}]"#,
+        ),
+    ]));
+    let service = GithubService::new(GithubCliClient::with_runner(runner.clone()));
+
+    let comments = service
+        .pull_request_review_comments(PullRequestReviewCommentsRequest {
+            repo_path: "/repo".to_string(),
+            number: 42,
+            limit: 30,
+        })
+        .await
+        .expect("review comments");
+
+    assert_eq!(comments[0].path, "src/lib.rs");
+    assert_eq!(comments[0].line, Some(12));
+    assert_eq!(comments[0].extra["subject_type"], "line");
+    assert_eq!(
+        runner.requests()[1].args,
+        vec![
+            "api",
+            "repos/ace/app/pulls/42/comments",
+            "-F",
+            "per_page=30"
         ]
     );
 }
