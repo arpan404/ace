@@ -1,5 +1,6 @@
 use ace_git::{
-    GithubIssueListFilter, GithubPullRequestListFilter, GithubSearchFilter, WorkflowRunListFilter,
+    GithubIssueListFilter, GithubPullRequestListFilter, GithubSearchFilter, WorkflowListFilter,
+    WorkflowRunListFilter,
 };
 use ace_protocol::github::{IssueListFilter, PullRequestListFilter, SearchFilter};
 
@@ -58,6 +59,15 @@ pub(super) fn workflow_run_list_filter(
         workflow: filter.workflow,
         event: filter.event,
         user: filter.user,
+        include_disabled: filter.include_disabled,
+    }
+}
+
+pub(super) fn workflow_list_filter(
+    filter: ace_protocol::github::WorkflowListFilter,
+) -> WorkflowListFilter {
+    WorkflowListFilter {
+        limit: filter.limit,
         include_disabled: filter.include_disabled,
     }
 }

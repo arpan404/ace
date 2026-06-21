@@ -4,6 +4,7 @@ use std::path::Path;
 
 const PR_CHECK_FIELDS: &str =
     "bucket,completedAt,description,event,link,name,startedAt,state,workflow";
+const WORKFLOW_FIELDS: &str = "id,name,path,state";
 const RUN_FIELDS: &str = "attempt,conclusion,createdAt,databaseId,displayTitle,event,headBranch,headSha,name,number,startedAt,status,updatedAt,url,workflowDatabaseId,workflowName";
 const RUN_DETAIL_FIELDS: &str = "attempt,conclusion,createdAt,databaseId,displayTitle,event,headBranch,headSha,jobs,name,number,startedAt,status,updatedAt,url,workflowDatabaseId,workflowName";
 
@@ -30,6 +31,26 @@ impl<R: ProcessRunner> GithubCliClient<R> {
             summary: GithubCheckSummary::from_checks(&checks),
             checks,
         })
+    }
+
+    pub async fn list_workflows(
+        &self,
+        cwd: &Path,
+        filter: &WorkflowListFilter,
+    ) -> Result<Vec<GithubWorkflow>> {
+        let mut args = vec![
+            "workflow".to_string(),
+            "list".to_string(),
+            "--limit".to_string(),
+            filter.limit.to_string(),
+            "--json".to_string(),
+            WORKFLOW_FIELDS.to_string(),
+        ];
+        if filter.include_disabled {
+            args.push("--all".to_string());
+        }
+        let output = self.gh_allow_statuses(cwd, args, &[0]).await?;
+        parse_json("github workflows", &output.stdout)
     }
 
     pub async fn list_workflow_runs(
@@ -196,6 +217,29 @@ impl GithubCheckSummary {
         }
         summary
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkflowListFilter {
+    pub limit: u32,
+    pub include_disabled: bool,
+}
+
+impl Default for WorkflowListFilter {
+    fn default() -> Self {
+        Self {
+            limit: 50,
+            include_disabled: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GithubWorkflow {
+    pub id: u64,
+    pub name: String,
+    pub path: String,
+    pub state: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -398,6 +442,45 @@ mod tests {
                 "--required",
                 "--json",
                 PR_CHECK_FIELDS
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn workflow_list_builds_command_and_parses_workflows() {
+        let runner = std::sync::Arc::new(FakeRunner::new(vec![output(
+            0,
+            br#"[
+              {"id":1,"name":"CI","path":".github/workflows/ci.yml","state":"active"},
+              {"id":2,"name":"Nightly","path":".github/workflows/nightly.yml","state":"disabled_manually"}
+            ]"#,
+        )]));
+        let github = GithubCliClient::with_runner(runner.clone());
+
+        let workflows = github
+            .list_workflows(
+                Path::new("."),
+                &WorkflowListFilter {
+                    limit: 10,
+                    include_disabled: true,
+                },
+            )
+            .await
+            .expect("workflows");
+
+        assert_eq!(workflows.len(), 2);
+        assert_eq!(workflows[0].name, "CI");
+        assert_eq!(workflows[1].state, "disabled_manually");
+        assert_eq!(
+            runner.requests()[0].args,
+            vec![
+                "workflow",
+                "list",
+                "--limit",
+                "10",
+                "--json",
+                WORKFLOW_FIELDS,
+                "--all"
             ]
         );
     }

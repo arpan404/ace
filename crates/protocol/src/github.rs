@@ -177,6 +177,27 @@ pub struct PullRequestDashboardRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkflowListRequest {
+    pub repo_path: String,
+    pub filter: WorkflowListFilter,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkflowListFilter {
+    pub limit: u32,
+    pub include_disabled: bool,
+}
+
+impl Default for WorkflowListFilter {
+    fn default() -> Self {
+        Self {
+            limit: 50,
+            include_disabled: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkflowRunListRequest {
     pub repo_path: String,
     pub filter: WorkflowRunListFilter,

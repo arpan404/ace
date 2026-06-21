@@ -2,7 +2,8 @@ use super::{
     error::GithubApiError,
     mapping::{
         issue_list_filter, pull_request_list_filter, pull_request_merge_method,
-        pull_request_review_decision, search_filter, workflow_run_list_filter,
+        pull_request_review_decision, search_filter, workflow_list_filter,
+        workflow_run_list_filter,
     },
 };
 use ace_git::{
@@ -17,8 +18,9 @@ use ace_protocol::github::{
     PullRequestFilesRequest, PullRequestListRequest, PullRequestMergeRequest,
     PullRequestReadyStateRequest, PullRequestReopenRequest, PullRequestRequest,
     PullRequestReviewRequest, PullRequestThreadRequest, SearchIssuesRequest,
-    SearchPullRequestsRequest, WorkflowRunArtifactsRequest, WorkflowRunCancelRequest,
-    WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
+    SearchPullRequestsRequest, WorkflowListRequest, WorkflowRunArtifactsRequest,
+    WorkflowRunCancelRequest, WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunRequest,
+    WorkflowRunRerunRequest,
 };
 use serde::Serialize;
 use std::{path::PathBuf, sync::Arc};
@@ -228,6 +230,19 @@ impl<R: ProcessRunner> GithubService<R> {
                     required_checks_only: request.required_checks_only,
                     workflow_run_limit_per_pr: request.workflow_run_limit_per_pr,
                 },
+            )
+            .await
+            .map_err(GithubApiError::from)
+    }
+
+    pub async fn list_workflows(
+        &self,
+        request: WorkflowListRequest,
+    ) -> Result<Vec<ace_git::GithubWorkflow>, GithubApiError> {
+        self.github
+            .list_workflows(
+                &repo_path(&request.repo_path)?,
+                &workflow_list_filter(request.filter),
             )
             .await
             .map_err(GithubApiError::from)

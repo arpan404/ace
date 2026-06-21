@@ -5,8 +5,9 @@ use ace_protocol::github::{
     PullRequestActivityRequest, PullRequestChecksRequest, PullRequestDashboardRequest,
     PullRequestDiffRequest, PullRequestFilesRequest, PullRequestListFilter, PullRequestMergeMethod,
     PullRequestMergeRequest, PullRequestRequest, PullRequestReviewDecision,
-    PullRequestReviewRequest, PullRequestThreadRequest, WorkflowRunArtifactsRequest,
-    WorkflowRunListFilter, WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunRerunRequest,
+    PullRequestReviewRequest, PullRequestThreadRequest, WorkflowListFilter, WorkflowListRequest,
+    WorkflowRunArtifactsRequest, WorkflowRunListFilter, WorkflowRunListRequest,
+    WorkflowRunLogRequest, WorkflowRunRerunRequest,
 };
 use async_trait::async_trait;
 use axum::{
@@ -373,6 +374,40 @@ async fn service_returns_pull_request_dashboard() {
 }
 
 #[tokio::test]
+async fn service_lists_workflows_with_disabled() {
+    let runner = Arc::new(FakeRunner::new(vec![ok(
+        br#"[{"id":1,"name":"CI","path":".github/workflows/ci.yml","state":"active"},{"id":2,"name":"Nightly","path":".github/workflows/nightly.yml","state":"disabled_manually"}]"#,
+    )]));
+    let service = GithubService::new(GithubCliClient::with_runner(runner.clone()));
+
+    let workflows = service
+        .list_workflows(WorkflowListRequest {
+            repo_path: "/repo".to_string(),
+            filter: WorkflowListFilter {
+                limit: 10,
+                include_disabled: true,
+            },
+        })
+        .await
+        .expect("workflows");
+
+    assert_eq!(workflows[0].name, "CI");
+    assert_eq!(workflows[1].state, "disabled_manually");
+    assert_eq!(
+        runner.requests()[0].args,
+        vec![
+            "workflow",
+            "list",
+            "--limit",
+            "10",
+            "--json",
+            "id,name,path,state",
+            "--all"
+        ]
+    );
+}
+
+#[tokio::test]
 async fn service_lists_workflow_runs_with_filters() {
     let runner = Arc::new(FakeRunner::new(vec![ok(
         br#"[{"attempt":1,"conclusion":null,"createdAt":"2026-06-21T00:00:00Z","databaseId":7,"displayTitle":"Run","event":"pull_request","headBranch":"feature/x","headSha":"abc","name":"CI","number":3,"startedAt":"2026-06-21T00:00:00Z","status":"in_progress","updatedAt":"2026-06-21T00:01:00Z","url":"https://example.test/run/7","workflowDatabaseId":2,"workflowName":"CI"}]"#,
@@ -662,6 +697,45 @@ async fn route_returns_pull_request_dashboard_json() {
     assert_eq!(body["items"][0]["pull_request"]["number"], 42);
     assert_eq!(body["items"][0]["checks"]["summary"]["pending"], 1);
     assert_eq!(body["items"][0]["workflow_runs"][0]["databaseId"], 7);
+}
+
+#[tokio::test]
+async fn route_returns_workflows_json() {
+    let runner = Arc::new(FakeRunner::new(vec![ok(
+        br#"[{"id":1,"name":"CI","path":".github/workflows/ci.yml","state":"active"},{"id":2,"name":"Nightly","path":".github/workflows/nightly.yml","state":"disabled_manually"}]"#,
+    )]));
+    let app = test_router(runner.clone());
+
+    let response = app
+        .oneshot(json_request(
+            "/workflows/list",
+            serde_json::json!({
+                "repo_path": "/repo",
+                "filter": {
+                    "limit": 10,
+                    "include_disabled": true
+                }
+            }),
+        ))
+        .await
+        .expect("route response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response_json(response).await;
+    assert_eq!(body[0]["name"], "CI");
+    assert_eq!(body[1]["state"], "disabled_manually");
+    assert_eq!(
+        runner.requests()[0].args,
+        vec![
+            "workflow",
+            "list",
+            "--limit",
+            "10",
+            "--json",
+            "id,name,path,state",
+            "--all"
+        ]
+    );
 }
 
 #[tokio::test]
