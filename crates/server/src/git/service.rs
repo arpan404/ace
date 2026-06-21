@@ -1,15 +1,16 @@
 use super::GitApiError;
 use ace_git::{
     CreatePullRequest, DefaultBranchPolicy, GitClient, GitStackedAction, GitWorkflow,
-    GithubCliClient, ProcessRunner, TokioProcessRunner,
+    GithubCliClient, ProcessRunner, TokioProcessRunner, WorktreeConfig, WorktreeManager,
 };
+use ace_platform::AppPaths;
 use ace_protocol::git::{
     GitBranchesRequest, GitCheckoutBranchRequest, GitCommitRequest, GitCreateBranchRequest,
     GitDeleteBranchRequest, GitDiffRequest, GitFetchRequest, GitPullRequest, GitPushRequest,
     GitRenameBranchRequest, GitRepositoryRequest, GitStageRequest, GitStashApplyRequest,
     GitStashDropRequest, GitStashPopRequest, GitStashSaveRequest, GitStashesRequest,
     GitStatusRequest, GitUnstageRequest, GitWorkflowAction, GitWorkflowRequest,
-    GitWorktreesRequest,
+    GitWorktreeCreateRequest, GitWorktreeRemoveRequest, GitWorktreesRequest,
 };
 use serde::Serialize;
 use std::{path::PathBuf, sync::Arc};
@@ -47,12 +48,17 @@ impl<R: ProcessRunner> GitApiState<R> {
 pub struct GitService<R: ProcessRunner = TokioProcessRunner> {
     git: GitClient<R>,
     github: Option<GithubCliClient<R>>,
+    worktree_root: Option<PathBuf>,
 }
 
 impl<R: ProcessRunner> GitService<R> {
     #[must_use]
     pub fn new(git: GitClient<R>) -> Self {
-        Self { git, github: None }
+        Self {
+            git,
+            github: None,
+            worktree_root: default_worktree_root(),
+        }
     }
 
     #[must_use]
@@ -60,7 +66,14 @@ impl<R: ProcessRunner> GitService<R> {
         Self {
             git,
             github: Some(github),
+            worktree_root: default_worktree_root(),
         }
+    }
+
+    #[must_use]
+    pub fn with_worktree_root(mut self, root: PathBuf) -> Self {
+        self.worktree_root = Some(root);
+        self
     }
 
     pub async fn repository(
@@ -312,6 +325,40 @@ impl<R: ProcessRunner> GitService<R> {
             .map_err(GitApiError::from)
     }
 
+    pub async fn create_worktree(
+        &self,
+        request: GitWorktreeCreateRequest,
+    ) -> Result<ace_git::WorktreeCreateResult, GitApiError> {
+        let repo = repo_path(&request.repo_path)?;
+        let branch_names = self
+            .git
+            .list_branches(&repo)
+            .await?
+            .into_iter()
+            .map(|branch| branch.name)
+            .collect::<Vec<_>>();
+        self.worktree_manager()?
+            .create(
+                &repo,
+                &request.preferred_branch,
+                &branch_names,
+                request.start_point.as_deref(),
+            )
+            .await
+            .map_err(GitApiError::from)
+    }
+
+    pub async fn remove_worktree(
+        &self,
+        request: GitWorktreeRemoveRequest,
+    ) -> Result<ace_git::WorktreeRemoveResult, GitApiError> {
+        let repo = repo_path(&request.repo_path)?;
+        self.worktree_manager()?
+            .remove(&repo, &PathBuf::from(request.path), request.force)
+            .await
+            .map_err(GitApiError::from)
+    }
+
     pub async fn run_workflow(
         &self,
         request: GitWorkflowRequest,
@@ -328,6 +375,17 @@ impl<R: ProcessRunner> GitService<R> {
             )
             .await
             .map_err(GitApiError::from)
+    }
+
+    fn worktree_manager(&self) -> Result<WorktreeManager<R>, GitApiError> {
+        let root = self
+            .worktree_root
+            .clone()
+            .ok_or(GitApiError::WorktreeUnavailable)?;
+        Ok(WorktreeManager::new(
+            self.git.clone(),
+            WorktreeConfig { root },
+        ))
     }
 }
 
@@ -348,6 +406,12 @@ fn repo_path(raw: &str) -> Result<PathBuf, GitApiError> {
     } else {
         Ok(PathBuf::from(raw))
     }
+}
+
+fn default_worktree_root() -> Option<PathBuf> {
+    AppPaths::resolve()
+        .ok()
+        .map(|paths| WorktreeConfig::from_app_paths(&paths).root)
 }
 
 fn git_stacked_action(action: GitWorkflowAction) -> GitStackedAction {

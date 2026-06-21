@@ -78,6 +78,7 @@ name = "ace-server"
 version = "0.1.0"
 dependencies = [
  "ace-git",
+ "ace-platform",
  "ace-protocol",
  "async-trait",
  "axum",
@@ -85,6 +86,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "tower",

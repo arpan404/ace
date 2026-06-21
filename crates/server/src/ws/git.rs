@@ -6,7 +6,8 @@ use ace_protocol::{
         GitDeleteBranchRequest, GitDiffRequest, GitFetchRequest, GitPullRequest, GitPushRequest,
         GitRenameBranchRequest, GitRepositoryRequest, GitStageRequest, GitStashApplyRequest,
         GitStashDropRequest, GitStashPopRequest, GitStashSaveRequest, GitStashesRequest,
-        GitStatusRequest, GitUnstageRequest, GitWorkflowRequest, GitWorktreesRequest,
+        GitStatusRequest, GitUnstageRequest, GitWorkflowRequest, GitWorktreeCreateRequest,
+        GitWorktreeRemoveRequest, GitWorktreesRequest,
     },
     ws::methods,
 };
@@ -152,6 +153,20 @@ impl<R: ProcessRunner> WsApiState<R> {
                 )
                 .await
             }
+            methods::GIT_WORKTREES_CREATE => {
+                self.git_json::<GitWorktreeCreateRequest, _, _, _>(
+                    payload,
+                    |service, request| async move { service.create_worktree(request).await },
+                )
+                .await
+            }
+            methods::GIT_WORKTREES_REMOVE => {
+                self.git_json::<GitWorktreeRemoveRequest, _, _, _>(
+                    payload,
+                    |service, request| async move { service.remove_worktree(request).await },
+                )
+                .await
+            }
             methods::GIT_WORKFLOW_RUN => {
                 self.git_json::<GitWorkflowRequest, _, _, _>(
                     payload,
@@ -229,6 +244,20 @@ mod tests {
                 GitClient::with_runner(runner.clone()),
                 GithubCliClient::with_runner(runner.clone()),
             ),
+            GithubService::new(GithubCliClient::with_runner(runner)),
+        )
+    }
+
+    fn test_state_with_worktree_root(
+        runner: Arc<FakeRunner>,
+        worktree_root: std::path::PathBuf,
+    ) -> WsApiState<FakeRunner> {
+        WsApiState::new_services(
+            GitService::new_with_github(
+                GitClient::with_runner(runner.clone()),
+                GithubCliClient::with_runner(runner.clone()),
+            )
+            .with_worktree_root(worktree_root),
             GithubService::new(GithubCliClient::with_runner(runner)),
         )
     }
@@ -507,6 +536,106 @@ mod tests {
             vec!["stash", "pop", "--index", "stash@{0}"]
         );
         assert_eq!(requests[6].args, vec!["worktree", "list", "--porcelain"]);
+    }
+
+    #[tokio::test]
+    async fn dispatches_worktree_create_and_remove_over_ws_rpc() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let worktree_root = temp.path().join("worktrees");
+        let runner = Arc::new(FakeRunner::new(vec![
+            ok("main||origin/main\nfeature/task||\n"),
+            ok("/repo\n"),
+            ok("true\n"),
+            ok(""),
+            ok("## feature/task-2\n"),
+            ok("/repo\n"),
+            ok("true\n"),
+            ok(""),
+        ]));
+        let state = test_state_with_worktree_root(runner.clone(), worktree_root.clone());
+
+        let create_response = dispatch(
+            &state,
+            serde_json::json!({
+                "version": PROTOCOL_VERSION,
+                "request_id": "req-worktree-create",
+                "method": methods::GIT_WORKTREES_CREATE,
+                "payload": {
+                    "repo_path": "/repo",
+                    "preferred_branch": "feature/task",
+                    "start_point": "main"
+                }
+            }),
+        )
+        .await;
+        let WsServerPayload::Result { body: created } = create_response.payload else {
+            panic!("expected create result");
+        };
+        let created_path = created["path"].as_str().expect("created path").to_string();
+        assert_eq!(created["branch"], "feature/task-2");
+        assert!(created_path.starts_with(worktree_root.to_string_lossy().as_ref()));
+
+        let remove_response = dispatch(
+            &state,
+            serde_json::json!({
+                "version": PROTOCOL_VERSION,
+                "request_id": "req-worktree-remove",
+                "method": methods::GIT_WORKTREES_REMOVE,
+                "payload": {
+                    "repo_path": "/repo",
+                    "path": created_path,
+                    "force": true
+                }
+            }),
+        )
+        .await;
+        let WsServerPayload::Result { body: removed } = remove_response.payload else {
+            panic!("expected remove result");
+        };
+        assert_eq!(removed["removed"], true);
+
+        let requests = runner.requests();
+        assert_eq!(
+            requests[0].args,
+            vec![
+                "branch",
+                "--format=%(refname:short)|%(HEAD)|%(upstream:short)"
+            ]
+        );
+        assert_eq!(
+            requests[3].args[0..4],
+            ["worktree", "add", "-b", "feature/task-2"]
+        );
+        assert_eq!(requests[7].args[0..3], ["worktree", "remove", "--force"]);
+    }
+
+    #[tokio::test]
+    async fn worktree_remove_rejects_paths_outside_app_root_over_ws_rpc() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let runner = Arc::new(FakeRunner::new(Vec::new()));
+        let state = test_state_with_worktree_root(runner.clone(), temp.path().join("worktrees"));
+
+        let response = dispatch(
+            &state,
+            serde_json::json!({
+                "version": PROTOCOL_VERSION,
+                "request_id": "req-worktree-remove-unsafe",
+                "method": methods::GIT_WORKTREES_REMOVE,
+                "payload": {
+                    "repo_path": "/repo",
+                    "path": temp.path().join("outside").to_string_lossy(),
+                    "force": false
+                }
+            }),
+        )
+        .await;
+
+        let WsServerPayload::Error { code, message } = response.payload else {
+            panic!("expected error");
+        };
+        assert_eq!(code, "git_error");
+        assert!(message.contains("unsafe worktree path"));
+        assert!(runner.requests().is_empty());
     }
 
     #[tokio::test]

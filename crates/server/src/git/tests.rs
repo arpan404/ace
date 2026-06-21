@@ -7,7 +7,7 @@ use ace_protocol::git::{
     GitCreateBranchRequest, GitDeleteBranchRequest, GitDiffRequest, GitFetchRequest,
     GitPullRequest, GitPushRequest, GitRenameBranchRequest, GitStageRequest, GitStashApplyRequest,
     GitStashSaveRequest, GitStatusRequest, GitUnstageRequest, GitWorkflowAction,
-    GitWorkflowRequest,
+    GitWorkflowRequest, GitWorktreeCreateRequest, GitWorktreeRemoveRequest,
 };
 use async_trait::async_trait;
 use axum::{
@@ -370,6 +370,103 @@ async fn service_runs_commit_push_pr_workflow() {
     assert_eq!(requests[3].args, vec!["branch", "--show-current"]);
     assert_eq!(requests[4].args, vec!["push"]);
     assert_eq!(requests[5].args[0..2], ["pr", "create"]);
+}
+
+#[tokio::test]
+async fn service_creates_app_managed_worktree() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let worktree_root = temp.path().join("worktrees");
+    let runner = Arc::new(FakeRunner::new(vec![
+        ok("main||origin/main\nfeature/task||\n"),
+        ok("/repo\n"),
+        ok("true\n"),
+        ok(""),
+        ok("## feature/task-2\n"),
+    ]));
+    let service = GitService::new(GitClient::with_runner(runner.clone()))
+        .with_worktree_root(worktree_root.clone());
+
+    let result = service
+        .create_worktree(GitWorktreeCreateRequest {
+            repo_path: "/repo".to_string(),
+            preferred_branch: "feature/task".to_string(),
+            start_point: Some("main".to_string()),
+        })
+        .await
+        .expect("create worktree");
+
+    assert_eq!(result.branch, "feature/task-2");
+    assert!(result.path.starts_with(&worktree_root));
+    assert_eq!(result.repo_root, std::path::PathBuf::from("/repo"));
+    assert!(!result.dirty);
+
+    let requests = runner.requests();
+    assert_eq!(
+        requests[0].args,
+        vec![
+            "branch",
+            "--format=%(refname:short)|%(HEAD)|%(upstream:short)"
+        ]
+    );
+    assert_eq!(requests[1].args, vec!["rev-parse", "--show-toplevel"]);
+    assert_eq!(requests[2].args, vec!["rev-parse", "--is-inside-work-tree"]);
+    assert_eq!(
+        requests[3].args[0..4],
+        ["worktree", "add", "-b", "feature/task-2"]
+    );
+    assert!(requests[3].args[4].starts_with(worktree_root.to_string_lossy().as_ref()));
+    assert_eq!(requests[3].args[5], "main");
+    assert_eq!(requests[4].args, vec!["status", "--porcelain=v1", "-b"]);
+}
+
+#[tokio::test]
+async fn service_removes_only_app_managed_worktree() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let worktree_root = temp.path().join("worktrees");
+    let worktree_path = worktree_root.join("repo").join("feature-task");
+    let runner = Arc::new(FakeRunner::new(vec![ok("/repo\n"), ok("true\n"), ok("")]));
+    let service = GitService::new(GitClient::with_runner(runner.clone()))
+        .with_worktree_root(worktree_root.clone());
+
+    let result = service
+        .remove_worktree(GitWorktreeRemoveRequest {
+            repo_path: "/repo".to_string(),
+            path: worktree_path.to_string_lossy().to_string(),
+            force: true,
+        })
+        .await
+        .expect("remove worktree");
+
+    assert_eq!(result.path, worktree_path);
+    assert!(result.removed);
+    let requests = runner.requests();
+    assert_eq!(requests[0].args, vec!["rev-parse", "--show-toplevel"]);
+    assert_eq!(requests[1].args, vec!["rev-parse", "--is-inside-work-tree"]);
+    assert_eq!(requests[2].args[0..3], ["worktree", "remove", "--force"]);
+    assert_eq!(requests[2].args[3], result.path.to_string_lossy());
+}
+
+#[tokio::test]
+async fn service_rejects_worktree_removal_outside_app_root() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let runner = Arc::new(FakeRunner::new(Vec::new()));
+    let service = GitService::new(GitClient::with_runner(runner.clone()))
+        .with_worktree_root(temp.path().join("worktrees"));
+
+    let error = service
+        .remove_worktree(GitWorktreeRemoveRequest {
+            repo_path: "/repo".to_string(),
+            path: temp.path().join("outside").to_string_lossy().to_string(),
+            force: false,
+        })
+        .await
+        .expect_err("unsafe path");
+
+    assert!(matches!(
+        error,
+        GitApiError::Tooling(ace_git::GitToolError::UnsafeWorktreePath { .. })
+    ));
+    assert!(runner.requests().is_empty());
 }
 
 #[tokio::test]

@@ -738,7 +738,7 @@ impl<R: ProcessRunner> WorktreeManager<R> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct WorktreeCreateResult {
     pub path: PathBuf,
     pub branch: String,
@@ -746,7 +746,7 @@ pub struct WorktreeCreateResult {
     pub dirty: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct WorktreeRemoveResult {
     pub path: PathBuf,
     pub removed: bool,

@@ -122,6 +122,20 @@ pub struct GitWorktreesRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GitWorktreeCreateRequest {
+    pub repo_path: String,
+    pub preferred_branch: String,
+    pub start_point: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GitWorktreeRemoveRequest {
+    pub repo_path: String,
+    pub path: String,
+    pub force: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GitWorkflowRequest {
     pub repo_path: String,
     pub action: GitWorkflowAction,

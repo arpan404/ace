@@ -8,6 +8,8 @@ pub enum GitApiError {
     EmptyRepoPath,
     #[error("git workflow requires github client support")]
     WorkflowUnavailable,
+    #[error("git worktree management requires an app worktree root")]
+    WorktreeUnavailable,
     #[error("{0}")]
     Tooling(#[from] ace_git::GitToolError),
 }
@@ -22,6 +24,7 @@ impl IntoResponse for GitApiError {
         let status = match &self {
             Self::EmptyRepoPath
             | Self::WorkflowUnavailable
+            | Self::WorktreeUnavailable
             | Self::Tooling(ace_git::GitToolError::UnsafeBranchName(_))
             | Self::Tooling(ace_git::GitToolError::UnsafeWorktreePath { .. })
             | Self::Tooling(ace_git::GitToolError::EmptyCommitMessage)
