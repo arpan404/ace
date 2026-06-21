@@ -28,6 +28,7 @@ mod github_review_comments;
 mod github_review_threads;
 mod github_search;
 mod github_timeline;
+mod github_workflow_diagnostics;
 
 pub use git_changes::{GitChangedFile, GitChangedFileStatus};
 pub use git_commits::{GitCommitComparison, GitCommitSummary};
@@ -78,6 +79,9 @@ pub use github_search::{
     GithubSearchRepository,
 };
 pub use github_timeline::GithubTimelineEvent;
+pub use github_workflow_diagnostics::{
+    GithubWorkflowRunDiagnostics, WorkflowRunDiagnosticsRequest,
+};
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 const DEFAULT_MAX_OUTPUT_BYTES: usize = 8 * 1024 * 1024;

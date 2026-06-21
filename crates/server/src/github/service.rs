@@ -31,8 +31,8 @@ use ace_protocol::github::{
     WorkflowDispatchRequest, WorkflowEnableRequest, WorkflowJobLogRequest, WorkflowJobRequest,
     WorkflowListRequest, WorkflowRequest, WorkflowRunApprovalsRequest, WorkflowRunApproveRequest,
     WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest, WorkflowRunCancelRequest,
-    WorkflowRunForceCancelRequest, WorkflowRunJobsRequest, WorkflowRunListRequest,
-    WorkflowRunLogRequest, WorkflowRunPendingDeploymentReviewRequest,
+    WorkflowRunDiagnosticsRequest, WorkflowRunForceCancelRequest, WorkflowRunJobsRequest,
+    WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunPendingDeploymentReviewRequest,
     WorkflowRunPendingDeploymentReviewState as ProtocolWorkflowRunPendingDeploymentReviewState,
     WorkflowRunPendingDeploymentsRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
 };
@@ -612,6 +612,25 @@ impl<R: ProcessRunner> GithubService<R> {
                 &repo_path(&request.repo_path)?,
                 request.run_id,
                 request.attempt,
+            )
+            .await
+            .map_err(GithubApiError::from)
+    }
+
+    pub async fn workflow_run_diagnostics(
+        &self,
+        request: WorkflowRunDiagnosticsRequest,
+    ) -> Result<ace_git::GithubWorkflowRunDiagnostics, GithubApiError> {
+        self.github
+            .workflow_run_diagnostics(
+                &repo_path(&request.repo_path)?,
+                &ace_git::WorkflowRunDiagnosticsRequest {
+                    run_id: request.run_id,
+                    attempt: request.attempt,
+                    job_limit: request.job_limit,
+                    include_failed_log: request.include_failed_log,
+                    include_artifacts: request.include_artifacts,
+                },
             )
             .await
             .map_err(GithubApiError::from)

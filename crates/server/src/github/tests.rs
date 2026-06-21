@@ -17,10 +17,11 @@ use ace_protocol::github::{
     WorkflowDisableRequest, WorkflowDispatchInput, WorkflowDispatchRequest, WorkflowEnableRequest,
     WorkflowJobLogRequest, WorkflowJobRequest, WorkflowListFilter, WorkflowListRequest,
     WorkflowRequest, WorkflowRunApprovalsRequest, WorkflowRunApproveRequest,
-    WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest, WorkflowRunForceCancelRequest,
-    WorkflowRunJobsRequest, WorkflowRunListFilter, WorkflowRunListRequest, WorkflowRunLogRequest,
-    WorkflowRunPendingDeploymentReviewRequest, WorkflowRunPendingDeploymentReviewState,
-    WorkflowRunPendingDeploymentsRequest, WorkflowRunRerunRequest,
+    WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest, WorkflowRunDiagnosticsRequest,
+    WorkflowRunForceCancelRequest, WorkflowRunJobsRequest, WorkflowRunListFilter,
+    WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunPendingDeploymentReviewRequest,
+    WorkflowRunPendingDeploymentReviewState, WorkflowRunPendingDeploymentsRequest,
+    WorkflowRunRerunRequest,
 };
 use async_trait::async_trait;
 use axum::{
@@ -1324,6 +1325,66 @@ async fn service_lists_workflow_run_jobs() {
             "-F",
             "per_page=25"
         ]
+    );
+}
+
+#[tokio::test]
+async fn service_returns_workflow_run_diagnostics() {
+    let runner = Arc::new(FakeRunner::new(vec![
+        ok(
+            br#"{"attempt":2,"conclusion":"failure","createdAt":"2026-06-21T00:00:00Z","databaseId":100,"displayTitle":"Run","event":"pull_request","headBranch":"feature/x","headSha":"abc","jobs":[],"name":"CI","number":7,"startedAt":"2026-06-21T00:01:00Z","status":"completed","updatedAt":"2026-06-21T00:02:00Z","url":"https://example.test/runs/100","workflowDatabaseId":5,"workflowName":"CI"}"#,
+        ),
+        ok(
+            br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+        ),
+        ok(
+            br#"{"total_count":1,"jobs":[{"id":200,"name":"test","status":"completed","conclusion":"failure","started_at":"2026-06-21T00:01:00Z","completed_at":"2026-06-21T00:02:00Z","url":"https://api.github.test/jobs/200","html_url":"https://github.test/jobs/200","steps":[{"name":"cargo test","status":"completed","conclusion":"failure","number":3,"started_at":"2026-06-21T00:01:00Z","completed_at":"2026-06-21T00:02:00Z"}]}]}"#,
+        ),
+        ok("test\tcargo test\tfailed\n"),
+        ok(
+            br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+        ),
+        ok(
+            br#"{"total_count":1,"artifacts":[{"id":9,"name":"logs","size_in_bytes":123,"url":"https://api.github.test/artifacts/9","archive_download_url":"https://api.github.test/artifacts/9/zip","expired":false,"created_at":"2026-06-21T00:00:00Z","updated_at":"2026-06-21T00:01:00Z","expires_at":"2026-09-21T00:00:00Z","workflow_run":{"id":100,"repository_id":1,"head_repository_id":1,"head_branch":"feature/x","head_sha":"abc"}}]}"#,
+        ),
+    ]));
+    let service = GithubService::new(GithubCliClient::with_runner(runner.clone()));
+
+    let diagnostics = service
+        .workflow_run_diagnostics(WorkflowRunDiagnosticsRequest {
+            repo_path: "/repo".to_string(),
+            run_id: 100,
+            attempt: Some(2),
+            job_limit: 25,
+            include_failed_log: true,
+            include_artifacts: true,
+        })
+        .await
+        .expect("diagnostics");
+
+    assert_eq!(diagnostics.run.run.database_id, 100);
+    assert_eq!(diagnostics.jobs[0].database_id, 200);
+    assert_eq!(
+        diagnostics.failed_log.as_deref(),
+        Some("test\tcargo test\tfailed")
+    );
+    assert_eq!(diagnostics.artifacts[0].name, "logs");
+    assert_eq!(
+        runner.requests()[2].args,
+        vec![
+            "api",
+            "repos/ace/app/actions/runs/100/attempts/2/jobs",
+            "-F",
+            "per_page=25"
+        ]
+    );
+    assert_eq!(
+        runner.requests()[3].args,
+        vec!["run", "view", "100", "--attempt", "2", "--log-failed"]
+    );
+    assert_eq!(
+        runner.requests()[5].args,
+        vec!["api", "repos/ace/app/actions/runs/100/artifacts"]
     );
 }
 
