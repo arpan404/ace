@@ -3,7 +3,7 @@ use ace_git::ProcessRunner;
 use ace_protocol::{
     github::{
         CheckRunAnnotationsRequest, CheckRunRequest, CheckRunRerequestRequest, CheckRunsRequest,
-        CheckSuiteRerequestRequest, CheckSuiteRunsRequest, CheckSuitesRequest,
+        CheckSuiteRequest, CheckSuiteRerequestRequest, CheckSuiteRunsRequest, CheckSuitesRequest,
         CommitStatusesRequest, EnvironmentStatusRequest, IssueListRequest, IssueThreadRequest,
         PullRequestActivityRequest, PullRequestCheckoutRequest, PullRequestChecksRequest,
         PullRequestCloseRequest, PullRequestCommentRequest, PullRequestCreateRequest,
@@ -147,6 +147,13 @@ impl<R: ProcessRunner> WsApiState<R> {
                 self.github_json::<CheckSuitesRequest, _, _, _>(
                     payload,
                     |service, request| async move { service.list_check_suites(request).await },
+                )
+                .await
+            }
+            methods::GITHUB_CHECK_SUITES_VIEW => {
+                self.github_json::<CheckSuiteRequest, _, _, _>(
+                    payload,
+                    |service, request| async move { service.check_suite(request).await },
                 )
                 .await
             }
@@ -1021,6 +1028,44 @@ mod tests {
                 "-F",
                 "app_id=1"
             ]
+        );
+    }
+
+    #[tokio::test]
+    async fn dispatches_check_suite_detail_over_ws_rpc() {
+        let runner = Arc::new(FakeRunner::new(vec![
+            ok(
+                br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+            ),
+            ok(
+                br#"{"id":5,"node_id":"CS_1","head_branch":"feature/x","head_sha":"abc","status":"completed","conclusion":"failure","url":"https://api.github.test/check-suites/5","before":"def","after":"abc","pull_requests":[],"app":{"id":1,"slug":"github-actions","name":"GitHub Actions","html_url":"https://github.com/apps/github-actions"},"created_at":"2026-06-21T00:00:00Z","updated_at":"2026-06-21T00:01:00Z","latest_check_runs_count":3,"check_runs_url":"https://api.github.test/check-suites/5/check-runs"}"#,
+            ),
+        ]));
+        let state = test_state(runner.clone());
+
+        let response = dispatch(
+            &state,
+            serde_json::json!({
+                "version": PROTOCOL_VERSION,
+                "request_id": "req-check-suite",
+                "method": methods::GITHUB_CHECK_SUITES_VIEW,
+                "payload": {
+                    "repo_path": "/repo",
+                    "check_suite_id": 5
+                }
+            }),
+        )
+        .await;
+
+        let WsServerPayload::Result { body } = response.payload else {
+            panic!("expected result");
+        };
+        assert_eq!(body["id"], 5);
+        assert_eq!(body["conclusion"], "failure");
+        assert_eq!(body["latest_check_runs_count"], 3);
+        assert_eq!(
+            runner.requests()[1].args,
+            vec!["api", "repos/ace/app/check-suites/5"]
         );
     }
 

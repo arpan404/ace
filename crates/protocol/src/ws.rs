@@ -41,6 +41,7 @@ pub mod methods {
     pub const GITHUB_CHECK_RUNS_ANNOTATIONS: &str = "github.check_runs.annotations";
     pub const GITHUB_CHECK_RUNS_REREQUEST: &str = "github.check_runs.rerequest";
     pub const GITHUB_CHECK_SUITES_LIST: &str = "github.check_suites.list";
+    pub const GITHUB_CHECK_SUITES_VIEW: &str = "github.check_suites.view";
     pub const GITHUB_CHECK_SUITES_RUNS: &str = "github.check_suites.runs";
     pub const GITHUB_CHECK_SUITES_REREQUEST: &str = "github.check_suites.rerequest";
     pub const GITHUB_COMMIT_STATUSES_LIST: &str = "github.commit_statuses.list";

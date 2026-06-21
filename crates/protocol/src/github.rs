@@ -191,6 +191,12 @@ pub struct CheckSuitesRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CheckSuiteRequest {
+    pub repo_path: String,
+    pub check_suite_id: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CheckSuiteRunsRequest {
     pub repo_path: String,
     pub check_suite_id: u64,

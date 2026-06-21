@@ -2,9 +2,9 @@ use super::{GithubApiError, GithubService, routes::router_with_state, service::G
 use ace_git::{CommandOutput, CommandRequest, GitToolError, GithubCliClient, ProcessRunner};
 use ace_protocol::github::{
     CheckRunAnnotationsRequest, CheckRunListFilter, CheckRunRequest, CheckRunRerequestRequest,
-    CheckRunsRequest, CheckSuiteRerequestRequest, CheckSuiteRunsRequest, CheckSuitesRequest,
-    CommitStatusesRequest, EnvironmentStatusRequest, IssueListFilter, IssueListRequest,
-    IssueThreadRequest, PullRequestActivityRequest, PullRequestChecksRequest,
+    CheckRunsRequest, CheckSuiteRequest, CheckSuiteRerequestRequest, CheckSuiteRunsRequest,
+    CheckSuitesRequest, CommitStatusesRequest, EnvironmentStatusRequest, IssueListFilter,
+    IssueListRequest, IssueThreadRequest, PullRequestActivityRequest, PullRequestChecksRequest,
     PullRequestCreateRequest, PullRequestDashboardRequest, PullRequestDiffRequest,
     PullRequestFilesRequest, PullRequestListFilter, PullRequestMergeMethod,
     PullRequestMergeRequest, PullRequestRequest, PullRequestReviewDecision,
@@ -523,6 +523,35 @@ async fn service_lists_check_suites_through_github_cli() {
             "-F",
             "app_id=1"
         ]
+    );
+}
+
+#[tokio::test]
+async fn service_returns_check_suite_detail_through_github_cli() {
+    let runner = Arc::new(FakeRunner::new(vec![
+        ok(
+            br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+        ),
+        ok(
+            br#"{"id":5,"node_id":"CS_1","head_branch":"feature/x","head_sha":"abc","status":"completed","conclusion":"failure","url":"https://api.github.test/check-suites/5","before":"def","after":"abc","pull_requests":[],"app":{"id":1,"slug":"github-actions","name":"GitHub Actions","html_url":"https://github.com/apps/github-actions"},"created_at":"2026-06-21T00:00:00Z","updated_at":"2026-06-21T00:01:00Z","latest_check_runs_count":3,"check_runs_url":"https://api.github.test/check-suites/5/check-runs"}"#,
+        ),
+    ]));
+    let service = GithubService::new(GithubCliClient::with_runner(runner.clone()));
+
+    let suite = service
+        .check_suite(CheckSuiteRequest {
+            repo_path: "/repo".to_string(),
+            check_suite_id: 5,
+        })
+        .await
+        .expect("check suite");
+
+    assert_eq!(suite.id, 5);
+    assert_eq!(suite.conclusion.as_deref(), Some("failure"));
+    assert_eq!(suite.latest_check_runs_count, Some(3));
+    assert_eq!(
+        runner.requests()[1].args,
+        vec!["api", "repos/ace/app/check-suites/5"]
     );
 }
 

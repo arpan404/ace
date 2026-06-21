@@ -137,6 +137,24 @@ impl<R: ProcessRunner> GithubCliClient<R> {
         Ok(response.check_suites)
     }
 
+    pub async fn check_suite(&self, cwd: &Path, check_suite_id: u64) -> Result<GithubCheckSuite> {
+        let repository = self.repository(cwd).await?;
+        let output = self
+            .gh_allow_statuses(
+                cwd,
+                [
+                    "api".to_string(),
+                    format!(
+                        "repos/{}/check-suites/{check_suite_id}",
+                        repository.name_with_owner
+                    ),
+                ],
+                &[0],
+            )
+            .await?;
+        parse_json("github check suite", &output.stdout)
+    }
+
     pub async fn rerequest_check_suite(
         &self,
         cwd: &Path,
@@ -638,6 +656,32 @@ mod tests {
                 "-F",
                 "app_id=1"
             ]
+        );
+    }
+
+    #[tokio::test]
+    async fn check_suite_detail_resolves_repo_and_parses_suite() {
+        let runner = std::sync::Arc::new(FakeRunner::new(vec![
+            ok(
+                br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+            ),
+            ok(
+                br#"{"id":5,"node_id":"CS_1","head_branch":"feature/x","head_sha":"abc","status":"completed","conclusion":"failure","url":"https://api.github.test/check-suites/5","before":"def","after":"abc","pull_requests":[],"app":{"id":1,"slug":"github-actions","name":"GitHub Actions","html_url":"https://github.com/apps/github-actions"},"created_at":"2026-06-21T00:00:00Z","updated_at":"2026-06-21T00:01:00Z","latest_check_runs_count":3,"check_runs_url":"https://api.github.test/check-suites/5/check-runs"}"#,
+            ),
+        ]));
+        let github = GithubCliClient::with_runner(runner.clone());
+
+        let suite = github
+            .check_suite(Path::new("."), 5)
+            .await
+            .expect("check suite");
+
+        assert_eq!(suite.id, 5);
+        assert_eq!(suite.conclusion.as_deref(), Some("failure"));
+        assert_eq!(suite.latest_check_runs_count, Some(3));
+        assert_eq!(
+            runner.requests()[1].args,
+            vec!["api", "repos/ace/app/check-suites/5"]
         );
     }
 

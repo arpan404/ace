@@ -14,17 +14,17 @@ use ace_git::{
 };
 use ace_protocol::github::{
     CheckRunAnnotationsRequest, CheckRunRequest, CheckRunRerequestRequest, CheckRunsRequest,
-    CheckSuiteRerequestRequest, CheckSuiteRunsRequest, CheckSuitesRequest, CommitStatusesRequest,
-    EnvironmentStatusRequest, IssueListRequest, IssueThreadRequest, PullRequestActivityRequest,
-    PullRequestCheckoutRequest, PullRequestChecksRequest, PullRequestCloseRequest,
-    PullRequestCommentRequest, PullRequestCreateRequest, PullRequestDashboardRequest,
-    PullRequestDiffRequest, PullRequestFilesRequest, PullRequestListRequest,
-    PullRequestMergeRequest, PullRequestReadyStateRequest, PullRequestReopenRequest,
-    PullRequestRequest, PullRequestReviewRequest, PullRequestThreadRequest, SearchIssuesRequest,
-    SearchPullRequestsRequest, WorkflowDisableRequest, WorkflowDispatchRequest,
-    WorkflowEnableRequest, WorkflowListRequest, WorkflowRunArtifactDownloadRequest,
-    WorkflowRunArtifactsRequest, WorkflowRunCancelRequest, WorkflowRunListRequest,
-    WorkflowRunLogRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
+    CheckSuiteRequest, CheckSuiteRerequestRequest, CheckSuiteRunsRequest, CheckSuitesRequest,
+    CommitStatusesRequest, EnvironmentStatusRequest, IssueListRequest, IssueThreadRequest,
+    PullRequestActivityRequest, PullRequestCheckoutRequest, PullRequestChecksRequest,
+    PullRequestCloseRequest, PullRequestCommentRequest, PullRequestCreateRequest,
+    PullRequestDashboardRequest, PullRequestDiffRequest, PullRequestFilesRequest,
+    PullRequestListRequest, PullRequestMergeRequest, PullRequestReadyStateRequest,
+    PullRequestReopenRequest, PullRequestRequest, PullRequestReviewRequest,
+    PullRequestThreadRequest, SearchIssuesRequest, SearchPullRequestsRequest,
+    WorkflowDisableRequest, WorkflowDispatchRequest, WorkflowEnableRequest, WorkflowListRequest,
+    WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest, WorkflowRunCancelRequest,
+    WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
 };
 use serde::Serialize;
 use std::{path::PathBuf, sync::Arc};
@@ -258,6 +258,16 @@ impl<R: ProcessRunner> GithubService<R> {
                 &request.git_ref,
                 &check_run_list_filter(request.filter),
             )
+            .await
+            .map_err(GithubApiError::from)
+    }
+
+    pub async fn check_suite(
+        &self,
+        request: CheckSuiteRequest,
+    ) -> Result<ace_git::GithubCheckSuite, GithubApiError> {
+        self.github
+            .check_suite(&repo_path(&request.repo_path)?, request.check_suite_id)
             .await
             .map_err(GithubApiError::from)
     }
