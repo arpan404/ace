@@ -7,8 +7,8 @@ use ace_protocol::github::{
     PullRequestFilesRequest, PullRequestListRequest, PullRequestMergeRequest,
     PullRequestReadyStateRequest, PullRequestReopenRequest, PullRequestRequest,
     PullRequestReviewRequest, PullRequestThreadRequest, SearchIssuesRequest,
-    SearchPullRequestsRequest, WorkflowRunCancelRequest, WorkflowRunListRequest,
-    WorkflowRunLogRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
+    SearchPullRequestsRequest, WorkflowRunArtifactsRequest, WorkflowRunCancelRequest,
+    WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
 };
 use axum::{Json, Router, extract::State, routing::post};
 
@@ -47,6 +47,10 @@ where
         .route("/workflow-runs/list", post(list_workflow_runs::<R>))
         .route("/workflow-runs/view", post(workflow_run::<R>))
         .route("/workflow-runs/log", post(workflow_run_log::<R>))
+        .route(
+            "/workflow-runs/artifacts",
+            post(workflow_run_artifacts::<R>),
+        )
         .route(
             "/workflow-runs/failed-log",
             post(workflow_run_failed_log::<R>),
@@ -232,6 +236,20 @@ where
     R: ProcessRunner,
 {
     state.service.workflow_run_log(request).await.map(Json)
+}
+
+async fn workflow_run_artifacts<R>(
+    State(state): State<GithubApiState<R>>,
+    Json(request): Json<WorkflowRunArtifactsRequest>,
+) -> Result<Json<Vec<ace_git::GithubWorkflowArtifact>>, GithubApiError>
+where
+    R: ProcessRunner,
+{
+    state
+        .service
+        .workflow_run_artifacts(request)
+        .await
+        .map(Json)
 }
 
 async fn checkout_pull_request<R>(

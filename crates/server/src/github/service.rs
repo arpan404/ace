@@ -17,8 +17,8 @@ use ace_protocol::github::{
     PullRequestFilesRequest, PullRequestListRequest, PullRequestMergeRequest,
     PullRequestReadyStateRequest, PullRequestReopenRequest, PullRequestRequest,
     PullRequestReviewRequest, PullRequestThreadRequest, SearchIssuesRequest,
-    SearchPullRequestsRequest, WorkflowRunCancelRequest, WorkflowRunListRequest,
-    WorkflowRunLogRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
+    SearchPullRequestsRequest, WorkflowRunArtifactsRequest, WorkflowRunCancelRequest,
+    WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
 };
 use serde::Serialize;
 use std::{path::PathBuf, sync::Arc};
@@ -283,6 +283,16 @@ impl<R: ProcessRunner> GithubService<R> {
             )
             .await?;
         Ok(WorkflowRunLogResponse { log })
+    }
+
+    pub async fn workflow_run_artifacts(
+        &self,
+        request: WorkflowRunArtifactsRequest,
+    ) -> Result<Vec<ace_git::GithubWorkflowArtifact>, GithubApiError> {
+        self.github
+            .workflow_run_artifacts(&repo_path(&request.repo_path)?, request.run_id)
+            .await
+            .map_err(GithubApiError::from)
     }
 
     pub async fn checkout_pull_request(

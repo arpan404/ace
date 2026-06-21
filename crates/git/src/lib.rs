@@ -22,8 +22,9 @@ mod github_mutations;
 mod github_search;
 
 pub use github_actions::{
-    GithubCheckSummary, GithubPrCheck, GithubPrChecks, GithubWorkflowJob, GithubWorkflowRun,
-    GithubWorkflowRunDetail, GithubWorkflowStep, WorkflowRunListFilter,
+    GithubCheckSummary, GithubPrCheck, GithubPrChecks, GithubWorkflowArtifact,
+    GithubWorkflowArtifactRun, GithubWorkflowJob, GithubWorkflowRun, GithubWorkflowRunDetail,
+    GithubWorkflowStep, WorkflowRunListFilter,
 };
 pub use github_activity::{GithubPullRequestActivity, PullRequestActivityRequest};
 pub use github_dashboard::{

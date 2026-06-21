@@ -118,6 +118,32 @@ impl<R: ProcessRunner> GithubCliClient<R> {
         let output = self.gh_allow_statuses(cwd, args, &[0]).await?;
         Ok(output.stdout_string())
     }
+
+    pub async fn workflow_run_artifacts(
+        &self,
+        cwd: &Path,
+        run_id: u64,
+    ) -> Result<Vec<GithubWorkflowArtifact>> {
+        let repository = self.repository(cwd).await?;
+        let output = self
+            .gh_allow_statuses(
+                cwd,
+                [
+                    "api".to_string(),
+                    format!(
+                        "repos/{}/actions/runs/{run_id}/artifacts",
+                        repository.name_with_owner
+                    ),
+                ],
+                &[0],
+            )
+            .await?;
+        let response = parse_json::<GithubWorkflowArtifactsResponse>(
+            "github workflow artifacts",
+            &output.stdout,
+        )?;
+        Ok(response.artifacts)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -262,6 +288,37 @@ pub struct GithubWorkflowStep {
     pub started_at: Option<String>,
     #[serde(rename = "completedAt")]
     pub completed_at: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct GithubWorkflowArtifactsResponse {
+    #[serde(rename = "total_count")]
+    pub total_count: u64,
+    #[serde(default)]
+    pub artifacts: Vec<GithubWorkflowArtifact>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GithubWorkflowArtifact {
+    pub id: u64,
+    pub name: String,
+    pub size_in_bytes: u64,
+    pub url: String,
+    pub archive_download_url: String,
+    pub expired: bool,
+    pub created_at: String,
+    pub updated_at: String,
+    pub expires_at: Option<String>,
+    pub workflow_run: Option<GithubWorkflowArtifactRun>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GithubWorkflowArtifactRun {
+    pub id: u64,
+    pub repository_id: u64,
+    pub head_repository_id: Option<u64>,
+    pub head_branch: Option<String>,
+    pub head_sha: Option<String>,
 }
 
 #[cfg(test)]
@@ -459,6 +516,50 @@ mod tests {
                 "200",
                 "--log"
             ]
+        );
+    }
+
+    #[tokio::test]
+    async fn workflow_artifacts_resolve_repo_and_parse_artifacts() {
+        let runner = std::sync::Arc::new(FakeRunner::new(vec![
+            output(
+                0,
+                br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+            ),
+            output(
+                0,
+                br#"{"total_count":1,"artifacts":[{"id":11,"name":"linux-build","size_in_bytes":2048,"url":"https://api.github.test/artifacts/11","archive_download_url":"https://api.github.test/artifacts/11/zip","expired":false,"created_at":"2026-06-21T00:00:00Z","updated_at":"2026-06-21T00:01:00Z","expires_at":"2026-09-19T00:00:00Z","workflow_run":{"id":100,"repository_id":7,"head_repository_id":8,"head_branch":"feature/x","head_sha":"abc"}}]}"#,
+            ),
+        ]));
+        let github = GithubCliClient::with_runner(runner.clone());
+
+        let artifacts = github
+            .workflow_run_artifacts(Path::new("."), 100)
+            .await
+            .expect("artifacts");
+
+        assert_eq!(artifacts[0].id, 11);
+        assert_eq!(artifacts[0].name, "linux-build");
+        assert_eq!(
+            artifacts[0]
+                .workflow_run
+                .as_ref()
+                .and_then(|run| run.head_branch.as_deref()),
+            Some("feature/x")
+        );
+        let requests = runner.requests();
+        assert_eq!(
+            requests[0].args,
+            vec![
+                "repo",
+                "view",
+                "--json",
+                "nameWithOwner,defaultBranchRef,url,sshUrl"
+            ]
+        );
+        assert_eq!(
+            requests[1].args,
+            vec!["api", "repos/ace/app/actions/runs/100/artifacts"]
         );
     }
 }
