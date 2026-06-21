@@ -292,6 +292,7 @@ pub(crate) mod tests {
     pub struct FakeTransport {
         pub requests: StdMutex<Vec<(String, Value)>>,
         pub notifications: StdMutex<Vec<(String, Value)>>,
+        pub server_request_responses: StdMutex<VecDeque<Value>>,
         pub responses: StdMutex<VecDeque<Result<Value>>>,
         pub inbound: StdMutex<VecDeque<CodexInboundEvent>>,
     }
@@ -318,17 +319,61 @@ pub(crate) mod tests {
             Ok(())
         }
 
-        async fn respond_result(&self, _id: i64, _result: Value) -> Result<()> {
+        async fn respond_result(&self, id: i64, result: Value) -> Result<()> {
+            self.server_request_responses
+                .lock()
+                .expect("server request responses")
+                .push_back(json!({ "id": id, "result": result }));
             Ok(())
         }
 
-        async fn respond_error(&self, _id: i64, _code: i64, _message: &str) -> Result<()> {
+        async fn respond_error(&self, id: i64, code: i64, message: &str) -> Result<()> {
+            self.server_request_responses
+                .lock()
+                .expect("server request responses")
+                .push_back(json!({
+                    "id": id,
+                    "error": {
+                        "code": code,
+                        "message": message,
+                    }
+                }));
             Ok(())
         }
 
         async fn recv(&self) -> Option<CodexInboundEvent> {
             self.inbound.lock().expect("inbound").pop_front()
         }
+    }
+
+    #[tokio::test]
+    async fn fake_transport_records_server_request_responses_as_json_rpc_frames() {
+        let fake = FakeTransport::default();
+        fake.respond_result(11, json!({ "approved": true }))
+            .await
+            .expect("result");
+        fake.respond_error(12, -32001, "denied")
+            .await
+            .expect("error");
+
+        let responses = fake
+            .server_request_responses
+            .lock()
+            .expect("server request responses")
+            .clone();
+        assert_eq!(
+            responses.into_iter().collect::<Vec<_>>(),
+            vec![
+                json!({ "id": 11, "result": { "approved": true } }),
+                json!({
+                    "id": 12,
+                    "error": {
+                        "code": -32001,
+                        "message": "denied"
+                    }
+                })
+            ]
+        );
     }
 
     #[tokio::test]

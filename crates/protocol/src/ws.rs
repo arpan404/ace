@@ -10,6 +10,9 @@ pub mod methods {
     pub const CODEX_TURN_PLAN_START: &str = "codex.turn.plan_start";
     pub const CODEX_TURN_INTERRUPT: &str = "codex.turn.interrupt";
     pub const PROVIDER_RUNTIME_EVENTS_SUBSCRIBE: &str = "provider_runtime.events.subscribe";
+    pub const PROVIDER_RUNTIME_SERVER_REQUEST_RESULT: &str =
+        "provider_runtime.server_request.result";
+    pub const PROVIDER_RUNTIME_SERVER_REQUEST_ERROR: &str = "provider_runtime.server_request.error";
 
     pub const GIT_REPOSITORY: &str = "git.repository";
     pub const GIT_STATUS: &str = "git.status";

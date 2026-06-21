@@ -281,6 +281,8 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
     ) -> Result<Value, WsDispatchError> {
         if method.starts_with("codex.") {
             self.dispatch_codex_method(method, payload).await
+        } else if method.starts_with("provider_runtime.") {
+            self.dispatch_provider_runtime_method(method, payload).await
         } else if method.starts_with("git.") {
             self.dispatch_git_method(method, payload).await
         } else if method.starts_with("github.") {

@@ -12,6 +12,8 @@ use tokio::sync::Mutex;
 pub enum CodexApiError {
     #[error(transparent)]
     Codex(#[from] ace_codex::CodexError),
+    #[error("unsupported provider `{0}` for Codex-backed provider runtime request")]
+    UnsupportedProvider(String),
 }
 
 impl CodexApiError {
@@ -22,6 +24,7 @@ impl CodexApiError {
             Self::Codex(ace_codex::CodexError::RequestTimeout { .. }) => "codex_timeout",
             Self::Codex(ace_codex::CodexError::RequestFailed { .. }) => "codex_request_failed",
             Self::Codex(_) => "codex_error",
+            Self::UnsupportedProvider(_) => "unsupported_provider",
         }
     }
 }
@@ -35,6 +38,13 @@ pub trait CodexBackend: Send + Sync {
     async fn start_turn(&self, request: CodexTurnStart) -> Result<Value>;
     async fn interrupt_turn(&self, thread_id: &str) -> Result<Value>;
     async fn next_events(&self) -> Result<Option<Vec<ProviderEvent>>>;
+    async fn respond_server_request_result(&self, request_id: i64, result: Value) -> Result<()>;
+    async fn respond_server_request_error(
+        &self,
+        request_id: i64,
+        code: i64,
+        message: &str,
+    ) -> Result<()>;
 }
 
 pub type DynCodexBackend = Arc<dyn CodexBackend>;
@@ -92,6 +102,25 @@ impl CodexBackend for LiveCodexBackend {
 
     async fn next_events(&self) -> Result<Option<Vec<ProviderEvent>>> {
         Ok(self.client().await?.next_provider_events().await)
+    }
+
+    async fn respond_server_request_result(&self, request_id: i64, result: Value) -> Result<()> {
+        self.client()
+            .await?
+            .respond_tool_result(request_id, result)
+            .await
+    }
+
+    async fn respond_server_request_error(
+        &self,
+        request_id: i64,
+        code: i64,
+        message: &str,
+    ) -> Result<()> {
+        self.client()
+            .await?
+            .respond_tool_error(request_id, code, message)
+            .await
     }
 }
 
@@ -162,6 +191,29 @@ impl CodexService {
     ) -> std::result::Result<Option<Vec<ProviderEvent>>, CodexApiError> {
         Ok(self.backend.next_events().await?)
     }
+
+    pub async fn respond_server_request_result(
+        &self,
+        request_id: i64,
+        result: Value,
+    ) -> std::result::Result<(), CodexApiError> {
+        Ok(self
+            .backend
+            .respond_server_request_result(request_id, result)
+            .await?)
+    }
+
+    pub async fn respond_server_request_error(
+        &self,
+        request_id: i64,
+        code: i64,
+        message: String,
+    ) -> std::result::Result<(), CodexApiError> {
+        Ok(self
+            .backend
+            .respond_server_request_error(request_id, code, &message)
+            .await?)
+    }
 }
 
 #[cfg(test)]
@@ -173,6 +225,20 @@ pub mod tests {
     pub struct FakeCodexBackend {
         pub calls: StdMutex<Vec<String>>,
         pub events: StdMutex<VecDeque<Vec<ProviderEvent>>>,
+        pub server_request_responses: StdMutex<Vec<ServerRequestResponse>>,
+    }
+
+    #[derive(Debug, Clone, PartialEq)]
+    pub enum ServerRequestResponse {
+        Result {
+            request_id: i64,
+            result: Value,
+        },
+        Error {
+            request_id: i64,
+            code: i64,
+            message: String,
+        },
     }
 
     impl FakeCodexBackend {
@@ -230,6 +296,35 @@ pub mod tests {
 
         async fn next_events(&self) -> Result<Option<Vec<ProviderEvent>>> {
             Ok(self.events.lock().expect("events").pop_front())
+        }
+
+        async fn respond_server_request_result(
+            &self,
+            request_id: i64,
+            result: Value,
+        ) -> Result<()> {
+            self.server_request_responses
+                .lock()
+                .expect("server request responses")
+                .push(ServerRequestResponse::Result { request_id, result });
+            Ok(())
+        }
+
+        async fn respond_server_request_error(
+            &self,
+            request_id: i64,
+            code: i64,
+            message: &str,
+        ) -> Result<()> {
+            self.server_request_responses
+                .lock()
+                .expect("server request responses")
+                .push(ServerRequestResponse::Error {
+                    request_id,
+                    code,
+                    message: message.to_string(),
+                });
+            Ok(())
         }
     }
 }
