@@ -5,6 +5,7 @@ use std::path::Path;
 const ISSUE_THREAD_FIELDS: &str =
     "number,title,state,url,body,labels,assignees,author,createdAt,updatedAt,comments";
 const PULL_REQUEST_DETAIL_FIELDS: &str = "number,title,state,url,headRefName,baseRefName,body,author,createdAt,updatedAt,isDraft,reviewDecision,mergeStateStatus";
+const PULL_REQUEST_THREAD_FIELDS: &str = "number,title,state,url,headRefName,baseRefName,body,author,createdAt,updatedAt,isDraft,reviewDecision,mergeStateStatus,comments,reviews,latestReviews";
 
 impl<R: ProcessRunner> GithubCliClient<R> {
     pub async fn repository(&self, cwd: &Path) -> Result<GithubRepository> {
@@ -67,6 +68,21 @@ impl<R: ProcessRunner> GithubCliClient<R> {
             )
             .await?;
         parse_json("github pull request", &output.stdout)
+    }
+
+    pub async fn pull_request_thread(
+        &self,
+        cwd: &Path,
+        selector: &str,
+    ) -> Result<GithubPullRequestThread> {
+        let output = self
+            .gh_allow_statuses(
+                cwd,
+                ["pr", "view", selector, "--json", PULL_REQUEST_THREAD_FIELDS],
+                &[0],
+            )
+            .await?;
+        parse_json("github pull request thread", &output.stdout)
     }
 
     pub async fn create_pull_request(
@@ -183,6 +199,18 @@ pub struct GithubPullRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GithubPullRequestThread {
+    #[serde(flatten)]
+    pub pull_request: GithubPullRequest,
+    #[serde(default)]
+    pub comments: Vec<GithubComment>,
+    #[serde(default)]
+    pub reviews: Vec<GithubPullRequestReview>,
+    #[serde(rename = "latestReviews", default)]
+    pub latest_reviews: Vec<GithubPullRequestReview>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GithubUser {
     pub login: String,
 }
@@ -201,6 +229,26 @@ pub struct GithubComment {
     #[serde(rename = "updatedAt")]
     pub updated_at: Option<String>,
     pub url: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GithubPullRequestReview {
+    pub id: Option<String>,
+    pub author: Option<GithubUser>,
+    #[serde(rename = "authorAssociation")]
+    pub author_association: Option<String>,
+    pub body: Option<String>,
+    pub state: String,
+    #[serde(rename = "submittedAt")]
+    pub submitted_at: Option<String>,
+    #[serde(rename = "commit")]
+    pub commit: Option<GithubCommitRef>,
+    pub url: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GithubCommitRef {
+    pub oid: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

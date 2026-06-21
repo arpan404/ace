@@ -6,9 +6,9 @@ use ace_protocol::github::{
     PullRequestCommentRequest, PullRequestDashboardRequest, PullRequestDiffRequest,
     PullRequestFilesRequest, PullRequestListRequest, PullRequestMergeRequest,
     PullRequestReadyStateRequest, PullRequestReopenRequest, PullRequestRequest,
-    PullRequestReviewRequest, SearchIssuesRequest, SearchPullRequestsRequest,
-    WorkflowRunCancelRequest, WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunRequest,
-    WorkflowRunRerunRequest,
+    PullRequestReviewRequest, PullRequestThreadRequest, SearchIssuesRequest,
+    SearchPullRequestsRequest, WorkflowRunCancelRequest, WorkflowRunListRequest,
+    WorkflowRunLogRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
 };
 use axum::{Json, Router, extract::State, routing::post};
 
@@ -26,6 +26,7 @@ where
         .route("/issues/thread", post(issue_thread::<R>))
         .route("/pulls/list", post(list_pull_requests::<R>))
         .route("/pulls/view", post(pull_request::<R>))
+        .route("/pulls/thread", post(pull_request_thread::<R>))
         .route("/pulls/files", post(pull_request_files::<R>))
         .route("/pulls/diff", post(pull_request_diff::<R>))
         .route("/issues/search", post(search_issues::<R>))
@@ -102,6 +103,16 @@ where
     R: ProcessRunner,
 {
     state.service.pull_request(request).await.map(Json)
+}
+
+async fn pull_request_thread<R>(
+    State(state): State<GithubApiState<R>>,
+    Json(request): Json<PullRequestThreadRequest>,
+) -> Result<Json<ace_git::GithubPullRequestThread>, GithubApiError>
+where
+    R: ProcessRunner,
+{
+    state.service.pull_request_thread(request).await.map(Json)
 }
 
 async fn pull_request_files<R>(

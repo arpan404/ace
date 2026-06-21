@@ -16,9 +16,9 @@ use ace_protocol::github::{
     PullRequestCommentRequest, PullRequestDashboardRequest, PullRequestDiffRequest,
     PullRequestFilesRequest, PullRequestListRequest, PullRequestMergeRequest,
     PullRequestReadyStateRequest, PullRequestReopenRequest, PullRequestRequest,
-    PullRequestReviewRequest, SearchIssuesRequest, SearchPullRequestsRequest,
-    WorkflowRunCancelRequest, WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunRequest,
-    WorkflowRunRerunRequest,
+    PullRequestReviewRequest, PullRequestThreadRequest, SearchIssuesRequest,
+    SearchPullRequestsRequest, WorkflowRunCancelRequest, WorkflowRunListRequest,
+    WorkflowRunLogRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
 };
 use serde::Serialize;
 use std::{path::PathBuf, sync::Arc};
@@ -123,6 +123,16 @@ impl<R: ProcessRunner> GithubService<R> {
     ) -> Result<ace_git::GithubPullRequest, GithubApiError> {
         self.github
             .pull_request(&repo_path(&request.repo_path)?, &request.selector)
+            .await
+            .map_err(GithubApiError::from)
+    }
+
+    pub async fn pull_request_thread(
+        &self,
+        request: PullRequestThreadRequest,
+    ) -> Result<ace_git::GithubPullRequestThread, GithubApiError> {
+        self.github
+            .pull_request_thread(&repo_path(&request.repo_path)?, &request.selector)
             .await
             .map_err(GithubApiError::from)
     }

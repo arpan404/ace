@@ -5,8 +5,8 @@ use ace_protocol::github::{
     PullRequestActivityRequest, PullRequestChecksRequest, PullRequestDashboardRequest,
     PullRequestDiffRequest, PullRequestFilesRequest, PullRequestListFilter, PullRequestMergeMethod,
     PullRequestMergeRequest, PullRequestRequest, PullRequestReviewDecision,
-    PullRequestReviewRequest, WorkflowRunListFilter, WorkflowRunListRequest,
-    WorkflowRunRerunRequest,
+    PullRequestReviewRequest, PullRequestThreadRequest, WorkflowRunListFilter,
+    WorkflowRunListRequest, WorkflowRunRerunRequest,
 };
 use async_trait::async_trait;
 use axum::{
@@ -191,6 +191,40 @@ async fn service_returns_pull_request_details() {
             "42",
             "--json",
             "number,title,state,url,headRefName,baseRefName,body,author,createdAt,updatedAt,isDraft,reviewDecision,mergeStateStatus"
+        ]
+    );
+}
+
+#[tokio::test]
+async fn service_returns_pull_request_thread() {
+    let runner = Arc::new(FakeRunner::new(vec![ok(
+        br#"{"number":42,"title":"Feature","state":"OPEN","url":"https://example.test/pull/42","headRefName":"feature/x","baseRefName":"main","body":"body","author":{"login":"octo"},"createdAt":"2026-06-21T00:00:00Z","updatedAt":"2026-06-21T00:01:00Z","isDraft":false,"reviewDecision":"REVIEW_REQUIRED","mergeStateStatus":"BLOCKED","comments":[{"body":"please update docs","author":{"login":"maintainer"},"createdAt":"2026-06-21T00:02:00Z","updatedAt":null,"url":"https://example.test/pull/42#issuecomment-1"}],"reviews":[{"id":"PRR_1","author":{"login":"reviewer"},"authorAssociation":"MEMBER","body":"needs tests","state":"CHANGES_REQUESTED","submittedAt":"2026-06-21T00:03:00Z","commit":{"oid":"abc"},"url":"https://example.test/pull/42#pullrequestreview-1"}],"latestReviews":[{"id":"PRR_2","author":{"login":"reviewer"},"authorAssociation":"MEMBER","body":"approved","state":"APPROVED","submittedAt":"2026-06-21T00:04:00Z","commit":{"oid":"def"},"url":"https://example.test/pull/42#pullrequestreview-2"}]}"#,
+    )]));
+    let service = GithubService::new(GithubCliClient::with_runner(runner.clone()));
+
+    let thread = service
+        .pull_request_thread(PullRequestThreadRequest {
+            repo_path: "/repo".to_string(),
+            selector: "42".to_string(),
+        })
+        .await
+        .expect("pull request thread");
+
+    assert_eq!(thread.pull_request.number, Some(42));
+    assert_eq!(
+        thread.comments[0].body.as_deref(),
+        Some("please update docs")
+    );
+    assert_eq!(thread.reviews[0].state, "CHANGES_REQUESTED");
+    assert_eq!(thread.latest_reviews[0].state, "APPROVED");
+    assert_eq!(
+        runner.requests()[0].args,
+        vec![
+            "pr",
+            "view",
+            "42",
+            "--json",
+            "number,title,state,url,headRefName,baseRefName,body,author,createdAt,updatedAt,isDraft,reviewDecision,mergeStateStatus,comments,reviews,latestReviews"
         ]
     );
 }
@@ -598,6 +632,32 @@ async fn route_returns_pull_request_detail_json() {
     assert_eq!(body["number"], 42);
     assert_eq!(body["author"]["login"], "octo");
     assert_eq!(body["reviewDecision"], "REVIEW_REQUIRED");
+}
+
+#[tokio::test]
+async fn route_returns_pull_request_thread_json() {
+    let runner = Arc::new(FakeRunner::new(vec![ok(
+        br#"{"number":42,"title":"Feature","state":"OPEN","url":"https://example.test/pull/42","headRefName":"feature/x","baseRefName":"main","body":"body","author":{"login":"octo"},"createdAt":"2026-06-21T00:00:00Z","updatedAt":"2026-06-21T00:01:00Z","isDraft":false,"reviewDecision":"REVIEW_REQUIRED","mergeStateStatus":"BLOCKED","comments":[{"body":"please update docs","author":{"login":"maintainer"},"createdAt":"2026-06-21T00:02:00Z","updatedAt":null,"url":"https://example.test/pull/42#issuecomment-1"}],"reviews":[{"id":"PRR_1","author":{"login":"reviewer"},"authorAssociation":"MEMBER","body":"needs tests","state":"CHANGES_REQUESTED","submittedAt":"2026-06-21T00:03:00Z","commit":{"oid":"abc"},"url":"https://example.test/pull/42#pullrequestreview-1"}],"latestReviews":[{"id":"PRR_2","author":{"login":"reviewer"},"authorAssociation":"MEMBER","body":"approved","state":"APPROVED","submittedAt":"2026-06-21T00:04:00Z","commit":{"oid":"def"},"url":"https://example.test/pull/42#pullrequestreview-2"}]}"#,
+    )]));
+    let app = test_router(runner);
+
+    let response = app
+        .oneshot(json_request(
+            "/pulls/thread",
+            serde_json::json!({
+                "repo_path": "/repo",
+                "selector": "42"
+            }),
+        ))
+        .await
+        .expect("route response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response_json(response).await;
+    assert_eq!(body["number"], 42);
+    assert_eq!(body["comments"][0]["author"]["login"], "maintainer");
+    assert_eq!(body["reviews"][0]["state"], "CHANGES_REQUESTED");
+    assert_eq!(body["latestReviews"][0]["state"], "APPROVED");
 }
 
 #[tokio::test]

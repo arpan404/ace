@@ -30,8 +30,9 @@ pub use github_dashboard::{
     GithubPullRequestDashboard, GithubPullRequestDashboardItem, PullRequestDashboardRequest,
 };
 pub use github_detail::{
-    CreatePullRequest, GithubBranchRef, GithubComment, GithubIssue, GithubIssueThread, GithubLabel,
-    GithubPullRequest, GithubRepository, GithubUser,
+    CreatePullRequest, GithubBranchRef, GithubComment, GithubCommitRef, GithubIssue,
+    GithubIssueThread, GithubLabel, GithubPullRequest, GithubPullRequestReview,
+    GithubPullRequestThread, GithubRepository, GithubUser,
 };
 pub use github_diff::{GithubPullRequestDiff, GithubPullRequestFile};
 pub use github_environment::GithubEnvironmentStatus;
