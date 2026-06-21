@@ -79,6 +79,7 @@ pub mod methods {
     pub const GITHUB_WORKFLOW_RUN_APPROVE: &str = "github.workflow_runs.approve";
     pub const GITHUB_WORKFLOW_RUN_RERUN: &str = "github.workflow_runs.rerun";
     pub const GITHUB_WORKFLOW_RUN_CANCEL: &str = "github.workflow_runs.cancel";
+    pub const GITHUB_WORKFLOW_RUN_FORCE_CANCEL: &str = "github.workflow_runs.force_cancel";
     pub const GITHUB_WORKFLOW_JOBS_VIEW: &str = "github.workflow_jobs.view";
     pub const GITHUB_WORKFLOW_JOBS_LOG: &str = "github.workflow_jobs.log";
 }

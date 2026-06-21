@@ -17,9 +17,9 @@ use ace_protocol::{
         WorkflowDispatchRequest, WorkflowEnableRequest, WorkflowJobLogRequest, WorkflowJobRequest,
         WorkflowListRequest, WorkflowRunApprovalsRequest, WorkflowRunApproveRequest,
         WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest, WorkflowRunCancelRequest,
-        WorkflowRunJobsRequest, WorkflowRunListRequest, WorkflowRunLogRequest,
-        WorkflowRunPendingDeploymentReviewRequest, WorkflowRunPendingDeploymentsRequest,
-        WorkflowRunRequest, WorkflowRunRerunRequest,
+        WorkflowRunForceCancelRequest, WorkflowRunJobsRequest, WorkflowRunListRequest,
+        WorkflowRunLogRequest, WorkflowRunPendingDeploymentReviewRequest,
+        WorkflowRunPendingDeploymentsRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
     },
     ws::methods,
 };
@@ -427,6 +427,15 @@ impl<R: ProcessRunner> WsApiState<R> {
                 self.github_json::<WorkflowRunCancelRequest, _, _, _>(
                     payload,
                     |service, request| async move { service.cancel_workflow_run(request).await },
+                )
+                .await
+            }
+            methods::GITHUB_WORKFLOW_RUN_FORCE_CANCEL => {
+                self.github_json::<WorkflowRunForceCancelRequest, _, _, _>(
+                    payload,
+                    |service, request| async move {
+                        service.force_cancel_workflow_run(request).await
+                    },
                 )
                 .await
             }
@@ -1906,6 +1915,46 @@ mod tests {
             vec![
                 "api",
                 "repos/ace/app/actions/runs/100/approve",
+                "-X",
+                "POST"
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn dispatches_workflow_run_force_cancel_over_ws_rpc() {
+        let runner = Arc::new(FakeRunner::new(vec![
+            ok(
+                br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+            ),
+            ok("force cancelled\n"),
+        ]));
+        let state = test_state(runner.clone());
+
+        let response = dispatch(
+            &state,
+            serde_json::json!({
+                "version": PROTOCOL_VERSION,
+                "request_id": "req-workflow-force-cancel",
+                "method": methods::GITHUB_WORKFLOW_RUN_FORCE_CANCEL,
+                "payload": {
+                    "repo_path": "/repo",
+                    "run_id": 100
+                }
+            }),
+        )
+        .await;
+
+        let WsServerPayload::Result { body } = response.payload else {
+            panic!("expected result");
+        };
+        assert_eq!(body["action"], "force_cancel_workflow_run");
+        assert_eq!(body["stdout"], "force cancelled");
+        assert_eq!(
+            runner.requests()[1].args,
+            vec![
+                "api",
+                "repos/ace/app/actions/runs/100/force-cancel",
                 "-X",
                 "POST"
             ]

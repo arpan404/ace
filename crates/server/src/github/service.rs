@@ -10,8 +10,9 @@ use ace_git::{
     CreatePullRequest, GithubCliClient, ProcessRunner, PullRequestCheckout, PullRequestClose,
     PullRequestComment, PullRequestMerge, PullRequestReadyState, PullRequestReopen,
     PullRequestReview, TokioProcessRunner, WorkflowDispatch, WorkflowDispatchInput,
-    WorkflowRunApprove, WorkflowRunCancel, WorkflowRunPendingDeploymentReview,
-    WorkflowRunPendingDeploymentReviewState, WorkflowRunRerun, WorkflowStateChange,
+    WorkflowRunApprove, WorkflowRunCancel, WorkflowRunForceCancel,
+    WorkflowRunPendingDeploymentReview, WorkflowRunPendingDeploymentReviewState, WorkflowRunRerun,
+    WorkflowStateChange,
 };
 use ace_protocol::github::{
     CheckRunAnnotationsRequest, CheckRunRequest, CheckRunRerequestRequest, CheckRunsRequest,
@@ -28,8 +29,8 @@ use ace_protocol::github::{
     WorkflowDisableRequest, WorkflowDispatchRequest, WorkflowEnableRequest, WorkflowJobLogRequest,
     WorkflowJobRequest, WorkflowListRequest, WorkflowRunApprovalsRequest,
     WorkflowRunApproveRequest, WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest,
-    WorkflowRunCancelRequest, WorkflowRunJobsRequest, WorkflowRunListRequest,
-    WorkflowRunLogRequest, WorkflowRunPendingDeploymentReviewRequest,
+    WorkflowRunCancelRequest, WorkflowRunForceCancelRequest, WorkflowRunJobsRequest,
+    WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunPendingDeploymentReviewRequest,
     WorkflowRunPendingDeploymentReviewState as ProtocolWorkflowRunPendingDeploymentReviewState,
     WorkflowRunPendingDeploymentsRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
 };
@@ -842,6 +843,21 @@ impl<R: ProcessRunner> GithubService<R> {
             .cancel_workflow_run(
                 &repo_path(&request.repo_path)?,
                 &WorkflowRunCancel {
+                    run_id: request.run_id,
+                },
+            )
+            .await
+            .map_err(GithubApiError::from)
+    }
+
+    pub async fn force_cancel_workflow_run(
+        &self,
+        request: WorkflowRunForceCancelRequest,
+    ) -> Result<ace_git::GithubActionResult, GithubApiError> {
+        self.github
+            .force_cancel_workflow_run(
+                &repo_path(&request.repo_path)?,
+                &WorkflowRunForceCancel {
                     run_id: request.run_id,
                 },
             )

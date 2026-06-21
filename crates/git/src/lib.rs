@@ -54,8 +54,9 @@ pub use github_mutations::{
     GithubActionResult, PullRequestCheckout, PullRequestClose, PullRequestComment,
     PullRequestMerge, PullRequestMergeMethod, PullRequestReadyState, PullRequestReopen,
     PullRequestReview, PullRequestReviewDecision, WorkflowDispatch, WorkflowDispatchInput,
-    WorkflowRunApprove, WorkflowRunCancel, WorkflowRunPendingDeploymentReview,
-    WorkflowRunPendingDeploymentReviewState, WorkflowRunRerun, WorkflowStateChange,
+    WorkflowRunApprove, WorkflowRunCancel, WorkflowRunForceCancel,
+    WorkflowRunPendingDeploymentReview, WorkflowRunPendingDeploymentReviewState, WorkflowRunRerun,
+    WorkflowStateChange,
 };
 pub use github_review_comments::GithubPullRequestReviewComment;
 pub use github_review_threads::{

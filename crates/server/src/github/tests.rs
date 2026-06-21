@@ -14,9 +14,10 @@ use ace_protocol::github::{
     WorkflowDispatchInput, WorkflowDispatchRequest, WorkflowEnableRequest, WorkflowJobLogRequest,
     WorkflowJobRequest, WorkflowListFilter, WorkflowListRequest, WorkflowRunApprovalsRequest,
     WorkflowRunApproveRequest, WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest,
-    WorkflowRunJobsRequest, WorkflowRunListFilter, WorkflowRunListRequest, WorkflowRunLogRequest,
-    WorkflowRunPendingDeploymentReviewRequest, WorkflowRunPendingDeploymentReviewState,
-    WorkflowRunPendingDeploymentsRequest, WorkflowRunRerunRequest,
+    WorkflowRunForceCancelRequest, WorkflowRunJobsRequest, WorkflowRunListFilter,
+    WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunPendingDeploymentReviewRequest,
+    WorkflowRunPendingDeploymentReviewState, WorkflowRunPendingDeploymentsRequest,
+    WorkflowRunRerunRequest,
 };
 use async_trait::async_trait;
 use axum::{
@@ -1529,6 +1530,37 @@ async fn service_reruns_workflow_run_through_github_cli() {
     assert_eq!(
         runner.requests()[0].args,
         vec!["run", "rerun", "100", "--failed", "--job", "200"]
+    );
+}
+
+#[tokio::test]
+async fn service_force_cancels_workflow_run_through_github_cli() {
+    let runner = Arc::new(FakeRunner::new(vec![
+        ok(
+            br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+        ),
+        ok("force cancelled\n"),
+    ]));
+    let service = GithubService::new(GithubCliClient::with_runner(runner.clone()));
+
+    let result = service
+        .force_cancel_workflow_run(WorkflowRunForceCancelRequest {
+            repo_path: "/repo".to_string(),
+            run_id: 100,
+        })
+        .await
+        .expect("force cancel");
+
+    assert_eq!(result.action, "force_cancel_workflow_run");
+    assert_eq!(result.stdout, "force cancelled");
+    assert_eq!(
+        runner.requests()[1].args,
+        vec![
+            "api",
+            "repos/ace/app/actions/runs/100/force-cancel",
+            "-X",
+            "POST"
+        ]
     );
 }
 
