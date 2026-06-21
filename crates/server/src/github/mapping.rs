@@ -1,8 +1,20 @@
 use ace_git::{
-    GithubIssueListFilter, GithubPullRequestListFilter, GithubSearchFilter, WorkflowListFilter,
-    WorkflowRunListFilter,
+    CheckRunListFilter, GithubIssueListFilter, GithubPullRequestListFilter, GithubSearchFilter,
+    WorkflowListFilter, WorkflowRunListFilter,
 };
 use ace_protocol::github::{IssueListFilter, PullRequestListFilter, SearchFilter};
+
+pub(super) fn check_run_list_filter(
+    filter: ace_protocol::github::CheckRunListFilter,
+) -> CheckRunListFilter {
+    CheckRunListFilter {
+        limit: filter.limit,
+        status: filter.status,
+        check_name: filter.check_name,
+        filter: filter.filter,
+        app_id: filter.app_id,
+    }
+}
 
 pub(super) fn issue_list_filter(filter: IssueListFilter) -> GithubIssueListFilter {
     GithubIssueListFilter {

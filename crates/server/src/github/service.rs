@@ -1,9 +1,9 @@
 use super::{
     error::GithubApiError,
     mapping::{
-        issue_list_filter, pull_request_list_filter, pull_request_merge_method,
-        pull_request_review_decision, search_filter, workflow_list_filter,
-        workflow_run_list_filter,
+        check_run_list_filter, issue_list_filter, pull_request_list_filter,
+        pull_request_merge_method, pull_request_review_decision, search_filter,
+        workflow_list_filter, workflow_run_list_filter,
     },
 };
 use ace_git::{
@@ -13,12 +13,12 @@ use ace_git::{
     WorkflowRunRerun, WorkflowStateChange,
 };
 use ace_protocol::github::{
-    EnvironmentStatusRequest, IssueListRequest, IssueThreadRequest, PullRequestActivityRequest,
-    PullRequestCheckoutRequest, PullRequestChecksRequest, PullRequestCloseRequest,
-    PullRequestCommentRequest, PullRequestDashboardRequest, PullRequestDiffRequest,
-    PullRequestFilesRequest, PullRequestListRequest, PullRequestMergeRequest,
-    PullRequestReadyStateRequest, PullRequestReopenRequest, PullRequestRequest,
-    PullRequestReviewRequest, PullRequestThreadRequest, SearchIssuesRequest,
+    CheckRunsRequest, EnvironmentStatusRequest, IssueListRequest, IssueThreadRequest,
+    PullRequestActivityRequest, PullRequestCheckoutRequest, PullRequestChecksRequest,
+    PullRequestCloseRequest, PullRequestCommentRequest, PullRequestDashboardRequest,
+    PullRequestDiffRequest, PullRequestFilesRequest, PullRequestListRequest,
+    PullRequestMergeRequest, PullRequestReadyStateRequest, PullRequestReopenRequest,
+    PullRequestRequest, PullRequestReviewRequest, PullRequestThreadRequest, SearchIssuesRequest,
     SearchPullRequestsRequest, WorkflowDisableRequest, WorkflowDispatchRequest,
     WorkflowEnableRequest, WorkflowListRequest, WorkflowRunArtifactsRequest,
     WorkflowRunCancelRequest, WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunRequest,
@@ -198,6 +198,20 @@ impl<R: ProcessRunner> GithubService<R> {
                 &repo_path(&request.repo_path)?,
                 request.selector.as_deref(),
                 request.required_only,
+            )
+            .await
+            .map_err(GithubApiError::from)
+    }
+
+    pub async fn list_check_runs(
+        &self,
+        request: CheckRunsRequest,
+    ) -> Result<Vec<ace_git::GithubCheckRun>, GithubApiError> {
+        self.github
+            .list_check_runs(
+                &repo_path(&request.repo_path)?,
+                &request.git_ref,
+                &check_run_list_filter(request.filter),
             )
             .await
             .map_err(GithubApiError::from)

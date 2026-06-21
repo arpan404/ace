@@ -14,6 +14,7 @@ use tokio::{io::AsyncWriteExt, process::Command, time};
 
 mod github_actions;
 mod github_activity;
+mod github_checks;
 mod github_dashboard;
 mod github_detail;
 mod github_diff;
@@ -27,6 +28,10 @@ pub use github_actions::{
     GithubWorkflowStep, WorkflowListFilter, WorkflowRunListFilter,
 };
 pub use github_activity::{GithubPullRequestActivity, PullRequestActivityRequest};
+pub use github_checks::{
+    CheckRunListFilter, GithubCheckRun, GithubCheckRunApp, GithubCheckRunOutput,
+    GithubCheckRunPullRequest, GithubCheckRunSuite,
+};
 pub use github_dashboard::{
     GithubPullRequestDashboard, GithubPullRequestDashboardItem, PullRequestDashboardRequest,
 };

@@ -161,6 +161,34 @@ pub struct PullRequestChecksRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CheckRunsRequest {
+    pub repo_path: String,
+    pub git_ref: String,
+    pub filter: CheckRunListFilter,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CheckRunListFilter {
+    pub limit: u32,
+    pub status: Option<String>,
+    pub check_name: Option<String>,
+    pub filter: Option<String>,
+    pub app_id: Option<u64>,
+}
+
+impl Default for CheckRunListFilter {
+    fn default() -> Self {
+        Self {
+            limit: 50,
+            status: None,
+            check_name: None,
+            filter: None,
+            app_id: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PullRequestActivityRequest {
     pub repo_path: String,
     pub selector: String,
