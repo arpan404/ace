@@ -12,6 +12,19 @@ use std::{
 use thiserror::Error;
 use tokio::{io::AsyncWriteExt, process::Command, time};
 
+mod github_actions;
+mod github_search;
+
+pub use github_actions::{
+    GithubCheckSummary, GithubPrCheck, GithubPrChecks, GithubWorkflowJob, GithubWorkflowRun,
+    GithubWorkflowRunDetail, GithubWorkflowStep, WorkflowRunListFilter,
+};
+pub use github_search::{
+    GithubIssueListFilter, GithubIssueSummary, GithubPullRequestListFilter,
+    GithubPullRequestSummary, GithubSearchFilter, GithubSearchIssue, GithubSearchPullRequest,
+    GithubSearchRepository,
+};
+
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 const DEFAULT_MAX_OUTPUT_BYTES: usize = 8 * 1024 * 1024;
 
@@ -590,11 +603,25 @@ impl<R: ProcessRunner> GithubCliClient<R> {
         S: Into<String>,
     {
         let args = args.into_iter().map(Into::into).collect::<Vec<_>>();
+        self.gh_allow_statuses(cwd, args, &[0]).await
+    }
+
+    pub(crate) async fn gh_allow_statuses<I, S>(
+        &self,
+        cwd: &Path,
+        args: I,
+        allowed_statuses: &[i32],
+    ) -> Result<CommandOutput>
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        let args = args.into_iter().map(Into::into).collect::<Vec<_>>();
         let output = self
             .runner
             .run(CommandRequest::new("gh").args(args.clone()).cwd(cwd))
             .await?;
-        if output.success() {
+        if allowed_statuses.contains(&output.status) {
             Ok(output)
         } else {
             Err(classify_gh_failure(output, args))
