@@ -30,8 +30,9 @@ pub use github_actions::{
 };
 pub use github_activity::{GithubPullRequestActivity, PullRequestActivityRequest};
 pub use github_checks::{
-    CheckRunListFilter, GithubCheckRun, GithubCheckRunAnnotation, GithubCheckRunApp,
-    GithubCheckRunOutput, GithubCheckRunPullRequest, GithubCheckRunSuite, GithubCheckSuite,
+    CheckRunListFilter, CommitCheckRollupRequest, GithubCheckRun, GithubCheckRunAnnotation,
+    GithubCheckRunApp, GithubCheckRunOutput, GithubCheckRunPullRequest, GithubCheckRunSuite,
+    GithubCheckSuite, GithubCommitCheckRollup, GithubCommitCheckState, GithubCommitCheckSummary,
     GithubCommitStatus,
 };
 pub use github_dashboard::{

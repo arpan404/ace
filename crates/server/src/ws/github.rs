@@ -4,15 +4,16 @@ use ace_protocol::{
     github::{
         CheckRunAnnotationsRequest, CheckRunRequest, CheckRunRerequestRequest, CheckRunsRequest,
         CheckSuiteRequest, CheckSuiteRerequestRequest, CheckSuiteRunsRequest, CheckSuitesRequest,
-        CommitStatusesRequest, EnvironmentStatusRequest, IssueListRequest, IssueThreadRequest,
-        PullRequestActivityRequest, PullRequestCheckoutRequest, PullRequestChecksRequest,
-        PullRequestCloseRequest, PullRequestCommentRequest, PullRequestCommitsRequest,
-        PullRequestCreateRequest, PullRequestDashboardRequest, PullRequestDiffRequest,
-        PullRequestFilesRequest, PullRequestListRequest, PullRequestMergeRequest,
-        PullRequestReadyStateRequest, PullRequestReopenRequest, PullRequestRequest,
-        PullRequestReviewRequest, PullRequestThreadRequest, SearchIssuesRequest,
-        SearchPullRequestsRequest, WorkflowDisableRequest, WorkflowDispatchRequest,
-        WorkflowEnableRequest, WorkflowJobLogRequest, WorkflowJobRequest, WorkflowListRequest,
+        CommitCheckRollupRequest, CommitStatusesRequest, EnvironmentStatusRequest,
+        IssueListRequest, IssueThreadRequest, PullRequestActivityRequest,
+        PullRequestCheckoutRequest, PullRequestChecksRequest, PullRequestCloseRequest,
+        PullRequestCommentRequest, PullRequestCommitsRequest, PullRequestCreateRequest,
+        PullRequestDashboardRequest, PullRequestDiffRequest, PullRequestFilesRequest,
+        PullRequestListRequest, PullRequestMergeRequest, PullRequestReadyStateRequest,
+        PullRequestReopenRequest, PullRequestRequest, PullRequestReviewRequest,
+        PullRequestThreadRequest, SearchIssuesRequest, SearchPullRequestsRequest,
+        WorkflowDisableRequest, WorkflowDispatchRequest, WorkflowEnableRequest,
+        WorkflowJobLogRequest, WorkflowJobRequest, WorkflowListRequest,
         WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest, WorkflowRunCancelRequest,
         WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
     },
@@ -182,6 +183,13 @@ impl<R: ProcessRunner> WsApiState<R> {
                 self.github_json::<CommitStatusesRequest, _, _, _>(
                     payload,
                     |service, request| async move { service.list_commit_statuses(request).await },
+                )
+                .await
+            }
+            methods::GITHUB_COMMIT_CHECK_ROLLUP => {
+                self.github_json::<CommitCheckRollupRequest, _, _, _>(
+                    payload,
+                    |service, request| async move { service.commit_check_rollup(request).await },
                 )
                 .await
             }
@@ -1247,6 +1255,69 @@ mod tests {
                 "repos/ace/app/commits/abc/statuses",
                 "-F",
                 "per_page=30"
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn dispatches_commit_check_rollup_over_ws_rpc() {
+        let runner = Arc::new(FakeRunner::new(vec![
+            ok(
+                br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+            ),
+            ok(
+                br#"{"total_count":1,"check_runs":[{"id":10,"name":"build","node_id":"CR_1","head_sha":"abc","external_id":null,"url":"https://api.github.test/check-runs/10","html_url":"https://github.test/checks/10","details_url":"https://ci.test/build/10","status":"completed","conclusion":"success","started_at":"2026-06-21T00:00:00Z","completed_at":"2026-06-21T00:01:00Z","output":{"title":"Build","summary":"ok","text":null,"annotations_count":0,"annotations_url":"https://api.github.test/annotations"},"app":{"id":1,"slug":"github-actions","name":"GitHub Actions","html_url":"https://github.com/apps/github-actions"},"check_suite":{"id":5,"head_branch":"feature/x","head_sha":"abc","status":"completed","conclusion":"success"},"pull_requests":[]}]}"#,
+            ),
+            ok(
+                br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+            ),
+            ok(
+                br#"[{"id":99,"node_id":"ST_1","state":"failure","description":"lint failed","target_url":"https://ci.test/lint","context":"lint","created_at":"2026-06-21T00:00:00Z","updated_at":"2026-06-21T00:01:00Z","url":"https://api.github.test/statuses/99","avatar_url":"https://avatars.githubusercontent.com/u/1"}]"#,
+            ),
+        ]));
+        let state = test_state(runner.clone());
+
+        let response = dispatch(
+            &state,
+            serde_json::json!({
+                "version": PROTOCOL_VERSION,
+                "request_id": "req-commit-rollup",
+                "method": methods::GITHUB_COMMIT_CHECK_ROLLUP,
+                "payload": {
+                    "repo_path": "/repo",
+                    "git_ref": "abc",
+                    "check_run_limit": 25,
+                    "status_limit": 10
+                }
+            }),
+        )
+        .await;
+
+        let WsServerPayload::Result { body } = response.payload else {
+            panic!("expected result");
+        };
+        assert_eq!(body["git_ref"], "abc");
+        assert_eq!(body["summary"]["passed"], 1);
+        assert_eq!(body["summary"]["failed"], 1);
+        assert_eq!(body["summary"]["state"], "failed");
+        assert_eq!(
+            runner.requests()[1].args,
+            vec![
+                "api",
+                "repos/ace/app/commits/abc/check-runs",
+                "-F",
+                "per_page=25",
+                "-f",
+                "filter=latest"
+            ]
+        );
+        assert_eq!(
+            runner.requests()[3].args,
+            vec![
+                "api",
+                "repos/ace/app/commits/abc/statuses",
+                "-F",
+                "per_page=10"
             ]
         );
     }

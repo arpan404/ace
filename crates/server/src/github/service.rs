@@ -15,13 +15,13 @@ use ace_git::{
 use ace_protocol::github::{
     CheckRunAnnotationsRequest, CheckRunRequest, CheckRunRerequestRequest, CheckRunsRequest,
     CheckSuiteRequest, CheckSuiteRerequestRequest, CheckSuiteRunsRequest, CheckSuitesRequest,
-    CommitStatusesRequest, EnvironmentStatusRequest, IssueListRequest, IssueThreadRequest,
-    PullRequestActivityRequest, PullRequestCheckoutRequest, PullRequestChecksRequest,
-    PullRequestCloseRequest, PullRequestCommentRequest, PullRequestCommitsRequest,
-    PullRequestCreateRequest, PullRequestDashboardRequest, PullRequestDiffRequest,
-    PullRequestFilesRequest, PullRequestListRequest, PullRequestMergeRequest,
-    PullRequestReadyStateRequest, PullRequestReopenRequest, PullRequestRequest,
-    PullRequestReviewRequest, PullRequestThreadRequest, SearchIssuesRequest,
+    CommitCheckRollupRequest, CommitStatusesRequest, EnvironmentStatusRequest, IssueListRequest,
+    IssueThreadRequest, PullRequestActivityRequest, PullRequestCheckoutRequest,
+    PullRequestChecksRequest, PullRequestCloseRequest, PullRequestCommentRequest,
+    PullRequestCommitsRequest, PullRequestCreateRequest, PullRequestDashboardRequest,
+    PullRequestDiffRequest, PullRequestFilesRequest, PullRequestListRequest,
+    PullRequestMergeRequest, PullRequestReadyStateRequest, PullRequestReopenRequest,
+    PullRequestRequest, PullRequestReviewRequest, PullRequestThreadRequest, SearchIssuesRequest,
     SearchPullRequestsRequest, WorkflowDisableRequest, WorkflowDispatchRequest,
     WorkflowEnableRequest, WorkflowJobLogRequest, WorkflowJobRequest, WorkflowListRequest,
     WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest, WorkflowRunCancelRequest,
@@ -306,6 +306,23 @@ impl<R: ProcessRunner> GithubService<R> {
                 &repo_path(&request.repo_path)?,
                 &request.git_ref,
                 request.limit,
+            )
+            .await
+            .map_err(GithubApiError::from)
+    }
+
+    pub async fn commit_check_rollup(
+        &self,
+        request: CommitCheckRollupRequest,
+    ) -> Result<ace_git::GithubCommitCheckRollup, GithubApiError> {
+        self.github
+            .commit_check_rollup(
+                &repo_path(&request.repo_path)?,
+                &request.git_ref,
+                &ace_git::CommitCheckRollupRequest {
+                    check_run_limit: request.check_run_limit,
+                    status_limit: request.status_limit,
+                },
             )
             .await
             .map_err(GithubApiError::from)

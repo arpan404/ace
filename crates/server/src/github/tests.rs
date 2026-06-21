@@ -3,14 +3,14 @@ use ace_git::{CommandOutput, CommandRequest, GitToolError, GithubCliClient, Proc
 use ace_protocol::github::{
     CheckRunAnnotationsRequest, CheckRunListFilter, CheckRunRequest, CheckRunRerequestRequest,
     CheckRunsRequest, CheckSuiteRequest, CheckSuiteRerequestRequest, CheckSuiteRunsRequest,
-    CheckSuitesRequest, CommitStatusesRequest, EnvironmentStatusRequest, IssueListFilter,
-    IssueListRequest, IssueThreadRequest, PullRequestActivityRequest, PullRequestChecksRequest,
-    PullRequestCommitsRequest, PullRequestCreateRequest, PullRequestDashboardRequest,
-    PullRequestDiffRequest, PullRequestFilesRequest, PullRequestListFilter, PullRequestMergeMethod,
-    PullRequestMergeRequest, PullRequestRequest, PullRequestReviewDecision,
-    PullRequestReviewRequest, PullRequestThreadRequest, WorkflowDisableRequest,
-    WorkflowDispatchInput, WorkflowDispatchRequest, WorkflowEnableRequest, WorkflowJobLogRequest,
-    WorkflowJobRequest, WorkflowListFilter, WorkflowListRequest,
+    CheckSuitesRequest, CommitCheckRollupRequest, CommitStatusesRequest, EnvironmentStatusRequest,
+    IssueListFilter, IssueListRequest, IssueThreadRequest, PullRequestActivityRequest,
+    PullRequestChecksRequest, PullRequestCommitsRequest, PullRequestCreateRequest,
+    PullRequestDashboardRequest, PullRequestDiffRequest, PullRequestFilesRequest,
+    PullRequestListFilter, PullRequestMergeMethod, PullRequestMergeRequest, PullRequestRequest,
+    PullRequestReviewDecision, PullRequestReviewRequest, PullRequestThreadRequest,
+    WorkflowDisableRequest, WorkflowDispatchInput, WorkflowDispatchRequest, WorkflowEnableRequest,
+    WorkflowJobLogRequest, WorkflowJobRequest, WorkflowListFilter, WorkflowListRequest,
     WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest, WorkflowRunListFilter,
     WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunRerunRequest,
 };
@@ -686,6 +686,54 @@ async fn service_lists_commit_statuses_through_github_cli() {
             "repos/ace/app/commits/abc/statuses",
             "-F",
             "per_page=30"
+        ]
+    );
+}
+
+#[tokio::test]
+async fn service_returns_commit_check_rollup() {
+    let runner = Arc::new(FakeRunner::new(vec![
+        ok(
+            br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+        ),
+        ok(
+            br#"{"total_count":1,"check_runs":[{"id":10,"name":"build","node_id":"CR_1","head_sha":"abc","external_id":null,"url":"https://api.github.test/check-runs/10","html_url":"https://github.test/checks/10","details_url":"https://ci.test/build/10","status":"completed","conclusion":"success","started_at":"2026-06-21T00:00:00Z","completed_at":"2026-06-21T00:01:00Z","output":{"title":"Build","summary":"ok","text":null,"annotations_count":0,"annotations_url":"https://api.github.test/annotations"},"app":{"id":1,"slug":"github-actions","name":"GitHub Actions","html_url":"https://github.com/apps/github-actions"},"check_suite":{"id":5,"head_branch":"feature/x","head_sha":"abc","status":"completed","conclusion":"success"},"pull_requests":[]}]}"#,
+        ),
+        ok(
+            br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+        ),
+        ok(
+            br#"[{"id":99,"node_id":"ST_1","state":"pending","description":"lint running","target_url":"https://ci.test/lint","context":"lint","created_at":"2026-06-21T00:00:00Z","updated_at":"2026-06-21T00:01:00Z","url":"https://api.github.test/statuses/99","avatar_url":"https://avatars.githubusercontent.com/u/1"}]"#,
+        ),
+    ]));
+    let service = GithubService::new(GithubCliClient::with_runner(runner.clone()));
+
+    let rollup = service
+        .commit_check_rollup(CommitCheckRollupRequest {
+            repo_path: "/repo".to_string(),
+            git_ref: "abc".to_string(),
+            check_run_limit: 25,
+            status_limit: 10,
+        })
+        .await
+        .expect("rollup");
+
+    assert_eq!(rollup.git_ref, "abc");
+    assert_eq!(rollup.summary.passed, 1);
+    assert_eq!(rollup.summary.pending, 1);
+    assert_eq!(
+        rollup.summary.state,
+        ace_git::GithubCommitCheckState::Pending
+    );
+    assert_eq!(
+        runner.requests()[1].args,
+        vec![
+            "api",
+            "repos/ace/app/commits/abc/check-runs",
+            "-F",
+            "per_page=25",
+            "-f",
+            "filter=latest"
         ]
     );
 }

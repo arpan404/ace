@@ -46,6 +46,7 @@ pub mod methods {
     pub const GITHUB_CHECK_SUITES_RUNS: &str = "github.check_suites.runs";
     pub const GITHUB_CHECK_SUITES_REREQUEST: &str = "github.check_suites.rerequest";
     pub const GITHUB_COMMIT_STATUSES_LIST: &str = "github.commit_statuses.list";
+    pub const GITHUB_COMMIT_CHECK_ROLLUP: &str = "github.commit_checks.rollup";
     pub const GITHUB_PULL_REQUEST_ACTIVITY: &str = "github.pull_request.activity";
     pub const GITHUB_PULL_REQUEST_DASHBOARD: &str = "github.pull_request.dashboard";
     pub const GITHUB_PULL_REQUEST_CHECKOUT: &str = "github.pull_request.checkout";

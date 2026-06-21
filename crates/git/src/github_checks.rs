@@ -239,6 +239,35 @@ impl<R: ProcessRunner> GithubCliClient<R> {
             .await?;
         parse_json("github commit statuses", &output.stdout)
     }
+
+    pub async fn commit_check_rollup(
+        &self,
+        cwd: &Path,
+        git_ref: &str,
+        request: &CommitCheckRollupRequest,
+    ) -> Result<GithubCommitCheckRollup> {
+        let check_runs = self
+            .list_check_runs(
+                cwd,
+                git_ref,
+                &CheckRunListFilter {
+                    limit: request.check_run_limit,
+                    filter: Some("latest".to_string()),
+                    ..CheckRunListFilter::default()
+                },
+            )
+            .await?;
+        let statuses = self
+            .list_commit_statuses(cwd, git_ref, request.status_limit)
+            .await?;
+        let summary = GithubCommitCheckSummary::from_items(&check_runs, &statuses);
+        Ok(GithubCommitCheckRollup {
+            git_ref: git_ref.to_string(),
+            summary,
+            check_runs,
+            statuses,
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -259,6 +288,110 @@ impl Default for CheckRunListFilter {
             filter: None,
             app_id: None,
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommitCheckRollupRequest {
+    pub check_run_limit: u32,
+    pub status_limit: u32,
+}
+
+impl Default for CommitCheckRollupRequest {
+    fn default() -> Self {
+        Self {
+            check_run_limit: 50,
+            status_limit: 50,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GithubCommitCheckRollup {
+    pub git_ref: String,
+    pub summary: GithubCommitCheckSummary,
+    pub check_runs: Vec<GithubCheckRun>,
+    pub statuses: Vec<GithubCommitStatus>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GithubCommitCheckSummary {
+    pub passed: usize,
+    pub failed: usize,
+    pub pending: usize,
+    pub skipped: usize,
+    pub total: usize,
+    pub state: GithubCommitCheckState,
+}
+
+impl GithubCommitCheckSummary {
+    fn from_items(check_runs: &[GithubCheckRun], statuses: &[GithubCommitStatus]) -> Self {
+        let mut summary = Self {
+            total: check_runs.len() + statuses.len(),
+            ..Self::default()
+        };
+
+        for check_run in check_runs {
+            match classify_check_run(check_run) {
+                GithubCommitCheckState::Passed => summary.passed += 1,
+                GithubCommitCheckState::Failed => summary.failed += 1,
+                GithubCommitCheckState::Pending => summary.pending += 1,
+                GithubCommitCheckState::Skipped => summary.skipped += 1,
+            }
+        }
+        for status in statuses {
+            match classify_commit_status(status) {
+                GithubCommitCheckState::Passed => summary.passed += 1,
+                GithubCommitCheckState::Failed => summary.failed += 1,
+                GithubCommitCheckState::Pending => summary.pending += 1,
+                GithubCommitCheckState::Skipped => summary.skipped += 1,
+            }
+        }
+
+        summary.state = if summary.failed > 0 {
+            GithubCommitCheckState::Failed
+        } else if summary.pending > 0 {
+            GithubCommitCheckState::Pending
+        } else if summary.total == summary.skipped {
+            GithubCommitCheckState::Skipped
+        } else {
+            GithubCommitCheckState::Passed
+        };
+        summary
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GithubCommitCheckState {
+    #[default]
+    Passed,
+    Failed,
+    Pending,
+    Skipped,
+}
+
+fn classify_check_run(check_run: &GithubCheckRun) -> GithubCommitCheckState {
+    match check_run.conclusion.as_deref() {
+        Some("success") | Some("neutral") => GithubCommitCheckState::Passed,
+        Some("skipped") => GithubCommitCheckState::Skipped,
+        Some("failure" | "timed_out" | "cancelled" | "action_required") => {
+            GithubCommitCheckState::Failed
+        }
+        Some(_) => GithubCommitCheckState::Pending,
+        None => match check_run.status.as_str() {
+            "completed" => GithubCommitCheckState::Passed,
+            _ => GithubCommitCheckState::Pending,
+        },
+    }
+}
+
+fn classify_commit_status(status: &GithubCommitStatus) -> GithubCommitCheckState {
+    match status.state.as_str() {
+        "success" => GithubCommitCheckState::Passed,
+        "failure" | "error" => GithubCommitCheckState::Failed,
+        "pending" => GithubCommitCheckState::Pending,
+        _ => GithubCommitCheckState::Pending,
     }
 }
 
@@ -784,6 +917,65 @@ mod tests {
                 "repos/ace/app/commits/abc/statuses",
                 "-F",
                 "per_page=30"
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn commit_check_rollup_combines_check_runs_and_statuses() {
+        let runner = std::sync::Arc::new(FakeRunner::new(vec![
+            ok(
+                br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+            ),
+            ok(
+                br#"{"total_count":2,"check_runs":[{"id":10,"name":"build","node_id":"CR_1","head_sha":"abc","external_id":null,"url":"https://api.github.test/check-runs/10","html_url":"https://github.test/checks/10","details_url":"https://ci.test/build/10","status":"completed","conclusion":"success","started_at":"2026-06-21T00:00:00Z","completed_at":"2026-06-21T00:01:00Z","output":{"title":"Build","summary":"ok","text":null,"annotations_count":0,"annotations_url":"https://api.github.test/annotations"},"app":{"id":1,"slug":"github-actions","name":"GitHub Actions","html_url":"https://github.com/apps/github-actions"},"check_suite":{"id":5,"head_branch":"feature/x","head_sha":"abc","status":"completed","conclusion":"success"},"pull_requests":[]},{"id":11,"name":"test","node_id":"CR_2","head_sha":"abc","external_id":null,"url":"https://api.github.test/check-runs/11","html_url":"https://github.test/checks/11","details_url":"https://ci.test/test/11","status":"in_progress","conclusion":null,"started_at":"2026-06-21T00:00:00Z","completed_at":null,"output":null,"app":{"id":1,"slug":"github-actions","name":"GitHub Actions","html_url":"https://github.com/apps/github-actions"},"check_suite":{"id":5,"head_branch":"feature/x","head_sha":"abc","status":"in_progress","conclusion":null},"pull_requests":[]}]}"#,
+            ),
+            ok(
+                br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+            ),
+            ok(
+                br#"[{"id":99,"node_id":"ST_1","state":"failure","description":"lint failed","target_url":"https://ci.test/lint","context":"lint","created_at":"2026-06-21T00:00:00Z","updated_at":"2026-06-21T00:01:00Z","url":"https://api.github.test/statuses/99","avatar_url":"https://avatars.githubusercontent.com/u/1"}]"#,
+            ),
+        ]));
+        let github = GithubCliClient::with_runner(runner.clone());
+
+        let rollup = github
+            .commit_check_rollup(
+                Path::new("."),
+                "abc",
+                &CommitCheckRollupRequest {
+                    check_run_limit: 25,
+                    status_limit: 10,
+                },
+            )
+            .await
+            .expect("rollup");
+
+        assert_eq!(rollup.git_ref, "abc");
+        assert_eq!(rollup.summary.total, 3);
+        assert_eq!(rollup.summary.passed, 1);
+        assert_eq!(rollup.summary.pending, 1);
+        assert_eq!(rollup.summary.failed, 1);
+        assert_eq!(rollup.summary.state, GithubCommitCheckState::Failed);
+        let requests = runner.requests();
+        assert_eq!(
+            requests[1].args,
+            vec![
+                "api",
+                "repos/ace/app/commits/abc/check-runs",
+                "-F",
+                "per_page=25",
+                "-f",
+                "filter=latest"
+            ]
+        );
+        assert_eq!(
+            requests[3].args,
+            vec![
+                "api",
+                "repos/ace/app/commits/abc/statuses",
+                "-F",
+                "per_page=10"
             ]
         );
     }
