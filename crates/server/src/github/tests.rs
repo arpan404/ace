@@ -1,14 +1,14 @@
 use super::{GithubApiError, GithubService, routes::router_with_state, service::GithubApiState};
 use ace_git::{CommandOutput, CommandRequest, GitToolError, GithubCliClient, ProcessRunner};
 use ace_protocol::github::{
-    CheckRunAnnotationsRequest, CheckRunListFilter, CheckRunsRequest, CheckSuitesRequest,
-    EnvironmentStatusRequest, IssueListFilter, IssueListRequest, IssueThreadRequest,
-    PullRequestActivityRequest, PullRequestChecksRequest, PullRequestDashboardRequest,
-    PullRequestDiffRequest, PullRequestFilesRequest, PullRequestListFilter, PullRequestMergeMethod,
-    PullRequestMergeRequest, PullRequestRequest, PullRequestReviewDecision,
-    PullRequestReviewRequest, PullRequestThreadRequest, WorkflowDisableRequest,
-    WorkflowDispatchInput, WorkflowDispatchRequest, WorkflowEnableRequest, WorkflowListFilter,
-    WorkflowListRequest, WorkflowRunArtifactsRequest, WorkflowRunListFilter,
+    CheckRunAnnotationsRequest, CheckRunListFilter, CheckRunsRequest, CheckSuiteRunsRequest,
+    CheckSuitesRequest, EnvironmentStatusRequest, IssueListFilter, IssueListRequest,
+    IssueThreadRequest, PullRequestActivityRequest, PullRequestChecksRequest,
+    PullRequestDashboardRequest, PullRequestDiffRequest, PullRequestFilesRequest,
+    PullRequestListFilter, PullRequestMergeMethod, PullRequestMergeRequest, PullRequestRequest,
+    PullRequestReviewDecision, PullRequestReviewRequest, PullRequestThreadRequest,
+    WorkflowDisableRequest, WorkflowDispatchInput, WorkflowDispatchRequest, WorkflowEnableRequest,
+    WorkflowListFilter, WorkflowListRequest, WorkflowRunArtifactsRequest, WorkflowRunListFilter,
     WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunRerunRequest,
 };
 use async_trait::async_trait;
@@ -421,6 +421,52 @@ async fn service_lists_check_suites_through_github_cli() {
             "check_name=build",
             "-F",
             "app_id=1"
+        ]
+    );
+}
+
+#[tokio::test]
+async fn service_lists_check_suite_runs_through_github_cli() {
+    let runner = Arc::new(FakeRunner::new(vec![
+        ok(
+            br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+        ),
+        ok(
+            br#"{"total_count":1,"check_runs":[{"id":10,"name":"build","node_id":"CR_1","head_sha":"abc","external_id":null,"url":"https://api.github.test/check-runs/10","html_url":"https://github.test/checks/10","details_url":"https://ci.test/build/10","status":"completed","conclusion":"failure","started_at":"2026-06-21T00:00:00Z","completed_at":"2026-06-21T00:01:00Z","output":{"title":"Build","summary":"failed","text":null,"annotations_count":2,"annotations_url":"https://api.github.test/annotations"},"app":{"id":1,"slug":"github-actions","name":"GitHub Actions","html_url":"https://github.com/apps/github-actions"},"check_suite":{"id":5,"head_branch":"feature/x","head_sha":"abc","status":"completed","conclusion":"failure"},"pull_requests":[]}]}"#,
+        ),
+    ]));
+    let service = GithubService::new(GithubCliClient::with_runner(runner.clone()));
+
+    let runs = service
+        .list_check_suite_runs(CheckSuiteRunsRequest {
+            repo_path: "/repo".to_string(),
+            check_suite_id: 5,
+            filter: CheckRunListFilter {
+                limit: 25,
+                status: Some("completed".to_string()),
+                check_name: Some("build".to_string()),
+                filter: Some("latest".to_string()),
+                ..CheckRunListFilter::default()
+            },
+        })
+        .await
+        .expect("suite runs");
+
+    assert_eq!(runs[0].id, 10);
+    assert_eq!(runs[0].conclusion.as_deref(), Some("failure"));
+    assert_eq!(
+        runner.requests()[1].args,
+        vec![
+            "api",
+            "repos/ace/app/check-suites/5/check-runs",
+            "-F",
+            "per_page=25",
+            "-f",
+            "status=completed",
+            "-f",
+            "check_name=build",
+            "-f",
+            "filter=latest"
         ]
     );
 }

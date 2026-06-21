@@ -13,16 +13,17 @@ use ace_git::{
     WorkflowRunRerun, WorkflowStateChange,
 };
 use ace_protocol::github::{
-    CheckRunAnnotationsRequest, CheckRunsRequest, CheckSuitesRequest, EnvironmentStatusRequest,
-    IssueListRequest, IssueThreadRequest, PullRequestActivityRequest, PullRequestCheckoutRequest,
-    PullRequestChecksRequest, PullRequestCloseRequest, PullRequestCommentRequest,
-    PullRequestDashboardRequest, PullRequestDiffRequest, PullRequestFilesRequest,
-    PullRequestListRequest, PullRequestMergeRequest, PullRequestReadyStateRequest,
-    PullRequestReopenRequest, PullRequestRequest, PullRequestReviewRequest,
-    PullRequestThreadRequest, SearchIssuesRequest, SearchPullRequestsRequest,
-    WorkflowDisableRequest, WorkflowDispatchRequest, WorkflowEnableRequest, WorkflowListRequest,
-    WorkflowRunArtifactsRequest, WorkflowRunCancelRequest, WorkflowRunListRequest,
-    WorkflowRunLogRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
+    CheckRunAnnotationsRequest, CheckRunsRequest, CheckSuiteRunsRequest, CheckSuitesRequest,
+    EnvironmentStatusRequest, IssueListRequest, IssueThreadRequest, PullRequestActivityRequest,
+    PullRequestCheckoutRequest, PullRequestChecksRequest, PullRequestCloseRequest,
+    PullRequestCommentRequest, PullRequestDashboardRequest, PullRequestDiffRequest,
+    PullRequestFilesRequest, PullRequestListRequest, PullRequestMergeRequest,
+    PullRequestReadyStateRequest, PullRequestReopenRequest, PullRequestRequest,
+    PullRequestReviewRequest, PullRequestThreadRequest, SearchIssuesRequest,
+    SearchPullRequestsRequest, WorkflowDisableRequest, WorkflowDispatchRequest,
+    WorkflowEnableRequest, WorkflowListRequest, WorkflowRunArtifactsRequest,
+    WorkflowRunCancelRequest, WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunRequest,
+    WorkflowRunRerunRequest,
 };
 use serde::Serialize;
 use std::{path::PathBuf, sync::Arc};
@@ -225,6 +226,20 @@ impl<R: ProcessRunner> GithubService<R> {
             .list_check_suites(
                 &repo_path(&request.repo_path)?,
                 &request.git_ref,
+                &check_run_list_filter(request.filter),
+            )
+            .await
+            .map_err(GithubApiError::from)
+    }
+
+    pub async fn list_check_suite_runs(
+        &self,
+        request: CheckSuiteRunsRequest,
+    ) -> Result<Vec<ace_git::GithubCheckRun>, GithubApiError> {
+        self.github
+            .list_check_suite_runs(
+                &repo_path(&request.repo_path)?,
+                request.check_suite_id,
                 &check_run_list_filter(request.filter),
             )
             .await

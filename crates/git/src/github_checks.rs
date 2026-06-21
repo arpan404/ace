@@ -90,6 +90,38 @@ impl<R: ProcessRunner> GithubCliClient<R> {
             parse_json::<GithubCheckSuitesResponse>("github check suites", &output.stdout)?;
         Ok(response.check_suites)
     }
+
+    pub async fn list_check_suite_runs(
+        &self,
+        cwd: &Path,
+        check_suite_id: u64,
+        filter: &CheckRunListFilter,
+    ) -> Result<Vec<GithubCheckRun>> {
+        let repository = self.repository(cwd).await?;
+        let mut args = vec![
+            "api".to_string(),
+            format!(
+                "repos/{}/check-suites/{check_suite_id}/check-runs",
+                repository.name_with_owner
+            ),
+            "-F".to_string(),
+            format!("per_page={}", filter.limit),
+        ];
+        if let Some(status) = &filter.status {
+            args.extend(["-f".to_string(), format!("status={status}")]);
+        }
+        if let Some(check_name) = &filter.check_name {
+            args.extend(["-f".to_string(), format!("check_name={check_name}")]);
+        }
+        if let Some(filter_value) = &filter.filter {
+            args.extend(["-f".to_string(), format!("filter={filter_value}")]);
+        }
+
+        let output = self.gh_allow_statuses(cwd, args, &[0]).await?;
+        let response =
+            parse_json::<GithubCheckRunsResponse>("github check suite runs", &output.stdout)?;
+        Ok(response.check_runs)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -436,6 +468,52 @@ mod tests {
                 "check_name=build",
                 "-F",
                 "app_id=1"
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn check_suite_run_listing_resolves_repo_and_builds_api_request() {
+        let runner = std::sync::Arc::new(FakeRunner::new(vec![
+            ok(
+                br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+            ),
+            ok(
+                br#"{"total_count":1,"check_runs":[{"id":10,"name":"build","node_id":"CR_1","head_sha":"abc","external_id":null,"url":"https://api.github.test/check-runs/10","html_url":"https://github.test/checks/10","details_url":"https://ci.test/build/10","status":"completed","conclusion":"failure","started_at":"2026-06-21T00:00:00Z","completed_at":"2026-06-21T00:01:00Z","output":{"title":"Build","summary":"failed","text":null,"annotations_count":2,"annotations_url":"https://api.github.test/annotations"},"app":{"id":1,"slug":"github-actions","name":"GitHub Actions","html_url":"https://github.com/apps/github-actions"},"check_suite":{"id":5,"head_branch":"feature/x","head_sha":"abc","status":"completed","conclusion":"failure"},"pull_requests":[]}]}"#,
+            ),
+        ]));
+        let github = GithubCliClient::with_runner(runner.clone());
+
+        let runs = github
+            .list_check_suite_runs(
+                Path::new("."),
+                5,
+                &CheckRunListFilter {
+                    limit: 25,
+                    status: Some("completed".to_string()),
+                    check_name: Some("build".to_string()),
+                    filter: Some("latest".to_string()),
+                    ..CheckRunListFilter::default()
+                },
+            )
+            .await
+            .expect("suite runs");
+
+        assert_eq!(runs[0].id, 10);
+        assert_eq!(runs[0].conclusion.as_deref(), Some("failure"));
+        assert_eq!(
+            runner.requests()[1].args,
+            vec![
+                "api",
+                "repos/ace/app/check-suites/5/check-runs",
+                "-F",
+                "per_page=25",
+                "-f",
+                "status=completed",
+                "-f",
+                "check_name=build",
+                "-f",
+                "filter=latest"
             ]
         );
     }
