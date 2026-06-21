@@ -5,9 +5,10 @@ use ace_protocol::github::{
     PullRequestActivityRequest, PullRequestChecksRequest, PullRequestDashboardRequest,
     PullRequestDiffRequest, PullRequestFilesRequest, PullRequestListFilter, PullRequestMergeMethod,
     PullRequestMergeRequest, PullRequestRequest, PullRequestReviewDecision,
-    PullRequestReviewRequest, PullRequestThreadRequest, WorkflowDispatchInput,
-    WorkflowDispatchRequest, WorkflowListFilter, WorkflowListRequest, WorkflowRunArtifactsRequest,
-    WorkflowRunListFilter, WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunRerunRequest,
+    PullRequestReviewRequest, PullRequestThreadRequest, WorkflowDisableRequest,
+    WorkflowDispatchInput, WorkflowDispatchRequest, WorkflowEnableRequest, WorkflowListFilter,
+    WorkflowListRequest, WorkflowRunArtifactsRequest, WorkflowRunListFilter,
+    WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunRerunRequest,
 };
 use async_trait::async_trait;
 use axum::{
@@ -450,6 +451,35 @@ async fn service_dispatches_workflow_with_inputs() {
 }
 
 #[tokio::test]
+async fn service_toggles_workflow_state() {
+    let runner = Arc::new(FakeRunner::new(vec![ok("enabled\n"), ok("disabled\n")]));
+    let service = GithubService::new(GithubCliClient::with_runner(runner.clone()));
+
+    let enabled = service
+        .enable_workflow(WorkflowEnableRequest {
+            repo_path: "/repo".to_string(),
+            workflow: "ci.yml".to_string(),
+        })
+        .await
+        .expect("enable");
+    let disabled = service
+        .disable_workflow(WorkflowDisableRequest {
+            repo_path: "/repo".to_string(),
+            workflow: "ci.yml".to_string(),
+        })
+        .await
+        .expect("disable");
+
+    assert_eq!(enabled.action, "enable_workflow");
+    assert_eq!(enabled.stdout, "enabled");
+    assert_eq!(disabled.action, "disable_workflow");
+    assert_eq!(disabled.stdout, "disabled");
+    let requests = runner.requests();
+    assert_eq!(requests[0].args, vec!["workflow", "enable", "ci.yml"]);
+    assert_eq!(requests[1].args, vec!["workflow", "disable", "ci.yml"]);
+}
+
+#[tokio::test]
 async fn service_lists_workflow_runs_with_filters() {
     let runner = Arc::new(FakeRunner::new(vec![ok(
         br#"[{"attempt":1,"conclusion":null,"createdAt":"2026-06-21T00:00:00Z","databaseId":7,"displayTitle":"Run","event":"pull_request","headBranch":"feature/x","headSha":"abc","name":"CI","number":3,"startedAt":"2026-06-21T00:00:00Z","status":"in_progress","updatedAt":"2026-06-21T00:01:00Z","url":"https://example.test/run/7","workflowDatabaseId":2,"workflowName":"CI"}]"#,
@@ -818,6 +848,58 @@ async fn route_dispatches_workflow_json() {
             "--raw-field",
             "retries=2"
         ]
+    );
+}
+
+#[tokio::test]
+async fn route_enables_workflow_json() {
+    let runner = Arc::new(FakeRunner::new(vec![ok("enabled\n")]));
+    let app = test_router(runner.clone());
+
+    let response = app
+        .oneshot(json_request(
+            "/workflows/enable",
+            serde_json::json!({
+                "repo_path": "/repo",
+                "workflow": "ci.yml"
+            }),
+        ))
+        .await
+        .expect("route response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response_json(response).await;
+    assert_eq!(body["action"], "enable_workflow");
+    assert_eq!(body["stdout"], "enabled");
+    assert_eq!(
+        runner.requests()[0].args,
+        vec!["workflow", "enable", "ci.yml"]
+    );
+}
+
+#[tokio::test]
+async fn route_disables_workflow_json() {
+    let runner = Arc::new(FakeRunner::new(vec![ok("disabled\n")]));
+    let app = test_router(runner.clone());
+
+    let response = app
+        .oneshot(json_request(
+            "/workflows/disable",
+            serde_json::json!({
+                "repo_path": "/repo",
+                "workflow": "ci.yml"
+            }),
+        ))
+        .await
+        .expect("route response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response_json(response).await;
+    assert_eq!(body["action"], "disable_workflow");
+    assert_eq!(body["stdout"], "disabled");
+    assert_eq!(
+        runner.requests()[0].args,
+        vec!["workflow", "disable", "ci.yml"]
     );
 }
 

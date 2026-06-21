@@ -219,6 +219,40 @@ impl<R: ProcessRunner> GithubCliClient<R> {
         self.run_action(cwd, "dispatch_workflow", args).await
     }
 
+    pub async fn enable_workflow(
+        &self,
+        cwd: &Path,
+        request: &WorkflowStateChange,
+    ) -> Result<GithubActionResult> {
+        self.run_action(
+            cwd,
+            "enable_workflow",
+            vec![
+                "workflow".to_string(),
+                "enable".to_string(),
+                request.workflow.clone(),
+            ],
+        )
+        .await
+    }
+
+    pub async fn disable_workflow(
+        &self,
+        cwd: &Path,
+        request: &WorkflowStateChange,
+    ) -> Result<GithubActionResult> {
+        self.run_action(
+            cwd,
+            "disable_workflow",
+            vec![
+                "workflow".to_string(),
+                "disable".to_string(),
+                request.workflow.clone(),
+            ],
+        )
+        .await
+    }
+
     async fn run_action(
         &self,
         cwd: &Path,
@@ -334,6 +368,11 @@ pub struct WorkflowDispatch {
 pub struct WorkflowDispatchInput {
     pub name: String,
     pub value: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkflowStateChange {
+    pub workflow: String,
 }
 
 #[cfg(test)]
@@ -636,5 +675,38 @@ mod tests {
                 "retries=2"
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn workflow_state_actions_build_commands() {
+        let runner = std::sync::Arc::new(FakeRunner::new(vec![ok("enabled\n"), ok("disabled\n")]));
+        let github = GithubCliClient::with_runner(runner.clone());
+
+        let enabled = github
+            .enable_workflow(
+                Path::new("."),
+                &WorkflowStateChange {
+                    workflow: "ci.yml".to_string(),
+                },
+            )
+            .await
+            .expect("enable");
+        let disabled = github
+            .disable_workflow(
+                Path::new("."),
+                &WorkflowStateChange {
+                    workflow: "ci.yml".to_string(),
+                },
+            )
+            .await
+            .expect("disable");
+
+        assert_eq!(enabled.action, "enable_workflow");
+        assert_eq!(enabled.stdout, "enabled");
+        assert_eq!(disabled.action, "disable_workflow");
+        assert_eq!(disabled.stdout, "disabled");
+        let requests = runner.requests();
+        assert_eq!(requests[0].args, vec!["workflow", "enable", "ci.yml"]);
+        assert_eq!(requests[1].args, vec!["workflow", "disable", "ci.yml"]);
     }
 }

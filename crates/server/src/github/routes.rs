@@ -7,9 +7,10 @@ use ace_protocol::github::{
     PullRequestFilesRequest, PullRequestListRequest, PullRequestMergeRequest,
     PullRequestReadyStateRequest, PullRequestReopenRequest, PullRequestRequest,
     PullRequestReviewRequest, PullRequestThreadRequest, SearchIssuesRequest,
-    SearchPullRequestsRequest, WorkflowDispatchRequest, WorkflowListRequest,
-    WorkflowRunArtifactsRequest, WorkflowRunCancelRequest, WorkflowRunListRequest,
-    WorkflowRunLogRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
+    SearchPullRequestsRequest, WorkflowDisableRequest, WorkflowDispatchRequest,
+    WorkflowEnableRequest, WorkflowListRequest, WorkflowRunArtifactsRequest,
+    WorkflowRunCancelRequest, WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunRequest,
+    WorkflowRunRerunRequest,
 };
 use axum::{Json, Router, extract::State, routing::post};
 
@@ -47,6 +48,8 @@ where
         .route("/pulls/merge", post(merge_pull_request::<R>))
         .route("/workflows/list", post(list_workflows::<R>))
         .route("/workflows/dispatch", post(dispatch_workflow::<R>))
+        .route("/workflows/enable", post(enable_workflow::<R>))
+        .route("/workflows/disable", post(disable_workflow::<R>))
         .route("/workflow-runs/list", post(list_workflow_runs::<R>))
         .route("/workflow-runs/view", post(workflow_run::<R>))
         .route("/workflow-runs/log", post(workflow_run_log::<R>))
@@ -215,6 +218,26 @@ where
     R: ProcessRunner,
 {
     state.service.dispatch_workflow(request).await.map(Json)
+}
+
+async fn enable_workflow<R>(
+    State(state): State<GithubApiState<R>>,
+    Json(request): Json<WorkflowEnableRequest>,
+) -> Result<Json<ace_git::GithubActionResult>, GithubApiError>
+where
+    R: ProcessRunner,
+{
+    state.service.enable_workflow(request).await.map(Json)
+}
+
+async fn disable_workflow<R>(
+    State(state): State<GithubApiState<R>>,
+    Json(request): Json<WorkflowDisableRequest>,
+) -> Result<Json<ace_git::GithubActionResult>, GithubApiError>
+where
+    R: ProcessRunner,
+{
+    state.service.disable_workflow(request).await.map(Json)
 }
 
 async fn list_workflow_runs<R>(

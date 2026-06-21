@@ -183,7 +183,9 @@ fn is_allowed_github_issue_image_url(parsed: &Url, hostname: &str) -> bool {
     if hostname == "github.com" {
         return parsed.path().starts_with("/user-attachments/");
     }
-    hostname.ends_with(".githubusercontent.com") || hostname.ends_with(".githubassets.com")
+    matches!(hostname, "githubusercontent.com" | "githubassets.com")
+        || hostname.ends_with(".githubusercontent.com")
+        || hostname.ends_with(".githubassets.com")
 }
 
 #[derive(Clone)]
@@ -393,6 +395,14 @@ mod tests {
                 "https://private-user-images.githubusercontent.com/1/image.png"
             )
             .is_ok()
+        );
+        assert!(
+            resolve_allowed_github_issue_image_url("https://githubusercontent.com/1/image.png")
+                .is_ok()
+        );
+        assert!(
+            resolve_allowed_github_issue_image_url("https://githubassets.com/assets/image.png")
+                .is_ok()
         );
         assert!(
             resolve_allowed_github_issue_image_url(

@@ -10,7 +10,7 @@ use ace_git::{
     GithubCliClient, ProcessRunner, PullRequestCheckout, PullRequestClose, PullRequestComment,
     PullRequestMerge, PullRequestReadyState, PullRequestReopen, PullRequestReview,
     TokioProcessRunner, WorkflowDispatch, WorkflowDispatchInput, WorkflowRunCancel,
-    WorkflowRunRerun,
+    WorkflowRunRerun, WorkflowStateChange,
 };
 use ace_protocol::github::{
     EnvironmentStatusRequest, IssueListRequest, IssueThreadRequest, PullRequestActivityRequest,
@@ -19,9 +19,10 @@ use ace_protocol::github::{
     PullRequestFilesRequest, PullRequestListRequest, PullRequestMergeRequest,
     PullRequestReadyStateRequest, PullRequestReopenRequest, PullRequestRequest,
     PullRequestReviewRequest, PullRequestThreadRequest, SearchIssuesRequest,
-    SearchPullRequestsRequest, WorkflowDispatchRequest, WorkflowListRequest,
-    WorkflowRunArtifactsRequest, WorkflowRunCancelRequest, WorkflowRunListRequest,
-    WorkflowRunLogRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
+    SearchPullRequestsRequest, WorkflowDisableRequest, WorkflowDispatchRequest,
+    WorkflowEnableRequest, WorkflowListRequest, WorkflowRunArtifactsRequest,
+    WorkflowRunCancelRequest, WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunRequest,
+    WorkflowRunRerunRequest,
 };
 use serde::Serialize;
 use std::{path::PathBuf, sync::Arc};
@@ -267,6 +268,36 @@ impl<R: ProcessRunner> GithubService<R> {
                             value: input.value,
                         })
                         .collect(),
+                },
+            )
+            .await
+            .map_err(GithubApiError::from)
+    }
+
+    pub async fn enable_workflow(
+        &self,
+        request: WorkflowEnableRequest,
+    ) -> Result<ace_git::GithubActionResult, GithubApiError> {
+        self.github
+            .enable_workflow(
+                &repo_path(&request.repo_path)?,
+                &WorkflowStateChange {
+                    workflow: request.workflow,
+                },
+            )
+            .await
+            .map_err(GithubApiError::from)
+    }
+
+    pub async fn disable_workflow(
+        &self,
+        request: WorkflowDisableRequest,
+    ) -> Result<ace_git::GithubActionResult, GithubApiError> {
+        self.github
+            .disable_workflow(
+                &repo_path(&request.repo_path)?,
+                &WorkflowStateChange {
+                    workflow: request.workflow,
                 },
             )
             .await

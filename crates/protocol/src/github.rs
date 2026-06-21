@@ -212,6 +212,18 @@ pub struct WorkflowDispatchInput {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkflowEnableRequest {
+    pub repo_path: String,
+    pub workflow: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkflowDisableRequest {
+    pub repo_path: String,
+    pub workflow: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkflowRunListRequest {
     pub repo_path: String,
     pub filter: WorkflowRunListFilter,
