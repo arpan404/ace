@@ -5,6 +5,7 @@ pub mod methods {
     pub const GIT_REPOSITORY: &str = "git.repository";
     pub const GIT_STATUS: &str = "git.status";
     pub const GIT_DIFF: &str = "git.diff";
+    pub const GIT_CHANGED_FILES: &str = "git.changed_files";
     pub const GIT_BRANCHES: &str = "git.branches";
     pub const GIT_BRANCHES_CREATE: &str = "git.branches.create";
     pub const GIT_BRANCHES_CHECKOUT: &str = "git.branches.checkout";

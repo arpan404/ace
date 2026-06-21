@@ -2,13 +2,13 @@ use super::{WsApiState, WsDispatchError};
 use ace_git::ProcessRunner;
 use ace_protocol::{
     git::{
-        GitBranchesRequest, GitCheckoutBranchRequest, GitCommitRequest, GitCommitsCompareRequest,
-        GitCommitsRequest, GitCreateBranchRequest, GitDeleteBranchRequest, GitDiffRequest,
-        GitFetchRequest, GitPullRequest, GitPushRequest, GitRenameBranchRequest,
-        GitRepositoryRequest, GitStageRequest, GitStashApplyRequest, GitStashDropRequest,
-        GitStashPopRequest, GitStashSaveRequest, GitStashesRequest, GitStatusRequest,
-        GitUnstageRequest, GitWorkflowRequest, GitWorktreeCreateRequest, GitWorktreeRemoveRequest,
-        GitWorktreesRequest,
+        GitBranchesRequest, GitChangedFilesRequest, GitCheckoutBranchRequest, GitCommitRequest,
+        GitCommitsCompareRequest, GitCommitsRequest, GitCreateBranchRequest,
+        GitDeleteBranchRequest, GitDiffRequest, GitFetchRequest, GitPullRequest, GitPushRequest,
+        GitRenameBranchRequest, GitRepositoryRequest, GitStageRequest, GitStashApplyRequest,
+        GitStashDropRequest, GitStashPopRequest, GitStashSaveRequest, GitStashesRequest,
+        GitStatusRequest, GitUnstageRequest, GitWorkflowRequest, GitWorktreeCreateRequest,
+        GitWorktreeRemoveRequest, GitWorktreesRequest,
     },
     ws::methods,
 };
@@ -38,6 +38,13 @@ impl<R: ProcessRunner> WsApiState<R> {
                 self.git_json::<GitDiffRequest, _, _, _>(payload, |service, request| async move {
                     service.diff(request).await
                 })
+                .await
+            }
+            methods::GIT_CHANGED_FILES => {
+                self.git_json::<GitChangedFilesRequest, _, _, _>(
+                    payload,
+                    |service, request| async move { service.changed_files(request).await },
+                )
                 .await
             }
             methods::GIT_BRANCHES => {
@@ -290,6 +297,9 @@ mod tests {
         let runner = Arc::new(FakeRunner::new(vec![
             ok("## feature/x...origin/feature/x [ahead 2, behind 1]\n M src/lib.rs\n"),
             ok("diff --git a/src/lib.rs b/src/lib.rs\n+hello\n"),
+            ok("M\0src/lib.rs\0"),
+            ok("3\t1\tsrc/lib.rs\0"),
+            ok("notes.txt\0"),
             ok("feature/x|*|origin/feature/x\nmain||origin/main\n"),
         ]));
         let state = test_state(runner.clone());
@@ -314,6 +324,20 @@ mod tests {
             }),
         )
         .await;
+        let changed_files = dispatch(
+            &state,
+            serde_json::json!({
+                "version": PROTOCOL_VERSION,
+                "request_id": "req-changed-files",
+                "method": methods::GIT_CHANGED_FILES,
+                "payload": {
+                    "repo_path": "/repo",
+                    "staged": false,
+                    "include_untracked": true
+                }
+            }),
+        )
+        .await;
         let branches = dispatch(
             &state,
             serde_json::json!({
@@ -331,18 +355,34 @@ mod tests {
         let WsServerPayload::Result { body: diff } = diff.payload else {
             panic!("expected diff result");
         };
+        let WsServerPayload::Result {
+            body: changed_files,
+        } = changed_files.payload
+        else {
+            panic!("expected changed files result");
+        };
         let WsServerPayload::Result { body: branches } = branches.payload else {
             panic!("expected branches result");
         };
         assert_eq!(status["current_branch"], "feature/x");
         assert_eq!(status["ahead"], 2);
         assert!(diff["diff"].as_str().expect("diff").contains("diff --git"));
+        assert_eq!(changed_files[0]["path"], "src/lib.rs");
+        assert_eq!(changed_files[0]["status"], "modified");
+        assert_eq!(changed_files[0]["additions"], 3);
+        assert_eq!(changed_files[1]["status"], "untracked");
         assert_eq!(branches[0]["name"], "feature/x");
         let requests = runner.requests();
         assert_eq!(requests[0].args, vec!["status", "--porcelain=v1", "-b"]);
         assert_eq!(requests[1].args, vec!["diff"]);
+        assert_eq!(requests[2].args, vec!["diff", "--name-status", "-z"]);
+        assert_eq!(requests[3].args, vec!["diff", "--numstat", "-z"]);
         assert_eq!(
-            requests[2].args,
+            requests[4].args,
+            vec!["ls-files", "--others", "--exclude-standard", "-z"]
+        );
+        assert_eq!(
+            requests[5].args,
             vec![
                 "branch",
                 "--format=%(refname:short)|%(HEAD)|%(upstream:short)"

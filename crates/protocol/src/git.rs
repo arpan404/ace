@@ -16,6 +16,13 @@ pub struct GitDiffRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GitChangedFilesRequest {
+    pub repo_path: String,
+    pub staged: bool,
+    pub include_untracked: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GitBranchesRequest {
     pub repo_path: String,
 }

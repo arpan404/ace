@@ -3,12 +3,12 @@ use ace_git::{
     CommandOutput, CommandRequest, GitClient, GitToolError, GithubCliClient, ProcessRunner,
 };
 use ace_protocol::git::{
-    CreatePullRequest, DefaultBranchPolicy, GitCheckoutBranchRequest, GitCommitRequest,
-    GitCommitsCompareRequest, GitCommitsRequest, GitCreateBranchRequest, GitDeleteBranchRequest,
-    GitDiffRequest, GitFetchRequest, GitPullRequest, GitPushRequest, GitRenameBranchRequest,
-    GitStageRequest, GitStashApplyRequest, GitStashSaveRequest, GitStatusRequest,
-    GitUnstageRequest, GitWorkflowAction, GitWorkflowRequest, GitWorktreeCreateRequest,
-    GitWorktreeRemoveRequest,
+    CreatePullRequest, DefaultBranchPolicy, GitChangedFilesRequest, GitCheckoutBranchRequest,
+    GitCommitRequest, GitCommitsCompareRequest, GitCommitsRequest, GitCreateBranchRequest,
+    GitDeleteBranchRequest, GitDiffRequest, GitFetchRequest, GitPullRequest, GitPushRequest,
+    GitRenameBranchRequest, GitStageRequest, GitStashApplyRequest, GitStashSaveRequest,
+    GitStatusRequest, GitUnstageRequest, GitWorkflowAction, GitWorkflowRequest,
+    GitWorktreeCreateRequest, GitWorktreeRemoveRequest,
 };
 use async_trait::async_trait;
 use axum::{
@@ -101,6 +101,37 @@ async fn service_returns_diff_text() {
 
     assert!(diff.diff.contains("diff --git"));
     assert_eq!(runner.requests()[0].args, vec!["diff"]);
+}
+
+#[tokio::test]
+async fn service_returns_changed_files() {
+    let runner = Arc::new(FakeRunner::new(vec![
+        ok("M\0src/lib.rs\0"),
+        ok("3\t1\tsrc/lib.rs\0"),
+        ok("notes.txt\0"),
+    ]));
+    let service = GitService::new(GitClient::with_runner(runner.clone()));
+
+    let files = service
+        .changed_files(GitChangedFilesRequest {
+            repo_path: "/repo".to_string(),
+            staged: false,
+            include_untracked: true,
+        })
+        .await
+        .expect("changed files");
+
+    assert_eq!(files[0].path, "src/lib.rs");
+    assert_eq!(files[0].additions, Some(3));
+    assert_eq!(files[0].deletions, Some(1));
+    assert_eq!(files[1].path, "notes.txt");
+    let requests = runner.requests();
+    assert_eq!(requests[0].args, vec!["diff", "--name-status", "-z"]);
+    assert_eq!(requests[1].args, vec!["diff", "--numstat", "-z"]);
+    assert_eq!(
+        requests[2].args,
+        vec!["ls-files", "--others", "--exclude-standard", "-z"]
+    );
 }
 
 #[tokio::test]

@@ -5,12 +5,13 @@ use ace_git::{
 };
 use ace_platform::AppPaths;
 use ace_protocol::git::{
-    GitBranchesRequest, GitCheckoutBranchRequest, GitCommitRequest, GitCommitsCompareRequest,
-    GitCommitsRequest, GitCreateBranchRequest, GitDeleteBranchRequest, GitDiffRequest,
-    GitFetchRequest, GitPullRequest, GitPushRequest, GitRenameBranchRequest, GitRepositoryRequest,
-    GitStageRequest, GitStashApplyRequest, GitStashDropRequest, GitStashPopRequest,
-    GitStashSaveRequest, GitStashesRequest, GitStatusRequest, GitUnstageRequest, GitWorkflowAction,
-    GitWorkflowRequest, GitWorktreeCreateRequest, GitWorktreeRemoveRequest, GitWorktreesRequest,
+    GitBranchesRequest, GitChangedFilesRequest, GitCheckoutBranchRequest, GitCommitRequest,
+    GitCommitsCompareRequest, GitCommitsRequest, GitCreateBranchRequest, GitDeleteBranchRequest,
+    GitDiffRequest, GitFetchRequest, GitPullRequest, GitPushRequest, GitRenameBranchRequest,
+    GitRepositoryRequest, GitStageRequest, GitStashApplyRequest, GitStashDropRequest,
+    GitStashPopRequest, GitStashSaveRequest, GitStashesRequest, GitStatusRequest,
+    GitUnstageRequest, GitWorkflowAction, GitWorkflowRequest, GitWorktreeCreateRequest,
+    GitWorktreeRemoveRequest, GitWorktreesRequest,
 };
 use serde::Serialize;
 use std::{path::PathBuf, sync::Arc};
@@ -99,6 +100,20 @@ impl<R: ProcessRunner> GitService<R> {
     pub async fn diff(&self, request: GitDiffRequest) -> Result<GitDiffResponse, GitApiError> {
         let diff = self.git.diff(&repo_path(&request.repo_path)?).await?;
         Ok(GitDiffResponse { diff })
+    }
+
+    pub async fn changed_files(
+        &self,
+        request: GitChangedFilesRequest,
+    ) -> Result<Vec<ace_git::GitChangedFile>, GitApiError> {
+        self.git
+            .changed_files(
+                &repo_path(&request.repo_path)?,
+                request.staged,
+                request.include_untracked,
+            )
+            .await
+            .map_err(GitApiError::from)
     }
 
     pub async fn branches(
