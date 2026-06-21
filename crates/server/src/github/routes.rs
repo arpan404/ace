@@ -3,9 +3,10 @@ use ace_git::{ProcessRunner, TokioProcessRunner};
 use ace_protocol::github::{
     EnvironmentStatusRequest, IssueListRequest, IssueThreadRequest, PullRequestActivityRequest,
     PullRequestCheckoutRequest, PullRequestChecksRequest, PullRequestCloseRequest,
-    PullRequestCommentRequest, PullRequestDashboardRequest, PullRequestListRequest,
-    PullRequestMergeRequest, PullRequestReadyStateRequest, PullRequestReopenRequest,
-    PullRequestRequest, PullRequestReviewRequest, SearchIssuesRequest, SearchPullRequestsRequest,
+    PullRequestCommentRequest, PullRequestDashboardRequest, PullRequestDiffRequest,
+    PullRequestFilesRequest, PullRequestListRequest, PullRequestMergeRequest,
+    PullRequestReadyStateRequest, PullRequestReopenRequest, PullRequestRequest,
+    PullRequestReviewRequest, SearchIssuesRequest, SearchPullRequestsRequest,
     WorkflowRunCancelRequest, WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunRequest,
     WorkflowRunRerunRequest,
 };
@@ -25,6 +26,8 @@ where
         .route("/issues/thread", post(issue_thread::<R>))
         .route("/pulls/list", post(list_pull_requests::<R>))
         .route("/pulls/view", post(pull_request::<R>))
+        .route("/pulls/files", post(pull_request_files::<R>))
+        .route("/pulls/diff", post(pull_request_diff::<R>))
         .route("/issues/search", post(search_issues::<R>))
         .route("/pulls/search", post(search_pull_requests::<R>))
         .route("/pulls/checks", post(pull_request_checks::<R>))
@@ -99,6 +102,26 @@ where
     R: ProcessRunner,
 {
     state.service.pull_request(request).await.map(Json)
+}
+
+async fn pull_request_files<R>(
+    State(state): State<GithubApiState<R>>,
+    Json(request): Json<PullRequestFilesRequest>,
+) -> Result<Json<Vec<ace_git::GithubPullRequestFile>>, GithubApiError>
+where
+    R: ProcessRunner,
+{
+    state.service.pull_request_files(request).await.map(Json)
+}
+
+async fn pull_request_diff<R>(
+    State(state): State<GithubApiState<R>>,
+    Json(request): Json<PullRequestDiffRequest>,
+) -> Result<Json<ace_git::GithubPullRequestDiff>, GithubApiError>
+where
+    R: ProcessRunner,
+{
+    state.service.pull_request_diff(request).await.map(Json)
 }
 
 async fn search_issues<R>(

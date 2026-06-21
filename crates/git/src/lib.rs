@@ -16,6 +16,7 @@ mod github_actions;
 mod github_activity;
 mod github_dashboard;
 mod github_detail;
+mod github_diff;
 mod github_environment;
 mod github_mutations;
 mod github_search;
@@ -32,6 +33,7 @@ pub use github_detail::{
     CreatePullRequest, GithubBranchRef, GithubComment, GithubIssue, GithubIssueThread, GithubLabel,
     GithubPullRequest, GithubRepository, GithubUser,
 };
+pub use github_diff::{GithubPullRequestDiff, GithubPullRequestFile};
 pub use github_environment::GithubEnvironmentStatus;
 pub use github_mutations::{
     GithubActionResult, PullRequestCheckout, PullRequestClose, PullRequestComment,

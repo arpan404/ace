@@ -13,9 +13,10 @@ use ace_git::{
 use ace_protocol::github::{
     EnvironmentStatusRequest, IssueListRequest, IssueThreadRequest, PullRequestActivityRequest,
     PullRequestCheckoutRequest, PullRequestChecksRequest, PullRequestCloseRequest,
-    PullRequestCommentRequest, PullRequestDashboardRequest, PullRequestListRequest,
-    PullRequestMergeRequest, PullRequestReadyStateRequest, PullRequestReopenRequest,
-    PullRequestRequest, PullRequestReviewRequest, SearchIssuesRequest, SearchPullRequestsRequest,
+    PullRequestCommentRequest, PullRequestDashboardRequest, PullRequestDiffRequest,
+    PullRequestFilesRequest, PullRequestListRequest, PullRequestMergeRequest,
+    PullRequestReadyStateRequest, PullRequestReopenRequest, PullRequestRequest,
+    PullRequestReviewRequest, SearchIssuesRequest, SearchPullRequestsRequest,
     WorkflowRunCancelRequest, WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunRequest,
     WorkflowRunRerunRequest,
 };
@@ -122,6 +123,26 @@ impl<R: ProcessRunner> GithubService<R> {
     ) -> Result<ace_git::GithubPullRequest, GithubApiError> {
         self.github
             .pull_request(&repo_path(&request.repo_path)?, &request.selector)
+            .await
+            .map_err(GithubApiError::from)
+    }
+
+    pub async fn pull_request_files(
+        &self,
+        request: PullRequestFilesRequest,
+    ) -> Result<Vec<ace_git::GithubPullRequestFile>, GithubApiError> {
+        self.github
+            .pull_request_files(&repo_path(&request.repo_path)?, &request.selector)
+            .await
+            .map_err(GithubApiError::from)
+    }
+
+    pub async fn pull_request_diff(
+        &self,
+        request: PullRequestDiffRequest,
+    ) -> Result<ace_git::GithubPullRequestDiff, GithubApiError> {
+        self.github
+            .pull_request_diff(&repo_path(&request.repo_path)?, &request.selector)
             .await
             .map_err(GithubApiError::from)
     }

@@ -62,6 +62,18 @@ pub struct PullRequestRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PullRequestFilesRequest {
+    pub repo_path: String,
+    pub selector: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PullRequestDiffRequest {
+    pub repo_path: String,
+    pub selector: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PullRequestListFilter {
     pub limit: u32,
     pub state: String,

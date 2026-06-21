@@ -3,9 +3,10 @@ use ace_git::{CommandOutput, CommandRequest, GitToolError, GithubCliClient, Proc
 use ace_protocol::github::{
     EnvironmentStatusRequest, IssueListFilter, IssueListRequest, IssueThreadRequest,
     PullRequestActivityRequest, PullRequestChecksRequest, PullRequestDashboardRequest,
-    PullRequestListFilter, PullRequestMergeMethod, PullRequestMergeRequest, PullRequestRequest,
-    PullRequestReviewDecision, PullRequestReviewRequest, WorkflowRunListFilter,
-    WorkflowRunListRequest, WorkflowRunRerunRequest,
+    PullRequestDiffRequest, PullRequestFilesRequest, PullRequestListFilter, PullRequestMergeMethod,
+    PullRequestMergeRequest, PullRequestRequest, PullRequestReviewDecision,
+    PullRequestReviewRequest, WorkflowRunListFilter, WorkflowRunListRequest,
+    WorkflowRunRerunRequest,
 };
 use async_trait::async_trait;
 use axum::{
@@ -191,6 +192,54 @@ async fn service_returns_pull_request_details() {
             "--json",
             "number,title,state,url,headRefName,baseRefName,body,author,createdAt,updatedAt,isDraft,reviewDecision,mergeStateStatus"
         ]
+    );
+}
+
+#[tokio::test]
+async fn service_returns_pull_request_files() {
+    let runner = Arc::new(FakeRunner::new(vec![ok(
+        br#"{"files":[{"path":"src/lib.rs","additions":12,"deletions":3}]}"#,
+    )]));
+    let service = GithubService::new(GithubCliClient::with_runner(runner.clone()));
+
+    let files = service
+        .pull_request_files(PullRequestFilesRequest {
+            repo_path: "/repo".to_string(),
+            selector: "42".to_string(),
+        })
+        .await
+        .expect("files");
+
+    assert_eq!(files[0].path, "src/lib.rs");
+    assert_eq!(files[0].additions, 12);
+    assert_eq!(
+        runner.requests()[0].args,
+        vec!["pr", "view", "42", "--json", "files"]
+    );
+}
+
+#[tokio::test]
+async fn service_returns_pull_request_diff() {
+    let runner = Arc::new(FakeRunner::new(vec![
+        ok(br#"{"files":[{"path":"src/lib.rs","additions":1,"deletions":0}]}"#),
+        ok("diff --git a/src/lib.rs b/src/lib.rs\n+pub fn run() {}\n"),
+    ]));
+    let service = GithubService::new(GithubCliClient::with_runner(runner.clone()));
+
+    let diff = service
+        .pull_request_diff(PullRequestDiffRequest {
+            repo_path: "/repo".to_string(),
+            selector: "42".to_string(),
+        })
+        .await
+        .expect("diff");
+
+    assert_eq!(diff.selector, "42");
+    assert_eq!(diff.files[0].path, "src/lib.rs");
+    assert!(diff.diff.contains("diff --git"));
+    assert_eq!(
+        runner.requests()[1].args,
+        vec!["pr", "diff", "42", "--patch"]
     );
 }
 
@@ -549,6 +598,61 @@ async fn route_returns_pull_request_detail_json() {
     assert_eq!(body["number"], 42);
     assert_eq!(body["author"]["login"], "octo");
     assert_eq!(body["reviewDecision"], "REVIEW_REQUIRED");
+}
+
+#[tokio::test]
+async fn route_returns_pull_request_files_json() {
+    let runner = Arc::new(FakeRunner::new(vec![ok(
+        br#"{"files":[{"path":"src/lib.rs","additions":12,"deletions":3}]}"#,
+    )]));
+    let app = test_router(runner);
+
+    let response = app
+        .oneshot(json_request(
+            "/pulls/files",
+            serde_json::json!({
+                "repo_path": "/repo",
+                "selector": "42"
+            }),
+        ))
+        .await
+        .expect("route response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response_json(response).await;
+    assert_eq!(body[0]["path"], "src/lib.rs");
+    assert_eq!(body[0]["additions"], 12);
+}
+
+#[tokio::test]
+async fn route_returns_pull_request_diff_json() {
+    let runner = Arc::new(FakeRunner::new(vec![
+        ok(br#"{"files":[{"path":"src/lib.rs","additions":1,"deletions":0}]}"#),
+        ok("diff --git a/src/lib.rs b/src/lib.rs\n+pub fn run() {}\n"),
+    ]));
+    let app = test_router(runner);
+
+    let response = app
+        .oneshot(json_request(
+            "/pulls/diff",
+            serde_json::json!({
+                "repo_path": "/repo",
+                "selector": "42"
+            }),
+        ))
+        .await
+        .expect("route response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response_json(response).await;
+    assert_eq!(body["selector"], "42");
+    assert_eq!(body["files"][0]["path"], "src/lib.rs");
+    assert!(
+        body["diff"]
+            .as_str()
+            .expect("diff string")
+            .contains("diff --git")
+    );
 }
 
 #[tokio::test]
