@@ -17,6 +17,7 @@ mod git_commits;
 mod git_remotes;
 mod github_actions;
 mod github_activity;
+mod github_check_diagnostics;
 mod github_checks;
 mod github_dashboard;
 mod github_detail;
@@ -41,6 +42,7 @@ pub use github_actions::{
     WorkflowArtifactDownload, WorkflowListFilter, WorkflowRunListFilter,
 };
 pub use github_activity::{GithubPullRequestActivity, PullRequestActivityRequest};
+pub use github_check_diagnostics::{CheckRunDiagnosticsRequest, GithubCheckRunDiagnostics};
 pub use github_checks::{
     CheckRunListFilter, CommitCheckRollupRequest, GithubCheckRun, GithubCheckRunAnnotation,
     GithubCheckRunApp, GithubCheckRunOutput, GithubCheckRunPullRequest, GithubCheckRunSuite,

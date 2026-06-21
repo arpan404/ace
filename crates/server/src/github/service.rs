@@ -16,23 +16,24 @@ use ace_git::{
     WorkflowStateChange,
 };
 use ace_protocol::github::{
-    CheckRunAnnotationsRequest, CheckRunRequest, CheckRunRerequestRequest, CheckRunsRequest,
-    CheckSuiteRequest, CheckSuiteRerequestRequest, CheckSuiteRunsRequest, CheckSuitesRequest,
-    CommitCheckRollupRequest, CommitStatusesRequest, EnvironmentStatusRequest,
-    GithubImageProxyRequest, IssueListRequest, IssueThreadRequest, PullRequestActivityRequest,
-    PullRequestCheckoutRequest, PullRequestChecksRequest, PullRequestCiStatusRequest,
-    PullRequestCloseRequest, PullRequestCommentRequest, PullRequestCommitsRequest,
-    PullRequestCreateRequest, PullRequestDashboardRequest, PullRequestDiffRequest,
-    PullRequestFilesRequest, PullRequestListRequest, PullRequestMergeRequest,
-    PullRequestMergeStatusRequest, PullRequestReadyStateRequest, PullRequestReopenRequest,
-    PullRequestRequest, PullRequestReviewCommentsRequest, PullRequestReviewRequest,
-    PullRequestReviewThreadsRequest, PullRequestThreadRequest, PullRequestTimelineRequest,
-    SearchIssuesRequest, SearchPullRequestsRequest, WorkflowDisableRequest,
-    WorkflowDispatchRequest, WorkflowEnableRequest, WorkflowJobLogRequest, WorkflowJobRequest,
-    WorkflowListRequest, WorkflowRequest, WorkflowRunApprovalsRequest, WorkflowRunApproveRequest,
-    WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest, WorkflowRunCancelRequest,
-    WorkflowRunDiagnosticsRequest, WorkflowRunForceCancelRequest, WorkflowRunJobsRequest,
-    WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunPendingDeploymentReviewRequest,
+    CheckRunAnnotationsRequest, CheckRunDiagnosticsRequest, CheckRunRequest,
+    CheckRunRerequestRequest, CheckRunsRequest, CheckSuiteRequest, CheckSuiteRerequestRequest,
+    CheckSuiteRunsRequest, CheckSuitesRequest, CommitCheckRollupRequest, CommitStatusesRequest,
+    EnvironmentStatusRequest, GithubImageProxyRequest, IssueListRequest, IssueThreadRequest,
+    PullRequestActivityRequest, PullRequestCheckoutRequest, PullRequestChecksRequest,
+    PullRequestCiStatusRequest, PullRequestCloseRequest, PullRequestCommentRequest,
+    PullRequestCommitsRequest, PullRequestCreateRequest, PullRequestDashboardRequest,
+    PullRequestDiffRequest, PullRequestFilesRequest, PullRequestListRequest,
+    PullRequestMergeRequest, PullRequestMergeStatusRequest, PullRequestReadyStateRequest,
+    PullRequestReopenRequest, PullRequestRequest, PullRequestReviewCommentsRequest,
+    PullRequestReviewRequest, PullRequestReviewThreadsRequest, PullRequestThreadRequest,
+    PullRequestTimelineRequest, SearchIssuesRequest, SearchPullRequestsRequest,
+    WorkflowDisableRequest, WorkflowDispatchRequest, WorkflowEnableRequest, WorkflowJobLogRequest,
+    WorkflowJobRequest, WorkflowListRequest, WorkflowRequest, WorkflowRunApprovalsRequest,
+    WorkflowRunApproveRequest, WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest,
+    WorkflowRunCancelRequest, WorkflowRunDiagnosticsRequest, WorkflowRunForceCancelRequest,
+    WorkflowRunJobsRequest, WorkflowRunListRequest, WorkflowRunLogRequest,
+    WorkflowRunPendingDeploymentReviewRequest,
     WorkflowRunPendingDeploymentReviewState as ProtocolWorkflowRunPendingDeploymentReviewState,
     WorkflowRunPendingDeploymentsRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
 };
@@ -353,6 +354,22 @@ impl<R: ProcessRunner> GithubService<R> {
     ) -> Result<ace_git::GithubCheckRun, GithubApiError> {
         self.github
             .check_run(&repo_path(&request.repo_path)?, request.check_run_id)
+            .await
+            .map_err(GithubApiError::from)
+    }
+
+    pub async fn check_run_diagnostics(
+        &self,
+        request: CheckRunDiagnosticsRequest,
+    ) -> Result<ace_git::GithubCheckRunDiagnostics, GithubApiError> {
+        self.github
+            .check_run_diagnostics(
+                &repo_path(&request.repo_path)?,
+                &ace_git::CheckRunDiagnosticsRequest {
+                    check_run_id: request.check_run_id,
+                    annotation_limit: request.annotation_limit,
+                },
+            )
             .await
             .map_err(GithubApiError::from)
     }

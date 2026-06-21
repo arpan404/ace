@@ -2,24 +2,24 @@ use super::{WsApiState, WsDispatchError};
 use ace_git::ProcessRunner;
 use ace_protocol::{
     github::{
-        CheckRunAnnotationsRequest, CheckRunRequest, CheckRunRerequestRequest, CheckRunsRequest,
-        CheckSuiteRequest, CheckSuiteRerequestRequest, CheckSuiteRunsRequest, CheckSuitesRequest,
-        CommitCheckRollupRequest, CommitStatusesRequest, EnvironmentStatusRequest,
-        GithubImageProxyRequest, IssueListRequest, IssueThreadRequest, PullRequestActivityRequest,
-        PullRequestCheckoutRequest, PullRequestChecksRequest, PullRequestCiStatusRequest,
-        PullRequestCloseRequest, PullRequestCommentRequest, PullRequestCommitsRequest,
-        PullRequestCreateRequest, PullRequestDashboardRequest, PullRequestDiffRequest,
-        PullRequestFilesRequest, PullRequestListRequest, PullRequestMergeRequest,
-        PullRequestMergeStatusRequest, PullRequestReadyStateRequest, PullRequestReopenRequest,
-        PullRequestRequest, PullRequestReviewCommentsRequest, PullRequestReviewRequest,
-        PullRequestReviewThreadsRequest, PullRequestThreadRequest, PullRequestTimelineRequest,
-        RepositoryActivityRequest, SearchIssuesRequest, SearchPullRequestsRequest,
-        WorkflowDisableRequest, WorkflowDispatchRequest, WorkflowEnableRequest,
-        WorkflowJobLogRequest, WorkflowJobRequest, WorkflowListRequest, WorkflowRequest,
-        WorkflowRunApprovalsRequest, WorkflowRunApproveRequest, WorkflowRunArtifactDownloadRequest,
-        WorkflowRunArtifactsRequest, WorkflowRunCancelRequest, WorkflowRunDiagnosticsRequest,
-        WorkflowRunForceCancelRequest, WorkflowRunJobsRequest, WorkflowRunListRequest,
-        WorkflowRunLogRequest, WorkflowRunPendingDeploymentReviewRequest,
+        CheckRunAnnotationsRequest, CheckRunDiagnosticsRequest, CheckRunRequest,
+        CheckRunRerequestRequest, CheckRunsRequest, CheckSuiteRequest, CheckSuiteRerequestRequest,
+        CheckSuiteRunsRequest, CheckSuitesRequest, CommitCheckRollupRequest, CommitStatusesRequest,
+        EnvironmentStatusRequest, GithubImageProxyRequest, IssueListRequest, IssueThreadRequest,
+        PullRequestActivityRequest, PullRequestCheckoutRequest, PullRequestChecksRequest,
+        PullRequestCiStatusRequest, PullRequestCloseRequest, PullRequestCommentRequest,
+        PullRequestCommitsRequest, PullRequestCreateRequest, PullRequestDashboardRequest,
+        PullRequestDiffRequest, PullRequestFilesRequest, PullRequestListRequest,
+        PullRequestMergeRequest, PullRequestMergeStatusRequest, PullRequestReadyStateRequest,
+        PullRequestReopenRequest, PullRequestRequest, PullRequestReviewCommentsRequest,
+        PullRequestReviewRequest, PullRequestReviewThreadsRequest, PullRequestThreadRequest,
+        PullRequestTimelineRequest, RepositoryActivityRequest, SearchIssuesRequest,
+        SearchPullRequestsRequest, WorkflowDisableRequest, WorkflowDispatchRequest,
+        WorkflowEnableRequest, WorkflowJobLogRequest, WorkflowJobRequest, WorkflowListRequest,
+        WorkflowRequest, WorkflowRunApprovalsRequest, WorkflowRunApproveRequest,
+        WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest, WorkflowRunCancelRequest,
+        WorkflowRunDiagnosticsRequest, WorkflowRunForceCancelRequest, WorkflowRunJobsRequest,
+        WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunPendingDeploymentReviewRequest,
         WorkflowRunPendingDeploymentsRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
     },
     ws::methods,
@@ -183,6 +183,15 @@ impl<R: ProcessRunner> WsApiState<R> {
                 self.github_json::<CheckRunRequest, _, _, _>(
                     payload,
                     |service, request| async move { service.check_run(request).await },
+                )
+                .await
+            }
+            methods::GITHUB_CHECK_RUNS_DIAGNOSTICS => {
+                self.github_json::<CheckRunDiagnosticsRequest, _, _, _>(
+                    payload,
+                    |service, request| async move {
+                        service.check_run_diagnostics(request).await
+                    },
                 )
                 .await
             }
@@ -1507,6 +1516,57 @@ mod tests {
         assert_eq!(body[0]["message"], "expected value");
         assert_eq!(
             runner.requests()[1].args,
+            vec![
+                "api",
+                "repos/ace/app/check-runs/10/annotations",
+                "-F",
+                "per_page=30"
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn dispatches_check_run_diagnostics_over_ws_rpc() {
+        let runner = Arc::new(FakeRunner::new(vec![
+            ok(
+                br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+            ),
+            ok(
+                br#"{"id":10,"name":"build","node_id":"CR_1","head_sha":"abc","external_id":"ci-10","url":"https://api.github.test/check-runs/10","html_url":"https://github.test/checks/10","details_url":"https://ci.test/build/10","status":"completed","conclusion":"failure","started_at":"2026-06-21T00:00:00Z","completed_at":"2026-06-21T00:01:00Z","output":{"title":"Build","summary":"failed","text":"compile failed","annotations_count":2,"annotations_url":"https://api.github.test/annotations"},"app":{"id":1,"slug":"github-actions","name":"GitHub Actions","html_url":"https://github.com/apps/github-actions"},"check_suite":{"id":5,"head_branch":"feature/x","head_sha":"abc","status":"completed","conclusion":"failure"},"pull_requests":[]}"#,
+            ),
+            ok(
+                br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+            ),
+            ok(
+                br#"[{"path":"src/lib.rs","start_line":10,"end_line":10,"start_column":null,"end_column":null,"annotation_level":"failure","message":"expected value","title":"clippy","raw_details":"details","blob_href":"https://github.test/blob/src/lib.rs#L10"}]"#,
+            ),
+        ]));
+        let state = test_state(runner.clone());
+
+        let response = dispatch(
+            &state,
+            serde_json::json!({
+                "version": PROTOCOL_VERSION,
+                "request_id": "req-check-diagnostics",
+                "method": methods::GITHUB_CHECK_RUNS_DIAGNOSTICS,
+                "payload": {
+                    "repo_path": "/repo",
+                    "check_run_id": 10,
+                    "annotation_limit": 30
+                }
+            }),
+        )
+        .await;
+
+        let WsServerPayload::Result { body } = response.payload else {
+            panic!("expected result");
+        };
+        assert_eq!(body["check_run"]["name"], "build");
+        assert_eq!(body["check_run"]["conclusion"], "failure");
+        assert_eq!(body["annotations"][0]["path"], "src/lib.rs");
+        assert_eq!(body["annotations"][0]["message"], "expected value");
+        assert_eq!(
+            runner.requests()[3].args,
             vec![
                 "api",
                 "repos/ace/app/check-runs/10/annotations",

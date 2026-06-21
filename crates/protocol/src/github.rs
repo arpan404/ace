@@ -233,6 +233,13 @@ pub struct CheckRunRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CheckRunDiagnosticsRequest {
+    pub repo_path: String,
+    pub check_run_id: u64,
+    pub annotation_limit: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CheckSuitesRequest {
     pub repo_path: String,
     pub git_ref: String,
