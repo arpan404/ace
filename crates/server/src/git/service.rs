@@ -1,8 +1,9 @@
 use super::GitApiError;
 use ace_git::{GitClient, ProcessRunner, TokioProcessRunner};
 use ace_protocol::git::{
-    GitBranchesRequest, GitCheckoutBranchRequest, GitCreateBranchRequest, GitDiffRequest,
-    GitRenameBranchRequest, GitRepositoryRequest, GitStatusRequest, GitWorktreesRequest,
+    GitBranchesRequest, GitCheckoutBranchRequest, GitCreateBranchRequest, GitDeleteBranchRequest,
+    GitDiffRequest, GitFetchRequest, GitPullRequest, GitPushRequest, GitRenameBranchRequest,
+    GitRepositoryRequest, GitStatusRequest, GitWorktreesRequest,
 };
 use serde::Serialize;
 use std::{path::PathBuf, sync::Arc};
@@ -126,6 +127,53 @@ impl<R: ProcessRunner> GitService<R> {
         Ok(GitActionResponse {
             action: "rename_branch",
             branch: Some(request.new),
+        })
+    }
+
+    pub async fn delete_branch(
+        &self,
+        request: GitDeleteBranchRequest,
+    ) -> Result<GitActionResponse, GitApiError> {
+        self.git
+            .delete_branch(
+                &repo_path(&request.repo_path)?,
+                &request.branch,
+                request.force,
+            )
+            .await?;
+        Ok(GitActionResponse {
+            action: "delete_branch",
+            branch: Some(request.branch),
+        })
+    }
+
+    pub async fn fetch(&self, request: GitFetchRequest) -> Result<GitActionResponse, GitApiError> {
+        self.git
+            .fetch(&repo_path(&request.repo_path)?, request.prune)
+            .await?;
+        Ok(GitActionResponse {
+            action: "fetch",
+            branch: None,
+        })
+    }
+
+    pub async fn pull(&self, request: GitPullRequest) -> Result<GitActionResponse, GitApiError> {
+        self.git
+            .pull_ff_only(&repo_path(&request.repo_path)?)
+            .await?;
+        Ok(GitActionResponse {
+            action: "pull",
+            branch: None,
+        })
+    }
+
+    pub async fn push(&self, request: GitPushRequest) -> Result<GitActionResponse, GitApiError> {
+        self.git
+            .push_current_branch(&repo_path(&request.repo_path)?, request.set_upstream)
+            .await?;
+        Ok(GitActionResponse {
+            action: "push",
+            branch: None,
         })
     }
 

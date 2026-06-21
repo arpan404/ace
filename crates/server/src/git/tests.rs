@@ -1,8 +1,8 @@
 use super::{GitApiError, GitService, routes::router_with_state, service::GitApiState};
 use ace_git::{CommandOutput, CommandRequest, GitClient, GitToolError, ProcessRunner};
 use ace_protocol::git::{
-    GitCheckoutBranchRequest, GitCreateBranchRequest, GitDiffRequest, GitRenameBranchRequest,
-    GitStatusRequest,
+    GitCheckoutBranchRequest, GitCreateBranchRequest, GitDeleteBranchRequest, GitDiffRequest,
+    GitFetchRequest, GitPullRequest, GitPushRequest, GitRenameBranchRequest, GitStatusRequest,
 };
 use async_trait::async_trait;
 use axum::{
@@ -179,6 +179,83 @@ async fn service_renames_branch_through_git() {
 }
 
 #[tokio::test]
+async fn service_deletes_branch_through_git() {
+    let runner = Arc::new(FakeRunner::new(vec![ok("")]));
+    let service = GitService::new(GitClient::with_runner(runner.clone()));
+
+    let result = service
+        .delete_branch(GitDeleteBranchRequest {
+            repo_path: "/repo".to_string(),
+            branch: "feature/old".to_string(),
+            force: true,
+        })
+        .await
+        .expect("delete branch");
+
+    assert_eq!(result.action, "delete_branch");
+    assert_eq!(result.branch.as_deref(), Some("feature/old"));
+    assert_eq!(
+        runner.requests()[0].args,
+        vec!["branch", "-D", "feature/old"]
+    );
+}
+
+#[tokio::test]
+async fn service_fetches_with_prune() {
+    let runner = Arc::new(FakeRunner::new(vec![ok("")]));
+    let service = GitService::new(GitClient::with_runner(runner.clone()));
+
+    let result = service
+        .fetch(GitFetchRequest {
+            repo_path: "/repo".to_string(),
+            prune: true,
+        })
+        .await
+        .expect("fetch");
+
+    assert_eq!(result.action, "fetch");
+    assert_eq!(result.branch, None);
+    assert_eq!(runner.requests()[0].args, vec!["fetch", "--prune"]);
+}
+
+#[tokio::test]
+async fn service_pulls_ff_only() {
+    let runner = Arc::new(FakeRunner::new(vec![ok("")]));
+    let service = GitService::new(GitClient::with_runner(runner.clone()));
+
+    let result = service
+        .pull(GitPullRequest {
+            repo_path: "/repo".to_string(),
+        })
+        .await
+        .expect("pull");
+
+    assert_eq!(result.action, "pull");
+    assert_eq!(result.branch, None);
+    assert_eq!(runner.requests()[0].args, vec!["pull", "--ff-only"]);
+}
+
+#[tokio::test]
+async fn service_pushes_current_branch_with_upstream() {
+    let runner = Arc::new(FakeRunner::new(vec![ok("feature/x\n"), ok("")]));
+    let service = GitService::new(GitClient::with_runner(runner.clone()));
+
+    let result = service
+        .push(GitPushRequest {
+            repo_path: "/repo".to_string(),
+            set_upstream: true,
+        })
+        .await
+        .expect("push");
+
+    assert_eq!(result.action, "push");
+    assert_eq!(result.branch, None);
+    let requests = runner.requests();
+    assert_eq!(requests[0].args, vec!["branch", "--show-current"]);
+    assert_eq!(requests[1].args, vec!["push", "-u", "origin", "feature/x"]);
+}
+
+#[tokio::test]
 async fn route_returns_status_json() {
     let runner = Arc::new(FakeRunner::new(vec![ok(
         "## feature/x...origin/feature/x [ahead 2]\n M src/lib.rs\n",
@@ -339,6 +416,101 @@ async fn route_renames_branch_json() {
         runner.requests()[0].args,
         vec!["branch", "-m", "feature/old", "feature/new"]
     );
+}
+
+#[tokio::test]
+async fn route_deletes_branch_json() {
+    let runner = Arc::new(FakeRunner::new(vec![ok("")]));
+    let app = test_router(runner.clone());
+
+    let response = app
+        .oneshot(json_request(
+            "/branches/delete",
+            serde_json::json!({
+                "repo_path": "/repo",
+                "branch": "feature/old",
+                "force": false
+            }),
+        ))
+        .await
+        .expect("route response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response_json(response).await;
+    assert_eq!(body["action"], "delete_branch");
+    assert_eq!(body["branch"], "feature/old");
+    assert_eq!(
+        runner.requests()[0].args,
+        vec!["branch", "-d", "feature/old"]
+    );
+}
+
+#[tokio::test]
+async fn route_fetches_json() {
+    let runner = Arc::new(FakeRunner::new(vec![ok("")]));
+    let app = test_router(runner.clone());
+
+    let response = app
+        .oneshot(json_request(
+            "/fetch",
+            serde_json::json!({
+                "repo_path": "/repo",
+                "prune": true
+            }),
+        ))
+        .await
+        .expect("route response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response_json(response).await;
+    assert_eq!(body["action"], "fetch");
+    assert!(body["branch"].is_null());
+    assert_eq!(runner.requests()[0].args, vec!["fetch", "--prune"]);
+}
+
+#[tokio::test]
+async fn route_pulls_json() {
+    let runner = Arc::new(FakeRunner::new(vec![ok("")]));
+    let app = test_router(runner.clone());
+
+    let response = app
+        .oneshot(json_request(
+            "/pull",
+            serde_json::json!({ "repo_path": "/repo" }),
+        ))
+        .await
+        .expect("route response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response_json(response).await;
+    assert_eq!(body["action"], "pull");
+    assert!(body["branch"].is_null());
+    assert_eq!(runner.requests()[0].args, vec!["pull", "--ff-only"]);
+}
+
+#[tokio::test]
+async fn route_pushes_json() {
+    let runner = Arc::new(FakeRunner::new(vec![ok("feature/x\n"), ok("")]));
+    let app = test_router(runner.clone());
+
+    let response = app
+        .oneshot(json_request(
+            "/push",
+            serde_json::json!({
+                "repo_path": "/repo",
+                "set_upstream": true
+            }),
+        ))
+        .await
+        .expect("route response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response_json(response).await;
+    assert_eq!(body["action"], "push");
+    assert!(body["branch"].is_null());
+    let requests = runner.requests();
+    assert_eq!(requests[0].args, vec!["branch", "--show-current"]);
+    assert_eq!(requests[1].args, vec!["push", "-u", "origin", "feature/x"]);
 }
 
 #[tokio::test]

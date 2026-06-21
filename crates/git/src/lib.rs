@@ -371,6 +371,15 @@ impl<R: ProcessRunner> GitClient<R> {
         Ok(())
     }
 
+    pub async fn fetch(&self, cwd: &Path, prune: bool) -> Result<()> {
+        if prune {
+            self.git_success(cwd, ["fetch", "--prune"]).await?;
+        } else {
+            self.git_success(cwd, ["fetch"]).await?;
+        }
+        Ok(())
+    }
+
     pub async fn commit(&self, cwd: &Path, message: &str) -> Result<()> {
         self.git_success(cwd, ["commit", "-m", message]).await?;
         Ok(())
@@ -423,6 +432,13 @@ impl<R: ProcessRunner> GitClient<R> {
         }
         args.push(new.to_string());
         self.git_success(cwd, args).await?;
+        Ok(())
+    }
+
+    pub async fn delete_branch(&self, cwd: &Path, branch: &str, force: bool) -> Result<()> {
+        validate_branch_name(branch)?;
+        self.git_success(cwd, ["branch", if force { "-D" } else { "-d" }, branch])
+            .await?;
         Ok(())
     }
 

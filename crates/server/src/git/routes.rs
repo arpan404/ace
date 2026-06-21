@@ -1,8 +1,9 @@
 use super::{GitApiError, service::GitApiState};
 use ace_git::{ProcessRunner, TokioProcessRunner};
 use ace_protocol::git::{
-    GitBranchesRequest, GitCheckoutBranchRequest, GitCreateBranchRequest, GitDiffRequest,
-    GitRenameBranchRequest, GitRepositoryRequest, GitStatusRequest, GitWorktreesRequest,
+    GitBranchesRequest, GitCheckoutBranchRequest, GitCreateBranchRequest, GitDeleteBranchRequest,
+    GitDiffRequest, GitFetchRequest, GitPullRequest, GitPushRequest, GitRenameBranchRequest,
+    GitRepositoryRequest, GitStatusRequest, GitWorktreesRequest,
 };
 use axum::{Json, Router, extract::State, routing::post};
 
@@ -22,6 +23,10 @@ where
         .route("/branches/create", post(create_branch::<R>))
         .route("/branches/checkout", post(checkout_branch::<R>))
         .route("/branches/rename", post(rename_branch::<R>))
+        .route("/branches/delete", post(delete_branch::<R>))
+        .route("/fetch", post(fetch::<R>))
+        .route("/pull", post(pull::<R>))
+        .route("/push", post(push::<R>))
         .route("/worktrees", post(worktrees::<R>))
         .with_state(state)
 }
@@ -94,6 +99,46 @@ where
     R: ProcessRunner,
 {
     state.service.rename_branch(request).await.map(Json)
+}
+
+async fn delete_branch<R>(
+    State(state): State<GitApiState<R>>,
+    Json(request): Json<GitDeleteBranchRequest>,
+) -> Result<Json<super::GitActionResponse>, GitApiError>
+where
+    R: ProcessRunner,
+{
+    state.service.delete_branch(request).await.map(Json)
+}
+
+async fn fetch<R>(
+    State(state): State<GitApiState<R>>,
+    Json(request): Json<GitFetchRequest>,
+) -> Result<Json<super::GitActionResponse>, GitApiError>
+where
+    R: ProcessRunner,
+{
+    state.service.fetch(request).await.map(Json)
+}
+
+async fn pull<R>(
+    State(state): State<GitApiState<R>>,
+    Json(request): Json<GitPullRequest>,
+) -> Result<Json<super::GitActionResponse>, GitApiError>
+where
+    R: ProcessRunner,
+{
+    state.service.pull(request).await.map(Json)
+}
+
+async fn push<R>(
+    State(state): State<GitApiState<R>>,
+    Json(request): Json<GitPushRequest>,
+) -> Result<Json<super::GitActionResponse>, GitApiError>
+where
+    R: ProcessRunner,
+{
+    state.service.push(request).await.map(Json)
 }
 
 async fn worktrees<R>(
