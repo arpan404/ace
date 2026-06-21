@@ -6,7 +6,7 @@ use ace_protocol::github::{
     PullRequestDiffRequest, PullRequestFilesRequest, PullRequestListFilter, PullRequestMergeMethod,
     PullRequestMergeRequest, PullRequestRequest, PullRequestReviewDecision,
     PullRequestReviewRequest, PullRequestThreadRequest, WorkflowRunListFilter,
-    WorkflowRunListRequest, WorkflowRunRerunRequest,
+    WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunRerunRequest,
 };
 use async_trait::async_trait;
 use axum::{
@@ -404,6 +404,61 @@ async fn service_lists_workflow_runs_with_filters() {
 }
 
 #[tokio::test]
+async fn service_returns_workflow_run_log_with_job_filter() {
+    let runner = Arc::new(FakeRunner::new(vec![ok("job log\n")]));
+    let service = GithubService::new(GithubCliClient::with_runner(runner.clone()));
+
+    let response = service
+        .workflow_run_log(WorkflowRunLogRequest {
+            repo_path: "/repo".to_string(),
+            run_id: 100,
+            attempt: Some(2),
+            job_id: Some(200),
+            failed_only: false,
+        })
+        .await
+        .expect("log");
+
+    assert_eq!(response.log, "job log");
+    assert_eq!(
+        runner.requests()[0].args,
+        vec![
+            "run",
+            "view",
+            "100",
+            "--attempt",
+            "2",
+            "--job",
+            "200",
+            "--log"
+        ]
+    );
+}
+
+#[tokio::test]
+async fn service_failed_log_forces_failed_only_flag() {
+    let runner = Arc::new(FakeRunner::new(vec![ok("failed log\n")]));
+    let service = GithubService::new(GithubCliClient::with_runner(runner.clone()));
+
+    let response = service
+        .workflow_run_failed_log(WorkflowRunLogRequest {
+            repo_path: "/repo".to_string(),
+            run_id: 100,
+            attempt: None,
+            job_id: None,
+            failed_only: false,
+        })
+        .await
+        .expect("log");
+
+    assert_eq!(response.log, "failed log");
+    assert_eq!(
+        runner.requests()[0].args,
+        vec!["run", "view", "100", "--log-failed"]
+    );
+}
+
+#[tokio::test]
 async fn service_rejects_empty_repo_path_before_running_process() {
     let runner = Arc::new(FakeRunner::new(Vec::new()));
     let service = GithubService::new(GithubCliClient::with_runner(runner.clone()));
@@ -764,6 +819,68 @@ async fn route_runs_workflow_action_and_returns_action_json() {
     assert_eq!(
         runner.requests()[0].args,
         vec!["run", "rerun", "100", "--failed", "--debug", "--job", "200"]
+    );
+}
+
+#[tokio::test]
+async fn route_returns_workflow_run_log_json() {
+    let runner = Arc::new(FakeRunner::new(vec![ok("job log\n")]));
+    let app = test_router(runner.clone());
+
+    let response = app
+        .oneshot(json_request(
+            "/workflow-runs/log",
+            serde_json::json!({
+                "repo_path": "/repo",
+                "run_id": 100,
+                "attempt": 2,
+                "job_id": 200,
+                "failed_only": false
+            }),
+        ))
+        .await
+        .expect("route response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response_json(response).await;
+    assert_eq!(body["log"], "job log");
+    assert_eq!(
+        runner.requests()[0].args,
+        vec![
+            "run",
+            "view",
+            "100",
+            "--attempt",
+            "2",
+            "--job",
+            "200",
+            "--log"
+        ]
+    );
+}
+
+#[tokio::test]
+async fn route_returns_workflow_run_failed_log_json() {
+    let runner = Arc::new(FakeRunner::new(vec![ok("failed log\n")]));
+    let app = test_router(runner.clone());
+
+    let response = app
+        .oneshot(json_request(
+            "/workflow-runs/failed-log",
+            serde_json::json!({
+                "repo_path": "/repo",
+                "run_id": 100
+            }),
+        ))
+        .await
+        .expect("route response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response_json(response).await;
+    assert_eq!(body["log"], "failed log");
+    assert_eq!(
+        runner.requests()[0].args,
+        vec!["run", "view", "100", "--log-failed"]
     );
 }
 

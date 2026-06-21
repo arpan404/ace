@@ -220,6 +220,10 @@ pub struct WorkflowRunRequest {
 pub struct WorkflowRunLogRequest {
     pub repo_path: String,
     pub run_id: u64,
+    pub attempt: Option<u32>,
+    pub job_id: Option<u64>,
+    #[serde(default)]
+    pub failed_only: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

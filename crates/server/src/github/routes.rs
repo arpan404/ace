@@ -46,6 +46,7 @@ where
         .route("/pulls/merge", post(merge_pull_request::<R>))
         .route("/workflow-runs/list", post(list_workflow_runs::<R>))
         .route("/workflow-runs/view", post(workflow_run::<R>))
+        .route("/workflow-runs/log", post(workflow_run_log::<R>))
         .route(
             "/workflow-runs/failed-log",
             post(workflow_run_failed_log::<R>),
@@ -221,6 +222,16 @@ where
         .workflow_run_failed_log(request)
         .await
         .map(Json)
+}
+
+async fn workflow_run_log<R>(
+    State(state): State<GithubApiState<R>>,
+    Json(request): Json<WorkflowRunLogRequest>,
+) -> Result<Json<super::WorkflowRunLogResponse>, GithubApiError>
+where
+    R: ProcessRunner,
+{
+    state.service.workflow_run_log(request).await.map(Json)
 }
 
 async fn checkout_pull_request<R>(

@@ -92,18 +92,30 @@ impl<R: ProcessRunner> GithubCliClient<R> {
     }
 
     pub async fn workflow_run_failed_log(&self, cwd: &Path, run_id: u64) -> Result<String> {
-        let output = self
-            .gh_allow_statuses(
-                cwd,
-                [
-                    "run".to_string(),
-                    "view".to_string(),
-                    run_id.to_string(),
-                    "--log-failed".to_string(),
-                ],
-                &[0],
-            )
-            .await?;
+        self.workflow_run_log(cwd, run_id, None, None, true).await
+    }
+
+    pub async fn workflow_run_log(
+        &self,
+        cwd: &Path,
+        run_id: u64,
+        attempt: Option<u32>,
+        job_id: Option<u64>,
+        failed_only: bool,
+    ) -> Result<String> {
+        let mut args = vec!["run".to_string(), "view".to_string(), run_id.to_string()];
+        if let Some(attempt) = attempt {
+            args.extend(["--attempt".to_string(), attempt.to_string()]);
+        }
+        if let Some(job_id) = job_id {
+            args.extend(["--job".to_string(), job_id.to_string()]);
+        }
+        args.push(if failed_only {
+            "--log-failed".to_string()
+        } else {
+            "--log".to_string()
+        });
+        let output = self.gh_allow_statuses(cwd, args, &[0]).await?;
         Ok(output.stdout_string())
     }
 }
@@ -413,11 +425,40 @@ mod tests {
     #[tokio::test]
     async fn workflow_failed_log_returns_text() {
         let runner = std::sync::Arc::new(FakeRunner::new(vec![output(0, "job\tstep\tfailure\n")]));
-        let github = GithubCliClient::with_runner(runner);
+        let github = GithubCliClient::with_runner(runner.clone());
         let log = github
             .workflow_run_failed_log(Path::new("."), 100)
             .await
             .expect("log");
         assert_eq!(log, "job\tstep\tfailure");
+        assert_eq!(
+            runner.requests()[0].args,
+            vec!["run", "view", "100", "--log-failed"]
+        );
+    }
+
+    #[tokio::test]
+    async fn workflow_log_supports_attempt_and_job_filters() {
+        let runner = std::sync::Arc::new(FakeRunner::new(vec![output(0, "job log\n")]));
+        let github = GithubCliClient::with_runner(runner.clone());
+        let log = github
+            .workflow_run_log(Path::new("."), 100, Some(2), Some(200), false)
+            .await
+            .expect("log");
+
+        assert_eq!(log, "job log");
+        assert_eq!(
+            runner.requests()[0].args,
+            vec![
+                "run",
+                "view",
+                "100",
+                "--attempt",
+                "2",
+                "--job",
+                "200",
+                "--log"
+            ]
+        );
     }
 }

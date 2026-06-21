@@ -262,11 +262,25 @@ impl<R: ProcessRunner> GithubService<R> {
 
     pub async fn workflow_run_failed_log(
         &self,
+        mut request: WorkflowRunLogRequest,
+    ) -> Result<WorkflowRunLogResponse, GithubApiError> {
+        request.failed_only = true;
+        self.workflow_run_log(request).await
+    }
+
+    pub async fn workflow_run_log(
+        &self,
         request: WorkflowRunLogRequest,
     ) -> Result<WorkflowRunLogResponse, GithubApiError> {
         let log = self
             .github
-            .workflow_run_failed_log(&repo_path(&request.repo_path)?, request.run_id)
+            .workflow_run_log(
+                &repo_path(&request.repo_path)?,
+                request.run_id,
+                request.attempt,
+                request.job_id,
+                request.failed_only,
+            )
             .await?;
         Ok(WorkflowRunLogResponse { log })
     }
