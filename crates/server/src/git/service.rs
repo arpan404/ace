@@ -1,11 +1,15 @@
 use super::GitApiError;
-use ace_git::{GitClient, ProcessRunner, TokioProcessRunner};
+use ace_git::{
+    CreatePullRequest, DefaultBranchPolicy, GitClient, GitStackedAction, GitWorkflow,
+    GithubCliClient, ProcessRunner, TokioProcessRunner,
+};
 use ace_protocol::git::{
     GitBranchesRequest, GitCheckoutBranchRequest, GitCommitRequest, GitCreateBranchRequest,
     GitDeleteBranchRequest, GitDiffRequest, GitFetchRequest, GitPullRequest, GitPushRequest,
     GitRenameBranchRequest, GitRepositoryRequest, GitStageRequest, GitStashApplyRequest,
     GitStashDropRequest, GitStashPopRequest, GitStashSaveRequest, GitStashesRequest,
-    GitStatusRequest, GitUnstageRequest, GitWorktreesRequest,
+    GitStatusRequest, GitUnstageRequest, GitWorkflowAction, GitWorkflowRequest,
+    GitWorktreesRequest,
 };
 use serde::Serialize;
 use std::{path::PathBuf, sync::Arc};
@@ -42,12 +46,21 @@ impl<R: ProcessRunner> GitApiState<R> {
 
 pub struct GitService<R: ProcessRunner = TokioProcessRunner> {
     git: GitClient<R>,
+    github: Option<GithubCliClient<R>>,
 }
 
 impl<R: ProcessRunner> GitService<R> {
     #[must_use]
     pub fn new(git: GitClient<R>) -> Self {
-        Self { git }
+        Self { git, github: None }
+    }
+
+    #[must_use]
+    pub fn new_with_github(git: GitClient<R>, github: GithubCliClient<R>) -> Self {
+        Self {
+            git,
+            github: Some(github),
+        }
     }
 
     pub async fn repository(
@@ -298,6 +311,24 @@ impl<R: ProcessRunner> GitService<R> {
             .await
             .map_err(GitApiError::from)
     }
+
+    pub async fn run_workflow(
+        &self,
+        request: GitWorkflowRequest,
+    ) -> Result<ace_git::GitWorkflowOutcome, GitApiError> {
+        let github = self
+            .github
+            .clone()
+            .ok_or(GitApiError::WorkflowUnavailable)?;
+        let workflow = GitWorkflow::new(self.git.clone(), github);
+        workflow
+            .run(
+                &repo_path(&request.repo_path)?,
+                git_stacked_action(request.action),
+            )
+            .await
+            .map_err(GitApiError::from)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -316,5 +347,64 @@ fn repo_path(raw: &str) -> Result<PathBuf, GitApiError> {
         Err(GitApiError::EmptyRepoPath)
     } else {
         Ok(PathBuf::from(raw))
+    }
+}
+
+fn git_stacked_action(action: GitWorkflowAction) -> GitStackedAction {
+    match action {
+        GitWorkflowAction::Commit { message } => GitStackedAction::Commit { message },
+        GitWorkflowAction::Push {
+            set_upstream,
+            default_branch_policy,
+        } => GitStackedAction::Push {
+            set_upstream,
+            default_branch_policy: map_default_branch_policy(default_branch_policy),
+        },
+        GitWorkflowAction::CreatePr {
+            request,
+            default_branch_policy,
+        } => GitStackedAction::CreatePr {
+            request: create_pull_request(request),
+            default_branch_policy: map_default_branch_policy(default_branch_policy),
+        },
+        GitWorkflowAction::CommitPush {
+            message,
+            set_upstream,
+            default_branch_policy,
+        } => GitStackedAction::CommitPush {
+            message,
+            set_upstream,
+            default_branch_policy: map_default_branch_policy(default_branch_policy),
+        },
+        GitWorkflowAction::CommitPushPr {
+            message,
+            set_upstream,
+            request,
+            default_branch_policy,
+        } => GitStackedAction::CommitPushPr {
+            message,
+            set_upstream,
+            request: create_pull_request(request),
+            default_branch_policy: map_default_branch_policy(default_branch_policy),
+        },
+    }
+}
+
+fn map_default_branch_policy(
+    policy: ace_protocol::git::DefaultBranchPolicy,
+) -> DefaultBranchPolicy {
+    match policy {
+        ace_protocol::git::DefaultBranchPolicy::Deny => DefaultBranchPolicy::Deny,
+        ace_protocol::git::DefaultBranchPolicy::Allow => DefaultBranchPolicy::Allow,
+    }
+}
+
+fn create_pull_request(request: ace_protocol::git::CreatePullRequest) -> CreatePullRequest {
+    CreatePullRequest {
+        title: request.title,
+        body: request.body,
+        head: request.head,
+        base: request.base,
+        draft: request.draft,
     }
 }

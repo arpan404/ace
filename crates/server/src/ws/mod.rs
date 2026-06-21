@@ -41,7 +41,10 @@ impl WsApiState<TokioProcessRunner> {
     #[must_use]
     pub fn production() -> Self {
         Self {
-            git: Arc::new(GitService::new(GitClient::new())),
+            git: Arc::new(GitService::new_with_github(
+                GitClient::new(),
+                GithubCliClient::new(),
+            )),
             github: Arc::new(GithubService::new(GithubCliClient::new())),
         }
     }

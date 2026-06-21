@@ -238,9 +238,16 @@ impl ProcessRunner for TokioProcessRunner {
     }
 }
 
-#[derive(Clone)]
 pub struct GitClient<R: ProcessRunner = TokioProcessRunner> {
     runner: Arc<R>,
+}
+
+impl<R: ProcessRunner> Clone for GitClient<R> {
+    fn clone(&self) -> Self {
+        Self {
+            runner: Arc::clone(&self.runner),
+        }
+    }
 }
 
 impl GitClient<TokioProcessRunner> {
@@ -942,13 +949,13 @@ impl GitStackedAction {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DefaultBranchPolicy {
     Deny,
     Allow,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum GitProgressEvent {
     Validating,
     Committing,
@@ -957,7 +964,7 @@ pub enum GitProgressEvent {
     Completed,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GitWorkflowOutcome {
     pub events: Vec<GitProgressEvent>,
     pub pr: Option<GithubPullRequest>,

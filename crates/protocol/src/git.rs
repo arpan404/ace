@@ -120,3 +120,51 @@ pub struct GitStashDropRequest {
 pub struct GitWorktreesRequest {
     pub repo_path: String,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GitWorkflowRequest {
+    pub repo_path: String,
+    pub action: GitWorkflowAction,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum GitWorkflowAction {
+    Commit {
+        message: String,
+    },
+    Push {
+        set_upstream: bool,
+        default_branch_policy: DefaultBranchPolicy,
+    },
+    CreatePr {
+        request: CreatePullRequest,
+        default_branch_policy: DefaultBranchPolicy,
+    },
+    CommitPush {
+        message: String,
+        set_upstream: bool,
+        default_branch_policy: DefaultBranchPolicy,
+    },
+    CommitPushPr {
+        message: String,
+        set_upstream: bool,
+        request: CreatePullRequest,
+        default_branch_policy: DefaultBranchPolicy,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DefaultBranchPolicy {
+    Deny,
+    Allow,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CreatePullRequest {
+    pub title: String,
+    pub body: String,
+    pub head: String,
+    pub base: String,
+    pub draft: bool,
+}

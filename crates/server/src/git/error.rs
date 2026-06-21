@@ -6,6 +6,8 @@ use thiserror::Error;
 pub enum GitApiError {
     #[error("repo_path must not be empty")]
     EmptyRepoPath,
+    #[error("git workflow requires github client support")]
+    WorkflowUnavailable,
     #[error("{0}")]
     Tooling(#[from] ace_git::GitToolError),
 }
@@ -19,6 +21,7 @@ impl IntoResponse for GitApiError {
     fn into_response(self) -> axum::response::Response {
         let status = match &self {
             Self::EmptyRepoPath
+            | Self::WorkflowUnavailable
             | Self::Tooling(ace_git::GitToolError::UnsafeBranchName(_))
             | Self::Tooling(ace_git::GitToolError::UnsafeWorktreePath { .. })
             | Self::Tooling(ace_git::GitToolError::EmptyCommitMessage)

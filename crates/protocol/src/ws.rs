@@ -22,6 +22,7 @@ pub mod methods {
     pub const GIT_STASHES_POP: &str = "git.stashes.pop";
     pub const GIT_STASHES_DROP: &str = "git.stashes.drop";
     pub const GIT_WORKTREES: &str = "git.worktrees";
+    pub const GIT_WORKFLOW_RUN: &str = "git.workflow.run";
 
     pub const GITHUB_ENVIRONMENT_STATUS: &str = "github.environment.status";
     pub const GITHUB_ISSUES_LIST: &str = "github.issues.list";

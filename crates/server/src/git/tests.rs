@@ -1,10 +1,13 @@
 use super::{GitApiError, GitService, routes::router_with_state, service::GitApiState};
-use ace_git::{CommandOutput, CommandRequest, GitClient, GitToolError, ProcessRunner};
+use ace_git::{
+    CommandOutput, CommandRequest, GitClient, GitToolError, GithubCliClient, ProcessRunner,
+};
 use ace_protocol::git::{
-    GitCheckoutBranchRequest, GitCommitRequest, GitCreateBranchRequest, GitDeleteBranchRequest,
-    GitDiffRequest, GitFetchRequest, GitPullRequest, GitPushRequest, GitRenameBranchRequest,
-    GitStageRequest, GitStashApplyRequest, GitStashSaveRequest, GitStatusRequest,
-    GitUnstageRequest,
+    CreatePullRequest, DefaultBranchPolicy, GitCheckoutBranchRequest, GitCommitRequest,
+    GitCreateBranchRequest, GitDeleteBranchRequest, GitDiffRequest, GitFetchRequest,
+    GitPullRequest, GitPushRequest, GitRenameBranchRequest, GitStageRequest, GitStashApplyRequest,
+    GitStashSaveRequest, GitStatusRequest, GitUnstageRequest, GitWorkflowAction,
+    GitWorkflowRequest,
 };
 use async_trait::async_trait;
 use axum::{
@@ -320,6 +323,53 @@ async fn service_commits_with_message() {
         runner.requests()[0].args,
         vec!["commit", "-m", "Implement feature"]
     );
+}
+
+#[tokio::test]
+async fn service_runs_commit_push_pr_workflow() {
+    let runner = Arc::new(FakeRunner::new(vec![
+        ok("feature/work\n"),
+        ok("main\n"),
+        ok("[feature/work abc] ship it\n"),
+        ok("feature/work\n"),
+        ok(""),
+        ok("https://github.com/ace/app/pull/42\n"),
+    ]));
+    let service = GitService::new_with_github(
+        GitClient::with_runner(runner.clone()),
+        GithubCliClient::with_runner(runner.clone()),
+    );
+
+    let outcome = service
+        .run_workflow(GitWorkflowRequest {
+            repo_path: "/repo".to_string(),
+            action: GitWorkflowAction::CommitPushPr {
+                message: "ship it".to_string(),
+                set_upstream: false,
+                request: CreatePullRequest {
+                    title: "Ship it".to_string(),
+                    body: "Body".to_string(),
+                    head: "feature/work".to_string(),
+                    base: "main".to_string(),
+                    draft: false,
+                },
+                default_branch_policy: DefaultBranchPolicy::Deny,
+            },
+        })
+        .await
+        .expect("workflow");
+
+    assert_eq!(outcome.pr.and_then(|pr| pr.number), Some(42));
+    let requests = runner.requests();
+    assert_eq!(requests[0].args, vec!["branch", "--show-current"]);
+    assert_eq!(
+        requests[1].args,
+        vec!["symbolic-ref", "refs/remotes/origin/HEAD", "--short"]
+    );
+    assert_eq!(requests[2].args, vec!["commit", "-m", "ship it"]);
+    assert_eq!(requests[3].args, vec!["branch", "--show-current"]);
+    assert_eq!(requests[4].args, vec!["push"]);
+    assert_eq!(requests[5].args[0..2], ["pr", "create"]);
 }
 
 #[tokio::test]

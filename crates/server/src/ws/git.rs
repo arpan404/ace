@@ -6,7 +6,7 @@ use ace_protocol::{
         GitDeleteBranchRequest, GitDiffRequest, GitFetchRequest, GitPullRequest, GitPushRequest,
         GitRenameBranchRequest, GitRepositoryRequest, GitStageRequest, GitStashApplyRequest,
         GitStashDropRequest, GitStashPopRequest, GitStashSaveRequest, GitStashesRequest,
-        GitStatusRequest, GitUnstageRequest, GitWorktreesRequest,
+        GitStatusRequest, GitUnstageRequest, GitWorkflowRequest, GitWorktreesRequest,
     },
     ws::methods,
 };
@@ -152,6 +152,13 @@ impl<R: ProcessRunner> WsApiState<R> {
                 )
                 .await
             }
+            methods::GIT_WORKFLOW_RUN => {
+                self.git_json::<GitWorkflowRequest, _, _, _>(
+                    payload,
+                    |service, request| async move { service.run_workflow(request).await },
+                )
+                .await
+            }
             _ => Err(WsDispatchError::UnknownMethod(method.to_string())),
         }
     }
@@ -218,7 +225,10 @@ mod tests {
 
     fn test_state(runner: Arc<FakeRunner>) -> WsApiState<FakeRunner> {
         WsApiState::new_services(
-            GitService::new(GitClient::with_runner(runner.clone())),
+            GitService::new_with_github(
+                GitClient::with_runner(runner.clone()),
+                GithubCliClient::with_runner(runner.clone()),
+            ),
             GithubService::new(GithubCliClient::with_runner(runner)),
         )
     }
@@ -497,6 +507,101 @@ mod tests {
             vec!["stash", "pop", "--index", "stash@{0}"]
         );
         assert_eq!(requests[6].args, vec!["worktree", "list", "--porcelain"]);
+    }
+
+    #[tokio::test]
+    async fn dispatches_stacked_workflow_over_ws_rpc() {
+        let runner = Arc::new(FakeRunner::new(vec![
+            ok("feature/work\n"),
+            ok("main\n"),
+            ok("[feature/work abc] ship it\n"),
+            ok("feature/work\n"),
+            ok(""),
+            ok("https://github.com/ace/app/pull/42\n"),
+        ]));
+        let state = test_state(runner.clone());
+
+        let response = dispatch(
+            &state,
+            serde_json::json!({
+                "version": PROTOCOL_VERSION,
+                "request_id": "req-workflow",
+                "method": methods::GIT_WORKFLOW_RUN,
+                "payload": {
+                    "repo_path": "/repo",
+                    "action": {
+                        "type": "commit_push_pr",
+                        "message": "ship it",
+                        "set_upstream": false,
+                        "request": {
+                            "title": "Ship it",
+                            "body": "Body",
+                            "head": "feature/work",
+                            "base": "main",
+                            "draft": false
+                        },
+                        "default_branch_policy": "Deny"
+                    }
+                }
+            }),
+        )
+        .await;
+
+        let WsServerPayload::Result { body } = response.payload else {
+            panic!("expected workflow result");
+        };
+        assert_eq!(body["pr"]["number"], 42);
+        assert_eq!(
+            body["events"],
+            serde_json::json!([
+                "Validating",
+                "Committing",
+                "Pushing",
+                "CreatingPullRequest",
+                "Completed"
+            ])
+        );
+        let requests = runner.requests();
+        assert_eq!(requests[0].args, vec!["branch", "--show-current"]);
+        assert_eq!(
+            requests[1].args,
+            vec!["symbolic-ref", "refs/remotes/origin/HEAD", "--short"]
+        );
+        assert_eq!(requests[2].args, vec!["commit", "-m", "ship it"]);
+        assert_eq!(requests[3].args, vec!["branch", "--show-current"]);
+        assert_eq!(requests[4].args, vec!["push"]);
+        assert_eq!(requests[5].args[0..2], ["pr", "create"]);
+    }
+
+    #[tokio::test]
+    async fn stacked_workflow_denies_default_branch_push_over_ws_rpc() {
+        let runner = Arc::new(FakeRunner::new(vec![ok("main\n"), ok("main\n")]));
+        let state = test_state(runner.clone());
+
+        let response = dispatch(
+            &state,
+            serde_json::json!({
+                "version": PROTOCOL_VERSION,
+                "request_id": "req-workflow-denied",
+                "method": methods::GIT_WORKFLOW_RUN,
+                "payload": {
+                    "repo_path": "/repo",
+                    "action": {
+                        "type": "push",
+                        "set_upstream": false,
+                        "default_branch_policy": "Deny"
+                    }
+                }
+            }),
+        )
+        .await;
+
+        let WsServerPayload::Error { code, message } = response.payload else {
+            panic!("expected denied workflow error");
+        };
+        assert_eq!(code, "git_error");
+        assert!(message.contains("default branch"));
+        assert_eq!(runner.requests().len(), 2);
     }
 
     #[tokio::test]
