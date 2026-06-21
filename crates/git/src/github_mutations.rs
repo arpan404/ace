@@ -1,5 +1,6 @@
 use crate::{GithubCliClient, ProcessRunner, Result};
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::path::Path;
 
 impl<R: ProcessRunner> GithubCliClient<R> {
@@ -225,6 +226,42 @@ impl<R: ProcessRunner> GithubCliClient<R> {
         })
     }
 
+    pub async fn review_workflow_run_pending_deployments(
+        &self,
+        cwd: &Path,
+        request: &WorkflowRunPendingDeploymentReview,
+    ) -> Result<GithubActionResult> {
+        let repository = self.repository(cwd).await?;
+        let output = self
+            .gh_with_stdin_allow_statuses(
+                cwd,
+                [
+                    "api".to_string(),
+                    format!(
+                        "repos/{}/actions/runs/{}/pending_deployments",
+                        repository.name_with_owner, request.run_id
+                    ),
+                    "-X".to_string(),
+                    "POST".to_string(),
+                    "--input".to_string(),
+                    "-".to_string(),
+                ],
+                json!({
+                    "environment_ids": request.environment_ids,
+                    "state": request.state.as_api_value(),
+                    "comment": request.comment,
+                })
+                .to_string(),
+                &[0],
+            )
+            .await?;
+        Ok(GithubActionResult {
+            action: "review_workflow_pending_deployments",
+            stdout: output.stdout_string(),
+            stderr: output.stderr_string(),
+        })
+    }
+
     pub async fn dispatch_workflow(
         &self,
         cwd: &Path,
@@ -388,6 +425,29 @@ pub struct WorkflowRunCancel {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkflowRunApprove {
     pub run_id: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkflowRunPendingDeploymentReview {
+    pub run_id: u64,
+    pub environment_ids: Vec<u64>,
+    pub state: WorkflowRunPendingDeploymentReviewState,
+    pub comment: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum WorkflowRunPendingDeploymentReviewState {
+    Approve,
+    Reject,
+}
+
+impl WorkflowRunPendingDeploymentReviewState {
+    const fn as_api_value(self) -> &'static str {
+        match self {
+            Self::Approve => "approved",
+            Self::Reject => "rejected",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -692,6 +752,50 @@ mod tests {
                 "POST"
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn review_pending_deployments_posts_review_body() {
+        let runner = std::sync::Arc::new(FakeRunner::new(vec![
+            ok(
+                br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+            ),
+            ok("reviewed\n"),
+        ]));
+        let github = GithubCliClient::with_runner(runner.clone());
+
+        let result = github
+            .review_workflow_run_pending_deployments(
+                Path::new("."),
+                &WorkflowRunPendingDeploymentReview {
+                    run_id: 100,
+                    environment_ids: vec![9, 10],
+                    state: WorkflowRunPendingDeploymentReviewState::Reject,
+                    comment: "Needs manual verification".to_string(),
+                },
+            )
+            .await
+            .expect("review pending deployments");
+
+        assert_eq!(result.action, "review_workflow_pending_deployments");
+        assert_eq!(result.stdout, "reviewed");
+        let requests = runner.requests();
+        assert_eq!(
+            requests[1].args,
+            vec![
+                "api",
+                "repos/ace/app/actions/runs/100/pending_deployments",
+                "-X",
+                "POST",
+                "--input",
+                "-"
+            ]
+        );
+        let stdin = requests[1].stdin.as_deref().expect("stdin body");
+        let body: serde_json::Value = serde_json::from_slice(stdin).expect("json body");
+        assert_eq!(body["environment_ids"], serde_json::json!([9, 10]));
+        assert_eq!(body["state"], "rejected");
+        assert_eq!(body["comment"], "Needs manual verification");
     }
 
     #[tokio::test]

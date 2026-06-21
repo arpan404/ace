@@ -520,3 +520,18 @@ pub struct WorkflowRunApproveRequest {
     pub repo_path: String,
     pub run_id: u64,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkflowRunPendingDeploymentReviewRequest {
+    pub repo_path: String,
+    pub run_id: u64,
+    pub environment_ids: Vec<u64>,
+    pub state: WorkflowRunPendingDeploymentReviewState,
+    pub comment: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum WorkflowRunPendingDeploymentReviewState {
+    Approve,
+    Reject,
+}

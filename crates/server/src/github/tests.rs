@@ -14,6 +14,7 @@ use ace_protocol::github::{
     WorkflowJobRequest, WorkflowListFilter, WorkflowListRequest, WorkflowRunApproveRequest,
     WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest, WorkflowRunJobsRequest,
     WorkflowRunListFilter, WorkflowRunListRequest, WorkflowRunLogRequest,
+    WorkflowRunPendingDeploymentReviewRequest, WorkflowRunPendingDeploymentReviewState,
     WorkflowRunPendingDeploymentsRequest, WorkflowRunRerunRequest,
 };
 use async_trait::async_trait;
@@ -1154,6 +1155,47 @@ async fn service_approves_workflow_run() {
             "POST"
         ]
     );
+}
+
+#[tokio::test]
+async fn service_reviews_workflow_run_pending_deployments() {
+    let runner = Arc::new(FakeRunner::new(vec![
+        ok(
+            br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+        ),
+        ok("reviewed\n"),
+    ]));
+    let service = GithubService::new(GithubCliClient::with_runner(runner.clone()));
+
+    let result = service
+        .review_workflow_run_pending_deployments(WorkflowRunPendingDeploymentReviewRequest {
+            repo_path: "/repo".to_string(),
+            run_id: 100,
+            environment_ids: vec![9, 10],
+            state: WorkflowRunPendingDeploymentReviewState::Approve,
+            comment: "Ship it".to_string(),
+        })
+        .await
+        .expect("review pending deployments");
+
+    assert_eq!(result.action, "review_workflow_pending_deployments");
+    let requests = runner.requests();
+    assert_eq!(
+        requests[1].args,
+        vec![
+            "api",
+            "repos/ace/app/actions/runs/100/pending_deployments",
+            "-X",
+            "POST",
+            "--input",
+            "-"
+        ]
+    );
+    let stdin = requests[1].stdin.as_deref().expect("stdin body");
+    let body: serde_json::Value = serde_json::from_slice(stdin).expect("json body");
+    assert_eq!(body["environment_ids"], serde_json::json!([9, 10]));
+    assert_eq!(body["state"], "approved");
+    assert_eq!(body["comment"], "Ship it");
 }
 
 #[tokio::test]

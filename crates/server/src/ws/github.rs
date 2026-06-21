@@ -16,8 +16,8 @@ use ace_protocol::{
         WorkflowEnableRequest, WorkflowJobLogRequest, WorkflowJobRequest, WorkflowListRequest,
         WorkflowRunApproveRequest, WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest,
         WorkflowRunCancelRequest, WorkflowRunJobsRequest, WorkflowRunListRequest,
-        WorkflowRunLogRequest, WorkflowRunPendingDeploymentsRequest, WorkflowRunRequest,
-        WorkflowRunRerunRequest,
+        WorkflowRunLogRequest, WorkflowRunPendingDeploymentReviewRequest,
+        WorkflowRunPendingDeploymentsRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
     },
     ws::methods,
 };
@@ -344,6 +344,17 @@ impl<R: ProcessRunner> WsApiState<R> {
                     payload,
                     |service, request| async move {
                         service.workflow_run_pending_deployments(request).await
+                    },
+                )
+                .await
+            }
+            methods::GITHUB_WORKFLOW_RUN_PENDING_DEPLOYMENTS_REVIEW => {
+                self.github_json::<WorkflowRunPendingDeploymentReviewRequest, _, _, _>(
+                    payload,
+                    |service, request| async move {
+                        service
+                            .review_workflow_run_pending_deployments(request)
+                            .await
                     },
                 )
                 .await
@@ -1691,6 +1702,56 @@ mod tests {
                 "POST"
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn dispatches_workflow_pending_deployment_review_over_ws_rpc() {
+        let runner = Arc::new(FakeRunner::new(vec![
+            ok(
+                br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+            ),
+            ok("reviewed\n"),
+        ]));
+        let state = test_state(runner.clone());
+
+        let response = dispatch(
+            &state,
+            serde_json::json!({
+                "version": PROTOCOL_VERSION,
+                "request_id": "req-pending-deployment-review",
+                "method": methods::GITHUB_WORKFLOW_RUN_PENDING_DEPLOYMENTS_REVIEW,
+                "payload": {
+                    "repo_path": "/repo",
+                    "run_id": 100,
+                    "environment_ids": [9, 10],
+                    "state": "Reject",
+                    "comment": "Needs manual verification"
+                }
+            }),
+        )
+        .await;
+
+        let WsServerPayload::Result { body } = response.payload else {
+            panic!("expected result");
+        };
+        assert_eq!(body["action"], "review_workflow_pending_deployments");
+        let requests = runner.requests();
+        assert_eq!(
+            requests[1].args,
+            vec![
+                "api",
+                "repos/ace/app/actions/runs/100/pending_deployments",
+                "-X",
+                "POST",
+                "--input",
+                "-"
+            ]
+        );
+        let stdin = requests[1].stdin.as_deref().expect("stdin body");
+        let body: serde_json::Value = serde_json::from_slice(stdin).expect("json body");
+        assert_eq!(body["environment_ids"], serde_json::json!([9, 10]));
+        assert_eq!(body["state"], "rejected");
+        assert_eq!(body["comment"], "Needs manual verification");
     }
 
     #[tokio::test]

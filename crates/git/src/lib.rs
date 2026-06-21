@@ -51,7 +51,8 @@ pub use github_mutations::{
     GithubActionResult, PullRequestCheckout, PullRequestClose, PullRequestComment,
     PullRequestMerge, PullRequestMergeMethod, PullRequestReadyState, PullRequestReopen,
     PullRequestReview, PullRequestReviewDecision, WorkflowDispatch, WorkflowDispatchInput,
-    WorkflowRunApprove, WorkflowRunCancel, WorkflowRunRerun, WorkflowStateChange,
+    WorkflowRunApprove, WorkflowRunCancel, WorkflowRunPendingDeploymentReview,
+    WorkflowRunPendingDeploymentReviewState, WorkflowRunRerun, WorkflowStateChange,
 };
 pub use github_search::{
     GithubIssueListFilter, GithubIssueSummary, GithubPullRequestListFilter,
@@ -140,6 +141,12 @@ impl CommandRequest {
     #[must_use]
     pub fn cwd(mut self, cwd: impl Into<PathBuf>) -> Self {
         self.cwd = Some(cwd.into());
+        self
+    }
+
+    #[must_use]
+    pub fn stdin(mut self, stdin: impl Into<Vec<u8>>) -> Self {
+        self.stdin = Some(stdin.into());
         self
     }
 }
@@ -781,6 +788,34 @@ impl<R: ProcessRunner> GithubCliClient<R> {
         let output = self
             .runner
             .run(CommandRequest::new("gh").args(args.clone()).cwd(cwd))
+            .await?;
+        if allowed_statuses.contains(&output.status) {
+            Ok(output)
+        } else {
+            Err(classify_gh_failure(output, args))
+        }
+    }
+
+    pub(crate) async fn gh_with_stdin_allow_statuses<I, S>(
+        &self,
+        cwd: &Path,
+        args: I,
+        stdin: impl Into<Vec<u8>>,
+        allowed_statuses: &[i32],
+    ) -> Result<CommandOutput>
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        let args = args.into_iter().map(Into::into).collect::<Vec<_>>();
+        let output = self
+            .runner
+            .run(
+                CommandRequest::new("gh")
+                    .args(args.clone())
+                    .cwd(cwd)
+                    .stdin(stdin),
+            )
             .await?;
         if allowed_statuses.contains(&output.status) {
             Ok(output)

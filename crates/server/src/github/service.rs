@@ -10,7 +10,8 @@ use ace_git::{
     CreatePullRequest, GithubCliClient, ProcessRunner, PullRequestCheckout, PullRequestClose,
     PullRequestComment, PullRequestMerge, PullRequestReadyState, PullRequestReopen,
     PullRequestReview, TokioProcessRunner, WorkflowDispatch, WorkflowDispatchInput,
-    WorkflowRunApprove, WorkflowRunCancel, WorkflowRunRerun, WorkflowStateChange,
+    WorkflowRunApprove, WorkflowRunCancel, WorkflowRunPendingDeploymentReview,
+    WorkflowRunPendingDeploymentReviewState, WorkflowRunRerun, WorkflowStateChange,
 };
 use ace_protocol::github::{
     CheckRunAnnotationsRequest, CheckRunRequest, CheckRunRerequestRequest, CheckRunsRequest,
@@ -27,6 +28,8 @@ use ace_protocol::github::{
     WorkflowJobRequest, WorkflowListRequest, WorkflowRunApproveRequest,
     WorkflowRunArtifactDownloadRequest, WorkflowRunArtifactsRequest, WorkflowRunCancelRequest,
     WorkflowRunJobsRequest, WorkflowRunListRequest, WorkflowRunLogRequest,
+    WorkflowRunPendingDeploymentReviewRequest,
+    WorkflowRunPendingDeploymentReviewState as ProtocolWorkflowRunPendingDeploymentReviewState,
     WorkflowRunPendingDeploymentsRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
 };
 use serde::Serialize;
@@ -616,6 +619,24 @@ impl<R: ProcessRunner> GithubService<R> {
             .map_err(GithubApiError::from)
     }
 
+    pub async fn review_workflow_run_pending_deployments(
+        &self,
+        request: WorkflowRunPendingDeploymentReviewRequest,
+    ) -> Result<ace_git::GithubActionResult, GithubApiError> {
+        self.github
+            .review_workflow_run_pending_deployments(
+                &repo_path(&request.repo_path)?,
+                &WorkflowRunPendingDeploymentReview {
+                    run_id: request.run_id,
+                    environment_ids: request.environment_ids,
+                    state: workflow_run_pending_deployment_review_state(request.state),
+                    comment: request.comment,
+                },
+            )
+            .await
+            .map_err(GithubApiError::from)
+    }
+
     pub async fn checkout_pull_request(
         &self,
         request: PullRequestCheckoutRequest,
@@ -785,5 +806,18 @@ fn repo_path(raw: &str) -> Result<PathBuf, GithubApiError> {
         Err(GithubApiError::EmptyRepoPath)
     } else {
         Ok(PathBuf::from(raw))
+    }
+}
+
+fn workflow_run_pending_deployment_review_state(
+    state: ProtocolWorkflowRunPendingDeploymentReviewState,
+) -> WorkflowRunPendingDeploymentReviewState {
+    match state {
+        ProtocolWorkflowRunPendingDeploymentReviewState::Approve => {
+            WorkflowRunPendingDeploymentReviewState::Approve
+        }
+        ProtocolWorkflowRunPendingDeploymentReviewState::Reject => {
+            WorkflowRunPendingDeploymentReviewState::Reject
+        }
     }
 }
