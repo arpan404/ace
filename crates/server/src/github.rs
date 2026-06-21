@@ -5,12 +5,12 @@ use ace_git::{
     WorkflowRunCancel, WorkflowRunListFilter, WorkflowRunRerun,
 };
 use ace_protocol::github::{
-    IssueListFilter, IssueListRequest, PullRequestCheckoutRequest, PullRequestChecksRequest,
-    PullRequestCloseRequest, PullRequestCommentRequest, PullRequestListFilter,
-    PullRequestListRequest, PullRequestMergeRequest, PullRequestReadyStateRequest,
-    PullRequestReopenRequest, PullRequestReviewRequest, SearchFilter, SearchIssuesRequest,
-    SearchPullRequestsRequest, WorkflowRunCancelRequest, WorkflowRunListRequest,
-    WorkflowRunLogRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
+    IssueListFilter, IssueListRequest, PullRequestActivityRequest, PullRequestCheckoutRequest,
+    PullRequestChecksRequest, PullRequestCloseRequest, PullRequestCommentRequest,
+    PullRequestListFilter, PullRequestListRequest, PullRequestMergeRequest,
+    PullRequestReadyStateRequest, PullRequestReopenRequest, PullRequestReviewRequest, SearchFilter,
+    SearchIssuesRequest, SearchPullRequestsRequest, WorkflowRunCancelRequest,
+    WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
 };
 use axum::{Json, Router, extract::State, http::StatusCode, response::IntoResponse, routing::post};
 use serde::Serialize;
@@ -128,6 +128,23 @@ impl<R: ProcessRunner> GithubService<R> {
                 &repo_path(&request.repo_path)?,
                 request.selector.as_deref(),
                 request.required_only,
+            )
+            .await
+            .map_err(GithubApiError::from)
+    }
+
+    pub async fn pull_request_activity(
+        &self,
+        request: PullRequestActivityRequest,
+    ) -> Result<ace_git::GithubPullRequestActivity, GithubApiError> {
+        self.github
+            .pull_request_activity(
+                &repo_path(&request.repo_path)?,
+                &ace_git::PullRequestActivityRequest {
+                    selector: request.selector,
+                    required_checks_only: request.required_checks_only,
+                    workflow_run_limit: request.workflow_run_limit,
+                },
             )
             .await
             .map_err(GithubApiError::from)
@@ -381,6 +398,7 @@ where
         .route("/issues/search", post(search_issues::<R>))
         .route("/pulls/search", post(search_pull_requests::<R>))
         .route("/pulls/checks", post(pull_request_checks::<R>))
+        .route("/pulls/activity", post(pull_request_activity::<R>))
         .route("/pulls/checkout", post(checkout_pull_request::<R>))
         .route("/pulls/comment", post(comment_pull_request::<R>))
         .route("/pulls/review", post(review_pull_request::<R>))
@@ -450,6 +468,16 @@ where
     R: ProcessRunner,
 {
     state.service.pull_request_checks(request).await.map(Json)
+}
+
+async fn pull_request_activity<R>(
+    State(state): State<GithubApiState<R>>,
+    Json(request): Json<PullRequestActivityRequest>,
+) -> Result<Json<ace_git::GithubPullRequestActivity>, GithubApiError>
+where
+    R: ProcessRunner,
+{
+    state.service.pull_request_activity(request).await.map(Json)
 }
 
 async fn list_workflow_runs<R>(
@@ -682,9 +710,10 @@ mod tests {
     use super::*;
     use ace_git::{CommandOutput, CommandRequest, GitToolError};
     use ace_protocol::github::{
-        IssueListFilter, IssueListRequest, PullRequestChecksRequest, PullRequestMergeMethod,
-        PullRequestMergeRequest, PullRequestReviewDecision, PullRequestReviewRequest,
-        WorkflowRunListFilter, WorkflowRunListRequest, WorkflowRunRerunRequest,
+        IssueListFilter, IssueListRequest, PullRequestActivityRequest, PullRequestChecksRequest,
+        PullRequestMergeMethod, PullRequestMergeRequest, PullRequestReviewDecision,
+        PullRequestReviewRequest, WorkflowRunListFilter, WorkflowRunListRequest,
+        WorkflowRunRerunRequest,
     };
     use async_trait::async_trait;
     use std::{
@@ -790,6 +819,42 @@ mod tests {
 
         assert_eq!(checks.summary.pending, 1);
         assert_eq!(checks.checks[0].name, "CI");
+    }
+
+    #[tokio::test]
+    async fn service_returns_pull_request_activity() {
+        let runner = Arc::new(FakeRunner::new(vec![
+            ok(
+                br#"{"number":42,"title":"Feature","state":"OPEN","url":"https://example.test/pull/42","headRefName":"feature/x","baseRefName":"main","body":"body"}"#,
+            ),
+            ok(
+                br#"[{"bucket":"pass","completedAt":"2026-06-21T00:00:00Z","description":null,"event":"push","link":"https://example.test/check","name":"CI","startedAt":"2026-06-21T00:00:00Z","state":"SUCCESS","workflow":"CI"}]"#,
+            ),
+            ok(
+                br#"[{"attempt":1,"conclusion":"success","createdAt":"2026-06-21T00:00:00Z","databaseId":7,"displayTitle":"Run","event":"pull_request","headBranch":"feature/x","headSha":"abc","name":"CI","number":3,"startedAt":"2026-06-21T00:00:00Z","status":"completed","updatedAt":"2026-06-21T00:01:00Z","url":"https://example.test/run/7","workflowDatabaseId":2,"workflowName":"CI"}]"#,
+            ),
+        ]));
+        let service = GithubService::new(GithubCliClient::with_runner(runner.clone()));
+
+        let activity = service
+            .pull_request_activity(PullRequestActivityRequest {
+                repo_path: "/repo".to_string(),
+                selector: "42".to_string(),
+                required_checks_only: false,
+                workflow_run_limit: 5,
+            })
+            .await
+            .expect("activity");
+
+        assert_eq!(activity.pull_request.number, Some(42));
+        assert_eq!(activity.checks.summary.passed, 1);
+        assert_eq!(activity.workflow_runs[0].database_id, 7);
+        assert!(
+            runner.requests()[2]
+                .args
+                .windows(2)
+                .any(|pair| pair == ["--branch", "feature/x"])
+        );
     }
 
     #[tokio::test]

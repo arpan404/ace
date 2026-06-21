@@ -126,6 +126,14 @@ pub struct PullRequestChecksRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PullRequestActivityRequest {
+    pub repo_path: String,
+    pub selector: String,
+    pub required_checks_only: bool,
+    pub workflow_run_limit: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkflowRunListRequest {
     pub repo_path: String,
     pub filter: WorkflowRunListFilter,
