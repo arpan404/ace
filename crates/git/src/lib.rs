@@ -29,8 +29,8 @@ pub use github_actions::{
 };
 pub use github_activity::{GithubPullRequestActivity, PullRequestActivityRequest};
 pub use github_checks::{
-    CheckRunListFilter, GithubCheckRun, GithubCheckRunApp, GithubCheckRunOutput,
-    GithubCheckRunPullRequest, GithubCheckRunSuite,
+    CheckRunListFilter, GithubCheckRun, GithubCheckRunAnnotation, GithubCheckRunApp,
+    GithubCheckRunOutput, GithubCheckRunPullRequest, GithubCheckRunSuite,
 };
 pub use github_dashboard::{
     GithubPullRequestDashboard, GithubPullRequestDashboardItem, PullRequestDashboardRequest,

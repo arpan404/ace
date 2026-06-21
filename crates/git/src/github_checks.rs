@@ -36,6 +36,31 @@ impl<R: ProcessRunner> GithubCliClient<R> {
         let response = parse_json::<GithubCheckRunsResponse>("github check runs", &output.stdout)?;
         Ok(response.check_runs)
     }
+
+    pub async fn list_check_run_annotations(
+        &self,
+        cwd: &Path,
+        check_run_id: u64,
+        limit: u32,
+    ) -> Result<Vec<GithubCheckRunAnnotation>> {
+        let repository = self.repository(cwd).await?;
+        let output = self
+            .gh_allow_statuses(
+                cwd,
+                [
+                    "api".to_string(),
+                    format!(
+                        "repos/{}/check-runs/{check_run_id}/annotations",
+                        repository.name_with_owner
+                    ),
+                    "-F".to_string(),
+                    format!("per_page={limit}"),
+                ],
+                &[0],
+            )
+            .await?;
+        parse_json("github check run annotations", &output.stdout)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -155,6 +180,27 @@ pub struct GithubCheckRunPullRequestRepo {
     pub name: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GithubCheckRunAnnotation {
+    pub path: String,
+    #[serde(rename = "start_line")]
+    pub start_line: u64,
+    #[serde(rename = "end_line")]
+    pub end_line: u64,
+    #[serde(rename = "start_column")]
+    pub start_column: Option<u64>,
+    #[serde(rename = "end_column")]
+    pub end_column: Option<u64>,
+    #[serde(rename = "annotation_level")]
+    pub annotation_level: String,
+    pub message: String,
+    pub title: Option<String>,
+    #[serde(rename = "raw_details")]
+    pub raw_details: Option<String>,
+    #[serde(rename = "blob_href")]
+    pub blob_href: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -249,6 +295,37 @@ mod tests {
                 "filter=latest",
                 "-F",
                 "app_id=1"
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn check_run_annotations_resolve_repo_and_parse_annotations() {
+        let runner = std::sync::Arc::new(FakeRunner::new(vec![
+            ok(
+                br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+            ),
+            ok(
+                br#"[{"path":"src/lib.rs","start_line":10,"end_line":10,"start_column":null,"end_column":null,"annotation_level":"failure","message":"expected value","title":"clippy","raw_details":"details","blob_href":"https://github.test/blob/src/lib.rs#L10"}]"#,
+            ),
+        ]));
+        let github = GithubCliClient::with_runner(runner.clone());
+
+        let annotations = github
+            .list_check_run_annotations(Path::new("."), 10, 30)
+            .await
+            .expect("annotations");
+
+        assert_eq!(annotations[0].path, "src/lib.rs");
+        assert_eq!(annotations[0].annotation_level, "failure");
+        assert_eq!(annotations[0].message, "expected value");
+        assert_eq!(
+            runner.requests()[1].args,
+            vec![
+                "api",
+                "repos/ace/app/check-runs/10/annotations",
+                "-F",
+                "per_page=30"
             ]
         );
     }

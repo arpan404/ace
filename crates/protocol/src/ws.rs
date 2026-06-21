@@ -4,6 +4,7 @@ use serde_json::Value;
 pub mod methods {
     pub const GITHUB_PULL_REQUEST_CHECKS: &str = "github.pull_request.checks";
     pub const GITHUB_CHECK_RUNS_LIST: &str = "github.check_runs.list";
+    pub const GITHUB_CHECK_RUNS_ANNOTATIONS: &str = "github.check_runs.annotations";
     pub const GITHUB_PULL_REQUEST_ACTIVITY: &str = "github.pull_request.activity";
     pub const GITHUB_PULL_REQUEST_DASHBOARD: &str = "github.pull_request.dashboard";
     pub const GITHUB_PULL_REQUEST_CHECKOUT: &str = "github.pull_request.checkout";

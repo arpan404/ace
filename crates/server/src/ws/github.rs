@@ -2,13 +2,13 @@ use super::{WsApiState, WsDispatchError};
 use ace_git::ProcessRunner;
 use ace_protocol::{
     github::{
-        CheckRunsRequest, PullRequestActivityRequest, PullRequestCheckoutRequest,
-        PullRequestChecksRequest, PullRequestCloseRequest, PullRequestCommentRequest,
-        PullRequestDashboardRequest, PullRequestMergeRequest, PullRequestReadyStateRequest,
-        PullRequestReopenRequest, PullRequestReviewRequest, WorkflowDisableRequest,
-        WorkflowDispatchRequest, WorkflowEnableRequest, WorkflowListRequest,
-        WorkflowRunArtifactsRequest, WorkflowRunCancelRequest, WorkflowRunListRequest,
-        WorkflowRunLogRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
+        CheckRunAnnotationsRequest, CheckRunsRequest, PullRequestActivityRequest,
+        PullRequestCheckoutRequest, PullRequestChecksRequest, PullRequestCloseRequest,
+        PullRequestCommentRequest, PullRequestDashboardRequest, PullRequestMergeRequest,
+        PullRequestReadyStateRequest, PullRequestReopenRequest, PullRequestReviewRequest,
+        WorkflowDisableRequest, WorkflowDispatchRequest, WorkflowEnableRequest,
+        WorkflowListRequest, WorkflowRunArtifactsRequest, WorkflowRunCancelRequest,
+        WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunRequest, WorkflowRunRerunRequest,
     },
     ws::methods,
 };
@@ -32,6 +32,15 @@ impl<R: ProcessRunner> WsApiState<R> {
                 self.github_json::<CheckRunsRequest, _, _, _>(
                     payload,
                     |service, request| async move { service.list_check_runs(request).await },
+                )
+                .await
+            }
+            methods::GITHUB_CHECK_RUNS_ANNOTATIONS => {
+                self.github_json::<CheckRunAnnotationsRequest, _, _, _>(
+                    payload,
+                    |service, request| async move {
+                        service.list_check_run_annotations(request).await
+                    },
                 )
                 .await
             }
@@ -337,6 +346,50 @@ mod tests {
                 "filter=latest",
                 "-F",
                 "app_id=1"
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn dispatches_check_run_annotations_over_ws_rpc() {
+        let runner = Arc::new(FakeRunner::new(vec![
+            ok(
+                br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+            ),
+            ok(
+                br#"[{"path":"src/lib.rs","start_line":10,"end_line":10,"start_column":null,"end_column":null,"annotation_level":"failure","message":"expected value","title":"clippy","raw_details":"details","blob_href":"https://github.test/blob/src/lib.rs#L10"}]"#,
+            ),
+        ]));
+        let state = test_state(runner.clone());
+
+        let response = dispatch(
+            &state,
+            serde_json::json!({
+                "version": PROTOCOL_VERSION,
+                "request_id": "req-check-annotations",
+                "method": methods::GITHUB_CHECK_RUNS_ANNOTATIONS,
+                "payload": {
+                    "repo_path": "/repo",
+                    "check_run_id": 10,
+                    "limit": 30
+                }
+            }),
+        )
+        .await;
+
+        let WsServerPayload::Result { body } = response.payload else {
+            panic!("expected result");
+        };
+        assert_eq!(body[0]["path"], "src/lib.rs");
+        assert_eq!(body[0]["annotation_level"], "failure");
+        assert_eq!(body[0]["message"], "expected value");
+        assert_eq!(
+            runner.requests()[1].args,
+            vec![
+                "api",
+                "repos/ace/app/check-runs/10/annotations",
+                "-F",
+                "per_page=30"
             ]
         );
     }

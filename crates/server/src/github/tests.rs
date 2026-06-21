@@ -1,13 +1,14 @@
 use super::{GithubApiError, GithubService, routes::router_with_state, service::GithubApiState};
 use ace_git::{CommandOutput, CommandRequest, GitToolError, GithubCliClient, ProcessRunner};
 use ace_protocol::github::{
-    CheckRunListFilter, CheckRunsRequest, EnvironmentStatusRequest, IssueListFilter,
-    IssueListRequest, IssueThreadRequest, PullRequestActivityRequest, PullRequestChecksRequest,
-    PullRequestDashboardRequest, PullRequestDiffRequest, PullRequestFilesRequest,
-    PullRequestListFilter, PullRequestMergeMethod, PullRequestMergeRequest, PullRequestRequest,
-    PullRequestReviewDecision, PullRequestReviewRequest, PullRequestThreadRequest,
-    WorkflowDisableRequest, WorkflowDispatchInput, WorkflowDispatchRequest, WorkflowEnableRequest,
-    WorkflowListFilter, WorkflowListRequest, WorkflowRunArtifactsRequest, WorkflowRunListFilter,
+    CheckRunAnnotationsRequest, CheckRunListFilter, CheckRunsRequest, EnvironmentStatusRequest,
+    IssueListFilter, IssueListRequest, IssueThreadRequest, PullRequestActivityRequest,
+    PullRequestChecksRequest, PullRequestDashboardRequest, PullRequestDiffRequest,
+    PullRequestFilesRequest, PullRequestListFilter, PullRequestMergeMethod,
+    PullRequestMergeRequest, PullRequestRequest, PullRequestReviewDecision,
+    PullRequestReviewRequest, PullRequestThreadRequest, WorkflowDisableRequest,
+    WorkflowDispatchInput, WorkflowDispatchRequest, WorkflowEnableRequest, WorkflowListFilter,
+    WorkflowListRequest, WorkflowRunArtifactsRequest, WorkflowRunListFilter,
     WorkflowRunListRequest, WorkflowRunLogRequest, WorkflowRunRerunRequest,
 };
 use async_trait::async_trait;
@@ -343,6 +344,40 @@ async fn service_lists_commit_check_runs_through_github_cli() {
             "filter=latest",
             "-F",
             "app_id=1"
+        ]
+    );
+}
+
+#[tokio::test]
+async fn service_lists_check_run_annotations_through_github_cli() {
+    let runner = Arc::new(FakeRunner::new(vec![
+        ok(
+            br#"{"nameWithOwner":"ace/app","defaultBranchRef":{"name":"main"},"url":"https://github.com/ace/app","sshUrl":"git@github.com:ace/app.git"}"#,
+        ),
+        ok(
+            br#"[{"path":"src/lib.rs","start_line":10,"end_line":10,"start_column":null,"end_column":null,"annotation_level":"failure","message":"expected value","title":"clippy","raw_details":"details","blob_href":"https://github.test/blob/src/lib.rs#L10"}]"#,
+        ),
+    ]));
+    let service = GithubService::new(GithubCliClient::with_runner(runner.clone()));
+
+    let annotations = service
+        .list_check_run_annotations(CheckRunAnnotationsRequest {
+            repo_path: "/repo".to_string(),
+            check_run_id: 10,
+            limit: 30,
+        })
+        .await
+        .expect("annotations");
+
+    assert_eq!(annotations[0].path, "src/lib.rs");
+    assert_eq!(annotations[0].annotation_level, "failure");
+    assert_eq!(
+        runner.requests()[1].args,
+        vec![
+            "api",
+            "repos/ace/app/check-runs/10/annotations",
+            "-F",
+            "per_page=30"
         ]
     );
 }
