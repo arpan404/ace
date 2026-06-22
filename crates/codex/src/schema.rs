@@ -678,7 +678,12 @@ fn codex_method_display_name(method: &str) -> String {
 mod tests {
     use super::*;
     use serde_json::Value;
-    use std::collections::{BTreeSet, HashSet};
+    use std::{
+        collections::{BTreeSet, HashSet},
+        fs,
+        io::ErrorKind,
+        process::Command,
+    };
 
     const CURRENT_CLIENT_REQUEST_METHODS: &[&str] = &[
         "account/login/cancel",
@@ -910,6 +915,48 @@ mod tests {
     }
 
     #[test]
+    fn installed_codex_generated_schema_methods_are_classified_when_available() {
+        let out_dir = tempfile::tempdir().expect("schema tempdir");
+        let output = match Command::new("codex")
+            .args(["app-server", "generate-json-schema", "--out"])
+            .arg(out_dir.path())
+            .output()
+        {
+            Ok(output) => output,
+            Err(error) if error.kind() == ErrorKind::NotFound => {
+                eprintln!("skipping live Codex schema inventory test: codex binary not found");
+                return;
+            }
+            Err(error) => panic!("failed to run codex schema generator: {error}"),
+        };
+
+        assert!(
+            output.status.success(),
+            "codex schema generator failed: status={:?} stdout={} stderr={}",
+            output.status.code(),
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        assert_generated_schema_file_classified(
+            out_dir.path().join("ClientRequest.json"),
+            ClientRequest,
+        );
+        assert_generated_schema_file_classified(
+            out_dir.path().join("ClientNotification.json"),
+            ClientNotification,
+        );
+        assert_generated_schema_file_classified(
+            out_dir.path().join("ServerNotification.json"),
+            ServerNotification,
+        );
+        assert_generated_schema_file_classified(
+            out_dir.path().join("ServerRequest.json"),
+            ServerRequest,
+        );
+    }
+
+    #[test]
     fn generated_json_schema_method_parser_reads_single_value_enums() {
         let schema = serde_json::json!({
             "oneOf": [
@@ -944,6 +991,27 @@ mod tests {
         assert!(
             missing.is_empty(),
             "missing generated Codex methods for {direction:?}: {missing:#?}"
+        );
+    }
+
+    fn assert_generated_schema_file_classified(
+        path: impl AsRef<std::path::Path>,
+        direction: CodexMethodDirection,
+    ) {
+        let path = path.as_ref();
+        let schema = fs::read_to_string(path)
+            .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
+        let schema = serde_json::from_str::<Value>(&schema)
+            .unwrap_or_else(|error| panic!("failed to parse {}: {error}", path.display()));
+        let methods = schema_methods(&schema).into_iter().collect::<Vec<_>>();
+        let missing = methods
+            .iter()
+            .filter(|method| classify_codex_method(method, direction).is_none())
+            .collect::<Vec<_>>();
+        assert!(
+            missing.is_empty(),
+            "generated Codex schema has unclassified {direction:?} methods in {}: {missing:#?}",
+            path.display()
         );
     }
 

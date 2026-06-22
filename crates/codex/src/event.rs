@@ -1374,6 +1374,170 @@ mod tests {
     }
 
     #[test]
+    fn normalizes_current_app_server_request_methods_with_audit_metadata() {
+        let cases = [
+            (
+                "item/commandExecution/requestApproval",
+                ServerRequestKind::CommandApproval,
+                "command",
+                json!({
+                    "threadId": "thread-1",
+                    "turnId": "turn-1",
+                    "itemId": "cmd-1",
+                    "command": "cargo test --workspace",
+                    "cwd": "/repo",
+                    "prompt": "Run tests?",
+                    "approvalPolicy": "on-request"
+                }),
+                "command",
+            ),
+            (
+                "item/fileChange/requestApproval",
+                ServerRequestKind::FileChangeApproval,
+                "filesystem",
+                json!({
+                    "threadId": "thread-1",
+                    "itemId": "file-1",
+                    "path": "src/lib.rs",
+                    "patch": "@@ -1 +1 @@",
+                    "description": "Apply patch?"
+                }),
+                "patch",
+            ),
+            (
+                "item/tool/requestUserInput",
+                ServerRequestKind::ToolUserInput,
+                "tool",
+                json!({
+                    "threadId": "thread-1",
+                    "toolCallId": "tool-1",
+                    "toolName": "browser",
+                    "question": "Which tab?",
+                    "choices": ["current", "new"]
+                }),
+                "choices",
+            ),
+            (
+                "mcpServer/elicitation/request",
+                ServerRequestKind::McpElicitation,
+                "mcp",
+                json!({
+                    "threadId": "thread-1",
+                    "serverName": "linear",
+                    "toolName": "choose_issue",
+                    "question": "Which issue?"
+                }),
+                "serverName",
+            ),
+            (
+                "item/permissions/requestApproval",
+                ServerRequestKind::PermissionApproval,
+                "permission",
+                json!({
+                    "threadId": "thread-1",
+                    "permissionPolicy": "workspace-write",
+                    "sandboxPolicy": { "mode": "workspace-write" },
+                    "approvalPolicy": "on-request",
+                    "message": "Allow writes?"
+                }),
+                "sandboxPolicy",
+            ),
+            (
+                "item/tool/call",
+                ServerRequestKind::DynamicToolCall,
+                "tool",
+                json!({
+                    "threadId": "thread-1",
+                    "toolName": "browser.click",
+                    "arguments": { "selector": "#submit" },
+                    "operation": "click"
+                }),
+                "arguments",
+            ),
+            (
+                "account/chatgptAuthTokens/refresh",
+                ServerRequestKind::AccountTokenRefresh,
+                "account",
+                json!({
+                    "threadId": "thread-1",
+                    "accountId": "acct-1",
+                    "resource": "openai",
+                    "reason": "expired"
+                }),
+                "accountId",
+            ),
+            (
+                "attestation/generate",
+                ServerRequestKind::Attestation,
+                "attestation",
+                json!({
+                    "threadId": "thread-1",
+                    "challenge": "nonce",
+                    "attestation": { "kind": "device" },
+                    "description": "Verify device"
+                }),
+                "challenge",
+            ),
+            (
+                "applyPatchApproval",
+                ServerRequestKind::ApplyPatchApproval,
+                "filesystem",
+                json!({
+                    "threadId": "thread-1",
+                    "itemId": "patch-1",
+                    "patch": "@@ -1 +1 @@",
+                    "files": ["src/lib.rs"],
+                    "prompt": "Apply this patch?"
+                }),
+                "files",
+            ),
+            (
+                "execCommandApproval",
+                ServerRequestKind::ExecApproval,
+                "command",
+                json!({
+                    "threadId": "thread-1",
+                    "itemId": "exec-1",
+                    "command": "cargo test",
+                    "cwd": "/repo",
+                    "approvalPolicy": "on-request"
+                }),
+                "cwd",
+            ),
+        ];
+
+        for (index, (method, kind, scope, params, metadata_key)) in cases.into_iter().enumerate() {
+            let events = normalize_codex_inbound_event(&CodexInboundEvent::ServerRequest {
+                id: index as i64 + 500,
+                method: method.to_string(),
+                params,
+            });
+
+            let ProviderEvent::ServerRequest { request } = &events[0] else {
+                panic!("expected normalized server request for {method}");
+            };
+            assert_eq!(request.kind, kind, "{method}");
+            assert_eq!(request.scope.as_deref(), Some(scope), "{method}");
+            assert!(request.prompt.is_some(), "{method}");
+            assert!(
+                request.metadata.get(metadata_key).is_some(),
+                "{method} missing metadata key {metadata_key}"
+            );
+            assert_eq!(request.provider.method.as_deref(), Some(method));
+            let ProviderEvent::RawServerRequest {
+                method: raw_method,
+                params,
+                ..
+            } = &events[1]
+            else {
+                panic!("expected raw server request for {method}");
+            };
+            assert_eq!(raw_method, method);
+            assert_eq!(&request.provider.raw_payload, params);
+        }
+    }
+
+    #[test]
     fn server_request_dynamic_tool_emits_semantic_browser_approval() {
         let raw = json!({
             "thread": { "id": "thread-1" },
