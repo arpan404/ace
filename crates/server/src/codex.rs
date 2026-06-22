@@ -1446,6 +1446,14 @@ fn agent_thread_from_value(value: &Value, fallback_thread_id: Option<&str>) -> O
         thread_id,
         provider: "codex".to_string(),
         execution_location: execution_location_from_thread(value),
+        name: string_field(value, "name").or_else(|| {
+            value
+                .pointer("/metadata/name")
+                .and_then(Value::as_str)
+                .map(ToString::to_string)
+        }),
+        active: bool_field(value, "active").or_else(|| bool_field(value, "isActive")),
+        archived: bool_field(value, "archived").or_else(|| bool_field(value, "isArchived")),
         active_turn: None,
         plan_session: None,
         settings: Value::Null,
@@ -1479,6 +1487,10 @@ fn execution_location_from_thread(value: &Value) -> ExecutionLocation {
         Some("cloud") => ExecutionLocation::Cloud,
         _ => ExecutionLocation::Local,
     }
+}
+
+fn bool_field(value: &Value, key: &str) -> Option<bool> {
+    value.get(key).and_then(Value::as_bool)
 }
 
 fn string_field(value: &Value, key: &str) -> Option<String> {
@@ -1627,7 +1639,9 @@ pub mod tests {
                 "thread": {
                     "id": thread_id,
                     "name": "Read thread",
-                    "executionLocation": "worktree"
+                    "executionLocation": "worktree",
+                    "active": true,
+                    "archived": false
                 }
             }))
         }
@@ -1642,11 +1656,15 @@ pub mod tests {
                     {
                         "id": "thread-1",
                         "name": "Listed thread",
-                        "executionLocation": "local"
+                        "executionLocation": "local",
+                        "active": true,
+                        "archived": false
                     },
                     {
                         "threadId": "thread-2",
                         "name": "Remote thread",
+                        "isActive": false,
+                        "isArchived": true,
                         "metadata": { "executionLocation": "remote_host" }
                     }
                 ]
@@ -1663,7 +1681,9 @@ pub mod tests {
                     {
                         "id": "thread-3",
                         "name": "Loaded cloud thread",
-                        "execution_location": "cloud"
+                        "execution_location": "cloud",
+                        "active": true,
+                        "archived": false
                     }
                 ]
             }))
@@ -2281,10 +2301,16 @@ pub mod tests {
             ["thread-1", "thread-2", "thread-3"]
         );
         assert_eq!(snapshot.threads[0].metadata["name"], "Listed thread");
+        assert_eq!(snapshot.threads[0].name.as_deref(), Some("Listed thread"));
+        assert_eq!(snapshot.threads[0].active, Some(true));
+        assert_eq!(snapshot.threads[0].archived, Some(false));
         assert_eq!(
             snapshot.threads[0].execution_location,
             ExecutionLocation::Local
         );
+        assert_eq!(snapshot.threads[1].name.as_deref(), Some("Remote thread"));
+        assert_eq!(snapshot.threads[1].active, Some(false));
+        assert_eq!(snapshot.threads[1].archived, Some(true));
         assert_eq!(
             snapshot.threads[1].execution_location,
             ExecutionLocation::RemoteHost
@@ -2294,6 +2320,10 @@ pub mod tests {
             ExecutionLocation::Cloud
         );
         assert_eq!(snapshot.threads[2].metadata["name"], "Loaded cloud thread");
+        assert_eq!(
+            snapshot.threads[2].name.as_deref(),
+            Some("Loaded cloud thread")
+        );
         assert_eq!(
             backend.calls.lock().expect("calls").as_slice(),
             ["thread/read:thread-1", "thread/list", "thread/loaded/list"]

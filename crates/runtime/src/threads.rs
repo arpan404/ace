@@ -509,6 +509,12 @@ pub struct AgentThread {
     pub provider: String,
     pub execution_location: ExecutionLocation,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archived: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active_turn: Option<Turn>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plan_session: Option<PlanSession>,
@@ -769,7 +775,13 @@ impl AgentRuntimeState {
             } else {
                 thread.token_usage.clone()
             };
+            let name = thread.name.clone().or_else(|| existing.name.clone());
+            let active = thread.active.or(existing.active);
+            let archived = thread.archived.or(existing.archived);
             *existing = AgentThread {
+                name,
+                active,
+                archived,
                 settings,
                 token_usage,
                 ..thread
@@ -1122,6 +1134,9 @@ impl AgentRuntimeState {
                 thread_id,
                 provider,
                 execution_location: ExecutionLocation::Local,
+                name: None,
+                active: None,
+                archived: None,
                 active_turn: None,
                 plan_session: None,
                 settings: Value::Null,
@@ -1749,6 +1764,7 @@ impl AgentRuntimeState {
                 if let Some(record) = thread_lifecycle_from_signal(signal) {
                     self.record_thread_lifecycle(record);
                 }
+                self.apply_thread_lifecycle_signal(signal);
                 if let Some(handoff) = handoff_from_signal(signal) {
                     self.record_handoff(handoff);
                 }
@@ -1951,6 +1967,56 @@ fn thread_lifecycle_request_from_signal(signal: &NormalizedRuntimeSignal) -> Val
         }
     }
     Value::Object(request)
+}
+
+fn thread_lifecycle_metadata(signal: &NormalizedRuntimeSignal) -> Value {
+    let mut metadata = serde_json::Map::new();
+    if let Some(status) = signal.status.clone() {
+        metadata.insert("status".to_string(), Value::String(status));
+    }
+    if let Some(name) = signal.name.clone() {
+        metadata.insert("name".to_string(), Value::String(name));
+    }
+    if let Some(active) = signal.active {
+        metadata.insert("active".to_string(), Value::Bool(active));
+    }
+    if let Some(archived) = signal.archived {
+        metadata.insert("archived".to_string(), Value::Bool(archived));
+    }
+    metadata.insert("lifecycle".to_string(), signal.metadata.clone());
+    Value::Object(metadata)
+}
+
+fn thread_active_from_lifecycle_status(status: Option<&str>) -> Option<bool> {
+    match status? {
+        "started" | "resumed" => Some(true),
+        "deleted" | "unsubscribed" => Some(false),
+        _ => None,
+    }
+}
+
+fn thread_archived_from_lifecycle_status(status: Option<&str>) -> Option<bool> {
+    match status? {
+        "archived" => Some(true),
+        "unarchived" => Some(false),
+        _ => None,
+    }
+}
+
+fn merge_thread_metadata(target: &mut Value, update: Value) {
+    if update.is_null() {
+        return;
+    }
+    match (target, update) {
+        (Value::Object(target), Value::Object(update)) => {
+            for (key, value) in update {
+                if !value.is_null() {
+                    target.insert(key, value);
+                }
+            }
+        }
+        (target, update) => *target = update,
+    }
 }
 
 fn subagent_action_from_signal(signal: &NormalizedRuntimeSignal) -> Option<SubagentActionRecord> {
@@ -2181,6 +2247,38 @@ fn auto_approval_review_from_signal(
 }
 
 impl AgentRuntimeState {
+    fn apply_thread_lifecycle_signal(&mut self, signal: &NormalizedRuntimeSignal) {
+        if signal.kind != RuntimeSignalKind::ThreadLifecycleChanged {
+            return;
+        }
+        let Some(thread_id) = signal.thread_id.as_deref() else {
+            return;
+        };
+        let provider = signal.provider.provider.clone();
+        let metadata = thread_lifecycle_metadata(signal);
+        let thread = self.ensure_thread(thread_id.to_string(), provider);
+        if let Some(name) = signal
+            .name
+            .clone()
+            .or_else(|| string_field(&metadata, "name"))
+        {
+            thread.name = Some(name);
+        }
+        if signal.active.is_some() {
+            thread.active = signal.active;
+        } else if let Some(active) = thread_active_from_lifecycle_status(signal.status.as_deref()) {
+            thread.active = Some(active);
+        }
+        if signal.archived.is_some() {
+            thread.archived = signal.archived;
+        } else if let Some(archived) =
+            thread_archived_from_lifecycle_status(signal.status.as_deref())
+        {
+            thread.archived = Some(archived);
+        }
+        merge_thread_metadata(&mut thread.metadata, metadata);
+    }
+
     fn apply_thread_details_signal(&mut self, signal: &NormalizedRuntimeSignal) {
         let Some(thread_id) = signal.thread_id.as_deref() else {
             return;
@@ -3555,10 +3653,109 @@ mod tests {
                     },
                 }),
             },
+            ProviderEvent::RuntimeSignal {
+                signal: Box::new(NormalizedRuntimeSignal {
+                    kind: RuntimeSignalKind::ThreadLifecycleChanged,
+                    thread_id: Some("thread-1".to_string()),
+                    turn_id: None,
+                    item_id: None,
+                    message: None,
+                    from_model: None,
+                    to_model: None,
+                    reason: None,
+                    text: None,
+                    audio: None,
+                    status: Some("archived".to_string()),
+                    name: None,
+                    active: None,
+                    archived: Some(true),
+                    diff: None,
+                    files: None,
+                    process_id: None,
+                    exit_code: None,
+                    request_id: None,
+                    metadata: json!({
+                        "action": "archive",
+                        "provider_response": { "archived": true }
+                    }),
+                    provider: ProviderMetadata {
+                        provider: "codex".to_string(),
+                        method: Some("ace/thread_lifecycle".to_string()),
+                        schema_version: None,
+                        raw_payload: json!({}),
+                    },
+                }),
+            },
+            ProviderEvent::RuntimeSignal {
+                signal: Box::new(NormalizedRuntimeSignal {
+                    kind: RuntimeSignalKind::ThreadLifecycleChanged,
+                    thread_id: Some("thread-1".to_string()),
+                    turn_id: None,
+                    item_id: None,
+                    message: None,
+                    from_model: None,
+                    to_model: None,
+                    reason: None,
+                    text: None,
+                    audio: None,
+                    status: Some("unarchived".to_string()),
+                    name: None,
+                    active: None,
+                    archived: Some(false),
+                    diff: None,
+                    files: None,
+                    process_id: None,
+                    exit_code: None,
+                    request_id: None,
+                    metadata: json!({
+                        "action": "unarchive",
+                        "provider_response": { "archived": false }
+                    }),
+                    provider: ProviderMetadata {
+                        provider: "codex".to_string(),
+                        method: Some("ace/thread_lifecycle".to_string()),
+                        schema_version: None,
+                        raw_payload: json!({}),
+                    },
+                }),
+            },
+            ProviderEvent::RuntimeSignal {
+                signal: Box::new(NormalizedRuntimeSignal {
+                    kind: RuntimeSignalKind::ThreadLifecycleChanged,
+                    thread_id: Some("thread-1".to_string()),
+                    turn_id: None,
+                    item_id: None,
+                    message: None,
+                    from_model: None,
+                    to_model: None,
+                    reason: None,
+                    text: None,
+                    audio: None,
+                    status: Some("deleted".to_string()),
+                    name: None,
+                    active: Some(false),
+                    archived: None,
+                    diff: None,
+                    files: None,
+                    process_id: None,
+                    exit_code: None,
+                    request_id: None,
+                    metadata: json!({
+                        "action": "delete",
+                        "provider_response": { "deleted": true }
+                    }),
+                    provider: ProviderMetadata {
+                        provider: "codex".to_string(),
+                        method: Some("ace/thread_lifecycle".to_string()),
+                        schema_version: None,
+                        raw_payload: json!({}),
+                    },
+                }),
+            },
         ]);
 
         let lifecycle = state.thread_lifecycle();
-        assert_eq!(lifecycle.len(), 5);
+        assert_eq!(lifecycle.len(), 8);
         assert_eq!(lifecycle[0].action, ThreadLifecycleActionKind::Start);
         assert_eq!(lifecycle[0].request["cwd"], "/repo");
         assert_eq!(lifecycle[0].provider_response["thread"]["id"], "thread-1");
@@ -3576,6 +3773,22 @@ mod tests {
         assert_eq!(lifecycle[4].item_count, Some(2));
         assert_eq!(lifecycle[4].request["items"][1]["type"], "agentMessage");
         assert_eq!(lifecycle[4].provider_response["injected"], true);
+        assert_eq!(lifecycle[5].action, ThreadLifecycleActionKind::Archive);
+        assert_eq!(lifecycle[6].action, ThreadLifecycleActionKind::Unarchive);
+        assert_eq!(lifecycle[7].action, ThreadLifecycleActionKind::Delete);
+
+        let thread = state.thread("thread-1").expect("thread");
+        assert_eq!(thread.provider, "codex");
+        assert_eq!(thread.name.as_deref(), Some("Adapter parity"));
+        assert_eq!(thread.active, Some(false));
+        assert_eq!(thread.archived, Some(false));
+        assert_eq!(thread.metadata["status"], "deleted");
+        assert_eq!(thread.metadata["name"], "Adapter parity");
+        assert_eq!(thread.metadata["archived"], false);
+        assert_eq!(
+            thread.metadata["lifecycle"]["provider_response"]["deleted"],
+            true
+        );
     }
 
     #[test]
@@ -3841,6 +4054,9 @@ mod tests {
             thread_id: "thread-1".to_string(),
             provider: "codex".to_string(),
             execution_location: ExecutionLocation::Worktree,
+            name: Some("Adapter parity".to_string()),
+            active: None,
+            archived: None,
             active_turn: None,
             plan_session: None,
             settings: Value::Null,
@@ -3854,6 +4070,7 @@ mod tests {
             snapshot.threads[0].execution_location,
             ExecutionLocation::Worktree
         );
+        assert_eq!(snapshot.threads[0].name.as_deref(), Some("Adapter parity"));
         assert_eq!(snapshot.threads[0].metadata["name"], "Adapter parity");
         assert_eq!(snapshot.threads[0].settings["model"], "gpt-5.5");
         assert_eq!(snapshot.threads[0].token_usage["total"], 96);
@@ -4216,6 +4433,9 @@ mod tests {
             thread_id: "thread-b".to_string(),
             provider: "codex".to_string(),
             execution_location: ExecutionLocation::Worktree,
+            name: Some("B".to_string()),
+            active: None,
+            archived: None,
             active_turn: None,
             plan_session: None,
             settings: Value::Null,
@@ -4226,6 +4446,9 @@ mod tests {
             thread_id: "thread-a".to_string(),
             provider: "codex".to_string(),
             execution_location: ExecutionLocation::Local,
+            name: Some("A".to_string()),
+            active: None,
+            archived: None,
             active_turn: None,
             plan_session: None,
             settings: Value::Null,
