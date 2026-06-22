@@ -1,4 +1,4 @@
-use crate::provider::ProviderEvent;
+use crate::provider::{NormalizedRuntimeSignal, ProviderEvent, RuntimeSignalKind};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
@@ -639,10 +639,14 @@ impl AgentRuntimeState {
             ProviderEvent::Exited { .. } => {
                 self.finish_all_active_turns(PlanSessionStatus::Rejected);
             }
+            ProviderEvent::RuntimeSignal { signal } => {
+                if let Some(action) = subagent_action_from_signal(signal) {
+                    self.record_subagent_action(action);
+                }
+            }
             ProviderEvent::RawServerRequest { .. }
             | ProviderEvent::ServerRequest { .. }
             | ProviderEvent::ServerRequestResolved { .. }
-            | ProviderEvent::RuntimeSignal { .. }
             | ProviderEvent::SemanticTool { .. }
             | ProviderEvent::StderrLine { .. } => {}
         }
@@ -702,11 +706,42 @@ fn u64_field(value: &Value, key: &str) -> Option<u64> {
     value.get(key).and_then(Value::as_u64)
 }
 
+fn subagent_action_from_signal(signal: &NormalizedRuntimeSignal) -> Option<SubagentActionRecord> {
+    if signal.kind != RuntimeSignalKind::SubagentAction {
+        return None;
+    }
+    let parent_thread_id = signal.thread_id.clone()?;
+    let subagent_thread_id = string_field(&signal.metadata, "subagent_thread_id")
+        .or_else(|| string_field(&signal.metadata, "subagentThreadId"))?;
+    let action = subagent_action_kind(signal.status.as_deref()?)?;
+    Some(SubagentActionRecord {
+        parent_thread_id,
+        subagent_thread_id,
+        action,
+        prompt: signal.text.clone(),
+        provider_response: signal
+            .metadata
+            .get("provider_response")
+            .cloned()
+            .unwrap_or(Value::Null),
+    })
+}
+
+fn subagent_action_kind(action: &str) -> Option<SubagentActionKind> {
+    match action {
+        "steer" => Some(SubagentActionKind::Steer),
+        "stop" => Some(SubagentActionKind::Stop),
+        "close" => Some(SubagentActionKind::Close),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::provider::{
-        NormalizedThreadItem, ProviderMetadata, ThreadItemKind, ThreadItemStatus,
+        NormalizedRuntimeSignal, NormalizedThreadItem, ProviderMetadata, ThreadItemKind,
+        ThreadItemStatus,
     };
     use serde_json::json;
 
@@ -944,6 +979,52 @@ mod tests {
         assert_eq!(retry.audit["selected_policy"], "on-request");
         state.close_subagent("subagent-1");
         assert!(state.subagent("subagent-1").is_none());
+    }
+
+    #[test]
+    fn applies_subagent_action_runtime_signals() {
+        let mut state = AgentRuntimeState::default();
+        state.apply_provider_events(&[ProviderEvent::RuntimeSignal {
+            signal: Box::new(NormalizedRuntimeSignal {
+                kind: RuntimeSignalKind::SubagentAction,
+                thread_id: Some("parent-1".to_string()),
+                turn_id: None,
+                item_id: None,
+                message: None,
+                from_model: None,
+                to_model: None,
+                reason: None,
+                text: Some("focus on tests".to_string()),
+                audio: None,
+                status: Some("steer".to_string()),
+                name: None,
+                active: None,
+                archived: None,
+                diff: None,
+                files: None,
+                process_id: None,
+                exit_code: None,
+                request_id: None,
+                metadata: json!({
+                    "subagent_thread_id": "subagent-1",
+                    "provider_response": { "steered": true }
+                }),
+                provider: ProviderMetadata {
+                    provider: "codex".to_string(),
+                    method: Some("ace/subagent/steer".to_string()),
+                    schema_version: None,
+                    raw_payload: json!({}),
+                },
+            }),
+        }]);
+
+        let actions = state.subagent_actions();
+        assert_eq!(actions.len(), 1);
+        assert_eq!(actions[0].parent_thread_id, "parent-1");
+        assert_eq!(actions[0].subagent_thread_id, "subagent-1");
+        assert_eq!(actions[0].action, SubagentActionKind::Steer);
+        assert_eq!(actions[0].prompt.as_deref(), Some("focus on tests"));
+        assert_eq!(actions[0].provider_response["steered"], true);
     }
 
     #[test]
