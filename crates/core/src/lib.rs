@@ -41,6 +41,7 @@ pub enum ProviderKind {
     Codex,
     ClaudeCode,
     Cursor,
+    Ace,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]

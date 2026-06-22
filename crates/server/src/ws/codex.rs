@@ -1438,6 +1438,16 @@ mod tests {
                 .iter()
                 .any(|capability| capability["key"] == "provider.runtime.raw_request")
         );
+        assert!(
+            body["providers"].as_array().expect("providers").iter().any(
+                |provider| provider["kind"] == "Ace"
+                    && provider["capabilities"]
+                        .as_array()
+                        .expect("ace capabilities")
+                        .iter()
+                        .any(|capability| capability["key"] == "ace.provider_contract")
+            )
+        );
 
         let routed = state
             .dispatch_text(
@@ -1460,6 +1470,32 @@ mod tests {
         assert_eq!(
             backend.calls.lock().expect("calls").as_slice(),
             ["thread/read"]
+        );
+
+        let ace = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "ace-provider-request",
+                    "method": methods::PROVIDER_RUNTIME_REQUEST,
+                    "payload": {
+                        "provider": "Ace",
+                        "method": "ace.contract",
+                        "params": {},
+                        "timeout_ms": 1000
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let ace: WsServerResponse = serde_json::from_str(&ace).expect("ace response");
+        let WsServerPayload::Result { body } = ace.payload else {
+            panic!("expected ace contract result");
+        };
+        assert_eq!(body["provider"], "ace");
+        assert_eq!(
+            body["provider_requirements"]["tools"],
+            "map provider tool calls to SemanticToolCall when possible"
         );
     }
 

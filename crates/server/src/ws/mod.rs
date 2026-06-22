@@ -20,7 +20,10 @@ use ace_protocol::{
     PROTOCOL_VERSION,
     ws::{WsClientRequest, WsServerPayload, WsServerResponse},
 };
-use ace_runtime::provider::{ProviderRegistry, ProviderRuntimeError};
+use ace_runtime::{
+    native_provider::AceNativeProvider,
+    provider::{ProviderRegistry, ProviderRuntimeError},
+};
 use ace_terminal::{PortablePtyAdapter, PtyAdapter, TerminalError, TerminalManager};
 use axum::{
     Router,
@@ -68,7 +71,9 @@ impl WsApiState<TokioProcessRunner, PortablePtyAdapter> {
     #[must_use]
     pub fn production() -> Self {
         let codex = Arc::new(CodexService::production());
-        let providers = ProviderRegistry::new().with_driver(codex.clone());
+        let providers = ProviderRegistry::new()
+            .with_driver(Arc::new(AceNativeProvider::new()))
+            .with_driver(codex.clone());
         Self {
             checkpoint: Arc::new(CheckpointService::production()),
             codex,
@@ -89,7 +94,9 @@ impl<R: ProcessRunner> WsApiState<R, PortablePtyAdapter> {
     #[must_use]
     pub fn new_services(git: GitService<R>, github: GithubService<R>) -> Self {
         let codex = Arc::new(CodexService::production());
-        let providers = ProviderRegistry::new().with_driver(codex.clone());
+        let providers = ProviderRegistry::new()
+            .with_driver(Arc::new(AceNativeProvider::new()))
+            .with_driver(codex.clone());
         Self {
             checkpoint: Arc::new(CheckpointService::production()),
             codex,
