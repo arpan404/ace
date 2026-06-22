@@ -283,6 +283,8 @@ pub struct CodexPlanTurnStartRequest {
     pub thread_id: String,
     pub prompt: String,
     pub model: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

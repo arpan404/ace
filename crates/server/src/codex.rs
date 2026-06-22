@@ -1665,6 +1665,7 @@ fn plan_implementation_record(
         mode,
         prompt: request.prompt.clone(),
         model: request.model.clone(),
+        reasoning_effort: request.reasoning_effort.clone(),
         cwd: request.cwd.clone(),
         plan: request.plan.clone(),
         sandbox_policy: request.sandbox_policy.clone().unwrap_or(Value::Null),
@@ -2545,6 +2546,7 @@ pub mod tests {
                 "thread-1",
                 "make a plan",
                 "gpt-5.5".to_string(),
+                None,
             ))
             .await
             .expect("first plan turn");
@@ -2554,6 +2556,7 @@ pub mod tests {
                 "thread-1",
                 "make another plan",
                 "gpt-5.5".to_string(),
+                None,
             ))
             .await
             .expect_err("active turn rejection");
@@ -2600,6 +2603,7 @@ pub mod tests {
                 "thread-1",
                 "make a plan",
                 "gpt-5.5".to_string(),
+                None,
             ))
             .await
             .expect("first plan turn");
@@ -2613,6 +2617,7 @@ pub mod tests {
                 "thread-1",
                 "make another plan",
                 "gpt-5.5".to_string(),
+                None,
             ))
             .await
             .expect("second plan turn after completion");
@@ -2633,6 +2638,7 @@ pub mod tests {
                 "thread-1",
                 "make a plan",
                 "gpt-5.5".to_string(),
+                None,
             ))
             .await
             .expect("plan turn");

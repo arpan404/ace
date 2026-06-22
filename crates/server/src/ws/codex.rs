@@ -494,6 +494,7 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                     request.thread_id.clone(),
                     request.prompt,
                     request.model,
+                    request.reasoning_effort,
                 );
                 let response = self.codex.start_turn(params.clone()).await?;
                 self.publish_codex_turn_lifecycle_signal(CodexTurnLifecycleSignal {
@@ -2600,6 +2601,7 @@ fn plan_implementation_record_from_codex(
         mode,
         prompt: request.prompt.clone(),
         model: request.model.clone(),
+        reasoning_effort: request.reasoning_effort.clone(),
         cwd: request.cwd.clone(),
         plan: request.plan.clone(),
         sandbox_policy: request.sandbox_policy.clone().unwrap_or(Value::Null),
@@ -4206,7 +4208,8 @@ mod tests {
                     "payload": {
                         "thread_id": "thread-1",
                         "prompt": "plan it",
-                        "model": "gpt-5.5"
+                        "model": "gpt-5.5",
+                        "reasoning_effort": "high"
                     }
                 })
                 .to_string(),
@@ -4345,6 +4348,7 @@ mod tests {
             "plan": { "markdown": "1. Edit\n2. Test" },
             "prompt": "implement this plan",
             "model": "gpt-5.5",
+            "reasoning_effort": "high",
             "cwd": "/tmp/repo",
             "approval_policy": { "mode": "on-request" },
             "approvals_reviewer": "user"
@@ -4412,6 +4416,7 @@ mod tests {
         assert_eq!(implementations[0]["plan"]["markdown"], "1. Edit\n2. Test");
         assert_eq!(implementations[0]["prompt"], "implement this plan");
         assert_eq!(implementations[0]["model"], "gpt-5.5");
+        assert_eq!(implementations[0]["reasoning_effort"], "high");
         assert_eq!(implementations[0]["cwd"], "/tmp/repo");
         assert_eq!(implementations[0]["approval_policy"]["mode"], "on-request");
         assert_eq!(implementations[0]["approvals_reviewer"], "user");

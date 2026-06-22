@@ -132,6 +132,9 @@ pub struct CodexTurnStart {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "reasoning_effort")]
+    pub reasoning_effort: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cwd: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(alias = "sandbox_policy")]
@@ -162,11 +165,17 @@ pub struct CodexTurnSteer {
 
 impl CodexTurnStart {
     #[must_use]
-    pub fn plan(thread_id: impl Into<String>, prompt: impl Into<String>, model: String) -> Self {
+    pub fn plan(
+        thread_id: impl Into<String>,
+        prompt: impl Into<String>,
+        model: String,
+        reasoning_effort: Option<String>,
+    ) -> Self {
         Self {
             thread_id: thread_id.into(),
             input: vec![json!({ "type": "text", "text": prompt.into() })],
             model: None,
+            reasoning_effort: None,
             cwd: None,
             sandbox_policy: None,
             approval_policy: None,
@@ -176,7 +185,7 @@ impl CodexTurnStart {
                 "settings": {
                     "model": model,
                     "developer_instructions": null,
-                    "reasoning_effort": null,
+                    "reasoning_effort": reasoning_effort,
                 }
             })),
         }
@@ -202,6 +211,9 @@ pub struct CodexPlanImplementation {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(alias = "reasoning_effort")]
+    pub reasoning_effort: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cwd: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(alias = "sandbox_policy")]
@@ -221,6 +233,7 @@ impl CodexPlanImplementation {
             thread_id,
             input: vec![json!({ "type": "text", "text": self.prompt })],
             model: self.model,
+            reasoning_effort: self.reasoning_effort,
             cwd: self.cwd,
             sandbox_policy: self.sandbox_policy,
             approval_policy: self.approval_policy,
@@ -1531,6 +1544,7 @@ mod tests {
                 "thread-1",
                 "make a plan",
                 "gpt-5.5".to_string(),
+                Some("high".to_string()),
             ))
             .await
             .expect("turn");
@@ -1540,6 +1554,10 @@ mod tests {
         assert_eq!(
             requests[0].1["collaborationMode"]["settings"]["model"],
             "gpt-5.5"
+        );
+        assert_eq!(
+            requests[0].1["collaborationMode"]["settings"]["reasoning_effort"],
+            "high"
         );
     }
 
@@ -1652,6 +1670,7 @@ mod tests {
                 plan: json!({ "markdown": "Do it carefully" }),
                 prompt: "implement the plan".to_string(),
                 model: Some("gpt-5.5".to_string()),
+                reasoning_effort: Some("high".to_string()),
                 cwd: None,
                 sandbox_policy: None,
                 approval_policy: None,
@@ -1667,6 +1686,7 @@ mod tests {
         assert_eq!(requests[1].0, "turn/start");
         assert_eq!(requests[1].1["threadId"], "thread-1");
         assert_eq!(requests[1].1["model"], "gpt-5.5");
+        assert_eq!(requests[1].1["reasoningEffort"], "high");
     }
 
     #[tokio::test]
@@ -1692,6 +1712,7 @@ mod tests {
                 plan: json!({ "markdown": "Implement in isolation" }),
                 prompt: "build it".to_string(),
                 model: None,
+                reasoning_effort: None,
                 cwd: Some("/tmp/repo".to_string()),
                 sandbox_policy: None,
                 approval_policy: None,
