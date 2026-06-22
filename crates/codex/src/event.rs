@@ -1,16 +1,13 @@
 use ace_runtime::{
     provider::{
         NormalizedRuntimeSignal, NormalizedServerRequest, NormalizedThreadItem, ProviderEvent,
-        ServerRequestKind,
     },
     runtime_signals::{RuntimeSignalNormalizationInput, normalize_provider_runtime_signal},
-    server_requests::{
-        ServerRequestNormalizationInput, normalize_provider_server_request, server_request_kind,
-    },
+    server_requests::{ServerRequestNormalizationInput, normalize_provider_server_request},
     thread_items::{ThreadItemNormalizationInput, normalize_provider_thread_item},
     tools::{
-        ProviderToolMetadata, ToolNormalizationInput, ToolRunStatus, ToolTransport,
-        normalize_tool_call,
+        ProviderServerRequestToolNormalizationInput, ProviderToolEventNormalizationInput,
+        normalize_provider_server_request_tool, normalize_provider_tool_event,
     },
 };
 use serde_json::Value;
@@ -104,56 +101,11 @@ fn normalize_codex_tool_notification(
     method: &str,
     params: &Value,
 ) -> Option<ace_runtime::tools::SemanticToolCall> {
-    let status = match method {
-        "item/started" => ToolRunStatus::Started,
-        "item/completed" => ToolRunStatus::Completed,
-        "item/commandExecution/outputDelta"
-        | "item/commandExecution/terminalInteraction"
-        | "item/fileChange/outputDelta"
-        | "item/fileChange/patchUpdated"
-        | "item/mcpToolCall/progress"
-        | "item/dynamicToolCall/progress"
-        | "item/collabAgentToolCall/progress"
-        | "item/subAgentActivity/delta"
-        | "command/exec/outputDelta"
-        | "process/outputDelta" => ToolRunStatus::Updated,
-        "item/failed" => ToolRunStatus::Failed,
-        "item/commandExecution/requestApproval"
-        | "item/fileChange/requestApproval"
-        | "item/permissions/requestApproval" => ToolRunStatus::ApprovalRequested,
-        _ => return None,
-    };
-
-    let item = params.get("item").unwrap_or(params);
-    let item_type = string_at(item, "type")
-        .or_else(|| item_type_from_method(method))
-        .unwrap_or_else(|| method.to_string());
-    if !is_tool_item_type(&item_type) {
-        return None;
-    }
-    let mut provider = ProviderToolMetadata::new();
-    provider.provider = Some("codex".to_string());
-    provider.method = Some(method.to_string());
-    provider.thread_id = string_at(params, "threadId");
-    provider.turn_id = string_at(params, "turnId");
-    provider.item_id = string_at(params, "itemId").or_else(|| string_at(item, "id"));
-    provider.tool_name = tool_name_for_item(&item_type, item);
-    provider.server_name = string_at_deep(item, "serverName")
-        .or_else(|| string_at_deep(item, "server_name"))
-        .or_else(|| string_at_deep(item, "server"))
-        .or_else(|| string_at_deep(item, "mcpServer"));
-    provider.operation = operation_for_item(&item_type, item);
-    provider.raw_args = args_for_item(item);
-    provider.raw_result = item.get("result").cloned().unwrap_or(Value::Null);
-    provider.raw_payload = params.clone();
-
-    let transport = transport_for_item(&item_type, &provider);
-    Some(normalize_tool_call(ToolNormalizationInput {
-        transport,
-        status,
-        provider,
-        item_type: Some(item_type),
-    }))
+    normalize_provider_tool_event(ProviderToolEventNormalizationInput {
+        provider: "codex".to_string(),
+        method: method.to_string(),
+        params: params.clone(),
+    })
 }
 
 fn normalize_codex_server_request_tool(
@@ -161,282 +113,12 @@ fn normalize_codex_server_request_tool(
     method: &str,
     params: &Value,
 ) -> Option<ace_runtime::tools::SemanticToolCall> {
-    let kind = server_request_kind(method);
-    let item_type = tool_item_type_for_server_request(kind)?;
-    let mut provider = ProviderToolMetadata::new();
-    provider.provider = Some("codex".to_string());
-    provider.method = Some(method.to_string());
-    provider.thread_id = string_at(params, "threadId")
-        .or_else(|| string_at(params, "thread_id"))
-        .or_else(|| nested_string_at(params, "/thread", &["id", "threadId", "thread_id"]));
-    provider.turn_id = string_at(params, "turnId").or_else(|| string_at(params, "turn_id"));
-    provider.item_id = string_at(params, "itemId")
-        .or_else(|| string_at(params, "item_id"))
-        .or_else(|| string_at(params, "sourceItemId"))
-        .or_else(|| string_at(params, "source_item_id"))
-        .or_else(|| string_at(params, "toolCallId"))
-        .or_else(|| string_at(params, "tool_call_id"))
-        .or_else(|| Some(id.to_string()));
-    provider.server_name = string_at_deep(params, "serverName")
-        .or_else(|| string_at_deep(params, "server_name"))
-        .or_else(|| string_at_deep(params, "server"))
-        .or_else(|| string_at_deep(params, "mcpServer"));
-    provider.tool_name = tool_name_for_server_request(kind, params);
-    provider.operation = operation_for_server_request(kind, params);
-    provider.raw_args = args_for_server_request(params);
-    provider.raw_result = params.get("result").cloned().unwrap_or(Value::Null);
-    provider.raw_payload = params.clone();
-
-    Some(normalize_tool_call(ToolNormalizationInput {
-        transport: transport_for_server_request(kind, &provider),
-        status: ToolRunStatus::ApprovalRequested,
-        provider,
-        item_type: Some(item_type.to_string()),
-    }))
-}
-
-fn tool_item_type_for_server_request(kind: ServerRequestKind) -> Option<&'static str> {
-    match kind {
-        ServerRequestKind::CommandApproval | ServerRequestKind::ExecApproval => {
-            Some("commandExecution")
-        }
-        ServerRequestKind::FileChangeApproval | ServerRequestKind::ApplyPatchApproval => {
-            Some("fileChange")
-        }
-        ServerRequestKind::McpElicitation | ServerRequestKind::ToolUserInput => Some("mcpToolCall"),
-        ServerRequestKind::DynamicToolCall => Some("dynamicToolCall"),
-        ServerRequestKind::Unknown
-        | ServerRequestKind::PermissionApproval
-        | ServerRequestKind::AccountTokenRefresh
-        | ServerRequestKind::Attestation => None,
-    }
-}
-
-fn tool_name_for_server_request(kind: ServerRequestKind, params: &Value) -> Option<String> {
-    string_at_deep(params, "toolName")
-        .or_else(|| string_at_deep(params, "tool_name"))
-        .or_else(|| string_at_deep(params, "tool"))
-        .or_else(|| string_at_deep(params, "function"))
-        .or_else(|| string_at_deep(params, "name"))
-        .or_else(|| match kind {
-            ServerRequestKind::CommandApproval | ServerRequestKind::ExecApproval => {
-                Some("shell".to_string())
-            }
-            ServerRequestKind::FileChangeApproval | ServerRequestKind::ApplyPatchApproval => {
-                Some("apply_patch".to_string())
-            }
-            ServerRequestKind::McpElicitation | ServerRequestKind::ToolUserInput => {
-                Some("mcp".to_string())
-            }
-            _ => None,
-        })
-}
-
-fn operation_for_server_request(kind: ServerRequestKind, params: &Value) -> Option<String> {
-    string_at_deep(params, "operation")
-        .or_else(|| string_at_deep(params, "action"))
-        .or_else(|| string_at_deep(params, "action_type"))
-        .or_else(|| match kind {
-            ServerRequestKind::CommandApproval | ServerRequestKind::ExecApproval => {
-                Some("run".to_string())
-            }
-            ServerRequestKind::FileChangeApproval | ServerRequestKind::ApplyPatchApproval => {
-                Some("apply_patch".to_string())
-            }
-            ServerRequestKind::McpElicitation => Some("elicitation".to_string()),
-            ServerRequestKind::ToolUserInput => Some("user_input".to_string()),
-            _ => None,
-        })
-}
-
-fn args_for_server_request(params: &Value) -> Value {
-    params
-        .get("input")
-        .or_else(|| params.get("arguments"))
-        .or_else(|| params.get("args"))
-        .cloned()
-        .unwrap_or_else(|| params.clone())
-}
-
-fn transport_for_server_request(
-    kind: ServerRequestKind,
-    provider: &ProviderToolMetadata,
-) -> ToolTransport {
-    let label = [
-        provider.tool_name.as_deref().unwrap_or_default(),
-        provider.server_name.as_deref().unwrap_or_default(),
-        provider.operation.as_deref().unwrap_or_default(),
-    ]
-    .join(" ")
-    .to_lowercase();
-    if label.contains("ace_browser") || label.contains("browser") || label.contains("playwright") {
-        ToolTransport::BrowserBridge
-    } else if label.contains("computer") || label.contains("desktop") {
-        ToolTransport::ComputerBridge
-    } else {
-        match kind {
-            ServerRequestKind::CommandApproval | ServerRequestKind::ExecApproval => {
-                ToolTransport::Shell
-            }
-            ServerRequestKind::FileChangeApproval | ServerRequestKind::ApplyPatchApproval => {
-                ToolTransport::Filesystem
-            }
-            ServerRequestKind::McpElicitation | ServerRequestKind::ToolUserInput => {
-                ToolTransport::Mcp
-            }
-            ServerRequestKind::DynamicToolCall => ToolTransport::DynamicTool,
-            _ => ToolTransport::CodexBuiltin,
-        }
-    }
-}
-
-fn is_tool_item_type(item_type: &str) -> bool {
-    matches!(
-        item_type,
-        "commandExecution"
-            | "fileChange"
-            | "mcpToolCall"
-            | "dynamicToolCall"
-            | "collabAgentToolCall"
-            | "subAgentActivity"
-            | "webSearch"
-            | "imageView"
-            | "imageGeneration"
-    )
-}
-
-fn transport_for_item(item_type: &str, provider: &ProviderToolMetadata) -> ToolTransport {
-    let label = [
-        item_type,
-        provider.tool_name.as_deref().unwrap_or_default(),
-        provider.server_name.as_deref().unwrap_or_default(),
-        provider.operation.as_deref().unwrap_or_default(),
-    ]
-    .join(" ")
-    .to_lowercase();
-    if label.contains("ace_browser") || label.contains("browser") {
-        ToolTransport::BrowserBridge
-    } else if label.contains("computer") {
-        ToolTransport::ComputerBridge
-    } else {
-        match item_type {
-            "commandExecution" => ToolTransport::Shell,
-            "fileChange" => ToolTransport::Filesystem,
-            "mcpToolCall" => ToolTransport::Mcp,
-            "dynamicToolCall" => ToolTransport::DynamicTool,
-            _ => ToolTransport::CodexBuiltin,
-        }
-    }
-}
-
-fn tool_name_for_item(item_type: &str, item: &Value) -> Option<String> {
-    string_at_deep(item, "toolName")
-        .or_else(|| string_at_deep(item, "tool_name"))
-        .or_else(|| string_at_deep(item, "tool"))
-        .or_else(|| string_at_deep(item, "function"))
-        .or_else(|| string_at_deep(item, "name"))
-        .or_else(|| {
-            if item_type == "commandExecution" {
-                Some("shell".to_string())
-            } else if item_type == "fileChange" {
-                Some("apply_patch".to_string())
-            } else if item_type == "webSearch" {
-                Some("web_search".to_string())
-            } else if item_type == "imageView" {
-                Some("image_view".to_string())
-            } else if item_type == "imageGeneration" {
-                Some("image_generation".to_string())
-            } else {
-                None
-            }
-        })
-}
-
-fn operation_for_item(item_type: &str, item: &Value) -> Option<String> {
-    string_at_deep(item, "operation")
-        .or_else(|| string_at_deep(item, "action"))
-        .or_else(|| string_at_deep(item, "action_type"))
-        .or_else(|| {
-            if item_type == "commandExecution" {
-                Some("run".to_string())
-            } else if item_type == "webSearch" {
-                Some("search".to_string())
-            } else if item_type == "imageView" {
-                Some("view".to_string())
-            } else if item_type == "imageGeneration" {
-                Some("generate".to_string())
-            } else {
-                None
-            }
-        })
-}
-
-fn args_for_item(item: &Value) -> Value {
-    item.get("input")
-        .or_else(|| item.get("arguments"))
-        .or_else(|| item.get("args"))
-        .cloned()
-        .unwrap_or_else(|| item.clone())
-}
-
-fn item_type_from_method(method: &str) -> Option<String> {
-    if method.contains("commandExecution") || method.starts_with("command/exec") {
-        Some("commandExecution".to_string())
-    } else if method.contains("agentMessage") {
-        Some("agentMessage".to_string())
-    } else if method.contains("userMessage") {
-        Some("userMessage".to_string())
-    } else if method.contains("hookPrompt") {
-        Some("hookPrompt".to_string())
-    } else if method.contains("plan") {
-        Some("plan".to_string())
-    } else if method.contains("reasoning") {
-        Some("reasoning".to_string())
-    } else if method.contains("fileChange") {
-        Some("fileChange".to_string())
-    } else if method.contains("mcpToolCall") {
-        Some("mcpToolCall".to_string())
-    } else if method.contains("dynamicToolCall") {
-        Some("dynamicToolCall".to_string())
-    } else if method.contains("collabAgentToolCall") {
-        Some("collabAgentToolCall".to_string())
-    } else if method.contains("subAgentActivity") {
-        Some("subAgentActivity".to_string())
-    } else if method.contains("webSearch") {
-        Some("webSearch".to_string())
-    } else if method.contains("imageView") {
-        Some("imageView".to_string())
-    } else if method.contains("imageGeneration") {
-        Some("imageGeneration".to_string())
-    } else {
-        None
-    }
-}
-
-fn string_at(value: &Value, key: &str) -> Option<String> {
-    value
-        .as_object()
-        .and_then(|object| object.get(key))
-        .and_then(|value| match value {
-            Value::String(text) if !text.trim().is_empty() => Some(text.trim().to_string()),
-            Value::Number(number) => Some(number.to_string()),
-            _ => None,
-        })
-}
-
-fn string_at_deep(value: &Value, key: &str) -> Option<String> {
-    string_at(value, key).or_else(|| {
-        ["input", "arguments", "args", "parameters", "params"]
-            .into_iter()
-            .filter_map(|nested| value.get(nested))
-            .find_map(|nested| string_at_deep(nested, key))
+    normalize_provider_server_request_tool(ProviderServerRequestToolNormalizationInput {
+        provider: "codex".to_string(),
+        request_id: id.to_string(),
+        method: method.to_string(),
+        params: params.clone(),
     })
-}
-
-fn nested_string_at(value: &Value, pointer: &str, keys: &[&str]) -> Option<String> {
-    value
-        .pointer(pointer)
-        .and_then(|nested| keys.iter().find_map(|key| string_at(nested, key)))
 }
 
 #[cfg(test)]

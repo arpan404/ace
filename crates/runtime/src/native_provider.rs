@@ -8,7 +8,11 @@ use crate::provider::{
 use crate::runtime_signals::{RuntimeSignalNormalizationInput, normalize_provider_runtime_signal};
 use crate::server_requests::{ServerRequestNormalizationInput, normalize_provider_server_request};
 use crate::thread_items::{ThreadItemNormalizationInput, normalize_provider_thread_item};
-use crate::tools::{SemanticToolCall, ToolNormalizationInput, normalize_tool_call};
+use crate::tools::{
+    ProviderServerRequestToolNormalizationInput, ProviderToolEventNormalizationInput,
+    SemanticToolCall, ToolNormalizationInput, normalize_provider_server_request_tool,
+    normalize_provider_tool_event, normalize_tool_call,
+};
 use ace_core::{ProviderCapability, ProviderKind};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -36,6 +40,22 @@ pub struct NativeProviderSemanticToolEmitRequest {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NativeProviderSemanticToolNormalizeRequest {
     pub input: ToolNormalizationInput,
+    #[serde(default)]
+    pub emit: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NativeProviderToolEventNormalizeRequest {
+    #[serde(flatten)]
+    pub input: ProviderToolEventNormalizationInput,
+    #[serde(default)]
+    pub emit: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NativeProviderServerRequestToolNormalizeRequest {
+    #[serde(flatten)]
+    pub input: ProviderServerRequestToolNormalizationInput,
     #[serde(default)]
     pub emit: bool,
 }
@@ -143,6 +163,18 @@ impl AceNativeProvider {
                 "Normalize provider tool call",
                 ProviderFeatureCategory::Tools,
                 "ace.semantic_tool.normalize",
+            ),
+            (
+                "ace.tool_event.normalize",
+                "Normalize provider tool event",
+                ProviderFeatureCategory::Tools,
+                "ace.tool_event.normalize",
+            ),
+            (
+                "ace.server_request_tool.normalize",
+                "Normalize provider server request tool",
+                ProviderFeatureCategory::Tools,
+                "ace.server_request_tool.normalize",
             ),
             (
                 "ace.server_request.normalize",
@@ -363,6 +395,81 @@ impl ProviderDriver for AceNativeProvider {
                     "tool": tool,
                     "emitted": normalize.emit,
                     "event_count": if normalize.emit { 1 } else { 0 },
+                }))
+            }
+            "ace.tool_event.normalize" => {
+                let normalize = serde_json::from_value::<NativeProviderToolEventNormalizeRequest>(
+                    request.params,
+                )
+                .map_err(|error| ProviderDriverError::RequestFailed {
+                    provider: "ace".to_string(),
+                    method: "ace.tool_event.normalize".to_string(),
+                    message: error.to_string(),
+                })?;
+                let emit = normalize.emit;
+                let tool = normalize_provider_tool_event(normalize.input).ok_or_else(|| {
+                    ProviderDriverError::RequestFailed {
+                        provider: "ace".to_string(),
+                        method: "ace.tool_event.normalize".to_string(),
+                        message: "unsupported provider tool event method".to_string(),
+                    }
+                })?;
+                if emit {
+                    self.event_tx
+                        .send(vec![ProviderEvent::SemanticTool {
+                            tool: Box::new(tool.clone()),
+                        }])
+                        .await
+                        .map_err(|_| ProviderDriverError::RequestFailed {
+                            provider: "ace".to_string(),
+                            method: "ace.tool_event.normalize".to_string(),
+                            message: "Ace native provider event queue is closed".to_string(),
+                        })?;
+                }
+                Ok(json!({
+                    "provider": "ace",
+                    "accepted": true,
+                    "tool": tool,
+                    "emitted": emit,
+                    "event_count": if emit { 1 } else { 0 },
+                }))
+            }
+            "ace.server_request_tool.normalize" => {
+                let normalize = serde_json::from_value::<
+                    NativeProviderServerRequestToolNormalizeRequest,
+                >(request.params)
+                .map_err(|error| ProviderDriverError::RequestFailed {
+                    provider: "ace".to_string(),
+                    method: "ace.server_request_tool.normalize".to_string(),
+                    message: error.to_string(),
+                })?;
+                let emit = normalize.emit;
+                let tool =
+                    normalize_provider_server_request_tool(normalize.input).ok_or_else(|| {
+                        ProviderDriverError::RequestFailed {
+                            provider: "ace".to_string(),
+                            method: "ace.server_request_tool.normalize".to_string(),
+                            message: "unsupported provider server request tool method".to_string(),
+                        }
+                    })?;
+                if emit {
+                    self.event_tx
+                        .send(vec![ProviderEvent::SemanticTool {
+                            tool: Box::new(tool.clone()),
+                        }])
+                        .await
+                        .map_err(|_| ProviderDriverError::RequestFailed {
+                            provider: "ace".to_string(),
+                            method: "ace.server_request_tool.normalize".to_string(),
+                            message: "Ace native provider event queue is closed".to_string(),
+                        })?;
+                }
+                Ok(json!({
+                    "provider": "ace",
+                    "accepted": true,
+                    "tool": tool,
+                    "emitted": emit,
+                    "event_count": if emit { 1 } else { 0 },
                 }))
             }
             "ace.server_request.normalize" => {
@@ -958,6 +1065,97 @@ mod tests {
         assert_eq!(tool.action, ToolActionKind::BrowserType);
         assert_eq!(tool.display.title, "Typing into hello in Browser");
         assert_eq!(tool.provider.raw_args["text"], "hello");
+    }
+
+    #[tokio::test]
+    async fn native_provider_normalizes_tool_event_without_emitting() {
+        let provider = AceNativeProvider::new();
+        let response = provider
+            .request(ProviderRequest {
+                method: "ace.tool_event.normalize".to_string(),
+                params: json!({
+                    "provider": "future-provider",
+                    "method": "item/completed",
+                    "params": {
+                        "threadId": "thread-1",
+                        "turnId": "turn-1",
+                        "item": {
+                            "id": "tool-1",
+                            "type": "dynamicToolCall",
+                            "toolName": "ace_browser",
+                            "input": {
+                                "operation": "navigate_tab_url",
+                                "url": "https://example.com"
+                            },
+                            "result": { "ok": true }
+                        }
+                    }
+                }),
+                timeout: Duration::from_secs(1),
+            })
+            .await
+            .expect("normalize tool event");
+
+        assert_eq!(response["accepted"], true);
+        assert_eq!(response["emitted"], false);
+        assert_eq!(response["event_count"], 0);
+        assert_eq!(response["tool"]["surface"], "browser");
+        assert_eq!(response["tool"]["action"], "browser.navigate");
+        assert_eq!(
+            response["tool"]["display"]["title"],
+            "Opened https://example.com in Browser"
+        );
+        assert_eq!(response["tool"]["provider"]["provider"], "future-provider");
+        assert_eq!(
+            response["tool"]["provider"]["raw_payload"]["item"]["result"]["ok"],
+            true
+        );
+    }
+
+    #[tokio::test]
+    async fn native_provider_normalizes_and_emits_server_request_tool() {
+        let provider = AceNativeProvider::new();
+        let response = provider
+            .request(ProviderRequest {
+                method: "ace.server_request_tool.normalize".to_string(),
+                params: json!({
+                    "provider": "future-provider",
+                    "request_id": "approval-1",
+                    "method": "command/approvalRequest",
+                    "emit": true,
+                    "params": {
+                        "threadId": "thread-1",
+                        "turnId": "turn-1",
+                        "command": "cargo test --workspace",
+                        "cwd": "/repo",
+                        "prompt": "Run tests?"
+                    }
+                }),
+                timeout: Duration::from_secs(1),
+            })
+            .await
+            .expect("normalize and emit server request tool");
+
+        assert_eq!(response["accepted"], true);
+        assert_eq!(response["emitted"], true);
+        assert_eq!(response["event_count"], 1);
+        assert_eq!(response["tool"]["surface"], "terminal");
+        assert_eq!(response["tool"]["action"], "terminal.run");
+        assert_eq!(response["tool"]["display"]["status"], "approval_requested");
+
+        let events = provider
+            .next_events()
+            .await
+            .expect("event poll")
+            .expect("semantic tool event");
+        let ProviderEvent::SemanticTool { tool } = &events[0] else {
+            panic!("expected semantic tool event");
+        };
+        assert_eq!(tool.surface, ToolSurface::Terminal);
+        assert_eq!(tool.action, ToolActionKind::TerminalRun);
+        assert_eq!(tool.display.status, ToolRunStatus::ApprovalRequested);
+        assert_eq!(tool.display.title, "Running `cargo test --workspace`");
+        assert_eq!(tool.provider.provider.as_deref(), Some("future-provider"));
     }
 
     #[tokio::test]
