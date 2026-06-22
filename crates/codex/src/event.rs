@@ -102,7 +102,12 @@ fn normalize_codex_runtime_signal(method: &str, params: &Value) -> Option<Normal
                 string_at(params, "text").as_deref(),
                 string_at(params, "warning").as_deref(),
                 string_at(params, "description").as_deref(),
+                string_at(params, "title").as_deref(),
+                string_at(params, "error").as_deref(),
             ]);
+            if signal.message.is_none() {
+                signal.message = warning_message_from_method(method);
+            }
             signal.message.as_ref()?;
         }
         RuntimeSignalKind::ModelRerouted => {
@@ -219,6 +224,11 @@ fn normalize_codex_runtime_signal(method: &str, params: &Value) -> Option<Normal
 fn runtime_signal_kind(method: &str) -> Option<RuntimeSignalKind> {
     match method {
         "warning" => Some(RuntimeSignalKind::Warning),
+        "configWarning"
+        | "deprecationNotice"
+        | "error"
+        | "guardianWarning"
+        | "windows/worldWritableWarning" => Some(RuntimeSignalKind::Warning),
         "model/rerouted" => Some(RuntimeSignalKind::ModelRerouted),
         "realtime/transcriptDelta" | "thread/realtime/transcript/delta" => {
             Some(RuntimeSignalKind::RealtimeTranscriptDelta)
@@ -244,12 +254,33 @@ fn runtime_signal_kind(method: &str) -> Option<RuntimeSignalKind> {
         | "account/updated"
         | "app/list/updated"
         | "externalAgentConfig/import/completed"
+        | "fs/changed"
         | "fuzzyFileSearch/sessionCompleted"
         | "fuzzyFileSearch/sessionUpdated"
+        | "hook/completed"
+        | "hook/started"
+        | "mcpServer/oauthLogin/completed"
+        | "mcpServer/startupStatus/updated"
+        | "model/verification"
         | "remoteControl/status/changed"
+        | "skills/changed"
         | "windowsSandbox/setupCompleted" => Some(RuntimeSignalKind::ProviderStateUpdated),
         _ => None,
     }
+}
+
+fn warning_message_from_method(method: &str) -> Option<String> {
+    Some(
+        match method {
+            "configWarning" => "Configuration warning",
+            "deprecationNotice" => "Deprecation notice",
+            "error" => "Provider error",
+            "guardianWarning" => "Approval warning",
+            "windows/worldWritableWarning" => "World-writable path warning",
+            _ => return None,
+        }
+        .to_string(),
+    )
 }
 
 fn provider_state_status_from_method(method: &str) -> Option<String> {
@@ -261,9 +292,16 @@ fn provider_state_status_from_method(method: &str) -> Option<String> {
         "externalAgentConfig/import/completed" => {
             Some("external_agent_config_import_completed".to_string())
         }
+        "fs/changed" => Some("filesystem_changed".to_string()),
         "fuzzyFileSearch/sessionCompleted" => Some("fuzzy_file_search_completed".to_string()),
         "fuzzyFileSearch/sessionUpdated" => Some("fuzzy_file_search_updated".to_string()),
+        "hook/completed" => Some("hook_completed".to_string()),
+        "hook/started" => Some("hook_started".to_string()),
+        "mcpServer/oauthLogin/completed" => Some("mcp_oauth_login_completed".to_string()),
+        "mcpServer/startupStatus/updated" => Some("mcp_startup_status_updated".to_string()),
+        "model/verification" => Some("model_verification".to_string()),
         "remoteControl/status/changed" => Some("remote_control_status_changed".to_string()),
+        "skills/changed" => Some("skills_changed".to_string()),
         "windowsSandbox/setupCompleted" => Some("windows_sandbox_setup_completed".to_string()),
         _ => None,
     }
@@ -1442,6 +1480,55 @@ mod tests {
     }
 
     #[test]
+    fn normalizes_codex_warning_notifications() {
+        let cases = [
+            (
+                "configWarning",
+                json!({ "message": "Missing preferred model" }),
+                "Missing preferred model",
+            ),
+            (
+                "deprecationNotice",
+                json!({ "text": "This command will change soon" }),
+                "This command will change soon",
+            ),
+            (
+                "error",
+                json!({ "error": "Transport disconnected" }),
+                "Transport disconnected",
+            ),
+            (
+                "guardianWarning",
+                json!({ "description": "Auto-review denied the command" }),
+                "Auto-review denied the command",
+            ),
+            (
+                "windows/worldWritableWarning",
+                json!({ "path": "C:\\tmp" }),
+                "World-writable path warning",
+            ),
+        ];
+
+        for (method, params, message) in cases {
+            let events = normalize_codex_inbound_event(&CodexInboundEvent::Notification {
+                method: method.to_string(),
+                params,
+            });
+            let ProviderEvent::RuntimeSignal { signal } = &events[0] else {
+                panic!("expected warning signal for {method}");
+            };
+            assert_eq!(
+                signal.kind,
+                ace_runtime::provider::RuntimeSignalKind::Warning,
+                "{method}"
+            );
+            assert_eq!(signal.message.as_deref(), Some(message), "{method}");
+            assert_eq!(signal.provider.method.as_deref(), Some(method));
+            assert!(matches!(events[1], ProviderEvent::RawNotification { .. }));
+        }
+    }
+
+    #[test]
     fn normalizes_provider_state_notifications() {
         let cases = [
             (
@@ -1463,6 +1550,12 @@ mod tests {
                 None,
             ),
             (
+                "fs/changed",
+                json!({ "files": [{ "path": "src/main.rs", "kind": "modified" }] }),
+                "filesystem_changed",
+                None,
+            ),
+            (
                 "fuzzyFileSearch/sessionUpdated",
                 json!({ "query": "main", "status": "searching" }),
                 "searching",
@@ -1475,9 +1568,45 @@ mod tests {
                 None,
             ),
             (
+                "hook/started",
+                json!({ "name": "pre-commit" }),
+                "hook_started",
+                None,
+            ),
+            (
+                "hook/completed",
+                json!({ "name": "pre-commit", "status": "ok" }),
+                "ok",
+                None,
+            ),
+            (
+                "mcpServer/oauthLogin/completed",
+                json!({ "server": "github", "status": "authenticated" }),
+                "authenticated",
+                None,
+            ),
+            (
+                "mcpServer/startupStatus/updated",
+                json!({ "server": "browser", "status": "running" }),
+                "running",
+                None,
+            ),
+            (
+                "model/verification",
+                json!({ "model": "gpt-5", "status": "verified" }),
+                "verified",
+                None,
+            ),
+            (
                 "remoteControl/status/changed",
                 json!({ "status": "connected" }),
                 "connected",
+                None,
+            ),
+            (
+                "skills/changed",
+                json!({ "event": "installed", "name": "browser" }),
+                "installed",
                 None,
             ),
             (
