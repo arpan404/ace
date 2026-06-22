@@ -5,24 +5,45 @@ use crate::provider::{
     ProviderServerRequestResponder, ace_provider_adapter_contract,
     ace_provider_contract_requirements, provider_adapter_profile, provider_contract_report,
 };
+use crate::tools::SemanticToolCall;
 use ace_core::{ProviderCapability, ProviderKind};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::time::Duration;
+use tokio::sync::{Mutex, mpsc};
+
+const ACE_NATIVE_EVENT_QUEUE_CAPACITY: usize = 256;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AdapterValidationRequest {
     pub descriptor: ProviderDescriptor,
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct AceNativeProvider;
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NativeProviderEventsEmitRequest {
+    pub events: Vec<ProviderEvent>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NativeProviderSemanticToolEmitRequest {
+    pub tool: SemanticToolCall,
+}
+
+#[derive(Debug)]
+pub struct AceNativeProvider {
+    event_tx: mpsc::Sender<Vec<ProviderEvent>>,
+    event_rx: Mutex<mpsc::Receiver<Vec<ProviderEvent>>>,
+}
 
 impl AceNativeProvider {
     #[must_use]
     pub fn new() -> Self {
-        Self
+        let (event_tx, event_rx) = mpsc::channel(ACE_NATIVE_EVENT_QUEUE_CAPACITY);
+        Self {
+            event_tx,
+            event_rx: Mutex::new(event_rx),
+        }
     }
 
     #[must_use]
@@ -72,6 +93,18 @@ impl AceNativeProvider {
                 "ace.adapter.validate",
             ),
             (
+                "ace.events.emit",
+                "Emit normalized provider events",
+                ProviderFeatureCategory::Events,
+                "ace.events.emit",
+            ),
+            (
+                "ace.semantic_tool.emit",
+                "Emit semantic tool call",
+                ProviderFeatureCategory::Tools,
+                "ace.semantic_tool.emit",
+            ),
+            (
                 "provider.adapter_contract",
                 "Provider adapter contract",
                 ProviderFeatureCategory::Native,
@@ -112,6 +145,12 @@ impl AceNativeProvider {
             },
         )
         .collect()
+    }
+}
+
+impl Default for AceNativeProvider {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -191,6 +230,52 @@ impl ProviderDriver for AceNativeProvider {
                 "provider": "ace",
                 "capabilities": self.descriptor().capabilities,
             })),
+            "ace.events.emit" => {
+                let emit =
+                    serde_json::from_value::<NativeProviderEventsEmitRequest>(request.params)
+                        .map_err(|error| ProviderDriverError::RequestFailed {
+                            provider: "ace".to_string(),
+                            method: "ace.events.emit".to_string(),
+                            message: error.to_string(),
+                        })?;
+                let event_count = emit.events.len();
+                self.event_tx.send(emit.events).await.map_err(|_| {
+                    ProviderDriverError::RequestFailed {
+                        provider: "ace".to_string(),
+                        method: "ace.events.emit".to_string(),
+                        message: "Ace native provider event queue is closed".to_string(),
+                    }
+                })?;
+                Ok(json!({
+                    "provider": "ace",
+                    "accepted": true,
+                    "event_count": event_count,
+                }))
+            }
+            "ace.semantic_tool.emit" => {
+                let emit =
+                    serde_json::from_value::<NativeProviderSemanticToolEmitRequest>(request.params)
+                        .map_err(|error| ProviderDriverError::RequestFailed {
+                            provider: "ace".to_string(),
+                            method: "ace.semantic_tool.emit".to_string(),
+                            message: error.to_string(),
+                        })?;
+                self.event_tx
+                    .send(vec![ProviderEvent::SemanticTool {
+                        tool: Box::new(emit.tool),
+                    }])
+                    .await
+                    .map_err(|_| ProviderDriverError::RequestFailed {
+                        provider: "ace".to_string(),
+                        method: "ace.semantic_tool.emit".to_string(),
+                        message: "Ace native provider event queue is closed".to_string(),
+                    })?;
+                Ok(json!({
+                    "provider": "ace",
+                    "accepted": true,
+                    "event_count": 1,
+                }))
+            }
             "ace.adapter.validate" => {
                 let request = serde_json::from_value::<AdapterValidationRequest>(request.params)
                     .map_err(|error| ProviderDriverError::RequestFailed {
@@ -243,7 +328,8 @@ impl ProviderDriver for AceNativeProvider {
 #[async_trait]
 impl ProviderEventSource for AceNativeProvider {
     async fn next_events(&self) -> Result<Option<Vec<ProviderEvent>>, ProviderDriverError> {
-        Ok(None)
+        let mut event_rx = self.event_rx.lock().await;
+        Ok(event_rx.recv().await)
     }
 }
 
@@ -280,6 +366,10 @@ impl ProviderServerRequestResponder for AceNativeProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tools::{
+        ProviderToolMetadata, ToolActionKind, ToolDisplay, ToolRunStatus, ToolSurface, ToolTarget,
+        ToolTargetKind, ToolTransport,
+    };
     use std::time::Duration;
 
     #[test]
@@ -490,11 +580,90 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn native_provider_exposes_empty_event_stream() {
+    async fn native_provider_emits_queued_normalized_events() {
         let provider = AceNativeProvider::new();
-        let events = provider.next_events().await.expect("event poll");
+        let response = provider
+            .request(ProviderRequest {
+                method: "ace.events.emit".to_string(),
+                params: json!({
+                    "events": [
+                        {
+                            "type": "raw_notification",
+                            "method": "thread/list/updated",
+                            "params": { "threadId": "thread-1" }
+                        }
+                    ]
+                }),
+                timeout: Duration::from_secs(1),
+            })
+            .await
+            .expect("emit events");
 
-        assert_eq!(events, None);
+        assert_eq!(response["accepted"], true);
+        assert_eq!(response["event_count"], 1);
+
+        let events = provider
+            .next_events()
+            .await
+            .expect("event poll")
+            .expect("queued events");
+        assert_eq!(
+            events,
+            vec![ProviderEvent::RawNotification {
+                method: "thread/list/updated".to_string(),
+                params: json!({ "threadId": "thread-1" }),
+            }]
+        );
+    }
+
+    #[tokio::test]
+    async fn native_provider_emits_semantic_tool_events() {
+        let provider = AceNativeProvider::new();
+        let mut metadata = ProviderToolMetadata::new();
+        metadata.provider = Some("ace".to_string());
+        metadata.tool_name = Some("browser".to_string());
+        metadata.operation = Some("click".to_string());
+        metadata.raw_args = json!({ "selector": "#submit" });
+        let tool = SemanticToolCall {
+            transport: ToolTransport::BrowserBridge,
+            surface: ToolSurface::Browser,
+            action: ToolActionKind::BrowserClick,
+            display: ToolDisplay {
+                title: "Clicked #submit in Browser".to_string(),
+                summary: None,
+                target: Some(ToolTarget {
+                    kind: ToolTargetKind::Selector,
+                    label: "#submit".to_string(),
+                }),
+                status: ToolRunStatus::Completed,
+                icon_key: "browser-click".to_string(),
+                technical_metadata: json!({ "provider": "ace" }),
+            },
+            provider: metadata,
+        };
+
+        let response = provider
+            .request(ProviderRequest {
+                method: "ace.semantic_tool.emit".to_string(),
+                params: json!({ "tool": tool }),
+                timeout: Duration::from_secs(1),
+            })
+            .await
+            .expect("emit semantic tool");
+
+        assert_eq!(response["accepted"], true);
+        assert_eq!(response["event_count"], 1);
+        let events = provider
+            .next_events()
+            .await
+            .expect("event poll")
+            .expect("semantic tool event");
+
+        let ProviderEvent::SemanticTool { tool } = &events[0] else {
+            panic!("expected semantic tool event");
+        };
+        assert_eq!(tool.display.title, "Clicked #submit in Browser");
+        assert_eq!(tool.provider.raw_args, json!({ "selector": "#submit" }));
     }
 
     #[tokio::test]

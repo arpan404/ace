@@ -5071,6 +5071,124 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn provider_runtime_emits_ace_native_semantic_tool_events_over_ws() {
+        let backend = Arc::new(FakeCodexBackend::default());
+        let runner = Arc::new(FakeRunner);
+        let state = WsApiState::new_services(
+            GitService::new(GitClient::with_runner(runner.clone())),
+            GithubService::new(GithubCliClient::with_runner(runner)),
+        )
+        .with_codex_service(CodexService::new(backend));
+        let (outbound_tx, mut outbound_rx) = tokio::sync::mpsc::channel::<String>(8);
+
+        let subscribe = state
+            .dispatch_text_with_events(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "ace-provider-events",
+                    "method": methods::PROVIDER_RUNTIME_EVENTS_SUBSCRIBE,
+                    "payload": { "provider": "ace" }
+                })
+                .to_string(),
+                Some(outbound_tx),
+            )
+            .await;
+        let subscribe: WsServerResponse = serde_json::from_str(&subscribe).expect("subscribe");
+        let WsServerPayload::Result { body } = subscribe.payload else {
+            panic!("expected subscribe result");
+        };
+        assert_eq!(body["subscribed"], true);
+        assert_eq!(body["provider"], "ace");
+
+        let emit = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "ace-semantic-tool-emit",
+                    "method": methods::PROVIDER_RUNTIME_REQUEST,
+                    "payload": {
+                        "provider": "ace",
+                        "method": "ace.semantic_tool.emit",
+                        "params": {
+                            "tool": {
+                                "transport": "browser_bridge",
+                                "surface": "browser",
+                                "action": "browser.click",
+                                "display": {
+                                    "title": "Clicked Deploy in Browser",
+                                    "summary": "selector #deploy",
+                                    "target": {
+                                        "kind": "selector",
+                                        "label": "#deploy"
+                                    },
+                                    "status": "completed",
+                                    "icon_key": "browser-click",
+                                    "technical_metadata": {
+                                        "operation": "click"
+                                    }
+                                },
+                                "provider": {
+                                    "provider": "ace",
+                                    "method": "ace.semantic_tool.emit",
+                                    "item_id": "tool-1",
+                                    "turn_id": "turn-1",
+                                    "thread_id": "thread-1",
+                                    "server_name": null,
+                                    "tool_name": "browser",
+                                    "operation": "click",
+                                    "raw_args": {
+                                        "selector": "#deploy"
+                                    },
+                                    "raw_result": {
+                                        "ok": true
+                                    },
+                                    "raw_payload": {
+                                        "tool": "browser",
+                                        "operation": "click"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let emit: WsServerResponse = serde_json::from_str(&emit).expect("emit response");
+        let WsServerPayload::Result { body } = emit.payload else {
+            panic!("expected emit result");
+        };
+        assert_eq!(body["accepted"], true);
+        assert_eq!(body["event_count"], 1);
+
+        let pushed = tokio::time::timeout(std::time::Duration::from_secs(1), outbound_rx.recv())
+            .await
+            .expect("ace provider runtime event timeout")
+            .expect("ace provider runtime event");
+        let pushed: WsServerResponse = serde_json::from_str(&pushed).expect("pushed response");
+        let WsServerPayload::Event { topic, body } = pushed.payload else {
+            panic!("expected websocket event");
+        };
+
+        assert_eq!(topic, PROVIDER_RUNTIME_EVENT_TOPIC);
+        assert_eq!(body["provider"], "ace");
+        assert_eq!(body["events"][0]["type"], "tool_completed");
+        assert_eq!(
+            body["events"][0]["tool"]["display"]["title"],
+            "Clicked Deploy in Browser"
+        );
+        assert_eq!(
+            body["events"][0]["tool"]["provider"]["raw_args"],
+            json!({ "selector": "#deploy" })
+        );
+        assert_eq!(body["raw_events"][0]["type"], "semantic_tool");
+        assert_eq!(
+            body["projection_deltas"][0]["tool"]["display"]["title"],
+            "Clicked Deploy in Browser"
+        );
+    }
+
+    #[tokio::test]
     async fn provider_runtime_filters_pending_server_requests_for_inactive_thread_routing() {
         let backend = Arc::new(FakeCodexBackend::default());
         let runner = Arc::new(FakeRunner);
