@@ -191,6 +191,8 @@ pub struct PlanImplementationRecord {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ThreadLifecycleActionKind {
+    Start,
+    Resume,
     Archive,
     Unarchive,
     Delete,
@@ -780,6 +782,8 @@ fn thread_lifecycle_from_signal(signal: &NormalizedRuntimeSignal) -> Option<Thre
 
 fn thread_lifecycle_action_kind(action: &str) -> Option<ThreadLifecycleActionKind> {
     match action {
+        "start" | "started" => Some(ThreadLifecycleActionKind::Start),
+        "resume" | "resumed" => Some(ThreadLifecycleActionKind::Resume),
         "archive" | "archived" => Some(ThreadLifecycleActionKind::Archive),
         "unarchive" | "unarchived" => Some(ThreadLifecycleActionKind::Unarchive),
         "delete" | "deleted" => Some(ThreadLifecycleActionKind::Delete),
@@ -1411,6 +1415,73 @@ mod tests {
                     reason: None,
                     text: None,
                     audio: None,
+                    status: Some("started".to_string()),
+                    name: None,
+                    active: Some(true),
+                    archived: None,
+                    diff: None,
+                    files: None,
+                    process_id: None,
+                    exit_code: None,
+                    request_id: None,
+                    metadata: json!({
+                        "action": "start",
+                        "request": { "cwd": "/repo" },
+                        "provider_response": { "thread": { "id": "thread-1" } }
+                    }),
+                    provider: ProviderMetadata {
+                        provider: "codex".to_string(),
+                        method: Some("ace/thread_lifecycle".to_string()),
+                        schema_version: None,
+                        raw_payload: json!({}),
+                    },
+                }),
+            },
+            ProviderEvent::RuntimeSignal {
+                signal: Box::new(NormalizedRuntimeSignal {
+                    kind: RuntimeSignalKind::ThreadLifecycleChanged,
+                    thread_id: Some("thread-1".to_string()),
+                    turn_id: None,
+                    item_id: None,
+                    message: None,
+                    from_model: None,
+                    to_model: None,
+                    reason: None,
+                    text: None,
+                    audio: None,
+                    status: Some("resumed".to_string()),
+                    name: None,
+                    active: Some(true),
+                    archived: None,
+                    diff: None,
+                    files: None,
+                    process_id: None,
+                    exit_code: None,
+                    request_id: None,
+                    metadata: json!({
+                        "action": "resume",
+                        "provider_response": { "thread": { "id": "thread-1" } }
+                    }),
+                    provider: ProviderMetadata {
+                        provider: "codex".to_string(),
+                        method: Some("ace/thread_lifecycle".to_string()),
+                        schema_version: None,
+                        raw_payload: json!({}),
+                    },
+                }),
+            },
+            ProviderEvent::RuntimeSignal {
+                signal: Box::new(NormalizedRuntimeSignal {
+                    kind: RuntimeSignalKind::ThreadLifecycleChanged,
+                    thread_id: Some("thread-1".to_string()),
+                    turn_id: None,
+                    item_id: None,
+                    message: None,
+                    from_model: None,
+                    to_model: None,
+                    reason: None,
+                    text: None,
+                    audio: None,
                     status: Some("renamed".to_string()),
                     name: Some("Adapter parity".to_string()),
                     active: None,
@@ -1504,19 +1575,24 @@ mod tests {
         ]);
 
         let lifecycle = state.thread_lifecycle();
-        assert_eq!(lifecycle.len(), 3);
-        assert_eq!(lifecycle[0].action, ThreadLifecycleActionKind::SetName);
-        assert_eq!(lifecycle[0].name.as_deref(), Some("Adapter parity"));
-        assert_eq!(lifecycle[0].request["name"], "Adapter parity");
-        assert_eq!(lifecycle[0].provider_response["name"], "Adapter parity");
-        assert_eq!(lifecycle[1].action, ThreadLifecycleActionKind::Rollback);
-        assert_eq!(lifecycle[1].turn_id.as_deref(), Some("turn-2"));
-        assert_eq!(lifecycle[1].request["turn_id"], "turn-2");
-        assert_eq!(lifecycle[1].provider_response["rolled_back"], true);
-        assert_eq!(lifecycle[2].action, ThreadLifecycleActionKind::InjectItems);
-        assert_eq!(lifecycle[2].item_count, Some(2));
-        assert_eq!(lifecycle[2].request["items"][1]["type"], "agentMessage");
-        assert_eq!(lifecycle[2].provider_response["injected"], true);
+        assert_eq!(lifecycle.len(), 5);
+        assert_eq!(lifecycle[0].action, ThreadLifecycleActionKind::Start);
+        assert_eq!(lifecycle[0].request["cwd"], "/repo");
+        assert_eq!(lifecycle[0].provider_response["thread"]["id"], "thread-1");
+        assert_eq!(lifecycle[1].action, ThreadLifecycleActionKind::Resume);
+        assert_eq!(lifecycle[1].provider_response["thread"]["id"], "thread-1");
+        assert_eq!(lifecycle[2].action, ThreadLifecycleActionKind::SetName);
+        assert_eq!(lifecycle[2].name.as_deref(), Some("Adapter parity"));
+        assert_eq!(lifecycle[2].request["name"], "Adapter parity");
+        assert_eq!(lifecycle[2].provider_response["name"], "Adapter parity");
+        assert_eq!(lifecycle[3].action, ThreadLifecycleActionKind::Rollback);
+        assert_eq!(lifecycle[3].turn_id.as_deref(), Some("turn-2"));
+        assert_eq!(lifecycle[3].request["turn_id"], "turn-2");
+        assert_eq!(lifecycle[3].provider_response["rolled_back"], true);
+        assert_eq!(lifecycle[4].action, ThreadLifecycleActionKind::InjectItems);
+        assert_eq!(lifecycle[4].item_count, Some(2));
+        assert_eq!(lifecycle[4].request["items"][1]["type"], "agentMessage");
+        assert_eq!(lifecycle[4].provider_response["injected"], true);
     }
 
     #[test]

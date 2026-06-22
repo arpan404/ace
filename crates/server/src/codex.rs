@@ -560,14 +560,32 @@ impl CodexService {
         &self,
         request: CodexThreadStart,
     ) -> std::result::Result<Value, CodexApiError> {
-        Ok(self.backend.start_thread(request).await?)
+        let request_value = serde_json::to_value(&request).unwrap_or(Value::Null);
+        let response = self.backend.start_thread(request).await?;
+        let thread_id = extract_thread_id(&response).ok_or(CodexApiError::MissingThreadId)?;
+        self.record_thread_lifecycle(thread_lifecycle_record(
+            thread_id,
+            ThreadLifecycleActionKind::Start,
+            request_value,
+            response.clone(),
+        ))
+        .await;
+        Ok(response)
     }
 
     pub async fn resume_thread(
         &self,
         thread_id: String,
     ) -> std::result::Result<Value, CodexApiError> {
-        Ok(self.backend.resume_thread(&thread_id).await?)
+        let response = self.backend.resume_thread(&thread_id).await?;
+        self.record_thread_lifecycle(thread_lifecycle_record(
+            thread_id,
+            ThreadLifecycleActionKind::Resume,
+            Value::Null,
+            response.clone(),
+        ))
+        .await;
+        Ok(response)
     }
 
     pub async fn fork_thread(
