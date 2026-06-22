@@ -1587,6 +1587,30 @@ fn codex_versioned_app_server_request(
             "remote/handoff",
             typed_or_enveloped::<CodexRemoteHandoffRequest>(payload)?,
         )),
+        methods::CODEX_ACCOUNT_LOGIN_START => {
+            Some(("account/login/start", raw_or_enveloped(payload)?))
+        }
+        methods::CODEX_ACCOUNT_LOGIN_CANCEL => {
+            Some(("account/login/cancel", raw_or_enveloped(payload)?))
+        }
+        methods::CODEX_ACCOUNT_LOGOUT => Some(("account/logout", raw_or_enveloped(payload)?)),
+        methods::CODEX_ACCOUNT_READ => Some(("account/read", raw_or_enveloped(payload)?)),
+        methods::CODEX_ACCOUNT_RATE_LIMITS_READ => {
+            Some(("account/rateLimits/read", raw_or_enveloped(payload)?))
+        }
+        methods::CODEX_ACCOUNT_USAGE_READ => {
+            Some(("account/usage/read", raw_or_enveloped(payload)?))
+        }
+        methods::CODEX_ACCOUNT_SEND_ADD_CREDITS_NUDGE_EMAIL => Some((
+            "account/sendAddCreditsNudgeEmail",
+            raw_or_enveloped(payload)?,
+        )),
+        methods::CODEX_WINDOWS_SANDBOX_READINESS => {
+            Some(("windowsSandbox/readiness", raw_or_enveloped(payload)?))
+        }
+        methods::CODEX_WINDOWS_SANDBOX_SETUP_START => {
+            Some(("windowsSandbox/setupStart", raw_or_enveloped(payload)?))
+        }
         _ => None,
     };
     Ok(request)
@@ -4403,6 +4427,36 @@ mod tests {
                 methods::CODEX_REMOTE_HANDOFF,
                 json!({ "thread_id": "thread-1", "host": "devbox" }),
             ),
+            (
+                methods::CODEX_ACCOUNT_LOGIN_START,
+                json!({ "provider": "chatgpt" }),
+            ),
+            (
+                methods::CODEX_ACCOUNT_LOGIN_CANCEL,
+                json!({ "flowId": "flow-1" }),
+            ),
+            (
+                methods::CODEX_ACCOUNT_LOGOUT,
+                json!({ "accountId": "acct-1" }),
+            ),
+            (methods::CODEX_ACCOUNT_READ, json!({})),
+            (
+                methods::CODEX_ACCOUNT_RATE_LIMITS_READ,
+                json!({ "accountId": "acct-1" }),
+            ),
+            (
+                methods::CODEX_ACCOUNT_USAGE_READ,
+                json!({ "accountId": "acct-1" }),
+            ),
+            (
+                methods::CODEX_ACCOUNT_SEND_ADD_CREDITS_NUDGE_EMAIL,
+                json!({ "accountId": "acct-1" }),
+            ),
+            (methods::CODEX_WINDOWS_SANDBOX_READINESS, json!({})),
+            (
+                methods::CODEX_WINDOWS_SANDBOX_SETUP_START,
+                json!({ "mode": "default" }),
+            ),
         ];
 
         for (index, (method, payload)) in calls.iter().enumerate() {
@@ -4451,6 +4505,15 @@ mod tests {
                 "plugin/share/updateTargets",
                 "apps/configWrite",
                 "remote/handoff",
+                "account/login/start",
+                "account/login/cancel",
+                "account/logout",
+                "account/read",
+                "account/rateLimits/read",
+                "account/usage/read",
+                "account/sendAddCreditsNudgeEmail",
+                "windowsSandbox/readiness",
+                "windowsSandbox/setupStart",
             ]
         );
 
@@ -4572,6 +4635,29 @@ mod tests {
         assert_eq!(method, "plugin/share/updateTargets");
         assert_eq!(params["shareId"], "share-1");
         assert_eq!(params["targets"][0], "team");
+    }
+
+    #[test]
+    fn codex_raw_account_and_windows_methods_preserve_payload_shape() {
+        let (method, params) = codex_versioned_app_server_request(
+            methods::CODEX_ACCOUNT_LOGIN_START,
+            &json!({ "provider": "chatgpt", "scopes": ["openid"] }),
+        )
+        .expect("account login start")
+        .expect("account method");
+        assert_eq!(method, "account/login/start");
+        assert_eq!(params["provider"], "chatgpt");
+        assert_eq!(params["scopes"][0], "openid");
+
+        let (method, params) = codex_versioned_app_server_request(
+            methods::CODEX_WINDOWS_SANDBOX_SETUP_START,
+            &json!({ "params": { "mode": "default", "force": true } }),
+        )
+        .expect("windows setup")
+        .expect("windows method");
+        assert_eq!(method, "windowsSandbox/setupStart");
+        assert_eq!(params["mode"], "default");
+        assert_eq!(params["force"], true);
     }
 
     #[tokio::test]

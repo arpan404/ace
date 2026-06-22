@@ -84,6 +84,16 @@ pub mod methods {
     pub const CODEX_APPS_CONFIG_WRITE: &str = "codex.apps.config_write";
     pub const CODEX_REMOTE_CONNECTION_LIST: &str = "codex.remote.connection_list";
     pub const CODEX_REMOTE_HANDOFF: &str = "codex.remote.handoff";
+    pub const CODEX_ACCOUNT_LOGIN_START: &str = "codex.account.login_start";
+    pub const CODEX_ACCOUNT_LOGIN_CANCEL: &str = "codex.account.login_cancel";
+    pub const CODEX_ACCOUNT_LOGOUT: &str = "codex.account.logout";
+    pub const CODEX_ACCOUNT_READ: &str = "codex.account.read";
+    pub const CODEX_ACCOUNT_RATE_LIMITS_READ: &str = "codex.account.rate_limits_read";
+    pub const CODEX_ACCOUNT_USAGE_READ: &str = "codex.account.usage_read";
+    pub const CODEX_ACCOUNT_SEND_ADD_CREDITS_NUDGE_EMAIL: &str =
+        "codex.account.send_add_credits_nudge_email";
+    pub const CODEX_WINDOWS_SANDBOX_READINESS: &str = "codex.windows_sandbox.readiness";
+    pub const CODEX_WINDOWS_SANDBOX_SETUP_START: &str = "codex.windows_sandbox.setup_start";
     pub const CODEX_STDERR_TAIL: &str = "codex.stderr_tail";
     pub const CODEX_SHUTDOWN: &str = "codex.shutdown";
     pub const CODEX_RESTART: &str = "codex.restart";

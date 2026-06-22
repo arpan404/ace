@@ -1175,6 +1175,43 @@ impl<T: AppServerTransport> CodexClient<T> {
         self.raw_request("remote/handoff", params).await
     }
 
+    pub async fn account_login_start(&self, params: Value) -> Result<Value> {
+        self.raw_request("account/login/start", params).await
+    }
+
+    pub async fn account_login_cancel(&self, params: Value) -> Result<Value> {
+        self.raw_request("account/login/cancel", params).await
+    }
+
+    pub async fn account_logout(&self, params: Value) -> Result<Value> {
+        self.raw_request("account/logout", params).await
+    }
+
+    pub async fn account_read(&self, params: Value) -> Result<Value> {
+        self.raw_request("account/read", params).await
+    }
+
+    pub async fn account_rate_limits_read(&self, params: Value) -> Result<Value> {
+        self.raw_request("account/rateLimits/read", params).await
+    }
+
+    pub async fn account_usage_read(&self, params: Value) -> Result<Value> {
+        self.raw_request("account/usage/read", params).await
+    }
+
+    pub async fn account_send_add_credits_nudge_email(&self, params: Value) -> Result<Value> {
+        self.raw_request("account/sendAddCreditsNudgeEmail", params)
+            .await
+    }
+
+    pub async fn windows_sandbox_readiness(&self, params: Value) -> Result<Value> {
+        self.raw_request("windowsSandbox/readiness", params).await
+    }
+
+    pub async fn windows_sandbox_setup_start(&self, params: Value) -> Result<Value> {
+        self.raw_request("windowsSandbox/setupStart", params).await
+    }
+
     pub async fn next_provider_events(&self) -> Option<Vec<ProviderEvent>> {
         self.transport
             .recv()
@@ -1948,6 +1985,68 @@ mod tests {
         assert_eq!(requests[11].1["fromPath"], "src/lib.rs");
         assert_eq!(requests[19].1["tool"], "list_issues");
         assert_eq!(requests.last().expect("remote handoff").1["host"], "devbox");
+    }
+
+    #[tokio::test]
+    async fn account_and_windows_methods_use_documented_codex_calls() {
+        let fake = FakeTransport::default();
+        let client = CodexClient::new(fake, Duration::from_secs(1));
+
+        client
+            .account_login_start(json!({ "provider": "chatgpt" }))
+            .await
+            .expect("login start");
+        client
+            .account_login_cancel(json!({ "flowId": "flow-1" }))
+            .await
+            .expect("login cancel");
+        client
+            .account_logout(json!({ "accountId": "acct-1" }))
+            .await
+            .expect("logout");
+        client.account_read(json!({})).await.expect("account read");
+        client
+            .account_rate_limits_read(json!({ "accountId": "acct-1" }))
+            .await
+            .expect("rate limits");
+        client
+            .account_usage_read(json!({ "accountId": "acct-1" }))
+            .await
+            .expect("usage");
+        client
+            .account_send_add_credits_nudge_email(json!({ "accountId": "acct-1" }))
+            .await
+            .expect("nudge");
+        client
+            .windows_sandbox_readiness(json!({}))
+            .await
+            .expect("windows readiness");
+        client
+            .windows_sandbox_setup_start(json!({ "mode": "default" }))
+            .await
+            .expect("windows setup");
+
+        let requests = client.transport.requests.lock().expect("requests");
+        let methods = requests
+            .iter()
+            .map(|(method, _)| method.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            methods,
+            [
+                "account/login/start",
+                "account/login/cancel",
+                "account/logout",
+                "account/read",
+                "account/rateLimits/read",
+                "account/usage/read",
+                "account/sendAddCreditsNudgeEmail",
+                "windowsSandbox/readiness",
+                "windowsSandbox/setupStart",
+            ]
+        );
+        assert_eq!(requests[0].1["provider"], "chatgpt");
+        assert_eq!(requests[8].1["mode"], "default");
     }
 
     #[tokio::test]
