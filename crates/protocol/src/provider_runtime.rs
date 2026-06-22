@@ -493,6 +493,8 @@ pub struct ProviderRuntimeProviderState {
     pub display_name: String,
     pub source: ProviderRuntimeStateSource,
     pub persisted_replay_available: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_persisted_sequence: Option<i64>,
     pub state: AgentRuntimeSnapshot,
 }
 

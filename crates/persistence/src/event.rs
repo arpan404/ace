@@ -334,6 +334,18 @@ impl ProviderEventLogRepository {
         )?;
         Ok(count != 0)
     }
+
+    pub fn last_provider_event_sequence(
+        &self,
+        provider: &str,
+    ) -> Result<Option<i64>, PersistenceError> {
+        let sequence = self.connection.query_row(
+            "SELECT MAX(sequence) FROM provider_events WHERE provider = ?1",
+            params![provider],
+            |row| row.get::<_, Option<i64>>(0),
+        )?;
+        Ok(sequence)
+    }
 }
 
 fn collect_server_requests<I>(rows: I) -> Result<Vec<ProviderServerRequestRecord>, PersistenceError>
@@ -439,6 +451,16 @@ mod tests {
         assert!(repo.has_provider_events("codex").expect("codex events"));
         assert!(repo.has_provider_events("ace").expect("ace events"));
         assert!(!repo.has_provider_events("missing").expect("missing events"));
+        assert_eq!(
+            repo.last_provider_event_sequence("codex")
+                .expect("codex last sequence"),
+            Some(first[1].sequence)
+        );
+        assert_eq!(
+            repo.last_provider_event_sequence("missing")
+                .expect("missing last sequence"),
+            None
+        );
 
         let all = repo.recent(None, 2).expect("recent all");
         assert_eq!(all.len(), 2);

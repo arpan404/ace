@@ -1024,11 +1024,13 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 let providers = self.provider_runtime_filter(request.provider, "state get")?;
                 let mut provider_states = Vec::with_capacity(providers.len());
                 for provider in providers {
-                    let persisted_replay_available = self
-                        .provider_events
-                        .lock()
-                        .expect("provider event log")
-                        .has_provider_events(provider.runtime_id())?;
+                    let (persisted_replay_available, last_persisted_sequence) = {
+                        let event_log = self.provider_events.lock().expect("provider event log");
+                        (
+                            event_log.has_provider_events(provider.runtime_id())?,
+                            event_log.last_provider_event_sequence(provider.runtime_id())?,
+                        )
+                    };
                     if request.source == ProviderRuntimeStateSource::Persisted {
                         let persisted_snapshot = self
                             .provider_events
@@ -1041,6 +1043,7 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                             display_name: provider.display_name().to_string(),
                             source: ProviderRuntimeStateSource::Persisted,
                             persisted_replay_available,
+                            last_persisted_sequence,
                             state: persisted_snapshot,
                         });
                         continue;
@@ -1060,6 +1063,7 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                         display_name: provider.display_name().to_string(),
                         source: ProviderRuntimeStateSource::Live,
                         persisted_replay_available,
+                        last_persisted_sequence,
                         state: self.providers.runtime_state_snapshot(provider).await?,
                     });
                 }
@@ -7892,6 +7896,11 @@ mod tests {
         assert_eq!(body["providers"][0]["runtime_id"], "codex");
         assert_eq!(body["providers"][0]["source"], "live");
         assert_eq!(body["providers"][0]["persisted_replay_available"], true);
+        assert!(
+            body["providers"][0]["last_persisted_sequence"]
+                .as_i64()
+                .is_some_and(|sequence| sequence > 0)
+        );
         let snapshot_state = &body["providers"][0]["state"];
         assert_eq!(snapshot_state["active_turns"][0]["thread_id"], "thread-1");
         assert_eq!(snapshot_state["active_turns"][0]["turn_id"], "turn-1");
@@ -7968,12 +7977,14 @@ mod tests {
                 .iter()
                 .any(|provider| provider["runtime_id"] == "codex"
                     && provider["source"] == "live"
-                    && provider["persisted_replay_available"] == true)
+                    && provider["persisted_replay_available"] == true
+                    && provider["last_persisted_sequence"].as_i64().is_some())
         );
         assert!(providers.iter().any(|provider| {
             provider["runtime_id"] == "ace"
                 && provider["source"] == "live"
                 && provider["persisted_replay_available"] == false
+                && provider["last_persisted_sequence"] == Value::Null
                 && provider["state"]["provider_states"][0]["status"] == "ready"
                 && provider["state"]["provider_states"][0]["metadata"]["pending_server_requests"]
                     == 0
@@ -7998,6 +8009,7 @@ mod tests {
         assert_eq!(body["providers"][0]["runtime_id"], "ace");
         assert_eq!(body["providers"][0]["source"], "live");
         assert_eq!(body["providers"][0]["persisted_replay_available"], false);
+        assert_eq!(body["providers"][0]["last_persisted_sequence"], Value::Null);
         assert_eq!(
             body["providers"][0]["state"]["provider_states"][0]["name"],
             "Ace native provider"
@@ -8295,6 +8307,11 @@ mod tests {
         assert_eq!(body["providers"][0]["runtime_id"], "codex");
         assert_eq!(body["providers"][0]["source"], "persisted");
         assert_eq!(body["providers"][0]["persisted_replay_available"], true);
+        assert!(
+            body["providers"][0]["last_persisted_sequence"]
+                .as_i64()
+                .is_some_and(|sequence| sequence > 0)
+        );
         let snapshot_state = &body["providers"][0]["state"];
         assert_eq!(snapshot_state["thread_items"].as_array().unwrap().len(), 2);
         assert_eq!(snapshot_state["thread_items"][0]["item_id"], "item-1");
