@@ -3,10 +3,11 @@ use ace_git::ProcessRunner;
 use ace_protocol::{
     PROTOCOL_VERSION,
     codex::{
-        CodexPlanTurnStartRequest, CodexRawRequest, CodexShutdownRequest, CodexStderrTailResponse,
-        CodexThreadForkRequest, CodexThreadIdRequest, CodexThreadInjectItemsRequest,
-        CodexThreadRollbackRequest, CodexThreadSetNameRequest, CodexThreadStartRequest,
-        CodexThreadUpdateMetadataRequest, CodexThreadsListRequest, CodexTurnStartRequest,
+        CodexPlanImplementationRequest, CodexPlanTurnStartRequest, CodexRawRequest,
+        CodexShutdownRequest, CodexStderrTailResponse, CodexThreadForkRequest,
+        CodexThreadIdRequest, CodexThreadInjectItemsRequest, CodexThreadRollbackRequest,
+        CodexThreadSetNameRequest, CodexThreadStartRequest, CodexThreadUpdateMetadataRequest,
+        CodexThreadsListRequest, CodexTurnStartRequest,
     },
     provider_runtime::{
         PROVIDER_RUNTIME_EVENT_TOPIC, ProviderRuntimeEvent, ProviderRuntimeEventBatch,
@@ -188,6 +189,33 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 self.codex_json::<CodexThreadIdRequest, _, _, _>(
                     payload,
                     |service, request| async move { service.interrupt_turn(request.thread_id).await },
+                )
+                .await
+            }
+            methods::CODEX_PLAN_CONTINUE_IN_THREAD => {
+                self.codex_json::<CodexPlanImplementationRequest, _, _, _>(
+                    payload,
+                    |service, request| async move {
+                        service.continue_plan_in_thread(request.params).await
+                    },
+                )
+                .await
+            }
+            methods::CODEX_PLAN_FORK_FOR_IMPLEMENTATION => {
+                self.codex_json::<CodexPlanImplementationRequest, _, _, _>(
+                    payload,
+                    |service, request| async move {
+                        service.fork_plan_for_implementation(request.params).await
+                    },
+                )
+                .await
+            }
+            methods::CODEX_PLAN_SIDE_IMPLEMENTATION => {
+                self.codex_json::<CodexPlanImplementationRequest, _, _, _>(
+                    payload,
+                    |service, request| async move {
+                        service.side_implementation(request.params).await
+                    },
                 )
                 .await
             }
@@ -416,6 +444,64 @@ mod tests {
         assert_eq!(
             backend.calls.lock().expect("calls").as_slice(),
             ["turn/start:thread-1"]
+        );
+    }
+
+    #[tokio::test]
+    async fn dispatches_codex_plan_implementation_actions_over_ws_rpc() {
+        let backend = Arc::new(FakeCodexBackend::default());
+        let runner = Arc::new(FakeRunner);
+        let state = WsApiState::new_services(
+            GitService::new(GitClient::with_runner(runner.clone())),
+            GithubService::new(GithubCliClient::with_runner(runner)),
+        )
+        .with_codex_service(CodexService::new(backend.clone()));
+
+        let base_payload = json!({
+            "thread_id": "thread-1",
+            "plan": { "markdown": "1. Edit\n2. Test" },
+            "prompt": "implement this plan",
+            "model": "gpt-5.5",
+            "cwd": "/tmp/repo",
+            "approval_policy": { "mode": "on-request" },
+            "approvals_reviewer": "user"
+        });
+
+        for (index, method) in [
+            methods::CODEX_PLAN_CONTINUE_IN_THREAD,
+            methods::CODEX_PLAN_FORK_FOR_IMPLEMENTATION,
+            methods::CODEX_PLAN_SIDE_IMPLEMENTATION,
+        ]
+        .iter()
+        .enumerate()
+        {
+            let response = state
+                .dispatch_text(
+                    &json!({
+                        "version": PROTOCOL_VERSION,
+                        "request_id": format!("plan-impl-{index}"),
+                        "method": method,
+                        "payload": base_payload
+                    })
+                    .to_string(),
+                )
+                .await;
+            let response: WsServerResponse = serde_json::from_str(&response).expect("response");
+            assert!(matches!(response.payload, WsServerPayload::Result { .. }));
+        }
+
+        assert_eq!(
+            backend.calls.lock().expect("calls").as_slice(),
+            [
+                "thread/injectItems:thread-1:1",
+                "turn/start:thread-1",
+                "thread/fork:thread-1:false",
+                "thread/injectItems:fork-1:1",
+                "turn/start:fork-1",
+                "thread/fork:thread-1:true",
+                "thread/injectItems:fork-1:1",
+                "turn/start:fork-1",
+            ]
         );
     }
 

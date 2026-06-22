@@ -108,6 +108,39 @@ impl CodexTurnStart {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CodexPlanImplementation {
+    pub thread_id: String,
+    pub plan: Value,
+    pub prompt: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sandbox_policy: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approval_policy: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approvals_reviewer: Option<String>,
+}
+
+impl CodexPlanImplementation {
+    #[must_use]
+    pub fn into_turn_start(self, thread_id: String) -> CodexTurnStart {
+        CodexTurnStart {
+            thread_id,
+            input: vec![json!({ "type": "text", "text": self.prompt })],
+            model: self.model,
+            cwd: self.cwd,
+            sandbox_policy: self.sandbox_policy,
+            approval_policy: self.approval_policy,
+            approvals_reviewer: self.approvals_reviewer,
+            collaboration_mode: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CodexProviderRequest {
     pub method: String,
     #[serde(default)]
@@ -266,6 +299,57 @@ impl<T: AppServerTransport> CodexClient<T> {
             .await
     }
 
+    pub async fn continue_plan_in_thread(&self, request: CodexPlanImplementation) -> Result<Value> {
+        let thread_id = request.thread_id.clone();
+        self.inject_thread_items(&thread_id, vec![accepted_plan_item(request.plan.clone())])
+            .await?;
+        let turn = request.into_turn_start(thread_id.clone());
+        let turn_response = self.start_turn(turn).await?;
+        Ok(json!({
+            "threadId": thread_id,
+            "turn": turn_response,
+            "forked": false,
+            "ephemeral": false,
+        }))
+    }
+
+    pub async fn fork_plan_for_implementation(
+        &self,
+        request: CodexPlanImplementation,
+    ) -> Result<Value> {
+        self.implement_plan_in_fork(request, false).await
+    }
+
+    pub async fn side_implementation(&self, request: CodexPlanImplementation) -> Result<Value> {
+        self.implement_plan_in_fork(request, true).await
+    }
+
+    async fn implement_plan_in_fork(
+        &self,
+        request: CodexPlanImplementation,
+        ephemeral: bool,
+    ) -> Result<Value> {
+        let parent_thread_id = request.thread_id.clone();
+        let fork_response = self.fork_thread(&parent_thread_id, ephemeral).await?;
+        let thread_id = extract_thread_id(&fork_response).ok_or_else(|| {
+            CodexError::InvalidMessage(
+                "thread/fork response did not include a thread id".to_string(),
+            )
+        })?;
+        self.inject_thread_items(&thread_id, vec![accepted_plan_item(request.plan.clone())])
+            .await?;
+        let turn = request.into_turn_start(thread_id.clone());
+        let turn_response = self.start_turn(turn).await?;
+        Ok(json!({
+            "threadId": thread_id,
+            "parentThreadId": parent_thread_id,
+            "fork": fork_response,
+            "turn": turn_response,
+            "forked": true,
+            "ephemeral": ephemeral,
+        }))
+    }
+
     pub async fn interrupt_turn(&self, thread_id: &str) -> Result<Value> {
         self.raw_request("turn/interrupt", json!({ "threadId": thread_id }))
             .await
@@ -300,6 +384,25 @@ impl<T: AppServerTransport> CodexClient<T> {
             .respond_error(request_id, code, message)
             .await
     }
+}
+
+#[must_use]
+pub fn accepted_plan_item(plan: Value) -> Value {
+    json!({
+        "type": "plan",
+        "status": "accepted",
+        "content": plan,
+    })
+}
+
+fn extract_thread_id(response: &Value) -> Option<String> {
+    response
+        .pointer("/thread/id")
+        .or_else(|| response.pointer("/thread/threadId"))
+        .or_else(|| response.get("threadId"))
+        .or_else(|| response.get("id"))
+        .and_then(Value::as_str)
+        .map(ToString::to_string)
 }
 
 #[derive(Clone)]
@@ -496,6 +599,86 @@ mod tests {
         assert_eq!(requests[8].1["metadata"]["project"], "ace");
         assert_eq!(requests[10].1["turnId"], "turn-2");
         assert_eq!(requests[11].1["items"][0]["type"], "userMessage");
+    }
+
+    #[tokio::test]
+    async fn continues_plan_by_injecting_accepted_plan_then_starting_turn() {
+        let fake = FakeTransport::default();
+        fake.responses
+            .lock()
+            .expect("responses")
+            .push_back(Ok(json!({ "injected": 1 })));
+        fake.responses
+            .lock()
+            .expect("responses")
+            .push_back(Ok(json!({ "turn": { "id": "turn-1" } })));
+        let client = CodexClient::new(fake, Duration::from_secs(1));
+
+        let response = client
+            .continue_plan_in_thread(CodexPlanImplementation {
+                thread_id: "thread-1".to_string(),
+                plan: json!({ "markdown": "Do it carefully" }),
+                prompt: "implement the plan".to_string(),
+                model: Some("gpt-5.5".to_string()),
+                cwd: None,
+                sandbox_policy: None,
+                approval_policy: None,
+                approvals_reviewer: None,
+            })
+            .await
+            .expect("continue plan");
+
+        assert_eq!(response["threadId"], "thread-1");
+        let requests = client.transport.requests.lock().expect("requests");
+        assert_eq!(requests[0].0, "thread/injectItems");
+        assert_eq!(requests[0].1["items"][0]["status"], "accepted");
+        assert_eq!(requests[1].0, "turn/start");
+        assert_eq!(requests[1].1["thread_id"], "thread-1");
+        assert_eq!(requests[1].1["model"], "gpt-5.5");
+    }
+
+    #[tokio::test]
+    async fn forks_plan_implementation_into_new_or_side_thread() {
+        let fake = FakeTransport::default();
+        fake.responses
+            .lock()
+            .expect("responses")
+            .push_back(Ok(json!({ "thread": { "id": "fork-1" } })));
+        fake.responses
+            .lock()
+            .expect("responses")
+            .push_back(Ok(json!({ "injected": 1 })));
+        fake.responses
+            .lock()
+            .expect("responses")
+            .push_back(Ok(json!({ "turn": { "id": "turn-1" } })));
+        let client = CodexClient::new(fake, Duration::from_secs(1));
+
+        let response = client
+            .side_implementation(CodexPlanImplementation {
+                thread_id: "thread-1".to_string(),
+                plan: json!({ "markdown": "Implement in isolation" }),
+                prompt: "build it".to_string(),
+                model: None,
+                cwd: Some("/tmp/repo".to_string()),
+                sandbox_policy: None,
+                approval_policy: None,
+                approvals_reviewer: None,
+            })
+            .await
+            .expect("side implementation");
+
+        assert_eq!(response["threadId"], "fork-1");
+        assert_eq!(response["parentThreadId"], "thread-1");
+        assert_eq!(response["ephemeral"], true);
+        let requests = client.transport.requests.lock().expect("requests");
+        assert_eq!(requests[0].0, "thread/fork");
+        assert_eq!(requests[0].1["ephemeral"], true);
+        assert_eq!(requests[1].0, "thread/injectItems");
+        assert_eq!(requests[1].1["threadId"], "fork-1");
+        assert_eq!(requests[2].0, "turn/start");
+        assert_eq!(requests[2].1["thread_id"], "fork-1");
+        assert_eq!(requests[2].1["cwd"], "/tmp/repo");
     }
 
     #[tokio::test]

@@ -1,5 +1,6 @@
 use ace_codex::{
-    CodexClient, CodexConfig, CodexStdioTransport, CodexThreadStart, CodexTurnStart, Result,
+    CodexClient, CodexConfig, CodexPlanImplementation, CodexStdioTransport, CodexThreadStart,
+    CodexTurnStart, Result,
 };
 use ace_runtime::provider::ProviderEvent;
 use async_trait::async_trait;
@@ -48,6 +49,10 @@ pub trait CodexBackend: Send + Sync {
     async fn rollback_thread(&self, thread_id: &str, turn_id: &str) -> Result<Value>;
     async fn inject_thread_items(&self, thread_id: &str, items: Vec<Value>) -> Result<Value>;
     async fn start_turn(&self, request: CodexTurnStart) -> Result<Value>;
+    async fn continue_plan_in_thread(&self, request: CodexPlanImplementation) -> Result<Value>;
+    async fn fork_plan_for_implementation(&self, request: CodexPlanImplementation)
+    -> Result<Value>;
+    async fn side_implementation(&self, request: CodexPlanImplementation) -> Result<Value>;
     async fn interrupt_turn(&self, thread_id: &str) -> Result<Value>;
     async fn next_events(&self) -> Result<Option<Vec<ProviderEvent>>>;
     async fn respond_server_request_result(&self, request_id: i64, result: Value) -> Result<()>;
@@ -166,6 +171,24 @@ impl CodexBackend for LiveCodexBackend {
 
     async fn start_turn(&self, request: CodexTurnStart) -> Result<Value> {
         self.client().await?.start_turn(request).await
+    }
+
+    async fn continue_plan_in_thread(&self, request: CodexPlanImplementation) -> Result<Value> {
+        self.client().await?.continue_plan_in_thread(request).await
+    }
+
+    async fn fork_plan_for_implementation(
+        &self,
+        request: CodexPlanImplementation,
+    ) -> Result<Value> {
+        self.client()
+            .await?
+            .fork_plan_for_implementation(request)
+            .await
+    }
+
+    async fn side_implementation(&self, request: CodexPlanImplementation) -> Result<Value> {
+        self.client().await?.side_implementation(request).await
     }
 
     async fn interrupt_turn(&self, thread_id: &str) -> Result<Value> {
@@ -352,6 +375,27 @@ impl CodexService {
         request: CodexTurnStart,
     ) -> std::result::Result<Value, CodexApiError> {
         Ok(self.backend.start_turn(request).await?)
+    }
+
+    pub async fn continue_plan_in_thread(
+        &self,
+        request: CodexPlanImplementation,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.continue_plan_in_thread(request).await?)
+    }
+
+    pub async fn fork_plan_for_implementation(
+        &self,
+        request: CodexPlanImplementation,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.fork_plan_for_implementation(request).await?)
+    }
+
+    pub async fn side_implementation(
+        &self,
+        request: CodexPlanImplementation,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.side_implementation(request).await?)
     }
 
     pub async fn interrupt_turn(
@@ -572,6 +616,29 @@ pub mod tests {
             Ok(serde_json::json!({ "turn": { "id": "turn-1" } }))
         }
 
+        async fn continue_plan_in_thread(&self, request: CodexPlanImplementation) -> Result<Value> {
+            self.inject_thread_items(
+                &request.thread_id,
+                vec![ace_codex::accepted_plan_item(request.plan.clone())],
+            )
+            .await?;
+            let thread_id = request.thread_id.clone();
+            self.start_turn(request.into_turn_start(thread_id.clone()))
+                .await?;
+            Ok(serde_json::json!({ "threadId": thread_id, "forked": false }))
+        }
+
+        async fn fork_plan_for_implementation(
+            &self,
+            request: CodexPlanImplementation,
+        ) -> Result<Value> {
+            self.implement_plan_in_fake_fork(request, false).await
+        }
+
+        async fn side_implementation(&self, request: CodexPlanImplementation) -> Result<Value> {
+            self.implement_plan_in_fake_fork(request, true).await
+        }
+
         async fn interrupt_turn(&self, thread_id: &str) -> Result<Value> {
             self.calls
                 .lock()
@@ -625,6 +692,31 @@ pub mod tests {
         async fn restart(&self, timeout: Duration) -> Result<()> {
             self.restarts.lock().expect("restarts").push(timeout);
             Ok(())
+        }
+    }
+
+    impl FakeCodexBackend {
+        async fn implement_plan_in_fake_fork(
+            &self,
+            request: CodexPlanImplementation,
+            ephemeral: bool,
+        ) -> Result<Value> {
+            let parent_thread_id = request.thread_id.clone();
+            self.fork_thread(&parent_thread_id, ephemeral).await?;
+            let thread_id = "fork-1".to_string();
+            self.inject_thread_items(
+                &thread_id,
+                vec![ace_codex::accepted_plan_item(request.plan.clone())],
+            )
+            .await?;
+            self.start_turn(request.into_turn_start(thread_id.clone()))
+                .await?;
+            Ok(serde_json::json!({
+                "threadId": thread_id,
+                "parentThreadId": parent_thread_id,
+                "forked": true,
+                "ephemeral": ephemeral,
+            }))
         }
     }
 }

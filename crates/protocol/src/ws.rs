@@ -21,6 +21,9 @@ pub mod methods {
     pub const CODEX_TURN_START: &str = "codex.turn.start";
     pub const CODEX_TURN_PLAN_START: &str = "codex.turn.plan_start";
     pub const CODEX_TURN_INTERRUPT: &str = "codex.turn.interrupt";
+    pub const CODEX_PLAN_CONTINUE_IN_THREAD: &str = "codex.plan.continue_in_thread";
+    pub const CODEX_PLAN_FORK_FOR_IMPLEMENTATION: &str = "codex.plan.fork_for_implementation";
+    pub const CODEX_PLAN_SIDE_IMPLEMENTATION: &str = "codex.plan.side_implementation";
     pub const CODEX_STDERR_TAIL: &str = "codex.stderr_tail";
     pub const CODEX_SHUTDOWN: &str = "codex.shutdown";
     pub const CODEX_RESTART: &str = "codex.restart";
