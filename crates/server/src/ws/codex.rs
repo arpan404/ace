@@ -4,8 +4,9 @@ use ace_protocol::{
     PROTOCOL_VERSION,
     codex::{
         CodexPlanTurnStartRequest, CodexRawRequest, CodexShutdownRequest, CodexStderrTailResponse,
-        CodexThreadForkRequest, CodexThreadIdRequest, CodexThreadStartRequest,
-        CodexTurnStartRequest,
+        CodexThreadForkRequest, CodexThreadIdRequest, CodexThreadInjectItemsRequest,
+        CodexThreadRollbackRequest, CodexThreadSetNameRequest, CodexThreadStartRequest,
+        CodexThreadUpdateMetadataRequest, CodexThreadsListRequest, CodexTurnStartRequest,
     },
     provider_runtime::{
         PROVIDER_RUNTIME_EVENT_TOPIC, ProviderRuntimeEvent, ProviderRuntimeEventBatch,
@@ -51,6 +52,111 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                     |service, request| async move {
                         service
                             .fork_thread(request.thread_id, request.ephemeral)
+                            .await
+                    },
+                )
+                .await
+            }
+            methods::CODEX_THREAD_READ => {
+                self.codex_json::<CodexThreadIdRequest, _, _, _>(
+                    payload,
+                    |service, request| async move { service.read_thread(request.thread_id).await },
+                )
+                .await
+            }
+            methods::CODEX_THREADS_LIST => {
+                self.codex_json::<CodexThreadsListRequest, _, _, _>(
+                    payload,
+                    |service, request| async move {
+                        let params =
+                            serde_json::to_value(request).expect("serialize thread list request");
+                        service.list_threads(params).await
+                    },
+                )
+                .await
+            }
+            methods::CODEX_THREADS_LOADED_LIST => {
+                let response = self.codex.list_loaded_threads().await?;
+                Ok(response)
+            }
+            methods::CODEX_THREAD_ARCHIVE => {
+                self.codex_json::<CodexThreadIdRequest, _, _, _>(
+                    payload,
+                    |service, request| async move { service.archive_thread(request.thread_id).await },
+                )
+                .await
+            }
+            methods::CODEX_THREAD_UNARCHIVE => {
+                self.codex_json::<CodexThreadIdRequest, _, _, _>(
+                    payload,
+                    |service, request| async move {
+                        service.unarchive_thread(request.thread_id).await
+                    },
+                )
+                .await
+            }
+            methods::CODEX_THREAD_DELETE => {
+                self.codex_json::<CodexThreadIdRequest, _, _, _>(
+                    payload,
+                    |service, request| async move { service.delete_thread(request.thread_id).await },
+                )
+                .await
+            }
+            methods::CODEX_THREAD_UNSUBSCRIBE => {
+                self.codex_json::<CodexThreadIdRequest, _, _, _>(
+                    payload,
+                    |service, request| async move {
+                        service.unsubscribe_thread(request.thread_id).await
+                    },
+                )
+                .await
+            }
+            methods::CODEX_THREAD_SET_NAME => {
+                self.codex_json::<CodexThreadSetNameRequest, _, _, _>(
+                    payload,
+                    |service, request| async move {
+                        service
+                            .set_thread_name(request.thread_id, request.name)
+                            .await
+                    },
+                )
+                .await
+            }
+            methods::CODEX_THREAD_UPDATE_METADATA => {
+                self.codex_json::<CodexThreadUpdateMetadataRequest, _, _, _>(
+                    payload,
+                    |service, request| async move {
+                        service
+                            .update_thread_metadata(request.thread_id, request.metadata)
+                            .await
+                    },
+                )
+                .await
+            }
+            methods::CODEX_THREAD_COMPACT => {
+                self.codex_json::<CodexThreadIdRequest, _, _, _>(
+                    payload,
+                    |service, request| async move { service.compact_thread(request.thread_id).await },
+                )
+                .await
+            }
+            methods::CODEX_THREAD_ROLLBACK => {
+                self.codex_json::<CodexThreadRollbackRequest, _, _, _>(
+                    payload,
+                    |service, request| async move {
+                        service
+                            .rollback_thread(request.thread_id, request.turn_id)
+                            .await
+                    },
+                )
+                .await
+            }
+            methods::CODEX_THREAD_INJECT_ITEMS => {
+                self.codex_json::<CodexThreadInjectItemsRequest, _, _, _>(
+                    payload,
+                    |service, request| async move {
+                        service
+                            .inject_thread_items(request.thread_id, request.items)
                             .await
                     },
                 )
@@ -310,6 +416,102 @@ mod tests {
         assert_eq!(
             backend.calls.lock().expect("calls").as_slice(),
             ["turn/start:thread-1"]
+        );
+    }
+
+    #[tokio::test]
+    async fn dispatches_codex_thread_lifecycle_over_ws_rpc() {
+        let backend = Arc::new(FakeCodexBackend::default());
+        let runner = Arc::new(FakeRunner);
+        let state = WsApiState::new_services(
+            GitService::new(GitClient::with_runner(runner.clone())),
+            GithubService::new(GithubCliClient::with_runner(runner)),
+        )
+        .with_codex_service(CodexService::new(backend.clone()));
+
+        let calls = [
+            (
+                methods::CODEX_THREAD_READ,
+                json!({ "thread_id": "thread-1" }),
+            ),
+            (
+                methods::CODEX_THREADS_LIST,
+                json!({ "include_archived": true, "limit": 10 }),
+            ),
+            (methods::CODEX_THREADS_LOADED_LIST, json!({})),
+            (
+                methods::CODEX_THREAD_ARCHIVE,
+                json!({ "thread_id": "thread-1" }),
+            ),
+            (
+                methods::CODEX_THREAD_UNARCHIVE,
+                json!({ "thread_id": "thread-1" }),
+            ),
+            (
+                methods::CODEX_THREAD_DELETE,
+                json!({ "thread_id": "thread-1" }),
+            ),
+            (
+                methods::CODEX_THREAD_UNSUBSCRIBE,
+                json!({ "thread_id": "thread-1" }),
+            ),
+            (
+                methods::CODEX_THREAD_SET_NAME,
+                json!({ "thread_id": "thread-1", "name": "Adapter work" }),
+            ),
+            (
+                methods::CODEX_THREAD_UPDATE_METADATA,
+                json!({ "thread_id": "thread-1", "metadata": { "project": "ace" } }),
+            ),
+            (
+                methods::CODEX_THREAD_COMPACT,
+                json!({ "thread_id": "thread-1" }),
+            ),
+            (
+                methods::CODEX_THREAD_ROLLBACK,
+                json!({ "thread_id": "thread-1", "turn_id": "turn-2" }),
+            ),
+            (
+                methods::CODEX_THREAD_INJECT_ITEMS,
+                json!({
+                    "thread_id": "thread-1",
+                    "items": [{ "type": "userMessage", "text": "accepted plan" }]
+                }),
+            ),
+        ];
+
+        for (index, (method, payload)) in calls.iter().enumerate() {
+            let response = state
+                .dispatch_text(
+                    &json!({
+                        "version": PROTOCOL_VERSION,
+                        "request_id": format!("thread-{index}"),
+                        "method": method,
+                        "payload": payload
+                    })
+                    .to_string(),
+                )
+                .await;
+            let response: WsServerResponse = serde_json::from_str(&response).expect("response");
+            assert!(matches!(response.payload, WsServerPayload::Result { .. }));
+        }
+
+        assert_eq!(
+            backend.calls.lock().expect("calls").as_slice(),
+            [
+                "thread/read:thread-1",
+                "thread/list",
+                "thread/loadedList",
+                "thread/archive:thread-1",
+                "thread/unarchive:thread-1",
+                "thread/delete:thread-1",
+                "thread/unsubscribe:thread-1",
+                "thread/setName:thread-1:Adapter work",
+                "thread/updateMetadata:thread-1",
+                "thread/compact:thread-1",
+                "thread/rollback:thread-1:turn-2",
+                "thread/injectItems:thread-1:1",
+            ]
         );
     }
 

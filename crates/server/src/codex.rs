@@ -35,6 +35,18 @@ pub trait CodexBackend: Send + Sync {
     async fn start_thread(&self, request: CodexThreadStart) -> Result<Value>;
     async fn resume_thread(&self, thread_id: &str) -> Result<Value>;
     async fn fork_thread(&self, thread_id: &str, ephemeral: bool) -> Result<Value>;
+    async fn read_thread(&self, thread_id: &str) -> Result<Value>;
+    async fn list_threads(&self, params: Value) -> Result<Value>;
+    async fn list_loaded_threads(&self) -> Result<Value>;
+    async fn archive_thread(&self, thread_id: &str) -> Result<Value>;
+    async fn unarchive_thread(&self, thread_id: &str) -> Result<Value>;
+    async fn delete_thread(&self, thread_id: &str) -> Result<Value>;
+    async fn unsubscribe_thread(&self, thread_id: &str) -> Result<Value>;
+    async fn set_thread_name(&self, thread_id: &str, name: &str) -> Result<Value>;
+    async fn update_thread_metadata(&self, thread_id: &str, metadata: Value) -> Result<Value>;
+    async fn compact_thread(&self, thread_id: &str) -> Result<Value>;
+    async fn rollback_thread(&self, thread_id: &str, turn_id: &str) -> Result<Value>;
+    async fn inject_thread_items(&self, thread_id: &str, items: Vec<Value>) -> Result<Value>;
     async fn start_turn(&self, request: CodexTurnStart) -> Result<Value>;
     async fn interrupt_turn(&self, thread_id: &str) -> Result<Value>;
     async fn next_events(&self) -> Result<Option<Vec<ProviderEvent>>>;
@@ -93,6 +105,63 @@ impl CodexBackend for LiveCodexBackend {
 
     async fn fork_thread(&self, thread_id: &str, ephemeral: bool) -> Result<Value> {
         self.client().await?.fork_thread(thread_id, ephemeral).await
+    }
+
+    async fn read_thread(&self, thread_id: &str) -> Result<Value> {
+        self.client().await?.read_thread(thread_id).await
+    }
+
+    async fn list_threads(&self, params: Value) -> Result<Value> {
+        self.client().await?.list_threads(params).await
+    }
+
+    async fn list_loaded_threads(&self) -> Result<Value> {
+        self.client().await?.list_loaded_threads().await
+    }
+
+    async fn archive_thread(&self, thread_id: &str) -> Result<Value> {
+        self.client().await?.archive_thread(thread_id).await
+    }
+
+    async fn unarchive_thread(&self, thread_id: &str) -> Result<Value> {
+        self.client().await?.unarchive_thread(thread_id).await
+    }
+
+    async fn delete_thread(&self, thread_id: &str) -> Result<Value> {
+        self.client().await?.delete_thread(thread_id).await
+    }
+
+    async fn unsubscribe_thread(&self, thread_id: &str) -> Result<Value> {
+        self.client().await?.unsubscribe_thread(thread_id).await
+    }
+
+    async fn set_thread_name(&self, thread_id: &str, name: &str) -> Result<Value> {
+        self.client().await?.set_thread_name(thread_id, name).await
+    }
+
+    async fn update_thread_metadata(&self, thread_id: &str, metadata: Value) -> Result<Value> {
+        self.client()
+            .await?
+            .update_thread_metadata(thread_id, metadata)
+            .await
+    }
+
+    async fn compact_thread(&self, thread_id: &str) -> Result<Value> {
+        self.client().await?.compact_thread(thread_id).await
+    }
+
+    async fn rollback_thread(&self, thread_id: &str, turn_id: &str) -> Result<Value> {
+        self.client()
+            .await?
+            .rollback_thread(thread_id, turn_id)
+            .await
+    }
+
+    async fn inject_thread_items(&self, thread_id: &str, items: Vec<Value>) -> Result<Value> {
+        self.client()
+            .await?
+            .inject_thread_items(thread_id, items)
+            .await
     }
 
     async fn start_turn(&self, request: CodexTurnStart) -> Result<Value> {
@@ -191,6 +260,91 @@ impl CodexService {
         ephemeral: bool,
     ) -> std::result::Result<Value, CodexApiError> {
         Ok(self.backend.fork_thread(&thread_id, ephemeral).await?)
+    }
+
+    pub async fn read_thread(
+        &self,
+        thread_id: String,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.read_thread(&thread_id).await?)
+    }
+
+    pub async fn list_threads(&self, params: Value) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.list_threads(params).await?)
+    }
+
+    pub async fn list_loaded_threads(&self) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.list_loaded_threads().await?)
+    }
+
+    pub async fn archive_thread(
+        &self,
+        thread_id: String,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.archive_thread(&thread_id).await?)
+    }
+
+    pub async fn unarchive_thread(
+        &self,
+        thread_id: String,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.unarchive_thread(&thread_id).await?)
+    }
+
+    pub async fn delete_thread(
+        &self,
+        thread_id: String,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.delete_thread(&thread_id).await?)
+    }
+
+    pub async fn unsubscribe_thread(
+        &self,
+        thread_id: String,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.unsubscribe_thread(&thread_id).await?)
+    }
+
+    pub async fn set_thread_name(
+        &self,
+        thread_id: String,
+        name: String,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.set_thread_name(&thread_id, &name).await?)
+    }
+
+    pub async fn update_thread_metadata(
+        &self,
+        thread_id: String,
+        metadata: Value,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self
+            .backend
+            .update_thread_metadata(&thread_id, metadata)
+            .await?)
+    }
+
+    pub async fn compact_thread(
+        &self,
+        thread_id: String,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.compact_thread(&thread_id).await?)
+    }
+
+    pub async fn rollback_thread(
+        &self,
+        thread_id: String,
+        turn_id: String,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.rollback_thread(&thread_id, &turn_id).await?)
+    }
+
+    pub async fn inject_thread_items(
+        &self,
+        thread_id: String,
+        items: Vec<Value>,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.inject_thread_items(&thread_id, items).await?)
     }
 
     pub async fn start_turn(
@@ -312,6 +466,102 @@ pub mod tests {
                 .expect("calls")
                 .push(format!("thread/fork:{thread_id}:{ephemeral}"));
             Ok(serde_json::json!({ "thread": { "id": "fork-1" } }))
+        }
+
+        async fn read_thread(&self, thread_id: &str) -> Result<Value> {
+            self.calls
+                .lock()
+                .expect("calls")
+                .push(format!("thread/read:{thread_id}"));
+            Ok(serde_json::json!({ "thread": { "id": thread_id } }))
+        }
+
+        async fn list_threads(&self, _params: Value) -> Result<Value> {
+            self.calls
+                .lock()
+                .expect("calls")
+                .push("thread/list".to_string());
+            Ok(serde_json::json!({ "threads": [] }))
+        }
+
+        async fn list_loaded_threads(&self) -> Result<Value> {
+            self.calls
+                .lock()
+                .expect("calls")
+                .push("thread/loadedList".to_string());
+            Ok(serde_json::json!({ "threads": [] }))
+        }
+
+        async fn archive_thread(&self, thread_id: &str) -> Result<Value> {
+            self.calls
+                .lock()
+                .expect("calls")
+                .push(format!("thread/archive:{thread_id}"));
+            Ok(serde_json::json!({ "archived": true }))
+        }
+
+        async fn unarchive_thread(&self, thread_id: &str) -> Result<Value> {
+            self.calls
+                .lock()
+                .expect("calls")
+                .push(format!("thread/unarchive:{thread_id}"));
+            Ok(serde_json::json!({ "archived": false }))
+        }
+
+        async fn delete_thread(&self, thread_id: &str) -> Result<Value> {
+            self.calls
+                .lock()
+                .expect("calls")
+                .push(format!("thread/delete:{thread_id}"));
+            Ok(serde_json::json!({ "deleted": true }))
+        }
+
+        async fn unsubscribe_thread(&self, thread_id: &str) -> Result<Value> {
+            self.calls
+                .lock()
+                .expect("calls")
+                .push(format!("thread/unsubscribe:{thread_id}"));
+            Ok(serde_json::json!({ "unsubscribed": true }))
+        }
+
+        async fn set_thread_name(&self, thread_id: &str, name: &str) -> Result<Value> {
+            self.calls
+                .lock()
+                .expect("calls")
+                .push(format!("thread/setName:{thread_id}:{name}"));
+            Ok(serde_json::json!({ "name": name }))
+        }
+
+        async fn update_thread_metadata(&self, thread_id: &str, metadata: Value) -> Result<Value> {
+            self.calls
+                .lock()
+                .expect("calls")
+                .push(format!("thread/updateMetadata:{thread_id}"));
+            Ok(serde_json::json!({ "metadata": metadata }))
+        }
+
+        async fn compact_thread(&self, thread_id: &str) -> Result<Value> {
+            self.calls
+                .lock()
+                .expect("calls")
+                .push(format!("thread/compact:{thread_id}"));
+            Ok(serde_json::json!({ "compacted": true }))
+        }
+
+        async fn rollback_thread(&self, thread_id: &str, turn_id: &str) -> Result<Value> {
+            self.calls
+                .lock()
+                .expect("calls")
+                .push(format!("thread/rollback:{thread_id}:{turn_id}"));
+            Ok(serde_json::json!({ "rolled_back": true }))
+        }
+
+        async fn inject_thread_items(&self, thread_id: &str, items: Vec<Value>) -> Result<Value> {
+            self.calls
+                .lock()
+                .expect("calls")
+                .push(format!("thread/injectItems:{thread_id}:{}", items.len()));
+            Ok(serde_json::json!({ "injected": items.len() }))
         }
 
         async fn start_turn(&self, request: CodexTurnStart) -> Result<Value> {

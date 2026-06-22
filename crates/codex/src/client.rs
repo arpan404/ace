@@ -179,6 +179,88 @@ impl<T: AppServerTransport> CodexClient<T> {
         .await
     }
 
+    pub async fn read_thread(&self, thread_id: &str) -> Result<Value> {
+        self.raw_request("thread/read", json!({ "threadId": thread_id }))
+            .await
+    }
+
+    pub async fn list_threads(&self, params: Value) -> Result<Value> {
+        self.raw_request("thread/list", params).await
+    }
+
+    pub async fn list_loaded_threads(&self) -> Result<Value> {
+        self.raw_request("thread/loadedList", json!({})).await
+    }
+
+    pub async fn archive_thread(&self, thread_id: &str) -> Result<Value> {
+        self.raw_request("thread/archive", json!({ "threadId": thread_id }))
+            .await
+    }
+
+    pub async fn unarchive_thread(&self, thread_id: &str) -> Result<Value> {
+        self.raw_request("thread/unarchive", json!({ "threadId": thread_id }))
+            .await
+    }
+
+    pub async fn delete_thread(&self, thread_id: &str) -> Result<Value> {
+        self.raw_request("thread/delete", json!({ "threadId": thread_id }))
+            .await
+    }
+
+    pub async fn unsubscribe_thread(&self, thread_id: &str) -> Result<Value> {
+        self.raw_request("thread/unsubscribe", json!({ "threadId": thread_id }))
+            .await
+    }
+
+    pub async fn set_thread_name(&self, thread_id: &str, name: &str) -> Result<Value> {
+        self.raw_request(
+            "thread/setName",
+            json!({
+                "threadId": thread_id,
+                "name": name,
+            }),
+        )
+        .await
+    }
+
+    pub async fn update_thread_metadata(&self, thread_id: &str, metadata: Value) -> Result<Value> {
+        self.raw_request(
+            "thread/updateMetadata",
+            json!({
+                "threadId": thread_id,
+                "metadata": metadata,
+            }),
+        )
+        .await
+    }
+
+    pub async fn compact_thread(&self, thread_id: &str) -> Result<Value> {
+        self.raw_request("thread/compact", json!({ "threadId": thread_id }))
+            .await
+    }
+
+    pub async fn rollback_thread(&self, thread_id: &str, turn_id: &str) -> Result<Value> {
+        self.raw_request(
+            "thread/rollback",
+            json!({
+                "threadId": thread_id,
+                "turnId": turn_id,
+            }),
+        )
+        .await
+    }
+
+    pub async fn inject_thread_items(&self, thread_id: &str, items: Vec<Value>) -> Result<Value> {
+        self.raw_request(
+            "thread/injectItems",
+            json!({
+                "threadId": thread_id,
+                "items": items,
+            }),
+        )
+        .await
+    }
+
     pub async fn start_turn(&self, request: CodexTurnStart) -> Result<Value> {
         self.raw_request("turn/start", serde_json::to_value(request)?)
             .await
@@ -347,6 +429,73 @@ mod tests {
             requests[0].1["collaboration_mode"]["settings"]["model"],
             "gpt-5.5"
         );
+    }
+
+    #[tokio::test]
+    async fn thread_lifecycle_methods_use_typed_codex_app_server_calls() {
+        let fake = FakeTransport::default();
+        let client = CodexClient::new(fake, Duration::from_secs(1));
+
+        client.read_thread("thread-1").await.expect("read");
+        client
+            .list_threads(json!({ "includeArchived": true, "limit": 20 }))
+            .await
+            .expect("list");
+        client.list_loaded_threads().await.expect("loaded");
+        client.archive_thread("thread-1").await.expect("archive");
+        client
+            .unarchive_thread("thread-1")
+            .await
+            .expect("unarchive");
+        client.delete_thread("thread-1").await.expect("delete");
+        client
+            .unsubscribe_thread("thread-1")
+            .await
+            .expect("unsubscribe");
+        client
+            .set_thread_name("thread-1", "Adapter work")
+            .await
+            .expect("set name");
+        client
+            .update_thread_metadata("thread-1", json!({ "project": "ace" }))
+            .await
+            .expect("metadata");
+        client.compact_thread("thread-1").await.expect("compact");
+        client
+            .rollback_thread("thread-1", "turn-2")
+            .await
+            .expect("rollback");
+        client
+            .inject_thread_items("thread-1", vec![json!({ "type": "userMessage" })])
+            .await
+            .expect("inject");
+
+        let requests = client.transport.requests.lock().expect("requests");
+        let methods = requests
+            .iter()
+            .map(|(method, _)| method.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            methods,
+            [
+                "thread/read",
+                "thread/list",
+                "thread/loadedList",
+                "thread/archive",
+                "thread/unarchive",
+                "thread/delete",
+                "thread/unsubscribe",
+                "thread/setName",
+                "thread/updateMetadata",
+                "thread/compact",
+                "thread/rollback",
+                "thread/injectItems",
+            ]
+        );
+        assert_eq!(requests[7].1["name"], "Adapter work");
+        assert_eq!(requests[8].1["metadata"]["project"], "ace");
+        assert_eq!(requests[10].1["turnId"], "turn-2");
+        assert_eq!(requests[11].1["items"][0]["type"], "userMessage");
     }
 
     #[tokio::test]
