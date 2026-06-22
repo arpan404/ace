@@ -6,6 +6,7 @@ use crate::provider::{
     ace_provider_contract_requirements, provider_adapter_profile, provider_contract_report,
 };
 use crate::server_requests::{ServerRequestNormalizationInput, normalize_provider_server_request};
+use crate::thread_items::{ThreadItemNormalizationInput, normalize_provider_thread_item};
 use crate::tools::{SemanticToolCall, ToolNormalizationInput, normalize_tool_call};
 use ace_core::{ProviderCapability, ProviderKind};
 use async_trait::async_trait;
@@ -42,6 +43,14 @@ pub struct NativeProviderSemanticToolNormalizeRequest {
 pub struct NativeProviderServerRequestNormalizeRequest {
     #[serde(flatten)]
     pub input: ServerRequestNormalizationInput,
+    #[serde(default)]
+    pub emit: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NativeProviderThreadItemNormalizeRequest {
+    #[serde(flatten)]
+    pub input: ThreadItemNormalizationInput,
     #[serde(default)]
     pub emit: bool,
 }
@@ -131,6 +140,12 @@ impl AceNativeProvider {
                 "Normalize provider server request",
                 ProviderFeatureCategory::ServerRequests,
                 "ace.server_request.normalize",
+            ),
+            (
+                "ace.thread_item.normalize",
+                "Normalize provider thread item",
+                ProviderFeatureCategory::Events,
+                "ace.thread_item.normalize",
             ),
             (
                 "provider.adapter_contract",
@@ -363,6 +378,43 @@ impl ProviderDriver for AceNativeProvider {
                     "provider": "ace",
                     "accepted": true,
                     "request": normalized,
+                    "emitted": emit,
+                    "event_count": if emit { 1 } else { 0 },
+                }))
+            }
+            "ace.thread_item.normalize" => {
+                let normalize = serde_json::from_value::<NativeProviderThreadItemNormalizeRequest>(
+                    request.params,
+                )
+                .map_err(|error| ProviderDriverError::RequestFailed {
+                    provider: "ace".to_string(),
+                    method: "ace.thread_item.normalize".to_string(),
+                    message: error.to_string(),
+                })?;
+                let emit = normalize.emit;
+                let item = normalize_provider_thread_item(normalize.input).ok_or_else(|| {
+                    ProviderDriverError::RequestFailed {
+                        provider: "ace".to_string(),
+                        method: "ace.thread_item.normalize".to_string(),
+                        message: "unsupported provider thread item method".to_string(),
+                    }
+                })?;
+                if emit {
+                    self.event_tx
+                        .send(vec![ProviderEvent::ThreadItem {
+                            item: Box::new(item.clone()),
+                        }])
+                        .await
+                        .map_err(|_| ProviderDriverError::RequestFailed {
+                            provider: "ace".to_string(),
+                            method: "ace.thread_item.normalize".to_string(),
+                            message: "Ace native provider event queue is closed".to_string(),
+                        })?;
+                }
+                Ok(json!({
+                    "provider": "ace",
+                    "accepted": true,
+                    "item": item,
                     "emitted": emit,
                     "event_count": if emit { 1 } else { 0 },
                 }))
@@ -947,6 +999,88 @@ mod tests {
         assert_eq!(request.item_id.as_deref(), Some("tool-1"));
         assert_eq!(request.provider.provider, "future-provider");
         assert_eq!(request.metadata["choices"], json!(["eng", "design"]));
+    }
+
+    #[tokio::test]
+    async fn native_provider_normalizes_thread_item_without_emitting() {
+        let provider = AceNativeProvider::new();
+        let response = provider
+            .request(ProviderRequest {
+                method: "ace.thread_item.normalize".to_string(),
+                params: json!({
+                    "provider": "future-provider",
+                    "method": "item/agentMessage/delta",
+                    "params": {
+                        "threadId": "thread-1",
+                        "turnId": "turn-1",
+                        "itemId": "item-agent",
+                        "delta": "Working on it"
+                    }
+                }),
+                timeout: Duration::from_secs(1),
+            })
+            .await
+            .expect("normalize thread item");
+
+        assert_eq!(response["accepted"], true);
+        assert_eq!(response["emitted"], false);
+        assert_eq!(response["event_count"], 0);
+        assert_eq!(response["item"]["kind"], "agentMessage");
+        assert_eq!(response["item"]["status"], "updated");
+        assert_eq!(response["item"]["text"], "Working on it");
+        assert_eq!(response["item"]["provider"]["provider"], "future-provider");
+        assert_eq!(
+            response["item"]["provider"]["raw_payload"]["threadId"],
+            "thread-1"
+        );
+    }
+
+    #[tokio::test]
+    async fn native_provider_normalizes_and_emits_thread_item() {
+        let provider = AceNativeProvider::new();
+        let response = provider
+            .request(ProviderRequest {
+                method: "ace.thread_item.normalize".to_string(),
+                params: json!({
+                    "provider": "future-provider",
+                    "method": "item/completed",
+                    "emit": true,
+                    "params": {
+                        "threadId": "parent-thread",
+                        "item": {
+                            "id": "subagent-1",
+                            "type": "subAgentActivity",
+                            "parentThreadId": "parent-thread",
+                            "childThreadId": "child-thread",
+                            "agentRole": "reviewer",
+                            "agentName": "Reviewer",
+                            "status": "running"
+                        }
+                    }
+                }),
+                timeout: Duration::from_secs(1),
+            })
+            .await
+            .expect("normalize and emit thread item");
+
+        assert_eq!(response["emitted"], true);
+        assert_eq!(response["event_count"], 1);
+        assert_eq!(response["item"]["kind"], "subAgentActivity");
+
+        let events = provider
+            .next_events()
+            .await
+            .expect("event poll")
+            .expect("thread item event");
+        let ProviderEvent::ThreadItem { item } = &events[0] else {
+            panic!("expected thread item event");
+        };
+        assert_eq!(item.kind, crate::provider::ThreadItemKind::SubAgentActivity);
+        assert_eq!(item.parent_thread_id.as_deref(), Some("parent-thread"));
+        assert_eq!(item.child_thread_id.as_deref(), Some("child-thread"));
+        assert_eq!(item.role.as_deref(), Some("reviewer"));
+        assert_eq!(item.sender.as_deref(), Some("Reviewer"));
+        assert_eq!(item.provider.provider, "future-provider");
     }
 
     #[tokio::test]

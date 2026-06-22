@@ -1,11 +1,12 @@
 use ace_runtime::{
     provider::{
         NormalizedRuntimeSignal, NormalizedServerRequest, NormalizedThreadItem, ProviderEvent,
-        ProviderMetadata, RuntimeSignalKind, ServerRequestKind, ThreadItemKind, ThreadItemStatus,
+        ProviderMetadata, RuntimeSignalKind, ServerRequestKind,
     },
     server_requests::{
         ServerRequestNormalizationInput, normalize_provider_server_request, server_request_kind,
     },
+    thread_items::{ThreadItemNormalizationInput, normalize_provider_thread_item},
     tools::{
         ProviderToolMetadata, ToolNormalizationInput, ToolRunStatus, ToolTransport,
         normalize_tool_call,
@@ -417,170 +418,11 @@ fn normalize_codex_thread_item_notification(
     method: &str,
     params: &Value,
 ) -> Option<NormalizedThreadItem> {
-    let status = thread_item_status_from_method(method)?;
-    let item = params.get("item").unwrap_or(params);
-    let item_type = string_at(item, "type").or_else(|| item_type_from_method(method));
-    let kind = item_type
-        .as_deref()
-        .map(thread_item_kind_for_type)
-        .unwrap_or(ThreadItemKind::Unknown);
-
-    let item_id = string_at(params, "itemId").or_else(|| string_at(item, "id"));
-    let text = text_for_thread_item(method, item, params);
-    let title = title_for_thread_item(kind, item, text.as_deref());
-    let metadata = metadata_for_thread_item(item);
-
-    Some(NormalizedThreadItem {
-        kind,
-        status,
-        thread_id: string_at(params, "threadId").or_else(|| string_at(item, "threadId")),
-        turn_id: string_at(params, "turnId").or_else(|| string_at(item, "turnId")),
-        item_id,
-        parent_thread_id: string_at(item, "parentThreadId")
-            .or_else(|| string_at(item, "parent_thread_id"))
-            .or_else(|| string_at(item, "senderThreadId")),
-        child_thread_id: string_at(item, "childThreadId")
-            .or_else(|| string_at(item, "child_thread_id"))
-            .or_else(|| string_at(item, "threadId")),
-        sender: string_at(item, "sender")
-            .or_else(|| string_at(item, "senderName"))
-            .or_else(|| string_at(item, "agentName")),
-        role: string_at(item, "role")
-            .or_else(|| string_at(item, "agentRole"))
-            .or_else(|| string_at(item, "agent_role")),
-        title,
-        text,
-        metadata,
-        provider: ProviderMetadata {
-            provider: "codex".to_string(),
-            method: Some(method.to_string()),
-            schema_version: string_at(params, "schemaVersion")
-                .or_else(|| string_at(item, "schemaVersion")),
-            raw_payload: params.clone(),
-        },
+    normalize_provider_thread_item(ThreadItemNormalizationInput {
+        provider: "codex".to_string(),
+        method: method.to_string(),
+        params: params.clone(),
     })
-}
-
-fn thread_item_status_from_method(method: &str) -> Option<ThreadItemStatus> {
-    match method {
-        "item/started" => Some(ThreadItemStatus::Started),
-        "item/completed" => Some(ThreadItemStatus::Completed),
-        "item/failed" => Some(ThreadItemStatus::Failed),
-        "item/agentMessage/delta"
-        | "item/reasoning/delta"
-        | "item/reasoning/textDelta"
-        | "item/reasoning/summaryTextDelta"
-        | "item/reasoning/summaryPartAdded"
-        | "item/plan/delta"
-        | "turn/plan/updated"
-        | "item/commandExecution/outputDelta"
-        | "item/commandExecution/terminalInteraction"
-        | "item/fileChange/outputDelta"
-        | "item/fileChange/patchUpdated"
-        | "item/mcpToolCall/progress"
-        | "item/subAgentActivity/delta"
-        | "item/collabAgentToolCall/progress"
-        | "command/exec/outputDelta"
-        | "process/outputDelta" => Some(ThreadItemStatus::Updated),
-        _ => {
-            if method.starts_with("item/") && method.ends_with("/delta") {
-                Some(ThreadItemStatus::Updated)
-            } else {
-                None
-            }
-        }
-    }
-}
-
-fn thread_item_kind_for_type(item_type: &str) -> ThreadItemKind {
-    match item_type {
-        "userMessage" => ThreadItemKind::UserMessage,
-        "hookPrompt" => ThreadItemKind::HookPrompt,
-        "agentMessage" => ThreadItemKind::AgentMessage,
-        "plan" => ThreadItemKind::Plan,
-        "reasoning" => ThreadItemKind::Reasoning,
-        "commandExecution" => ThreadItemKind::CommandExecution,
-        "fileChange" => ThreadItemKind::FileChange,
-        "mcpToolCall" => ThreadItemKind::McpToolCall,
-        "dynamicToolCall" => ThreadItemKind::DynamicToolCall,
-        "collabAgentToolCall" => ThreadItemKind::CollabAgentToolCall,
-        "subAgentActivity" => ThreadItemKind::SubAgentActivity,
-        "webSearch" => ThreadItemKind::WebSearch,
-        "imageView" => ThreadItemKind::ImageView,
-        "imageGeneration" => ThreadItemKind::ImageGeneration,
-        "enteredReviewMode" => ThreadItemKind::EnteredReviewMode,
-        "exitedReviewMode" => ThreadItemKind::ExitedReviewMode,
-        "contextCompaction" => ThreadItemKind::ContextCompaction,
-        _ => ThreadItemKind::Unknown,
-    }
-}
-
-fn text_for_thread_item(method: &str, item: &Value, params: &Value) -> Option<String> {
-    if method.ends_with("/delta") || method == "turn/plan/updated" {
-        return string_at(params, "delta")
-            .or_else(|| string_at(params, "text"))
-            .or_else(|| string_at(params, "content"))
-            .or_else(|| string_at(item, "delta"));
-    }
-
-    string_at(item, "text")
-        .or_else(|| string_at(item, "message"))
-        .or_else(|| string_at(item, "content"))
-        .or_else(|| string_at(item, "summary"))
-        .or_else(|| item.get("input").and_then(|input| string_at(input, "text")))
-}
-
-fn title_for_thread_item(kind: ThreadItemKind, item: &Value, text: Option<&str>) -> Option<String> {
-    string_at(item, "title")
-        .or_else(|| string_at(item, "name"))
-        .or_else(|| {
-            if matches!(
-                kind,
-                ThreadItemKind::EnteredReviewMode | ThreadItemKind::ExitedReviewMode
-            ) {
-                Some(
-                    match kind {
-                        ThreadItemKind::EnteredReviewMode => "Entered review mode",
-                        ThreadItemKind::ExitedReviewMode => "Exited review mode",
-                        _ => unreachable!(),
-                    }
-                    .to_string(),
-                )
-            } else {
-                None
-            }
-        })
-        .or_else(|| text.map(compact_title))
-}
-
-fn metadata_for_thread_item(item: &Value) -> Value {
-    let mut metadata = serde_json::Map::new();
-    for key in [
-        "status",
-        "model",
-        "agentRole",
-        "agentName",
-        "nickname",
-        "target",
-        "url",
-        "files",
-        "diff",
-        "tokens",
-    ] {
-        if let Some(value) = item.get(key) {
-            metadata.insert(key.to_string(), value.clone());
-        }
-    }
-    Value::Object(metadata)
-}
-
-fn compact_title(text: &str) -> String {
-    let trimmed = text.trim();
-    let mut title = trimmed.chars().take(80).collect::<String>();
-    if trimmed.chars().count() > 80 {
-        title.push_str("...");
-    }
-    title
 }
 
 fn normalize_codex_tool_notification(

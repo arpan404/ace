@@ -5279,6 +5279,98 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn provider_runtime_normalizes_ace_native_thread_items_over_ws() {
+        let backend = Arc::new(FakeCodexBackend::default());
+        let runner = Arc::new(FakeRunner);
+        let state = WsApiState::new_services(
+            GitService::new(GitClient::with_runner(runner.clone())),
+            GithubService::new(GithubCliClient::with_runner(runner)),
+        )
+        .with_codex_service(CodexService::new(backend));
+        let (outbound_tx, mut outbound_rx) = tokio::sync::mpsc::channel::<String>(8);
+
+        let subscribe = state
+            .dispatch_text_with_events(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "ace-provider-thread-items",
+                    "method": methods::PROVIDER_RUNTIME_EVENTS_SUBSCRIBE,
+                    "payload": { "provider": "ace" }
+                })
+                .to_string(),
+                Some(outbound_tx),
+            )
+            .await;
+        let subscribe: WsServerResponse = serde_json::from_str(&subscribe).expect("subscribe");
+        let WsServerPayload::Result { body } = subscribe.payload else {
+            panic!("expected subscribe result");
+        };
+        assert_eq!(body["subscribed"], true);
+
+        let normalize = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "ace-thread-item-normalize",
+                    "method": methods::PROVIDER_RUNTIME_REQUEST,
+                    "payload": {
+                        "provider": "ace",
+                        "method": "ace.thread_item.normalize",
+                        "params": {
+                            "provider": "future-provider",
+                            "method": "item/agentMessage/delta",
+                            "emit": true,
+                            "params": {
+                                "threadId": "thread-1",
+                                "turnId": "turn-1",
+                                "itemId": "agent-1",
+                                "delta": "Working on it"
+                            }
+                        }
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let normalize: WsServerResponse =
+            serde_json::from_str(&normalize).expect("normalize response");
+        let WsServerPayload::Result { body } = normalize.payload else {
+            panic!("expected normalize result");
+        };
+        assert_eq!(body["accepted"], true);
+        assert_eq!(body["emitted"], true);
+        assert_eq!(body["event_count"], 1);
+        assert_eq!(body["item"]["kind"], "agentMessage");
+        assert_eq!(body["item"]["status"], "updated");
+        assert_eq!(body["item"]["text"], "Working on it");
+        assert_eq!(body["item"]["provider"]["provider"], "future-provider");
+
+        let pushed = tokio::time::timeout(std::time::Duration::from_secs(1), outbound_rx.recv())
+            .await
+            .expect("ace provider thread item event timeout")
+            .expect("ace provider thread item event");
+        let pushed: WsServerResponse = serde_json::from_str(&pushed).expect("pushed response");
+        let WsServerPayload::Event { topic, body } = pushed.payload else {
+            panic!("expected websocket event");
+        };
+        assert_eq!(topic, PROVIDER_RUNTIME_EVENT_TOPIC);
+        assert_eq!(body["provider"], "ace");
+        assert_eq!(body["events"][0]["type"], "thread_item");
+        assert_eq!(body["events"][0]["item"]["kind"], "agentMessage");
+        assert_eq!(body["events"][0]["item"]["text"], "Working on it");
+        assert_eq!(
+            body["events"][0]["item"]["provider"]["raw_payload"]["threadId"],
+            "thread-1"
+        );
+        assert_eq!(body["raw_events"][0]["type"], "thread_item");
+        assert_eq!(body["projection_deltas"][0]["type"], "thread_item_upsert");
+        assert_eq!(
+            body["projection_deltas"][0]["item"]["provider"]["provider"],
+            "future-provider"
+        );
+    }
+
+    #[tokio::test]
     async fn provider_runtime_filters_pending_server_requests_for_inactive_thread_routing() {
         let backend = Arc::new(FakeCodexBackend::default());
         let runner = Arc::new(FakeRunner);
