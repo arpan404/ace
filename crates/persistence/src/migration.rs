@@ -38,6 +38,15 @@ pub fn migrate(connection: &Connection) -> Result<(), PersistenceError> {
         );
         CREATE INDEX IF NOT EXISTS idx_projection_checkpoints_thread
         ON projection_checkpoints(thread_id, checkpoint_turn_count);
+
+        CREATE TABLE IF NOT EXISTS provider_events (
+            sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+            provider TEXT NOT NULL,
+            event_json TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_provider_events_provider_sequence
+        ON provider_events(provider, sequence);
         ",
     )?;
     Ok(())

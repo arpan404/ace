@@ -16,6 +16,8 @@ use crate::git::{GitApiError, GitService};
 use crate::github::{GithubApiError, GithubService};
 use crate::project::{ProjectApiError, ProjectService};
 use ace_git::{GitClient, GithubCliClient, ProcessRunner, TokioProcessRunner};
+use ace_persistence::{PersistenceError, ProviderEventLogRepository};
+use ace_platform::AppPaths;
 use ace_protocol::{
     PROTOCOL_VERSION,
     ws::{WsClientRequest, WsServerPayload, WsServerResponse},
@@ -34,10 +36,14 @@ use axum::{
     response::Response,
     routing::get,
 };
+use rusqlite::Connection;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
-use std::{future::Future, sync::Arc};
+use std::{
+    future::Future,
+    sync::{Arc, Mutex},
+};
 use thiserror::Error;
 use tokio::sync::mpsc;
 
@@ -45,6 +51,7 @@ pub struct WsApiState<R: ProcessRunner = TokioProcessRunner, A: PtyAdapter = Por
     checkpoint: Arc<CheckpointService<TokioProcessRunner>>,
     codex: Arc<CodexService>,
     providers: ProviderRegistry,
+    provider_events: Arc<Mutex<ProviderEventLogRepository>>,
     git: Arc<GitService<R>>,
     github: Arc<GithubService<R>>,
     project: Arc<ProjectService>,
@@ -58,6 +65,7 @@ impl<R: ProcessRunner, A: PtyAdapter> Clone for WsApiState<R, A> {
             checkpoint: Arc::clone(&self.checkpoint),
             codex: Arc::clone(&self.codex),
             providers: self.providers.clone(),
+            provider_events: Arc::clone(&self.provider_events),
             git: Arc::clone(&self.git),
             github: Arc::clone(&self.github),
             project: Arc::clone(&self.project),
@@ -74,10 +82,16 @@ impl WsApiState<TokioProcessRunner, PortablePtyAdapter> {
         let providers = ProviderRegistry::new()
             .with_driver(Arc::new(AceNativeProvider::new()))
             .with_driver(codex.clone());
+        let paths = AppPaths::resolve().expect("resolve app paths");
+        std::fs::create_dir_all(&paths.state_dir).expect("create app state directory");
         Self {
             checkpoint: Arc::new(CheckpointService::production()),
             codex,
             providers,
+            provider_events: Arc::new(Mutex::new(
+                ProviderEventLogRepository::open(paths.state_dir.join("provider-events.sqlite3"))
+                    .expect("initialize provider event log"),
+            )),
             git: Arc::new(GitService::new_with_github(
                 GitClient::new(),
                 GithubCliClient::new(),
@@ -101,6 +115,12 @@ impl<R: ProcessRunner> WsApiState<R, PortablePtyAdapter> {
             checkpoint: Arc::new(CheckpointService::production()),
             codex,
             providers,
+            provider_events: Arc::new(Mutex::new(
+                ProviderEventLogRepository::from_connection(
+                    Connection::open_in_memory().expect("provider event log db"),
+                )
+                .expect("initialize provider event log"),
+            )),
             git: Arc::new(git),
             github: Arc::new(github),
             project: Arc::new(
@@ -120,6 +140,7 @@ impl<R: ProcessRunner> WsApiState<R, PortablePtyAdapter> {
             checkpoint: self.checkpoint,
             codex: self.codex,
             providers: self.providers,
+            provider_events: self.provider_events,
             git: self.git,
             github: self.github,
             project: self.project,
@@ -141,6 +162,12 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
         let codex = Arc::new(codex);
         self.providers.register(codex.clone());
         self.codex = codex;
+        self
+    }
+
+    #[must_use]
+    pub fn with_provider_event_log(mut self, event_log: ProviderEventLogRepository) -> Self {
+        self.provider_events = Arc::new(Mutex::new(event_log));
         self
     }
 
@@ -467,6 +494,8 @@ enum WsDispatchError {
     #[error("{0}")]
     ProviderRuntime(#[from] ProviderRuntimeError),
     #[error("{0}")]
+    Persistence(#[from] PersistenceError),
+    #[error("{0}")]
     Terminal(#[from] TerminalError),
     #[error("{0}")]
     Editor(#[from] EditorApiError),
@@ -486,6 +515,7 @@ impl WsDispatchError {
                 ProviderRuntimeError::ProviderUnavailable { .. } => "provider_unavailable",
                 ProviderRuntimeError::Driver(_) => "provider_request_failed",
             },
+            Self::Persistence(_) => "persistence_error",
             Self::Terminal(_) => "terminal_error",
             Self::Editor(_) => "editor_error",
         }

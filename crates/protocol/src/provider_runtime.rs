@@ -15,6 +15,31 @@ pub struct ProviderRuntimeSubscribeRequest {
     pub provider: Option<String>,
 }
 
+fn default_recent_events_limit() -> usize {
+    100
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProviderRuntimeRecentEventsRequest {
+    pub provider: Option<String>,
+    #[serde(default = "default_recent_events_limit")]
+    pub limit: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProviderRuntimeEventRecord {
+    pub sequence: i64,
+    pub provider: String,
+    pub created_at: String,
+    pub event: ProviderRuntimeEvent,
+    pub raw_event: ProviderEvent,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProviderRuntimeRecentEventsResponse {
+    pub records: Vec<ProviderRuntimeEventRecord>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProviderRuntimeRequest {
     pub provider: ProviderKind,

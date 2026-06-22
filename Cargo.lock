@@ -91,6 +91,7 @@ name = "ace-persistence"
 version = "0.1.0"
 dependencies = [
  "ace-core",
+ "ace-runtime",
  "rusqlite",
  "serde",
  "serde_json",

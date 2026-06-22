@@ -16,8 +16,10 @@ use ace_protocol::{
     git::GitWorktreeCreateRequest,
     provider_runtime::{
         PROVIDER_RUNTIME_EVENT_TOPIC, ProviderRuntimeContractReport, ProviderRuntimeEvent,
-        ProviderRuntimeEventBatch, ProviderRuntimeProvidersList, ProviderRuntimeRequest,
-        ProviderRuntimeSubscribeRequest, ProviderServerRequestError, ProviderServerRequestResult,
+        ProviderRuntimeEventBatch, ProviderRuntimeEventRecord, ProviderRuntimeProvidersList,
+        ProviderRuntimeRecentEventsRequest, ProviderRuntimeRecentEventsResponse,
+        ProviderRuntimeRequest, ProviderRuntimeSubscribeRequest, ProviderServerRequestError,
+        ProviderServerRequestResult,
     },
     ws::{WsServerPayload, WsServerResponse, methods},
 };
@@ -25,7 +27,7 @@ use ace_runtime::provider::ProviderRequest;
 use ace_runtime::threads::ExecutionLocation;
 use ace_terminal::PtyAdapter;
 use serde_json::Value;
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 use tokio::sync::mpsc;
 
 impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
@@ -497,6 +499,33 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                     reports: self.providers.contract_reports(),
                 })?)
             }
+            methods::PROVIDER_RUNTIME_EVENTS_RECENT => {
+                let request =
+                    serde_json::from_value::<ProviderRuntimeRecentEventsRequest>(payload)?;
+                let records = self
+                    .provider_events
+                    .lock()
+                    .expect("provider event log")
+                    .recent(request.provider.as_deref(), request.limit)?
+                    .into_iter()
+                    .map(|record| {
+                        let event = ProviderRuntimeEvent::from_provider_event(
+                            &record.provider,
+                            record.event.clone(),
+                        );
+                        ProviderRuntimeEventRecord {
+                            sequence: record.sequence,
+                            provider: record.provider,
+                            created_at: record.created_at,
+                            event,
+                            raw_event: record.event,
+                        }
+                    })
+                    .collect();
+                Ok(serde_json::to_value(ProviderRuntimeRecentEventsResponse {
+                    records,
+                })?)
+            }
             methods::PROVIDER_RUNTIME_REQUEST => {
                 let request = serde_json::from_value::<ProviderRuntimeRequest>(payload)?;
                 let response = self
@@ -560,6 +589,7 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
         };
 
         let codex = self.codex.clone();
+        let provider_events = Arc::clone(&self.provider_events);
         tokio::spawn(async move {
             loop {
                 let events = match codex.next_events().await {
@@ -583,6 +613,25 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 };
                 if events.is_empty() {
                     continue;
+                }
+                let append_result = provider_events
+                    .lock()
+                    .expect("provider event log")
+                    .append_batch("codex", &events);
+                if let Err(error) = append_result {
+                    let response = WsServerResponse {
+                        version: PROTOCOL_VERSION,
+                        request_id: String::new(),
+                        payload: WsServerPayload::Error {
+                            code: "persistence_error".to_string(),
+                            message: error.to_string(),
+                        },
+                    };
+                    let Ok(text) = serde_json::to_string(&response) else {
+                        break;
+                    };
+                    let _ = outbound.send(text).await;
+                    break;
                 }
                 let batch = ProviderRuntimeEventBatch {
                     provider: "codex".to_string(),
@@ -1408,6 +1457,32 @@ mod tests {
         assert_eq!(body["events"][1]["request"]["prompt"], "Run tests?");
         assert_eq!(body["raw_events"][2]["type"], "raw_notification");
         assert_eq!(body["raw_events"][2]["method"], "item/completed");
+
+        let recent = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "provider-events-recent",
+                    "method": methods::PROVIDER_RUNTIME_EVENTS_RECENT,
+                    "payload": { "provider": "codex", "limit": 10 }
+                })
+                .to_string(),
+            )
+            .await;
+        let recent: WsServerResponse = serde_json::from_str(&recent).expect("recent response");
+        let WsServerPayload::Result { body } = recent.payload else {
+            panic!("expected recent provider event result");
+        };
+        let records = body["records"].as_array().expect("records");
+        assert_eq!(records.len(), 3);
+        assert_eq!(records[0]["provider"], "codex");
+        assert_eq!(records[0]["event"]["type"], "tool_completed");
+        assert_eq!(
+            records[0]["event"]["tool"]["display"]["title"],
+            "Clicked Deploy in Browser"
+        );
+        assert_eq!(records[0]["raw_event"]["type"], "semantic_tool");
+        assert_eq!(records[2]["raw_event"]["method"], "item/completed");
     }
 
     #[tokio::test]
