@@ -44,6 +44,39 @@ pub enum ProviderKind {
     Ace,
 }
 
+impl ProviderKind {
+    #[must_use]
+    pub fn runtime_id(self) -> &'static str {
+        match self {
+            Self::Codex => "codex",
+            Self::ClaudeCode => "claude_code",
+            Self::Cursor => "cursor",
+            Self::Ace => "ace",
+        }
+    }
+
+    #[must_use]
+    pub fn display_name(self) -> &'static str {
+        match self {
+            Self::Codex => "Codex",
+            Self::ClaudeCode => "Claude Code",
+            Self::Cursor => "Cursor",
+            Self::Ace => "Ace",
+        }
+    }
+
+    #[must_use]
+    pub fn from_runtime_id(provider: &str) -> Option<Self> {
+        match provider.trim().to_ascii_lowercase().as_str() {
+            "codex" => Some(Self::Codex),
+            "claude" | "claude_code" | "claude-code" | "claudecode" => Some(Self::ClaudeCode),
+            "cursor" => Some(Self::Cursor),
+            "ace" => Some(Self::Ace),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ProjectId(Uuid);
 
@@ -249,4 +282,47 @@ pub enum DomainEvent {
 pub enum CoreError {
     #[error("invalid command: {0}")]
     InvalidCommand(String),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ProviderKind;
+
+    #[test]
+    fn provider_kind_exposes_canonical_runtime_ids() {
+        assert_eq!(ProviderKind::Codex.runtime_id(), "codex");
+        assert_eq!(ProviderKind::ClaudeCode.runtime_id(), "claude_code");
+        assert_eq!(ProviderKind::Cursor.runtime_id(), "cursor");
+        assert_eq!(ProviderKind::Ace.runtime_id(), "ace");
+        assert_eq!(ProviderKind::ClaudeCode.display_name(), "Claude Code");
+    }
+
+    #[test]
+    fn provider_kind_parses_runtime_aliases() {
+        assert_eq!(
+            ProviderKind::from_runtime_id("codex"),
+            Some(ProviderKind::Codex)
+        );
+        assert_eq!(
+            ProviderKind::from_runtime_id("Codex"),
+            Some(ProviderKind::Codex)
+        );
+        assert_eq!(
+            ProviderKind::from_runtime_id("claude-code"),
+            Some(ProviderKind::ClaudeCode)
+        );
+        assert_eq!(
+            ProviderKind::from_runtime_id("claude_code"),
+            Some(ProviderKind::ClaudeCode)
+        );
+        assert_eq!(
+            ProviderKind::from_runtime_id("claude"),
+            Some(ProviderKind::ClaudeCode)
+        );
+        assert_eq!(
+            ProviderKind::from_runtime_id("ace"),
+            Some(ProviderKind::Ace)
+        );
+        assert_eq!(ProviderKind::from_runtime_id("unknown"), None);
+    }
 }

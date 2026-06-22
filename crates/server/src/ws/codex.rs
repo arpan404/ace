@@ -570,8 +570,8 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
             }
             methods::PROVIDER_RUNTIME_SERVER_REQUEST_RESULT => {
                 let request = serde_json::from_value::<ProviderServerRequestResult>(payload)?;
-                let provider_kind = provider_kind_from_runtime_name(Some(&request.provider))
-                    .ok_or_else(|| {
+                let provider_kind =
+                    ProviderKind::from_runtime_id(&request.provider).ok_or_else(|| {
                         WsDispatchError::UnknownMethod(format!(
                             "unknown provider `{}` for server request result",
                             request.provider
@@ -597,8 +597,8 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
             }
             methods::PROVIDER_RUNTIME_SERVER_REQUEST_ERROR => {
                 let request = serde_json::from_value::<ProviderServerRequestError>(payload)?;
-                let provider_kind = provider_kind_from_runtime_name(Some(&request.provider))
-                    .ok_or_else(|| {
+                let provider_kind =
+                    ProviderKind::from_runtime_id(&request.provider).ok_or_else(|| {
                         WsDispatchError::UnknownMethod(format!(
                             "unknown provider `{}` for server request error",
                             request.provider
@@ -633,21 +633,24 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
         outbound: Option<mpsc::Sender<String>>,
     ) -> Result<Value, WsDispatchError> {
         let request = serde_json::from_value::<ProviderRuntimeSubscribeRequest>(payload)?;
-        let Some(provider_kind) = provider_kind_from_runtime_name(request.provider.as_deref())
+        let Some(provider_kind) = request
+            .provider
+            .as_deref()
+            .map_or(Some(ProviderKind::Codex), ProviderKind::from_runtime_id)
         else {
             return Ok(serde_json::json!({ "subscribed": false }));
         };
         if !self.providers.has_event_source(provider_kind) {
             return Ok(serde_json::json!({
                 "subscribed": false,
-                "provider": provider_runtime_name(provider_kind)
+                "provider": provider_kind.runtime_id()
             }));
         }
         let Some(outbound) = outbound else {
             return Ok(serde_json::json!({ "subscribed": false }));
         };
 
-        let provider_name = provider_runtime_name(provider_kind).to_string();
+        let provider_name = provider_kind.runtime_id().to_string();
         let response_provider = provider_name.clone();
         let mut receiver = self.provider_event_receiver(provider_kind);
         tokio::spawn(async move {
@@ -725,7 +728,7 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
         let providers = self.providers.clone();
         let provider_events = Arc::clone(&self.provider_events);
         let provider_streams = Arc::clone(&self.provider_event_streams);
-        let provider_name = provider_runtime_name(provider_kind).to_string();
+        let provider_name = provider_kind.runtime_id().to_string();
         tokio::spawn(async move {
             loop {
                 let events = match providers.next_events(provider_kind).await {
@@ -761,25 +764,6 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 .remove(&provider_kind);
         });
         receiver
-    }
-}
-
-fn provider_kind_from_runtime_name(provider: Option<&str>) -> Option<ProviderKind> {
-    match provider.unwrap_or("codex").trim() {
-        "codex" | "Codex" => Some(ProviderKind::Codex),
-        "ace" | "Ace" => Some(ProviderKind::Ace),
-        "claude" | "claude_code" | "claude-code" | "ClaudeCode" => Some(ProviderKind::ClaudeCode),
-        "cursor" | "Cursor" => Some(ProviderKind::Cursor),
-        _ => None,
-    }
-}
-
-fn provider_runtime_name(provider: ProviderKind) -> &'static str {
-    match provider {
-        ProviderKind::Codex => "codex",
-        ProviderKind::Ace => "ace",
-        ProviderKind::ClaudeCode => "claude_code",
-        ProviderKind::Cursor => "cursor",
     }
 }
 
