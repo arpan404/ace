@@ -1,8 +1,9 @@
 use ace_codex::{
-    CodexClient, CodexConfig, CodexGoalSet, CodexGuardianDeniedActionApproval, CodexHandoffToAgent,
-    CodexMethodDirection, CodexMethodSupport, CodexPermissionCatalog, CodexPermissionPreset,
-    CodexPlanImplementation, CodexStdioTransport, CodexSubagentSteer, CodexThreadStart,
-    CodexTurnPermissions, CodexTurnStart, CodexTurnSteer, Result, classify_codex_method,
+    CodexConfig, CodexGoalSet, CodexGuardianDeniedActionApproval, CodexHandoffToAgent,
+    CodexLiveClient, CodexMethodDirection, CodexMethodSupport, CodexPermissionCatalog,
+    CodexPermissionPreset, CodexPlanImplementation, CodexSubagentSteer, CodexThreadStart,
+    CodexTransportConfig, CodexTurnPermissions, CodexTurnStart, CodexTurnSteer, Result,
+    classify_codex_method,
 };
 use ace_core::{ProviderCapability, ProviderKind};
 use ace_runtime::{
@@ -187,7 +188,7 @@ pub type DynCodexBackend = Arc<dyn CodexBackend>;
 
 pub struct LiveCodexBackend {
     config: CodexConfig,
-    client: Mutex<Option<CodexClient<CodexStdioTransport>>>,
+    client: Mutex<Option<CodexLiveClient>>,
     last_error: Mutex<Option<String>>,
 }
 
@@ -206,19 +207,19 @@ impl LiveCodexBackend {
         }
     }
 
-    async fn client(&self) -> Result<CodexClient<CodexStdioTransport>> {
+    async fn client(&self) -> Result<CodexLiveClient> {
         let mut guard = self.client.lock().await;
         if let Some(client) = guard.as_ref()
             && !client.is_closed()
         {
             return Ok(client.clone());
         }
-        if guard.as_ref().is_some_and(CodexClient::is_closed) {
+        if guard.as_ref().is_some_and(CodexLiveClient::is_closed) {
             *guard = None;
             *self.last_error.lock().await =
                 Some("codex app-server transport closed; respawning on demand".to_string());
         }
-        let client = match CodexClient::spawn(self.config.clone()).await {
+        let client = match CodexLiveClient::connect(self.config.clone()).await {
             Ok(client) => client,
             Err(error) => {
                 *self.last_error.lock().await = Some(error.to_string());
@@ -231,15 +232,31 @@ impl LiveCodexBackend {
     }
 }
 
+fn transport_config_metadata(config: &CodexTransportConfig) -> Value {
+    match config {
+        CodexTransportConfig::Stdio { command, args } => {
+            json!({
+                "command": command,
+                "args": args,
+            })
+        }
+        CodexTransportConfig::UnixSocket { path } => {
+            json!({
+                "path": path,
+            })
+        }
+    }
+}
+
 #[async_trait]
 impl CodexBackend for LiveCodexBackend {
     async fn status(&self) -> ProviderDriverStatus {
         let (has_client, client_closed, client_initialized, initialize_result) = {
             let guard = self.client.lock().await;
             let client = guard.as_ref();
-            let client_closed = client.is_some_and(CodexClient::is_closed);
-            let client_initialized = client.is_some_and(CodexClient::is_initialized);
-            let initialize_result = client.and_then(CodexClient::initialize_result);
+            let client_closed = client.is_some_and(CodexLiveClient::is_closed);
+            let client_initialized = client.is_some_and(CodexLiveClient::is_initialized);
+            let initialize_result = client.and_then(CodexLiveClient::initialize_result);
             (
                 guard.is_some(),
                 client_closed,
@@ -257,14 +274,14 @@ impl CodexBackend for LiveCodexBackend {
                 (false, false, true) => ProviderRuntimeHealth::Unavailable,
                 (false, false, false) => ProviderRuntimeHealth::Stopped,
             },
-            transport: Some("stdio".to_string()),
+            transport: Some(self.config.transport.name().to_string()),
             version: None,
             initialized,
             last_error: last_error
                 .or_else(|| client_closed.then(|| "codex app-server transport closed".to_string())),
             metadata: json!({
-                "command": self.config.command,
-                "args": self.config.args,
+                "transport": self.config.transport.name(),
+                "transport_config": transport_config_metadata(&self.config.transport),
                 "request_timeout_ms": self.config.request_timeout.as_millis() as u64,
                 "experimental_api": true,
                 "spawns_on_first_request": true,
@@ -1656,8 +1673,10 @@ pub mod tests {
     #[tokio::test]
     async fn live_backend_status_reports_spawn_failures() {
         let backend = LiveCodexBackend::with_config(CodexConfig {
-            command: "__ace_missing_codex_binary_for_status_test__".to_string(),
-            args: vec!["app-server".to_string()],
+            transport: CodexTransportConfig::stdio(
+                "__ace_missing_codex_binary_for_status_test__",
+                vec!["app-server".to_string()],
+            ),
             client_info: ace_codex::CodexClientInfo::default(),
             request_timeout: Duration::from_millis(25),
         });
@@ -1677,10 +1696,31 @@ pub mod tests {
                 .contains("__ace_missing_codex_binary_for_status_test__")
         );
         assert_eq!(
-            status.metadata["command"],
+            status.metadata["transport_config"]["command"],
             "__ace_missing_codex_binary_for_status_test__"
         );
+        assert_eq!(status.metadata["transport"], "stdio");
         assert_eq!(status.metadata["request_timeout_ms"], 25);
+        assert_eq!(status.metadata["spawns_on_first_request"], true);
+    }
+
+    #[tokio::test]
+    async fn live_backend_status_reports_configured_unix_socket_transport() {
+        let socket_path = std::path::PathBuf::from("/tmp/ace-codex-test.sock");
+        let backend = LiveCodexBackend::with_config(CodexConfig {
+            transport: CodexTransportConfig::unix_socket(socket_path.clone()),
+            client_info: ace_codex::CodexClientInfo::default(),
+            request_timeout: Duration::from_millis(50),
+        });
+
+        let status = backend.status().await;
+        assert_eq!(status.health, ProviderRuntimeHealth::Stopped);
+        assert_eq!(status.transport.as_deref(), Some("unix_socket"));
+        assert_eq!(status.metadata["transport"], "unix_socket");
+        assert_eq!(
+            status.metadata["transport_config"]["path"],
+            socket_path.to_string_lossy().as_ref()
+        );
         assert_eq!(status.metadata["spawns_on_first_request"], true);
     }
 

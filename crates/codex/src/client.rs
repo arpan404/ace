@@ -1,5 +1,6 @@
 use crate::{
-    AppServerTransport, CodexError, CodexStdioTransport, Result, normalize_codex_inbound_event,
+    AppServerTransport, CodexError, CodexStdioTransport, CodexUnixSocketTransport, Result,
+    normalize_codex_inbound_event,
 };
 use crate::{
     CodexGoalSet, CodexGuardianDeniedActionApproval, CodexHandoffToAgent, CodexPermissionCatalog,
@@ -14,6 +15,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
+    path::PathBuf,
     sync::{Arc, Mutex as StdMutex},
     time::Duration,
 };
@@ -38,9 +40,46 @@ impl Default for CodexClientInfo {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CodexTransportConfig {
+    Stdio { command: String, args: Vec<String> },
+    UnixSocket { path: PathBuf },
+}
+
+impl CodexTransportConfig {
+    #[must_use]
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Stdio { .. } => "stdio",
+            Self::UnixSocket { .. } => "unix_socket",
+        }
+    }
+
+    #[must_use]
+    pub fn stdio(command: impl Into<String>, args: Vec<String>) -> Self {
+        Self::Stdio {
+            command: command.into(),
+            args,
+        }
+    }
+
+    #[must_use]
+    pub fn unix_socket(path: impl Into<PathBuf>) -> Self {
+        Self::UnixSocket { path: path.into() }
+    }
+}
+
+impl Default for CodexTransportConfig {
+    fn default() -> Self {
+        Self::Stdio {
+            command: "codex".to_string(),
+            args: vec!["app-server".to_string()],
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CodexConfig {
-    pub command: String,
-    pub args: Vec<String>,
+    pub transport: CodexTransportConfig,
     pub client_info: CodexClientInfo,
     pub request_timeout: Duration,
 }
@@ -48,8 +87,7 @@ pub struct CodexConfig {
 impl Default for CodexConfig {
     fn default() -> Self {
         Self {
-            command: "codex".to_string(),
-            args: vec!["app-server".to_string()],
+            transport: CodexTransportConfig::default(),
             client_info: CodexClientInfo::default(),
             request_timeout: DEFAULT_CODEX_REQUEST_TIMEOUT,
         }
@@ -201,10 +239,383 @@ pub struct CodexClient<T: AppServerTransport> {
 
 impl CodexClient<CodexStdioTransport> {
     pub async fn spawn(config: CodexConfig) -> Result<Self> {
-        let transport = CodexStdioTransport::spawn(&config.command, &config.args).await?;
+        let CodexTransportConfig::Stdio { command, args } = &config.transport else {
+            return Err(CodexError::InvalidMessage(
+                "CodexClient::spawn requires stdio transport config".to_string(),
+            ));
+        };
+        let transport = CodexStdioTransport::spawn(command, args).await?;
         let client = Self::new(transport, config.request_timeout);
         client.initialize(config.client_info).await?;
         Ok(client)
+    }
+}
+
+impl CodexClient<CodexUnixSocketTransport> {
+    pub async fn connect_unix(config: CodexConfig) -> Result<Self> {
+        let CodexTransportConfig::UnixSocket { path } = &config.transport else {
+            return Err(CodexError::InvalidMessage(
+                "CodexClient::connect_unix requires Unix socket transport config".to_string(),
+            ));
+        };
+        let transport = CodexUnixSocketTransport::connect(path).await?;
+        let client = Self::new(transport, config.request_timeout);
+        client.initialize(config.client_info).await?;
+        Ok(client)
+    }
+}
+
+#[derive(Clone)]
+pub enum CodexLiveClient {
+    Stdio(CodexClient<CodexStdioTransport>),
+    UnixSocket(CodexClient<CodexUnixSocketTransport>),
+}
+
+impl CodexLiveClient {
+    pub async fn connect(config: CodexConfig) -> Result<Self> {
+        match &config.transport {
+            CodexTransportConfig::Stdio { .. } => CodexClient::spawn(config).await.map(Self::Stdio),
+            CodexTransportConfig::UnixSocket { .. } => CodexClient::connect_unix(config)
+                .await
+                .map(Self::UnixSocket),
+        }
+    }
+
+    #[must_use]
+    pub fn transport_name(&self) -> &'static str {
+        match self {
+            Self::Stdio(_) => "stdio",
+            Self::UnixSocket(_) => "unix_socket",
+        }
+    }
+
+    pub async fn raw_request(&self, method: &str, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.raw_request(method, params).await,
+            Self::UnixSocket(client) => client.raw_request(method, params).await,
+        }
+    }
+
+    pub async fn next_provider_events(&self) -> Option<Vec<ProviderEvent>> {
+        match self {
+            Self::Stdio(client) => client.next_provider_events().await,
+            Self::UnixSocket(client) => client.next_provider_events().await,
+        }
+    }
+
+    pub async fn stderr_tail(&self) -> Vec<String> {
+        match self {
+            Self::Stdio(client) => client.stderr_tail().await,
+            Self::UnixSocket(client) => client.stderr_tail().await,
+        }
+    }
+
+    pub async fn shutdown(&self, timeout: Duration) -> Result<()> {
+        match self {
+            Self::Stdio(client) => client.shutdown(timeout).await,
+            Self::UnixSocket(client) => client.shutdown(timeout).await,
+        }
+    }
+
+    #[must_use]
+    pub fn is_closed(&self) -> bool {
+        match self {
+            Self::Stdio(client) => client.is_closed(),
+            Self::UnixSocket(client) => client.is_closed(),
+        }
+    }
+
+    #[must_use]
+    pub fn is_initialized(&self) -> bool {
+        match self {
+            Self::Stdio(client) => client.is_initialized(),
+            Self::UnixSocket(client) => client.is_initialized(),
+        }
+    }
+
+    #[must_use]
+    pub fn initialize_result(&self) -> Option<Value> {
+        match self {
+            Self::Stdio(client) => client.initialize_result(),
+            Self::UnixSocket(client) => client.initialize_result(),
+        }
+    }
+
+    pub async fn respond_tool_result(&self, request_id: i64, result: Value) -> Result<()> {
+        match self {
+            Self::Stdio(client) => client.respond_tool_result(request_id, result).await,
+            Self::UnixSocket(client) => client.respond_tool_result(request_id, result).await,
+        }
+    }
+
+    pub async fn respond_tool_error(
+        &self,
+        request_id: i64,
+        code: i64,
+        message: &str,
+    ) -> Result<()> {
+        match self {
+            Self::Stdio(client) => client.respond_tool_error(request_id, code, message).await,
+            Self::UnixSocket(client) => client.respond_tool_error(request_id, code, message).await,
+        }
+    }
+
+    pub async fn start_thread(&self, request: CodexThreadStart) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.start_thread(request).await,
+            Self::UnixSocket(client) => client.start_thread(request).await,
+        }
+    }
+
+    pub async fn resume_thread(&self, thread_id: &str) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.resume_thread(thread_id).await,
+            Self::UnixSocket(client) => client.resume_thread(thread_id).await,
+        }
+    }
+
+    pub async fn fork_thread(&self, thread_id: &str, ephemeral: bool) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.fork_thread(thread_id, ephemeral).await,
+            Self::UnixSocket(client) => client.fork_thread(thread_id, ephemeral).await,
+        }
+    }
+
+    pub async fn read_thread(&self, thread_id: &str) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.read_thread(thread_id).await,
+            Self::UnixSocket(client) => client.read_thread(thread_id).await,
+        }
+    }
+
+    pub async fn list_threads(&self, params: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.list_threads(params).await,
+            Self::UnixSocket(client) => client.list_threads(params).await,
+        }
+    }
+
+    pub async fn list_loaded_threads(&self) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.list_loaded_threads().await,
+            Self::UnixSocket(client) => client.list_loaded_threads().await,
+        }
+    }
+
+    pub async fn archive_thread(&self, thread_id: &str) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.archive_thread(thread_id).await,
+            Self::UnixSocket(client) => client.archive_thread(thread_id).await,
+        }
+    }
+
+    pub async fn unarchive_thread(&self, thread_id: &str) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.unarchive_thread(thread_id).await,
+            Self::UnixSocket(client) => client.unarchive_thread(thread_id).await,
+        }
+    }
+
+    pub async fn delete_thread(&self, thread_id: &str) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.delete_thread(thread_id).await,
+            Self::UnixSocket(client) => client.delete_thread(thread_id).await,
+        }
+    }
+
+    pub async fn unsubscribe_thread(&self, thread_id: &str) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.unsubscribe_thread(thread_id).await,
+            Self::UnixSocket(client) => client.unsubscribe_thread(thread_id).await,
+        }
+    }
+
+    pub async fn set_thread_name(&self, thread_id: &str, name: &str) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.set_thread_name(thread_id, name).await,
+            Self::UnixSocket(client) => client.set_thread_name(thread_id, name).await,
+        }
+    }
+
+    pub async fn update_thread_metadata(&self, thread_id: &str, metadata: Value) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.update_thread_metadata(thread_id, metadata).await,
+            Self::UnixSocket(client) => client.update_thread_metadata(thread_id, metadata).await,
+        }
+    }
+
+    pub async fn compact_thread(&self, thread_id: &str) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.compact_thread(thread_id).await,
+            Self::UnixSocket(client) => client.compact_thread(thread_id).await,
+        }
+    }
+
+    pub async fn rollback_thread(&self, thread_id: &str, turn_id: &str) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.rollback_thread(thread_id, turn_id).await,
+            Self::UnixSocket(client) => client.rollback_thread(thread_id, turn_id).await,
+        }
+    }
+
+    pub async fn inject_thread_items(&self, thread_id: &str, items: Vec<Value>) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.inject_thread_items(thread_id, items).await,
+            Self::UnixSocket(client) => client.inject_thread_items(thread_id, items).await,
+        }
+    }
+
+    pub async fn start_turn(&self, request: CodexTurnStart) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.start_turn(request).await,
+            Self::UnixSocket(client) => client.start_turn(request).await,
+        }
+    }
+
+    pub async fn steer_turn(&self, request: CodexTurnSteer) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.steer_turn(request).await,
+            Self::UnixSocket(client) => client.steer_turn(request).await,
+        }
+    }
+
+    pub async fn continue_plan_in_thread(&self, request: CodexPlanImplementation) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.continue_plan_in_thread(request).await,
+            Self::UnixSocket(client) => client.continue_plan_in_thread(request).await,
+        }
+    }
+
+    pub async fn fork_plan_for_implementation(
+        &self,
+        request: CodexPlanImplementation,
+    ) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.fork_plan_for_implementation(request).await,
+            Self::UnixSocket(client) => client.fork_plan_for_implementation(request).await,
+        }
+    }
+
+    pub async fn side_implementation(&self, request: CodexPlanImplementation) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.side_implementation(request).await,
+            Self::UnixSocket(client) => client.side_implementation(request).await,
+        }
+    }
+
+    pub async fn interrupt_turn(&self, thread_id: &str) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.interrupt_turn(thread_id).await,
+            Self::UnixSocket(client) => client.interrupt_turn(thread_id).await,
+        }
+    }
+
+    pub async fn config_requirements_read(&self) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.config_requirements_read().await,
+            Self::UnixSocket(client) => client.config_requirements_read().await,
+        }
+    }
+
+    pub async fn permission_profile_list(&self) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.permission_profile_list().await,
+            Self::UnixSocket(client) => client.permission_profile_list().await,
+        }
+    }
+
+    pub async fn permission_catalog(&self) -> Result<CodexPermissionCatalog> {
+        match self {
+            Self::Stdio(client) => client.permission_catalog().await,
+            Self::UnixSocket(client) => client.permission_catalog().await,
+        }
+    }
+
+    pub async fn approve_guardian_denied_action(
+        &self,
+        request: CodexGuardianDeniedActionApproval,
+    ) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.approve_guardian_denied_action(request).await,
+            Self::UnixSocket(client) => client.approve_guardian_denied_action(request).await,
+        }
+    }
+
+    pub async fn goal_set(&self, request: CodexGoalSet) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.goal_set(request).await,
+            Self::UnixSocket(client) => client.goal_set(request).await,
+        }
+    }
+
+    pub async fn goal_get(&self, thread_id: &str) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.goal_get(thread_id).await,
+            Self::UnixSocket(client) => client.goal_get(thread_id).await,
+        }
+    }
+
+    pub async fn goal_clear(&self, thread_id: &str) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.goal_clear(thread_id).await,
+            Self::UnixSocket(client) => client.goal_clear(thread_id).await,
+        }
+    }
+
+    pub async fn goal_pause(&self, thread_id: &str) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.goal_pause(thread_id).await,
+            Self::UnixSocket(client) => client.goal_pause(thread_id).await,
+        }
+    }
+
+    pub async fn goal_resume(&self, thread_id: &str) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.goal_resume(thread_id).await,
+            Self::UnixSocket(client) => client.goal_resume(thread_id).await,
+        }
+    }
+
+    pub async fn subagent_list(&self, thread_id: &str) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.subagent_list(thread_id).await,
+            Self::UnixSocket(client) => client.subagent_list(thread_id).await,
+        }
+    }
+
+    pub async fn subagent_read(&self, thread_id: &str, subagent_thread_id: &str) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.subagent_read(thread_id, subagent_thread_id).await,
+            Self::UnixSocket(client) => client.subagent_read(thread_id, subagent_thread_id).await,
+        }
+    }
+
+    pub async fn subagent_steer(&self, request: CodexSubagentSteer) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.subagent_steer(request).await,
+            Self::UnixSocket(client) => client.subagent_steer(request).await,
+        }
+    }
+
+    pub async fn subagent_stop(&self, thread_id: &str, subagent_thread_id: &str) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.subagent_stop(thread_id, subagent_thread_id).await,
+            Self::UnixSocket(client) => client.subagent_stop(thread_id, subagent_thread_id).await,
+        }
+    }
+
+    pub async fn subagent_close(&self, thread_id: &str, subagent_thread_id: &str) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.subagent_close(thread_id, subagent_thread_id).await,
+            Self::UnixSocket(client) => client.subagent_close(thread_id, subagent_thread_id).await,
+        }
+    }
+
+    pub async fn handoff_to_agent(&self, request: CodexHandoffToAgent) -> Result<Value> {
+        match self {
+            Self::Stdio(client) => client.handoff_to_agent(request).await,
+            Self::UnixSocket(client) => client.handoff_to_agent(request).await,
+        }
     }
 }
 
@@ -749,6 +1160,14 @@ impl<T: AppServerTransport + 'static> ProviderDriver for CodexAdapter<T> {
             capabilities: vec![
                 ProviderCapability {
                     key: "codex.app_server".to_string(),
+                    version: 1,
+                },
+                ProviderCapability {
+                    key: "codex.app_server_transport.stdio".to_string(),
+                    version: 1,
+                },
+                ProviderCapability {
+                    key: "codex.app_server_transport.unix_socket".to_string(),
                     version: 1,
                 },
                 ProviderCapability {
@@ -1423,6 +1842,24 @@ mod tests {
                 .capabilities
                 .iter()
                 .any(|capability| capability.key == "codex.compatibility_inventory")
+        );
+        assert!(
+            descriptor
+                .capabilities
+                .iter()
+                .any(|capability| capability.key == "codex.app_server_transport.stdio")
+        );
+        assert!(
+            descriptor
+                .capabilities
+                .iter()
+                .any(|capability| capability.key == "codex.app_server_transport.unix_socket")
+        );
+        assert!(
+            descriptor
+                .capabilities
+                .iter()
+                .all(|capability| capability.key != "codex.app_server_transport.websocket")
         );
         assert!(
             descriptor

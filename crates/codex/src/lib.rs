@@ -9,9 +9,9 @@ mod transport;
 
 pub use agents::{CodexHandoffToAgent, CodexSubagentSteer, CodexSubagentThreadRequest};
 pub use client::{
-    CodexAdapter, CodexClient, CodexClientInfo, CodexConfig, CodexPlanImplementation,
-    CodexProviderRequest, CodexThreadStart, CodexTurnStart, CodexTurnSteer,
-    DEFAULT_CODEX_REQUEST_TIMEOUT, accepted_plan_item,
+    CodexAdapter, CodexClient, CodexClientInfo, CodexConfig, CodexLiveClient,
+    CodexPlanImplementation, CodexProviderRequest, CodexThreadStart, CodexTransportConfig,
+    CodexTurnStart, CodexTurnSteer, DEFAULT_CODEX_REQUEST_TIMEOUT, accepted_plan_item,
 };
 pub use error::{CodexError, Result};
 pub use event::{CodexInboundEvent, normalize_codex_inbound_event};
@@ -29,5 +29,5 @@ pub use schema::{
 };
 pub use transport::{
     AppServerTransport, CodexJsonRpcError, CodexResponse, CodexStdioTransport,
-    JsonlAppServerTransport,
+    CodexUnixSocketTransport, JsonlAppServerTransport,
 };
