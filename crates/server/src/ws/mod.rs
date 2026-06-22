@@ -227,8 +227,14 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
 
 #[derive(Debug, Clone)]
 pub(super) enum ProviderEventStreamMessage {
-    Events(Vec<ProviderEvent>),
-    Error { code: String, message: String },
+    Events {
+        events: Vec<ProviderEvent>,
+        last_persisted_sequence: Option<i64>,
+    },
+    Error {
+        code: String,
+        message: String,
+    },
 }
 
 pub fn router() -> Router {

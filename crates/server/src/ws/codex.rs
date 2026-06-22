@@ -1521,17 +1521,22 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
         }
 
         let provider_name = provider_kind.runtime_id().to_string();
-        self.provider_events
+        let records = self
+            .provider_events
             .lock()
             .expect("provider event log")
             .append_batch(&provider_name, &events)?;
+        let last_persisted_sequence = records.last().map(|record| record.sequence);
         if let Some(sender) = self
             .provider_event_streams
             .lock()
             .expect("provider event streams")
             .get(&provider_kind)
         {
-            let _ = sender.send(ProviderEventStreamMessage::Events(events));
+            let _ = sender.send(ProviderEventStreamMessage::Events {
+                events,
+                last_persisted_sequence,
+            });
         }
         Ok(())
     }
@@ -2100,8 +2105,11 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                     }
                     Err(broadcast::error::RecvError::Closed) => break,
                 };
-                let events = match message {
-                    ProviderEventStreamMessage::Events(events) => events,
+                let (events, last_persisted_sequence) = match message {
+                    ProviderEventStreamMessage::Events {
+                        events,
+                        last_persisted_sequence,
+                    } => (events, last_persisted_sequence),
                     ProviderEventStreamMessage::Error { code, message } => {
                         let response = WsServerResponse {
                             version: PROTOCOL_VERSION,
@@ -2123,7 +2131,7 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                     &provider_name,
                     events,
                     raw_event_mode,
-                    None,
+                    last_persisted_sequence,
                 )
                 .await
                 .is_err()
@@ -2231,14 +2239,21 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                     .lock()
                     .expect("provider event log")
                     .append_batch(&provider_name, &events);
-                if let Err(error) = append_result {
-                    let _ = sender.send(ProviderEventStreamMessage::Error {
-                        code: "persistence_error".to_string(),
-                        message: error.to_string(),
-                    });
-                    break;
-                }
-                let _ = sender.send(ProviderEventStreamMessage::Events(events));
+                let records = match append_result {
+                    Ok(records) => records,
+                    Err(error) => {
+                        let _ = sender.send(ProviderEventStreamMessage::Error {
+                            code: "persistence_error".to_string(),
+                            message: error.to_string(),
+                        });
+                        break;
+                    }
+                };
+                let last_persisted_sequence = records.last().map(|record| record.sequence);
+                let _ = sender.send(ProviderEventStreamMessage::Events {
+                    events,
+                    last_persisted_sequence,
+                });
             }
             provider_streams
                 .lock()
@@ -5639,6 +5654,15 @@ mod tests {
         assert_eq!(second_topic, PROVIDER_RUNTIME_EVENT_TOPIC);
         assert_eq!(body["provider"], "codex");
         assert_eq!(second_body["provider"], "codex");
+        assert!(
+            body["last_persisted_sequence"]
+                .as_i64()
+                .is_some_and(|sequence| sequence > 0)
+        );
+        assert_eq!(
+            second_body["last_persisted_sequence"],
+            body["last_persisted_sequence"]
+        );
         assert_eq!(second_body["events"], body["events"]);
         assert_eq!(second_body["projection_deltas"], body["projection_deltas"]);
         assert_eq!(body["events"][0]["type"], "tool_completed");
@@ -6076,21 +6100,23 @@ mod tests {
         assert!(matches!(subscribe.payload, WsServerPayload::Result { .. }));
 
         provider_sender
-            .send(ProviderEventStreamMessage::Events(vec![
-                ProviderEvent::RawNotification {
+            .send(ProviderEventStreamMessage::Events {
+                events: vec![ProviderEvent::RawNotification {
                     method: "first".to_string(),
                     params: json!({}),
-                },
-            ]))
+                }],
+                last_persisted_sequence: None,
+            })
             .expect("send first event");
         for index in 0..8 {
             provider_sender
-                .send(ProviderEventStreamMessage::Events(vec![
-                    ProviderEvent::RawNotification {
+                .send(ProviderEventStreamMessage::Events {
+                    events: vec![ProviderEvent::RawNotification {
                         method: format!("overflow-{index}"),
                         params: json!({ "index": index }),
-                    },
-                ]))
+                    }],
+                    last_persisted_sequence: None,
+                })
                 .expect("send overflow event");
         }
 
@@ -9780,11 +9806,14 @@ mod tests {
                 result: json!({ "approved": true })
             }]
         );
-        let ProviderEventStreamMessage::Events(pushed_events) =
-            provider_receiver.recv().await.expect("provider event push")
+        let ProviderEventStreamMessage::Events {
+            events: pushed_events,
+            last_persisted_sequence,
+        } = provider_receiver.recv().await.expect("provider event push")
         else {
             panic!("expected pushed provider events");
         };
+        assert!(last_persisted_sequence.is_some_and(|sequence| sequence > 0));
         assert_eq!(pushed_events.len(), 1);
         let ProviderEvent::ServerRequestResolved {
             request_id,
