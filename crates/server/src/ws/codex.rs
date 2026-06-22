@@ -18,11 +18,11 @@ use ace_protocol::{
     git::GitWorktreeCreateRequest,
     provider_runtime::{
         PROVIDER_RUNTIME_EVENT_TOPIC, ProviderRuntimeContractReport, ProviderRuntimeEvent,
-        ProviderRuntimeEventBatch, ProviderRuntimeEventRecord, ProviderRuntimeProvidersList,
-        ProviderRuntimeRecentEventsRequest, ProviderRuntimeRecentEventsResponse,
-        ProviderRuntimeRequest, ProviderRuntimeSubscribeRequest,
-        ProviderServerRequestDecisionRecord, ProviderServerRequestError,
-        ProviderServerRequestRecord, ProviderServerRequestResult,
+        ProviderRuntimeEventBatch, ProviderRuntimeEventRecord, ProviderRuntimeProviderInfo,
+        ProviderRuntimeProvidersList, ProviderRuntimeRecentEventsRequest,
+        ProviderRuntimeRecentEventsResponse, ProviderRuntimeRequest,
+        ProviderRuntimeSubscribeRequest, ProviderServerRequestDecisionRecord,
+        ProviderServerRequestError, ProviderServerRequestRecord, ProviderServerRequestResult,
         ProviderServerRequestStatusFilter, ProviderServerRequestsListRequest,
         ProviderServerRequestsListResponse,
     },
@@ -495,8 +495,13 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
     ) -> Result<Value, WsDispatchError> {
         match method {
             methods::PROVIDER_RUNTIME_PROVIDERS_LIST => {
+                let providers = self.providers.descriptors();
                 Ok(serde_json::to_value(ProviderRuntimeProvidersList {
-                    providers: self.providers.descriptors(),
+                    runtime: providers
+                        .iter()
+                        .map(|descriptor| self.provider_runtime_info(descriptor.clone()))
+                        .collect(),
+                    providers,
                 })?)
             }
             methods::PROVIDER_RUNTIME_CONTRACT => {
@@ -707,6 +712,24 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
             }
         });
         Ok(serde_json::json!({ "subscribed": true, "provider": response_provider }))
+    }
+
+    fn provider_runtime_info(
+        &self,
+        descriptor: ace_runtime::provider::ProviderDescriptor,
+    ) -> ProviderRuntimeProviderInfo {
+        let provider = descriptor.kind;
+        ProviderRuntimeProviderInfo {
+            provider,
+            runtime_id: provider.runtime_id().to_string(),
+            display_name: provider.display_name().to_string(),
+            supports_events: self.providers.has_event_source(provider),
+            supports_server_request_responses: self
+                .providers
+                .has_server_request_responder(provider),
+            contract: ace_runtime::provider::provider_contract_report(&descriptor),
+            descriptor,
+        }
     }
 
     fn provider_event_receiver(
@@ -1791,6 +1814,28 @@ mod tests {
                         .any(|capability| capability["key"] == "ace.provider_contract")
             )
         );
+        let runtime = body["runtime"].as_array().expect("runtime providers");
+        let codex_runtime = runtime
+            .iter()
+            .find(|provider| provider["runtime_id"] == "codex")
+            .expect("codex runtime provider");
+        assert_eq!(codex_runtime["provider"], "Codex");
+        assert_eq!(codex_runtime["display_name"], "Codex");
+        assert_eq!(codex_runtime["descriptor"]["kind"], "Codex");
+        assert_eq!(codex_runtime["supports_events"], true);
+        assert_eq!(codex_runtime["supports_server_request_responses"], true);
+        assert_eq!(codex_runtime["contract"]["satisfies_required"], true);
+
+        let ace_runtime = runtime
+            .iter()
+            .find(|provider| provider["runtime_id"] == "ace")
+            .expect("ace runtime provider");
+        assert_eq!(ace_runtime["provider"], "Ace");
+        assert_eq!(ace_runtime["display_name"], "Ace");
+        assert_eq!(ace_runtime["descriptor"]["kind"], "Ace");
+        assert_eq!(ace_runtime["supports_events"], false);
+        assert_eq!(ace_runtime["supports_server_request_responses"], false);
+        assert_eq!(ace_runtime["contract"]["satisfies_required"], true);
 
         let routed = state
             .dispatch_text(

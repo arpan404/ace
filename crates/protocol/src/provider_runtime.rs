@@ -53,6 +53,19 @@ pub struct ProviderRuntimeRequest {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProviderRuntimeProvidersList {
     pub providers: Vec<ProviderDescriptor>,
+    #[serde(default)]
+    pub runtime: Vec<ProviderRuntimeProviderInfo>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProviderRuntimeProviderInfo {
+    pub provider: ProviderKind,
+    pub runtime_id: String,
+    pub display_name: String,
+    pub descriptor: ProviderDescriptor,
+    pub supports_events: bool,
+    pub supports_server_request_responses: bool,
+    pub contract: ProviderContractReport,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
