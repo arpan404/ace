@@ -310,16 +310,34 @@ pub struct CodexCompatibilityMethod {
     pub method: String,
     pub direction: CodexMethodDirection,
     pub support: CodexMethodSupport,
+    pub invocation: CodexCompatibilityInvocation,
+    pub raw_request_allowed: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
 }
 
 impl From<CodexMethodSpec> for CodexCompatibilityMethod {
     fn from(spec: CodexMethodSpec) -> Self {
+        let invocation = codex_compatibility_invocation(spec);
         Self {
             method: spec.method.to_string(),
             direction: spec.direction,
             support: spec.support,
+            invocation,
+            raw_request_allowed: codex_raw_request_allowed(spec),
+            reason: codex_invocation_reason(spec, invocation),
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CodexCompatibilityInvocation {
+    TypedApi,
+    RawRequest,
+    ServerNotification,
+    ServerRequestResponse,
+    Deferred,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -442,6 +460,58 @@ fn adapter_coverage_summary(
     }
 }
 
+fn codex_compatibility_invocation(spec: CodexMethodSpec) -> CodexCompatibilityInvocation {
+    match spec.direction {
+        CodexMethodDirection::ClientRequest => match spec.support {
+            CodexMethodSupport::TypedSupported => CodexCompatibilityInvocation::TypedApi,
+            CodexMethodSupport::RawSupported | CodexMethodSupport::VersionGated => {
+                CodexCompatibilityInvocation::RawRequest
+            }
+            CodexMethodSupport::IntentionallyDeferred => CodexCompatibilityInvocation::Deferred,
+        },
+        CodexMethodDirection::ClientNotification => CodexCompatibilityInvocation::TypedApi,
+        CodexMethodDirection::ServerNotification => {
+            CodexCompatibilityInvocation::ServerNotification
+        }
+        CodexMethodDirection::ServerRequest => CodexCompatibilityInvocation::ServerRequestResponse,
+    }
+}
+
+fn codex_raw_request_allowed(spec: CodexMethodSpec) -> bool {
+    spec.direction == CodexMethodDirection::ClientRequest
+        && matches!(
+            spec.support,
+            CodexMethodSupport::TypedSupported
+                | CodexMethodSupport::RawSupported
+                | CodexMethodSupport::VersionGated
+        )
+}
+
+fn codex_invocation_reason(
+    spec: CodexMethodSpec,
+    invocation: CodexCompatibilityInvocation,
+) -> Option<String> {
+    match invocation {
+        CodexCompatibilityInvocation::TypedApi => None,
+        CodexCompatibilityInvocation::RawRequest => Some(match spec.support {
+            CodexMethodSupport::VersionGated => {
+                "version-gated client request; use raw request when the installed Codex supports it"
+            }
+            _ => "client request accepted by raw request policy",
+        }
+        .to_string()),
+        CodexCompatibilityInvocation::ServerNotification => {
+            Some("delivered through provider runtime event stream".to_string())
+        }
+        CodexCompatibilityInvocation::ServerRequestResponse => {
+            Some("respond through provider runtime server-request APIs".to_string())
+        }
+        CodexCompatibilityInvocation::Deferred => {
+            Some("intentionally deferred and rejected by raw request policy".to_string())
+        }
+    }
+}
+
 fn default_shutdown_grace_ms() -> u64 {
     1_000
 }
@@ -491,6 +561,68 @@ mod tests {
                 .raw_request_policy
                 .rejects_non_client_request_directions
         );
+        let thread_start = inventory
+            .methods
+            .iter()
+            .find(|method| method.method == "thread/start")
+            .expect("thread start");
+        assert_eq!(
+            thread_start.invocation,
+            CodexCompatibilityInvocation::TypedApi
+        );
+        assert!(thread_start.raw_request_allowed);
+        assert_eq!(thread_start.reason, None);
+
+        let command_exec = inventory
+            .methods
+            .iter()
+            .find(|method| method.method == "command/exec")
+            .expect("command exec");
+        assert_eq!(
+            command_exec.invocation,
+            CodexCompatibilityInvocation::RawRequest
+        );
+        assert!(command_exec.raw_request_allowed);
+        assert!(
+            command_exec
+                .reason
+                .as_deref()
+                .expect("command reason")
+                .contains("version-gated")
+        );
+
+        let item_completed = inventory
+            .methods
+            .iter()
+            .find(|method| method.method == "item/completed")
+            .expect("item completed");
+        assert_eq!(
+            item_completed.invocation,
+            CodexCompatibilityInvocation::ServerNotification
+        );
+        assert!(!item_completed.raw_request_allowed);
+
+        let command_approval = inventory
+            .methods
+            .iter()
+            .find(|method| method.method == "command/approvalRequest")
+            .expect("command approval");
+        assert_eq!(
+            command_approval.invocation,
+            CodexCompatibilityInvocation::ServerRequestResponse
+        );
+        assert!(!command_approval.raw_request_allowed);
+
+        let cloud_handoff = inventory
+            .methods
+            .iter()
+            .find(|method| method.method == "cloud/handoff")
+            .expect("cloud handoff");
+        assert_eq!(
+            cloud_handoff.invocation,
+            CodexCompatibilityInvocation::Deferred
+        );
+        assert!(!cloud_handoff.raw_request_allowed);
         assert!(inventory.adapter_contract_coverage.is_empty());
         assert_eq!(
             inventory.adapter_contract_coverage_summary,

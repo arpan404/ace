@@ -1967,7 +1967,41 @@ mod tests {
                 .expect("methods")
                 .iter()
                 .any(|method| method["method"] == "thread/start"
-                    && method["support"] == "typed_supported")
+                    && method["support"] == "typed_supported"
+                    && method["invocation"] == "typed_api"
+                    && method["raw_request_allowed"] == true)
+        );
+        assert!(
+            body["methods"]
+                .as_array()
+                .expect("methods")
+                .iter()
+                .any(|method| method["method"] == "command/exec"
+                    && method["support"] == "version_gated"
+                    && method["invocation"] == "raw_request"
+                    && method["raw_request_allowed"] == true
+                    && method["reason"]
+                        .as_str()
+                        .expect("command exec reason")
+                        .contains("version-gated"))
+        );
+        assert!(
+            body["methods"]
+                .as_array()
+                .expect("methods")
+                .iter()
+                .any(|method| method["method"] == "command/approvalRequest"
+                    && method["invocation"] == "server_request_response"
+                    && method["raw_request_allowed"] == false)
+        );
+        assert!(
+            body["methods"]
+                .as_array()
+                .expect("methods")
+                .iter()
+                .any(|method| method["method"] == "cloud/handoff"
+                    && method["invocation"] == "deferred"
+                    && method["raw_request_allowed"] == false)
         );
         assert!(
             body["summary"]["total_methods"]
