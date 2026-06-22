@@ -3,12 +3,13 @@ use crate::provider::{
     ProviderDriverError, ProviderEvent, ProviderEventSource, ProviderFeature,
     ProviderFeatureCategory, ProviderFeatureDirection, ProviderFeatureSupport,
     ProviderLifecycleAction, ProviderLifecycleResult, ProviderRequest, ProviderRuntimeHealth,
-    ProviderServerRequestResponder, ace_provider_adapter_contract,
+    ProviderServerRequestResponder, ProviderStateSource, ace_provider_adapter_contract,
     ace_provider_contract_requirements, provider_adapter_profile, provider_contract_report,
 };
 use crate::runtime_signals::{RuntimeSignalNormalizationInput, normalize_provider_runtime_signal};
 use crate::server_requests::{ServerRequestNormalizationInput, normalize_provider_server_request};
 use crate::thread_items::{ThreadItemNormalizationInput, normalize_provider_thread_item};
+use crate::threads::{AgentRuntimeSnapshot, ProviderStateRecord};
 use crate::tools::{
     ProviderServerRequestToolNormalizationInput, ProviderToolEventNormalizationInput,
     SemanticToolCall, ToolNormalizationInput, normalize_provider_server_request_tool,
@@ -721,6 +722,28 @@ impl ProviderServerRequestResponder for AceNativeProvider {
             }],
         )
         .await
+    }
+}
+
+#[async_trait]
+impl ProviderStateSource for AceNativeProvider {
+    async fn runtime_state_snapshot(&self) -> Result<AgentRuntimeSnapshot, ProviderDriverError> {
+        let pending_server_requests = self.pending_server_requests.lock().await.len();
+        Ok(AgentRuntimeSnapshot {
+            provider_states: vec![ProviderStateRecord {
+                provider: "ace".to_string(),
+                status: "ready".to_string(),
+                message: None,
+                name: Some("Ace native provider".to_string()),
+                metadata: json!({
+                    "runtime": "in_process",
+                    "adapter_contract": 1,
+                    "pending_server_requests": pending_server_requests,
+                    "websocket_first": true,
+                }),
+            }],
+            ..AgentRuntimeSnapshot::default()
+        })
     }
 }
 

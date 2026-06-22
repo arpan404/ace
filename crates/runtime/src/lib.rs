@@ -45,7 +45,7 @@ pub enum RuntimeError {
 
 pub mod provider {
     use crate::{
-        threads::ExecutionLocation,
+        threads::{AgentRuntimeSnapshot, ExecutionLocation},
         tools::{SemanticToolCall, ToolActionKind, ToolSurface, ToolTransport},
     };
     use ace_core::{ProviderCapability, ProviderKind};
@@ -793,15 +793,23 @@ pub mod provider {
         ) -> Result<(), ProviderDriverError>;
     }
 
+    #[async_trait]
+    pub trait ProviderStateSource: Send + Sync + 'static {
+        async fn runtime_state_snapshot(&self)
+        -> Result<AgentRuntimeSnapshot, ProviderDriverError>;
+    }
+
     pub type DynProviderDriver = Arc<dyn ProviderDriver>;
     pub type DynProviderEventSource = Arc<dyn ProviderEventSource>;
     pub type DynProviderServerRequestResponder = Arc<dyn ProviderServerRequestResponder>;
+    pub type DynProviderStateSource = Arc<dyn ProviderStateSource>;
 
     #[derive(Default, Clone)]
     pub struct ProviderRegistry {
         drivers: HashMap<ProviderKind, DynProviderDriver>,
         event_sources: HashMap<ProviderKind, DynProviderEventSource>,
         server_request_responders: HashMap<ProviderKind, DynProviderServerRequestResponder>,
+        state_sources: HashMap<ProviderKind, DynProviderStateSource>,
     }
 
     #[must_use]
@@ -1877,6 +1885,16 @@ pub mod provider {
             self
         }
 
+        #[must_use]
+        pub fn with_state_source(
+            mut self,
+            provider: ProviderKind,
+            source: DynProviderStateSource,
+        ) -> Self {
+            self.register_state_source(provider, source);
+            self
+        }
+
         pub fn register(&mut self, driver: DynProviderDriver) {
             let kind = driver.descriptor().kind;
             self.drivers.insert(kind, driver);
@@ -1898,6 +1916,14 @@ pub mod provider {
             self.server_request_responders.insert(provider, responder);
         }
 
+        pub fn register_state_source(
+            &mut self,
+            provider: ProviderKind,
+            source: DynProviderStateSource,
+        ) {
+            self.state_sources.insert(provider, source);
+        }
+
         #[must_use]
         pub fn get(&self, kind: ProviderKind) -> Option<DynProviderDriver> {
             self.drivers.get(&kind).cloned()
@@ -1911,6 +1937,11 @@ pub mod provider {
         #[must_use]
         pub fn has_server_request_responder(&self, kind: ProviderKind) -> bool {
             self.server_request_responders.contains_key(&kind)
+        }
+
+        #[must_use]
+        pub fn has_state_source(&self, kind: ProviderKind) -> bool {
+            self.state_sources.contains_key(&kind)
         }
 
         #[must_use]
@@ -2086,6 +2117,17 @@ pub mod provider {
                 .await
                 .map_err(Into::into)
         }
+
+        pub async fn runtime_state_snapshot(
+            &self,
+            kind: ProviderKind,
+        ) -> Result<AgentRuntimeSnapshot, ProviderRuntimeError> {
+            let source = self
+                .state_sources
+                .get(&kind)
+                .ok_or(ProviderRuntimeError::ProviderUnavailable { provider: kind })?;
+            source.runtime_state_snapshot().await.map_err(Into::into)
+        }
     }
 
     #[derive(Debug, thiserror::Error)]
@@ -2200,6 +2242,19 @@ pub mod provider {
                         message,
                     });
                 Ok(())
+            }
+        }
+
+        struct FakeProviderStateSource {
+            snapshot: AgentRuntimeSnapshot,
+        }
+
+        #[async_trait]
+        impl ProviderStateSource for FakeProviderStateSource {
+            async fn runtime_state_snapshot(
+                &self,
+            ) -> Result<AgentRuntimeSnapshot, ProviderDriverError> {
+                Ok(self.snapshot.clone())
             }
         }
 
@@ -2616,6 +2671,40 @@ pub mod provider {
                     && hook.operations == vec![ProviderAdapterOperation::ServerRequestRespond]
             }));
             assert_eq!(registry.adapter_runtime_reports().len(), 1);
+        }
+
+        #[tokio::test]
+        async fn registry_routes_runtime_state_snapshots_by_provider_kind() {
+            let source = Arc::new(FakeProviderStateSource {
+                snapshot: AgentRuntimeSnapshot {
+                    provider_states: vec![crate::threads::ProviderStateRecord {
+                        provider: "ace".to_string(),
+                        status: "ready".to_string(),
+                        message: None,
+                        name: Some("Ace".to_string()),
+                        metadata: json!({ "pending_server_requests": 0 }),
+                    }],
+                    ..AgentRuntimeSnapshot::default()
+                },
+            });
+            let registry = ProviderRegistry::new().with_state_source(ProviderKind::Ace, source);
+
+            assert!(registry.has_state_source(ProviderKind::Ace));
+            let snapshot = registry
+                .runtime_state_snapshot(ProviderKind::Ace)
+                .await
+                .expect("runtime state");
+            assert_eq!(snapshot.provider_states[0].provider, "ace");
+            assert_eq!(snapshot.provider_states[0].status, "ready");
+            assert!(matches!(
+                registry
+                    .runtime_state_snapshot(ProviderKind::Codex)
+                    .await
+                    .expect_err("missing state source"),
+                ProviderRuntimeError::ProviderUnavailable {
+                    provider: ProviderKind::Codex
+                }
+            ));
         }
 
         #[test]

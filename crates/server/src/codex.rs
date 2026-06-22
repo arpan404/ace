@@ -11,7 +11,7 @@ use ace_runtime::{
         ProviderDescriptor, ProviderDriver, ProviderDriverError, ProviderDriverStatus,
         ProviderEvent, ProviderEventSource, ProviderFeature, ProviderLifecycleAction,
         ProviderLifecycleResult, ProviderRequest, ProviderRuntimeHealth,
-        ProviderServerRequestResponder,
+        ProviderServerRequestResponder, ProviderStateSource,
     },
     threads::{
         AgentRuntimeSnapshot, AgentRuntimeState, AgentThread, ApprovalRetryRecord,
@@ -1365,6 +1365,15 @@ impl ProviderServerRequestResponder for CodexService {
                 method: "server_request/error".to_string(),
                 message: error.to_string(),
             })
+    }
+}
+
+#[async_trait]
+impl ProviderStateSource for CodexService {
+    async fn runtime_state_snapshot(
+        &self,
+    ) -> std::result::Result<AgentRuntimeSnapshot, ProviderDriverError> {
+        Ok(CodexService::runtime_state_snapshot(self).await)
     }
 }
 

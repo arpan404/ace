@@ -1021,24 +1021,21 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 let providers = self.provider_runtime_filter(request.provider, "state get")?;
                 let mut provider_states = Vec::with_capacity(providers.len());
                 for provider in providers {
-                    match provider {
-                        ProviderKind::Codex => {
-                            provider_states.push(ProviderRuntimeProviderState {
-                                provider,
-                                runtime_id: provider.runtime_id().to_string(),
-                                display_name: provider.display_name().to_string(),
-                                state: self.codex.runtime_state_snapshot().await,
-                            });
+                    if !self.providers.has_state_source(provider) {
+                        if requested_provider.is_some() {
+                            return Err(WsDispatchError::BadRequest(format!(
+                                "provider `{}` does not expose runtime state",
+                                provider.runtime_id()
+                            )));
                         }
-                        _ => {
-                            if requested_provider.is_some() {
-                                return Err(WsDispatchError::BadRequest(format!(
-                                    "provider `{}` does not expose runtime state",
-                                    provider.runtime_id()
-                                )));
-                            }
-                        }
+                        continue;
                     }
+                    provider_states.push(ProviderRuntimeProviderState {
+                        provider,
+                        runtime_id: provider.runtime_id().to_string(),
+                        display_name: provider.display_name().to_string(),
+                        state: self.providers.runtime_state_snapshot(provider).await?,
+                    });
                 }
                 Ok(serde_json::to_value(ProviderRuntimeStateGetResponse {
                     providers: provider_states,
@@ -7456,8 +7453,41 @@ mod tests {
         let WsServerPayload::Result { body } = all_states.payload else {
             panic!("expected all state result");
         };
-        assert_eq!(body["providers"].as_array().expect("providers").len(), 1);
-        assert_eq!(body["providers"][0]["runtime_id"], "codex");
+        let providers = body["providers"].as_array().expect("providers");
+        assert_eq!(providers.len(), 2);
+        assert!(
+            providers
+                .iter()
+                .any(|provider| provider["runtime_id"] == "codex")
+        );
+        assert!(providers.iter().any(|provider| {
+            provider["runtime_id"] == "ace"
+                && provider["state"]["provider_states"][0]["status"] == "ready"
+                && provider["state"]["provider_states"][0]["metadata"]["pending_server_requests"]
+                    == 0
+        }));
+
+        let ace_snapshot = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "provider-state-ace",
+                    "method": methods::PROVIDER_RUNTIME_STATE_GET,
+                    "payload": { "provider": "ace" }
+                })
+                .to_string(),
+            )
+            .await;
+        let ace_snapshot: WsServerResponse =
+            serde_json::from_str(&ace_snapshot).expect("ace snapshot");
+        let WsServerPayload::Result { body } = ace_snapshot.payload else {
+            panic!("expected ace state result");
+        };
+        assert_eq!(body["providers"][0]["runtime_id"], "ace");
+        assert_eq!(
+            body["providers"][0]["state"]["provider_states"][0]["name"],
+            "Ace native provider"
+        );
     }
 
     #[tokio::test]
