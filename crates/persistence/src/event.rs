@@ -634,6 +634,48 @@ mod tests {
                     "world",
                 ),
                 realtime_signal(RuntimeSignalKind::RealtimeAudioDelta, "turn-1", "audio-1"),
+                ProviderEvent::RuntimeSignal {
+                    signal: Box::new(NormalizedRuntimeSignal {
+                        kind: RuntimeSignalKind::ProviderStateUpdated,
+                        thread_id: None,
+                        turn_id: None,
+                        item_id: None,
+                        message: None,
+                        from_model: None,
+                        to_model: None,
+                        reason: None,
+                        text: None,
+                        audio: None,
+                        status: Some("connected".to_string()),
+                        name: Some("Devbox".to_string()),
+                        active: None,
+                        archived: None,
+                        diff: None,
+                        files: None,
+                        process_id: None,
+                        exit_code: None,
+                        request_id: None,
+                        metadata: serde_json::json!({
+                            "hostId": "devbox",
+                            "host": "devbox.example.com",
+                            "displayName": "Devbox",
+                            "status": "connected",
+                            "projects": [{ "path": "/srv/ace" }]
+                        }),
+                        provider: ProviderMetadata {
+                            provider: "codex".to_string(),
+                            method: Some("remoteControl/status/changed".to_string()),
+                            schema_version: None,
+                            raw_payload: serde_json::json!({
+                                "hostId": "devbox",
+                                "host": "devbox.example.com",
+                                "displayName": "Devbox",
+                                "status": "connected",
+                                "projects": [{ "path": "/srv/ace" }]
+                            }),
+                        },
+                    }),
+                },
                 ProviderEvent::SemanticTool {
                     tool: Box::new(semantic_tool(
                         "tool-1",
@@ -730,6 +772,17 @@ mod tests {
         assert_eq!(codex.realtime_transcripts[0].text, "hello world");
         assert_eq!(codex.realtime_audio.len(), 1);
         assert_eq!(codex.realtime_audio[0].chunks, vec!["audio-1".to_string()]);
+        assert_eq!(codex.remote_connections.len(), 1);
+        assert_eq!(codex.remote_connections[0].host_id, "devbox");
+        assert_eq!(
+            codex.remote_connections[0].host.as_deref(),
+            Some("devbox.example.com")
+        );
+        assert_eq!(
+            codex.remote_connections[0].status.as_deref(),
+            Some("connected")
+        );
+        assert_eq!(codex.remote_connections[0].projects[0]["path"], "/srv/ace");
 
         let all = repo.runtime_state_snapshot(None).expect("all snapshot");
         assert_eq!(all.thread_items.len(), 4);

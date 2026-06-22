@@ -13,8 +13,8 @@ use ace_runtime::{
         RuntimeSignalKind, ServerRequestKind, ThreadItemKind, ThreadItemStatus,
     },
     threads::{
-        AgentRuntimeSnapshot, ApprovalRetryRecord, ForkPoint, GoalState, GoalStatus, HandoffPlan,
-        PlanImplementationRecord, SideChat,
+        AgentRuntimeSnapshot, ApprovalRetryRecord, ExecutionLocation, ForkPoint, GoalState,
+        GoalStatus, HandoffPlan, PlanImplementationRecord, RemoteConnectionRecord, SideChat,
     },
     tools::{SemanticToolCall, ToolRunStatus},
 };
@@ -953,6 +953,10 @@ pub enum ProviderRuntimeProjectionDelta {
         #[serde(default, skip_serializing_if = "serde_json::Value::is_null")]
         metadata: serde_json::Value,
     },
+    RemoteConnectionUpdated {
+        provider: String,
+        connection: RemoteConnectionRecord,
+    },
     RealtimeSessionUpdated {
         provider: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1598,7 +1602,7 @@ fn projection_deltas_for_runtime_signal(
             ]
         }
         RuntimeSignalKind::ProviderStateUpdated => {
-            vec![ProviderRuntimeProjectionDelta::ProviderStateUpdated {
+            let mut deltas = vec![ProviderRuntimeProjectionDelta::ProviderStateUpdated {
                 provider: signal.provider.provider.clone(),
                 status: signal
                     .status
@@ -1607,7 +1611,14 @@ fn projection_deltas_for_runtime_signal(
                 message: signal.message.clone(),
                 name: signal.name.clone(),
                 metadata: signal.metadata.clone(),
-            }]
+            }];
+            if let Some(connection) = remote_connection_from_signal(signal) {
+                deltas.push(ProviderRuntimeProjectionDelta::RemoteConnectionUpdated {
+                    provider: signal.provider.provider.clone(),
+                    connection,
+                });
+            }
+            deltas
         }
         RuntimeSignalKind::TurnLifecycleChanged => {
             let active = signal.active.or_else(|| {
@@ -1835,6 +1846,66 @@ fn review_active_from_signal_status(status: &str) -> Option<bool> {
         "entered" | "started" | "active" => Some(true),
         "exited" | "completed" | "inactive" => Some(false),
         _ => None,
+    }
+}
+
+fn remote_connection_from_signal(
+    signal: &NormalizedRuntimeSignal,
+) -> Option<RemoteConnectionRecord> {
+    if signal.provider.method.as_deref() != Some("remoteControl/status/changed") {
+        return None;
+    }
+    let payload = &signal.provider.raw_payload;
+    let host = string_at(
+        payload,
+        &["host", "hostname", "hostName", "sshHost", "alias"],
+    );
+    let display_name = signal
+        .name
+        .clone()
+        .or_else(|| string_at(payload, &["displayName", "display_name", "name", "title"]));
+    let host_id = string_at(
+        payload,
+        &["id", "hostId", "host_id", "connectionId", "deviceId"],
+    )
+    .or_else(|| host.clone())
+    .or_else(|| display_name.clone())
+    .unwrap_or_else(|| "remote_control".to_string());
+
+    Some(RemoteConnectionRecord {
+        provider: signal.provider.provider.clone(),
+        host_id,
+        host,
+        display_name,
+        status: signal.status.clone(),
+        execution_location: execution_location_from_remote_payload(payload),
+        projects: payload
+            .get("projects")
+            .or_else(|| payload.get("savedProjects"))
+            .or_else(|| payload.get("saved_projects"))
+            .or_else(|| payload.get("repositories"))
+            .cloned()
+            .unwrap_or(serde_json::Value::Null),
+        metadata: signal.metadata.clone(),
+    })
+}
+
+fn execution_location_from_remote_payload(value: &serde_json::Value) -> ExecutionLocation {
+    match string_at(
+        value,
+        &[
+            "executionLocation",
+            "execution_location",
+            "location",
+            "kind",
+            "type",
+        ],
+    )
+    .as_deref()
+    {
+        Some("local") | Some("this_computer") | Some("this-computer") => ExecutionLocation::Local,
+        Some("cloud") => ExecutionLocation::Cloud,
+        _ => ExecutionLocation::RemoteHost,
     }
 }
 
@@ -3710,6 +3781,48 @@ mod tests {
                     provider: provider_metadata("account/updated"),
                 }),
             },
+            ProviderRuntimeEvent::RuntimeSignal {
+                signal: Box::new(NormalizedRuntimeSignal {
+                    kind: RuntimeSignalKind::ProviderStateUpdated,
+                    thread_id: None,
+                    turn_id: None,
+                    item_id: None,
+                    message: None,
+                    from_model: None,
+                    to_model: None,
+                    reason: None,
+                    text: None,
+                    audio: None,
+                    status: Some("connected".to_string()),
+                    name: Some("Devbox".to_string()),
+                    active: None,
+                    archived: None,
+                    diff: None,
+                    files: None,
+                    process_id: None,
+                    exit_code: None,
+                    request_id: None,
+                    metadata: json!({
+                        "hostId": "devbox",
+                        "host": "devbox.example.com",
+                        "displayName": "Devbox",
+                        "status": "connected",
+                        "projects": [{ "path": "/srv/ace" }]
+                    }),
+                    provider: ProviderMetadata {
+                        provider: "codex".to_string(),
+                        method: Some("remoteControl/status/changed".to_string()),
+                        schema_version: None,
+                        raw_payload: json!({
+                            "hostId": "devbox",
+                            "host": "devbox.example.com",
+                            "displayName": "Devbox",
+                            "status": "connected",
+                            "projects": [{ "path": "/srv/ace" }]
+                        }),
+                    },
+                }),
+            },
         ];
         let deltas = projection_deltas_for_events(&events);
 
@@ -3776,6 +3889,18 @@ mod tests {
                 && message.as_deref() == Some("Signed in")
                 && name.as_deref() == Some("work")
                 && metadata["email"] == "user@example.com"
+        )));
+        assert!(deltas.iter().any(|delta| matches!(
+            delta,
+            ProviderRuntimeProjectionDelta::RemoteConnectionUpdated {
+                provider,
+                connection,
+            } if provider == "codex"
+                && connection.host_id == "devbox"
+                && connection.host.as_deref() == Some("devbox.example.com")
+                && connection.status.as_deref() == Some("connected")
+                && connection.execution_location == ExecutionLocation::RemoteHost
+                && connection.projects[0]["path"] == "/srv/ace"
         )));
     }
 
