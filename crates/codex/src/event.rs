@@ -495,6 +495,88 @@ mod tests {
     }
 
     #[test]
+    fn normalizes_browser_scroll_key_clipboard_and_wait_bridge_events() {
+        let cases = [
+            (
+                json!({
+                    "threadId": "thread-1",
+                    "turnId": "turn-1",
+                    "itemId": "item-scroll",
+                    "item": {
+                        "id": "item-scroll",
+                        "type": "dynamicToolCall",
+                        "toolName": "ace_browser",
+                        "input": { "operation": "dom_cua_scroll", "scrollY": 480 }
+                    }
+                }),
+                ToolActionKind::BrowserScroll,
+                "Scrolling 0,480 in Browser",
+            ),
+            (
+                json!({
+                    "threadId": "thread-1",
+                    "turnId": "turn-1",
+                    "itemId": "item-key",
+                    "item": {
+                        "id": "item-key",
+                        "type": "dynamicToolCall",
+                        "toolName": "ace_browser",
+                        "input": { "operation": "dom_cua_keypress", "key": "Escape" }
+                    }
+                }),
+                ToolActionKind::BrowserKey,
+                "Pressing key Escape in Browser",
+            ),
+            (
+                json!({
+                    "threadId": "thread-1",
+                    "turnId": "turn-1",
+                    "itemId": "item-clipboard",
+                    "item": {
+                        "id": "item-clipboard",
+                        "type": "dynamicToolCall",
+                        "toolName": "ace_browser",
+                        "input": { "operation": "tab_clipboard_read" }
+                    }
+                }),
+                ToolActionKind::BrowserClipboard,
+                "Using Browser clipboard",
+            ),
+            (
+                json!({
+                    "threadId": "thread-1",
+                    "turnId": "turn-1",
+                    "itemId": "item-wait",
+                    "item": {
+                        "id": "item-wait",
+                        "type": "mcpToolCall",
+                        "serverName": "browser",
+                        "toolName": "playwright_wait_for_selector",
+                        "input": { "selector": "#loaded" }
+                    }
+                }),
+                ToolActionKind::BrowserWait,
+                "Waiting for #loaded in Browser",
+            ),
+        ];
+
+        for (params, action, title) in cases {
+            let events = normalize_codex_inbound_event(&CodexInboundEvent::Notification {
+                method: "item/dynamicToolCall/progress".to_string(),
+                params: params.clone(),
+            });
+            let ProviderEvent::SemanticTool { tool } = &events[0] else {
+                panic!("expected semantic browser bridge update");
+            };
+            assert_eq!(tool.surface, ToolSurface::Browser);
+            assert_eq!(tool.action, action);
+            assert_eq!(tool.display.title, title);
+            assert_eq!(tool.provider.raw_payload, params);
+            assert!(!tool.display.title.contains("MCP"));
+        }
+    }
+
+    #[test]
     fn normalizes_stdio_lifecycle_events() {
         let stderr =
             normalize_codex_inbound_event(&CodexInboundEvent::StderrLine("warning".to_string()));

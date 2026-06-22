@@ -56,6 +56,14 @@ pub enum ToolActionKind {
     BrowserTab,
     #[serde(rename = "browser.console")]
     BrowserConsole,
+    #[serde(rename = "browser.scroll")]
+    BrowserScroll,
+    #[serde(rename = "browser.key")]
+    BrowserKey,
+    #[serde(rename = "browser.clipboard")]
+    BrowserClipboard,
+    #[serde(rename = "browser.wait")]
+    BrowserWait,
     #[serde(rename = "browser.viewport")]
     BrowserViewport,
     #[serde(rename = "browser.zoom")]
@@ -541,6 +549,11 @@ fn browser_action(transport: ToolTransport, facts: &ToolFacts) -> Option<ToolAct
         | "playwright_locator_check"
         | "playwright_locator_uncheck"
         | "select_option" => ToolActionKind::BrowserType,
+        "keypress" | "key_press" | "cua_keypress" | "dom_cua_keypress" | "press_key"
+        | "keyboard_press" => ToolActionKind::BrowserKey,
+        "scroll" | "cua_scroll" | "dom_cua_scroll" | "mouse_wheel" | "wheel" => {
+            ToolActionKind::BrowserScroll
+        }
         "open"
         | "open_url"
         | "browser_navigate"
@@ -579,6 +592,22 @@ fn browser_action(transport: ToolTransport, facts: &ToolFacts) -> Option<ToolAct
         | "next_tab" | "previous_tab" | "create_tab" | "new_tab" | "close_tab" => {
             ToolActionKind::BrowserTab
         }
+        "tab_clipboard_read"
+        | "tab_clipboard_write"
+        | "tab_clipboard_copy"
+        | "tab_clipboard_paste"
+        | "read_clipboard"
+        | "write_clipboard"
+        | "copy"
+        | "paste" => ToolActionKind::BrowserClipboard,
+        "wait"
+        | "wait_for"
+        | "wait_for_selector"
+        | "wait_for_timeout"
+        | "wait_for_load_state"
+        | "playwright_wait_for_selector"
+        | "playwright_wait_for_timeout"
+        | "playwright_wait_for_load_state" => ToolActionKind::BrowserWait,
         "set_viewport_size" | "resize_browser" | "get_viewport_size" => {
             ToolActionKind::BrowserViewport
         }
@@ -589,6 +618,10 @@ fn browser_action(transport: ToolTransport, facts: &ToolFacts) -> Option<ToolAct
         _ if facts.haystack.contains("type") || facts.haystack.contains("fill") => {
             ToolActionKind::BrowserType
         }
+        _ if facts.haystack.contains("keypress") || facts.haystack.contains("press key") => {
+            ToolActionKind::BrowserKey
+        }
+        _ if facts.haystack.contains("scroll") => ToolActionKind::BrowserScroll,
         _ if facts.haystack.contains("screenshot") => ToolActionKind::BrowserScreenshot,
         _ if facts.haystack.contains("dev logs")
             || facts.haystack.contains("console")
@@ -596,6 +629,8 @@ fn browser_action(transport: ToolTransport, facts: &ToolFacts) -> Option<ToolAct
         {
             ToolActionKind::BrowserLogs
         }
+        _ if facts.haystack.contains("clipboard") => ToolActionKind::BrowserClipboard,
+        _ if facts.haystack.contains("wait") => ToolActionKind::BrowserWait,
         _ if facts.haystack.contains("zoom") => ToolActionKind::BrowserZoom,
         _ if facts.haystack.contains("viewport") || facts.haystack.contains("resize") => {
             ToolActionKind::BrowserViewport
@@ -993,6 +1028,59 @@ fn browser_target(action: ToolActionKind, args: &Value) -> Option<ToolTarget> {
             label,
         });
     }
+    if action == ToolActionKind::BrowserScroll {
+        return scroll_target(args).or_else(|| {
+            first_string([
+                string_at_deep(args, "selector").as_deref(),
+                string_at_deep(args, "locator").as_deref(),
+                string_at_deep(args, "element").as_deref(),
+            ])
+            .map(|label| ToolTarget {
+                kind: ToolTargetKind::Element,
+                label,
+            })
+        });
+    }
+    if action == ToolActionKind::BrowserKey {
+        return first_string([
+            string_at_deep(args, "key").as_deref(),
+            string_at_deep(args, "keys").as_deref(),
+            string_at_deep(args, "text").as_deref(),
+        ])
+        .map(|label| ToolTarget {
+            kind: ToolTargetKind::Text,
+            label,
+        });
+    }
+    if action == ToolActionKind::BrowserClipboard {
+        return first_string([
+            string_at_deep(args, "text").as_deref(),
+            string_at_deep(args, "value").as_deref(),
+        ])
+        .map(|label| ToolTarget {
+            kind: ToolTargetKind::Text,
+            label,
+        })
+        .or_else(|| {
+            Some(ToolTarget {
+                kind: ToolTargetKind::Unknown,
+                label: "clipboard".to_string(),
+            })
+        });
+    }
+    if action == ToolActionKind::BrowserWait {
+        return first_string([
+            string_at_deep(args, "selector").as_deref(),
+            string_at_deep(args, "locator").as_deref(),
+            string_at_deep(args, "url").as_deref(),
+            string_at_deep(args, "text").as_deref(),
+            string_at_deep(args, "state").as_deref(),
+        ])
+        .map(|label| ToolTarget {
+            kind: ToolTargetKind::Unknown,
+            label,
+        });
+    }
     first_string([
         string_at_deep(args, "label").as_deref(),
         string_at_deep(args, "ariaLabel").as_deref(),
@@ -1083,6 +1171,30 @@ fn coordinate_target(args: &Value) -> Option<ToolTarget> {
     })
 }
 
+fn scroll_target(args: &Value) -> Option<ToolTarget> {
+    let x = number_at_deep(args, "scrollX")
+        .or_else(|| number_at_deep(args, "deltaX"))
+        .or_else(|| number_at_deep(args, "x"));
+    let y = number_at_deep(args, "scrollY")
+        .or_else(|| number_at_deep(args, "deltaY"))
+        .or_else(|| number_at_deep(args, "y"));
+    match (x, y) {
+        (Some(x), Some(y)) => Some(ToolTarget {
+            kind: ToolTargetKind::Coordinates,
+            label: format!("{x},{y}"),
+        }),
+        (None, Some(y)) => Some(ToolTarget {
+            kind: ToolTargetKind::Coordinates,
+            label: format!("0,{y}"),
+        }),
+        (Some(x), None) => Some(ToolTarget {
+            kind: ToolTargetKind::Coordinates,
+            label: format!("{x},0"),
+        }),
+        (None, None) => None,
+    }
+}
+
 fn display_for(
     status: ToolRunStatus,
     surface: ToolSurface,
@@ -1095,6 +1207,12 @@ fn display_for(
     let noun = noun_for(action);
     let target_text = target.as_ref().map(|target| target.label.as_str());
     let title = match (surface, target_text) {
+        (ToolSurface::Browser, Some("clipboard")) if action == ToolActionKind::BrowserClipboard => {
+            format!("{verb} Browser clipboard")
+        }
+        (ToolSurface::Browser, None) if action == ToolActionKind::BrowserClipboard => {
+            format!("{verb} Browser clipboard")
+        }
         (ToolSurface::Browser, Some(target)) => format!("{verb} {target} in Browser"),
         (ToolSurface::Browser, None) => format!("{verb} Browser {noun}"),
         (ToolSurface::Computer, Some(target)) => format!("{verb} {target} on Computer"),
@@ -1162,6 +1280,7 @@ fn verb_for(status: ToolRunStatus, action: ToolActionKind) -> &'static str {
             match action {
                 ToolActionKind::BrowserClick | ToolActionKind::ComputerClick => "Clicking",
                 ToolActionKind::BrowserType | ToolActionKind::ComputerType => "Typing into",
+                ToolActionKind::BrowserKey => "Pressing key",
                 ToolActionKind::ComputerKey => "Pressing key in",
                 ToolActionKind::BrowserNavigate => "Opening",
                 ToolActionKind::BrowserScreenshot | ToolActionKind::ComputerScreenshot => {
@@ -1169,6 +1288,9 @@ fn verb_for(status: ToolRunStatus, action: ToolActionKind) -> &'static str {
                 }
                 ToolActionKind::BrowserInspect => "Inspecting",
                 ToolActionKind::BrowserTab => "Switching",
+                ToolActionKind::BrowserScroll => "Scrolling",
+                ToolActionKind::BrowserClipboard => "Using",
+                ToolActionKind::BrowserWait => "Waiting for",
                 ToolActionKind::BrowserViewport => "Resizing",
                 ToolActionKind::BrowserZoom => "Changing zoom for",
                 ToolActionKind::BrowserConsole | ToolActionKind::BrowserLogs => "Reading",
@@ -1203,11 +1325,15 @@ fn verb_for(status: ToolRunStatus, action: ToolActionKind) -> &'static str {
         ToolRunStatus::Completed => match action {
             ToolActionKind::BrowserClick | ToolActionKind::ComputerClick => "Clicked",
             ToolActionKind::BrowserType | ToolActionKind::ComputerType => "Typed into",
+            ToolActionKind::BrowserKey => "Pressed key",
             ToolActionKind::ComputerKey => "Pressed key in",
             ToolActionKind::BrowserNavigate => "Opened",
             ToolActionKind::BrowserScreenshot | ToolActionKind::ComputerScreenshot => "Captured",
             ToolActionKind::BrowserInspect => "Inspected",
             ToolActionKind::BrowserTab => "Switched",
+            ToolActionKind::BrowserScroll => "Scrolled",
+            ToolActionKind::BrowserClipboard => "Used",
+            ToolActionKind::BrowserWait => "Waited for",
             ToolActionKind::BrowserViewport => "Resized",
             ToolActionKind::BrowserZoom => "Changed zoom for",
             ToolActionKind::BrowserConsole | ToolActionKind::BrowserLogs => "Read",
@@ -1252,6 +1378,10 @@ fn noun_for(action: ToolActionKind) -> &'static str {
         ToolActionKind::BrowserLogs => "console logs",
         ToolActionKind::BrowserConsole => "console logs",
         ToolActionKind::BrowserTab => "tab",
+        ToolActionKind::BrowserScroll => "page",
+        ToolActionKind::BrowserKey => "key",
+        ToolActionKind::BrowserClipboard => "clipboard",
+        ToolActionKind::BrowserWait => "page",
         ToolActionKind::BrowserViewport => "viewport",
         ToolActionKind::BrowserZoom => "zoom",
         ToolActionKind::GithubIssue => "issue",
@@ -1870,6 +2000,50 @@ mod tests {
             ));
             assert_eq!(call.action, action);
             assert_eq!(call.display.title, title);
+        }
+    }
+
+    #[test]
+    fn browser_cua_scroll_key_clipboard_and_wait_are_distinct() {
+        let cases = [
+            (
+                "dom_cua_scroll",
+                json!({ "operation": "dom_cua_scroll", "scrollY": 600 }),
+                ToolActionKind::BrowserScroll,
+                "Scrolled 0,600 in Browser",
+            ),
+            (
+                "dom_cua_keypress",
+                json!({ "operation": "dom_cua_keypress", "key": "Escape" }),
+                ToolActionKind::BrowserKey,
+                "Pressed key Escape in Browser",
+            ),
+            (
+                "tab_clipboard_read",
+                json!({ "operation": "tab_clipboard_read" }),
+                ToolActionKind::BrowserClipboard,
+                "Used Browser clipboard",
+            ),
+            (
+                "wait_for_selector",
+                json!({ "operation": "wait_for_selector", "selector": "#ready" }),
+                ToolActionKind::BrowserWait,
+                "Waited for #ready in Browser",
+            ),
+        ];
+
+        for (op, args, action, title) in cases {
+            let call = normalize_tool_call(input(
+                ToolTransport::BrowserBridge,
+                "dynamicToolCall",
+                "ace_browser",
+                op,
+                args,
+            ));
+            assert_eq!(call.surface, ToolSurface::Browser);
+            assert_eq!(call.action, action);
+            assert_eq!(call.display.title, title);
+            assert!(!call.display.title.contains("MCP"));
         }
     }
 
