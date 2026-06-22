@@ -1152,9 +1152,11 @@ fn first_string<'a>(values: impl IntoIterator<Item = Option<&'a str>>) -> Option
 
 #[cfg(test)]
 mod tests {
+    use ace_core::ProviderKind;
     use ace_runtime::{
+        host_tools::{HostToolDescriptor, host_tool_invocation_from_server_request},
         provider::{ProviderEvent, ServerRequestKind, ThreadItemKind, ThreadItemStatus},
-        tools::{ToolActionKind, ToolSurface},
+        tools::{ToolActionKind, ToolRunStatus, ToolSurface, ToolTransport},
     };
     use serde_json::json;
 
@@ -2348,6 +2350,51 @@ mod tests {
         );
         assert_eq!(tool.provider.raw_payload, raw);
         assert_eq!(tool.provider.item_id.as_deref(), Some("tool-1"));
+    }
+
+    #[test]
+    fn codex_dynamic_tool_request_feeds_provider_neutral_host_tool_registry() {
+        let events = normalize_codex_inbound_event(&CodexInboundEvent::ServerRequest {
+            id: 42,
+            method: "dynamicTool/call".to_string(),
+            params: json!({
+                "threadId": "thread-1",
+                "turnId": "turn-1",
+                "toolCallId": "tool-1",
+                "toolName": "ace_browser",
+                "arguments": {
+                    "operation": "navigate_tab_url",
+                    "url": "http://localhost:5173"
+                }
+            }),
+        });
+
+        let ProviderEvent::ServerRequest { request } = &events[0] else {
+            panic!("expected normalized server request");
+        };
+        let mut descriptor = HostToolDescriptor::new(
+            "browser.open",
+            ToolTransport::BrowserBridge,
+            ToolSurface::Browser,
+        );
+        descriptor.aliases = vec!["ace_browser".to_string()];
+        descriptor.actions = vec![ToolActionKind::BrowserNavigate];
+
+        let invocation = host_tool_invocation_from_server_request(ProviderKind::Codex, request)
+            .expect("host tool invocation");
+        assert_eq!(invocation.request_id, "42");
+        assert_eq!(invocation.tool_name, "ace_browser");
+        assert_eq!(invocation.arguments["operation"], "navigate_tab_url");
+        assert_eq!(invocation.raw_payload["toolCallId"], "tool-1");
+
+        let semantic = invocation.semantic_tool(Some(&descriptor), ToolRunStatus::Started);
+        assert_eq!(semantic.transport, ToolTransport::BrowserBridge);
+        assert_eq!(semantic.surface, ToolSurface::Browser);
+        assert_eq!(semantic.action, ToolActionKind::BrowserNavigate);
+        assert_eq!(
+            semantic.display.title,
+            "Opening http://localhost:5173 in Browser"
+        );
     }
 
     #[test]
