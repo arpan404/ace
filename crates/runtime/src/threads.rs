@@ -248,6 +248,10 @@ pub struct AgentThread {
     pub active_turn: Option<Turn>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plan_session: Option<PlanSession>,
+    #[serde(default, skip_serializing_if = "Value::is_null")]
+    pub settings: Value,
+    #[serde(default, skip_serializing_if = "Value::is_null")]
+    pub token_usage: Value,
     #[serde(default)]
     pub metadata: Value,
 }
@@ -379,13 +383,51 @@ impl AgentRuntimeState {
     }
 
     pub fn upsert_thread(&mut self, thread: AgentThread) {
-        self.threads.insert(thread.thread_id.clone(), thread);
+        if let Some(existing) = self.threads.get_mut(&thread.thread_id) {
+            let settings = if thread.settings.is_null() {
+                existing.settings.clone()
+            } else {
+                thread.settings.clone()
+            };
+            let token_usage = if thread.token_usage.is_null() {
+                existing.token_usage.clone()
+            } else {
+                thread.token_usage.clone()
+            };
+            *existing = AgentThread {
+                settings,
+                token_usage,
+                ..thread
+            };
+        } else {
+            self.threads.insert(thread.thread_id.clone(), thread);
+        }
     }
 
     pub fn upsert_threads(&mut self, threads: impl IntoIterator<Item = AgentThread>) {
         for thread in threads {
             self.upsert_thread(thread);
         }
+    }
+
+    pub fn update_thread_settings(
+        &mut self,
+        thread_id: impl Into<String>,
+        provider: impl Into<String>,
+        settings: Value,
+    ) {
+        let thread = self.ensure_thread(thread_id.into(), provider.into());
+        thread.settings = settings;
+    }
+
+    pub fn update_thread_token_usage(
+        &mut self,
+        thread_id: impl Into<String>,
+        provider: impl Into<String>,
+        token_usage: Value,
+    ) {
+        let thread = self.ensure_thread(thread_id.into(), provider.into());
+        thread.token_usage = token_usage;
     }
 
     #[must_use]
@@ -398,6 +440,21 @@ impl AgentRuntimeState {
         let mut threads = self.threads.values().cloned().collect::<Vec<_>>();
         threads.sort_by(|left, right| left.thread_id.cmp(&right.thread_id));
         threads
+    }
+
+    fn ensure_thread(&mut self, thread_id: String, provider: String) -> &mut AgentThread {
+        self.threads
+            .entry(thread_id.clone())
+            .or_insert_with(|| AgentThread {
+                thread_id,
+                provider,
+                execution_location: ExecutionLocation::Local,
+                active_turn: None,
+                plan_session: None,
+                settings: Value::Null,
+                token_usage: Value::Null,
+                metadata: Value::Null,
+            })
     }
 
     pub fn record_side_chat(&mut self, side_chat: SideChat) {
@@ -715,6 +772,7 @@ impl AgentRuntimeState {
                 if let Some(side_chat) = side_chat_from_signal(signal) {
                     self.record_side_chat(side_chat);
                 }
+                self.apply_thread_details_signal(signal);
                 self.apply_turn_lifecycle_signal(signal);
                 self.apply_review_mode_signal(signal);
             }
@@ -962,6 +1020,29 @@ fn side_chat_from_signal(signal: &NormalizedRuntimeSignal) -> Option<SideChat> {
 }
 
 impl AgentRuntimeState {
+    fn apply_thread_details_signal(&mut self, signal: &NormalizedRuntimeSignal) {
+        let Some(thread_id) = signal.thread_id.as_deref() else {
+            return;
+        };
+        match signal.kind {
+            RuntimeSignalKind::ThreadSettingsUpdated => {
+                self.update_thread_settings(
+                    thread_id,
+                    signal.provider.provider.clone(),
+                    thread_settings_from_signal(signal),
+                );
+            }
+            RuntimeSignalKind::ThreadTokenUsageUpdated => {
+                self.update_thread_token_usage(
+                    thread_id,
+                    signal.provider.provider.clone(),
+                    thread_token_usage_from_signal(signal),
+                );
+            }
+            _ => {}
+        }
+    }
+
     fn apply_turn_lifecycle_signal(&mut self, signal: &NormalizedRuntimeSignal) {
         if signal.kind != RuntimeSignalKind::TurnLifecycleChanged {
             return;
@@ -987,6 +1068,23 @@ impl AgentRuntimeState {
             _ => {}
         }
     }
+}
+
+fn thread_settings_from_signal(signal: &NormalizedRuntimeSignal) -> Value {
+    signal
+        .metadata
+        .get("settings")
+        .cloned()
+        .unwrap_or_else(|| signal.metadata.clone())
+}
+
+fn thread_token_usage_from_signal(signal: &NormalizedRuntimeSignal) -> Value {
+    signal
+        .metadata
+        .get("tokenUsage")
+        .or_else(|| signal.metadata.get("token_usage"))
+        .cloned()
+        .unwrap_or_else(|| signal.metadata.clone())
 }
 
 fn turn_mode_from_key(mode: &str) -> TurnMode {
@@ -1804,6 +1902,111 @@ mod tests {
     }
 
     #[test]
+    fn applies_thread_settings_and_token_usage_runtime_signals() {
+        let mut state = AgentRuntimeState::default();
+        state.apply_provider_events(&[
+            ProviderEvent::RuntimeSignal {
+                signal: Box::new(NormalizedRuntimeSignal {
+                    kind: RuntimeSignalKind::ThreadSettingsUpdated,
+                    thread_id: Some("thread-1".to_string()),
+                    turn_id: None,
+                    item_id: None,
+                    message: None,
+                    from_model: None,
+                    to_model: None,
+                    reason: None,
+                    text: None,
+                    audio: None,
+                    status: Some("settings_updated".to_string()),
+                    name: None,
+                    active: None,
+                    archived: None,
+                    diff: None,
+                    files: None,
+                    process_id: None,
+                    exit_code: None,
+                    request_id: None,
+                    metadata: json!({
+                        "settings": {
+                            "model": "gpt-5.5",
+                            "sandbox": "workspace-write"
+                        }
+                    }),
+                    provider: ProviderMetadata {
+                        provider: "codex".to_string(),
+                        method: Some("thread/settings/updated".to_string()),
+                        schema_version: None,
+                        raw_payload: json!({}),
+                    },
+                }),
+            },
+            ProviderEvent::RuntimeSignal {
+                signal: Box::new(NormalizedRuntimeSignal {
+                    kind: RuntimeSignalKind::ThreadTokenUsageUpdated,
+                    thread_id: Some("thread-1".to_string()),
+                    turn_id: None,
+                    item_id: None,
+                    message: None,
+                    from_model: None,
+                    to_model: None,
+                    reason: None,
+                    text: None,
+                    audio: None,
+                    status: Some("token_usage_updated".to_string()),
+                    name: None,
+                    active: None,
+                    archived: None,
+                    diff: None,
+                    files: None,
+                    process_id: None,
+                    exit_code: None,
+                    request_id: None,
+                    metadata: json!({
+                        "tokenUsage": {
+                            "input": 64,
+                            "output": 32,
+                            "total": 96
+                        }
+                    }),
+                    provider: ProviderMetadata {
+                        provider: "codex".to_string(),
+                        method: Some("thread/tokenUsage/updated".to_string()),
+                        schema_version: None,
+                        raw_payload: json!({}),
+                    },
+                }),
+            },
+        ]);
+
+        let thread = state.thread("thread-1").expect("thread details");
+        assert_eq!(thread.provider, "codex");
+        assert_eq!(thread.settings["model"], "gpt-5.5");
+        assert_eq!(thread.settings["sandbox"], "workspace-write");
+        assert_eq!(thread.token_usage["total"], 96);
+
+        state.upsert_thread(AgentThread {
+            thread_id: "thread-1".to_string(),
+            provider: "codex".to_string(),
+            execution_location: ExecutionLocation::Worktree,
+            active_turn: None,
+            plan_session: None,
+            settings: Value::Null,
+            token_usage: Value::Null,
+            metadata: json!({ "name": "Adapter parity" }),
+        });
+
+        let snapshot = state.snapshot();
+        assert_eq!(snapshot.threads.len(), 1);
+        assert_eq!(
+            snapshot.threads[0].execution_location,
+            ExecutionLocation::Worktree
+        );
+        assert_eq!(snapshot.threads[0].metadata["name"], "Adapter parity");
+        assert_eq!(snapshot.threads[0].settings["model"], "gpt-5.5");
+        assert_eq!(snapshot.threads[0].token_usage["total"], 96);
+    }
+
+    #[test]
     fn records_thread_lifecycle_actions_with_raw_payloads() {
         let mut state = AgentRuntimeState::default();
         state.record_thread_lifecycle(ThreadLifecycleRecord {
@@ -1883,6 +2086,8 @@ mod tests {
             execution_location: ExecutionLocation::Worktree,
             active_turn: None,
             plan_session: None,
+            settings: Value::Null,
+            token_usage: Value::Null,
             metadata: json!({ "name": "B" }),
         });
         state.upsert_thread(AgentThread {
@@ -1891,6 +2096,8 @@ mod tests {
             execution_location: ExecutionLocation::Local,
             active_turn: None,
             plan_session: None,
+            settings: Value::Null,
+            token_usage: Value::Null,
             metadata: json!({ "name": "A" }),
         });
         state.apply_provider_events(&[ProviderEvent::ThreadItem {

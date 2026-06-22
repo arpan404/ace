@@ -1439,6 +1439,8 @@ fn agent_thread_from_value(value: &Value, fallback_thread_id: Option<&str>) -> O
         execution_location: execution_location_from_thread(value),
         active_turn: None,
         plan_session: None,
+        settings: Value::Null,
+        token_usage: Value::Null,
         metadata: value.clone(),
     })
 }
