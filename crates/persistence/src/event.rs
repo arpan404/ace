@@ -325,6 +325,15 @@ impl ProviderEventLogRepository {
         }
         Ok(state.snapshot())
     }
+
+    pub fn has_provider_events(&self, provider: &str) -> Result<bool, PersistenceError> {
+        let count = self.connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM provider_events WHERE provider = ?1 LIMIT 1)",
+            params![provider],
+            |row| row.get::<_, i64>(0),
+        )?;
+        Ok(count != 0)
+    }
 }
 
 fn collect_server_requests<I>(rows: I) -> Result<Vec<ProviderServerRequestRecord>, PersistenceError>
@@ -397,6 +406,7 @@ mod tests {
         let mut repo =
             ProviderEventLogRepository::from_connection(Connection::open_in_memory().expect("db"))
                 .expect("repo");
+        assert!(!repo.has_provider_events("codex").expect("empty codex"));
         let first = repo
             .append_batch(
                 "codex",
@@ -426,6 +436,9 @@ mod tests {
         assert_eq!(codex.len(), 2);
         assert_eq!(codex[0].sequence, first[0].sequence);
         assert_eq!(codex[1].sequence, first[1].sequence);
+        assert!(repo.has_provider_events("codex").expect("codex events"));
+        assert!(repo.has_provider_events("ace").expect("ace events"));
+        assert!(!repo.has_provider_events("missing").expect("missing events"));
 
         let all = repo.recent(None, 2).expect("recent all");
         assert_eq!(all.len(), 2);

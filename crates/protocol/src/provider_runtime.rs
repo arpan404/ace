@@ -491,6 +491,8 @@ pub struct ProviderRuntimeProviderState {
     pub provider: ProviderKind,
     pub runtime_id: String,
     pub display_name: String,
+    pub source: ProviderRuntimeStateSource,
+    pub persisted_replay_available: bool,
     pub state: AgentRuntimeSnapshot,
 }
 

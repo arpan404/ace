@@ -1024,16 +1024,24 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 let providers = self.provider_runtime_filter(request.provider, "state get")?;
                 let mut provider_states = Vec::with_capacity(providers.len());
                 for provider in providers {
+                    let persisted_replay_available = self
+                        .provider_events
+                        .lock()
+                        .expect("provider event log")
+                        .has_provider_events(provider.runtime_id())?;
                     if request.source == ProviderRuntimeStateSource::Persisted {
+                        let persisted_snapshot = self
+                            .provider_events
+                            .lock()
+                            .expect("provider event log")
+                            .runtime_state_snapshot(Some(provider.runtime_id()))?;
                         provider_states.push(ProviderRuntimeProviderState {
                             provider,
                             runtime_id: provider.runtime_id().to_string(),
                             display_name: provider.display_name().to_string(),
-                            state: self
-                                .provider_events
-                                .lock()
-                                .expect("provider event log")
-                                .runtime_state_snapshot(Some(provider.runtime_id()))?,
+                            source: ProviderRuntimeStateSource::Persisted,
+                            persisted_replay_available,
+                            state: persisted_snapshot,
                         });
                         continue;
                     }
@@ -1050,6 +1058,8 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                         provider,
                         runtime_id: provider.runtime_id().to_string(),
                         display_name: provider.display_name().to_string(),
+                        source: ProviderRuntimeStateSource::Live,
+                        persisted_replay_available,
                         state: self.providers.runtime_state_snapshot(provider).await?,
                     });
                 }
@@ -7880,6 +7890,8 @@ mod tests {
         };
 
         assert_eq!(body["providers"][0]["runtime_id"], "codex");
+        assert_eq!(body["providers"][0]["source"], "live");
+        assert_eq!(body["providers"][0]["persisted_replay_available"], true);
         let snapshot_state = &body["providers"][0]["state"];
         assert_eq!(snapshot_state["active_turns"][0]["thread_id"], "thread-1");
         assert_eq!(snapshot_state["active_turns"][0]["turn_id"], "turn-1");
@@ -7954,10 +7966,14 @@ mod tests {
         assert!(
             providers
                 .iter()
-                .any(|provider| provider["runtime_id"] == "codex")
+                .any(|provider| provider["runtime_id"] == "codex"
+                    && provider["source"] == "live"
+                    && provider["persisted_replay_available"] == true)
         );
         assert!(providers.iter().any(|provider| {
             provider["runtime_id"] == "ace"
+                && provider["source"] == "live"
+                && provider["persisted_replay_available"] == false
                 && provider["state"]["provider_states"][0]["status"] == "ready"
                 && provider["state"]["provider_states"][0]["metadata"]["pending_server_requests"]
                     == 0
@@ -7980,6 +7996,8 @@ mod tests {
             panic!("expected ace state result");
         };
         assert_eq!(body["providers"][0]["runtime_id"], "ace");
+        assert_eq!(body["providers"][0]["source"], "live");
+        assert_eq!(body["providers"][0]["persisted_replay_available"], false);
         assert_eq!(
             body["providers"][0]["state"]["provider_states"][0]["name"],
             "Ace native provider"
@@ -8275,6 +8293,8 @@ mod tests {
         };
 
         assert_eq!(body["providers"][0]["runtime_id"], "codex");
+        assert_eq!(body["providers"][0]["source"], "persisted");
+        assert_eq!(body["providers"][0]["persisted_replay_available"], true);
         let snapshot_state = &body["providers"][0]["state"];
         assert_eq!(snapshot_state["thread_items"].as_array().unwrap().len(), 2);
         assert_eq!(snapshot_state["thread_items"][0]["item_id"], "item-1");
