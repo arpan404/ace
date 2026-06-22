@@ -667,6 +667,12 @@ impl AgentRuntimeState {
                 if let Some(goal) = goal_update_from_signal(signal) {
                     self.apply_goal_update(goal);
                 }
+                if let Some(fork) = fork_from_signal(signal) {
+                    self.record_fork(fork);
+                }
+                if let Some(side_chat) = side_chat_from_signal(signal) {
+                    self.record_side_chat(side_chat);
+                }
             }
             ProviderEvent::RawServerRequest { .. }
             | ProviderEvent::ServerRequest { .. }
@@ -880,6 +886,31 @@ fn goal_update_from_signal(signal: &NormalizedRuntimeSignal) -> Option<GoalState
         .metadata
         .get("goal")
         .cloned()
+        .unwrap_or_else(|| signal.metadata.clone());
+    serde_json::from_value(value).ok()
+}
+
+fn fork_from_signal(signal: &NormalizedRuntimeSignal) -> Option<ForkPoint> {
+    if signal.kind != RuntimeSignalKind::ForkUpdated {
+        return None;
+    }
+    let value = signal
+        .metadata
+        .get("fork")
+        .cloned()
+        .unwrap_or_else(|| signal.metadata.clone());
+    serde_json::from_value(value).ok()
+}
+
+fn side_chat_from_signal(signal: &NormalizedRuntimeSignal) -> Option<SideChat> {
+    if signal.kind != RuntimeSignalKind::SideChatUpdated {
+        return None;
+    }
+    let value = signal
+        .metadata
+        .get("side_chat")
+        .cloned()
+        .or_else(|| signal.metadata.get("sideChat").cloned())
         .unwrap_or_else(|| signal.metadata.clone());
     serde_json::from_value(value).ok()
 }
@@ -1782,5 +1813,91 @@ mod tests {
 
         state.close_side_chat("child-1");
         assert!(state.side_chat("child-1").is_none());
+    }
+
+    #[test]
+    fn applies_fork_and_side_chat_runtime_signals() {
+        let mut state = AgentRuntimeState::default();
+        state.apply_provider_events(&[
+            ProviderEvent::RuntimeSignal {
+                signal: Box::new(NormalizedRuntimeSignal {
+                    kind: RuntimeSignalKind::ForkUpdated,
+                    thread_id: Some("parent-1".to_string()),
+                    turn_id: Some("turn-2".to_string()),
+                    item_id: None,
+                    message: None,
+                    from_model: None,
+                    to_model: None,
+                    reason: None,
+                    text: None,
+                    audio: None,
+                    status: Some("created".to_string()),
+                    name: None,
+                    active: None,
+                    archived: None,
+                    diff: None,
+                    files: None,
+                    process_id: None,
+                    exit_code: None,
+                    request_id: None,
+                    metadata: json!({
+                        "fork": {
+                            "parent_thread_id": "parent-1",
+                            "child_thread_id": "child-1",
+                            "turn_id": "turn-2"
+                        }
+                    }),
+                    provider: ProviderMetadata {
+                        provider: "codex".to_string(),
+                        method: Some("ace/thread/fork".to_string()),
+                        schema_version: None,
+                        raw_payload: json!({}),
+                    },
+                }),
+            },
+            ProviderEvent::RuntimeSignal {
+                signal: Box::new(NormalizedRuntimeSignal {
+                    kind: RuntimeSignalKind::SideChatUpdated,
+                    thread_id: Some("child-1".to_string()),
+                    turn_id: Some("turn-2".to_string()),
+                    item_id: None,
+                    message: None,
+                    from_model: None,
+                    to_model: None,
+                    reason: None,
+                    text: None,
+                    audio: None,
+                    status: Some("created".to_string()),
+                    name: None,
+                    active: None,
+                    archived: None,
+                    diff: None,
+                    files: None,
+                    process_id: None,
+                    exit_code: None,
+                    request_id: None,
+                    metadata: json!({
+                        "side_chat": {
+                            "parent_thread_id": "parent-1",
+                            "thread_id": "child-1",
+                            "ephemeral": true
+                        }
+                    }),
+                    provider: ProviderMetadata {
+                        provider: "codex".to_string(),
+                        method: Some("ace/side_chat/start".to_string()),
+                        schema_version: None,
+                        raw_payload: json!({}),
+                    },
+                }),
+            },
+        ]);
+
+        let fork = state.fork_point("child-1").expect("fork");
+        assert_eq!(fork.parent_thread_id, "parent-1");
+        assert_eq!(fork.turn_id.as_deref(), Some("turn-2"));
+        let side_chat = state.side_chat("child-1").expect("side chat");
+        assert_eq!(side_chat.parent_thread_id, "parent-1");
+        assert!(side_chat.ephemeral);
     }
 }

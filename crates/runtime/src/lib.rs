@@ -588,6 +588,8 @@ pub mod provider {
         PlanImplementationUpdated,
         ApprovalRetryRecorded,
         GoalUpdated,
+        ForkUpdated,
+        SideChatUpdated,
     }
 
     #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1313,6 +1315,8 @@ pub mod provider {
                 RuntimeSignalKind::PlanImplementationUpdated,
                 RuntimeSignalKind::ApprovalRetryRecorded,
                 RuntimeSignalKind::GoalUpdated,
+                RuntimeSignalKind::ForkUpdated,
+                RuntimeSignalKind::SideChatUpdated,
             ],
             provider_event_types: vec![
                 "raw_notification".to_string(),

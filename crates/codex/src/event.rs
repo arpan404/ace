@@ -267,6 +267,8 @@ fn normalize_codex_runtime_signal(method: &str, params: &Value) -> Option<Normal
         RuntimeSignalKind::PlanImplementationUpdated => {}
         RuntimeSignalKind::ApprovalRetryRecorded => {}
         RuntimeSignalKind::GoalUpdated => {}
+        RuntimeSignalKind::ForkUpdated => {}
+        RuntimeSignalKind::SideChatUpdated => {}
     }
     Some(signal)
 }

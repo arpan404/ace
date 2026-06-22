@@ -54,8 +54,8 @@ use ace_runtime::provider::{
     provider_adapter_profile, provider_contract_report,
 };
 use ace_runtime::threads::{
-    ApprovalRetryRecord, ExecutionLocation, GoalState, GoalStatus, HandoffPlan, HandoffStatus,
-    PlanImplementationMode, PlanImplementationRecord,
+    ApprovalRetryRecord, ExecutionLocation, ForkPoint, GoalState, GoalStatus, HandoffPlan,
+    HandoffStatus, PlanImplementationMode, PlanImplementationRecord, SideChat,
 };
 use ace_terminal::PtyAdapter;
 use serde::{Serialize, de::DeserializeOwned};
@@ -102,26 +102,64 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 .await
             }
             methods::CODEX_THREAD_FORK => {
-                self.codex_json::<CodexThreadForkRequest, _, _, _>(
-                    payload,
-                    |service, request| async move {
-                        service
-                            .fork_thread(request.thread_id, request.ephemeral, request.turn_id)
-                            .await
+                let request = serde_json::from_value::<CodexThreadForkRequest>(payload)?;
+                let response = self
+                    .codex
+                    .fork_thread(
+                        request.thread_id.clone(),
+                        request.ephemeral,
+                        request.turn_id.clone(),
+                    )
+                    .await?;
+                let child_thread_id = extract_thread_id_from_value(&response).ok_or_else(|| {
+                    WsDispatchError::BadRequest(
+                        "Codex fork response did not include child thread id".to_string(),
+                    )
+                })?;
+                self.publish_codex_fork_signal(CodexForkSignal {
+                    fork: ForkPoint {
+                        parent_thread_id: request.thread_id,
+                        child_thread_id,
+                        turn_id: request.turn_id,
                     },
-                )
-                .await
+                    ephemeral: request.ephemeral,
+                    method: "ace/thread/fork",
+                    provider_response: response.clone(),
+                })?;
+                Ok(response)
             }
             methods::CODEX_SIDE_CHAT_START => {
-                self.codex_json::<CodexThreadForkRequest, _, _, _>(
-                    payload,
-                    |service, request| async move {
-                        service
-                            .start_side_chat(request.thread_id, request.turn_id)
-                            .await
+                let request = serde_json::from_value::<CodexThreadForkRequest>(payload)?;
+                let response = self
+                    .codex
+                    .start_side_chat(request.thread_id.clone(), request.turn_id.clone())
+                    .await?;
+                let child_thread_id = extract_thread_id_from_value(&response).ok_or_else(|| {
+                    WsDispatchError::BadRequest(
+                        "Codex side chat response did not include child thread id".to_string(),
+                    )
+                })?;
+                self.publish_codex_fork_signal(CodexForkSignal {
+                    fork: ForkPoint {
+                        parent_thread_id: request.thread_id.clone(),
+                        child_thread_id: child_thread_id.clone(),
+                        turn_id: request.turn_id.clone(),
                     },
-                )
-                .await
+                    ephemeral: true,
+                    method: "ace/thread/fork",
+                    provider_response: response.clone(),
+                })?;
+                self.publish_codex_side_chat_signal(CodexSideChatSignal {
+                    side_chat: SideChat {
+                        parent_thread_id: request.thread_id,
+                        thread_id: child_thread_id,
+                        ephemeral: true,
+                    },
+                    turn_id: request.turn_id,
+                    method: "ace/side_chat/start",
+                    provider_response: response.clone(),
+                })?;
+                Ok(response)
             }
             methods::CODEX_THREAD_READ => {
                 self.codex_json::<CodexThreadIdRequest, _, _, _>(
@@ -1442,6 +1480,97 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
         )
     }
 
+    fn publish_codex_fork_signal(&self, signal: CodexForkSignal) -> Result<(), WsDispatchError> {
+        let thread_id = signal.fork.parent_thread_id.clone();
+        let turn_id = signal.fork.turn_id.clone();
+        let fork = serde_json::to_value(&signal.fork)?;
+        let metadata = json!({
+            "fork": fork,
+            "ephemeral": signal.ephemeral,
+            "provider_response": signal.provider_response,
+        });
+        let raw_payload = metadata.clone();
+        self.append_and_publish_provider_events(
+            ProviderKind::Codex,
+            vec![ProviderEvent::RuntimeSignal {
+                signal: Box::new(NormalizedRuntimeSignal {
+                    kind: RuntimeSignalKind::ForkUpdated,
+                    thread_id: Some(thread_id),
+                    turn_id,
+                    item_id: None,
+                    message: None,
+                    from_model: None,
+                    to_model: None,
+                    reason: None,
+                    text: None,
+                    audio: None,
+                    status: Some("created".to_string()),
+                    name: None,
+                    active: None,
+                    archived: None,
+                    diff: None,
+                    files: None,
+                    process_id: None,
+                    exit_code: None,
+                    request_id: None,
+                    metadata,
+                    provider: ProviderMetadata {
+                        provider: ProviderKind::Codex.runtime_id().to_string(),
+                        method: Some(signal.method.to_string()),
+                        schema_version: None,
+                        raw_payload,
+                    },
+                }),
+            }],
+        )
+    }
+
+    fn publish_codex_side_chat_signal(
+        &self,
+        signal: CodexSideChatSignal,
+    ) -> Result<(), WsDispatchError> {
+        let thread_id = signal.side_chat.thread_id.clone();
+        let side_chat = serde_json::to_value(&signal.side_chat)?;
+        let metadata = json!({
+            "side_chat": side_chat,
+            "provider_response": signal.provider_response,
+        });
+        let raw_payload = metadata.clone();
+        self.append_and_publish_provider_events(
+            ProviderKind::Codex,
+            vec![ProviderEvent::RuntimeSignal {
+                signal: Box::new(NormalizedRuntimeSignal {
+                    kind: RuntimeSignalKind::SideChatUpdated,
+                    thread_id: Some(thread_id),
+                    turn_id: signal.turn_id,
+                    item_id: None,
+                    message: None,
+                    from_model: None,
+                    to_model: None,
+                    reason: None,
+                    text: None,
+                    audio: None,
+                    status: Some("created".to_string()),
+                    name: None,
+                    active: None,
+                    archived: None,
+                    diff: None,
+                    files: None,
+                    process_id: None,
+                    exit_code: None,
+                    request_id: None,
+                    metadata,
+                    provider: ProviderMetadata {
+                        provider: ProviderKind::Codex.runtime_id().to_string(),
+                        method: Some(signal.method.to_string()),
+                        schema_version: None,
+                        raw_payload,
+                    },
+                }),
+            }],
+        )
+    }
+
     pub(super) async fn subscribe_provider_runtime_events(
         &self,
         payload: Value,
@@ -1675,6 +1804,20 @@ struct CodexApprovalRetrySignal {
 struct CodexGoalSignal {
     goal: GoalState,
     method: &'static str,
+}
+
+struct CodexForkSignal {
+    fork: ForkPoint,
+    ephemeral: bool,
+    method: &'static str,
+    provider_response: Value,
+}
+
+struct CodexSideChatSignal {
+    side_chat: SideChat,
+    turn_id: Option<String>,
+    method: &'static str,
+    provider_response: Value,
 }
 
 fn goal_status_key(status: GoalStatus) -> &'static str {
@@ -2718,6 +2861,82 @@ mod tests {
                 "thread/rollback:fork-1:turn-3",
             ]
         );
+
+        let snapshot = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "fork-side-chat-snapshot",
+                    "method": methods::PROVIDER_RUNTIME_STATE_GET,
+                    "payload": { "provider": "codex" }
+                })
+                .to_string(),
+            )
+            .await;
+        let snapshot: WsServerResponse = serde_json::from_str(&snapshot).expect("snapshot");
+        let WsServerPayload::Result { body } = snapshot.payload else {
+            panic!("expected snapshot result");
+        };
+        let forks = body["providers"][0]["state"]["fork_points"]
+            .as_array()
+            .expect("forks");
+        assert_eq!(forks.len(), 1);
+        assert_eq!(forks[0]["parent_thread_id"], "thread-1");
+        assert_eq!(forks[0]["child_thread_id"], "fork-1");
+        assert_eq!(forks[0]["turn_id"], "turn-3");
+        let side_chats = body["providers"][0]["state"]["side_chats"]
+            .as_array()
+            .expect("side chats");
+        assert_eq!(side_chats.len(), 1);
+        assert_eq!(side_chats[0]["parent_thread_id"], "thread-1");
+        assert_eq!(side_chats[0]["thread_id"], "fork-1");
+        assert_eq!(side_chats[0]["ephemeral"], true);
+
+        let recent = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "fork-side-chat-events",
+                    "method": methods::PROVIDER_RUNTIME_EVENTS_RECENT,
+                    "payload": { "provider": "codex", "limit": 10 }
+                })
+                .to_string(),
+            )
+            .await;
+        let recent: WsServerResponse = serde_json::from_str(&recent).expect("recent events");
+        let WsServerPayload::Result { body } = recent.payload else {
+            panic!("expected recent events result");
+        };
+        let records = body["records"].as_array().expect("records");
+        assert_eq!(records.len(), 3);
+        assert_eq!(records[0]["event"]["signal"]["kind"], "fork_updated");
+        assert_eq!(records[0]["event"]["signal"]["turn_id"], "turn-2");
+        assert_eq!(records[0]["projection_deltas"][0]["type"], "fork_updated");
+        assert_eq!(
+            records[0]["projection_deltas"][0]["fork"]["child_thread_id"],
+            "fork-1"
+        );
+        assert_eq!(
+            records[0]["projection_deltas"][1]["type"],
+            "child_thread_upsert"
+        );
+        assert_eq!(records[1]["event"]["signal"]["kind"], "fork_updated");
+        assert_eq!(records[1]["event"]["signal"]["turn_id"], "turn-3");
+        assert_eq!(records[1]["projection_deltas"][0]["type"], "fork_updated");
+        assert_eq!(records[2]["event"]["signal"]["kind"], "side_chat_updated");
+        assert_eq!(
+            records[2]["projection_deltas"][0]["type"],
+            "side_chat_updated"
+        );
+        assert_eq!(
+            records[2]["projection_deltas"][0]["side_chat"]["thread_id"],
+            "fork-1"
+        );
+        assert_eq!(
+            records[2]["projection_deltas"][1]["type"],
+            "child_thread_upsert"
+        );
+        assert_eq!(records[2]["projection_deltas"][1]["role"], "side_chat");
     }
 
     #[tokio::test]

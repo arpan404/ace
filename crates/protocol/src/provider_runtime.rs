@@ -11,8 +11,8 @@ use ace_runtime::{
         RuntimeSignalKind, ThreadItemKind, ThreadItemStatus,
     },
     threads::{
-        AgentRuntimeSnapshot, ApprovalRetryRecord, GoalState, GoalStatus, HandoffPlan,
-        PlanImplementationRecord,
+        AgentRuntimeSnapshot, ApprovalRetryRecord, ForkPoint, GoalState, GoalStatus, HandoffPlan,
+        PlanImplementationRecord, SideChat,
     },
     tools::{SemanticToolCall, ToolRunStatus},
 };
@@ -539,6 +539,14 @@ pub enum ProviderRuntimeProjectionDelta {
     GoalCleared {
         provider: String,
         thread_id: String,
+    },
+    ForkUpdated {
+        provider: String,
+        fork: ForkPoint,
+    },
+    SideChatUpdated {
+        provider: String,
+        side_chat: SideChat,
     },
     ChildThreadUpsert {
         provider: String,
@@ -1369,6 +1377,46 @@ fn projection_deltas_for_runtime_signal(
                 turn_id: signal.turn_id.clone(),
             }]
         }
+        RuntimeSignalKind::ForkUpdated => {
+            let Some(fork) = fork_from_runtime_signal(signal) else {
+                return Vec::new();
+            };
+            vec![
+                ProviderRuntimeProjectionDelta::ForkUpdated {
+                    provider: signal.provider.provider.clone(),
+                    fork: fork.clone(),
+                },
+                ProviderRuntimeProjectionDelta::ChildThreadUpsert {
+                    provider: signal.provider.provider.clone(),
+                    parent_thread_id: fork.parent_thread_id,
+                    child_thread_id: fork.child_thread_id,
+                    item_id: signal.item_id.clone(),
+                    role: None,
+                    nickname: None,
+                    status: ThreadItemStatus::Completed,
+                },
+            ]
+        }
+        RuntimeSignalKind::SideChatUpdated => {
+            let Some(side_chat) = side_chat_from_runtime_signal(signal) else {
+                return Vec::new();
+            };
+            vec![
+                ProviderRuntimeProjectionDelta::SideChatUpdated {
+                    provider: signal.provider.provider.clone(),
+                    side_chat: side_chat.clone(),
+                },
+                ProviderRuntimeProjectionDelta::ChildThreadUpsert {
+                    provider: signal.provider.provider.clone(),
+                    parent_thread_id: side_chat.parent_thread_id,
+                    child_thread_id: side_chat.thread_id,
+                    item_id: signal.item_id.clone(),
+                    role: Some("side_chat".to_string()),
+                    nickname: None,
+                    status: ThreadItemStatus::Completed,
+                },
+            ]
+        }
     }
 }
 
@@ -1405,6 +1453,25 @@ fn goal_state_from_runtime_signal(signal: &NormalizedRuntimeSignal) -> Option<Go
     }
     goal_state_from_notification(&serde_json::json!({ "goal": value }))
         .or_else(|| goal_state_from_notification(&value))
+}
+
+fn fork_from_runtime_signal(signal: &NormalizedRuntimeSignal) -> Option<ForkPoint> {
+    let value = signal
+        .metadata
+        .get("fork")
+        .cloned()
+        .unwrap_or_else(|| signal.metadata.clone());
+    serde_json::from_value(value).ok()
+}
+
+fn side_chat_from_runtime_signal(signal: &NormalizedRuntimeSignal) -> Option<SideChat> {
+    let value = signal
+        .metadata
+        .get("side_chat")
+        .cloned()
+        .or_else(|| signal.metadata.get("sideChat").cloned())
+        .unwrap_or_else(|| signal.metadata.clone());
+    serde_json::from_value(value).ok()
 }
 
 fn goal_status(status: &str) -> GoalStatus {
@@ -1955,6 +2022,129 @@ mod tests {
                 text,
                 ..
             } if item_id.as_deref() == Some("cmd-1") && text == "running 1 test\n"
+        )));
+    }
+
+    #[test]
+    fn provider_runtime_events_project_fork_and_side_chat_signals() {
+        let events = [
+            ProviderRuntimeEvent::from_provider_event(
+                "codex",
+                ProviderEvent::RuntimeSignal {
+                    signal: Box::new(NormalizedRuntimeSignal {
+                        kind: RuntimeSignalKind::ForkUpdated,
+                        thread_id: Some("parent-1".to_string()),
+                        turn_id: Some("turn-2".to_string()),
+                        item_id: None,
+                        message: None,
+                        from_model: None,
+                        to_model: None,
+                        reason: None,
+                        text: None,
+                        audio: None,
+                        status: Some("created".to_string()),
+                        name: None,
+                        active: None,
+                        archived: None,
+                        diff: None,
+                        files: None,
+                        process_id: None,
+                        exit_code: None,
+                        request_id: None,
+                        metadata: json!({
+                            "fork": {
+                                "parent_thread_id": "parent-1",
+                                "child_thread_id": "child-1",
+                                "turn_id": "turn-2"
+                            }
+                        }),
+                        provider: provider_metadata("ace/thread/fork"),
+                    }),
+                },
+            ),
+            ProviderRuntimeEvent::from_provider_event(
+                "codex",
+                ProviderEvent::RuntimeSignal {
+                    signal: Box::new(NormalizedRuntimeSignal {
+                        kind: RuntimeSignalKind::SideChatUpdated,
+                        thread_id: Some("child-1".to_string()),
+                        turn_id: Some("turn-2".to_string()),
+                        item_id: None,
+                        message: None,
+                        from_model: None,
+                        to_model: None,
+                        reason: None,
+                        text: None,
+                        audio: None,
+                        status: Some("created".to_string()),
+                        name: None,
+                        active: None,
+                        archived: None,
+                        diff: None,
+                        files: None,
+                        process_id: None,
+                        exit_code: None,
+                        request_id: None,
+                        metadata: json!({
+                            "side_chat": {
+                                "parent_thread_id": "parent-1",
+                                "thread_id": "child-1",
+                                "ephemeral": true
+                            }
+                        }),
+                        provider: provider_metadata("ace/side_chat/start"),
+                    }),
+                },
+            ),
+        ];
+
+        let deltas = projection_deltas_for_events(&events);
+
+        assert!(deltas.iter().any(|delta| matches!(
+            delta,
+            ProviderRuntimeProjectionDelta::ForkUpdated {
+                provider,
+                fork,
+            } if provider == "codex"
+                && fork.parent_thread_id == "parent-1"
+                && fork.child_thread_id == "child-1"
+                && fork.turn_id.as_deref() == Some("turn-2")
+        )));
+        assert!(deltas.iter().any(|delta| matches!(
+            delta,
+            ProviderRuntimeProjectionDelta::SideChatUpdated {
+                provider,
+                side_chat,
+            } if provider == "codex"
+                && side_chat.parent_thread_id == "parent-1"
+                && side_chat.thread_id == "child-1"
+                && side_chat.ephemeral
+        )));
+        assert!(deltas.iter().any(|delta| matches!(
+            delta,
+            ProviderRuntimeProjectionDelta::ChildThreadUpsert {
+                provider,
+                parent_thread_id,
+                child_thread_id,
+                role,
+                ..
+            } if provider == "codex"
+                && parent_thread_id == "parent-1"
+                && child_thread_id == "child-1"
+                && role.is_none()
+        )));
+        assert!(deltas.iter().any(|delta| matches!(
+            delta,
+            ProviderRuntimeProjectionDelta::ChildThreadUpsert {
+                provider,
+                parent_thread_id,
+                child_thread_id,
+                role,
+                ..
+            } if provider == "codex"
+                && parent_thread_id == "parent-1"
+                && child_thread_id == "child-1"
+                && role.as_deref() == Some("side_chat")
         )));
     }
 
