@@ -2181,11 +2181,11 @@ mod tests {
         assert_eq!(
             backend.calls.lock().expect("calls").as_slice(),
             [
-                "goal/set:thread-1",
-                "goal/get:thread-1",
-                "goal/pause:thread-1",
-                "goal/resume:thread-1",
-                "goal/clear:thread-1",
+                "thread/goal/set:thread-1",
+                "thread/goal/get:thread-1",
+                "thread/goal/set:thread-1:paused",
+                "thread/goal/set:thread-1:active",
+                "thread/goal/clear:thread-1",
             ]
         );
     }

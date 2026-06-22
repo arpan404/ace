@@ -10,7 +10,7 @@ use ace_runtime::{
         ProviderFeatureCategory, ProviderLifecycleAction, ProviderLifecycleResult,
         RuntimeSignalKind, ThreadItemKind, ThreadItemStatus,
     },
-    threads::AgentRuntimeSnapshot,
+    threads::{AgentRuntimeSnapshot, GoalState, GoalStatus},
     tools::{SemanticToolCall, ToolRunStatus},
 };
 use serde::{Deserialize, Deserializer, Serialize};
@@ -527,6 +527,16 @@ pub enum ProviderRuntimeProjectionDelta {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         text: Option<String>,
     },
+    GoalUpdated {
+        provider: String,
+        goal: GoalState,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        turn_id: Option<String>,
+    },
+    GoalCleared {
+        provider: String,
+        thread_id: String,
+    },
     ChildThreadUpsert {
         provider: String,
         parent_thread_id: String,
@@ -915,6 +925,23 @@ impl ProviderRuntimeEvent {
                         active,
                     });
                 }
+                if method == "thread/goal/updated"
+                    && let Some(goal) = goal_state_from_notification(params)
+                {
+                    deltas.push(ProviderRuntimeProjectionDelta::GoalUpdated {
+                        provider: provider.clone(),
+                        goal,
+                        turn_id: string_at(params, &["turnId", "turn_id"]),
+                    });
+                }
+                if method == "thread/goal/cleared"
+                    && let Some(thread_id) = string_at(params, &["threadId", "thread_id"])
+                {
+                    deltas.push(ProviderRuntimeProjectionDelta::GoalCleared {
+                        provider: provider.clone(),
+                        thread_id,
+                    });
+                }
                 deltas
             }
             Self::RawServerRequest {
@@ -1016,10 +1043,40 @@ fn active_turn_for_method(method: &str) -> Option<bool> {
     }
 }
 
+fn goal_state_from_notification(value: &serde_json::Value) -> Option<GoalState> {
+    let goal = value.get("goal")?;
+    let thread_id = string_at(goal, &["threadId", "thread_id"])
+        .or_else(|| string_at(value, &["threadId", "thread_id"]))?;
+    Some(GoalState {
+        thread_id,
+        status: goal_status(goal.get("status")?.as_str()?),
+        objective: string_at(goal, &["objective"]),
+        token_budget: u64_at(goal, &["tokenBudget", "token_budget"]),
+        tokens_used: u64_at(goal, &["tokensUsed", "tokens_used"]),
+        time_used_seconds: u64_at(goal, &["timeUsedSeconds", "time_used_seconds"]),
+    })
+}
+
+fn goal_status(status: &str) -> GoalStatus {
+    match status {
+        "paused" => GoalStatus::Paused,
+        "blocked" => GoalStatus::Blocked,
+        "usageLimited" | "usage_limited" => GoalStatus::UsageLimited,
+        "budgetLimited" | "budget_limited" => GoalStatus::BudgetLimited,
+        "complete" => GoalStatus::Complete,
+        _ => GoalStatus::Active,
+    }
+}
+
 fn string_at(value: &serde_json::Value, keys: &[&str]) -> Option<String> {
     keys.iter()
         .find_map(|key| value.get(*key).and_then(serde_json::Value::as_str))
         .map(ToString::to_string)
+}
+
+fn u64_at(value: &serde_json::Value, keys: &[&str]) -> Option<u64> {
+    keys.iter()
+        .find_map(|key| value.get(*key).and_then(serde_json::Value::as_u64))
 }
 
 fn nested_string_at(
@@ -1043,6 +1100,7 @@ mod tests {
         ProviderFeatureCategory, ProviderMetadata, RuntimeSignalKind, ServerRequestKind,
         ThreadItemKind, ThreadItemStatus,
     };
+    use ace_runtime::threads::GoalStatus;
     use ace_runtime::tools::{
         ProviderToolMetadata, ToolNormalizationInput, ToolRunStatus, ToolTransport,
         normalize_tool_call,
@@ -1668,6 +1726,59 @@ mod tests {
         assert!(deltas.iter().all(|delta| !matches!(
             delta,
             ProviderRuntimeProjectionDelta::RawNotificationObserved { .. }
+        )));
+    }
+
+    #[test]
+    fn provider_runtime_events_project_goal_notifications() {
+        let events = [
+            ProviderRuntimeEvent::from_provider_event(
+                "codex",
+                ProviderEvent::RawNotification {
+                    method: "thread/goal/updated".to_string(),
+                    params: json!({
+                        "threadId": "thread-1",
+                        "turnId": "turn-1",
+                        "goal": {
+                            "threadId": "thread-1",
+                            "objective": "finish adapter parity",
+                            "status": "usageLimited",
+                            "tokenBudget": 5000,
+                            "tokensUsed": 5100,
+                            "timeUsedSeconds": 30
+                        }
+                    }),
+                },
+            ),
+            ProviderRuntimeEvent::from_provider_event(
+                "codex",
+                ProviderEvent::RawNotification {
+                    method: "thread/goal/cleared".to_string(),
+                    params: json!({ "threadId": "thread-1" }),
+                },
+            ),
+        ];
+        let deltas = projection_deltas_for_events(&events);
+
+        assert!(deltas.iter().any(|delta| matches!(
+            delta,
+            ProviderRuntimeProjectionDelta::GoalUpdated {
+                provider,
+                goal,
+                turn_id,
+            } if provider == "codex"
+                && goal.thread_id == "thread-1"
+                && goal.status == GoalStatus::UsageLimited
+                && goal.objective.as_deref() == Some("finish adapter parity")
+                && goal.tokens_used == Some(5100)
+                && turn_id.as_deref() == Some("turn-1")
+        )));
+        assert!(deltas.iter().any(|delta| matches!(
+            delta,
+            ProviderRuntimeProjectionDelta::GoalCleared {
+                provider,
+                thread_id,
+            } if provider == "codex" && thread_id == "thread-1"
         )));
     }
 

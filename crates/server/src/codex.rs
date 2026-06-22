@@ -1418,7 +1418,7 @@ pub mod tests {
             self.calls
                 .lock()
                 .expect("calls")
-                .push(format!("goal/set:{}", request.thread_id));
+                .push(format!("thread/goal/set:{}", request.thread_id));
             Ok(serde_json::json!({
                 "threadId": request.thread_id,
                 "objective": request.objective,
@@ -1431,7 +1431,7 @@ pub mod tests {
             self.calls
                 .lock()
                 .expect("calls")
-                .push(format!("goal/get:{thread_id}"));
+                .push(format!("thread/goal/get:{thread_id}"));
             Ok(serde_json::json!({
                 "threadId": thread_id,
                 "objective": "finish adapter",
@@ -1443,7 +1443,7 @@ pub mod tests {
             self.calls
                 .lock()
                 .expect("calls")
-                .push(format!("goal/clear:{thread_id}"));
+                .push(format!("thread/goal/clear:{thread_id}"));
             Ok(serde_json::json!({ "threadId": thread_id, "status": "cleared" }))
         }
 
@@ -1451,7 +1451,7 @@ pub mod tests {
             self.calls
                 .lock()
                 .expect("calls")
-                .push(format!("goal/pause:{thread_id}"));
+                .push(format!("thread/goal/set:{thread_id}:paused"));
             Ok(serde_json::json!({ "threadId": thread_id, "status": "paused" }))
         }
 
@@ -1459,7 +1459,7 @@ pub mod tests {
             self.calls
                 .lock()
                 .expect("calls")
-                .push(format!("goal/resume:{thread_id}"));
+                .push(format!("thread/goal/set:{thread_id}:active"));
             Ok(serde_json::json!({ "threadId": thread_id, "status": "active" }))
         }
 
@@ -1894,11 +1894,11 @@ pub mod tests {
         assert_eq!(
             backend.calls.lock().expect("calls").as_slice(),
             [
-                "goal/set:thread-1",
-                "goal/get:thread-1",
-                "goal/pause:thread-1",
-                "goal/resume:thread-1",
-                "goal/clear:thread-1",
+                "thread/goal/set:thread-1",
+                "thread/goal/get:thread-1",
+                "thread/goal/set:thread-1:paused",
+                "thread/goal/set:thread-1:active",
+                "thread/goal/clear:thread-1",
             ]
         );
     }

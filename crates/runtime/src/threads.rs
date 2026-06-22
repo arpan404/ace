@@ -59,6 +59,9 @@ pub struct PlanSession {
 pub enum GoalStatus {
     Active,
     Paused,
+    Blocked,
+    UsageLimited,
+    BudgetLimited,
     Complete,
     Cleared,
 }
@@ -71,6 +74,10 @@ pub struct GoalState {
     pub objective: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token_budget: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tokens_used: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub time_used_seconds: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -258,8 +265,14 @@ impl AgentRuntimeState {
                 status: GoalStatus::Active,
                 objective: Some(objective.into()),
                 token_budget,
+                tokens_used: None,
+                time_used_seconds: None,
             },
         );
+    }
+
+    pub fn upsert_goal(&mut self, goal: GoalState) {
+        self.goals.insert(goal.thread_id.clone(), goal);
     }
 
     pub fn pause_goal(&mut self, thread_id: &str) {
@@ -285,6 +298,8 @@ impl AgentRuntimeState {
                     status: GoalStatus::Cleared,
                     objective: None,
                     token_budget: None,
+                    tokens_used: None,
+                    time_used_seconds: None,
                 },
             );
         }
@@ -387,6 +402,16 @@ impl AgentRuntimeState {
     fn apply_provider_event(&mut self, event: &ProviderEvent) {
         match event {
             ProviderEvent::RawNotification { method, params } => {
+                if method == "thread/goal/updated"
+                    && let Some(goal) = goal_state_from_notification(params)
+                {
+                    self.upsert_goal(goal);
+                }
+                if method == "thread/goal/cleared"
+                    && let Some(thread_id) = string_field(params, "threadId")
+                {
+                    self.clear_goal(&thread_id);
+                }
                 if let Some(plan_status) = turn_finished_plan_status(method)
                     && let Some(thread_id) = string_field(params, "threadId")
                 {
@@ -475,6 +500,34 @@ fn string_field(value: &Value, key: &str) -> Option<String> {
         .get(key)
         .and_then(Value::as_str)
         .map(ToString::to_string)
+}
+
+fn goal_state_from_notification(value: &Value) -> Option<GoalState> {
+    let goal = value.get("goal")?;
+    let thread_id = string_field(goal, "threadId").or_else(|| string_field(value, "threadId"))?;
+    Some(GoalState {
+        thread_id,
+        status: goal_status(goal.get("status")?.as_str()?),
+        objective: string_field(goal, "objective"),
+        token_budget: u64_field(goal, "tokenBudget"),
+        tokens_used: u64_field(goal, "tokensUsed"),
+        time_used_seconds: u64_field(goal, "timeUsedSeconds"),
+    })
+}
+
+fn goal_status(status: &str) -> GoalStatus {
+    match status {
+        "paused" => GoalStatus::Paused,
+        "blocked" => GoalStatus::Blocked,
+        "usageLimited" | "usage_limited" => GoalStatus::UsageLimited,
+        "budgetLimited" | "budget_limited" => GoalStatus::BudgetLimited,
+        "complete" => GoalStatus::Complete,
+        _ => GoalStatus::Active,
+    }
+}
+
+fn u64_field(value: &Value, key: &str) -> Option<u64> {
+    value.get(key).and_then(Value::as_u64)
 }
 
 #[cfg(test)]
@@ -595,6 +648,42 @@ mod tests {
             Some(GoalStatus::Active)
         );
         state.clear_goal("thread-1");
+        assert_eq!(
+            state.goal("thread-1").map(|goal| goal.status),
+            Some(GoalStatus::Cleared)
+        );
+    }
+
+    #[test]
+    fn applies_goal_update_and_clear_notifications() {
+        let mut state = AgentRuntimeState::default();
+        state.apply_provider_events(&[ProviderEvent::RawNotification {
+            method: "thread/goal/updated".to_string(),
+            params: json!({
+                "threadId": "thread-1",
+                "turnId": "turn-1",
+                "goal": {
+                    "threadId": "thread-1",
+                    "objective": "finish adapter parity",
+                    "status": "budgetLimited",
+                    "tokenBudget": 5000,
+                    "tokensUsed": 5000,
+                    "timeUsedSeconds": 12
+                }
+            }),
+        }]);
+
+        let goal = state.goal("thread-1").expect("goal");
+        assert_eq!(goal.status, GoalStatus::BudgetLimited);
+        assert_eq!(goal.objective.as_deref(), Some("finish adapter parity"));
+        assert_eq!(goal.token_budget, Some(5000));
+        assert_eq!(goal.tokens_used, Some(5000));
+        assert_eq!(goal.time_used_seconds, Some(12));
+
+        state.apply_provider_events(&[ProviderEvent::RawNotification {
+            method: "thread/goal/cleared".to_string(),
+            params: json!({ "threadId": "thread-1" }),
+        }]);
         assert_eq!(
             state.goal("thread-1").map(|goal| goal.status),
             Some(GoalStatus::Cleared)

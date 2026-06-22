@@ -76,11 +76,9 @@ pub const CODEX_METHOD_INVENTORY: &[CodexMethodSpec] = &[
     CodexMethodSpec::new("turn/interrupt", ClientRequest, TypedSupported),
     CodexMethodSpec::new("configRequirements/read", ClientRequest, TypedSupported),
     CodexMethodSpec::new("permissionProfile/list", ClientRequest, TypedSupported),
-    CodexMethodSpec::new("goal/set", ClientRequest, TypedSupported),
-    CodexMethodSpec::new("goal/get", ClientRequest, TypedSupported),
-    CodexMethodSpec::new("goal/clear", ClientRequest, TypedSupported),
-    CodexMethodSpec::new("goal/pause", ClientRequest, TypedSupported),
-    CodexMethodSpec::new("goal/resume", ClientRequest, TypedSupported),
+    CodexMethodSpec::new("thread/goal/set", ClientRequest, TypedSupported),
+    CodexMethodSpec::new("thread/goal/get", ClientRequest, TypedSupported),
+    CodexMethodSpec::new("thread/goal/clear", ClientRequest, TypedSupported),
     CodexMethodSpec::new("subagent/list", ClientRequest, TypedSupported),
     CodexMethodSpec::new("subagent/read", ClientRequest, TypedSupported),
     CodexMethodSpec::new("subagent/steer", ClientRequest, TypedSupported),
@@ -115,6 +113,8 @@ pub const CODEX_METHOD_INVENTORY: &[CodexMethodSpec] = &[
     CodexMethodSpec::new("turn/interrupted", ServerNotification, TypedSupported),
     CodexMethodSpec::new("turn/cancelled", ServerNotification, TypedSupported),
     CodexMethodSpec::new("turn/plan/updated", ServerNotification, TypedSupported),
+    CodexMethodSpec::new("thread/goal/updated", ServerNotification, TypedSupported),
+    CodexMethodSpec::new("thread/goal/cleared", ServerNotification, TypedSupported),
     CodexMethodSpec::new("item/started", ServerNotification, TypedSupported),
     CodexMethodSpec::new("item/updated", ServerNotification, TypedSupported),
     CodexMethodSpec::new("item/completed", ServerNotification, TypedSupported),
@@ -371,7 +371,9 @@ fn codex_method_category(method: &str, direction: CodexMethodDirection) -> Provi
     }
     match method.split('/').next().unwrap_or_default() {
         "thread" => {
-            if method.contains("handoff") {
+            if method.contains("/goal/") {
+                ProviderFeatureCategory::Goals
+            } else if method.contains("handoff") {
                 ProviderFeatureCategory::Handoff
             } else {
                 ProviderFeatureCategory::Threads
@@ -384,7 +386,6 @@ fn codex_method_category(method: &str, direction: CodexMethodDirection) -> Provi
                 ProviderFeatureCategory::Turns
             }
         }
-        "goal" => ProviderFeatureCategory::Goals,
         "subagent" => ProviderFeatureCategory::Subagents,
         "review" => ProviderFeatureCategory::Tools,
         "command" | "process" | "tool" | "dynamicTool" | "applyPatch" | "exec" => {

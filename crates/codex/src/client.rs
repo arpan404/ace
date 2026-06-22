@@ -405,7 +405,7 @@ impl<T: AppServerTransport> CodexClient<T> {
 
     pub async fn goal_set(&self, request: CodexGoalSet) -> Result<Value> {
         self.raw_request(
-            "goal/set",
+            "thread/goal/set",
             json!({
                 "threadId": request.thread_id,
                 "objective": request.objective,
@@ -416,23 +416,29 @@ impl<T: AppServerTransport> CodexClient<T> {
     }
 
     pub async fn goal_get(&self, thread_id: &str) -> Result<Value> {
-        self.raw_request("goal/get", json!({ "threadId": thread_id }))
+        self.raw_request("thread/goal/get", json!({ "threadId": thread_id }))
             .await
     }
 
     pub async fn goal_clear(&self, thread_id: &str) -> Result<Value> {
-        self.raw_request("goal/clear", json!({ "threadId": thread_id }))
+        self.raw_request("thread/goal/clear", json!({ "threadId": thread_id }))
             .await
     }
 
     pub async fn goal_pause(&self, thread_id: &str) -> Result<Value> {
-        self.raw_request("goal/pause", json!({ "threadId": thread_id }))
-            .await
+        self.raw_request(
+            "thread/goal/set",
+            json!({ "threadId": thread_id, "status": "paused" }),
+        )
+        .await
     }
 
     pub async fn goal_resume(&self, thread_id: &str) -> Result<Value> {
-        self.raw_request("goal/resume", json!({ "threadId": thread_id }))
-            .await
+        self.raw_request(
+            "thread/goal/set",
+            json!({ "threadId": thread_id, "status": "active" }),
+        )
+        .await
     }
 
     pub async fn subagent_list(&self, thread_id: &str) -> Result<Value> {
@@ -1030,16 +1036,18 @@ mod tests {
         assert_eq!(
             methods,
             [
-                "goal/set",
-                "goal/get",
-                "goal/pause",
-                "goal/resume",
-                "goal/clear"
+                "thread/goal/set",
+                "thread/goal/get",
+                "thread/goal/set",
+                "thread/goal/set",
+                "thread/goal/clear"
             ]
         );
         assert_eq!(requests[0].1["threadId"], "thread-1");
         assert_eq!(requests[0].1["objective"], "finish the adapter");
         assert_eq!(requests[0].1["tokenBudget"], 10_000);
+        assert_eq!(requests[2].1["status"], "paused");
+        assert_eq!(requests[3].1["status"], "active");
     }
 
     #[tokio::test]
