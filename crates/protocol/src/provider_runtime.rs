@@ -304,6 +304,45 @@ pub enum ProviderRuntimeProjectionDelta {
         item_id: Option<String>,
         text: String,
     },
+    WarningRaised {
+        provider: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        thread_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        turn_id: Option<String>,
+        message: String,
+        #[serde(default, skip_serializing_if = "serde_json::Value::is_null")]
+        metadata: serde_json::Value,
+    },
+    ModelRerouted {
+        provider: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        thread_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        turn_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        from_model: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        to_model: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reason: Option<String>,
+    },
+    RealtimeTranscriptDelta {
+        provider: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        thread_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        turn_id: Option<String>,
+        text: String,
+    },
+    RealtimeAudioDelta {
+        provider: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        thread_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        turn_id: Option<String>,
+        audio: String,
+    },
     ActiveTurnChanged {
         provider: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -560,6 +599,68 @@ impl ProviderRuntimeEvent {
                         active,
                     });
                 }
+                match method.as_str() {
+                    "warning" => {
+                        if let Some(message) =
+                            string_at(params, &["message", "text", "warning", "description"])
+                        {
+                            deltas.push(ProviderRuntimeProjectionDelta::WarningRaised {
+                                provider: provider.clone(),
+                                thread_id: thread_id_from_params(params),
+                                turn_id: turn_id_from_params(params),
+                                message,
+                                metadata: params.clone(),
+                            });
+                        }
+                    }
+                    "model/rerouted" => {
+                        deltas.push(ProviderRuntimeProjectionDelta::ModelRerouted {
+                            provider: provider.clone(),
+                            thread_id: thread_id_from_params(params),
+                            turn_id: turn_id_from_params(params),
+                            from_model: string_at(
+                                params,
+                                &["fromModel", "from_model", "previousModel", "previous_model"],
+                            ),
+                            to_model: string_at(
+                                params,
+                                &[
+                                    "toModel",
+                                    "to_model",
+                                    "model",
+                                    "targetModel",
+                                    "target_model",
+                                ],
+                            ),
+                            reason: string_at(params, &["reason", "message", "description"]),
+                        });
+                    }
+                    "realtime/transcriptDelta" => {
+                        if let Some(text) =
+                            string_at(params, &["delta", "text", "transcript", "content"])
+                        {
+                            deltas.push(ProviderRuntimeProjectionDelta::RealtimeTranscriptDelta {
+                                provider: provider.clone(),
+                                thread_id: thread_id_from_params(params),
+                                turn_id: turn_id_from_params(params),
+                                text,
+                            });
+                        }
+                    }
+                    "realtime/audioDelta" => {
+                        if let Some(audio) =
+                            string_at(params, &["audio", "delta", "data", "base64"])
+                        {
+                            deltas.push(ProviderRuntimeProjectionDelta::RealtimeAudioDelta {
+                                provider: provider.clone(),
+                                thread_id: thread_id_from_params(params),
+                                turn_id: turn_id_from_params(params),
+                                audio,
+                            });
+                        }
+                    }
+                    _ => {}
+                }
                 deltas
             }
             Self::RawServerRequest {
@@ -620,6 +721,24 @@ fn nested_string_at(
             .pointer(nested_pointer)
             .and_then(|nested| string_at(nested, nested_keys))
     })
+}
+
+fn thread_id_from_params(value: &serde_json::Value) -> Option<String> {
+    nested_string_at(
+        value,
+        &["threadId", "thread_id", "conversationId", "conversation_id"],
+        "/thread",
+        &["id", "threadId", "thread_id"],
+    )
+}
+
+fn turn_id_from_params(value: &serde_json::Value) -> Option<String> {
+    nested_string_at(
+        value,
+        &["turnId", "turn_id"],
+        "/turn",
+        &["id", "turnId", "turn_id"],
+    )
 }
 
 #[cfg(test)]
@@ -916,6 +1035,113 @@ mod tests {
                 ..
             } if item_id.as_deref() == Some("cmd-1") && text == "running 1 test\n"
         )));
+    }
+
+    #[test]
+    fn provider_runtime_events_project_runtime_warning_reroute_and_realtime_state() {
+        let events = [
+            ProviderRuntimeEvent::RawNotification {
+                provider: "codex".to_string(),
+                method: "warning".to_string(),
+                params: json!({
+                    "threadId": "thread-1",
+                    "turnId": "turn-1",
+                    "message": "Context is almost full",
+                    "severity": "warning"
+                }),
+            },
+            ProviderRuntimeEvent::RawNotification {
+                provider: "codex".to_string(),
+                method: "model/rerouted".to_string(),
+                params: json!({
+                    "thread": { "id": "thread-1" },
+                    "turn": { "id": "turn-1" },
+                    "fromModel": "gpt-5",
+                    "toModel": "gpt-5-mini",
+                    "reason": "capacity"
+                }),
+            },
+            ProviderRuntimeEvent::RawNotification {
+                provider: "codex".to_string(),
+                method: "realtime/transcriptDelta".to_string(),
+                params: json!({
+                    "threadId": "thread-1",
+                    "turnId": "turn-1",
+                    "delta": "hello"
+                }),
+            },
+            ProviderRuntimeEvent::RawNotification {
+                provider: "codex".to_string(),
+                method: "realtime/audioDelta".to_string(),
+                params: json!({
+                    "threadId": "thread-1",
+                    "turnId": "turn-1",
+                    "audio": "AAAA"
+                }),
+            },
+        ];
+        let deltas = projection_deltas_for_events(&events);
+
+        assert!(deltas.iter().any(|delta| matches!(
+            delta,
+            ProviderRuntimeProjectionDelta::WarningRaised {
+                thread_id,
+                turn_id,
+                message,
+                metadata,
+                ..
+            } if thread_id.as_deref() == Some("thread-1")
+                && turn_id.as_deref() == Some("turn-1")
+                && message == "Context is almost full"
+                && metadata["severity"] == "warning"
+        )));
+        assert!(deltas.iter().any(|delta| matches!(
+            delta,
+            ProviderRuntimeProjectionDelta::ModelRerouted {
+                thread_id,
+                turn_id,
+                from_model,
+                to_model,
+                reason,
+                ..
+            } if thread_id.as_deref() == Some("thread-1")
+                && turn_id.as_deref() == Some("turn-1")
+                && from_model.as_deref() == Some("gpt-5")
+                && to_model.as_deref() == Some("gpt-5-mini")
+                && reason.as_deref() == Some("capacity")
+        )));
+        assert!(deltas.iter().any(|delta| matches!(
+            delta,
+            ProviderRuntimeProjectionDelta::RealtimeTranscriptDelta {
+                thread_id,
+                turn_id,
+                text,
+                ..
+            } if thread_id.as_deref() == Some("thread-1")
+                && turn_id.as_deref() == Some("turn-1")
+                && text == "hello"
+        )));
+        assert!(deltas.iter().any(|delta| matches!(
+            delta,
+            ProviderRuntimeProjectionDelta::RealtimeAudioDelta {
+                thread_id,
+                turn_id,
+                audio,
+                ..
+            } if thread_id.as_deref() == Some("thread-1")
+                && turn_id.as_deref() == Some("turn-1")
+                && audio == "AAAA"
+        )));
+        assert_eq!(
+            deltas
+                .iter()
+                .filter(|delta| matches!(
+                    delta,
+                    ProviderRuntimeProjectionDelta::RawNotificationObserved { .. }
+                ))
+                .count(),
+            4
+        );
     }
 
     fn thread_item_event(item: NormalizedThreadItem) -> ProviderRuntimeEvent {

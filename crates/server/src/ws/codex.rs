@@ -1791,6 +1791,14 @@ mod tests {
                     },
                 }),
             },
+            ProviderEvent::RawNotification {
+                method: "warning".to_string(),
+                params: json!({
+                    "threadId": "thread-1",
+                    "turnId": "turn-1",
+                    "message": "Context is almost full"
+                }),
+            },
         ]);
 
         let runner = Arc::new(FakeRunner);
@@ -1890,6 +1898,16 @@ mod tests {
             json!(["src/main.rs"])
         );
         assert_eq!(body["projection_deltas"][4]["diff"], "@@ -1 +1 @@");
+        assert_eq!(
+            body["projection_deltas"][5]["type"],
+            "raw_notification_observed"
+        );
+        assert_eq!(body["projection_deltas"][5]["method"], "warning");
+        assert_eq!(body["projection_deltas"][6]["type"], "warning_raised");
+        assert_eq!(
+            body["projection_deltas"][6]["message"],
+            "Context is almost full"
+        );
         assert_eq!(body["raw_events"][2]["type"], "raw_notification");
         assert_eq!(body["raw_events"][2]["method"], "item/completed");
 
@@ -1986,7 +2004,7 @@ mod tests {
             panic!("expected recent provider event result");
         };
         let records = body["records"].as_array().expect("records");
-        assert_eq!(records.len(), 4);
+        assert_eq!(records.len(), 5);
         assert_eq!(records[0]["provider"], "codex");
         assert_eq!(records[0]["event"]["type"], "tool_completed");
         assert_eq!(
@@ -2027,6 +2045,15 @@ mod tests {
         assert_eq!(
             records[3]["projection_deltas"][1]["files"],
             json!(["src/main.rs"])
+        );
+        assert_eq!(
+            records[4]["projection_deltas"][0]["type"],
+            "raw_notification_observed"
+        );
+        assert_eq!(records[4]["projection_deltas"][1]["type"], "warning_raised");
+        assert_eq!(
+            records[4]["projection_deltas"][1]["message"],
+            "Context is almost full"
         );
 
         let (ace_outbound_tx, _ace_outbound_rx) = tokio::sync::mpsc::channel::<String>(1);
