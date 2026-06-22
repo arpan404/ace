@@ -3,7 +3,7 @@ use ace_runtime::{
     provider::{
         NormalizedServerRequest, NormalizedThreadItem, ProviderContractReport, ProviderDescriptor,
         ProviderDriverStatus, ProviderEvent, ProviderFeature, ProviderLifecycleAction,
-        ProviderLifecycleResult,
+        ProviderLifecycleResult, ThreadItemKind, ThreadItemStatus,
     },
     tools::{SemanticToolCall, ToolRunStatus},
 };
@@ -230,7 +230,54 @@ pub struct ProviderServerRequestsListResponse {
 pub struct ProviderRuntimeEventBatch {
     pub provider: String,
     pub events: Vec<ProviderRuntimeEvent>,
+    #[serde(default)]
+    pub projection_deltas: Vec<ProviderRuntimeProjectionDelta>,
     pub raw_events: Vec<ProviderEvent>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ProviderRuntimeProjectionDelta {
+    ToolTimelineUpsert {
+        tool: Box<SemanticToolCall>,
+    },
+    ApprovalUpsert {
+        request: Box<NormalizedServerRequest>,
+    },
+    ThreadItemUpsert {
+        item: Box<NormalizedThreadItem>,
+    },
+    PlanUpdated {
+        provider: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        thread_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        turn_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        item_id: Option<String>,
+        status: ThreadItemStatus,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        text: Option<String>,
+    },
+    ActiveTurnChanged {
+        provider: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        thread_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        turn_id: Option<String>,
+        active: bool,
+    },
+    StderrAppended {
+        provider: String,
+        line: String,
+    },
+    ProviderExited {
+        provider: String,
+    },
+    RawNotificationObserved {
+        provider: String,
+        method: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -350,6 +397,125 @@ impl ProviderRuntimeEvent {
             | Self::Exited { .. } => None,
         }
     }
+
+    #[must_use]
+    pub fn projection_deltas(&self) -> Vec<ProviderRuntimeProjectionDelta> {
+        match self {
+            Self::ToolStarted { tool }
+            | Self::ToolUpdated { tool }
+            | Self::ToolOutputDelta { tool, .. }
+            | Self::ToolCompleted { tool }
+            | Self::ToolFailed { tool, .. }
+            | Self::ToolApprovalRequested { tool } => {
+                vec![ProviderRuntimeProjectionDelta::ToolTimelineUpsert { tool: tool.clone() }]
+            }
+            Self::ThreadItem { item } => {
+                let mut deltas =
+                    vec![ProviderRuntimeProjectionDelta::ThreadItemUpsert { item: item.clone() }];
+                if item.kind == ThreadItemKind::Plan {
+                    deltas.push(ProviderRuntimeProjectionDelta::PlanUpdated {
+                        provider: item.provider.provider.clone(),
+                        thread_id: item.thread_id.clone(),
+                        turn_id: item.turn_id.clone(),
+                        item_id: item.item_id.clone(),
+                        status: item.status,
+                        text: item.text.clone(),
+                    });
+                }
+                deltas
+            }
+            Self::ServerRequest { request } => {
+                vec![ProviderRuntimeProjectionDelta::ApprovalUpsert {
+                    request: request.clone(),
+                }]
+            }
+            Self::RawNotification {
+                provider,
+                method,
+                params,
+            } => {
+                let mut deltas = vec![ProviderRuntimeProjectionDelta::RawNotificationObserved {
+                    provider: provider.clone(),
+                    method: method.clone(),
+                }];
+                if let Some(active) = active_turn_for_method(method) {
+                    deltas.push(ProviderRuntimeProjectionDelta::ActiveTurnChanged {
+                        provider: provider.clone(),
+                        thread_id: nested_string_at(
+                            params,
+                            &["threadId", "thread_id"],
+                            "/thread",
+                            &["id", "threadId", "thread_id"],
+                        ),
+                        turn_id: nested_string_at(
+                            params,
+                            &["turnId", "turn_id"],
+                            "/turn",
+                            &["id", "turnId", "turn_id"],
+                        ),
+                        active,
+                    });
+                }
+                deltas
+            }
+            Self::RawServerRequest {
+                provider, method, ..
+            } => {
+                vec![ProviderRuntimeProjectionDelta::RawNotificationObserved {
+                    provider: provider.clone(),
+                    method: method.clone(),
+                }]
+            }
+            Self::StderrLine { provider, line } => {
+                vec![ProviderRuntimeProjectionDelta::StderrAppended {
+                    provider: provider.clone(),
+                    line: line.clone(),
+                }]
+            }
+            Self::Exited { provider } => {
+                vec![ProviderRuntimeProjectionDelta::ProviderExited {
+                    provider: provider.clone(),
+                }]
+            }
+        }
+    }
+}
+
+#[must_use]
+pub fn projection_deltas_for_events(
+    events: &[ProviderRuntimeEvent],
+) -> Vec<ProviderRuntimeProjectionDelta> {
+    events
+        .iter()
+        .flat_map(ProviderRuntimeEvent::projection_deltas)
+        .collect()
+}
+
+fn active_turn_for_method(method: &str) -> Option<bool> {
+    match method {
+        "turn/started" | "turn/startedStreaming" => Some(true),
+        "turn/completed" | "turn/failed" | "turn/interrupted" | "turn/cancelled" => Some(false),
+        _ => None,
+    }
+}
+
+fn string_at(value: &serde_json::Value, keys: &[&str]) -> Option<String> {
+    keys.iter()
+        .find_map(|key| value.get(*key).and_then(serde_json::Value::as_str))
+        .map(ToString::to_string)
+}
+
+fn nested_string_at(
+    value: &serde_json::Value,
+    keys: &[&str],
+    nested_pointer: &str,
+    nested_keys: &[&str],
+) -> Option<String> {
+    string_at(value, keys).or_else(|| {
+        value
+            .pointer(nested_pointer)
+            .and_then(|nested| string_at(nested, nested_keys))
+    })
 }
 
 #[cfg(test)]
@@ -466,5 +632,72 @@ mod tests {
             encoded["request"]["provider"]["raw_payload"]["command"],
             "cargo test"
         );
+    }
+
+    #[test]
+    fn provider_runtime_events_project_plan_tool_approval_and_turn_state() {
+        let plan = ProviderRuntimeEvent::from_provider_event(
+            "codex",
+            ProviderEvent::ThreadItem {
+                item: Box::new(NormalizedThreadItem {
+                    kind: ThreadItemKind::Plan,
+                    status: ThreadItemStatus::Updated,
+                    thread_id: Some("thread-1".to_string()),
+                    turn_id: Some("turn-1".to_string()),
+                    item_id: Some("plan-1".to_string()),
+                    parent_thread_id: None,
+                    child_thread_id: None,
+                    sender: None,
+                    role: None,
+                    title: Some("Plan".to_string()),
+                    text: Some("Implement adapter".to_string()),
+                    metadata: json!({}),
+                    provider: ProviderMetadata {
+                        provider: "codex".to_string(),
+                        method: Some("item/plan/delta".to_string()),
+                        schema_version: None,
+                        raw_payload: json!({}),
+                    },
+                }),
+            },
+        );
+        let started = ProviderRuntimeEvent::RawNotification {
+            provider: "codex".to_string(),
+            method: "turn/started".to_string(),
+            params: json!({
+                "thread": { "id": "thread-1" },
+                "turn": { "id": "turn-1" }
+            }),
+        };
+        let deltas = projection_deltas_for_events(&[plan, started]);
+
+        assert!(deltas.iter().any(|delta| matches!(
+            delta,
+            ProviderRuntimeProjectionDelta::ThreadItemUpsert { item }
+                if item.kind == ThreadItemKind::Plan
+        )));
+        assert!(deltas.iter().any(|delta| matches!(
+            delta,
+            ProviderRuntimeProjectionDelta::PlanUpdated {
+                thread_id,
+                turn_id,
+                item_id,
+                text,
+                ..
+            } if thread_id.as_deref() == Some("thread-1")
+                && turn_id.as_deref() == Some("turn-1")
+                && item_id.as_deref() == Some("plan-1")
+                && text.as_deref() == Some("Implement adapter")
+        )));
+        assert!(deltas.iter().any(|delta| matches!(
+            delta,
+            ProviderRuntimeProjectionDelta::ActiveTurnChanged {
+                thread_id,
+                turn_id,
+                active: true,
+                ..
+            } if thread_id.as_deref() == Some("thread-1")
+                && turn_id.as_deref() == Some("turn-1")
+        )));
     }
 }

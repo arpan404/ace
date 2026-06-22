@@ -28,7 +28,7 @@ use ace_protocol::{
         ProviderServerRequestDecisionRecord, ProviderServerRequestError,
         ProviderServerRequestRecord, ProviderServerRequestResult,
         ProviderServerRequestStatusFilter, ProviderServerRequestsListRequest,
-        ProviderServerRequestsListResponse,
+        ProviderServerRequestsListResponse, projection_deltas_for_events,
     },
     ws::{WsServerPayload, WsServerResponse, methods},
 };
@@ -771,15 +771,16 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 if events.is_empty() {
                     continue;
                 }
+                let runtime_events = events
+                    .iter()
+                    .cloned()
+                    .map(|event| ProviderRuntimeEvent::from_provider_event(&provider_name, event))
+                    .collect::<Vec<_>>();
+                let projection_deltas = projection_deltas_for_events(&runtime_events);
                 let batch = ProviderRuntimeEventBatch {
                     provider: provider_name.clone(),
-                    events: events
-                        .iter()
-                        .cloned()
-                        .map(|event| {
-                            ProviderRuntimeEvent::from_provider_event(&provider_name, event)
-                        })
-                        .collect(),
+                    events: runtime_events,
+                    projection_deltas,
                     raw_events: events,
                 };
                 let response = WsServerResponse {
@@ -1754,6 +1755,18 @@ mod tests {
         assert_eq!(body["events"][1]["type"], "server_request");
         assert_eq!(body["events"][1]["request"]["kind"], "command_approval");
         assert_eq!(body["events"][1]["request"]["prompt"], "Run tests?");
+        assert_eq!(body["projection_deltas"][0]["type"], "tool_timeline_upsert");
+        assert_eq!(
+            body["projection_deltas"][0]["tool"]["display"]["title"],
+            "Clicked Deploy in Browser"
+        );
+        assert_eq!(body["projection_deltas"][1]["type"], "approval_upsert");
+        assert_eq!(body["projection_deltas"][1]["request"]["request_id"], "42");
+        assert_eq!(
+            body["projection_deltas"][2]["type"],
+            "raw_notification_observed"
+        );
+        assert_eq!(body["projection_deltas"][2]["method"], "item/completed");
         assert_eq!(body["raw_events"][2]["type"], "raw_notification");
         assert_eq!(body["raw_events"][2]["method"], "item/completed");
 
