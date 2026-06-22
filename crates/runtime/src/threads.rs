@@ -1,6 +1,6 @@
 use crate::provider::{
     NormalizedRuntimeSignal, NormalizedServerRequest, NormalizedServerRequestDecision,
-    NormalizedThreadItem, ProviderEvent, RuntimeSignalKind,
+    NormalizedThreadItem, ProviderEvent, RuntimeSignalKind, ThreadItemKind, ThreadItemStatus,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -126,6 +126,40 @@ pub enum HandoffStatus {
     Transferring,
     Completed,
     Failed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChildThreadRelationship {
+    Fork,
+    SideChat,
+    Subagent,
+    Handoff,
+    Review,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChildThreadRecord {
+    pub provider: String,
+    pub parent_thread_id: String,
+    pub thread_id: String,
+    pub relationship: ChildThreadRelationship,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub item_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nickname: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub execution_location: Option<ExecutionLocation>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ephemeral: Option<bool>,
+    #[serde(default, skip_serializing_if = "Value::is_null")]
+    pub metadata: Value,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -380,6 +414,7 @@ pub enum ApprovalStatus {
 type RuntimeThreadTurnKey = (Option<String>, Option<String>);
 type AutoApprovalReviewKey = (Option<String>, Option<String>, Option<String>);
 type ApprovalKey = (String, String);
+type ChildThreadKey = (String, String, String, ChildThreadRelationship);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct ThreadItemKey {
@@ -447,6 +482,7 @@ pub struct AgentRuntimeState {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct AgentRuntimeSnapshot {
     pub threads: Vec<AgentThread>,
+    pub child_threads: Vec<ChildThreadRecord>,
     pub active_turns: Vec<Turn>,
     pub plan_sessions: Vec<PlanSession>,
     pub goals: Vec<GoalState>,
@@ -547,9 +583,11 @@ impl AgentRuntimeState {
         review_threads.sort();
 
         let thread_items = self.thread_items_in_order();
+        let child_threads = self.child_threads_from_items(&thread_items);
 
         AgentRuntimeSnapshot {
             threads,
+            child_threads,
             active_turns,
             plan_sessions,
             goals,
@@ -684,11 +722,203 @@ impl AgentRuntimeState {
         self.thread_items_in_order()
     }
 
+    #[must_use]
+    pub fn child_threads(&self) -> Vec<ChildThreadRecord> {
+        let thread_items = self.thread_items_in_order();
+        self.child_threads_from_items(&thread_items)
+    }
+
     fn thread_items_in_order(&self) -> Vec<NormalizedThreadItem> {
         self.thread_item_order
             .iter()
             .filter_map(|key| self.thread_items.get(key).cloned())
             .collect()
+    }
+
+    fn child_threads_from_items(
+        &self,
+        thread_items: &[NormalizedThreadItem],
+    ) -> Vec<ChildThreadRecord> {
+        let mut records: HashMap<ChildThreadKey, ChildThreadRecord> = HashMap::new();
+
+        for fork in self.fork_points.values() {
+            insert_child_thread(
+                &mut records,
+                ChildThreadRecord {
+                    provider: provider_for_thread(
+                        self,
+                        &fork.parent_thread_id,
+                        &fork.child_thread_id,
+                    ),
+                    parent_thread_id: fork.parent_thread_id.clone(),
+                    thread_id: fork.child_thread_id.clone(),
+                    relationship: ChildThreadRelationship::Fork,
+                    turn_id: fork.turn_id.clone(),
+                    item_id: None,
+                    role: None,
+                    nickname: None,
+                    status: Some("created".to_string()),
+                    execution_location: self
+                        .threads
+                        .get(&fork.child_thread_id)
+                        .map(|thread| thread.execution_location),
+                    ephemeral: None,
+                    metadata: Value::Null,
+                },
+            );
+        }
+
+        for side_chat in self.side_chats.values() {
+            insert_child_thread(
+                &mut records,
+                ChildThreadRecord {
+                    provider: provider_for_thread(
+                        self,
+                        &side_chat.parent_thread_id,
+                        &side_chat.thread_id,
+                    ),
+                    parent_thread_id: side_chat.parent_thread_id.clone(),
+                    thread_id: side_chat.thread_id.clone(),
+                    relationship: ChildThreadRelationship::SideChat,
+                    turn_id: self
+                        .fork_points
+                        .get(&side_chat.thread_id)
+                        .and_then(|fork| fork.turn_id.clone()),
+                    item_id: None,
+                    role: Some("side_chat".to_string()),
+                    nickname: None,
+                    status: Some(
+                        if side_chat.ephemeral {
+                            "ephemeral"
+                        } else {
+                            "active"
+                        }
+                        .to_string(),
+                    ),
+                    execution_location: self
+                        .threads
+                        .get(&side_chat.thread_id)
+                        .map(|thread| thread.execution_location),
+                    ephemeral: Some(side_chat.ephemeral),
+                    metadata: Value::Null,
+                },
+            );
+        }
+
+        for subagent in self.subagents.values() {
+            insert_child_thread(
+                &mut records,
+                ChildThreadRecord {
+                    provider: provider_for_thread(
+                        self,
+                        &subagent.parent_thread_id,
+                        &subagent.thread_id,
+                    ),
+                    parent_thread_id: subagent.parent_thread_id.clone(),
+                    thread_id: subagent.thread_id.clone(),
+                    relationship: ChildThreadRelationship::Subagent,
+                    turn_id: None,
+                    item_id: None,
+                    role: subagent.role.clone(),
+                    nickname: subagent.nickname.clone(),
+                    status: Some("active".to_string()),
+                    execution_location: self
+                        .threads
+                        .get(&subagent.thread_id)
+                        .map(|thread| thread.execution_location),
+                    ephemeral: None,
+                    metadata: Value::Null,
+                },
+            );
+        }
+
+        for handoff in &self.handoffs {
+            let Some(target_thread_id) = handoff.target_thread_id.as_deref() else {
+                continue;
+            };
+            if target_thread_id == handoff.source_thread_id {
+                continue;
+            }
+            insert_child_thread(
+                &mut records,
+                ChildThreadRecord {
+                    provider: provider_for_thread(
+                        self,
+                        &handoff.source_thread_id,
+                        target_thread_id,
+                    ),
+                    parent_thread_id: handoff.source_thread_id.clone(),
+                    thread_id: target_thread_id.to_string(),
+                    relationship: ChildThreadRelationship::Handoff,
+                    turn_id: None,
+                    item_id: None,
+                    role: None,
+                    nickname: None,
+                    status: Some(handoff_status_key(handoff.status).to_string()),
+                    execution_location: Some(handoff.target_location),
+                    ephemeral: None,
+                    metadata: handoff.metadata.clone(),
+                },
+            );
+        }
+
+        for item in thread_items {
+            if matches!(
+                item.kind,
+                ThreadItemKind::SubAgentActivity
+                    | ThreadItemKind::CollabAgentToolCall
+                    | ThreadItemKind::EnteredReviewMode
+                    | ThreadItemKind::ExitedReviewMode
+            ) && let (Some(parent_thread_id), Some(child_thread_id)) = (
+                item.parent_thread_id
+                    .as_deref()
+                    .or(item.thread_id.as_deref()),
+                item.child_thread_id.as_deref(),
+            ) {
+                let relationship = match item.kind {
+                    ThreadItemKind::EnteredReviewMode | ThreadItemKind::ExitedReviewMode => {
+                        ChildThreadRelationship::Review
+                    }
+                    _ => ChildThreadRelationship::Subagent,
+                };
+                if parent_thread_id == child_thread_id
+                    && relationship == ChildThreadRelationship::Review
+                {
+                    continue;
+                }
+                insert_child_thread(
+                    &mut records,
+                    ChildThreadRecord {
+                        provider: item.provider.provider.clone(),
+                        parent_thread_id: parent_thread_id.to_string(),
+                        thread_id: child_thread_id.to_string(),
+                        relationship,
+                        turn_id: item.turn_id.clone(),
+                        item_id: item.item_id.clone(),
+                        role: item.role.clone(),
+                        nickname: item.sender.clone(),
+                        status: Some(thread_item_status_key(item.status).to_string()),
+                        execution_location: self
+                            .threads
+                            .get(child_thread_id)
+                            .map(|thread| thread.execution_location),
+                        ephemeral: None,
+                        metadata: item.metadata.clone(),
+                    },
+                );
+            }
+        }
+
+        let mut records = records.into_values().collect::<Vec<_>>();
+        records.sort_by(|left, right| {
+            left.parent_thread_id
+                .cmp(&right.parent_thread_id)
+                .then_with(|| left.thread_id.cmp(&right.thread_id))
+                .then_with(|| {
+                    relationship_key(left.relationship).cmp(relationship_key(right.relationship))
+                })
+        });
+        records
     }
 
     pub fn upsert_thread_item(&mut self, item: NormalizedThreadItem) {
@@ -1723,6 +1953,63 @@ fn review_active_from_status(status: &str) -> Option<bool> {
         "entered" | "started" | "active" => Some(true),
         "exited" | "completed" | "inactive" => Some(false),
         _ => None,
+    }
+}
+
+fn insert_child_thread(
+    records: &mut HashMap<ChildThreadKey, ChildThreadRecord>,
+    record: ChildThreadRecord,
+) {
+    records.insert(
+        (
+            record.provider.clone(),
+            record.parent_thread_id.clone(),
+            record.thread_id.clone(),
+            record.relationship,
+        ),
+        record,
+    );
+}
+
+fn provider_for_thread(
+    state: &AgentRuntimeState,
+    parent_thread_id: &str,
+    thread_id: &str,
+) -> String {
+    state
+        .threads
+        .get(thread_id)
+        .or_else(|| state.threads.get(parent_thread_id))
+        .map(|thread| thread.provider.clone())
+        .unwrap_or_else(|| "codex".to_string())
+}
+
+fn relationship_key(relationship: ChildThreadRelationship) -> &'static str {
+    match relationship {
+        ChildThreadRelationship::Fork => "fork",
+        ChildThreadRelationship::SideChat => "side_chat",
+        ChildThreadRelationship::Subagent => "subagent",
+        ChildThreadRelationship::Handoff => "handoff",
+        ChildThreadRelationship::Review => "review",
+    }
+}
+
+fn handoff_status_key(status: HandoffStatus) -> &'static str {
+    match status {
+        HandoffStatus::Requested => "requested",
+        HandoffStatus::Interrupted => "interrupted",
+        HandoffStatus::Transferring => "transferring",
+        HandoffStatus::Completed => "completed",
+        HandoffStatus::Failed => "failed",
+    }
+}
+
+fn thread_item_status_key(status: ThreadItemStatus) -> &'static str {
+    match status {
+        ThreadItemStatus::Started => "started",
+        ThreadItemStatus::Updated => "updated",
+        ThreadItemStatus::Completed => "completed",
+        ThreadItemStatus::Failed => "failed",
     }
 }
 
@@ -3210,6 +3497,21 @@ mod tests {
             role: Some("planner".to_string()),
             nickname: None,
         });
+        state.record_handoff(HandoffPlan {
+            source_thread_id: "thread-a".to_string(),
+            target_location: ExecutionLocation::Worktree,
+            status: HandoffStatus::Completed,
+            target_thread_id: Some("child-c".to_string()),
+            repo_root: Some("/repo".to_string()),
+            worktree_path: Some("/worktrees/repo-child-c".to_string()),
+            branch: Some("feature/child-c".to_string()),
+            start_point: Some("main".to_string()),
+            checkpoint_ref: Some("checkpoint-1".to_string()),
+            remote_host: None,
+            transfer_status: Some("metadata_updated".to_string()),
+            interrupted_active_turn: Some(true),
+            metadata: json!({ "transfer": "complete" }),
+        });
         state.upsert_thread(AgentThread {
             thread_id: "thread-b".to_string(),
             provider: "codex".to_string(),
@@ -3256,6 +3558,37 @@ mod tests {
                 provider: ProviderMetadata {
                     provider: "codex".to_string(),
                     method: Some("item/completed".to_string()),
+                    schema_version: None,
+                    raw_payload: json!({}),
+                },
+            }),
+        }]);
+        state.apply_provider_events(&[ProviderEvent::ThreadItem {
+            item: Box::new(NormalizedThreadItem {
+                kind: ThreadItemKind::EnteredReviewMode,
+                status: ThreadItemStatus::Started,
+                thread_id: Some("thread-a".to_string()),
+                turn_id: Some("turn-a".to_string()),
+                item_id: Some("review-child-1".to_string()),
+                parent_thread_id: Some("thread-a".to_string()),
+                child_thread_id: Some("review-a".to_string()),
+                sender: None,
+                role: Some("reviewer".to_string()),
+                title: Some("Detached review".to_string()),
+                text: None,
+                status_text: Some("started".to_string()),
+                model: None,
+                target: None,
+                url: None,
+                files: None,
+                diff: None,
+                token_usage: None,
+                plan_questions: None,
+                plan_completion: None,
+                metadata: json!({ "detached": true }),
+                provider: ProviderMetadata {
+                    provider: "codex".to_string(),
+                    method: Some("item/started".to_string()),
                     schema_version: None,
                     raw_payload: json!({}),
                 },
@@ -3320,7 +3653,47 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["sub-a", "sub-b"]
         );
-        assert_eq!(snapshot.review_threads, ["thread-c"]);
+        assert_eq!(snapshot.review_threads, ["thread-a", "thread-c"]);
+        assert_eq!(
+            snapshot
+                .child_threads
+                .iter()
+                .map(|child| (
+                    child.parent_thread_id.as_str(),
+                    child.thread_id.as_str(),
+                    child.relationship
+                ))
+                .collect::<Vec<_>>(),
+            [
+                ("thread-a", "child-a", ChildThreadRelationship::Fork),
+                ("thread-a", "child-b", ChildThreadRelationship::Fork),
+                ("thread-a", "child-c", ChildThreadRelationship::Handoff),
+                ("thread-a", "review-a", ChildThreadRelationship::Review),
+                ("thread-a", "side-a", ChildThreadRelationship::SideChat),
+                ("thread-a", "side-b", ChildThreadRelationship::SideChat),
+                ("thread-a", "sub-a", ChildThreadRelationship::Subagent),
+                ("thread-a", "sub-b", ChildThreadRelationship::Subagent),
+            ]
+        );
+        let handoff_child = snapshot
+            .child_threads
+            .iter()
+            .find(|child| child.relationship == ChildThreadRelationship::Handoff)
+            .expect("handoff child");
+        assert_eq!(handoff_child.status.as_deref(), Some("completed"));
+        assert_eq!(
+            handoff_child.execution_location,
+            Some(ExecutionLocation::Worktree)
+        );
+        assert_eq!(handoff_child.metadata["transfer"], "complete");
+        let review_child = snapshot
+            .child_threads
+            .iter()
+            .find(|child| child.relationship == ChildThreadRelationship::Review)
+            .expect("review child");
+        assert_eq!(review_child.item_id.as_deref(), Some("review-child-1"));
+        assert_eq!(review_child.status.as_deref(), Some("started"));
+        assert_eq!(review_child.metadata["detached"], true);
     }
 
     #[test]

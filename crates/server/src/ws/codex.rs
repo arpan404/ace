@@ -7735,6 +7735,28 @@ mod tests {
             snapshot_state["handoffs"][0]["target_thread_id"],
             "agent-thread-1"
         );
+        let child_threads = snapshot_state["child_threads"]
+            .as_array()
+            .expect("child threads");
+        assert_eq!(child_threads.len(), 3);
+        assert!(child_threads.iter().any(|child| {
+            child["parent_thread_id"] == "thread-1"
+                && child["thread_id"] == "fork-1"
+                && child["relationship"] == "fork"
+        }));
+        assert!(child_threads.iter().any(|child| {
+            child["parent_thread_id"] == "thread-1"
+                && child["thread_id"] == "fork-1"
+                && child["relationship"] == "side_chat"
+                && child["ephemeral"] == true
+        }));
+        assert!(child_threads.iter().any(|child| {
+            child["parent_thread_id"] == "thread-1"
+                && child["thread_id"] == "agent-thread-1"
+                && child["relationship"] == "handoff"
+                && child["status"] == "completed"
+                && child["execution_location"] == "local"
+        }));
 
         let all_states = state
             .dispatch_text(

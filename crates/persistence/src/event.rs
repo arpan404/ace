@@ -385,6 +385,7 @@ mod tests {
         NormalizedServerRequest, NormalizedServerRequestDecision, NormalizedThreadItem,
         ProviderEvent, ProviderMetadata, ServerRequestKind, ThreadItemKind, ThreadItemStatus,
     };
+    use ace_runtime::threads::ChildThreadRelationship;
 
     #[test]
     fn appends_and_reads_recent_provider_events_in_sequence_order() {
@@ -473,6 +474,37 @@ mod tests {
                         },
                     }),
                 },
+                ProviderEvent::ThreadItem {
+                    item: Box::new(NormalizedThreadItem {
+                        kind: ThreadItemKind::SubAgentActivity,
+                        status: ThreadItemStatus::Started,
+                        thread_id: Some("thread-1".to_string()),
+                        turn_id: Some("turn-1".to_string()),
+                        item_id: Some("subagent-item-1".to_string()),
+                        parent_thread_id: Some("thread-1".to_string()),
+                        child_thread_id: Some("subagent-1".to_string()),
+                        sender: Some("reviewer".to_string()),
+                        role: Some("reviewer".to_string()),
+                        title: None,
+                        text: None,
+                        status_text: None,
+                        model: None,
+                        target: None,
+                        url: None,
+                        files: None,
+                        diff: None,
+                        token_usage: None,
+                        plan_questions: None,
+                        plan_completion: None,
+                        metadata: serde_json::json!({ "phase": "started" }),
+                        provider: ProviderMetadata {
+                            provider: "codex".to_string(),
+                            method: Some("item/started".to_string()),
+                            schema_version: None,
+                            raw_payload: serde_json::json!({ "subagent": true }),
+                        },
+                    }),
+                },
                 ProviderEvent::ServerRequest {
                     request: Box::new(server_request("approval-1")),
                 },
@@ -510,7 +542,7 @@ mod tests {
         let codex = repo
             .runtime_state_snapshot(Some("codex"))
             .expect("codex snapshot");
-        assert_eq!(codex.thread_items.len(), 2);
+        assert_eq!(codex.thread_items.len(), 3);
         assert_eq!(codex.thread_items[0].item_id.as_deref(), Some("item-1"));
         assert_eq!(codex.thread_items[0].text.as_deref(), Some("final"));
         assert_eq!(codex.thread_items[0].provider.raw_payload["text"], "final");
@@ -533,9 +565,17 @@ mod tests {
                 .audit["selected_policy"],
             "on-request"
         );
+        assert_eq!(codex.child_threads.len(), 1);
+        assert_eq!(codex.child_threads[0].parent_thread_id, "thread-1");
+        assert_eq!(codex.child_threads[0].thread_id, "subagent-1");
+        assert_eq!(
+            codex.child_threads[0].relationship,
+            ChildThreadRelationship::Subagent
+        );
+        assert_eq!(codex.child_threads[0].role.as_deref(), Some("reviewer"));
 
         let all = repo.runtime_state_snapshot(None).expect("all snapshot");
-        assert_eq!(all.thread_items.len(), 3);
+        assert_eq!(all.thread_items.len(), 4);
         assert!(
             all.thread_items
                 .iter()
