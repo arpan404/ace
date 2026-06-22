@@ -179,6 +179,7 @@ pub mod provider {
         GuardianDeniedActionApprove,
         ServerRequestRespond,
         ReviewStart,
+        ThreadShellCommand,
         CommandExec,
         CommandWriteStdin,
         CommandResize,
@@ -1090,6 +1091,12 @@ pub mod provider {
                 Category::Tools,
                 VersionGated,
                 Some("review/start"),
+            ),
+            op(
+                Operation::ThreadShellCommand,
+                Category::Tools,
+                VersionGated,
+                Some("thread/shellCommand"),
             ),
             op(
                 Operation::CommandExec,
@@ -2408,6 +2415,11 @@ pub mod provider {
                         .is_some_and(|reason| reason.contains("version-gated"))
             }));
             let expected_version_gated_contracts = [
+                (
+                    ProviderAdapterOperation::ThreadShellCommand,
+                    "thread/shellCommand",
+                    ProviderFeatureCategory::Tools,
+                ),
                 (
                     ProviderAdapterOperation::SkillsConfigWrite,
                     "skills/config/write",

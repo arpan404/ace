@@ -1023,6 +1023,10 @@ impl<T: AppServerTransport> CodexClient<T> {
         self.raw_request("review/start", params).await
     }
 
+    pub async fn thread_shell_command(&self, params: Value) -> Result<Value> {
+        self.raw_request("thread/shellCommand", params).await
+    }
+
     pub async fn command_exec(&self, params: Value) -> Result<Value> {
         self.raw_request("command/exec", params).await
     }
@@ -1861,6 +1865,10 @@ mod tests {
             .await
             .expect("review");
         client
+            .thread_shell_command(json!({ "threadId": "thread-1", "command": "pwd" }))
+            .await
+            .expect("thread shell command");
+        client
             .command_exec(json!({ "command": "cargo test" }))
             .await
             .expect("exec");
@@ -2007,6 +2015,7 @@ mod tests {
             methods,
             [
                 "review/start",
+                "thread/shellCommand",
                 "command/exec",
                 "command/exec/write",
                 "command/exec/resize",
@@ -2047,9 +2056,10 @@ mod tests {
                 "remote/handoff",
             ]
         );
-        assert_eq!(requests[1].1["command"], "cargo test");
-        assert_eq!(requests[11].1["fromPath"], "src/lib.rs");
-        assert_eq!(requests[19].1["tool"], "list_issues");
+        assert_eq!(requests[1].1["command"], "pwd");
+        assert_eq!(requests[2].1["command"], "cargo test");
+        assert_eq!(requests[12].1["fromPath"], "src/lib.rs");
+        assert_eq!(requests[20].1["tool"], "list_issues");
         assert_eq!(requests.last().expect("remote handoff").1["host"], "devbox");
     }
 

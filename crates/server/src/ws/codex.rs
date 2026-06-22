@@ -2164,6 +2164,7 @@ fn codex_ws_method_for_adapter_operation(
             methods::CODEX_THREAD_APPROVE_GUARDIAN_DENIED_ACTION
         }
         ProviderAdapterOperation::ReviewStart => methods::CODEX_REVIEW_START,
+        ProviderAdapterOperation::ThreadShellCommand => methods::CODEX_THREAD_SHELL_COMMAND,
         ProviderAdapterOperation::CommandExec => methods::CODEX_COMMAND_EXEC,
         ProviderAdapterOperation::CommandWriteStdin => methods::CODEX_COMMAND_WRITE_STDIN,
         ProviderAdapterOperation::CommandResize => methods::CODEX_COMMAND_RESIZE,
@@ -2415,6 +2416,10 @@ fn codex_versioned_app_server_request(
         methods::CODEX_REVIEW_START => Some((
             "review/start",
             typed_or_enveloped::<CodexReviewStartRequest>(payload)?,
+        )),
+        methods::CODEX_THREAD_SHELL_COMMAND => Some((
+            "thread/shellCommand",
+            user_initiated_raw_or_enveloped(payload)?,
         )),
         methods::CODEX_COMMAND_EXEC => Some((
             "command/exec",
@@ -2698,6 +2703,13 @@ fn raw_or_enveloped(payload: &Value) -> Result<Value, WsDispatchError> {
     Ok(payload.clone())
 }
 
+fn user_initiated_raw_or_enveloped(payload: &Value) -> Result<Value, WsDispatchError> {
+    let mut params = raw_or_enveloped(payload)?;
+    require_user_initiated(payload, &params)?;
+    strip_user_initiated_marker(&mut params);
+    Ok(params)
+}
+
 fn user_initiated_typed_or_enveloped<T>(payload: &Value) -> Result<Value, WsDispatchError>
 where
     T: DeserializeOwned + Serialize,
@@ -2724,7 +2736,8 @@ fn user_initiated_codex_params(method: &str, mut params: Value) -> Result<Value,
 fn codex_shell_process_method(method: &str) -> bool {
     matches!(
         method,
-        "command/exec"
+        "thread/shellCommand"
+            | "command/exec"
             | "command/exec/write"
             | "command/exec/resize"
             | "command/exec/terminate"
@@ -5367,6 +5380,19 @@ mod tests {
                 && operation["runtime_request"]["params"] == "adapter_normalized"
         }));
         assert!(operations.iter().any(|operation| {
+            operation["operation"] == "thread_shell_command"
+                && operation["support"] == "version_gated"
+                && operation["availability"] == "version_gated"
+                && operation["availability_reason"]
+                    .as_str()
+                    .expect("availability reason")
+                    .contains("version-gated")
+                && operation["provider_methods"] == json!(["thread/shellCommand"])
+                && operation["runtime_request"]["invokable"] == true
+                && operation["runtime_request"]["mode"] == "adapter_operation"
+                && operation["runtime_request"]["params"] == "adapter_normalized"
+        }));
+        assert!(operations.iter().any(|operation| {
             operation["operation"] == "fs_read_file"
                 && operation["invocation"] == "direct_provider_method"
                 && operation["support"] == "required"
@@ -6067,6 +6093,14 @@ mod tests {
                 json!({ "thread_id": "thread-1", "detached": true }),
             ),
             (
+                methods::CODEX_THREAD_SHELL_COMMAND,
+                json!({
+                    "userInitiated": true,
+                    "thread_id": "thread-1",
+                    "command": "pwd"
+                }),
+            ),
+            (
                 methods::CODEX_COMMAND_EXEC,
                 json!({
                     "userInitiated": true,
@@ -6256,6 +6290,7 @@ mod tests {
             backend.calls.lock().expect("calls").as_slice(),
             [
                 "review/start",
+                "thread/shellCommand",
                 "command/exec",
                 "command/exec/write",
                 "process/list",
@@ -6388,6 +6423,34 @@ mod tests {
             WsDispatchError::BadRequest(ref message)
                 if message.contains("userInitiated: true")
         ));
+
+        let missing_thread_shell_marker = codex_versioned_app_server_request(
+            methods::CODEX_THREAD_SHELL_COMMAND,
+            &json!({ "threadId": "thread-1", "command": "pwd" }),
+        )
+        .expect_err("missing thread shell user initiation");
+        assert!(matches!(
+            missing_thread_shell_marker,
+            WsDispatchError::BadRequest(ref message)
+                if message.contains("userInitiated: true")
+        ));
+
+        let (method, params) = codex_versioned_app_server_request(
+            methods::CODEX_THREAD_SHELL_COMMAND,
+            &json!({
+                "params": {
+                    "userInitiated": true,
+                    "threadId": "thread-1",
+                    "command": "pwd"
+                }
+            }),
+        )
+        .expect("user initiated thread shell")
+        .expect("thread shell method");
+        assert_eq!(method, "thread/shellCommand");
+        assert_eq!(params["threadId"], "thread-1");
+        assert_eq!(params["command"], "pwd");
+        assert!(params.get("userInitiated").is_none());
 
         let (method, params) = codex_versioned_app_server_request(
             methods::CODEX_COMMAND_EXEC,

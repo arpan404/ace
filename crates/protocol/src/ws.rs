@@ -46,6 +46,7 @@ pub mod methods {
     pub const CODEX_HANDOFF_TO_AGENT: &str = "codex.handoff.to_agent";
     pub const CODEX_HANDOFF_TO_LOCATION: &str = "codex.handoff.to_location";
     pub const CODEX_REVIEW_START: &str = "codex.review.start";
+    pub const CODEX_THREAD_SHELL_COMMAND: &str = "codex.thread.shell_command";
     pub const CODEX_COMMAND_EXEC: &str = "codex.command.exec";
     pub const CODEX_COMMAND_WRITE_STDIN: &str = "codex.command.write_stdin";
     pub const CODEX_COMMAND_RESIZE: &str = "codex.command.resize";
