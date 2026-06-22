@@ -25,7 +25,8 @@ use ace_protocol::{
     },
     git::GitWorktreeCreateRequest,
     provider_runtime::{
-        PROVIDER_RUNTIME_EVENT_TOPIC, ProviderRuntimeAdapterValidateRequest,
+        PROVIDER_RUNTIME_EVENT_TOPIC, ProviderHostToolInvokeServerRequest,
+        ProviderHostToolsListResponse, ProviderRuntimeAdapterValidateRequest,
         ProviderRuntimeAdapterValidateResponse, ProviderRuntimeContractReport,
         ProviderRuntimeEvent, ProviderRuntimeEventBatch, ProviderRuntimeEventRecord,
         ProviderRuntimeFeaturesListRequest, ProviderRuntimeFeaturesListResponse,
@@ -47,15 +48,18 @@ use ace_protocol::{
     },
     ws::{WsServerPayload, WsServerResponse, methods},
 };
-use ace_runtime::provider::{
-    NormalizedRuntimeSignal, NormalizedServerRequest, NormalizedServerRequestDecision,
-    ProviderAdapterInvocationKind, ProviderAdapterOperation, ProviderAdapterProfile, ProviderEvent,
-    ProviderMetadata, ProviderRequest, RuntimeSignalKind, ace_provider_adapter_contract,
-    provider_adapter_profile, provider_contract_report,
-};
 use ace_runtime::threads::{
     ApprovalRetryRecord, ExecutionLocation, ForkPoint, GoalState, GoalStatus, HandoffPlan,
     HandoffStatus, PlanImplementationMode, PlanImplementationRecord, SideChat, TurnMode,
+};
+use ace_runtime::{
+    host_tools::{HostToolError, HostToolInvocation, HostToolResult},
+    provider::{
+        NormalizedRuntimeSignal, NormalizedServerRequest, NormalizedServerRequestDecision,
+        ProviderAdapterInvocationKind, ProviderAdapterOperation, ProviderAdapterProfile,
+        ProviderEvent, ProviderMetadata, ProviderRequest, RuntimeSignalKind,
+        ace_provider_adapter_contract, provider_adapter_profile, provider_contract_report,
+    },
 };
 use ace_terminal::PtyAdapter;
 use serde::{Serialize, de::DeserializeOwned};
@@ -1106,6 +1110,86 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                 Ok(serde_json::to_value(ProviderServerRequestsListResponse {
                     requests,
                 })?)
+            }
+            methods::PROVIDER_RUNTIME_HOST_TOOLS_LIST => {
+                Ok(serde_json::to_value(ProviderHostToolsListResponse {
+                    tools: self.host_tools.descriptors(),
+                })?)
+            }
+            methods::PROVIDER_RUNTIME_HOST_TOOL_INVOKE_SERVER_REQUEST => {
+                let request =
+                    serde_json::from_value::<ProviderHostToolInvokeServerRequest>(payload)?;
+                let provider_kind =
+                    ProviderKind::from_runtime_id(&request.provider).ok_or_else(|| {
+                        WsDispatchError::UnknownMethod(format!(
+                            "unknown provider `{}` for host tool server request",
+                            request.provider
+                        ))
+                    })?;
+                let decision_context = self.server_request_decision_context(
+                    &request.provider,
+                    &request.request_id,
+                    request.audit,
+                )?;
+                let normalized_request = decision_context.request.as_ref().ok_or_else(|| {
+                    WsDispatchError::BadRequest(format!(
+                        "provider `{}` server request `{}` is not pending or has no normalized request",
+                        request.provider, request.request_id
+                    ))
+                })?;
+                let invocation = self
+                    .host_tools
+                    .invocation_from_server_request(provider_kind, normalized_request)
+                    .map_err(host_tool_dispatch_error)?;
+                let result = self
+                    .host_tools
+                    .invoke_server_request(provider_kind, normalized_request)
+                    .await
+                    .map_err(host_tool_dispatch_error)?;
+                self.providers
+                    .respond_server_request_result(
+                        provider_kind,
+                        request.request_id.clone(),
+                        result.output.clone(),
+                    )
+                    .await?;
+                let audit = host_tool_audit(decision_context.audit, &invocation, &result)?;
+                let audit_value = serde_json::to_value(&audit)?;
+                let decision = ProviderServerRequestDecisionRecord {
+                    outcome: "result".to_string(),
+                    payload: result.output.clone(),
+                    audit: audit_value.clone(),
+                };
+                self.provider_events
+                    .lock()
+                    .expect("provider event log")
+                    .record_server_request_result(
+                        &request.provider,
+                        request.request_id.clone(),
+                        result.output.clone(),
+                        audit_value.clone(),
+                    )?;
+                self.append_and_publish_provider_events(
+                    provider_kind,
+                    vec![ProviderEvent::ServerRequestResolved {
+                        request_id: request.request_id.clone(),
+                        decision: NormalizedServerRequestDecision {
+                            outcome: decision.outcome.clone(),
+                            payload: decision.payload.clone(),
+                            audit: audit_value,
+                        },
+                        request: decision_context.request.clone(),
+                    }],
+                )?;
+                Ok(serde_json::to_value(
+                    ProviderServerRequestDecisionResponse {
+                        responded: true,
+                        provider: request.provider,
+                        request_id: request.request_id,
+                        decision,
+                        request: decision_context.request,
+                    },
+                )?)
             }
             methods::PROVIDER_RUNTIME_SERVER_REQUEST_RESULT => {
                 let request = serde_json::from_value::<ProviderServerRequestResult>(payload)?;
@@ -2353,6 +2437,38 @@ fn provider_server_request_record_to_protocol(
     }
 }
 
+fn host_tool_dispatch_error(error: HostToolError) -> WsDispatchError {
+    match error {
+        HostToolError::UnsupportedServerRequest { .. }
+        | HostToolError::MissingToolName
+        | HostToolError::ArgumentsTooLarge { .. }
+        | HostToolError::NotFound { .. }
+        | HostToolError::EmptyName
+        | HostToolError::DuplicateName { .. } => WsDispatchError::BadRequest(error.to_string()),
+        HostToolError::Handler { .. } => WsDispatchError::BadRequest(error.to_string()),
+    }
+}
+
+fn host_tool_audit(
+    mut audit: ProviderServerRequestAudit,
+    invocation: &HostToolInvocation,
+    result: &HostToolResult,
+) -> Result<ProviderServerRequestAudit, WsDispatchError> {
+    let mut metadata = audit.metadata.as_object().cloned().unwrap_or_default();
+    metadata.insert(
+        "host_tool".to_string(),
+        json!({
+            "tool_name": invocation.tool_name,
+            "descriptor_name": invocation.descriptor_name,
+            "server_name": invocation.server_name,
+            "provider": invocation.provider.runtime_id(),
+            "result_metadata": result.metadata,
+        }),
+    );
+    audit.metadata = Value::Object(metadata);
+    Ok(audit)
+}
+
 fn enrich_server_request_audit(
     mut audit: ProviderServerRequestAudit,
     request: Option<&NormalizedServerRequest>,
@@ -2794,18 +2910,22 @@ mod tests {
         ws::{WsServerPayload, WsServerResponse, methods},
     };
     use ace_runtime::{
+        host_tools::{
+            HostToolDescriptor, HostToolError, HostToolHandler, HostToolInvocation,
+            HostToolRegistry, HostToolResult,
+        },
         provider::{
             NormalizedServerRequest, NormalizedThreadItem, ProviderEvent, ProviderMetadata,
             ServerRequestKind, ThreadItemKind, ThreadItemStatus,
         },
         tools::{
-            ProviderToolMetadata, ToolNormalizationInput, ToolRunStatus, ToolTransport,
-            normalize_tool_call,
+            ProviderToolMetadata, ToolActionKind, ToolNormalizationInput, ToolRunStatus,
+            ToolSurface, ToolTransport, normalize_tool_call,
         },
     };
     use async_trait::async_trait;
     use serde_json::json;
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex};
 
     use super::*;
 
@@ -2818,6 +2938,33 @@ mod tests {
             Err(GitToolError::Parse {
                 context: "codex ws fake runner",
                 message: "no git process expected".to_string(),
+            })
+        }
+    }
+
+    struct RecordingHostTool {
+        descriptor: HostToolDescriptor,
+        invocations: Mutex<Vec<HostToolInvocation>>,
+        result: Value,
+    }
+
+    #[async_trait]
+    impl HostToolHandler for RecordingHostTool {
+        fn descriptor(&self) -> HostToolDescriptor {
+            self.descriptor.clone()
+        }
+
+        async fn invoke(
+            &self,
+            invocation: HostToolInvocation,
+        ) -> Result<HostToolResult, HostToolError> {
+            self.invocations
+                .lock()
+                .expect("host tool invocations")
+                .push(invocation);
+            Ok(HostToolResult {
+                output: self.result.clone(),
+                metadata: json!({ "bridge": "browser" }),
             })
         }
     }
@@ -6725,6 +6872,189 @@ mod tests {
         assert_eq!(
             backend.calls.lock().expect("calls").as_slice(),
             ["remote/connectionList", "command/exec"]
+        );
+    }
+
+    #[tokio::test]
+    async fn provider_runtime_lists_registered_host_tools_over_ws_rpc() {
+        let runner = Arc::new(FakeRunner);
+        let mut descriptor = HostToolDescriptor::new(
+            "browser.open",
+            ToolTransport::BrowserBridge,
+            ToolSurface::Browser,
+        );
+        descriptor.aliases = vec!["ace_browser".to_string()];
+        descriptor.actions = vec![ToolActionKind::BrowserNavigate];
+        let mut host_tools = HostToolRegistry::new();
+        host_tools
+            .register(Arc::new(RecordingHostTool {
+                descriptor,
+                invocations: Mutex::new(Vec::new()),
+                result: json!({ "ok": true }),
+            }))
+            .expect("register host tool");
+        let state = WsApiState::new_services(
+            GitService::new(GitClient::with_runner(runner.clone())),
+            GithubService::new(GithubCliClient::with_runner(runner)),
+        )
+        .with_host_tools(host_tools);
+
+        let response = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "host-tools-list",
+                    "method": methods::PROVIDER_RUNTIME_HOST_TOOLS_LIST,
+                    "payload": {}
+                })
+                .to_string(),
+            )
+            .await;
+        let response: WsServerResponse =
+            serde_json::from_str(&response).expect("host tools list response");
+        let WsServerPayload::Result { body } = response.payload else {
+            panic!("expected host tools list result");
+        };
+        assert_eq!(body["tools"][0]["name"], "browser.open");
+        assert_eq!(body["tools"][0]["aliases"][0], "ace_browser");
+        assert_eq!(body["tools"][0]["transport"], "browser_bridge");
+        assert_eq!(body["tools"][0]["surface"], "browser");
+    }
+
+    #[tokio::test]
+    async fn provider_runtime_invokes_host_tool_for_pending_codex_server_request() {
+        let backend = Arc::new(FakeCodexBackend::default());
+        let runner = Arc::new(FakeRunner);
+        let mut descriptor = HostToolDescriptor::new(
+            "browser.open",
+            ToolTransport::BrowserBridge,
+            ToolSurface::Browser,
+        );
+        descriptor.aliases = vec!["ace_browser".to_string()];
+        descriptor.actions = vec![ToolActionKind::BrowserNavigate];
+        let host_tool = Arc::new(RecordingHostTool {
+            descriptor,
+            invocations: Mutex::new(Vec::new()),
+            result: json!({ "opened": true }),
+        });
+        let mut host_tools = HostToolRegistry::new();
+        host_tools
+            .register(host_tool.clone())
+            .expect("register host tool");
+        let state = WsApiState::new_services(
+            GitService::new(GitClient::with_runner(runner.clone())),
+            GithubService::new(GithubCliClient::with_runner(runner)),
+        )
+        .with_codex_service(CodexService::new(backend.clone()))
+        .with_host_tools(host_tools);
+        state
+            .provider_events
+            .lock()
+            .expect("provider events")
+            .append_batch(
+                "codex",
+                &[ProviderEvent::ServerRequest {
+                    request: Box::new(NormalizedServerRequest {
+                        kind: ServerRequestKind::DynamicToolCall,
+                        request_id: "42".to_string(),
+                        method: "dynamicTool/call".to_string(),
+                        thread_id: Some("thread-1".to_string()),
+                        turn_id: Some("turn-1".to_string()),
+                        item_id: Some("tool-1".to_string()),
+                        scope: Some("tool".to_string()),
+                        title: Some("Run dynamic tool".to_string()),
+                        prompt: Some("Open local app?".to_string()),
+                        selected_policy: Some("user".to_string()),
+                        metadata: json!({
+                            "toolName": "ace_browser",
+                            "arguments": {
+                                "operation": "navigate_tab_url",
+                                "url": "http://localhost:5173"
+                            }
+                        }),
+                        provider: ProviderMetadata {
+                            provider: "codex".to_string(),
+                            method: Some("dynamicTool/call".to_string()),
+                            schema_version: Some("2026-01-01".to_string()),
+                            raw_payload: json!({
+                                "toolCallId": "tool-1",
+                                "toolName": "ace_browser",
+                                "arguments": {
+                                    "operation": "navigate_tab_url",
+                                    "url": "http://localhost:5173"
+                                }
+                            }),
+                        },
+                    }),
+                }],
+            )
+            .expect("append server request");
+
+        let response = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "host-tool-invoke",
+                    "method": methods::PROVIDER_RUNTIME_HOST_TOOL_INVOKE_SERVER_REQUEST,
+                    "payload": {
+                        "provider": "codex",
+                        "request_id": 42,
+                        "audit": {
+                            "decided_by": "user",
+                            "reason": "approved in UI"
+                        }
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let response: WsServerResponse =
+            serde_json::from_str(&response).expect("host tool invoke response");
+        let WsServerPayload::Result { body } = response.payload else {
+            panic!("expected host tool invoke result");
+        };
+        assert_eq!(body["responded"], true);
+        assert_eq!(body["decision"]["outcome"], "result");
+        assert_eq!(body["decision"]["payload"]["opened"], true);
+        assert_eq!(
+            body["decision"]["audit"]["metadata"]["host_tool"]["tool_name"],
+            "ace_browser"
+        );
+        assert_eq!(
+            body["decision"]["audit"]["metadata"]["host_tool"]["descriptor_name"],
+            "browser.open"
+        );
+        assert_eq!(body["request"]["request_id"], "42");
+
+        assert_eq!(
+            backend
+                .server_request_responses
+                .lock()
+                .expect("responses")
+                .as_slice(),
+            [ServerRequestResponse::Result {
+                request_id: 42,
+                result: json!({ "opened": true })
+            }]
+        );
+        let invocations = host_tool.invocations.lock().expect("invocations");
+        assert_eq!(invocations.len(), 1);
+        assert_eq!(invocations[0].arguments["url"], "http://localhost:5173");
+
+        let resolved = state
+            .provider_events
+            .lock()
+            .expect("provider events")
+            .server_requests(
+                Some("codex"),
+                Some(ProviderServerRequestStatus::Resolved),
+                10,
+            )
+            .expect("resolved requests");
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(
+            resolved[0].decision.as_ref().expect("decision").payload["opened"],
+            true
         );
     }
 

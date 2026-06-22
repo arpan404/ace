@@ -131,6 +131,9 @@ pub mod methods {
     pub const PROVIDER_RUNTIME_SERVER_REQUEST_RESULT: &str =
         "provider_runtime.server_request.result";
     pub const PROVIDER_RUNTIME_SERVER_REQUEST_ERROR: &str = "provider_runtime.server_request.error";
+    pub const PROVIDER_RUNTIME_HOST_TOOLS_LIST: &str = "provider_runtime.host_tools.list";
+    pub const PROVIDER_RUNTIME_HOST_TOOL_INVOKE_SERVER_REQUEST: &str =
+        "provider_runtime.host_tool.invoke_server_request";
 
     pub const GIT_REPOSITORY: &str = "git.repository";
     pub const GIT_STATUS: &str = "git.status";

@@ -1,5 +1,6 @@
 use ace_core::ProviderKind;
 use ace_runtime::{
+    host_tools::HostToolDescriptor,
     provider::{
         NormalizedRuntimeSignal, NormalizedServerRequest, NormalizedThreadItem,
         ProviderAdapterContract, ProviderAdapterInvocationKind, ProviderAdapterOperation,
@@ -387,6 +388,20 @@ pub struct ProviderServerRequestError {
     #[serde(deserialize_with = "deserialize_server_request_id")]
     pub request_id: String,
     pub error: ProviderServerRequestErrorInfo,
+    #[serde(default)]
+    pub audit: ProviderServerRequestAudit,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProviderHostToolsListResponse {
+    pub tools: Vec<HostToolDescriptor>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProviderHostToolInvokeServerRequest {
+    pub provider: String,
+    #[serde(deserialize_with = "deserialize_server_request_id")]
+    pub request_id: String,
     #[serde(default)]
     pub audit: ProviderServerRequestAudit,
 }

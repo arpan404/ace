@@ -24,6 +24,7 @@ use ace_protocol::{
     ws::{WsClientRequest, WsServerPayload, WsServerResponse},
 };
 use ace_runtime::{
+    host_tools::HostToolRegistry,
     native_provider::AceNativeProvider,
     provider::{ProviderEvent, ProviderRegistry, ProviderRuntimeError},
 };
@@ -53,6 +54,7 @@ pub struct WsApiState<R: ProcessRunner = TokioProcessRunner, A: PtyAdapter = Por
     checkpoint: Arc<CheckpointService<TokioProcessRunner>>,
     codex: Arc<CodexService>,
     providers: ProviderRegistry,
+    host_tools: Arc<HostToolRegistry>,
     provider_events: Arc<Mutex<ProviderEventLogRepository>>,
     provider_event_streams:
         Arc<Mutex<HashMap<ProviderKind, broadcast::Sender<ProviderEventStreamMessage>>>>,
@@ -69,6 +71,7 @@ impl<R: ProcessRunner, A: PtyAdapter> Clone for WsApiState<R, A> {
             checkpoint: Arc::clone(&self.checkpoint),
             codex: Arc::clone(&self.codex),
             providers: self.providers.clone(),
+            host_tools: Arc::clone(&self.host_tools),
             provider_events: Arc::clone(&self.provider_events),
             provider_event_streams: Arc::clone(&self.provider_event_streams),
             git: Arc::clone(&self.git),
@@ -98,6 +101,7 @@ impl WsApiState<TokioProcessRunner, PortablePtyAdapter> {
             checkpoint: Arc::new(CheckpointService::production()),
             codex,
             providers,
+            host_tools: Arc::new(HostToolRegistry::new()),
             provider_events: Arc::new(Mutex::new(
                 ProviderEventLogRepository::open(paths.state_dir.join("provider-events.sqlite3"))
                     .expect("initialize provider event log"),
@@ -131,6 +135,7 @@ impl<R: ProcessRunner> WsApiState<R, PortablePtyAdapter> {
             checkpoint: Arc::new(CheckpointService::production()),
             codex,
             providers,
+            host_tools: Arc::new(HostToolRegistry::new()),
             provider_events: Arc::new(Mutex::new(
                 ProviderEventLogRepository::from_connection(
                     Connection::open_in_memory().expect("provider event log db"),
@@ -157,6 +162,7 @@ impl<R: ProcessRunner> WsApiState<R, PortablePtyAdapter> {
             checkpoint: self.checkpoint,
             codex: self.codex,
             providers: self.providers,
+            host_tools: self.host_tools,
             provider_events: self.provider_events,
             provider_event_streams: self.provider_event_streams,
             git: self.git,
@@ -191,6 +197,12 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
     pub fn with_provider_event_log(mut self, event_log: ProviderEventLogRepository) -> Self {
         self.provider_events = Arc::new(Mutex::new(event_log));
         self.provider_event_streams = Arc::new(Mutex::new(HashMap::new()));
+        self
+    }
+
+    #[must_use]
+    pub fn with_host_tools(mut self, host_tools: HostToolRegistry) -> Self {
+        self.host_tools = Arc::new(host_tools);
         self
     }
 
