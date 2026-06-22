@@ -24,6 +24,12 @@ pub mod methods {
     pub const CODEX_PLAN_CONTINUE_IN_THREAD: &str = "codex.plan.continue_in_thread";
     pub const CODEX_PLAN_FORK_FOR_IMPLEMENTATION: &str = "codex.plan.fork_for_implementation";
     pub const CODEX_PLAN_SIDE_IMPLEMENTATION: &str = "codex.plan.side_implementation";
+    pub const CODEX_CONFIG_REQUIREMENTS_READ: &str = "codex.config_requirements.read";
+    pub const CODEX_PERMISSION_PROFILES_LIST: &str = "codex.permission_profiles.list";
+    pub const CODEX_PERMISSION_CATALOG: &str = "codex.permissions.catalog";
+    pub const CODEX_PERMISSION_PRESET_RESOLVE: &str = "codex.permissions.preset.resolve";
+    pub const CODEX_THREAD_APPROVE_GUARDIAN_DENIED_ACTION: &str =
+        "codex.thread.approve_guardian_denied_action";
     pub const CODEX_STDERR_TAIL: &str = "codex.stderr_tail";
     pub const CODEX_SHUTDOWN: &str = "codex.shutdown";
     pub const CODEX_RESTART: &str = "codex.restart";

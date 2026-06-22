@@ -3,6 +3,7 @@ use ace_git::ProcessRunner;
 use ace_protocol::{
     PROTOCOL_VERSION,
     codex::{
+        CodexGuardianDeniedActionApprovalRequest, CodexPermissionPresetRequest,
         CodexPlanImplementationRequest, CodexPlanTurnStartRequest, CodexRawRequest,
         CodexShutdownRequest, CodexStderrTailResponse, CodexThreadForkRequest,
         CodexThreadIdRequest, CodexThreadInjectItemsRequest, CodexThreadRollbackRequest,
@@ -215,6 +216,33 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                     payload,
                     |service, request| async move {
                         service.side_implementation(request.params).await
+                    },
+                )
+                .await
+            }
+            methods::CODEX_CONFIG_REQUIREMENTS_READ => {
+                let response = self.codex.config_requirements_read().await?;
+                Ok(response)
+            }
+            methods::CODEX_PERMISSION_PROFILES_LIST => {
+                let response = self.codex.permission_profile_list().await?;
+                Ok(response)
+            }
+            methods::CODEX_PERMISSION_CATALOG => {
+                let response = self.codex.permission_catalog().await?;
+                Ok(serde_json::to_value(response)?)
+            }
+            methods::CODEX_PERMISSION_PRESET_RESOLVE => {
+                let request = serde_json::from_value::<CodexPermissionPresetRequest>(payload)?;
+                Ok(serde_json::to_value(request.preset.turn_permissions())?)
+            }
+            methods::CODEX_THREAD_APPROVE_GUARDIAN_DENIED_ACTION => {
+                self.codex_json::<CodexGuardianDeniedActionApprovalRequest, _, _, _>(
+                    payload,
+                    |service, request| async move {
+                        service
+                            .approve_guardian_denied_action(request.params)
+                            .await
                     },
                 )
                 .await
@@ -501,6 +529,85 @@ mod tests {
                 "thread/fork:thread-1:true",
                 "thread/injectItems:fork-1:1",
                 "turn/start:fork-1",
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn dispatches_codex_permission_methods_over_ws_rpc() {
+        let backend = Arc::new(FakeCodexBackend::default());
+        let runner = Arc::new(FakeRunner);
+        let state = WsApiState::new_services(
+            GitService::new(GitClient::with_runner(runner.clone())),
+            GithubService::new(GithubCliClient::with_runner(runner)),
+        )
+        .with_codex_service(CodexService::new(backend.clone()));
+
+        let catalog = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "permission-catalog",
+                    "method": methods::CODEX_PERMISSION_CATALOG,
+                    "payload": {}
+                })
+                .to_string(),
+            )
+            .await;
+        let catalog: WsServerResponse = serde_json::from_str(&catalog).expect("catalog response");
+        let WsServerPayload::Result { body } = catalog.payload else {
+            panic!("expected permission catalog result");
+        };
+        assert_eq!(
+            body["available_presets"],
+            json!(["strict", "auto", "auto_review"])
+        );
+
+        let preset = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "permission-preset",
+                    "method": methods::CODEX_PERMISSION_PRESET_RESOLVE,
+                    "payload": { "preset": "full_access" }
+                })
+                .to_string(),
+            )
+            .await;
+        let preset: WsServerResponse = serde_json::from_str(&preset).expect("preset response");
+        let WsServerPayload::Result { body } = preset.payload else {
+            panic!("expected preset result");
+        };
+        assert_eq!(body["sandbox_policy"]["mode"], "danger-full-access");
+        assert_eq!(body["approval_policy"]["mode"], "never");
+
+        let retry = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "guardian-retry",
+                    "method": methods::CODEX_THREAD_APPROVE_GUARDIAN_DENIED_ACTION,
+                    "payload": {
+                        "threadId": "thread-1",
+                        "itemId": "item-1",
+                        "actionId": "action-1",
+                        "approved": true,
+                        "reason": "retry after user approval",
+                        "audit": { "selected_policy": "on-request" }
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let retry: WsServerResponse = serde_json::from_str(&retry).expect("retry response");
+        assert!(matches!(retry.payload, WsServerPayload::Result { .. }));
+
+        assert_eq!(
+            backend.calls.lock().expect("calls").as_slice(),
+            [
+                "configRequirements/read",
+                "permissionProfile/list",
+                "thread/approveGuardianDeniedAction:thread-1:action-1",
             ]
         );
     }

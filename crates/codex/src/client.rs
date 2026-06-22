@@ -1,6 +1,7 @@
 use crate::{
     AppServerTransport, CodexError, CodexStdioTransport, Result, normalize_codex_inbound_event,
 };
+use crate::{CodexGuardianDeniedActionApproval, CodexPermissionCatalog};
 use ace_core::{ProviderCapability, ProviderKind};
 use ace_runtime::provider::{
     ProviderDescriptor, ProviderDriver, ProviderDriverError, ProviderEvent, ProviderRequest,
@@ -355,6 +356,31 @@ impl<T: AppServerTransport> CodexClient<T> {
             .await
     }
 
+    pub async fn config_requirements_read(&self) -> Result<Value> {
+        self.raw_request("configRequirements/read", json!({})).await
+    }
+
+    pub async fn permission_profile_list(&self) -> Result<Value> {
+        self.raw_request("permissionProfile/list", json!({})).await
+    }
+
+    pub async fn permission_catalog(&self) -> Result<CodexPermissionCatalog> {
+        let requirements = self.config_requirements_read().await?;
+        let profiles = self.permission_profile_list().await?;
+        Ok(CodexPermissionCatalog::from_sources(requirements, profiles))
+    }
+
+    pub async fn approve_guardian_denied_action(
+        &self,
+        request: CodexGuardianDeniedActionApproval,
+    ) -> Result<Value> {
+        self.raw_request(
+            "thread/approveGuardianDeniedAction",
+            serde_json::to_value(request)?,
+        )
+        .await
+    }
+
     pub async fn next_provider_events(&self) -> Option<Vec<ProviderEvent>> {
         self.transport
             .recv()
@@ -679,6 +705,49 @@ mod tests {
         assert_eq!(requests[2].0, "turn/start");
         assert_eq!(requests[2].1["thread_id"], "fork-1");
         assert_eq!(requests[2].1["cwd"], "/tmp/repo");
+    }
+
+    #[tokio::test]
+    async fn reads_permission_catalog_and_retries_guardian_denials() {
+        let fake = FakeTransport::default();
+        fake.responses
+            .lock()
+            .expect("responses")
+            .push_back(Ok(json!({
+                "allowedPermissionPresets": ["strict", "auto_review"]
+            })));
+        fake.responses
+            .lock()
+            .expect("responses")
+            .push_back(Ok(json!({
+                "profiles": [{ "id": "strict" }, { "id": "auto_review" }]
+            })));
+        fake.responses
+            .lock()
+            .expect("responses")
+            .push_back(Ok(json!({ "approved": true })));
+        let client = CodexClient::new(fake, Duration::from_secs(1));
+
+        let catalog = client.permission_catalog().await.expect("catalog");
+        assert_eq!(catalog.available_presets.len(), 2);
+        client
+            .approve_guardian_denied_action(CodexGuardianDeniedActionApproval {
+                thread_id: "thread-1".to_string(),
+                item_id: Some("item-1".to_string()),
+                action_id: Some("action-1".to_string()),
+                approved: true,
+                reason: Some("user approved retry".to_string()),
+                audit: json!({ "reviewer": "user" }),
+            })
+            .await
+            .expect("approve denial");
+
+        let requests = client.transport.requests.lock().expect("requests");
+        assert_eq!(requests[0].0, "configRequirements/read");
+        assert_eq!(requests[1].0, "permissionProfile/list");
+        assert_eq!(requests[2].0, "thread/approveGuardianDeniedAction");
+        assert_eq!(requests[2].1["threadId"], "thread-1");
+        assert_eq!(requests[2].1["approved"], true);
     }
 
     #[tokio::test]

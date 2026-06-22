@@ -1,6 +1,7 @@
 mod client;
 mod error;
 mod event;
+mod permissions;
 mod transport;
 
 pub use client::{
@@ -10,6 +11,10 @@ pub use client::{
 };
 pub use error::{CodexError, Result};
 pub use event::{CodexInboundEvent, normalize_codex_inbound_event};
+pub use permissions::{
+    CodexApprovalsReviewer, CodexGuardianDeniedActionApproval, CodexPermissionCatalog,
+    CodexPermissionPreset, CodexTurnPermissions, available_permission_presets,
+};
 pub use transport::{
     AppServerTransport, CodexJsonRpcError, CodexResponse, CodexStdioTransport,
     JsonlAppServerTransport,

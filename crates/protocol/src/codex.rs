@@ -1,4 +1,7 @@
-use ace_codex::{CodexPlanImplementation, CodexThreadStart, CodexTurnStart};
+use ace_codex::{
+    CodexGuardianDeniedActionApproval, CodexPermissionPreset, CodexPlanImplementation,
+    CodexThreadStart, CodexTurnStart,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -80,6 +83,17 @@ pub struct CodexPlanTurnStartRequest {
 pub struct CodexPlanImplementationRequest {
     #[serde(flatten)]
     pub params: CodexPlanImplementation,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CodexPermissionPresetRequest {
+    pub preset: CodexPermissionPreset,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CodexGuardianDeniedActionApprovalRequest {
+    #[serde(flatten)]
+    pub params: CodexGuardianDeniedActionApproval,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

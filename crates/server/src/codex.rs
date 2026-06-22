@@ -1,6 +1,6 @@
 use ace_codex::{
-    CodexClient, CodexConfig, CodexPlanImplementation, CodexStdioTransport, CodexThreadStart,
-    CodexTurnStart, Result,
+    CodexClient, CodexConfig, CodexGuardianDeniedActionApproval, CodexPermissionCatalog,
+    CodexPlanImplementation, CodexStdioTransport, CodexThreadStart, CodexTurnStart, Result,
 };
 use ace_runtime::provider::ProviderEvent;
 use async_trait::async_trait;
@@ -54,6 +54,13 @@ pub trait CodexBackend: Send + Sync {
     -> Result<Value>;
     async fn side_implementation(&self, request: CodexPlanImplementation) -> Result<Value>;
     async fn interrupt_turn(&self, thread_id: &str) -> Result<Value>;
+    async fn config_requirements_read(&self) -> Result<Value>;
+    async fn permission_profile_list(&self) -> Result<Value>;
+    async fn permission_catalog(&self) -> Result<CodexPermissionCatalog>;
+    async fn approve_guardian_denied_action(
+        &self,
+        request: CodexGuardianDeniedActionApproval,
+    ) -> Result<Value>;
     async fn next_events(&self) -> Result<Option<Vec<ProviderEvent>>>;
     async fn respond_server_request_result(&self, request_id: i64, result: Value) -> Result<()>;
     async fn respond_server_request_error(
@@ -193,6 +200,28 @@ impl CodexBackend for LiveCodexBackend {
 
     async fn interrupt_turn(&self, thread_id: &str) -> Result<Value> {
         self.client().await?.interrupt_turn(thread_id).await
+    }
+
+    async fn config_requirements_read(&self) -> Result<Value> {
+        self.client().await?.config_requirements_read().await
+    }
+
+    async fn permission_profile_list(&self) -> Result<Value> {
+        self.client().await?.permission_profile_list().await
+    }
+
+    async fn permission_catalog(&self) -> Result<CodexPermissionCatalog> {
+        self.client().await?.permission_catalog().await
+    }
+
+    async fn approve_guardian_denied_action(
+        &self,
+        request: CodexGuardianDeniedActionApproval,
+    ) -> Result<Value> {
+        self.client()
+            .await?
+            .approve_guardian_denied_action(request)
+            .await
     }
 
     async fn next_events(&self) -> Result<Option<Vec<ProviderEvent>>> {
@@ -403,6 +432,27 @@ impl CodexService {
         thread_id: String,
     ) -> std::result::Result<Value, CodexApiError> {
         Ok(self.backend.interrupt_turn(&thread_id).await?)
+    }
+
+    pub async fn config_requirements_read(&self) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.config_requirements_read().await?)
+    }
+
+    pub async fn permission_profile_list(&self) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.permission_profile_list().await?)
+    }
+
+    pub async fn permission_catalog(
+        &self,
+    ) -> std::result::Result<CodexPermissionCatalog, CodexApiError> {
+        Ok(self.backend.permission_catalog().await?)
+    }
+
+    pub async fn approve_guardian_denied_action(
+        &self,
+        request: CodexGuardianDeniedActionApproval,
+    ) -> std::result::Result<Value, CodexApiError> {
+        Ok(self.backend.approve_guardian_denied_action(request).await?)
     }
 
     pub async fn next_events(
@@ -645,6 +695,49 @@ pub mod tests {
                 .expect("calls")
                 .push(format!("turn/interrupt:{thread_id}"));
             Ok(serde_json::json!({ "interrupted": true }))
+        }
+
+        async fn config_requirements_read(&self) -> Result<Value> {
+            self.calls
+                .lock()
+                .expect("calls")
+                .push("configRequirements/read".to_string());
+            Ok(serde_json::json!({
+                "allowedPermissionPresets": ["strict", "auto", "auto_review"],
+                "deniedPermissionPresets": ["full_access"]
+            }))
+        }
+
+        async fn permission_profile_list(&self) -> Result<Value> {
+            self.calls
+                .lock()
+                .expect("calls")
+                .push("permissionProfile/list".to_string());
+            Ok(serde_json::json!({
+                "profiles": [
+                    { "id": "strict" },
+                    { "id": "auto" },
+                    { "id": "auto_review" }
+                ]
+            }))
+        }
+
+        async fn permission_catalog(&self) -> Result<CodexPermissionCatalog> {
+            let requirements = self.config_requirements_read().await?;
+            let profiles = self.permission_profile_list().await?;
+            Ok(CodexPermissionCatalog::from_sources(requirements, profiles))
+        }
+
+        async fn approve_guardian_denied_action(
+            &self,
+            request: CodexGuardianDeniedActionApproval,
+        ) -> Result<Value> {
+            self.calls.lock().expect("calls").push(format!(
+                "thread/approveGuardianDeniedAction:{}:{}",
+                request.thread_id,
+                request.action_id.as_deref().unwrap_or_default()
+            ));
+            Ok(serde_json::json!({ "approved": request.approved }))
         }
 
         async fn next_events(&self) -> Result<Option<Vec<ProviderEvent>>> {
