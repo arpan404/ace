@@ -710,6 +710,31 @@ pub enum ProviderRuntimeProjectionDelta {
     ThreadItemUpsert {
         item: Box<NormalizedThreadItem>,
     },
+    ThreadItemDetailsUpdated {
+        provider: String,
+        kind: ThreadItemKind,
+        status: ThreadItemStatus,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        thread_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        turn_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        item_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        status_text: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        model: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        url: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        files: Option<serde_json::Value>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        diff: Option<serde_json::Value>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        token_usage: Option<serde_json::Value>,
+    },
     PlanUpdated {
         provider: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1194,6 +1219,23 @@ impl ProviderRuntimeEvent {
             Self::ThreadItem { item } => {
                 let mut deltas =
                     vec![ProviderRuntimeProjectionDelta::ThreadItemUpsert { item: item.clone() }];
+                if thread_item_has_details(item) {
+                    deltas.push(ProviderRuntimeProjectionDelta::ThreadItemDetailsUpdated {
+                        provider: item.provider.provider.clone(),
+                        kind: item.kind,
+                        status: item.status,
+                        thread_id: item.thread_id.clone(),
+                        turn_id: item.turn_id.clone(),
+                        item_id: item.item_id.clone(),
+                        status_text: item.status_text.clone(),
+                        model: item.model.clone(),
+                        target: item.target.clone(),
+                        url: item.url.clone(),
+                        files: item.files.clone(),
+                        diff: item.diff.clone(),
+                        token_usage: item.token_usage.clone(),
+                    });
+                }
                 if item.kind == ThreadItemKind::Plan {
                     deltas.push(ProviderRuntimeProjectionDelta::PlanUpdated {
                         provider: item.provider.provider.clone(),
@@ -1359,6 +1401,16 @@ impl ProviderRuntimeEvent {
             ],
         }
     }
+}
+
+fn thread_item_has_details(item: &NormalizedThreadItem) -> bool {
+    item.status_text.is_some()
+        || item.model.is_some()
+        || item.target.is_some()
+        || item.url.is_some()
+        || item.files.is_some()
+        || item.diff.is_some()
+        || item.token_usage.is_some()
 }
 
 #[must_use]
@@ -2630,6 +2682,46 @@ mod tests {
             } if item_id.as_deref() == Some("file-1")
                 && diff.as_deref() == Some("@@ -1 +1 @@")
                 && files == &json!(["src/main.rs"])
+        )));
+        assert!(deltas.iter().any(|delta| matches!(
+            delta,
+            ProviderRuntimeProjectionDelta::ThreadItemDetailsUpdated {
+                kind: ThreadItemKind::SubAgentActivity,
+                item_id,
+                status_text,
+                ..
+            } if item_id.as_deref() == Some("subagent-item-1")
+                && status_text.as_deref() == Some("started")
+        )));
+        let file_details = deltas
+            .iter()
+            .find(|delta| {
+                matches!(
+                    delta,
+                    ProviderRuntimeProjectionDelta::ThreadItemDetailsUpdated {
+                        item_id,
+                        ..
+                    } if item_id.as_deref() == Some("file-1")
+                )
+            })
+            .expect("file details delta");
+        let encoded_file_details = serde_json::to_value(file_details).expect("encode details");
+        assert_eq!(encoded_file_details["type"], "thread_item_details_updated");
+        assert_eq!(encoded_file_details["kind"], "fileChange");
+        assert_eq!(encoded_file_details["target"], "src/main.rs");
+        assert_eq!(encoded_file_details["files"], json!(["src/main.rs"]));
+        assert_eq!(encoded_file_details["diff"], "@@ -1 +1 @@");
+        assert!(deltas.iter().any(|delta| matches!(
+            delta,
+            ProviderRuntimeProjectionDelta::ThreadItemDetailsUpdated {
+                kind: ThreadItemKind::CommandExecution,
+                item_id,
+                status_text,
+                target,
+                ..
+            } if item_id.as_deref() == Some("cmd-1")
+                && status_text.as_deref() == Some("running")
+                && target.as_deref() == Some("cargo test")
         )));
         assert!(deltas.iter().any(|delta| matches!(
             delta,

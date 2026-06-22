@@ -5484,28 +5484,49 @@ mod tests {
             "raw_notification_observed"
         );
         assert_eq!(body["projection_deltas"][2]["method"], "item/completed");
-        assert_eq!(body["projection_deltas"][3]["type"], "thread_item_upsert");
-        assert_eq!(body["projection_deltas"][4]["type"], "diff_updated");
-        assert_eq!(
-            body["projection_deltas"][4]["files"],
-            json!(["src/main.rs"])
+        let deltas = body["projection_deltas"]
+            .as_array()
+            .expect("projection deltas");
+        assert!(
+            deltas
+                .iter()
+                .any(|delta| delta["type"] == "thread_item_upsert")
         );
-        assert_eq!(body["projection_deltas"][4]["diff"], "@@ -1 +1 @@");
-        assert_eq!(body["projection_deltas"][5]["type"], "warning_raised");
-        assert_eq!(
-            body["projection_deltas"][5]["message"],
-            "Context is almost full"
+        let details_delta = deltas
+            .iter()
+            .find(|delta| delta["type"] == "thread_item_details_updated")
+            .expect("thread item details delta");
+        assert_eq!(details_delta["target"], "src/main.rs");
+        assert_eq!(details_delta["files"], json!(["src/main.rs"]));
+        assert_eq!(details_delta["diff"], "@@ -1 +1 @@");
+        let diff_delta = deltas
+            .iter()
+            .find(|delta| delta["type"] == "diff_updated")
+            .expect("diff delta");
+        assert_eq!(diff_delta["files"], json!(["src/main.rs"]));
+        assert_eq!(diff_delta["diff"], "@@ -1 +1 @@");
+        let warning_delta = deltas
+            .iter()
+            .find(|delta| delta["type"] == "warning_raised")
+            .expect("warning delta");
+        assert_eq!(warning_delta["message"], "Context is almost full");
+        assert!(
+            deltas
+                .iter()
+                .any(|delta| delta["type"] == "raw_notification_observed"
+                    && delta["method"] == "warning")
         );
-        assert_eq!(
-            body["projection_deltas"][6]["type"],
-            "raw_notification_observed"
+        let exited_delta = deltas
+            .iter()
+            .find(|delta| delta["type"] == "provider_exited")
+            .expect("provider exited delta");
+        assert_eq!(exited_delta["provider"], "codex");
+        assert_eq!(exited_delta["code"], 9);
+        assert!(
+            deltas.iter().any(
+                |delta| delta["type"] == "active_turns_cleared" && delta["provider"] == "codex"
+            )
         );
-        assert_eq!(body["projection_deltas"][6]["method"], "warning");
-        assert_eq!(body["projection_deltas"][7]["type"], "provider_exited");
-        assert_eq!(body["projection_deltas"][7]["provider"], "codex");
-        assert_eq!(body["projection_deltas"][7]["code"], 9);
-        assert_eq!(body["projection_deltas"][8]["type"], "active_turns_cleared");
-        assert_eq!(body["projection_deltas"][8]["provider"], "codex");
         assert_eq!(body["events"][4]["type"], "runtime_signal");
         assert_eq!(body["events"][4]["signal"]["kind"], "warning");
         assert_eq!(body["events"][6]["type"], "exited");
@@ -5688,11 +5709,17 @@ mod tests {
             records[3]["projection_deltas"][0]["type"],
             "thread_item_upsert"
         );
-        assert_eq!(records[3]["projection_deltas"][1]["type"], "diff_updated");
-        assert_eq!(
-            records[3]["projection_deltas"][1]["files"],
-            json!(["src/main.rs"])
-        );
+        let replay_deltas = records[3]["projection_deltas"]
+            .as_array()
+            .expect("replay deltas");
+        assert!(replay_deltas.iter().any(|delta| {
+            delta["type"] == "thread_item_details_updated"
+                && delta["target"] == "src/main.rs"
+                && delta["files"] == json!(["src/main.rs"])
+        }));
+        assert!(replay_deltas.iter().any(|delta| {
+            delta["type"] == "diff_updated" && delta["files"] == json!(["src/main.rs"])
+        }));
         assert_eq!(records[4]["projection_deltas"][0]["type"], "warning_raised");
         assert_eq!(
             records[4]["projection_deltas"][0]["message"],
