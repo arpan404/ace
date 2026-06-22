@@ -619,10 +619,17 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
             }
             methods::PROVIDER_RUNTIME_REQUEST => {
                 let request = serde_json::from_value::<ProviderRuntimeRequest>(payload)?;
+                let provider =
+                    ProviderKind::from_runtime_id(&request.provider).ok_or_else(|| {
+                        WsDispatchError::BadRequest(format!(
+                            "unknown provider `{}` for runtime request",
+                            request.provider
+                        ))
+                    })?;
                 let response = self
                     .providers
                     .request(
-                        request.provider,
+                        provider,
                         ProviderRequest {
                             method: request.method,
                             params: request.params,
@@ -1948,7 +1955,7 @@ mod tests {
                     "request_id": "provider-request",
                     "method": methods::PROVIDER_RUNTIME_REQUEST,
                     "payload": {
-                        "provider": "Codex",
+                        "provider": "codex",
                         "method": "thread/read",
                         "params": { "threadId": "thread-1" },
                         "timeout_ms": 1000
@@ -1971,7 +1978,7 @@ mod tests {
                     "request_id": "ace-provider-request",
                     "method": methods::PROVIDER_RUNTIME_REQUEST,
                     "payload": {
-                        "provider": "Ace",
+                        "provider": "ace",
                         "method": "ace.contract",
                         "params": {},
                         "timeout_ms": 1000
@@ -1989,6 +1996,29 @@ mod tests {
             body["provider_requirements"]["tools"],
             "map provider tool calls to SemanticToolCall when possible"
         );
+
+        let unknown_provider = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "unknown-provider-request",
+                    "method": methods::PROVIDER_RUNTIME_REQUEST,
+                    "payload": {
+                        "provider": "unknown-provider",
+                        "method": "thread/read",
+                        "params": {},
+                        "timeout_ms": 1000
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let unknown_provider: WsServerResponse =
+            serde_json::from_str(&unknown_provider).expect("unknown provider response");
+        let WsServerPayload::Error { code, .. } = unknown_provider.payload else {
+            panic!("expected unknown provider error");
+        };
+        assert_eq!(code, "bad_request");
 
         let contract = state
             .dispatch_text(

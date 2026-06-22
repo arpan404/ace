@@ -43,7 +43,7 @@ pub struct ProviderRuntimeRecentEventsResponse {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProviderRuntimeRequest {
-    pub provider: ProviderKind,
+    pub provider: String,
     pub method: String,
     #[serde(default)]
     pub params: serde_json::Value,
