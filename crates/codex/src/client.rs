@@ -655,6 +655,10 @@ impl<T: AppServerTransport + 'static> ProviderDriver for CodexAdapter<T> {
                     version: 1,
                 },
                 ProviderCapability {
+                    key: "provider.adapter_contract".to_string(),
+                    version: 1,
+                },
+                ProviderCapability {
                     key: "provider.semantic_tools".to_string(),
                     version: 1,
                 },
@@ -1202,6 +1206,12 @@ mod tests {
         let descriptor = adapter.descriptor();
 
         assert_eq!(descriptor.kind, ProviderKind::Codex);
+        assert!(
+            descriptor
+                .capabilities
+                .iter()
+                .any(|capability| capability.key == "provider.adapter_contract")
+        );
         assert!(
             descriptor
                 .capabilities

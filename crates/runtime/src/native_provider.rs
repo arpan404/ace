@@ -59,6 +59,12 @@ impl AceNativeProvider {
                 "ace.capabilities",
             ),
             (
+                "provider.adapter_contract",
+                "Provider adapter contract",
+                ProviderFeatureCategory::Native,
+                "ace.contract",
+            ),
+            (
                 "provider.normalized_events",
                 "Normalized provider events",
                 ProviderFeatureCategory::Events,

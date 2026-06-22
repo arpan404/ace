@@ -2475,6 +2475,13 @@ mod tests {
                 .as_array()
                 .expect("capabilities")
                 .iter()
+                .any(|capability| capability["key"] == "provider.adapter_contract")
+        );
+        assert!(
+            body["providers"][0]["capabilities"]
+                .as_array()
+                .expect("capabilities")
+                .iter()
                 .any(|capability| capability["key"] == "provider.runtime.raw_request")
         );
         assert!(

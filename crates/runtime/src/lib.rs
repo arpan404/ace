@@ -87,6 +87,7 @@ pub mod provider {
         pub websocket_first: bool,
         pub raw_payload_policy: String,
         pub required_capabilities: Vec<ProviderContractRequirement>,
+        pub operations: Vec<ProviderAdapterOperationSpec>,
         pub normalized_thread_item_kinds: Vec<ThreadItemKind>,
         pub normalized_server_request_kinds: Vec<ServerRequestKind>,
         pub runtime_signal_kinds: Vec<RuntimeSignalKind>,
@@ -94,6 +95,97 @@ pub mod provider {
         pub tool_transports: Vec<ToolTransport>,
         pub tool_surfaces: Vec<ToolSurface>,
         pub execution_locations: Vec<ExecutionLocation>,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(rename_all = "snake_case")]
+    pub enum ProviderAdapterOperationSupport {
+        Required,
+        Optional,
+        VersionGated,
+        Deferred,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(rename_all = "snake_case")]
+    pub enum ProviderAdapterOperation {
+        RuntimeStatus,
+        RuntimeLifecycle,
+        RawRequest,
+        ThreadStart,
+        ThreadResume,
+        ThreadRead,
+        ThreadList,
+        ThreadLoadedList,
+        ThreadArchive,
+        ThreadUnarchive,
+        ThreadDelete,
+        ThreadUnsubscribe,
+        ThreadSetName,
+        ThreadUpdateMetadata,
+        ThreadCompact,
+        ThreadRollback,
+        ThreadInjectItems,
+        TurnStart,
+        TurnInterrupt,
+        PlanStart,
+        PlanContinueInThread,
+        PlanForkForImplementation,
+        PlanSideImplementation,
+        ForkThread,
+        SideChatStart,
+        GoalSet,
+        GoalGet,
+        GoalClear,
+        GoalPause,
+        GoalResume,
+        SubagentList,
+        SubagentRead,
+        SubagentSteer,
+        SubagentStop,
+        SubagentClose,
+        HandoffToAgent,
+        HandoffToLocation,
+        PermissionRequirementsRead,
+        PermissionProfilesList,
+        PermissionPresetResolve,
+        GuardianDeniedActionApprove,
+        ServerRequestRespond,
+        ReviewStart,
+        CommandExec,
+        CommandWriteStdin,
+        CommandResize,
+        CommandTerminate,
+        ProcessList,
+        ProcessClean,
+        McpStatus,
+        McpResourceRead,
+        McpOauthLogin,
+        McpToolCall,
+        SkillsList,
+        SkillsRead,
+        SkillsInstall,
+        PluginsList,
+        PluginsInstall,
+        AppsList,
+        AppsConfigWrite,
+        RemoteConnectionList,
+        RemoteHandoff,
+        CloudThreadStart,
+        CloudHandoff,
+        ProviderEvents,
+        SemanticTools,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    pub struct ProviderAdapterOperationSpec {
+        pub operation: ProviderAdapterOperation,
+        pub category: ProviderFeatureCategory,
+        pub support: ProviderAdapterOperationSupport,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub canonical_method: Option<String>,
+        #[serde(default)]
+        pub provider_methods: Vec<String>,
     }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -475,6 +567,11 @@ pub mod provider {
     pub fn ace_provider_contract_requirements() -> Vec<ProviderContractRequirement> {
         vec![
             ProviderContractRequirement {
+                key: "provider.adapter_contract".to_string(),
+                min_version: 1,
+                required: true,
+            },
+            ProviderContractRequirement {
                 key: "provider.normalized_events".to_string(),
                 min_version: 1,
                 required: true,
@@ -498,12 +595,417 @@ pub mod provider {
     }
 
     #[must_use]
+    pub fn ace_provider_adapter_operations() -> Vec<ProviderAdapterOperationSpec> {
+        use ProviderAdapterOperation as Operation;
+        use ProviderAdapterOperationSupport::{Deferred, Optional, Required, VersionGated};
+        use ProviderFeatureCategory as Category;
+
+        [
+            op(Operation::RuntimeStatus, Category::Native, Required, None),
+            op(
+                Operation::RuntimeLifecycle,
+                Category::Native,
+                Required,
+                None,
+            ),
+            op(Operation::RawRequest, Category::Native, Optional, None),
+            op(
+                Operation::ThreadStart,
+                Category::Threads,
+                Required,
+                Some("thread/start"),
+            ),
+            op(
+                Operation::ThreadResume,
+                Category::Threads,
+                Required,
+                Some("thread/resume"),
+            ),
+            op(
+                Operation::ThreadRead,
+                Category::Threads,
+                Required,
+                Some("thread/read"),
+            ),
+            op(
+                Operation::ThreadList,
+                Category::Threads,
+                Required,
+                Some("thread/list"),
+            ),
+            op(
+                Operation::ThreadLoadedList,
+                Category::Threads,
+                Optional,
+                Some("thread/loadedList"),
+            ),
+            op(
+                Operation::ThreadArchive,
+                Category::Threads,
+                Required,
+                Some("thread/archive"),
+            ),
+            op(
+                Operation::ThreadUnarchive,
+                Category::Threads,
+                Required,
+                Some("thread/unarchive"),
+            ),
+            op(
+                Operation::ThreadDelete,
+                Category::Threads,
+                Required,
+                Some("thread/delete"),
+            ),
+            op(
+                Operation::ThreadUnsubscribe,
+                Category::Threads,
+                Optional,
+                Some("thread/unsubscribe"),
+            ),
+            op(
+                Operation::ThreadSetName,
+                Category::Threads,
+                Required,
+                Some("thread/setName"),
+            ),
+            op(
+                Operation::ThreadUpdateMetadata,
+                Category::Threads,
+                Required,
+                Some("thread/updateMetadata"),
+            ),
+            op(
+                Operation::ThreadCompact,
+                Category::Threads,
+                Required,
+                Some("thread/compact"),
+            ),
+            op(
+                Operation::ThreadRollback,
+                Category::Threads,
+                Required,
+                Some("thread/rollback"),
+            ),
+            op(
+                Operation::ThreadInjectItems,
+                Category::Threads,
+                Required,
+                Some("thread/injectItems"),
+            ),
+            op(
+                Operation::TurnStart,
+                Category::Turns,
+                Required,
+                Some("turn/start"),
+            ),
+            op(
+                Operation::TurnInterrupt,
+                Category::Turns,
+                Required,
+                Some("turn/interrupt"),
+            ),
+            op(
+                Operation::PlanStart,
+                Category::Plans,
+                Required,
+                Some("turn/start"),
+            ),
+            op(
+                Operation::PlanContinueInThread,
+                Category::Plans,
+                Required,
+                Some("thread/injectItems+turn/start"),
+            ),
+            op(
+                Operation::PlanForkForImplementation,
+                Category::Plans,
+                Required,
+                Some("thread/fork+thread/injectItems+turn/start"),
+            ),
+            op(
+                Operation::PlanSideImplementation,
+                Category::Plans,
+                Required,
+                Some("thread/fork+thread/injectItems+turn/start"),
+            ),
+            op(
+                Operation::ForkThread,
+                Category::Threads,
+                Required,
+                Some("thread/fork"),
+            ),
+            op(
+                Operation::SideChatStart,
+                Category::Threads,
+                Required,
+                Some("thread/fork"),
+            ),
+            op(
+                Operation::GoalSet,
+                Category::Goals,
+                Required,
+                Some("goal/set"),
+            ),
+            op(
+                Operation::GoalGet,
+                Category::Goals,
+                Required,
+                Some("goal/get"),
+            ),
+            op(
+                Operation::GoalClear,
+                Category::Goals,
+                Required,
+                Some("goal/clear"),
+            ),
+            op(
+                Operation::GoalPause,
+                Category::Goals,
+                Required,
+                Some("goal/pause"),
+            ),
+            op(
+                Operation::GoalResume,
+                Category::Goals,
+                Required,
+                Some("goal/resume"),
+            ),
+            op(
+                Operation::SubagentList,
+                Category::Subagents,
+                Required,
+                Some("subagent/list"),
+            ),
+            op(
+                Operation::SubagentRead,
+                Category::Subagents,
+                Required,
+                Some("subagent/read"),
+            ),
+            op(
+                Operation::SubagentSteer,
+                Category::Subagents,
+                Required,
+                Some("subagent/steer"),
+            ),
+            op(
+                Operation::SubagentStop,
+                Category::Subagents,
+                Required,
+                Some("subagent/stop"),
+            ),
+            op(
+                Operation::SubagentClose,
+                Category::Subagents,
+                Required,
+                Some("subagent/close"),
+            ),
+            op(
+                Operation::HandoffToAgent,
+                Category::Handoff,
+                Required,
+                Some("thread/handoffToAgent"),
+            ),
+            op(
+                Operation::HandoffToLocation,
+                Category::Handoff,
+                Required,
+                None,
+            ),
+            op(
+                Operation::PermissionRequirementsRead,
+                Category::Permissions,
+                Required,
+                Some("configRequirements/read"),
+            ),
+            op(
+                Operation::PermissionProfilesList,
+                Category::Permissions,
+                Required,
+                Some("permissionProfile/list"),
+            ),
+            op(
+                Operation::PermissionPresetResolve,
+                Category::Permissions,
+                Required,
+                Some("configRequirements/read+permissionProfile/list"),
+            ),
+            op(
+                Operation::GuardianDeniedActionApprove,
+                Category::Permissions,
+                Required,
+                Some("thread/approveGuardianDeniedAction"),
+            ),
+            op(
+                Operation::ServerRequestRespond,
+                Category::ServerRequests,
+                Required,
+                None,
+            ),
+            op(
+                Operation::ReviewStart,
+                Category::Tools,
+                VersionGated,
+                Some("review/start"),
+            ),
+            op(
+                Operation::CommandExec,
+                Category::Tools,
+                VersionGated,
+                Some("command/exec"),
+            ),
+            op(
+                Operation::CommandWriteStdin,
+                Category::Tools,
+                VersionGated,
+                Some("command/writeStdin"),
+            ),
+            op(
+                Operation::CommandResize,
+                Category::Tools,
+                VersionGated,
+                Some("command/resize"),
+            ),
+            op(
+                Operation::CommandTerminate,
+                Category::Tools,
+                VersionGated,
+                Some("command/terminate"),
+            ),
+            op(
+                Operation::ProcessList,
+                Category::Tools,
+                VersionGated,
+                Some("process/list"),
+            ),
+            op(
+                Operation::ProcessClean,
+                Category::Tools,
+                VersionGated,
+                Some("process/clean"),
+            ),
+            op(
+                Operation::McpStatus,
+                Category::Mcp,
+                VersionGated,
+                Some("mcp/status"),
+            ),
+            op(
+                Operation::McpResourceRead,
+                Category::Mcp,
+                VersionGated,
+                Some("mcp/resourceRead"),
+            ),
+            op(
+                Operation::McpOauthLogin,
+                Category::Mcp,
+                VersionGated,
+                Some("mcp/oauthLogin"),
+            ),
+            op(
+                Operation::McpToolCall,
+                Category::Mcp,
+                VersionGated,
+                Some("mcp/toolCall"),
+            ),
+            op(
+                Operation::SkillsList,
+                Category::Skills,
+                VersionGated,
+                Some("skills/list"),
+            ),
+            op(
+                Operation::SkillsRead,
+                Category::Skills,
+                VersionGated,
+                Some("skills/read"),
+            ),
+            op(
+                Operation::SkillsInstall,
+                Category::Skills,
+                VersionGated,
+                Some("skills/install"),
+            ),
+            op(
+                Operation::PluginsList,
+                Category::Plugins,
+                VersionGated,
+                Some("plugins/list"),
+            ),
+            op(
+                Operation::PluginsInstall,
+                Category::Plugins,
+                VersionGated,
+                Some("plugins/install"),
+            ),
+            op(
+                Operation::AppsList,
+                Category::Apps,
+                VersionGated,
+                Some("apps/list"),
+            ),
+            op(
+                Operation::AppsConfigWrite,
+                Category::Apps,
+                VersionGated,
+                Some("apps/configWrite"),
+            ),
+            op(
+                Operation::RemoteConnectionList,
+                Category::Remote,
+                VersionGated,
+                Some("remote/connectionList"),
+            ),
+            op(
+                Operation::RemoteHandoff,
+                Category::Remote,
+                VersionGated,
+                Some("remote/handoff"),
+            ),
+            op(
+                Operation::CloudThreadStart,
+                Category::Cloud,
+                Deferred,
+                Some("cloud/threadStart"),
+            ),
+            op(
+                Operation::CloudHandoff,
+                Category::Cloud,
+                Deferred,
+                Some("cloud/handoff"),
+            ),
+            op(Operation::ProviderEvents, Category::Events, Required, None),
+            op(Operation::SemanticTools, Category::Tools, Required, None),
+        ]
+        .into()
+    }
+
+    fn op(
+        operation: ProviderAdapterOperation,
+        category: ProviderFeatureCategory,
+        support: ProviderAdapterOperationSupport,
+        canonical_method: Option<&str>,
+    ) -> ProviderAdapterOperationSpec {
+        ProviderAdapterOperationSpec {
+            operation,
+            category,
+            support,
+            canonical_method: canonical_method.map(ToString::to_string),
+            provider_methods: canonical_method
+                .map(|method| method.split('+').map(ToString::to_string).collect())
+                .unwrap_or_default(),
+        }
+    }
+
+    #[must_use]
     pub fn ace_provider_adapter_contract() -> ProviderAdapterContract {
         ProviderAdapterContract {
             version: 1,
             websocket_first: true,
             raw_payload_policy: "preserve_provider_payloads".to_string(),
             required_capabilities: ace_provider_contract_requirements(),
+            operations: ace_provider_adapter_operations(),
             normalized_thread_item_kinds: vec![
                 ThreadItemKind::UserMessage,
                 ThreadItemKind::HookPrompt,
@@ -992,6 +1494,7 @@ pub mod provider {
             assert_eq!(
                 report.missing_required,
                 vec![
+                    "provider.adapter_contract".to_string(),
                     "provider.normalized_events".to_string(),
                     "provider.normalized_server_requests".to_string(),
                 ]
@@ -1044,6 +1547,40 @@ pub mod provider {
                     .any(|capability| capability.key == "provider.normalized_events"
                         && capability.required)
             );
+            assert!(
+                contract
+                    .required_capabilities
+                    .iter()
+                    .any(|capability| capability.key == "provider.adapter_contract"
+                        && capability.required)
+            );
+            assert!(contract.operations.iter().any(|operation| {
+                operation.operation == ProviderAdapterOperation::PlanForkForImplementation
+                    && operation.support == ProviderAdapterOperationSupport::Required
+                    && operation
+                        .provider_methods
+                        .contains(&"thread/fork".to_string())
+            }));
+            assert!(contract.operations.iter().any(|operation| {
+                operation.operation == ProviderAdapterOperation::SideChatStart
+                    && operation.support == ProviderAdapterOperationSupport::Required
+            }));
+            assert!(contract.operations.iter().any(|operation| {
+                operation.operation == ProviderAdapterOperation::SubagentSteer
+                    && operation.canonical_method.as_deref() == Some("subagent/steer")
+            }));
+            assert!(contract.operations.iter().any(|operation| {
+                operation.operation == ProviderAdapterOperation::HandoffToLocation
+                    && operation.category == ProviderFeatureCategory::Handoff
+            }));
+            assert!(contract.operations.iter().any(|operation| {
+                operation.operation == ProviderAdapterOperation::McpToolCall
+                    && operation.support == ProviderAdapterOperationSupport::VersionGated
+            }));
+            assert!(contract.operations.iter().any(|operation| {
+                operation.operation == ProviderAdapterOperation::CloudHandoff
+                    && operation.support == ProviderAdapterOperationSupport::Deferred
+            }));
             assert!(
                 contract
                     .normalized_thread_item_kinds

@@ -924,6 +924,10 @@ impl ProviderDriver for CodexService {
                     version: 1,
                 },
                 ProviderCapability {
+                    key: "provider.adapter_contract".to_string(),
+                    version: 1,
+                },
+                ProviderCapability {
                     key: "provider.semantic_tools".to_string(),
                     version: 1,
                 },
