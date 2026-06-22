@@ -109,6 +109,50 @@ pub struct ProviderServerRequestError {
     pub audit: ProviderServerRequestAudit,
 }
 
+fn default_server_requests_limit() -> usize {
+    100
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderServerRequestStatusFilter {
+    Pending,
+    Resolved,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProviderServerRequestsListRequest {
+    pub provider: Option<String>,
+    pub status: Option<ProviderServerRequestStatusFilter>,
+    #[serde(default = "default_server_requests_limit")]
+    pub limit: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProviderServerRequestDecisionRecord {
+    pub outcome: String,
+    #[serde(default)]
+    pub payload: serde_json::Value,
+    #[serde(default)]
+    pub audit: serde_json::Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProviderServerRequestRecord {
+    pub provider: String,
+    pub request_id: String,
+    pub request: Option<NormalizedServerRequest>,
+    pub status: ProviderServerRequestStatusFilter,
+    pub decision: Option<ProviderServerRequestDecisionRecord>,
+    pub created_at: String,
+    pub resolved_at: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProviderServerRequestsListResponse {
+    pub requests: Vec<ProviderServerRequestRecord>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProviderRuntimeEventBatch {
     pub provider: String,

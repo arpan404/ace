@@ -1,6 +1,7 @@
 use crate::ws::{ProviderEventStreamMessage, WsApiState, WsDispatchError};
 use ace_core::ProviderKind;
 use ace_git::ProcessRunner;
+use ace_persistence::ProviderServerRequestStatus;
 use ace_protocol::{
     PROTOCOL_VERSION,
     codex::{
@@ -19,8 +20,11 @@ use ace_protocol::{
         PROVIDER_RUNTIME_EVENT_TOPIC, ProviderRuntimeContractReport, ProviderRuntimeEvent,
         ProviderRuntimeEventBatch, ProviderRuntimeEventRecord, ProviderRuntimeProvidersList,
         ProviderRuntimeRecentEventsRequest, ProviderRuntimeRecentEventsResponse,
-        ProviderRuntimeRequest, ProviderRuntimeSubscribeRequest, ProviderServerRequestError,
-        ProviderServerRequestResult,
+        ProviderRuntimeRequest, ProviderRuntimeSubscribeRequest,
+        ProviderServerRequestDecisionRecord, ProviderServerRequestError,
+        ProviderServerRequestRecord, ProviderServerRequestResult,
+        ProviderServerRequestStatusFilter, ProviderServerRequestsListRequest,
+        ProviderServerRequestsListResponse,
     },
     ws::{WsServerPayload, WsServerResponse, methods},
 };
@@ -542,35 +546,65 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                     .await?;
                 Ok(response)
             }
+            methods::PROVIDER_RUNTIME_SERVER_REQUESTS_LIST => {
+                let request = serde_json::from_value::<ProviderServerRequestsListRequest>(payload)?;
+                let status = request.status.map(|status| match status {
+                    ProviderServerRequestStatusFilter::Pending => {
+                        ProviderServerRequestStatus::Pending
+                    }
+                    ProviderServerRequestStatusFilter::Resolved => {
+                        ProviderServerRequestStatus::Resolved
+                    }
+                });
+                let requests = self
+                    .provider_events
+                    .lock()
+                    .expect("provider event log")
+                    .server_requests(request.provider.as_deref(), status, request.limit)?
+                    .into_iter()
+                    .map(provider_server_request_record_to_protocol)
+                    .collect();
+                Ok(serde_json::to_value(ProviderServerRequestsListResponse {
+                    requests,
+                })?)
+            }
             methods::PROVIDER_RUNTIME_SERVER_REQUEST_RESULT => {
-                self.codex_json::<ProviderServerRequestResult, _, _, _>(
-                    payload,
-                    |service, request| async move {
-                        ensure_codex_provider(&request.provider)?;
-                        service
-                            .respond_server_request_result(request.request_id, request.result)
-                            .await?;
-                        Ok(serde_json::json!({ "responded": true }))
-                    },
-                )
-                .await
+                let request = serde_json::from_value::<ProviderServerRequestResult>(payload)?;
+                ensure_codex_provider(&request.provider)?;
+                self.codex
+                    .respond_server_request_result(request.request_id, request.result.clone())
+                    .await?;
+                self.provider_events
+                    .lock()
+                    .expect("provider event log")
+                    .record_server_request_result(
+                        &request.provider,
+                        request.request_id,
+                        request.result,
+                        serde_json::to_value(request.audit)?,
+                    )?;
+                Ok(serde_json::json!({ "responded": true }))
             }
             methods::PROVIDER_RUNTIME_SERVER_REQUEST_ERROR => {
-                self.codex_json::<ProviderServerRequestError, _, _, _>(
-                    payload,
-                    |service, request| async move {
-                        ensure_codex_provider(&request.provider)?;
-                        service
-                            .respond_server_request_error(
-                                request.request_id,
-                                request.error.code,
-                                request.error.message,
-                            )
-                            .await?;
-                        Ok(serde_json::json!({ "responded": true }))
-                    },
-                )
-                .await
+                let request = serde_json::from_value::<ProviderServerRequestError>(payload)?;
+                ensure_codex_provider(&request.provider)?;
+                self.codex
+                    .respond_server_request_error(
+                        request.request_id,
+                        request.error.code,
+                        request.error.message.clone(),
+                    )
+                    .await?;
+                self.provider_events
+                    .lock()
+                    .expect("provider event log")
+                    .record_server_request_error(
+                        &request.provider,
+                        request.request_id,
+                        serde_json::to_value(request.error)?,
+                        serde_json::to_value(request.audit)?,
+                    )?;
+                Ok(serde_json::json!({ "responded": true }))
             }
             _ => Err(WsDispatchError::UnknownMethod(method.to_string())),
         }
@@ -750,6 +784,29 @@ fn provider_runtime_error_code(
             "provider_unavailable"
         }
         ace_runtime::provider::ProviderRuntimeError::Driver(_) => "provider_request_failed",
+    }
+}
+
+fn provider_server_request_record_to_protocol(
+    record: ace_persistence::ProviderServerRequestRecord,
+) -> ProviderServerRequestRecord {
+    ProviderServerRequestRecord {
+        provider: record.provider,
+        request_id: record.request_id,
+        request: record.request,
+        status: match record.status {
+            ProviderServerRequestStatus::Pending => ProviderServerRequestStatusFilter::Pending,
+            ProviderServerRequestStatus::Resolved => ProviderServerRequestStatusFilter::Resolved,
+        },
+        decision: record
+            .decision
+            .map(|decision| ProviderServerRequestDecisionRecord {
+                outcome: decision.outcome,
+                payload: decision.payload,
+                audit: decision.audit,
+            }),
+        created_at: record.created_at,
+        resolved_at: record.resolved_at,
     }
 }
 
@@ -1574,6 +1631,83 @@ mod tests {
         assert_eq!(body["events"][1]["request"]["prompt"], "Run tests?");
         assert_eq!(body["raw_events"][2]["type"], "raw_notification");
         assert_eq!(body["raw_events"][2]["method"], "item/completed");
+
+        let pending_requests = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "provider-server-requests-pending",
+                    "method": methods::PROVIDER_RUNTIME_SERVER_REQUESTS_LIST,
+                    "payload": { "provider": "codex", "status": "pending", "limit": 10 }
+                })
+                .to_string(),
+            )
+            .await;
+        let pending_requests: WsServerResponse =
+            serde_json::from_str(&pending_requests).expect("pending requests response");
+        let WsServerPayload::Result { body } = pending_requests.payload else {
+            panic!("expected pending requests result");
+        };
+        assert_eq!(body["requests"].as_array().expect("requests").len(), 1);
+        assert_eq!(body["requests"][0]["request_id"], "42");
+        assert_eq!(body["requests"][0]["status"], "pending");
+        assert_eq!(body["requests"][0]["request"]["prompt"], "Run tests?");
+
+        let approval_result = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "approval-result",
+                    "method": methods::PROVIDER_RUNTIME_SERVER_REQUEST_RESULT,
+                    "payload": {
+                        "provider": "codex",
+                        "request_id": 42,
+                        "result": { "approved": true },
+                        "audit": {
+                            "scope": "command",
+                            "source_thread_id": "thread-1",
+                            "source_item_id": "item-1",
+                            "prompt": "Run tests?",
+                            "selected_policy": "on-request",
+                            "decided_by": "user",
+                            "reason": "trusted command"
+                        }
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let approval_result: WsServerResponse =
+            serde_json::from_str(&approval_result).expect("approval result");
+        assert!(matches!(
+            approval_result.payload,
+            WsServerPayload::Result { .. }
+        ));
+
+        let resolved_requests = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "provider-server-requests-resolved",
+                    "method": methods::PROVIDER_RUNTIME_SERVER_REQUESTS_LIST,
+                    "payload": { "provider": "codex", "status": "resolved", "limit": 10 }
+                })
+                .to_string(),
+            )
+            .await;
+        let resolved_requests: WsServerResponse =
+            serde_json::from_str(&resolved_requests).expect("resolved requests response");
+        let WsServerPayload::Result { body } = resolved_requests.payload else {
+            panic!("expected resolved requests result");
+        };
+        assert_eq!(body["requests"].as_array().expect("requests").len(), 1);
+        assert_eq!(body["requests"][0]["status"], "resolved");
+        assert_eq!(body["requests"][0]["decision"]["outcome"], "result");
+        assert_eq!(body["requests"][0]["decision"]["payload"]["approved"], true);
+        assert_eq!(
+            body["requests"][0]["decision"]["audit"]["source_thread_id"],
+            "thread-1"
+        );
 
         let recent = state
             .dispatch_text(

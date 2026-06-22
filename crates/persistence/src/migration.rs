@@ -47,6 +47,19 @@ pub fn migrate(connection: &Connection) -> Result<(), PersistenceError> {
         );
         CREATE INDEX IF NOT EXISTS idx_provider_events_provider_sequence
         ON provider_events(provider, sequence);
+
+        CREATE TABLE IF NOT EXISTS provider_server_requests (
+            provider TEXT NOT NULL,
+            request_id TEXT NOT NULL,
+            request_json TEXT,
+            status TEXT NOT NULL,
+            decision_json TEXT,
+            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+            resolved_at TEXT,
+            PRIMARY KEY(provider, request_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_provider_server_requests_status
+        ON provider_server_requests(provider, status, created_at);
         ",
     )?;
     Ok(())

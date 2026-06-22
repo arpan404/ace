@@ -5,6 +5,9 @@ mod migration;
 mod projection;
 
 pub use error::PersistenceError;
-pub use event::{ProviderEventLogRepository, ProviderEventRecord};
+pub use event::{
+    ProviderEventLogRepository, ProviderEventRecord, ProviderServerRequestDecision,
+    ProviderServerRequestRecord, ProviderServerRequestStatus,
+};
 pub use migration::{migrate, open_event_store};
 pub use projection::ProjectionRepository;
