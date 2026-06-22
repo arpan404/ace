@@ -240,6 +240,33 @@ pub struct SubagentActionRecord {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TurnDiffRecord {
+    pub thread_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diff: Option<String>,
+    #[serde(default, skip_serializing_if = "Value::is_null")]
+    pub files: Value,
+    #[serde(default)]
+    pub metadata: Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProcessExitRecord {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thread_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub process_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exit_code: Option<i64>,
+    #[serde(default)]
+    pub metadata: Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AgentThread {
     pub thread_id: String,
     pub provider: String,
@@ -270,6 +297,8 @@ pub struct AgentRuntimeState {
     plan_implementations: Vec<PlanImplementationRecord>,
     thread_lifecycle: Vec<ThreadLifecycleRecord>,
     subagent_actions: Vec<SubagentActionRecord>,
+    turn_diffs: HashMap<(String, Option<String>), TurnDiffRecord>,
+    process_exits: Vec<ProcessExitRecord>,
     review_threads: HashSet<String>,
 }
 
@@ -287,6 +316,8 @@ pub struct AgentRuntimeSnapshot {
     pub plan_implementations: Vec<PlanImplementationRecord>,
     pub thread_lifecycle: Vec<ThreadLifecycleRecord>,
     pub subagent_actions: Vec<SubagentActionRecord>,
+    pub turn_diffs: Vec<TurnDiffRecord>,
+    pub process_exits: Vec<ProcessExitRecord>,
     pub review_threads: Vec<String>,
 }
 
@@ -318,6 +349,13 @@ impl AgentRuntimeState {
         let mut subagents = self.subagents.values().cloned().collect::<Vec<_>>();
         subagents.sort_by(|left, right| left.thread_id.cmp(&right.thread_id));
 
+        let mut turn_diffs = self.turn_diffs.values().cloned().collect::<Vec<_>>();
+        turn_diffs.sort_by(|left, right| {
+            left.thread_id
+                .cmp(&right.thread_id)
+                .then_with(|| left.turn_id.cmp(&right.turn_id))
+        });
+
         let mut review_threads = self.review_threads.iter().cloned().collect::<Vec<_>>();
         review_threads.sort();
 
@@ -334,6 +372,8 @@ impl AgentRuntimeState {
             plan_implementations: self.plan_implementations.clone(),
             thread_lifecycle: self.thread_lifecycle.clone(),
             subagent_actions: self.subagent_actions.clone(),
+            turn_diffs,
+            process_exits: self.process_exits.clone(),
             review_threads,
         }
     }
@@ -486,9 +526,34 @@ impl AgentRuntimeState {
         self.subagent_actions.push(action);
     }
 
+    pub fn upsert_turn_diff(&mut self, diff: TurnDiffRecord) {
+        self.turn_diffs
+            .insert((diff.thread_id.clone(), diff.turn_id.clone()), diff);
+    }
+
+    pub fn record_process_exit(&mut self, process: ProcessExitRecord) {
+        self.process_exits.push(process);
+    }
+
     #[must_use]
     pub fn subagent_actions(&self) -> &[SubagentActionRecord] {
         &self.subagent_actions
+    }
+
+    #[must_use]
+    pub fn turn_diffs(&self) -> Vec<TurnDiffRecord> {
+        let mut diffs = self.turn_diffs.values().cloned().collect::<Vec<_>>();
+        diffs.sort_by(|left, right| {
+            left.thread_id
+                .cmp(&right.thread_id)
+                .then_with(|| left.turn_id.cmp(&right.turn_id))
+        });
+        diffs
+    }
+
+    #[must_use]
+    pub fn process_exits(&self) -> &[ProcessExitRecord] {
+        &self.process_exits
     }
 
     pub fn record_handoff(&mut self, handoff: HandoffPlan) {
@@ -772,6 +837,12 @@ impl AgentRuntimeState {
                 if let Some(side_chat) = side_chat_from_signal(signal) {
                     self.record_side_chat(side_chat);
                 }
+                if let Some(diff) = turn_diff_from_signal(signal) {
+                    self.upsert_turn_diff(diff);
+                }
+                if let Some(process) = process_exit_from_signal(signal) {
+                    self.record_process_exit(process);
+                }
                 self.apply_thread_details_signal(signal);
                 self.apply_turn_lifecycle_signal(signal);
                 self.apply_review_mode_signal(signal);
@@ -1017,6 +1088,32 @@ fn side_chat_from_signal(signal: &NormalizedRuntimeSignal) -> Option<SideChat> {
         .or_else(|| signal.metadata.get("sideChat").cloned())
         .unwrap_or_else(|| signal.metadata.clone());
     serde_json::from_value(value).ok()
+}
+
+fn turn_diff_from_signal(signal: &NormalizedRuntimeSignal) -> Option<TurnDiffRecord> {
+    if signal.kind != RuntimeSignalKind::TurnDiffUpdated {
+        return None;
+    }
+    Some(TurnDiffRecord {
+        thread_id: signal.thread_id.clone()?,
+        turn_id: signal.turn_id.clone(),
+        diff: signal.diff.clone(),
+        files: signal.files.clone().unwrap_or(Value::Null),
+        metadata: signal.metadata.clone(),
+    })
+}
+
+fn process_exit_from_signal(signal: &NormalizedRuntimeSignal) -> Option<ProcessExitRecord> {
+    if signal.kind != RuntimeSignalKind::ProcessExited {
+        return None;
+    }
+    Some(ProcessExitRecord {
+        thread_id: signal.thread_id.clone(),
+        turn_id: signal.turn_id.clone(),
+        process_id: signal.process_id.clone(),
+        exit_code: signal.exit_code,
+        metadata: signal.metadata.clone(),
+    })
 }
 
 impl AgentRuntimeState {
@@ -2004,6 +2101,122 @@ mod tests {
         assert_eq!(snapshot.threads[0].metadata["name"], "Adapter parity");
         assert_eq!(snapshot.threads[0].settings["model"], "gpt-5.5");
         assert_eq!(snapshot.threads[0].token_usage["total"], 96);
+    }
+
+    #[test]
+    fn applies_turn_diff_and_process_exit_runtime_signals() {
+        let mut state = AgentRuntimeState::default();
+        state.apply_provider_events(&[
+            ProviderEvent::RuntimeSignal {
+                signal: Box::new(NormalizedRuntimeSignal {
+                    kind: RuntimeSignalKind::TurnDiffUpdated,
+                    thread_id: Some("thread-1".to_string()),
+                    turn_id: Some("turn-1".to_string()),
+                    item_id: None,
+                    message: None,
+                    from_model: None,
+                    to_model: None,
+                    reason: None,
+                    text: None,
+                    audio: None,
+                    status: None,
+                    name: None,
+                    active: None,
+                    archived: None,
+                    diff: Some("@@ -1 +1 @@".to_string()),
+                    files: Some(json!([{ "path": "src/lib.rs" }])),
+                    process_id: None,
+                    exit_code: None,
+                    request_id: None,
+                    metadata: json!({ "source": "initial" }),
+                    provider: ProviderMetadata {
+                        provider: "codex".to_string(),
+                        method: Some("turn/diff/updated".to_string()),
+                        schema_version: None,
+                        raw_payload: json!({}),
+                    },
+                }),
+            },
+            ProviderEvent::RuntimeSignal {
+                signal: Box::new(NormalizedRuntimeSignal {
+                    kind: RuntimeSignalKind::TurnDiffUpdated,
+                    thread_id: Some("thread-1".to_string()),
+                    turn_id: Some("turn-1".to_string()),
+                    item_id: None,
+                    message: None,
+                    from_model: None,
+                    to_model: None,
+                    reason: None,
+                    text: None,
+                    audio: None,
+                    status: None,
+                    name: None,
+                    active: None,
+                    archived: None,
+                    diff: Some("@@ -2 +2 @@".to_string()),
+                    files: Some(json!([{ "path": "src/main.rs" }])),
+                    process_id: None,
+                    exit_code: None,
+                    request_id: None,
+                    metadata: json!({ "source": "updated" }),
+                    provider: ProviderMetadata {
+                        provider: "codex".to_string(),
+                        method: Some("turn/diff/updated".to_string()),
+                        schema_version: None,
+                        raw_payload: json!({}),
+                    },
+                }),
+            },
+            ProviderEvent::RuntimeSignal {
+                signal: Box::new(NormalizedRuntimeSignal {
+                    kind: RuntimeSignalKind::ProcessExited,
+                    thread_id: Some("thread-1".to_string()),
+                    turn_id: Some("turn-1".to_string()),
+                    item_id: None,
+                    message: None,
+                    from_model: None,
+                    to_model: None,
+                    reason: None,
+                    text: None,
+                    audio: None,
+                    status: None,
+                    name: None,
+                    active: None,
+                    archived: None,
+                    diff: None,
+                    files: None,
+                    process_id: Some("proc-1".to_string()),
+                    exit_code: Some(2),
+                    request_id: None,
+                    metadata: json!({ "processId": "proc-1", "exitCode": 2 }),
+                    provider: ProviderMetadata {
+                        provider: "codex".to_string(),
+                        method: Some("process/exited".to_string()),
+                        schema_version: None,
+                        raw_payload: json!({}),
+                    },
+                }),
+            },
+        ]);
+
+        let diffs = state.turn_diffs();
+        assert_eq!(diffs.len(), 1);
+        assert_eq!(diffs[0].thread_id, "thread-1");
+        assert_eq!(diffs[0].turn_id.as_deref(), Some("turn-1"));
+        assert_eq!(diffs[0].diff.as_deref(), Some("@@ -2 +2 @@"));
+        assert_eq!(diffs[0].files[0]["path"], "src/main.rs");
+        assert_eq!(diffs[0].metadata["source"], "updated");
+
+        let exits = state.process_exits();
+        assert_eq!(exits.len(), 1);
+        assert_eq!(exits[0].thread_id.as_deref(), Some("thread-1"));
+        assert_eq!(exits[0].turn_id.as_deref(), Some("turn-1"));
+        assert_eq!(exits[0].process_id.as_deref(), Some("proc-1"));
+        assert_eq!(exits[0].exit_code, Some(2));
+
+        let snapshot = state.snapshot();
+        assert_eq!(snapshot.turn_diffs[0].diff.as_deref(), Some("@@ -2 +2 @@"));
+        assert_eq!(snapshot.process_exits[0].metadata["exitCode"], 2);
     }
 
     #[test]
