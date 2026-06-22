@@ -1269,6 +1269,15 @@ impl<T: AppServerTransport> CodexClient<T> {
         self.raw_request("marketplace/upgrade", params).await
     }
 
+    pub async fn model_list(&self, params: Value) -> Result<Value> {
+        self.raw_request("model/list", params).await
+    }
+
+    pub async fn model_provider_capabilities_read(&self, params: Value) -> Result<Value> {
+        self.raw_request("modelProvider/capabilities/read", params)
+            .await
+    }
+
     pub async fn next_provider_events(&self) -> Option<Vec<ProviderEvent>> {
         self.transport
             .recv()
@@ -2161,6 +2170,14 @@ mod tests {
             .marketplace_upgrade(json!({ "plugin": "browser" }))
             .await
             .expect("marketplace upgrade");
+        client
+            .model_list(json!({ "provider": "openai" }))
+            .await
+            .expect("model list");
+        client
+            .model_provider_capabilities_read(json!({ "provider": "openai" }))
+            .await
+            .expect("model provider capabilities");
 
         let requests = client.transport.requests.lock().expect("requests");
         let methods = requests
@@ -2184,10 +2201,14 @@ mod tests {
                 "marketplace/add",
                 "marketplace/remove",
                 "marketplace/upgrade",
+                "model/list",
+                "modelProvider/capabilities/read",
             ]
         );
         assert_eq!(requests[1].1["key"], "model");
         assert_eq!(requests[9].1["query"], "main");
+        assert_eq!(requests[14].1["provider"], "openai");
+        assert_eq!(requests[15].1["provider"], "openai");
     }
 
     #[tokio::test]

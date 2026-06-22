@@ -238,6 +238,8 @@ pub mod provider {
         MarketplaceAdd,
         MarketplaceRemove,
         MarketplaceUpgrade,
+        ModelList,
+        ModelProviderCapabilitiesRead,
         RemoteConnectionList,
         RemoteHandoff,
         CloudThreadStart,
@@ -409,6 +411,7 @@ pub mod provider {
         Apps,
         Account,
         Config,
+        Models,
         Search,
         Remote,
         Cloud,
@@ -1443,6 +1446,18 @@ pub mod provider {
                 Some("marketplace/upgrade"),
             ),
             op(
+                Operation::ModelList,
+                Category::Models,
+                Optional,
+                Some("model/list"),
+            ),
+            op(
+                Operation::ModelProviderCapabilitiesRead,
+                Category::Models,
+                Optional,
+                Some("modelProvider/capabilities/read"),
+            ),
+            op(
                 Operation::RemoteConnectionList,
                 Category::Remote,
                 VersionGated,
@@ -2466,6 +2481,16 @@ pub mod provider {
                     ProviderAdapterOperation::MarketplaceUpgrade,
                     "marketplace/upgrade",
                     ProviderFeatureCategory::Plugins,
+                ),
+                (
+                    ProviderAdapterOperation::ModelList,
+                    "model/list",
+                    ProviderFeatureCategory::Models,
+                ),
+                (
+                    ProviderAdapterOperation::ModelProviderCapabilitiesRead,
+                    "modelProvider/capabilities/read",
+                    ProviderFeatureCategory::Models,
                 ),
             ];
             for (operation, method, category) in expected_optional_contracts {

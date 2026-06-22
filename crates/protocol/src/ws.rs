@@ -109,6 +109,9 @@ pub mod methods {
     pub const CODEX_MARKETPLACE_ADD: &str = "codex.marketplace.add";
     pub const CODEX_MARKETPLACE_REMOVE: &str = "codex.marketplace.remove";
     pub const CODEX_MARKETPLACE_UPGRADE: &str = "codex.marketplace.upgrade";
+    pub const CODEX_MODEL_LIST: &str = "codex.model.list";
+    pub const CODEX_MODEL_PROVIDER_CAPABILITIES_READ: &str =
+        "codex.model_provider.capabilities_read";
     pub const CODEX_STDERR_TAIL: &str = "codex.stderr_tail";
     pub const CODEX_SHUTDOWN: &str = "codex.shutdown";
     pub const CODEX_RESTART: &str = "codex.restart";

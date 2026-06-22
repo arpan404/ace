@@ -2239,6 +2239,10 @@ fn codex_ws_method_for_adapter_operation(
         ProviderAdapterOperation::MarketplaceAdd => methods::CODEX_MARKETPLACE_ADD,
         ProviderAdapterOperation::MarketplaceRemove => methods::CODEX_MARKETPLACE_REMOVE,
         ProviderAdapterOperation::MarketplaceUpgrade => methods::CODEX_MARKETPLACE_UPGRADE,
+        ProviderAdapterOperation::ModelList => methods::CODEX_MODEL_LIST,
+        ProviderAdapterOperation::ModelProviderCapabilitiesRead => {
+            methods::CODEX_MODEL_PROVIDER_CAPABILITIES_READ
+        }
         ProviderAdapterOperation::RemoteConnectionList => methods::CODEX_REMOTE_CONNECTION_LIST,
         ProviderAdapterOperation::RemoteHandoff => methods::CODEX_REMOTE_HANDOFF,
         ProviderAdapterOperation::RuntimeStatus
@@ -2612,6 +2616,11 @@ fn codex_versioned_app_server_request(
         methods::CODEX_MARKETPLACE_UPGRADE => {
             Some(("marketplace/upgrade", raw_or_enveloped(payload)?))
         }
+        methods::CODEX_MODEL_LIST => Some(("model/list", raw_or_enveloped(payload)?)),
+        methods::CODEX_MODEL_PROVIDER_CAPABILITIES_READ => Some((
+            "modelProvider/capabilities/read",
+            raw_or_enveloped(payload)?,
+        )),
         _ => None,
     };
     Ok(request)
@@ -5438,6 +5447,14 @@ mod tests {
                 "optional",
                 "optional",
             ),
+            ("model_list", "model/list", "models", "optional", "optional"),
+            (
+                "model_provider_capabilities_read",
+                "modelProvider/capabilities/read",
+                "models",
+                "optional",
+                "optional",
+            ),
         ] {
             assert!(
                 operations.iter().any(|entry| {
@@ -6212,6 +6229,11 @@ mod tests {
                 methods::CODEX_MARKETPLACE_UPGRADE,
                 json!({ "plugin": "browser" }),
             ),
+            (methods::CODEX_MODEL_LIST, json!({ "provider": "openai" })),
+            (
+                methods::CODEX_MODEL_PROVIDER_CAPABILITIES_READ,
+                json!({ "provider": "openai" }),
+            ),
         ];
 
         for (index, (method, payload)) in calls.iter().enumerate() {
@@ -6283,6 +6305,8 @@ mod tests {
                 "marketplace/add",
                 "marketplace/remove",
                 "marketplace/upgrade",
+                "model/list",
+                "modelProvider/capabilities/read",
             ]
         );
 
