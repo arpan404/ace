@@ -42,8 +42,9 @@ use ace_protocol::{
     ws::{WsServerPayload, WsServerResponse, methods},
 };
 use ace_runtime::provider::{
-    NormalizedServerRequest, NormalizedServerRequestDecision, ProviderAdapterOperation,
-    ProviderAdapterOperationSupport, ProviderEvent, ProviderRequest, ace_provider_adapter_contract,
+    NormalizedServerRequest, NormalizedServerRequestDecision, ProviderAdapterInvocationKind,
+    ProviderAdapterOperation, ProviderAdapterProfile, ProviderEvent, ProviderRequest,
+    ace_provider_adapter_contract,
 };
 use ace_runtime::threads::ExecutionLocation;
 use ace_terminal::PtyAdapter;
@@ -713,8 +714,14 @@ impl<R: ProcessRunner, A: PtyAdapter> WsApiState<R, A> {
                             request.provider
                         ))
                     })?;
-                let method =
-                    resolve_provider_runtime_request_method(request.method, request.operation)?;
+                let adapter_profile = self.providers.adapter_profile(provider).ok_or(
+                    ace_runtime::provider::ProviderRuntimeError::ProviderUnavailable { provider },
+                )?;
+                let method = resolve_provider_runtime_request_method(
+                    request.method,
+                    request.operation,
+                    &adapter_profile,
+                )?;
                 if provider == ProviderKind::Codex {
                     request.params = user_initiated_codex_params(&method, request.params)?;
                 }
@@ -1265,6 +1272,7 @@ fn codex_versioned_app_server_request(
 fn resolve_provider_runtime_request_method(
     method: Option<String>,
     operation: Option<ProviderAdapterOperation>,
+    adapter_profile: &ProviderAdapterProfile,
 ) -> Result<String, WsDispatchError> {
     if let Some(method) = method {
         return Ok(method);
@@ -1275,37 +1283,42 @@ fn resolve_provider_runtime_request_method(
             "provider runtime request requires either `method` or `operation`".to_string(),
         )
     })?;
-    let contract = ace_provider_adapter_contract();
-    let operation_spec = contract
-        .operations
-        .iter()
-        .find(|spec| spec.operation == operation)
-        .ok_or_else(|| {
-            WsDispatchError::BadRequest(format!(
-                "unknown provider adapter operation `{operation:?}`"
-            ))
-        })?;
+    let operation_profile = adapter_profile.operation(operation).ok_or_else(|| {
+        WsDispatchError::BadRequest(format!(
+            "provider `{}` does not advertise adapter operation `{operation:?}`",
+            adapter_profile.provider.runtime_id()
+        ))
+    })?;
 
-    match operation_spec.support {
-        ProviderAdapterOperationSupport::Deferred => {
-            return Err(WsDispatchError::BadRequest(format!(
-                "provider adapter operation `{operation:?}` is intentionally deferred"
-            )));
+    match operation_profile.invocation {
+        ProviderAdapterInvocationKind::DirectProviderMethod => adapter_profile
+            .direct_provider_method(operation)
+            .map(str::to_string)
+            .ok_or_else(|| {
+                WsDispatchError::BadRequest(format!(
+                    "provider `{}` advertises adapter operation `{operation:?}` as direct but did not expose exactly one provider method",
+                    adapter_profile.provider.runtime_id()
+                ))
+            }),
+        ProviderAdapterInvocationKind::Deferred => Err(WsDispatchError::BadRequest(format!(
+            "provider `{}` adapter operation `{operation:?}` is intentionally deferred",
+            adapter_profile.provider.runtime_id()
+        ))),
+        ProviderAdapterInvocationKind::EventStream => Err(WsDispatchError::BadRequest(format!(
+            "provider `{}` adapter operation `{operation:?}` is event-stream driven; subscribe to provider runtime events",
+            adapter_profile.provider.runtime_id()
+        ))),
+        ProviderAdapterInvocationKind::TypedApi => Err(WsDispatchError::BadRequest(format!(
+            "provider `{}` adapter operation `{operation:?}` has no direct provider method; use its typed API",
+            adapter_profile.provider.runtime_id()
+        ))),
+        ProviderAdapterInvocationKind::CompositeTypedApi => {
+            let methods = operation_profile.provider_methods.join("+");
+            Err(WsDispatchError::BadRequest(format!(
+                "provider `{}` adapter operation `{operation:?}` maps to composite provider methods {methods}; use its typed API",
+                adapter_profile.provider.runtime_id()
+            )))
         }
-        ProviderAdapterOperationSupport::Required
-        | ProviderAdapterOperationSupport::Optional
-        | ProviderAdapterOperationSupport::VersionGated => {}
-    }
-
-    match operation_spec.provider_methods.as_slice() {
-        [method] => Ok(method.clone()),
-        [] => Err(WsDispatchError::BadRequest(format!(
-            "provider adapter operation `{operation:?}` has no direct provider method; use its typed API"
-        ))),
-        methods => Err(WsDispatchError::BadRequest(format!(
-            "provider adapter operation `{operation:?}` maps to composite provider methods {}; use its typed API",
-            methods.join("+")
-        ))),
     }
 }
 
@@ -2785,6 +2798,30 @@ mod tests {
         };
         assert_eq!(code, "bad_request");
         assert!(message.contains("intentionally deferred"));
+
+        let event_stream_operation = state
+            .dispatch_text(
+                &json!({
+                    "version": PROTOCOL_VERSION,
+                    "request_id": "provider-event-stream-operation",
+                    "method": methods::PROVIDER_RUNTIME_REQUEST,
+                    "payload": {
+                        "provider": "codex",
+                        "operation": "provider_events",
+                        "params": {},
+                        "timeout_ms": 1000
+                    }
+                })
+                .to_string(),
+            )
+            .await;
+        let event_stream_operation: WsServerResponse =
+            serde_json::from_str(&event_stream_operation).expect("event stream operation response");
+        let WsServerPayload::Error { code, message } = event_stream_operation.payload else {
+            panic!("expected event stream operation error");
+        };
+        assert_eq!(code, "bad_request");
+        assert!(message.contains("event-stream driven"));
 
         let command_without_marker = state
             .dispatch_text(

@@ -239,6 +239,28 @@ pub mod provider {
         pub operations: Vec<ProviderAdapterOperationProfile>,
     }
 
+    impl ProviderAdapterProfile {
+        #[must_use]
+        pub fn operation(
+            &self,
+            operation: ProviderAdapterOperation,
+        ) -> Option<&ProviderAdapterOperationProfile> {
+            self.operations
+                .iter()
+                .find(|profile| profile.operation == operation)
+        }
+
+        #[must_use]
+        pub fn direct_provider_method(&self, operation: ProviderAdapterOperation) -> Option<&str> {
+            let profile = self.operation(operation)?;
+            if profile.direct_invocation {
+                profile.provider_methods.first().map(String::as_str)
+            } else {
+                None
+            }
+        }
+    }
+
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
     #[serde(rename_all = "snake_case")]
     pub enum ProviderFeatureDirection {
@@ -1707,6 +1729,21 @@ pub mod provider {
                 operation.operation == ProviderAdapterOperation::CloudHandoff
                     && operation.invocation == ProviderAdapterInvocationKind::Deferred
             }));
+            assert_eq!(
+                codex_profile.direct_provider_method(ProviderAdapterOperation::ThreadRead),
+                Some("thread/read")
+            );
+            assert_eq!(
+                codex_profile
+                    .operation(ProviderAdapterOperation::PlanForkForImplementation)
+                    .map(|operation| operation.invocation),
+                Some(ProviderAdapterInvocationKind::CompositeTypedApi)
+            );
+            assert_eq!(
+                codex_profile
+                    .direct_provider_method(ProviderAdapterOperation::PlanForkForImplementation),
+                None
+            );
         }
 
         #[test]
