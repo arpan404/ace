@@ -10,6 +10,8 @@ use thiserror::Error;
 
 const MAX_THREAD_ITEM_RECORDS: usize = 4096;
 const MAX_TOOL_TIMELINE_RECORDS: usize = 2048;
+const MAX_TERMINAL_OUTPUT_RECORDS: usize = 256;
+const MAX_TERMINAL_OUTPUT_BYTES_PER_RECORD: usize = 64 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -315,6 +317,21 @@ pub struct ProcessExitRecord {
     pub metadata: Value,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TerminalOutputRecord {
+    pub provider: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thread_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub item_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub process_id: Option<String>,
+    pub text: String,
+    pub truncated_bytes: usize,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RuntimeWarningRecord {
     pub provider: String,
@@ -417,6 +434,13 @@ type RuntimeThreadTurnKey = (Option<String>, Option<String>);
 type AutoApprovalReviewKey = (Option<String>, Option<String>, Option<String>);
 type ApprovalKey = (String, String);
 type ChildThreadKey = (String, String, String, ChildThreadRelationship);
+type TerminalOutputKey = (
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct ThreadItemKey {
@@ -485,6 +509,8 @@ pub struct AgentRuntimeState {
     thread_lifecycle: Vec<ThreadLifecycleRecord>,
     subagent_actions: Vec<SubagentActionRecord>,
     turn_diffs: HashMap<(String, Option<String>), TurnDiffRecord>,
+    terminal_outputs: HashMap<TerminalOutputKey, TerminalOutputRecord>,
+    terminal_output_order: VecDeque<TerminalOutputKey>,
     process_exits: Vec<ProcessExitRecord>,
     warnings: Vec<RuntimeWarningRecord>,
     model_reroutes: Vec<ModelRerouteRecord>,
@@ -524,6 +550,7 @@ pub struct AgentRuntimeSnapshot {
     pub thread_lifecycle: Vec<ThreadLifecycleRecord>,
     pub subagent_actions: Vec<SubagentActionRecord>,
     pub turn_diffs: Vec<TurnDiffRecord>,
+    pub terminal_outputs: Vec<TerminalOutputRecord>,
     pub process_exits: Vec<ProcessExitRecord>,
     pub warnings: Vec<RuntimeWarningRecord>,
     pub model_reroutes: Vec<ModelRerouteRecord>,
@@ -573,6 +600,8 @@ impl AgentRuntimeState {
                 .cmp(&right.thread_id)
                 .then_with(|| left.turn_id.cmp(&right.turn_id))
         });
+
+        let terminal_outputs = self.terminal_outputs_in_order();
 
         let mut provider_states = self.provider_states.values().cloned().collect::<Vec<_>>();
         provider_states.sort_by(|left, right| left.provider.cmp(&right.provider));
@@ -632,6 +661,7 @@ impl AgentRuntimeState {
             thread_lifecycle: self.thread_lifecycle.clone(),
             subagent_actions: self.subagent_actions.clone(),
             turn_diffs,
+            terminal_outputs,
             process_exits: self.process_exits.clone(),
             warnings: self.warnings.clone(),
             model_reroutes: self.model_reroutes.clone(),
@@ -1219,6 +1249,64 @@ impl AgentRuntimeState {
     }
 
     #[must_use]
+    pub fn terminal_outputs(&self) -> Vec<TerminalOutputRecord> {
+        self.terminal_outputs_in_order()
+    }
+
+    fn terminal_outputs_in_order(&self) -> Vec<TerminalOutputRecord> {
+        self.terminal_output_order
+            .iter()
+            .filter_map(|key| self.terminal_outputs.get(key).cloned())
+            .collect()
+    }
+
+    pub fn append_terminal_output_from_tool(&mut self, tool: &SemanticToolCall) {
+        let Some(delta) = terminal_output_delta_text(tool) else {
+            return;
+        };
+        let provider = tool
+            .provider
+            .provider
+            .clone()
+            .unwrap_or_else(|| "unknown".to_string());
+        let process_id = terminal_process_id(tool);
+        let key = (
+            provider.clone(),
+            tool.provider.thread_id.clone(),
+            tool.provider.turn_id.clone(),
+            tool.provider.item_id.clone(),
+            process_id.clone(),
+        );
+        let is_new = !self.terminal_outputs.contains_key(&key);
+        let record =
+            self.terminal_outputs
+                .entry(key.clone())
+                .or_insert_with(|| TerminalOutputRecord {
+                    provider,
+                    thread_id: tool.provider.thread_id.clone(),
+                    turn_id: tool.provider.turn_id.clone(),
+                    item_id: tool.provider.item_id.clone(),
+                    process_id,
+                    text: String::new(),
+                    truncated_bytes: 0,
+                });
+        append_bounded_text(
+            &mut record.text,
+            &mut record.truncated_bytes,
+            &delta,
+            MAX_TERMINAL_OUTPUT_BYTES_PER_RECORD,
+        );
+        if is_new {
+            self.terminal_output_order.push_back(key);
+            while self.terminal_output_order.len() > MAX_TERMINAL_OUTPUT_RECORDS {
+                if let Some(oldest) = self.terminal_output_order.pop_front() {
+                    self.terminal_outputs.remove(&oldest);
+                }
+            }
+        }
+    }
+
+    #[must_use]
     pub fn process_exits(&self) -> &[ProcessExitRecord] {
         &self.process_exits
     }
@@ -1590,6 +1678,7 @@ impl AgentRuntimeState {
                 );
             }
             ProviderEvent::SemanticTool { tool } => {
+                self.append_terminal_output_from_tool(tool);
                 self.upsert_tool_timeline((**tool).clone());
             }
             ProviderEvent::RawServerRequest { .. } | ProviderEvent::StderrLine { .. } => {}
@@ -2114,6 +2203,81 @@ fn tool_action_key(tool: &SemanticToolCall) -> String {
     format!("{:?}", tool.action)
 }
 
+fn terminal_output_delta_text(tool: &SemanticToolCall) -> Option<String> {
+    if tool.surface != crate::tools::ToolSurface::Terminal
+        || tool.action != crate::tools::ToolActionKind::TerminalOutput
+    {
+        return None;
+    }
+    string_value_at_any(
+        &tool.provider.raw_args,
+        &["delta", "text", "output", "stdout", "stderr", "chunk"],
+    )
+    .or_else(|| {
+        string_value_at_any(
+            &tool.provider.raw_payload,
+            &["delta", "text", "output", "stdout", "stderr", "chunk"],
+        )
+    })
+    .or_else(|| {
+        tool.provider.raw_payload.get("item").and_then(|item| {
+            string_value_at_any(
+                item,
+                &["delta", "text", "output", "stdout", "stderr", "chunk"],
+            )
+        })
+    })
+    .filter(|text| !text.is_empty())
+}
+
+fn terminal_process_id(tool: &SemanticToolCall) -> Option<String> {
+    string_value_at_any(
+        &tool.provider.raw_args,
+        &["processId", "process_id", "terminalId", "terminal_id"],
+    )
+    .or_else(|| {
+        string_value_at_any(
+            &tool.provider.raw_payload,
+            &["processId", "process_id", "terminalId", "terminal_id"],
+        )
+    })
+    .or_else(|| {
+        tool.provider.raw_payload.get("item").and_then(|item| {
+            string_value_at_any(
+                item,
+                &["processId", "process_id", "terminalId", "terminal_id"],
+            )
+        })
+    })
+}
+
+fn string_value_at_any(value: &Value, keys: &[&str]) -> Option<String> {
+    keys.iter().find_map(|key| {
+        value.get(*key).and_then(|value| match value {
+            Value::String(text) => Some(text.clone()),
+            Value::Number(number) => Some(number.to_string()),
+            _ => None,
+        })
+    })
+}
+
+fn append_bounded_text(
+    current: &mut String,
+    truncated_bytes: &mut usize,
+    delta: &str,
+    max_bytes: usize,
+) {
+    current.push_str(delta);
+    while current.len() > max_bytes {
+        let Some(first_char) = current.chars().next() else {
+            break;
+        };
+        let removed = first_char.len_utf8();
+        current.drain(..removed);
+        *truncated_bytes = truncated_bytes.saturating_add(removed);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2258,6 +2422,26 @@ mod tests {
                 raw_payload: json!({ "itemId": item_id, "command": "cargo test" }),
             },
         }
+    }
+
+    fn terminal_output_tool(
+        item_id: Option<&str>,
+        process_id: &str,
+        delta: &str,
+    ) -> SemanticToolCall {
+        let mut tool = semantic_tool(item_id, ToolRunStatus::Updated, "Read terminal output");
+        tool.action = ToolActionKind::TerminalOutput;
+        tool.display.status = ToolRunStatus::Updated;
+        tool.provider.operation = Some("process/outputDelta".to_string());
+        tool.provider.raw_args = json!({ "processId": process_id, "delta": delta });
+        tool.provider.raw_payload = json!({
+            "item": {
+                "id": item_id,
+                "processId": process_id,
+                "delta": delta
+            }
+        });
+        tool
     }
 
     #[test]
@@ -2557,6 +2741,68 @@ mod tests {
                 .tool_timeline
                 .iter()
                 .any(|tool| tool.display.title == format!("Tool {MAX_TOOL_TIMELINE_RECORDS}"))
+        );
+    }
+
+    #[test]
+    fn records_bounded_terminal_output_from_semantic_tool_deltas() {
+        let mut state = AgentRuntimeState::default();
+        state.apply_provider_events(&[
+            ProviderEvent::SemanticTool {
+                tool: Box::new(terminal_output_tool(
+                    Some("cmd-1"),
+                    "proc-1",
+                    "running tests\n",
+                )),
+            },
+            ProviderEvent::SemanticTool {
+                tool: Box::new(terminal_output_tool(Some("cmd-1"), "proc-1", "ok\n")),
+            },
+        ]);
+
+        let outputs = state.terminal_outputs();
+        assert_eq!(outputs.len(), 1);
+        assert_eq!(outputs[0].provider, "codex");
+        assert_eq!(outputs[0].thread_id.as_deref(), Some("thread-1"));
+        assert_eq!(outputs[0].turn_id.as_deref(), Some("turn-1"));
+        assert_eq!(outputs[0].item_id.as_deref(), Some("cmd-1"));
+        assert_eq!(outputs[0].process_id.as_deref(), Some("proc-1"));
+        assert_eq!(outputs[0].text, "running tests\nok\n");
+        assert_eq!(outputs[0].truncated_bytes, 0);
+
+        let long_delta = "x".repeat(MAX_TERMINAL_OUTPUT_BYTES_PER_RECORD + 8);
+        state.apply_provider_events(&[ProviderEvent::SemanticTool {
+            tool: Box::new(terminal_output_tool(Some("cmd-1"), "proc-1", &long_delta)),
+        }]);
+        let outputs = state.terminal_outputs();
+        assert_eq!(outputs.len(), 1);
+        assert_eq!(outputs[0].text.len(), MAX_TERMINAL_OUTPUT_BYTES_PER_RECORD);
+        assert!(outputs[0].truncated_bytes >= 8);
+        assert!(outputs[0].text.chars().all(|ch| ch == 'x'));
+
+        for index in 0..=MAX_TERMINAL_OUTPUT_RECORDS {
+            state.apply_provider_events(&[ProviderEvent::SemanticTool {
+                tool: Box::new(terminal_output_tool(
+                    Some(&format!("cmd-{index}")),
+                    &format!("proc-{index}"),
+                    "line\n",
+                )),
+            }]);
+        }
+        let snapshot = state.snapshot();
+        assert_eq!(snapshot.terminal_outputs.len(), MAX_TERMINAL_OUTPUT_RECORDS);
+        assert!(
+            snapshot
+                .terminal_outputs
+                .iter()
+                .all(|output| output.item_id.as_deref() != Some("cmd-1"))
+        );
+        let newest_item_id = format!("cmd-{MAX_TERMINAL_OUTPUT_RECORDS}");
+        assert!(
+            snapshot
+                .terminal_outputs
+                .iter()
+                .any(|output| output.item_id.as_deref() == Some(newest_item_id.as_str()))
         );
     }
 

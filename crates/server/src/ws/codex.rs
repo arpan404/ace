@@ -7834,6 +7834,21 @@ mod tests {
         let completed_tool = normalize_tool_call(ToolNormalizationInput {
             transport: ToolTransport::Shell,
             status: ToolRunStatus::Completed,
+            provider: tool_provider.clone(),
+            item_type: Some("commandExecution".to_string()),
+        });
+        tool_provider.operation = Some("process/outputDelta".to_string());
+        tool_provider.raw_args = json!({ "processId": "proc-1", "delta": "running tests\n" });
+        tool_provider.raw_payload = json!({
+            "item": {
+                "id": "tool-1",
+                "processId": "proc-1",
+                "delta": "running tests\n"
+            }
+        });
+        let output_tool = normalize_tool_call(ToolNormalizationInput {
+            transport: ToolTransport::Process,
+            status: ToolRunStatus::Updated,
             provider: tool_provider,
             item_type: Some("commandExecution".to_string()),
         });
@@ -7944,6 +7959,9 @@ mod tests {
                         tool: Box::new(started_tool),
                     },
                     ProviderEvent::SemanticTool {
+                        tool: Box::new(output_tool),
+                    },
+                    ProviderEvent::SemanticTool {
                         tool: Box::new(completed_tool),
                     },
                     ProviderEvent::ServerRequest {
@@ -8025,6 +8043,15 @@ mod tests {
         assert_eq!(
             snapshot_state["tool_timeline"][0]["provider"]["raw_args"]["command"],
             "cargo test"
+        );
+        assert_eq!(snapshot_state["terminal_outputs"][0]["item_id"], "tool-1");
+        assert_eq!(
+            snapshot_state["terminal_outputs"][0]["process_id"],
+            "proc-1"
+        );
+        assert_eq!(
+            snapshot_state["terminal_outputs"][0]["text"],
+            "running tests\n"
         );
     }
 

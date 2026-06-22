@@ -517,6 +517,9 @@ mod tests {
                     )),
                 },
                 ProviderEvent::SemanticTool {
+                    tool: Box::new(terminal_output_tool("tool-1", "proc-1", "running tests\n")),
+                },
+                ProviderEvent::SemanticTool {
                     tool: Box::new(semantic_tool(
                         "tool-1",
                         ToolRunStatus::Completed,
@@ -601,6 +604,13 @@ mod tests {
             ToolRunStatus::Completed
         );
         assert_eq!(codex.tool_timeline[0].display.title, "Completed cargo test");
+        assert_eq!(codex.terminal_outputs.len(), 1);
+        assert_eq!(codex.terminal_outputs[0].item_id.as_deref(), Some("tool-1"));
+        assert_eq!(
+            codex.terminal_outputs[0].process_id.as_deref(),
+            Some("proc-1")
+        );
+        assert_eq!(codex.terminal_outputs[0].text, "running tests\n");
 
         let all = repo.runtime_state_snapshot(None).expect("all snapshot");
         assert_eq!(all.thread_items.len(), 4);
@@ -803,5 +813,20 @@ mod tests {
                 raw_payload: serde_json::json!({ "itemId": item_id, "command": "cargo test" }),
             },
         }
+    }
+
+    fn terminal_output_tool(item_id: &str, process_id: &str, delta: &str) -> SemanticToolCall {
+        let mut tool = semantic_tool(item_id, ToolRunStatus::Updated, "Read terminal output");
+        tool.action = ToolActionKind::TerminalOutput;
+        tool.provider.operation = Some("process/outputDelta".to_string());
+        tool.provider.raw_args = serde_json::json!({ "processId": process_id, "delta": delta });
+        tool.provider.raw_payload = serde_json::json!({
+            "item": {
+                "id": item_id,
+                "processId": process_id,
+                "delta": delta
+            }
+        });
+        tool
     }
 }
